@@ -3,18 +3,11 @@
 use std::{fs, sync::mpsc, thread};
 
 fn allocation_report() -> (u64, u64, u64, u64) {
-    let report = ic_memory::default_memory_manager_memory_allocations().unwrap();
-    for memory in &report.memories {
-        if memory.virtual_extent.bytes != 0 {
-            println!(
-                "id={} binding={:?} virtual_bytes={} allocated_bytes={}",
-                memory.memory_manager_id,
-                memory.binding,
-                memory.virtual_extent.bytes,
-                memory.allocated_bytes,
-            );
-        }
-    }
+    let report = ic_memory::default_memory_manager_memory_allocation_summary().unwrap();
+    println!(
+        "current={:?} ledger={:?} unknown={:?}",
+        report.current_binding, report.ledger_binding, report.unknown_binding
+    );
     (
         report.physical_extent.bytes,
         report.virtual_extent.bytes,

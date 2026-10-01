@@ -1,15 +1,16 @@
 //! Host-policy integration for logical allocations using production ledger recovery.
 //! These tests do not substitute for generated database retirement/debt checks.
 
-use std::cell::Cell;
+use std::{cell::Cell, rc::Rc};
 
 use ic_memory::{
     AllocationDeclaration, AllocationPolicy, AllocationSlotDescriptor, BootstrapAdmission,
     BootstrapAdmissionError, GenericRangePolicy, MemoryManagerAuthorityRecord, MemoryManagerConfig,
     MemoryManagerIdRange, MemoryManagerRangeMode, MemoryRequest, MemoryResolutionError,
-    MemoryRuntime, PolicyIdentity, PolicyIdentityError, RuntimeBootstrapError,
-    RuntimeBootstrapPolicy, RuntimeConstructionError, RuntimeOpenError, SchemaMetadata,
-    SealedDeclarationSnapshot, StableKey, StaticMemoryDeclaration, StaticMemoryRangeDeclaration,
+    MemoryRuntime, PolicyIdentity, PolicyIdentityError, RuntimeAdoptionError,
+    RuntimeBootstrapError, RuntimeBootstrapPolicy, RuntimeConstructionError, RuntimeOpenError,
+    SchemaMetadata, SealedDeclarationSnapshot, StableKey, StaticMemoryDeclaration,
+    StaticMemoryRangeDeclaration,
     ic_stable_structures::{Memory, VectorMemory},
 };
 use icydb::db::{MemoryBootstrapAdmissionError, prepare_memory_bootstrap};
@@ -133,6 +134,153 @@ fn fixed(authority: &str, key: &str, id: u8) -> StaticMemoryDeclaration {
     .unwrap()
 }
 
+// Refuse capacity before growing the backing, then permit retry on the same runtime.
+#[derive(Clone, Default)]
+struct LimitedMemory {
+    bytes: VectorMemory,
+    limit: Rc<Cell<u64>>,
+}
+
+impl Memory for LimitedMemory {
+    fn size(&self) -> u64 {
+        self.bytes.size()
+    }
+
+    fn grow(&self, pages: u64) -> i64 {
+        if self
+            .size()
+            .checked_add(pages)
+            .is_none_or(|end| end > self.limit.get())
+        {
+            return -1;
+        }
+        self.bytes.grow(pages)
+    }
+
+    fn read(&self, offset: u64, dst: &mut [u8]) {
+        self.bytes.read(offset, dst);
+    }
+
+    fn write(&self, offset: u64, src: &[u8]) {
+        self.bytes.write(offset, src);
+    }
+}
+
+#[test]
+fn typed_ledger_and_application_growth_refusal_preserve_authority_and_retry() {
+    use ic_memory::RuntimeGrowError;
+    use icydb::db::DatabaseBootstrapError;
+
+    let backing = LimitedMemory::default();
+    backing.limit.set(1);
+    let mut runtime =
+        MemoryRuntime::new_with_config(backing.clone(), MemoryManagerConfig::new(1).unwrap())
+            .unwrap();
+    let declarations = snapshot(&requests("main", &["transfers"]));
+    let policy = HostPolicy::default();
+    let before = backing.bytes.borrow().clone();
+    let error = runtime.bootstrap(&declarations, &policy).unwrap_err();
+    assert!(matches!(
+        &error,
+        RuntimeBootstrapError::LedgerGrowth(RuntimeGrowError::BackingRefused { .. })
+    ));
+    let facade_error = DatabaseBootstrapError::from(error);
+    assert!(
+        matches!(facade_error, DatabaseBootstrapError::Bootstrap(cause)
+        if matches!(cause.as_ref(), RuntimeBootstrapError::LedgerGrowth(
+            RuntimeGrowError::BackingRefused { .. })))
+    );
+    assert!(!runtime.is_bootstrapped());
+    assert!(matches!(
+        runtime.open_memory_by_key("icydb.main.store.transfers.data.v1"),
+        Err(RuntimeOpenError::NotBootstrapped)
+    ));
+    assert_eq!(*backing.bytes.borrow(), before);
+
+    backing.limit.set(32);
+    let committed = runtime.bootstrap(&declarations, &policy).unwrap().clone();
+    assert_eq!(committed.generation(), 1);
+    let memory = runtime
+        .open_memory_by_key("icydb.main.store.transfers.data.v1")
+        .unwrap();
+    let before = backing.bytes.borrow().clone();
+    let summary = runtime.memory_allocation_summary().unwrap();
+    backing.limit.set(backing.size());
+    assert!(matches!(
+        memory.grow(1),
+        Err(RuntimeGrowError::BackingRefused { .. })
+    ));
+    assert_eq!(memory.size(), 0);
+    assert_eq!(*backing.bytes.borrow(), before);
+    assert_eq!(runtime.memory_allocation_summary().unwrap(), summary);
+    assert_eq!(runtime.committed_allocations().unwrap(), &committed);
+
+    backing.limit.set(32);
+    let retry_memory = memory.clone();
+    assert_eq!(retry_memory.grow(1), Ok(0));
+    assert_eq!(memory.size(), 1);
+    retry_memory.write(0, b"retained");
+    let before = backing.bytes.borrow().clone();
+    assert!(matches!(
+        memory.grow(u64::from(summary.bucket_capacity)),
+        Err(RuntimeGrowError::BucketExhausted { .. })
+    ));
+    assert_eq!(
+        memory.grow(u64::MAX),
+        Err(RuntimeGrowError::ArithmeticOverflow)
+    );
+    assert_eq!(*backing.bytes.borrow(), before);
+    let mut retained = [0; 8];
+    memory.read(0, &mut retained);
+    assert_eq!(&retained, b"retained");
+}
+
+#[test]
+fn host_adoption_checks_authority_metadata_and_fixed_ids_without_effects() {
+    const KEY: &str = "icydb.main.commit.control.v1";
+    let backing = VectorMemory::default();
+    let mut runtime = runtime(&backing);
+    let policy = HostPolicy::default();
+    let declarations = snapshot(&requests("main", &[]));
+    let committed = runtime.bootstrap(&declarations, &policy).unwrap().clone();
+    let before = backing.borrow().clone();
+    let summary = runtime.memory_allocation_summary().unwrap();
+    let id = runtime.memory_id(KEY).unwrap();
+    runtime
+        .verify_authority(&declarations, "icydb.main")
+        .unwrap();
+    let foreign = snapshot(&[request("foreign", KEY)]);
+    assert!(matches!(
+        runtime.verify_authority(&foreign, "foreign"),
+        Err(RuntimeAdoptionError::AuthorityMismatch { .. })
+    ));
+    let metadata =
+        snapshot(&[
+            MemoryRequest::new("icydb.main", KEY, SchemaMetadata::new(Some(1)).unwrap()).unwrap(),
+        ]);
+    assert!(matches!(
+        runtime.verify_authority(&metadata, "icydb.main"),
+        Err(RuntimeAdoptionError::DeclarationMetadataMismatch { .. })
+    ));
+    let wrong_id =
+        SealedDeclarationSnapshot::new(&[fixed("icydb.main", KEY, id + 1)], &grants(), &[])
+            .unwrap();
+    assert!(matches!(
+        runtime.verify_authority(&wrong_id, "icydb.main"),
+        Err(RuntimeAdoptionError::Open(
+            RuntimeOpenError::MemoryIdMismatch { .. }
+        ))
+    ));
+    assert!(matches!(
+        runtime.verify_authority(&declarations, "absent"),
+        Err(RuntimeAdoptionError::UnknownAuthority { .. })
+    ));
+    assert_eq!(policy.calls.get(), 1);
+    assert_eq!(*backing.borrow(), before);
+    assert_eq!(runtime.memory_allocation_summary().unwrap(), summary);
+    assert_eq!(runtime.committed_allocations().unwrap(), &committed);
+}
+
 #[test]
 fn fresh_warm_reordered_and_extended_declarations_preserve_existing_assignments() {
     let backing = VectorMemory::default();
@@ -175,7 +323,7 @@ fn store_replacement_selects_only_old_journal_and_preserves_its_debt_bytes() {
         .bootstrap(&snapshot(&requests("main", &["old"])), &policy)
         .unwrap();
     let journal = first.open_memory_by_key(JOURNAL).unwrap();
-    assert_eq!(journal.grow(1), 0);
+    assert_eq!(journal.grow(1), Ok(0));
     journal.write(0, b"debt");
     let old_slot = first
         .committed_allocations()

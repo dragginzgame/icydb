@@ -82,9 +82,7 @@ pub(in crate::db) use index_candidate::{
 };
 
 mod index;
-pub(in crate::db) use index::{
-    SchemaExpressionIndexRebuildExpression, SchemaExpressionIndexRebuildKey,
-};
+pub(in crate::db) use index::SchemaExpressionIndexRebuildKey;
 pub(in crate::db) use index::{
     SchemaExpressionIndexRebuildTarget, SchemaFieldPathIndexRebuildKey,
     SchemaFieldPathIndexRebuildTarget,

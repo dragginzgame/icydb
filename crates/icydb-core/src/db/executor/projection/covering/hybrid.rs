@@ -291,11 +291,8 @@ fn read_hybrid_projection_row_fields_from_store(
         u64::try_from(row_field_slots.len()).unwrap_or(u64::MAX),
     )?;
     if let [required_slot] = row_field_slots {
-        let Some(value) =
-            row_layout.decode_required_value_from_data_key(raw_row, data_key, *required_slot)?
-        else {
-            return Err(InternalError::query_executor_invariant());
-        };
+        let value =
+            row_layout.decode_required_value_from_data_key(raw_row, data_key, *required_slot)?;
         let row_fields = vec![(*required_slot, value)];
 
         return Ok(Some(row_fields));

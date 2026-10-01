@@ -800,20 +800,37 @@ fn decode_progress_header(bytes: &[u8]) -> Result<(), IntegrityJobError> {
 fn encode_job_record(job: &IntegrityJob) -> Result<Vec<u8>, IntegrityJobError> {
     let payload =
         encode_integrity_job_payload(job).map_err(|_| IntegrityJobError::CapacityExceeded)?;
-    let total_len = PROGRESS_JOB_RECORD_HEADER_BYTES
-        .checked_add(payload.len())
-        .ok_or(IntegrityJobError::CapacityExceeded)?;
-    if total_len > MAX_PROGRESS_RECORD_BYTES as usize {
-        return Err(IntegrityJobError::CapacityExceeded);
+    encode_progress_record_payload(
+        &payload,
+        *JOB_RECORD_MAGIC,
+        MAX_PROGRESS_RECORD_BYTES as usize,
+        IntegrityJobError::CapacityExceeded,
+        |_| IntegrityJobError::CapacityExceeded,
+    )
+}
+
+// The envelope grammar is shared; each family retains its payload codec,
+// record ceiling and distinct arithmetic/size error taxonomy.
+fn encode_progress_record_payload<E>(
+    payload: &[u8],
+    magic: [u8; 8],
+    max_bytes: usize,
+    capacity_error: E,
+    size_error: impl FnOnce(usize) -> E,
+) -> Result<Vec<u8>, E> {
+    let Some(total_len) = PROGRESS_JOB_RECORD_HEADER_BYTES.checked_add(payload.len()) else {
+        return Err(capacity_error);
+    };
+    if total_len > max_bytes {
+        return Err(size_error(total_len));
     }
-    let payload_len =
-        u32::try_from(payload.len()).map_err(|_| IntegrityJobError::CapacityExceeded)?;
+    let payload_len = u32::try_from(payload.len()).map_err(|_| capacity_error)?;
     let mut bytes = Vec::with_capacity(total_len);
-    bytes.extend_from_slice(JOB_RECORD_MAGIC);
+    bytes.extend_from_slice(&magic);
     bytes.push(PROGRESS_JOB_RECORD_VERSION);
     bytes.extend_from_slice(&payload_len.to_be_bytes());
-    bytes.extend_from_slice(&crc32c(payload.as_slice()).to_be_bytes());
-    bytes.extend_from_slice(&payload);
+    bytes.extend_from_slice(&crc32c(payload).to_be_bytes());
+    bytes.extend_from_slice(payload);
     Ok(bytes)
 }
 
@@ -875,21 +892,13 @@ fn decode_job_record_unbound(bytes: &[u8]) -> Result<IntegrityJob, IntegrityJobE
 
 fn encode_resumable_job_record(record: &ResumableJobRecord) -> Result<Vec<u8>, ResumableJobError> {
     let payload = encode_resumable_job_payload(record)?;
-    let total_len = PROGRESS_JOB_RECORD_HEADER_BYTES
-        .checked_add(payload.len())
-        .ok_or(ResumableJobError::PayloadTooLarge)?;
-    if total_len > MAX_PROGRESS_RECORD_BYTES as usize {
-        return Err(ResumableJobError::PayloadTooLarge);
-    }
-    let payload_len =
-        u32::try_from(payload.len()).map_err(|_| ResumableJobError::PayloadTooLarge)?;
-    let mut bytes = Vec::with_capacity(total_len);
-    bytes.extend_from_slice(RESUMABLE_JOB_RECORD_MAGIC);
-    bytes.push(PROGRESS_JOB_RECORD_VERSION);
-    bytes.extend_from_slice(&payload_len.to_be_bytes());
-    bytes.extend_from_slice(&crc32c(payload.as_slice()).to_be_bytes());
-    bytes.extend_from_slice(&payload);
-    Ok(bytes)
+    encode_progress_record_payload(
+        &payload,
+        *RESUMABLE_JOB_RECORD_MAGIC,
+        MAX_PROGRESS_RECORD_BYTES as usize,
+        ResumableJobError::PayloadTooLarge,
+        |_| ResumableJobError::PayloadTooLarge,
+    )
 }
 
 fn decode_resumable_job_record(
@@ -931,21 +940,13 @@ fn decode_resumable_job_record_for_inventory(
 
 fn encode_mutation_job_record(record: &MutationJobRecord) -> Result<Vec<u8>, MutationJobError> {
     let payload = encode_mutation_job_payload(record)?;
-    let total_len = PROGRESS_JOB_RECORD_HEADER_BYTES
-        .checked_add(payload.len())
-        .ok_or(MutationJobError::CapacityExceeded)?;
-    if total_len > MAX_MUTATION_JOB_RECORD_BYTES {
-        return Err(mutation_record_size_error(total_len));
-    }
-    let payload_len =
-        u32::try_from(payload.len()).map_err(|_| MutationJobError::CapacityExceeded)?;
-    let mut bytes = Vec::with_capacity(total_len);
-    bytes.extend_from_slice(MUTATION_JOB_RECORD_MAGIC);
-    bytes.push(PROGRESS_JOB_RECORD_VERSION);
-    bytes.extend_from_slice(&payload_len.to_be_bytes());
-    bytes.extend_from_slice(&crc32c(payload.as_slice()).to_be_bytes());
-    bytes.extend_from_slice(&payload);
-    Ok(bytes)
+    encode_progress_record_payload(
+        &payload,
+        *MUTATION_JOB_RECORD_MAGIC,
+        MAX_MUTATION_JOB_RECORD_BYTES,
+        MutationJobError::CapacityExceeded,
+        mutation_record_size_error,
+    )
 }
 
 fn decode_mutation_job_record(

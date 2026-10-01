@@ -853,16 +853,47 @@ fn grouped_compiled_expr_case_false_and_null_fall_through() {
 
 #[test]
 fn grouped_compiled_expr_case_slot_literal_selects_without_condition_value() {
-    let expr = CompiledExpr::CaseSlotLiteral {
-        op: BinaryOp::Gt,
-        slot: 0,
-        literal: Value::Nat64(5),
-        slot_on_left: true,
-        then_expr: Box::new(CompiledExpr::Literal(Value::Text("selected".to_string()))),
-        else_expr: Box::new(CompiledExpr::Literal(Value::Text("else".to_string()))),
-    };
+    for (op, slot, literal, slot_on_left, expected) in [
+        (BinaryOp::Eq, 0, Value::Nat64(7), true, true),
+        (BinaryOp::Ne, 0, Value::Nat64(5), true, true),
+        (BinaryOp::Lt, 0, Value::Nat64(5), false, true),
+        (BinaryOp::Lte, 0, Value::Nat64(7), true, true),
+        (BinaryOp::Gt, 0, Value::Nat64(5), true, true),
+        (BinaryOp::Gte, 0, Value::Nat64(7), true, true),
+        (BinaryOp::Gt, 0, Value::Nat64(5), false, false),
+        (BinaryOp::Eq, 2, Value::Nat64(7), true, false),
+        (BinaryOp::Eq, 0, Value::Null, true, false),
+    ] {
+        let comparison = CompiledExpr::BinarySlotLiteral {
+            op,
+            slot,
+            literal: literal.clone(),
+            slot_on_left,
+        };
+        let expr = CompiledExpr::CaseSlotLiteral {
+            op,
+            slot,
+            literal,
+            slot_on_left,
+            then_expr: Box::new(CompiledExpr::Literal(Value::Bool(true))),
+            else_expr: Box::new(CompiledExpr::Literal(Value::Bool(false))),
+        };
 
-    assert_eq!(evaluate(&expr), Value::Text("selected".to_string()));
+        assert_eq!(evaluate(&expr), Value::Bool(expected));
+        let expected_comparison = if slot == 2
+            || matches!(
+                comparison,
+                CompiledExpr::BinarySlotLiteral {
+                    literal: Value::Null,
+                    ..
+                }
+            ) {
+            Value::Null
+        } else {
+            Value::Bool(expected)
+        };
+        assert_eq!(evaluate(&comparison), expected_comparison);
+    }
 }
 
 #[test]

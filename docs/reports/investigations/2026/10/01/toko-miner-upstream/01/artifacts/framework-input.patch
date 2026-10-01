@@ -1,0 +1,544 @@
+--- a/crates/icydb-core/src/db/codec/mod.rs
++++ b/crates/icydb-core/src/db/codec/mod.rs
+@@ -8,7 +8,6 @@
+ mod reader;
+ 
+ use crate::{db::schema::RowLayoutVersion, error::InternalError};
+-use std::borrow::Cow;
+ 
+ pub(in crate::db) use hash_stream::{
+     finalize_hash_sha256, new_hash_sha256, new_hash_sha256_prefixed, write_hash_len_u32,
+@@ -34,7 +33,7 @@
+ 
+ pub(in crate::db) struct DecodedRowPayload<'a> {
+     layout_version: RowLayoutVersion,
+-    payload: Cow<'a, [u8]>,
++    payload: &'a [u8],
+ }
+ 
+ impl<'a> DecodedRowPayload<'a> {
+@@ -46,7 +45,7 @@
+ 
+     /// Consume the envelope into its borrowed canonical slot container.
+     #[must_use]
+-    pub(in crate::db) fn into_payload(self) -> Cow<'a, [u8]> {
++    pub(in crate::db) const fn into_payload(self) -> &'a [u8] {
+         self.payload
+     }
+ }
+@@ -110,7 +109,7 @@
+ 
+     Ok(DecodedRowPayload {
+         layout_version,
+-        payload: Cow::Borrowed(&bytes[payload_start..payload_end]),
++        payload: &bytes[payload_start..payload_end],
+     })
+ }
+ 
+@@ -177,7 +176,10 @@
+         let decoded = decode_row_payload_bytes(&encoded).expect("the envelope should decode");
+         assert_eq!(decoded.layout_version(), RowLayoutVersion::INITIAL);
+         let payload = decoded.into_payload();
+-        assert!(matches!(payload, Cow::Borrowed(_)));
++        assert_eq!(
++            payload.as_ptr(),
++            encoded[ROW_ENVELOPE_HEADER_LEN..].as_ptr()
++        );
+         assert_eq!(payload.len(), payload_len);
+         assert!(payload.iter().all(|byte| *byte == 0xab));
+     }
+--- a/crates/icydb-core/src/db/data/structural_row.rs
++++ b/crates/icydb-core/src/db/data/structural_row.rs
+@@ -22,11 +22,11 @@
+     error::InternalError,
+     value::Value,
+ };
+-use std::{borrow::Cow, rc::Rc};
++use std::rc::Rc;
+ 
+ type SlotSpan = Option<(usize, usize)>;
+ type SlotSpans = Vec<SlotSpan>;
+-type RowFieldSpans<'a> = (Cow<'a, [u8]>, SlotSpans);
++type RowFieldSpans<'a> = (&'a [u8], SlotSpans);
+ type RowSlotTableSections<'a> = (usize, usize, &'a [u8], &'a [u8]);
+ 
+ enum FieldMaterialization<'a> {
+@@ -369,7 +369,7 @@
+ #[derive(Clone, Debug)]
+ pub(in crate::db::data) struct StructuralRowFieldBytes<'a> {
+     layout_version: RowLayoutVersion,
+-    payload: Cow<'a, [u8]>,
++    payload: &'a [u8],
+     spans: SlotSpans,
+ }
+ 
+@@ -426,7 +426,7 @@
+ #[derive(Clone, Debug)]
+ pub(in crate::db::data) struct SparseRequiredRowFieldBytes<'a> {
+     layout_version: RowLayoutVersion,
+-    payload: Cow<'a, [u8]>,
++    payload: &'a [u8],
+     required_span: Option<(usize, usize)>,
+     primary_key_span: (usize, usize),
+ }
+@@ -486,13 +486,12 @@
+ 
+ // Decode the canonical slot-container header into slot-aligned payload spans.
+ fn decode_row_field_spans<'payload>(
+-    payload: Cow<'payload, [u8]>,
++    payload: &'payload [u8],
+     layout_version: RowLayoutVersion,
+     contract: &StructuralRowContract,
+ ) -> Result<RowFieldSpans<'payload>, InternalError> {
+-    let bytes = payload.as_ref();
+     let (data_start, physical_count, table, data_section) =
+-        decode_slot_table_sections(bytes, layout_version, contract)?;
++        decode_slot_table_sections(payload, layout_version, contract)?;
+     let mut spans: SlotSpans = vec![None; contract.field_count()];
+ 
+     for (slot, span) in spans.iter_mut().take(physical_count).enumerate() {
+@@ -518,28 +517,22 @@
+         *span = Some((start, end));
+     }
+ 
+-    let payload = match payload {
+-        Cow::Borrowed(bytes) => Cow::Borrowed(&bytes[data_start..]),
+-        Cow::Owned(bytes) => Cow::Owned(bytes[data_start..].to_vec()),
+-    };
+-
+-    Ok((payload, spans))
++    Ok((&payload[data_start..], spans))
+ }
+ 
+ type SparseRequiredRowFieldSpans<'a> =
+-    Result<(Cow<'a, [u8]>, Option<(usize, usize)>, (usize, usize)), InternalError>;
++    Result<(&'a [u8], Option<(usize, usize)>, (usize, usize)), InternalError>;
+ 
+ // Decode the canonical slot-container header while retaining only one required
+ // slot span plus the primary-key span for sparse direct slot reads.
+ fn decode_sparse_required_row_field_spans<'payload>(
+-    payload: Cow<'payload, [u8]>,
++    payload: &'payload [u8],
+     layout_version: RowLayoutVersion,
+     contract: &StructuralRowContract,
+     required_slot: usize,
+ ) -> SparseRequiredRowFieldSpans<'payload> {
+-    let bytes = payload.as_ref();
+     let (data_start, physical_count, table, data_section) =
+-        decode_slot_table_sections(bytes, layout_version, contract)?;
++        decode_slot_table_sections(payload, layout_version, contract)?;
+     let primary_key_slot = contract.primary_key_slot();
+     let mut required_span = None;
+     let mut primary_key_span = None;
+@@ -574,12 +567,7 @@
+ 
+     let primary_key_span =
+         primary_key_span.ok_or_else(InternalError::persisted_row_decode_corruption)?;
+-    let payload = match payload {
+-        Cow::Borrowed(bytes) => Cow::Borrowed(&bytes[data_start..]),
+-        Cow::Owned(bytes) => Cow::Owned(bytes[data_start..].to_vec()),
+-    };
+-
+-    Ok((payload, required_span, primary_key_span))
++    Ok((&payload[data_start..], required_span, primary_key_span))
+ }
+ 
+ // Decode the shared slot-table header and validate that the physical row slot
+--- a/crates/icydb-core/src/db/query/plan/expr/compiled_expr/evaluate.rs
++++ b/crates/icydb-core/src/db/query/plan/expr/compiled_expr/evaluate.rs
+@@ -531,6 +531,28 @@
+         return Ok(Value::Null);
+     }
+ 
++    evaluate_non_null_comparison(op, left, right).map(Value::Bool)
++}
++
++fn evaluate_compare_binary_condition(
++    op: BinaryOp,
++    left: &Value,
++    right: &Value,
++) -> Result<bool, ProjectionEvalError> {
++    if matches!(left, Value::Null) || matches!(right, Value::Null) {
++        return Ok(false);
++    }
++
++    evaluate_non_null_comparison(op, left, right)
++}
++
++// Share comparison dispatch without materializing a Value for CASE conditions.
++// The callers retain their distinct NULL results before reaching this kernel.
++fn evaluate_non_null_comparison(
++    op: BinaryOp,
++    left: &Value,
++    right: &Value,
++) -> Result<bool, ProjectionEvalError> {
+     let result = match op {
+         BinaryOp::Eq => value_ordering::eq(left, right),
+         BinaryOp::Ne => value_ordering::ne(left, right),
+@@ -549,36 +571,6 @@
+         return Err(invalid_binary_operands(op, left, right));
+     };
+ 
+-    Ok(Value::Bool(result))
+-}
+-
+-fn evaluate_compare_binary_condition(
+-    op: BinaryOp,
+-    left: &Value,
+-    right: &Value,
+-) -> Result<bool, ProjectionEvalError> {
+-    if matches!(left, Value::Null) || matches!(right, Value::Null) {
+-        return Ok(false);
+-    }
+-
+-    let result = match op {
+-        BinaryOp::Eq => value_ordering::eq(left, right),
+-        BinaryOp::Ne => value_ordering::ne(left, right),
+-        BinaryOp::Lt => value_ordering::lt(left, right),
+-        BinaryOp::Lte => value_ordering::lte(left, right),
+-        BinaryOp::Gt => value_ordering::gt(left, right),
+-        BinaryOp::Gte => value_ordering::gte(left, right),
+-        BinaryOp::Or
+-        | BinaryOp::And
+-        | BinaryOp::Add
+-        | BinaryOp::Sub
+-        | BinaryOp::Mul
+-        | BinaryOp::Div => return Err(invalid_binary_operands(op, left, right)),
+-    };
+-    let Some(result) = result else {
+-        return Err(invalid_binary_operands(op, left, right));
+-    };
+-
+     Ok(result)
+ }
+ 
+--- a/crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs
++++ b/crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs
+@@ -853,16 +853,47 @@
+ 
+ #[test]
+ fn grouped_compiled_expr_case_slot_literal_selects_without_condition_value() {
+-    let expr = CompiledExpr::CaseSlotLiteral {
+-        op: BinaryOp::Gt,
+-        slot: 0,
+-        literal: Value::Nat64(5),
+-        slot_on_left: true,
+-        then_expr: Box::new(CompiledExpr::Literal(Value::Text("selected".to_string()))),
+-        else_expr: Box::new(CompiledExpr::Literal(Value::Text("else".to_string()))),
+-    };
+-
+-    assert_eq!(evaluate(&expr), Value::Text("selected".to_string()));
++    for (op, slot, literal, slot_on_left, expected) in [
++        (BinaryOp::Eq, 0, Value::Nat64(7), true, true),
++        (BinaryOp::Ne, 0, Value::Nat64(5), true, true),
++        (BinaryOp::Lt, 0, Value::Nat64(5), false, true),
++        (BinaryOp::Lte, 0, Value::Nat64(7), true, true),
++        (BinaryOp::Gt, 0, Value::Nat64(5), true, true),
++        (BinaryOp::Gte, 0, Value::Nat64(7), true, true),
++        (BinaryOp::Gt, 0, Value::Nat64(5), false, false),
++        (BinaryOp::Eq, 2, Value::Nat64(7), true, false),
++        (BinaryOp::Eq, 0, Value::Null, true, false),
++    ] {
++        let comparison = CompiledExpr::BinarySlotLiteral {
++            op,
++            slot,
++            literal: literal.clone(),
++            slot_on_left,
++        };
++        let expr = CompiledExpr::CaseSlotLiteral {
++            op,
++            slot,
++            literal,
++            slot_on_left,
++            then_expr: Box::new(CompiledExpr::Literal(Value::Bool(true))),
++            else_expr: Box::new(CompiledExpr::Literal(Value::Bool(false))),
++        };
++
++        assert_eq!(evaluate(&expr), Value::Bool(expected));
++        let expected_comparison = if slot == 2
++            || matches!(
++                comparison,
++                CompiledExpr::BinarySlotLiteral {
++                    literal: Value::Null,
++                    ..
++                }
++            ) {
++            Value::Null
++        } else {
++            Value::Bool(expected)
++        };
++        assert_eq!(evaluate(&comparison), expected_comparison);
++    }
+ }
+ 
+ #[test]
+--- a/crates/icydb-core/src/db/schema/sql_ddl.rs
++++ b/crates/icydb-core/src/db/schema/sql_ddl.rs
+@@ -207,22 +207,7 @@
+         return Err(InternalError::store_unsupported());
+     }
+ 
+-    let replacement = stage_sql_ddl_user_index_domain_replacement(
+-        envelope.store(),
+-        &accepted_before_identity,
+-        envelope.before(),
+-        envelope.after(),
+-    )?;
+-    let rows_scanned = replacement.usage().source_rows();
+-    let index_keys_written = staged_added_entry_count(&replacement)?;
+-    publish_accepted_entity_snapshot_revision_with_user_index_domain(
+-        envelope.store(),
+-        accepted_before_identity,
+-        envelope.after(),
+-        replacement,
+-    )?;
+-
+-    Ok((rows_scanned, index_keys_written))
++    stage_and_publish_sql_ddl_index_addition(&envelope, accepted_before_identity)
+ }
+ 
+ /// Execute one supported SQL DDL expression index addition through the schema
+@@ -248,6 +233,16 @@
+     if plan.expression_index_target() != Some(target) {
+         return Err(InternalError::store_unsupported());
+     }
++
++    stage_and_publish_sql_ddl_index_addition(&envelope, accepted_before_identity)
++}
++
++// Both admitted index kinds publish through the same staged domain replacement.
++// Kind-specific target checks remain at their entrypoints before any staging.
++fn stage_and_publish_sql_ddl_index_addition(
++    envelope: &SqlDdlPublicationEnvelope<'_>,
++    accepted_before_identity: AcceptedCatalogIdentity,
++) -> Result<(usize, usize), InternalError> {
+     let replacement = stage_sql_ddl_user_index_domain_replacement(
+         envelope.store(),
+         &accepted_before_identity,
+--- a/crates/icydb/src/db/session/catalog.rs
++++ b/crates/icydb/src/db/session/catalog.rs
+@@ -37,29 +37,12 @@
+         submission_key: &str,
+         entity_stores: &[(&str, &str)],
+     ) -> Result<(), Error> {
+-        let fragment =
+-            decode_schema_fragment(fragment_bytes).map_err(|_| generated_schema_input_error())?;
+-        let migration_plan = migration_plan_bytes
+-            .map(decode_schema_migration_plan)
+-            .transpose()
+-            .map_err(|_| generated_schema_input_error())?;
+-        let submission_key = SchemaSubmissionKey::try_new(submission_key)
+-            .map_err(|_| generated_schema_input_error())?;
+-        let target = self.schema_application_target()?;
+-        let expected_head = if let Some(receipt) =
+-            self.schema_application_receipt(target.database_identity(), &submission_key)?
+-        {
+-            receipt.prior_head().clone()
+-        } else {
+-            target.accepted_head().clone()
+-        };
+-        let proposal = generated_schema_proposal(
+-            &fragment,
+-            &target,
+-            submission_key,
+-            expected_head,
+-            entity_stores,
+-            migration_plan,
++        let proposal = self.generated_schema_proposal(
++            fragment_bytes,
++            migration_plan_bytes,
++            submission_key,
++            entity_stores,
++            None,
+         )?;
+         #[cfg(feature = "migration")]
+         self.inner
+@@ -85,7 +68,7 @@
+             migration_plan_bytes,
+             submission_key,
+             entity_stores,
+-            expected_head,
++            Some(expected_head),
+         )?;
+         Ok(self.inner.migrate_schema(&proposal, command)?)
+     }
+@@ -107,19 +90,21 @@
+             migration_plan_bytes,
+             submission_key,
+             entity_stores,
+-            target.accepted_head().clone(),
++            Some(target.accepted_head().clone()),
+         )?;
+         Ok(self.inner.schema_migration_status(&proposal, request)?)
+     }
+ 
+-    #[cfg(feature = "migration")]
++    // Decode generated inputs once for every submission surface. Ordinary apply
++    // reuses the durable receipt's prior head; migration callers carry an exact
++    // head from their command or the accepted target.
+     fn generated_schema_proposal(
+         &self,
+         fragment_bytes: &[u8],
+         migration_plan_bytes: Option<&[u8]>,
+         submission_key: &str,
+         entity_stores: &[(&str, &str)],
+-        expected_head: icydb_schema::ExpectedAcceptedHead,
++        expected_head: Option<icydb_schema::ExpectedAcceptedHead>,
+     ) -> Result<SchemaProposal, Error> {
+         let fragment =
+             decode_schema_fragment(fragment_bytes).map_err(|_| generated_schema_input_error())?;
+@@ -130,6 +115,18 @@
+         let submission_key = SchemaSubmissionKey::try_new(submission_key)
+             .map_err(|_| generated_schema_input_error())?;
+         let target = self.schema_application_target()?;
++        let expected_head = match expected_head {
++            Some(expected_head) => expected_head,
++            None => {
++                if let Some(receipt) =
++                    self.schema_application_receipt(target.database_identity(), &submission_key)?
++                {
++                    receipt.prior_head().clone()
++                } else {
++                    target.accepted_head().clone()
++                }
++            }
++        };
+         generated_schema_proposal(
+             &fragment,
+             &target,
+@@ -154,29 +151,12 @@
+         submission_key: &str,
+         entity_stores: &[(&str, &str)],
+     ) -> Result<SchemaChangeReceipt, Error> {
+-        let fragment =
+-            decode_schema_fragment(fragment_bytes).map_err(|_| generated_schema_input_error())?;
+-        let migration_plan = migration_plan_bytes
+-            .map(decode_schema_migration_plan)
+-            .transpose()
+-            .map_err(|_| generated_schema_input_error())?;
+-        let submission_key = SchemaSubmissionKey::try_new(submission_key)
+-            .map_err(|_| generated_schema_input_error())?;
+-        let target = self.schema_application_target()?;
+-        let expected_head = if let Some(receipt) =
+-            self.schema_application_receipt(target.database_identity(), &submission_key)?
+-        {
+-            receipt.prior_head().clone()
+-        } else {
+-            target.accepted_head().clone()
+-        };
+-        let proposal = generated_schema_proposal(
+-            &fragment,
+-            &target,
+-            submission_key,
+-            expected_head,
+-            entity_stores,
+-            migration_plan,
++        let proposal = self.generated_schema_proposal(
++            fragment_bytes,
++            migration_plan_bytes,
++            submission_key,
++            entity_stores,
++            None,
+         )?;
+ 
+         Ok(self.inner.apply_generated_schema(&proposal)?)
+--- a/crates/icydb/src/db/sql/table_render.rs
++++ b/crates/icydb/src/db/sql/table_render.rs
+@@ -475,69 +475,8 @@
+     entity: &str,
+     constraints: &[EntityConstraintDescription],
+ ) -> Vec<String> {
+-    let rows = constraints
+-        .iter()
+-        .map(|constraint| {
+-            vec![
+-                constraint.id().to_string(),
+-                constraint.name().to_string(),
+-                constraint.kind().to_string(),
+-                constraint.fields().join(", "),
+-                constraint
+-                    .index_id()
+-                    .map_or_else(|| "-".to_string(), |index_id| index_id.to_string()),
+-                constraint.index().unwrap_or("-").to_string(),
+-                constraint.predicate_sql().unwrap_or("-").to_string(),
+-                constraint.origin().to_string(),
+-                constraint.validation_state().to_string(),
+-                constraint
+-                    .validation_progress()
+-                    .map_or_else(|| "-".to_string(), |progress| progress.phase().to_string()),
+-                constraint.validation_progress().map_or_else(
+-                    || "-".to_string(),
+-                    |progress| progress.rows_scanned().to_string(),
+-                ),
+-                constraint.validation_progress().map_or_else(
+-                    || "-".to_string(),
+-                    |progress| progress.findings_seen().to_string(),
+-                ),
+-                constraint.validation_progress().map_or_else(
+-                    || "-".to_string(),
+-                    |progress| progress.restarts().to_string(),
+-                ),
+-                constraint.semantics().to_string(),
+-                constraint.check_sql().unwrap_or("-").to_string(),
+-            ]
+-        })
+-        .collect::<Vec<_>>();
+     let mut lines = vec![format!("entity: {entity}"), String::new()];
+-    if constraints.is_empty() {
+-        lines.push("constraints: []".to_string());
+-        return lines;
+-    }
+-
+-    lines.push("constraints:".to_string());
+-    render_table_section(
+-        &mut lines,
+-        &[
+-            "id".to_string(),
+-            "name".to_string(),
+-            "kind".to_string(),
+-            "fields".to_string(),
+-            "index_id".to_string(),
+-            "index".to_string(),
+-            "predicate_sql".to_string(),
+-            "origin".to_string(),
+-            "state".to_string(),
+-            "phase".to_string(),
+-            "rows_scanned".to_string(),
+-            "findings".to_string(),
+-            "restarts".to_string(),
+-            "semantics".to_string(),
+-            "check_sql".to_string(),
+-        ],
+-        rows.as_slice(),
+-    );
++    render_describe_constraint_section(&mut lines, constraints);
+     lines
+ }
+ 
+--- a/crates/icydb/src/db/sql/tests.rs
++++ b/crates/icydb/src/db/sql/tests.rs
+@@ -527,6 +527,8 @@
+     let relation_bytes = Encode!(&description.relations().to_vec())
+         .expect("maintained relation projection should encode");
+     let lines = render_describe_lines(&description);
++    let constraint_lines =
++        render_show_constraints_lines(description.entity_name(), description.constraints());
+     let verbose_lines = render_describe_output_lines(&SqlDescribeOutput::Verbose { description });
+ 
+     assert_eq!(
+@@ -555,6 +557,15 @@
+     assert_eq!(
+         verbose_lines, lines,
+         "the explicit VERBOSE envelope must preserve the named dossier golden",
++    );
++    let (_, constraint_section) = CURRENT_VERBOSE_DOSSIER_LINES
++        .trim_end()
++        .split_once("constraints:\n")
++        .expect("the dossier golden should contain populated constraints");
++    assert_eq!(
++        constraint_lines[2..].join("\n"),
++        format!("constraints:\n{constraint_section}"),
++        "SHOW CONSTRAINTS must preserve the complete current constraint table",
+     );
+ }
+ 

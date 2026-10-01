@@ -37,29 +37,12 @@ impl<C: CanisterKind> DbSession<C> {
         submission_key: &str,
         entity_stores: &[(&str, &str)],
     ) -> Result<(), Error> {
-        let fragment =
-            decode_schema_fragment(fragment_bytes).map_err(|_| generated_schema_input_error())?;
-        let migration_plan = migration_plan_bytes
-            .map(decode_schema_migration_plan)
-            .transpose()
-            .map_err(|_| generated_schema_input_error())?;
-        let submission_key = SchemaSubmissionKey::try_new(submission_key)
-            .map_err(|_| generated_schema_input_error())?;
-        let target = self.schema_application_target()?;
-        let expected_head = if let Some(receipt) =
-            self.schema_application_receipt(target.database_identity(), &submission_key)?
-        {
-            receipt.prior_head().clone()
-        } else {
-            target.accepted_head().clone()
-        };
-        let proposal = generated_schema_proposal(
-            &fragment,
-            &target,
+        let proposal = self.generated_schema_proposal(
+            fragment_bytes,
+            migration_plan_bytes,
             submission_key,
-            expected_head,
             entity_stores,
-            migration_plan,
+            None,
         )?;
         #[cfg(feature = "migration")]
         self.inner
@@ -85,7 +68,7 @@ impl<C: CanisterKind> DbSession<C> {
             migration_plan_bytes,
             submission_key,
             entity_stores,
-            expected_head,
+            Some(expected_head),
         )?;
         Ok(self.inner.migrate_schema(&proposal, command)?)
     }
@@ -107,19 +90,21 @@ impl<C: CanisterKind> DbSession<C> {
             migration_plan_bytes,
             submission_key,
             entity_stores,
-            target.accepted_head().clone(),
+            Some(target.accepted_head().clone()),
         )?;
         Ok(self.inner.schema_migration_status(&proposal, request)?)
     }
 
-    #[cfg(feature = "migration")]
+    // Decode generated inputs once for every submission surface. Ordinary apply
+    // reuses the durable receipt's prior head; migration callers carry an exact
+    // head from their command or the accepted target.
     fn generated_schema_proposal(
         &self,
         fragment_bytes: &[u8],
         migration_plan_bytes: Option<&[u8]>,
         submission_key: &str,
         entity_stores: &[(&str, &str)],
-        expected_head: icydb_schema::ExpectedAcceptedHead,
+        expected_head: Option<icydb_schema::ExpectedAcceptedHead>,
     ) -> Result<SchemaProposal, Error> {
         let fragment =
             decode_schema_fragment(fragment_bytes).map_err(|_| generated_schema_input_error())?;
@@ -130,6 +115,18 @@ impl<C: CanisterKind> DbSession<C> {
         let submission_key = SchemaSubmissionKey::try_new(submission_key)
             .map_err(|_| generated_schema_input_error())?;
         let target = self.schema_application_target()?;
+        let expected_head = match expected_head {
+            Some(expected_head) => expected_head,
+            None => {
+                if let Some(receipt) =
+                    self.schema_application_receipt(target.database_identity(), &submission_key)?
+                {
+                    receipt.prior_head().clone()
+                } else {
+                    target.accepted_head().clone()
+                }
+            }
+        };
         generated_schema_proposal(
             &fragment,
             &target,
@@ -154,29 +151,12 @@ impl<C: CanisterKind> DbSession<C> {
         submission_key: &str,
         entity_stores: &[(&str, &str)],
     ) -> Result<SchemaChangeReceipt, Error> {
-        let fragment =
-            decode_schema_fragment(fragment_bytes).map_err(|_| generated_schema_input_error())?;
-        let migration_plan = migration_plan_bytes
-            .map(decode_schema_migration_plan)
-            .transpose()
-            .map_err(|_| generated_schema_input_error())?;
-        let submission_key = SchemaSubmissionKey::try_new(submission_key)
-            .map_err(|_| generated_schema_input_error())?;
-        let target = self.schema_application_target()?;
-        let expected_head = if let Some(receipt) =
-            self.schema_application_receipt(target.database_identity(), &submission_key)?
-        {
-            receipt.prior_head().clone()
-        } else {
-            target.accepted_head().clone()
-        };
-        let proposal = generated_schema_proposal(
-            &fragment,
-            &target,
+        let proposal = self.generated_schema_proposal(
+            fragment_bytes,
+            migration_plan_bytes,
             submission_key,
-            expected_head,
             entity_stores,
-            migration_plan,
+            None,
         )?;
 
         Ok(self.inner.apply_generated_schema(&proposal)?)

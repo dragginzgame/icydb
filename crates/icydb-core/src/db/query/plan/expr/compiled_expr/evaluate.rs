@@ -531,25 +531,7 @@ fn evaluate_compare_binary_expr(
         return Ok(Value::Null);
     }
 
-    let result = match op {
-        BinaryOp::Eq => value_ordering::eq(left, right),
-        BinaryOp::Ne => value_ordering::ne(left, right),
-        BinaryOp::Lt => value_ordering::lt(left, right),
-        BinaryOp::Lte => value_ordering::lte(left, right),
-        BinaryOp::Gt => value_ordering::gt(left, right),
-        BinaryOp::Gte => value_ordering::gte(left, right),
-        BinaryOp::Or
-        | BinaryOp::And
-        | BinaryOp::Add
-        | BinaryOp::Sub
-        | BinaryOp::Mul
-        | BinaryOp::Div => return Err(invalid_binary_operands(op, left, right)),
-    };
-    let Some(result) = result else {
-        return Err(invalid_binary_operands(op, left, right));
-    };
-
-    Ok(Value::Bool(result))
+    evaluate_non_null_comparison(op, left, right).map(Value::Bool)
 }
 
 fn evaluate_compare_binary_condition(
@@ -561,6 +543,16 @@ fn evaluate_compare_binary_condition(
         return Ok(false);
     }
 
+    evaluate_non_null_comparison(op, left, right)
+}
+
+// Share comparison dispatch without materializing a Value for CASE conditions.
+// The callers retain their distinct NULL results before reaching this kernel.
+fn evaluate_non_null_comparison(
+    op: BinaryOp,
+    left: &Value,
+    right: &Value,
+) -> Result<bool, ProjectionEvalError> {
     let result = match op {
         BinaryOp::Eq => value_ordering::eq(left, right),
         BinaryOp::Ne => value_ordering::ne(left, right),

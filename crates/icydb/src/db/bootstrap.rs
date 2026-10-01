@@ -10,11 +10,11 @@ use crate::db::{MemoryBootstrapAdmissionError, prepare_memory_bootstrap};
 use std::{fmt, sync::Arc};
 
 use ic_memory::{
-    AllocationDeclaration, AllocationPolicy, AllocationSlotDescriptor, BootstrapAdmission,
-    CommittedAllocations, MemoryManagerConfig, MemoryRequest, PolicyIdentity, PolicyIdentityError,
-    RuntimeBootstrapError, RuntimeBootstrapPolicy, RuntimeOpenError, RuntimeStateError, StableKey,
-    bootstrap_default_memory_manager_with_config, committed_allocations,
-    sealed_declaration_snapshot,
+    AllocationPolicy, AllocationSlotDescriptor, BootstrapAdmission, MemoryManagerConfig,
+    PolicyIdentity, PolicyIdentityError, RuntimeAdoptionError, RuntimeBootstrapError,
+    RuntimeBootstrapPolicy, RuntimeStateError, StableKey,
+    bootstrap_default_memory_manager_with_config, is_default_memory_manager_bootstrapped,
+    sealed_declaration_snapshot, verify_default_memory_manager_authority,
 };
 
 /// Ensure that the default memory manager contains one database authority.
@@ -31,67 +31,19 @@ pub fn ensure_default_memory_manager(
     authority: &str,
     bucket_size_pages: u16,
 ) -> Result<(), DatabaseBootstrapError> {
-    let allocations = match committed_allocations() {
-        Ok(allocations) => allocations,
-        Err(RuntimeOpenError::NotBootstrapped) => {
-            let config = MemoryManagerConfig::new(bucket_size_pages)
-                .map_err(RuntimeStateError::Construction)
-                .map_err(RuntimeBootstrapError::<MemoryBootstrapAdmissionError>::State)?;
-            bootstrap_default_memory_manager_with_config(config, &DatabaseMemoryPolicy)?
-        }
-        Err(RuntimeOpenError::State(error)) => {
-            return Err(RuntimeBootstrapError::State(error).into());
-        }
-        // This capability lookup cannot open a key. Any future open-error
-        // variant therefore represents lifecycle/API drift, not a condition
-        // that generated database initialization can safely recover from.
-        Err(_) => {
-            return Err(
-                RuntimeBootstrapError::State(RuntimeStateError::InconsistentLifecycle).into(),
-            );
-        }
-    };
+    if !is_default_memory_manager_bootstrapped()
+        .map_err(RuntimeBootstrapError::<MemoryBootstrapAdmissionError>::State)?
+    {
+        let config = MemoryManagerConfig::new(bucket_size_pages)
+            .map_err(RuntimeStateError::Construction)
+            .map_err(RuntimeBootstrapError::<MemoryBootstrapAdmissionError>::State)?;
+        bootstrap_default_memory_manager_with_config(config, &DatabaseMemoryPolicy)?;
+    }
 
-    validate_committed_authority_declarations(authority, &allocations)?;
-    Ok(())
-}
-
-fn validate_committed_authority_declarations(
-    authority: &str,
-    allocations: &CommittedAllocations,
-) -> Result<(), DatabaseBootstrapError> {
     let snapshot = sealed_declaration_snapshot()
         .map_err(RuntimeBootstrapError::<MemoryBootstrapAdmissionError>::Registry)?;
-    if authority_declarations_are_committed(
-        authority,
-        snapshot.requests(),
-        allocations.declarations(),
-    ) {
-        Ok(())
-    } else {
-        Err(RuntimeBootstrapError::DeclarationSnapshotMismatch.into())
-    }
-}
-
-fn authority_declarations_are_committed(
-    authority: &str,
-    registrations: &[MemoryRequest],
-    committed: &[AllocationDeclaration],
-) -> bool {
-    let mut found = false;
-    for registration in registrations {
-        if registration.authority() != authority {
-            continue;
-        }
-        found = true;
-        if !committed
-            .iter()
-            .any(|allocation| allocation.stable_key() == registration.stable_key())
-        {
-            return false;
-        }
-    }
-    found
+    verify_default_memory_manager_authority(&snapshot, authority)?;
+    Ok(())
 }
 
 /// Standalone policy uses the same admission function required of composed hosts.
@@ -131,37 +83,42 @@ impl RuntimeBootstrapPolicy for DatabaseMemoryPolicy {
 /// Failure to initialize the generated database's stable-memory authority.
 ///
 /// Cloning this error is cheap and preserves the original typed `ic-memory`
-/// cause cached by generated database wiring.
+/// bootstrap or adoption cause cached by generated database wiring.
 #[derive(Clone, Debug)]
-pub struct DatabaseBootstrapError {
-    source: Arc<RuntimeBootstrapError<MemoryBootstrapAdmissionError>>,
+pub enum DatabaseBootstrapError {
+    /// Cold bootstrap failed before allocation authority could be published.
+    Bootstrap(Arc<RuntimeBootstrapError<MemoryBootstrapAdmissionError>>),
+    /// Current host allocations do not satisfy this database's declared authority.
+    Adoption(Arc<RuntimeAdoptionError>),
 }
 
-impl DatabaseBootstrapError {
-    /// Borrow the authoritative `ic-memory` bootstrap failure.
-    #[must_use]
-    pub fn cause(&self) -> &RuntimeBootstrapError<MemoryBootstrapAdmissionError> {
-        &self.source
+impl From<RuntimeAdoptionError> for DatabaseBootstrapError {
+    fn from(source: RuntimeAdoptionError) -> Self {
+        Self::Adoption(Arc::new(source))
     }
 }
 
 impl From<RuntimeBootstrapError<MemoryBootstrapAdmissionError>> for DatabaseBootstrapError {
     fn from(source: RuntimeBootstrapError<MemoryBootstrapAdmissionError>) -> Self {
-        Self {
-            source: Arc::new(source),
-        }
+        Self::Bootstrap(Arc::new(source))
     }
 }
 
 impl fmt::Display for DatabaseBootstrapError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.source.fmt(f)
+        match self {
+            Self::Bootstrap(source) => source.fmt(f),
+            Self::Adoption(source) => source.fmt(f),
+        }
     }
 }
 
 impl std::error::Error for DatabaseBootstrapError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(self.source.as_ref())
+        match self {
+            Self::Bootstrap(source) => Some(source.as_ref()),
+            Self::Adoption(source) => Some(source.as_ref()),
+        }
     }
 }
 
@@ -173,10 +130,11 @@ impl std::error::Error for DatabaseBootstrapError {
 mod tests {
     use super::*;
     use ic_memory::{
-        AllocationPolicy, AllocationSlotDescriptor, MemoryManagerRangeMode, PolicyIdentity,
-        PolicyIdentityError, RuntimeBootstrapPolicy, SchemaMetadata, StableKey,
-        bootstrap_default_memory_manager, default_memory_manager_memory_allocations,
-        register_memory_request, register_static_memory_manager_range,
+        AllocationPolicy, AllocationSlotDescriptor, MemoryManagerRangeMode, MemoryRequest,
+        PolicyIdentity, PolicyIdentityError, RuntimeBootstrapPolicy, RuntimeOpenError,
+        SchemaMetadata, StableKey, bootstrap_default_memory_manager, committed_allocations,
+        default_memory_manager_memory_allocation_summary, register_memory_request,
+        register_static_memory_manager_range,
     };
 
     const TEST_AUTHORITY: &str = "icydb.bootstrap_adoption_test";
@@ -224,51 +182,6 @@ mod tests {
         }
     }
 
-    fn declaration(key: &str, id: u8) -> AllocationDeclaration {
-        AllocationDeclaration::memory_manager(key, id, key)
-            .expect("test allocation declaration should admit")
-    }
-
-    fn registration(authority: &str, key: &str) -> MemoryRequest {
-        MemoryRequest::new(authority, key, SchemaMetadata::default()).unwrap()
-    }
-
-    #[test]
-    fn authority_validation_requires_every_matching_declaration() {
-        let first = registration(
-            TEST_AUTHORITY,
-            "icydb.bootstrap_adoption_test.commit.control.v1",
-        );
-        let second = registration(
-            TEST_AUTHORITY,
-            "icydb.bootstrap_adoption_test.startup.control.v1",
-        );
-        let other = registration("other.framework", "other.framework.data.v1");
-        let registrations = [first.clone(), second.clone(), other];
-
-        assert!(authority_declarations_are_committed(
-            TEST_AUTHORITY,
-            &registrations,
-            &[
-                declaration(first.stable_key().as_str(), 101),
-                declaration(second.stable_key().as_str(), 102)
-            ],
-        ));
-        assert!(!authority_declarations_are_committed(
-            TEST_AUTHORITY,
-            &registrations,
-            &[declaration(first.stable_key().as_str(), 101)],
-        ));
-        assert!(!authority_declarations_are_committed(
-            "missing.authority",
-            &registrations,
-            &[
-                declaration(first.stable_key().as_str(), 101),
-                declaration(second.stable_key().as_str(), 102)
-            ],
-        ));
-    }
-
     fn register_test_authority() {
         static REGISTER: std::sync::Once = std::sync::Once::new();
         REGISTER.call_once(|| {
@@ -303,13 +216,26 @@ mod tests {
                     committed_allocations(),
                     Err(RuntimeOpenError::NotBootstrapped)
                 ));
+                assert!(matches!(
+                    ic_memory::open_default_memory_manager_memory_by_key(
+                        "icydb.bootstrap_adoption_test.commit.control.v1"
+                    ),
+                    Err(RuntimeOpenError::NotBootstrapped)
+                ));
+                assert!(matches!(
+                    default_memory_manager_memory_allocation_summary(),
+                    Err(ic_memory::RuntimeDiagnosticError::NotBootstrapped)
+                ));
                 ensure_default_memory_manager(TEST_AUTHORITY, pages).unwrap();
                 let committed = committed_allocations().unwrap();
-                let before = default_memory_manager_memory_allocations().unwrap();
+                let before = default_memory_manager_memory_allocation_summary().unwrap();
                 assert_eq!(before.bucket_size_pages, pages);
                 ensure_default_memory_manager(TEST_AUTHORITY, pages).unwrap();
                 assert_eq!(committed_allocations().unwrap(), committed);
-                assert_eq!(default_memory_manager_memory_allocations().unwrap(), before);
+                assert_eq!(
+                    default_memory_manager_memory_allocation_summary().unwrap(),
+                    before
+                );
             })
             .join()
             .unwrap();
@@ -323,17 +249,18 @@ mod tests {
             // A constructing upstream operation has already selected 128 pages,
             // but has not published a capability that IcyDB could adopt.
             let _ = ic_memory::default_memory_manager_diagnostic_export();
-            let before = default_memory_manager_memory_allocations().unwrap();
+            let before = default_memory_manager_memory_allocation_summary().unwrap();
             assert_eq!(before.bucket_size_pages, 128);
             let error = ensure_default_memory_manager(TEST_AUTHORITY, 16).unwrap_err();
             assert!(matches!(
-                error.cause(),
-                RuntimeBootstrapError::State(RuntimeStateError::Construction(
-                    ic_memory::RuntimeConstructionError::BucketSizeMismatch {
-                        persisted: 128,
-                        requested: 16,
-                    }
-                ))
+                &error,
+                DatabaseBootstrapError::Bootstrap(cause) if matches!(cause.as_ref(),
+                    RuntimeBootstrapError::State(RuntimeStateError::Construction(
+                        ic_memory::RuntimeConstructionError::BucketSizeMismatch {
+                            persisted: 128, requested: 16,
+                        }
+                    ))
+                )
             ));
             let public = crate::db::startup::__startup_bootstrap_failure(error);
             assert_eq!(
@@ -347,7 +274,10 @@ mod tests {
                     (icydb_diagnostic_code::DiagnosticFactTag::Actual, 128),
                 ],
             );
-            assert_eq!(default_memory_manager_memory_allocations().unwrap(), before);
+            assert_eq!(
+                default_memory_manager_memory_allocation_summary().unwrap(),
+                before
+            );
             assert!(matches!(
                 committed_allocations(),
                 Err(RuntimeOpenError::NotBootstrapped)
@@ -356,6 +286,24 @@ mod tests {
         })
         .join()
         .unwrap();
+    }
+
+    #[test]
+    fn unknown_host_authority_rejects_without_changing_committed_allocations() {
+        register_test_authority();
+        ensure_default_memory_manager(TEST_AUTHORITY, 16).unwrap();
+        let committed = committed_allocations().unwrap();
+        let before = default_memory_manager_memory_allocation_summary().unwrap();
+        let error = ensure_default_memory_manager("icydb.unknown", 4).unwrap_err();
+        assert!(matches!(error, DatabaseBootstrapError::Adoption(cause)
+            if matches!(cause.as_ref(), RuntimeAdoptionError::UnknownAuthority { authority }
+                if authority == "icydb.unknown")));
+        assert_eq!(committed_allocations().unwrap(), committed);
+        assert_eq!(
+            default_memory_manager_memory_allocation_summary().unwrap(),
+            before
+        );
+        ensure_default_memory_manager(TEST_AUTHORITY, 4).unwrap();
     }
 
     #[test]
@@ -386,7 +334,7 @@ mod tests {
             generation,
         );
         assert_eq!(
-            default_memory_manager_memory_allocations()
+            default_memory_manager_memory_allocation_summary()
                 .expect("adopted runtime should report its persisted bucket size")
                 .bucket_size_pages,
             16,

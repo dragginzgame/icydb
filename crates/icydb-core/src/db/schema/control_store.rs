@@ -242,7 +242,7 @@ mod tests {
     #[test]
     fn absent_control_inspection_preserves_marker_region_without_allocating() {
         let backing = test_memory(241);
-        assert_eq!(backing.grow(1), 0);
+        assert_eq!(backing.grow(1), Ok(0));
         backing.write(0, &[19]);
         let memory = RestrictedMemory::new(backing.clone(), CONTROL_START_PAGE..CONTROL_END_PAGE);
         for family in [

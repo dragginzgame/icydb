@@ -113,19 +113,35 @@ impl DerivedPageAccumulator {
         }
     }
 
-    fn can_start_entry(
-        &self,
+    // Admit and charge an entry together so both derived-state domains preserve
+    // the same worst-case source-row reserve and stop-before-consumption rule.
+    fn start_entry(
+        &mut self,
         raw_key: &RawIndexStoreKey,
         value: &IndexEntryValue,
         limits: DerivedInspectionLimits,
-    ) -> bool {
-        self.entries_started < limits.entries
+    ) -> Result<bool, InternalError> {
+        let admitted = self.entries_started < limits.entries
             && self
                 .decoded_bytes
                 .checked_add(raw_key.as_bytes().len())
                 .and_then(|bytes| bytes.checked_add(value.len()))
                 .and_then(|bytes| bytes.checked_add(crate::db::codec::MAX_ROW_BYTES as usize))
-                .is_some_and(|bytes| bytes <= limits.decoded_bytes)
+                .is_some_and(|bytes| bytes <= limits.decoded_bytes);
+        if !admitted {
+            self.stopped = true;
+            return Ok(false);
+        }
+        self.entries_started = self
+            .entries_started
+            .checked_add(1)
+            .ok_or_else(InternalError::store_invariant)?;
+        self.decoded_bytes = self
+            .decoded_bytes
+            .checked_add(raw_key.as_bytes().len())
+            .and_then(|bytes| bytes.checked_add(value.len()))
+            .ok_or_else(InternalError::store_invariant)?;
+        Ok(true)
     }
 
     const fn can_classify_atom(&self, limits: DerivedInspectionLimits) -> bool {
@@ -203,19 +219,9 @@ pub(in crate::db) fn execute_index_integrity_page<C: CanisterKind>(
                     }
                     observed_within_key = true;
                 }
-                if !page.can_start_entry(raw_key, raw_value, limits) {
-                    page.stopped = true;
+                if !page.start_entry(raw_key, raw_value, limits)? {
                     return Ok(true);
                 }
-                page.entries_started = page
-                    .entries_started
-                    .checked_add(1)
-                    .ok_or_else(InternalError::store_invariant)?;
-                page.decoded_bytes = page
-                    .decoded_bytes
-                    .checked_add(raw_key.as_bytes().len())
-                    .and_then(|bytes| bytes.checked_add(raw_value.len()))
-                    .ok_or_else(InternalError::store_invariant)?;
 
                 inspect_index_entry(
                     plan,
@@ -278,19 +284,9 @@ pub(in crate::db) fn execute_reverse_integrity_page<C: CanisterKind>(
                     }
                     observed_within_key = true;
                 }
-                if !page.can_start_entry(raw_key, raw_value, limits) {
-                    page.stopped = true;
+                if !page.start_entry(raw_key, raw_value, limits)? {
                     return Ok(true);
                 }
-                page.entries_started = page
-                    .entries_started
-                    .checked_add(1)
-                    .ok_or_else(InternalError::store_invariant)?;
-                page.decoded_bytes = page
-                    .decoded_bytes
-                    .checked_add(raw_key.as_bytes().len())
-                    .and_then(|bytes| bytes.checked_add(raw_value.len()))
-                    .ok_or_else(InternalError::store_invariant)?;
 
                 inspect_reverse_entry(
                     plan,
@@ -818,4 +814,59 @@ fn bounded_index_key(raw_key: &RawIndexStoreKey) -> Result<Vec<u8>, InternalErro
         return Err(InternalError::store_corruption());
     }
     Ok(raw_key.as_bytes().to_vec())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        db::{
+            index::{IndexId, IndexKeyKind},
+            key_taxonomy::PrimaryKeyComponent,
+        },
+        types::EntityTag,
+    };
+
+    #[test]
+    fn entry_admission_reserves_source_row_and_stops_without_consuming() {
+        let key = IndexKey::new_from_components_with_primary_key_value(
+            &IndexId::new(EntityTag::new(7), 0),
+            IndexKeyKind::User,
+            &[vec![1]],
+            &PrimaryKeyComponent::Nat64(7).into(),
+        )
+        .unwrap()
+        .to_raw()
+        .unwrap();
+        let value = IndexEntryValue::presence_only();
+        let entry_bytes = key.as_bytes().len() + value.len();
+        let reserve = crate::db::codec::MAX_ROW_BYTES as usize;
+        // Exercise the exact byte boundary and an independent entry-count
+        // boundary. Neither refusal may advance the checkpoint or charge bytes.
+        for limits in [
+            DerivedInspectionLimits {
+                decoded_bytes: entry_bytes + reserve,
+                ..DerivedInspectionLimits::standard()
+            },
+            DerivedInspectionLimits {
+                entries: 1,
+                decoded_bytes: entry_bytes * 2 + reserve,
+                ..DerivedInspectionLimits::standard()
+            },
+        ] {
+            let checkpoint = PhysicalUnitCheckpoint::BeforeFirst;
+            let mut page = DerivedPageAccumulator::new(checkpoint.clone());
+            assert!(page.start_entry(&key, &value, limits).unwrap());
+            assert_eq!(page.decoded_bytes, entry_bytes);
+            assert!(!page.stopped);
+            assert!(!page.start_entry(&key, &value, limits).unwrap());
+            assert!(page.stopped);
+            let result = page.finish(false).unwrap();
+            assert_eq!(result.checkpoint, checkpoint);
+            assert_eq!(result.entries_started, 1);
+            assert_eq!(result.entries_completed, 0);
+            assert_eq!(result.decoded_bytes, entry_bytes as u64);
+            assert!(!result.exhausted);
+        }
+    }
 }

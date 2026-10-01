@@ -15,10 +15,6 @@ use crate::{
     value::Value,
 };
 
-const fn primary_key_component_from_runtime_value(value: &Value) -> Option<PrimaryKeyComponent> {
-    PrimaryKeyComponent::from_runtime_value(value)
-}
-
 // Validate the persisted primary-key payload against one authoritative
 // primary-key value directly from structural field bytes.
 pub(super) fn validate_primary_key_value_from_field_bytes(
@@ -103,7 +99,7 @@ fn validate_primary_key_value_from_slot_bytes_with_accepted_field(
                 return Err(InternalError::persisted_row_decode_corruption());
             }
 
-            primary_key_component_from_runtime_value(&value)
+            PrimaryKeyComponent::from_runtime_value(&value)
                 .ok_or_else(InternalError::persisted_row_decode_corruption)?
         }
     };

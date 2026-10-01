@@ -559,7 +559,7 @@ mod tests {
             current_commit_memory_allocation().expect("commit allocation should resolve"),
         )
         .expect("commit memory should open");
-        assert_eq!(memory.grow(1), 0);
+        assert_eq!(memory.grow(1), Ok(0));
         memory.write(0, b"NOTICYDBCONTROL");
 
         let failure = observe_generated_startup_state::<CorruptCanister>(

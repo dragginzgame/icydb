@@ -5,7 +5,7 @@
 
 mod entity_tags;
 
-use ic_memory::ic_stable_structures::DefaultMemoryImpl;
+use ic_memory::ic_stable_structures::{DefaultMemoryImpl, Memory};
 use ic_memory::{
     AllocationPolicy, AllocationSlotDescriptor, MemoryManagerConfig, MemoryRuntime, PolicyIdentity,
     PolicyIdentityError, RuntimeBootstrapPolicy, RuntimeMemory, SealedDeclarationSnapshot,
@@ -48,10 +48,10 @@ pub(crate) fn test_memory_with_backing(
 }
 
 /// Bootstrap an isolated fixture runtime with an explicit bucket size.
-pub(crate) fn test_memory_runtime(
-    backing: DefaultMemoryImpl,
+pub(crate) fn test_memory_runtime<M: Memory>(
+    backing: M,
     config: MemoryManagerConfig,
-) -> MemoryRuntime<DefaultMemoryImpl> {
+) -> MemoryRuntime<M> {
     static DECLARATIONS: OnceLock<SealedDeclarationSnapshot> = OnceLock::new();
     let declarations = DECLARATIONS.get_or_init(|| {
         // Seal one shared fixture layout before parallel tests create their

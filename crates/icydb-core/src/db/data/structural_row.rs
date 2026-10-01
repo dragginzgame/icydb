@@ -22,11 +22,11 @@ use crate::{
     error::InternalError,
     value::Value,
 };
-use std::{borrow::Cow, rc::Rc};
+use std::rc::Rc;
 
 type SlotSpan = Option<(usize, usize)>;
 type SlotSpans = Vec<SlotSpan>;
-type RowFieldSpans<'a> = (Cow<'a, [u8]>, SlotSpans);
+type RowFieldSpans<'a> = (&'a [u8], SlotSpans);
 type RowSlotTableSections<'a> = (usize, usize, &'a [u8], &'a [u8]);
 
 enum FieldMaterialization<'a> {
@@ -369,7 +369,7 @@ impl StructuralRowContract {
 #[derive(Clone, Debug)]
 pub(in crate::db::data) struct StructuralRowFieldBytes<'a> {
     layout_version: RowLayoutVersion,
-    payload: Cow<'a, [u8]>,
+    payload: &'a [u8],
     spans: SlotSpans,
 }
 
@@ -426,7 +426,7 @@ impl<'a> StructuralRowFieldBytes<'a> {
 #[derive(Clone, Debug)]
 pub(in crate::db::data) struct SparseRequiredRowFieldBytes<'a> {
     layout_version: RowLayoutVersion,
-    payload: Cow<'a, [u8]>,
+    payload: &'a [u8],
     required_span: Option<(usize, usize)>,
     primary_key_span: (usize, usize),
 }
@@ -486,84 +486,41 @@ fn decode_structural_row_payload_bytes(
 
 // Decode the canonical slot-container header into slot-aligned payload spans.
 fn decode_row_field_spans<'payload>(
-    payload: Cow<'payload, [u8]>,
+    payload: &'payload [u8],
     layout_version: RowLayoutVersion,
     contract: &StructuralRowContract,
 ) -> Result<RowFieldSpans<'payload>, InternalError> {
-    let bytes = payload.as_ref();
     let (data_start, physical_count, table, data_section) =
-        decode_slot_table_sections(bytes, layout_version, contract)?;
+        decode_slot_table_sections(payload, layout_version, contract)?;
     let mut spans: SlotSpans = vec![None; contract.field_count()];
 
     for (slot, span) in spans.iter_mut().take(physical_count).enumerate() {
-        let entry_start = slot
-            .checked_mul(8)
-            .ok_or_else(InternalError::persisted_row_decode_corruption)?;
-        let entry = table
-            .get(entry_start..entry_start + 8)
-            .ok_or_else(InternalError::persisted_row_decode_corruption)?;
-        let start = usize::try_from(u32::from_be_bytes([entry[0], entry[1], entry[2], entry[3]]))
-            .map_err(|_| InternalError::persisted_row_decode_corruption())?;
-        let len = usize::try_from(u32::from_be_bytes([entry[4], entry[5], entry[6], entry[7]]))
-            .map_err(|_| InternalError::persisted_row_decode_corruption())?;
-        if len == 0 {
-            return Err(InternalError::persisted_row_decode_corruption());
-        }
-        let end = start
-            .checked_add(len)
-            .ok_or_else(InternalError::persisted_row_decode_corruption)?;
-        if end > data_section.len() {
-            return Err(InternalError::persisted_row_decode_corruption());
-        }
+        let (start, end) = decode_row_field_span(table, slot, data_section.len())?;
         *span = Some((start, end));
     }
 
-    let payload = match payload {
-        Cow::Borrowed(bytes) => Cow::Borrowed(&bytes[data_start..]),
-        Cow::Owned(bytes) => Cow::Owned(bytes[data_start..].to_vec()),
-    };
-
-    Ok((payload, spans))
+    Ok((&payload[data_start..], spans))
 }
 
 type SparseRequiredRowFieldSpans<'a> =
-    Result<(Cow<'a, [u8]>, Option<(usize, usize)>, (usize, usize)), InternalError>;
+    Result<(&'a [u8], Option<(usize, usize)>, (usize, usize)), InternalError>;
 
 // Decode the canonical slot-container header while retaining only one required
 // slot span plus the primary-key span for sparse direct slot reads.
 fn decode_sparse_required_row_field_spans<'payload>(
-    payload: Cow<'payload, [u8]>,
+    payload: &'payload [u8],
     layout_version: RowLayoutVersion,
     contract: &StructuralRowContract,
     required_slot: usize,
 ) -> SparseRequiredRowFieldSpans<'payload> {
-    let bytes = payload.as_ref();
     let (data_start, physical_count, table, data_section) =
-        decode_slot_table_sections(bytes, layout_version, contract)?;
+        decode_slot_table_sections(payload, layout_version, contract)?;
     let primary_key_slot = contract.primary_key_slot();
     let mut required_span = None;
     let mut primary_key_span = None;
 
     for slot in 0..physical_count {
-        let entry_start = slot
-            .checked_mul(8)
-            .ok_or_else(InternalError::persisted_row_decode_corruption)?;
-        let entry = table
-            .get(entry_start..entry_start + 8)
-            .ok_or_else(InternalError::persisted_row_decode_corruption)?;
-        let start = usize::try_from(u32::from_be_bytes([entry[0], entry[1], entry[2], entry[3]]))
-            .map_err(|_| InternalError::persisted_row_decode_corruption())?;
-        let len = usize::try_from(u32::from_be_bytes([entry[4], entry[5], entry[6], entry[7]]))
-            .map_err(|_| InternalError::persisted_row_decode_corruption())?;
-        if len == 0 {
-            return Err(InternalError::persisted_row_decode_corruption());
-        }
-        let end = start
-            .checked_add(len)
-            .ok_or_else(InternalError::persisted_row_decode_corruption)?;
-        if end > data_section.len() {
-            return Err(InternalError::persisted_row_decode_corruption());
-        }
+        let (start, end) = decode_row_field_span(table, slot, data_section.len())?;
         if slot == required_slot {
             required_span = Some((start, end));
         }
@@ -574,12 +531,39 @@ fn decode_sparse_required_row_field_spans<'payload>(
 
     let primary_key_span =
         primary_key_span.ok_or_else(InternalError::persisted_row_decode_corruption)?;
-    let payload = match payload {
-        Cow::Borrowed(bytes) => Cow::Borrowed(&bytes[data_start..]),
-        Cow::Owned(bytes) => Cow::Owned(bytes[data_start..].to_vec()),
-    };
+    Ok((&payload[data_start..], required_span, primary_key_span))
+}
 
-    Ok((payload, required_span, primary_key_span))
+// Full and sparse readers validate every physical entry under the same grammar.
+// Retaining different span layouts must not change rejection of unselected data.
+fn decode_row_field_span(
+    table: &[u8],
+    slot: usize,
+    data_len: usize,
+) -> Result<(usize, usize), InternalError> {
+    let entry_start = slot
+        .checked_mul(8)
+        .ok_or_else(InternalError::persisted_row_decode_corruption)?;
+    let entry_end = entry_start
+        .checked_add(8)
+        .ok_or_else(InternalError::persisted_row_decode_corruption)?;
+    let entry = table
+        .get(entry_start..entry_end)
+        .ok_or_else(InternalError::persisted_row_decode_corruption)?;
+    let start = usize::try_from(u32::from_be_bytes([entry[0], entry[1], entry[2], entry[3]]))
+        .map_err(|_| InternalError::persisted_row_decode_corruption())?;
+    let len = usize::try_from(u32::from_be_bytes([entry[4], entry[5], entry[6], entry[7]]))
+        .map_err(|_| InternalError::persisted_row_decode_corruption())?;
+    if len == 0 {
+        return Err(InternalError::persisted_row_decode_corruption());
+    }
+    let end = start
+        .checked_add(len)
+        .ok_or_else(InternalError::persisted_row_decode_corruption)?;
+    if end > data_len {
+        return Err(InternalError::persisted_row_decode_corruption());
+    }
+    Ok((start, end))
 }
 
 // Decode the shared slot-table header and validate that the physical row slot

@@ -743,10 +743,32 @@ fn database_bootstrap_preserves_typed_cause_until_public_projection() {
         RuntimeBootstrapError::State(RuntimeStateError::ReentrantAccess);
     let bootstrap = crate::db::DatabaseBootstrapError::from(cause);
     assert!(matches!(
-        bootstrap.cause(),
-        RuntimeBootstrapError::State(RuntimeStateError::ReentrantAccess)
+        &bootstrap,
+        crate::db::DatabaseBootstrapError::Bootstrap(source)
+            if matches!(source.as_ref(), RuntimeBootstrapError::State(RuntimeStateError::ReentrantAccess))
     ));
 
+    let facade = Error::from(bootstrap);
+    assert_eq!(
+        facade.diagnostic_code(),
+        icydb_diagnostic_code::DiagnosticCode::RuntimeInternal
+    );
+    assert_eq!(facade.origin(), ErrorOrigin::Runtime);
+}
+
+#[test]
+fn database_adoption_preserves_typed_cause_until_public_projection() {
+    let cause =
+        ic_memory::RuntimeAdoptionError::Open(ic_memory::RuntimeOpenError::MemoryIdMismatch {
+            stable_key: "icydb.main.commit.control.v1".into(),
+            committed_id: 100,
+            requested_id: 101,
+        });
+    let bootstrap = crate::db::DatabaseBootstrapError::from(cause.clone());
+    assert!(
+        matches!(&bootstrap, crate::db::DatabaseBootstrapError::Adoption(source)
+        if source.as_ref() == &cause)
+    );
     let facade = Error::from(bootstrap);
     assert_eq!(
         facade.diagnostic_code(),

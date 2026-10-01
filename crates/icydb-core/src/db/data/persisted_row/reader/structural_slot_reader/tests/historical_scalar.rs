@@ -8,8 +8,10 @@ use crate::{
             persisted_row::{
                 canonical::encode_canonical_value_for_accepted_field_contract,
                 contract::emit_raw_row_from_slot_payloads,
+                reader::direct::decode_sparse_required_slot_with_contract,
             },
         },
+        key_taxonomy::PrimaryKeyComponent,
         schema::{
             PersistedFieldOrigin, RowLayoutVersion, SchemaFieldWritePolicy, SchemaHistoricalFill,
         },
@@ -142,6 +144,15 @@ fn historical_scalar_views_and_projection_agree_with_materialization() {
                 };
                 let contract = historical_contract(kind.clone(), codec, fill);
                 let row = old_row(&contract);
+                let key = PrimaryKeyComponent::Nat64(1).into();
+                assert_eq!(
+                    decode_sparse_required_slot_with_contract(&row, &contract, &key, 1).unwrap(),
+                    expected,
+                );
+                assert_eq!(
+                    decode_sparse_required_slot_with_contract(&row, &contract, &key, 0).unwrap(),
+                    Value::Nat64(1),
+                );
                 let mut reader =
                     StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
                         &row, &contract,

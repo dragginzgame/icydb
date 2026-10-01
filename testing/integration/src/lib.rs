@@ -14,9 +14,8 @@ pub mod wasm_optimizer;
 
 use crate::canister_build_cache::{
     CargoWasmBatchEntry, CargoWasmCacheRequest, PostLinkBatchEntry, PostLinkCacheRequest,
-    build_cached_cargo_wasm, build_cached_cargo_wasm_batch,
-    build_cached_cargo_wasm_batch_from_snapshot, cache_post_link_wasm, cache_post_link_wasm_batch,
-    cargo_wasm_batch_specs, trace_post_link, trace_wasm_build,
+    build_cached_cargo_wasm, build_cached_cargo_wasm_batch, cache_post_link_wasm,
+    cache_post_link_wasm_batch, cargo_wasm_batch_specs, trace_post_link, trace_wasm_build,
 };
 use std::{
     env,
@@ -30,9 +29,7 @@ use std::{
 
 use candid::CandidType;
 use ic_testkit::{
-    artifacts::{
-        ArtifactCacheRecord, LabeledWasmBuildSpec, WasmBuildInputSnapshot, WasmBuildRecord,
-    },
+    artifacts::{ArtifactCacheRecord, LabeledWasmBuildSpec, WasmBuildRecord},
     pic::{InstallSpec, PocketIcBuilderExt, PocketIcStartupConfig, StandaloneCanisterFixture},
     pocket_ic::{PocketIc, PocketIcBuilder},
 };
@@ -1245,25 +1242,22 @@ pub fn build_maintained_canisters_with_options(
     finish_maintained_canister_build_plan(&root, plan, cargo_report)
 }
 
-/// Build both maintained whole-fleet contract profiles from one immutable input snapshot.
+/// Build both maintained whole-fleet contract profiles with checked input resolution.
 ///
 /// This is the narrow artifact-contract path for concurrent LocalTest and
 /// Production readers. Ordinary callers should continue using
 /// [`build_maintained_canisters_with_options`].
 ///
-/// The supplied guard must exclude mutation of every source, Cargo/rustc
-/// executable, manifest, Cargo configuration file, declared build input, and
-/// relevant environment value until this function returns. The guard's
-/// provenance cannot be verified; passing an unrelated token violates the
-/// snapshot contract.
+/// Each profile uses the ordinary checked batch owner. A test-local token cannot
+/// exclude external source edits, so this path makes no immutability assumption.
+/// Changed inputs still fail publication rather than producing a stale artifact.
 ///
 /// # Errors
 ///
-/// Returns an error if snapshot preparation, either Cargo or post-link batch,
-/// or a scoped profile reader fails.
-pub fn build_maintained_canister_contract_profiles_assuming_sources_immutable<Guard: ?Sized>(
-    source_write_guard: &Guard,
-) -> Result<MaintainedCanisterContractProfileArtifacts, String> {
+/// Returns an error if planning, either Cargo or post-link batch, or a scoped
+/// profile reader fails.
+pub fn build_maintained_canister_contract_profiles()
+-> Result<MaintainedCanisterContractProfileArtifacts, String> {
     let root = workspace_root();
     let plans = [
         CanisterBuildProfile::LocalTest,
@@ -1281,26 +1275,14 @@ pub fn build_maintained_canister_contract_profiles_assuming_sources_immutable<Gu
         )
     })
     .collect::<Result<Vec<_>, _>>()?;
-    let prepared_specs = plans
-        .iter()
-        .flat_map(|plan| plan.specs.iter().map(|spec| spec.spec().clone()))
-        .collect::<Vec<_>>();
-    let snapshot = WasmBuildInputSnapshot::prepare_assuming_sources_immutable(
-        source_write_guard,
-        &prepared_specs,
-    )
-    .map_err(|error| format!("maintained canister input snapshot failed: {error}"))?;
-
-    let builds = std::thread::scope(|scope| {
+    std::thread::scope(|scope| {
         let handles = plans
             .into_iter()
             .map(|plan| {
                 let build_profile = plan.options.build_profile;
-                let snapshot = &snapshot;
                 let root = &root;
                 let handle = scope.spawn(move || {
-                    let cargo_report =
-                        build_cached_cargo_wasm_batch_from_snapshot(snapshot, &plan.specs);
+                    let cargo_report = build_cached_cargo_wasm_batch(&plan.specs);
                     finish_maintained_canister_build_plan(root, plan, cargo_report)
                 });
                 (build_profile, handle)
@@ -1325,18 +1307,7 @@ pub fn build_maintained_canister_contract_profiles_assuming_sources_immutable<Gu
                 failures.join("\n  - ")
             ))
         }
-    });
-    let metrics = snapshot.metrics();
-    eprintln!(
-        "maintained canister input_snapshot=specifications={} input_resolution_runs={} input_resolution_reuses={} reader_reuses={} invalidated={} timings={:?}",
-        metrics.specifications(),
-        metrics.input_resolution_runs(),
-        metrics.input_resolution_reuses(),
-        metrics.reader_reuses(),
-        metrics.is_invalidated(),
-        metrics.input_resolution_timings(),
-    );
-    builds
+    })
 }
 
 fn plan_maintained_canister_builds(

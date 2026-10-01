@@ -21,9 +21,9 @@ use ic_testkit::artifacts::{
     ArtifactCacheSpec, LabeledArtifactCacheSpec, LabeledWasmBuildSpec,
     SharedIncrementalTargetMaintenanceConfig, SharedIncrementalTargetMaintenanceFailureMode,
     SharedIncrementalTargetPrunePolicy, WasmBuildBatchConfig, WasmBuildBatchContractError,
-    WasmBuildBatchProgressEvent, WasmBuildBatchReport, WasmBuildInputSnapshot, WasmBuildOutcome,
-    WasmBuildProgressConfig, WasmBuildProgressEvent, WasmBuildRecord, WasmBuildSpec,
-    build_artifact_caches_batch, build_wasm_canisters_cached_batch_with_config_and_progress,
+    WasmBuildBatchProgressEvent, WasmBuildBatchReport, WasmBuildOutcome, WasmBuildProgressConfig,
+    WasmBuildProgressEvent, WasmBuildRecord, WasmBuildSpec, build_artifact_caches_batch,
+    build_wasm_canisters_cached_batch_with_config_and_progress,
     build_wasm_canisters_cached_with_progress, prepare_artifact_cache,
 };
 
@@ -137,20 +137,6 @@ pub(crate) fn build_cached_cargo_wasm_batch(
     let batch_config = WasmBuildBatchConfig::new()
         .with_shared_incremental_target_maintenance(shared_incremental_target_maintenance_config());
     summarize_wasm_build_batch(build_wasm_canisters_cached_batch_with_config_and_progress(
-        specs,
-        batch_config,
-        wasm_build_progress_config(),
-        report_wasm_build_batch_progress,
-    ))
-}
-
-pub(crate) fn build_cached_cargo_wasm_batch_from_snapshot(
-    snapshot: &WasmBuildInputSnapshot<'_>,
-    specs: &[LabeledWasmBuildSpec],
-) -> CanisterCacheBatchReport<WasmBuildRecord> {
-    let batch_config = WasmBuildBatchConfig::new()
-        .with_shared_incremental_target_maintenance(shared_incremental_target_maintenance_config());
-    summarize_wasm_build_batch(snapshot.build_batch_with_progress(
         specs,
         batch_config,
         wasm_build_progress_config(),

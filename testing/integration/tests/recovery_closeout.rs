@@ -546,10 +546,10 @@ fn populated_cardinality_build_upgrade_maintenance_and_slot_reuse_close_cleanly(
 #[test]
 #[expect(
     clippy::too_many_lines,
-    reason = "one causal IC proof keeps unavailable fallback, upgrade, Ready publication, pinned continuation, and exact selection comparable"
+    reason = "one causal IC proof keeps unavailable fallback, upgrade, Ready publication, cursor expiry, and exact selection comparable"
 )]
 fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
-    const PINNED_POST_UPGRADE_INSTRUCTION_CEILING: u64 = 75_000_000;
+    const READY_PAGE_INSTRUCTION_CEILING: u64 = 75_000_000;
     const SELECTIVE_SQL: &str = "SELECT id FROM PerfAuditCardinalityTie \
         WHERE common = 0 AND rare = 20 ORDER BY id ASC LIMIT 200";
     const SELECTIVE_EXPLAIN_SQL: &str = "EXPLAIN EXECUTION VERBOSE \
@@ -604,6 +604,7 @@ fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
     let first_instructions = first.instructions;
     let mut continuation = first.page.continuation;
     let mut cursor_rows = first.page.row_count;
+    let mut fallback_rows = first.page.rows;
     assert!(
         continuation.is_some(),
         "the common-prefix route should require a bounded continuation",
@@ -621,6 +622,9 @@ fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
         .expect("pre-Ready pinned cursor page should decode");
     let before_ready = before_ready.expect("pre-Ready pinned cursor page should execute");
     assert!(before_ready.page.continuation.is_none());
+    cursor_rows = cursor_rows.saturating_add(before_ready.page.row_count);
+    fallback_rows.extend(before_ready.page.rows);
+    assert_eq!(cursor_rows, 2);
 
     let stable_before_upgrade = stable_memory_fingerprint(&fixture);
     upgrade_with_wasm(&fixture, current_sql_perf_wasm());
@@ -657,30 +661,43 @@ fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
         )
         .expect("fresh first page should decode");
     let restarted = restarted.expect("pagination restarts after upgrade");
-    assert_eq!(restarted.page.rows, first.page.rows);
-    assert_eq!(restarted.page.row_count, first.page.row_count);
-    let after_ready: Result<LiveQueryPagePerfOutput, Error> = fixture
-        .query_candid(
-            "query_cardinality_tiebreak_live_page_with_perf",
-            (Some(
-                restarted
-                    .page
-                    .continuation
-                    .expect("fresh first-page cursor"),
-            ),),
-        )
-        .expect("fresh continuation page should decode");
-    let after_ready = after_ready.expect("fresh continuation should execute");
-    assert_eq!(after_ready.page, before_ready.page);
     assert!(
-        after_ready.instructions <= PINNED_POST_UPGRADE_INSTRUCTION_CEILING,
-        "post-upgrade continuation used {} instructions; ceiling is {}",
-        after_ready.instructions,
-        PINNED_POST_UPGRADE_INSTRUCTION_CEILING,
+        restarted.instructions <= READY_PAGE_INSTRUCTION_CEILING,
+        "Ready first page used {} instructions; ceiling is {}",
+        restarted.instructions,
+        READY_PAGE_INSTRUCTION_CEILING,
     );
-    cursor_rows = cursor_rows.saturating_add(after_ready.page.row_count);
-    assert_eq!(cursor_rows, 2);
-    assert!(after_ready.page.continuation.is_none());
+    // A fresh query may select the now-Ready selective index and complete in a
+    // larger page. Compare full ordered results across the expired cursor boundary.
+    let mut ready_rows = restarted.page.rows;
+    let mut ready_row_count = restarted.page.row_count;
+    let mut ready_continuation = restarted.page.continuation;
+    let mut ready_page_instructions = restarted.instructions;
+    for _ in 0..2 {
+        let Some(cursor) = ready_continuation.take() else {
+            break;
+        };
+        let next: Result<LiveQueryPagePerfOutput, Error> = fixture
+            .query_candid(
+                "query_cardinality_tiebreak_live_page_with_perf",
+                (Some(cursor),),
+            )
+            .expect("Ready continuation should decode");
+        let next = next.expect("Ready continuation should execute");
+        assert!(
+            next.instructions <= READY_PAGE_INSTRUCTION_CEILING,
+            "Ready continuation used {} instructions; ceiling is {}",
+            next.instructions,
+            READY_PAGE_INSTRUCTION_CEILING,
+        );
+        ready_page_instructions = ready_page_instructions.saturating_add(next.instructions);
+        ready_rows.extend(next.page.rows);
+        ready_row_count = ready_row_count.saturating_add(next.page.row_count);
+        ready_continuation = next.page.continuation;
+    }
+    assert!(ready_continuation.is_none());
+    assert_eq!(ready_row_count, cursor_rows);
+    assert_eq!(ready_rows, fallback_rows);
 
     let exact: Result<SqlQueryPerfResult, Error> = fixture
         .update_candid("warm_user_query_with_perf", (SELECTIVE_SQL.to_string(),))
@@ -716,14 +733,14 @@ fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
     assert!(explain.contains("exact_prefix_entries: 2"), "{explain}");
 
     println!(
-        "0.236 selective tie-break: fallback_instructions={} unchanged_fallback_instructions={} exact_instructions={} warm_exact_instructions={} first_cursor_instructions={} pinned_before_ready_instructions={} pinned_after_ready_instructions={} stable_before_upgrade={} stable_after_upgrade={}",
+        "0.236 selective tie-break: fallback_instructions={} unchanged_fallback_instructions={} exact_instructions={} warm_exact_instructions={} first_cursor_instructions={} pinned_before_ready_instructions={} ready_page_instructions={} stable_before_upgrade={} stable_after_upgrade={}",
         fallback.instructions,
         unchanged_fallback.instructions,
         exact.instructions,
         warm_exact.instructions,
         first_instructions,
         before_ready.instructions,
-        after_ready.instructions,
+        ready_page_instructions,
         stable_before_upgrade.1,
         stable_after_upgrade.1,
     );

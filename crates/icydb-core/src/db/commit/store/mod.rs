@@ -524,11 +524,7 @@ impl CommitStore {
                     .map_err(|_| InternalError::commit_control_slot_exceeds_max_size())?,
             )
             .ok_or_else(InternalError::commit_control_slot_exceeds_max_size)?;
-        let required_pages = end.div_ceil(WASM_PAGE_BYTES);
-        let current_pages = self.memory.size();
-        if required_pages > current_pages && self.memory.grow(required_pages - current_pages) < 0 {
-            return Err(InternalError::commit_control_memory_growth_failed());
-        }
+        reserve_commit_control_capacity(&self.memory, end)?;
 
         let mut header = [0_u8; DATABASE_CONTROL_SLOT_FRAME_HEADER_BYTES];
         header[..DATABASE_CONTROL_SLOT_FRAME_MAGIC.len()]
@@ -575,6 +571,22 @@ fn control_proof(bytes: &[u8]) -> [u8; 32] {
     hasher.finalize().into()
 }
 
+// Reserve through the typed runtime before any frame or payload is published.
+// Both control writers share this boundary; refusal must leave existing bytes intact.
+fn reserve_commit_control_capacity<M: Memory>(
+    memory: &RuntimeMemory<M>,
+    end: u64,
+) -> Result<(), InternalError> {
+    let required_pages = end.div_ceil(WASM_PAGE_BYTES);
+    let current_pages = memory.size();
+    if required_pages > current_pages {
+        memory
+            .grow(required_pages - current_pages)
+            .map_err(|_| InternalError::commit_control_memory_growth_failed())?;
+    }
+    Ok(())
+}
+
 pub(in crate::db) fn prepare_commit_control_replacement(
     memory: RuntimeMemory<DefaultMemoryImpl>,
     incarnation: DatabaseIncarnationId,
@@ -593,11 +605,7 @@ pub(in crate::db) fn prepare_commit_control_replacement(
     let end = COMMIT_CONTROL_SLOT_OFFSET
         .checked_add(u64::try_from(encoded.len()).map_err(|_| InternalError::store_unsupported())?)
         .ok_or_else(InternalError::store_unsupported)?;
-    let required_pages = end.div_ceil(WASM_PAGE_BYTES);
-    let current_pages = memory.size();
-    if required_pages > current_pages && memory.grow(required_pages - current_pages) < 0 {
-        return Err(InternalError::commit_control_memory_growth_failed());
-    }
+    reserve_commit_control_capacity(&memory, end)?;
     Ok(PreparedCommitControlReplacement {
         memory,
         encoded,

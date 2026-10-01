@@ -3,16 +3,19 @@
 use super::*;
 use crate::{
     db::{
-        data::{DecodedDataStoreKey, RawRow},
+        data::{
+            AcceptedStructuralRowAuthority, DecodedDataStoreKey, RawRow, StructuralSlotReader,
+            canonical_row_from_runtime_value_source_with_accepted_contract,
+        },
         index::{
-            IndexMutationPlan, IndexPlanReadView, IndexReadContract,
+            EncodedValue, IndexMutationPlan, IndexPlanReadView, IndexReadContract,
             plan_index_mutation_for_slot_reader_structural,
         },
     },
     error::InternalError,
 };
 use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag};
-use std::{borrow::Cow, cell::Cell, ops::Bound};
+use std::{borrow::Cow, cell::Cell, ops::Bound, rc::Rc};
 
 struct ObservedNameRow {
     value: Value,
@@ -394,6 +397,203 @@ fn changed_expression_input_reuses_its_admitted_after_image_key() {
         1,
         "admitted after-image must be reused in the delta check"
     );
+}
+
+fn nested_profile_snapshot_and_catalog() -> (PersistedSchemaSnapshot, AcceptedValueCatalogHandle) {
+    use crate::db::schema::{
+        PersistedNestedLeafSnapshot,
+        composite_catalog::{
+            AcceptedCompositeElement, AcceptedCompositeField, AcceptedCompositeShape,
+            CompositeFieldId, CompositeTypeId,
+        },
+    };
+    use std::collections::BTreeMap;
+
+    let text = AcceptedFieldKind::Text { max_len: None };
+    let profile_type = CompositeTypeId::new(1).unwrap();
+    let enums = empty_accepted_enum_catalog_for_tests();
+    let composites = AcceptedCompositeCatalog::from_initial_definitions(
+        BTreeMap::from([(
+            profile_type,
+            (
+                "test::Profile".into(),
+                AcceptedCompositeShape::Record(vec![AcceptedCompositeField::new(
+                    CompositeFieldId::new(1).unwrap(),
+                    "name".into(),
+                    AcceptedCompositeElement::new(text.clone(), true),
+                )]),
+            ),
+        )]),
+        &enums,
+    )
+    .unwrap();
+    let base = base_snapshot();
+    let snapshot = PersistedSchemaSnapshot::new(
+        base.version(),
+        base.entity_path().into(),
+        base.entity_name().into(),
+        FieldId::new(1),
+        base.row_layout().clone(),
+        vec![
+            base.fields()[0].clone(),
+            PersistedFieldSnapshot::new_initial(
+                FieldId::new(2),
+                "profile".into(),
+                SchemaFieldSlot::new(1),
+                AcceptedFieldKind::Composite {
+                    type_id: profile_type,
+                },
+                vec![PersistedNestedLeafSnapshot::new(
+                    vec!["name".into()],
+                    text,
+                    true,
+                )],
+                true,
+                SchemaInsertDefault::None,
+                FieldStorageDecode::CatalogValue,
+                LeafCodec::Structural,
+            ),
+        ],
+    );
+    let catalog = AcceptedValueCatalogHandle::new_for_tests(
+        enums,
+        composites,
+        AcceptedSchemaRevision::INITIAL,
+    );
+    (snapshot, catalog)
+}
+
+fn nested_profile_expression_index(
+    op: PersistedIndexExpressionOp,
+    canonical: &str,
+) -> PersistedIndexSnapshot {
+    let text = AcceptedFieldKind::Text { max_len: None };
+    PersistedIndexSnapshot::new(
+        SchemaIndexId::new(1).unwrap(),
+        1,
+        "by_profile_name".into(),
+        STORE_PATH.into(),
+        false,
+        PersistedIndexKeySnapshot::Items(vec![PersistedIndexKeyItemSnapshot::Expression(
+            Box::new(PersistedIndexExpressionSnapshot::new(
+                op,
+                PersistedIndexFieldPathSnapshot::new(
+                    FieldId::new(2),
+                    SchemaFieldSlot::new(1),
+                    vec!["profile".into(), "name".into()],
+                    text.clone(),
+                    true,
+                ),
+                text.clone(),
+                text,
+                format!("expr:v1:{canonical}(profile.name)"),
+            )),
+        )]),
+        None,
+    )
+}
+
+#[test]
+fn nested_expression_index_writes_match_rebuild_keys_and_null_membership() {
+    let (snapshot, catalog) = nested_profile_snapshot_and_catalog();
+    let primary_key = PrimaryKeyValue::Scalar(PrimaryKeyComponent::Ulid(crate::types::Ulid::MIN));
+    let tag = EntityTag::new(7);
+    for (op, canonical, expected) in [
+        (PersistedIndexExpressionOp::Lower, "LOWER", " ada "),
+        (PersistedIndexExpressionOp::Upper, "UPPER", " ADA "),
+        (PersistedIndexExpressionOp::Trim, "TRIM", "Ada"),
+    ] {
+        let index = nested_profile_expression_index(op, canonical);
+        let SchemaMutationRequest::AddExpressionIndex { target } =
+            SchemaMutationRequest::from_accepted_expression_index(&index).unwrap()
+        else {
+            panic!("expression index target required");
+        };
+        let accepted =
+            AcceptedSchemaSnapshot::try_new(snapshot_with_indexes(&snapshot, vec![index.clone()]))
+                .unwrap();
+        let contract = AcceptedStructuralRowAuthority::from_candidate_snapshot(
+            accepted.entity_path(),
+            Rc::new(accepted.clone()),
+            catalog.clone(),
+        )
+        .unwrap()
+        .into_row_contract();
+        let schema = SchemaInfo::from_accepted_snapshot_and_catalog(&accepted, catalog.clone());
+        for (profile, has_key) in [
+            (
+                Value::Map(vec![(
+                    Value::Text("name".into()),
+                    Value::Text(" Ada ".into()),
+                )]),
+                true,
+            ),
+            (
+                Value::Map(vec![(Value::Text("name".into()), Value::Null)]),
+                false,
+            ),
+            (Value::Null, false),
+        ] {
+            let values = [Value::Ulid(crate::types::Ulid::MIN), profile];
+            let row =
+                canonical_row_from_runtime_value_source_with_accepted_contract(&contract, |slot| {
+                    Ok(Cow::Borrowed(&values[slot]))
+                })
+                .unwrap()
+                .into_raw_row();
+            let reader = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
+                &row, &contract,
+            )
+            .unwrap();
+            let ordinary =
+                IndexKey::new_from_slots_with_accepted_expression_index_primary_key_value(
+                    tag,
+                    &primary_key,
+                    &schema.expression_indexes()[0],
+                    &reader,
+                )
+                .unwrap();
+            let rebuilt = IndexKey::new_from_slots_with_expression_rebuild_target(
+                tag,
+                primary_key,
+                &target,
+                &reader,
+            )
+            .unwrap();
+            let expected_key = has_key.then(|| {
+                let component = EncodedValue::try_new(&Value::Text(expected.into())).unwrap();
+                IndexKey::new_from_components_with_primary_key_value(
+                    &IndexId::new_with_generation(
+                        tag,
+                        index.ordinal(),
+                        index.physical_generation(),
+                    ),
+                    IndexKeyKind::User,
+                    &[component.encoded()],
+                    &primary_key,
+                )
+                .unwrap()
+                .to_raw()
+                .unwrap()
+            });
+            assert_eq!(ordinary.map(|key| key.to_raw().unwrap()), expected_key);
+            assert_eq!(rebuilt.map(|key| key.to_raw().unwrap()), expected_key);
+            let plan = plan_index_mutation_for_slot_reader_structural(
+                tag,
+                [0; 16],
+                None,
+                &schema,
+                &NoIndexReads,
+                &contract,
+                Some(&primary_key),
+                Some(&reader),
+                Some(&primary_key),
+                Some(&reader),
+            )
+            .expect("nested expression writes must admit their after-image");
+            assert!(plan.groups.is_empty());
+        }
+    }
 }
 
 #[test]

@@ -36,12 +36,12 @@ require_text \
     'whole-fleet Cargo failures must retain partial phase timings.'
 require_text \
     testing/integration/src/lib.rs \
-    'WasmBuildInputSnapshot::prepare_assuming_sources_immutable(' \
-    'the two-profile artifact contract must prepare one guarded immutable input snapshot.'
+    'let cargo_report = build_cached_cargo_wasm_batch(&plan.specs);' \
+    'the two-profile artifact contract must use the checked Cargo batch owner.'
 require_text \
     testing/integration/src/canister_build_cache.rs \
-    'snapshot.build_batch_with_progress(' \
-    'whole-fleet profile readers must consume the prepared input snapshot.'
+    'summarize_wasm_build_batch(build_wasm_canisters_cached_batch_with_config_and_progress(' \
+    'whole-fleet profile readers must retain checked input resolution and collect-all failures.'
 require_text \
     testing/integration/src/canister_build_cache.rs \
     'optimize_deployable_wasm_with_optimizer(entry.compiler_emitted, &output, &optimizer)' \

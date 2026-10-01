@@ -347,8 +347,7 @@ pub(in crate::db) use mutation::{
     validate_sql_ddl_field_default_change_candidate,
 };
 pub(in crate::db) use mutation::{
-    SchemaExpressionIndexRebuildExpression, SchemaExpressionIndexRebuildKey,
-    SchemaExpressionIndexRebuildTarget,
+    SchemaExpressionIndexRebuildKey, SchemaExpressionIndexRebuildTarget,
 };
 pub(in crate::db) use mutation::{
     SchemaFieldPathIndexRebuildKey, SchemaFieldPathIndexRebuildTarget, StagedUserIndexDomainError,

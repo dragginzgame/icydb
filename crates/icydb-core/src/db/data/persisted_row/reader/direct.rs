@@ -201,23 +201,10 @@ pub(in crate::db) fn decode_sparse_required_slot_with_contract(
     contract: &StructuralRowContract,
     expected_key: &PrimaryKeyValue,
     required_slot: usize,
-) -> Result<Option<Value>, InternalError> {
-    decode_sparse_required_slot(raw_row, contract, expected_key, required_slot)
-}
-
-// Decode one selected slot directly from persisted bytes through the owning
-// accepted row contract for all sparse required-slot readers.
-fn decode_sparse_required_slot(
-    raw_row: &RawRow,
-    contract: &StructuralRowContract,
-    expected_key: &PrimaryKeyValue,
-    required_slot: usize,
-) -> Result<Option<Value>, InternalError> {
+) -> Result<Value, InternalError> {
     if matches!(expected_key, PrimaryKeyValue::Composite(_)) {
         let fields = DirectStructuralRowFields::open(raw_row, contract, expected_key)?;
-        let value = fields.decode_slot(required_slot)?;
-
-        return Ok(Some(value));
+        return fields.decode_slot(required_slot);
     }
 
     let PrimaryKeyValue::Scalar(expected_key) = *expected_key else {
@@ -229,9 +216,7 @@ fn decode_sparse_required_slot(
     let field = DirectSparseRequiredRowField::open(raw_row, contract, expected_key, required_slot)?;
 
     // Phase 2: decode exactly one caller-selected slot.
-    let value = field.decode()?;
-
-    Ok(Some(value))
+    field.decode()
 }
 
 // Decode one caller-selected slot directly from the structural field-byte

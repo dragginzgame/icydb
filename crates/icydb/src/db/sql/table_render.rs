@@ -475,69 +475,8 @@ pub fn render_show_constraints_lines(
     entity: &str,
     constraints: &[EntityConstraintDescription],
 ) -> Vec<String> {
-    let rows = constraints
-        .iter()
-        .map(|constraint| {
-            vec![
-                constraint.id().to_string(),
-                constraint.name().to_string(),
-                constraint.kind().to_string(),
-                constraint.fields().join(", "),
-                constraint
-                    .index_id()
-                    .map_or_else(|| "-".to_string(), |index_id| index_id.to_string()),
-                constraint.index().unwrap_or("-").to_string(),
-                constraint.predicate_sql().unwrap_or("-").to_string(),
-                constraint.origin().to_string(),
-                constraint.validation_state().to_string(),
-                constraint
-                    .validation_progress()
-                    .map_or_else(|| "-".to_string(), |progress| progress.phase().to_string()),
-                constraint.validation_progress().map_or_else(
-                    || "-".to_string(),
-                    |progress| progress.rows_scanned().to_string(),
-                ),
-                constraint.validation_progress().map_or_else(
-                    || "-".to_string(),
-                    |progress| progress.findings_seen().to_string(),
-                ),
-                constraint.validation_progress().map_or_else(
-                    || "-".to_string(),
-                    |progress| progress.restarts().to_string(),
-                ),
-                constraint.semantics().to_string(),
-                constraint.check_sql().unwrap_or("-").to_string(),
-            ]
-        })
-        .collect::<Vec<_>>();
     let mut lines = vec![format!("entity: {entity}"), String::new()];
-    if constraints.is_empty() {
-        lines.push("constraints: []".to_string());
-        return lines;
-    }
-
-    lines.push("constraints:".to_string());
-    render_table_section(
-        &mut lines,
-        &[
-            "id".to_string(),
-            "name".to_string(),
-            "kind".to_string(),
-            "fields".to_string(),
-            "index_id".to_string(),
-            "index".to_string(),
-            "predicate_sql".to_string(),
-            "origin".to_string(),
-            "state".to_string(),
-            "phase".to_string(),
-            "rows_scanned".to_string(),
-            "findings".to_string(),
-            "restarts".to_string(),
-            "semantics".to_string(),
-            "check_sql".to_string(),
-        ],
-        rows.as_slice(),
-    );
+    render_describe_constraint_section(&mut lines, constraints);
     lines
 }
 

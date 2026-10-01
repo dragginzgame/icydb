@@ -199,12 +199,14 @@ fn decode_cell<M: Memory>(memory: &M) -> Result<Option<StartupFailureReceipt>, I
     decode_payload(payload).map(Some)
 }
 
-fn write_cell<M: Memory>(memory: &M, encoded: &[u8]) -> Result<(), InternalError> {
+fn write_cell<M: Memory>(memory: &RuntimeMemory<M>, encoded: &[u8]) -> Result<(), InternalError> {
     if encoded.len() > MAX_STARTUP_FAILURE_RECEIPT_BYTES {
         return Err(InternalError::store_invariant());
     }
-    if memory.size() == 0 && memory.grow(1) < 0 {
-        return Err(InternalError::recovery_database_format_control_unavailable());
+    if memory.size() == 0 {
+        memory
+            .grow(1)
+            .map_err(|_| InternalError::recovery_database_format_control_unavailable())?;
     }
     let memory_bytes = memory
         .size()
@@ -645,6 +647,30 @@ mod tests {
 
     fn incarnation() -> DatabaseIncarnationId {
         DatabaseIncarnationId::for_tests(0x35)
+    }
+
+    #[test]
+    fn receipt_growth_refusal_preserves_empty_control_and_manager_metadata() {
+        use crate::testing::test_memory_runtime;
+        use ic_memory::{MemoryManagerConfig, ic_stable_structures::RestrictedMemory};
+
+        let backing = VectorMemory::default();
+        let runtime = test_memory_runtime(
+            RestrictedMemory::new(backing.clone(), 0..2),
+            MemoryManagerConfig::new(1).unwrap(),
+        );
+        let memory = runtime
+            .open_memory("icydb.core_tests.slot_237.v1", 237)
+            .unwrap();
+        let before = backing.borrow().clone();
+        let summary = runtime.memory_allocation_summary().unwrap();
+        let error = write_cell(&memory, &[]).unwrap_err();
+        assert_eq!(error.class(), crate::error::ErrorClass::Internal);
+        assert_eq!(error.origin(), crate::error::ErrorOrigin::Recovery);
+        assert_eq!(memory.size(), 0);
+        assert_eq!(*backing.borrow(), before);
+        assert_eq!(runtime.memory_allocation_summary().unwrap(), summary);
+        assert!(decode_cell(&memory).unwrap().is_none());
     }
 
     fn round_trip(receipt: &StartupFailureReceipt) {

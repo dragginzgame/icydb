@@ -293,7 +293,7 @@ impl CompiledExprValueReader for RowView {
 ///
 /// SingleGroupedSlotDecode freezes the one-slot grouped row path selected for
 /// this runtime.
-/// The data-layer sparse decoder owns accepted/generated contract selection, so
+/// The data-layer sparse decoder uses the frozen accepted row contract, so
 /// the grouped runtime only keeps the required slot selected by route staging.
 ///
 
@@ -437,8 +437,6 @@ impl StructuralGroupedRowRuntime {
             single_grouped_slot_decode,
         )?;
 
-        let value = value.ok_or_else(InternalError::query_executor_invariant)?;
-
         Ok(RowView::from_single_value(
             single_grouped_slot_decode.slot,
             value,
@@ -453,7 +451,7 @@ impl StructuralGroupedRowRuntime {
         key: &DecodedDataStoreKey,
         row: &RawRow,
         single_grouped_slot_decode: &SingleGroupedSlotDecode,
-    ) -> Result<Option<Value>, InternalError> {
+    ) -> Result<Value, InternalError> {
         charge_grouped_decoded_row(row, 1)?;
         RowLayout::decode_required_value_from_data_key(
             &self.row_layout,
@@ -516,11 +514,13 @@ impl StructuralGroupedRowRuntime {
         if let Some(single_grouped_slot_decode) =
             self.matching_single_grouped_slot_decode(required_slot)
         {
-            return self.decode_single_grouped_slot_value_from_raw_row(
-                key,
-                &row,
-                single_grouped_slot_decode,
-            );
+            return self
+                .decode_single_grouped_slot_value_from_raw_row(
+                    key,
+                    &row,
+                    single_grouped_slot_decode,
+                )
+                .map(Some);
         }
 
         let row_view = self.row_view_from_data_row(key, row)?;

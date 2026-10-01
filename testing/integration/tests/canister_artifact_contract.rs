@@ -1,8 +1,7 @@
-use std::{collections::BTreeSet, sync::Mutex};
+use std::collections::BTreeSet;
 
 use icydb_testing_integration::{
-    BuiltCanisterArtifacts, CanisterBuildProfile,
-    build_maintained_canister_contract_profiles_assuming_sources_immutable,
+    BuiltCanisterArtifacts, CanisterBuildProfile, build_maintained_canister_contract_profiles,
     canister_artifact::{
         CanisterMethod, ExpectedCanisterMethod, MAINTAINED_CANISTER_POLICIES,
         inspect_canister_artifacts,
@@ -12,14 +11,8 @@ use icydb_testing_integration::{
 #[test]
 #[ignore = "builds and inspects 34 independent canister artifacts; run `make test-canister-artifact-contract`"]
 fn production_and_local_source_declarations_match_the_frozen_endpoint_policy() {
-    let source_write_exclusion = Mutex::new(());
-    let source_guard = source_write_exclusion
-        .lock()
-        .expect("lock immutable maintained-canister sources");
-    let profile_artifacts =
-        build_maintained_canister_contract_profiles_assuming_sources_immutable(&source_guard)
-            .unwrap_or_else(|error| panic!("maintained canisters should build: {error}"));
-    drop(source_guard);
+    let profile_artifacts = build_maintained_canister_contract_profiles()
+        .unwrap_or_else(|error| panic!("maintained canisters should build: {error}"));
 
     std::thread::scope(|scope| {
         for (build_profile, artifacts) in profile_artifacts {

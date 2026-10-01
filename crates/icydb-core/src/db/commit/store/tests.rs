@@ -22,6 +22,37 @@ use crate::{
     types::EntityTag,
 };
 use ic_memory::ic_stable_structures::Memory;
+
+#[test]
+fn control_capacity_refusal_preserves_existing_frame_bytes() {
+    use crate::testing::test_memory_runtime;
+    use ic_memory::{
+        MemoryManagerConfig,
+        ic_stable_structures::{RestrictedMemory, VectorMemory},
+    };
+
+    let backing = VectorMemory::default();
+    let runtime = test_memory_runtime(
+        RestrictedMemory::new(backing.clone(), 0..4),
+        MemoryManagerConfig::new(1).unwrap(),
+    );
+    let memory = runtime
+        .open_memory("icydb.core_tests.slot_233.v1", 233)
+        .unwrap();
+    super::reserve_commit_control_capacity(&memory, 65_536).unwrap();
+    memory.write(0, b"retained frame");
+    let before = backing.borrow().clone();
+    let summary = runtime.memory_allocation_summary().unwrap();
+    // The bounded backing cannot reserve four application pages plus its
+    // manager and ledger. A rejected reservation must not publish any frame.
+    let error = super::reserve_commit_control_capacity(&memory, 4 * 65_536).unwrap_err();
+    assert_eq!(error.class(), ErrorClass::Internal);
+    assert_eq!(error.origin(), ErrorOrigin::Store);
+    assert_eq!(*backing.borrow(), before);
+    assert_eq!(runtime.memory_allocation_summary().unwrap(), summary);
+    assert_eq!(memory.size(), 1);
+}
+
 // Wrap one test marker payload in the canonical marker envelope so strict
 // decode still reaches shape validation.
 fn encode_test_marker_payload(marker: &CommitMarker) -> Vec<u8> {

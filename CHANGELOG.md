@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.264.md](docs/changelog/0.264.md)
 
-- `0.264.1` reduces query fallback and projection overhead, qualifies dense access trade-offs, expands SQL aggregate composition and simplifies internal metadata processing and feature compilation (breaking).
+- `0.264.1` improves query and memory behavior, repairs deployment qualification and simplifies database internals (breaking).
 - `0.264.0` qualifies indexed signed equality and membership and enforces current-format authority (breaking; regeneration/reinstall required).
 
 ## [0.263.x] - 2026-10-01 - Seek Integration Qualification

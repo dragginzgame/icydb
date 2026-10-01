@@ -135,7 +135,7 @@ pub(super) fn scalar_slot_value_ref_from_validated<'a>(
             let raw_value = field_bytes
                 .field(slot)
                 .ok_or_else(InternalError::persisted_row_decode_corruption)?;
-            decode_payload_backed_validated_scalar_slot_value(contract, raw_value, slot)
+            decode_scalar_slot_value_from_row_contract(contract, slot, raw_value)
         }
         ValidatedScalarSlotValue::Bool(value) => {
             Ok(ScalarSlotValueRef::Value(ScalarValueRef::Bool(value)))
@@ -175,16 +175,6 @@ pub(super) fn scalar_slot_value_ref_from_validated<'a>(
             Ok(ScalarSlotValueRef::Value(ScalarValueRef::U256(value)))
         }
     }
-}
-
-// Decode a payload-backed scalar after accepted scalar validation has already
-// proved the slot shape.
-fn decode_payload_backed_validated_scalar_slot_value<'raw>(
-    contract: &StructuralRowContract,
-    raw_value: &'raw [u8],
-    slot: usize,
-) -> Result<ScalarSlotValueRef<'raw>, InternalError> {
-    decode_scalar_slot_value_from_row_contract(contract, slot, raw_value)
 }
 
 // Materialize one validated scalar slot into the runtime `Value` enum.

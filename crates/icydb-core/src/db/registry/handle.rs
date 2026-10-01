@@ -362,7 +362,7 @@ impl StoreAllocationIdentity {
         stable_key: &'static str,
     ) -> Result<Self, ic_memory::RuntimeOpenError> {
         Ok(Self::new(
-            crate::memory::committed_memory_id(stable_key)?,
+            ic_memory::default_memory_manager_memory_id(stable_key)?,
             stable_key,
         ))
     }

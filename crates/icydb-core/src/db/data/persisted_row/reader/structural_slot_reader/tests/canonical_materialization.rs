@@ -7,10 +7,12 @@ use crate::{
         persisted_row::{
             canonical::encode_canonical_value_for_accepted_field_contract,
             contract::emit_raw_row_from_slot_payloads,
+            reader::direct::decode_sparse_required_slot_with_contract,
         },
         structural_field::encode_canonical_value_storage_bytes,
     },
     db::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, PredicateProgram},
+    db::{codec::decode_row_payload_bytes, key_taxonomy::PrimaryKeyComponent},
     error::ErrorClass,
 };
 
@@ -33,6 +35,46 @@ fn row_with_payload(contract: &StructuralRowContract, payload: Vec<u8>) -> RawRo
     emit_raw_row_from_slot_payloads(contract.current_layout_version(), 3, &slots)
         .unwrap()
         .into_raw_row()
+}
+
+#[test]
+fn full_and_sparse_reads_reject_malformed_unselected_spans() {
+    let contract = selective_payload_contract();
+    let row = row_with_payload(
+        &contract,
+        encode_canonical_value_for_accepted_field_contract(
+            contract
+                .required_accepted_field_persistence_contract(2)
+                .unwrap(),
+            &Value::Blob(vec![7]),
+        )
+        .unwrap(),
+    );
+    let payload = decode_row_payload_bytes(row.as_bytes())
+        .unwrap()
+        .into_payload();
+    let third_entry = row.len() - payload.len() + 2 + 2 * 8;
+    // Corrupt an unselected field while keeping the envelope valid. Both
+    // scanners must validate the whole physical table before returning a slot.
+    for (start, len) in [(0_u32, 0_u32), (u32::MAX, 1), (0, u32::MAX)] {
+        let mut bytes = row.as_bytes().to_vec();
+        bytes[third_entry..third_entry + 4].copy_from_slice(&start.to_be_bytes());
+        bytes[third_entry + 4..third_entry + 8].copy_from_slice(&len.to_be_bytes());
+        let corrupt = RawRow::try_new(bytes).unwrap();
+        let full = StructuralSlotReader::from_raw_row_with_borrowed_contract(&corrupt, &contract)
+            .err()
+            .expect("full scan must reject the malformed span");
+        let sparse = decode_sparse_required_slot_with_contract(
+            &corrupt,
+            &contract,
+            &PrimaryKeyComponent::Nat64(7).into(),
+            0,
+        )
+        .unwrap_err();
+        assert_eq!(full.class(), ErrorClass::Corruption);
+        assert_eq!(sparse.class(), full.class());
+        assert_eq!(sparse.diagnostic_code(), full.diagnostic_code());
+    }
 }
 
 #[test]

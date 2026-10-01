@@ -187,14 +187,12 @@ fn validate_publishable_transition_plan(plan: &SchemaTransitionPlan) -> Result<(
 
 pub(in crate::db) fn execute_admin_sql_ddl_field_path_index_addition(
     store: StoreHandle,
-    entity_tag: EntityTag,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
 ) -> Result<(usize, usize), InternalError> {
     let envelope = SqlDdlPublicationEnvelope::new(
         store,
-        entity_tag,
         accepted_before,
         &accepted_before_identity,
         derivation,
@@ -207,36 +205,19 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_path_index_addition(
         return Err(InternalError::store_unsupported());
     }
 
-    let replacement = stage_sql_ddl_user_index_domain_replacement(
-        envelope.store(),
-        &accepted_before_identity,
-        envelope.before(),
-        envelope.after(),
-    )?;
-    let rows_scanned = replacement.usage().source_rows();
-    let index_keys_written = staged_added_entry_count(&replacement)?;
-    publish_accepted_entity_snapshot_revision_with_user_index_domain(
-        envelope.store(),
-        accepted_before_identity,
-        envelope.after(),
-        replacement,
-    )?;
-
-    Ok((rows_scanned, index_keys_written))
+    stage_and_publish_sql_ddl_index_addition(&envelope, accepted_before_identity)
 }
 
 /// Execute one supported SQL DDL expression index addition through the schema
 /// mutation staging and publication boundary.
 pub(in crate::db) fn execute_admin_sql_ddl_expression_index_addition(
     store: StoreHandle,
-    entity_tag: EntityTag,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
 ) -> Result<(usize, usize), InternalError> {
     let envelope = SqlDdlPublicationEnvelope::new(
         store,
-        entity_tag,
         accepted_before,
         &accepted_before_identity,
         derivation,
@@ -248,6 +229,16 @@ pub(in crate::db) fn execute_admin_sql_ddl_expression_index_addition(
     if plan.expression_index_target() != Some(target) {
         return Err(InternalError::store_unsupported());
     }
+
+    stage_and_publish_sql_ddl_index_addition(&envelope, accepted_before_identity)
+}
+
+// Both admitted index kinds publish through the same staged domain replacement.
+// Kind-specific target checks remain at their entrypoints before any staging.
+fn stage_and_publish_sql_ddl_index_addition(
+    envelope: &SqlDdlPublicationEnvelope<'_>,
+    accepted_before_identity: AcceptedCatalogIdentity,
+) -> Result<(usize, usize), InternalError> {
     let replacement = stage_sql_ddl_user_index_domain_replacement(
         envelope.store(),
         &accepted_before_identity,
@@ -286,7 +277,6 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_addition(
 ) -> Result<(), InternalError> {
     let envelope = SqlDdlPublicationEnvelope::new(
         store,
-        entity_tag,
         accepted_before,
         &accepted_before_identity,
         derivation,
@@ -338,7 +328,6 @@ pub(super) fn require_exact_empty_sql_ddl_entity(
 
 pub(super) struct SqlDdlPublicationEnvelope<'a> {
     store: StoreHandle,
-    entity_tag: EntityTag,
     accepted_before_identity: AcceptedCatalogIdentity,
     before: &'a PersistedSchemaSnapshot,
     after: &'a PersistedSchemaSnapshot,
@@ -347,14 +336,12 @@ pub(super) struct SqlDdlPublicationEnvelope<'a> {
 impl<'a> SqlDdlPublicationEnvelope<'a> {
     pub(super) fn new(
         store: StoreHandle,
-        entity_tag: EntityTag,
         accepted_before: &'a AcceptedSchemaSnapshot,
         accepted_before_identity: &AcceptedCatalogIdentity,
         derivation: &'a SchemaDdlAcceptedSnapshotDerivation,
     ) -> Self {
         Self {
             store,
-            entity_tag,
             accepted_before_identity: accepted_before_identity.clone(),
             before: accepted_before.persisted_snapshot(),
             after: derivation.accepted_after().persisted_snapshot(),
@@ -381,9 +368,8 @@ impl<'a> SqlDdlPublicationEnvelope<'a> {
     }
 
     pub(super) fn publish(&self) -> Result<(), InternalError> {
-        publish_sql_ddl_accepted_snapshot(
+        publish_accepted_entity_snapshot_revision(
             self.store,
-            self.entity_tag,
             self.accepted_before_identity.clone(),
             self.after,
         )
@@ -405,28 +391,16 @@ fn require_sql_ddl_transition_plan(
     Ok(plan)
 }
 
-fn publish_sql_ddl_accepted_snapshot(
-    store: StoreHandle,
-    entity_tag: EntityTag,
-    accepted_before_identity: AcceptedCatalogIdentity,
-    after: &PersistedSchemaSnapshot,
-) -> Result<(), InternalError> {
-    debug_assert_eq!(entity_tag, accepted_before_identity.entity_tag());
-    publish_accepted_entity_snapshot_revision(store, accepted_before_identity, after)
-}
-
 /// Execute one supported SQL DDL secondary-index drop through marker-first
 /// complete-domain replacement.
 pub(in crate::db) fn execute_admin_sql_ddl_secondary_index_drop(
     store: StoreHandle,
-    entity_tag: EntityTag,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
 ) -> Result<(), InternalError> {
     let envelope = SqlDdlPublicationEnvelope::new(
         store,
-        entity_tag,
         accepted_before,
         &accepted_before_identity,
         derivation,

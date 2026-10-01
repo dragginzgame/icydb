@@ -357,9 +357,13 @@ fn inspect_boot_record<M: Memory>(
 }
 
 #[cfg(test)]
-fn write_current_boot_record<M: Memory>(control_memory: &M) -> Result<(), InternalError> {
-    if control_memory.size() == 0 && control_memory.grow(1) < 0 {
-        return Err(InternalError::recovery_database_format_control_unavailable());
+fn write_current_boot_record<M: Memory>(
+    control_memory: &RuntimeMemory<M>,
+) -> Result<(), InternalError> {
+    if control_memory.size() == 0 {
+        control_memory
+            .grow(1)
+            .map_err(|_| InternalError::recovery_database_format_control_unavailable())?;
     }
 
     control_memory.write(0, &DatabaseBootRecord::current().encode());

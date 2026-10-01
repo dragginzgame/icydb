@@ -106,7 +106,7 @@ impl RowLayout {
         row: &RawRow,
         expected_key: &PrimaryKeyValue,
         required_slot: usize,
-    ) -> Result<Option<Value>, InternalError> {
+    ) -> Result<Value, InternalError> {
         decode_sparse_required_slot_with_contract(row, &self.contract, expected_key, required_slot)
     }
 
@@ -115,7 +115,7 @@ impl RowLayout {
         row: &RawRow,
         data_key: &DecodedDataStoreKey,
         required_slot: usize,
-    ) -> Result<Option<Value>, InternalError> {
+    ) -> Result<Value, InternalError> {
         self.decode_required_value(row, &data_key.primary_key_value(), required_slot)
     }
 
@@ -206,11 +206,11 @@ impl RowDecoder {
         }
 
         if let [required_slot] = retained_slot_layout.required_slots() {
-            return Ok(vec![layout.decode_required_value(
+            return Ok(vec![Some(layout.decode_required_value(
                 row,
                 expected_key,
                 *required_slot,
-            )?]);
+            )?)]);
         }
 
         // Phase 2: reuse the canonical row-open validation boundary once, then

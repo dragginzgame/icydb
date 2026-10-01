@@ -1,0 +1,1402 @@
+{
+  "schema_version": 1,
+  "inputs": {
+    "application_head": "3f73417bc9bb359b0496d114bfb70722b594c860",
+    "application_dirty_paths": [
+      " M Makefile",
+      " M docs/development.md",
+      " M docs/status/current.md",
+      " M docs/status/operations.md",
+      " M docs/upstream/canic.md",
+      " M docs/upstream/icydb.md",
+      " M docs/upstream/scan-log.md",
+      " M scripts/deploy/links.py",
+      " M scripts/deploy/staging-contract-test.sh",
+      " M scripts/deploy/staging.sh",
+      " M scripts/dev/local-reinstall.sh",
+      " M scripts/dev/local_fleet.py",
+      " M scripts/dev/local_fleet_test.py",
+      "?? docs/audits/reports/2026/10/",
+      "?? docs/status/evidence/2026-10-01-staging-0.3.18.md",
+      "?? scripts/deploy/fleet_test.py",
+      "?? scripts/dev/fleet-report.sh",
+      "?? scripts/dev/fleet_report.py"
+    ],
+    "icydb_head": "95d161faf2b39803fcaead28a3a7515aaf8bf708",
+    "files_copied": 1396,
+    "icydb_dirty_paths_at_snapshot": [
+      " M CHANGELOG.md",
+      " M crates/icydb-core/src/db/codec/mod.rs",
+      " M crates/icydb-core/src/db/data/structural_row.rs",
+      " M crates/icydb-core/src/db/query/plan/expr/compiled_expr/evaluate.rs",
+      " M crates/icydb-core/src/db/query/plan/expr/compiled_expr/tests.rs",
+      " M crates/icydb-core/src/db/schema/sql_ddl.rs",
+      " M crates/icydb/src/db/session/catalog.rs",
+      " M crates/icydb/src/db/sql/table_render.rs",
+      " M crates/icydb/src/db/sql/tests.rs",
+      " M docs/changelog/0.264.md",
+      " M docs/design/0.264-signed-index-admission/0.264-status.md"
+    ],
+    "icydb_worktree_diff_sha256": "f457435c6a306887ed6735ef4f73f7d954829edf7112f4688c6fda79fa0ac010"
+  },
+  "build_profile": "Canic fast; same application path and private build context; SQL/migration disabled; metrics enabled",
+  "toolchain": {
+    "rust": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "canic": "canic 0.110.49",
+    "pocket_ic": "16.0.0"
+  },
+  "build_ids": {
+    "baseline": "752f1671ae34250a2a093739bd381da1f3e2beabd3233fb2cbdcfc6535aaab5b",
+    "candidate": "551a5c55b8c8b911e9e0442b705b6df5a59dc0c16471430ca4acfe2152bbe8a3",
+    "candidate_probe": "f2f1dba4d1ddac08b6d796c022e98caddfca269b5612e7e8b510178bff21cdfe",
+    "extra_entity": "589c186e4c83486ad46a064f5cd6caf47ee5cd73f0b41e383714dea37355f8da",
+    "baseline_probe": "cf283f553d4cc4287f0524b6f8f0fc7865a9dac26c0afdf4625805c498d44873"
+  },
+  "artifacts": {
+    "baseline": {
+      "game_hub": {
+        "raw_wasm_bytes": 4064411,
+        "wasm_sha256": "8ce796fd91160e016f8ceec7b85a68450bdaa8e84e1c0a505d54d8508cb2c52a",
+        "candid_sha256": "451b99ce9295ca07b51afabaca539507f3c9669a6ca93d8f82233350745321f9"
+      },
+      "game_shard": {
+        "raw_wasm_bytes": 10639850,
+        "wasm_sha256": "602bfb59c628ec1b8497c0769df1676c92cebade52a6e33de9a96fd18415d26c",
+        "candid_sha256": "9b19a1879ba1688b011e14314098480b52483f3fed542e7912abc2148a768f93"
+      },
+      "translation": {
+        "raw_wasm_bytes": 8721910,
+        "wasm_sha256": "096477a3f2ecfe000d7b91b161fe5d426e39448effb53f6936657c58bf7e1938",
+        "candid_sha256": "c14d9e97da1b92b09f3c6c1169895aeacd90ca6a721b69957df95458f7277e6d"
+      },
+      "user_hub": {
+        "raw_wasm_bytes": 7652373,
+        "wasm_sha256": "17ddd4a68e309afcbcd92d4d847a9950fe606a13e64730252ee8174565e3287c",
+        "candid_sha256": "f69da60c0e7cba598505506ae1c113e284886b5ed71f8733936c552817312a9f"
+      },
+      "user_shard": {
+        "raw_wasm_bytes": 7401965,
+        "wasm_sha256": "7bcb500ddd9a3c6534c5746832639db14d0f27f17b67f813ded033aed0a456e7",
+        "candid_sha256": "fafe5b562b10b5503a7fa8aef7c50db0404b67f6165e0423bb6af436c6202bc6"
+      }
+    },
+    "candidate": {
+      "game_hub": {
+        "raw_wasm_bytes": 4059785,
+        "wasm_sha256": "6cec4287690f23b47dd8c294c72c0ef97472ebe8e4e7d80f26ae59288ae709cf",
+        "candid_sha256": "451b99ce9295ca07b51afabaca539507f3c9669a6ca93d8f82233350745321f9"
+      },
+      "game_shard": {
+        "raw_wasm_bytes": 10633865,
+        "wasm_sha256": "bbaad7d856e79505dc46606cb9cfc7e20b7b82abff05de48d26f626774a4d8e6",
+        "candid_sha256": "9b19a1879ba1688b011e14314098480b52483f3fed542e7912abc2148a768f93"
+      },
+      "translation": {
+        "raw_wasm_bytes": 8704904,
+        "wasm_sha256": "47aa825a6d7eb072f24c84c04c79ca94a4dcf39454150b90f0de20fcdd7a5ee4",
+        "candid_sha256": "c14d9e97da1b92b09f3c6c1169895aeacd90ca6a721b69957df95458f7277e6d"
+      },
+      "user_hub": {
+        "raw_wasm_bytes": 7634048,
+        "wasm_sha256": "91193094d94b608c79bc7b5451ae139b7e88809b2dbf8c4782eb80612e4bdf43",
+        "candid_sha256": "f69da60c0e7cba598505506ae1c113e284886b5ed71f8733936c552817312a9f"
+      },
+      "user_shard": {
+        "raw_wasm_bytes": 7385628,
+        "wasm_sha256": "28ba68cff552c51a63663eb6a6ac68f60b8b4d453a0876b54d6f264a95b0a9f0",
+        "candid_sha256": "fafe5b562b10b5503a7fa8aef7c50db0404b67f6165e0423bb6af436c6202bc6"
+      }
+    },
+    "candidate_probe": {
+      "game_hub": {
+        "raw_wasm_bytes": 4064442,
+        "wasm_sha256": "c5ccdeae54fb7a39ea270cd077a7ff09bc1ce8a70ae33ea85fe2e559976fa508",
+        "candid_sha256": "451b99ce9295ca07b51afabaca539507f3c9669a6ca93d8f82233350745321f9"
+      },
+      "game_shard": {
+        "raw_wasm_bytes": 10655255,
+        "wasm_sha256": "bb818c20ce785afbcc36826b4f804f76d7aeb9ac624ef8b82787930bd0e58663",
+        "candid_sha256": "7344c9b913f48a93d1e507a60d56eac5bbbb6b80d04485cb7ebc357328e45d65"
+      },
+      "translation": {
+        "raw_wasm_bytes": 8707022,
+        "wasm_sha256": "b25498cc304524dd4d573df07dab1573a16ac5c63a5de2cb2d410990be956adc",
+        "candid_sha256": "c14d9e97da1b92b09f3c6c1169895aeacd90ca6a721b69957df95458f7277e6d"
+      },
+      "user_hub": {
+        "raw_wasm_bytes": 7638555,
+        "wasm_sha256": "0c2175e13a04c0f6098758d43949c76bce7068d002899431dfeb81facbbdedc7",
+        "candid_sha256": "f69da60c0e7cba598505506ae1c113e284886b5ed71f8733936c552817312a9f"
+      },
+      "user_shard": {
+        "raw_wasm_bytes": 7388006,
+        "wasm_sha256": "9d166ddf0573e8c6460af41f3a67660c096fbbdf861f60c6afab42064ad63b4f",
+        "candid_sha256": "fafe5b562b10b5503a7fa8aef7c50db0404b67f6165e0423bb6af436c6202bc6"
+      }
+    },
+    "extra_entity": {
+      "game_hub": {
+        "raw_wasm_bytes": 4064442,
+        "wasm_sha256": "91e8c0731d60f5f9e12f196efcfc93d5cce9f4ad074d795e28eefa7e2094ea3b",
+        "candid_sha256": "451b99ce9295ca07b51afabaca539507f3c9669a6ca93d8f82233350745321f9"
+      },
+      "game_shard": {
+        "raw_wasm_bytes": 10653989,
+        "wasm_sha256": "28b20fa0c8cce2a8bc817faf91819e7bd4a66c52402b202451143ffe71576382",
+        "candid_sha256": "7344c9b913f48a93d1e507a60d56eac5bbbb6b80d04485cb7ebc357328e45d65"
+      },
+      "translation": {
+        "raw_wasm_bytes": 8707022,
+        "wasm_sha256": "28eadc280990da36bde8fb2b43fdc23be1cfe5b946b0412cf8ad0e8ca2243dd6",
+        "candid_sha256": "c14d9e97da1b92b09f3c6c1169895aeacd90ca6a721b69957df95458f7277e6d"
+      },
+      "user_hub": {
+        "raw_wasm_bytes": 7638555,
+        "wasm_sha256": "2f456720fb532f98dcfb4f97552ccdae9b7452b91c56daa46036b7fc17c7c007",
+        "candid_sha256": "f69da60c0e7cba598505506ae1c113e284886b5ed71f8733936c552817312a9f"
+      },
+      "user_shard": {
+        "raw_wasm_bytes": 7388006,
+        "wasm_sha256": "c5c74731b709bc0f55a7bb5798443f5ebe00a743214dbe6c236d3c09ff18c7b0",
+        "candid_sha256": "fafe5b562b10b5503a7fa8aef7c50db0404b67f6165e0423bb6af436c6202bc6"
+      }
+    },
+    "baseline_probe": {
+      "game_hub": {
+        "raw_wasm_bytes": 4059503,
+        "wasm_sha256": "a73fab1449a2e0e72c1e0d488e3c61a55fbe4158a7173d10c7b12dd9e4723a02",
+        "candid_sha256": "451b99ce9295ca07b51afabaca539507f3c9669a6ca93d8f82233350745321f9"
+      },
+      "game_shard": {
+        "raw_wasm_bytes": 10648751,
+        "wasm_sha256": "2a046aebf33f130e12930ea4c08d9901fd9ed891883d742cc81c15aaebd080b0",
+        "candid_sha256": "7344c9b913f48a93d1e507a60d56eac5bbbb6b80d04485cb7ebc357328e45d65"
+      },
+      "translation": {
+        "raw_wasm_bytes": 8719877,
+        "wasm_sha256": "7afae79cf73e438d144b7acfeac6b103f6766dc6d4084d68bf9316d9412c9c57",
+        "candid_sha256": "c14d9e97da1b92b09f3c6c1169895aeacd90ca6a721b69957df95458f7277e6d"
+      },
+      "user_hub": {
+        "raw_wasm_bytes": 7648820,
+        "wasm_sha256": "d046a863dccbc4ad23286978767e19118dda004dd45f5b39fd1d11948c7facd8",
+        "candid_sha256": "f69da60c0e7cba598505506ae1c113e284886b5ed71f8733936c552817312a9f"
+      },
+      "user_shard": {
+        "raw_wasm_bytes": 7399644,
+        "wasm_sha256": "925c39f662f1ea757db2867104e5a31375430df6ece4e6a3eda759fd4e4bd86e",
+        "candid_sha256": "fafe5b562b10b5503a7fa8aef7c50db0404b67f6165e0423bb6af436c6202bc6"
+      }
+    }
+  },
+  "non_icydb_lock_packages_identical": true,
+  "action_trials": [
+    {
+      "workload": "inventory_stationary",
+      "batch_size": 1,
+      "actions": 64,
+      "baseline_consumed_nominal_cycles": 93194143194,
+      "candidate_consumed_nominal_cycles": 93996166104,
+      "cycle_delta_percent": 0.8605936838009809,
+      "baseline_action_body_instructions": 17683356828,
+      "candidate_action_body_instructions": 17693486093,
+      "instruction_delta_percent": 0.057281347079762845,
+      "canonical_intent_bytes": 113010,
+      "candid_argument_bytes": [
+        558,
+        551,
+        551,
+        551,
+        551,
+        551,
+        551,
+        551,
+        551,
+        551,
+        552,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553
+      ],
+      "inventory_and_lockers_conserved": true
+    },
+    {
+      "workload": "inventory_stationary",
+      "batch_size": 8,
+      "actions": 64,
+      "baseline_consumed_nominal_cycles": 46687882474,
+      "candidate_consumed_nominal_cycles": 47140502092,
+      "cycle_delta_percent": 0.9694584419245311,
+      "baseline_action_body_instructions": 8749806608,
+      "candidate_action_body_instructions": 8738916271,
+      "instruction_delta_percent": -0.12446374517629533,
+      "canonical_intent_bytes": 20460,
+      "candid_argument_bytes": [
+        1349,
+        1343,
+        1344,
+        1344,
+        1344,
+        1344,
+        1344,
+        1344
+      ],
+      "inventory_and_lockers_conserved": true
+    },
+    {
+      "workload": "inventory_stationary",
+      "batch_size": 16,
+      "actions": 64,
+      "baseline_consumed_nominal_cycles": 24885655322,
+      "candidate_consumed_nominal_cycles": 25089543485,
+      "cycle_delta_percent": 0.8192999555842739,
+      "baseline_action_body_instructions": 8141618187,
+      "candidate_action_body_instructions": 8151456951,
+      "instruction_delta_percent": 0.12084531322913428,
+      "canonical_intent_bytes": 13850,
+      "candid_argument_bytes": [
+        2254,
+        2248,
+        2248,
+        2248
+      ],
+      "inventory_and_lockers_conserved": true
+    },
+    {
+      "workload": "inventory_stationary",
+      "batch_size": 32,
+      "actions": 64,
+      "baseline_consumed_nominal_cycles": 13918655032,
+      "candidate_consumed_nominal_cycles": 13973350757,
+      "cycle_delta_percent": 0.39296702787914306,
+      "baseline_action_body_instructions": 7874443157,
+      "candidate_action_body_instructions": 7860728659,
+      "instruction_delta_percent": -0.1741646707781319,
+      "canonical_intent_bytes": 10544,
+      "candid_argument_bytes": [
+        4062,
+        4056
+      ],
+      "inventory_and_lockers_conserved": true
+    },
+    {
+      "workload": "inventory_with_walking",
+      "batch_size": 1,
+      "actions": 64,
+      "baseline_consumed_nominal_cycles": 93158338064,
+      "candidate_consumed_nominal_cycles": 93956751977,
+      "cycle_delta_percent": 0.8570504042821003,
+      "baseline_action_body_instructions": 17679759594,
+      "candidate_action_body_instructions": 17687676765,
+      "instruction_delta_percent": 0.044780987874326605,
+      "canonical_intent_bytes": 113010,
+      "candid_argument_bytes": [
+        558,
+        551,
+        551,
+        551,
+        551,
+        551,
+        551,
+        551,
+        551,
+        551,
+        552,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553,
+        553
+      ],
+      "inventory_and_lockers_conserved": true
+    },
+    {
+      "workload": "inventory_with_walking",
+      "batch_size": 8,
+      "actions": 64,
+      "baseline_consumed_nominal_cycles": 46736352968,
+      "candidate_consumed_nominal_cycles": 47172628640,
+      "cycle_delta_percent": 0.9334824912391237,
+      "baseline_action_body_instructions": 8780348731,
+      "candidate_action_body_instructions": 8759715503,
+      "instruction_delta_percent": -0.2349932631622309,
+      "canonical_intent_bytes": 20460,
+      "candid_argument_bytes": [
+        1349,
+        1343,
+        1344,
+        1344,
+        1344,
+        1344,
+        1344,
+        1344
+      ],
+      "inventory_and_lockers_conserved": true
+    },
+    {
+      "workload": "inventory_with_walking",
+      "batch_size": 16,
+      "actions": 64,
+      "baseline_consumed_nominal_cycles": 24948629210,
+      "candidate_consumed_nominal_cycles": 25129082848,
+      "cycle_delta_percent": 0.7233008133676222,
+      "baseline_action_body_instructions": 8168197221,
+      "candidate_action_body_instructions": 8169638071,
+      "instruction_delta_percent": 0.017639755273002322,
+      "canonical_intent_bytes": 13850,
+      "candid_argument_bytes": [
+        2254,
+        2248,
+        2248,
+        2248
+      ],
+      "inventory_and_lockers_conserved": true
+    },
+    {
+      "workload": "inventory_with_walking",
+      "batch_size": 32,
+      "actions": 64,
+      "baseline_consumed_nominal_cycles": 13944360230,
+      "candidate_consumed_nominal_cycles": 13972960648,
+      "cycle_delta_percent": 0.20510383788328035,
+      "baseline_action_body_instructions": 7895814008,
+      "candidate_action_body_instructions": 7855414713,
+      "instruction_delta_percent": -0.5116545926622362,
+      "canonical_intent_bytes": 10544,
+      "candid_argument_bytes": [
+        4062,
+        4056
+      ],
+      "inventory_and_lockers_conserved": true
+    }
+  ],
+  "action_reports_repeat_exactly": {
+    "baseline": true,
+    "current": true
+  },
+  "schema_phase_instructions": {
+    "baseline": [
+      {
+        "instructions_max": 177894429,
+        "instructions_total": 177894429,
+        "name": "lowering",
+        "samples": 1
+      },
+      {
+        "instructions_max": 239548331,
+        "instructions_total": 239548331,
+        "name": "publication",
+        "samples": 1
+      },
+      {
+        "instructions_max": 165994831,
+        "instructions_total": 165994831,
+        "name": "runtime_compilation",
+        "samples": 1
+      },
+      {
+        "instructions_max": 1878584,
+        "instructions_total": 3733751,
+        "name": "cardinality",
+        "samples": 4
+      },
+      {
+        "instructions_max": 4860694133,
+        "instructions_total": 20836866503,
+        "name": "startup_recovery",
+        "samples": 32
+      }
+    ],
+    "candidate": [
+      {
+        "instructions_max": 180734450,
+        "instructions_total": 180734450,
+        "name": "lowering",
+        "samples": 1
+      },
+      {
+        "instructions_max": 242668476,
+        "instructions_total": 242668476,
+        "name": "publication",
+        "samples": 1
+      },
+      {
+        "instructions_max": 167352696,
+        "instructions_total": 167352696,
+        "name": "runtime_compilation",
+        "samples": 1
+      },
+      {
+        "instructions_max": 1879178,
+        "instructions_total": 3735098,
+        "name": "cardinality",
+        "samples": 4
+      },
+      {
+        "instructions_max": 4919132478,
+        "instructions_total": 21047687075,
+        "name": "startup_recovery",
+        "samples": 32
+      }
+    ]
+  },
+  "query_body_instructions": [
+    {
+      "method": "upstream_probe_list_minerals",
+      "repeat": 0,
+      "baseline_instructions": 255438632,
+      "candidate_instructions": 254936385,
+      "delta_percent": -0.1966213943707662,
+      "encoded_result_sha256": "95432a71b8b6d6f0d569a5ec73ee31daf53b20e9a72be10c1a73dc1de6a3857a",
+      "encoded_result_bytes": 1019,
+      "successful_identical_result": true
+    },
+    {
+      "method": "upstream_probe_list_minerals",
+      "repeat": 1,
+      "baseline_instructions": 255438632,
+      "candidate_instructions": 254936385,
+      "delta_percent": -0.1966213943707662,
+      "encoded_result_sha256": "95432a71b8b6d6f0d569a5ec73ee31daf53b20e9a72be10c1a73dc1de6a3857a",
+      "encoded_result_bytes": 1019,
+      "successful_identical_result": true
+    },
+    {
+      "method": "upstream_probe_list_minerals",
+      "repeat": 2,
+      "baseline_instructions": 255438632,
+      "candidate_instructions": 254936385,
+      "delta_percent": -0.1966213943707662,
+      "encoded_result_sha256": "95432a71b8b6d6f0d569a5ec73ee31daf53b20e9a72be10c1a73dc1de6a3857a",
+      "encoded_result_bytes": 1019,
+      "successful_identical_result": true
+    },
+    {
+      "method": "upstream_probe_list_industry_catalog",
+      "repeat": 0,
+      "baseline_instructions": 265648323,
+      "candidate_instructions": 265265125,
+      "delta_percent": -0.14425011069992832,
+      "encoded_result_sha256": "90ca4729f1e2e6429bf0fca28cf02553c37324c1fab784244f9929cfdc766ac8",
+      "encoded_result_bytes": 20429,
+      "successful_identical_result": true
+    },
+    {
+      "method": "upstream_probe_list_industry_catalog",
+      "repeat": 1,
+      "baseline_instructions": 265648323,
+      "candidate_instructions": 265265125,
+      "delta_percent": -0.14425011069992832,
+      "encoded_result_sha256": "90ca4729f1e2e6429bf0fca28cf02553c37324c1fab784244f9929cfdc766ac8",
+      "encoded_result_bytes": 20429,
+      "successful_identical_result": true
+    },
+    {
+      "method": "upstream_probe_list_industry_catalog",
+      "repeat": 2,
+      "baseline_instructions": 265648323,
+      "candidate_instructions": 265265125,
+      "delta_percent": -0.14425011069992832,
+      "encoded_result_sha256": "90ca4729f1e2e6429bf0fca28cf02553c37324c1fab784244f9929cfdc766ac8",
+      "encoded_result_bytes": 20429,
+      "successful_identical_result": true
+    },
+    {
+      "method": "upstream_probe_get_my_robot",
+      "repeat": 0,
+      "baseline_instructions": 154137563,
+      "candidate_instructions": 154063287,
+      "delta_percent": -0.04818812400712025,
+      "encoded_result_sha256": "00b9a319df3d55b0532c56d1a6dc4a80abfb6c369fcab95c32226a75907227a1",
+      "encoded_result_bytes": 2487,
+      "successful_identical_result": true
+    },
+    {
+      "method": "upstream_probe_get_my_robot",
+      "repeat": 1,
+      "baseline_instructions": 154137563,
+      "candidate_instructions": 154063287,
+      "delta_percent": -0.04818812400712025,
+      "encoded_result_sha256": "00b9a319df3d55b0532c56d1a6dc4a80abfb6c369fcab95c32226a75907227a1",
+      "encoded_result_bytes": 2487,
+      "successful_identical_result": true
+    },
+    {
+      "method": "upstream_probe_get_my_robot",
+      "repeat": 2,
+      "baseline_instructions": 154137563,
+      "candidate_instructions": 154063287,
+      "delta_percent": -0.04818812400712025,
+      "encoded_result_sha256": "00b9a319df3d55b0532c56d1a6dc4a80abfb6c369fcab95c32226a75907227a1",
+      "encoded_result_bytes": 2487,
+      "successful_identical_result": true
+    }
+  ],
+  "accepted_entities": [
+    "ActionDelta",
+    "Artwork",
+    "CatalogRecipe",
+    "CelestialObject",
+    "CraftingRecipe",
+    "Creature",
+    "GravityStrength",
+    "Hazard",
+    "Item",
+    "Location",
+    "Machine",
+    "Map",
+    "MinionType",
+    "NftCollection",
+    "NftProject",
+    "NftToken",
+    "OrderCustomer",
+    "OrderCustomerCollection",
+    "Outpost",
+    "PlanetCreature",
+    "PlanetHazard",
+    "RadioStation",
+    "RecipeUnlock",
+    "Resource",
+    "Robot",
+    "RobotAppearanceOption",
+    "Rocket",
+    "StarSystem",
+    "User",
+    "UserPrincipal"
+  ],
+  "clone_instructions": [
+    {
+      "workload": "inventory_stationary",
+      "batch_size": 1,
+      "actions": 64,
+      "fields": [
+        {
+          "field": "robot.action_replays",
+          "samples": 11,
+          "instructions": 12974
+        },
+        {
+          "field": "robot.carried_inventory",
+          "samples": 11,
+          "instructions": 3883
+        },
+        {
+          "field": "robot.core_inventory",
+          "samples": 11,
+          "instructions": 3883
+        },
+        {
+          "field": "robot.installed_equipment",
+          "samples": 11,
+          "instructions": 7549
+        },
+        {
+          "field": "robot.learned_pattern_ids",
+          "samples": 11,
+          "instructions": 3718
+        },
+        {
+          "field": "robot.minions",
+          "samples": 11,
+          "instructions": 4037
+        },
+        {
+          "field": "robot.nft_discoveries",
+          "samples": 11,
+          "instructions": 3806
+        },
+        {
+          "field": "robot.recipe_points",
+          "samples": 11,
+          "instructions": 3839
+        }
+      ],
+      "total_clone_instructions": 43689
+    },
+    {
+      "workload": "inventory_stationary",
+      "batch_size": 8,
+      "actions": 64,
+      "fields": [
+        {
+          "field": "robot.action_replays",
+          "samples": 8,
+          "instructions": 9439
+        },
+        {
+          "field": "robot.carried_inventory",
+          "samples": 8,
+          "instructions": 2824
+        },
+        {
+          "field": "robot.core_inventory",
+          "samples": 8,
+          "instructions": 2824
+        },
+        {
+          "field": "robot.installed_equipment",
+          "samples": 8,
+          "instructions": 5503
+        },
+        {
+          "field": "robot.learned_pattern_ids",
+          "samples": 8,
+          "instructions": 2704
+        },
+        {
+          "field": "robot.minions",
+          "samples": 8,
+          "instructions": 2936
+        },
+        {
+          "field": "robot.nft_discoveries",
+          "samples": 8,
+          "instructions": 2768
+        },
+        {
+          "field": "robot.recipe_points",
+          "samples": 8,
+          "instructions": 2792
+        }
+      ],
+      "total_clone_instructions": 31790
+    },
+    {
+      "workload": "inventory_stationary",
+      "batch_size": 16,
+      "actions": 64,
+      "fields": [
+        {
+          "field": "robot.action_replays",
+          "samples": 4,
+          "instructions": 4720
+        },
+        {
+          "field": "robot.carried_inventory",
+          "samples": 4,
+          "instructions": 1412
+        },
+        {
+          "field": "robot.core_inventory",
+          "samples": 4,
+          "instructions": 1412
+        },
+        {
+          "field": "robot.installed_equipment",
+          "samples": 4,
+          "instructions": 2736
+        },
+        {
+          "field": "robot.learned_pattern_ids",
+          "samples": 4,
+          "instructions": 1352
+        },
+        {
+          "field": "robot.minions",
+          "samples": 4,
+          "instructions": 1468
+        },
+        {
+          "field": "robot.nft_discoveries",
+          "samples": 4,
+          "instructions": 1384
+        },
+        {
+          "field": "robot.recipe_points",
+          "samples": 4,
+          "instructions": 1396
+        }
+      ],
+      "total_clone_instructions": 15880
+    },
+    {
+      "workload": "inventory_stationary",
+      "batch_size": 32,
+      "actions": 64,
+      "fields": [
+        {
+          "field": "robot.action_replays",
+          "samples": 2,
+          "instructions": 2357
+        },
+        {
+          "field": "robot.carried_inventory",
+          "samples": 2,
+          "instructions": 706
+        },
+        {
+          "field": "robot.core_inventory",
+          "samples": 2,
+          "instructions": 706
+        },
+        {
+          "field": "robot.installed_equipment",
+          "samples": 2,
+          "instructions": 1368
+        },
+        {
+          "field": "robot.learned_pattern_ids",
+          "samples": 2,
+          "instructions": 676
+        },
+        {
+          "field": "robot.minions",
+          "samples": 2,
+          "instructions": 734
+        },
+        {
+          "field": "robot.nft_discoveries",
+          "samples": 2,
+          "instructions": 692
+        },
+        {
+          "field": "robot.recipe_points",
+          "samples": 2,
+          "instructions": 698
+        }
+      ],
+      "total_clone_instructions": 7937
+    },
+    {
+      "workload": "inventory_with_walking",
+      "batch_size": 1,
+      "actions": 64,
+      "fields": [
+        {
+          "field": "robot.action_replays",
+          "samples": 11,
+          "instructions": 12977
+        },
+        {
+          "field": "robot.carried_inventory",
+          "samples": 11,
+          "instructions": 3883
+        },
+        {
+          "field": "robot.core_inventory",
+          "samples": 11,
+          "instructions": 3883
+        },
+        {
+          "field": "robot.installed_equipment",
+          "samples": 11,
+          "instructions": 7555
+        },
+        {
+          "field": "robot.learned_pattern_ids",
+          "samples": 11,
+          "instructions": 3718
+        },
+        {
+          "field": "robot.minions",
+          "samples": 11,
+          "instructions": 4037
+        },
+        {
+          "field": "robot.nft_discoveries",
+          "samples": 11,
+          "instructions": 3806
+        },
+        {
+          "field": "robot.recipe_points",
+          "samples": 11,
+          "instructions": 3839
+        }
+      ],
+      "total_clone_instructions": 43698
+    },
+    {
+      "workload": "inventory_with_walking",
+      "batch_size": 8,
+      "actions": 64,
+      "fields": [
+        {
+          "field": "robot.action_replays",
+          "samples": 8,
+          "instructions": 9437
+        },
+        {
+          "field": "robot.carried_inventory",
+          "samples": 8,
+          "instructions": 2824
+        },
+        {
+          "field": "robot.core_inventory",
+          "samples": 8,
+          "instructions": 2824
+        },
+        {
+          "field": "robot.installed_equipment",
+          "samples": 8,
+          "instructions": 5503
+        },
+        {
+          "field": "robot.learned_pattern_ids",
+          "samples": 8,
+          "instructions": 2704
+        },
+        {
+          "field": "robot.minions",
+          "samples": 8,
+          "instructions": 2936
+        },
+        {
+          "field": "robot.nft_discoveries",
+          "samples": 8,
+          "instructions": 2768
+        },
+        {
+          "field": "robot.recipe_points",
+          "samples": 8,
+          "instructions": 2792
+        }
+      ],
+      "total_clone_instructions": 31788
+    },
+    {
+      "workload": "inventory_with_walking",
+      "batch_size": 16,
+      "actions": 64,
+      "fields": [
+        {
+          "field": "robot.action_replays",
+          "samples": 4,
+          "instructions": 4717
+        },
+        {
+          "field": "robot.carried_inventory",
+          "samples": 4,
+          "instructions": 1412
+        },
+        {
+          "field": "robot.core_inventory",
+          "samples": 4,
+          "instructions": 1412
+        },
+        {
+          "field": "robot.installed_equipment",
+          "samples": 4,
+          "instructions": 2733
+        },
+        {
+          "field": "robot.learned_pattern_ids",
+          "samples": 4,
+          "instructions": 1352
+        },
+        {
+          "field": "robot.minions",
+          "samples": 4,
+          "instructions": 1468
+        },
+        {
+          "field": "robot.nft_discoveries",
+          "samples": 4,
+          "instructions": 1384
+        },
+        {
+          "field": "robot.recipe_points",
+          "samples": 4,
+          "instructions": 1396
+        }
+      ],
+      "total_clone_instructions": 15874
+    },
+    {
+      "workload": "inventory_with_walking",
+      "batch_size": 32,
+      "actions": 64,
+      "fields": [
+        {
+          "field": "robot.action_replays",
+          "samples": 2,
+          "instructions": 2360
+        },
+        {
+          "field": "robot.carried_inventory",
+          "samples": 2,
+          "instructions": 706
+        },
+        {
+          "field": "robot.core_inventory",
+          "samples": 2,
+          "instructions": 706
+        },
+        {
+          "field": "robot.installed_equipment",
+          "samples": 2,
+          "instructions": 1368
+        },
+        {
+          "field": "robot.learned_pattern_ids",
+          "samples": 2,
+          "instructions": 676
+        },
+        {
+          "field": "robot.minions",
+          "samples": 2,
+          "instructions": 734
+        },
+        {
+          "field": "robot.nft_discoveries",
+          "samples": 2,
+          "instructions": 692
+        },
+        {
+          "field": "robot.recipe_points",
+          "samples": 2,
+          "instructions": 698
+        }
+      ],
+      "total_clone_instructions": 7940
+    }
+  ],
+  "journal_controls": {
+    "debt-1": {
+      "accepted_calls_before_recovery": 100,
+      "database_error_code": 263,
+      "exact_replays": 8,
+      "explicit_ticks": 78,
+      "final_inventory_conserved": true,
+      "fixed_recovery_explicit_ticks": 160,
+      "identical_requests_recovered": 4,
+      "ingress_wait_rounds": null,
+      "initial_log_index": 152,
+      "live_capacity_qualified": false,
+      "recovery_consumed_nominal_cycles": "132093455054",
+      "rejected_calls": 4,
+      "rejected_state_unchanged": true,
+      "schedule": "fixed explicit rounds per virtual schedule step plus ingress-wait rounds",
+      "schedule_consumed_nominal_cycles": "152520288923",
+      "ticks_per_step": 1,
+      "virtual_recovery_steps": 10,
+      "waves": 13,
+      "initial_batches": 1,
+      "appended_batches": 115,
+      "retired_batches": 89,
+      "final_batches": 27,
+      "peak_batches": 64,
+      "peak_records": 96,
+      "peak_encoded_bytes": 329264,
+      "exact_batch_conservation": true,
+      "wave_observations": [
+        {
+          "accepted": 8,
+          "consumed_nominal_cycles": "5070387248",
+          "last_log_index": 161,
+          "rejected": 0,
+          "wave": 1
+        },
+        {
+          "accepted": 16,
+          "consumed_nominal_cycles": "15328728935",
+          "last_log_index": 171,
+          "rejected": 0,
+          "wave": 2
+        },
+        {
+          "accepted": 24,
+          "consumed_nominal_cycles": "21713800872",
+          "last_log_index": 184,
+          "rejected": 0,
+          "wave": 3
+        },
+        {
+          "accepted": 32,
+          "consumed_nominal_cycles": "36792194244",
+          "last_log_index": 195,
+          "rejected": 0,
+          "wave": 4
+        },
+        {
+          "accepted": 40,
+          "consumed_nominal_cycles": "51247570171",
+          "last_log_index": 205,
+          "rejected": 0,
+          "wave": 5
+        },
+        {
+          "accepted": 48,
+          "consumed_nominal_cycles": "66015934729",
+          "last_log_index": 215,
+          "rejected": 0,
+          "wave": 6
+        },
+        {
+          "accepted": 56,
+          "consumed_nominal_cycles": "76272549251",
+          "last_log_index": 226,
+          "rejected": 0,
+          "wave": 7
+        },
+        {
+          "accepted": 64,
+          "consumed_nominal_cycles": "86838485641",
+          "last_log_index": 237,
+          "rejected": 0,
+          "wave": 8
+        },
+        {
+          "accepted": 72,
+          "consumed_nominal_cycles": "97892217655",
+          "last_log_index": 250,
+          "rejected": 0,
+          "wave": 9
+        },
+        {
+          "accepted": 80,
+          "consumed_nominal_cycles": "112676990383",
+          "last_log_index": 260,
+          "rejected": 0,
+          "wave": 10
+        },
+        {
+          "accepted": 88,
+          "consumed_nominal_cycles": "127411408431",
+          "last_log_index": 271,
+          "rejected": 0,
+          "wave": 11
+        },
+        {
+          "accepted": 96,
+          "consumed_nominal_cycles": "142195589271",
+          "last_log_index": 281,
+          "rejected": 0,
+          "wave": 12
+        },
+        {
+          "accepted": 100,
+          "consumed_nominal_cycles": "152520288923",
+          "last_log_index": 290,
+          "rejected": 4,
+          "wave": 13
+        }
+      ]
+    },
+    "debt-8": {
+      "accepted_calls_before_recovery": 192,
+      "database_error_code": null,
+      "exact_replays": 8,
+      "explicit_ticks": 1152,
+      "final_inventory_conserved": true,
+      "fixed_recovery_explicit_ticks": 160,
+      "identical_requests_recovered": 0,
+      "ingress_wait_rounds": null,
+      "initial_log_index": 152,
+      "live_capacity_qualified": false,
+      "recovery_consumed_nominal_cycles": "47504755858",
+      "rejected_calls": 0,
+      "rejected_state_unchanged": true,
+      "schedule": "fixed explicit rounds per virtual schedule step plus ingress-wait rounds",
+      "schedule_consumed_nominal_cycles": "830468698848",
+      "ticks_per_step": 8,
+      "virtual_recovery_steps": 10,
+      "waves": 24,
+      "initial_batches": 1,
+      "appended_batches": 289,
+      "retired_batches": 290,
+      "final_batches": 0,
+      "peak_batches": 9,
+      "peak_records": 14,
+      "peak_encoded_bytes": 50678,
+      "exact_batch_conservation": true,
+      "wave_observations": [
+        {
+          "accepted": 8,
+          "consumed_nominal_cycles": "9927468772",
+          "last_log_index": 163,
+          "rejected": 0,
+          "wave": 1
+        },
+        {
+          "accepted": 16,
+          "consumed_nominal_cycles": "32420743204",
+          "last_log_index": 186,
+          "rejected": 0,
+          "wave": 2
+        },
+        {
+          "accepted": 24,
+          "consumed_nominal_cycles": "77575608368",
+          "last_log_index": 210,
+          "rejected": 0,
+          "wave": 3
+        },
+        {
+          "accepted": 32,
+          "consumed_nominal_cycles": "104931180298",
+          "last_log_index": 234,
+          "rejected": 0,
+          "wave": 4
+        },
+        {
+          "accepted": 40,
+          "consumed_nominal_cycles": "150084275849",
+          "last_log_index": 258,
+          "rejected": 0,
+          "wave": 5
+        },
+        {
+          "accepted": 48,
+          "consumed_nominal_cycles": "177409353009",
+          "last_log_index": 282,
+          "rejected": 0,
+          "wave": 6
+        },
+        {
+          "accepted": 56,
+          "consumed_nominal_cycles": "222554241917",
+          "last_log_index": 305,
+          "rejected": 0,
+          "wave": 7
+        },
+        {
+          "accepted": 64,
+          "consumed_nominal_cycles": "249489575433",
+          "last_log_index": 328,
+          "rejected": 0,
+          "wave": 8
+        },
+        {
+          "accepted": 72,
+          "consumed_nominal_cycles": "290368747748",
+          "last_log_index": 352,
+          "rejected": 0,
+          "wave": 9
+        },
+        {
+          "accepted": 80,
+          "consumed_nominal_cycles": "322219500977",
+          "last_log_index": 376,
+          "rejected": 0,
+          "wave": 10
+        },
+        {
+          "accepted": 88,
+          "consumed_nominal_cycles": "362947856953",
+          "last_log_index": 400,
+          "rejected": 0,
+          "wave": 11
+        },
+        {
+          "accepted": 96,
+          "consumed_nominal_cycles": "394804962486",
+          "last_log_index": 424,
+          "rejected": 0,
+          "wave": 12
+        },
+        {
+          "accepted": 104,
+          "consumed_nominal_cycles": "435557017251",
+          "last_log_index": 448,
+          "rejected": 0,
+          "wave": 13
+        },
+        {
+          "accepted": 112,
+          "consumed_nominal_cycles": "467437302731",
+          "last_log_index": 472,
+          "rejected": 0,
+          "wave": 14
+        },
+        {
+          "accepted": 120,
+          "consumed_nominal_cycles": "508177223528",
+          "last_log_index": 496,
+          "rejected": 0,
+          "wave": 15
+        },
+        {
+          "accepted": 128,
+          "consumed_nominal_cycles": "540040297322",
+          "last_log_index": 520,
+          "rejected": 0,
+          "wave": 16
+        },
+        {
+          "accepted": 136,
+          "consumed_nominal_cycles": "580789578174",
+          "last_log_index": 544,
+          "rejected": 0,
+          "wave": 17
+        },
+        {
+          "accepted": 144,
+          "consumed_nominal_cycles": "612613016327",
+          "last_log_index": 568,
+          "rejected": 0,
+          "wave": 18
+        },
+        {
+          "accepted": 152,
+          "consumed_nominal_cycles": "653391654416",
+          "last_log_index": 592,
+          "rejected": 0,
+          "wave": 19
+        },
+        {
+          "accepted": 160,
+          "consumed_nominal_cycles": "685247489767",
+          "last_log_index": 616,
+          "rejected": 0,
+          "wave": 20
+        },
+        {
+          "accepted": 168,
+          "consumed_nominal_cycles": "726003512959",
+          "last_log_index": 640,
+          "rejected": 0,
+          "wave": 21
+        },
+        {
+          "accepted": 176,
+          "consumed_nominal_cycles": "757829093614",
+          "last_log_index": 664,
+          "rejected": 0,
+          "wave": 22
+        },
+        {
+          "accepted": 184,
+          "consumed_nominal_cycles": "798579699006",
+          "last_log_index": 688,
+          "rejected": 0,
+          "wave": 23
+        },
+        {
+          "accepted": 192,
+          "consumed_nominal_cycles": "830468698848",
+          "last_log_index": 712,
+          "rejected": 0,
+          "wave": 24
+        }
+      ]
+    }
+  },
+  "extra_entity": {
+    "baseline_entities": 30,
+    "candidate_entities": 31,
+    "name": "UpstreamEntityProbe",
+    "fields": [
+      "id: Ulid",
+      "label: Text(max_len=64)",
+      "value: Nat64"
+    ],
+    "indexes": [
+      "unique label"
+    ],
+    "rows_inserted": 0,
+    "raw_wasm_delta_bytes": -1266,
+    "section_body_deltas_bytes": {
+      "function": 14,
+      "code": -1552,
+      "data": 272
+    },
+    "candid_identical": true,
+    "accepted_entity_verified": true
+  },
+  "scope_limits": [
+    "no wall-clock benchmark or mainnet capacity measurement",
+    "candidate includes captured pending cleanup; not release adoption evidence",
+    "clone counter covers observed Robot fields; larger Rocket/journey payloads unmeasured",
+    "schema phases overlap and include initial fixture/enrolment online folds; not an exclusive startup bill",
+    "observer-instrumented journal/copy artifacts are not production-cost comparisons",
+    "empty entity has no typed write/read consumers; not a universal per-entity cost"
+  ]
+}

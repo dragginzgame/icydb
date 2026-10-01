@@ -8,7 +8,6 @@ pub(in crate::db) mod hex;
 mod reader;
 
 use crate::{db::schema::RowLayoutVersion, error::InternalError};
-use std::borrow::Cow;
 
 pub(in crate::db) use hash_stream::{
     finalize_hash_sha256, new_hash_sha256, new_hash_sha256_prefixed, write_hash_len_u32,
@@ -34,7 +33,7 @@ const ROW_ENVELOPE_HEADER_LEN: usize = 2 + 1 + 4 + 4;
 
 pub(in crate::db) struct DecodedRowPayload<'a> {
     layout_version: RowLayoutVersion,
-    payload: Cow<'a, [u8]>,
+    payload: &'a [u8],
 }
 
 impl<'a> DecodedRowPayload<'a> {
@@ -46,7 +45,7 @@ impl<'a> DecodedRowPayload<'a> {
 
     /// Consume the envelope into its borrowed canonical slot container.
     #[must_use]
-    pub(in crate::db) fn into_payload(self) -> Cow<'a, [u8]> {
+    pub(in crate::db) const fn into_payload(self) -> &'a [u8] {
         self.payload
     }
 }
@@ -110,7 +109,7 @@ pub(in crate::db) fn decode_row_payload_bytes(
 
     Ok(DecodedRowPayload {
         layout_version,
-        payload: Cow::Borrowed(&bytes[payload_start..payload_end]),
+        payload: &bytes[payload_start..payload_end],
     })
 }
 
@@ -177,7 +176,10 @@ mod tests {
         let decoded = decode_row_payload_bytes(&encoded).expect("the envelope should decode");
         assert_eq!(decoded.layout_version(), RowLayoutVersion::INITIAL);
         let payload = decoded.into_payload();
-        assert!(matches!(payload, Cow::Borrowed(_)));
+        assert_eq!(
+            payload.as_ptr(),
+            encoded[ROW_ENVELOPE_HEADER_LEN..].as_ptr()
+        );
         assert_eq!(payload.len(), payload_len);
         assert!(payload.iter().all(|byte| *byte == 0xab));
     }

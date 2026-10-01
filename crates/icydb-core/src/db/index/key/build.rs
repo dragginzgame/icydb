@@ -4,10 +4,7 @@
 //! Boundary: planning/mutation paths call into this constructor layer.
 
 use crate::db::schema::SchemaInfo;
-use crate::db::schema::{
-    SchemaExpressionIndexRebuildExpression, SchemaExpressionIndexRebuildKey,
-    SchemaExpressionIndexRebuildTarget,
-};
+use crate::db::schema::{SchemaExpressionIndexRebuildKey, SchemaExpressionIndexRebuildTarget};
 use crate::{
     MAX_INDEX_FIELDS,
     db::{
@@ -19,10 +16,11 @@ use crate::{
         },
         key_taxonomy::PrimaryKeyValue,
         schema::{
-            AcceptedFieldKind, AcceptedValueAdmissionContract, SchemaExpressionIndexInfo,
-            SchemaExpressionIndexKeyItemInfo, SchemaFieldPathIndexRebuildKey,
-            SchemaFieldPathIndexRebuildTarget, SchemaIndexFieldPathInfo, SchemaIndexInfo,
-            ValueAdmissionBudget, encode_unit_enum_equality_key,
+            AcceptedFieldKind, AcceptedValueAdmissionContract, PersistedIndexExpressionOp,
+            SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo,
+            SchemaFieldPathIndexRebuildKey, SchemaFieldPathIndexRebuildTarget,
+            SchemaIndexFieldPathInfo, SchemaIndexInfo, ValueAdmissionBudget,
+            encode_unit_enum_equality_key,
         },
     },
     error::InternalError,
@@ -282,14 +280,12 @@ fn accepted_expression_component_bytes_from_slots(
             encode_accepted_expression_field_path_index_component(accepted_index, field, source)
         }
         SchemaExpressionIndexKeyItemInfo::Expression(expression) => {
-            let source = slots.required_value_by_contract_cow(expression.source().slot())?;
-            let Some(value) = derive_index_expression_value(expression.op(), source.as_ref())
-                .map_err(|_| InternalError::index_invariant())?
-            else {
-                return Ok(None);
-            };
-
-            encode_value_index_component(value)
+            expression_component_bytes_from_slots(
+                expression.op(),
+                expression.source().slot(),
+                expression.source().path(),
+                slots,
+            )
         }
     }
 }
@@ -315,23 +311,30 @@ fn expression_rebuild_component_bytes_from_slots(
             field_path_rebuild_component_bytes_from_slots(field, slots)
         }
         SchemaExpressionIndexRebuildKey::Expression(expression) => {
-            expression_rebuild_expression_component_bytes_from_slots(expression, slots)
+            expression_component_bytes_from_slots(
+                expression.op(),
+                usize::from(expression.source().slot().get()),
+                expression.source().path(),
+                slots,
+            )
         }
     }
 }
 
-fn expression_rebuild_expression_component_bytes_from_slots(
-    expression: &SchemaExpressionIndexRebuildExpression,
+// Rebuild and ordinary maintenance must transform the same accepted leaf,
+// including nested source paths and their NULL/non-membership boundary.
+fn expression_component_bytes_from_slots(
+    op: PersistedIndexExpressionOp,
+    source_slot: usize,
+    source_path: &[String],
     slots: &dyn CanonicalSlotReader,
 ) -> Result<Option<Vec<u8>>, InternalError> {
-    let source =
-        slots.required_value_by_contract_cow(usize::from(expression.source().slot().get()))?;
-    let source_field = expression.source();
-    let Some(source) = resolve_field_path_component(source.as_ref(), source_field.path())? else {
+    let source = slots.required_value_by_contract_cow(source_slot)?;
+    let Some(source) = resolve_field_path_component(source.as_ref(), source_path)? else {
         return Ok(None);
     };
-    let Some(value) = derive_index_expression_value(expression.op(), source)
-        .map_err(|_| InternalError::index_invariant())?
+    let Some(value) =
+        derive_index_expression_value(op, source).map_err(|_| InternalError::index_invariant())?
     else {
         return Ok(None);
     };
@@ -401,44 +404,12 @@ fn build_field_path_rebuild_target_key(
     target: &SchemaFieldPathIndexRebuildTarget,
     component_bytes: &mut FieldPathRebuildComponentEncoder<'_>,
 ) -> Result<Option<IndexKey>, InternalError> {
-    let component_count = target.key_paths().len();
-    if component_count > MAX_INDEX_FIELDS {
-        return Err(InternalError::index_key_field_count_exceeds_max(
-            entity_tag.value(),
-            target.physical_generation(),
-            component_count,
-            MAX_INDEX_FIELDS,
-        ));
-    }
-
-    let mut components = Vec::with_capacity(component_count);
-    for (component_index, field) in target.key_paths().iter().enumerate() {
-        let Some(component) = component_bytes(field)? else {
-            return Ok(None);
-        };
-
-        if component.len() > IndexKey::MAX_COMPONENT_SIZE {
-            return Err(InternalError::index_component_exceeds_max_size_at(
-                entity_tag.value(),
-                target.physical_generation(),
-                component_index,
-                component.len(),
-                IndexKey::MAX_COMPONENT_SIZE,
-            ));
-        }
-        components.push(component);
-    }
-
-    Ok(Some(IndexKey {
-        key_kind: IndexKeyKind::User,
-        index_id: IndexId::new_with_generation(
-            entity_tag,
-            target.ordinal(),
-            target.physical_generation(),
-        ),
-        components,
-        primary_key: IndexKey::compact_primary_key_value_bytes(primary_key)?,
-    }))
+    build_user_index_key_from_components(
+        IndexId::new_with_generation(entity_tag, target.ordinal(), target.physical_generation()),
+        primary_key,
+        target.key_paths(),
+        component_bytes,
+    )
 }
 
 fn build_expression_rebuild_target_key(
@@ -447,44 +418,12 @@ fn build_expression_rebuild_target_key(
     target: &SchemaExpressionIndexRebuildTarget,
     component_bytes: &mut ExpressionRebuildComponentEncoder<'_>,
 ) -> Result<Option<IndexKey>, InternalError> {
-    let component_count = target.key_items().len();
-    if component_count > MAX_INDEX_FIELDS {
-        return Err(InternalError::index_key_field_count_exceeds_max(
-            entity_tag.value(),
-            target.physical_generation(),
-            component_count,
-            MAX_INDEX_FIELDS,
-        ));
-    }
-
-    let mut components = Vec::with_capacity(component_count);
-    for (component_index, key_item) in target.key_items().iter().enumerate() {
-        let Some(component) = component_bytes(key_item)? else {
-            return Ok(None);
-        };
-
-        if component.len() > IndexKey::MAX_COMPONENT_SIZE {
-            return Err(InternalError::index_component_exceeds_max_size_at(
-                entity_tag.value(),
-                target.physical_generation(),
-                component_index,
-                component.len(),
-                IndexKey::MAX_COMPONENT_SIZE,
-            ));
-        }
-        components.push(component);
-    }
-
-    Ok(Some(IndexKey {
-        key_kind: IndexKeyKind::User,
-        index_id: IndexId::new_with_generation(
-            entity_tag,
-            target.ordinal(),
-            target.physical_generation(),
-        ),
-        components,
-        primary_key: IndexKey::compact_primary_key_value_bytes(primary_key)?,
-    }))
+    build_user_index_key_from_components(
+        IndexId::new_with_generation(entity_tag, target.ordinal(), target.physical_generation()),
+        primary_key,
+        target.key_items(),
+        component_bytes,
+    )
 }
 
 fn build_accepted_expression_index_key_from_components(
@@ -493,44 +432,16 @@ fn build_accepted_expression_index_key_from_components(
     accepted_index: &SchemaExpressionIndexInfo,
     component_bytes: &mut AcceptedExpressionComponentEncoder<'_>,
 ) -> Result<Option<IndexKey>, InternalError> {
-    let component_count = accepted_index.key_items().len();
-    if component_count > MAX_INDEX_FIELDS {
-        return Err(InternalError::index_key_field_count_exceeds_max(
-            entity_tag.value(),
-            accepted_index.physical_generation(),
-            component_count,
-            MAX_INDEX_FIELDS,
-        ));
-    }
-
-    let mut components = Vec::with_capacity(component_count);
-    for (component_index, key_item) in accepted_index.key_items().iter().enumerate() {
-        let Some(component) = component_bytes(key_item)? else {
-            return Ok(None);
-        };
-
-        if component.len() > IndexKey::MAX_COMPONENT_SIZE {
-            return Err(InternalError::index_component_exceeds_max_size_at(
-                entity_tag.value(),
-                accepted_index.physical_generation(),
-                component_index,
-                component.len(),
-                IndexKey::MAX_COMPONENT_SIZE,
-            ));
-        }
-        components.push(component);
-    }
-
-    Ok(Some(IndexKey {
-        key_kind: IndexKeyKind::User,
-        index_id: IndexId::new_with_generation(
+    build_user_index_key_from_components(
+        IndexId::new_with_generation(
             entity_tag,
             accepted_index.ordinal(),
             accepted_index.physical_generation(),
         ),
-        components,
-        primary_key: IndexKey::compact_primary_key_value_bytes(primary_key)?,
-    }))
+        primary_key,
+        accepted_index.key_items(),
+        component_bytes,
+    )
 }
 
 fn build_accepted_field_path_index_key_from_components(
@@ -539,26 +450,46 @@ fn build_accepted_field_path_index_key_from_components(
     accepted_index: &SchemaIndexInfo,
     component_bytes: &mut AcceptedFieldPathComponentEncoder<'_>,
 ) -> Result<Option<IndexKey>, InternalError> {
-    let component_count = accepted_index.fields().len();
+    build_user_index_key_from_components(
+        IndexId::new_with_generation(
+            entity_tag,
+            accepted_index.ordinal(),
+            accepted_index.physical_generation(),
+        ),
+        primary_key,
+        accepted_index.fields(),
+        |field| component_bytes(accepted_index, field),
+    )
+}
+
+// Assemble accepted and rebuild keys under one byte/diagnostic contract.
+// Callers retain their distinct component authority; static dispatch preserves
+// their existing encoder calls without boxing or extra component allocation.
+fn build_user_index_key_from_components<T>(
+    index_id: IndexId,
+    primary_key: &PrimaryKeyValue,
+    items: &[T],
+    mut component_bytes: impl FnMut(&T) -> Result<Option<Vec<u8>>, InternalError>,
+) -> Result<Option<IndexKey>, InternalError> {
+    let component_count = items.len();
     if component_count > MAX_INDEX_FIELDS {
         return Err(InternalError::index_key_field_count_exceeds_max(
-            entity_tag.value(),
-            accepted_index.physical_generation(),
+            index_id.entity_tag().value(),
+            index_id.generation(),
             component_count,
             MAX_INDEX_FIELDS,
         ));
     }
 
     let mut components = Vec::with_capacity(component_count);
-    for (component_index, field) in accepted_index.fields().iter().enumerate() {
-        let Some(component) = component_bytes(accepted_index, field)? else {
+    for (component_index, item) in items.iter().enumerate() {
+        let Some(component) = component_bytes(item)? else {
             return Ok(None);
         };
-
         if component.len() > IndexKey::MAX_COMPONENT_SIZE {
             return Err(InternalError::index_component_exceeds_max_size_at(
-                entity_tag.value(),
-                accepted_index.physical_generation(),
+                index_id.entity_tag().value(),
+                index_id.generation(),
                 component_index,
                 component.len(),
                 IndexKey::MAX_COMPONENT_SIZE,
@@ -569,11 +500,7 @@ fn build_accepted_field_path_index_key_from_components(
 
     Ok(Some(IndexKey {
         key_kind: IndexKeyKind::User,
-        index_id: IndexId::new_with_generation(
-            entity_tag,
-            accepted_index.ordinal(),
-            accepted_index.physical_generation(),
-        ),
+        index_id,
         components,
         primary_key: IndexKey::compact_primary_key_value_bytes(primary_key)?,
     }))
@@ -612,6 +539,92 @@ fn encode_value_index_component_ref(value: &Value) -> Result<Option<Vec<u8>>, In
     };
 
     Ok(Some(encoded))
+}
+
+#[cfg(test)]
+mod assembly_tests {
+    use super::*;
+    use crate::db::key_taxonomy::PrimaryKeyComponent;
+
+    #[test]
+    fn user_key_limits_preserve_typed_diagnostics() {
+        let id = IndexId::new_with_generation(EntityTag::new(23), 2, 5);
+        let key = PrimaryKeyComponent::Nat64(7).into();
+        let error =
+            build_user_index_key_from_components(id, &key, &[(); MAX_INDEX_FIELDS + 1], |()| {
+                panic!("field count must be checked before encoding")
+            })
+            .unwrap_err();
+        let expected = InternalError::index_key_field_count_exceeds_max(
+            23,
+            5,
+            MAX_INDEX_FIELDS + 1,
+            MAX_INDEX_FIELDS,
+        );
+        assert_eq!(error.class(), expected.class());
+        assert_eq!(error.diagnostic_code(), expected.diagnostic_code());
+        assert_eq!(error.diagnostic_facts(), expected.diagnostic_facts());
+
+        let error = build_user_index_key_from_components(
+            id,
+            &key,
+            &[1, IndexKey::MAX_COMPONENT_SIZE + 1],
+            |len| Ok(Some(vec![0; *len])),
+        )
+        .unwrap_err();
+        let expected = InternalError::index_component_exceeds_max_size_at(
+            23,
+            5,
+            1,
+            IndexKey::MAX_COMPONENT_SIZE + 1,
+            IndexKey::MAX_COMPONENT_SIZE,
+        );
+        assert_eq!(error.class(), expected.class());
+        assert_eq!(error.diagnostic_code(), expected.diagnostic_code());
+        assert_eq!(error.diagnostic_facts(), expected.diagnostic_facts());
+    }
+
+    #[test]
+    fn user_keys_preserve_identity_and_null_short_circuit() {
+        let id = IndexId::new_with_generation(EntityTag::new(23), 2, 5);
+        let primary_key = PrimaryKeyComponent::Nat64(7).into();
+        let items = [Value::Nat64(11), Value::Text("key".into())];
+        let key = build_user_index_key_from_components(
+            id,
+            &primary_key,
+            &items,
+            encode_value_index_component_ref,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(key.index_id, id);
+        assert_eq!(key.key_kind, IndexKeyKind::User);
+        assert_eq!(
+            key.primary_key,
+            IndexKey::compact_primary_key_value_bytes(&primary_key).unwrap()
+        );
+        assert_eq!(
+            key.components,
+            items
+                .iter()
+                .map(|item| encode_canonical_index_component(item).unwrap())
+                .collect::<Vec<_>>()
+        );
+
+        let mut calls = 0;
+        let absent = build_user_index_key_from_components(
+            id,
+            &primary_key,
+            &[Value::Nat64(11), Value::Null, Value::Nat64(12)],
+            |value| {
+                calls += 1;
+                encode_value_index_component_ref(value)
+            },
+        )
+        .unwrap();
+        assert!(absent.is_none());
+        assert_eq!(calls, 2);
+    }
 }
 
 #[cfg(test)]

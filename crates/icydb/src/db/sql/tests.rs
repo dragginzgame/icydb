@@ -527,6 +527,8 @@ fn verbose_dossier_golden() {
     let relation_bytes = Encode!(&description.relations().to_vec())
         .expect("maintained relation projection should encode");
     let lines = render_describe_lines(&description);
+    let constraint_lines =
+        render_show_constraints_lines(description.entity_name(), description.constraints());
     let verbose_lines = render_describe_output_lines(&SqlDescribeOutput::Verbose { description });
 
     assert_eq!(
@@ -555,6 +557,15 @@ fn verbose_dossier_golden() {
     assert_eq!(
         verbose_lines, lines,
         "the explicit VERBOSE envelope must preserve the named dossier golden",
+    );
+    let (_, constraint_section) = CURRENT_VERBOSE_DOSSIER_LINES
+        .trim_end()
+        .split_once("constraints:\n")
+        .expect("the dossier golden should contain populated constraints");
+    assert_eq!(
+        constraint_lines[2..].join("\n"),
+        format!("constraints:\n{constraint_section}"),
+        "SHOW CONSTRAINTS must preserve the complete current constraint table",
     );
 }
 

@@ -313,14 +313,15 @@ impl From<QueryError> for Error {
 
 impl From<DatabaseBootstrapError> for Error {
     fn from(err: DatabaseBootstrapError) -> Self {
-        if let ic_memory::RuntimeBootstrapError::State(
-            ic_memory::RuntimeStateError::Construction(
-                ic_memory::RuntimeConstructionError::BucketSizeMismatch {
-                    persisted,
-                    requested,
-                },
-            ),
-        ) = err.cause()
+        if let DatabaseBootstrapError::Bootstrap(cause) = &err
+            && let ic_memory::RuntimeBootstrapError::State(
+                ic_memory::RuntimeStateError::Construction(
+                    ic_memory::RuntimeConstructionError::BucketSizeMismatch {
+                        persisted,
+                        requested,
+                    },
+                ),
+            ) = cause.as_ref()
         {
             // Only the bounded layout mismatch crosses this public boundary;
             // unrelated upstream causes retain their compact internal mapping.

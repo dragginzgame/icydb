@@ -41,6 +41,45 @@ fn assert_accounting(report: &MemoryAllocations) {
     );
 }
 
+// Numeric observers must retain detailed accounting without materializing ID rows.
+fn assert_numeric_summary<M: ic_memory::ic_stable_structures::Memory>(
+    runtime: &MemoryRuntime<M>,
+    detailed: &MemoryAllocations,
+) {
+    let summary = runtime.memory_allocation_summary().unwrap();
+    assert_eq!(summary.current_generation, detailed.current_generation);
+    assert_eq!(
+        summary.physical_extent.bytes,
+        detailed.physical_extent.bytes
+    );
+    assert_eq!(summary.virtual_extent.bytes, detailed.virtual_extent.bytes);
+    assert_eq!(
+        summary.allocated_bucket_bytes,
+        detailed.allocated_bucket_bytes
+    );
+    assert_eq!(summary.bucket_slack_bytes, detailed.bucket_slack_bytes);
+    assert_eq!(
+        summary.unknown_binding.allocated_bytes,
+        detailed.unknown_binding_bytes
+    );
+    assert_eq!(
+        summary.current_binding.allocated_bytes + summary.ledger_binding.allocated_bytes,
+        detailed.known_binding_bytes
+    );
+    assert_eq!(
+        summary.current_binding.bucket_slack_bytes
+            + summary.ledger_binding.bucket_slack_bytes
+            + summary.unknown_binding.bucket_slack_bytes,
+        detailed.bucket_slack_bytes
+    );
+    assert_eq!(summary.metadata_bytes_read, detailed.metadata_bytes_read);
+    assert!(summary.metadata_bytes_read <= 34_848);
+    assert_eq!(
+        usize::from(summary.memories_measured),
+        detailed.memories.len()
+    );
+}
+
 fn bucket_trial(pages: u16) -> (MemoryAllocations, MemoryAllocations) {
     let backing = VectorMemory::default();
     let runtime = test_memory_runtime(backing.clone(), MemoryManagerConfig::new(pages).unwrap());
@@ -72,6 +111,7 @@ fn bucket_trial(pages: u16) -> (MemoryAllocations, MemoryAllocations) {
     assert_eq!(*backing.borrow(), before);
     assert_eq!(populated.current_generation, empty.current_generation);
     assert_eq!(populated.bucket_size_pages, pages);
+    assert_numeric_summary(&runtime, &populated);
     assert_accounting(&empty);
     assert_accounting(&populated);
 
@@ -98,6 +138,7 @@ fn bucket_trial(pages: u16) -> (MemoryAllocations, MemoryAllocations) {
     // application bindings. Preserve those bytes as unknown, not free.
     let reopened = MemoryRuntime::new(backing.clone()).unwrap();
     let unknown: MemoryAllocations = reopened.memory_allocations().unwrap().into();
+    assert_numeric_summary(&reopened, &unknown);
     assert_accounting(&unknown);
     assert!(unknown.unknown_binding_bytes > 0);
     assert_eq!(unknown.physical_extent, populated.physical_extent);
