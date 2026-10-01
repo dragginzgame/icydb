@@ -1,12 +1,95 @@
 //! Module: metrics::state
-//! Responsibility: on-canister entity execution counters and bounded reporting.
+//! Responsibility: on-canister execution counters and bounded reporting.
 //! Does not own: endpoint attribution, query identity, or persisted metrics.
-//! Boundary: one heap-only accumulator keyed by accepted entity path.
+//! Boundary: one heap-only window of entity paths and fixed schema-owner counters.
 
-use crate::runtime::now_millis;
+use crate::{metrics::SchemaLifecyclePhase, runtime::now_millis};
 use candid::CandidType;
 use serde::Deserialize;
 use std::{cell::RefCell, collections::BTreeMap};
+
+/// Saturating local instruction observations for one schema-lifecycle owner.
+///
+/// Spans include failed attempts and may nest; totals are not exclusive
+/// accounting and must not be summed or converted to cycles.
+#[derive(CandidType, Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct InstructionMetrics {
+    samples: u64,
+    instructions_total: u64,
+    instructions_max: u64,
+}
+
+impl InstructionMetrics {
+    /// Number of completed observation spans, including failed attempts.
+    #[must_use]
+    pub const fn samples(&self) -> u64 {
+        self.samples
+    }
+
+    /// Saturating sum of observed local instructions.
+    #[must_use]
+    pub const fn instructions_total(&self) -> u64 {
+        self.instructions_total
+    }
+
+    /// Largest local instruction interval in this window.
+    #[must_use]
+    pub const fn instructions_max(&self) -> u64 {
+        self.instructions_max
+    }
+
+    fn record(&mut self, instructions: u64) {
+        self.samples = self.samples.saturating_add(1);
+        self.instructions_total = self.instructions_total.saturating_add(instructions);
+        self.instructions_max = self.instructions_max.max(instructions);
+    }
+}
+
+/// Five fixed, heap-only schema-owner counters in the existing metrics window.
+///
+/// Only replicated execution records work. Upgrade clears the window and
+/// [`metrics_reset_all`] resets these counters together with entity observations.
+#[derive(CandidType, Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct SchemaLifecycleMetrics {
+    lowering: InstructionMetrics,
+    publication: InstructionMetrics,
+    runtime_compilation: InstructionMetrics,
+    cardinality: InstructionMetrics,
+    startup_recovery: InstructionMetrics,
+}
+
+impl SchemaLifecycleMetrics {
+    /// Candidate lowering/preflight; excludes facade decode and lineage preparation.
+    #[must_use]
+    pub const fn lowering(&self) -> &InstructionMetrics {
+        &self.lowering
+    }
+
+    /// Ordinary application lineage/publication preparation and compound commit.
+    #[must_use]
+    pub const fn publication(&self) -> &InstructionMetrics {
+        &self.publication
+    }
+
+    /// Cold accepted database-wide runtime-root compilation; excludes cache hits.
+    #[must_use]
+    pub const fn runtime_compilation(&self) -> &InstructionMetrics {
+        &self.runtime_compilation
+    }
+
+    /// Startup cardinality driver pages, including authority checks and quiescence.
+    #[must_use]
+    pub const fn cardinality(&self) -> &InstructionMetrics {
+        &self.cardinality
+    }
+
+    /// Shared startup recovery pages, including journal folding and failed attempts.
+    /// Excludes subsequent schema handoff, runtime compilation and cardinality work.
+    #[must_use]
+    pub const fn startup_recovery(&self) -> &InstructionMetrics {
+        &self.startup_recovery
+    }
+}
 
 #[derive(Clone, Debug, Default)]
 struct EntityCounter {
@@ -18,6 +101,7 @@ struct EntityCounter {
 #[derive(Clone, Debug)]
 struct MetricsState {
     entities: BTreeMap<String, EntityCounter>,
+    schema_lifecycle: SchemaLifecycleMetrics,
     window_start_ms: u64,
     window_id: Option<u64>,
 }
@@ -26,6 +110,7 @@ impl Default for MetricsState {
     fn default() -> Self {
         Self {
             entities: BTreeMap::new(),
+            schema_lifecycle: SchemaLifecycleMetrics::default(),
             window_start_ms: now_millis(),
             window_id: Some(0),
         }
@@ -83,6 +168,7 @@ pub struct MetricsReport {
     window_end_ms: u64,
     total_entities: u64,
     entities: Vec<EntityMetrics>,
+    schema_lifecycle: SchemaLifecycleMetrics,
 }
 
 impl MetricsReport {
@@ -126,6 +212,27 @@ impl MetricsReport {
     pub const fn entities(&self) -> &[EntityMetrics] {
         self.entities.as_slice()
     }
+
+    /// Fixed schema-owner observations sharing this report's heap-local window.
+    #[must_use]
+    pub const fn schema_lifecycle(&self) -> &SchemaLifecycleMetrics {
+        &self.schema_lifecycle
+    }
+}
+
+pub(super) fn record_schema_lifecycle_execution(phase: &SchemaLifecyclePhase, instructions: u64) {
+    STATE.with(|state| {
+        let mut state = state.borrow_mut();
+        let lifecycle = &mut state.schema_lifecycle;
+        let counter = match phase {
+            SchemaLifecyclePhase::Lowering => &mut lifecycle.lowering,
+            SchemaLifecyclePhase::Publication => &mut lifecycle.publication,
+            SchemaLifecyclePhase::RuntimeCompilation => &mut lifecycle.runtime_compilation,
+            SchemaLifecyclePhase::Cardinality => &mut lifecycle.cardinality,
+            SchemaLifecyclePhase::StartupRecovery => &mut lifecycle.startup_recovery,
+        };
+        counter.record(instructions);
+    });
 }
 
 pub(super) fn record_entity_execution(entity_path: &str, instructions: u64) {
@@ -181,6 +288,7 @@ pub fn metrics_report() -> MetricsReport {
             window_end_ms: now_millis(),
             total_entities: state.entities.len() as u64,
             entities,
+            schema_lifecycle: state.schema_lifecycle.clone(),
         }
     })
 }
@@ -194,13 +302,67 @@ pub fn metrics_reset_all() {
         let mut state = state.borrow_mut();
         state.window_id = state.window_id.and_then(|id| id.checked_add(1));
         state.entities.clear();
+        state.schema_lifecycle = SchemaLifecycleMetrics::default();
         state.window_start_ms = now_millis();
     });
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{MetricsReport, STATE, metrics_report, metrics_reset_all, record_entity_execution};
+    use super::{
+        MetricsReport, STATE, SchemaLifecycleMetrics, metrics_report, metrics_reset_all,
+        record_entity_execution, record_schema_lifecycle_execution,
+    };
+    use crate::metrics::{SchemaLifecycleMetricsSpan, SchemaLifecyclePhase};
+
+    #[test]
+    fn lifecycle_observations_are_separate_saturating_and_reset_with_the_window() {
+        metrics_reset_all();
+        for (phase, instructions) in [
+            (SchemaLifecyclePhase::Lowering, u64::MAX),
+            (SchemaLifecyclePhase::Lowering, 1),
+            (SchemaLifecyclePhase::Publication, 12),
+            (SchemaLifecyclePhase::RuntimeCompilation, 23),
+            (SchemaLifecyclePhase::Cardinality, 34),
+            (SchemaLifecyclePhase::StartupRecovery, 45),
+        ] {
+            record_schema_lifecycle_execution(&phase, instructions);
+        }
+        let report = metrics_report();
+        let lifecycle = report.schema_lifecycle();
+        assert_eq!(lifecycle.lowering().samples(), 2);
+        assert_eq!(lifecycle.lowering().instructions_total(), u64::MAX);
+        assert_eq!(lifecycle.lowering().instructions_max(), u64::MAX);
+        assert_eq!(lifecycle.publication().instructions_total(), 12);
+        assert_eq!(lifecycle.runtime_compilation().instructions_total(), 23);
+        assert_eq!(lifecycle.cardinality().instructions_total(), 34);
+        assert_eq!(lifecycle.startup_recovery().instructions_total(), 45);
+        assert_eq!(report.total_entities(), 0);
+        let encoded = candid::encode_one(&report).expect("encode observed lifecycle report");
+        let decoded: MetricsReport = candid::decode_one(&encoded).expect("decode lifecycle report");
+        assert_eq!(decoded, report);
+        metrics_reset_all();
+        assert_eq!(
+            metrics_report().schema_lifecycle(),
+            &SchemaLifecycleMetrics::default()
+        );
+        assert_ne!(metrics_report().window_id(), report.window_id());
+    }
+
+    #[test]
+    fn failed_owner_attempts_are_observed_when_the_span_exits() {
+        fn failed_attempt() -> Result<(), ()> {
+            let _span = SchemaLifecycleMetricsSpan::new(SchemaLifecyclePhase::Lowering);
+            Err(())
+        }
+        metrics_reset_all();
+        assert!(failed_attempt().is_err());
+        assert_eq!(metrics_report().schema_lifecycle().lowering().samples(), 1);
+        assert_eq!(
+            metrics_report().schema_lifecycle().publication().samples(),
+            0
+        );
+    }
 
     #[test]
     fn source_selection_is_a_bounded_lexical_prefix_not_global_top_cost() {

@@ -85,7 +85,8 @@ pub mod value {
 #[cfg(feature = "metrics")]
 pub mod metrics {
     pub use icydb_core::metrics::{
-        EntityMetrics, MetricsReport, metrics_report, metrics_reset_all,
+        EntityMetrics, InstructionMetrics, MetricsReport, SchemaLifecycleMetrics, metrics_report,
+        metrics_reset_all,
     };
 }
 

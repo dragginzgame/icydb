@@ -1,4 +1,4 @@
-use crate::schema::test::TestStore;
+use crate::{macro_test::normalize::case::LowerCaseText, schema::test::TestStore};
 use icydb_model::prelude::*;
 
 ///
@@ -143,3 +143,28 @@ pub struct ExternalPrimaryKeyEntity {}
     timestamps
 )]
 pub struct CompositePrimaryKeyEntity {}
+
+/// Compile proof for nullable, normalized and compound generated index fields.
+/// These combinations share one maintained declaration instead of separate
+/// E2E/admin schemas without behavioral consumers.
+#[entity(
+    store = "TestStore",
+    version = 1,
+    pk(field = "id"),
+    index(field = "optional_code", unique),
+    index(field = "optional_label", unique),
+    index(field = "username", unique),
+    index(fields = ["owner_id", "owner_principal", "score"]),
+    fields(
+        field(name = "id", value(item(prim = "Ulid"))),
+        field(name = "optional_code", value(opt, item(prim = "Nat8"))),
+        field(name = "optional_label", value(opt, item(prim = "Text", unbounded))),
+        field(name = "username", value(item(is = "LowerCaseText"))),
+        field(name = "owner_id", value(item(rel = "Entity", prim = "Ulid"))),
+        field(name = "owner_principal", value(item(prim = "Principal"))),
+        field(name = "score", value(item(prim = "Nat32"))),
+        field(name = "payload", value(opt, item(prim = "Blob", unbounded)))
+    ),
+    timestamps
+)]
+pub struct IndexFieldCombinations {}

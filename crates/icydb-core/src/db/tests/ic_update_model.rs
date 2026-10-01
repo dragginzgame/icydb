@@ -11,7 +11,6 @@ use std::{collections::BTreeMap, fs, path::Path};
 
 const GUARDED_RUNTIME_PATHS: &[&str] = &[
     "src/db/commit/",
-    "src/db/executor/delete/",
     "src/db/executor/mutation/",
     "src/db/schema/migration_execution.rs",
     "src/db/session/sql/execute/write/",
@@ -33,13 +32,11 @@ const FORBIDDEN_SYNC_MODEL_NEEDLES: &[&str] = &[
 
 const TEST_HELPER_NEEDLES: &[&str] = &["_for_tests"];
 
-fn path_is_guarded(relative_path: &str) -> bool {
-    GUARDED_RUNTIME_PATHS.iter().any(|guarded_path| {
-        if guarded_path.ends_with('/') {
-            return relative_path.starts_with(guarded_path);
-        }
-        relative_path == *guarded_path
-    })
+fn path_matches_guard(relative_path: &str, guarded_path: &str) -> bool {
+    if guarded_path.ends_with('/') {
+        return relative_path.starts_with(guarded_path);
+    }
+    relative_path == guarded_path
 }
 
 fn source_is_test_only(source_path: &Path) -> bool {
@@ -58,7 +55,7 @@ fn guarded_runtime_sources() -> Vec<(String, String)> {
     collect_rust_sources(source_root.as_path(), &mut sources);
     sources.sort();
 
-    sources
+    let sources: Vec<(String, String)> = sources
         .into_iter()
         .filter_map(|source_path| {
             if source_is_test_only(source_path.as_path()) {
@@ -66,7 +63,10 @@ fn guarded_runtime_sources() -> Vec<(String, String)> {
             }
 
             let relative = relative_rust_source_path(manifest_root, source_path.as_path());
-            if !path_is_guarded(relative.as_str()) {
+            if !GUARDED_RUNTIME_PATHS
+                .iter()
+                .any(|guarded_path| path_matches_guard(relative.as_str(), guarded_path))
+            {
                 return None;
             }
 
@@ -76,7 +76,19 @@ fn guarded_runtime_sources() -> Vec<(String, String)> {
 
             Some((relative, runtime_source))
         })
-        .collect()
+        .collect();
+
+    // A moved runtime owner must fail the guard instead of silently losing coverage.
+    for guarded_path in GUARDED_RUNTIME_PATHS {
+        assert!(
+            sources
+                .iter()
+                .any(|(relative, _)| path_matches_guard(relative, guarded_path)),
+            "runtime guard must select current production sources: {guarded_path}",
+        );
+    }
+
+    sources
 }
 
 fn source_violations(

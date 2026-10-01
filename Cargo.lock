@@ -1597,7 +1597,6 @@ dependencies = [
  "serde_bytes",
  "sha2",
  "thiserror 2.0.18",
- "time",
  "trybuild",
  "ulid",
  "xxhash-rust",

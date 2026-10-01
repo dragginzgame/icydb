@@ -733,6 +733,35 @@ pub fn build_entity_creation_fixture_wasms() -> Result<[Vec<u8>; 4], String> {
     ])
 }
 
+/// Build matched source, unchanged-schema export control and additive actors.
+///
+/// The control changes only the existing Candid export feature; all artifacts
+/// retain the same storage namespace and use the selected canonical profile.
+///
+/// # Errors
+/// Returns a build, post-link or retained-artifact read failure.
+pub fn build_entity_creation_lifecycle_fixture_wasms(
+    profile: CanisterWasmProfile,
+) -> Result<[Vec<u8>; 3], String> {
+    let build = |features, label| {
+        build_fixture_variant_wasm_with_profile("canister_test_sql", features, label, profile)
+    };
+    Ok([
+        build(
+            "test-admin-api,local-sql-query,entity-rename",
+            "creation-lifecycle-source",
+        )?,
+        build(
+            "test-admin-api,local-sql-query,entity-rename,candid-export",
+            "creation-lifecycle-control",
+        )?,
+        build(
+            "test-admin-api,local-sql-query,entity-creation,candid-export",
+            "creation-lifecycle-additive",
+        )?,
+    ])
+}
+
 // Read while the retained Cargo/post-link owner is alive. Variant-specific
 // features must not borrow a mutable artifact path from another build.
 fn build_fixture_variant_wasm(
@@ -740,8 +769,25 @@ fn build_fixture_variant_wasm(
     features: &str,
     label: &str,
 ) -> Result<Vec<u8>, String> {
+    build_fixture_variant_wasm_with_profile(
+        package,
+        features,
+        label,
+        CanisterBuildOptions::default().profile,
+    )
+}
+
+fn build_fixture_variant_wasm_with_profile(
+    package: &str,
+    features: &str,
+    label: &str,
+    profile: CanisterWasmProfile,
+) -> Result<Vec<u8>, String> {
     let root = workspace_root();
-    let options = CanisterBuildOptions::default();
+    let options = CanisterBuildOptions {
+        profile,
+        ..CanisterBuildOptions::default()
+    };
     let target = target_dir(&root).join(options.build_profile.target_dir_name());
     let mut arguments = cargo_profile_arguments(options.profile, true);
     arguments.extend([OsString::from("--features"), features.into()]);
@@ -755,7 +801,8 @@ fn build_fixture_variant_wasm(
             arguments,
             rustflags: combined_rustflags(&[]),
             final_deployable: target
-                .join("icydb-final/debug")
+                .join("icydb-final")
+                .join(profile.as_str())
                 .join(format!("{label}.wasm")),
         },
     )?;

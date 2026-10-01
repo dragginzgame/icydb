@@ -1,5 +1,6 @@
 //! Module: metrics
-//! Responsibility: on-canister entity cost reporting.
+//!
+//! Responsibility: on-canister entity and schema-lifecycle cost reporting.
 //! Does not own: endpoints, query identity, or storage inspection.
 //! Boundary: one feature, one span, and one heap report.
 
@@ -10,7 +11,64 @@ mod state;
 use std::marker::PhantomData;
 
 #[cfg(feature = "metrics")]
-pub use state::{EntityMetrics, MetricsReport, metrics_report, metrics_reset_all};
+pub use state::{
+    EntityMetrics, InstructionMetrics, MetricsReport, SchemaLifecycleMetrics, metrics_report,
+    metrics_reset_all,
+};
+
+/// Fixed semantic owners; these are observations, never execution choices.
+pub(crate) enum SchemaLifecyclePhase {
+    Lowering,
+    Publication,
+    RuntimeCompilation,
+    Cardinality,
+    StartupRecovery,
+}
+
+/// Instruction span for a maintained schema owner, including failed attempts.
+pub(crate) struct SchemaLifecycleMetricsSpan {
+    #[cfg(feature = "metrics")]
+    phase: SchemaLifecyclePhase,
+    #[cfg(feature = "metrics")]
+    start: Option<u64>,
+}
+
+impl SchemaLifecycleMetricsSpan {
+    #[cfg_attr(
+        not(feature = "metrics"),
+        expect(
+            clippy::missing_const_for_fn,
+            reason = "feature-on construction reads the IC execution mode and instruction counter"
+        )
+    )]
+    pub(crate) fn new(phase: SchemaLifecyclePhase) -> Self {
+        #[cfg(feature = "metrics")]
+        {
+            Self {
+                phase,
+                start: metrics_are_durable().then(crate::runtime::local_instruction_counter),
+            }
+        }
+        #[cfg(not(feature = "metrics"))]
+        {
+            let _ = phase;
+            Self {}
+        }
+    }
+}
+
+#[cfg(feature = "metrics")]
+impl Drop for SchemaLifecycleMetricsSpan {
+    fn drop(&mut self) {
+        let Some(start) = self.start else {
+            return;
+        };
+        state::record_schema_lifecycle_execution(
+            &self.phase,
+            crate::runtime::local_instruction_counter().saturating_sub(start),
+        );
+    }
+}
 
 /// Instruction span for work owned by exactly one accepted entity.
 pub(crate) struct EntityMetricsSpan<'entity> {

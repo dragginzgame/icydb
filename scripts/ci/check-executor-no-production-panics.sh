@@ -26,15 +26,14 @@ while IFS= read -r -d '' file; do
         return delta
       }
 
-      function cfg_test_or_benchmark(line) {
+      function cfg_test_item(line) {
         if (line !~ /^[[:space:]]*#\[cfg\(/) {
           return 0
         }
         if (line ~ /not[[:space:]]*\([[:space:]]*test/) {
           return 0
         }
-        return line ~ /(^|[^[:alnum:]_])test([^[:alnum:]_]|$)/ ||
-          line ~ /feature[[:space:]]*=[[:space:]]*"executor-benchmarks"/
+        return line ~ /(^|[^[:alnum:]_])test([^[:alnum:]_]|$)/
       }
 
       function reset_skip() {
@@ -70,7 +69,7 @@ while IFS= read -r -d '' file; do
         next
       }
 
-      cfg_test_or_benchmark($0) {
+      cfg_test_item($0) {
         skip_cfg = 1
         skip_started = 0
         skip_depth = 0

@@ -1,0 +1,69 @@
+{
+  "audit": {
+    "date": "2026-10-01",
+    "method": "UNUSED-SURFACE-1",
+    "scope": "Second repository-wide unused-surface inventory with deeper test and declaration tracing",
+    "verdict": "PASS WITH FINDINGS",
+    "head_commit": "aa9cd9839ce2824d37054a161e8e2a1d7b4468cc",
+    "includes_current_worktree": true,
+    "snapshot_excludes_report_output": true,
+    "tracked_diff_sha256": "207e818aad7785a196736227d929b208bf5fb931f0c51c55b00056613aef2f53",
+    "cargo_lock_sha256": "2c55b60cec77e622bd126a3dfa06f4675c4ff696e23c5fd75b911a351482a089",
+    "untracked_lifecycle_test_sha256": "5c8326adf9a2b90154ee66f847dda2ed00a73f44b905b12f0680fd4aa94e858b"
+  },
+  "findings": [
+    {
+      "id": "262-US-004",
+      "severity": "LOW",
+      "status": "OPEN",
+      "title": "Storage-boundary test scans retired trait names",
+      "owner": "Core cross-subsystem tests",
+      "paths": ["crates/icydb-core/src/db/tests/mod.rs"],
+      "disposition": "Remove the retired-name test and private helpers; retain child module wiring and shared source-guard utilities."
+    },
+    {
+      "id": "262-US-005",
+      "severity": "LOW",
+      "status": "OPEN",
+      "title": "Test and CI scanners retain inert selectors and exclusions",
+      "owner": "IC update-model source guard and executor panic gate",
+      "paths": [
+        "crates/icydb-core/src/db/tests/ic_update_model.rs",
+        "scripts/ci/check-executor-no-production-panics.sh"
+      ],
+      "disposition": "Remove the empty delete selector and undeclared benchmark feature exception while preserving the maintained checks."
+    },
+    {
+      "id": "262-US-006",
+      "severity": "MEDIUM",
+      "status": "OPEN",
+      "title": "Mutation-job contract mixes live limits with declaration-only history",
+      "owner": "Integration mutation-job contract",
+      "paths": ["testing/integration/src/durable_mutation_job_contract.rs"],
+      "owner_file_lines": 630,
+      "screening_public_items_without_external_consumer": 54,
+      "disposition": "Trim frozen samples and self-only planning tables; preserve scale-test inputs, active instruction ceilings, current runtime-limit proofs and behavioral scenarios."
+    }
+  ],
+  "inventory": {
+    "workspace_packages": 49,
+    "cargo_targets": 120,
+    "owned_rust_files": 1659,
+    "cargo_module_connected_rust_files": 1584,
+    "maintained_compile_inputs": 75,
+    "exact_test_body_duplicate_candidates": 1
+  },
+  "validation": {
+    "focused_native_tests_passed": 20,
+    "core_tests_passed": 16,
+    "mutation_contract_tests_passed": 4,
+    "metadata_and_inventory_reconciliation": "PASS",
+    "deployment_dependency_format_invariants": "PASS",
+    "executor_panic_gate": "PASS",
+    "maintained_documentation": "PASS",
+    "dependency_scanner": "EXIT_1_GENERATED_CODE_FALSE_POSITIVES",
+    "full_workspace_suite": "NOT_RUN_USER_OWNED",
+    "performance_deltas": "UNMEASURED",
+    "network_lifecycle_actions": "NONE"
+  }
+}

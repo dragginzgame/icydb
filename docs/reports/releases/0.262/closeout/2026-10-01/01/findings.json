@@ -1,0 +1,74 @@
+{
+  "audit": {
+    "date": "2026-10-01",
+    "method": "UNUSED-SURFACE-1",
+    "scope": "Repository-wide static unused-surface inventory and consumer tracing",
+    "verdict": "PASS WITH FINDINGS",
+    "head_commit": "aa9cd9839ce2824d37054a161e8e2a1d7b4468cc",
+    "head_tag": "v0.262.1",
+    "includes_current_worktree": true,
+    "snapshot_excludes_new_report_output": true,
+    "tracked_diff_sha256": "a186078018c6eb0c3b0424fbad105e706e3e4688f4f50b2a79530f775d82c8c7",
+    "untracked_lifecycle_test_sha256": "5c8326adf9a2b90154ee66f847dda2ed00a73f44b905b12f0680fd4aa94e858b",
+    "cargo_lock_sha256": "14817db2c4f3f24a7cd6f12cca9e90811014ea31c2a054a375245022239590b4"
+  },
+  "findings": [
+    {
+      "id": "262-US-001",
+      "severity": "LOW",
+      "status": "OPEN",
+      "title": "Unused dependency declarations",
+      "owner": "Package and workspace manifests",
+      "paths": ["crates/icydb-core/Cargo.toml", "Cargo.toml"],
+      "disposition": "Remove core's direct time edge and the never-inherited fixture alias; retain schema's time dependency and the fixture package."
+    },
+    {
+      "id": "262-US-002",
+      "severity": "MEDIUM",
+      "status": "OPEN",
+      "title": "Former E2E/admin fixtures lack behavioral consumers",
+      "owner": "schema/test/fixtures",
+      "paths": [
+        "schema/test/fixtures/src/e2e/db.rs",
+        "schema/test/fixtures/src/e2e/default.rs",
+        "schema/test/fixtures/src/e2e/index.rs",
+        "schema/test/fixtures/src/e2e/mod.rs",
+        "schema/test/fixtures/src/macro_admin.rs",
+        "schema/test/fixtures/src/lib.rs"
+      ],
+      "candidate_fixture_lines": 632,
+      "candidate_declaration_structs": 35,
+      "disposition": "Preserve any unique compile-only contract, then retire the family and its exports; retain the package's active tests and shared schema."
+    },
+    {
+      "id": "262-US-003",
+      "severity": "MEDIUM",
+      "status": "OPEN",
+      "title": "Saved pagination regressions no longer replay",
+      "owner": "Core executor regression coverage",
+      "paths": [
+        "crates/icydb-core/proptest-regressions/db/executor/tests/pagination.txt",
+        "crates/icydb-core/proptest-regressions/db/executor/tests/pagination/range_edges_trace_matrix.txt"
+      ],
+      "owning_source_removals": [
+        {"commit": "ae270682e", "release": "0.213.33"},
+        {"commit": "212d5d881", "release": "0.65.5"}
+      ],
+      "disposition": "Reconcile minimized cases with maintained pagination tests, add current-surface coverage if needed, then remove disconnected seed files."
+    }
+  ],
+  "validation": {
+    "offline_locked_metadata": "PASS",
+    "deployment_inventory": "PASS",
+    "dependency_version_graph": "PASS",
+    "persisted_format_policy": "PASS",
+    "maintained_documentation_references": "PASS",
+    "extended_module_fixture_navigation_inventory": "PASS",
+    "dependency_scanner": "FINDINGS_MANUALLY_ADJUDICATED",
+    "whitespace": "PASS",
+    "new_compilation_and_behavioral_tests": "NOT_RUN_STATIC_DOCUMENTATION_AUDIT",
+    "full_workspace_validation": "NOT_RUN_USER_OWNED",
+    "raw_wasm_cycles_instructions": "UNMEASURED",
+    "local_network_lifecycle_actions": "NONE"
+  }
+}

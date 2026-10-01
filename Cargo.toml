@@ -104,7 +104,6 @@ icydb-testing-audit-ten-simple-fixtures = { path = "schema/audit/ten_simple" }
 icydb-testing-demo-rpg-fixtures = { path = "schema/demo/rpg" }
 icydb-testing-sql-generator = { path = "testing/sql-generator" }
 icydb-testing-sqlite-reference = { path = "testing/sqlite-reference" }
-icydb-testing-test-fixtures = { path = "schema/test/fixtures" }
 icydb-testing-test-sql-fixtures = { path = "schema/test/sql" }
 icydb-testing-wasm-helpers = { path = "testing/wasm-helpers" }
 num-bigint = "0.4"

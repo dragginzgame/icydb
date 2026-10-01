@@ -96,6 +96,23 @@ impl CardinalityBuildAuthority {
         allocations: StoreAllocationIdentities,
         fold_watermark: FoldWatermark,
     ) -> Result<Self, InternalError> {
+        if let Some(selection) = schema.current_canonical_accepted_schema_root()? {
+            let root = CardinalityAcceptedRootIdentity::new(
+                selection.root().revision(),
+                selection.root().fingerprint(),
+            )?;
+            if let Some(domain) = schema.cached_cardinality_domain_for_root(root)? {
+                // Only the verified immutable domain is reused. Canonical root
+                // selection and the current watermark still bind every page;
+                // a cached live successor cannot authorize its predecessor.
+                return Self::derive_from_accepted_domain(
+                    Some((selection, domain)),
+                    database_incarnation,
+                    CardinalityStoreAllocationIdentity::derive(allocations)?,
+                    fold_watermark,
+                );
+            }
+        }
         let authority = schema.current_canonical_accepted_schema_authority()?;
         Self::derive_from_accepted_authority(
             authority

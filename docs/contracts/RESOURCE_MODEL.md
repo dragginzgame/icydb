@@ -370,7 +370,7 @@ instruction behavior is bounded by explicit, enforceable limits.
 
 If such bounds cannot be stated and enforced, the operator is disallowed.
 
-## 11. Entity Execution Metrics
+## 11. Execution Metrics
 
 The optional `metrics` capability records replicated entity execution in one
 heap-only accumulator. Each accepted entity reports observed execution spans,
@@ -382,3 +382,13 @@ IC query calls do not retain heap mutations, so entity metrics deliberately do
 no recording in query execution. Canic remains the authority for endpoint-level
 query and update cost. The entity report does not duplicate route, cache,
 row-flow, query-shape, or endpoint attribution.
+
+The same optional window also holds five fixed schema-lifecycle instruction
+counters: ordinary application candidate lowering, ordinary publication
+preparation/commit, cold accepted runtime-root compilation, startup cardinality
+driver pages and shared startup recovery/folding pages. Each reports samples,
+saturating total instructions
+and the largest interval. These owner spans include failed attempts, can nest,
+and must not be added as exclusive accounting or converted to cycles. Query
+execution records none of these observations. The existing reset clears both
+entity and lifecycle counters; upgrade clears their heap-only window.

@@ -7,7 +7,10 @@ use crate::{
         key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
         registry::StoreAllocationIdentity,
         schema::{
-            AcceptedSchemaRevision, empty_accepted_schema_candidate_for_tests,
+            AcceptedFieldKind, AcceptedSchemaRevision, CandidateSchemaRevision, FieldId,
+            FieldStorageDecode, PersistedFieldSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
+            SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
+            accepted_schema_candidate_for_tests, empty_accepted_schema_candidate_for_tests,
             enum_catalog::AcceptedSchemaFingerprint,
         },
     },
@@ -80,6 +83,63 @@ fn initialized_stores() -> (DataStore, IndexStore, SchemaStore) {
         IndexStore::init_journaled(test_memory(181)),
         SchemaStore::init_journaled(test_memory(182)),
     )
+}
+
+fn accepted_entity_candidate(
+    revision: AcceptedSchemaRevision,
+    entity: EntityTag,
+) -> CandidateSchemaRevision {
+    let field = FieldId::new(1);
+    let kind = AcceptedFieldKind::Nat64;
+    let codec = kind.leaf_codec_for_storage(FieldStorageDecode::ByKind);
+    let snapshot = PersistedSchemaSnapshot::new(
+        SchemaVersion::initial(),
+        "test::CardinalityEntity".to_string(),
+        "CardinalityEntity".to_string(),
+        field,
+        SchemaRowLayout::initial(vec![(field, SchemaFieldSlot::new(0))]),
+        vec![PersistedFieldSnapshot::new_initial(
+            field,
+            "id".to_string(),
+            SchemaFieldSlot::new(0),
+            kind,
+            Vec::new(),
+            false,
+            SchemaInsertDefault::None,
+            FieldStorageDecode::ByKind,
+            codec,
+        )],
+    );
+    accepted_schema_candidate_for_tests(
+        "test::CardinalityBuildAuthority",
+        revision,
+        BTreeMap::from([(entity, snapshot)]),
+    )
+}
+
+fn canonical_authority(
+    schema: &SchemaStore,
+    watermark: FoldWatermark,
+) -> CardinalityBuildAuthority {
+    CardinalityBuildAuthority::derive(
+        schema,
+        DatabaseIncarnationId::for_tests(0x70),
+        allocations(),
+        watermark,
+    )
+    .expect("canonical source should derive")
+}
+
+fn warm_domain(schema: &SchemaStore) -> Rc<CardinalityAcceptedDomain> {
+    schema
+        .accepted_cardinality_domain_for_selection(
+            schema
+                .current_accepted_schema_root()
+                .expect("root should decode"),
+        )
+        .expect("verified domain should derive")
+        .expect("accepted domain should exist")
+        .1
 }
 
 fn drive_generation_to_ready(
@@ -603,6 +663,142 @@ fn canonical_accepted_root_derives_the_build_source_without_generated_models() {
         authority
             .domain
             .is_some_and(|domain| { domain.entities.is_empty() && domain.indexes.is_empty() })
+    );
+}
+
+#[test]
+fn cached_live_successor_cannot_authorize_the_canonical_build_domain() {
+    let entity = EntityTag::new(7);
+    let mut schema = SchemaStore::init_journaled(test_memory(200));
+    let initial = empty_accepted_schema_candidate_for_tests(
+        "test::CardinalityBuildAuthority",
+        AcceptedSchemaRevision::INITIAL,
+    );
+    schema
+        .publish_accepted_schema_candidate(
+            DatabaseIncarnationId::for_tests(0x70),
+            AcceptedSchemaRevision::NONE,
+            &initial,
+        )
+        .expect("canonical predecessor should publish");
+    let predecessor = canonical_authority(&schema, FoldWatermark::initial());
+    let successor = accepted_entity_candidate(AcceptedSchemaRevision::new(2), entity);
+    schema
+        .apply_journaled_accepted_schema_candidate(
+            DatabaseIncarnationId::for_tests(0x70),
+            AcceptedSchemaRevision::INITIAL,
+            &successor,
+        )
+        .expect("live successor should publish");
+    let live_domain = warm_domain(&schema);
+    assert!(live_domain.entities.contains(&entity));
+    let canonical = canonical_authority(&schema, FoldWatermark::initial());
+    assert_eq!(canonical.source(), predecessor.source());
+    assert!(!canonical.accepts_entity(entity));
+    assert!(Rc::ptr_eq(&warm_domain(&schema), &live_domain));
+
+    let prepared = schema
+        .prepare_fold_journaled_accepted_schema_candidate(
+            DatabaseIncarnationId::for_tests(0x70),
+            AcceptedSchemaRevision::INITIAL,
+            successor,
+        )
+        .expect("successor fold should prepare");
+    schema
+        .apply_prepared_accepted_schema_fold(prepared)
+        .expect("successor should become canonical");
+    let folded_domain = warm_domain(&schema);
+    let folded = canonical_authority(&schema, FoldWatermark::initial());
+    assert!(folded.accepts_entity(entity));
+    assert_ne!(folded.source(), predecessor.source());
+    assert!(Rc::ptr_eq(folded.domain.as_ref().unwrap(), &folded_domain));
+}
+
+#[test]
+fn cached_live_root_without_canonical_root_cannot_authorize_a_build() {
+    let mut schema = SchemaStore::init_journaled(test_memory(200));
+    let entity = EntityTag::new(7);
+    let candidate = accepted_entity_candidate(AcceptedSchemaRevision::INITIAL, entity);
+    schema
+        .apply_journaled_accepted_schema_candidate(
+            DatabaseIncarnationId::for_tests(0x70),
+            AcceptedSchemaRevision::NONE,
+            &candidate,
+        )
+        .expect("live initial root should publish");
+    assert!(warm_domain(&schema).entities.contains(&entity));
+    let canonical = canonical_authority(&schema, FoldWatermark::initial());
+    assert!(canonical.domain.is_none());
+    assert!(!canonical.accepts_entity(entity));
+}
+
+#[test]
+fn verified_domain_reuse_preserves_restart_counts_and_watermark_rebuilds() {
+    let entity = EntityTag::new(7);
+    let memory = test_memory(200);
+    let (mut data, index, _) = initialized_stores();
+    let mut schema = SchemaStore::init_journaled(memory.clone());
+    let candidate = accepted_entity_candidate(AcceptedSchemaRevision::INITIAL, entity);
+    schema
+        .publish_accepted_schema_candidate(
+            DatabaseIncarnationId::for_tests(0x70),
+            AcceptedSchemaRevision::NONE,
+            &candidate,
+        )
+        .expect("accepted domain should publish");
+    data.fold_recovered_journal_put(
+        row_key(entity, 1),
+        RawRow::try_new(vec![1]).expect("bounded row should construct"),
+    )
+    .expect("canonical row should seed");
+    let domain = warm_domain(&schema);
+    let initial = canonical_authority(&schema, FoldWatermark::initial());
+    assert!(Rc::ptr_eq(initial.domain.as_ref().unwrap(), &domain));
+    for _ in 0..2 {
+        drive_cardinality_generation_page(&data, &index, &mut schema, |schema| {
+            Ok(canonical_authority(schema, FoldWatermark::initial()))
+        })
+        .expect("bounded build should advance");
+    }
+    drop(schema);
+    let mut schema = SchemaStore::init_journaled(memory);
+    // Restart discards the heap cache while retaining the exact durable cursor.
+    let cold = canonical_authority(&schema, FoldWatermark::initial());
+    assert_eq!(cold.source(), initial.source());
+    assert!(cold.accepts_entity(entity));
+    assert!(!Rc::ptr_eq(cold.domain.as_ref().unwrap(), &domain));
+    let restarted_domain = warm_domain(&schema);
+    assert_eq!(
+        drive_cardinality_generation_page(&data, &index, &mut schema, |schema| {
+            Ok(canonical_authority(schema, FoldWatermark::initial()))
+        })
+        .expect("restart should resume and publish"),
+        CardinalityGenerationPageOutcome::PublishedReady,
+    );
+    let first = schema.cardinality_generation_header().unwrap().unwrap();
+    let watermark = FoldWatermark::new(JournalSequence::new(1), 3);
+    let changed = canonical_authority(&schema, watermark);
+    assert!(Rc::ptr_eq(
+        changed.domain.as_ref().unwrap(),
+        &restarted_domain
+    ));
+    assert_eq!(
+        first.validate_source(changed.source()),
+        Err(CardinalitySourceMismatch::FoldWatermark),
+    );
+    drive_generation_to_ready(&data, &index, &mut schema, &changed);
+    let rebuilt = schema.cardinality_generation_header().unwrap().unwrap();
+    assert_ne!(rebuilt.generation(), first.generation());
+    assert_eq!(rebuilt.validate_source(changed.source()), Ok(()));
+    assert_eq!(
+        schema
+            .cardinality_count(
+                rebuilt.slot(),
+                rebuilt.generation(),
+                CardinalityCountDigest::for_entity(entity),
+            )
+            .expect("rebuilt exact count should decode"),
+        Some(1),
     );
 }
 

@@ -21,6 +21,7 @@ use crate::{
         },
     },
     error::InternalError,
+    metrics::{SchemaLifecycleMetricsSpan, SchemaLifecyclePhase},
     traits::CanisterKind,
 };
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
@@ -452,11 +453,15 @@ impl<C: CanisterKind> DbSession<C> {
         )
         .map_err(AcceptedInspectionPlanLoadError::Unselected)?;
 
-        let root = Rc::new(AcceptedSchemaRuntimeRoot::compile(
-            &self.db,
-            identity,
-            store_roots.clone(),
-        )?);
+        let root = {
+            // Cache-hit validation stays outside this cold compilation interval.
+            let _span = SchemaLifecycleMetricsSpan::new(SchemaLifecyclePhase::RuntimeCompilation);
+            Rc::new(AcceptedSchemaRuntimeRoot::compile(
+                &self.db,
+                identity,
+                store_roots.clone(),
+            )?)
+        };
         let current_incarnation =
             database_incarnation_id().map_err(AcceptedInspectionPlanLoadError::Unselected)?;
         let current_store_roots = self

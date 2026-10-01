@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.262.md](docs/changelog/0.262.md)
 
+- `0.262.2` adds schema-lifecycle cost reporting, reduces startup work, removes obsolete scaffolding and updates source-counting tooling.
 - `0.262.1` adds declared entities and named value types to populated existing stores, including alongside explicit migrations, with upgrade and restart qualification that reports optimization costs.
 - `0.262.0` publishes maintenance updates and adopts Cargo dependency resolver version 3.
 

@@ -26,16 +26,29 @@ fn limited_request(bytes: u64) -> RequestExecutionRoot {
 // Reuse the session harness's registry with a payload-only accepted schema.
 // No generated model or secondary index can stand in for primary-row reads.
 fn initialize_payload_store() {
+    initialize_payload_schema(
+        vec![
+            field(1, "id", 0, AcceptedFieldKind::Nat64),
+            field(2, "payload", 1, AcceptedFieldKind::Blob { max_len: None }),
+        ],
+        Vec::new(),
+    );
+}
+
+fn initialize_payload_schema(
+    fields: Vec<PersistedFieldSnapshot>,
+    indexes: Vec<PersistedIndexSnapshot>,
+) {
     DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
     INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
     SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());
     let setup = new_request_session(&RequestExecutionRoot::__new_runtime_root());
     setup.db.drive_startup_recovery_page().unwrap();
-    let fields = vec![
-        field(1, "id", 0, AcceptedFieldKind::Nat64),
-        field(2, "payload", 1, AcceptedFieldKind::Blob { max_len: None }),
-    ];
-    let snapshot = PersistedSchemaSnapshot::new(
+    let bindings = fields
+        .iter()
+        .map(|field| ((ENTITY_TAG, field_source(field.name())), field.id()))
+        .collect();
+    let snapshot = PersistedSchemaSnapshot::new_with_indexes(
         SchemaVersion::initial(),
         ENTITY_SOURCE.into(),
         ENTITY_NAME.into(),
@@ -47,15 +60,13 @@ fn initialize_payload_store() {
                 .collect(),
         ),
         fields,
+        indexes,
     );
     let candidate = accepted_schema_candidate_with_field_bindings_for_tests(
         STORE_PATH,
         AcceptedSchemaRevision::INITIAL,
         BTreeMap::from([(ENTITY_TAG, snapshot)]),
-        BTreeMap::from([
-            ((ENTITY_TAG, field_source("id")), FieldId::new(1)),
-            ((ENTITY_TAG, field_source("payload")), FieldId::new(2)),
-        ]),
+        bindings,
     );
     crate::db::commit::publish_accepted_schema_candidate(
         STORE_PATH,
@@ -64,6 +75,104 @@ fn initialize_payload_store() {
         &candidate,
     )
     .unwrap();
+}
+
+#[test]
+fn unique_numeric_ranges_preserve_page_union_and_every_resume_suffix() {
+    fn collect_pages(
+        query: &DynamicQuery,
+        mut continuation: Option<String>,
+        tokens: &mut Vec<(String, usize)>,
+    ) -> Vec<Vec<OutputValue>> {
+        let mut rows = Vec::new();
+        for _ in 0..16 {
+            let root = RequestExecutionRoot::__new_runtime_root();
+            let page = new_request_session(&root)
+                .execute_trusted_live_page(query, continuation.as_deref())
+                .unwrap();
+            rows.extend(page.rows);
+            let Some(next) = page.continuation else {
+                return rows;
+            };
+            assert_ne!(Some(&next), continuation.as_ref());
+            assert!(!tokens.iter().any(|(token, _)| token == &next));
+            tokens.push((next.clone(), rows.len()));
+            continuation = Some(next);
+        }
+        panic!("numeric range must exhaust within the bounded page count");
+    }
+
+    // Fixed minimized cases: modulo selection yields [1, 5) over 1..=13,
+    // and [1, 2) over 1..=5. Current scalar LIMIT is a total result limit;
+    // use the maintained physical page window to verify complete pagination.
+    for (count, upper) in [(13_u64, 5_u64), (5, 2)] {
+        initialize_payload_schema(
+            vec![
+                field(1, "id", 0, AcceptedFieldKind::Nat64),
+                field(2, "code", 1, AcceptedFieldKind::Nat64),
+            ],
+            vec![PersistedIndexSnapshot::new(
+                SchemaIndexId::new(1).unwrap(),
+                1,
+                "code_idx".into(),
+                STORE_PATH.into(),
+                true,
+                PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+                    FieldId::new(2),
+                    SchemaFieldSlot::new(1),
+                    vec!["code".into()],
+                    AcceptedFieldKind::Nat64,
+                    false,
+                )]),
+                None,
+            )],
+        );
+        for code in 1..=count {
+            new_request_session(&RequestExecutionRoot::__new_runtime_root())
+                .execute_trusted_dynamic_insert_batch(
+                    ENTITY_NAME,
+                    vec![DynamicStructuralPatch::new(vec![
+                        (
+                            "id".into(),
+                            DynamicWriteCell::Value(InputValue::nat64(count - code)),
+                        ),
+                        (
+                            "code".into(),
+                            DynamicWriteCell::Value(InputValue::nat64(code)),
+                        ),
+                    ])],
+                )
+                .unwrap();
+        }
+        for (order, descending) in [(asc("code"), false), (desc("code"), true)] {
+            let query = DynamicQuery::new(ENTITY_NAME)
+                .select(["code", "id"])
+                .filter(FilterExpr::and(vec![
+                    FieldRef::new("code").gte(InputValue::nat64(1)),
+                    FieldRef::new("code").lt(InputValue::nat64(upper)),
+                ]))
+                .order_by(order);
+            let mut expected = (1..upper)
+                .map(|code| vec![OutputValue::nat64(code), OutputValue::nat64(count - code)])
+                .collect::<Vec<_>>();
+            if descending {
+                expected.reverse();
+            }
+            let mut tokens = Vec::new();
+            let actual = collect_pages(&query, None, &mut tokens);
+            assert_eq!(actual, expected);
+            assert_eq!(tokens.is_empty(), upper == 2);
+            for (token, offset) in tokens {
+                let suffix = collect_pages(&query, Some(token), &mut Vec::new());
+                assert_eq!(suffix, expected[offset..]);
+            }
+            let limited = new_request_session(&RequestExecutionRoot::__new_runtime_root())
+                .execute_trusted_live_page(&query.limit(1), None)
+                .unwrap();
+            assert_eq!(limited.rows, expected[..1]);
+            assert!(limited.continuation.is_none());
+        }
+    }
 }
 
 fn insert_payload_rows(ids: Range<u64>) {

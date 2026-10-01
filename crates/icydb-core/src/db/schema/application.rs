@@ -44,6 +44,7 @@ use crate::{
         },
     },
     error::InternalError,
+    metrics::{SchemaLifecycleMetricsSpan, SchemaLifecyclePhase},
     traits::CanisterKind,
     types::EntityTag,
 };
@@ -743,6 +744,8 @@ fn apply_schema_with_contract<C: CanisterKind, const ALLOW_REMOVALS: bool>(
     };
     let record = SchemaApplicationRecord::new(receipt.clone(), activations)?;
     let operation = SchemaApplicationRecordOp::insert(&record)?;
+    // This includes lineage and publication preparation, not candidate lowering.
+    let _publication_span = SchemaLifecycleMetricsSpan::new(SchemaLifecyclePhase::Publication);
     #[cfg(feature = "migration")]
     let database_control = attach_ordinary_lineage_publication(
         proposal,
@@ -2200,6 +2203,7 @@ fn lower_application_candidates<const ALLOW_REMOVALS: bool>(
     proposal: &SchemaProposal,
     authorities: &[StoreApplicationAuthority],
 ) -> Result<LoweredApplication, InternalError> {
+    let _span = SchemaLifecycleMetricsSpan::new(SchemaLifecyclePhase::Lowering);
     let current_bundles = authorities
         .iter()
         .map(|authority| {

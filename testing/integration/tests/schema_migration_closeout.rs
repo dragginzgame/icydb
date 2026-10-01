@@ -2,6 +2,7 @@
 //! Owns disposable seeds and outcome assertions, not migration semantics.
 
 mod entity_creation;
+mod entity_creation_lifecycle;
 mod entity_rename;
 
 use std::{sync::OnceLock, time::Duration};
