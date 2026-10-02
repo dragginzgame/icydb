@@ -7,7 +7,8 @@ use candid::CandidType;
 use ic_cdk::{api::performance_counter, update};
 use icydb::{
     db::{
-        DynamicQuery, StructuralPatch, TypedRowAdapter, WriteCell, query::asc,
+        DynamicQuery, StructuralPatch, TypedRowAdapter, WriteCell,
+        query::{FilterExpr, asc},
         with_request_execution,
     },
     traits::EntitySource,
@@ -57,6 +58,15 @@ pub(crate) struct CatalogLabelSample {
     pages: u32,
 }
 
+// Every compared read uses the same finite fixture keyspace. ORDER BY and
+// output LIMIT alone do not constrain the index traversal for public admission.
+fn catalog_key_range() -> FilterExpr {
+    FilterExpr::and(vec![
+        SqlTestCatalogItem::KEY.gte(InputValue::text("item-0000".into())),
+        SqlTestCatalogItem::KEY.lt(InputValue::text("item-0128".into())),
+    ])
+}
+
 // Selected values are consumed without rendering, coercion or default fields.
 fn decode_label(values: Vec<OutputValue>) -> Result<CatalogLabel, icydb::Error> {
     let [id, key, name]: [OutputValue; 3] = values
@@ -91,6 +101,7 @@ fn measure_catalog_labels(selected: bool) -> CatalogLabelSample {
                 ];
                 let request = DynamicQuery::new(SqlTestCatalogItem::ENTITY)
                     .select(columns)
+                    .filter(catalog_key_range())
                     .order_by(asc(SqlTestCatalogItem::KEY))
                     .limit(257);
                 let page = session.execute_live_page(&request, continuation.as_deref())?;
@@ -107,6 +118,7 @@ fn measure_catalog_labels(selected: bool) -> CatalogLabelSample {
                 let page = session
                     .query::<SqlTestCatalogItem>()
                     .map_err(typed_operation_fixture_error)?
+                    .filter(catalog_key_range())
                     .order_by(asc(SqlTestCatalogItem::KEY))
                     .limit(257)
                     .execute_live_page(continuation.as_deref())
@@ -216,6 +228,7 @@ fn seed_catalog_workload(start: u32, count: u32) -> Result<(), icydb::Error> {
         let cursor = session.prepare_live_page_cursor(
             binding.clone(),
             DynamicQuery::new(SqlTestCatalogItem::ENTITY)
+                .filter(catalog_key_range())
                 .order_by(asc(SqlTestCatalogItem::KEY))
                 .limit(2),
         );
@@ -273,6 +286,7 @@ fn measure_catalog_workload(staged: bool) -> CatalogWorkloadSample {
                 let cursor = session.prepare_live_page_cursor(
                     binding,
                     DynamicQuery::new(SqlTestCatalogItem::ENTITY)
+                        .filter(catalog_key_range())
                         .order_by(asc(SqlTestCatalogItem::KEY))
                         .limit(257),
                 );
@@ -297,6 +311,7 @@ fn measure_catalog_workload(staged: bool) -> CatalogWorkloadSample {
                 let page = session
                     .query::<SqlTestCatalogItem>()
                     .map_err(typed_operation_fixture_error)?
+                    .filter(catalog_key_range())
                     .order_by(asc(SqlTestCatalogItem::KEY))
                     .limit(257)
                     .execute_live_page(continuation.as_deref())

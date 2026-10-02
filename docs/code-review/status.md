@@ -600,6 +600,20 @@ regression bodies and hybrid runtime functions. Runtime complexity stays neutral
 only test layout and documentation change. Full repository suites remain
 user-owned; raw Wasm, IC cycles and instructions are unmeasured.
 
+### Validation follow-up — Public read fixtures
+
+Full validation exposed two stale whole-index read expectations after A19:
+catalogue seeding and hidden-order live pagination returned admission code 173.
+The catalogue fixture shares a finite key range across setup, typed, staged and
+selected reads; the live-page regression constrains its indexed order field.
+The regression passes with no default features and with all features; five
+admission controls and the 16/128-row PocketIC catalogue regression also pass.
+Strict core/canister lint passes. Engine policy and inventory counts are unchanged.
+Fixture code grows nineteen net lines with neutral implementation complexity.
+SQL fixture raw Wasm grows 508 bytes, from 4,329,400 to 4,329,908. Cycle/instruction
+deltas are unavailable because the prior fixture rejected before measurement.
+Temporary local PocketIC servers were cleaned up; full suites remain user-owned.
+
 ## Finding inventory
 
 All 307 distinct, non-refuted findings are listed once. Duplicate aliases and the

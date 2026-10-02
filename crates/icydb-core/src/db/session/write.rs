@@ -3708,6 +3708,10 @@ mod mixed_relation_batch_tests {
             .expect("live-page rows should insert");
         let query = DynamicQuery::new(ENTITY_NAME)
             .select(["id"])
+            // Keep the public read selective while exercising hidden order
+            // values and continuation across the three fixture rows.
+            .filter(crate::db::FieldRef::new("code").gte(InputValue::nat64(10)))
+            .filter(crate::db::FieldRef::new("code").lte(InputValue::nat64(30)))
             .order_by(desc("code"));
 
         let first = session
