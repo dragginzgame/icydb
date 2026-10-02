@@ -247,14 +247,10 @@ impl StructuralQueryCacheKey {
         };
         Ok(Self(Rc::new(StructuralQueryCacheKeyData {
             mode: QueryModeCacheKey::from_query_mode(model.mode()),
-            // Canonical scalar `filter_expr` owns semantic filter identity when
-            // present. The derived predicate key remains only for plans that
-            // still have no planner-owned semantic filter expression.
-            predicate: if filter_expr.is_some() {
-                None
-            } else {
-                predicate
-            },
+            // Ordinary plans retain both filter authorities: predicate-only
+            // appends can constrain access beyond the expression. Fully covered
+            // templates supply their parameter contract instead of this fingerprint.
+            predicate,
             parameter_contract,
             filter_expr,
             order: scalar
@@ -559,6 +555,50 @@ mod tests {
         hash::{BuildHasher, BuildHasherDefault, DefaultHasher},
         rc::Rc,
     };
+
+    #[test]
+    fn mixed_filter_cache_identity_preserves_both_filter_authorities() {
+        use crate::db::predicate::{Predicate, predicate_fingerprint_normalized};
+
+        with_preparation_work(|work| {
+            let key = |id, threshold, expression_first| {
+                let predicate = Predicate::eq("id".into(), Value::Nat64(id));
+                let expr = Expr::Binary {
+                    op: BinaryOp::Gt,
+                    left: Box::new(Expr::Binary {
+                        op: BinaryOp::Add,
+                        left: Box::new(Expr::Field("amount".into())),
+                        right: Box::new(Expr::Literal(Value::Nat64(1))),
+                    }),
+                    right: Box::new(Expr::Literal(Value::Nat64(threshold))),
+                };
+                let query = StructuralQuery::new(MissingRowPolicy::Ignore);
+                let query = if expression_first {
+                    query
+                        .filter_expr(expr, work)
+                        .unwrap()
+                        .filter_normalized_predicate(predicate.clone())
+                } else {
+                    query
+                        .filter_normalized_predicate(predicate.clone())
+                        .filter_expr(expr, work)
+                        .unwrap()
+                };
+                query
+                    .structural_cache_key_with_normalized_predicate_fingerprint(
+                        Some(predicate_fingerprint_normalized(&predicate, work).unwrap()),
+                        work,
+                    )
+                    .unwrap()
+            };
+            let original = key(1, 5, true);
+            for expression_first in [true, false] {
+                assert_eq!(key(1, 5, expression_first), original);
+                assert_ne!(key(2, 5, expression_first), original);
+                assert_ne!(key(1, 10, expression_first), original);
+            }
+        });
+    }
 
     #[test]
     fn key_construction_admits_backing_and_retries_without_partial_memos() {

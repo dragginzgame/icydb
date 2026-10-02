@@ -2,15 +2,22 @@
 
 mod access_projection;
 mod aggregate_composition;
+mod branch_distinct;
 mod composite_primary_keys;
 mod cursor_entropy;
+mod hybrid_components;
 mod index_metadata;
+mod index_scan_admission;
+mod materialized_sort_admission;
+mod missing_path_filters;
 mod order_metadata;
+mod owned_group_keys;
 mod prefix_accounting;
 mod prepared_explain;
 mod primary_key_ranges;
 mod projection_metadata;
 mod residual_bounds;
+mod residual_filters;
 mod scalar_page_limits;
 mod secondary_order;
 mod seek_intersection;
@@ -18,6 +25,7 @@ mod sparse_indexes;
 mod sql_not_null;
 mod timestamp_ranges;
 mod typed_explain;
+mod unordered_distinct;
 
 use crate::{
     db::{

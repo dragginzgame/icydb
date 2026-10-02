@@ -115,7 +115,7 @@ fn execute_trusted_sql_query(
 
     match response {
         Ok(result) => Ok(render_shell_text(result)),
-        Err(err) => Ok(render_sql_error(err, environment, canister)),
+        Err(err) => Err(render_sql_error(err, environment, canister)),
     }
 }
 
@@ -131,17 +131,16 @@ fn execute_trusted_sql_mutation_call(
 
     match response {
         Ok(result) => Ok(result.render_text()),
-        Err(err) => Ok(render_sql_error(err, environment, canister)),
+        Err(err) => Err(render_sql_error(err, environment, canister)),
     }
 }
 
 fn render_sql_error(err: icydb::Error, environment: &str, canister: &str) -> String {
     let rendered = crate::diagnostic::render_error(&err);
 
-    format!(
-        "ERROR: {}",
-        call::sql_error_with_recovery_hint(rendered.as_str(), environment, canister)
-    )
+    // The one-shot entrypoint and interactive loop each own the error prefix
+    // and output stream; endpoint failures must remain errors until that boundary.
+    call::sql_error_with_recovery_hint(rendered.as_str(), environment, canister)
 }
 
 #[cfg(test)]

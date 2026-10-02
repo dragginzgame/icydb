@@ -263,10 +263,8 @@ pub(in crate::db) fn index_covering_existing_rows_terminal_eligible(
     if !index_backed_covering_shape_supported(&plan.access) {
         return false;
     }
-    if plan.scalar_plan().predicate.is_none() {
-        return true;
-    }
-
+    // An absent predicate can still leave an expression-owned residual. The
+    // existing compatibility contract proves both parts for this terminal.
     strict_predicate_compatible
 }
 

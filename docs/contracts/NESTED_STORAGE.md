@@ -141,6 +141,11 @@ them:
 - projection materializes a missing descendant as null;
 - comparison predicates do not match a missing descendant, including
   descendant `IS NULL`;
+- expression `AND`/`OR` operands with a missing descendant compose as UNKNOWN:
+  a true sibling disjunct admits the row, while UNKNOWN alone does not. This
+  conversion occurs at the boolean boundary, so direct descendant `IS NULL`,
+  `NOT` of a missing comparison and value-level `COALESCE` do not turn an absent
+  descendant into a match. Real reader and persisted-decode errors propagate;
 - an explicit null terminal follows the normal null predicate rules;
 - ordering and projection `DISTINCT` use the same null key for missing and
   explicit-null descendants;

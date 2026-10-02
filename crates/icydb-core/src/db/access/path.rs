@@ -554,12 +554,6 @@ impl<K> AccessPath<K> {
         matches!(self, Self::ByKey(_))
     }
 
-    /// Return true when this path is an index multi-lookup.
-    #[must_use]
-    pub(crate) const fn is_index_multi_lookup(&self) -> bool {
-        matches!(self, Self::IndexMultiLookup { .. })
-    }
-
     /// Borrow the primary key payload when this path is `ByKey`.
     #[must_use]
     pub(crate) const fn as_by_key(&self) -> Option<&K> {

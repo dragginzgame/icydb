@@ -154,12 +154,37 @@ impl CompiledExpr {
                 when_then_arms,
                 else_expr,
             } => Self::evaluate_case(reader, when_then_arms, else_expr),
+            Self::Binary {
+                op: op @ (BinaryOp::And | BinaryOp::Or),
+                left,
+                right,
+            } => {
+                let left = left.evaluate_boolean_operand(reader)?;
+                let right = right.evaluate_boolean_operand(reader)?;
+
+                evaluate_boolean_binary_expr(*op, left.as_ref(), right.as_ref()).map(Cow::Owned)
+            }
             Self::Binary { op, left, right } => {
                 let left = left.evaluate(reader)?;
                 let right = right.evaluate(reader)?;
 
                 evaluate_binary_expr(*op, left.as_ref(), right.as_ref()).map(Cow::Owned)
             }
+        }
+    }
+
+    // Filter readers keep absent descendants distinct from terminal NULL so
+    // direct IS NULL and value functions cannot observe absence as NULL. At a
+    // boolean junction only, their typed missing-path signal is UNKNOWN: it
+    // does not match alone, but cannot veto a true sibling. Other failures keep
+    // their taxonomy, and both operands retain the existing eager evaluation.
+    fn evaluate_boolean_operand<'row>(
+        &'row self,
+        reader: &'row dyn CompiledExprValueReader,
+    ) -> Result<Cow<'row, Value>, ProjectionEvalError> {
+        match self.evaluate(reader) {
+            Err(ProjectionEvalError::MissingFieldPathValue { .. }) => Ok(Cow::Owned(Value::Null)),
+            result => result,
         }
     }
 
@@ -198,9 +223,9 @@ impl CompiledExpr {
     }
 
     // Resolve one nested field-path leaf through the reader-owned decoding
-    // boundary. Missing nested paths preserve projection semantics by
-    // materializing SQL NULL; unsupported readers fail loudly as missing root
-    // field access rather than silently returning NULL.
+    // boundary. Readers materialize projection NULL or preserve the typed
+    // filter missing-path signal until boolean composition. Unsupported readers
+    // fail as missing root access rather than silently returning NULL.
     fn evaluate_field_path<'row>(
         reader: &'row dyn CompiledExprValueReader,
         root_slot: usize,

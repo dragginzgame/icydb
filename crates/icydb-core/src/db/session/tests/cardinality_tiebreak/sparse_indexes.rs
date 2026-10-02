@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::types::Principal;
+use icydb_diagnostic_code::{DiagnosticDetail, QueryReadAdmissionCode};
 
 fn initialize_sparse_indexes(complete_index: bool) -> DbSession<TestCanister> {
     DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
@@ -159,10 +160,24 @@ fn nullable_composite_competitors_preserve_public_trusted_and_sql_rows() {
     session
         .execute_trusted_dynamic_insert_batch(ENTITY_NAME, vec![sparse_row(2, Some(101))])
         .unwrap();
+    // Implicit primary-key order requires sorting this secondary access.
+    // Qualify its public rejection separately from complete indexed rows.
+    let error = session
+        .execute_public_live_page(&recipient_query(), None)
+        .unwrap_err();
+    assert_eq!(
+        error.diagnostic().detail(),
+        Some(&DiagnosticDetail::QueryReadAdmission {
+            reason: QueryReadAdmissionCode::SortRequiresMaterialization,
+        }),
+    );
     for query in [
         recipient_query(),
         recipient_query().filter(FieldRef::new("last_event_at").eq(100_i64)),
     ] {
+        let query = query
+            .order_by(asc("recipient"))
+            .order_by(asc("last_event_at"));
         // Repeat to protect warm plan selection as well as the first cardinality tie-break.
         for _ in 0..2 {
             assert_eq!(
@@ -204,7 +219,10 @@ fn nullable_composite_competitors_preserve_public_trusted_and_sql_rows() {
     session
         .execute_trusted_dynamic_insert_batch(ENTITY_NAME, vec![sparse_row(3, None)])
         .unwrap();
-    let paged = recipient_query().order_by(asc("id")).limit(3);
+    let paged = recipient_query()
+        .order_by(asc("recipient"))
+        .order_by(asc("last_event_at"))
+        .limit(3);
     let first = session.execute_public_live_page(&paged, None).unwrap();
     assert_eq!(first.row_count, 2);
     let next = first
@@ -259,7 +277,10 @@ fn nullable_index_membership_proofs_preserve_eq_in_range_and_text_prefix() {
         FieldRef::new("read_at").is_not_null(),
     ];
     for filter in filters {
-        let query = recipient_query().filter(filter);
+        let query = recipient_query()
+            .filter(filter)
+            .order_by(asc("recipient"))
+            .order_by(asc("read_at"));
         assert_eq!(
             session
                 .execute_public_live_page(&query, None)
@@ -273,7 +294,9 @@ fn nullable_index_membership_proofs_preserve_eq_in_range_and_text_prefix() {
         FieldRef::new("label").in_list(["read", "other"]),
         FieldRef::new("label").text_starts_with("re"),
     ] {
-        let query = DynamicQuery::new(ENTITY_NAME).filter(filter);
+        let query = DynamicQuery::new(ENTITY_NAME)
+            .filter(filter)
+            .order_by(asc("label"));
         assert_eq!(
             session
                 .execute_public_live_page(&query, None)

@@ -254,7 +254,10 @@ pub(in crate::db) enum PlannedNonIndexAccessReason {
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum EffectiveRuntimeFilterKind {
     Predicate(PredicateProgram),
-    Expr(CompiledExpr),
+    Expr {
+        expr: CompiledExpr,
+        predicate: Option<PredicateProgram>,
+    },
 }
 
 ///
@@ -262,9 +265,8 @@ enum EffectiveRuntimeFilterKind {
 ///
 /// EffectiveRuntimeFilterProgram is the single compiled predicate surface used
 /// by executor row loops.
-/// It hides whether planning produced a predicate-native program or an
-/// expression-backed TRUE-only predicate wrapper, so executors only ask the
-/// compiled filter to evaluate one row.
+/// It keeps predicate-native and TRUE-only expression constraints together,
+/// so executors evaluate the complete filter through the same row boundary.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -281,20 +283,23 @@ impl EffectiveRuntimeFilterProgram {
         }
     }
 
-    /// Wrap one expression-backed runtime filter as a TRUE-only predicate.
+    /// Wrap one TRUE-only expression and any independently remaining predicate.
     #[must_use]
-    pub(in crate::db) const fn expression(expr: CompiledExpr) -> Self {
+    pub(in crate::db) const fn expression(
+        expr: CompiledExpr,
+        predicate: Option<PredicateProgram>,
+    ) -> Self {
         Self {
-            kind: EffectiveRuntimeFilterKind::Expr(expr),
+            kind: EffectiveRuntimeFilterKind::Expr { expr, predicate },
         }
     }
 
-    /// Borrow the predicate-native runtime program when this filter has one.
+    /// Borrow the predicate part; an expression part must also be enforced.
     #[must_use]
     pub(in crate::db) const fn predicate_program(&self) -> Option<&PredicateProgram> {
         match &self.kind {
             EffectiveRuntimeFilterKind::Predicate(program) => Some(program),
-            EffectiveRuntimeFilterKind::Expr(_) => None,
+            EffectiveRuntimeFilterKind::Expr { predicate, .. } => predicate.as_ref(),
         }
     }
 
@@ -302,7 +307,7 @@ impl EffectiveRuntimeFilterProgram {
     #[must_use]
     pub(in crate::db) const fn expression_filter(&self) -> Option<&CompiledExpr> {
         match &self.kind {
-            EffectiveRuntimeFilterKind::Expr(expr) => Some(expr),
+            EffectiveRuntimeFilterKind::Expr { expr, .. } => Some(expr),
             EffectiveRuntimeFilterKind::Predicate(_) => None,
         }
     }
@@ -313,8 +318,11 @@ impl EffectiveRuntimeFilterProgram {
             EffectiveRuntimeFilterKind::Predicate(predicate_program) => {
                 predicate_program.mark_referenced_slots(required_slots);
             }
-            EffectiveRuntimeFilterKind::Expr(filter_expr) => {
-                filter_expr.mark_referenced_slots(required_slots);
+            EffectiveRuntimeFilterKind::Expr { expr, predicate } => {
+                expr.mark_referenced_slots(required_slots);
+                if let Some(predicate) = predicate {
+                    predicate.mark_referenced_slots(required_slots);
+                }
             }
         }
     }
@@ -973,7 +981,7 @@ Self{logical,access,projection_selection,access_choice,cardinality_tiebreak,plan
 });
 crate::retained::retained_fields!(EffectiveRuntimeFilterKind {
 Self::Predicate(field_0) => [field_0],
-Self::Expr(field_0) => [field_0],
+Self::Expr{expr,predicate} => [expr,predicate],
 });
 crate::retained::retained_fields!(EffectiveRuntimeFilterProgram {
 Self{kind} => [kind],

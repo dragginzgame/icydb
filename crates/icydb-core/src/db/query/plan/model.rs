@@ -211,7 +211,8 @@ pub(in crate::db) struct DeleteLimitSpec {
 ///
 /// DistinctExecutionStrategy
 ///
-/// Planner-owned scalar DISTINCT execution strategy.
+/// Planner-owned key-identity DISTINCT execution strategy.
+/// Projected-value DISTINCT has its own accumulator after row projection.
 /// This is execution-mechanics only and must not be used for semantic
 /// admissibility decisions.
 ///
@@ -220,7 +221,6 @@ pub(in crate::db) struct DeleteLimitSpec {
 pub(in crate::db) enum DistinctExecutionStrategy {
     None,
     PreOrdered,
-    HashMaterialize,
 }
 
 ///

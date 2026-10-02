@@ -34,6 +34,7 @@ use pushdown::secondary_order_contract_active;
 
 #[cfg(feature = "sql")]
 pub(in crate::db::executor) use capability_facts::explain_access_order_satisfied_for_model;
+pub(in crate::db) use capability_facts::scalar_load_requires_materialized_sort;
 pub(in crate::db::executor) use capability_facts::{
     branch_set_page_keep_cap_shape_supported, count_pushdown_shape_supported,
     primary_key_stream_window_shape_supported, primary_scan_fetch_hint_shape_supported,

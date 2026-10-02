@@ -22,6 +22,14 @@ are admitted only when their exact scan bound matches the proven materialized
 row bound and the public returned-row and key-input policies also pass. An
 authored `LIMIT` alone does not establish any of those access proofs.
 
+An index range with no equality prefix and two unbounded endpoints is a whole
+index scan. The shared admission summary classifies it as `FullScan` and public
+live, exhaustive and grouped reads reject it before row execution, including
+continuation calls. Index ordering, output limits and grouped state caps do not
+constrain that scanned keyspace. A prefix or range endpoint remains an indexed
+access constraint; it does not prove a numeric row bound. EXPLAIN retains the
+physical index name and plan while reporting the logical `full_scan` class.
+
 `DiagnosticExplain` observes planning but cannot execute rows.
 
 Trusted bypass surfaces are explicit method choices. They retain accepted
@@ -193,7 +201,7 @@ See [the read-intent guide](../guides/read-intent.md) for maintained examples.
 | --- | --- | --- |
 | `QueryReadAdmissionCode::PublicQueryRequiresLimit` | No proven finite returned-row bound. | Add a positive limit or use exact selected primary-key access. |
 | `QueryReadAdmissionCode::PublicQueryRequiresIndex` | The selected route is not index-backed/bounded. | Add or select an accepted index, or move authorized maintenance to a trusted lane. |
-| `QueryReadAdmissionCode::UnboundedFullScanRejected` | Planning selected a full entity scan. | Use indexed filtering or an explicit trusted lane. |
+| `QueryReadAdmissionCode::UnboundedFullScanRejected` | Planning selected a full entity or whole-index scan. | Constrain accepted index access or use an explicit trusted lane. |
 | `QueryReadAdmissionCode::SortRequiresMaterialization` | Ordering requires materialization without the exact primary-key candidate proof. | Use accepted index order, an admissible exact key set, or authorized trusted execution. |
 | `QueryReadAdmissionCode::GroupedQueryRequiresLimits` | Grouped execution lacks hard budgets. | Use a supported surface with explicit group and memory bounds. |
 | `QueryReadAdmissionCode::GroupedQueryExceedsBudget` | Group limits exceed the built-in public policy. | Reduce the bounds or use authorized trusted execution. |

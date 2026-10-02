@@ -208,11 +208,14 @@ fn assemble_query_model_plan(
         normalized_predicate,
     );
     let normalized_predicate = primary_key_strip.predicate;
-    let logical_inputs = if primary_key_strip.stripped {
-        logical_inputs.without_filter_expr()
-    } else {
-        logical_inputs
-    };
+    // Exact access proves the predicate subset. Intent coverage still owns
+    // whether that proof also discharges the complete filter expression.
+    let logical_inputs =
+        if primary_key_strip.stripped && query.filter_predicate_fully_covers_expression() {
+            logical_inputs.without_filter_expr()
+        } else {
+            logical_inputs
+        };
 
     // Phase 3: assemble logical plan from normalized scalar/grouped intent.
     let logical_query = logical_query_from_logical_inputs(
@@ -828,9 +831,9 @@ impl PrimaryKeyPredicateStripResult {
 }
 
 // Drop one normalized primary-key predicate when access planning already
-// resolved the exact same authoritative PK access path. The result also owns
-// the matching "filter expression is redundant" fact so planning does not
-// evaluate the selected primary-key proof twice.
+// resolved the exact same authoritative PK access path. This proves only the
+// predicate; the caller must establish intent coverage before dropping a filter
+// expression.
 fn strip_redundant_primary_key_predicate_for_exact_access(
     schema_info: &SchemaInfo,
     access: &AccessPlan<Value>,
@@ -882,6 +885,7 @@ fn simplify_limit_one_page_for_by_key_access(plan: &mut AccessPlannedQuery) {
 #[cfg(all(test, feature = "sql"))]
 mod tests {
     mod candidate_outputs;
+    mod residual_filters;
 
     use super::{VisibleIndexes, exact_first_component_metadata_index};
     use crate::db::query::plan::exact_metadata_schema;

@@ -89,6 +89,37 @@ pub(in crate::db::executor) const fn count_pushdown_shape_supported(
     primary_key_stream_window_shape_supported(shape_facts)
 }
 
+/// Return the route-owned scalar load sort requirement for read admission.
+/// Grouped plans retain their separate strategy and grouped-state policy.
+#[must_use]
+pub(in crate::db) fn scalar_load_requires_materialized_sort(plan: &AccessPlannedQuery) -> bool {
+    let logical = plan.scalar_plan();
+    if plan.grouped_plan().is_some() || !logical.mode.is_load() {
+        return false;
+    }
+
+    let has_order = logical
+        .order
+        .as_ref()
+        .is_some_and(|order| !order.fields.is_empty());
+    let access_order_satisfied = access_order_satisfied_by_route_mode_with_access_shape_facts(
+        plan,
+        &plan.access_shape_facts(),
+    );
+
+    post_access_sort_required(has_order, access_order_satisfied, false)
+}
+
+// Admission and execution must use the same sort rule, even when a residual
+// filter takes precedence in the route's diagnostic fallback reason.
+const fn post_access_sort_required(
+    has_order: bool,
+    access_order_satisfied: bool,
+    grouped_order_satisfied: bool,
+) -> bool {
+    has_order && !access_order_satisfied && !grouped_order_satisfied
+}
+
 ///
 /// LoadRouteCapabilityFacts
 ///
@@ -129,8 +160,11 @@ impl LoadRouteCapabilityFacts {
         let grouped_order_satisfied_by_route = grouped_plan_strategy
             .is_some_and(GroupedPlanStrategy::ordered_group_admitted)
             && (!matches!(direction, Direction::Desc) || desc_physical_reverse_supported);
-        let requires_post_access_sort =
-            has_order && !access_order_satisfied_by_path && !grouped_order_satisfied_by_route;
+        let requires_post_access_sort = post_access_sort_required(
+            has_order,
+            access_order_satisfied_by_path,
+            grouped_order_satisfied_by_route,
+        );
 
         // Phase 2: project those facts onto the canonical load-order route
         // decision so route capability and hint callers share one owner.

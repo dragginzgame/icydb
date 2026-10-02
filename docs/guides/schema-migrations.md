@@ -262,6 +262,22 @@ bounded step is also available:
 icydb schema migration advance app
 ```
 
+CLI exit status follows the requested operation's result, rather than only the
+success of the canister call:
+
+| Command | Zero exit status |
+| --- | --- |
+| `status` | A status page was inspected, including a rejected or aborted plan. |
+| `advance` | One bounded step returned progress or `Applied`; `Rejected` and `Aborted` fail. An `Idle` page can represent bounded journal cleanup. |
+| `run` | The final phase is `Applied`, including an already-applied plan. |
+| `abort --yes` | Cleanup finishes at `Aborted`, including an already-aborted plan. An already-applied plan fails. |
+
+Decoded status and findings are printed to stdout even when the operation fails;
+the failure diagnostic goes to stderr and the process exits nonzero. `advance`
+success does not establish that the whole migration has applied. Abort continues
+bounded cleanup through intermediate pages, including rejected pages whose
+private staging progress is absent from the displayed status.
+
 The core migration gate permits ordinary row operations during `Prepared` when
 the migration capability is present, but this is not application readiness:
 the unpublished generated successor reports startup `Recovering`. Generated ordinary

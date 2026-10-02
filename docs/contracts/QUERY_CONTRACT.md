@@ -81,6 +81,23 @@ They are queryable through the normal predicate surface, just like other fields.
 The planner may optimize validated primary-key predicates into key/index access
 paths when that preserves query semantics.
 
+Exact-key access proves only the predicate semantics covered by its key proof.
+An uncovered filter expression remains authoritative and executes before output
+windows, aggregate reduction or mutation selection. An absent predicate does
+not prove an absent filter: index-only terminal eligibility and its diagnostics
+must consume the maintained residual compatibility contract.
+
+Shared plan reuse must preserve both expression semantics and separately
+appended predicate constraints. Changing or revisiting a key scope must return
+the same results as fresh planning. Fully covered parameterized plans bind
+current operands through their maintained coverage contract.
+
+When an uncovered expression and an independent predicate both remain, the
+effective runtime filter enforces their conjunction before windows, reductions
+or mutation selection. Only a complete-coverage proof permits the predicate to
+replace the expression. Required slots, retained-memory accounting and
+predicate-only capabilities must reflect the complete runtime filter.
+
 `by_id(...)` and `by_ids(...)` are ergonomic helpers for typed primary-key
 values (`Id<E>`). They are not privileged access paths and are not required for
 primary-key filtering.

@@ -80,6 +80,8 @@ Keep this file small. Open detailed governance docs only when the task needs the
   owner, and state-space delta.
 - Prefer one semantic authority and one converged execution flow. Tests protect
   maintained behavior and boundaries, not incidental implementation shape.
+- For saved-review repairs, qualify affected boundary families and prevent facts
+  drifting between owners; follow the repair discipline in `docs/code-review/status.md`.
 - Start with `rg` and targeted inspection; do not read broad directories unless the task requires it.
 - Make the smallest safe change that satisfies the request.
 - Do not perform opportunistic refactors; list them as follow-up instead.

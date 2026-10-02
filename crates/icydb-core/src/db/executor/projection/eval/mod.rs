@@ -5,6 +5,10 @@
 //! helpers exercise the same compiled evaluator paths directly.
 
 mod contracts;
+#[cfg(test)]
+mod missing_paths;
+#[cfg(test)]
+mod residual_filters;
 mod scalar;
 
 use crate::{
@@ -37,12 +41,17 @@ pub(in crate::db::executor) fn eval_effective_runtime_filter_program_with_slot_r
         DiagnosticExecutionBudgetResource::PredicateExpressionSteps,
         1,
     )?;
-    if let Some(predicate_program) = filter_program.predicate_program() {
-        return predicate_program.eval_with_structural_slot_reader(slots);
+    let predicate_program = filter_program.predicate_program();
+    if let Some(predicate_program) = predicate_program
+        && !predicate_program.eval_with_structural_slot_reader(slots)?
+    {
+        return Ok(false);
     }
 
     let Some(filter_expr) = filter_program.expression_filter() else {
-        return Err(InternalError::query_executor_invariant());
+        return predicate_program
+            .map(|_| true)
+            .ok_or_else(InternalError::query_executor_invariant);
     };
 
     eval_compiled_filter_expr_with_required_slot_reader(filter_expr, slots)
@@ -63,12 +72,17 @@ where
         DiagnosticExecutionBudgetResource::PredicateExpressionSteps,
         1,
     )?;
-    if let Some(predicate_program) = filter_program.predicate_program() {
-        return Ok(predicate_program.eval_with_slot_value_cow_reader(read_slot));
+    let predicate_program = filter_program.predicate_program();
+    if let Some(predicate_program) = predicate_program
+        && !predicate_program.eval_with_slot_value_cow_reader(read_slot)
+    {
+        return Ok(false);
     }
 
     let Some(filter_expr) = filter_program.expression_filter() else {
-        return Err(InternalError::query_executor_invariant());
+        return predicate_program
+            .map(|_| true)
+            .ok_or_else(InternalError::query_executor_invariant);
     };
 
     eval_compiled_filter_expr_with_value_cow_reader(filter_expr, read_slot)

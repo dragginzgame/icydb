@@ -415,6 +415,39 @@ pub(in crate::db) use store::{
 };
 
 #[cfg(test)]
+// Keep optional scalar record members under the real catalog admission owner
+// so reader/session qualification need not introduce a newtype wrapper.
+pub(in crate::db) fn build_record_composite_catalog_for_tests(
+    record_path: String,
+    member_name: String,
+    leaf_kind: AcceptedFieldKind,
+    nullable: bool,
+    enum_catalog: &AcceptedEnumCatalog,
+) -> (AcceptedCompositeCatalog, CompositeTypeId) {
+    let record_type = CompositeTypeId::new(1).unwrap();
+    let member_id = CompositeFieldId::new(1).unwrap();
+    let catalog = AcceptedCompositeCatalog::from_initial_definitions(
+        std::collections::BTreeMap::from([(
+            record_type,
+            (
+                record_path,
+                composite_catalog::AcceptedCompositeShape::Record(vec![
+                    composite_catalog::AcceptedCompositeField::new(
+                        member_id,
+                        member_name,
+                        composite_catalog::AcceptedCompositeElement::new(leaf_kind, nullable),
+                    ),
+                ]),
+            ),
+        )]),
+        enum_catalog,
+    )
+    .expect("test record catalog should build");
+
+    (catalog, record_type)
+}
+
+#[cfg(test)]
 pub(in crate::db) fn build_record_newtype_composite_catalog_for_tests(
     record_path: String,
     member_name: String,

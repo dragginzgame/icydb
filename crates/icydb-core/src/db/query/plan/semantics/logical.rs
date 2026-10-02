@@ -224,17 +224,15 @@ impl AccessPlannedQuery {
             .as_ref()
     }
 
-    /// Borrow the planner-compiled effective runtime predicate program.
+    /// Borrow a native predicate only when it is the complete runtime filter.
     #[must_use]
     pub(in crate::db) fn effective_runtime_compiled_predicate(&self) -> Option<&PredicateProgram> {
-        match self
-            .static_execution_planning_contract()?
-            .residual_filter_contract
-            .effective_runtime_filter_program()
-        {
-            Some(program) => program.predicate_program(),
-            None => None,
+        let program = self.effective_runtime_filter_program()?;
+        if program.expression_filter().is_some() {
+            return None;
         }
+
+        program.predicate_program()
     }
 
     /// Borrow the planner-frozen effective runtime scalar filter program.
@@ -249,18 +247,16 @@ impl AccessPlannedQuery {
 
     /// Lower scalar DISTINCT semantics into one executor-facing execution strategy.
     #[must_use]
-    pub(in crate::db) fn distinct_execution_strategy(&self) -> DistinctExecutionStrategy {
+    pub(in crate::db) const fn distinct_execution_strategy(&self) -> DistinctExecutionStrategy {
         if !self.scalar_plan().distinct {
             return DistinctExecutionStrategy::None;
         }
 
-        // DISTINCT on duplicate-safe single-path access shapes is a planner
-        // no-op for runtime dedup mechanics. Composite shapes can surface
-        // duplicate keys and therefore retain explicit dedup execution.
-        match distinct_runtime_dedup_strategy(&self.access) {
-            Some(strategy) => strategy,
-            None => DistinctExecutionStrategy::None,
-        }
+        // Key identity follows the access contract, independently of projected
+        // value DISTINCT. Canonical multi-lookup prefixes are disjoint: a row's
+        // single leading index component belongs to exactly one branch. Their
+        // secondary order must not acquire a primary-key monotonicity check.
+        distinct_runtime_dedup_strategy(&self.access)
     }
 
     /// Freeze one planner-owned route profile from accepted schema authority.
@@ -454,15 +450,10 @@ impl AccessPlannedQuery {
     }
 }
 
-fn distinct_runtime_dedup_strategy<K>(access: &AccessPlan<K>) -> Option<DistinctExecutionStrategy> {
+const fn distinct_runtime_dedup_strategy<K>(access: &AccessPlan<K>) -> DistinctExecutionStrategy {
     match access {
-        AccessPlan::Union(_) | AccessPlan::Intersection(_) => {
-            Some(DistinctExecutionStrategy::PreOrdered)
-        }
-        AccessPlan::Path(path) if path.as_ref().is_index_multi_lookup() => {
-            Some(DistinctExecutionStrategy::HashMaterialize)
-        }
-        AccessPlan::Path(_) => None,
+        AccessPlan::Union(_) | AccessPlan::Intersection(_) => DistinctExecutionStrategy::PreOrdered,
+        AccessPlan::Path(_) => DistinctExecutionStrategy::None,
     }
 }
 
@@ -530,6 +521,7 @@ fn project_static_execution_planning_contract_with_schema(
         schema_info,
         residual_filter_expr.as_ref(),
         residual_filter_predicate.as_ref(),
+        plan.scalar_plan().predicate_covers_filter_expr,
         work,
     )
     .map_err(QueryError::execute)?;
@@ -607,13 +599,14 @@ fn compile_effective_runtime_filter_program(
     schema_info: &SchemaInfo,
     residual_filter_expr: Option<&Expr>,
     residual_filter_predicate: Option<&Predicate>,
+    predicate_covers_filter_expr: bool,
     work: &PreparationWork<'_>,
 ) -> Result<Option<EffectiveRuntimeFilterProgram>, InternalError> {
-    // Keep the existing predicate fast path when the residual semantics still
-    // fit the derived predicate contract. The expression-owned lane is only
-    // needed once pushdown loses semantic coverage and a residual predicate no
-    // longer exists.
-    if let Some(predicate) = residual_filter_predicate {
+    // A predicate may replace an expression only with the intent coverage proof.
+    // Otherwise both residual authorities survive in the single runtime program.
+    if let Some(predicate) = residual_filter_predicate
+        && (residual_filter_expr.is_none() || predicate_covers_filter_expr)
+    {
         return Ok(Some(EffectiveRuntimeFilterProgram::predicate(
             PredicateProgram::compile_with_schema_info(schema_info, predicate),
         )));
@@ -623,7 +616,10 @@ fn compile_effective_runtime_filter_program(
         let compiled = compile_scalar_projection_expr_with_schema(schema_info, filter_expr, work)?
             .ok_or_else(InternalError::query_invalid_logical_plan)?;
 
-        return Ok(Some(EffectiveRuntimeFilterProgram::expression(compiled)));
+        return Ok(Some(EffectiveRuntimeFilterProgram::expression(
+            compiled,
+            compile_optional_predicate(schema_info, residual_filter_predicate),
+        )));
     }
 
     Ok(None)

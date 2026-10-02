@@ -6,9 +6,12 @@
 use std::ops::Bound;
 
 use crate::{
-    db::query::plan::{
-        AccessPlanProjection, AccessPlannedQuery, GroupPlan, PrimaryKeyInputResourceSummary,
-        QueryMode, ResidualFilterShape, ScalarPlan, project_access_plan,
+    db::{
+        executor::route::scalar_load_requires_materialized_sort,
+        query::plan::{
+            AccessPlanProjection, AccessPlannedQuery, GroupPlan, PrimaryKeyInputResourceSummary,
+            QueryMode, ResidualFilterShape, ScalarPlan, project_access_plan,
+        },
     },
     value::Value,
 };
@@ -35,6 +38,11 @@ pub(super) fn summary_from_plan(
     }
     let primary_key_input_resource = plan.access_choice().primary_key_input_resource();
     let scan_bound_kind = access.scan_bound_kind();
+    let materialization = if scalar_load_requires_materialized_sort(plan) {
+        QueryMaterializationSummary::for_sort(access.exact_scan_bound)
+    } else {
+        QueryMaterializationSummary::none()
+    };
 
     Ok(QueryAdmissionSummary {
         lane,
@@ -55,7 +63,7 @@ pub(super) fn summary_from_plan(
         residual_filter: admission_residual_filter(plan.residual_filter_shape()?),
         ordering: admission_ordering(plan),
         grouped,
-        materialization: QueryMaterializationSummary::none(),
+        materialization,
         rejection: None,
     })
 }
@@ -92,7 +100,7 @@ impl AdmissionAccessSummary {
         }
     }
 
-    fn secondary_index(kind: QueryAdmissionAccessKind, index_name: &str) -> Self {
+    fn with_index(kind: QueryAdmissionAccessKind, index_name: &str) -> Self {
         Self {
             kind,
             selected_index: Some(index_name.to_string()),
@@ -142,7 +150,7 @@ impl AccessPlanProjection<Value> for AdmissionAccessProjection {
         _prefix_len: usize,
         _values: &[Value],
     ) -> Self::Output {
-        AdmissionAccessSummary::secondary_index(QueryAdmissionAccessKind::IndexPrefix, index_name)
+        AdmissionAccessSummary::with_index(QueryAdmissionAccessKind::IndexPrefix, index_name)
     }
 
     fn index_multi_lookup<'a>(
@@ -151,10 +159,7 @@ impl AccessPlanProjection<Value> for AdmissionAccessProjection {
         _index_fields: impl ExactSizeIterator<Item = &'a str> + Clone,
         _values: &[Value],
     ) -> Self::Output {
-        AdmissionAccessSummary::secondary_index(
-            QueryAdmissionAccessKind::IndexMultiLookup,
-            index_name,
-        )
+        AdmissionAccessSummary::with_index(QueryAdmissionAccessKind::IndexMultiLookup, index_name)
     }
 
     fn index_branch_set<'a>(
@@ -164,10 +169,7 @@ impl AccessPlanProjection<Value> for AdmissionAccessProjection {
         _fixed_values: &[Value],
         _branch_values: &[Value],
     ) -> Self::Output {
-        AdmissionAccessSummary::secondary_index(
-            QueryAdmissionAccessKind::IndexBranchSet,
-            index_name,
-        )
+        AdmissionAccessSummary::with_index(QueryAdmissionAccessKind::IndexBranchSet, index_name)
     }
 
     fn index_range<'a>(
@@ -175,11 +177,22 @@ impl AccessPlanProjection<Value> for AdmissionAccessProjection {
         index_name: &str,
         _index_fields: impl ExactSizeIterator<Item = &'a str> + Clone,
         _prefix_len: usize,
-        _prefix: &[Value],
-        _lower: &Bound<Value>,
-        _upper: &Bound<Value>,
+        prefix: &[Value],
+        lower: &Bound<Value>,
+        upper: &Bound<Value>,
     ) -> Self::Output {
-        AdmissionAccessSummary::secondary_index(QueryAdmissionAccessKind::IndexRange, index_name)
+        // Index order alone does not constrain the scanned keyspace. Preserve
+        // the physical index for diagnostics while exposing full-scan work to
+        // the shared policy, regardless of output limits or residual filters.
+        let kind = if prefix.is_empty()
+            && matches!((lower, upper), (Bound::Unbounded, Bound::Unbounded))
+        {
+            QueryAdmissionAccessKind::FullScan
+        } else {
+            QueryAdmissionAccessKind::IndexRange
+        };
+
+        AdmissionAccessSummary::with_index(kind, index_name)
     }
 
     fn full_scan(&mut self) -> Self::Output {
@@ -306,5 +319,54 @@ const fn plan_shape(plan: &AccessPlannedQuery) -> QueryAdmissionPlanShape {
     match plan.scalar_plan().mode {
         QueryMode::Load(_) => QueryAdmissionPlanShape::ScalarRead,
         QueryMode::Delete(_) => QueryAdmissionPlanShape::Delete,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn range_admission_projection_preserves_all_bound_shapes() {
+        // Admission depends on keyspace constraints, not bound payload types.
+        // Qualify every open/inclusive/exclusive endpoint combination with and
+        // without a composite-index equality prefix.
+        let lower_bounds = [
+            Bound::Unbounded,
+            Bound::Included(Value::Nat64(0)),
+            Bound::Excluded(Value::Nat64(0)),
+        ];
+        let upper_bounds = [
+            Bound::Unbounded,
+            Bound::Included(Value::Nat64(2)),
+            Bound::Excluded(Value::Nat64(2)),
+        ];
+        let prefix = [Value::Nat64(1)];
+        for prefix in [&[][..], &prefix[..]] {
+            for lower in &lower_bounds {
+                for upper in &upper_bounds {
+                    let facts = AdmissionAccessProjection.index_range(
+                        "composite_idx",
+                        ["category", "operand"].into_iter(),
+                        prefix.len(),
+                        prefix,
+                        lower,
+                        upper,
+                    );
+                    let whole_index = prefix.is_empty()
+                        && matches!((lower, upper), (Bound::Unbounded, Bound::Unbounded));
+                    assert_eq!(
+                        facts.kind,
+                        if whole_index {
+                            QueryAdmissionAccessKind::FullScan
+                        } else {
+                            QueryAdmissionAccessKind::IndexRange
+                        },
+                    );
+                    assert_eq!(facts.selected_index.as_deref(), Some("composite_idx"));
+                    assert_eq!(facts.exact_scan_bound, None);
+                }
+            }
+        }
     }
 }

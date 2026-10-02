@@ -284,6 +284,19 @@ owns adjacent deduplication or global replay. These paths charge execution
 budgets for DISTINCT entries and retained state; they do not obtain their
 limits from grouped-query configuration.
 
+An unordered scalar DISTINCT projection uses global replay because it has no
+resolved-order proof for adjacent deduplication. Authored output windows apply
+after deduplication and do not bound the input scan or retained DISTINCT state.
+The same execution budgets and typed resource failures apply; ordinary SQL does
+not acquire an implicit sort to satisfy DISTINCT.
+
+Key identity DISTINCT follows the access contract. Canonical multi-lookup
+prefixes bind distinct strict values of one leading index component, so their
+row identities cannot overlap. These paths preserve index branch order without
+another retained key set or primary-key monotonicity check. Composite
+union/intersection streams retain ordered key deduplication; projected-value
+DISTINCT remains separately budgeted by the accumulator above.
+
 All cardinality-sensitive state must be reachable exclusively through
 budget-accounted structures.
 

@@ -584,6 +584,20 @@ impl GroupedAggregateBundle {
         let group_key = materialize_group_key_from_row_view(row_view, group_fields, None)
             .map_err(GroupError::from)?;
 
+        // Owned keys already carry canonical equality and a stable hash. Probe
+        // the existing bucket before charging or allocating another group.
+        if let Some(bucket) = self.bucket_index.get(&group_key.hash()) {
+            let existing = find_matching_group_index_in_bucket(
+                bucket.as_slice(),
+                |group_index| self.groups.get(group_index).map(|entry| &entry.group_key),
+                |existing| Ok(existing == &group_key),
+            )
+            .map_err(GroupError::from)?;
+            if let Some(group_index) = existing {
+                return Ok(group_index);
+            }
+        }
+
         self.insert_new_group(group_key, execution_context)
     }
 
@@ -776,25 +790,155 @@ impl GroupedAggregateBundle {
 
 #[cfg(test)]
 mod tests {
-    use super::{GroupedAggregateBundleSpec, OrderedGroupedAggregateFold};
+    use super::{GroupedAggregateBundle, GroupedAggregateBundleSpec, OrderedGroupedAggregateFold};
     use crate::{
         db::{
             data::{DecodedDataStoreKey, PrimaryKeyComponent},
             direction::Direction,
             executor::{
+                aggregate::runtime::grouped_fold::utils::GroupIndexBucket,
                 aggregate::{
                     AggregateKind, CompiledExpr, ExecutionConfig, ExecutionContext, GroupError,
                     contracts::GroupedDistinctExecutionMode,
                 },
                 budget::runtime_value_work,
+                group::GroupKey,
                 pipeline::runtime::RowView,
             },
             query::plan::FieldSlot,
         },
-        types::EntityTag,
+        error::InternalError,
+        types::{Decimal, EntityTag},
         value::Value,
     };
     use std::rc::Rc;
+
+    fn owned_count_bundle() -> GroupedAggregateBundle {
+        GroupedAggregateBundle::new(
+            (0..2)
+                .map(|_| {
+                    GroupedAggregateBundleSpec::new(
+                        AggregateKind::Count,
+                        GroupedDistinctExecutionMode::new(false, false),
+                        None,
+                        None,
+                        None,
+                        u64::MAX,
+                    )
+                    .unwrap()
+                })
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn owned_groups_reuse_unit_collection_and_composite_value_keys_within_group_limits() {
+        for value in [
+            Value::Unit,
+            Value::List(vec![Value::Nat64(7)]),
+            Value::Map(vec![(
+                Value::Text("member".into()),
+                Value::List(vec![Value::Nat64(7)]),
+            )]),
+        ] {
+            let mut bundle = owned_count_bundle();
+            let mut context =
+                ExecutionContext::new(ExecutionConfig::with_hard_limits(1, 64 * 1024));
+            let fields = [FieldSlot::from_test_slot(0, "group")];
+            for id in 1..=3 {
+                bundle
+                    .ingest_row_with_owned_group_key(
+                        &mut context,
+                        &data_key(id),
+                        &RowView::new(vec![Some(value.clone())]),
+                        &fields,
+                    )
+                    .unwrap();
+            }
+            assert_eq!(context.budget().groups(), 1);
+            assert_eq!(context.budget().aggregate_states(), 2);
+            let finalized = bundle
+                .into_groups()
+                .into_iter()
+                .map(|group| group.finalize(2).unwrap())
+                .collect::<Vec<_>>();
+            assert_eq!(finalized.len(), 1);
+            assert_eq!(finalized[0].1, [Value::Nat64(3), Value::Nat64(3)]);
+        }
+    }
+
+    #[test]
+    fn owned_groups_use_canonical_nested_numeric_equality_for_multi_field_keys() {
+        let mut bundle = owned_count_bundle();
+        let mut context = ExecutionContext::new(ExecutionConfig::with_hard_limits(2, 64 * 1024));
+        let fields = [
+            FieldSlot::from_test_slot(0, "nested"),
+            FieldSlot::from_test_slot(1, "other"),
+        ];
+        for (id, nested, other) in [
+            (1, Value::Decimal(Decimal::new(700, 2)), Value::Unit),
+            (2, Value::Decimal(Decimal::new(70, 1)), Value::Nat64(9)),
+            (3, Value::Decimal(Decimal::new(70, 1)), Value::Unit),
+            (4, Value::Decimal(Decimal::new(700, 2)), Value::Nat64(9)),
+        ] {
+            bundle
+                .ingest_row_with_owned_group_key(
+                    &mut context,
+                    &data_key(id),
+                    &RowView::new(vec![Some(Value::List(vec![nested])), Some(other)]),
+                    &fields,
+                )
+                .unwrap();
+        }
+        assert_eq!(context.budget().groups(), 2);
+        assert_eq!(context.budget().aggregate_states(), 4);
+        for group in bundle.into_groups() {
+            assert_eq!(
+                group.finalize(2).unwrap().1,
+                [Value::Nat64(2), Value::Nat64(2)]
+            );
+        }
+    }
+
+    #[test]
+    fn owned_groups_probe_collisions_and_preserve_typed_invalid_bucket_errors() {
+        let mut bundle = owned_count_bundle();
+        let mut context = ExecutionContext::new(ExecutionConfig::with_hard_limits(2, 64 * 1024));
+        let fields = [FieldSlot::from_test_slot(0, "group")];
+        let row = RowView::new(vec![Some(Value::Unit)]);
+        let target = GroupKey::from_group_values(vec![Value::Unit]).unwrap();
+        let hash = target.hash();
+        // Force the same cached hash on unequal canonical values so lookup
+        // must compare every candidate, rather than equating hashes.
+        let collision =
+            GroupKey::from_group_values_with_hash(vec![Value::List(vec![Value::Nat64(9)])], hash)
+                .unwrap();
+        assert_eq!(bundle.insert_new_group(collision, &mut context).unwrap(), 0);
+        assert_eq!(
+            bundle
+                .resolve_owned_group_index(&mut context, &row, &fields)
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            bundle
+                .resolve_owned_group_index(&mut context, &row, &fields)
+                .unwrap(),
+            1
+        );
+        assert_eq!(context.budget().groups(), 2);
+        bundle
+            .bucket_index
+            .insert(hash, GroupIndexBucket::single(usize::MAX));
+        let error = bundle
+            .resolve_owned_group_index(&mut context, &row, &fields)
+            .unwrap_err()
+            .into_internal_error();
+        assert_eq!(
+            error.diagnostic_code(),
+            InternalError::query_executor_invariant().diagnostic_code()
+        );
+    }
 
     #[test]
     fn grouped_bundle_extrema_and_key_terminals_preserve_results() {

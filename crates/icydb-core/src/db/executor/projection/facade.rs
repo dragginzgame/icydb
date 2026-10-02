@@ -326,22 +326,31 @@ where
 
     let row_layout = authority.row_layout();
     let prepared_projection = prepared_projection_contract.as_ref();
-    let resolved_order = (emit_cursor || (distinct && group_seek.is_none()))
-        .then(|| {
+    // Cursor boundaries require order; ordinary DISTINCT can retain all keys
+    // through global replay when the planner supplies no adjacent-order proof.
+    let resolved_order = if emit_cursor {
+        Some(
             scalar_runtime
                 .plan_core
                 .plan()
-                .require_resolved_order()
-                .cloned()
-        })
-        .transpose()?;
+                .require_resolved_order()?
+                .clone(),
+        )
+    } else if distinct && group_seek.is_none() {
+        scalar_runtime.plan_core.plan().resolved_order().cloned()
+    } else {
+        None
+    };
     let distinct_strategy = if group_seek.is_some() {
         Some(ProjectionDistinctStrategy::OrderedAdjacent)
     } else if distinct {
-        let order = resolved_order
-            .as_ref()
-            .ok_or_else(InternalError::query_executor_invariant)?;
-        Some(projection_distinct_strategy(prepared_projection, order))
+        Some(
+            resolved_order
+                .as_ref()
+                .map_or(ProjectionDistinctStrategy::GlobalReplay, |order| {
+                    projection_distinct_strategy(prepared_projection, order)
+                }),
+        )
     } else {
         None
     };

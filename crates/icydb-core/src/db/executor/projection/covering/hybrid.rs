@@ -73,7 +73,7 @@ where
     let ownership = HybridProjectionOwnership::compile(hybrid.fields.as_slice());
 
     store.with_data(|data_store| {
-        let projected_rows = if row_presence_proven {
+        if row_presence_proven {
             execute_hybrid_covering_projection_with_proven_rows(
                 &row_layout,
                 data_store,
@@ -85,7 +85,7 @@ where
                 scan_window.page_window_applied,
                 raw_pairs,
                 &ownership,
-            )?
+            )
         } else {
             execute_hybrid_covering_projection_with_checked_rows(
                 &row_layout,
@@ -98,10 +98,8 @@ where
                 scan_window.page_window_applied,
                 raw_pairs,
                 &ownership,
-            )?
-        };
-
-        Ok(Some(projected_rows))
+            )
+        }
     })
 }
 
@@ -117,7 +115,7 @@ fn execute_hybrid_covering_projection_with_proven_rows(
     page_window_applied: bool,
     raw_pairs: IndexComponentRows,
     ownership: &HybridProjectionOwnership,
-) -> Result<Vec<Vec<Value>>, InternalError> {
+) -> Result<Option<Vec<Vec<Value>>>, InternalError> {
     let mut keyed_components = Vec::with_capacity(raw_pairs.len().saturating_sub(page_skip_count));
 
     for (data_key, _existence_witness, components) in raw_pairs.into_iter().skip(page_skip_count) {
@@ -144,7 +142,11 @@ fn execute_hybrid_covering_projection_with_proven_rows(
             row_field_slots,
         )?
         .ok_or_else(InternalError::query_executor_invariant)?;
-        let decoded_components = decode_hybrid_covering_components(component_indices, components)?;
+        let Some(decoded_components) =
+            decode_hybrid_covering_components(component_indices, components)?
+        else {
+            return Ok(None);
+        };
         let projected_row = project_hybrid_covering_row(
             &data_key,
             hybrid.fields.as_slice(),
@@ -156,7 +158,7 @@ fn execute_hybrid_covering_projection_with_proven_rows(
         projected_rows.push(projected_row);
     }
 
-    Ok(projected_rows)
+    Ok(Some(projected_rows))
 }
 
 #[expect(clippy::too_many_arguments)]
@@ -171,7 +173,7 @@ fn execute_hybrid_covering_projection_with_checked_rows(
     page_window_applied: bool,
     raw_pairs: IndexComponentRows,
     ownership: &HybridProjectionOwnership,
-) -> Result<Vec<Vec<Value>>, InternalError> {
+) -> Result<Option<Vec<Vec<Value>>>, InternalError> {
     let mut projected_rows = Vec::with_capacity(raw_pairs.len().saturating_sub(page_skip_count));
     let mut projected_row_count = 0usize;
 
@@ -193,7 +195,11 @@ fn execute_hybrid_covering_projection_with_checked_rows(
             continue;
         }
 
-        let decoded_components = decode_hybrid_covering_components(component_indices, components)?;
+        let Some(decoded_components) =
+            decode_hybrid_covering_components(component_indices, components)?
+        else {
+            return Ok(None);
+        };
         let projected_row = project_hybrid_covering_row(
             &data_key,
             hybrid.fields.as_slice(),
@@ -217,10 +223,12 @@ fn execute_hybrid_covering_projection_with_checked_rows(
         &mut projected_rows,
     );
 
-    Ok(projected_rows
-        .into_iter()
-        .map(|(_data_key, row)| row)
-        .collect())
+    Ok(Some(
+        projected_rows
+            .into_iter()
+            .map(|(_data_key, row)| row)
+            .collect(),
+    ))
 }
 
 fn hybrid_projection_row_field_slots(fields: &[CoveringReadField]) -> Vec<usize> {

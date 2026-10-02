@@ -763,10 +763,6 @@ pub(in crate::db::executor::explain::descriptor) const fn distinct_execution_nod
             ExplainExecutionNodeType::DistinctPreOrdered,
             execution_mode,
         )),
-        DistinctExecutionStrategy::HashMaterialize => Some(empty_execution_node_descriptor(
-            ExplainExecutionNodeType::DistinctMaterialized,
-            ExplainExecutionMode::Materialized,
-        )),
     }
 }
 

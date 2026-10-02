@@ -719,6 +719,14 @@ Supported scalar projection forms are:
 - `SELECT DISTINCT field, ...`
 - admitted bounded scalar expression projections, including searched `CASE`
 
+Scalar DISTINCT does not require `ORDER BY`. It deduplicates the complete
+projected value tuple, including repeated NULL and collection values. Without
+`ORDER BY`, SQL promises no output order. Scalar `OFFSET`/`LIMIT` require
+`ORDER BY` and apply after deduplication; unordered windows retain the typed
+unordered-pagination rejection.
+Cursor read preparation supplies accepted primary-key order when the caller
+omits ordering; emitted cursor boundaries still require a resolved total order.
+
 Supported aggregate projection forms are:
 
 - one or more aggregate terminals with no `GROUP BY`

@@ -25,11 +25,11 @@ fn wrap_distinct_ordered_key_stream(
     key_comparator: KeyOrderComparator,
 ) -> OrderedKeyStreamBox {
     match strategy {
-        DistinctExecutionStrategy::None => return ordered_key_stream,
-        DistinctExecutionStrategy::PreOrdered | DistinctExecutionStrategy::HashMaterialize => {}
+        DistinctExecutionStrategy::None => ordered_key_stream,
+        DistinctExecutionStrategy::PreOrdered => {
+            OrderedKeyStreamBox::distinct(ordered_key_stream, key_comparator)
+        }
     }
-
-    OrderedKeyStreamBox::distinct(ordered_key_stream, key_comparator)
 }
 
 /// Decorate one resolved execution key stream with DISTINCT behavior when requested.

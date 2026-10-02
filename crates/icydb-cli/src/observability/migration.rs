@@ -12,23 +12,45 @@ use crate::{
 };
 
 pub(super) fn run_schema_migration_command(command: SchemaMigrationCommand) -> Result<(), String> {
-    match command {
-        SchemaMigrationCommand::Status(target) => {
-            print_status(&load_status(&target)?);
-            Ok(())
-        }
+    let status = match &command {
+        SchemaMigrationCommand::Status(target) => load_status(target),
         SchemaMigrationCommand::Advance(target) => {
-            let status = load_status(&target)?;
-            print_status(&advance(&target, &status)?);
-            Ok(())
+            let status = load_status(target)?;
+            advance(target, &status)
         }
-        SchemaMigrationCommand::Run(target) => run_to_terminal(&target),
-        SchemaMigrationCommand::Abort(args) => run_confirmed_abort(&args),
-        SchemaMigrationCommand::Adopt(args) => run_confirmed(&args, "adopt", adopt),
+        SchemaMigrationCommand::Run(target) => run_to_terminal(target),
+        SchemaMigrationCommand::Abort(args) => run_confirmed_abort(args),
+        SchemaMigrationCommand::Adopt(args) => run_confirmed(args, "adopt", adopt),
+    }?;
+    print_status(&status);
+
+    // A successful endpoint call is not proof that the requested operation
+    // succeeded. Preserve its status and findings before reporting CLI failure.
+    let phase = status.phase();
+    let (operation, succeeded) = match command {
+        SchemaMigrationCommand::Status(_) | SchemaMigrationCommand::Adopt(_) => return Ok(()),
+        SchemaMigrationCommand::Advance(_) => (
+            "advance",
+            !matches!(
+                phase,
+                SchemaMigrationPhase::Rejected | SchemaMigrationPhase::Aborted
+            ),
+        ),
+        SchemaMigrationCommand::Run(_) => ("run", phase == SchemaMigrationPhase::Applied),
+        SchemaMigrationCommand::Abort(_) => ("abort", phase == SchemaMigrationPhase::Aborted),
+    };
+    if !succeeded {
+        return Err(format!(
+            "schema migration {operation} did not succeed: phase {phase:?}"
+        ));
     }
+
+    Ok(())
 }
 
-fn run_confirmed_abort(args: &ConfirmedMigrationTarget) -> Result<(), String> {
+fn run_confirmed_abort(
+    args: &ConfirmedMigrationTarget,
+) -> Result<SchemaMigrationStatusPage, String> {
     if !args.confirmed() {
         return Err("schema migration abort requires explicit --yes confirmation".to_string());
     }
@@ -49,8 +71,7 @@ fn run_confirmed_abort(args: &ConfirmedMigrationTarget) -> Result<(), String> {
             next.phase(),
             SchemaMigrationPhase::Aborted | SchemaMigrationPhase::Applied
         ) {
-            print_status(&next);
-            return Ok(());
+            return Ok(next);
         }
         // Candidate-generation cleanup is deliberately bounded and its
         // private scan cursor is not part of the public status contract. Keep
@@ -66,18 +87,17 @@ fn run_confirmed(
         &CanisterTarget,
         &SchemaMigrationStatusPage,
     ) -> Result<SchemaMigrationStatusPage, String>,
-) -> Result<(), String> {
+) -> Result<SchemaMigrationStatusPage, String> {
     if !args.confirmed() {
         return Err(format!(
             "schema migration {operation} requires explicit --yes confirmation"
         ));
     }
     let status = load_status(args.target())?;
-    print_status(&run(args.target(), &status)?);
-    Ok(())
+    run(args.target(), &status)
 }
 
-fn run_to_terminal(target: &CanisterTarget) -> Result<(), String> {
+fn run_to_terminal(target: &CanisterTarget) -> Result<SchemaMigrationStatusPage, String> {
     let mut status = load_status(target)?;
     let database = status.database_identity();
     let plan = status
@@ -85,8 +105,7 @@ fn run_to_terminal(target: &CanisterTarget) -> Result<(), String> {
         .ok_or_else(|| "deployed schema has no migration plan to run".to_string())?;
     loop {
         if terminal(status.phase()) {
-            print_status(&status);
-            return Ok(());
+            return Ok(status);
         }
         let next = advance(target, &status)?;
         if next.database_identity() != database || next.plan_digest() != Some(plan) {

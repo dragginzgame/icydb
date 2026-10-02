@@ -16,11 +16,11 @@ Release owner: [0.264 tracker](../design/0.264-signed-index-admission/0.264-stat
 
 | Current status | Findings |
 | --- | ---: |
-| Verified fixed | 8 |
+| Verified fixed | 19 |
 | In progress | 0 |
-| Open | 5 |
+| Open | 0 |
 | Partial | 1 |
-| Needs verification | 293 |
+| Needs verification | 287 |
 
 “Verified fixed” requires current code evidence and focused semantic validation.
 “Open” means the reviewed defect remains visible in current source; reproduction
@@ -41,12 +41,69 @@ this queue does not authorize starting a different minor line.
 | 1 | `value-types-error-4` | Normalize decimal multiplication operands in the existing schema numeric owner; qualify typed and checked results and SQL stored-field reads | Complete as A13 |
 | 2 | `index-access-2` | Preserve signed timestamp ordering through current index encoding, decoding and range reads | Complete as A14 |
 | 3 | `index-access-3` | Converge index suffix bounds on the maintained composite primary-key contract, including writes and reads | Complete as A15 |
-| 4 | `r2-covering-projection-1` | Make hybrid component admission and decoding agree on supported kinds, with current projection results | Queued |
-| 5 | `executor-aggregate-1` | Resolve owned group keys through existing hash buckets before creating groups | Queued |
+| 4 | `r2-covering-projection-1` | Make hybrid component admission and decoding agree on supported kinds, with current projection results | Complete as A16 |
+| 5 | `executor-aggregate-1` | Resolve owned group keys through existing hash buckets before creating groups | Complete as A17 |
+| 6 | `query-intent-1` | Project canonical scalar sort requirements and exact primary-key candidate bounds into read admission | Complete as A18 |
+| 7 | `query-intent-2` | Distinguish selective index access from the whole-index ordering fallback in public admission | Complete as A19 |
+| 8 | `query-expr-4` | Preserve missing-path no-match semantics while composing boolean filters through the shared expression owner | Complete as A20 |
+| 9 | `executor-stream-2` | Reuse disjoint multi-lookup access identity instead of imposing primary-key deduplication on branch order | Complete as A21 |
+| 10 | Unordered DISTINCT observation | Admit current unordered SQL projection through global DISTINCT while retaining cursor order authority | Complete as A22; outside saved inventory |
+| 11 | `query-plan-4` / `query-plan-5` | Preserve residual expressions after exact-key stripping and require the existing residual proof for index-only terminal eligibility | Complete as A23; explicitly authorized together after overlap scan |
+| 12 | Mixed-filter cache observation | Preserve separately appended predicate semantics alongside expression identity in ordinary shared keys | Complete as A24; outside saved inventory |
+| 13 | Simultaneous-residual observation | Enforce uncovered expressions and independently remaining predicates through the existing effective runtime filter | Complete as A25; outside saved inventory |
+| 14 | `cli-3` | Preserve SQL endpoint errors through the existing command result into nonzero one-shot exit status and stderr; retain interactive continuation | Complete as A26 |
+| 15 | `cli-4` | Qualify migration terminal receipts and make run/advance/abort command status reflect the requested operation's outcome | Complete as A27 |
+
+The original five queued outcomes are complete. The scoped read-only
+[closeout audit](closeout-audit.md) verifies another existing fix, reproduces the
+remaining admission and missing-path defects, and proposes the next independent
+corrections within 0.264. User-authorized A18–A22 complete the two admission
+corrections, missing-path expression semantics, branch-ordered DISTINCT and the
+unordered DISTINCT observation. A23 completes the subsequently authorized
+residual-preservation pair. The user subsequently authorized its reproduced
+mixed-filter cache follow-up as A24 and the simultaneous-residual execution
+follow-up as A25, both now complete. After that completed queue, a scoped source
+audit confirms `cli-3` and reports it before correction. The user's request to fix
+the next saved-review bug extends 0.264 with this one bounded outcome as A26.
+The user subsequently authorizes migration command status (`cli-4`); A27 completes
+its independent receipt qualification. The planned queue is complete; generic
+continuation performs a scoped read-only closeout audit within 0.264 before
+selecting another correction. Dynamic and diagnostic gaps remain visible in the
+audit. The saved review remains open;
+this is not a closeout verdict for all findings.
+
+The requested [quick overlap scan](overlap-triage.md) screens all 291 unchecked
+findings and records seven candidate groups containing 21 distinct reports.
+Filtered-index predicate authority is the strongest seven-item structural
+cluster; residual preservation is the smallest clear two-item candidate.
+Other groups need qualification or splitting. Existing SQL NOT and checked
+decimal-division corrections are verification candidates, not new code work.
+The scan itself changes no inventory counters or implementation authorization.
+The user subsequently selected the residual pair; A23 closes its two saved IDs.
+Qualification reproduced a separate mixed-filter cache identity defect, recorded
+in the audit and subsequently authorized as A24 within 0.264.
 
 Other findings retain their individual verification state below. In particular,
 `model-schema-crates-1` (decimal excess precision incorrectly saturating) is a
 separate outcome from operand padding; A13 must not claim it resolved.
+
+## Standing repair discipline
+
+User requirement recorded 2026-10-02: address incomplete boundary qualification
+and facts drifting between owners alongside the individual bugs. A local example
+fix alone is insufficient when the defect belongs to a shared boundary family.
+
+- Identify the maintained contract, its canonical owner and all affected
+  consumers before implementation. Reuse that authority instead of duplicating
+  type support, ordering, access, equality or budget facts in another owner.
+- Qualify the relevant combinations of accepted types, execution routes, order,
+  limits, continuation, missing/null values and repeated keys. Choose a bounded
+  matrix for the demonstrated defect; do not run the full repository suite.
+- Compare equivalent optimized and general/trusted execution where appropriate.
+  Include admitted controls and typed rejection/error cases at the same boundary.
+- Verify facts survive projection into admission, diagnostics and execution.
+  Record covered surfaces and gaps, and close aliases only when they share the
+  proven correction. Separate independently reviewable outcomes into later slices.
 
 ## Validation record
 
@@ -128,10 +185,403 @@ posture, without a compatibility bridge. Nine owned files add approximately 440
 net lines, chiefly regression coverage and notes. Production replaces the bound
 expression and adjusts its import (+2 net lines); complexity is neutral with
 one shared authority. Existing dirty work is preserved. The next queued finding
-is `r2-covering-projection-1` (hybrid unsupported-component admission/decoding).
+at that handoff was `r2-covering-projection-1` (hybrid unsupported-component
+admission/decoding).
+
+A16 completes `r2-covering-projection-1`. Unsupported components propagate the
+shared decoder's decline through both hybrid branches to the scalar projection
+reader. No supported-kind matrix or catalog-independent enum decoder is added.
+All 42 focused tests pass against the current lockfile: 21 accepted-session
+type cases, three component-boundary cases and 18 maintained covering,
+ownership, missing-row and materialization/budget regressions. The matrix covers
+fourteen unsupported scalar families, accepted unit enums and all six supported
+tags, with plain SELECT, cold/warm reads, admitted prefixes/ranges, multi-prefix
+membership, ASC/DESC, LIMIT/OFFSET and supported scalar parameter constants.
+Unsupported decoding after a supported component declines the whole projection;
+malformed supported payloads retain their typed errors.
+
+Required maintainer lint recovery and strict all-feature core library/test lint
+pass. Initial test fixture/import errors and an unnecessary binding clone are
+resolved. Enum SQL parameters remain outside the maintained binding surface;
+the enum regression verifies accepted projection through the category predicate.
+Formatting, schema/format guards, documentation references, inventory and diff
+checks pass. Eight owned files add approximately 580 net lines, mainly tests and
+documentation; production adds ten lines to propagate the existing contract,
+with neutral complexity and no new state/format/route. Concurrent dependency
+updates are preserved. A16 handed back with `executor-aggregate-1` queued.
+
+A16 qualification also observed an independent pure-covering failure:
+`SELECT DISTINCT operand, category FROM PlannerRow WHERE category = 3` returns
+`InvariantViolation(19)` without an explicit order, including with supported Bool
+and Nat64 operands in the accepted `(category, operand)` index fixture. Hybrid
+projections of `operand, label` pass after the current correction. Keep the
+unordered pure-covering DISTINCT observation for isolated verification and a
+separate outcome; it is not part of the saved review's 307-item inventory or an
+A16 closure claim. At that handoff, `executor-aggregate-1` was the next queue item.
+
+A17 completes `executor-aggregate-1`. Owned grouped keys now probe the existing
+stable-hash bucket and compare canonical `GroupKey` identity before new-group
+admission. Five new accepted-session regressions reproduced one group per input
+row for unit, list, set, map and accepted enum keys; the borrowed scalar control
+passed before the correction. All 66 focused tests pass: six accepted-session
+cases, three new bundle cases, 33 existing grouped/key/cursor/composition tests
+and 24 hybrid component regressions from A16. Nonadjacent repeated single- and
+multi-field keys combine COUNT/SUM results. Trusted and indexed public reads
+succeed with group limits smaller than the input row count. Dedicated COUNT
+results, collisions, malformed bucket errors, nested Decimal normalization and
+group/state accounting retain the existing authorities.
+
+Strict all-feature core library/test lint, formatting, schema/format guards and
+documentation/inventory/diff checks pass. A unit fixture's cross-tag numeric
+assumption was corrected to the maintained Decimal scale-normalization contract;
+no production equality change was needed. Eight files add approximately 440 net
+lines relative to the A16 handoff, mainly tests and notes. Production adds 14
+lines using existing lookup and identity owners, with neutral complexity and no
+new state, route or format. Earlier dirty work and dependency updates are
+preserved. The authorized queue is exhausted; the next turn is a read-only
+closeout audit rather than another implementation slice.
+
+The read-only closeout audit verifies `xc-security-1` against current IC entropy
+source and five passing native entropy/cursor tests; its two duplicate source
+aliases close with the canonical finding. Disposable current-source probes
+reproduce `query-intent-1`, `query-intent-2`, `query-expr-4`, `executor-stream-2`
+and the separate unordered DISTINCT observation. A composite branch-set DISTINCT
+control succeeds; the single-field multi-lookup family retains the saved defect.
+See the audit for fixture controls, shared
+owners, remaining verification limits and the proposed follow-up queue.
+
+A18 completes `query-intent-1`. Scalar admission projects the executor route
+owner's post-access sort rule, including residual filters, and reports exact
+primary-key candidate bounds rather than authored output limits. Indexed sorts
+with unknown candidate bounds reject with typed SortRequiresMaterialization;
+exact ByKey/ByKeys exceptions, ordered index reads and grouped limits retain
+their maintained policies. Text and JSON EXPLAIN expose the same facts.
+
+All 44 focused tests pass: five accepted-session regressions and 39 maintained
+admission/input, route, page-limit, secondary-order and grouped cases. Four new
+regressions fail before correction. Fixture-only private-method, order-name and
+unordered-intent issues were corrected to use maintained accepted preparation
+and effective page order. Required maintainer lint recovery and strict all-feature
+core library/test lint pass after removing a redundant test-helper closure.
+Formatting, schema/format guards, documentation/inventory and diff checks pass.
+Eleven files add approximately 400 net lines relative to A17 and its read-only
+audit handoff; production adds 60 lines. Complexity increases slightly for the
+shared sort fact and summary construction, with no new mode, state or format.
+Existing dirty work and dependency changes are preserved. The next queued outcome
+is `query-intent-2`; this slice does not claim its access proof corrected.
+
+A19 completes `query-intent-2` and source alias `xc-security-3`: one canonical
+inventory closure, two raw reports. An empty equality prefix and two unbounded
+range endpoints now project to the existing logical FullScan admission class.
+The physical index name remains available to diagnostics; existing public
+policy owns rejection for every consuming surface. An output limit, index
+ordering or grouped-state cap cannot replace the missing access constraint.
+No new route, mode, enum variant, format or persisted fact is added.
+
+All 54 focused tests pass: five new accepted-session cases, eighteen combinations
+in the new range-bound projection test, and maintained admission/input, route,
+sort, scalar page-limit, secondary-order, owned-key/grouped and sparse-index
+cases. Session qualification covers no filter, residual predicates and field
+expressions, ASC/DESC, small limits, cold/warm plans, authenticated live and
+exhaustive resume, fresh exhaustive/grouped rejection, and text/JSON EXPLAIN.
+Selective prefix and inclusive/exclusive range controls compare complete public
+and trusted page results. Live/exhaustive rejection observes zero visited rows;
+this is a functional admission invariant, not a performance measurement.
+
+Four session regressions reproduce the defect before correction. The resumed
+fixture initially hit the trusted/public envelope mismatch; rebinding the
+current authenticated token through the canonical encoder reproduces actual
+public admission. Two sparse-index regressions exposed stale expectations from
+A18: they now qualify typed implicit-sort rejection and retained completeness
+through supported full composite-index order, including nullable rows and
+continuation. No production ordering rule is weakened.
+
+Strict all-feature core library/test lint, formatting, schema/format/admission
+guards and documentation/inventory/diff checks pass. Thirteen incremental files
+add approximately 480 net lines; production adds seven lines, including comments.
+Implementation shape stays neutral: the existing projection now carries the
+missing fact to one policy owner. The standing repair discipline is recorded
+above and linked from AGENTS.md. Existing dirty work, dependency edits and
+published notes are preserved. The next proposed outcome is `query-expr-4`;
+unrelated plan-cache, EXPLAIN and DISTINCT findings retain their status.
+
+A20 completes `query-expr-4` through the shared compiled expression owner.
+Only `MissingFieldPathValue` becomes UNKNOWN at AND/OR operand boundaries;
+required-slot, reader and persisted-decode failures retain their typed errors.
+Direct missing comparison, descendant IS NULL, NOT and value-level COALESCE
+keep their maintained leaf contracts, while projections still materialize NULL.
+No second evaluator, filter mode, value tag, route or persisted state is added.
+
+All 72 focused tests pass. Seven new regressions cover sixty combinations of
+missing/null/matched/unmatched descendants, true/false/null siblings, AND/OR and
+both operand orders; nested NOT/CASE/COALESCE; projection controls and typed
+reader errors. Accepted-schema fixtures qualify cold/warm admitted structural
+reads in both execution lanes, ASC/DESC, SQL reads, public/trusted grouped
+continuation, and exact UPDATE/DELETE scopes and before images. Three expression
+regressions and the SQL mutation regression fail before correction. The other
+sixty-five tests protect surrounding compiled functions, canonicalization,
+CASE preparation, aggregate filters and scalar/grouped pagination.
+
+Dynamic dotted-field filters separately expose literal/coercion rejection and
+loss of descendant traversal during lowering. These remain open observations
+in the [closeout audit](closeout-audit.md), outside the saved inventory pending
+mapping. Fixtures use maintained SQL lowering into structural FieldPath IR;
+A20 does not claim qualification of dynamic nested scalar live/exhaustive calls.
+The historical missing-slot portion of `data-4` also remains Partial.
+
+Strict all-feature core library/test lint, formatting, schema/format/admission
+guards and documentation/inventory/diff checks pass. Twelve incremental files
+add approximately 800 net lines; production adds twenty-five lines, including
+comments. Local dispatch grows slightly through one typed helper and arm; all
+consumers retain one semantic owner. Existing dirty work, Cargo edits and
+published notes are preserved. Branch-ordered DISTINCT (`executor-stream-2`)
+is the next proposed outcome in 0.264.
+
+A21 completes `executor-stream-2` by reusing the canonical access contract:
+strict leading equality values are a set, and each row belongs to one disjoint
+multi-lookup prefix. The planner no longer applies a primary-key-monotonic key
+DISTINCT adapter to this secondary order. Composite union/intersection key
+deduplication remains ordered; projected-value DISTINCT continues through the
+existing adjacent/global accumulators and execution budgets. The unused
+materialized key strategy, diagnostic node and access predicate are deleted;
+no retained key set, new mode, route or format is added.
+
+All 104 focused tests pass. Eight new regressions qualify decreasing primary
+keys across branches, repeated/reordered literals, duplicate projected rows,
+nonadjacent expression duplicates, ASC/DESC, cold/warm calls, LIMIT/OFFSET,
+identity and primary-order controls, composite access, and unique/non-unique
+numeric controls. Public/trusted live pages preserve complete page unions and
+every saved resume suffix; exhaustive pages preserve proof-bound continuation.
+Four zero-budget controls preserve typed DISTINCT entry/state and row/storage
+failures with the exact budget-resource facts. The five initial regressions
+fail with the saved invariant before correction. Ninety-six surrounding tests
+protect key combinators, monotonic/error controls, projected DISTINCT state and
+cursor boundaries, multi-lookup admission, aggregate filters and diagnostics.
+
+Initial clippy warnings are repaired. Required workspace/feature `make clippy`,
+strict all-feature core library/test lint, formatting, schema/format/admission
+guards and documentation/inventory/diff checks pass. Fifteen incremental files
+add approximately 550 net lines; production removes twenty lines including
+comments. Implementation shape gets simpler through an existing access owner
+and deletion of an unnecessary strategy. Existing Cargo edits, standing repair
+instructions and published notes are preserved.
+
+DESC EXPLAIN separately reports no materialized sort in its admission summary
+but emits a materialized-sort descriptor for the projected DISTINCT boundary.
+That observation remains recorded in the [audit](closeout-audit.md), alongside
+dynamic frontend gaps. No additional inventory finding is closed by inference.
+The next proposed outcome is unordered DISTINCT within 0.264.
 
 Full repository suites remain user-owned. Raw Wasm, IC cycles and instruction
 deltas are unmeasured. No network lifecycle actions have been taken.
+
+### A22 — Unordered projected DISTINCT
+
+The scoped-audit observation is verified fixed outside the saved inventory.
+Ordinary SQL without ORDER BY keeps the planner's absent order and uses the
+existing global projected-value accumulator. Cursor emission still requires
+resolved order, supplied by accepted primary-key metadata at the cursor frontend.
+Adjacent DISTINCT remains justified by resolved-order/group-seek proofs; no
+hidden SQL sort or independent strategy, state, route, mode or format is added.
+
+All 56 focused tests pass, including six new regressions and fifty surrounding
+projection, retained-output, branch-order, page-limit, grouped-aggregate,
+order-contract, SQL lowering and corruption controls. Five initial regressions
+fail before correction; the default-order cursor control already passes. The
+new matrix covers covering/hybrid-eligible and row-backed selections through
+DISTINCT's shared scalar projection flow, residual/empty/full-row results,
+expression and canonical NULL/collection keys, cold/warm plans, ordered windows,
+public/trusted live suffixes and exhaustive continuation, missing cursor-order
+rejection, exact scan ceilings and typed state/row/storage budget facts.
+
+Scalar SQL windows retain the typed unordered-pagination rejection, including
+LIMIT 0; ordered controls apply windows after deduplication. Initial fixture API
+and unordered-window assumptions were corrected without changing that policy.
+Strict all-feature core library/test lint, formatting, schema/format/admission
+guards and documentation/inventory/diff checks pass. The inventory remains
+fifteen verified fixes, one partial and 291 unchecked findings; A22 adds no
+saved finding by inference.
+
+Ten incremental files add approximately 600 net lines; production adds nine
+including comments. Local dispatch grows slightly while preserving one order
+authority and the existing accumulators; no state-space axis is added. Full
+suites remain user-owned; raw Wasm, IC cycles and instruction deltas are
+unmeasured. Cargo edits, standing instructions and published notes are preserved.
+No network lifecycle action was taken. Dynamic frontend and DESC EXPLAIN
+observations remain separate; further corrections require an audit handoff.
+
+### A23 — Preserve uncovered filters across optimization boundaries
+
+`query-plan-4` and `query-plan-5` are verified fixed. Exact primary-key access
+proves only the predicate subset; existing intent coverage now decides whether
+the complete expression may be removed. Partial expressions remain active,
+while predicate-only and fully covered expression controls retain stripping.
+Index-only existing-row aggregate eligibility consumes the existing residual
+compatibility proof even when the predicate is absent. That helper currently
+feeds aggregate EXPLAIN; its COUNT/EXISTS descriptors are qualified separately
+from runtime reductions, rather than claiming a new executor route correction.
+
+All 87 distinct focused tests pass: seven new regressions and eighty surrounding
+intent, planning, residual ownership, ordering, continuation, SQL NULL, aggregate
+and diagnostic controls. Six new regressions fail before production correction;
+the complete-coverage control already passes. The accepted COUNT reproducer
+counts four candidates instead of two. The corrected matrix covers both mixed
+append orders, ByKey/ByKeys, repeated literals, matching/nonmatching/NULL rows,
+public/trusted reads, cold/warm reuse within each scope, ASC/DESC LIMIT/OFFSET,
+empty reductions and mutation selection/SQL UPDATE/DELETE controls.
+
+Changing separately appended predicate-only scopes exposed an independent
+cache-key defect: an expression-present key omits predicate identity. It can
+reuse the prior exact-key plan even across new request sessions. At the A23
+handoff, tests explicitly cleared the shared cache between these scopes and
+qualified warm reuse within each scope. The [audit](closeout-audit.md) records
+the failed reads/counts and source cause. A24 separately fixes cross-scope cache
+identity and removes that workaround; no saved cache finding is closed by inference.
+
+Strict all-feature core library/test lint, formatting, schema/format/admission
+guards and documentation/inventory/diff checks pass. Twelve incremental files
+add approximately 675 net lines; production adds one line including comments.
+Implementation reuses existing coverage/residual authorities and removes a
+shortcut; no mode, route, proof representation, configuration, state or format
+is added. Cargo edits, standing instructions and published notes are preserved.
+Full suites remain user-owned; raw Wasm, IC cycles and instructions are
+unmeasured. No network lifecycle action was taken.
+
+### A24 — Mixed-filter cache identity
+
+The reproduced audit observation is verified fixed outside the saved inventory.
+The ordinary structural key retains the existing normalized predicate fingerprint
+alongside expression identity, so separately appended predicate semantics survive
+projection into shared preparation. Fully covered parameter templates retain the
+existing contract and current-value binding flow. One key builder owns the fix;
+an expression-present shortcut is removed without another route, mode,
+configuration, state or format.
+
+All 81 distinct focused tests pass: three new regressions, two strengthened
+A23 cases and seventy-six surrounding key, intent, template, budget, schema,
+read, aggregate and diagnostic controls. Key identity and cross-request reuse
+regressions plus the strengthened read and COUNT cases fail before correction.
+The matrix qualifies both append orders, changed/revisited equality and multi-key
+scopes, forward/reverse sequences, reordered/repeated membership operands,
+matching/nonmatching/NULL/missing rows, fresh requests/query syntax, retained
+and disabled cache policies, public/trusted reads, COUNT and mutation selection.
+The earlier between-scope clearing workaround is removed. An identical revisited
+scope remains reusable; a different scope requires its own plan.
+
+At the A24 handoff, a separate singleton-IN control still returned a nonmatching
+row with caching disabled and with the fixed key. The plan retained its expression,
+but effective runtime preparation chose the remaining predicate alone. The audit
+records the reproducer and owner. A25 separately fixes this simultaneous-residual
+execution boundary; A24's original equality and multi-key controls did not claim it.
+
+Strict all-feature core library/test lint, formatting, schema/format/admission
+guards and documentation/inventory/diff checks pass. Nine incremental files add
+approximately 300 net lines; production removes four including comments.
+Implementation gets simpler and state-space stays unchanged. Existing dirty
+work, Cargo edits and published notes are preserved. The inventory stays at
+seventeen verified fixes, one partial and 289 unchecked findings. Full suites
+remain user-owned; raw Wasm, IC cycles and instructions are unmeasured. No network
+lifecycle action was taken. Its proposed runtime residual correction is
+subsequently completed as A25.
+
+### A25 — Complete simultaneous-residual execution
+
+The audit observation is verified fixed outside the saved inventory. Existing
+intent coverage controls whether a native predicate can replace the expression.
+An uncovered expression otherwise retains any independent residual predicate
+inside the existing effective-filter program, and the shared structural/cow
+evaluators enforce both. Slot requirements and retained ownership include both
+parts. Predicate-only capability projection declines combined programs.
+
+All 116 distinct focused tests pass: three new regressions, two strengthened
+singleton-IN cases and 111 surrounding filter, key, template, budget, storage,
+NULL, window, continuation, aggregate and diagnostic controls. The new scan and
+COUNT cases plus strengthened reads/mutation selections fail before correction.
+The matrix includes both append orders, disabled/retained cache policies,
+fresh requests, single/multi-key and scan scopes, repeated operands, nonmatching,
+NULL and missing rows, counts, windows and mutation selection. Scan marker
+controls require both conjuncts, so choosing only the expression also fails.
+Cow-reader controls protect TRUE-only admission, rejection short-circuiting,
+required expression-reader failures and both required slot sets. Existing
+complete-coverage predicate and expression-only controls remain qualified.
+
+Strict all-feature core library/test lint, formatting, schema/format/admission
+guards and documentation/inventory/diff checks pass. Twelve incremental files
+add approximately 375 net lines; production adds twenty-one including comments.
+Implementation grows modestly to represent a demonstrated conjunction within
+one filter authority: valid compiled forms grow from two to three. No user mode,
+execution route, configuration, persisted state or format is added. Prior dirty
+work, Cargo edits and published notes are preserved. The saved inventory stays
+at seventeen verified fixes, one partial and 289 unchecked findings; no saved
+coercion/expression finding is closed by inference. Full suites remain
+user-owned; raw Wasm, IC cycles and instructions are unmeasured. No network
+lifecycle action was taken. This proposed correction is complete; remaining
+review findings and earlier dynamic/diagnostic observations retain their status.
+
+### A26 — SQL command failure status
+
+`cli-3` is verified fixed. SQL query, DDL and UPDATE endpoint rejections retain
+their error result through existing command execution. The process entrypoint
+owns nonzero exit status and stderr; the interactive loop reports the failed
+statement and continues. Error decoration stays at these output boundaries,
+avoiding a duplicate prefix. No additional mode or dispatch path is introduced.
+
+All 32 focused tests pass: four new process regressions, 24 existing shell
+controls and four SQL argument/help tests. The process regressions cover 27
+cases: two typed endpoint rejections across all three call lanes and both
+one-shot argument forms, successful responses, malformed Candid and transport
+errors, and interactive continuation after query/DDL/UPDATE rejection. Calls are
+verified against the maintained endpoint names and query/update transport;
+rejections require exit 1, empty stdout and a diagnostic on stderr. The endpoint
+rejection regression fails before correction with exit 0. Test-local ICP fixtures
+use actual child processes without changing global environment or using a network.
+
+Strict all-target/all-feature CLI lint, formatting, documentation references,
+inventory and diff checks pass. Nine incremental files add approximately 350 net
+lines, primarily process tests and documentation. The implementation gets simpler: one production
+file removes one net line including comments and preserves existing result and
+output owners. The additional process tests and documentation grow the worktree
+without adding runtime state. Prior dirty work, Cargo edits and published notes
+are preserved. The inventory is now eighteen verified fixes, one partial and
+288 unchecked findings. Full suites remain user-owned; raw Wasm, IC cycles and
+instructions are unmeasured. No network lifecycle action was taken. `cli-4` is
+the next planned independent outcome; this correction does not close it.
+
+### A27 — Migration command outcome status
+
+`cli-4` is verified fixed. One existing migration dispatcher prints the returned
+status and findings, then projects the deployed phase into command success.
+`run` requires `Applied`; `abort` requires `Aborted`; bounded `advance` accepts
+progress or `Applied` and rejects `Rejected`/`Aborted`. Status inspection remains
+successful for every phase. Adoption, explicit confirmation, exact loop identity
+and missing-plan/endpoint errors retain their existing contracts. Abort keeps
+cleaning through identical rejected pages whose private staging cursor is absent
+from public status. No lifecycle state or runtime format changes.
+
+All 14 focused tests pass: seven new migration process regressions, four existing
+SQL process regressions and three migration argument/wire controls. The shared
+command-status target covers 100 process cases: 73 migration cases and 27 SQL
+cases. Migration qualification covers every status phase, bounded progress,
+new/existing terminal results, already-applied abort, repeated cleanup pages,
+database/plan mismatches, no-progress run, missing plans, confirmation, adoption,
+remote rejections and invalid/transport replies on both read and update legs.
+Real child status, stdout/stderr, findings and query/update call lanes are checked
+without a live network. Three new regressions first fail on unchanged production
+with exit 0 for rejected run/advance and already-applied abort.
+
+Strict all-target/all-feature CLI lint, formatting, documentation references,
+inventory and diff checks pass. Nine logical files, including the test-target
+rename, add approximately 520 net lines, primarily tests and documentation.
+One production file adds nineteen net lines,
+including comments. Implementation shape stays neutral: one dispatcher owns
+outcome checks and output, while helpers return the existing typed status page.
+No new mode, configuration, enum variant, execution route, persisted state or
+format is added. The SQL process fixture is reused in the renamed command-status
+target. Prior dirty work, Cargo edits and published notes are preserved. The
+inventory now contains nineteen verified fixes, one partial and 287 unchecked
+findings. Full suites remain user-owned; raw Wasm, IC cycles and instructions
+are unmeasured. No network lifecycle action was taken. The planned queue is
+complete; other findings need their own scoped audit and qualification.
 
 ## Finding inventory
 
@@ -150,7 +600,7 @@ Counts cover inventory states, not implementation or release readiness.
 | `data-1` | high | Needs verification | Scalar fast path reports corruption for rows filled by a non-null historical default (ADD COLUMN ... DEFAULT) |
 | `data-2` | high | Needs verification | Value-storage walker misreads canonical enum envelopes (tag 0x84), so nested record-path reads fail for records that contain an enum |
 | `data-4` | high | Partial | Byte-level readers treat a legitimately absent historical slot as corruption (resumable UPDATE, nested field paths) **Current evidence:** C101 fixes resumable UPDATE; nested field-path readers remain unverified. |
-| `executor-aggregate-1` | high | Open | Generic hash GROUP BY 'DirectOwned' probe path never looks up existing groups: one group per row for enum/unit/collection/composite keys **Current evidence:** Owned group resolution still inserts without probing existing groups. |
+| `executor-aggregate-1` | high | Verified fixed | Generic hash GROUP BY 'DirectOwned' probe path never looks up existing groups: one group per row for enum/unit/collection/composite keys **Current evidence:** A17 reuses canonical owned keys in existing hash buckets; all 66 focused tests pass, including accepted unit/enum/list/set/map COUNT/SUM, single/multi-field limits, nested canonical values, collision and malformed-bucket checks. |
 | `executor-aggregate-3` | high | Needs verification | Unbounded generic grouped finalization ignores DESC: groups always come back in ascending key order |
 | `executor-aggregate-5` | high | Needs verification | Zero-key global DISTINCT aggregate fails with an invariant error on any NULL; its NULL semantics also diverge from the per-group path |
 | `executor-stream-1` | high | Needs verification | Resumed secondary-order IN-list pages cap each branch at limit+1 with no resume anchor, silently dropping rows |
@@ -159,12 +609,12 @@ Counts cover inventory states, not implementation or release readiness.
 | `index-access-3` | high | Verified fixed | Index keys cap the primary-key suffix at 63 bytes but composite PKs can encode up to 254 bytes, so inserts fail on indexed entities **Current evidence:** A15 shares the 254-byte primary-key bound; full-width principal/account inserts, unique conflicts, admitted index ranges, resumed reads, bounded decode and stable reopen tests pass. |
 | `model-schema-crates-1` | high | Needs verification | Decimal `Mul`/`MulAssign`/`Product`/`powu` return ~±1.7e10 when the exact product needs >28 fractional digits |
 | `query-expr-2` | high | Needs verification | The FALSE set of a SQL NOT is compiled as a two-valued predicate NOT, so rows where the inner comparison is UNKNOWN (NULL operand) pass |
-| `query-expr-4` | high | Open | In expression-lane filters, a missing nested path aborts the whole row, so an OR with a true sibling still rejects it **Current evidence:** Missing nested-path errors still reject the entire filter result. |
-| `query-intent-1` | high | Open | SortRequiresMaterialization can never fire: the admission summary always reports materialized_sort=false, so public reads admit materialized ORDER BY **Current evidence:** Admission still constructs an empty materialization summary. |
-| `query-intent-2` | high | Open | PublicRead counts every secondary-index route as bounded, including the planner's unbounded whole-index fallback, so public pages can full-scan the table **Current evidence:** Admission still treats every secondary-index route as satisfying the index requirement. |
+| `query-expr-4` | high | Verified fixed | In expression-lane filters, a missing nested path aborts the whole row, so an OR with a true sibling still rejects it **Current evidence:** A20 converts only missing-path boolean operands to UNKNOWN in the compiled owner. The 60-case truth matrix, leaf/projection contracts, typed reader errors, accepted structural/SQL reads, grouped continuation and UPDATE/DELETE scopes pass. Separate dynamic dotted-field frontend gaps remain open observations. |
+| `query-intent-1` | high | Verified fixed | SortRequiresMaterialization can never fire: the admission summary always reports materialized_sort=false, so public reads admit materialized ORDER BY **Current evidence:** A18 projects the canonical scalar executor sort rule and exact primary-key candidate bounds. Public indexed sorts reject; bounded exact-key exceptions and truthful EXPLAIN pass focused validation. |
+| `query-intent-2` | high | Verified fixed | PublicRead counts every secondary-index route as bounded, including the planner's unbounded whole-index fallback, so public pages can full-scan the table **Current evidence:** A19 projects whole-index ranges to logical FullScan while retaining physical index diagnostics; all 54 focused tests pass, including public live/exhaustive/grouped rejection, authenticated resume and selective prefix/range controls. Source alias xc-security-3 shares this closure. |
 | `query-intent-3` | high | Needs verification | The shared plan-cache key identifies literals only by an XXH3-128 digest with a public seed when a filter has no parameter template, so a forged collision would serve one caller another caller's plan |
 | `query-plan-3` | high | Needs verification | Grouped canonical ORDER BY with mixed per-term directions is admitted, but grouped output is sorted with a single direction |
-| `r2-covering-projection-1` | high | Open | Hybrid covering fails valid SELECTs with an invariant error whenever a projected index component is anything other than Bool/Int/Nat(<=64)/Text/Ulid/Unit **Current evidence:** Hybrid decoder still errors on kinds outside its six-tag decoder. |
+| `r2-covering-projection-1` | high | Verified fixed | Hybrid covering fails valid SELECTs with an invariant error whenever a projected index component is anything other than Bool/Int/Nat(<=64)/Text/Ulid/Unit **Current evidence:** A16 propagates unsupported-component decline through both hybrid branches; all 42 focused tests pass, including 21 accepted scalar/unit-enum projection cases and typed malformed-component errors. |
 | `r2-cross-message-concurrency-2` | high | Needs verification | Each migration Validating or abort page rewrites and heap-snapshots the whole index store, so large stores make both Advance and Abort trap while the database is gated |
 | `r2-identity-allocation-1` | high | Needs verification | Dense field-ID renumbering orphans the Identity allocator: removing a field that sorts before the PK restarts Identity::next at 1 (reuse on empty entities; permanent insert failure and integrity corruption after a physical migration) |
 | `r2-upgrade-lifecycle-2` | high | Needs verification | Store retirement or addition is committed irreversibly before the same release's schema reconciliation: store-key changes, entity moves and storage-mode switches leave neither the new nor the old wasm usable |
@@ -180,22 +630,22 @@ Counts cover inventory states, not implementation or release readiness.
 | `value-types-error-3` | high | Needs verification | Decimal::checked_div panics on i128::MIN / -1 (integer division overflow), which callers can trigger through SQL arithmetic |
 | `value-types-error-4` | high | Verified fixed | Decimal multiplication does not normalize its operands, so fixed-scale (e.g. e18) decimal fields overflow on tiny products like 20 × 20 **Current evidence:** A13 normalizes operands; all 44 focused tests and strict lint pass, including admitted scale-18 SQL reads. |
 | `xc-architecture-1` | high | Needs verification | Filtered-index predicates are persisted as name-based SQL text and re-parsed by a second grammar, losing typed literals: membership, planner implication and uniqueness disagree |
-| `xc-security-1` | high | Needs verification | Cursor HMAC key is deterministic on wasm32/IC, so continuation tokens can be forged |
+| `xc-security-1` | high | Verified fixed | Cursor HMAC key is deterministic on wasm32/IC, so continuation tokens can be forged **Current evidence:** IC raw_rand feeds boot admission; pending entropy blocks cursors and each boot replaces the key. Five focused entropy/session tests pass; source aliases value-types-error-1 and data-10 share this closure. |
 | `canisters-testing-ci-1` | medium | Needs verification | The two Tier A SQLite and mutation oracle lanes match zero tests and pass on every PR |
 | `canisters-testing-ci-2` | medium | Needs verification | PR CI never runs, or even compiles, the PocketIC tests for recovery, upgrade, migration, durable jobs and guard authorization |
 | `canisters-testing-ci-3` | medium | Needs verification | The dependency_msrv job actually builds with 1.98.1, because rust-toolchain.toml overrides the toolchain the action sets |
 | `canisters-testing-ci-4` | medium | Needs verification | Instruction-budget assertions can never fail (the 40B IC limit) or rely on a stale baseline; the 30B recovery allocation is not enforced for trapped recovery |
 | `cli-1` | medium | Needs verification | `schema migration run` treats identical status pages as stalled, but core returns identical pages during legitimate multi-page FinalValidation and Idle journal draining |
 | `cli-2` | medium | Needs verification | `canister refresh` reinstalls (wipes stable memory) with `--yes` on any environment, including one implicitly selected via ICP_ENVIRONMENT |
-| `cli-3` | medium | Needs verification | One-shot `icydb sql` prints canister-returned errors to stdout and exits 0 |
-| `cli-4` | medium | Needs verification | Migration `run`/`advance`/`abort` exit 0 on Rejected, and abort exits 0 when the migration was already Applied |
+| `cli-3` | medium | Verified fixed | One-shot `icydb sql` prints canister-returned errors to stdout and exits 0 **Current evidence:** A26 preserves endpoint errors through existing command results. All 32 focused tests pass, including actual process status/streams across query, DDL and UPDATE, both one-shot forms, malformed/transport controls and interactive continuation. |
+| `cli-4` | medium | Verified fixed | Migration `run`/`advance`/`abort` exit 0 on Rejected, and abort exits 0 when the migration was already Applied **Current evidence:** A27 projects returned phases into command outcomes in the existing dispatcher. Fourteen focused tests pass, including 73 migration process cases covering run/advance/abort, phase/finding output, bounded and rejected cleanup progress, identity/error/confirmation controls and successful status inspection. |
 | `cli-5` | medium | Needs verification | Interactive shell executes a half-typed statement on Ctrl-D even though the banner advertises Ctrl-D as quit |
 | `cli-9` | medium | Needs verification | Migration command Candid text leaves numeric literals untyped (`revision = N`), relying on icp-cli to recover types from canister metadata |
 | `executor-aggregate-2` | medium | Needs verification | Grouped page cursor boundary is taken from the projected row, not the canonical group key |
 | `executor-aggregate-6` | medium | Needs verification | Grouped continuation never seeks the access stream; resumed pages re-fold and re-count all pre-cursor groups against the cumulative max_groups |
 | `executor-aggregate-7` | medium | Needs verification | Zero-key grouped aggregates return no row on empty input, while global-DISTINCT and SQL global aggregates return one row |
 | `executor-aggregate-8` | medium | Needs verification | Grouped FIRST/LAST depend on traversal direction and access path (ORDER BY on group keys changes aggregate values) |
-| `executor-stream-2` | medium | Needs verification | DISTINCT over a branch-ordered IN-list stream trips the primary-key monotonicity invariant ('HashMaterialize' is implemented as adjacent dedup) |
+| `executor-stream-2` | medium | Verified fixed | DISTINCT over a branch-ordered IN-list stream trips the primary-key monotonicity invariant ('HashMaterialize' is implemented as adjacent dedup) **Current evidence:** A21 reuses disjoint canonical multi-lookup prefixes and removes the redundant key DISTINCT strategy. All 104 focused tests pass, including projected duplicates, direction, windows, cold/warm calls, public/trusted live/exhaustive continuation, typed budget facts and numeric/composite controls. Unordered DISTINCT and DESC EXPLAIN remain separate observations. |
 | `executor-stream-3` | medium | Needs verification | IntersectOrderedKeyStream reports no page access bound, so PK-ordered live pages over a general intersection fail with an invariant error |
 | `facade-2` | medium | Needs verification | Public SQL renderers print stored user text raw, allowing terminal-escape injection and forged table rows in operator tooling |
 | `index-access-4` | medium | Needs verification | Principal index-component order (content-lexicographic) differs from Principal::cmp (length first) |
@@ -342,8 +792,8 @@ Counts cover inventory states, not implementation or release readiness.
 | `query-expr-8` | low | Needs verification | The affine rewrite in grouped/UPDATE WHERE turns an integer literal into a Decimal, which switches Eq/Ne coercion to Strict and breaks non-Int64 field kinds |
 | `query-intent-5` | low | Needs verification | The continuation signature and scalar token identify ORDER BY by display label, so order expressions differing only in literal type accept each other's cursors |
 | `query-intent-6` | low | Needs verification | The READ_ADMISSION surface inventory omits public read surfaces that bypass QueryAdmissionPolicy |
-| `query-plan-4` | low | Needs verification | Primary-key predicate strip drops the entire filter expression without checking predicate coverage |
-| `query-plan-5` | low | Needs verification | index_covering_existing_rows_terminal_eligible returns true when predicate is None without checking for a residual filter expression |
+| `query-plan-4` | low | Verified fixed | Primary-key predicate strip drops the entire filter expression without checking predicate coverage **Current evidence:** A23; existing intent coverage preserves partial expressions through exact-key reads, windows, COUNT and mutation selection; complete-coverage controls retain stripping. A24 separately fixes mixed-filter cache identity; A25 separately fixes simultaneous residual execution. |
+| `query-plan-5` | low | Verified fixed | index_covering_existing_rows_terminal_eligible returns true when predicate is None without checking for a residual filter expression **Current evidence:** A23; existing residual compatibility owns absent-predicate eligibility and COUNT/EXISTS aggregate EXPLAIN controls; runtime reductions are qualified separately. |
 | `r2-candid-stability-2` | low | Needs verification | Only the migration ABI is gated: other generated endpoint responses and public DTOs have no Candid golden or subtype check, and the CLI decodes strictly with no version handshake |
 | `r2-candid-stability-3` | low | Needs verification | Recursive public input DTOs (FilterExpr, PublicValue/InputValue) have no decode-time depth bound on the IC, and FilterExpr's error wrapper re-formats the whole message at every level |
 | `r2-persisted-sql-text-2` | low | Needs verification | Stored filtered-index semantics depend on current parser code, not on the stored text, so parser fixes silently invalidate already-built index contents |

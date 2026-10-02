@@ -103,7 +103,8 @@ impl QueryAdmissionDecision {
     }
 }
 
-/// Coarse selected access-path class used by admission and EXPLAIN.
+/// Logical selected access class used by admission and EXPLAIN.
+/// Whole-index traversal is a full scan even when physically index-backed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum QueryAdmissionAccessKind {
     /// Direct primary-key lookup.
@@ -118,9 +119,9 @@ pub(in crate::db) enum QueryAdmissionAccessKind {
     IndexMultiLookup,
     /// Secondary-index branch-set access.
     IndexBranchSet,
-    /// Secondary-index range access.
+    /// Secondary-index range access constrained by a prefix or endpoint.
     IndexRange,
-    /// Full entity scan.
+    /// Full entity or whole-index scan.
     FullScan,
     /// Union of multiple access paths.
     Union,
@@ -147,7 +148,7 @@ impl QueryAdmissionAccessKind {
         }
     }
 
-    /// Return whether this access class is backed by a secondary index.
+    /// Return whether this logical access class constrains secondary-index access.
     #[must_use]
     pub(in crate::db) const fn is_secondary_index(self) -> bool {
         matches!(
@@ -156,7 +157,7 @@ impl QueryAdmissionAccessKind {
         )
     }
 
-    /// Return whether this access class is a full entity scan.
+    /// Return whether this logical access class scans an entity or whole index.
     #[must_use]
     pub(in crate::db) const fn is_full_scan(self) -> bool {
         matches!(self, Self::FullScan)
@@ -327,6 +328,23 @@ impl QueryMaterializationSummary {
             materialized_sort: false,
             materialized_rows: None,
             row_bound_kind: QueryBoundKind::Unavailable,
+        }
+    }
+
+    /// Build a sort summary from its exact candidate bound, when available.
+    /// An output LIMIT alone never bounds the candidates that need sorting.
+    #[must_use]
+    pub(in crate::db) fn for_sort(exact_candidate_bound: Option<u64>) -> Self {
+        let materialized_rows = exact_candidate_bound.and_then(|bound| u32::try_from(bound).ok());
+
+        Self {
+            materialized_sort: true,
+            materialized_rows,
+            row_bound_kind: if materialized_rows.is_some() {
+                QueryBoundKind::Exact
+            } else {
+                QueryBoundKind::Unavailable
+            },
         }
     }
 

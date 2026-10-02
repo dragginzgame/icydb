@@ -135,6 +135,12 @@ make install
 The CLI calls fixed method names on the deployed canister. If a declaration is
 absent, the replica's ordinary method-not-found response is authoritative.
 
+One-shot `icydb sql --sql "..."` and trailing SQL commands print successful
+results to stdout and exit zero. Rejected SQL responses, transport failures and
+invalid replies report diagnostics on stderr and exit nonzero, so shell command
+chains stop on failure. The interactive shell reports a failed statement and
+continues accepting SQL.
+
 For a canister that enables the optional `migration` capability, see
 [Schema Migrations](docs/guides/schema-migrations.md) for the explicit
 version-1 adoption, adjacent deployment, bounded run/resume, and abort flow.

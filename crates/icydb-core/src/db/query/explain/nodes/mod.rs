@@ -64,7 +64,6 @@ const fn aggregate_layer_owns(node_type: ExplainExecutionNodeType) -> bool {
     matches!(
         node_type,
         ExplainExecutionNodeType::DistinctPreOrdered
-            | ExplainExecutionNodeType::DistinctMaterialized
             | ExplainExecutionNodeType::AggregateCount
             | ExplainExecutionNodeType::AggregateExists
             | ExplainExecutionNodeType::AggregateMin
