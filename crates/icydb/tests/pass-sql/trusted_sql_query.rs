@@ -13,7 +13,7 @@ fn application_owned_query() -> Result<SqlStatementDispatch<'static>, Error> {
     )?)
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 fn execute_application_query<C: CanisterKind>(
     db: &DbSession<C>,
     dispatch: &SqlStatementDispatch<'_>,
@@ -31,7 +31,7 @@ fn application_owned_syntax_needs_no_session() {
     assert_eq!(dispatch.entity_name(), Some("Transfers"));
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 fn trusted_sql_query_compiles<C>(db: &DbSession<C>, sql: &str)
 where
     C: CanisterKind,
@@ -39,7 +39,7 @@ where
     let _ = db.execute_trusted_sql_query(sql);
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 fn trusted_sql_mutation_compiles<C>(db: &DbSession<C>, sql: &str)
 where
     C: CanisterKind,
@@ -47,7 +47,7 @@ where
     let _ = db.execute_trusted_sql_mutation(sql);
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 fn trusted_sql_update_contracts_compile<C>(db: &DbSession<C>, sql: &str)
 where
     C: CanisterKind,
@@ -64,7 +64,7 @@ where
     }
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 fn admin_sql_ddl_compiles<C>(db: &DbSession<C>, sql: &str)
 where
     C: CanisterKind,
@@ -72,7 +72,7 @@ where
     let _ = db.execute_admin_sql_ddl(sql);
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 fn admin_integrity_sql_compiles<C>(db: &DbSession<C>, sql: &str)
 where
     C: CanisterKind,

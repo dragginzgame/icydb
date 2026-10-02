@@ -1,4 +1,4 @@
-#![allow(
+#![expect(
     clippy::significant_drop_tightening,
     reason = "each test intentionally retains its exclusive pooled fixture lease for its full scope"
 )]

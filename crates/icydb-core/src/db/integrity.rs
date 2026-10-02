@@ -240,7 +240,6 @@ fn validate_quick_store_control(
             {
                 return Err(InternalError::store_invariant());
             }
-            Ok(None)
         }
         StoreRuntimeStorageMode::Journaled => {
             if capabilities != StoreRuntimeStorageCapabilities::journaled()
@@ -255,9 +254,9 @@ fn validate_quick_store_control(
             if !journal.is_well_formed() {
                 return Ok(Some(quick_journal_control_finding(plan, store_path)));
             }
-            Ok(None)
         }
     }
+    Ok(None)
 }
 
 fn quick_journal_control_finding(
@@ -342,6 +341,10 @@ impl DatabaseIncarnationId {
     }
 
     fn generate() -> Result<Self, InternalError> {
+        #[allow(
+            deprecated,
+            reason = "Atomic try_update requires Rust 1.95; MSRV is 1.88."
+        )]
         let sequence = DATABASE_INCARNATION_SEQUENCE
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
                 current.checked_add(1)

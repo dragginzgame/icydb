@@ -1,4 +1,4 @@
-#![allow(clippy::missing_const_for_fn, dead_code)]
+#![expect(clippy::missing_const_for_fn, dead_code)]
 
 use candid::CandidType;
 use serde::Deserialize;

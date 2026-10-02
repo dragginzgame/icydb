@@ -73,7 +73,6 @@ impl IntBig {
     }
 
     /// Borrow sign and little-endian base-2^32 magnitude limbs without allocation.
-    #[must_use]
     pub fn sign_and_u32_digits(
         &self,
     ) -> (

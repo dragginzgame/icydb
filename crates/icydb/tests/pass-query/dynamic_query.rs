@@ -10,7 +10,7 @@ use icydb::{
     traits::CanisterKind,
 };
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 fn dynamic_queries_compile_without_sql<C>(db: &DbSession<C>)
 where
     C: CanisterKind,
@@ -63,7 +63,7 @@ where
     let _ = db.execute_trusted_dynamic_grouped_query(&grouped);
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 fn typed_exhaustive_queries_compile_without_sql<C, E>(query: Query<'_, C, E>)
 where
     C: CanisterKind,
@@ -72,7 +72,7 @@ where
     let _ = query.limit(25).execute_exhaustive_page(None, None);
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 fn typed_exact_count_compiles_without_sql<C, E>(query: Query<'_, C, E>)
 where
     C: CanisterKind,
@@ -81,7 +81,7 @@ where
     let _ = query.execute_exact_count();
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 fn typed_grouped_queries_compile_without_sql<C, E>(query: Query<'_, C, E>)
 where
     C: CanisterKind,
@@ -95,7 +95,7 @@ where
         .execute_grouped();
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 fn typed_dynamic_live_page_adapter<C, E>(
     db: &DbSession<C>,
     request: &DynamicQuery,
@@ -127,7 +127,7 @@ fn typed_dynamic_live_page_adapter<C, E>(
     std::hint::black_box((rows, prepared.continuation, prepared.work));
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 fn prepared_dynamic_row_batch_compiles<C, E>(db: &DbSession<C>, result: LiveQueryPageOutput)
 where
     C: CanisterKind,
@@ -150,7 +150,7 @@ where
     std::hint::black_box((rows, continuation, work));
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 fn prepared_exact_key_batch_compiles<C, E>(db: &DbSession<C>, keys: &[PrimaryKeyValue])
 where
     C: CanisterKind,
@@ -170,7 +170,7 @@ where
     std::hint::black_box((distinct_rows, prepared.positions));
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 fn prepared_same_entity_write_batch_compiles<C, E>(db: &DbSession<C>, writes: Vec<TypedWrite>)
 where
     C: CanisterKind,

@@ -4081,7 +4081,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(
+    #[expect(
         clippy::too_many_lines,
         reason = "the end-to-end catalog assertion is clearer as one lifecycle test"
     )]
@@ -4287,7 +4287,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(
+    #[expect(
         clippy::too_many_lines,
         reason = "the staged publication, recovery, and promotion assertions form one lifecycle"
     )]
@@ -4618,7 +4618,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(
+    #[expect(
         clippy::too_many_lines,
         reason = "the durable pending job, startup failure, and retained finding assertions form one scenario"
     )]
@@ -4732,7 +4732,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(
+    #[expect(
         clippy::too_many_lines,
         reason = "the journaled abort, replay, and recovery assertions form one scenario"
     )]

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.264.md](docs/changelog/0.264.md)
 
+- `0.264.2` updates Rust tooling and tightens lint exceptions while preserving supported minimum Rust versions.
 - `0.264.1` improves query and memory behavior, repairs deployment qualification, treats expected startup waits quietly and simplifies database internals (breaking).
 - `0.264.0` qualifies indexed signed equality and membership and enforces current-format authority (breaking; regeneration/reinstall required).
 

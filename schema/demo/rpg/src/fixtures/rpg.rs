@@ -615,6 +615,10 @@ fn critical_chance_for(class_name: &str, strength: i16, dexterity: i16, seed: u6
 
 // Dodge chance remains a float but now reflects dexterity, armor trade-offs,
 // and class mobility instead of one visible arithmetic progression.
+#[expect(
+    clippy::suboptimal_flops,
+    reason = "Keep separate multiply/add rounding for deterministic fixture values."
+)]
 fn dodge_chance_for(class_name: &str, dexterity: i16, armor_class: u8, seed: u64) -> Float64 {
     let dex_mod = ((dexterity - 10) / 2).clamp(0, 5);
     let class_bonus = match class_name {

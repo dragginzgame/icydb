@@ -1437,7 +1437,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(
+    #[expect(
         clippy::too_many_lines,
         reason = "the interrupted compound publication and recovery assertions form one scenario"
     )]

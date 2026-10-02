@@ -1,4 +1,4 @@
-#![allow(clippy::missing_const_for_fn, clippy::unnecessary_wraps)]
+#![expect(clippy::missing_const_for_fn, clippy::unnecessary_wraps)]
 
 mod __icydb_generated {
     pub(crate) const __ICYDB_START_BINDING: () = ();

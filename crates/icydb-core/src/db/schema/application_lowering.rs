@@ -5517,7 +5517,7 @@ mod tests {
 
     #[test]
     // Keep the complete downstream schema shape visible in one regression.
-    #[allow(clippy::too_many_lines)]
+    #[expect(clippy::too_many_lines)]
     fn initial_lowering_publishes_and_round_trips_collection_named_type_cycles() {
         let field_key = TypeSourceKey::try_new("FieldKey").expect("type source should admit");
         let values = TypeSourceKey::try_new("Values").expect("type source should admit");
@@ -5957,7 +5957,7 @@ mod tests {
 
     #[test]
     // Keep both named definitions and the resulting leaf projection together.
-    #[allow(clippy::too_many_lines)]
+    #[expect(clippy::too_many_lines)]
     fn initial_lowering_cuts_mutual_record_leaf_expansion_at_the_resolved_back_edge() {
         let left = TypeSourceKey::try_new("Left").expect("type source should admit");
         let right = TypeSourceKey::try_new("Right").expect("type source should admit");
@@ -6302,7 +6302,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(
+    #[expect(
         clippy::too_many_lines,
         reason = "the regression proves external-reference rejection, partial-cycle rejection, and multi-store component removal together"
     )]

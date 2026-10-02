@@ -79,7 +79,7 @@ pub struct Robot {}
 )]
 pub struct ProfileOwner {}
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 fn enroll<C: CanisterKind>(
     session: &DbSession<C>,
     principal: Principal,
@@ -105,7 +105,7 @@ fn enroll<C: CanisterKind>(
     Ok(user_id)
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 fn generated_structural_input<C: CanisterKind>(
     session: &DbSession<C>,
 ) -> Result<(), TypedOperationError> {

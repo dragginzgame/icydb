@@ -7,11 +7,27 @@ mod arg;
 mod canister;
 mod constraint;
 mod def;
+#[expect(
+    clippy::redundant_field_names,
+    reason = "Darling FromMeta emits explicit field initializers."
+)]
 mod entity;
+#[expect(
+    clippy::redundant_field_names,
+    reason = "Darling FromMeta emits explicit field initializers."
+)]
 mod r#enum;
+#[expect(
+    clippy::redundant_field_names,
+    reason = "Darling FromMeta emits explicit field initializers."
+)]
 mod field;
 mod field_list_arg;
 mod index;
+#[expect(
+    clippy::redundant_field_names,
+    reason = "Darling FromMeta emits explicit field initializers."
+)]
 mod item;
 mod list;
 mod map;
@@ -25,7 +41,15 @@ mod schema_reference;
 mod set;
 mod store;
 mod traits;
+#[expect(
+    clippy::redundant_field_names,
+    reason = "Darling FromMeta emits explicit field initializers."
+)]
 mod tuple;
+#[expect(
+    clippy::redundant_field_names,
+    reason = "Darling FromMeta emits explicit field initializers."
+)]
 mod r#type;
 mod typed_adapter;
 mod validator;

@@ -6,7 +6,7 @@ use icydb::{
     value::InputValue,
 };
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 fn structural_mutation_batch_compiles_without_sql<C>(
     db: &DbSession<C>,
     binding: &TypedEntityBinding,
@@ -38,7 +38,7 @@ fn structural_mutation_batch_compiles_without_sql<C>(
     let _ = db.execute_trusted_structural_mutation_batch_rows(binding, batch);
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 fn typed_write_terminals_compile_without_sql<C>(
     db: &DbSession<C>,
     write: TypedWrite,

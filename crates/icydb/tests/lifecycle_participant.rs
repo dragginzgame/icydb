@@ -1,5 +1,3 @@
-#![allow(clippy::missing_const_for_fn, dead_code)]
-
 use std::cell::Cell;
 
 std::thread_local! {

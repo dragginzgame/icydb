@@ -1,4 +1,7 @@
-#![allow(clippy::missing_const_for_fn, clippy::unnecessary_wraps)]
+#![cfg_attr(
+    feature = "metrics",
+    expect(clippy::missing_const_for_fn, clippy::unnecessary_wraps)
+)]
 
 mod __icydb_generated {
     pub(crate) const __ICYDB_START_BINDING: () = ();
@@ -79,5 +82,5 @@ fn request_test_attribute_uses_the_runtime_boundary() {
     assert_eq!(attributed_sync_entry(), 7);
 }
 
-#[allow(dead_code)]
+#[cfg(not(test))]
 fn main() {}

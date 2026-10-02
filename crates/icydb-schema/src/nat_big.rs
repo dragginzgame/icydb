@@ -66,7 +66,6 @@ impl NatBig {
     }
 
     /// Borrow little-endian base-2^32 limbs without allocation.
-    #[must_use]
     pub fn u32_digits(&self) -> impl DoubleEndedIterator<Item = u32> + ExactSizeIterator + '_ {
         self.0.0.iter_u32_digits()
     }
