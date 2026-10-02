@@ -6,9 +6,9 @@
 
 mod contracts;
 #[cfg(test)]
-mod missing_paths;
+mod missing_paths_tests;
 #[cfg(test)]
-mod residual_filters;
+mod residual_filters_tests;
 mod scalar;
 
 use crate::{

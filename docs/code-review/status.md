@@ -583,6 +583,23 @@ findings. Full suites remain user-owned; raw Wasm, IC cycles and instructions
 are unmeasured. No network lifecycle action was taken. The planned queue is
 complete; other findings need their own scoped audit and qualification.
 
+### Validation follow-up — Executor test layout
+
+The user's complete invariant run exposed test-only files classified as
+production by the panic scanner. Renaming missing-path and combined-residual
+modules to the maintained test-file convention resolves it. The next invariant
+check exposed semantic index encoders inside the hybrid component test block;
+that block now uses the established test-directory layout. Regression assertions,
+runtime logic and both production checks are unchanged. This is direct validation
+fallout from A16/A20/A25, not closure of another saved finding. The saved inventory
+remains nineteen verified fixes, one partial and 287 unchecked findings.
+
+The complete invariant gate, nine focused projection tests, strict all-feature
+core library/test lint and formatting pass. Source comparison verifies unchanged
+regression bodies and hybrid runtime functions. Runtime complexity stays neutral;
+only test layout and documentation change. Full repository suites remain
+user-owned; raw Wasm, IC cycles and instructions are unmeasured.
+
 ## Finding inventory
 
 All 307 distinct, non-refuted findings are listed once. Duplicate aliases and the
