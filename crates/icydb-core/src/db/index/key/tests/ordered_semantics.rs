@@ -618,14 +618,48 @@ fn index_component_compare_requires_strict_variant_match_for_numeric_widening() 
 }
 
 #[test]
-fn timestamp_ordered_encoding_is_monotonic_for_millisecond_values() {
-    let t1000 = Value::Timestamp(Timestamp::from_millis(1_000));
-    let t1001 = Value::Timestamp(Timestamp::from_millis(1_001));
-
-    let b1000 = encode_canonical_index_component(&t1000).expect("timestamp 1000 should encode");
-    let b1001 = encode_canonical_index_component(&t1001).expect("timestamp 1001 should encode");
-
-    assert!(b1001 > b1000);
+fn timestamp_ordered_encoding_preserves_signed_millisecond_order() {
+    let values = [
+        i64::MIN,
+        i64::MIN + 1,
+        -1_000,
+        -1,
+        0,
+        1,
+        1_000,
+        1_001,
+        i64::MAX,
+    ];
+    let encoded = values.map(|millis| {
+        let timestamp = Timestamp::from_millis(millis);
+        let bytes = encode_canonical_index_component(&Value::Timestamp(timestamp)).unwrap();
+        assert_eq!(bytes.len(), 9);
+        assert_eq!(
+            bytes,
+            encode_canonical_index_component_from_primary_key_value(
+                PrimaryKeyComponent::Timestamp(timestamp),
+            )
+            .unwrap(),
+        );
+        bytes
+    });
+    // Qualify the current representation at both extrema and the epoch.
+    assert_eq!(&encoded[0][1..], &[0; 8]);
+    assert_eq!(&encoded[4][1..], &0x8000_0000_0000_0000_u64.to_be_bytes());
+    assert_eq!(&encoded[8][1..], &[0xff; 8]);
+    for (left, left_bytes) in values.iter().zip(&encoded) {
+        for (right, right_bytes) in values.iter().zip(&encoded) {
+            let expected = left.cmp(right);
+            assert_eq!(left_bytes.cmp(right_bytes), expected);
+            assert_eq!(
+                compare_index_component_values(
+                    &Value::Timestamp(Timestamp::from_millis(*left)),
+                    &Value::Timestamp(Timestamp::from_millis(*right)),
+                ),
+                expected,
+            );
+        }
+    }
 }
 
 // Deterministic property-style check: for each primitive family fixture,
@@ -734,6 +768,12 @@ fn canonical_encoder_pairwise_cmp_matches_bytes_for_primitive_families() {
             ],
         ),
         ("Unit", vec![Value::Unit, Value::Unit]),
+        (
+            "Timestamp",
+            [i64::MIN, -1, 0, 1, i64::MAX]
+                .map(|millis| Value::Timestamp(Timestamp::from_millis(millis)))
+                .to_vec(),
+        ),
     ];
 
     for (family_name, values) in families {

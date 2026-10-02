@@ -5,8 +5,10 @@
 
 use crate::{
     MAX_INDEX_FIELDS,
-    db::index::{IndexId, key::codec::IndexKey},
-    types::{Account, AccountStorageCodec},
+    db::{
+        index::{IndexId, key::codec::IndexKey},
+        key_taxonomy::COMPOSITE_PRIMARY_KEY_MAX_SIZE,
+    },
 };
 
 pub(super) const KEY_KIND_TAG_SIZE: usize = 1;
@@ -18,7 +20,7 @@ pub(super) const KEY_PREFIX_SIZE: usize = KEY_KIND_TAG_SIZE + INDEX_ID_SIZE + CO
 #[expect(clippy::cast_possible_truncation)]
 impl IndexKey {
     pub(crate) const MAX_COMPONENT_SIZE: usize = 4 * 1024;
-    pub(crate) const MAX_PK_SIZE: usize = 1 + Account::STORED_SIZE as usize;
+    pub(crate) const MAX_PK_SIZE: usize = COMPOSITE_PRIMARY_KEY_MAX_SIZE;
 
     const MIN_SEGMENT_SIZE: usize = 1;
 

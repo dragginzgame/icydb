@@ -34,8 +34,8 @@ impl Decimal {
         })
     }
 
-    /// Checked multiplication; returns `None` when scale or mantissa
-    /// multiplication overflows the fixed decimal representation.
+    /// Checked multiplication normalizes operand padding first; returns `None`
+    /// when scale or mantissa multiplication overflows the fixed representation.
     #[must_use]
     pub fn checked_mul(self, rhs: Self) -> Option<Self> {
         self.checked_mul_impl(rhs)
@@ -49,8 +49,12 @@ impl Decimal {
     }
 
     fn checked_mul_impl(self, rhs: Self) -> Option<Self> {
-        let scale = self.scale.checked_add(rhs.scale)?;
-        let mantissa = self.mantissa.checked_mul(rhs.mantissa)?;
+        // Accepted fixed-scale fields retain padding that must not consume
+        // multiplication precision or cause avoidable intermediate overflow.
+        let lhs = self.normalize();
+        let rhs = rhs.normalize();
+        let scale = lhs.scale.checked_add(rhs.scale)?;
+        let mantissa = lhs.mantissa.checked_mul(rhs.mantissa)?;
         Self::checked_from_mantissa_scale(mantissa, scale)
     }
 

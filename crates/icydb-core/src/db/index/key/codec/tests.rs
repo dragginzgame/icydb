@@ -13,7 +13,7 @@ use crate::{
             encode_index_store_key,
         },
     },
-    types::{Decimal, EntityTag, Float32, Float64, IntBig, Principal},
+    types::{Account, Decimal, EntityTag, Float32, Float64, IntBig, Principal, Subaccount},
     value::Value,
 };
 use ic_memory::ic_stable_structures::Storable;
@@ -1200,7 +1200,7 @@ fn index_key_borrowed_component_match_validates_complete_frame() {
     );
     malformed.push(trailing.into_bytes());
 
-    // The ordering decoder admits wider primary keys; strict codec consumers do not.
+    // Raw framing can construct an oversized suffix; strict consumers reject it.
     let oversized = encode_index_store_key(
         IndexStoreKeyKind::User,
         peer.index_id,
@@ -1277,6 +1277,76 @@ fn index_key_primary_suffix_decodes_composite_primary_key_value() {
         .expect("composite primary suffix should decode");
 
     assert_eq!(decoded, primary_key);
+}
+
+#[test]
+fn index_key_maximum_composite_primary_suffix_roundtrips_and_stays_within_bounds() {
+    let account = Account::from_owner_and_subaccount(
+        Principal::from_slice(&[1; 29]),
+        Some(Subaccount::from_array([2; 32])),
+    );
+    let primary_key = PrimaryKeyValue::Composite(
+        CompositePrimaryKeyValue::try_from_components(&[PrimaryKeyComponent::Account(account); 4])
+            .unwrap(),
+    );
+    let suffix = IndexKey::compact_primary_key_value_bytes(&primary_key).unwrap();
+    assert_eq!(suffix.len(), 254);
+    for kind in [IndexKeyKind::User, IndexKeyKind::System] {
+        let key = key_with(
+            kind,
+            index_id(),
+            vec![encode_component(&Value::Nat64(7))],
+            suffix.clone(),
+        );
+        let raw = key.to_raw().expect("maximum composite suffix must encode");
+        assert_eq!(IndexKey::try_from_raw(&raw).unwrap(), key);
+        let (decoded, bytes) = IndexKey::primary_key_value_and_bytes_from_raw(&raw).unwrap();
+        assert_eq!(decoded, primary_key);
+        assert_eq!(bytes, suffix);
+        assert_eq!(raw.decode().unwrap().primary_key().as_bytes(), suffix);
+        let witness = crate::db::index::IndexEntryValue::presence()
+            .decode_row_witness(&raw)
+            .unwrap();
+        assert_eq!(witness.primary_key_value(), &primary_key);
+        let (low, high) = key.raw_bounds_for_all_components().unwrap();
+        assert!(low < raw && raw < high);
+        // Persist and reopen the current stable index; the suffix must survive
+        // canonical storage as well as the heap frame decoders.
+        let memory = crate::testing::test_memory(218);
+        let mut store = crate::db::index::IndexStore::init_journaled(memory.clone());
+        store
+            .apply_canonical_entry(
+                raw.clone(),
+                Some(crate::db::index::IndexEntryValue::presence()),
+            )
+            .unwrap();
+        drop(store);
+        let reopened = crate::db::index::IndexStore::init_journaled(memory);
+        assert_eq!(
+            reopened.get(&raw),
+            Some(crate::db::index::IndexEntryValue::presence())
+        );
+    }
+}
+
+#[test]
+fn index_key_maximum_raw_size_matches_stable_storage_bound() {
+    let key = key_with(
+        IndexKeyKind::User,
+        index_id(),
+        vec![vec![1; IndexKey::MAX_COMPONENT_SIZE]; MAX_INDEX_FIELDS],
+        vec![0xff; crate::db::key_taxonomy::COMPOSITE_PRIMARY_KEY_MAX_SIZE],
+    );
+    let raw = key.to_raw().expect("maximum current key must encode");
+    assert_eq!(raw.as_bytes().len(), IndexKey::MAX_STORED_SIZE_USIZE);
+    assert_eq!(IndexKey::try_from_raw(&raw).unwrap(), key);
+    assert_eq!(
+        RawIndexStoreKey::BOUND,
+        ic_memory::ic_stable_structures::storable::Bound::Bounded {
+            max_size: u32::try_from(raw.as_bytes().len()).unwrap(),
+            is_fixed_size: false,
+        },
+    );
 }
 
 #[test]

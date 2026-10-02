@@ -8,6 +8,44 @@ use crate::types::{
 use std::slice;
 
 #[test]
+fn sql_multiplication_reads_padded_decimal_fields() {
+    let session = initialize();
+    publish_operand_schema(&session, AcceptedFieldKind::Decimal { scale: 18 });
+    session
+        .execute_trusted_dynamic_insert_batch(
+            ENTITY_NAME,
+            vec![DynamicStructuralPatch::new(vec![
+                ("id".into(), DynamicWriteCell::Value(InputValue::unit())),
+                (
+                    "operand".into(),
+                    DynamicWriteCell::Value(InputValue::decimal(Decimal::new(20, 0))),
+                ),
+            ])],
+        )
+        .expect("accepted decimal write");
+    let stored = new_request_session()
+        .execute_trusted_live_page(&DynamicQuery::new(ENTITY_NAME).select(["operand"]), None)
+        .expect("stored decimal read");
+    let crate::value::PublicValue::Decimal(value) = stored.rows[0][0].as_public() else {
+        panic!("decimal operand");
+    };
+    assert_eq!(value.scale(), 18);
+    assert_eq!(value.mantissa(), 20_000_000_000_000_000_000);
+
+    let dispatch =
+        sql_statement_dispatch("SELECT operand * operand FROM Singleton").expect("fixed syntax");
+    for _ in 0..2 {
+        let (result, _) = new_request_session()
+            .execute_trusted_sql_query_with_entity_name(&dispatch, &[])
+            .expect("padded decimal multiplication");
+        let SqlStatementResult::Projection { rows, .. } = result else {
+            panic!("projection");
+        };
+        assert_eq!(rows, vec![vec![OutputValue::decimal(Decimal::new(400, 0))]]);
+    }
+}
+
+#[test]
 fn bound_scalar_families_match_structural_reads_of_stored_values() {
     let cases = [
         (

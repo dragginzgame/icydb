@@ -142,7 +142,6 @@ fn execute_hybrid_covering_projection_with_proven_rows(
             data_store,
             &data_key,
             row_field_slots,
-            false,
         )?
         .ok_or_else(InternalError::query_executor_invariant)?;
         let decoded_components = decode_hybrid_covering_components(component_indices, components)?;
@@ -182,7 +181,6 @@ fn execute_hybrid_covering_projection_with_checked_rows(
             data_store,
             &data_key,
             row_field_slots,
-            true,
         )?;
         let Some(sparse_row_fields) = sparse_row_fields else {
             if matches!(plan.scalar_consistency(), MissingRowPolicy::Error) {
@@ -247,26 +245,13 @@ fn read_hybrid_projection_row_fields_from_store(
     data_store: &DataStore,
     data_key: &DecodedDataStoreKey,
     row_field_slots: &[usize],
-    check_presence_without_row_fields: bool,
 ) -> Result<Option<Vec<(usize, Value)>>, InternalError> {
-    // Phase 1: a checked covering-only hybrid still owes an authoritative
-    // existence probe even though it has no row-backed projection slot.
-    if row_field_slots.is_empty() {
-        if check_presence_without_row_fields {
-            charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
-            let raw_key = data_key.to_raw()?;
-            if !data_store.contains(&raw_key) {
-                return Ok(None);
-            }
-        }
-        return Ok(Some(Vec::new()));
-    }
-
-    // Phase 2: borrow heap/live row backing; stable storage retains its owned
-    // read boundary. Only selected decoded values escape the store guard.
+    // Phase 1: hybrid admission guarantees at least one row-backed slot. Borrow
+    // heap/live row backing; stable storage retains its owned read boundary.
+    // Only selected decoded values escape the store guard.
     let raw_key = data_key.to_raw()?;
 
-    // Phase 3: fetch the raw row from storage and keep sparse slot decode in
+    // Phase 2: fetch the raw row from storage and keep sparse slot decode in
     // executor ownership. The one-slot and indexed decode paths stay explicit so
     // storage never decides an execution decode strategy.
     charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
@@ -301,7 +286,7 @@ fn read_hybrid_projection_row_fields_from_store(
     let decoded =
         row_layout.decode_indexed_values_from_data_key(raw_row, data_key, row_field_slots)?;
 
-    // Phase 4: rebuild the field-slot map expected by the hybrid projection
+    // Phase 3: rebuild the field-slot map expected by the hybrid projection
     // row shaper from the compact executor-owned selective decode result.
     let mut row_fields = Vec::with_capacity(row_field_slots.len());
 

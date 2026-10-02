@@ -49,7 +49,7 @@ impl OrderedEncode for u128 {
 
 impl OrderedEncode for Timestamp {
     fn encode_ordered(&self, out: &mut Vec<u8>) -> Result<(), OrderedValueEncodeError> {
-        out.extend_from_slice(&self.repr().to_be_bytes());
+        out.extend_from_slice(&ordered_i64_bytes(self.repr()));
         Ok(())
     }
 }

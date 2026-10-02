@@ -162,6 +162,25 @@ fn numeric_arithmetic_division_rounds_half_away_from_zero() {
 }
 
 #[test]
+fn numeric_arithmetic_multiplication_ignores_decimal_scale_padding() {
+    for scale in [8, 18, 28] {
+        let padded = Value::Decimal(Decimal::from_i128_with_scale(
+            20 * 10_i128.pow(scale),
+            scale,
+        ));
+        assert_eq!(
+            apply_value_arithmetic_checked(NumericArithmeticOp::Mul, &padded, &padded),
+            Ok(Some(Value::Decimal(Decimal::new(400, 0))))
+        );
+    }
+    let maximum = Value::Decimal(Decimal::from_i128_with_scale(i128::MAX, 0));
+    assert_eq!(
+        apply_value_arithmetic_checked(NumericArithmeticOp::Mul, &maximum, &Value::Int64(2)),
+        Err(NumericEvalError::Overflow)
+    );
+}
+
+#[test]
 fn numeric_arithmetic_addition_reports_overflow() {
     let left = Value::Decimal(Decimal::from_i128_with_scale(i128::MAX, 0));
     let right = Value::Int64(1);

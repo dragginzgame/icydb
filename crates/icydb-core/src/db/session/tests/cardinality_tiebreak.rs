@@ -2,6 +2,7 @@
 
 mod access_projection;
 mod aggregate_composition;
+mod composite_primary_keys;
 mod cursor_entropy;
 mod index_metadata;
 mod order_metadata;
@@ -15,6 +16,7 @@ mod secondary_order;
 mod seek_intersection;
 mod sparse_indexes;
 mod sql_not_null;
+mod timestamp_ranges;
 mod typed_explain;
 
 use crate::{

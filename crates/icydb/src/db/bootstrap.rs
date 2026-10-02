@@ -141,6 +141,7 @@ mod tests {
     const TEST_MEMORY_ID: u8 = 100;
 
     struct ExistingRuntimePolicy {
+        identity_name: &'static str,
         preparation_calls: std::cell::Cell<usize>,
     }
 
@@ -178,7 +179,7 @@ mod tests {
         }
 
         fn runtime_bootstrap_identity(&self) -> Result<PolicyIdentity, PolicyIdentityError> {
-            PolicyIdentity::new("tests.existing-runtime-policy", 1)
+            PolicyIdentity::new(self.identity_name, 1)
         }
     }
 
@@ -226,6 +227,20 @@ mod tests {
                     default_memory_manager_memory_allocation_summary(),
                     Err(ic_memory::RuntimeDiagnosticError::NotBootstrapped)
                 ));
+                for observation in [
+                    ic_memory::default_memory_manager_diagnostic_export().map(|_| ()),
+                    ic_memory::default_memory_manager_commit_recovery_diagnostic().map(|_| ()),
+                    ic_memory::default_memory_manager_doctor_report().map(|_| ()),
+                    ic_memory::default_memory_manager_doctor_report_with_policy(
+                        &ic_memory::GenericRangePolicy,
+                    )
+                    .map(|_| ()),
+                ] {
+                    assert!(matches!(
+                        observation,
+                        Err(ic_memory::RuntimeDiagnosticError::NotBootstrapped)
+                    ));
+                }
                 ensure_default_memory_manager(TEST_AUTHORITY, pages).unwrap();
                 let committed = committed_allocations().unwrap();
                 let before = default_memory_manager_memory_allocation_summary().unwrap();
@@ -246,9 +261,20 @@ mod tests {
     fn conflicting_unbootstrapped_layout_rejects_without_changing_allocation() {
         register_test_authority();
         std::thread::spawn(|| {
-            // A constructing upstream operation has already selected 128 pages,
-            // but has not published a capability that IcyDB could adopt.
-            let _ = ic_memory::default_memory_manager_diagnostic_export();
+            // A rejected bootstrap selects a layout without publishing authority.
+            let policy = ExistingRuntimePolicy {
+                identity_name: "",
+                preparation_calls: std::cell::Cell::new(0),
+            };
+            assert!(matches!(
+                bootstrap_default_memory_manager_with_config(
+                    MemoryManagerConfig::new(128).unwrap(),
+                    &policy,
+                ),
+                Err(RuntimeBootstrapError::PolicyIdentity(
+                    PolicyIdentityError::EmptyName
+                ))
+            ));
             let before = default_memory_manager_memory_allocation_summary().unwrap();
             assert_eq!(before.bucket_size_pages, 128);
             let error = ensure_default_memory_manager(TEST_AUTHORITY, 16).unwrap_err();
@@ -310,6 +336,7 @@ mod tests {
     fn adopts_runtime_bootstrapped_by_a_different_policy_and_bucket_size() {
         register_test_authority();
         let policy = ExistingRuntimePolicy {
+            identity_name: "tests.existing-runtime-policy",
             preparation_calls: std::cell::Cell::new(0),
         };
 

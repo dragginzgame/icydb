@@ -285,7 +285,6 @@ pub(in crate::db) fn covering_read_plan_with_schema_info(
         primary_key_names,
         strict_predicate_compatible,
         CoveringProjectionFieldSourcePolicy::StrictCovering,
-        false,
     )
 }
 
@@ -304,7 +303,6 @@ pub(in crate::db) fn covering_hybrid_projection_plan_with_schema_info(
         primary_key_names,
         strict_predicate_compatible,
         CoveringProjectionFieldSourcePolicy::HybridRowFallback,
-        true,
     )
 }
 
@@ -730,7 +728,6 @@ fn covering_index_projection_plan(
     primary_key_names: &[String],
     residual_filter_predicate_supported: bool,
     source_policy: CoveringProjectionFieldSourcePolicy,
-    require_row_field: bool,
 ) -> Option<CoveringReadPlan> {
     // Phase 1: reject unsupported plan shapes and freeze the shared
     // index-backed covering contract once for the whole projection.
@@ -750,7 +747,7 @@ fn covering_index_projection_plan(
 
     // Phase 2: derive the requested covering field surface in canonical
     // projection order and keep hybrid admission fail-closed on at least one
-    // explicit row-backed field when requested.
+    // explicit row-backed field.
     let source_context = CoveringProjectionSourceContext {
         coverable_component_fields: index_facts.coverable_component_fields.as_slice(),
         coverable_component_exprs: index_facts.coverable_component_exprs.as_slice(),
@@ -766,10 +763,12 @@ fn covering_index_projection_plan(
     if fields.is_empty() {
         return None;
     }
-    if require_row_field
-        && !fields
-            .iter()
-            .any(|field| matches!(field.source, CoveringReadFieldSource::RowField))
+    if matches!(
+        source_policy,
+        CoveringProjectionFieldSourcePolicy::HybridRowFallback
+    ) && !fields
+        .iter()
+        .any(|field| matches!(field.source, CoveringReadFieldSource::RowField))
     {
         return None;
     }

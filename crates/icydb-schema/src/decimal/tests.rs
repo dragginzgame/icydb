@@ -262,6 +262,40 @@ fn decimal_mul_overflow_saturates() {
 }
 
 #[test]
+fn decimal_multiplication_ignores_fixed_scale_padding() {
+    for scale in [0, 8, 18, 28] {
+        let padding = 10_i128.pow(scale);
+        for left in [0_i64, 1, 20, -20] {
+            for right in [0_i64, 2, 20, -20] {
+                let expected = Decimal::new(left * right, 0);
+                let left = Decimal::from_i128_with_scale(i128::from(left) * padding, scale);
+                let right = Decimal::from_i128_with_scale(i128::from(right) * padding, scale);
+
+                assert_eq!(left.checked_mul(right), Some(expected));
+                assert_eq!(left * right, expected);
+                let mut assigned = left;
+                assigned *= right;
+                assert_eq!(assigned, expected);
+                assert_eq!([left, right].into_iter().product::<Decimal>(), expected);
+            }
+        }
+    }
+}
+
+#[test]
+fn decimal_multiplication_normalizes_mixed_scale_operands() {
+    let large = Decimal::from_i128_with_scale(200_000_000_000_000_000_000, 0);
+    let padded_fraction = Decimal::from_i128_with_scale(1_500_000_000_000_000_000, 18);
+    let expected = Decimal::from_i128_with_scale(300_000_000_000_000_000_000, 0);
+
+    assert_eq!(large.checked_mul(padded_fraction), Some(expected));
+    assert_eq!(padded_fraction.checked_mul(large), Some(expected));
+    let padded = Decimal::from_i128_with_scale(20_000_000_000_000_000_000, 18);
+    assert_eq!(padded.checked_powu(2), Some(Decimal::new(400, 0)));
+    assert_eq!(padded.powu(2), Decimal::new(400, 0));
+}
+
+#[test]
 fn decimal_division_sign_scale_matrix() {
     let sign_cases = [
         (1i128, 1i128, false),
