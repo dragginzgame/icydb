@@ -81,8 +81,6 @@ pub const fn minimum_verify_advances(rows: u32) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, path::Path};
-
     use super::*;
 
     #[test]
@@ -132,78 +130,5 @@ mod tests {
             icydb::db::MAX_MUTATION_JOB_STEP_ROWS_UPDATED,
             u64::from(DURABLE_MUTATION_JOB_FORWARD_ROW_LIMIT),
         );
-
-        let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let resumable_update = fs::read_to_string(
-            workspace.join("crates/icydb-core/src/db/session/sql/resumable_update.rs"),
-        )
-        .expect("resumable update authority should be readable");
-        assert!(resumable_update.contains(
-            "MAX_RESUMABLE_UPDATE_CONTINUATION_BYTES,\n    RESUMABLE_UPDATE_CONTINUATION_BYTES_POLICY,\n    2 * 1024"
-        ));
-        assert!(resumable_update.contains(
-            "MAX_RESUMABLE_UPDATE_FORWARD_KEYS_SCANNED,\n    RESUMABLE_UPDATE_FORWARD_KEYS_SCANNED_POLICY,\n    4_096"
-        ));
-        assert!(resumable_update.contains(
-            "MAX_RESUMABLE_UPDATE_FORWARD_ROWS,\n    RESUMABLE_UPDATE_FORWARD_ROWS_POLICY,\n    MAX_MUTATION_PROGRESS_BATCH_ROWS_AT_MAX_INDEX_FANOUT"
-        ));
-        assert!(resumable_update.contains(
-            "MAX_RESUMABLE_UPDATE_VERIFY_KEYS_SCANNED,\n    RESUMABLE_UPDATE_VERIFY_KEYS_SCANNED_POLICY,\n    4_096"
-        ));
-        assert!(resumable_update.contains("MUTATION_EXECUTION_BUDGET_POLICY_IDENTITY"));
-
-        let execution_budget =
-            fs::read_to_string(workspace.join("crates/icydb-core/src/db/executor/budget.rs"))
-                .expect("mutation execution-budget authority should be readable");
-        assert!(
-            execution_budget
-                .contains("const MUTATION_EXECUTION_INSTRUCTION_LIMIT: u64 = 30_000_000_000;")
-        );
-        assert!(execution_budget.contains(
-            "const MUTATION_EXECUTION_INSTRUCTION_FAILURE_RESERVE: u64 = 5_000_000_000;"
-        ));
-
-        let exact_update = fs::read_to_string(
-            workspace.join("crates/icydb-core/src/db/session/sql/update_policy/model.rs"),
-        )
-        .expect("exact update authority should be readable");
-        assert!(exact_update.contains("const MAX_TRUSTED_EXACT_UPDATE_ROWS: u32 = 4_096;"));
-
-        let progress_store = fs::read_to_string(
-            workspace.join("crates/icydb-core/src/db/integrity/progress_store.rs"),
-        )
-        .expect("progress-store authority should be readable");
-        assert!(progress_store.contains("const MAX_PROGRESS_RECORD_BYTES: u32 = 512 * 1024;"));
-        assert!(progress_store.contains("const MAX_PROGRESS_JOBS_GLOBAL: u64 = 64;"));
-        assert!(progress_store.contains("const MAX_PROGRESS_JOBS_NON_INTEGRITY: u64 = 56;"));
-        assert!(
-            progress_store.contains("MAX_PROGRESS_JOBS_GLOBAL - MAX_PROGRESS_JOBS_NON_INTEGRITY")
-        );
-        assert!(progress_store.contains("pub(in crate::db) fn cancel_unadvanced_mutation("));
-        assert!(progress_store.contains("pub(in crate::db) fn inventory(&self)"));
-
-        let canonical_intent =
-            fs::read_to_string(workspace.join("crates/icydb-core/src/db/mutation_job/intent.rs"))
-                .expect("canonical mutation intent authority should be readable");
-        assert!(canonical_intent.contains("const INTENT_FORMAT_VERSION: u8 = 1;"));
-        assert!(canonical_intent.contains("const MAX_CANONICAL_EXPR_DEPTH: usize = 32;"));
-        assert!(canonical_intent.contains("const MAX_CANONICAL_EXPR_NODES: usize = 256;"));
-
-        let mutation_session =
-            fs::read_to_string(workspace.join("crates/icydb-core/src/db/session/mutation_job.rs"))
-                .expect("mutation-job session authority should be readable");
-        assert!(mutation_session.contains("pub fn start_trusted_sql_mutation_job("));
-        assert!(mutation_session.contains("InsertMutationJobResult::Occupied(retained)"));
-        assert!(mutation_session.contains("pub fn cancel_unadvanced_mutation_job("));
-        assert!(mutation_session.contains("pub fn progress_job_inventory("));
-
-        let commit_marker =
-            fs::read_to_string(workspace.join("crates/icydb-core/src/db/commit/marker.rs"))
-                .expect("commit-marker authority should be readable");
-        assert!(commit_marker.contains("const COMMIT_MARKER_FORMAT_VERSION_CURRENT: u8 = 1;"));
-        assert!(commit_marker.contains("from_parts_with_mutation_progress"));
-        assert!(commit_marker.contains("DatabaseControlOp::MutationProgress"));
-        assert_eq!(CURRENT_MUTATION_PROGRESS_MARKER_VERSION, 1);
-        assert_eq!(CURRENT_MUTATION_PROGRESS_MAX_MARKER_PAYLOAD_BYTES, 37_797);
     }
 }

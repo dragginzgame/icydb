@@ -1799,6 +1799,21 @@ mod tests {
 
     #[test]
     fn resumable_batch_policy_identity_covers_every_current_policy_input() {
+        assert_eq!(
+            MAX_RESUMABLE_UPDATE_CONTINUATION_BYTES,
+            crate::db::MAX_MUTATION_JOB_CONTINUATION_BYTES,
+        );
+        assert_eq!(
+            MAX_RESUMABLE_UPDATE_FORWARD_KEYS_SCANNED,
+            usize::try_from(crate::db::MAX_MUTATION_JOB_STEP_KEYS_SCANNED)
+                .expect("scanned-key limit should fit usize"),
+        );
+        assert_eq!(
+            MAX_RESUMABLE_UPDATE_FORWARD_ROWS,
+            usize::try_from(crate::db::MAX_MUTATION_JOB_STEP_ROWS_UPDATED)
+                .expect("updated-row limit should fit usize"),
+        );
+        assert_eq!(MAX_RESUMABLE_UPDATE_VERIFY_KEYS_SCANNED, 4_096);
         assert_eq!(RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY, 0x3a31_c25a);
         assert_ne!(RESUMABLE_UPDATE_BATCH_POLICY_IDENTITY, 1);
 

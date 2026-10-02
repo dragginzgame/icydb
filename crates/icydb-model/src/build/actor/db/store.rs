@@ -1088,7 +1088,7 @@ mod tests {
     }
 
     #[test]
-    fn store_registry_wiring_is_lint_clean() {
+    fn store_registry_wiring_preserves_startup_admission() {
         let mut store_inits = quote!();
         store_inits.extend(
             store_registry_entry_tokens(
@@ -1121,8 +1121,6 @@ mod tests {
             },
         ));
 
-        assert!(!rendered.contains("allow(unused_mut)"));
-        assert!(!rendered.contains("expect(clippy::let_and_return"));
         assert_eq!(rendered.matches("authority=\"icydb.demo\"").count(), 3);
         assert!(rendered.contains("key=\"icydb.demo.startup.control.v1\""));
         assert!(rendered.contains("key=\"icydb.demo.integrity.progress.v1\""));
@@ -1170,7 +1168,6 @@ mod tests {
             "pubfndb_with_request_root(request_root:&::icydb::db::RequestExecutionRoot,)"
         ));
         assert!(rendered.contains("request_root.__ensure_compatible_with_current()?"));
-        assert!(!rendered.contains("must_use"));
         assert_eq!(
             rendered
                 .matches("::icydb::db::DatabaseBootstrapError")

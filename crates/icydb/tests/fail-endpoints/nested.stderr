@@ -1,4 +1,4 @@
-error[E0433]: cannot find `__icydb_generated` in `crate`
+error[E0433]: cannot find `__icydb_generated` in the crate root
  --> tests/fail-endpoints/nested.rs:2:5
   |
 2 |     icydb::endpoints! {}

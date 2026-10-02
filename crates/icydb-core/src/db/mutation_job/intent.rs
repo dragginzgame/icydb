@@ -995,6 +995,70 @@ mod tests {
     }
 
     #[test]
+    fn scope_expression_limits_admit_the_boundary_and_reject_one_more() {
+        let mut nested = Expr::Literal(Value::Bool(true));
+        for _ in 0..MAX_CANONICAL_EXPR_DEPTH {
+            nested = Expr::Unary {
+                op: UnaryOp::Not,
+                expr: Box::new(nested),
+            };
+        }
+        let accepted = encode_scope(&nested).expect("maximum expression depth should encode");
+        assert_eq!(decode_scope(&accepted).unwrap(), nested);
+        let too_deep = Expr::Unary {
+            op: UnaryOp::Not,
+            expr: Box::new(nested),
+        };
+        assert_eq!(
+            encode_scope(&too_deep),
+            Err(MutationJobError::IneligibleIntent)
+        );
+
+        // Wrap the admitted wire expression once to exercise decoder admission
+        // independently of the encoder's rejection.
+        let mut writer = Writer::new();
+        writer.raw(SCOPE_MAGIC);
+        writer.u8(SCOPE_FORMAT_VERSION);
+        writer.u8(4);
+        writer.u8(unary_tag(UnaryOp::Not));
+        writer.raw(&accepted[SCOPE_MAGIC.len() + 1..]);
+        assert_eq!(
+            decode_scope(&writer.finish()),
+            Err(MutationJobError::CorruptProgressStore)
+        );
+
+        let literal = Expr::Literal(Value::Bool(true));
+        let mut wide = Expr::FunctionCall {
+            function: Function::Coalesce,
+            args: vec![literal.clone(); MAX_CANONICAL_EXPR_NODES - 1],
+        };
+        let accepted = encode_scope(&wide).expect("maximum expression node count should encode");
+        assert_eq!(decode_scope(&accepted).unwrap(), wide);
+        let Expr::FunctionCall { args, .. } = &mut wide else {
+            unreachable!("fixture is a function call");
+        };
+        args.push(literal.clone());
+        assert_eq!(encode_scope(&wide), Err(MutationJobError::IneligibleIntent));
+
+        // Each child is valid; the parent plus all children exceeds the total
+        // node budget while remaining inside the wire argument-count bound.
+        let leaf = encode_scope(&literal).unwrap();
+        let mut writer = Writer::new();
+        writer.raw(SCOPE_MAGIC);
+        writer.u8(SCOPE_FORMAT_VERSION);
+        writer.u8(3);
+        writer.u8(function_tag(Function::Coalesce));
+        writer.count(MAX_CANONICAL_EXPR_NODES).unwrap();
+        for _ in 0..MAX_CANONICAL_EXPR_NODES {
+            writer.raw(&leaf[SCOPE_MAGIC.len() + 1..]);
+        }
+        assert_eq!(
+            decode_scope(&writer.finish()),
+            Err(MutationJobError::CorruptProgressStore)
+        );
+    }
+
+    #[test]
     fn scope_literal_codec_rejects_deep_values_with_existing_intent_errors() {
         // One expression node containing a ~5-KiB value must still obey the
         // value codec's nesting bound, independently of the expression limit.

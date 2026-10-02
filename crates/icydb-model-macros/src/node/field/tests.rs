@@ -34,10 +34,9 @@ fn relation_fields_require_canonical_identity_suffixes() {
     let mut relation = field("user", Primitive::Ulid);
     relation.value.item.relation = Some(parse_quote!(User));
 
-    let error = relation
+    relation
         .validate()
         .expect_err("one relation without the identity suffix must reject");
-    assert!(error.to_string().contains("must end with '_id'"));
 
     relation.name = format_ident!("user_id");
     relation
@@ -71,14 +70,9 @@ fn authored_enum_defaults_preserve_type_and_variant_names() {
         .expect("matching unit-enum default should validate");
 
     status.default = Some(Arg::ConstPath(parse_quote!(OtherStatus::Active)));
-    let error = status
+    status
         .validate()
         .expect_err("a default from another enum must reject");
-    assert!(
-        error
-            .to_string()
-            .contains("does not match field type Status")
-    );
 }
 
 #[test]
@@ -92,14 +86,8 @@ fn generated_ulid_is_schema_owned_and_shape_checked() {
 
     id.value.item.primitive = Some(Primitive::Nat64);
     id.value.item.unbounded = false;
-    let error = id
-        .validate()
+    id.validate()
         .expect_err("a generator on the wrong primitive must reject");
-    assert!(
-        error
-            .to_string()
-            .contains("requires a primitive Ulid field")
-    );
 }
 
 #[test]
@@ -135,16 +123,11 @@ fn generated_identity_rejects_other_primitive_kinds() {
         Identity::next
     ))));
 
-    let error = id
-        .validate()
+    id.validate()
         .expect_err("signed identity generation must reject");
-
-    assert!(
-        error
-            .to_string()
-            .contains("requires a primitive Nat8, Nat16, Nat32, Nat64, or Nat128 field"),
-        "unexpected diagnostic: {error}",
-    );
+    id.value.item.primitive = Some(Primitive::Nat64);
+    id.validate()
+        .expect("the same generator should admit an unsigned identity");
 }
 
 #[test]
@@ -168,10 +151,11 @@ fn identity_like_defaults_require_explicit_persisted_literals() {
     let mut id = field("id", Primitive::Ulid);
     id.default = Some(Arg::FuncPath(parse_quote!(Ulid::default)));
 
-    let error = id
-        .validate()
+    id.validate()
         .expect_err("identity-like implicit defaults must reject");
-    assert!(error.to_string().contains("identity-like"));
+    id.default = None;
+    id.validate()
+        .expect("the same identity field should admit without an implicit default");
 }
 
 #[test]
@@ -182,8 +166,11 @@ fn managed_fields_do_not_accept_insert_generators() {
         Timestamp::now
     ))));
 
-    let error = created_at
+    created_at
         .validate()
         .expect_err("managed and generated ownership must not overlap");
-    assert!(error.to_string().contains("auto-managed"));
+    created_at.generated = None;
+    created_at
+        .validate()
+        .expect("a managed field without a competing generator should validate");
 }

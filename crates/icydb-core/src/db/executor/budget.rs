@@ -876,6 +876,25 @@ pub(in crate::db::executor) fn charge_current_execution_budget_pair(
     })
 }
 
+/// Charge row decoding before accessing slots in scalar or grouped execution.
+/// Decoded bytes precede nested steps so exhaustion retains the same partial
+/// accounting and diagnostic resource in both readers.
+pub(in crate::db::executor) fn charge_decoded_row(
+    row_bytes: usize,
+    nested_steps: usize,
+) -> Result<(), InternalError> {
+    charge_current_execution_budget_pair(
+        (
+            DiagnosticExecutionBudgetResource::DecodedBytes,
+            usize_as_u64(row_bytes),
+        ),
+        (
+            DiagnosticExecutionBudgetResource::NestedValueSteps,
+            usize_as_u64(nested_steps),
+        ),
+    )
+}
+
 /// Charge the stored and materialized bytes for one owned data-row payload.
 macro_rules! charge_materialized_data_row {
     ($row:expr) => {{
@@ -1440,6 +1459,55 @@ mod tests {
             0,
             "the second charge must not run after the first fails",
         );
+    }
+
+    #[test]
+    fn decoded_row_charges_preserve_exact_limits_and_failure_accounting() {
+        use DiagnosticExecutionBudgetResource::{DecodedBytes, NestedValueSteps};
+
+        const DECODE_BUDGET: HardExecutionBudget =
+            HardExecutionBudget::uniform_for_tests(u64::MAX, TEST_HEADROOM)
+                .with_limit_for_tests(DecodedBytes, 7)
+                .with_limit_for_tests(NestedValueSteps, 3);
+        static DECODE_BUDGETS: [HardExecutionBudget; 3] = [
+            DECODE_BUDGET,
+            DECODE_BUDGET.with_limit_for_tests(DecodedBytes, 6),
+            DECODE_BUDGET.with_limit_for_tests(NestedValueSteps, 2),
+        ];
+
+        for (budget, rejected_resource, observed_steps) in [
+            (&DECODE_BUDGETS[0], None, 3),
+            (&DECODE_BUDGETS[1], Some(DecodedBytes), 0),
+            (&DECODE_BUDGETS[2], Some(NestedValueSteps), 3),
+        ] {
+            let root = RequestExecutionRoot::new_for_tests(HardExecutionBudget::uniform_for_tests(
+                u64::MAX,
+                TEST_HEADROOM,
+            ));
+            let result = with_execution_budget(
+                HardExecutionBudgetTracker::new_with_request_scope(
+                    budget,
+                    TEST_CONTEXT,
+                    &root.scope(),
+                ),
+                || charge_decoded_row(7, 3),
+                std::convert::identity,
+                ExecutionBudgetFinish::Automatic,
+            );
+
+            if let Some(resource) = rejected_resource {
+                let error = result.expect_err("decoding above either ceiling must reject");
+                assert!(
+                    error
+                        .diagnostic_facts()
+                        .contains(&(DiagnosticFactTag::BudgetResource, resource.raw())),
+                );
+            } else {
+                result.expect("decoding at both ceilings must succeed");
+            }
+            assert_eq!(root.observed(DecodedBytes), 7);
+            assert_eq!(root.observed(NestedValueSteps), observed_steps);
+        }
     }
 
     #[test]

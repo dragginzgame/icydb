@@ -1596,6 +1596,7 @@ dependencies = [
  "serde",
  "serde_bytes",
  "sha2",
+ "syn 3.0.6",
  "thiserror 2.0.18",
  "trybuild",
  "ulid",

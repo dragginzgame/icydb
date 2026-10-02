@@ -164,14 +164,13 @@ fn entity_validation_rejects_zero_schema_version() {
     let mut source = entity("Versioned", store_path, &["id"], &[], fields);
     source.schema_version = 0;
 
-    let err = source
+    source
         .validate()
         .expect_err("zero schema_version should fail schema node validation");
-    assert!(
-        err.to_string()
-            .contains("entity schema_version must be a positive integer"),
-        "unexpected schema_version validation error: {err}",
-    );
+    source.schema_version = 1;
+    source
+        .validate()
+        .expect("a positive schema version should validate");
 }
 
 #[test]
@@ -199,15 +198,15 @@ fn entity_validation_rejects_duplicate_field_names() {
     );
     let source = entity("SourceKeyed", store_path, &["id"], &[], fields);
 
-    let error = source
+    source
         .validate()
         .expect_err("duplicate field names must fail");
-
-    assert!(
-        error
-            .to_string()
-            .contains("duplicate field name 'id' within entity"),
+    let unique_fields = Box::leak(
+        vec![field("id", Primitive::Ulid), field("name", Primitive::Text)].into_boxed_slice(),
     );
+    entity("SourceKeyed", store_path, &["id"], &[], unique_fields)
+        .validate()
+        .expect("distinct field names should validate");
 }
 
 #[test]

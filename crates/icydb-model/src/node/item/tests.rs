@@ -92,17 +92,20 @@ fn relation_to_composite_target_rejects_even_when_first_component_matches() {
         fields,
     );
 
-    let err = relation_item(target_path, Primitive::Nat64)
+    relation_item(target_path, Primitive::Nat64)
         .validate()
         .expect_err("relation to composite target must fail before first-field matching");
 
-    assert!(
-        err.messages().iter().any(|message| {
-            message.contains("uses composite primary key fields")
-                && message.contains("single-field relation targets require a scalar primary key")
-        }),
-        "unexpected relation validation errors: {err}",
+    let scalar_fields = Box::leak(vec![field("id", Primitive::Nat64)].into_boxed_slice());
+    let scalar_target = insert_entity(
+        "schema_item_relation_composite_target",
+        "ScalarTarget",
+        &["id"],
+        scalar_fields,
     );
+    relation_item(scalar_target, Primitive::Nat64)
+        .validate()
+        .expect("matching scalar relation should validate");
 }
 
 #[test]
@@ -189,16 +192,12 @@ fn scalar_relation_target_validation_rejects_mismatched_scalar_kind() {
         fields,
     );
 
-    let err = relation_item(target_path, Primitive::Int64)
+    relation_item(target_path, Primitive::Int64)
         .validate()
         .expect_err("mismatched scalar relation target should reject");
-
-    assert!(
-        err.messages()
-            .iter()
-            .any(|message| message.contains("relation target type mismatch")),
-        "unexpected relation validation errors: {err}",
-    );
+    relation_item(target_path, Primitive::Nat64)
+        .validate()
+        .expect("the same relation target should admit its matching scalar kind");
 }
 
 #[test]

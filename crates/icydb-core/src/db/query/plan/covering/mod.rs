@@ -280,7 +280,7 @@ pub(in crate::db) fn covering_read_plan_with_schema_info(
 ) -> Option<CoveringReadPlan> {
     let primary_key_names = primary_key_names_from_schema(schema)?;
     covering_index_projection_plan(
-        |field_name| resolve_covering_field_slot_with_schema(schema, field_name),
+        |field_name| FieldSlot::resolve_with_schema(schema, field_name),
         plan,
         primary_key_names,
         strict_predicate_compatible,
@@ -299,7 +299,7 @@ pub(in crate::db) fn covering_hybrid_projection_plan_with_schema_info(
 ) -> Option<CoveringReadPlan> {
     let primary_key_names = primary_key_names_from_schema(schema)?;
     covering_index_projection_plan(
-        |field_name| resolve_covering_field_slot_with_schema(schema, field_name),
+        |field_name| FieldSlot::resolve_with_schema(schema, field_name),
         plan,
         primary_key_names,
         strict_predicate_compatible,
@@ -572,7 +572,7 @@ fn primary_store_covering_plan_with_schema_info(
 ) -> Option<(CoveringReadPlan, CoveringExistingRowMode)> {
     let primary_key_names = primary_key_names_from_schema(schema)?;
     primary_store_covering_plan(
-        |field_name| resolve_covering_field_slot_with_schema(schema, field_name),
+        |field_name| FieldSlot::resolve_with_schema(schema, field_name),
         plan,
         primary_key_names,
     )
@@ -911,18 +911,6 @@ fn expression_projection_field_slot(
             projection_field.expr(),
         ),
     )
-}
-
-// Resolve one covering field against generated field-table authority without
-// reopening the wider semantic entity model.
-
-// Resolve one covering field against accepted schema authority without
-// reopening the wider semantic entity model.
-fn resolve_covering_field_slot_with_schema(
-    schema: &SchemaInfo,
-    field_name: &str,
-) -> Option<FieldSlot> {
-    FieldSlot::resolve_with_schema(schema, field_name)
 }
 
 // Resolve one projected covering field source under the requested planner

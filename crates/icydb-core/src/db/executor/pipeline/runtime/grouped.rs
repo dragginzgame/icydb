@@ -13,7 +13,9 @@ use crate::{
             aggregate::field::{
                 AggregateFieldValueError, FieldSlot, extract_orderable_field_value_with_slot_reader,
             },
-            budget::{charge_current_execution_budget, charge_materialized_data_row},
+            budget::{
+                charge_current_execution_budget, charge_decoded_row, charge_materialized_data_row,
+            },
             pipeline::contracts::ResolvedExecutionKeyStream,
             projection::{
                 eval_effective_runtime_filter_program_with_value_cow_reader, resolve_path_segments,
@@ -387,7 +389,7 @@ impl StructuralGroupedRowRuntime {
                 self.single_slot_row_view_from_data_row(key, row, single_grouped_slot_decode)
             }
             None => {
-                charge_grouped_decoded_row(&row, self.grouped_slot_layout.required_slots().len())?;
+                charge_decoded_row(row.len(), self.grouped_slot_layout.required_slots().len())?;
                 let retained_slots = RowDecoder::decode_retained_slots_from_data_key(
                     &self.row_layout,
                     key,
@@ -406,7 +408,7 @@ impl StructuralGroupedRowRuntime {
         row: RawRow,
         path: &SingleGroupedPathDecode,
     ) -> Result<RowView, InternalError> {
-        charge_grouped_decoded_row(&row, path.segment_bytes.len())?;
+        charge_decoded_row(row.len(), path.segment_bytes.len())?;
         let row_fields = self.row_layout.open_raw_row_with_contract(&row)?;
         row_fields.validate_primary_key(key)?;
         let root_bytes = row_fields.required_bytes(path.root_slot)?;
@@ -452,7 +454,7 @@ impl StructuralGroupedRowRuntime {
         row: &RawRow,
         single_grouped_slot_decode: &SingleGroupedSlotDecode,
     ) -> Result<Value, InternalError> {
-        charge_grouped_decoded_row(row, 1)?;
+        charge_decoded_row(row.len(), 1)?;
         RowLayout::decode_required_value_from_data_key(
             &self.row_layout,
             row,
@@ -538,17 +540,6 @@ impl StructuralGroupedRowRuntime {
             .map(|row| self.row_view_from_data_row(key, row))
             .transpose()
     }
-}
-
-fn charge_grouped_decoded_row(row: &RawRow, nested_steps: usize) -> Result<(), InternalError> {
-    charge_current_execution_budget(
-        DiagnosticExecutionBudgetResource::DecodedBytes,
-        u64::try_from(row.len()).unwrap_or(u64::MAX),
-    )?;
-    charge_current_execution_budget(
-        DiagnosticExecutionBudgetResource::NestedValueSteps,
-        u64::try_from(nested_steps).unwrap_or(u64::MAX),
-    )
 }
 
 ///

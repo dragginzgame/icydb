@@ -41,6 +41,7 @@ getrandom = { workspace = true }
 icydb-testing-sql-generator = { workspace = true }
 icydb-testing-sqlite-reference = { workspace = true }
 proptest = { workspace = true }
+syn = { workspace = true, features = ["full", "visit"] }
 trybuild = { workspace = true }
 
 [[test]]

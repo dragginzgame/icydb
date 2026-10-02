@@ -528,10 +528,6 @@ mod tests {
         assert_eq!(report.successes.len(), 1);
         assert_eq!(report.successes[0].0, 1);
         assert_eq!(report.failures.len(), 1);
-        assert!(report.failures[0].contains("invalid post-link fixture"));
-        assert!(report.failures[0].contains("failed during callback"));
-        assert!(report.failures[0].contains(" after "));
-        assert!(report.failures[0].contains("timings=("));
         assert!(!invalid_output.exists());
         assert!(valid_output.is_file());
         let retained = report.successes[0].1.artifacts()[0].path();

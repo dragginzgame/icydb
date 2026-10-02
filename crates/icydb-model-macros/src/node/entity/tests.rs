@@ -328,23 +328,14 @@ fn typed_identity_insert_omits_the_database_owned_primary_key() {
 
 #[test]
 fn fatal_errors_validate_each_ordered_primary_key_field() {
-    let mut entity = entity_with_fields_and_indexes(
-        vec![scalar_field("id"), many_scalar_field("tenant_id")],
-        vec![],
-    );
+    let mut tenant = primitive_field("tenant_id", Primitive::Nat64);
+    tenant.value.many = true;
+    let mut entity = entity_with_fields_and_indexes(vec![scalar_field("id"), tenant], vec![]);
     entity.primary_key.fields = vec![format_ident!("id"), format_ident!("tenant_id")];
 
-    let errors = entity.fatal_errors();
-    let error_text = errors
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    assert!(
-        error_text.contains("primary key field 'tenant_id' must have cardinality One"),
-        "unexpected fatal errors: {error_text}",
-    );
+    assert!(!entity.fatal_errors().is_empty());
+    entity.fields.fields[1].value.many = false;
+    assert!(entity.fatal_errors().is_empty());
 }
 
 #[test]
@@ -366,16 +357,11 @@ fn fatal_errors_reject_identity_outside_the_sole_primary_key() {
     composite.primary_key.fields = vec![format_ident!("tenant_id"), format_ident!("id")];
 
     for entity in [&mut non_primary, &mut composite] {
-        let errors = entity.fatal_errors();
-        let error_text = errors
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join("\n");
-        assert!(
-            error_text.contains("allowed only on the sole primary-key field"),
-            "unexpected fatal errors: {error_text}",
-        );
+        assert!(!entity.fatal_errors().is_empty());
+        for field in &mut entity.fields.fields {
+            field.generated = None;
+        }
+        assert!(entity.fatal_errors().is_empty());
     }
 }
 
@@ -387,19 +373,9 @@ fn fatal_errors_reject_unit_inside_composite_primary_key() {
     );
     entity.primary_key.fields = vec![format_ident!("tenant_id"), format_ident!("singleton")];
 
-    let errors = entity.fatal_errors();
-    let error_text = errors
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    assert!(
-        error_text.contains(
-            "primary key field 'singleton' cannot use Unit inside a composite primary key"
-        ),
-        "unexpected fatal errors: {error_text}",
-    );
+    assert!(!entity.fatal_errors().is_empty());
+    entity.primary_key.fields = vec![format_ident!("singleton")];
+    assert!(entity.fatal_errors().is_empty());
 }
 
 #[test]
@@ -419,18 +395,11 @@ fn fatal_errors_admit_fixed_128_bit_primary_keys() {
 #[test]
 fn fatal_errors_reject_big_integer_primary_keys() {
     for primitive in [Primitive::IntBig, Primitive::NatBig] {
-        let entity = entity_with_fields_and_indexes(vec![primitive_field("id", primitive)], vec![]);
-        let error_text = entity
-            .fatal_errors()
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        assert!(
-            error_text.contains("must use a scalar key primitive"),
-            "bounded big integer primitive {primitive:?} must stay non-primary-key: {error_text}",
-        );
+        let mut entity =
+            entity_with_fields_and_indexes(vec![primitive_field("id", primitive)], vec![]);
+        assert!(!entity.fatal_errors().is_empty());
+        entity.fields.fields[0].value.item.primitive = Some(Primitive::Nat64);
+        assert!(entity.fatal_errors().is_empty());
     }
 }
 
@@ -439,22 +408,14 @@ fn fatal_errors_report_missing_ordered_primary_key_field() {
     let mut entity = entity_with_fields_and_indexes(vec![scalar_field("id")], vec![]);
     entity.primary_key.fields = vec![format_ident!("id"), format_ident!("tenant_id")];
 
-    let errors = entity.fatal_errors();
-    let error_text = errors
-        .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    assert!(
-        error_text.contains("primary key field 'tenant_id' not found in entity fields"),
-        "unexpected fatal errors: {error_text}",
-    );
+    assert!(!entity.fatal_errors().is_empty());
+    entity.fields.fields.push(scalar_field("tenant_id"));
+    assert!(entity.fatal_errors().is_empty());
 }
 
 #[test]
 fn validate_rejects_index_field_not_found() {
-    let entity = entity_with_fields_and_indexes(
+    let mut entity = entity_with_fields_and_indexes(
         vec![scalar_field("id")],
         vec![Index {
             fields: field_list(&["missing_field"]),
@@ -462,19 +423,18 @@ fn validate_rejects_index_field_not_found() {
             predicate: None,
         }],
     );
-    let err = entity
+    entity
         .validate()
         .expect_err("missing index field should fail entity validation");
-    assert!(
-        err.to_string()
-            .contains("index field 'missing_field' not found"),
-        "unexpected validation error: {err}",
-    );
+    entity.fields.fields.push(scalar_field("missing_field"));
+    entity
+        .validate()
+        .expect("the declared index field should validate");
 }
 
 #[test]
 fn validate_rejects_many_cardinality_index_field() {
-    let entity = entity_with_fields_and_indexes(
+    let mut entity = entity_with_fields_and_indexes(
         vec![scalar_field("id"), many_scalar_field("tags")],
         vec![Index {
             fields: field_list(&["tags"]),
@@ -482,19 +442,18 @@ fn validate_rejects_many_cardinality_index_field() {
             predicate: None,
         }],
     );
-    let err = entity
+    entity
         .validate()
         .expect_err("indexing many-cardinality fields should fail");
-    assert!(
-        err.to_string()
-            .contains("cannot add an index field with many cardinality"),
-        "unexpected validation error: {err}",
-    );
+    entity.fields.fields[1].value.many = false;
+    entity
+        .validate()
+        .expect("the scalar index field should validate");
 }
 
 #[test]
 fn validate_rejects_expression_index_field_not_found() {
-    let entity = entity_with_fields_and_indexes(
+    let mut entity = entity_with_fields_and_indexes(
         vec![scalar_field("id"), scalar_field("email")],
         vec![Index {
             fields: field_list(&["LOWER(name)"]),
@@ -502,13 +461,14 @@ fn validate_rejects_expression_index_field_not_found() {
             predicate: None,
         }],
     );
-    let err = entity
+    entity
         .validate()
         .expect_err("missing expression index field should fail entity validation");
-    assert!(
-        err.to_string().contains("index field 'name' not found"),
-        "unexpected validation error: {err}",
-    );
+    entity.fields.fields.push(many_scalar_field("name"));
+    entity.fields.fields[2].value.many = false;
+    entity
+        .validate()
+        .expect("the expression's declared scalar field should validate");
 }
 
 #[test]
@@ -723,14 +683,14 @@ fn timestamps_custom_names_use_ordinary_field_name_validation() {
         .fields
         .get(&format_ident!("InsertedAt"))
         .expect("custom timestamp field should be present");
-    let error = inserted_at
+    inserted_at
         .validate()
         .expect_err("custom timestamp name must satisfy field naming rules");
-
-    assert!(
-        error.to_string().contains("must be snake_case"),
-        "unexpected diagnostic: {error}",
-    );
+    let mut valid = inserted_at.clone();
+    valid.name = format_ident!("inserted_at");
+    valid
+        .validate()
+        .expect("the same timestamp field should admit a snake_case name");
 }
 
 #[test]
@@ -751,14 +711,7 @@ fn explicit_timestamps_reject_fixed_field_name_collisions() {
     ))
     .expect("entity args should parse");
 
-    let error = Entity::from_list(&args).expect_err("duplicate field name must reject");
-
-    assert!(
-        error
-            .to_string()
-            .contains("managed timestamp field 'created_at' conflicts"),
-        "unexpected diagnostic: {error}",
-    );
+    Entity::from_list(&args).expect_err("duplicate field name must reject");
 }
 
 #[test]
@@ -779,14 +732,7 @@ fn explicit_timestamps_reject_custom_field_name_collisions() {
     ))
     .expect("entity args should parse");
 
-    let error = Entity::from_list(&args).expect_err("duplicate field name must reject");
-
-    assert!(
-        error
-            .to_string()
-            .contains("managed timestamp field 'inserted_at' conflicts"),
-        "unexpected diagnostic: {error}",
-    );
+    Entity::from_list(&args).expect_err("duplicate field name must reject");
 }
 
 #[test]

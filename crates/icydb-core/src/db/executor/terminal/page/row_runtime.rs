@@ -2,7 +2,9 @@ use crate::{
     db::{
         data::{DataRow, DecodedDataStoreKey, RawRow},
         executor::{
-            budget::{charge_current_execution_budget, charge_materialized_data_row},
+            budget::{
+                charge_current_execution_budget, charge_decoded_row, charge_materialized_data_row,
+            },
             projection::eval_effective_runtime_filter_program_with_slot_reader,
             terminal::{RowDecoder, RowLayout},
         },
@@ -153,7 +155,7 @@ impl ScalarRowRuntimeState {
         let Some(row) = self.read_row(consistency, &key)? else {
             return Ok(None);
         };
-        charge_decoded_row(&row, retained_slot_layout.required_slots().len())?;
+        charge_decoded_row(row.len(), retained_slot_layout.required_slots().len())?;
         let retained_slots = RowDecoder::decode_retained_slots_from_data_key(
             &self.row_layout,
             &key,
@@ -204,7 +206,7 @@ impl ScalarRowRuntimeState {
         retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<Option<KernelRow>, InternalError> {
         self.read_row_borrowed(consistency, key, |row| {
-            charge_decoded_row(row, retained_slot_layout.required_slots().len())?;
+            charge_decoded_row(row.len(), retained_slot_layout.required_slots().len())?;
             let slots = RowDecoder::decode_retained_slots_from_data_key(
                 &self.row_layout,
                 key,
@@ -225,7 +227,7 @@ impl ScalarRowRuntimeState {
         retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<KernelRow, InternalError> {
         charge_borrowed_traversal_row(row)?;
-        charge_decoded_row(row, retained_slot_layout.required_slots().len())?;
+        charge_decoded_row(row.len(), retained_slot_layout.required_slots().len())?;
         let slots = RowDecoder::decode_retained_slots_from_data_key(
             &self.row_layout,
             key,
@@ -274,7 +276,7 @@ impl ScalarRowRuntimeState {
         filter_program: &EffectiveRuntimeFilterProgram,
         retained_slot_layout: &RetainedSlotLayout,
     ) -> Result<Option<RetainedSlotRow>, InternalError> {
-        charge_decoded_row(row, retained_slot_layout.required_slots().len())?;
+        charge_decoded_row(row.len(), retained_slot_layout.required_slots().len())?;
         let row_fields = self.row_layout.open_raw_row_with_contract(row)?;
         if !eval_effective_runtime_filter_program_with_slot_reader(filter_program, &row_fields)? {
             return Ok(None);
@@ -295,22 +297,11 @@ impl ScalarRowRuntimeState {
         row: &RawRow,
         filter_program: &EffectiveRuntimeFilterProgram,
     ) -> Result<bool, InternalError> {
-        charge_decoded_row(row, 1)?;
+        charge_decoded_row(row.len(), 1)?;
         let slots = self.row_layout.open_raw_row_with_contract(row)?;
 
         eval_effective_runtime_filter_program_with_slot_reader(filter_program, &slots)
     }
-}
-
-fn charge_decoded_row(row: &RawRow, nested_steps: usize) -> Result<(), InternalError> {
-    charge_current_execution_budget(
-        DiagnosticExecutionBudgetResource::DecodedBytes,
-        u64::try_from(row.len()).unwrap_or(u64::MAX),
-    )?;
-    charge_current_execution_budget(
-        DiagnosticExecutionBudgetResource::NestedValueSteps,
-        u64::try_from(nested_steps).unwrap_or(u64::MAX),
-    )
 }
 
 fn charge_borrowed_traversal_row(row: &RawRow) -> Result<(), InternalError> {
