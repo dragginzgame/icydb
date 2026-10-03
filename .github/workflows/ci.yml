@@ -112,6 +112,18 @@ jobs:
           # Keep registry/git caching, but avoid unstable target-dir probing
           # from ephemeral trybuild workspaces under `target/tests`.
           cache-targets: "false"
+      - name: Cache Tier B Wasm artifacts
+        if: matrix.lane == 'tier-b'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          # Retained outputs are revalidated by ic-testkit. Leave mutable Cargo
+          # and trybuild targets out of this cache.
+          path: |
+            ${{ env.CARGO_TARGET_DIR }}/canister-local/.ic-testkit/wasm-targets
+            ${{ env.CARGO_TARGET_DIR }}/canister-artifact-cache
+          key: icydb-tier-b-wasm-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_CURRENT }}-${{ github.sha }}
+          restore-keys: |
+            icydb-tier-b-wasm-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_CURRENT }}-
       - name: Install pinned Tier B Wasm optimizer
         if: matrix.lane == 'tier-b'
         run: bash scripts/ci/install-wasm-optimizer.sh

@@ -47,7 +47,7 @@ fn collect_secondary_pages(
         } else {
             session.execute_trusted_live_page(query, cursor.as_deref())
         }
-        .unwrap();
+        .unwrap_or_else(|error| panic!("public={public}, query={query:?}: {error:?}"));
         rows.extend(page.rows);
         let Some(next) = page.continuation else {
             return (rows, tokens);
@@ -118,7 +118,8 @@ fn secondary_in_pages_preserve_long_branches_and_every_resume_suffix() {
 
 #[test]
 fn secondary_in_pages_match_range_and_residual_window_controls() {
-    initialize_long_secondary_branch();
+    use crate::db::query::admission::QueryAdmissionAccessKind;
+    let setup = initialize_long_secondary_branch();
     for descending in [false, true] {
         let base = DynamicQuery::new(ENTITY_NAME)
             .select(["id", "common"])
@@ -140,19 +141,25 @@ fn secondary_in_pages_match_range_and_residual_window_controls() {
                 (
                     FilterExpr::and(vec![
                         secondary_membership(),
-                        FieldRef::new("id").gte(InputValue::nat64(4)),
+                        // Without wide_fixed, this composite suffix is a
+                        // residual rather than a competing primary-key range.
+                        FieldRef::new("wide_branch").eq("y"),
                     ]),
                     10,
                     control
                         .iter()
                         .filter(
-                            |row| matches!(row[0].as_public(), PublicValue::Nat64(id) if *id >= 4),
+                            |row| matches!(row[0].as_public(), PublicValue::Nat64(id) if !id.is_multiple_of(2)),
                         )
                         .cloned()
                         .collect(),
                 ),
             ] {
                 let query = base.clone().filter(filter).limit(limit);
+                assert_eq!(
+                    super::materialized_sort_admission::summary(&setup, &query).selected_access(),
+                    QueryAdmissionAccessKind::IndexMultiLookup
+                );
                 assert_eq!(collect_secondary_pages(&query, public, None).0, expected);
             }
         }
@@ -167,7 +174,9 @@ fn primary_ordered_index_sets_keep_bounded_resume_reads() {
     for descending in [false, true] {
         for (filter, kind) in [
             (
-                secondary_membership(),
+                // Two merged branches fit this harness's four-entry page
+                // envelope; the wider family needs a larger indivisible unit.
+                FieldRef::new("rare").in_list(["b", "a", "b"]),
                 QueryAdmissionAccessKind::IndexMultiLookup,
             ),
             (
@@ -178,6 +187,11 @@ fn primary_ordered_index_sets_keep_bounded_resume_reads() {
                 QueryAdmissionAccessKind::IndexBranchSet,
             ),
         ] {
+            // The maintained branch-set planner proves only ascending PK
+            // order; descending selects an ordinary prefix instead.
+            if descending && kind == QueryAdmissionAccessKind::IndexBranchSet {
+                continue;
+            }
             let query = DynamicQuery::new(ENTITY_NAME)
                 .filter(filter)
                 .select(["id", "common"])
@@ -197,7 +211,9 @@ fn primary_ordered_index_sets_keep_bounded_resume_reads() {
                     } else {
                         session.execute_trusted_live_page(&query, cursor.as_deref())
                     }
-                    .unwrap();
+                    .unwrap_or_else(|error| {
+                        panic!("descending={descending}, kind={kind:?}, public={public}, emitted={}: {error:?}", rows.len())
+                    });
                     assert!(root.observed(Resource::RowsVisited) <= 3);
                     rows.extend(page.rows);
                     cursor = page.continuation;
@@ -206,7 +222,12 @@ fn primary_ordered_index_sets_keep_bounded_resume_reads() {
                     }
                 }
                 assert!(cursor.is_none());
-                let mut expected = (0..10)
+                let end = if kind == QueryAdmissionAccessKind::IndexMultiLookup {
+                    9
+                } else {
+                    10
+                };
+                let mut expected = (0..end)
                     .map(|id| vec![OutputValue::nat64(id), OutputValue::text("everyone".into())])
                     .collect::<Vec<_>>();
                 if descending {
@@ -215,6 +236,36 @@ fn primary_ordered_index_sets_keep_bounded_resume_reads() {
                 assert_eq!(rows, expected);
             }
         }
+    }
+}
+
+#[test]
+fn primary_ordered_index_merge_rejects_oversized_page_unit() {
+    use icydb_diagnostic_code::{DiagnosticFactTag, ErrorCode};
+
+    initialize_long_secondary_branch();
+    let query = DynamicQuery::new(ENTITY_NAME)
+        .filter(secondary_membership())
+        .select(["id", "common"])
+        .order_by(asc("id"));
+    for public in [false, true] {
+        let root = RequestExecutionRoot::__new_runtime_root();
+        let session = new_request_session(&root);
+        let error = if public {
+            session.execute_public_live_page(&query, None)
+        } else {
+            session.execute_trusted_live_page(&query, None)
+        }
+        .unwrap_err();
+        assert_eq!(
+            error.diagnostic().error_code(),
+            ErrorCode::RUNTIME_BOUNDARY_PAGE_UNIT_TOO_LARGE
+        );
+        assert!(error.diagnostic_facts().contains(&(
+            DiagnosticFactTag::BudgetResource,
+            Resource::KeyIndexEntriesVisited.raw()
+        )));
+        assert_eq!(root.observed(Resource::RowsVisited), 0);
     }
 }
 
@@ -345,10 +396,16 @@ fn secondary_index_resume_keeps_typed_budget_rejection() {
         .filter(secondary_membership())
         .select(["id", "common"])
         .order_by(asc("rare"));
-    let first = new_request_session(&bounded_secondary_request(3))
-        .execute_trusted_live_page(&query, None)
-        .unwrap();
     for public in [false, true] {
+        // Cursor envelopes authenticate the issuing lane; resume a token from
+        // the same lane to reach row-budget admission instead of token rejection.
+        let first_session = new_request_session(&bounded_secondary_request(3));
+        let first = if public {
+            first_session.execute_public_live_page(&query, None)
+        } else {
+            first_session.execute_trusted_live_page(&query, None)
+        }
+        .unwrap();
         let root = bounded_secondary_request(0);
         let session = new_request_session(&root);
         let error = if public {
@@ -359,7 +416,9 @@ fn secondary_index_resume_keeps_typed_budget_rejection() {
         .unwrap_err();
         assert_eq!(
             error.diagnostic().error_code(),
-            ErrorCode::RUNTIME_BOUNDARY_EXECUTION_BUDGET_EXCEEDED
+            ErrorCode::RUNTIME_BOUNDARY_EXECUTION_BUDGET_EXCEEDED,
+            "public={public}: {error:?}, {:?}",
+            error.diagnostic_facts()
         );
         assert!(error.diagnostic_facts().contains(&(
             DiagnosticFactTag::BudgetResource,

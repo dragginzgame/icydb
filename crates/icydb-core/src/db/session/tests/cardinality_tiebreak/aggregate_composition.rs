@@ -71,13 +71,32 @@ fn nullable_global_distinct_skips_only_distinct_state_charges() {
         Resource::RowsVisited,
         Resource::StoredBytesRead,
     ] {
+        // These resources also own the implicit result group's state. Use an
+        // empty-input control to isolate the additional distinct-value charge.
+        let limit = if matches!(
+            resource,
+            Resource::GroupDistinctEntries | Resource::GroupDistinctStateBytes
+        ) {
+            let root = RequestExecutionRoot::__new_runtime_root();
+            new_request_session(&root)
+                .execute_trusted_dynamic_grouped_query(
+                    &DynamicQuery::new(ENTITY_NAME)
+                        .filter(FieldRef::new("id").eq(InputValue::nat64(99)))
+                        .aggregate(count_by("qty").distinct())
+                        .grouped_limits(1, 16 * 1024),
+                )
+                .unwrap();
+            root.observed(resource)
+        } else {
+            0
+        };
         for null in [false, true] {
             let root = RequestExecutionRoot::new_for_tests(
                 HardExecutionBudget::uniform_for_tests(
                     16_000_000,
                     HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
                 )
-                .with_limit_for_tests(resource, 0),
+                .with_limit_for_tests(resource, limit),
             );
             let session = new_request_session(&root);
             let query = DynamicQuery::new(ENTITY_NAME)
@@ -91,9 +110,14 @@ fn nullable_global_distinct_skips_only_distinct_state_charges() {
                     Resource::GroupDistinctEntries | Resource::GroupDistinctStateBytes
                 )
             {
-                let page = result.unwrap();
+                let page = result.unwrap_or_else(|error| {
+                    panic!(
+                        "NULL aggregate with {resource:?}: {error:?}, {:?}",
+                        error.diagnostic_facts()
+                    )
+                });
                 assert_eq!(page.rows[0].aggregate_values(), &[OutputValue::nat64(0)]);
-                assert_eq!(root.observed(resource), 0);
+                assert_eq!(root.observed(resource), limit);
             } else {
                 let error = result.unwrap_err();
                 assert_eq!(
