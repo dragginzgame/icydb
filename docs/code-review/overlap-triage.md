@@ -168,3 +168,44 @@ even with caching disabled. User-authorized A25 subsequently enforces both
 residual authorities through the existing effective filter. All 116 focused
 tests pass, including scan controls requiring both conjuncts and the original
 singleton-IN cases. Neither follow-up closes another saved ID by inference.
+
+## Cluster reconsideration after A31
+
+Subsequent A31 closes generic uniform-direction grouped sorting through its
+existing direction-aware comparator; mixed-direction planner qualification stays
+separate. The user then requests deeper cluster reasoning. The
+[filtered-index design](filtered-index-cluster.md) confirms four current symptoms
+at the persisted SQL boundary with disposable literal/rewrite probes and records
+three remaining qualification gaps. Six maintained tests pass, but full execution
+and lifecycle receipts remain required before any closure.
+
+The initial CHECK-tree reuse hypothesis needs refinement: root field comparisons
+and length operands do not cover filtered DDL's maintained nested paths,
+LIKE/ILIKE and coercions. Reuse its literal/codec authorities where compatible;
+choose one accepted representation covering the maintained predicate vocabulary.
+Do not narrow DDL or add text repair paths merely to reuse the existing type.
+Proposed A32 replaces the current version-1 text authority end-to-end and requires
+explicit metadata/index regeneration. This is a design proposal, not seven bug
+closures or a runtime correction. The initial scan/counts above remain historical.
+
+### A32 cluster correction — 2026-10-03
+
+The user-selected accepted predicate owner closes six filtered-index findings.
+Current [closure receipts](filtered-index-cluster.md#closure-receipts--2026-10-03)
+qualify typed membership/uniqueness, DDL identity, rename/reconciliation from
+encoded catalog bytes, planner-versus-scan reads and crash replay. All 62
+distinct focused tests, lint, core feature checks and invariant guards pass.
+The recursive-bounds report remains unchecked. Current version-1 metadata/index
+artifacts require recreation/regeneration; cost deltas remain unmeasured and
+full suites remain user-owned. Earlier audit statements retain their handoff scope.
+
+### Current value traversal cluster after A32
+
+The 2026-10-03 [row-boundary audit](closeout-audit.md#row-value-boundary-audit-after-a32)
+verifies the existing `data-1` correction and reproduces `data-2` plus the
+`r2-recursive-bounds-1` materialization seam. Enum framing and recursive depth
+have a common canonical owner but drift in borrowed/materializing consumers.
+Proposed A33 converges that traversal end-to-end instead of adding isolated tag
+exceptions or larger private limits. Public execution and exact malformed/depth
+controls remain gates; `data-7` is a separate verification candidate. This audit
+adds no runtime correction and does not change active release entries.

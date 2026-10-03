@@ -11,7 +11,9 @@ mod literal_render;
 mod tests;
 pub(in crate::db::sql_shared) mod types;
 
+#[cfg(any(test, feature = "sql"))]
 pub(crate) use cursor::SqlTokenCursor;
+#[cfg(any(test, feature = "sql"))]
 pub(crate) use lexer::tokenize_sql;
 pub(in crate::db) use literal_render::render_scalar_sql_value;
 pub(crate) use types::{Keyword, SqlExpectedToken, SqlParseError, SqlSyntaxErrorKind, TokenKind};

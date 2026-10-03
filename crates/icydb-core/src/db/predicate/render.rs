@@ -4,69 +4,12 @@
 //! Boundary: DDL metadata relabeling consumes this to avoid text replacement.
 
 use crate::{
-    db::predicate::{
-        CoercionId, CompareOp, ComparePredicate, Predicate, parse_sql_predicate,
-        rewrite_field_identifiers,
-    },
+    db::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
     db::sql_shared::render_scalar_sql_value,
     value::Value,
 };
 
-/// Parse, structurally relabel, and render one reduced SQL predicate.
-///
-/// This intentionally round-trips through the predicate AST so DDL metadata
-/// updates never rewrite SQL text by substring.
-pub(in crate::db) fn relabel_sql_predicate_field_root(
-    predicate_sql: &str,
-    old_name: &str,
-    new_name: &str,
-) -> Option<String> {
-    let predicate = parse_sql_predicate(predicate_sql).ok()?;
-    let predicate = rewrite_field_identifiers(predicate, |field| {
-        relabel_field_root(field, old_name, new_name)
-    });
-
-    render_sql_predicate(&predicate)
-}
-
-/// Return whether one reduced SQL predicate references a field root.
-///
-/// The check parses the predicate and visits structural field operands, so
-/// schema dependency checks never rely on substring matching.
-#[cfg(any(test, feature = "sql"))]
-pub(in crate::db) fn sql_predicate_references_field_root(
-    predicate_sql: &str,
-    field_root: &str,
-) -> Option<bool> {
-    let predicate = parse_sql_predicate(predicate_sql).ok()?;
-    let mut references = false;
-    let _ = rewrite_field_identifiers(predicate, |field| {
-        references |= field == field_root
-            || field
-                .strip_prefix(field_root)
-                .is_some_and(|tail| tail.starts_with('.'));
-        field
-    });
-
-    Some(references)
-}
-
-fn relabel_field_root(field: String, old_name: &str, new_name: &str) -> String {
-    if field == old_name {
-        return new_name.to_string();
-    }
-
-    let Some(tail) = field
-        .strip_prefix(old_name)
-        .and_then(|tail| tail.strip_prefix('.'))
-    else {
-        return field;
-    };
-
-    format!("{new_name}.{tail}")
-}
-
-fn render_sql_predicate(predicate: &Predicate) -> Option<String> {
+pub(in crate::db) fn render_sql_predicate(predicate: &Predicate) -> Option<String> {
     match predicate {
         Predicate::True => Some("TRUE".to_string()),
         Predicate::False => Some("FALSE".to_string()),
@@ -161,68 +104,4 @@ fn render_value_list(value: &Value) -> Option<String> {
         .map(render_scalar_sql_value)
         .collect::<Option<Vec<_>>>()
         .map(|items| items.join(", "))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{relabel_sql_predicate_field_root, sql_predicate_references_field_root};
-
-    #[test]
-    fn sql_predicate_field_root_dependencies_are_structural() {
-        assert_eq!(
-            sql_predicate_references_field_root(
-                "profile.rank >= 7 AND status = 'active'",
-                "profile",
-            ),
-            Some(true),
-        );
-        assert_eq!(
-            sql_predicate_references_field_root("profile.rank >= 7 AND status = 'active'", "file",),
-            Some(false),
-        );
-    }
-
-    #[test]
-    fn relabel_sql_predicate_field_root_updates_literal_predicate_fields() {
-        assert_eq!(
-            relabel_sql_predicate_field_root(
-                "nickname IS NOT NULL AND active = TRUE",
-                "nickname",
-                "handle",
-            ),
-            Some("(handle IS NOT NULL) AND (active = TRUE)".to_string()),
-        );
-    }
-
-    #[test]
-    fn relabel_sql_predicate_field_root_updates_list_and_field_compare_predicates() {
-        assert_eq!(
-            relabel_sql_predicate_field_root(
-                "nickname IN ('Ada', 'Grace') OR nickname > display_name",
-                "nickname",
-                "handle",
-            ),
-            Some("(handle IN ('Ada', 'Grace')) OR (handle > display_name)".to_string()),
-        );
-    }
-
-    #[test]
-    fn relabel_sql_predicate_field_root_updates_nested_field_roots() {
-        assert_eq!(
-            relabel_sql_predicate_field_root("profile.rank >= 7", "profile", "bio"),
-            Some("bio.rank >= 7".to_string()),
-        );
-    }
-
-    #[test]
-    fn relabel_sql_predicate_field_root_updates_casefold_prefix_predicates() {
-        assert_eq!(
-            relabel_sql_predicate_field_root(
-                "STARTS_WITH(LOWER(nickname), 'al')",
-                "nickname",
-                "handle",
-            ),
-            Some("STARTS_WITH(LOWER(handle), 'al')".to_string()),
-        );
-    }
 }

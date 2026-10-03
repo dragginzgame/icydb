@@ -11,12 +11,11 @@ use std::fmt::Write;
 
 // Build one stable SQL-style index listing for an accepted schema view with
 // one optional runtime lifecycle annotation.
-#[must_use]
 pub(in crate::db) fn show_indexes_for_schema_info_with_runtime_state(
     schema: &SchemaInfo,
     snapshot: &PersistedSchemaSnapshot,
     runtime_state: Option<IndexState>,
-) -> Vec<String> {
+) -> Result<Vec<String>, crate::error::InternalError> {
     let mut indexes = Vec::with_capacity(
         schema
             .field_path_indexes()
@@ -52,7 +51,7 @@ pub(in crate::db) fn show_indexes_for_schema_info_with_runtime_state(
             },
             Some(index.name()),
             &field_refs,
-            index.predicate_sql(),
+            index.predicate_sql()?.as_deref(),
             runtime_state,
             index_origin(snapshot.indexes(), index.ordinal()),
         ));
@@ -78,13 +77,13 @@ pub(in crate::db) fn show_indexes_for_schema_info_with_runtime_state(
             },
             Some(index.name()),
             &field_refs,
-            index.predicate_sql(),
+            index.predicate_sql()?.as_deref(),
             runtime_state,
             index_origin(snapshot.indexes(), index.ordinal()),
         ));
     }
 
-    indexes
+    Ok(indexes)
 }
 
 fn index_origin(indexes: &[PersistedIndexSnapshot], ordinal: u16) -> Option<&'static str> {

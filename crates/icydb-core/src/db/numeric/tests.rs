@@ -9,7 +9,7 @@ use crate::{
         apply_numeric_arithmetic_checked, apply_value_arithmetic_checked,
         average_decimal_terms_checked, canonical_value_compare, coerce_numeric_decimal,
         compare_numeric_eq, compare_numeric_or_strict_order, compare_numeric_order,
-        divide_decimal_terms_checked,
+        decimal_power_checked, divide_decimal_terms_checked,
     },
     types::{Decimal, Float64 as F64, IntBig, U256},
     value::Value,
@@ -192,6 +192,43 @@ fn numeric_arithmetic_addition_reports_overflow() {
 }
 
 #[test]
+fn numeric_multiplication_and_power_round_precision_without_false_overflow() {
+    for (left, right, expected) in [
+        (Decimal::new(1, 15), Decimal::new(1, 15), Decimal::ZERO),
+        (
+            Decimal::new(-1, 28),
+            Decimal::new(5, 1),
+            Decimal::new(-1, 28),
+        ),
+        (
+            Decimal::from_i128_with_scale(i128::MAX, 28),
+            Decimal::from_i128_with_scale(i128::MAX, 28),
+            "289480223093290488558.92746252171976963".parse().unwrap(),
+        ),
+    ] {
+        assert_eq!(
+            apply_value_arithmetic_checked(
+                NumericArithmeticOp::Mul,
+                &Value::Decimal(left),
+                &Value::Decimal(right),
+            ),
+            Ok(Some(Value::Decimal(expected))),
+        );
+    }
+    assert_eq!(
+        decimal_power_checked(Decimal::new(11, 1), Decimal::new(30, 0)),
+        Ok("17.4494022688864073185588037538".parse().unwrap()),
+    );
+    assert_eq!(
+        decimal_power_checked(
+            Decimal::from_i128_with_scale(i128::MAX, 0),
+            Decimal::new(2, 0),
+        ),
+        Err(NumericEvalError::Overflow),
+    );
+}
+
+#[test]
 fn u256_arithmetic_stays_fixed_width_and_checked() {
     let two = Value::U256(U256::from(2_u64));
     let three = Value::U256(U256::from(3_u64));
@@ -261,14 +298,149 @@ fn average_decimal_terms_uses_canonical_division_and_count_coercion() {
 }
 
 #[test]
-fn decimal_division_signed_overflow_returns_typed_numeric_error() {
-    for scale in [0, 18] {
+fn decimal_division_signed_limits_qualify_fit_and_overflow() {
+    assert_eq!(
+        divide_decimal_terms_checked(
+            Decimal::from_i128_with_scale(i128::MIN, 0),
+            Decimal::new(-1, 0)
+        ),
+        Err(NumericEvalError::Overflow),
+    );
+    assert_eq!(
+        divide_decimal_terms_checked(
+            Decimal::from_i128_with_scale(i128::MIN, 18),
+            Decimal::new(-1, 0)
+        ),
+        Ok("170141183460469231731.68730371588410573".parse().unwrap()),
+    );
+}
+
+#[test]
+fn numeric_arithmetic_qualifies_fitting_results_before_overflow() {
+    for (op, lhs, rhs, expected) in [
+        (
+            NumericArithmeticOp::Add,
+            Decimal::from_i128_with_scale(2 * 10_i128.pow(37), 0),
+            Decimal::from_i128_with_scale(-10_i128.pow(38), 1),
+            Decimal::from_i128_with_scale(10_i128.pow(37), 0),
+        ),
+        (
+            NumericArithmeticOp::Sub,
+            Decimal::from_i128_with_scale(i128::MIN, 28),
+            Decimal::from_i128_with_scale(i128::MIN, 28),
+            Decimal::ZERO,
+        ),
+        (
+            NumericArithmeticOp::Div,
+            Decimal::from_i128_with_scale(i128::MAX, 0),
+            Decimal::from_i128_with_scale(i128::MAX, 28),
+            Decimal::from_i128_with_scale(10_i128.pow(28), 0),
+        ),
+    ] {
+        let lhs = Value::Decimal(lhs);
+        let rhs = Value::Decimal(rhs);
         assert_eq!(
-            divide_decimal_terms_checked(
-                Decimal::from_i128_with_scale(i128::MIN, scale),
-                Decimal::new(-1, 0),
-            ),
-            Err(NumericEvalError::Overflow),
+            apply_numeric_arithmetic_checked(op, &lhs, &rhs),
+            Ok(Some(expected))
+        );
+        assert_eq!(
+            apply_value_arithmetic_checked(op, &lhs, &rhs),
+            Ok(Some(Value::Decimal(expected)))
         );
     }
+    let max = Value::Decimal(Decimal::from_i128_with_scale(i128::MAX, 0));
+    let min = Value::Decimal(Decimal::from_i128_with_scale(i128::MIN, 0));
+    for (op, lhs, rhs) in [
+        (NumericArithmeticOp::Add, max.clone(), max.clone()),
+        (NumericArithmeticOp::Sub, min.clone(), max.clone()),
+        (
+            NumericArithmeticOp::Mul,
+            max,
+            Value::Decimal(Decimal::from_i128_with_scale(i128::MAX, 28)),
+        ),
+        (NumericArithmeticOp::Div, min, Value::Int64(-1)),
+    ] {
+        assert_eq!(
+            apply_value_arithmetic_checked(op, &lhs, &rhs),
+            Err(NumericEvalError::Overflow)
+        );
+    }
+}
+
+#[test]
+fn decimal_sum_and_average_helpers_preserve_fitting_precision() {
+    assert_eq!(
+        add_decimal_terms_checked(
+            Decimal::from_i128_with_scale(2 * 10_i128.pow(37), 0),
+            Decimal::from_i128_with_scale(-10_i128.pow(38), 1)
+        ),
+        Ok(Decimal::from_i128_with_scale(10_i128.pow(37), 0)),
+    );
+    assert_eq!(
+        average_decimal_terms_checked(
+            Decimal::from_i128_with_scale(i128::MAX, 0),
+            1_000_000_000_000_000_000
+        ),
+        Ok(Decimal::from_i128_with_scale(i128::MAX, 18)),
+    );
+    assert_eq!(
+        average_decimal_terms_checked(Decimal::new(1, 28), 2),
+        Ok(Decimal::ZERO)
+    );
+    assert_eq!(
+        average_decimal_terms_checked(Decimal::new(1, 0), 0),
+        Err(NumericEvalError::NotRepresentable)
+    );
+}
+
+#[test]
+fn numeric_remainder_decimal_scale_alignment_preserves_exact_results() {
+    let value: Decimal = "5.0000000000000000000000000001".parse().unwrap();
+    for (lhs, rhs, expected) in [
+        (value, Decimal::new(10_000_000_000_000, 0), value),
+        (-value, Decimal::new(-10_000_000_000_000, 0), -value),
+        (
+            Decimal::from_i128_with_scale(i128::MAX, 0),
+            Decimal::new(3, 28),
+            Decimal::new(1, 28),
+        ),
+        (
+            Decimal::from_i128_with_scale(i128::MIN, 0),
+            Decimal::new(-1, 0),
+            Decimal::ZERO,
+        ),
+    ] {
+        assert_eq!(
+            apply_numeric_arithmetic_checked(
+                NumericArithmeticOp::Rem,
+                &Value::Decimal(lhs),
+                &Value::Decimal(rhs),
+            ),
+            Ok(Some(expected)),
+        );
+        assert_eq!(
+            apply_value_arithmetic_checked(
+                NumericArithmeticOp::Rem,
+                &Value::Decimal(lhs),
+                &Value::Decimal(rhs),
+            ),
+            Ok(Some(Value::Decimal(expected))),
+        );
+    }
+    assert_eq!(
+        apply_numeric_arithmetic_checked(
+            NumericArithmeticOp::Rem,
+            &Value::Decimal(value),
+            &Value::Decimal(Decimal::ZERO),
+        ),
+        Err(NumericEvalError::NotRepresentable),
+    );
+    assert_eq!(
+        apply_value_arithmetic_checked(
+            NumericArithmeticOp::Rem,
+            &Value::Decimal(value),
+            &Value::Decimal(Decimal::ZERO),
+        ),
+        Err(NumericEvalError::NotRepresentable),
+    );
 }

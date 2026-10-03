@@ -3,10 +3,8 @@
 //! Does not own: startup reconciliation, stable-memory storage, or generated model metadata.
 //! Boundary: schema-owned DTOs that can become the `icydb_schema` payload.
 
-#[cfg(any(test, feature = "sql"))]
-use crate::db::predicate::sql_predicate_references_field_root;
 #[cfg(any(test, feature = "sql", feature = "migration"))]
-use crate::db::{index::index_expression_text, predicate::relabel_sql_predicate_field_root};
+use crate::db::index::index_expression_text;
 use crate::{
     db::schema::{
         AcceptedConstraintCatalog, AcceptedConstraintIdentity, AcceptedConstraintKind,
@@ -656,11 +654,7 @@ impl PersistedSchemaSnapshot {
     /// constraints. Unknown field identity fails closed as globally constrained.
     #[must_use]
     #[cfg(feature = "sql")]
-    pub(in crate::db) fn field_requires_global_write_validation(
-        &self,
-        field_id: FieldId,
-        field_name: &str,
-    ) -> bool {
+    pub(in crate::db) fn field_requires_global_write_validation(&self, field_id: FieldId) -> bool {
         self.payload
             .fields
             .iter()
@@ -670,7 +664,7 @@ impl PersistedSchemaSnapshot {
                 .payload
                 .indexes
                 .iter()
-                .any(|index| index.unique() && index.references_field(field_id, field_name))
+                .any(|index| index.unique() && index.references_field(field_id))
             || self
                 .payload
                 .relations
@@ -689,7 +683,7 @@ impl PersistedSchemaSnapshot {
     pub(in crate::db) fn update_management_requires_global_write_validation(&self) -> bool {
         self.payload.fields.iter().any(|field| {
             field.write_policy().write_management() == Some(FieldWriteManagement::UpdatedAt)
-                && self.field_requires_global_write_validation(field.id(), field.name())
+                && self.field_requires_global_write_validation(field.id())
         })
     }
 
@@ -1100,7 +1094,7 @@ pub(in crate::db) struct PersistedIndexSnapshot {
     unique: bool,
     origin: PersistedIndexOrigin,
     key: PersistedIndexKeySnapshot,
-    predicate_sql: Option<String>,
+    predicate: Option<crate::db::schema::AcceptedIndexPredicate>,
 }
 
 impl PersistedIndexSnapshot {
@@ -1113,7 +1107,7 @@ impl PersistedIndexSnapshot {
         store: String,
         unique: bool,
         key: PersistedIndexKeySnapshot,
-        predicate_sql: Option<String>,
+        predicate: Option<crate::db::schema::AcceptedIndexPredicate>,
     ) -> Self {
         Self {
             schema_id,
@@ -1124,7 +1118,7 @@ impl PersistedIndexSnapshot {
             unique,
             origin: PersistedIndexOrigin::Generated,
             key,
-            predicate_sql,
+            predicate,
         }
     }
 
@@ -1137,7 +1131,7 @@ impl PersistedIndexSnapshot {
         store: String,
         unique: bool,
         key: PersistedIndexKeySnapshot,
-        predicate_sql: Option<String>,
+        predicate: Option<crate::db::schema::AcceptedIndexPredicate>,
     ) -> Self {
         Self {
             schema_id,
@@ -1148,7 +1142,7 @@ impl PersistedIndexSnapshot {
             unique,
             origin: PersistedIndexOrigin::SqlDdl,
             key,
-            predicate_sql,
+            predicate,
         }
     }
 
@@ -1175,7 +1169,7 @@ impl PersistedIndexSnapshot {
             unique: self.unique,
             origin: self.origin,
             key: self.key.clone(),
-            predicate_sql: self.predicate_sql.clone(),
+            predicate: self.predicate.clone(),
         }
     }
 
@@ -1227,26 +1221,34 @@ impl PersistedIndexSnapshot {
         &self.key
     }
 
-    /// Borrow optional schema-declared predicate SQL display metadata.
+    /// Borrow the sole accepted filtered predicate authority.
     #[must_use]
-    pub(in crate::db) const fn predicate_sql(&self) -> Option<&str> {
-        match &self.predicate_sql {
-            Some(sql) => Some(sql.as_str()),
-            None => None,
-        }
+    pub(in crate::db) const fn predicate(
+        &self,
+    ) -> Option<&crate::db::schema::AcceptedIndexPredicate> {
+        self.predicate.as_ref()
+    }
+
+    #[cfg(test)]
+    pub(in crate::db) fn clone_with_predicate_for_tests(
+        &self,
+        predicate: Option<crate::db::schema::AcceptedIndexPredicate>,
+    ) -> Self {
+        let mut index = self.clone();
+        index.predicate = predicate;
+        index
     }
 
     /// Return whether this index depends on one accepted field.
     ///
-    /// Both key components and filtered-index predicates participate. A
-    /// malformed accepted predicate fails closed as a dependency because a
-    /// metadata-only field mutation must not risk stale physical index state.
+    /// Both key components and filtered-index predicates participate through
+    /// accepted FieldId references; display names never own dependency identity.
     #[cfg(any(test, feature = "sql"))]
-    pub(in crate::db) fn references_field(&self, field_id: FieldId, field_name: &str) -> bool {
+    pub(in crate::db) fn references_field(&self, field_id: FieldId) -> bool {
         self.key.references_field(field_id)
-            || self.predicate_sql().is_some_and(|predicate_sql| {
-                sql_predicate_references_field_root(predicate_sql, field_name).unwrap_or(true)
-            })
+            || self
+                .predicate()
+                .is_some_and(|predicate| predicate.references_field(field_id))
     }
 
     /// Clone this accepted index with display metadata updated for a renamed
@@ -1255,18 +1257,9 @@ impl PersistedIndexSnapshot {
     pub(in crate::db) fn clone_with_renamed_field_path_root(
         &self,
         field_id: FieldId,
-        old_name: &str,
         new_name: &str,
-    ) -> Option<Self> {
-        let predicate_sql = match self.predicate_sql.as_deref() {
-            Some(predicate_sql) => Some(relabel_sql_predicate_field_root(
-                predicate_sql,
-                old_name,
-                new_name,
-            )?),
-            None => None,
-        };
-        Some(Self {
+    ) -> Self {
+        Self {
             schema_id: self.schema_id,
             ordinal: self.ordinal,
             physical_generation: self.physical_generation,
@@ -1277,8 +1270,8 @@ impl PersistedIndexSnapshot {
             key: self
                 .key
                 .clone_with_renamed_field_path_root(field_id, new_name),
-            predicate_sql,
-        })
+            predicate: self.predicate.clone(),
+        }
     }
 
     /// Clone this index after one accepted top-level source changes
@@ -1302,7 +1295,7 @@ impl PersistedIndexSnapshot {
             key: self
                 .key
                 .clone_with_top_level_field_nullability(field_id, nullable),
-            predicate_sql: self.predicate_sql.clone(),
+            predicate: self.predicate.clone(),
         }
     }
 
@@ -1322,7 +1315,7 @@ impl PersistedIndexSnapshot {
             unique: self.unique,
             origin: self.origin,
             key: self.key.clone_with_mapped_field_layout(map)?,
-            predicate_sql: self.predicate_sql.clone(),
+            predicate: self.predicate.clone(),
         })
     }
 }

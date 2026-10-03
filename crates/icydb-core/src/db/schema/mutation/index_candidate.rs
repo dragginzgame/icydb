@@ -173,20 +173,14 @@ pub(in crate::db) fn build_sql_ddl_secondary_index_candidate(
     store: String,
     unique: bool,
     key_items: &[SchemaDdlSecondaryIndexKeyIntent],
-    predicate_sql: Option<String>,
+    predicate: Option<crate::db::schema::AcceptedIndexPredicate>,
 ) -> Result<PersistedIndexSnapshot, SchemaDdlSecondaryIndexKeyCandidateError> {
     let key = sql_ddl_secondary_index_key_snapshot(accepted_before, key_items)?;
     let schema_id = next_sql_ddl_schema_index_id(accepted_before)?;
     let ordinal = next_sql_ddl_secondary_index_ordinal(accepted_before)?;
 
     Ok(PersistedIndexSnapshot::new_sql_ddl(
-        schema_id,
-        ordinal,
-        name,
-        store,
-        unique,
-        key,
-        predicate_sql,
+        schema_id, ordinal, name, store, unique, key, predicate,
     ))
 }
 
@@ -363,5 +357,5 @@ fn secondary_index_duplicate_contract_match(
     existing: &PersistedIndexSnapshot,
     candidate: &PersistedIndexSnapshot,
 ) -> bool {
-    existing.predicate_sql() == candidate.predicate_sql() && existing.key() == candidate.key()
+    existing.predicate() == candidate.predicate() && existing.key() == candidate.key()
 }

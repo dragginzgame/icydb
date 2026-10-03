@@ -3,9 +3,8 @@
 //! Does not own: value-storage encoding, field-kind routing, or row reconstruction.
 //! Boundary: chooses between skip-validated borrowed traversal and runtime `Value` materialization.
 
-mod cursor;
 mod scalar;
-mod value;
+pub(super) mod value;
 mod view;
 
 use crate::db::data::structural_field::{

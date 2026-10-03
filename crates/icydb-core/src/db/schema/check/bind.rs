@@ -781,6 +781,23 @@ fn computed_length_binding() -> ValueBinding {
     }
 }
 
+// Filtered predicates share accepted literal admission and canonical payloads;
+// their expression vocabulary and WHERE truth policy remain predicate-owned.
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db::schema) fn bind_index_predicate_literal(
+    input: InputValue,
+    kind: AcceptedFieldKind,
+    enum_catalog: &AcceptedEnumCatalog,
+    composite_catalog: &AcceptedCompositeCatalog,
+) -> Result<AcceptedCheckLiteralV1, AcceptedCheckExprV1Error> {
+    bind_literal(
+        input,
+        value_binding_for_resolved_kind(kind),
+        enum_catalog,
+        composite_catalog,
+    )
+}
+
 fn bind_literal(
     input: InputValue,
     expected: ValueBinding,

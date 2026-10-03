@@ -377,7 +377,6 @@ fn validate_sql_ddl_field_rename_metadata_change(
     }
     let expected =
         derive_sql_ddl_field_rename_persisted_after(before, before_field, target.new_name())
-            .map_err(|_| InternalError::store_unsupported())?
             .with_schema_version(after.version());
     if &expected != after {
         return Err(InternalError::store_unsupported());

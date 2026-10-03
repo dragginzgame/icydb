@@ -1696,13 +1696,12 @@ fn prove_resumable_update_fixed_eligibility(
         let field = row_contract
             .required_accepted_field_contract(target.slot().index())
             .map_err(QueryError::execute)?;
-        let field_name = field.decode_contract().field_name();
         if scope_dependencies.contains(&field.field_id()) {
             return Err(QueryError::sql_write_boundary(
                 SqlWriteBoundaryCode::ResumableUpdateScopeDependsOnAssignedField,
             ));
         }
-        if snapshot.field_requires_global_write_validation(field.field_id(), field_name) {
+        if snapshot.field_requires_global_write_validation(field.field_id()) {
             return Err(QueryError::sql_write_boundary(
                 SqlWriteBoundaryCode::ResumableUpdateAssignedFieldHasGlobalConstraint,
             ));

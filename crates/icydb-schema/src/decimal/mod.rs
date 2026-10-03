@@ -107,7 +107,8 @@ pub enum ParseDecimalErrorReason {
 /// Owned fixed-point decimal with an explicit i128 mantissa and base-10 scale.
 /// Candid and Serde encode and decode decimal text in every format.
 ///
-/// Arithmetic saturates on overflow, division by zero resolves to `ZERO`, and
+/// Arithmetic saturates at the scale-zero magnitude bounds on overflow,
+/// division by zero resolves to `ZERO`, and
 /// normalization keeps equivalent values on one canonical representation.
 ///
 
@@ -451,9 +452,9 @@ impl Decimal {
         (m, s)
     }
 
-    const fn saturating_extreme(scale: u32, negative: bool) -> Self {
+    const fn saturating_extreme(negative: bool) -> Self {
         let mantissa = if negative { i128::MIN } else { i128::MAX };
-        Self { mantissa, scale }
+        Self { mantissa, scale: 0 }
     }
 }
 

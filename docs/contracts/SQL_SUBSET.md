@@ -498,11 +498,13 @@ constraint. Generated/model-owned fields remain Rust-schema owned.
 schema changes for DDL-owned fields. Field ID, row slot, default/nullability,
 decode contracts, and direct field-path index identity remain stable; accepted
 field names, direct field-path index labels, and expression-index
-source/canonical labels are updated together. Filtered-index predicate SQL
-labels relabel through the reduced predicate AST and rebind against the full
-final accepted schema. Rewrite or rebind failure rejects before publication;
-stale predicate text is never retained as a fallback. Generated fields reject
-before publication.
+source/canonical labels are updated together. Filtered-index predicates retain
+accepted field IDs and typed literal payloads through renames; SQL display uses
+the current accepted names. Predicates bind direct fields before normalization;
+native nested index keys retain their existing separate admission boundary.
+Generated fields reject before publication. The current version-1 snapshot
+format persists the bound predicate, so affected pre-1.0 databases and encoded
+metadata/index artifacts require recreation or regeneration.
 
 `ALTER TABLE ... DROP COLUMN ...` is admitted only when the entity is exactly
 empty. It publishes a dense accepted schema for a DDL-owned field without a row
@@ -751,8 +753,19 @@ domain report a numeric non-representability error; running-sum overflow reports
 a numeric overflow error. NatBig and IntBig do not participate in Decimal
 coercion, even at small magnitudes: SUM/AVG over their non-NULL values report
 numeric non-representability. Storage support does not imply aggregation support.
-AVG uses the current rounded Decimal division policy:
-up to 18 fractional places, reduced when intermediate scaling cannot fit.
+Decimal addition, subtraction and multiplication round half away from zero to
+the greatest scale that fits the i128 mantissa. Addition/subtraction start at the
+greater operand scale; multiplication is capped at 28 fractional places. Integer
+POWER uses the same multiplication policy at each step. Intermediate scale
+alignment does not cause overflow; only a rounded magnitude that still cannot
+fit at scale zero reports arithmetic overflow. Running SUM applies this addition
+policy to each term. Stored field scales and decimal wire representation are
+unchanged.
+Decimal `MOD(x, y)` computes the exact remainder after scale alignment, with the
+dividend's sign. Scale differences do not cause overflow; a zero divisor reports
+numeric non-representability, and NULL operands propagate NULL.
+Division and AVG round half away from zero at the greatest fitting scale up to
+18 fractional places, reducing precision when the rounded mantissa cannot fit.
 It can round a stored `10^-28` value to zero or reject an overflowing sum even
 when the mathematical mean would fit. These are not exact-average guarantees.
 

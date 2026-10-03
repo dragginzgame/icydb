@@ -4372,10 +4372,12 @@ fn derive_index_allocation_metadata(
             write_hash_str_u32(&mut hasher, index.store());
             write_hash_tag_u8(&mut hasher, u8::from(index.unique()));
             write_hash_str_u32(&mut hasher, persisted_index_origin_name(index.origin()));
-            match index.predicate_sql() {
-                Some(predicate_sql) => {
+            match index.predicate() {
+                Some(predicate) => {
                     write_hash_tag_u8(&mut hasher, 1);
-                    write_hash_str_u32(&mut hasher, predicate_sql);
+                    let bytes = predicate.canonical_bytes()?;
+                    write_hash_len_u32(&mut hasher, bytes.len());
+                    hasher.update(&bytes);
                 }
                 None => write_hash_tag_u8(&mut hasher, 0),
             }

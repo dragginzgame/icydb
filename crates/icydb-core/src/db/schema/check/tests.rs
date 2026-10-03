@@ -94,6 +94,48 @@ fn exact_multiple_of_covers_every_runtime_integer_width_and_decimal() {
 }
 
 #[test]
+fn exact_multiple_of_decimal_scale_alignment_preserves_exact_results() {
+    for scale in 1..=28 {
+        for sign in [-1_i128, 1] {
+            let value = Value::Decimal(Decimal::from_i128_with_scale(
+                sign * (5 * 10_i128.pow(scale) + 1),
+                scale,
+            ));
+            for divisor in [-10_000_000_000_000_i64, 10_000_000_000_000] {
+                assert_eq!(
+                    super::compile::exact_numeric_is_multiple(
+                        &value,
+                        &Value::Decimal(Decimal::new(divisor, 0)),
+                    ),
+                    Some(false),
+                );
+                assert_eq!(
+                    super::compile::exact_numeric_is_multiple(
+                        &value,
+                        &Value::Decimal(Decimal::from_i128_with_scale(sign, 28)),
+                    ),
+                    Some(true),
+                );
+            }
+        }
+    }
+    assert_eq!(
+        super::compile::exact_numeric_is_multiple(
+            &Value::Decimal(Decimal::from_i128_with_scale(i128::MIN, 0)),
+            &Value::Decimal(Decimal::new(-1, 0)),
+        ),
+        Some(true),
+    );
+    assert_eq!(
+        super::compile::exact_numeric_is_multiple(
+            &Value::Decimal(Decimal::ZERO),
+            &Value::Decimal(Decimal::ZERO),
+        ),
+        None,
+    );
+}
+
+#[test]
 fn exact_multiple_of_kind_set_excludes_only_numeric_floats() {
     for kind in [
         AcceptedFieldKind::Decimal { scale: 2 },
@@ -1751,7 +1793,10 @@ fn unique_activation_predicate_fixture(sql: &str) -> PersistedSchemaSnapshot {
             AcceptedFieldKind::Int64,
             false,
         )]),
-        Some(sql.into()),
+        Some(crate::db::schema::AcceptedIndexPredicate::bind_test_sql(
+            sql,
+            snapshot().fields(),
+        )),
     )
     .clone_with_schema_identity(index_id, 1, 9);
     let snapshot = snapshot();
@@ -1885,7 +1930,11 @@ fn unique_activation_predicate_dependencies_preserve_normalized_write_barriers()
 
 #[test]
 fn unique_activation_rejects_unresolved_predicate_dependency() {
-    let snapshot = unique_activation_predicate_fixture("unbound IS NOT NULL");
+    let snapshot = unique_activation_predicate_fixture("nickname IS NOT NULL");
+    let candidate = snapshot.candidate_indexes()[0].clone_with_predicate_for_tests(Some(
+        crate::db::schema::AcceptedIndexPredicate::test_non_null(99),
+    ));
+    let snapshot = snapshot.with_constraint_candidates(vec![candidate], Vec::new());
     assert_eq!(
         AcceptedSchemaSnapshot::try_new_with_acceptance(snapshot.clone()),
         Err(crate::db::schema::SchemaSnapshotAcceptanceError::Predicate),

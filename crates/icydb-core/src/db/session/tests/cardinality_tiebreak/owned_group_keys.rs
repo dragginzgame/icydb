@@ -79,6 +79,9 @@ fn assert_owned_group_results(values: &[(InputValue, OutputValue)]) {
                 .unwrap();
             assert_eq!(counts.rows.len(), values.len());
             assert_eq!(grouped.rows.len(), values.len());
+            for (count, generic) in counts.rows.iter().zip(&grouped.rows) {
+                assert_eq!(count.group_key(), generic.group_key());
+            }
             for (key_index, (_, output)) in values.iter().enumerate() {
                 let mut key = vec![output.clone()];
                 if multi_field {
@@ -219,4 +222,272 @@ fn owned_group_change_preserves_borrowed_scalar_groups() {
             .map(|key| Value::Text(key.into()))
             .to_vec(),
     );
+}
+
+// Interleave groups and vary a second key so expected order cannot come from
+// insertion order or from reversing only the first component's buckets.
+const ORDER_ROWS: [(usize, &str); 8] = [
+    (2, "b"),
+    (0, "b"),
+    (1, "a"),
+    (0, "a"),
+    (2, "a"),
+    (1, "b"),
+    (0, "a"),
+    (2, "b"),
+];
+
+fn seed_order_groups(kind: AcceptedFieldKind, values: &[Value]) {
+    initialize_group_schema(kind);
+    let root = crate::db::RequestExecutionRoot::__new_runtime_root();
+    let session = new_request_session(&root);
+    for (index, (key, label)) in ORDER_ROWS.iter().enumerate() {
+        session
+            .execute_trusted_dynamic_insert_batch(
+                ENTITY_NAME,
+                vec![DynamicStructuralPatch::new(vec![
+                    (
+                        "id".into(),
+                        DynamicWriteCell::Value(InputValue::nat64(
+                            u64::try_from(index + 1).unwrap(),
+                        )),
+                    ),
+                    (
+                        "category".into(),
+                        DynamicWriteCell::Value(InputValue::nat64(3)),
+                    ),
+                    (
+                        "operand".into(),
+                        DynamicWriteCell::Value(InputValue::from(values[*key].clone())),
+                    ),
+                    (
+                        "label".into(),
+                        DynamicWriteCell::Value(InputValue::text((*label).into())),
+                    ),
+                ])],
+            )
+            .unwrap();
+    }
+}
+
+fn expected_order_groups(
+    values: &[Value],
+    compound: bool,
+    descending: bool,
+) -> Vec<(Vec<OutputValue>, Vec<OutputValue>)> {
+    // Ordinal fixture keys supply an independent lexicographic reference;
+    // this oracle does not call the product's grouped ordering comparator.
+    let mut groups = BTreeMap::<(usize, &str), Vec<u64>>::new();
+    for (index, (key, label)) in ORDER_ROWS.iter().enumerate() {
+        groups
+            .entry((*key, if compound { label } else { "" }))
+            .or_default()
+            .push(u64::try_from(index + 1).unwrap());
+    }
+    let mut rows = groups
+        .into_iter()
+        .map(|((key, label), ids)| {
+            let mut key = vec![OutputValue::from(values[key].clone())];
+            if compound {
+                key.push(OutputValue::text(label.into()));
+            }
+            (
+                key,
+                vec![
+                    OutputValue::nat64(u64::try_from(ids.len()).unwrap()),
+                    OutputValue::decimal(Decimal::from(ids.into_iter().sum::<u64>())),
+                ],
+            )
+        })
+        .collect::<Vec<_>>();
+    if descending {
+        rows.reverse();
+    }
+    rows
+}
+
+fn assert_group_order_matrix(kind: AcceptedFieldKind, values: Vec<Value>) {
+    use crate::db::desc;
+    seed_order_groups(kind, &values);
+    let root = crate::db::RequestExecutionRoot::__new_runtime_root();
+    let session = new_request_session(&root);
+    for compound in [false, true] {
+        for descending in [false, true] {
+            let expected = expected_order_groups(&values, compound, descending);
+            let mut base = DynamicQuery::new(ENTITY_NAME)
+                .filter(FieldRef::new("category").eq(InputValue::nat64(3)))
+                .group_by("operand")
+                .order_by(if descending {
+                    desc("operand")
+                } else {
+                    asc("operand")
+                })
+                .grouped_limits(8, 64 * 1024);
+            if compound {
+                base = base.group_by("label").order_by(if descending {
+                    desc("label")
+                } else {
+                    asc("label")
+                });
+            }
+            for aggregate_case in 0..3 {
+                let query = match aggregate_case {
+                    0 => base.clone().aggregate(count()),
+                    1 => base.clone().aggregate(sum("id")),
+                    _ => base.clone().aggregate(count()).aggregate(sum("id")),
+                };
+                for limit in [None, Some(2), Some(20)] {
+                    let query =
+                        limit.map_or_else(|| query.clone(), |limit| query.clone().limit(limit));
+                    for warm in [false, true] {
+                        let mut next = Some(query.clone());
+                        let mut observed = Vec::new();
+                        let mut pages = 0;
+                        while let Some(current) = next.take() {
+                            let page = session
+                                .execute_public_dynamic_grouped_query(&current)
+                                .unwrap();
+                            assert!(limit.is_none_or(
+                                |limit| page.rows.len() <= usize::try_from(limit).unwrap()
+                            ));
+                            observed.extend(page.rows.iter().map(|row| {
+                                (row.group_key().to_vec(), row.aggregate_values().to_vec())
+                            }));
+                            next = page.next_cursor.map(|cursor| query.clone().cursor(cursor));
+                            pages += 1;
+                            assert!(
+                                pages <= expected.len() + 1,
+                                "continuation must make progress"
+                            );
+                        }
+                        let expected = expected
+                            .iter()
+                            .map(|(key, aggregates)| {
+                                (
+                                    key.clone(),
+                                    match aggregate_case {
+                                        0 => aggregates[..1].to_vec(),
+                                        1 => aggregates[1..].to_vec(),
+                                        _ => aggregates.clone(),
+                                    },
+                                )
+                            })
+                            .collect::<Vec<_>>();
+                        assert_eq!(
+                            observed, expected,
+                            "compound={compound} descending={descending} aggregate_case={aggregate_case} limit={limit:?} warm={warm}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn owned_group_order_scalar_matrix() {
+    assert_group_order_matrix(
+        AcceptedFieldKind::Text { max_len: None },
+        ["eng", "ops", "sales"]
+            .map(|key| Value::Text(key.into()))
+            .to_vec(),
+    );
+}
+
+#[test]
+fn owned_group_order_signed_matrix() {
+    assert_group_order_matrix(
+        AcceptedFieldKind::Int128,
+        [-7, 0, 9].map(Value::Int128).to_vec(),
+    );
+}
+
+#[test]
+fn owned_group_order_keeps_sort_budget_errors_typed() {
+    use crate::db::{desc, test_support::request_with_limit};
+    use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag};
+    let values = ["eng", "ops", "sales"].map(|key| Value::Text(key.into()));
+    seed_order_groups(AcceptedFieldKind::Text { max_len: None }, &values);
+    for order in [asc("operand"), desc("operand")] {
+        let query = DynamicQuery::new(ENTITY_NAME)
+            .filter(FieldRef::new("category").eq(InputValue::nat64(3)))
+            .group_by("operand")
+            .aggregate(count())
+            .aggregate(sum("id"))
+            .order_by(order)
+            .grouped_limits(8, 64 * 1024);
+        for resource in [
+            Resource::SortEntries,
+            Resource::SortComparisons,
+            Resource::SortTemporaryBytes,
+        ] {
+            let root = request_with_limit(resource, 0);
+            let error = new_request_session(&root)
+                .execute_public_dynamic_grouped_query(&query)
+                .unwrap_err();
+            assert!(
+                error
+                    .diagnostic_facts()
+                    .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
+            );
+        }
+    }
+}
+
+#[cfg(feature = "sql")]
+#[test]
+fn owned_group_order_having_offset_and_projection() {
+    let values = ["eng", "ops", "sales"].map(|key| Value::Text(key.into()));
+    seed_order_groups(AcceptedFieldKind::Text { max_len: None }, &values);
+    let root = crate::db::RequestExecutionRoot::__new_runtime_root();
+    let session = new_request_session(&root);
+    for compound in [false, true] {
+        for descending in [false, true] {
+            let fields = if compound {
+                "operand, label"
+            } else {
+                "operand"
+            };
+            let order = if compound {
+                if descending {
+                    "operand DESC, label DESC"
+                } else {
+                    "operand ASC, label ASC"
+                }
+            } else if descending {
+                "operand DESC"
+            } else {
+                "operand ASC"
+            };
+            let expected = expected_order_groups(&values, compound, descending)
+                .into_iter()
+                .filter(|(_, aggregates)| {
+                    aggregates[0] == OutputValue::nat64(3) || aggregates[0] == OutputValue::nat64(2)
+                })
+                .collect::<Vec<_>>();
+            for offset in [0, 1, 9] {
+                for limit in ["", " LIMIT 20"] {
+                    let sql = format!(
+                        "SELECT {fields}, COUNT(*), SUM(id) FROM PlannerRow WHERE category = 3 GROUP BY {fields} HAVING COUNT(*) >= 2 ORDER BY {order}{limit} OFFSET {offset}"
+                    );
+                    for _ in 0..2 {
+                        let SqlStatementResult::Grouped { rows, .. } =
+                            session.execute_trusted_sql_query(&sql).unwrap()
+                        else {
+                            panic!("expected grouped projection");
+                        };
+                        let observed = rows
+                            .iter()
+                            .map(|row| (row.group_key().to_vec(), row.aggregate_values().to_vec()))
+                            .collect::<Vec<_>>();
+                        assert_eq!(
+                            observed,
+                            expected.iter().skip(offset).cloned().collect::<Vec<_>>(),
+                            "{sql}"
+                        );
+                    }
+                }
+            }
+        }
+    }
 }

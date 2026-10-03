@@ -6,6 +6,7 @@
 mod constraint;
 mod field;
 mod index;
+mod index_predicate;
 mod mapping;
 
 use crate::{
@@ -274,3 +275,12 @@ fn decode_row_layout(reader: &mut SnapshotReader<'_>) -> Result<SchemaRowLayout,
 
 #[cfg(test)]
 mod tests;
+
+// Canonical typed predicate identity uses the same bounded encoding as snapshots.
+pub(in crate::db::schema) fn encode_index_predicate_bytes(
+    predicate: &crate::db::schema::AcceptedIndexPredicate,
+) -> Result<Vec<u8>, InternalError> {
+    let mut writer = SnapshotWriter::new();
+    index_predicate::encode(&mut writer, predicate, 0)?;
+    writer.finish()
+}

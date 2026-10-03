@@ -159,7 +159,7 @@ fn malformed_accepted_predicates_reject_query_mutation_and_inspection_plans() {
     use crate::db::{index::AcceptedIndexInspectionPlan, query::plan::VisibleIndexes};
     use icydb_diagnostic_code::DiagnosticCode;
 
-    let malformed = Some("name = 'unterminated".to_string());
+    let malformed = Some(crate::db::schema::AcceptedIndexPredicate::test_non_null(99));
     let field_index = PersistedIndexSnapshot::new(
         SchemaIndexId::new(1).unwrap(),
         1,
@@ -217,7 +217,15 @@ fn index_inspection_construction_uses_cumulative_caller_admission() {
         &base_snapshot(),
         vec![
             domain_field_index(1, "by_name", false),
-            domain_expression_index(2, "by_lower_name", false, Some("name = 'Ada'".into())),
+            domain_expression_index(
+                2,
+                "by_lower_name",
+                false,
+                Some(crate::db::schema::AcceptedIndexPredicate::bind_test_sql(
+                    "name = 'Ada'",
+                    base_snapshot().fields(),
+                )),
+            ),
         ],
     );
     let row_contract = accepted_row_contract(&snapshot);
@@ -312,7 +320,7 @@ fn index_inspection_source_admission_precedes_parsing() {
             1,
             "by_lower_name",
             false,
-            Some("name = 'unterminated".into()),
+            Some(crate::db::schema::AcceptedIndexPredicate::test_non_null(99)),
         )],
     );
     let contract = accepted_row_contract(&base_snapshot());
@@ -602,7 +610,10 @@ fn false_index_membership_does_not_force_after_image_component_encoding() {
         1,
         "by_lower_name",
         true,
-        Some("name = 'Grace'".to_string()),
+        Some(crate::db::schema::AcceptedIndexPredicate::bind_test_sql(
+            "name = 'Grace'",
+            base_snapshot().fields(),
+        )),
     ));
     let old = ObservedNameRow::new("Ada", false);
     let new = ObservedNameRow::new("Ada", true);

@@ -321,7 +321,7 @@ fn resolve_sql_ddl_field_dependent_index(
         .persisted_snapshot()
         .indexes()
         .iter()
-        .find(|index| index.references_field(field.id(), field.name()))
+        .find(|index| index.references_field(field.id()))
         .map(|index| index.name().to_string())
 }
 
@@ -796,7 +796,7 @@ pub(in crate::db) fn derive_sql_ddl_field_rename_accepted_after(
         .find(|field| field.name() == old_name)
         .ok_or(SchemaDdlMutationAdmissionError::UnsupportedExecutionPath)?;
     let persisted_after =
-        derive_sql_ddl_field_rename_persisted_after(before, before_field, new_name)?;
+        derive_sql_ddl_field_rename_persisted_after(before, before_field, new_name);
     let accepted_after = AcceptedSchemaSnapshot::try_new_with_acceptance(persisted_after)
         .map_err(SchemaDdlMutationAdmissionError::AcceptedAfter)?;
     let admission = admit_sql_ddl_field_rename_candidate(before_field, new_name);
@@ -812,7 +812,7 @@ pub(in crate::db) fn derive_sql_ddl_field_rename_persisted_after(
     before: &PersistedSchemaSnapshot,
     before_field: &PersistedFieldSnapshot,
     new_name: &str,
-) -> Result<PersistedSchemaSnapshot, SchemaDdlMutationAdmissionError> {
+) -> PersistedSchemaSnapshot {
     let fields = before
         .fields()
         .iter()
@@ -827,27 +827,18 @@ pub(in crate::db) fn derive_sql_ddl_field_rename_persisted_after(
     let indexes = before
         .indexes()
         .iter()
-        .map(|index| {
-            index.clone_with_renamed_field_path_root(
-                before_field.id(),
-                before_field.name(),
-                new_name,
-            )
-        })
-        .collect::<Option<Vec<_>>>()
-        .ok_or(SchemaDdlMutationAdmissionError::AcceptedAfterRejected)?;
-    Ok(
-        PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
-            before.version(),
-            before.entity_path().to_string(),
-            before.entity_name().to_string(),
-            before.primary_key_field_ids().to_vec(),
-            before.row_layout().clone(),
-            fields,
-            indexes,
-        )
-        .with_constraint_catalog(before.constraint_catalog().clone())
-        .with_relation_id_allocator(before.relation_id_allocator())
-        .with_relations(before.relations().to_vec()),
+        .map(|index| index.clone_with_renamed_field_path_root(before_field.id(), new_name))
+        .collect::<Vec<_>>();
+    PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
+        before.version(),
+        before.entity_path().to_string(),
+        before.entity_name().to_string(),
+        before.primary_key_field_ids().to_vec(),
+        before.row_layout().clone(),
+        fields,
+        indexes,
     )
+    .with_constraint_catalog(before.constraint_catalog().clone())
+    .with_relation_id_allocator(before.relation_id_allocator())
+    .with_relations(before.relations().to_vec())
 }

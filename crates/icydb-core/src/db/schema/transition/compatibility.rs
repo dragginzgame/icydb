@@ -333,7 +333,7 @@ fn index_contract_matches_ignoring_name(
         && actual.store() == expected.store()
         && actual.unique() == expected.unique()
         && actual.key() == expected.key()
-        && actual.predicate_sql() == expected.predicate_sql()
+        && actual.predicate() == expected.predicate()
 }
 
 // Accepted schema remains the authority after SQL DDL publishes an index that

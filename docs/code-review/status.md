@@ -1,6 +1,6 @@
 # Saved code review status
 
-Updated 2026-10-02. This document tracks verification and repair of the saved
+Updated 2026-10-03. This document tracks verification and repair of the saved
 29 September 2026 review of commit `994715134` (`0.261.16`) against the current
 `0.264` line. The original HTML review remains unchanged.
 
@@ -16,11 +16,11 @@ Release owner: [0.264 tracker](../design/0.264-signed-index-admission/0.264-stat
 
 | Current status | Findings |
 | --- | ---: |
-| Verified fixed | 19 |
+| Verified fixed | 33 |
 | In progress | 0 |
 | Open | 0 |
 | Partial | 1 |
-| Needs verification | 287 |
+| Needs verification | 273 |
 
 “Verified fixed” requires current code evidence and focused semantic validation.
 “Open” means the reviewed defect remains visible in current source; reproduction
@@ -53,6 +53,12 @@ this queue does not authorize starting a different minor line.
 | 13 | Simultaneous-residual observation | Enforce uncovered expressions and independently remaining predicates through the existing effective runtime filter | Complete as A25; outside saved inventory |
 | 14 | `cli-3` | Preserve SQL endpoint errors through the existing command result into nonzero one-shot exit status and stderr; retain interactive continuation | Complete as A26 |
 | 15 | `cli-4` | Qualify migration terminal receipts and make run/advance/abort command status reflect the requested operation's outcome | Complete as A27 |
+| 16 | `model-schema-crates-1` | Distinguish excess fractional precision from true magnitude overflow in the shared Decimal multiplication owner; qualify operators, powers and checked runtime consumers | Complete as A28 |
+| 17 | `model-schema-crates-4` | Compute exact remainder after wide scale alignment in the shared Decimal owner; qualify primitive, application and checked consumers | Complete as user-selected A29 |
+| 18 | `model-schema-crates-3` and direct shared-boundary fallout | Qualify fitting arithmetic results before primitive magnitude saturation in the existing Decimal owner | Complete as user-selected A30 |
+| 19 | `executor-aggregate-3` | Preserve route direction at the generic grouped sort boundary through the shared grouped comparator; qualify related key/window paths | Complete as A31 |
+| 20 | Filtered-index predicate cluster | Replace persisted SQL authority with one accepted bound predicate representation through intake, codec, runtime, identity and rename consumers | Complete as A32 |
+| 21 | `data-2` / `r2-recursive-bounds-1` | Converge borrowed and materializing current value-storage traversal on canonical enum framing and one accepted recursive-depth authority | Complete as user-selected A33 |
 
 The original five queued outcomes are complete. The scoped read-only
 [closeout audit](closeout-audit.md) verifies another existing fix, reproduces the
@@ -69,8 +75,24 @@ The user subsequently authorizes migration command status (`cli-4`); A27 complet
 its independent receipt qualification. The planned queue is complete; generic
 continuation performs a scoped read-only closeout audit within 0.264 before
 selecting another correction. Dynamic and diagnostic gaps remain visible in the
-audit. The saved review remains open;
-this is not a closeout verdict for all findings.
+audit. The subsequent numeric audit verifies the existing division-panic
+correction and reproduces excess-precision multiplication; the user's next
+continuation selects A28, now complete. The queue is again complete; generic
+continuation starts a scoped audit before another correction. That audit now
+reproduces the independent alignment/saturation and remainder findings. The next
+user selection authorizes A29, now complete across the shared remainder boundary
+and its direct consumers. Subsequent user-selected A30 completes the shared
+alignment/saturation correction and directly related boundary cases. The
+queue is complete; generic continuation performs a scoped read-only audit before
+another correction. The saved review remains open; this is not a closeout verdict
+for all findings.
+
+The next scoped arithmetic audit proposes A30: qualify representable results
+before primitive saturation in the shared Decimal owner. It reproduces the then-open
+alignment/saturation finding and related signed-subtraction, checked-division and
+true multiplication-overflow cases. The proposal is recorded before correction;
+the audit changes no runtime code or inventory counters. The subsequent user
+selection authorizes A30, now complete; details are in its validation record below.
 
 The requested [quick overlap scan](overlap-triage.md) screens all 291 unchecked
 findings and records seven candidate groups containing 21 distinct reports.
@@ -614,6 +636,284 @@ SQL fixture raw Wasm grows 508 bytes, from 4,329,400 to 4,329,908. Cycle/instruc
 deltas are unavailable because the prior fixture rejected before measurement.
 Temporary local PocketIC servers were cleaned up; full suites remain user-owned.
 
+### Scoped numeric audit after published 0.264.4
+
+The completed repair queue requires a read-only audit on generic continuation.
+All 43 maintained decimal/numeric tests pass. A disposable probe qualifies division
+at all 29 scales and both original text inputs; the maintained core regression
+verifies typed overflow. `value-types-error-3` is verified fixed by existing code.
+The same audit reproduces `model-schema-crates-1` across four multiplication
+operators and checked powers; this finding is Open and proposed as A28.
+Boundary controls, consumer limits and the next correction's scope are in the
+[audit record](closeout-audit.md#numeric-audit-after-published-02644).
+Only audit/status documentation changes, with no runtime correction or release
+entry. Raw Wasm, IC cycles and instructions are unmeasured; full suites are user-owned.
+
+### A28 — Decimal multiplication precision
+
+The user selected the numeric audit's shared correction. An exact temporary
+256-bit product and the existing rounding owner distinguish precision loss from
+magnitude overflow. Results round half away from zero to the greatest fitting
+scale, at most 28, using the original product on each retry. Primitive operators,
+products, powers and checked runtime arithmetic now agree. Formats and stored
+field scales are unchanged; unrelated arithmetic findings remain unverified.
+
+All 51 focused tests pass: 30 schema decimal, 18 core numeric and three accepted
+SQL binding/parity tests. The numeric tests also pass without default features.
+Six new regressions qualify all 3,364 scale/sign combinations, wide signed
+mantissas, rounding ties/underflow, double-rounding avoidance, operator/power
+parity and 16 cold/warm stored-field SQL outcomes. True multiplication and
+division overflow retain typed errors. Three precision tests failed before
+correction. Strict schema/core lint, formatting and documentation/invariant
+checks pass. Production adds 23 net lines: local arithmetic is more complex,
+but one rounding owner and one flow are retained, with no new behavior axis.
+Raw Wasm, IC cycles and instructions are unmeasured; full suites remain user-owned.
+
+### Decimal alignment and remainder audit after A28
+
+The completed queue requires a scoped read-only audit on continuation. Current
+source and a disposable probe reproduce two further findings, now marked Open.
+Addition/subtraction saturate at the aligned scale after intermediate overflow;
+`1e30 + 1e-28` becomes about `1.7e10`, and the negative subtraction control even
+changes sign. True division overflow `1e37 / 1e-28` saturates to about `1.7e20`.
+Assignment and iterator consumers inherit the same owner. These remain an
+independent correction from remainder; A28 does not cover them.
+
+For `5.0000000000000000000000000001 % 10000000000000`, the exact remainder is
+the dividend. Current `checked_rem` returns `None`, `%`/`%=` return zero, and the
+application `MultipleOf` validator records no issue. The probe covers 112
+scale/sign cases at scales 1–28: twelve cases at scales 26–28 falsely accept a
+non-multiple, while the other hundred and ordinary/zero-divisor controls pass.
+Checked core arithmetic and accepted rules share `checked_rem` but fail rather
+than falsely accepting; this is source evidence, not a new SQL execution receipt.
+
+Proposed A29 fixes this boundary in the existing Decimal arithmetic owner,
+reusing exact temporary wide arithmetic and narrowing the exact remainder after
+alignment. One operand remains unscaled, and remainder magnitude is bounded by
+both operands, so nonzero admitted divisors have representable exact remainders.
+Qualify primitive/assignment, application validation, checked numeric and
+accepted-rule consumers, signed limits and zero divisors. No validator-specific
+arithmetic, mode, format or state is needed.
+Addition/subtraction/division saturation remains separately Open.
+
+The current schema/model libraries build, and all 54 focused maintained tests
+pass: 30 schema decimal, four application numeric validators, 18 core numeric
+and two accepted-rule multiple-of controls. Documentation/inventory checks pass.
+Probe source and receipt are `/tmp/icydb-decimal-alignment-probe.rs` and
+`/tmp/icydb-decimal-alignment-probe.log`. Its successful assertions confirm
+defects, not correct product behavior. Only the audit, this status and the 0.264
+tracker change in this handoff; earlier dirty A28 work is preserved. Runtime
+complexity stays unchanged. Raw Wasm, IC cycles and instructions are unmeasured;
+full suites remain user-owned.
+
+### A29 — Exact decimal remainder
+
+The user selects the proposed shared correction. Decimal aligns operands in
+existing temporary wide arithmetic, computes the exact remainder, and narrows
+only that result. Its scale is the greater operand scale and its sign follows
+the dividend. One operand remains unscaled and bounds the remainder, so admitted
+nonzero divisors cannot cause representation overflow. Primitive/assignment,
+application validation, accepted-rule numeric and checked runtime consumers
+share the corrected owner. No consumer-specific workaround or new behavior
+axis is added; the alignment/saturation finding remains separately Open.
+
+All 64 focused tests pass: 32 schema decimal, five application numeric validators,
+19 core numeric, three accepted-rule numeric controls, four SQL binding/parity
+tests and one targeted-rule evaluation control. The numeric tests also pass
+without default features. Six new regressions fail before correction and pass
+afterwards, covering 25,230 scale/mantissa pairs against an independent BigInt
+oracle, signs, signed extrema, exact multiples, zero divisors and 16 cold/warm
+stored-field SQL remainder outcomes with NULL controls. Strict schema/model/core
+lint, formatting and direct authority/format/panic/documentation guards pass.
+
+Production adds six net lines in one remainder flow; implementation shape stays
+neutral with no mode, format or state added. Earlier dirty A28/audit work and
+Cargo versions are preserved. No network lifecycle action occurs. Raw Wasm,
+IC cycles and instructions are unmeasured; full suites remain user-owned.
+The inventory now has 22 Verified fixed, one Open, one Partial and 283 Needs
+verification. A29 is complete; the repair queue is complete at this handoff.
+A29 touches twelve files, approximately +360 net lines, chiefly tests/docs;
+the complete dirty worktree also retains earlier A28 and audit changes.
+
+### Arithmetic result qualification audit after A29
+
+The completed queue requires a scoped audit. `model-schema-crates-3` remains
+Open: original addition/subtraction and true division-overflow examples still
+reproduce. Further boundary controls find `MIN - MIN` returns a -1 mantissa at
+all 29 scales, despite an exact zero result; checked subtraction returns `None`.
+Intermediate addition overflow can also lose a representable cancellation.
+Dividing signed MAX at scale zero by the same signed magnitude at scales 1–28
+fails checked division in all 112 sign/scale cases, although exact quotients
+are signed powers of ten. The primitive fallback substitutes an unrelated bound.
+Four true-overflow multiplication sign cases also clamp near 17 billion because
+the fallback keeps scale 28 instead of the global magnitude bound. That last
+observation is outside the saved finding's original scope; A28 still closes its
+excess-fractional-precision defect, not this independent fallback-scale defect.
+
+Proposed A30 is one result-qualification correction in the Decimal owner: use
+existing temporary wide arithmetic before narrowing addition/subtraction and
+division, reuse the current rounding owner to select the greatest fitting scale,
+and clamp primitive true magnitude overflow at scale zero across arithmetic.
+Addition/subtraction follow multiplication's maintained half-away rounding and
+28-digit ceiling; division keeps its 18-digit ceiling while retrying failed
+rounded-result narrowing. Qualify checked/primitive/assignment/iterator consumers,
+running SUM/AVG helpers and stored-field SQL, with signed limits, cancellation,
+ties, underflow and typed overflow/zero-divisor controls. No new mode, format,
+state or parallel arithmetic owner is needed. This is a proposed semantic change;
+the audit does not implement it or change existing rejection behavior.
+
+All 55 maintained tests pass: 32 schema decimal, 19 core numeric and four SQL
+binding/parity tests. They do not cover these additional defects. The disposable
+probe `/tmp/icydb-a30-saturation-audit.rs` links the current schema library;
+`/tmp/icydb-a30-saturation-audit.log` retains its successful defect observations
+and ordinary/zero-divisor controls. New core/SQL defect cases are source evidence,
+not new end-to-end query receipts. Only three audit/status documents change;
+earlier dirty A28/A29 work is preserved. Runtime complexity stays unchanged.
+Raw Wasm, IC cycles and instructions are unmeasured; full suites remain user-owned.
+Counters remain 22 Verified fixed, one Open, one Partial and 283 Needs verification.
+
+### A30 — Arithmetic result qualification
+
+The user selects the proposed correction. Addition/subtraction align in the
+shared wide owner and reuse multiplication's greatest-fitting rounding helper.
+Division uses wide operands and retries rounded-result narrowing up to its
+maintained 18-digit ceiling. Primitive true magnitude overflow has one scale-zero
+bound authority; subtraction reuses exact decimal ordering for the bound's sign,
+including the asymmetric MIN boundary. The separate multiplication fallback and
+addition sign/scale branches are removed. No mode, format, state or error variant
+is added. Running SUM/AVG and stored-field SQL consume the same checked results.
+
+All 71 focused tests pass: 36 schema decimal, 21 core numeric, five SQL binding/
+parity, five application numeric validators, three accepted-rule numeric and one
+targeted-rule evaluation control. The 21 numeric tests also pass without default
+features. Seven new and four updated regressions fail before correction and pass
+afterwards. The independent BigInt oracle checks 58,870 addition/subtraction/
+division outcomes across all 841 scale pairs, including signed limits, rounding,
+cancellation and underflow. A strengthened property checks arbitrary mantissas;
+24 new cold/warm stored-field SQL cases cover arithmetic, SUM/AVG and typed
+overflow/zero-divisor errors. Existing remainder, power and multiplication
+precision matrices stay qualified through the shared owners.
+
+The initial strict lint reports one oracle-test style warning. Required maintainer
+Clippy recovery, strict schema/model/core lint and the rerun focused gate pass
+after correcting it. Formatting, direct authority/format/panic/schema-model and
+documentation/inventory checks pass. Production removes 23 net lines across two
+files; implementation gets simpler by sharing alignment, fitting and global
+saturation and deleting the separate fallback branches. Earlier dirty A28/A29
+work and Cargo versions are preserved; no network lifecycle action occurs.
+Raw Wasm, IC cycles and instructions are unmeasured; full suites remain user-owned.
+The inventory now has 23 Verified fixed, one Partial and 283 Needs verification.
+A30 is complete; the queue is complete at this handoff.
+A30 touches eleven files, approximately +420 net lines, chiefly tests/docs;
+the full dirty worktree also retains earlier A28/A29 and audit changes.
+
+### Scoped grouped-order audit after A30
+
+The queue is complete, so generic continuation performs the required read-only
+audit in 0.264. The filtered-index representation family still spans persisted
+metadata and needs a separate design; no claim is made that one small change
+closes its seven reports. A smaller shared-owner correction is available:
+`executor-aggregate-3` remains visible in current generic grouped finalization.
+`finalize_unbounded` requests sorted groups, but `into_sorted_groups` always
+uses ascending canonical comparison. Direction is already carried to candidate
+construction and is lost at the preceding extraction/sort boundary.
+
+Proposed A31 carries the existing route direction into that sort and reuses
+`compare_grouped_boundary_values`, already used by the dedicated COUNT path and
+cursor boundaries. No new ordering mode, route, format or state is needed.
+Qualify ASC/DESC, bounded/unbounded, generic/dedicated, cold/warm public reads,
+compound same-direction keys, offset/HAVING and maintained budget/cursor controls.
+Mixed-direction order qualification is a separate finding and remains unchecked.
+The [audit](closeout-audit.md#grouped-order-audit-after-a30) owns reproduction
+receipts and limits. Nine maintained grouping tests and one defect-observation
+probe pass on the disposable source snapshot; the passing probe asserts the
+incorrect output and does not close the finding. Documentation/inventory and
+whitespace checks pass. No runtime correction or release entry is made here;
+earlier dirty work is preserved. The inventory has 23 Verified fixed, one Open,
+one Partial and 282 Needs verification. Three audit/status docs change; runtime
+complexity is unchanged. Raw Wasm, cycles and instructions are unmeasured;
+full suites remain user-owned. A31 is proposed for the next user selection.
+
+### A31 — Grouped sort direction authority
+
+The user selects the proposed correction and requests shared-boundary cleanup.
+The demonstrated need is lost route direction before generic unbounded sorting.
+The simplest alternative passes that existing fact into the bundle sorter and
+reuses `compare_grouped_boundary_values`, already owning ordered group transitions,
+bounded candidate ordering, COUNT windows and cursor comparisons. A second output
+sort or a DESC-only reversal would leave separate ordering authorities. No mode,
+state, format, enum variant or execution route is added; state-space delta is zero.
+Text/signed and compound uniform-direction keys, bounded/unbounded output,
+public cold/warm reads, cursor suffixes and SQL HAVING/offset are qualified together.
+Existing unit/list/set/map/enum tests also compare implicit canonical ordering
+between dedicated and generic folds. Explicit list ORDER BY is rejected by the
+maintained planner; the exploratory list matrix was corrected to signed scalars.
+Mixed-direction admission is independent and is not silently claimed fixed.
+
+A31 is complete. Direction now reaches bundle sorting through the existing
+extraction flow; its ascending-only comparison/import is replaced by the shared
+grouped comparator. Sorting remains charged once before row shaping; bounded
+heap, dedicated COUNT, ordered transitions and continuation comparisons retain
+their maintained owner and behavior. One canonical fact reaches every relevant
+uniform-direction boundary, with no extra sort or condition for a special query.
+
+All 37 distinct focused tests pass (13 owned-group, 22 grouped-fold and four
+planner-order selections, with two overlapping tests counted once). Four new
+regressions cover 144 cold/warm public query sequences across text/signed,
+single/compound keys, COUNT/SUM/both, ASC/DESC, bounded/unbounded and every returned
+cursor suffix; 48 SQL runs qualify projection, HAVING, offset and empty results.
+Six zero-resource controls preserve typed sort-entry/comparison/temporary-byte
+errors. Maintained unit/list/set/map/enum tests gain implicit-order parity.
+Two meaningful regressions fail before the correction. The exploratory explicit
+list-order test instead exposes maintained typed rejection, so its matrix uses
+signed scalar keys; no list-order admission is added.
+
+Initial strict lint finds three test-style warnings; the first maintainer rerun
+still finds the helper two lines over its limit. A direct allocation-free zipped
+assertion resolves them. Final required maintainer lint, strict all-feature core
+lint and the rerun focused gate pass. Formatting and direct panic/layer/persisted/
+schema-model guards pass; documentation/inventory and whitespace checks pass.
+Receipts are `/tmp/icydb-a31-before.log`, `/tmp/icydb-a31-final-*.log` and
+`/tmp/icydb-a31-clippy-recovery-final.log`.
+
+Production adds four net lines across two files; one shared comparison authority
+replaces the ascending-only sort. The implementation gets simpler in ownership,
+with no new behavior axis. A31 touches eight files, approximately +385 net
+lines, primarily tests and docs. Earlier dirty arithmetic work and Cargo versions
+are preserved; no commit, push or network lifecycle action occurs. Raw Wasm,
+cycles and instructions are unmeasured; full suites remain user-owned. The
+inventory has 24 Verified fixed, one Partial and 282 Needs verification. The
+queue is complete; generic continuation performs a read-only audit in 0.264.
+Mixed-direction admission/order qualification remains a separate follow-up.
+
+### Filtered-index cluster audit after A31
+
+The user requests further bugs with more time spent rethinking clusters. The
+completed queue makes this a scoped read-only audit within 0.264. Four saved
+findings remain visible at one representation boundary: typed literal loss,
+text-based contract identity, unrelated generated-predicate rewriting and
+sequential rename capture. Three disposable observation tests reproduce their
+literal/comparison and rewrite seams, with six maintained tests passing alongside
+them. These are boundary receipts, not full query, uniqueness, startup or migration
+receipts, and passing defect assertions do not mean product correctness.
+
+The [cluster design](filtered-index-cluster.md) records per-finding evidence,
+qualification gaps and a proposed accepted predicate owner. Reuse the accepted
+literal/path and executable semantics authorities, but do not replace supported
+filtered DDL with the narrower existing CHECK tree. That tree lacks the maintained
+nested-path and prefix LIKE/ILIKE/coercion vocabulary. Raw text canonicalization
+alone leaves the other symptoms. Proposed A32 replaces text authority end-to-end
+under current version-1 hard-cut rules; no parallel representation, fallback,
+ordering mode or new predicate cache is planned. Each cluster member needs its
+own closure proof; three remaining reports stay unchecked.
+
+Source-copy comparison, documentation/inventory and whitespace checks pass.
+Five audit/design/status docs change; runtime code, dirty A28–A31 fixes, versions
+and active changelog remain intact. Cost metrics are unmeasured, no network action
+occurs and full suites remain user-owned. Current counts are 24 Verified fixed,
+four Open, one Partial and 278 Needs verification. A32 is proposed for the next
+selection in 0.264; this handoff implements no representation correction.
+
 ## Finding inventory
 
 All 307 distinct, non-refuted findings are listed once. Duplicate aliases and the
@@ -628,17 +928,17 @@ Counts cover inventory states, not implementation or release readiness.
 | `r2-upgrade-lifecycle-1` | critical | Verified fixed | Renaming or moving a journaled store's Rust type is treated as STORE_CORRUPTION and permanently bricks the canister; reverting does not clear it **Current evidence:** C79; three store-path rejection and rollback regressions pass. |
 | `schema-catalogs-1` | critical | Verified fixed | Record-member rename is metadata-only, but stored record values use member names as keys, so every existing row with that record becomes undecodable **Current evidence:** C77; three populated record rename/abort/recovery regressions pass. |
 | `commit-1` | high | Needs verification | Online background folding routes batches through the LIVE accepted catalog, so a metadata-only entity rename published with retained debt makes older batches permanently unfoldable |
-| `data-1` | high | Needs verification | Scalar fast path reports corruption for rows filled by a non-null historical default (ADD COLUMN ... DEFAULT) |
-| `data-2` | high | Needs verification | Value-storage walker misreads canonical enum envelopes (tag 0x84), so nested record-path reads fail for records that contain an enum |
+| `data-1` | high | Verified fixed | Scalar fast path reports corruption for rows filled by a non-null historical default (ADD COLUMN ... DEFAULT) **Current evidence:** Existing required_historical_scalar reuses accepted materialization for absent slots. Six maintained regressions pass across Nat64/Int64/Bool/Text/Blob, scalar/structural codecs, NULL/non-null fills, repeated scalar/projection reads, SQL filters and byte length before row rewrite, and malformed/rejected fills. This audit verifies an existing fix; it adds no runtime correction. See [row-boundary audit](closeout-audit.md#row-value-boundary-audit-after-a32). |
+| `data-2` | high | Verified fixed | Value-storage walker misreads canonical enum envelopes (tag 0x84), so nested record-path reads fail for records that contain an enum **Current evidence:** A33 routes borrowed selection and owned materialization through canonical current enum framing. Unit/payload/nested enums and scalar siblings in both wire orders pass; published public/trusted full reads match nested SQL projection, filters and grouped keys on repeated calls. See [A33 qualification](#a33-current-value-traversal-authority--2026-10-03). |
 | `data-4` | high | Partial | Byte-level readers treat a legitimately absent historical slot as corruption (resumable UPDATE, nested field paths) **Current evidence:** C101 fixes resumable UPDATE; nested field-path readers remain unverified. |
 | `executor-aggregate-1` | high | Verified fixed | Generic hash GROUP BY 'DirectOwned' probe path never looks up existing groups: one group per row for enum/unit/collection/composite keys **Current evidence:** A17 reuses canonical owned keys in existing hash buckets; all 66 focused tests pass, including accepted unit/enum/list/set/map COUNT/SUM, single/multi-field limits, nested canonical values, collision and malformed-bucket checks. |
-| `executor-aggregate-3` | high | Needs verification | Unbounded generic grouped finalization ignores DESC: groups always come back in ascending key order |
+| `executor-aggregate-3` | high | Verified fixed | Unbounded generic grouped finalization ignores DESC: groups always come back in ascending key order **Current evidence:** A31 carries route direction into the shared grouped comparator before generic bundle sorting. All 37 distinct focused tests pass, including text/signed and compound uniform-direction keys, COUNT/SUM/both, bounded/unbounded, public cold/warm queries, cursor suffixes, SQL HAVING/offset and typed sort-budget errors. Mixed-direction ordering remains separate. |
 | `executor-aggregate-5` | high | Needs verification | Zero-key global DISTINCT aggregate fails with an invariant error on any NULL; its NULL semantics also diverge from the per-group path |
 | `executor-stream-1` | high | Needs verification | Resumed secondary-order IN-list pages cap each branch at limit+1 with no resume anchor, silently dropping rows |
 | `executor-stream-5` | high | Needs verification | Resumed non-PK-ordered pages never reposition physical streams: each page rescans from the range start (quadratic traversal, deep pages exhaust the budget) |
 | `index-access-2` | high | Verified fixed | Timestamp index components use unbiased two's-complement bytes, so negative timestamps sort after positive ones **Current evidence:** A14 reuses signed encoding; primitive order and accepted unique/non-unique equality/range/pagination regressions pass. |
 | `index-access-3` | high | Verified fixed | Index keys cap the primary-key suffix at 63 bytes but composite PKs can encode up to 254 bytes, so inserts fail on indexed entities **Current evidence:** A15 shares the 254-byte primary-key bound; full-width principal/account inserts, unique conflicts, admitted index ranges, resumed reads, bounded decode and stable reopen tests pass. |
-| `model-schema-crates-1` | high | Needs verification | Decimal `Mul`/`MulAssign`/`Product`/`powu` return ~±1.7e10 when the exact product needs >28 fractional digits |
+| `model-schema-crates-1` | high | Verified fixed | Decimal `Mul`/`MulAssign`/`Product`/`powu` return ~±1.7e10 when the exact product needs >28 fractional digits **Current evidence:** A28 keeps an exact temporary wide product and shares maintained rounding across operators, powers and checked arithmetic. All 51 focused tests pass, including 3,364 scale/sign combinations, wide signed mantissas, ties, underflow, final-scale rounding, stored-field SQL and true-overflow controls; core numeric tests also pass without default features. |
 | `query-expr-2` | high | Needs verification | The FALSE set of a SQL NOT is compiled as a two-valued predicate NOT, so rows where the inner comparison is UNKNOWN (NULL operand) pass |
 | `query-expr-4` | high | Verified fixed | In expression-lane filters, a missing nested path aborts the whole row, so an OR with a true sibling still rejects it **Current evidence:** A20 converts only missing-path boolean operands to UNKNOWN in the compiled owner. The 60-case truth matrix, leaf/projection contracts, typed reader errors, accepted structural/SQL reads, grouped continuation and UPDATE/DELETE scopes pass. Separate dynamic dotted-field frontend gaps remain open observations. |
 | `query-intent-1` | high | Verified fixed | SortRequiresMaterialization can never fire: the admission summary always reports materialized_sort=false, so public reads admit materialized ORDER BY **Current evidence:** A18 projects the canonical scalar executor sort rule and exact primary-key candidate bounds. Public indexed sorts reject; bounded exact-key exceptions and truthful EXPLAIN pass focused validation. |
@@ -658,9 +958,9 @@ Counts cover inventory states, not implementation or release readiness.
 | `schema-mutation-1` | high | Needs verification | Aborting a SQL unique-index activation leaves staged candidate index entries behind for good, and they later break index DDL and generated schema removal |
 | `schema-store-1` | high | Needs verification | Schema publication retain/position sweeps delete or overlay every cardinality record in a single message (unbounded work in DDL and in recovery fold) |
 | `session-sql-1` | high | Needs verification | ILIKE/LOWER text predicates mean different things in the expression and predicate lanes; resumable UPDATE uses the expression lane and silently updates the wrong set |
-| `value-types-error-3` | high | Needs verification | Decimal::checked_div panics on i128::MIN / -1 (integer division overflow), which callers can trigger through SQL arithmetic |
+| `value-types-error-3` | high | Verified fixed | Decimal::checked_div panics on i128::MIN / -1 (integer division overflow), which callers can trigger through SQL arithmetic **Current evidence:** Checked wide quotient/remainder avoid the panic. A30 preserves typed true overflow at scale zero and returns a fitting rounded result for the original scale-18 input; maintained schema/core and stored-field SQL regressions pass. The arithmetic oracle qualifies signed extrema across all 29 scales. The original panic remains closed. |
 | `value-types-error-4` | high | Verified fixed | Decimal multiplication does not normalize its operands, so fixed-scale (e.g. e18) decimal fields overflow on tiny products like 20 × 20 **Current evidence:** A13 normalizes operands; all 44 focused tests and strict lint pass, including admitted scale-18 SQL reads. |
-| `xc-architecture-1` | high | Needs verification | Filtered-index predicates are persisted as name-based SQL text and re-parsed by a second grammar, losing typed literals: membership, planner implication and uniqueness disagree |
+| `xc-architecture-1` | high | Verified fixed | Filtered-index predicates are persisted as name-based SQL text and re-parsed by a second grammar, losing typed literals: membership, planner implication and uniqueness disagree **Current evidence:** A32 retains canonical typed literals through encoding and shared execution. Nat64/Int128/Decimal membership and actual unique collisions pass; typed Nat64 reads use the eligible filtered index and match a primary scan across continuations and repeated calls. See [cluster closure](filtered-index-cluster.md#closure-receipts--2026-10-03). |
 | `xc-security-1` | high | Verified fixed | Cursor HMAC key is deterministic on wasm32/IC, so continuation tokens can be forged **Current evidence:** IC raw_rand feeds boot admission; pending entropy blocks cursors and each boot replaces the key. Five focused entropy/session tests pass; source aliases value-types-error-1 and data-10 share this closure. |
 | `canisters-testing-ci-1` | medium | Needs verification | The two Tier A SQLite and mutation oracle lanes match zero tests and pass on every PR |
 | `canisters-testing-ci-2` | medium | Needs verification | PR CI never runs, or even compiles, the PocketIC tests for recovery, upgrade, migration, durable jobs and guard authorization |
@@ -695,8 +995,8 @@ Counts cover inventory states, not implementation or release readiness.
 | `model-macros-1` | medium | Needs verification | Declared normalizers/validators are silently never run in many accepted positions (ty on entity/record/enum/tuple; item normalizers on list/set/map/tuple/enum payloads; item validators on tuple and enum payloads) |
 | `model-macros-2` | medium | Needs verification | `IS TRUE` / `IS FALSE` in generated CHECK predicates are lowered to `= TRUE` / `= FALSE`, which lets NULL through under the three-valued check evaluator |
 | `model-schema-crates-2` | medium | Needs verification | Account treats `subaccount: None` and `Some([0;32])` as different accounts; core stores and indexes both, and text parsing collapses them |
-| `model-schema-crates-3` | medium | Needs verification | Decimal Add/Sub/Div saturate at the wrong scale when scale alignment overflows, returning values smaller than the dominant operand |
-| `model-schema-crates-4` | medium | Needs verification | Decimal `Rem` returns ZERO on scale-alignment overflow, so the MultipleOf application validator accepts non-multiples |
+| `model-schema-crates-3` | medium | Verified fixed | Decimal Add/Sub/Div saturate at the wrong scale when scale alignment overflows, returning values smaller than the dominant operand **Current evidence:** A30 shares wide alignment, greatest-fitting rounding and global primitive bounds. All 71 focused tests pass, including 58,870 exact-oracle arithmetic outcomes, signed limits/cancellation, original examples, checked SUM/AVG and cold/warm stored-field SQL with typed true-overflow/zero-divisor controls. The same owner fixes the directly related multiplication fallback-scale observation. Production removes 23 net lines; no mode or format is added. |
+| `model-schema-crates-4` | medium | Verified fixed | Decimal `Rem` returns ZERO on scale-alignment overflow, so the MultipleOf application validator accepts non-multiples **Current evidence:** A29 aligns in exact temporary wide arithmetic and narrows only the remainder. All 64 focused tests pass, including an independent oracle at 25,230 scale/mantissa combinations, primitive/assignment, application validation, accepted-rule numeric, checked runtime and cold/warm stored-field SQL with signed limits, NULL and typed zero-divisor controls. Six regressions fail before correction; numeric tests also pass without default features. |
 | `model-schema-crates-5` | medium | Needs verification | Nested relation lowering silently drops relation leaves that are reachable only through a recursive type, contradicting the authoring guide |
 | `model-schema-crates-6` | medium | Needs verification | Fragment and migration plan are never composed at build time; a mismatch appears only on the canister and blocks all DB work |
 | `model-schema-crates-7` | medium | Needs verification | Numeric validator/normalizer constructors silently replace unrepresentable bounds with 0 (Clamp can rewrite every value to 0) |
@@ -708,9 +1008,9 @@ Counts cover inventory states, not implementation or release readiness.
 | `r2-cardinality-freshness-3` | medium | Needs verification | Derived-cardinality inconsistency aborts the authoritative journal fold (STORE_CORRUPTION, terminal), although the 0.230 contract says it only makes evidence unavailable |
 | `r2-covering-projection-2` | medium | Needs verification | Pure covering over an undecodable component kind scans and buffers the whole index range, throws it away, then the scalar path scans again under the same hard budget |
 | `r2-cross-message-concurrency-3` | medium | Needs verification | A Building cardinality generation restarts on every journal fold, so it never finishes on large, busy stores; the watchdog runs forever and later stores never get a build |
-| `r2-persisted-sql-text-1` | medium | Needs verification | DDL RENAME COLUMN reorders field-to-field predicates in generated filtered indexes, so the next generated schema release fails startup reconciliation |
+| `r2-persisted-sql-text-1` | medium | Verified fixed | DDL RENAME COLUMN reorders field-to-field predicates in generated filtered indexes, so the next generated schema release fails startup reconciliation **Current evidence:** A32 preserves FieldIds and canonical field-comparison identity through rename. The complete migration fixture reloads current encoded catalog bytes and generated reconciliation returns no changes. See [cluster closure](filtered-index-cluster.md#closure-receipts--2026-10-03). |
 | `r2-query-call-caches-2` | medium | Needs verification | Folding a schema batch after C1 was rebuilt leaves the store bundle cache empty; C1 hits never refill it, so admitted-root cardinality evidence is silently unavailable and query calls re-decode the bundle |
-| `r2-recursive-bounds-1` | medium | Needs verification | Value-storage materializing decoder counts two depth units per nesting level, so nested-path reads reject (as Corruption) values the canonical write path accepted up to depth 64 |
+| `r2-recursive-bounds-1` | medium | Verified fixed | Value-storage materializing decoder counts two depth units per nesting level, so nested-path reads reject (as Corruption) values the canonical write path accepted up to depth 64 **Current evidence:** A33 deletes the duplicate recursive decoder and its private limit. Borrowed validation, canonical and runtime materialization share the accepted depth owner; lists/maps/enum payloads pass at the exact limit and reject one level beyond it. A published 48-level list projects correctly alongside enum siblings. See [A33 qualification](#a33-current-value-traversal-authority--2026-10-03). |
 | `r2-recursive-bounds-2` | medium | Needs verification | Recursive row decoders re-skip every subtree at each nesting level: decode cost is O(bytes x depth), up to ~63x write cost, while all row/page budgets are byte-based |
 | `r2-replay-cost-1` | medium | Needs verification | Migration journal fold reloads and fully re-decodes the durable migration record twice per journal record, so large migrations produce rewrite pages that can never be folded |
 | `r2-replay-cost-2` | medium | Needs verification | Unique-validation page fold re-reads, re-hashes, decodes and re-fingerprints the whole canonical accepted-schema bundle once per staged index key |
@@ -738,7 +1038,7 @@ Counts cover inventory states, not implementation or release readiness.
 | `sql-parser-2` | medium | Needs verification | Scope normalization rewrites a record path whose inner segment matches the entity or alias name to a top-level field (wrong column in SELECT/UPDATE/DELETE) |
 | `sql-parser-3` | medium | Needs verification | Numbers in scientific or hex notation are silently split into a number plus an implicit projection alias |
 | `sql-parser-4` | medium | Needs verification | DDL accepts dotted multi-segment column names in ADD COLUMN / RENAME COLUMN, persisting top-level fields that SQL cannot address consistently |
-| `sql-parser-5` | medium | Needs verification | Filtered-index predicate identity is raw token text: IF NOT EXISTS and duplicate-contract detection break on formatting and after any RENAME COLUMN |
+| `sql-parser-5` | medium | Verified fixed | Filtered-index predicate identity is raw token text: IF NOT EXISTS and duplicate-contract detection break on formatting and after any RENAME COLUMN **Current evidence:** A32 compares canonical bound trees. Maintained DDL tests cover parentheses, spacing, case and repeated guards through IF NOT EXISTS and active/candidate duplicate contracts, with differing predicates remaining conflicts. See [cluster closure](filtered-index-cluster.md#closure-receipts--2026-10-03). |
 | `value-types-error-2` | medium | Needs verification | Numeric-widening compare/eq sends floats (and Nat128 values ≥ 2^127) through a lossy i128 Decimal; out-of-range values compare as None and rows silently drop out of WHERE filters |
 | `value-types-error-6` | medium | Needs verification | Persisted LOWER/UPPER index expression keys depend on the Rust toolchain's Unicode tables, with no version pinning |
 | `xc-performance-1` | medium | Needs verification | Every numeric ORDER BY / top-K / MIN-MAX comparison goes through Decimal, with u128 digit-string expansion (and float-to-text-to-parse for Float64) |
@@ -827,8 +1127,8 @@ Counts cover inventory states, not implementation or release readiness.
 | `query-plan-5` | low | Verified fixed | index_covering_existing_rows_terminal_eligible returns true when predicate is None without checking for a residual filter expression **Current evidence:** A23; existing residual compatibility owns absent-predicate eligibility and COUNT/EXISTS aggregate EXPLAIN controls; runtime reductions are qualified separately. |
 | `r2-candid-stability-2` | low | Needs verification | Only the migration ABI is gated: other generated endpoint responses and public DTOs have no Candid golden or subtype check, and the CLI decodes strictly with no version handshake |
 | `r2-candid-stability-3` | low | Needs verification | Recursive public input DTOs (FilterExpr, PublicValue/InputValue) have no decode-time depth bound on the IC, and FilterExpr's error wrapper re-formats the whole message at every level |
-| `r2-persisted-sql-text-2` | low | Needs verification | Stored filtered-index semantics depend on current parser code, not on the stored text, so parser fixes silently invalidate already-built index contents |
-| `r2-persisted-sql-text-3` | low | Needs verification | Migration planner rejects metadata-only enum-variant renames whenever a generated filtered-index predicate names the variant |
+| `r2-persisted-sql-text-2` | low | Verified fixed | Stored filtered-index semantics depend on current parser code, not on the stored text, so parser fixes silently invalidate already-built index contents **Current evidence:** A32 removes persisted SQL and runtime accepted-SQL parsing. Current bounded version-1 trees retain operators, coercions, FieldIds and typed payloads; encoded catalog reload and interrupted-write checkpoint replay preserve membership. See [cluster closure](filtered-index-cluster.md#closure-receipts--2026-10-03). |
+| `r2-persisted-sql-text-3` | low | Verified fixed | Migration planner rejects metadata-only enum-variant renames whenever a generated filtered-index predicate names the variant **Current evidence:** A32 retains canonical enum type/variant IDs instead of variant spelling. Variant rename changes display only; the migration fixture combines enum type/variant and field renames, reloads catalog bytes and reconciles generated declarations successfully. See [cluster closure](filtered-index-cluster.md#closure-receipts--2026-10-03). |
 | `r2-query-call-caches-3` | low | Needs verification | Heap-store schema publications never wake the watchdog, so the database-wide runtime root stays cold for all query traffic until an unrelated update call |
 | `r2-recursive-bounds-3` | low | Needs verification | Source check expressions reach bind_expression with nesting up to ~1020 levels; the binder recurses (and clones) before the 32-level check-tree bound is applied |
 | `r2-recursive-bounds-4` | low | Needs verification | Generated-predicate depth bound in the model macros is looser than the accepted check-tree bound, so macro-accepted predicates are rejected at runtime schema acceptance |
@@ -870,7 +1170,7 @@ Counts cover inventory states, not implementation or release readiness.
 | `value-types-error-8` | low | Needs verification | canonical_value_compare is not a total order across mixed numeric variants, which can break sort_by in ORDER BY |
 | `value-types-error-9` | low | Needs verification | PublicValue::try_into_runtime_non_enum builds Value::Map without normalization or validation |
 | `xc-architecture-10` | low | Needs verification | Oversized modules are mostly inline tests; the mutation coordinator sits in the session layer despite that module's own boundary header |
-| `xc-architecture-2` | low | Needs verification | Migration planner relabels filtered-index predicates one rename at a time, so chained or swapped field renames compute a wrong expected predicate |
+| `xc-architecture-2` | low | Verified fixed | Migration planner relabels filtered-index predicates one rename at a time, so chained or swapped field renames compute a wrong expected predicate **Current evidence:** A32 removes sequential predicate-name rewriting. Chained and swapped name projections retain both distinct FieldIds and canonical bytes; the real rename planner and encoded/reloaded reconciliation fixture pass. See [cluster closure](filtered-index-cluster.md#closure-receipts--2026-10-03). |
 | `xc-architecture-3` | low | Needs verification | Resource-budget vocabulary is owned by the query/executor/session layers, inverting the module graph for index, access, schema and codec |
 | `xc-architecture-4` | low | Needs verification | The catalog-native schema mutation layer depends on SQL-frontend DTOs, and some mutation semantics are SQL-owned |
 | `xc-architecture-5` | low | Needs verification | cfg(test) forks production semantics: test-only AST/runtime variants and production-only recovery fast paths that unit tests never exercise |
@@ -929,3 +1229,90 @@ Counts cover inventory states, not implementation or release readiness.
 | `xc-performance-14` | info | Needs verification | Generic store visitors duplicate the full traversal and overlay-merge code for each visitor closure (wasm size, unmeasured) |
 | `xc-performance-15` | info | Needs verification | Per-row budget and page-unit accounting repeats constant work |
 | `xc-security-8` | info | Needs verification | Read guard gets no entity or statement context, so SQL authorization is all-entity |
+
+### A32 — Accepted filtered predicate authority
+
+Completed 2026-10-03. Six related findings are verified fixed through one
+accepted predicate owner; counts are 30 Verified fixed, zero Open/In progress,
+one Partial and 276 Needs verification. The recursive-bounds report remains
+unchecked; current codec depth/size controls do not establish its original claim.
+
+Generated and DDL predicates retain direct FieldIds, existing coercions and
+canonical typed literal payloads. Runtime, identity, build, integrity and rename
+consumers use that tree. Accepted literal kinds retain admission bounds and enum
+identity; generated field comparisons use accepted type capabilities. Nested
+predicate paths remain rejected, while native nested index keys retain their
+separate support. Runtime SQL reparsing and predicate-name rewriting are removed.
+
+All 62 distinct focused tests pass on the current locked dependency graph.
+Controls cover numeric/enum/ULID membership, actual unique collisions, maintained
+DDL identity, chained/swapped name projection, real rename planning and generated
+reconciliation from encoded catalog bytes, malformed IDs/literal bounds, codec
+size/depth, LIKE/ILIKE/coercions, planner implication, and interrupted-write replay.
+Typed live reads select the filtered index only when its guard is satisfied and
+match complete primary-scan results across continuations and repeated calls.
+Maintainer/focused lint, core feature checks and invariant guards pass.
+
+The current version-1 representation replaces text in place. Affected pre-1.0
+metadata and index artifacts require recreation or regeneration. Full suites
+remain user-owned; raw Wasm size, IC cycles and instructions are unmeasured.
+The A32 footprint is approximately 55 files and +1,600 net lines, including
+mechanical propagation, bounded binding/codec logic and direct qualification.
+Ownership/execution flow is simpler; local representation code grows, with zero
+additional behavior axes. Previous A28–A31 work and concurrent external dependency
+updates are preserved; no Cargo package-version edit, commit, push or network
+lifecycle action was performed. The disk block and initial pagination-test
+assumption were resolved before final validation.
+
+### Row-value boundary audit after A32 — 2026-10-03
+
+The completed queue requires a scoped read-only audit before further corrections.
+Six maintained historical-scalar regressions verify the existing `data-1` fix.
+Two disposable observation probes reproduce `data-2` and the decode-depth seam
+of `r2-recursive-bounds-1`; their passing defect assertions are not corrected
+product behavior. Counts are 31 Verified fixed, two Open, one Partial and 273
+Needs verification. `data-7` retains its separate verification requirement.
+
+Both open findings discard current canonical wire/depth facts at the boundary
+into borrowed or materializing traversal. Proposed A33 is one end-to-end current
+value traversal correction: reuse canonical enum framing, fixed scalar widths
+and the accepted recursive limit, then qualify nested projection/grouped reads
+against general materialization. No mode, fallback, new format or persisted
+state is proposed. Public execution, malformed/truncated bytes, exact depth,
+null/missing paths and historical-fill controls remain implementation gates.
+
+Four audit/status docs change; runtime source, existing dirty fixes and release
+entries are preserved. Source comparison covers all 1,108 core Rust files, with
+only the disposable probe file differing. Documentation and whitespace checks
+pass. Code complexity stays unchanged; raw Wasm, cycles and instructions are
+unmeasured. Full suites and publication remain user-owned.
+
+### A33 current value traversal authority — 2026-10-03
+
+The user selected the two open row-boundary findings. Borrowed traversal and
+runtime materialization now use the canonical current persisted-value owner.
+Its enum frame decoder and accepted depth limit remain authoritative; scalar
+payload codecs retain their existing fixed widths. The duplicate cursor,
+collection walkers, scalar cursor helpers, scalar-to-canonical copy and private
+recursive limit are removed. No execution route, mode, cache, fallback, format
+or persisted state is added. The current version-1 wire bytes are unchanged.
+
+Five new regressions qualify unit/payload/nested enums, scalar siblings in both
+wire orders, exact/over-limit list/map/enum nesting, malformed IDs/body/length,
+truncation and trailing bytes, null/missing paths and non-map ancestor rejection.
+Published catalog qualification compares public/trusted full-row reads against
+nested SQL scalar/enum/deep-list projection, filters and single-path grouping,
+including repeated calls. Historical scalar fills and maintained structured
+ordering/grouping controls remain covered. All 117 distinct focused tests,
+strict core lint, no-feature build, formatting and direct invariant guards pass.
+Initial fixture compile/layout/header/public-admission assumptions were corrected
+before final qualification. Full suites remain user-owned.
+
+Both saved findings close: 33 Verified fixed, zero Open/In progress, one Partial
+and 273 Needs verification. This is no verdict on unchecked findings; `data-7`
+retains its separate qualification. A33 touches 19 files, removes approximately
+540 production lines and has a small negative net line delta after tests/docs.
+Traversal ownership and implementation are simpler; behavior-axis delta is zero.
+Raw Wasm size, IC cycles and instructions are unmeasured. Earlier dirty changes
+and external dependency updates are preserved; no package-version edit, commit,
+push or network lifecycle action was performed.

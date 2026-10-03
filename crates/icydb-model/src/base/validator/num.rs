@@ -203,4 +203,36 @@ mod tests {
         m.validate(&11, &mut ctx);
         assert!(!ctx.issues.is_empty());
     }
+
+    #[test]
+    fn multiple_of_decimal_scale_alignment_preserves_validation() {
+        for scale in 1..=28 {
+            for sign in [-1_i128, 1] {
+                let value =
+                    Decimal::from_i128_with_scale(sign * (5 * 10_i128.pow(scale) + 1), scale);
+                for divisor in [-10_000_000_000_000_i64, 10_000_000_000_000] {
+                    let mut ctx = TestCtx::new();
+                    MultipleOf::new(divisor).validate(&value, &mut ctx);
+                    assert!(
+                        !ctx.issues.is_empty(),
+                        "{value} is not a multiple of {divisor}"
+                    );
+
+                    let mut ctx = TestCtx::new();
+                    MultipleOf::new(Decimal::from_i128_with_scale(sign, 28))
+                        .validate(&value, &mut ctx);
+                    assert!(
+                        ctx.issues.is_empty(),
+                        "every admitted decimal is a multiple of 1e-28"
+                    );
+                }
+            }
+        }
+        let mut ctx = TestCtx::new();
+        MultipleOf::new(-1).validate(&Decimal::from_i128_with_scale(i128::MIN, 0), &mut ctx);
+        assert!(ctx.issues.is_empty());
+        let mut ctx = TestCtx::new();
+        MultipleOf::new(0).validate(&Decimal::ZERO, &mut ctx);
+        assert!(!ctx.issues.is_empty());
+    }
 }

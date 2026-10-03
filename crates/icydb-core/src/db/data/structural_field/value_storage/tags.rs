@@ -42,9 +42,6 @@ pub(super) const fn fixed_value_storage_payload_len(tag: u8) -> Option<usize> {
 pub(super) const fn is_nested_value_storage_tag(tag: u8) -> bool {
     matches!(
         tag,
-        VALUE_BINARY_TAG_ENUM
-            | VALUE_BINARY_TAG_INT_BIG
-            | VALUE_BINARY_TAG_NAT_BIG
-            | VALUE_BINARY_TAG_PRINCIPAL
+        VALUE_BINARY_TAG_INT_BIG | VALUE_BINARY_TAG_NAT_BIG | VALUE_BINARY_TAG_PRINCIPAL
     )
 }

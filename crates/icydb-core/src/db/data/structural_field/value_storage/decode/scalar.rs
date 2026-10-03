@@ -3,75 +3,12 @@
 //! Does not own: collection traversal, local tag dispatch, or row decode.
 //! Boundary: decodes scalar payloads after value-storage root/tag routing selects this lane.
 
-use crate::{
-    db::data::structural_field::{
-        FieldDecodeError,
-        binary::{
-            CompleteBinaryValue, TAG_BYTES, TAG_INT64, TAG_NAT64, TAG_TEXT,
-            decode_text_scalar_bytes as decode_binary_text_scalar_bytes, parse_binary_head,
-        },
-        primitive::{decode_i64_payload_bytes, decode_u64_payload_bytes},
-        value_storage::decode::{
-            ValueStorageSlice,
-            cursor::{enforce_optional_trailing, parsed_value_payload_end},
-        },
-    },
-    value::Value,
+use crate::db::data::structural_field::{
+    FieldDecodeError,
+    binary::{CompleteBinaryValue, TAG_BYTES, TAG_INT64, TAG_NAT64, TAG_TEXT},
+    primitive::{decode_i64_payload_bytes, decode_u64_payload_bytes},
+    value_storage::decode::ValueStorageSlice,
 };
-
-// Decode one nested i64 scalar while advancing by its fixed-width payload.
-pub(super) fn decode_binary_i64_value_at(
-    raw_bytes: &[u8],
-    offset: usize,
-) -> Result<(Value, usize), FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, offset)? else {
-        return Err(FieldDecodeError::new());
-    };
-    let (value, cursor) = decode_binary_i64_from_parsed(raw_bytes, tag, len, payload_start, false)?;
-
-    Ok((Value::Int64(value), cursor))
-}
-
-// Decode one nested u64 scalar while advancing by its fixed-width payload.
-pub(super) fn decode_binary_u64_value_at(
-    raw_bytes: &[u8],
-    offset: usize,
-) -> Result<(Value, usize), FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, offset)? else {
-        return Err(FieldDecodeError::new());
-    };
-    let (value, cursor) = decode_binary_u64_from_parsed(raw_bytes, tag, len, payload_start, false)?;
-
-    Ok((Value::Nat64(value), cursor))
-}
-
-// Decode one nested text scalar while advancing by its length-prefixed payload.
-pub(super) fn decode_binary_text_value_at(
-    raw_bytes: &[u8],
-    offset: usize,
-) -> Result<(Value, usize), FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, offset)? else {
-        return Err(FieldDecodeError::new());
-    };
-    let (value, cursor) =
-        decode_binary_text_from_parsed(raw_bytes, tag, len, payload_start, false)?;
-
-    Ok((Value::Text(value.to_owned()), cursor))
-}
-
-// Decode one nested byte scalar while advancing by its length-prefixed payload.
-pub(super) fn decode_binary_blob_value_at(
-    raw_bytes: &[u8],
-    offset: usize,
-) -> Result<(Value, usize), FieldDecodeError> {
-    let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, offset)? else {
-        return Err(FieldDecodeError::new());
-    };
-    let (value, cursor) =
-        decode_binary_blob_from_parsed(raw_bytes, tag, len, payload_start, false)?;
-
-    Ok((Value::Blob(value.to_vec()), cursor))
-}
 
 // Decode one top-level i64 scalar without wrapping it in a runtime `Value`.
 pub(super) fn decode_binary_i64_scalar(
@@ -113,86 +50,4 @@ pub(super) fn decode_binary_text_payload_bytes_if_text(
     }
 
     root.scalar_payload().map(Some)
-}
-
-// Decode one parsed i64 scalar after the caller has already read the structural
-// head. Top-level callers enforce trailing bytes, while nested callers use the
-// returned cursor to continue walking the enclosing payload.
-fn decode_binary_i64_from_parsed(
-    raw_bytes: &[u8],
-    tag: u8,
-    len: u32,
-    payload_start: usize,
-    enforce_trailing: bool,
-) -> Result<(i64, usize), FieldDecodeError> {
-    if tag != TAG_INT64 || len != 8 {
-        return Err(FieldDecodeError::new());
-    }
-    let cursor = parsed_value_payload_end(raw_bytes, len, payload_start)?;
-    enforce_optional_trailing(cursor, raw_bytes.len(), enforce_trailing)?;
-    let value = decode_i64_payload_bytes(&raw_bytes[payload_start..cursor])?;
-
-    Ok((value, cursor))
-}
-
-// Decode one parsed u64 scalar after the caller has already read the structural
-// head. The optional trailing check lets the same core serve both root and
-// nested scalar decode without weakening either boundary rule.
-fn decode_binary_u64_from_parsed(
-    raw_bytes: &[u8],
-    tag: u8,
-    len: u32,
-    payload_start: usize,
-    enforce_trailing: bool,
-) -> Result<(u64, usize), FieldDecodeError> {
-    if tag != TAG_NAT64 || len != 8 {
-        return Err(FieldDecodeError::new());
-    }
-    let cursor = parsed_value_payload_end(raw_bytes, len, payload_start)?;
-    enforce_optional_trailing(cursor, raw_bytes.len(), enforce_trailing)?;
-    let value = decode_u64_payload_bytes(&raw_bytes[payload_start..cursor])?;
-
-    Ok((value, cursor))
-}
-
-// Decode one parsed text scalar after the caller has already read the
-// structural head. Trailing enforcement intentionally happens before UTF-8
-// decoding for root values to preserve the previous error ordering.
-fn decode_binary_text_from_parsed(
-    raw_bytes: &[u8],
-    tag: u8,
-    len: u32,
-    payload_start: usize,
-    enforce_trailing: bool,
-) -> Result<(&str, usize), FieldDecodeError> {
-    if tag != TAG_TEXT {
-        return Err(FieldDecodeError::new());
-    }
-    let cursor = parsed_value_payload_end(raw_bytes, len, payload_start)?;
-    enforce_optional_trailing(cursor, raw_bytes.len(), enforce_trailing)?;
-    let value = decode_binary_text_scalar_bytes(raw_bytes, len, payload_start)?;
-
-    Ok((value, cursor))
-}
-
-// Decode one parsed byte scalar after the caller has already read the
-// structural head. The borrowed slice stays bounded by the parsed payload
-// cursor, so nested callers can continue from the exact following byte.
-fn decode_binary_blob_from_parsed(
-    raw_bytes: &[u8],
-    tag: u8,
-    len: u32,
-    payload_start: usize,
-    enforce_trailing: bool,
-) -> Result<(&[u8], usize), FieldDecodeError> {
-    if tag != TAG_BYTES {
-        return Err(FieldDecodeError::new());
-    }
-    let cursor = parsed_value_payload_end(raw_bytes, len, payload_start)?;
-    enforce_optional_trailing(cursor, raw_bytes.len(), enforce_trailing)?;
-    let value = raw_bytes
-        .get(payload_start..cursor)
-        .ok_or_else(FieldDecodeError::new)?;
-
-    Ok((value, cursor))
 }

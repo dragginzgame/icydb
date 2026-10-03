@@ -1,13 +1,10 @@
 //! Index predicate binding and nullable-unique acceptance over structural metadata.
 
-use crate::db::{
-    predicate::{Predicate, normalize, parse_sql_predicate},
-    schema::{
-        FieldId, PersistedFieldSnapshot, PersistedIndexExpressionOp,
-        PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
-        PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-        SchemaIndexId, SchemaRowLayout,
-    },
+use crate::db::schema::{
+    AcceptedIndexPredicate, PersistedFieldSnapshot, PersistedIndexExpressionOp,
+    PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
+    PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
+    SchemaIndexId, SchemaRowLayout,
 };
 
 /// One bounded semantic rejection for an otherwise structural unique index.
@@ -48,17 +45,15 @@ pub(in crate::db) fn validate_index_semantic_contract(
 ) -> Result<(), super::SchemaSnapshotAcceptanceError> {
     // Name validity belongs to every accepted index, not only unique indexes
     // whose keys may omit nulls. Check authored branches before simplification.
-    let bound_predicate = index
-        .predicate_sql()
-        .map(|sql| {
-            let predicate = parse_sql_predicate(sql)
-                .map_err(|_| super::SchemaSnapshotAcceptanceError::Predicate)?;
-            if !predicate_fields_bind(fields, &predicate) {
-                return Err(super::SchemaSnapshotAcceptanceError::Predicate);
-            }
-            Ok(predicate)
-        })
-        .transpose()?;
+    let bound_predicate = index.predicate();
+    if let Some(predicate) = bound_predicate {
+        predicate
+            .canonical_bytes()
+            .map_err(|_| super::SchemaSnapshotAcceptanceError::Predicate)?;
+        predicate
+            .validate_fields(fields)
+            .map_err(|_| super::SchemaSnapshotAcceptanceError::Predicate)?;
+    }
 
     if !index.unique() {
         return Ok(());
@@ -84,7 +79,6 @@ pub(in crate::db) fn validate_index_semantic_contract(
 
     // Only the omission proof needs canonical form. Other indexes have already
     // finished their name check without sorting or rebuilding the predicate.
-    let bound_predicate = bound_predicate.map(normalize);
 
     for (source, class) in sources.iter().zip(&classes) {
         if matches!(class, SourceOmissionClass::UnsupportedNullableAncestor) {
@@ -99,8 +93,7 @@ pub(in crate::db) fn validate_index_semantic_contract(
     }
 
     let guarded_fields = bound_predicate
-        .as_ref()
-        .map(|predicate| exact_top_level_non_null_guards(fields, predicate))
+        .map(AcceptedIndexPredicate::exact_non_null_guards)
         .unwrap_or_default();
     let mut missing = Vec::new();
     for (source, class) in sources.iter().zip(classes) {
@@ -231,59 +224,4 @@ fn source_omission_class(
     } else {
         SourceOmissionClass::NeverOmits
     }
-}
-
-fn predicate_fields_bind(fields: &[PersistedFieldSnapshot], predicate: &Predicate) -> bool {
-    predicate
-        .try_for_each_field(&mut |field| field_id_by_name(fields, field).map(|_| ()).ok_or(()))
-        .is_ok()
-}
-
-fn exact_top_level_non_null_guards(
-    fields: &[PersistedFieldSnapshot],
-    predicate: &Predicate,
-) -> Vec<FieldId> {
-    let mut guards = Vec::new();
-    collect_exact_top_level_non_null_guards(fields, predicate, &mut guards);
-    guards
-}
-
-fn collect_exact_top_level_non_null_guards(
-    fields: &[PersistedFieldSnapshot],
-    predicate: &Predicate,
-    guards: &mut Vec<FieldId>,
-) {
-    match predicate {
-        Predicate::And(children) => {
-            for child in children {
-                collect_exact_top_level_non_null_guards(fields, child, guards);
-            }
-        }
-        Predicate::IsNotNull { field } => {
-            if let Some(field_id) = field_id_by_name(fields, field)
-                && !guards.contains(&field_id)
-            {
-                guards.push(field_id);
-            }
-        }
-        Predicate::True
-        | Predicate::False
-        | Predicate::Or(_)
-        | Predicate::Not(_)
-        | Predicate::Compare(_)
-        | Predicate::CompareFields(_)
-        | Predicate::IsNull { .. }
-        | Predicate::IsMissing { .. }
-        | Predicate::IsEmpty { .. }
-        | Predicate::IsNotEmpty { .. }
-        | Predicate::TextContains { .. }
-        | Predicate::TextContainsCi { .. } => {}
-    }
-}
-
-fn field_id_by_name(fields: &[PersistedFieldSnapshot], name: &str) -> Option<FieldId> {
-    fields
-        .iter()
-        .find(|field| field.name() == name)
-        .map(PersistedFieldSnapshot::id)
 }

@@ -34,11 +34,11 @@ pub(super) fn encode_index(
     writer.push_bool(index.unique());
     encode_index_origin(writer, index.origin());
     encode_index_key(writer, index.key())?;
-    match index.predicate_sql() {
+    match index.predicate() {
         None => writer.push_u8(0),
         Some(predicate) => {
             writer.push_u8(1);
-            writer.push_bounded_string(predicate, MAX_SQL_TEXT_BYTES)?;
+            super::index_predicate::encode(writer, predicate, 0)?;
         }
     }
     Ok(())
@@ -56,23 +56,17 @@ pub(super) fn decode_index(
     let unique = reader.read_bool()?;
     let origin = decode_index_origin(reader)?;
     let key = decode_index_key(reader)?;
-    let predicate_sql = match reader.read_u8()? {
+    let predicate = match reader.read_u8()? {
         0 => None,
-        1 => Some(reader.read_bounded_string(MAX_SQL_TEXT_BYTES)?),
+        1 => Some(super::index_predicate::decode(reader, 0, &mut 0)?),
         _ => return Err(InternalError::store_corruption()),
     };
     let index = match origin {
         PersistedIndexOrigin::Generated => {
-            PersistedIndexSnapshot::new(schema_id, ordinal, name, store, unique, key, predicate_sql)
+            PersistedIndexSnapshot::new(schema_id, ordinal, name, store, unique, key, predicate)
         }
         PersistedIndexOrigin::SqlDdl => PersistedIndexSnapshot::new_sql_ddl(
-            schema_id,
-            ordinal,
-            name,
-            store,
-            unique,
-            key,
-            predicate_sql,
+            schema_id, ordinal, name, store, unique, key, predicate,
         ),
     };
     Ok(index.clone_with_schema_identity(schema_id, ordinal, physical_generation))

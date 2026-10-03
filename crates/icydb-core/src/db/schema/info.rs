@@ -163,7 +163,8 @@ pub(in crate::db) struct SchemaIndexInfo {
     unique: bool,
     unique_constraint: Option<AcceptedConstraintIdentity>,
     fields: Vec<SchemaIndexFieldPathInfo>,
-    predicate_sql: Option<String>,
+    predicate: Option<crate::db::schema::AcceptedIndexPredicate>,
+    predicate_names: Vec<(FieldId, String)>,
     value_catalog: AcceptedValueCatalogHandle,
 }
 
@@ -213,13 +214,35 @@ impl SchemaIndexInfo {
         self.fields.as_slice()
     }
 
+    /// Return whether the accepted index restricts membership.
+    pub(in crate::db) const fn has_predicate(&self) -> bool {
+        self.predicate.is_some()
+    }
+
     /// Borrow optional predicate SQL display metadata.
-    #[must_use]
-    pub(in crate::db) const fn predicate_sql(&self) -> Option<&str> {
-        match &self.predicate_sql {
-            Some(sql) => Some(sql.as_str()),
-            None => None,
-        }
+    pub(in crate::db) fn predicate_sql(
+        &self,
+    ) -> Result<Option<String>, crate::error::InternalError> {
+        self.predicate
+            .as_ref()
+            .map(|predicate| {
+                predicate.render_sql_with_names(&self.predicate_names, &self.value_catalog)
+            })
+            .transpose()
+    }
+
+    /// Project the accepted bound tree for execution without reparsing SQL.
+    pub(in crate::db) fn predicate(
+        &self,
+    ) -> Result<Option<crate::db::predicate::Predicate>, crate::error::InternalError> {
+        self.predicate
+            .as_ref()
+            .map(|predicate| {
+                predicate
+                    .to_predicate_with_names(&self.predicate_names, &self.value_catalog)
+                    .map(crate::db::predicate::normalize)
+            })
+            .transpose()
     }
 
     /// Bind one owned field-path component to this index's catalog authority.
@@ -255,7 +278,8 @@ pub(in crate::db) struct SchemaExpressionIndexInfo {
     unique: bool,
     unique_constraint: Option<AcceptedConstraintIdentity>,
     key_items: Vec<SchemaExpressionIndexKeyItemInfo>,
-    predicate_sql: Option<String>,
+    predicate: Option<crate::db::schema::AcceptedIndexPredicate>,
+    predicate_names: Vec<(FieldId, String)>,
     value_catalog: AcceptedValueCatalogHandle,
 }
 
@@ -306,12 +330,29 @@ impl SchemaExpressionIndexInfo {
     }
 
     /// Borrow optional accepted index-membership predicate SQL metadata.
-    #[must_use]
-    pub(in crate::db) const fn predicate_sql(&self) -> Option<&str> {
-        match &self.predicate_sql {
-            Some(sql) => Some(sql.as_str()),
-            None => None,
-        }
+    pub(in crate::db) fn predicate_sql(
+        &self,
+    ) -> Result<Option<String>, crate::error::InternalError> {
+        self.predicate
+            .as_ref()
+            .map(|predicate| {
+                predicate.render_sql_with_names(&self.predicate_names, &self.value_catalog)
+            })
+            .transpose()
+    }
+
+    /// Project the accepted bound tree for execution without reparsing SQL.
+    pub(in crate::db) fn predicate(
+        &self,
+    ) -> Result<Option<crate::db::predicate::Predicate>, crate::error::InternalError> {
+        self.predicate
+            .as_ref()
+            .map(|predicate| {
+                predicate
+                    .to_predicate_with_names(&self.predicate_names, &self.value_catalog)
+                    .map(crate::db::predicate::normalize)
+            })
+            .transpose()
     }
 
     /// Bind one owned field-path component to this index's catalog authority.
@@ -969,7 +1010,17 @@ pub(in crate::db) fn schema_index_info_from_accepted_index(
             .iter()
             .map(|path| schema_index_field_path_info_from_accepted(path, snapshot, value_catalog))
             .collect(),
-        predicate_sql: index.predicate_sql().map(str::to_string),
+        predicate: index.predicate().cloned(),
+        predicate_names: snapshot
+            .fields()
+            .iter()
+            .filter(|field| {
+                index
+                    .predicate()
+                    .is_some_and(|p| p.references_field(field.id()))
+            })
+            .map(|field| (field.id(), field.name().to_string()))
+            .collect(),
         value_catalog: value_catalog.clone(),
     })
 }
@@ -1004,7 +1055,17 @@ pub(in crate::db) fn schema_expression_index_info_from_accepted_index(
             .iter()
             .map(|item| schema_expression_index_key_item_info(item, snapshot, value_catalog))
             .collect(),
-        predicate_sql: index.predicate_sql().map(str::to_string),
+        predicate: index.predicate().cloned(),
+        predicate_names: snapshot
+            .fields()
+            .iter()
+            .filter(|field| {
+                index
+                    .predicate()
+                    .is_some_and(|p| p.references_field(field.id()))
+            })
+            .map(|field| (field.id(), field.name().to_string()))
+            .collect(),
         value_catalog: value_catalog.clone(),
     })
 }
@@ -1979,7 +2040,7 @@ mod tests {
 
 // Exhaustive cache-retention coverage; new owned fields require accounting.
 crate::retained::retained_fields!(SchemaExpressionIndexInfo {
-Self{ordinal,physical_generation,name,store,unique,unique_constraint,key_items,predicate_sql,value_catalog} => [ordinal,physical_generation,name,store,unique,unique_constraint,key_items,predicate_sql,value_catalog],
+Self{ordinal,physical_generation,name,store,unique,unique_constraint,key_items,predicate,predicate_names,value_catalog} => [ordinal,physical_generation,name,store,unique,unique_constraint,key_items,predicate,predicate_names,value_catalog],
 });
 crate::retained::retained_fields!(SchemaExpressionIndexKeyItemInfo {
 Self::FieldPath(field_0) => [field_0],
@@ -1995,7 +2056,7 @@ crate::retained::retained_fields!(SchemaIndexFieldPathInfo {
 Self{field_name,slot,path,persisted_kind,accepted_value_contract,nullable} => [field_name,slot,path,persisted_kind,accepted_value_contract,nullable],
 });
 crate::retained::retained_fields!(SchemaIndexInfo {
-Self{ordinal,physical_generation,name,store,unique,unique_constraint,fields,predicate_sql,value_catalog} => [ordinal,physical_generation,name,store,unique,unique_constraint,fields,predicate_sql,value_catalog],
+Self{ordinal,physical_generation,name,store,unique,unique_constraint,fields,predicate,predicate_names,value_catalog} => [ordinal,physical_generation,name,store,unique,unique_constraint,fields,predicate,predicate_names,value_catalog],
 });
 crate::retained::retained_fields!(SchemaInfo {
 Self{fields,indexes,expression_indexes,value_catalog,entity_name,primary_key_names} => [fields,indexes,expression_indexes,value_catalog,entity_name,primary_key_names],

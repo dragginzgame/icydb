@@ -21,9 +21,8 @@ use crate::{
         schema::{
             AcceptedConstraintCatalog, AcceptedConstraintKind, AcceptedEnumCatalog,
             AcceptedFieldDecodeContract, AcceptedFieldKind, AcceptedNamedTypeIdentity,
-            AcceptedRuleOperation, AcceptedRuleTarget, AcceptedSchemaFingerprint,
-            AcceptedSchemaRevision, AcceptedSchemaRevisionBundle, AcceptedSourceBindingCatalog,
-            AcceptedStoreCatalogScope, AcceptedValueCatalogHandle, CandidateSchemaRevision,
+            AcceptedRuleOperation, AcceptedRuleTarget, AcceptedSchemaRevision,
+            AcceptedSchemaRevisionBundle, AcceptedSourceBindingCatalog, CandidateSchemaRevision,
             ConstraintActivationKind, ConstraintId, ConstraintOrigin, FieldId,
             FieldInsertGeneration, FieldStorageDecode, FieldWriteManagement, LeafCodec,
             MAX_ACCEPTED_RECURSIVE_DEPTH, PersistedFieldOrigin, PersistedFieldSnapshot,
@@ -44,7 +43,7 @@ use crate::{
             derive_dense_field_removal_candidate, derive_dense_index_removal_candidate,
             derive_relation_removal_candidate,
             enum_catalog::InitialEnumDefinitions,
-            render_accepted_check_expr_sql, source_literal_input,
+            source_literal_input,
         },
     },
     error::InternalError,
@@ -77,7 +76,6 @@ struct InitialStoreContext<'a> {
     enum_catalog: AcceptedEnumCatalog,
     composite_catalog: AcceptedCompositeCatalog,
     named_type_bindings: AcceptedSourceBindingCatalog,
-    value_catalog: AcceptedValueCatalogHandle,
 }
 
 impl<'a> InitialStoreContext<'a> {
@@ -90,16 +88,6 @@ impl<'a> InitialStoreContext<'a> {
         types: &BTreeMap<TypeSourceKey, &'a NamedTypeFragment>,
     ) -> Result<Self, InternalError> {
         let named_types = lower_initial_named_types(entities, types)?;
-        // Rendering index predicates consumes only the value catalogs. The
-        // unpublished authority identity cannot enter the candidate and is
-        // replaced by the bundle's computed fingerprint.
-        let value_catalog = AcceptedValueCatalogHandle::new(
-            named_types.enum_catalog.clone(),
-            named_types.composite_catalog.clone(),
-            AcceptedStoreCatalogScope::new(),
-            AcceptedSchemaRevision::INITIAL,
-            AcceptedSchemaFingerprint::new([1; 32]),
-        );
         Ok(Self {
             store_path,
             assignments,
@@ -108,7 +96,6 @@ impl<'a> InitialStoreContext<'a> {
             enum_catalog: named_types.enum_catalog,
             composite_catalog: named_types.composite_catalog,
             named_type_bindings: named_types.bindings,
-            value_catalog,
         })
     }
 }
@@ -895,13 +882,6 @@ impl ExistingStoreCandidateState {
             enum_catalog: self.catalogs.enum_catalog.clone(),
             composite_catalog: self.catalogs.composite_catalog.clone(),
             named_type_bindings: self.source_bindings.clone(),
-            value_catalog: AcceptedValueCatalogHandle::new(
-                self.catalogs.enum_catalog.clone(),
-                self.catalogs.composite_catalog.clone(),
-                AcceptedStoreCatalogScope::new(),
-                store.bundle.revision(),
-                AcceptedSchemaFingerprint::new([1; 32]),
-            ),
         };
         self.snapshots.extend(lower_new_entity_snapshots(
             &context,
@@ -2136,7 +2116,6 @@ fn lower_existing_indexes(
             return Err(InternalError::store_unsupported());
         }
         let before = ExistingIndexLowering {
-            revision: bundle.revision(),
             enum_catalog: bundle.enum_catalog(),
             composite_catalog: bundle.composite_catalog(),
             entity_tag,
@@ -2148,7 +2127,6 @@ fn lower_existing_indexes(
             return Err(InternalError::store_unsupported());
         }
         let after = ExistingIndexLowering {
-            revision: bundle.revision(),
             enum_catalog: &catalogs.enum_catalog,
             composite_catalog: &catalogs.composite_catalog,
             entity_tag,
@@ -2167,7 +2145,6 @@ fn lower_existing_indexes(
 
 /// Catalog and entity facts used to prove or rebuild one generated index.
 struct ExistingIndexLowering<'a> {
-    revision: AcceptedSchemaRevision,
     enum_catalog: &'a AcceptedEnumCatalog,
     composite_catalog: &'a AcceptedCompositeCatalog,
     entity_tag: EntityTag,
@@ -2178,14 +2155,9 @@ struct ExistingIndexLowering<'a> {
 /// Lower one migration-bound current index through the ordinary accepted
 /// index constructor while retaining the supplied accepted identity.
 #[cfg(feature = "migration")]
-#[expect(
-    clippy::too_many_arguments,
-    reason = "migration index proof keeps every accepted catalog and identity input explicit"
-)]
 pub(in crate::db::schema) fn lower_migration_index(
     proposed: &icydb_schema::IndexFragment,
     accepted: &PersistedIndexSnapshot,
-    revision: AcceptedSchemaRevision,
     enum_catalog: &AcceptedEnumCatalog,
     composite_catalog: &AcceptedCompositeCatalog,
     entity_tag: EntityTag,
@@ -2193,7 +2165,6 @@ pub(in crate::db::schema) fn lower_migration_index(
     bindings: &AcceptedSourceBindingCatalog,
 ) -> Result<PersistedIndexSnapshot, InternalError> {
     ExistingIndexLowering {
-        revision,
         enum_catalog,
         composite_catalog,
         entity_tag,
@@ -2216,22 +2187,14 @@ pub(in crate::db::schema) fn lower_new_migration_index(
     ordinal: u16,
     physical_generation: u64,
     store_path: &'static str,
-    revision: AcceptedSchemaRevision,
     enum_catalog: &AcceptedEnumCatalog,
     composite_catalog: &AcceptedCompositeCatalog,
     entity_tag: EntityTag,
     snapshot: &PersistedSchemaSnapshot,
     bindings: &AcceptedSourceBindingCatalog,
 ) -> Result<PersistedIndexSnapshot, InternalError> {
-    let value_catalog = AcceptedValueCatalogHandle::new(
-        enum_catalog.clone(),
-        composite_catalog.clone(),
-        AcceptedStoreCatalogScope::new(),
-        revision,
-        AcceptedSchemaFingerprint::new([1; 32]),
-    );
     let key = lower_index_key(proposed.key(), entity_tag, snapshot, bindings)?;
-    let predicate_sql = proposed
+    let predicate = proposed
         .predicate()
         .map(|predicate| {
             let accepted = bind_source_check_expr(
@@ -2243,7 +2206,11 @@ pub(in crate::db::schema) fn lower_new_migration_index(
                 composite_catalog,
             )
             .map_err(|_| InternalError::store_unsupported())?;
-            render_accepted_check_expr_sql(&accepted, snapshot, &value_catalog)
+            crate::db::schema::AcceptedIndexPredicate::from_check(
+                &accepted,
+                snapshot.fields(),
+                composite_catalog,
+            )
         })
         .transpose()?;
     Ok(PersistedIndexSnapshot::new(
@@ -2253,7 +2220,7 @@ pub(in crate::db::schema) fn lower_new_migration_index(
         store_path.to_string(),
         proposed.unique(),
         key,
-        predicate_sql,
+        predicate,
     )
     .clone_with_schema_identity(schema_id, ordinal, physical_generation))
 }
@@ -2264,20 +2231,13 @@ impl ExistingIndexLowering<'_> {
         proposed: &icydb_schema::IndexFragment,
         accepted: &PersistedIndexSnapshot,
     ) -> Result<PersistedIndexSnapshot, InternalError> {
-        let value_catalog = AcceptedValueCatalogHandle::new(
-            self.enum_catalog.clone(),
-            self.composite_catalog.clone(),
-            AcceptedStoreCatalogScope::new(),
-            self.revision,
-            AcceptedSchemaFingerprint::new([1; 32]),
-        );
         let key = lower_index_key(
             proposed.key(),
             self.entity_tag,
             self.snapshot,
             self.bindings,
         )?;
-        let predicate_sql = proposed
+        let predicate = proposed
             .predicate()
             .map(|predicate| {
                 let accepted_expression = bind_source_check_expr(
@@ -2289,7 +2249,11 @@ impl ExistingIndexLowering<'_> {
                     self.composite_catalog,
                 )
                 .map_err(|_| InternalError::store_unsupported())?;
-                render_accepted_check_expr_sql(&accepted_expression, self.snapshot, &value_catalog)
+                crate::db::schema::AcceptedIndexPredicate::from_check(
+                    &accepted_expression,
+                    self.snapshot.fields(),
+                    self.composite_catalog,
+                )
             })
             .transpose()?;
         Ok(PersistedIndexSnapshot::new(
@@ -2299,7 +2263,7 @@ impl ExistingIndexLowering<'_> {
             accepted.store().to_string(),
             proposed.unique(),
             key,
-            predicate_sql,
+            predicate,
         )
         .clone_with_schema_identity(
             accepted.schema_id(),
@@ -3122,7 +3086,7 @@ fn lower_initial_indexes(
                 .ok_or_else(InternalError::store_unsupported)?;
             let id = SchemaIndexId::new(raw_id).ok_or_else(InternalError::store_unsupported)?;
             let key = lower_index_key(index.key(), entity_tag, snapshot, bindings)?;
-            let predicate_sql = index
+            let predicate = index
                 .predicate()
                 .map(|predicate| {
                     let accepted = bind_source_check_expr(
@@ -3134,7 +3098,11 @@ fn lower_initial_indexes(
                         &context.composite_catalog,
                     )
                     .map_err(|_| InternalError::store_unsupported())?;
-                    render_accepted_check_expr_sql(&accepted, snapshot, &context.value_catalog)
+                    crate::db::schema::AcceptedIndexPredicate::from_check(
+                        &accepted,
+                        snapshot.fields(),
+                        &context.composite_catalog,
+                    )
                 })
                 .transpose()?;
             accepted_bindings.insert((entity_tag, index.source_key().clone()), id);
@@ -3145,7 +3113,7 @@ fn lower_initial_indexes(
                 context.store_path.to_string(),
                 index.unique(),
                 key,
-                predicate_sql,
+                predicate,
             ))
         })
         .collect()
@@ -3495,6 +3463,7 @@ const fn index_expression_op(component: &IndexKeyFragment) -> Option<PersistedIn
 
 #[cfg(test)]
 mod tests {
+
     use std::{borrow::Cow, collections::BTreeMap};
 
     use super::{
@@ -4052,7 +4021,10 @@ mod tests {
             .indexes()
             .first()
             .expect("generated index should exist");
-        assert_eq!(index.predicate_sql(), Some("email IS NOT NULL"));
+        assert_eq!(
+            index.predicate(),
+            Some(&crate::db::schema::AcceptedIndexPredicate::test_non_null(1))
+        );
     }
 
     #[test]

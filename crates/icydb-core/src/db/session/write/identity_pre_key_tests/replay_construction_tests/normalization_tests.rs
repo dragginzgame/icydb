@@ -21,7 +21,10 @@ fn partial_index_snapshot(sql: &str) -> PersistedSchemaSnapshot {
             index.store().to_string(),
             index.unique(),
             index.key().clone(),
-            Some(sql.to_string()),
+            Some(crate::db::schema::AcceptedIndexPredicate::bind_test_sql(
+                sql,
+                base.fields(),
+            )),
         )],
     )
 }
@@ -30,16 +33,16 @@ fn partial_index_snapshot(sql: &str) -> PersistedSchemaSnapshot {
 fn normalized_partial_indexes_replay_the_same_effects_as_uninterrupted_writes() {
     let cases = [
         (vec!["payload >= 10"; MAX_SQL_EXPR_DEPTH].join(" AND "), 3),
-        // Reduced-SQL integers are Int64; equality/IN remain strict against
-        // this Nat64 field. Ordered comparisons explicitly widen numerically.
+        // Frontend equality/membership literals bind to the accepted Nat64
+        // field; ordered operands retain explicit numeric widening.
         (
             (10..10 + MAX_SQL_EXPR_DEPTH)
                 .map(|value| format!("payload = {value}"))
                 .collect::<Vec<_>>()
                 .join(" OR "),
-            0,
+            2,
         ),
-        ("payload = 10 OR payload >= 200".to_string(), 1),
+        ("payload = 10 OR payload >= 200".to_string(), 2),
         (
             format!("{}payload < 10", "NOT ".repeat(MAX_SQL_EXPR_DEPTH - 1)),
             3,
@@ -118,6 +121,76 @@ fn normalized_partial_indexes_replay_the_same_effects_as_uninterrupted_writes() 
             } else {
                 expected_entries = Some(entries);
             }
+        }
+    }
+}
+
+#[test]
+fn typed_filtered_index_reads_match_primary_scan_and_guard_admission() {
+    use crate::db::{FieldRef, query::explain::ExplainAccessPath};
+
+    let session = initialize_with_snapshot(partial_index_snapshot("payload = 10"));
+    session
+        .execute_trusted_dynamic_insert_batch(
+            ENTITY_NAME,
+            [10, 20, 200]
+                .into_iter()
+                .map(dynamic_payload_patch)
+                .collect(),
+        )
+        .unwrap();
+    let binding = session
+        .issue_typed_entity_binding(&TYPED_DESCRIPTOR)
+        .unwrap();
+    let scan = DynamicQuery::new(ENTITY_NAME).select(["payload"]);
+    let plan = session
+        .explain_query_for_typed_binding(&binding, &scan)
+        .unwrap()
+        .unwrap();
+    assert!(matches!(plan.access(), ExplainAccessPath::FullScan));
+    // The maintained test page quantum is two rows; compare complete results
+    // across continuation boundaries rather than assuming one page is exhaustive.
+    let collect = |request: &DynamicQuery| {
+        let mut rows = Vec::new();
+        let mut continuation = None;
+        for _ in 0..4 {
+            let page = session
+                .execute_trusted_live_page(request, continuation.as_deref())
+                .unwrap();
+            rows.extend(page.rows);
+            continuation = page.continuation;
+            if continuation.is_none() {
+                break;
+            }
+        }
+        assert!(continuation.is_none());
+        rows
+    };
+    let rows = collect(&scan);
+    assert_eq!(rows.len(), 3);
+    for payload in [10_u64, 20, 200] {
+        let query = DynamicQuery::new(ENTITY_NAME)
+            .filter(FieldRef::new("payload").eq(payload))
+            .select(["payload"]);
+        let plan = session
+            .explain_query_for_typed_binding(&binding, &query)
+            .unwrap()
+            .unwrap();
+        if payload == 10 {
+            assert!(matches!(
+                plan.access(),
+                ExplainAccessPath::IndexPrefix { .. }
+            ));
+        } else {
+            assert!(matches!(plan.access(), ExplainAccessPath::FullScan));
+        }
+        let expected = rows
+            .iter()
+            .filter(|row| row[0] == OutputValue::nat64(payload))
+            .cloned()
+            .collect::<Vec<_>>();
+        for _ in 0..2 {
+            assert_eq!(collect(&query), expected);
         }
     }
 }

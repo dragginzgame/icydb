@@ -366,7 +366,7 @@ fn for_each_grouped_page_candidate(
 ) -> Result<(), InternalError> {
     let aggregate_count = grouped_bundle.aggregate_count();
 
-    for finalized_group in into_finalize_groups(grouped_bundle, sorted)? {
+    for finalized_group in into_finalize_groups(grouped_bundle, sorted, direction)? {
         let mut candidate = GroupedPageCandidate::from_finalized(
             finalized_group,
             aggregate_count,
@@ -413,12 +413,13 @@ fn collect_grouped_page_candidates(
 fn into_finalize_groups(
     grouped_bundle: GroupedAggregateBundle,
     sorted: bool,
+    direction: Direction,
 ) -> Result<
     Vec<crate::db::executor::aggregate::runtime::grouped_fold::bundle::GroupedFinalizeGroup>,
     InternalError,
 > {
     if sorted {
-        grouped_bundle.into_sorted_groups()
+        grouped_bundle.into_sorted_groups(direction)
     } else {
         Ok(grouped_bundle.into_groups())
     }

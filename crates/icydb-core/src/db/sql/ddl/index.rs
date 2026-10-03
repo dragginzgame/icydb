@@ -177,12 +177,12 @@ pub(super) fn bind_create_index_statement(
         .collect::<Result<Vec<_>, _>>()?;
     let field_paths = create_index_field_path_report_items(key_items.as_slice());
     let predicate_sql =
-        validated_create_index_predicate_sql(statement.predicate_sql.as_deref(), schema)?;
+        bind_create_index_predicate(statement.predicate_sql.as_deref(), accepted_before, schema)?;
     let candidate_index = candidate_index_snapshot(
         accepted_before,
         statement.name.as_str(),
         key_items.as_slice(),
-        predicate_sql.as_deref(),
+        predicate_sql,
         statement.uniqueness,
         index_store_path,
     )?;
@@ -467,7 +467,7 @@ fn candidate_index_snapshot(
     accepted_before: &AcceptedSchemaSnapshot,
     index_name: &str,
     key_items: &[BoundSqlDdlCreateIndexKey],
-    predicate_sql: Option<&str>,
+    predicate_sql: Option<crate::db::schema::AcceptedIndexPredicate>,
     uniqueness: SqlCreateIndexUniqueness,
     index_store_path: &'static str,
 ) -> Result<PersistedIndexSnapshot, SqlDdlBindError> {
@@ -479,7 +479,7 @@ fn candidate_index_snapshot(
         index_store_path.to_string(),
         matches!(uniqueness, SqlCreateIndexUniqueness::Unique),
         key_intents.as_slice(),
-        predicate_sql.map(str::to_string),
+        predicate_sql,
     )
     .map_err(sql_secondary_index_key_candidate_error)
 }
@@ -533,10 +533,11 @@ fn sql_secondary_index_key_candidate_error(
     }
 }
 
-fn validated_create_index_predicate_sql(
+fn bind_create_index_predicate(
     predicate_sql: Option<&str>,
+    accepted: &AcceptedSchemaSnapshot,
     schema: &SchemaInfo,
-) -> Result<Option<String>, SqlDdlBindError> {
+) -> Result<Option<crate::db::schema::AcceptedIndexPredicate>, SqlDdlBindError> {
     let Some(predicate_sql) = predicate_sql else {
         return Ok(None);
     };
@@ -544,8 +545,21 @@ fn validated_create_index_predicate_sql(
         .map_err(|_| SqlDdlBindError::InvalidFilteredIndexPredicate)?;
     validate_predicate(schema, &predicate)
         .map_err(|_| SqlDdlBindError::InvalidFilteredIndexPredicate)?;
-
-    Ok(Some(predicate_sql.to_string()))
+    let bound = crate::db::schema::AcceptedIndexPredicate::bind(
+        &predicate,
+        accepted.persisted_snapshot(),
+        schema.value_catalog_handle(),
+    )
+    .map_err(|_| SqlDdlBindError::InvalidFilteredIndexPredicate)?;
+    let predicate = bound
+        .to_predicate(
+            accepted.persisted_snapshot().fields(),
+            schema.value_catalog_handle(),
+        )
+        .map_err(|_| SqlDdlBindError::InvalidFilteredIndexPredicate)?;
+    validate_predicate(schema, &predicate)
+        .map_err(|_| SqlDdlBindError::InvalidFilteredIndexPredicate)?;
+    Ok(Some(bound))
 }
 
 fn ddl_field_path_report(field_paths: &[BoundSqlDdlFieldPath]) -> Vec<String> {
@@ -754,7 +768,7 @@ mod tests {
         assert!(matches!(
             bound.statement(),
             BoundSqlDdlStatement::CreateIndex(create)
-                if create.candidate_index().predicate_sql() == Some("email IS NOT NULL")
+                if create.candidate_index().predicate() == Some(&crate::db::schema::AcceptedIndexPredicate::test_non_null(2))
         ));
     }
 
@@ -841,6 +855,26 @@ mod tests {
             .statement(),
             BoundSqlDdlStatement::NoOp(_)
         ));
+
+        for sql in [
+            "CREATE UNIQUE INDEX IF NOT EXISTS account_email ON Account(email) WHERE (email IS NOT NULL)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS account_email ON Account (email) WHERE email is not null AND email IS NOT NULL",
+        ] {
+            let equivalent = create_index_statement(sql);
+            for (accepted, schema) in [(&active, &active_schema), (&pending, &pending_schema)] {
+                assert!(matches!(
+                    bind_create_index_statement(
+                        &equivalent,
+                        accepted,
+                        schema,
+                        "entities::Account::account_email"
+                    )
+                    .unwrap()
+                    .statement(),
+                    BoundSqlDdlStatement::NoOp(_)
+                ));
+            }
+        }
 
         let same_name_conflict = create_index_statement(
             "CREATE UNIQUE INDEX IF NOT EXISTS account_email ON Account (email) WHERE email IS NOT NULL AND id IS NOT NULL",

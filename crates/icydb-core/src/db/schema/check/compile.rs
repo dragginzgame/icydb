@@ -10,7 +10,7 @@ use crate::{
     db::{
         commit::CommitSchemaFingerprint,
         data::{AcceptedFieldWriteProvenance, decode_validated_check_literal_payload},
-        predicate::{normalize, parse_sql_predicate},
+        predicate::normalize,
         query::construction::ConstructionBudget,
         schema::{
             AcceptedCompositeCatalog, AcceptedConstraintKind, AcceptedEnumCatalog,
@@ -232,7 +232,8 @@ impl CompiledAcceptedRowConstraints {
             if matching.next().is_some() {
                 return Err(InternalError::accepted_row_constraint_program_corrupt());
             }
-            let dependency_slots = unique_index_dependency_slots(schema, index, work)?;
+            let dependency_slots =
+                unique_index_dependency_slots(schema, index, value_catalog, work)?;
             work.reserve_vec(&mut compiled.unique_write_barriers, 1)?;
             compiled
                 .unique_write_barriers
@@ -904,7 +905,7 @@ fn compile_value(
     }
 }
 
-pub(super) fn decode_literal(
+pub(in crate::db::schema) fn decode_literal(
     literal: &AcceptedCheckLiteralV1,
     value_catalog: &AcceptedValueCatalogHandle,
 ) -> Result<Value, AcceptedRowConstraintEvaluationError> {
@@ -1100,6 +1101,7 @@ pub(super) fn compare_values(
 fn unique_index_dependency_slots(
     schema: &AcceptedSchemaSnapshot,
     index: &crate::db::schema::PersistedIndexSnapshot,
+    value_catalog: &AcceptedValueCatalogHandle,
     work: &dyn ConstructionBudget,
 ) -> Result<Vec<usize>, InternalError> {
     let snapshot = schema.persisted_snapshot();
@@ -1123,16 +1125,19 @@ fn unique_index_dependency_slots(
             *required_slot = true;
         }
     }
-    if let Some(predicate_sql) = index.predicate_sql() {
-        // Source traversal is not a parser/normalizer scratch bound.
+    if let Some(bound) = index.predicate() {
         work.charge(
             Resource::PredicateExpressionSteps,
-            predicate_sql.len() as u64,
+            bound
+                .canonical_bytes()
+                .map_err(|_| InternalError::accepted_row_constraint_program_corrupt())?
+                .len() as u64,
         )?;
-        let predicate = parse_sql_predicate(predicate_sql)
+        let predicate = bound
+            .to_predicate(snapshot.fields(), value_catalog)
             .map_err(|_| InternalError::accepted_row_constraint_program_corrupt())?;
-        // Dependency discovery needs names, not decoded values or an executable
-        // tree. Retain normalization so discarded branches do not gain barriers.
+        // Project the accepted tree for the existing normalization owner so
+        // discarded branches do not gain independent write barriers.
         normalize(predicate).try_for_each_field(&mut |name| {
             work.charge(Resource::PredicateExpressionSteps, 1)?;
             let slot = snapshot

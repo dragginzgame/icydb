@@ -184,7 +184,7 @@ fn nullable_unique_schema_fixture(
         "NullableUnique".to_string(),
         FieldId::new(1),
         row_layout,
-        fields,
+        fields.clone(),
         vec![PersistedIndexSnapshot::new(
             SchemaIndexId::new(1).expect("test index identity should be non-zero"),
             1,
@@ -192,7 +192,8 @@ fn nullable_unique_schema_fixture(
             "nullable_unique::value".to_string(),
             unique,
             PersistedIndexKeySnapshot::FieldPath(key),
-            predicate_sql.map(str::to_string),
+            predicate_sql
+                .map(|sql| crate::db::schema::AcceptedIndexPredicate::bind_test_sql(sql, &fields)),
         )],
     );
     let catalog = AcceptedConstraintCatalog::initial(
@@ -259,8 +260,21 @@ fn nested_nullable_unique_schema_fixture(
                 AcceptedFieldKind::Text { max_len: None },
                 terminal_nullable,
             )]),
-            predicate_sql.map(str::to_string),
+            None,
         )],
+    );
+    let mut indexes = snapshot.indexes().to_vec();
+    indexes[0] = indexes[0].clone_with_predicate_for_tests(predicate_sql.map(|sql| {
+        crate::db::schema::AcceptedIndexPredicate::bind_test_sql(sql, snapshot.fields())
+    }));
+    let snapshot = PersistedSchemaSnapshot::new_with_indexes(
+        snapshot.version(),
+        snapshot.entity_path().into(),
+        snapshot.entity_name().into(),
+        snapshot.primary_key_field_ids().to_vec(),
+        snapshot.row_layout().clone(),
+        snapshot.fields().to_vec(),
+        indexes,
     );
     let catalog = AcceptedConstraintCatalog::initial(
         snapshot.fields(),
@@ -542,23 +556,24 @@ fn nullable_unique_acceptance_is_composite_complete_and_bind_fail_closed() {
         Some("tenant IS NOT NULL AND email IS NOT NULL"),
     ))
     .expect("guard order should not alter composite coverage");
-
-    for predicate in ["missing IS NOT NULL", "email IS NOT"] {
-        let error = AcceptedSchemaSnapshot::try_new_with_acceptance(
-            nullable_unique_schema_fixture(true, &["email"], &["email"], Some(predicate)),
-        )
-        .expect_err("malformed or unbound predicates must fail closed");
-        assert_eq!(error, SchemaSnapshotAcceptanceError::Predicate);
-    }
 }
 
 #[test]
 fn nullable_unique_acceptance_rejects_unguardable_nested_omission() {
-    let terminal = AcceptedSchemaSnapshot::try_new_with_acceptance(
-        nested_nullable_unique_schema_fixture(false, true, Some("profile.email IS NOT NULL")),
-    )
-    .expect_err("dotted predicate text cannot bind as a nested guard");
-    assert_eq!(terminal, SchemaSnapshotAcceptanceError::Predicate);
+    let nested = nested_nullable_unique_schema_fixture(false, true, None);
+    let catalog = crate::db::schema::AcceptedValueCatalogHandle::new_for_tests(
+        crate::db::schema::empty_accepted_enum_catalog_for_tests(),
+        crate::db::schema::AcceptedCompositeCatalog::empty(),
+        crate::db::schema::AcceptedSchemaRevision::INITIAL,
+    );
+    assert!(
+        crate::db::schema::AcceptedIndexPredicate::bind(
+            &crate::db::predicate::parse_sql_predicate("profile.email IS NOT NULL").unwrap(),
+            &nested,
+            &catalog
+        )
+        .is_err()
+    );
 
     let ancestor = AcceptedSchemaSnapshot::try_new_with_acceptance(
         nested_nullable_unique_schema_fixture(true, false, Some("profile IS NOT NULL")),
@@ -570,27 +585,6 @@ fn nullable_unique_acceptance_rejects_unguardable_nested_omission() {
             NullableUniqueIndexContractError::UnsupportedNullableAncestor { source, .. }
         ) if source == vec!["profile".to_string(), "email".to_string()]
     ));
-}
-
-#[test]
-fn nullable_unique_acceptance_validates_fields_before_discarding_branches() {
-    for invalid in [
-        "missing IS NOT NULL",
-        "missing = 'active'",
-        "email = missing",
-        "NOT missing IS NULL",
-    ] {
-        let predicate = format!(
-            "email IS NOT NULL AND (email = 'active' OR (email = 'a' AND email = 'b' AND {invalid}))"
-        );
-        let snapshot =
-            nullable_unique_schema_fixture(true, &["email"], &["email"], Some(&predicate));
-        assert_eq!(
-            AcceptedSchemaSnapshot::try_new_with_acceptance(snapshot),
-            Err(SchemaSnapshotAcceptanceError::Predicate),
-            "unknown fields must reject even inside a contradictory branch",
-        );
-    }
 }
 
 #[test]
@@ -618,7 +612,7 @@ fn nullable_unique_acceptance_applies_to_expression_sources() {
                 "expr:v1:LOWER(email)".to_string(),
             )),
         )]),
-        Some("email IS NOT NULL".to_string()),
+        Some(crate::db::schema::AcceptedIndexPredicate::test_non_null(2)),
     );
     let snapshot = PersistedSchemaSnapshot::new_with_indexes(
         base.version(),
@@ -683,7 +677,10 @@ fn nullable_unique_acceptance_deduplicates_repeated_and_mixed_sources_at_the_key
                 "nullable_unique::mixed".to_string(),
                 true,
                 key.clone(),
-                Some(predicate_sql.to_string()),
+                Some(crate::db::schema::AcceptedIndexPredicate::bind_test_sql(
+                    predicate_sql,
+                    base.fields(),
+                )),
             )],
         );
         let catalog = AcceptedConstraintCatalog::initial(
@@ -736,7 +733,7 @@ fn nullable_unique_acceptance_preserves_structural_precedence_for_invalid_source
             "nullable_unique::invalid".to_string(),
             true,
             PersistedIndexKeySnapshot::FieldPath(vec![invalid_source]),
-            Some("email IS NOT".to_string()),
+            Some(crate::db::schema::AcceptedIndexPredicate::test_non_null(99)),
         )],
     );
     let catalog = AcceptedConstraintCatalog::initial(
@@ -764,36 +761,39 @@ fn every_index_predicate_binds_authored_fields_before_acceptance_and_codec() {
     for unique in [false, true] {
         for nullable in [false, true] {
             let nullable_fields: &[&str] = if nullable { &["email"] } else { &[] };
-            for sql in [
-                "missing = 'x'",
-                "email = missing",
-                "email = 'a' AND email = 'b' AND missing IS NULL",
-                "email = 'a' OR email = 'b' OR missing = 'c'",
-                "email.path IS NOT NULL",
-                "email IS NOT",
-            ] {
-                let snapshot =
-                    nullable_unique_schema_fixture(unique, nullable_fields, &["email"], Some(sql));
-                assert_eq!(
-                    AcceptedSchemaSnapshot::try_new_with_acceptance(snapshot.clone()),
-                    Err(SchemaSnapshotAcceptanceError::Predicate),
-                    "unique={unique}, nullable={nullable}, {sql}",
-                );
-                assert_eq!(
-                    encode_persisted_schema_snapshot(&snapshot)
-                        .unwrap_err()
-                        .class(),
-                    ErrorClass::InvariantViolation,
-                );
-                let bytes =
-                    encode_unchecked_persisted_schema_snapshot_for_tests(&snapshot).unwrap();
-                assert_eq!(
-                    decode_persisted_schema_snapshot(&bytes)
-                        .unwrap_err()
-                        .class(),
-                    ErrorClass::Corruption,
-                );
-            }
+            let base = nullable_unique_schema_fixture(unique, nullable_fields, &["email"], None);
+            let predicate = crate::db::schema::AcceptedIndexPredicate::And(vec![
+                crate::db::schema::AcceptedIndexPredicate::False,
+                crate::db::schema::AcceptedIndexPredicate::test_non_null(99),
+            ]);
+            let invalid = base.indexes()[0].clone_with_predicate_for_tests(Some(predicate));
+            let snapshot = PersistedSchemaSnapshot::new_with_indexes(
+                base.version(),
+                base.entity_path().into(),
+                base.entity_name().into(),
+                base.primary_key_field_ids().to_vec(),
+                base.row_layout().clone(),
+                base.fields().to_vec(),
+                vec![invalid],
+            );
+            assert_eq!(
+                AcceptedSchemaSnapshot::try_new_with_acceptance(snapshot.clone()),
+                Err(SchemaSnapshotAcceptanceError::Predicate)
+            );
+            assert_eq!(
+                encode_persisted_schema_snapshot(&snapshot)
+                    .unwrap_err()
+                    .class(),
+                ErrorClass::InvariantViolation
+            );
+            assert_eq!(
+                decode_persisted_schema_snapshot(
+                    &encode_unchecked_persisted_schema_snapshot_for_tests(&snapshot).unwrap()
+                )
+                .unwrap_err()
+                .class(),
+                ErrorClass::Corruption
+            );
             for sql in [
                 "email IS NOT NULL AND email = 'missing'",
                 "email IS NOT NULL AND email = tenant",

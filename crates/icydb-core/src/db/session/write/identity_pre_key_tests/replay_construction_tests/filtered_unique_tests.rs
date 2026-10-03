@@ -69,7 +69,7 @@ fn filtered_snapshot(expression: bool) -> PersistedSchemaSnapshot {
                 .map(|field| (field.id(), field.slot()))
                 .collect(),
         ),
-        fields,
+        fields.clone(),
         vec![PersistedIndexSnapshot::new(
             SchemaIndexId::new(1).unwrap(),
             1,
@@ -77,7 +77,10 @@ fn filtered_snapshot(expression: bool) -> PersistedSchemaSnapshot {
             JOURNALED_STORE_PATH.into(),
             true,
             key,
-            Some("active = true".into()),
+            Some(crate::db::schema::AcceptedIndexPredicate::bind_test_sql(
+                "active = true",
+                &fields,
+            )),
         )],
     )
 }

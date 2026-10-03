@@ -83,11 +83,11 @@ fn complete_domain_setup_keeps_source_exhaustion_distinct_from_predicate_rejecti
             1,
             "by_lower_name",
             false,
-            Some("name =".into()),
+            Some(crate::db::schema::AcceptedIndexPredicate::test_non_null(99)),
         )],
     );
     // Row fields are unchanged; inject the malformed index separately from the
-    // valid row contract to exercise setup's defensive parse/error ordering.
+    // valid row contract to exercise setup's defensive projection/error ordering.
     let row_contract = accepted_row_contract(&before);
     let store = IndexStore::init_heap();
     let physical_before = index_store_entries(&store);
@@ -106,7 +106,7 @@ fn complete_domain_setup_keeps_source_exhaustion_distinct_from_predicate_rejecti
         Resource::PredicateExpressionSteps,
         1,
     )) {
-        Ok(_) => panic!("predicate source bytes must be admitted before parsing"),
+        Ok(_) => panic!("predicate bytes must be admitted before projection"),
         Err(error) => error.into_internal_error(),
     };
     assert!(error.diagnostic_facts().contains(&(
@@ -121,7 +121,7 @@ fn complete_domain_setup_keeps_source_exhaustion_distinct_from_predicate_rejecti
     assert!(
         error
             .diagnostic_facts()
-            .contains(&(DiagnosticFactTag::Actual, 7))
+            .contains(&(DiagnosticFactTag::Actual, 6))
     );
     let error = construct(MaintenanceConstructionBudget::new())
         .err()
@@ -448,7 +448,7 @@ fn complete_domain_stage_rejects_unique_collision_from_candidate_logical_fill() 
             AcceptedFieldKind::Text { max_len: None },
             true,
         )]),
-        Some("nickname IS NOT NULL".to_string()),
+        Some(crate::db::schema::AcceptedIndexPredicate::test_non_null(3)),
     );
     let after = snapshot_with_indexes(&added, vec![unique_nickname]);
     let row_contract = accepted_row_contract(&after);
@@ -520,7 +520,7 @@ fn filtered_unique_domain_omits_guard_false_rows_and_matches_incremental_keys() 
             AcceptedFieldKind::Text { max_len: None },
             true,
         )]),
-        Some("nickname IS NOT NULL".to_string()),
+        Some(crate::db::schema::AcceptedIndexPredicate::test_non_null(3)),
     );
     let after = snapshot_with_indexes(&added, vec![unique_nickname]);
     let row_contract = accepted_row_contract(&after);
@@ -735,7 +735,7 @@ fn complete_domain_stage_requires_row_contract_for_filtered_indexes() {
             1,
             "filtered_lower_name",
             false,
-            Some("name IS NOT NULL".to_string()),
+            Some(crate::db::schema::AcceptedIndexPredicate::test_non_null(2)),
         )],
     );
     let store = IndexStore::init_heap();
@@ -883,7 +883,15 @@ fn complete_domain_stage_flat_or_matches_explicit_membership() {
             "name = 'Ada' OR name = 'Grace' OR name = 'Lin'",
         ] {
             let index = if expression {
-                domain_expression_index(1, "by_name", false, Some(sql.into()))
+                domain_expression_index(
+                    1,
+                    "by_name",
+                    false,
+                    Some(crate::db::schema::AcceptedIndexPredicate::bind_test_sql(
+                        sql,
+                        before.fields(),
+                    )),
+                )
             } else {
                 PersistedIndexSnapshot::new(
                     SchemaIndexId::new(1).unwrap(),
@@ -892,7 +900,10 @@ fn complete_domain_stage_flat_or_matches_explicit_membership() {
                     STORE_PATH.into(),
                     false,
                     PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
-                    Some(sql.into()),
+                    Some(crate::db::schema::AcceptedIndexPredicate::bind_test_sql(
+                        sql,
+                        before.fields(),
+                    )),
                 )
             };
             let after = snapshot_with_indexes(&before, vec![index]);
@@ -929,7 +940,7 @@ fn domain_expression_index(
     ordinal: u16,
     name: &str,
     unique: bool,
-    predicate: Option<String>,
+    predicate: Option<crate::db::schema::AcceptedIndexPredicate>,
 ) -> PersistedIndexSnapshot {
     PersistedIndexSnapshot::new(
         SchemaIndexId::new(u32::from(ordinal)).expect("test index identity should be non-zero"),
@@ -1042,4 +1053,121 @@ fn index_store_entries(store: &IndexStore) -> Vec<(RawIndexStoreKey, IndexEntryV
     });
     result.unwrap_or_else(|never| match never {});
     entries
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One end-to-end matrix checks codec, membership and unique collisions together"
+)]
+fn complete_domain_generated_numeric_filters_enforce_unique_membership_after_codec() {
+    use crate::db::schema::{
+        AcceptedCheckCompareOpV1, AcceptedCheckExprV1, AcceptedCheckValueExprV1,
+        AcceptedIndexPredicate, check::bind_index_predicate_literal,
+    };
+    for (kind, value) in [
+        (AcceptedFieldKind::Nat64, Value::Nat64(3)),
+        (AcceptedFieldKind::Int128, Value::Int128(3)),
+        (
+            AcceptedFieldKind::Decimal { scale: 0 },
+            Value::Decimal(crate::types::Decimal::from(3)),
+        ),
+    ] {
+        let base = base_snapshot();
+        let fields = vec![
+            base.fields()[0].clone(),
+            PersistedFieldSnapshot::new_initial(
+                FieldId::new(2),
+                "name".into(),
+                SchemaFieldSlot::new(1),
+                kind.clone(),
+                vec![],
+                false,
+                SchemaInsertDefault::None,
+                FieldStorageDecode::ByKind,
+                kind.leaf_codec_for_storage(FieldStorageDecode::ByKind),
+            ),
+        ];
+        let before = PersistedSchemaSnapshot::new(
+            base.version(),
+            base.entity_path().into(),
+            base.entity_name().into(),
+            base.primary_key_field_ids().to_vec(),
+            base.row_layout().clone(),
+            fields,
+        );
+        let catalogs = AcceptedValueCatalogHandle::new_for_tests(
+            empty_accepted_enum_catalog_for_tests(),
+            AcceptedCompositeCatalog::empty(),
+            AcceptedSchemaRevision::INITIAL,
+        );
+        let literal = bind_index_predicate_literal(
+            crate::value::InputValue::from(value.clone()),
+            kind.clone(),
+            catalogs.enum_catalog(),
+            catalogs.composite_catalog(),
+        )
+        .unwrap();
+        let predicate = AcceptedIndexPredicate::from_check(
+            &AcceptedCheckExprV1::Compare {
+                left: AcceptedCheckValueExprV1::Field(FieldId::new(2)),
+                op: AcceptedCheckCompareOpV1::Eq,
+                right: AcceptedCheckValueExprV1::Literal(literal),
+            },
+            before.fields(),
+            catalogs.composite_catalog(),
+        )
+        .unwrap();
+        let index = PersistedIndexSnapshot::new(
+            SchemaIndexId::new(1).unwrap(),
+            1,
+            "unique_name".into(),
+            STORE_PATH.into(),
+            true,
+            PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+                FieldId::new(2),
+                SchemaFieldSlot::new(1),
+                vec!["name".into()],
+                kind,
+                false,
+            )]),
+            Some(predicate),
+        );
+        let after = snapshot_with_indexes(&before, vec![index]);
+        let after = crate::db::schema::decode_persisted_schema_snapshot(
+            &crate::db::schema::encode_persisted_schema_snapshot(&after).unwrap(),
+        )
+        .unwrap();
+        let contract = accepted_row_contract(&after);
+        let row = RebuildSlotReader {
+            values: vec![None, Some(value)],
+        };
+        let store = IndexStore::init_heap();
+        let staged = stage_domain(
+            accepted_identity(&before),
+            &before,
+            &after,
+            Some(&contract),
+            [domain_row(1, &row)],
+            &store,
+        )
+        .map_err(super::StagedUserIndexDomainError::into_internal_error)
+        .unwrap();
+        assert_eq!(staged.final_entries().len(), 1);
+        assert!(
+            matches!(
+                stage_domain(
+                    accepted_identity(&before),
+                    &before,
+                    &after,
+                    Some(&contract),
+                    [domain_row(1, &row), domain_row(2, &row)],
+                    &store
+                ),
+                Err(super::StagedUserIndexDomainError::CandidateUniqueConflict)
+            ),
+            "two matching typed rows must collide"
+        );
+        assert!(store.is_empty());
+    }
 }

@@ -23,7 +23,7 @@ use crate::{
             RawIndexStoreKey,
         },
         key_taxonomy::PrimaryKeyValue,
-        predicate::{PredicateProgram, normalized_accepted_index_predicate},
+        predicate::PredicateProgram,
         schema::{
             MAX_SCHEMA_PROJECTION_WORK_UNITS, MAX_SCHEMA_STAGED_RAW_BYTES,
             SchemaExpressionIndexRebuildTarget, SchemaFieldPathIndexRebuildTarget,
@@ -561,15 +561,19 @@ impl PreparedUserIndex {
                 return Err(StagedUserIndexDomainError::UnsupportedAcceptedIndex);
             }
         };
-        let predicate = match index.predicate_sql() {
-            Some(sql) => {
+        let predicate = match index.predicate() {
+            Some(bound) => {
                 let row_contract = predicate_row_contract
                     .ok_or(StagedUserIndexDomainError::MissingPredicateRowContract)?;
-                normalized_accepted_index_predicate(Some(sql))
-                    .map_err(StagedUserIndexDomainError::KeyDerivation)?
-                    .map(|predicate| {
-                        PredicateProgram::compile_with_row_contract(row_contract, &predicate)
-                    })
+                Some(
+                    bound
+                        .for_row_contract(row_contract)
+                        .map(crate::db::predicate::normalize)
+                        .map_err(StagedUserIndexDomainError::KeyDerivation)?,
+                )
+                .map(|predicate| {
+                    PredicateProgram::compile_with_row_contract(row_contract, &predicate)
+                })
             }
             None => None,
         };
@@ -745,16 +749,24 @@ impl PreparedUserIndexProjection {
         work: &dyn ConstructionBudget,
     ) -> Result<Self, StagedUserIndexDomainError> {
         // Admit source visits and destination backing before compiling any
-        // index. Predicate bytes count source traversal, not a bound on parser,
-        // normalization or sorting scratch; those remain shared-owner work.
+        // index. Canonical predicate bytes account for bound-source traversal;
+        // compilation and normalization remain shared predicate-owner work.
         work.charge(
             Resource::PredicateExpressionSteps,
             snapshot.indexes().len() as u64,
         )
         .map_err(StagedUserIndexDomainError::KeyDerivation)?;
-        let predicate_bytes = snapshot.indexes().iter().fold(0u64, |total, index| {
-            total.saturating_add(index.predicate_sql().map_or(0, |sql| sql.len() as u64))
-        });
+        let mut predicate_bytes = 0_u64;
+        for index in snapshot.indexes() {
+            if let Some(predicate) = index.predicate() {
+                predicate_bytes = predicate_bytes.saturating_add(
+                    predicate
+                        .canonical_bytes()
+                        .map_err(StagedUserIndexDomainError::KeyDerivation)?
+                        .len() as u64,
+                );
+            }
+        }
         work.charge(Resource::PredicateExpressionSteps, predicate_bytes)
             .map_err(StagedUserIndexDomainError::KeyDerivation)?;
         let mut indexes = work

@@ -639,7 +639,7 @@ fn nullability_mutation_rejects_while_unique_candidate_is_live() {
 
 #[test]
 #[cfg(feature = "sql")]
-fn field_rename_rewrites_and_rebinds_nullable_unique_predicates_without_fallback() {
+fn field_rename_preserves_nullable_unique_predicate_identity_and_rejects_corruption() {
     let accepted = crate::db::schema::AcceptedSchemaSnapshot::try_new(base_snapshot())
         .expect("test accepted schema should be internally valid");
     let unique = PersistedIndexSnapshot::new_sql_ddl(
@@ -649,7 +649,7 @@ fn field_rename_rewrites_and_rebinds_nullable_unique_predicates_without_fallback
         "test::mutation::unique_name".to_string(),
         true,
         PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
-        Some("name IS NOT NULL".to_string()),
+        Some(crate::db::schema::AcceptedIndexPredicate::test_non_null(2)),
     );
     let indexed = derive_sql_ddl_field_path_index_accepted_after(&accepted, unique)
         .expect("explicit filtered unique index should admit");
@@ -661,10 +661,10 @@ fn field_rename_rewrites_and_rebinds_nullable_unique_predicates_without_fallback
         "name",
         "display_name",
     )
-    .expect("valid predicate root should rewrite and rebind");
+    .expect("valid predicate root should retain its accepted identity");
     assert_eq!(
-        renamed.accepted_after().persisted_snapshot().indexes()[0].predicate_sql(),
-        Some("display_name IS NOT NULL"),
+        renamed.accepted_after().persisted_snapshot().indexes()[0].predicate(),
+        Some(&crate::db::schema::AcceptedIndexPredicate::test_non_null(2)),
     );
 
     let malformed = PersistedIndexSnapshot::new_sql_ddl(
@@ -674,17 +674,19 @@ fn field_rename_rewrites_and_rebinds_nullable_unique_predicates_without_fallback
         "test::mutation::malformed_name".to_string(),
         true,
         PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
-        Some("name IS NOT".to_string()),
+        Some(crate::db::schema::AcceptedIndexPredicate::test_non_null(99)),
     );
-    // Bypass acceptance deliberately to exercise rewrite failure on corrupted authority.
+    // Bypass acceptance deliberately to exercise rejection of corrupted authority.
     let malformed = crate::db::schema::AcceptedSchemaSnapshot::new(snapshot_with_indexes(
         &base_snapshot(),
         vec![malformed],
     ));
     assert_eq!(
         derive_sql_ddl_field_rename_accepted_after(&malformed, "name", "display_name"),
-        Err(SchemaDdlMutationAdmissionError::AcceptedAfterRejected),
-        "predicate rewrite failure must not preserve stale text",
+        Err(SchemaDdlMutationAdmissionError::AcceptedAfter(
+            crate::db::schema::SchemaSnapshotAcceptanceError::Predicate
+        )),
+        "unbound predicate identity must reject publication",
     );
 }
 

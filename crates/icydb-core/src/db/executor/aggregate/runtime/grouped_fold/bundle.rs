@@ -35,7 +35,6 @@ use crate::{
             },
             pipeline::runtime::RowView,
         },
-        numeric::canonical_value_compare,
         query::plan::GroupField,
     },
     error::InternalError,
@@ -759,17 +758,21 @@ impl GroupedAggregateBundle {
             .collect()
     }
 
-    /// Return the grouped bundle as canonical-order groups whose aggregate
-    /// states have not been finalized yet.
-    pub(super) fn into_sorted_groups(self) -> Result<Vec<GroupedFinalizeGroup>, InternalError> {
+    /// Return groups in the same directional key order used by page selection
+    /// and continuation boundaries, before finalizing their aggregate states.
+    pub(super) fn into_sorted_groups(
+        self,
+        direction: Direction,
+    ) -> Result<Vec<GroupedFinalizeGroup>, InternalError> {
         let expected_group_count = self.groups.len();
         charge_sort_work::<GroupedFinalizeGroup>(expected_group_count)?;
         let mut out = self.into_groups();
 
-        // Phase 2: preserve deterministic canonical grouped-key order across
-        // grouped-bundle insertion order.
+        // Sorting and cursor filtering must agree before HAVING and offset
+        // consume this stream; candidate ranking cannot repair its order later.
         out.sort_by(|left, right| {
-            canonical_value_compare(
+            compare_grouped_boundary_values(
+                direction,
                 left.group_key.canonical_value(),
                 right.group_key.canonical_value(),
             )

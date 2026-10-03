@@ -61,8 +61,6 @@ pub use store::DataStore;
 pub(in crate::db) use store::PreparedDataPositionPublication;
 pub(in crate::db) use store::{PreparedDataPositionRetirement, StoreVisit};
 pub(in crate::db) use structural_field::FieldDecodeError;
-#[cfg(test)]
-pub(in crate::db) use structural_field::decode_canonical_value_storage_bytes;
 pub(in crate::db) use structural_field::{
     ValueStorageView, accepted_kind_supports_primary_key_component_binary,
     decode_accepted_relation_target_primary_key_components_bytes,
@@ -70,6 +68,10 @@ pub(in crate::db) use structural_field::{
     encode_structural_field_by_accepted_kind_bytes, encode_structural_value_storage_null_bytes,
     validate_structural_field_by_accepted_kind_bytes, validate_structural_value_storage_bytes,
     value_storage_bytes_are_null,
+};
+#[cfg(test)]
+pub(in crate::db) use structural_field::{
+    decode_canonical_value_storage_bytes, encode_canonical_value_storage_bytes,
 };
 pub(in crate::db::data) use structural_row::SparseRequiredRowFieldBytes;
 pub(in crate::db::data) use structural_row::StructuralRowFieldBytes;

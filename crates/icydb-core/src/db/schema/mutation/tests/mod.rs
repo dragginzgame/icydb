@@ -39,11 +39,14 @@ impl SlotReader for RebuildSlotReader {
 
     fn get_scalar(&self, slot: usize) -> Result<Option<ScalarSlotValueRef<'_>>, InternalError> {
         match self.values.get(slot).and_then(Option::as_ref) {
-            None => Ok(None),
             Some(Value::Null) => Ok(Some(ScalarSlotValueRef::Null)),
             Some(Value::Text(value)) => Ok(Some(ScalarSlotValueRef::Value(ScalarValueRef::Text(
                 value.as_str(),
             )))),
+            Some(Value::Nat64(value)) => {
+                Ok(Some(ScalarSlotValueRef::Value(ScalarValueRef::Nat(*value))))
+            }
+            None | Some(Value::Int128(_) | Value::Decimal(_)) => Ok(None),
             Some(_) => Err(InternalError::store_invariant()),
         }
     }
@@ -58,8 +61,16 @@ impl CanonicalSlotReader for RebuildSlotReader {
         Ok("test")
     }
 
-    fn field_leaf_codec(&self, _slot: usize) -> Result<LeafCodec, InternalError> {
-        Ok(LeafCodec::Scalar(ScalarCodec::Text))
+    fn field_leaf_codec(&self, slot: usize) -> Result<LeafCodec, InternalError> {
+        let kind = match self.values.get(slot).and_then(Option::as_ref) {
+            Some(Value::Nat64(_)) => AcceptedFieldKind::Nat64,
+            Some(Value::Int128(_)) => AcceptedFieldKind::Int128,
+            Some(Value::Decimal(value)) => AcceptedFieldKind::Decimal {
+                scale: value.scale(),
+            },
+            _ => AcceptedFieldKind::Text { max_len: None },
+        };
+        Ok(kind.leaf_codec_for_storage(FieldStorageDecode::ByKind))
     }
 
     fn required_value_by_contract(&self, slot: usize) -> Result<Value, InternalError> {
@@ -101,7 +112,7 @@ fn non_unique_name_index() -> PersistedIndexSnapshot {
         "test::mutation::by_name".to_string(),
         false,
         PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
-        Some("name IS NOT NULL".to_string()),
+        Some(crate::db::schema::AcceptedIndexPredicate::test_non_null(2)),
     )
 }
 
@@ -131,7 +142,7 @@ fn expression_name_index() -> PersistedIndexSnapshot {
                 "expr:v1:LOWER(name)".to_string(),
             )),
         )]),
-        Some("name IS NOT NULL".to_string()),
+        Some(crate::db::schema::AcceptedIndexPredicate::test_non_null(2)),
     )
 }
 

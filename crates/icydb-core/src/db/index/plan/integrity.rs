@@ -15,7 +15,7 @@ use crate::{
             raw_keys_for_component_prefix_with_kind,
         },
         key_taxonomy::PrimaryKeyValue,
-        predicate::{PredicateProgram, normalized_accepted_index_predicate},
+        predicate::PredicateProgram,
         query::construction::ConstructionBudget,
         schema::{
             AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, PersistedIndexKeySnapshot,
@@ -141,7 +141,7 @@ impl AcceptedIndexInspectionPlan {
 
         for accepted in snapshot.indexes() {
             work.charge(Resource::PredicateExpressionSteps, 1)?;
-            let predicate = compile_predicate(accepted.predicate_sql(), row_contract, work)?;
+            let predicate = compile_predicate(accepted.predicate(), row_contract, work)?;
             let entry = match accepted.key() {
                 PersistedIndexKeySnapshot::FieldPath(_) => {
                     let info =
@@ -321,17 +321,23 @@ enum AcceptedIndexInspectionEntry {
 }
 
 fn compile_predicate(
-    sql: Option<&str>,
+    bound: Option<&crate::db::schema::AcceptedIndexPredicate>,
     row_contract: &StructuralRowContract,
     work: &dyn ConstructionBudget,
 ) -> Result<Option<PredicateProgram>, InternalError> {
-    if let Some(sql) = sql {
-        // Admit source traversal before parsing. Parser/normalizer/program
-        // scratch remains separate work, not bounded by this byte allowance.
-        work.charge(Resource::PredicateExpressionSteps, sql.len() as u64)?;
-    }
-    Ok(normalized_accepted_index_predicate(sql)?
-        .map(|predicate| PredicateProgram::compile_with_row_contract(row_contract, &predicate)))
+    bound
+        .map(|bound| {
+            work.charge(
+                Resource::PredicateExpressionSteps,
+                bound.canonical_bytes()?.len() as u64,
+            )?;
+            let predicate = crate::db::predicate::normalize(bound.for_row_contract(row_contract)?);
+            Ok(PredicateProgram::compile_with_row_contract(
+                row_contract,
+                &predicate,
+            ))
+        })
+        .transpose()
 }
 
 fn validate_projection_identity(

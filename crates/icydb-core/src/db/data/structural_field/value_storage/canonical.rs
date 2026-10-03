@@ -13,7 +13,7 @@ use crate::{
                 push_binary_null, push_binary_text, push_binary_unit,
             },
             value_storage::{
-                decode_structural_value_storage_bytes,
+                decode::value::decode_value_storage_scalar_bytes,
                 encode::{
                     push_account_payload, push_date_payload, push_decimal_payload,
                     push_duration_payload, push_float32_payload, push_float64_payload,
@@ -21,7 +21,8 @@ use crate::{
                     push_nat128_payload, push_principal_payload, push_subaccount_payload,
                     push_timestamp_payload, push_u256_payload, push_ulid_payload,
                 },
-                skip::skip_value_storage_binary_value,
+                skip::skip_value_storage_scalar,
+                tags::VALUE_BINARY_TAG_ENUM,
             },
         },
         schema::{
@@ -33,11 +34,9 @@ use crate::{
         },
     },
     error::InternalError,
-    value::Value,
 };
 
 const CANONICAL_ENUM_HEADER_BYTES: usize = 14;
-const CANONICAL_ENUM_VALUE_TAG: u8 = 0x84;
 
 /// Encode one accepted canonical value into a single recursive destination.
 pub(in crate::db) fn encode_canonical_value_storage_bytes(
@@ -122,7 +121,7 @@ fn decode_canonical_value_storage(
         return Err(FieldDecodeError::new());
     };
 
-    if tag == CANONICAL_ENUM_VALUE_TAG {
+    if tag == VALUE_BINARY_TAG_ENUM {
         return decode_canonical_enum_value(encoded, |payload| {
             decode_canonical_value_storage(payload, depth.saturating_add(1))
                 .map_err(|_| CanonicalEnumWireError::PayloadCodec)
@@ -137,7 +136,7 @@ fn decode_canonical_value_storage(
         return decode_canonical_map(encoded, depth).map(CanonicalValue::Map);
     }
 
-    runtime_scalar_to_canonical(decode_structural_value_storage_bytes(encoded)?)
+    decode_value_storage_scalar_bytes(encoded)
 }
 
 fn decode_canonical_list(
@@ -189,7 +188,7 @@ fn decode_canonical_map(
     Ok(entries)
 }
 
-fn skip_canonical_value(
+pub(super) fn skip_canonical_value(
     encoded: &[u8],
     offset: usize,
     depth: u16,
@@ -199,7 +198,7 @@ fn skip_canonical_value(
         .get(offset)
         .copied()
         .ok_or_else(FieldDecodeError::new)?;
-    if tag == CANONICAL_ENUM_VALUE_TAG {
+    if tag == VALUE_BINARY_TAG_ENUM {
         return skip_canonical_enum(encoded, offset, depth);
     }
     if tag == TAG_LIST || tag == TAG_MAP {
@@ -215,7 +214,7 @@ fn skip_canonical_value(
         return Ok(cursor);
     }
 
-    skip_value_storage_binary_value(encoded, offset)
+    skip_value_storage_scalar(encoded, offset)
 }
 
 fn skip_canonical_enum(
@@ -271,34 +270,6 @@ fn canonical_collection_head_at(
     Ok((tag, len, payload_start))
 }
 
-fn runtime_scalar_to_canonical(value: Value) -> Result<CanonicalValue, FieldDecodeError> {
-    match value {
-        Value::Account(value) => Ok(CanonicalValue::Account(value)),
-        Value::Blob(value) => Ok(CanonicalValue::Blob(value)),
-        Value::Bool(value) => Ok(CanonicalValue::Bool(value)),
-        Value::Date(value) => Ok(CanonicalValue::Date(value)),
-        Value::Decimal(value) => Ok(CanonicalValue::Decimal(value)),
-        Value::Duration(value) => Ok(CanonicalValue::Duration(value)),
-        Value::Float32(value) => Ok(CanonicalValue::Float32(value)),
-        Value::Float64(value) => Ok(CanonicalValue::Float64(value)),
-        Value::Int64(value) => Ok(CanonicalValue::Int64(value)),
-        Value::Int128(value) => Ok(CanonicalValue::Int128(value)),
-        Value::IntBig(value) => Ok(CanonicalValue::IntBig(value)),
-        Value::Null => Ok(CanonicalValue::Null),
-        Value::Principal(value) => Ok(CanonicalValue::Principal(value)),
-        Value::Subaccount(value) => Ok(CanonicalValue::Subaccount(value)),
-        Value::Text(value) => Ok(CanonicalValue::Text(value)),
-        Value::Timestamp(value) => Ok(CanonicalValue::Timestamp(value)),
-        Value::Nat64(value) => Ok(CanonicalValue::Nat64(value)),
-        Value::Nat128(value) => Ok(CanonicalValue::Nat128(value)),
-        Value::NatBig(value) => Ok(CanonicalValue::NatBig(value)),
-        Value::Ulid(value) => Ok(CanonicalValue::Ulid(value)),
-        Value::Unit => Ok(CanonicalValue::Unit),
-        Value::U256(value) => Ok(CanonicalValue::U256(value)),
-        Value::Enum(_) | Value::List(_) | Value::Map(_) => Err(FieldDecodeError::new()),
-    }
-}
-
 const fn ensure_depth(depth: u16) -> Result<(), FieldDecodeError> {
     if depth >= MAX_ACCEPTED_RECURSIVE_DEPTH_U16 {
         return Err(FieldDecodeError::new());
@@ -309,6 +280,7 @@ const fn ensure_depth(depth: u16) -> Result<(), FieldDecodeError> {
 #[cfg(test)]
 mod tests {
     mod fixed_width;
+    mod traversal;
 
     use super::*;
     use crate::db::schema::MAX_ACCEPTED_RECURSIVE_DEPTH;

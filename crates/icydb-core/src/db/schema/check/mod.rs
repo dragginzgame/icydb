@@ -19,6 +19,8 @@ use crate::{
     db::schema::{FieldStorageDecode, LeafCodec},
 };
 
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db::schema) use bind::bind_index_predicate_literal;
 #[cfg(feature = "sql")]
 pub(in crate::db) use bind::bind_sql_check_expr;
 #[cfg(test)]
@@ -28,6 +30,7 @@ pub(in crate::db::schema) use bind::{
 };
 #[cfg(test)]
 pub(in crate::db) use compile::AcceptedRowConstraintViolationKind;
+pub(in crate::db::schema) use compile::decode_literal;
 pub(in crate::db) use compile::{
     AcceptedRowConstraintEvaluationError, CompiledAcceptedRowConstraints,
     accepted_row_constraint_write_error,
@@ -779,3 +782,7 @@ fn write_tag_u32(bytes: &mut Vec<u8>, tag: u8, value: u32) {
 fn write_len(bytes: &mut Vec<u8>, len: usize) {
     bytes.extend_from_slice(&(len as u64).to_be_bytes());
 }
+
+crate::retained::retained_fields!(AcceptedCheckLiteralV1 {
+    Self { kind, storage_decode, leaf_codec, payload } => [kind, storage_decode, leaf_codec, payload],
+});

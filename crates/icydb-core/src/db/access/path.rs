@@ -7,7 +7,6 @@ use crate::{
     db::{
         Predicate,
         index::SemanticIndexExpression,
-        predicate::normalized_accepted_index_predicate,
         schema::{SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo},
     },
     error::InternalError,
@@ -157,7 +156,7 @@ impl SemanticIndexAccessContract {
     pub(in crate::db) fn from_accepted_field_path_index(
         accepted: &crate::db::schema::SchemaIndexInfo,
     ) -> Result<Self, InternalError> {
-        let predicate_semantics = normalized_accepted_index_predicate(accepted.predicate_sql())?;
+        let predicate_semantics = accepted.predicate()?;
         Ok(Self {
             inner: std::sync::Arc::new(SemanticIndexAccessContractInner {
                 ordinal: accepted.ordinal(),
@@ -183,7 +182,7 @@ impl SemanticIndexAccessContract {
     pub(in crate::db) fn from_accepted_expression_index(
         accepted: &SchemaExpressionIndexInfo,
     ) -> Result<Self, InternalError> {
-        let predicate_semantics = normalized_accepted_index_predicate(accepted.predicate_sql())?;
+        let predicate_semantics = accepted.predicate()?;
         Ok(Self {
             inner: std::sync::Arc::new(SemanticIndexAccessContractInner {
                 ordinal: accepted.ordinal(),

@@ -124,7 +124,7 @@ impl<C: CanisterKind> DbSession<C> {
         store_path: &str,
         schema: &SchemaInfo,
         snapshot: &crate::db::schema::PersistedSchemaSnapshot,
-    ) -> Vec<String> {
+    ) -> Result<Vec<String>, InternalError> {
         let runtime_state = self
             .db
             .with_store_registry(|registry| registry.try_get_store(store_path).ok())

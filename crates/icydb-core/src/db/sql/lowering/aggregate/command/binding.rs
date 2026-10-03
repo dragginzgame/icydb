@@ -381,7 +381,7 @@ fn indexed_extrema_input_order(
     );
     let target_is_primary = schema.scalar_primary_key_name() == Some(target);
     let secondary_order_exists = schema.field_path_indexes().iter().any(|index| {
-        index.predicate_sql().is_none()
+        !index.has_predicate()
             && index.fields().len() == ordered_fields.len()
             && index
                 .fields()

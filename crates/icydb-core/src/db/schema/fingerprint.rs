@@ -187,7 +187,7 @@ fn index_with_identity_and_name(
             index.store().to_string(),
             index.unique(),
             index.key().clone(),
-            index.predicate_sql().map(str::to_string),
+            index.predicate().cloned(),
         ),
         crate::db::schema::PersistedIndexOrigin::SqlDdl => PersistedIndexSnapshot::new_sql_ddl(
             schema_id,
@@ -196,7 +196,7 @@ fn index_with_identity_and_name(
             index.store().to_string(),
             index.unique(),
             index.key().clone(),
-            index.predicate_sql().map(str::to_string),
+            index.predicate().cloned(),
         ),
     };
     renamed.clone_with_schema_identity(schema_id, index.ordinal(), index.physical_generation())

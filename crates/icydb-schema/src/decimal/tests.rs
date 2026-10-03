@@ -1,6 +1,7 @@
 use crate::Decimal;
 use crate::decimal::{DEFAULT_DIVISION_SCALE, MAX_SUPPORTED_SCALE, ParseDecimalErrorReason};
 use candid::{CandidType, decode_one, encode_one};
+use num_bigint::{BigInt, Sign};
 use proptest::prelude::*;
 use std::str::FromStr;
 
@@ -57,6 +58,58 @@ fn decimal_division_is_fixed_scale_and_rounded() {
 fn decimal_div_by_zero_returns_zero() {
     let value = Decimal::new(123, 2);
     assert_eq!(value / Decimal::ZERO, Decimal::ZERO);
+}
+
+#[test]
+fn decimal_remainder_preserves_exact_values_after_scale_alignment() {
+    let value: Decimal = "5.0000000000000000000000000001".parse().unwrap();
+    let divisor = Decimal::new(10_000_000_000_000, 0);
+    for lhs in [value, -value] {
+        for rhs in [divisor, -divisor] {
+            assert_eq!(lhs.checked_rem(rhs), Some(lhs));
+            assert_eq!(lhs % rhs, lhs);
+            let mut assigned = lhs;
+            assigned %= rhs;
+            assert_eq!(assigned, lhs);
+        }
+    }
+    for scale in 0..=MAX_SUPPORTED_SCALE {
+        let value = Decimal::from_i128_with_scale(i128::MIN, scale);
+        assert_eq!(value.checked_rem(Decimal::ZERO), None);
+        assert_eq!(value % Decimal::ZERO, Decimal::ZERO);
+        let mut assigned = value;
+        assigned %= Decimal::ZERO;
+        assert_eq!(assigned, Decimal::ZERO);
+    }
+}
+
+#[test]
+fn decimal_remainder_matches_exact_integer_oracle_at_every_scale_pair() {
+    for lhs_scale in 0..=MAX_SUPPORTED_SCALE {
+        for rhs_scale in 0..=MAX_SUPPORTED_SCALE {
+            let scale = lhs_scale.max(rhs_scale);
+            for lhs_mantissa in [i128::MIN, i128::MAX, -17, 0, 17] {
+                for rhs_mantissa in [i128::MIN, i128::MAX, -3, -1, 1, 3] {
+                    // An arbitrary-precision integer oracle qualifies exact
+                    // results independently of the bounded runtime arithmetic.
+                    let lhs_integer =
+                        BigInt::from(lhs_mantissa) * BigInt::from(10).pow(scale - lhs_scale);
+                    let rhs_integer =
+                        BigInt::from(rhs_mantissa) * BigInt::from(10).pow(scale - rhs_scale);
+                    let expected_mantissa = i128::try_from(lhs_integer % rhs_integer).unwrap();
+                    let expected = Decimal::from_i128_with_scale(expected_mantissa, scale);
+                    let lhs = Decimal::from_i128_with_scale(lhs_mantissa, lhs_scale);
+                    let rhs = Decimal::from_i128_with_scale(rhs_mantissa, rhs_scale);
+                    let result = lhs.checked_rem(rhs).expect("exact remainder fits");
+                    assert_eq!(result.parts(), expected.parts(), "{lhs} % {rhs}");
+                    assert_eq!(lhs % rhs, expected);
+                    let mut assigned = lhs;
+                    assigned %= rhs;
+                    assert_eq!(assigned, expected);
+                }
+            }
+        }
+    }
 }
 
 #[test]
@@ -330,6 +383,288 @@ fn decimal_division_sign_scale_matrix() {
     }
 }
 
+#[test]
+fn decimal_multiplication_rounds_precision_across_operator_surfaces() {
+    for (input, expected) in [
+        ("0.000000000000001", "0"),
+        ("1.123456789012345678", "1.2621551567779301925279682998"),
+        (
+            "17014118346.0469231731687303715884105727",
+            "289480223093290488558.92746252171976963",
+        ),
+    ] {
+        let input = Decimal::from_str(input).unwrap();
+        let expected = Decimal::from_str(expected).unwrap();
+        for (left, right, expected) in [
+            (input, input, expected),
+            (-input, input, -expected),
+            (input, -input, -expected),
+            (-input, -input, expected),
+        ] {
+            assert_eq!(left.checked_mul(right), Some(expected));
+            assert_eq!(left * right, expected);
+            let mut assigned = left;
+            assigned *= right;
+            assert_eq!(assigned, expected);
+            assert_eq!([left, right].into_iter().product::<Decimal>(), expected);
+        }
+        assert_eq!(input.checked_powu(2), Some(expected));
+        assert_eq!(input.powu(2), expected);
+    }
+    let expected = Decimal::from_str("17.4494022688864073185588037538").unwrap();
+    assert_eq!(Decimal::new(11, 1).checked_powu(30), Some(expected));
+    assert_eq!(Decimal::new(11, 1).powu(30), expected);
+}
+
+#[test]
+fn decimal_multiplication_qualifies_all_scale_pairs_and_signs() {
+    for left_scale in 0..=MAX_SUPPORTED_SCALE {
+        for right_scale in 0..=MAX_SUPPORTED_SCALE {
+            for left_sign in [-1, 1] {
+                for right_sign in [-1, 1] {
+                    let scale = left_scale + right_scale;
+                    let expected = if scale <= MAX_SUPPORTED_SCALE {
+                        Decimal::new(left_sign * right_sign, scale)
+                    } else {
+                        Decimal::ZERO
+                    };
+                    assert_eq!(
+                        Decimal::new(left_sign, left_scale)
+                            .checked_mul(Decimal::new(right_sign, right_scale)),
+                        Some(expected),
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn decimal_multiplication_rounds_ties_once_at_the_final_scale() {
+    for sign in [-1, 1] {
+        for (fraction, rounded) in [(4, 0), (5, 1), (6, 1), (14, 1), (15, 2), (16, 2)] {
+            assert_eq!(
+                Decimal::new(sign, 28).checked_mul(Decimal::new(fraction, 1)),
+                Some(Decimal::new(sign * rounded, 28)),
+            );
+        }
+        // The first 28-scale rounding cannot fit the mantissa. Rounding that
+        // rounded intermediate again would incorrectly raise the final digit.
+        let input = Decimal::from_i128_with_scale(i128::from(sign) * i128::MAX, 28);
+        let expected = Decimal::from_str("17541556014.7743777915369610131076513").unwrap();
+        let expected = if sign < 0 { -expected } else { expected };
+        let result = input.checked_mul(Decimal::new(1031, 3)).unwrap();
+        assert_eq!(result, expected);
+        assert_eq!(result.scale(), 27);
+    }
+}
+
+#[test]
+fn decimal_multiplication_preserves_signed_magnitude_limits() {
+    for mantissa in [i128::MIN, i128::MAX] {
+        let value = Decimal::from_i128_with_scale(mantissa, 0);
+        assert_eq!(value.checked_mul(Decimal::new(1, 0)), Some(value));
+        assert_eq!(value.checked_mul(Decimal::ZERO), Some(Decimal::ZERO));
+        assert_eq!(value.checked_mul(Decimal::new(2, 0)), None);
+        assert_eq!(value * Decimal::new(2, 0), value);
+    }
+    assert_eq!(
+        Decimal::from_i128_with_scale(i128::MIN, 0).checked_mul(Decimal::new(-1, 0)),
+        None,
+    );
+    let minimum = Decimal::from_i128_with_scale(i128::MIN, 28);
+    assert_eq!(
+        minimum.checked_mul(minimum),
+        Some("289480223093290488558.92746252171976963".parse().unwrap()),
+    );
+}
+
+// Round an arbitrary-precision rational independently at each candidate scale.
+// This oracle has no bounded intermediate arithmetic or runtime fitting helper.
+fn rounded_ratio_oracle(
+    numerator: &BigInt,
+    denominator: &BigInt,
+    max_scale: u32,
+) -> Option<Decimal> {
+    if denominator == &BigInt::from(0) {
+        return None;
+    }
+    for scale in (0..=max_scale).rev() {
+        let scaled = numerator * BigInt::from(10).pow(scale);
+        let quotient = &scaled / denominator;
+        let remainder = &scaled % denominator;
+        let rounded = if &(remainder.magnitude() * 2_u8) >= denominator.magnitude() {
+            quotient
+                + if numerator.sign() == denominator.sign() {
+                    1
+                } else {
+                    -1
+                }
+        } else {
+            quotient
+        };
+        if let Ok(mantissa) = i128::try_from(rounded) {
+            return Some(Decimal::from_i128_with_scale(mantissa, scale));
+        }
+    }
+    None
+}
+
+#[test]
+fn decimal_add_sub_fit_alignment_cancellation_and_signed_limits() {
+    for (large, tiny) in [
+        ("1000000000000000000000", "0.000000000000000001"),
+        (
+            "1000000000000000000000000000000",
+            "0.0000000000000000000000000001",
+        ),
+    ] {
+        let large: Decimal = large.parse().unwrap();
+        let tiny: Decimal = tiny.parse().unwrap();
+        for (lhs, rhs) in [(large, tiny), (-large, -tiny)] {
+            assert_eq!(lhs.checked_add(rhs), Some(lhs));
+            assert_eq!(lhs.checked_sub(rhs), Some(lhs));
+            assert_eq!(lhs + rhs, lhs);
+            assert_eq!(lhs - rhs, lhs);
+        }
+    }
+    let large: Decimal = "20000000000000000000000000000000000000".parse().unwrap();
+    let other = Decimal::from_i128_with_scale(-10_i128.pow(38), 1);
+    let expected = Decimal::from_i128_with_scale(10_i128.pow(38), 1);
+    assert_eq!(large.checked_add(other), Some(expected));
+    for scale in 0..=28 {
+        let minimum = Decimal::from_i128_with_scale(i128::MIN, scale);
+        assert_eq!(minimum.checked_sub(minimum), Some(Decimal::new(0, scale)));
+        assert_eq!(minimum - minimum, Decimal::ZERO);
+    }
+    for sign in [-1_i128, 1] {
+        let lhs = Decimal::from_i128_with_scale(sign * i128::MAX, 28);
+        let rhs = Decimal::from_i128_with_scale(sign * 8, 28);
+        let expected = Decimal::from_i128_with_scale(sign * (i128::MAX / 10 + 2), 27);
+        assert_eq!(lhs.checked_add(rhs), Some(expected));
+        assert_eq!(lhs.checked_sub(-rhs), Some(expected));
+    }
+}
+
+#[test]
+fn decimal_division_fits_large_scaled_quotients_before_overflow() {
+    for scale in 0..=28 {
+        for lhs_sign in [-1_i128, 1] {
+            for rhs_sign in [-1_i128, 1] {
+                let lhs = Decimal::from_i128_with_scale(lhs_sign * i128::MAX, 0);
+                let rhs = Decimal::from_i128_with_scale(rhs_sign * i128::MAX, scale);
+                let expected =
+                    Decimal::from_i128_with_scale(lhs_sign * rhs_sign * 10_i128.pow(scale), 0);
+                assert_eq!(lhs.checked_div(rhs), Some(expected));
+                assert_eq!(lhs / rhs, expected);
+                let mut assigned = lhs;
+                assigned /= rhs;
+                assert_eq!(assigned, expected);
+            }
+        }
+    }
+    let minimum = Decimal::from_i128_with_scale(i128::MIN, 18);
+    assert_eq!(
+        minimum.checked_div(Decimal::new(-1, 0)),
+        Some("170141183460469231731.68730371588410573".parse().unwrap()),
+    );
+}
+
+#[test]
+fn decimal_true_magnitude_overflow_uses_global_primitive_bounds() {
+    for scale in 0..=28 {
+        for lhs_sign in [-1_i128, 1] {
+            for rhs_sign in [-1_i128, 1] {
+                let lhs = Decimal::from_i128_with_scale(lhs_sign * i128::MAX, 0);
+                let rhs = Decimal::from_i128_with_scale(rhs_sign * i128::MAX, scale);
+                let bound = Decimal::from_i128_with_scale(
+                    if lhs_sign == rhs_sign {
+                        i128::MAX
+                    } else {
+                        i128::MIN
+                    },
+                    0,
+                );
+                assert_eq!(lhs.checked_mul(rhs), None);
+                assert_eq!((lhs * rhs).parts(), bound.parts());
+                let mut assigned = lhs;
+                assigned *= rhs;
+                assert_eq!(assigned.parts(), bound.parts());
+                assert_eq!([lhs, rhs].into_iter().product::<Decimal>(), bound);
+            }
+        }
+    }
+    let large: Decimal = "10000000000000000000000000000000000000".parse().unwrap();
+    for lhs in [large, -large] {
+        assert_eq!(lhs.checked_div(Decimal::new(1, 28)), None);
+        assert_eq!((lhs / Decimal::new(1, 28)).scale(), 0);
+    }
+}
+
+#[test]
+fn decimal_add_sub_div_match_exact_ratio_oracle_at_all_scale_pairs() {
+    for lhs_scale in 0..=28 {
+        for rhs_scale in 0..=28 {
+            let scale = lhs_scale.max(rhs_scale);
+            let denominator = BigInt::from(10).pow(scale);
+            for lhs_m in [i128::MIN, i128::MAX, -17, 0, 17] {
+                for rhs_m in [i128::MIN, i128::MAX, -17, 0, 17] {
+                    let lhs = Decimal::from_i128_with_scale(lhs_m, lhs_scale);
+                    let rhs = Decimal::from_i128_with_scale(rhs_m, rhs_scale);
+                    let lhs_integer = BigInt::from(lhs_m) * BigInt::from(10).pow(scale - lhs_scale);
+                    let rhs_integer = BigInt::from(rhs_m) * BigInt::from(10).pow(scale - rhs_scale);
+                    let sum = &lhs_integer + &rhs_integer;
+                    let difference = &lhs_integer - &rhs_integer;
+                    for (exact, checked, primitive, subtract) in [
+                        (&sum, lhs.checked_add(rhs), lhs + rhs, false),
+                        (&difference, lhs.checked_sub(rhs), lhs - rhs, true),
+                    ] {
+                        let expected = rounded_ratio_oracle(exact, &denominator, scale);
+                        assert_eq!(
+                            checked.map(|value| value.parts()),
+                            expected.map(|value| value.parts())
+                        );
+                        let bound = Decimal::from_i128_with_scale(
+                            if exact.sign() == Sign::Minus {
+                                i128::MIN
+                            } else {
+                                i128::MAX
+                            },
+                            0,
+                        );
+                        assert_eq!(primitive, expected.unwrap_or(bound));
+                        let mut assigned = lhs;
+                        if subtract {
+                            assigned -= rhs;
+                        } else {
+                            assigned += rhs;
+                        }
+                        assert_eq!(assigned, primitive);
+                    }
+                    assert_eq!([lhs, rhs].into_iter().sum::<Decimal>(), lhs + rhs);
+                    if rhs_m != 0 {
+                        let expected = rounded_ratio_oracle(&lhs_integer, &rhs_integer, 18)
+                            .map(|value| value.normalize());
+                        assert_eq!(
+                            lhs.checked_div(rhs).map(|value| value.parts()),
+                            expected.map(|value| value.parts())
+                        );
+                        let bound = Decimal::from_i128_with_scale(
+                            if lhs_m.is_negative() == rhs_m.is_negative() {
+                                i128::MAX
+                            } else {
+                                i128::MIN
+                            },
+                            0,
+                        );
+                        assert_eq!(lhs / rhs, expected.unwrap_or(bound));
+                    }
+                }
+            }
+        }
+    }
+}
+
 proptest! {
     #[test]
     fn decimal_parse_preserves_mantissa_and_scale(
@@ -361,33 +696,23 @@ proptest! {
     }
 
     #[test]
-    fn decimal_add_saturation_boundary_property(
+    fn decimal_add_rounding_and_saturation_matches_exact_oracle(
         lhs_m in any::<i128>(),
         rhs_m in any::<i128>(),
-        lhs_scale in 0u32..=18,
-        rhs_scale in 0u32..=18,
+        lhs_scale in 0u32..=28,
+        rhs_scale in 0u32..=28,
     ) {
         let lhs = Decimal::from_i128_with_scale(lhs_m, lhs_scale);
         let rhs = Decimal::from_i128_with_scale(rhs_m, rhs_scale);
         let out = lhs + rhs;
         let target_scale = lhs_scale.max(rhs_scale);
 
-        prop_assert_eq!(
-            out.scale(),
-            target_scale,
-            "addition result scale must stay on max operand scale"
-        );
-
-        if let Some(exact) = lhs.checked_add(rhs) {
-            prop_assert_eq!(out, exact);
-        } else {
-            prop_assert!(
-                out.mantissa() == i128::MAX
-                    || out.mantissa() == i128::MIN
-                    || out.mantissa() == 0,
-                "overflow path must saturate deterministically"
-            );
-        }
+        let exact = BigInt::from(lhs_m) * BigInt::from(10).pow(target_scale - lhs_scale)
+            + BigInt::from(rhs_m) * BigInt::from(10).pow(target_scale - rhs_scale);
+        let expected = rounded_ratio_oracle(&exact, &BigInt::from(10).pow(target_scale), target_scale);
+        let bound = Decimal::from_i128_with_scale(if exact.sign() == Sign::Minus { i128::MIN } else { i128::MAX }, 0);
+        prop_assert_eq!(lhs.checked_add(rhs), expected);
+        prop_assert_eq!(out, expected.unwrap_or(bound));
     }
 
     #[test]
@@ -458,15 +783,13 @@ fn decimal_text_transports_preserve_values_and_measured_sizes() {
 #[test]
 fn decimal_division_signed_overflow_is_checked_and_saturating() {
     let divisor = Decimal::new(-1, 0);
-    let saturated = Decimal::from_i128_with_scale(i128::MAX, DEFAULT_DIVISION_SCALE);
-    for scale in [0, DEFAULT_DIVISION_SCALE] {
-        let minimum = Decimal::from_i128_with_scale(i128::MIN, scale);
-        assert_eq!(minimum.checked_div(divisor), None);
-        assert_eq!(minimum / divisor, saturated);
-        let mut assigned = minimum;
-        assigned /= divisor;
-        assert_eq!(assigned, saturated);
-        assert_eq!(minimum.checked_div(Decimal::new(1, 0)), Some(minimum));
-        assert_eq!(minimum.checked_div(Decimal::ZERO), None);
-    }
+    let saturated = Decimal::from_i128_with_scale(i128::MAX, 0);
+    let minimum = Decimal::from_i128_with_scale(i128::MIN, 0);
+    assert_eq!(minimum.checked_div(divisor), None);
+    assert_eq!(minimum / divisor, saturated);
+    let mut assigned = minimum;
+    assigned /= divisor;
+    assert_eq!(assigned, saturated);
+    assert_eq!(minimum.checked_div(Decimal::new(1, 0)), Some(minimum));
+    assert_eq!(minimum.checked_div(Decimal::ZERO), None);
 }

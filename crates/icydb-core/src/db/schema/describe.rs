@@ -1194,7 +1194,7 @@ fn describe_accepted_constraint(
                 .iter()
                 .find(|index| index.schema_id() == *index_id)
                 .ok_or_else(InternalError::store_invariant)?;
-            apply_unique_index_description(&mut description, index);
+            apply_unique_index_description(&mut description, index, snapshot, value_catalog)?;
         }
         AcceptedConstraintKind::Relation { relation_id } => {
             let relation = snapshot
@@ -1250,7 +1250,7 @@ fn describe_constraint_activation(
                 .iter()
                 .find(|index| index.schema_id() == *index_id)
                 .ok_or_else(InternalError::store_invariant)?;
-            apply_unique_index_description(&mut description, index);
+            apply_unique_index_description(&mut description, index, snapshot, value_catalog)?;
         }
         ConstraintActivationKind::Relation { relation_id } => {
             let relation = snapshot
@@ -1374,18 +1374,24 @@ fn apply_targeted_rule_description(
 fn apply_unique_index_description(
     description: &mut EntityConstraintDescription,
     index: &PersistedIndexSnapshot,
-) {
+    snapshot: &PersistedSchemaSnapshot,
+    value_catalog: &AcceptedValueCatalogHandle,
+) -> Result<(), InternalError> {
     description.kind = "unique".to_string();
     description.index_id = Some(index.schema_id().get());
     description.fields = describe_persisted_index_fields(index.key());
     description.index = Some(index.name().to_string());
-    description.predicate_sql = index.predicate_sql().map(str::to_string);
-    description.semantics = if index.predicate_sql().is_some() {
+    description.predicate_sql = index
+        .predicate()
+        .map(|predicate| predicate.render_sql(snapshot.fields(), value_catalog))
+        .transpose()?;
+    description.semantics = if index.predicate().is_some() {
         "partial_unique_index_v1"
     } else {
         "unique_index_v1"
     }
     .to_string();
+    Ok(())
 }
 
 const fn accepted_constraint_origin_label(origin: ConstraintOrigin) -> &'static str {
@@ -2358,7 +2364,7 @@ mod tests {
                     AcceptedFieldKind::Text { max_len: None },
                     true,
                 )]),
-                Some("email IS NOT NULL".to_string()),
+                Some(crate::db::schema::AcceptedIndexPredicate::test_non_null(2)),
             )],
         );
         let catalog = AcceptedConstraintCatalog::initial(

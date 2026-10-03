@@ -273,6 +273,15 @@ impl AcceptedSchemaRevisionBundle {
         ) {
             return Err(InternalError::store_invariant());
         }
+        // This unpublished handle is used only to validate decoded literals and
+        // types. Its placeholder identity is never persisted or cached.
+        let predicate_catalog = crate::db::schema::AcceptedValueCatalogHandle::new(
+            self.enum_catalog.clone(),
+            self.composite_catalog.clone(),
+            crate::db::schema::AcceptedStoreCatalogScope::new(),
+            self.revision,
+            crate::db::schema::AcceptedSchemaFingerprint::new([1; 32]),
+        );
         for snapshot in self.entity_snapshots.values() {
             let accepted_snapshot = AcceptedSchemaSnapshot::try_new(snapshot.clone())?;
             // Compact references can expand independently in many fields.
@@ -328,6 +337,7 @@ impl AcceptedSchemaRevisionBundle {
                     )?;
                 }
             }
+            validate_filtered_predicates(&accepted_snapshot, &predicate_catalog)?;
             validate_primary_key_capabilities(snapshot)?;
             validate_index_capabilities(&self.enum_catalog, snapshot)?;
             crate::db::schema::validate_accepted_check_literals(
@@ -1236,3 +1246,33 @@ pub(in crate::db) fn accepted_schema_candidate_with_catalogs_for_tests(
 // Exhaustive cache-retention coverage; new owned fields require accounting.
 crate::retained::retained_copy!(AcceptedSchemaFingerprint);
 crate::retained::retained_copy!(AcceptedSchemaRevision);
+
+// Validate executable catalog predicates after all field and literal identities
+// have been checked, without treating frontend SQL admission as durable authority.
+fn validate_filtered_predicates(
+    accepted: &AcceptedSchemaSnapshot,
+    catalog: &crate::db::schema::AcceptedValueCatalogHandle,
+) -> Result<(), InternalError> {
+    let snapshot = accepted.persisted_snapshot();
+    if snapshot
+        .indexes()
+        .iter()
+        .chain(snapshot.candidate_indexes())
+        .any(|index| index.predicate().is_some())
+    {
+        let predicate_schema = crate::db::schema::SchemaInfo::from_accepted_snapshot_and_catalog(
+            accepted,
+            catalog.clone(),
+        );
+        for index in snapshot
+            .indexes()
+            .iter()
+            .chain(snapshot.candidate_indexes())
+        {
+            if let Some(predicate) = index.predicate() {
+                predicate.validate_semantics(snapshot.fields(), catalog, &predicate_schema)?;
+            }
+        }
+    }
+    Ok(())
+}

@@ -1,6 +1,6 @@
 use crate::decimal::{DEFAULT_DIVISION_SCALE, Decimal, MAX_SUPPORTED_SCALE};
+use ethnum::I256;
 use std::{
-    cmp::Ordering,
     iter::{Product, Sum},
     ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign},
 };
@@ -11,38 +11,38 @@ impl Decimal {
         let lhs = Self::align_to_scale(self.mantissa, self.scale, target_scale)?;
         let rhs = Self::align_to_scale(rhs.mantissa, rhs.scale, target_scale)?;
 
-        Some(Self {
-            mantissa: lhs.checked_add(rhs)?,
-            scale: target_scale,
-        })
+        Self::fit_wide_mantissa(lhs.checked_add(rhs)?, target_scale)
     }
 
-    /// Checked addition; returns `None` when scale alignment or mantissa
-    /// addition overflows the fixed decimal representation.
+    /// Checked addition rounds half away from zero to the greatest fitting
+    /// scale, starting at the greater operand scale. Returns `None` only when
+    /// the rounded magnitude cannot fit even at scale zero.
     #[must_use]
     pub fn checked_add(self, rhs: Self) -> Option<Self> {
         self.checked_add_impl(rhs)
     }
 
-    /// Checked subtraction; returns `None` when negating the right side,
-    /// scale alignment, or mantissa addition overflows.
+    /// Checked subtraction uses the same fitting/rounding policy as addition.
+    /// Returns `None` when the rounded magnitude cannot fit at scale zero.
     #[must_use]
     pub fn checked_sub(self, rhs: Self) -> Option<Self> {
-        self.checked_add_impl(Self {
-            mantissa: rhs.mantissa.checked_neg()?,
-            scale: rhs.scale,
-        })
+        let target_scale = self.scale.max(rhs.scale);
+        let lhs = Self::align_to_scale(self.mantissa, self.scale, target_scale)?;
+        let rhs = Self::align_to_scale(rhs.mantissa, rhs.scale, target_scale)?;
+        Self::fit_wide_mantissa(lhs.checked_sub(rhs)?, target_scale)
     }
 
-    /// Checked multiplication normalizes operand padding first; returns `None`
-    /// when scale or mantissa multiplication overflows the fixed representation.
+    /// Checked multiplication normalizes operand padding and rounds half away
+    /// from zero to the greatest representable scale, at most 28. Returns `None`
+    /// when the rounded magnitude cannot fit even at scale zero.
     #[must_use]
     pub fn checked_mul(self, rhs: Self) -> Option<Self> {
         self.checked_mul_impl(rhs)
     }
 
-    /// Checked division; returns `None` when the divisor is zero or the
-    /// rounded fixed-scale result cannot be represented.
+    /// Checked division rounds half away from zero to the greatest fitting
+    /// scale, at most 18. Returns `None` when the divisor is zero or the rounded
+    /// magnitude cannot fit even at scale zero.
     #[must_use]
     pub fn checked_div(self, rhs: Self) -> Option<Self> {
         self.checked_div_impl(rhs)
@@ -54,8 +54,30 @@ impl Decimal {
         let lhs = self.normalize();
         let rhs = rhs.normalize();
         let scale = lhs.scale.checked_add(rhs.scale)?;
-        let mantissa = lhs.mantissa.checked_mul(rhs.mantissa)?;
-        Self::checked_from_mantissa_scale(mantissa, scale)
+        // Two i128 mantissas fit an exact I256 product. Keep that product until
+        // the final scale is known, so retries never double-round a value.
+        let product = I256::from(lhs.mantissa).checked_mul(I256::from(rhs.mantissa))?;
+        Self::fit_wide_mantissa(product, scale)
+    }
+
+    // Reduce precision from the original exact mantissa, never a rounded retry.
+    // Addition/subtraction and multiplication share this final fitting policy.
+    fn fit_wide_mantissa(mantissa: I256, scale: u32) -> Option<Self> {
+        let mut result_scale = scale.min(MAX_SUPPORTED_SCALE);
+        let mut divisor = I256::new(10).checked_pow(scale - result_scale)?;
+        loop {
+            if let Some(mantissa) = Self::div_round_half_away_from_zero(mantissa, divisor) {
+                return Some(Self {
+                    mantissa,
+                    scale: result_scale,
+                });
+            }
+            if result_scale == 0 {
+                return None;
+            }
+            result_scale -= 1;
+            divisor = divisor.checked_mul(I256::new(10))?;
+        }
     }
 
     fn checked_div_impl(self, rhs: Self) -> Option<Self> {
@@ -67,21 +89,27 @@ impl Decimal {
         let rhs = rhs.normalize();
         let mut target_scale = DEFAULT_DIVISION_SCALE;
 
-        // Retry at lower precision when intermediate scaling overflows i128.
+        // An overflowing wide numerator implies the quotient cannot fit at
+        // this scale: its unscaled denominator is at most an i128 magnitude.
+        // Retry from the original operands when scaling or rounding cannot fit.
         loop {
             if let Some((numerator, denominator)) = Self::division_operands(lhs, rhs, target_scale)
+                && let Some(mantissa) = Self::div_round_half_away_from_zero(numerator, denominator)
             {
-                let mantissa = Self::div_round_half_away_from_zero(numerator, denominator)?;
-                if let Some(value) = Self::checked_from_mantissa_scale(mantissa, target_scale) {
-                    return Some(value.normalize());
-                }
+                return Some(
+                    Self {
+                        mantissa,
+                        scale: target_scale,
+                    }
+                    .normalize(),
+                );
             }
 
             if target_scale == 0 {
                 return None;
             }
 
-            target_scale = target_scale.saturating_sub(1);
+            target_scale -= 1;
         }
     }
 
@@ -91,11 +119,14 @@ impl Decimal {
         }
 
         let target_scale = self.scale.max(rhs.scale);
+        // Scale differences are at most 28, so both alignment products fit
+        // I256. One operand stays unscaled; the remainder magnitude is bounded
+        // by both operands and therefore still fits the i128 representation.
         let lhs = Self::align_to_scale(self.mantissa, self.scale, target_scale)?;
         let rhs = Self::align_to_scale(rhs.mantissa, rhs.scale, target_scale)?;
 
         Some(Self {
-            mantissa: lhs.checked_rem(rhs)?,
+            mantissa: i128::try_from(lhs.checked_rem(rhs)?).ok()?,
             scale: target_scale,
         })
     }
@@ -210,36 +241,23 @@ impl Decimal {
     /// Saturating addition.
     #[must_use]
     pub fn saturating_add(self, rhs: Self) -> Self {
-        if let Some(sum) = self.checked_add_impl(rhs) {
-            return sum;
-        }
-
-        let target_scale = self.scale.max(rhs.scale);
-
-        if self.is_sign_negative() == rhs.is_sign_negative() {
-            return Self::saturating_extreme(target_scale, self.is_sign_negative());
-        }
-
-        match self.cmp_decimal(&rhs) {
-            Ordering::Equal => Self {
-                mantissa: 0,
-                scale: target_scale,
-            },
-            Ordering::Greater => Self::saturating_extreme(target_scale, self.is_sign_negative()),
-            Ordering::Less => Self::saturating_extreme(target_scale, rhs.is_sign_negative()),
-        }
+        // Only true rounded magnitude overflow remains; overflowing addition
+        // has same-sign operands.
+        self.checked_add_impl(rhs)
+            .unwrap_or_else(|| Self::saturating_extreme(self.is_sign_negative()))
     }
 
     /// Saturating subtraction.
     #[must_use]
     pub fn saturating_sub(self, rhs: Self) -> Self {
-        self.saturating_add(Self {
-            mantissa: rhs.mantissa.saturating_neg(),
-            scale: rhs.scale,
-        })
+        // Operand ordering owns the difference's sign, including positive
+        // overflow near the asymmetric signed MIN boundary.
+        self.checked_sub(rhs)
+            .unwrap_or_else(|| Self::saturating_extreme(self < rhs))
     }
 
-    /// Checked remainder; returns `None` on division by zero.
+    /// Exact remainder with the dividend's sign, at the greater operand scale.
+    /// Returns `None` on division by zero; scale alignment cannot overflow.
     #[must_use]
     pub fn checked_rem(self, rhs: Self) -> Option<Self> {
         self.checked_rem_impl(rhs)
@@ -287,7 +305,8 @@ impl Decimal {
 
     /// Checked integer exponentiation using the same exponentiation-by-squaring
     /// shape as `powu`, but failing instead of saturating on intermediate
-    /// multiplication overflow.
+    /// magnitude overflow. Each multiplication uses the same rounded
+    /// fixed-representation contract as `checked_mul`.
     #[must_use]
     pub fn checked_powu(&self, exp: u64) -> Option<Self> {
         if exp == 0 {
@@ -313,64 +332,49 @@ impl Decimal {
         Some(acc)
     }
 
-    fn saturating_mul(self, rhs: Self) -> Self {
-        if self.is_zero() || rhs.is_zero() {
-            return Self::ZERO;
-        }
-
-        let scale = self
-            .scale
-            .saturating_add(rhs.scale)
-            .min(MAX_SUPPORTED_SCALE);
-        let negative = self.is_sign_negative() != rhs.is_sign_negative();
-        Self::saturating_extreme(scale, negative)
-    }
-
-    fn align_to_scale(mantissa: i128, current_scale: u32, target_scale: u32) -> Option<i128> {
-        if current_scale == target_scale {
-            return Some(mantissa);
-        }
-
+    // Admitted scale alignment fits I256 even when the i128 intermediate does
+    // not. Addition, subtraction and exact remainder use this single owner.
+    fn align_to_scale(mantissa: i128, current_scale: u32, target_scale: u32) -> Option<I256> {
         let factor = Self::checked_pow10(target_scale.checked_sub(current_scale)?)?;
-        mantissa.checked_mul(factor)
+        I256::from(mantissa).checked_mul(I256::from(factor))
     }
 
     // Prepare integer operands for fixed-scale decimal division.
-    fn division_operands(lhs: Self, rhs: Self, target_scale: u32) -> Option<(i128, i128)> {
+    fn division_operands(lhs: Self, rhs: Self, target_scale: u32) -> Option<(I256, I256)> {
         let exponent = i64::from(target_scale) + i64::from(rhs.scale) - i64::from(lhs.scale);
+        let factor = I256::new(10).checked_pow(u32::try_from(exponent.unsigned_abs()).ok()?)?;
+        let lhs = I256::from(lhs.mantissa);
+        let rhs = I256::from(rhs.mantissa);
 
         if exponent >= 0 {
-            let factor = Self::checked_pow10(u32::try_from(exponent).ok()?)?;
-            let numerator = lhs.mantissa.checked_mul(factor)?;
-            return Some((numerator, rhs.mantissa));
+            return Some((lhs.checked_mul(factor)?, rhs));
         }
 
-        let factor = Self::checked_pow10(u32::try_from(exponent.unsigned_abs()).ok()?)?;
-        let denominator = rhs.mantissa.checked_mul(factor)?;
-        Some((lhs.mantissa, denominator))
+        Some((lhs, rhs.checked_mul(factor)?))
     }
 
     // Divide with round-half-away-from-zero semantics.
-    fn div_round_half_away_from_zero(numerator: i128, denominator: i128) -> Option<i128> {
-        // Signed MIN / -1 overflows even with a nonzero divisor. Both checked
-        // and saturating Decimal APIs must reach their normal overflow result.
+    fn div_round_half_away_from_zero(numerator: I256, denominator: I256) -> Option<i128> {
+        // Round before narrowing. An unrepresentable signed result, including
+        // i128::MIN / -1, follows the caller's maintained overflow contract.
         let quotient = numerator.checked_div(denominator)?;
         let remainder = numerator.checked_rem(denominator)?;
 
         if remainder == 0 {
-            return Some(quotient);
+            return i128::try_from(quotient).ok();
         }
 
-        let twice_remainder = remainder.unsigned_abs().checked_mul(2)?;
+        let twice_remainder = remainder.unsigned_abs().checked_mul(2_u8.into())?;
         if twice_remainder < denominator.unsigned_abs() {
-            return Some(quotient);
+            return i128::try_from(quotient).ok();
         }
 
-        if (numerator < 0) == (denominator < 0) {
-            quotient.checked_add(1)
+        let rounded = if (numerator < 0) == (denominator < 0) {
+            quotient.checked_add(I256::new(1))?
         } else {
-            quotient.checked_sub(1)
-        }
+            quotient.checked_sub(I256::new(1))?
+        };
+        i128::try_from(rounded).ok()
     }
 }
 
@@ -406,8 +410,9 @@ impl Mul for Decimal {
     type Output = Self;
 
     fn mul(self, rhs: Self) -> Self::Output {
-        self.checked_mul_impl(rhs)
-            .unwrap_or_else(|| self.saturating_mul(rhs))
+        self.checked_mul_impl(rhs).unwrap_or_else(|| {
+            Self::saturating_extreme(self.is_sign_negative() != rhs.is_sign_negative())
+        })
     }
 }
 
@@ -444,7 +449,7 @@ impl Div for Decimal {
 
         self.checked_div_impl(rhs).unwrap_or_else(|| {
             let negative = self.is_sign_negative() != rhs.is_sign_negative();
-            Self::saturating_extreme(DEFAULT_DIVISION_SCALE, negative)
+            Self::saturating_extreme(negative)
         })
     }
 }

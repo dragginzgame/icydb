@@ -15,7 +15,7 @@ use crate::{
         data::{CanonicalSlotReader, StructuralRowContract},
         index::{IndexKey, IndexReadContract, IndexRowIdentity},
         key_taxonomy::PrimaryKeyValue,
-        predicate::{PredicateProgram, normalized_accepted_index_predicate},
+        predicate::PredicateProgram,
         schema::{
             SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo, SchemaIndexInfo,
             SchemaInfo,
@@ -47,16 +47,6 @@ impl IndexKeyLane {
             Self::New => InternalError::structural_index_insertion_entity_key_required(),
         }
     }
-}
-
-// Compile an accepted mutation predicate before constructing any index updates.
-// Corrupt predicate metadata must abort, not omit rows from index maintenance.
-fn accepted_index_mutation_predicate_program(
-    predicate_sql: Option<&str>,
-    row_contract: &StructuralRowContract,
-) -> Result<Option<PredicateProgram>, InternalError> {
-    Ok(normalized_accepted_index_predicate(predicate_sql)?
-        .map(|predicate| PredicateProgram::compile_with_row_contract(row_contract, &predicate)))
 }
 
 pub(in crate::db::index::plan) fn accepted_field_path_index_key_for_slot_reader_with_membership_structural(
@@ -192,10 +182,9 @@ pub(in crate::db) fn plan_index_mutation_for_slot_reader_structural(
     );
 
     for accepted_index in schema_info.field_path_indexes() {
-        let predicate_program = accepted_index_mutation_predicate_program(
-            accepted_index.predicate_sql(),
-            row_contract,
-        )?;
+        let predicate_program = accepted_index
+            .predicate()?
+            .map(|predicate| PredicateProgram::compile_with_row_contract(row_contract, &predicate));
         plan_accepted_field_path_index_mutation_for_slot_reader_structural(
             &mut groups,
             entity_tag,
@@ -213,10 +202,9 @@ pub(in crate::db) fn plan_index_mutation_for_slot_reader_structural(
     }
 
     for accepted_index in accepted_expression_indexes {
-        let predicate_program = accepted_index_mutation_predicate_program(
-            accepted_index.predicate_sql(),
-            row_contract,
-        )?;
+        let predicate_program = accepted_index
+            .predicate()?
+            .map(|predicate| PredicateProgram::compile_with_row_contract(row_contract, &predicate));
         plan_accepted_expression_index_mutation_for_slot_reader_structural(
             &mut groups,
             entity_tag,

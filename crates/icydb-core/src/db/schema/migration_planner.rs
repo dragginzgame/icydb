@@ -1192,7 +1192,6 @@ fn rebuild_indexes(
                             next_ordinal,
                             generation,
                             store.path,
-                            store.before.revision(),
                             &store.enums,
                             &store.composites,
                             binding.entity_tag,
@@ -1218,7 +1217,6 @@ fn rebuild_indexes(
         let target = lower_migration_index(
             proposed,
             accepted,
-            store.before.revision(),
             &store.enums,
             &store.composites,
             binding.entity_tag,
@@ -1226,7 +1224,7 @@ fn rebuild_indexes(
             &store.bindings,
         )
         .map_err(|_| SchemaMigrationPlanningError::UnexplainedSchemaDifference)?;
-        let expected = relabel_index_for_fields(accepted, before, provisional)?;
+        let expected = relabel_index_for_fields(accepted, before, provisional);
         let semantics_changed = !index_contract_matches_ignoring_name(&expected, &target);
         if semantics_changed && !physical {
             return Err(SchemaMigrationPlanningError::UnexplainedSchemaDifference);
@@ -1267,7 +1265,6 @@ fn infer_and_rekey_index(
         let target = lower_migration_index(
             proposed,
             accepted,
-            store.before.revision(),
             &store.enums,
             &store.composites,
             binding.entity_tag,
@@ -1275,7 +1272,7 @@ fn infer_and_rekey_index(
             &store.bindings,
         )
         .map_err(|_| SchemaMigrationPlanningError::UnexplainedSchemaDifference)?;
-        let expected = relabel_index_for_fields(accepted, before, provisional)?;
+        let expected = relabel_index_for_fields(accepted, before, provisional);
         if index_contract_matches_ignoring_name(&expected, &target) {
             matches.push((old_source.clone(), id));
         }
@@ -1303,7 +1300,7 @@ fn relabel_index_for_fields(
     index: &PersistedIndexSnapshot,
     before: &PersistedSchemaSnapshot,
     after: &PersistedSchemaSnapshot,
-) -> Result<PersistedIndexSnapshot, SchemaMigrationPlanningError> {
+) -> PersistedIndexSnapshot {
     let mut relabeled = index.clone();
     for old_field in before.fields() {
         let Some(new_field) = after
@@ -1314,16 +1311,11 @@ fn relabel_index_for_fields(
             continue;
         };
         if old_field.name() != new_field.name() {
-            relabeled = relabeled
-                .clone_with_renamed_field_path_root(
-                    old_field.id(),
-                    old_field.name(),
-                    new_field.name(),
-                )
-                .ok_or(SchemaMigrationPlanningError::UnexplainedSchemaDifference)?;
+            relabeled =
+                relabeled.clone_with_renamed_field_path_root(old_field.id(), new_field.name());
         }
     }
-    Ok(relabeled)
+    relabeled
 }
 
 fn index_contract_matches_ignoring_name(
@@ -1337,7 +1329,7 @@ fn index_contract_matches_ignoring_name(
         && accepted.unique() == target.unique()
         && accepted.origin() == target.origin()
         && accepted.key() == target.key()
-        && accepted.predicate_sql() == target.predicate_sql()
+        && accepted.predicate() == target.predicate()
 }
 
 fn rebuild_relations(
@@ -2211,7 +2203,21 @@ mod tests {
                     name("parent_lookup"),
                     vec![IndexKeyFragment::Field(field(parent_field))],
                     false,
-                    None,
+                    Some(
+                        SourceCheckExpr::try_new(vec![
+                            SourceCheckInstruction::Field(field("status")),
+                            SourceCheckInstruction::Literal(ScalarLiteral::EnumUnit {
+                                enum_type: r#type(status_type),
+                                variant: r#type(status_variant),
+                            }),
+                            SourceCheckInstruction::Equal,
+                            SourceCheckInstruction::Field(field("id")),
+                            SourceCheckInstruction::Field(field(parent_field)),
+                            SourceCheckInstruction::Equal,
+                            SourceCheckInstruction::And,
+                        ])
+                        .expect("filtered enum declaration should admit"),
+                    ),
                 )
                 .expect("index should admit"),
             ],
@@ -2741,6 +2747,32 @@ mod tests {
         .expect("complete rename should plan");
         assert!(planned.requires_physical_validation());
         let target = planned.candidates()[0].bundle();
+        assert_eq!(
+            candidate
+                .bundle()
+                .entity_snapshots()
+                .get(&entity_id)
+                .unwrap()
+                .indexes()[0]
+                .predicate(),
+            target.entity_snapshots().get(&entity_id).unwrap().indexes()[0].predicate(),
+            "enum and field rename must retain filtered membership identity",
+        );
+        let restart = crate::db::schema::enum_catalog::decode_accepted_schema_revision_bundle(
+            planned.candidates()[0].encoded_bundle(),
+        )
+        .unwrap();
+        let current = complete_rename_proposal(true, head(), None);
+        let reconciliation = crate::db::schema::lower_generated_existing_schema_proposal(
+            &current,
+            &[ExistingProposalStore {
+                path: "test::Store",
+                identity: TargetStoreIdentity::from_bytes([2; 32]),
+                bundle: &restart,
+            }],
+        )
+        .expect("current generated declarations reconcile after restart and renames");
+        assert!(reconciliation.is_empty());
         let bindings = target.source_bindings();
         let new_entity = EntitySourceKey::try_new("Entry").expect("entity should admit");
         assert_eq!(bindings.entity(&new_entity), Some(entity_id));

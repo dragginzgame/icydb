@@ -29,6 +29,7 @@ mod fingerprint;
 mod format;
 mod identity;
 mod identity_state;
+mod index_predicate;
 mod info;
 mod inspection_plan;
 mod integrity;
@@ -239,6 +240,7 @@ pub(in crate::db) use identity_state::{
     IdentityStateLifecycle, IdentityStateOwner, IdentityStatementCursor,
     MAX_IDENTITY_STATE_RECORDS_PER_DATABASE, identity_kind_maximum,
 };
+pub(in crate::db) use index_predicate::AcceptedIndexPredicate;
 pub(in crate::db) use info::{
     SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo, SchemaIndexFieldPathInfo,
     SchemaIndexInfo, SchemaInfo, schema_expression_index_info_from_accepted_index,
@@ -424,26 +426,43 @@ pub(in crate::db) fn build_record_composite_catalog_for_tests(
     nullable: bool,
     enum_catalog: &AcceptedEnumCatalog,
 ) -> (AcceptedCompositeCatalog, CompositeTypeId) {
+    build_record_members_catalog_for_tests(
+        record_path,
+        vec![(member_name, leaf_kind, nullable)],
+        enum_catalog,
+    )
+}
+
+#[cfg(test)]
+// Multi-member reader fixtures use the same catalog admission as single-member records.
+pub(in crate::db) fn build_record_members_catalog_for_tests(
+    record_path: String,
+    members: Vec<(String, AcceptedFieldKind, bool)>,
+    enum_catalog: &AcceptedEnumCatalog,
+) -> (AcceptedCompositeCatalog, CompositeTypeId) {
     let record_type = CompositeTypeId::new(1).unwrap();
-    let member_id = CompositeFieldId::new(1).unwrap();
+    let fields = members
+        .into_iter()
+        .enumerate()
+        .map(|(index, (name, kind, nullable))| {
+            composite_catalog::AcceptedCompositeField::new(
+                CompositeFieldId::new(u32::try_from(index + 1).unwrap()).unwrap(),
+                name,
+                composite_catalog::AcceptedCompositeElement::new(kind, nullable),
+            )
+        })
+        .collect();
     let catalog = AcceptedCompositeCatalog::from_initial_definitions(
         std::collections::BTreeMap::from([(
             record_type,
             (
                 record_path,
-                composite_catalog::AcceptedCompositeShape::Record(vec![
-                    composite_catalog::AcceptedCompositeField::new(
-                        member_id,
-                        member_name,
-                        composite_catalog::AcceptedCompositeElement::new(leaf_kind, nullable),
-                    ),
-                ]),
+                composite_catalog::AcceptedCompositeShape::Record(fields),
             ),
         )]),
         enum_catalog,
     )
     .expect("test record catalog should build");
-
     (catalog, record_type)
 }
 

@@ -126,12 +126,14 @@ impl<C: CanisterKind> DbSession<C> {
     fn show_indexes_sql_statement_result_with_catalog(
         &self,
         catalog: &AcceptedSchemaCatalogContext,
-    ) -> SqlStatementResult {
-        SqlStatementResult::ShowIndexes(self.show_indexes_for_store_schema_info(
+    ) -> Result<SqlStatementResult, QueryError> {
+        self.show_indexes_for_store_schema_info(
             catalog.identity().store_path(),
             catalog.accepted_schema_info(),
             catalog.snapshot().persisted_snapshot(),
-        ))
+        )
+        .map(SqlStatementResult::ShowIndexes)
+        .map_err(QueryError::execute)
     }
 
     pub(super) fn show_entities_sql_statement_result(
@@ -180,7 +182,7 @@ impl<C: CanisterKind> DbSession<C> {
                 self.show_constraints_sql_statement_result_with_catalog(catalog?)
             }
             CompiledSqlCommand::ShowIndexesEntity => {
-                Ok(self.show_indexes_sql_statement_result_with_catalog(catalog?))
+                self.show_indexes_sql_statement_result_with_catalog(catalog?)
             }
             CompiledSqlCommand::ShowColumnsEntity { mode } => {
                 Self::show_columns_sql_statement_result_with_catalog(catalog?, *mode)

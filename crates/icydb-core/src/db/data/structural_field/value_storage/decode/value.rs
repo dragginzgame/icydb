@@ -7,8 +7,8 @@ use crate::{
     db::data::structural_field::{
         FieldDecodeError,
         binary::{
-            TAG_BYTES, TAG_FALSE, TAG_INT64, TAG_LIST, TAG_MAP, TAG_NAT64, TAG_NULL, TAG_TEXT,
-            TAG_TRUE, TAG_UNIT, decode_binary_int_big_payload, decode_binary_nat_big_payload,
+            TAG_BYTES, TAG_FALSE, TAG_INT64, TAG_NAT64, TAG_NULL, TAG_TEXT, TAG_TRUE, TAG_UNIT,
+            decode_binary_int_big_payload, decode_binary_nat_big_payload,
             decode_binary_required_bytes,
         },
         primitive::{decode_i64_payload_bytes, decode_u64_payload_bytes},
@@ -20,15 +20,14 @@ use crate::{
             decode_timestamp_payload_millis, decode_ulid_payload_bytes,
         },
         value_storage::{
+            canonical::decode_canonical_value_storage_bytes,
             decode::{
                 ValueStorageSlice,
-                cursor::decode_value_storage_binary_value_at,
                 scalar::{
                     decode_binary_blob_scalar, decode_binary_i64_scalar, decode_binary_text_scalar,
                     decode_binary_u64_scalar,
                 },
             },
-            next_value_storage_decode_depth,
             skip::skip_value_storage_binary_value,
             tags::{
                 VALUE_BINARY_TAG_ACCOUNT, VALUE_BINARY_TAG_DATE, VALUE_BINARY_TAG_DECIMAL,
@@ -37,10 +36,6 @@ use crate::{
                 VALUE_BINARY_TAG_NAT128, VALUE_BINARY_TAG_PRINCIPAL, VALUE_BINARY_TAG_SUBACCOUNT,
                 VALUE_BINARY_TAG_TIMESTAMP, VALUE_BINARY_TAG_U256, VALUE_BINARY_TAG_ULID,
                 fixed_value_storage_payload_len,
-            },
-            walk::{
-                decode_value_storage_binary_list_items_single_pass,
-                decode_value_storage_binary_map_entries_single_pass,
             },
         },
     },
@@ -52,14 +47,11 @@ use crate::{
 };
 
 /// Decode one `FieldStorageDecode::CatalogValue` payload directly from the externally
-/// tagged `Value` wire shape without routing through serde's recursive enum
-/// visitor graph.
+/// tagged current canonical wire shape through the shared traversal owner.
 pub(in crate::db) fn decode_structural_value_storage_bytes(
     raw_bytes: &[u8],
 ) -> Result<Value, FieldDecodeError> {
-    let slice = ValueStorageSlice::from_raw(raw_bytes)?;
-
-    decode_value_storage_slice(slice)
+    decode_canonical_value_storage_bytes(raw_bytes)
 }
 
 /// Validate one `FieldStorageDecode::CatalogValue` payload through the canonical
@@ -208,20 +200,12 @@ pub(in crate::db) fn decode_structural_value_storage_ulid_bytes(
     decode_ulid_payload_bytes(payload)
 }
 
-/// Decode one `FieldStorageDecode::CatalogValue` payload from the parallel
-/// Structural Binary v1 `Value` envelope.
-pub(super) fn decode_value_storage_slice(
-    slice: ValueStorageSlice<'_>,
+// Decode only a scalar leaf selected by the canonical traversal owner. Collection
+// and enum recursion must stay in that owner so depth is counted once per value.
+pub(in crate::db::data::structural_field::value_storage) fn decode_value_storage_scalar_bytes(
+    raw_bytes: &[u8],
 ) -> Result<Value, FieldDecodeError> {
-    decode_value_storage_slice_at_depth(slice, 0)
-}
-
-pub(super) fn decode_value_storage_slice_at_depth(
-    slice: ValueStorageSlice<'_>,
-    depth: usize,
-) -> Result<Value, FieldDecodeError> {
-    let depth = next_value_storage_decode_depth(depth)?;
-    let raw_bytes = slice.as_bytes();
+    let slice = ValueStorageSlice::from_raw(raw_bytes)?;
     let tag = raw_bytes[0];
 
     // Phase 1: decode the unambiguous generic root tags directly.
@@ -234,8 +218,6 @@ pub(super) fn decode_value_storage_slice_at_depth(
         TAG_NAT64 => Some(Value::Nat64(decode_binary_u64_scalar(&slice)?)),
         TAG_TEXT => Some(Value::Text(decode_binary_text_scalar(&slice)?.to_owned())),
         TAG_BYTES => Some(Value::Blob(decode_binary_blob_scalar(&slice)?.to_vec())),
-        TAG_LIST => Some(decode_value_storage_binary_list_bytes(raw_bytes, depth)?),
-        TAG_MAP => Some(decode_value_storage_binary_map_bytes(raw_bytes, depth)?),
         _ => None,
     };
     if let Some(value) = generic {
@@ -278,43 +260,6 @@ pub(super) fn decode_value_storage_slice_at_depth(
         VALUE_BINARY_TAG_U256 => decode_u256(raw_bytes).map(Value::U256),
         _ => Err(FieldDecodeError::new()),
     }
-}
-
-// Decode one binary list payload recursively from raw item bytes.
-fn decode_value_storage_binary_list_bytes(
-    raw_bytes: &[u8],
-    depth: usize,
-) -> Result<Value, FieldDecodeError> {
-    // Owned Value output requires materialized items. Borrowed projection and
-    // validation use the adjacent view/skip owners without building this list.
-    let (items, _) = decode_value_storage_binary_list_items_single_pass(
-        raw_bytes,
-        0,
-        true,
-        depth,
-        decode_value_storage_binary_value_at,
-    )?;
-
-    Ok(Value::List(items))
-}
-
-// Decode one binary map payload recursively while preserving runtime map
-// invariants.
-fn decode_value_storage_binary_map_bytes(
-    raw_bytes: &[u8],
-    depth: usize,
-) -> Result<Value, FieldDecodeError> {
-    // Owned Value output requires entry pairs. Nested map projection already
-    // traverses borrowed views; validation skips bytes without constructing pairs.
-    let (entries, _) = decode_value_storage_binary_map_entries_single_pass(
-        raw_bytes,
-        0,
-        true,
-        depth,
-        decode_value_storage_binary_value_at,
-    )?;
-
-    Value::from_map(entries).map_err(|_| FieldDecodeError::new())
 }
 
 // Extract the single nested payload carried by one owner-local `Value` tag.

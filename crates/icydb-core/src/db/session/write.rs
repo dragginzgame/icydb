@@ -8841,6 +8841,8 @@ mod identity_pre_key_tests {
 
 #[cfg(test)]
 mod targeted_rule_mutation_tests {
+    #[cfg(feature = "sql")]
+    mod value_traversal;
     use super::{
         DbSession, DynamicMutation, DynamicStructuralPatch, DynamicTypedMutation, DynamicWriteCell,
         TypedEntityDescriptor, TypedFieldType,

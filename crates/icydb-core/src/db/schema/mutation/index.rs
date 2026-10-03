@@ -31,7 +31,8 @@ pub(in crate::db) struct SchemaFieldPathIndexRebuildTarget {
     pub(in crate::db::schema::mutation) name: String,
     pub(in crate::db::schema::mutation) store: String,
     pub(in crate::db::schema::mutation) unique: bool,
-    pub(in crate::db::schema::mutation) predicate_sql: Option<String>,
+    pub(in crate::db::schema::mutation) predicate:
+        Option<crate::db::schema::AcceptedIndexPredicate>,
     pub(in crate::db::schema::mutation) key_paths: Vec<SchemaFieldPathIndexRebuildKey>,
 }
 
@@ -102,7 +103,7 @@ pub(in crate::db) struct SchemaExpressionIndexRebuildTarget {
     physical_generation: u64,
     store: String,
     unique: bool,
-    predicate_sql: Option<String>,
+    predicate: Option<crate::db::schema::AcceptedIndexPredicate>,
     key_items: Vec<SchemaExpressionIndexRebuildKey>,
 }
 
@@ -191,7 +192,7 @@ impl SchemaMutationRequest<'_> {
                 name: index.name().to_string(),
                 store: index.store().to_string(),
                 unique: index.unique(),
-                predicate_sql: index.predicate_sql().map(str::to_string),
+                predicate: index.predicate().cloned(),
                 key_paths,
             },
         })
@@ -243,7 +244,7 @@ impl SchemaMutationRequest<'_> {
                 physical_generation: index.physical_generation(),
                 store: index.store().to_string(),
                 unique: index.unique(),
-                predicate_sql: index.predicate_sql().map(str::to_string),
+                predicate: index.predicate().cloned(),
                 key_items,
             },
         })

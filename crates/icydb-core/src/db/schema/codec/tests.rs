@@ -1309,7 +1309,7 @@ fn persisted_schema_snapshot_round_trips_field_path_indexes() {
                 AcceptedFieldKind::Text { max_len: None },
                 false,
             )]),
-            Some("email IS NOT NULL".to_string()),
+            Some(crate::db::schema::AcceptedIndexPredicate::test_non_null(2)),
         )],
     );
     let encoded = encode_persisted_schema_snapshot(&snapshot)
@@ -1325,7 +1325,10 @@ fn persisted_schema_snapshot_round_trips_field_path_indexes() {
     assert_eq!(index.name(), "idx_indexed__email");
     assert_eq!(index.store(), "indexed::email");
     assert!(index.unique());
-    assert_eq!(index.predicate_sql(), Some("email IS NOT NULL"));
+    assert_eq!(
+        index.predicate(),
+        Some(&crate::db::schema::AcceptedIndexPredicate::test_non_null(2))
+    );
     assert_eq!(index.key().field_paths()[0].field_id(), FieldId::new(2));
     assert_eq!(index.key().field_paths()[0].slot(), SchemaFieldSlot::new(1));
     assert_eq!(index.key().field_paths()[0].path(), &["email".to_string()]);
@@ -1380,75 +1383,57 @@ fn persisted_schema_snapshot_decode_hard_cuts_ambiguous_nullable_unique_candidat
 }
 
 #[test]
-fn persisted_schema_snapshot_decode_keeps_nullable_unique_predicate_corruption_distinct() {
-    let encoded =
-        encode_unchecked_schema_fixture(&nullable_unique_codec_fixture(Some("email IS NOT")));
-
-    let error = decode_persisted_schema_snapshot(&encoded)
-        .expect_err("malformed nullable-unique predicate must remain corruption");
-    assert_eq!(error.class(), ErrorClass::Corruption);
-    assert_eq!(error.origin(), ErrorOrigin::Store);
-}
-
-#[test]
-fn nullable_unique_codec_rejects_unbound_fields_in_eliminated_branches() {
-    let snapshot = nullable_unique_codec_fixture(Some(
-        "email IS NOT NULL AND (email = 'active' OR (email = 'a' AND email = 'b' AND missing IS NOT NULL))",
-    ));
-    let encode_error = encode_persisted_schema_snapshot(&snapshot).unwrap_err();
-    assert_eq!(
-        encode_error.diagnostic_code(),
-        icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
+fn nullable_unique_codec_rejects_unbound_predicates() {
+    use crate::db::schema::AcceptedIndexPredicate as P;
+    let valid = nullable_unique_codec_fixture(Some("email IS NOT NULL"));
+    let index = valid.indexes()[0].clone_with_predicate_for_tests(Some(P::And(vec![
+        P::test_non_null(2),
+        P::test_non_null(99),
+    ])));
+    let invalid = PersistedSchemaSnapshot::new_with_indexes(
+        valid.version(),
+        valid.entity_path().into(),
+        valid.entity_name().into(),
+        valid.primary_key_field_ids().to_vec(),
+        valid.row_layout().clone(),
+        valid.fields().to_vec(),
+        vec![index],
     );
-    let encoded = encode_unchecked_schema_fixture(&snapshot);
-    let decode_error = decode_persisted_schema_snapshot(&encoded).unwrap_err();
-    assert_eq!(decode_error.class(), ErrorClass::Corruption);
-    assert_eq!(decode_error.origin(), ErrorOrigin::Store);
-
-    let valid = nullable_unique_codec_fixture(Some(
-        "email IS NOT NULL AND (email = 'active' OR (email = 'a' AND email = 'b'))",
-    ));
-    let encoded = encode_persisted_schema_snapshot(&valid).unwrap();
-    assert_eq!(decode_persisted_schema_snapshot(&encoded).unwrap(), valid);
+    assert_eq!(
+        encode_persisted_schema_snapshot(&invalid)
+            .unwrap_err()
+            .class(),
+        ErrorClass::InvariantViolation
+    );
+    assert_eq!(
+        decode_persisted_schema_snapshot(&encode_unchecked_schema_fixture(&invalid))
+            .unwrap_err()
+            .class(),
+        ErrorClass::Corruption
+    );
 }
 
 #[test]
 fn nullable_unique_normalization_preserves_admission_at_the_shared_depth_boundary() {
-    use crate::db::{
-        predicate::{Predicate, normalized_accepted_index_predicate},
-        sql_shared::MAX_SQL_EXPR_DEPTH,
-    };
-
+    use crate::db::sql_shared::MAX_SQL_EXPR_DEPTH;
     let sql = vec!["email IS NOT NULL"; MAX_SQL_EXPR_DEPTH].join(" AND ");
     let snapshot = nullable_unique_codec_fixture(Some(&sql));
     let encoded = encode_persisted_schema_snapshot(&snapshot).unwrap();
-    let decoded = decode_persisted_schema_snapshot(&encoded).unwrap();
-    assert_eq!(decoded, snapshot);
-    assert_eq!(encode_persisted_schema_snapshot(&decoded).unwrap(), encoded);
     assert_eq!(
-        normalized_accepted_index_predicate(decoded.indexes()[0].predicate_sql()).unwrap(),
-        Some(Predicate::IsNotNull {
-            field: "email".to_string()
-        }),
+        decode_persisted_schema_snapshot(&encoded).unwrap(),
+        snapshot
     );
-
-    // Simplification would erase the excess children, but both trust boundaries
-    // must apply the shared source limit before any normalization takes place.
-    let excessive = nullable_unique_codec_fixture(Some(&format!("{sql} AND email IS NOT NULL")));
     assert_eq!(
-        encode_persisted_schema_snapshot(&excessive)
-            .unwrap_err()
-            .class(),
-        ErrorClass::InvariantViolation,
+        snapshot.indexes()[0].predicate(),
+        Some(&crate::db::schema::AcceptedIndexPredicate::test_non_null(2))
     );
-    let raw = encode_unchecked_schema_fixture(&excessive);
-    let error = decode_persisted_schema_snapshot(&raw).unwrap_err();
-    assert_eq!(error.class(), ErrorClass::Corruption);
-    assert_eq!(error.origin(), ErrorOrigin::Store);
+    assert!(
+        crate::db::predicate::parse_sql_predicate(&format!("{sql} AND email IS NOT NULL")).is_err()
+    );
 }
 
 fn nullable_unique_codec_fixture(predicate_sql: Option<&str>) -> PersistedSchemaSnapshot {
-    PersistedSchemaSnapshot::new_with_indexes(
+    let snapshot = PersistedSchemaSnapshot::new_with_indexes(
         SchemaVersion::initial(),
         "entities::NullableUnique".to_string(),
         "NullableUnique".to_string(),
@@ -1494,8 +1479,21 @@ fn nullable_unique_codec_fixture(predicate_sql: Option<&str>) -> PersistedSchema
                 AcceptedFieldKind::Text { max_len: None },
                 true,
             )]),
-            predicate_sql.map(str::to_string),
+            None,
         )],
+    );
+    let mut indexes = snapshot.indexes().to_vec();
+    indexes[0] = indexes[0].clone_with_predicate_for_tests(predicate_sql.map(|sql| {
+        crate::db::schema::AcceptedIndexPredicate::bind_test_sql(sql, snapshot.fields())
+    }));
+    PersistedSchemaSnapshot::new_with_indexes(
+        snapshot.version(),
+        snapshot.entity_path().into(),
+        snapshot.entity_name().into(),
+        snapshot.primary_key_field_ids().to_vec(),
+        snapshot.row_layout().clone(),
+        snapshot.fields().to_vec(),
+        indexes,
     )
 }
 
