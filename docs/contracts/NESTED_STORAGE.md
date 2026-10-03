@@ -133,6 +133,14 @@ and multikey behavior are unsupported.
 
 ## Optional Record Paths
 
+Paths read the accepted logical root field. If an older row predates an added
+record field, the row contract supplies its frozen historical Null or validated
+payload fill. Scalar expressions and optimized single-path grouping observe the
+same fill as whole-field reads and general grouping. Current rows retain bounded
+byte traversal; a missing current-layout slot or malformed payload still rejects
+as persisted-row corruption. Historical fill does not bypass request or execution
+limits and does not derive values from generated Rust defaults.
+
 Missing descendants and explicit terminal nulls remain distinct during
 predicate admission, although some result operations intentionally collapse
 them:

@@ -522,6 +522,21 @@ fn caller_nat64_patch(id: u64, payload: u64) -> StructuralPatch {
     identity_payload_patch(payload).field("id", WriteCell::Value(InputValue::nat64(id)))
 }
 
+/// Leave a full retained backlog so recovery survives upgrade-management rounds.
+#[update]
+fn seed_convergence_metrics_backlog() -> Result<u32, icydb::Error> {
+    icydb::db::with_request_execution(|| {
+        let session = icydb::db!()?;
+        for offset in 0..64_u64 {
+            session.execute_trusted_structural_mutation(StructuralMutation::Insert {
+                entity: "SqlTestCallerNat64".to_string(),
+                patch: caller_nat64_patch(100_000 + offset, offset),
+            })?;
+        }
+        Ok(64)
+    })
+}
+
 const fn typed_fixture_invariant_error() -> icydb::Error {
     icydb::Error::from_kind(
         ErrorKind::Query(QueryErrorKind::Validate),

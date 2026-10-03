@@ -21,7 +21,7 @@ use crate::{
         },
     },
     error::InternalError,
-    metrics::{SchemaLifecycleMetricsSpan, SchemaLifecyclePhase},
+    metrics::{ExecutionMetricsPhase, ExecutionMetricsSpan},
     traits::CanisterKind,
 };
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
@@ -455,7 +455,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         let root = {
             // Cache-hit validation stays outside this cold compilation interval.
-            let _span = SchemaLifecycleMetricsSpan::new(SchemaLifecyclePhase::RuntimeCompilation);
+            let _span = ExecutionMetricsSpan::new(ExecutionMetricsPhase::RuntimeCompilation);
             Rc::new(AcceptedSchemaRuntimeRoot::compile(
                 &self.db,
                 identity,

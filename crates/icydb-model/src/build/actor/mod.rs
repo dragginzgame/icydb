@@ -219,13 +219,12 @@ fn generate_endpoint_runtime() -> TokenStream {
             }
 
             ::icydb::__icydb_with_metrics_items! {
-                #[allow(
-                    clippy::unnecessary_wraps,
-                    reason = "generated endpoint handlers retain one uniform fallible dispatch contract"
-                )]
                 pub(crate) fn metrics(
                 ) -> Result<::icydb::metrics::MetricsReport, ::icydb::Error> {
-                    Ok(::icydb::metrics::metrics_report())
+                    // The read-only startup boundary qualifies and selects the
+                    // current database without requiring ordinary-work readiness.
+                    super::startup_state().map_err(|failure| failure.error().clone())?;
+                    ::icydb::metrics::metrics_report()
                 }
 
                 #[allow(

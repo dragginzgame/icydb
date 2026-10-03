@@ -85,9 +85,17 @@ pub mod value {
 #[cfg(feature = "metrics")]
 pub mod metrics {
     pub use icydb_core::metrics::{
-        EntityMetrics, InstructionMetrics, MetricsReport, SchemaLifecycleMetrics, metrics_report,
-        metrics_reset_all,
+        ConvergenceMetrics, EntityMetrics, InstructionMetrics, MetricsReport,
+        SchemaLifecycleMetrics, metrics_reset_all,
     };
+
+    /// Read the current metrics window and exact bounded journal debt.
+    ///
+    /// Returns a typed error when the database's committed journal controls
+    /// cannot be observed. Query reads do not advance recovery or record work.
+    pub fn metrics_report() -> Result<MetricsReport, crate::Error> {
+        Ok(icydb_core::metrics::metrics_report()?)
+    }
 }
 
 // facade modules

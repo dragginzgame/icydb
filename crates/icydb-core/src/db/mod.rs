@@ -67,7 +67,7 @@ pub use catalog::{
 #[doc(hidden)]
 pub use codec::hex::encode_hex_lower;
 #[doc(hidden)]
-pub use commit::install_startup_recovery_wakeup;
+pub use commit::{ExactBacklogMeasurement, install_startup_recovery_wakeup};
 pub use data::DataStore;
 pub use diagnostics::{
     DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, MemoryAllocation,
@@ -186,7 +186,7 @@ pub use schema::{
 };
 #[cfg(feature = "sql")]
 pub(in crate::db) use session::QueryPlanCacheReuse;
-pub use session::{DbSession, RequestExecutionRoot};
+pub use session::{DbSession, RequestBudgetSnapshot, RequestExecutionRoot};
 #[doc(hidden)]
 pub use session::{
     MAX_TYPED_EXACT_KEY_BATCH_INPUT_BYTES, MAX_TYPED_EXACT_KEY_BATCH_ITEMS,

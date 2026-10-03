@@ -41,9 +41,10 @@ fn report_cycles(fixture: &StandaloneCanisterFixture, before: u128, label: &str)
 }
 
 fn lifecycle_metrics(fixture: &StandaloneCanisterFixture) -> SchemaLifecycleMetrics {
-    fixture
+    let result: Result<SchemaLifecycleMetrics, Error> = fixture
         .query_candid("entity_creation_lifecycle_metrics", ())
-        .expect("fixed lifecycle counters should decode")
+        .expect("fixed lifecycle counters should decode");
+    result.expect("canonical journal controls should remain readable")
 }
 
 fn assert_query_keeps_lifecycle_metrics(fixture: &StandaloneCanisterFixture) {

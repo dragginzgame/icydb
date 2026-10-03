@@ -20,3 +20,10 @@ pub use model::{
     StoreSnapshotStorageMode,
 };
 pub(in crate::db) use storage_report::{storage_report, storage_report_default};
+
+/// Exact bounded journal debt from the same controls used by backlog admission.
+#[cfg(feature = "metrics")]
+pub(crate) fn journal_debt()
+-> Result<crate::db::commit::ExactBacklogMeasurement, crate::error::InternalError> {
+    crate::db::commit::current_database_backlog()
+}

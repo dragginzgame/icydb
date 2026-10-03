@@ -13,8 +13,8 @@ use crate::{
 };
 use crate::{
     db::{
-        data::{CanonicalSlotReader, decode_structural_value_storage_bytes},
-        executor::projection::path::{resolve_path_segments, resolve_value_field_path},
+        data::CanonicalSlotReader,
+        executor::projection::path::{resolve_slot_field_path, resolve_value_field_path},
     },
     error::InternalError,
     value::Value,
@@ -250,22 +250,12 @@ impl CompiledExprValueReader for CanonicalSlotExprReader<'_, '_> {
         segment_bytes: &[Box<[u8]>],
     ) -> Result<Option<Cow<'_, Value>>, ProjectionEvalError> {
         (self.record_slot.borrow_mut())(root_slot);
-        let raw_bytes = self
-            .slots
-            .required_bytes(root_slot)
+        let value = resolve_slot_field_path(self.slots, root_slot, segment_bytes)
             .map_err(field_path_error)?;
-        let value_bytes = resolve_path_segments(raw_bytes, segment_bytes)
-            .map_err(|_| field_path_error(InternalError::persisted_row_decode_corruption()))?;
-        let Some(value_bytes) = value_bytes else {
-            return Ok(materialize_missing_field_path(
-                None,
-                self.field_path_missing_is_null,
-            ));
-        };
-        let value = decode_structural_value_storage_bytes(value_bytes)
-            .map_err(|_| field_path_error(InternalError::persisted_row_decode_corruption()))?;
-
-        Ok(Some(Cow::Owned(value)))
+        Ok(materialize_missing_field_path(
+            value.map(Cow::Owned),
+            self.field_path_missing_is_null,
+        ))
     }
 }
 

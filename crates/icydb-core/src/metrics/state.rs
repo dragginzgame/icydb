@@ -1,14 +1,14 @@
 //! Module: metrics::state
 //! Responsibility: on-canister execution counters and bounded reporting.
 //! Does not own: endpoint attribution, query identity, or persisted metrics.
-//! Boundary: one heap-only window of entity paths and fixed schema-owner counters.
+//! Boundary: bounded canonical debt plus one heap-only window of owner observations.
 
-use crate::{metrics::SchemaLifecyclePhase, runtime::now_millis};
+use crate::{metrics::ExecutionMetricsPhase, runtime::now_millis};
 use candid::CandidType;
 use serde::Deserialize;
 use std::{cell::RefCell, collections::BTreeMap};
 
-/// Saturating local instruction observations for one schema-lifecycle owner.
+/// Saturating local instruction observations for one execution owner.
 ///
 /// Spans include failed attempts and may nest; totals are not exclusive
 /// accounting and must not be summed or converted to cycles.
@@ -91,6 +91,42 @@ impl SchemaLifecycleMetrics {
     }
 }
 
+/// Heap-window journal movements recorded only after control publication.
+///
+/// Values count engine batches, records and encoded envelopes. Replay retries do
+/// not append twice. Reset/restart clears these counters, never persisted debt.
+/// Fold instructions may nest inside startup recovery and are not additive costs.
+#[derive(CandidType, Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct ConvergenceMetrics {
+    appended: crate::db::ExactBacklogMeasurement,
+    retired: crate::db::ExactBacklogMeasurement,
+    overflowed: bool,
+    journal_fold: InstructionMetrics,
+}
+
+impl ConvergenceMetrics {
+    /// Journal contributions published during this metrics window.
+    #[must_use]
+    pub const fn appended(&self) -> crate::db::ExactBacklogMeasurement {
+        self.appended
+    }
+    /// Complete batches retired after canonical fold publication in this window.
+    #[must_use]
+    pub const fn retired(&self) -> crate::db::ExactBacklogMeasurement {
+        self.retired
+    }
+    /// Saturation makes these window movements unsuitable for exact conservation.
+    #[must_use]
+    pub const fn overflowed(&self) -> bool {
+        self.overflowed
+    }
+    /// Actual batch-fold instruction spans, including failed attempts.
+    #[must_use]
+    pub const fn journal_fold(&self) -> &InstructionMetrics {
+        &self.journal_fold
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 struct EntityCounter {
     hits: u64,
@@ -102,6 +138,7 @@ struct EntityCounter {
 struct MetricsState {
     entities: BTreeMap<String, EntityCounter>,
     schema_lifecycle: SchemaLifecycleMetrics,
+    convergence: ConvergenceMetrics,
     window_start_ms: u64,
     window_id: Option<u64>,
 }
@@ -111,6 +148,7 @@ impl Default for MetricsState {
         Self {
             entities: BTreeMap::new(),
             schema_lifecycle: SchemaLifecycleMetrics::default(),
+            convergence: ConvergenceMetrics::default(),
             window_start_ms: now_millis(),
             window_id: Some(0),
         }
@@ -169,6 +207,8 @@ pub struct MetricsReport {
     total_entities: u64,
     entities: Vec<EntityMetrics>,
     schema_lifecycle: SchemaLifecycleMetrics,
+    journal_debt: crate::db::ExactBacklogMeasurement,
+    convergence: ConvergenceMetrics,
 }
 
 impl MetricsReport {
@@ -213,6 +253,19 @@ impl MetricsReport {
         self.entities.as_slice()
     }
 
+    /// Exact current journal debt, read fallibly from admission's authoritative controls.
+    /// It survives metrics resets and is not an estimate from timers or application calls.
+    #[must_use]
+    pub const fn journal_debt(&self) -> crate::db::ExactBacklogMeasurement {
+        self.journal_debt
+    }
+
+    /// Published append/retirement and batch-fold observations in this heap window.
+    #[must_use]
+    pub const fn convergence(&self) -> &ConvergenceMetrics {
+        &self.convergence
+    }
+
     /// Fixed schema-owner observations sharing this report's heap-local window.
     #[must_use]
     pub const fn schema_lifecycle(&self) -> &SchemaLifecycleMetrics {
@@ -220,18 +273,45 @@ impl MetricsReport {
     }
 }
 
-pub(super) fn record_schema_lifecycle_execution(phase: &SchemaLifecyclePhase, instructions: u64) {
+pub(super) fn record_owner_execution(phase: &ExecutionMetricsPhase, instructions: u64) {
     STATE.with(|state| {
         let mut state = state.borrow_mut();
         let lifecycle = &mut state.schema_lifecycle;
         let counter = match phase {
-            SchemaLifecyclePhase::Lowering => &mut lifecycle.lowering,
-            SchemaLifecyclePhase::Publication => &mut lifecycle.publication,
-            SchemaLifecyclePhase::RuntimeCompilation => &mut lifecycle.runtime_compilation,
-            SchemaLifecyclePhase::Cardinality => &mut lifecycle.cardinality,
-            SchemaLifecyclePhase::StartupRecovery => &mut lifecycle.startup_recovery,
+            ExecutionMetricsPhase::Lowering => &mut lifecycle.lowering,
+            ExecutionMetricsPhase::Publication => &mut lifecycle.publication,
+            ExecutionMetricsPhase::RuntimeCompilation => &mut lifecycle.runtime_compilation,
+            ExecutionMetricsPhase::Cardinality => &mut lifecycle.cardinality,
+            ExecutionMetricsPhase::StartupRecovery => &mut lifecycle.startup_recovery,
+            ExecutionMetricsPhase::JournalFold => &mut state.convergence.journal_fold,
         };
         counter.record(instructions);
+    });
+}
+
+pub(super) fn record_journal_movement(retirement: bool, debt: crate::db::ExactBacklogMeasurement) {
+    STATE.with(|state| {
+        let mut state = state.borrow_mut();
+        let convergence = &mut state.convergence;
+        let total = if retirement {
+            &mut convergence.retired
+        } else {
+            &mut convergence.appended
+        };
+        for (before, added) in [
+            (total.batch_count(), debt.batch_count()),
+            (total.record_count(), debt.record_count()),
+            (total.encoded_batch_bytes(), debt.encoded_batch_bytes()),
+        ] {
+            convergence.overflowed |= before.checked_add(added).is_none();
+        }
+        *total = crate::db::ExactBacklogMeasurement::new(
+            total.batch_count().saturating_add(debt.batch_count()),
+            total.record_count().saturating_add(debt.record_count()),
+            total
+                .encoded_batch_bytes()
+                .saturating_add(debt.encoded_batch_bytes()),
+        );
     });
 }
 
@@ -251,8 +331,18 @@ pub(super) fn record_entity_execution(entity_path: &str, instructions: u64) {
 /// path order, stopping before the first path exceeding the remaining byte
 /// allowance. Only selected rows are copied and sorted. Does not bound retained
 /// accumulator size, scan database rows, reset counters or sample IC instructions.
-#[must_use]
-pub fn metrics_report() -> MetricsReport {
+/// Journal debt reads one control per entry in the bounded persisted allocation registry.
+///
+/// # Errors
+///
+/// Returns the canonical control/registry error if journal debt cannot be read.
+/// An unavailable or malformed control is never reported as zero debt.
+pub fn metrics_report() -> Result<MetricsReport, crate::error::InternalError> {
+    let debt = crate::db::diagnostics::journal_debt()?;
+    Ok(metrics_snapshot(debt))
+}
+
+fn metrics_snapshot(journal_debt: crate::db::ExactBacklogMeasurement) -> MetricsReport {
     STATE.with(|state| {
         let state = state.borrow();
         let mut remaining_path_bytes = MetricsReport::MAX_PATH_BYTES;
@@ -289,6 +379,8 @@ pub fn metrics_report() -> MetricsReport {
             total_entities: state.entities.len() as u64,
             entities,
             schema_lifecycle: state.schema_lifecycle.clone(),
+            journal_debt,
+            convergence: state.convergence.clone(),
         }
     })
 }
@@ -303,6 +395,7 @@ pub fn metrics_reset_all() {
         state.window_id = state.window_id.and_then(|id| id.checked_add(1));
         state.entities.clear();
         state.schema_lifecycle = SchemaLifecycleMetrics::default();
+        state.convergence = ConvergenceMetrics::default();
         state.window_start_ms = now_millis();
     });
 }
@@ -310,25 +403,49 @@ pub fn metrics_reset_all() {
 #[cfg(test)]
 mod tests {
     use super::{
-        MetricsReport, STATE, SchemaLifecycleMetrics, metrics_report, metrics_reset_all,
-        record_entity_execution, record_schema_lifecycle_execution,
+        MetricsReport, STATE, SchemaLifecycleMetrics, metrics_reset_all, metrics_snapshot,
+        record_entity_execution, record_owner_execution,
     };
-    use crate::metrics::{SchemaLifecycleMetricsSpan, SchemaLifecyclePhase};
+    use crate::metrics::{ExecutionMetricsPhase, ExecutionMetricsSpan};
+
+    #[test]
+    fn convergence_movements_mark_overflow_and_reset_independently_of_debt() {
+        use crate::db::ExactBacklogMeasurement as Debt;
+        metrics_reset_all();
+        super::record_journal_movement(false, Debt::new(u64::MAX, 2, 3));
+        super::record_journal_movement(false, Debt::new(1, 4, 5));
+        super::record_journal_movement(true, Debt::new(1, 2, 3));
+        record_owner_execution(&ExecutionMetricsPhase::JournalFold, 42);
+        let debt = Debt::new(7, 8, 9);
+        let report = metrics_snapshot(debt);
+        assert!(report.convergence().overflowed());
+        assert_eq!(report.convergence().appended(), Debt::new(u64::MAX, 6, 8));
+        assert_eq!(report.convergence().retired(), Debt::new(1, 2, 3));
+        assert_eq!(report.convergence().journal_fold().instructions_total(), 42);
+        let encoded = candid::encode_one(&report).expect("convergence report should encode");
+        let decoded: MetricsReport = candid::decode_one(&encoded).expect("report should decode");
+        assert_eq!(decoded, report);
+        metrics_reset_all();
+        let reset = metrics_snapshot(debt);
+        assert_eq!(reset.journal_debt(), debt);
+        assert_eq!(reset.convergence(), &super::ConvergenceMetrics::default());
+        assert_ne!(reset.window_id(), report.window_id());
+    }
 
     #[test]
     fn lifecycle_observations_are_separate_saturating_and_reset_with_the_window() {
         metrics_reset_all();
         for (phase, instructions) in [
-            (SchemaLifecyclePhase::Lowering, u64::MAX),
-            (SchemaLifecyclePhase::Lowering, 1),
-            (SchemaLifecyclePhase::Publication, 12),
-            (SchemaLifecyclePhase::RuntimeCompilation, 23),
-            (SchemaLifecyclePhase::Cardinality, 34),
-            (SchemaLifecyclePhase::StartupRecovery, 45),
+            (ExecutionMetricsPhase::Lowering, u64::MAX),
+            (ExecutionMetricsPhase::Lowering, 1),
+            (ExecutionMetricsPhase::Publication, 12),
+            (ExecutionMetricsPhase::RuntimeCompilation, 23),
+            (ExecutionMetricsPhase::Cardinality, 34),
+            (ExecutionMetricsPhase::StartupRecovery, 45),
         ] {
-            record_schema_lifecycle_execution(&phase, instructions);
+            record_owner_execution(&phase, instructions);
         }
-        let report = metrics_report();
+        let report = metrics_snapshot(crate::db::ExactBacklogMeasurement::EMPTY);
         let lifecycle = report.schema_lifecycle();
         assert_eq!(lifecycle.lowering().samples(), 2);
         assert_eq!(lifecycle.lowering().instructions_total(), u64::MAX);
@@ -343,23 +460,35 @@ mod tests {
         assert_eq!(decoded, report);
         metrics_reset_all();
         assert_eq!(
-            metrics_report().schema_lifecycle(),
+            metrics_snapshot(crate::db::ExactBacklogMeasurement::EMPTY).schema_lifecycle(),
             &SchemaLifecycleMetrics::default()
         );
-        assert_ne!(metrics_report().window_id(), report.window_id());
+        assert_ne!(
+            metrics_snapshot(crate::db::ExactBacklogMeasurement::EMPTY).window_id(),
+            report.window_id()
+        );
     }
 
     #[test]
     fn failed_owner_attempts_are_observed_when_the_span_exits() {
         fn failed_attempt() -> Result<(), ()> {
-            let _span = SchemaLifecycleMetricsSpan::new(SchemaLifecyclePhase::Lowering);
+            let _span = ExecutionMetricsSpan::new(ExecutionMetricsPhase::Lowering);
             Err(())
         }
         metrics_reset_all();
         assert!(failed_attempt().is_err());
-        assert_eq!(metrics_report().schema_lifecycle().lowering().samples(), 1);
         assert_eq!(
-            metrics_report().schema_lifecycle().publication().samples(),
+            metrics_snapshot(crate::db::ExactBacklogMeasurement::EMPTY)
+                .schema_lifecycle()
+                .lowering()
+                .samples(),
+            1
+        );
+        assert_eq!(
+            metrics_snapshot(crate::db::ExactBacklogMeasurement::EMPTY)
+                .schema_lifecycle()
+                .publication()
+                .samples(),
             0
         );
     }
@@ -370,7 +499,7 @@ mod tests {
         for index in (0..4096).rev() {
             record_entity_execution(&format!("entity::{index:04}"), index);
         }
-        let report = metrics_report();
+        let report = metrics_snapshot(crate::db::ExactBacklogMeasurement::EMPTY);
         assert_eq!(report.total_entities(), 4096);
         assert_eq!(report.entities().len(), MetricsReport::MAX_ENTITIES);
         assert_eq!(report.entities()[0].path(), "entity::0063");
@@ -380,7 +509,7 @@ mod tests {
 
     // Ignore wall-clock movement when checking that observing does not mutate counters.
     fn metrics_report_with_end_time(end_ms: u64) -> MetricsReport {
-        let mut report = metrics_report();
+        let mut report = metrics_snapshot(crate::db::ExactBacklogMeasurement::EMPTY);
         report.window_end_ms = end_ms;
         report
     }
@@ -391,10 +520,10 @@ mod tests {
         for index in 0..MetricsReport::MAX_ENTITIES {
             record_entity_execution(&format!("entity::{index:04}"), 1);
         }
-        let report = metrics_report();
+        let report = metrics_snapshot(crate::db::ExactBacklogMeasurement::EMPTY);
         assert_eq!(report.entities().len() as u64, report.total_entities());
         record_entity_execution("zz-extra", 100);
-        let report = metrics_report();
+        let report = metrics_snapshot(crate::db::ExactBacklogMeasurement::EMPTY);
         assert_eq!(report.entities().len(), MetricsReport::MAX_ENTITIES);
         assert_eq!(report.total_entities(), 65);
 
@@ -402,7 +531,7 @@ mod tests {
         let exact_path = "a".repeat(MetricsReport::MAX_PATH_BYTES);
         record_entity_execution(&exact_path, 1);
         record_entity_execution("z", 1);
-        let report = metrics_report();
+        let report = metrics_snapshot(crate::db::ExactBacklogMeasurement::EMPTY);
         assert_eq!(report.entities().len(), 1);
         assert_eq!(report.entities()[0].path(), exact_path);
         assert_eq!(report.total_entities(), 2);
@@ -410,7 +539,7 @@ mod tests {
         metrics_reset_all();
         record_entity_execution(&"a".repeat(MetricsReport::MAX_PATH_BYTES + 1), 1);
         record_entity_execution("z", 1);
-        let report = metrics_report();
+        let report = metrics_snapshot(crate::db::ExactBacklogMeasurement::EMPTY);
         assert!(report.entities().is_empty());
         assert_eq!(report.total_entities(), 2);
 
@@ -419,7 +548,7 @@ mod tests {
         record_entity_execution(&"a".repeat(MetricsReport::MAX_PATH_BYTES - 2), 1);
         record_entity_execution("é", 1);
         record_entity_execution("ê", 1);
-        let report = metrics_report();
+        let report = metrics_snapshot(crate::db::ExactBacklogMeasurement::EMPTY);
         assert_eq!(report.entities().len(), 2);
         assert_eq!(report.total_entities(), 3);
         assert_eq!(
@@ -435,10 +564,10 @@ mod tests {
     #[test]
     fn reset_identity_advances_without_relying_on_clock_resolution() {
         metrics_reset_all();
-        let first = metrics_report();
+        let first = metrics_snapshot(crate::db::ExactBacklogMeasurement::EMPTY);
         record_entity_execution("entity", 1);
         metrics_reset_all();
-        let second = metrics_report();
+        let second = metrics_snapshot(crate::db::ExactBacklogMeasurement::EMPTY);
         assert_eq!(second.window_id(), first.window_id().map(|id| id + 1));
         assert_eq!(second.total_entities(), 0);
         assert!(second.entities().is_empty());
@@ -450,8 +579,14 @@ mod tests {
         for _ in 0..2 {
             record_entity_execution("entity", 1);
             metrics_reset_all();
-            assert_eq!(metrics_report().window_id(), None);
-            assert_eq!(metrics_report().total_entities(), 0);
+            assert_eq!(
+                metrics_snapshot(crate::db::ExactBacklogMeasurement::EMPTY).window_id(),
+                None
+            );
+            assert_eq!(
+                metrics_snapshot(crate::db::ExactBacklogMeasurement::EMPTY).total_entities(),
+                0
+            );
         }
         // Restore this thread's fixture without making production IDs reusable.
         STATE.with(|state| *state.borrow_mut() = super::MetricsState::default());
@@ -461,7 +596,7 @@ mod tests {
     fn report_round_trips_current_candid_shape() {
         metrics_reset_all();
         record_entity_execution("entity", 12);
-        let report = metrics_report();
+        let report = metrics_snapshot(crate::db::ExactBacklogMeasurement::EMPTY);
         let encoded = candid::encode_one(&report).expect("encode current report");
         let decoded: MetricsReport = candid::decode_one(&encoded).expect("decode current report");
         assert_eq!(decoded, report);
@@ -475,7 +610,7 @@ mod tests {
         record_entity_execution("store::alpha", 5);
         record_entity_execution("store::gamma", 10);
 
-        let report = metrics_report();
+        let report = metrics_snapshot(crate::db::ExactBacklogMeasurement::EMPTY);
         let paths = report
             .entities()
             .iter()

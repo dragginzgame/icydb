@@ -24,6 +24,12 @@ pub struct RequestExecutionRoot {
 }
 
 impl RequestExecutionRoot {
+    /// Snapshot this root's aggregate request usage and headroom without charging work.
+    #[must_use]
+    pub fn request_budget(&self) -> core::db::RequestBudgetSnapshot {
+        self.inner.request_budget()
+    }
+
     fn new() -> Self {
         Self {
             inner: Rc::new(core::db::RequestExecutionRoot::__new_or_current_runtime_root()),

@@ -930,6 +930,9 @@ fn fold_selected_journal_head<C: CanisterKind>(
     selected: SelectedJournalHead,
     projection: JournalFoldProjection,
 ) -> Result<(), StartupRecoveryFailure> {
+    let _span = crate::metrics::ExecutionMetricsSpan::new(
+        crate::metrics::ExecutionMetricsPhase::JournalFold,
+    );
     let SelectedJournalHead {
         store_path,
         handle,

@@ -257,8 +257,8 @@ pub(crate) trait SlotReader {
 ///
 /// CanonicalSlotReader is the strict structural row-reader contract used once
 /// canonical-row invariants are in force.
-/// Declared slots must already exist, so callers can fail closed on missing
-/// payloads instead of carrying absent-slot fallback branches.
+/// Physical reads require a stored payload. Logical reads may materialize an
+/// accepted historical fill; the owning row contract rejects every other absence.
 ///
 
 pub(in crate::db) trait CanonicalSlotReader: SlotReader {
@@ -295,8 +295,8 @@ pub(in crate::db) trait CanonicalSlotReader: SlotReader {
         Ok(None)
     }
 
-    /// Decode one declared slot through the owning field contract without
-    /// allowing absent payloads.
+    /// Decode one declared logical slot through the owning field contract,
+    /// including its accepted historical fill when physical bytes are absent.
     fn required_value_by_contract(&self, slot: usize) -> Result<Value, InternalError>;
 
     /// Borrow one declared slot value when the concrete reader already owns a

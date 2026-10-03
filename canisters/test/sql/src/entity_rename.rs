@@ -63,11 +63,11 @@ fn measure_entity_creation_schema_application() -> (
             )
             .map(|_receipt| ())
     });
-    (
-        result,
-        ic_cdk::api::performance_counter(1).saturating_sub(start),
-        metrics_report().schema_lifecycle().clone(),
-    )
+    let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    match metrics_report() {
+        Ok(report) => (result, instructions, report.schema_lifecycle().clone()),
+        Err(error) => (Err(error), instructions, Default::default()),
+    }
 }
 
 /// Measure a canonical driver page with readiness before/after and quiescence.
@@ -84,17 +84,17 @@ fn measure_entity_creation_startup_step() -> (
         Ok((ready_before, lifecycle_ready()?, terminal))
     });
     let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
-    (
-        result,
-        instructions,
-        metrics_report().schema_lifecycle().clone(),
-    )
+    match metrics_report() {
+        Ok(report) => (result, instructions, report.schema_lifecycle().clone()),
+        Err(error) => (Err(error), instructions, Default::default()),
+    }
 }
 
 /// Observe fixed schema-owner counters even before ordinary read admission.
 #[query]
-fn entity_creation_lifecycle_metrics() -> icydb::metrics::SchemaLifecycleMetrics {
-    metrics_report().schema_lifecycle().clone()
+fn entity_creation_lifecycle_metrics()
+-> Result<icydb::metrics::SchemaLifecycleMetrics, icydb::Error> {
+    Ok(metrics_report()?.schema_lifecycle().clone())
 }
 
 /// Seed the three fixed rows through ordinary accepted structural writes.

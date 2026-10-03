@@ -146,6 +146,18 @@ helper, deriving another session, catching an error or resuming after `await`
 does not reset that root's counters. An outbound call does not share the root
 with another canister. Native counters do not measure IC instructions.
 
+`DbSession::request_budget()` and `RequestExecutionRoot::request_budget()` project
+that retained owner as a fixed-size `RequestBudgetSnapshot`. Its resource-indexed
+`observed`, `limit` and saturating `remaining` accessors reuse the maintained
+diagnostic resource vocabulary. Failed attempts remain charged; snapshots are
+frozen and non-mutating, including when another root is ambient or the original
+root has been dropped. This adds no charging authority, reservation, tuning
+profile, execution route or persisted state. Request headroom does not imply
+per-execution admission or guarantee an arbitrary application item fits.
+Instruction units describe charged database spans, including their sampling
+boundaries, rather than total endpoint work or the IC's remaining allowance.
+See [bounded application progress](../guides/public-facade-api.md#request-budget-headroom).
+
 ### Preparation Accounting And Coverage
 
 Construction charges apply before the maintained allocation/copy boundaries,
@@ -405,3 +417,39 @@ and the largest interval. These owner spans include failed attempts, can nest,
 and must not be added as exclusive accounting or converted to cycles. Query
 execution records none of these observations. The existing reset clears both
 entity and lifecycle counters; upgrade clears their heap-only window.
+
+`metrics_report()` is fallible. The generated `icydb_metrics` query bootstraps
+committed memory/startup authority and returns the same `Result<MetricsReport, Error>`
+boundary without waiting for ordinary-work startup admission. Its `journal_debt`
+is the exact database-wide tuple used by backlog admission: retained engine
+batches, encoded journal records and complete encoded batch-envelope bytes.
+Collection validates the bounded commit-control envelope (including any pending
+marker bytes under the existing commit-byte ceiling) and reads one tail control
+per persisted store allocation, bounded by the existing registry limit. It does
+not scan rows or retained journal batch payloads. Unavailable,
+malformed or overflowing controls return their typed error; they never become
+an apparent zero-debt result. All three zero values directly establish that no
+canonical retained journal debt remains at the observation point.
+This alone does not certify startup readiness or an empty pending commit marker.
+
+The existing window also reports `convergence.appended` and `convergence.retired`
+in these same units. Journal control publication owns these observations:
+identical append replay and rejected append attempts add nothing; retirement
+counts a complete batch only after canonical fold/control publication. A
+`journal_fold` instruction counter records actual batch-fold attempts, including
+failures, during both online convergence and startup recovery. It may nest inside
+the existing startup-recovery span; never sum these spans as exclusive costs.
+Instructions are IC local-instruction observations, not cycles. Mainnet rate
+assumptions and endpoint cycle attribution remain separate authorities.
+
+For two reports from the same database endpoint in the same known heap
+incarnation with equal, present window IDs and `convergence.overflowed == false`,
+each tuple component satisfies
+`debt_after = debt_before + appended_delta - retired_delta`. Movement counters
+saturate and mark overflow, invalidating exact conservation. Reset clears
+observations and advances the heap-local window ID; it never clears persisted
+debt. Upgrade/restart replaces the heap window, so equal numeric IDs across
+those boundaries do not establish comparability. A report collected after
+restart may contain nonzero debt with zero observed appends. Query collection
+records no work and does not reset or advance the window. Regenerate consumers
+for the current Candid report shape; no predecessor-shape fallback is maintained.

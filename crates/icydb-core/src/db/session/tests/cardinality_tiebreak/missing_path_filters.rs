@@ -138,7 +138,7 @@ fn seed_profiles(session: &DbSession<TestCanister>) {
     }
 }
 
-fn structural_select(session: &DbSession<TestCanister>, sql: &str) -> StructuralQuery {
+pub(super) fn structural_select(session: &DbSession<TestCanister>, sql: &str) -> StructuralQuery {
     let catalog = session
         .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
         .unwrap();

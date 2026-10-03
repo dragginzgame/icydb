@@ -34,7 +34,7 @@ use crate::{
         },
     },
     error::{AcceptedConstraintFactContext, ConstraintValidationFindingOutput, InternalError},
-    metrics::{SchemaLifecycleMetricsSpan, SchemaLifecyclePhase},
+    metrics::{ExecutionMetricsPhase, ExecutionMetricsSpan},
     traits::CanisterKind,
 };
 
@@ -52,7 +52,7 @@ pub(super) fn drive_recovery_page<C: CanisterKind>(
     // Recovery may still fold publication records after schema readiness. Keep
     // that owner separate from the subsequent runtime/cardinality preparation.
     let recovery = {
-        let _span = SchemaLifecycleMetricsSpan::new(SchemaLifecyclePhase::StartupRecovery);
+        let _span = ExecutionMetricsSpan::new(ExecutionMetricsPhase::StartupRecovery);
         session.drive_startup_recovery_page_with_failure_authority()
     };
     match recovery {
@@ -82,7 +82,7 @@ pub(super) fn drive_recovery_page<C: CanisterKind>(
 fn drive_cardinality_page(
     stores: &'static LocalKey<StoreRegistry>,
 ) -> Result<GeneratedStartupDriverStep, InternalError> {
-    let _span = SchemaLifecycleMetricsSpan::new(SchemaLifecyclePhase::Cardinality);
+    let _span = ExecutionMetricsSpan::new(ExecutionMetricsPhase::Cardinality);
     let incarnation = database_incarnation_id()?;
     let mut registered = stores.with(|registry| registry.iter().collect::<Vec<_>>());
     icydb_schema::compact_sort_unstable_by(&mut registered, |left, right| left.0.cmp(right.0));

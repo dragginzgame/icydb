@@ -20,6 +20,7 @@ use icydb_core as core;
 use std::{error::Error as StdError, fmt};
 
 // re-exports
+pub use core::db::RequestBudgetSnapshot;
 pub use integrity::IntegrityCheckError;
 #[cfg(feature = "sql")]
 pub use integrity::SqlIntegrityError;
@@ -82,6 +83,16 @@ pub struct DbSession<C: CanisterKind> {
 }
 
 impl<C: CanisterKind> DbSession<C> {
+    /// Snapshot this session's shared aggregate request usage and headroom.
+    ///
+    /// The read is non-mutating and uses the retained request owner. Failed
+    /// attempts remain charged. Capacity does not reserve work or guarantee
+    /// that another application item or individual execution fits.
+    #[must_use]
+    pub fn request_budget(&self) -> RequestBudgetSnapshot {
+        self.inner.request_budget()
+    }
+
     // ------------------------------------------------------------------
     // Session configuration
     // ------------------------------------------------------------------

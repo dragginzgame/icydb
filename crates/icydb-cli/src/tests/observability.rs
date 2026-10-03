@@ -273,5 +273,10 @@ fn metrics_report_rendering_uses_human_summary() {
     assert!(text.contains("IcyDB metrics"));
     assert!(text.contains("entities: 0 of 0 (bounded path prefix, sorted by cost)"));
     assert!(text.contains("heap-local window ID: unavailable"));
+    assert!(text.contains("canonical debt: 0 batches, 0 records, 0 encoded batch bytes"));
+    assert!(text.contains("window appended: 0 batches, 0 records, 0 encoded batch bytes"));
+    assert!(text.contains("window retired: 0 batches, 0 records, 0 encoded batch bytes"));
+    assert!(text.contains("movement overflowed: false"));
+    assert!(text.contains("instruction spans may nest; totals are not additive"));
     assert!(text.contains("entities\n  None"));
 }

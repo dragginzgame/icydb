@@ -3,6 +3,8 @@
 //! Does not own: product runtime semantics or individual integration scenarios.
 //! Boundary: exposes reusable test-only build and runtime adapters to integration targets.
 
+#[cfg(test)]
+mod build_flags_tests;
 mod canister_build_cache;
 
 pub mod canister_artifact;
@@ -213,7 +215,7 @@ impl AsRef<Path> for BuiltCanisterArtifacts {
 
 struct ConfiguredCanisterBuild {
     arguments: Vec<OsString>,
-    rustflags: Option<String>,
+    encoded_rustflags: Option<String>,
     final_deployable: PathBuf,
 }
 
@@ -571,17 +573,24 @@ fn wasm_release_path_trim_flags(root: &Path) -> Vec<String> {
     flags
 }
 
-// Preserve caller-provided rustflags and append any canister-specific flags to
-// the same environment variable Cargo already understands.
-fn combined_rustflags(extra_flags: &[String]) -> Option<String> {
+// Cargo selects encoded flags before ordinary flags, even when explicitly empty.
+// Append remaps to that effective input and encode argument boundaries once so
+// spaces in paths survive. With no additions, leave Cargo's inheritance alone.
+fn combined_encoded_rustflags(extra_flags: &[String]) -> Option<String> {
     if extra_flags.is_empty() {
         return None;
     }
 
-    let mut combined = env::var("RUSTFLAGS").unwrap_or_default();
+    let mut combined = env::var("CARGO_ENCODED_RUSTFLAGS").unwrap_or_else(|_| {
+        env::var("RUSTFLAGS")
+            .unwrap_or_default()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join("\x1f")
+    });
     for flag in extra_flags {
         if !combined.is_empty() {
-            combined.push(' ');
+            combined.push('\x1f');
         }
         combined.push_str(flag);
     }
@@ -623,7 +632,7 @@ fn build_configured_canister_artifacts(
         packages: &packages,
         profile_target_dir: options.profile.as_str(),
         arguments: &configured.arguments,
-        effective_rustflags: configured.rustflags.as_deref(),
+        encoded_rustflags: configured.encoded_rustflags.as_deref(),
     })
     .map_err(|error| format!("{context_label}: {error}"))?;
     trace_wasm_build(context_label, &outcome);
@@ -798,7 +807,7 @@ fn build_fixture_variant_wasm_with_profile(
         label,
         ConfiguredCanisterBuild {
             arguments,
-            rustflags: combined_rustflags(&[]),
+            encoded_rustflags: combined_encoded_rustflags(&[]),
             final_deployable: target
                 .join("icydb-final")
                 .join(profile.as_str())
@@ -864,11 +873,11 @@ fn configure_canister_build(
     } else {
         Vec::new()
     };
-    let rustflags = combined_rustflags(&extra_rustflags);
+    let encoded_rustflags = combined_encoded_rustflags(&extra_rustflags);
 
     Ok(ConfiguredCanisterBuild {
         arguments,
-        rustflags,
+        encoded_rustflags,
         final_deployable,
     })
 }
@@ -1342,7 +1351,7 @@ fn plan_maintained_canister_builds(
             context,
             package: policy.package,
             arguments: &configured.arguments,
-            effective_rustflags: configured.rustflags.as_deref(),
+            encoded_rustflags: configured.encoded_rustflags.as_deref(),
         })
         .collect::<Vec<_>>();
     let specs = cargo_wasm_batch_specs(

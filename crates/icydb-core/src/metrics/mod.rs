@@ -1,6 +1,6 @@
 //! Module: metrics
 //!
-//! Responsibility: on-canister entity and schema-lifecycle cost reporting.
+//! Responsibility: on-canister execution costs and canonical convergence diagnostics.
 //! Does not own: endpoints, query identity, or storage inspection.
 //! Boundary: one feature, one span, and one heap report.
 
@@ -12,28 +12,29 @@ use std::marker::PhantomData;
 
 #[cfg(feature = "metrics")]
 pub use state::{
-    EntityMetrics, InstructionMetrics, MetricsReport, SchemaLifecycleMetrics, metrics_report,
-    metrics_reset_all,
+    ConvergenceMetrics, EntityMetrics, InstructionMetrics, MetricsReport, SchemaLifecycleMetrics,
+    metrics_report, metrics_reset_all,
 };
 
 /// Fixed semantic owners; these are observations, never execution choices.
-pub(crate) enum SchemaLifecyclePhase {
+pub(crate) enum ExecutionMetricsPhase {
     Lowering,
     Publication,
     RuntimeCompilation,
     Cardinality,
     StartupRecovery,
+    JournalFold,
 }
 
-/// Instruction span for a maintained schema owner, including failed attempts.
-pub(crate) struct SchemaLifecycleMetricsSpan {
+/// Instruction span for a maintained execution owner, including failed attempts.
+pub(crate) struct ExecutionMetricsSpan {
     #[cfg(feature = "metrics")]
-    phase: SchemaLifecyclePhase,
+    phase: ExecutionMetricsPhase,
     #[cfg(feature = "metrics")]
     start: Option<u64>,
 }
 
-impl SchemaLifecycleMetricsSpan {
+impl ExecutionMetricsSpan {
     #[cfg_attr(
         not(feature = "metrics"),
         expect(
@@ -41,7 +42,7 @@ impl SchemaLifecycleMetricsSpan {
             reason = "feature-on construction reads the IC execution mode and instruction counter"
         )
     )]
-    pub(crate) fn new(phase: SchemaLifecyclePhase) -> Self {
+    pub(crate) fn new(phase: ExecutionMetricsPhase) -> Self {
         #[cfg(feature = "metrics")]
         {
             Self {
@@ -58,12 +59,12 @@ impl SchemaLifecycleMetricsSpan {
 }
 
 #[cfg(feature = "metrics")]
-impl Drop for SchemaLifecycleMetricsSpan {
+impl Drop for ExecutionMetricsSpan {
     fn drop(&mut self) {
         let Some(start) = self.start else {
             return;
         };
-        state::record_schema_lifecycle_execution(
+        state::record_owner_execution(
             &self.phase,
             crate::runtime::local_instruction_counter().saturating_sub(start),
         );
@@ -134,4 +135,21 @@ impl Drop for EntityMetricsSpan<'_> {
             crate::runtime::local_instruction_counter().saturating_sub(self.start),
         );
     }
+}
+
+/// Observe a committed tail-control change; replayed or rejected attempts do not count.
+#[cfg_attr(
+    not(feature = "metrics"),
+    expect(
+        clippy::missing_const_for_fn,
+        reason = "feature-on observation reads IC execution mode and records heap counters"
+    )
+)]
+pub(crate) fn record_journal_movement(retirement: bool, debt: crate::db::ExactBacklogMeasurement) {
+    #[cfg(feature = "metrics")]
+    if metrics_are_durable() {
+        state::record_journal_movement(retirement, debt);
+    }
+    #[cfg(not(feature = "metrics"))]
+    let _ = (retirement, debt);
 }

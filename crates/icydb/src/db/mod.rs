@@ -19,8 +19,8 @@ pub use bootstrap::DatabaseBootstrapError;
 #[doc(hidden)]
 pub use bootstrap::ensure_default_memory_manager;
 pub use icydb_core::db::{
-    CompareProofAndAdvanceError, DynamicQuery, ExhaustiveQueryPageOutput, GroupedQueryOutput,
-    GroupedRow, LiveQueryPageOutput, MAX_MUTATION_JOB_CONTINUATION_BYTES,
+    CompareProofAndAdvanceError, DynamicQuery, ExactBacklogMeasurement, ExhaustiveQueryPageOutput,
+    GroupedQueryOutput, GroupedRow, LiveQueryPageOutput, MAX_MUTATION_JOB_CONTINUATION_BYTES,
     MAX_MUTATION_JOB_IDEMPOTENCY_KEY_BYTES, MAX_MUTATION_JOB_INTENT_BYTES,
     MAX_MUTATION_JOB_RECEIPT_BYTES, MAX_MUTATION_JOB_RECORD_BYTES,
     MAX_MUTATION_JOB_STEP_KEYS_SCANNED, MAX_MUTATION_JOB_STEP_ROWS_UPDATED,
@@ -49,10 +49,10 @@ pub use session::SqlIntegrityError;
 pub use session::{
     BoundWriteEncoder, DbSession, ExhaustiveReadError, IntegrityCheckError, LivePageStep,
     OutputRow, PreparedExactKeyOutput, PreparedLivePageCursor, PreparedLivePageOutput,
-    PreparedOutputRows, RequestExecutionFuture, RequestExecutionRoot, StructuralMutation,
-    StructuralPatch, TrustedTypedWriteBatch, TypedAdapterError, TypedEntityAdapter,
-    TypedEntityBinding, TypedOperationError, TypedRowAdapter, TypedWrite, TypedWriteAdapter,
-    TypedWriteBatchResult, TypedWriteBatchResults, TypedWriteHandle, WriteCell,
+    PreparedOutputRows, RequestBudgetSnapshot, RequestExecutionFuture, RequestExecutionRoot,
+    StructuralMutation, StructuralPatch, TrustedTypedWriteBatch, TypedAdapterError,
+    TypedEntityAdapter, TypedEntityBinding, TypedOperationError, TypedRowAdapter, TypedWrite,
+    TypedWriteAdapter, TypedWriteBatchResult, TypedWriteBatchResults, TypedWriteHandle, WriteCell,
     with_request_execution, with_request_execution_async, with_request_execution_root,
 };
 pub use startup::{

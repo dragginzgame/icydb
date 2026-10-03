@@ -5,6 +5,7 @@ mod aggregate_composition;
 mod branch_distinct;
 mod composite_primary_keys;
 mod cursor_entropy;
+mod historical_field_paths;
 mod hybrid_components;
 mod index_metadata;
 mod index_scan_admission;

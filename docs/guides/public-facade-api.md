@@ -76,6 +76,45 @@ Every explicit lookup reuses the root's cumulative counters. It is rejected
 if a different request root is already active. Ordinary endpoints should not
 use this form merely because they contain `.await`.
 
+### Request Budget Headroom
+
+`DbSession::request_budget()` and `RequestExecutionRoot::request_budget()` return
+a frozen `RequestBudgetSnapshot` of their retained request owner. Use
+`icydb::diagnostic::DiagnosticExecutionBudgetResource::ALL` to enumerate resources;
+`observed(resource)`, `limit(resource)` and `remaining(resource)` report charged
+usage, the fixed request ceiling and remaining native units. Observation does
+not charge, reserve or reset work. Another session, nested helper or resumed
+async poll shares the same counters; a separate request starts a separate owner.
+Failed attempts remain charged, and remaining capacity saturates at zero.
+
+```rust,ignore
+use icydb::diagnostic::DiagnosticExecutionBudgetResource as Resource;
+
+let session = db!()?;
+let budget = session.request_budget();
+let query_slots = budget.remaining(Resource::QueryExecutions);
+let database_instructions = budget.remaining(Resource::InstructionUnits);
+```
+
+Check headroom between complete application work units. Keep a bounded item
+count and conservative allowances for every relevant resource, including final
+progress/receipt work. The snapshot is an observation, not an admission promise:
+the next item's size and individual execution limits still matter. Instruction
+usage covers charged database spans and may be sampled at charging boundaries;
+it excludes application work outside those spans and does not report the IC's
+remaining endpoint allowance. Native tests do not measure IC instructions.
+
+For typed, non-SQL workflows, the existing `start_resumable_job` and
+`compare_proof_and_advance` APIs retain bounded application state and receipts
+under a read-set proof. Stop at a completed page boundary and retain its next
+continuation; each later request gets a fresh request budget. Application
+authorization, validation and restart policy remain application-owned. The
+progress operation atomically replaces its progress record; it does not make
+arbitrary writes inside the closure one transaction. Use the maintained atomic
+write-batch surface for a unit that requires atomic writes, and respect proof
+invalidation when source stores change. Catching exhaustion does not roll back
+already completed writes or make an incomplete item valid progress.
+
 ## Read Surfaces
 
 Typed and dynamic reads are part of base IcyDB and do not depend on SQL parser
@@ -540,6 +579,13 @@ text, principals, or diagnostic prose. Use `Error::facts()` and the
 production-safe numeric identities under `icydb::diagnostic` for machine
 handling. The CLI owns human-readable labels and always retains a numeric
 fallback for unknown tags.
+
+`RUNTIME_BOUNDARY_EXECUTION_BUDGET_EXCEEDED` (E252) identifies resource exhaustion
+with `BudgetResource`, `Limit`, `Actual`, `ExecutionBudgetScope`, `ExecutionLane`
+and `QueryShapeFingerprintPrefix` facts. Decode the scope using
+`DiagnosticExecutionBudgetScope` to distinguish aggregate request exhaustion
+from an individual execution limit. Preserve these facts when wrapping an
+application error; exhaustion need not mean the next row's data is invalid.
 
 Historical constraint-validation findings remain explicit operational output
 because their bounded row locator is needed for acknowledgement and repair.

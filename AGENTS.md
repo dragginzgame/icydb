@@ -6,6 +6,9 @@ Keep this file small. Open detailed governance docs only when the task needs the
 
 - Do not add Python to committed files; Codex may use local Python for one-off analysis/audit extraction when it does not become project code.
 - Do not run `git commit` or `git push`.
+- Use GitHub issues exclusively for upstream feedback and follow-up tracking.
+  Check issue bodies and comments; local notes may summarize linked evidence
+  but must not become a separate feedback queue.
 - Do not edit Cargo workspace/package version numbers in `Cargo.toml` or `Cargo.lock`; `make patch` owns version bumps. If version churn is present, report it and leave it alone unless the user explicitly asks for release tooling.
 - Do not revert user or unrelated dirty-worktree changes; re-read affected files and continue.
 - Codex may start, stop, or restart local ICP and PocketIC networks when required

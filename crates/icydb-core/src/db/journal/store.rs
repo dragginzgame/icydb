@@ -301,6 +301,7 @@ impl JournalTailControl {
 pub(in crate::db) struct PreparedJournalBatchRetirement {
     next_watermark: FoldWatermark,
     next_control: JournalTailControl,
+    contribution: crate::db::ExactBacklogMeasurement,
     batch_keys: Vec<JournalTailKey>,
 }
 
@@ -795,6 +796,16 @@ impl JournalTailStore {
             JournalTailKey::tail_convergence_control(),
             RawJournalChunk::from_bytes(encode_tail_control(next_control)),
         );
+        // Checked append preflight guarantees monotonic controls. Observe only
+        // the published contribution; identical replay returns before this point.
+        crate::metrics::record_journal_movement(
+            false,
+            crate::db::ExactBacklogMeasurement::new(
+                next_control.batch_count() - current_control.batch_count(),
+                next_control.record_count() - current_control.record_count(),
+                next_control.encoded_batch_bytes() - current_control.encoded_batch_bytes(),
+            ),
+        );
         Ok(())
     }
 
@@ -990,6 +1001,11 @@ impl JournalTailStore {
         Ok(PreparedJournalBatchRetirement {
             next_watermark,
             next_control,
+            contribution: crate::db::ExactBacklogMeasurement::new(
+                1,
+                u64::from(header.record_count()),
+                u64::try_from(header.total_len()).map_err(|_| journal_tail_corruption())?,
+            ),
             batch_keys,
         })
     }
@@ -1010,6 +1026,7 @@ impl JournalTailStore {
         for key in retirement.batch_keys {
             let _ = self.map.remove(&key);
         }
+        crate::metrics::record_journal_movement(true, retirement.contribution);
     }
 
     /// Return whether any physical journal batch remains in this tail.

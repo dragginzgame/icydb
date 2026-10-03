@@ -5,7 +5,10 @@
 
 use crate::{
     db::{
-        data::{FieldDecodeError, ValueStorageView},
+        data::{
+            CanonicalSlotReader, FieldDecodeError, ValueStorageView,
+            decode_structural_value_storage_bytes,
+        },
         query::plan::expr::ProjectionEvalError,
     },
     error::InternalError,
@@ -17,7 +20,7 @@ use crate::{
 /// a non-map ancestor is persisted-row corruption.
 pub(in crate::db::executor) fn resolve_value_field_path<'value>(
     root: &'value Value,
-    segments: &[String],
+    segments: &[impl AsRef<[u8]>],
 ) -> Result<Option<&'value Value>, ProjectionEvalError> {
     let mut current = root;
     for segment in segments {
@@ -31,10 +34,9 @@ pub(in crate::db::executor) fn resolve_value_field_path<'value>(
                 origin: err.origin(),
             }
         })?;
-        let Some((_, value)) = entries
-            .iter()
-            .find(|(key, _)| matches!(key, Value::Text(text) if text == segment))
-        else {
+        let Some((_, value)) = entries.iter().find(
+            |(key, _)| matches!(key, Value::Text(text) if text.as_bytes() == segment.as_ref()),
+        ) else {
             return Ok(None);
         };
         current = value;
@@ -43,8 +45,33 @@ pub(in crate::db::executor) fn resolve_value_field_path<'value>(
     Ok(Some(current))
 }
 
+/// Resolve an accepted slot path, preserving borrowed traversal for physical
+/// payloads and delegating absent historical slots to the logical-slot owner.
+pub(in crate::db::executor) fn resolve_slot_field_path(
+    slots: &dyn CanonicalSlotReader,
+    root_slot: usize,
+    segment_bytes: &[Box<[u8]>],
+) -> Result<Option<Value>, InternalError> {
+    if slots.get_bytes(root_slot).is_some() {
+        let raw_bytes = slots.required_bytes(root_slot)?;
+        let leaf = resolve_path_segments(raw_bytes, segment_bytes)
+            .map_err(|_| InternalError::persisted_row_decode_corruption())?;
+        return leaf
+            .map(decode_structural_value_storage_bytes)
+            .transpose()
+            .map_err(|_| InternalError::persisted_row_decode_corruption());
+    }
+
+    // Absence alone does not authorize a fill: the owning contract checks the
+    // declared slot, row stamp and frozen fill, and validates its bounded payload.
+    let root = slots.required_value_by_contract_cow(root_slot)?;
+    resolve_value_field_path(root.as_ref(), segment_bytes)
+        .map(Option::<&Value>::cloned)
+        .map_err(|_| InternalError::persisted_row_decode_corruption())
+}
+
 /// Resolve one nested map path using already-encoded segment bytes.
-pub(in crate::db::executor) fn resolve_path_segments<'a>(
+fn resolve_path_segments<'a>(
     raw_bytes: &'a [u8],
     segment_bytes: &[Box<[u8]>],
 ) -> Result<Option<&'a [u8]>, FieldDecodeError> {
@@ -107,7 +134,7 @@ mod tests {
                     expected
                 );
                 assert_eq!(
-                    resolve_value_field_path(&root, &["branch".into(), "leaf".into()])
+                    resolve_value_field_path(&root, &["branch", "leaf"])
                         .unwrap()
                         .cloned(),
                     expected
@@ -117,9 +144,7 @@ mod tests {
         let scalar_ancestor = Value::Map(vec![(Value::Text("branch".into()), Value::Nat64(9))]);
         let bytes = encode_canonical_value_storage_bytes(&scalar_ancestor).unwrap();
         assert!(resolve_path_segments(&bytes, &segments).is_err());
-        assert!(
-            resolve_value_field_path(&scalar_ancestor, &["branch".into(), "leaf".into()]).is_err()
-        );
+        assert!(resolve_value_field_path(&scalar_ancestor, &["branch", "leaf"]).is_err());
         assert!(resolve_path_segments(&[0xff], &segments).is_err());
     }
 }

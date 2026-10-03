@@ -5,9 +5,7 @@
 
 use crate::{
     db::{
-        data::{
-            CanonicalSlotReader, DecodedDataStoreKey, RawRow, decode_structural_value_storage_bytes,
-        },
+        data::{DecodedDataStoreKey, RawRow},
         executor::{
             ExecutionPreparation, PreparedGroupedRuntimeResidents,
             aggregate::field::{
@@ -18,8 +16,8 @@ use crate::{
             },
             pipeline::contracts::ResolvedExecutionKeyStream,
             projection::{
-                eval_effective_runtime_filter_program_with_value_cow_reader, resolve_path_segments,
-                resolve_value_field_path,
+                eval_effective_runtime_filter_program_with_value_cow_reader,
+                resolve_slot_field_path, resolve_value_field_path,
             },
             terminal::{RetainedSlotLayout, RetainedSlotRow, RowDecoder, RowLayout},
         },
@@ -411,14 +409,8 @@ impl StructuralGroupedRowRuntime {
         charge_decoded_row(row.len(), path.segment_bytes.len())?;
         let row_fields = self.row_layout.open_raw_row_with_contract(&row)?;
         row_fields.validate_primary_key(key)?;
-        let root_bytes = row_fields.required_bytes(path.root_slot)?;
-        let leaf_bytes = resolve_path_segments(root_bytes, path.segment_bytes.as_ref())
-            .map_err(|_| InternalError::persisted_row_decode_corruption())?;
-        let value = match leaf_bytes {
-            Some(leaf_bytes) => decode_structural_value_storage_bytes(leaf_bytes)
-                .map_err(|_| InternalError::persisted_row_decode_corruption())?,
-            None => Value::Null,
-        };
+        let value = resolve_slot_field_path(&row_fields, path.root_slot, &path.segment_bytes)?
+            .unwrap_or(Value::Null);
 
         Ok(RowView {
             storage: RowViewStorage::SinglePath { value },

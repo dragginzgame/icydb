@@ -23,6 +23,32 @@ use crate::{
 };
 use ic_memory::ic_stable_structures::Memory;
 
+#[cfg(feature = "metrics")]
+#[test]
+fn public_metrics_propagates_unavailable_and_corrupt_controls_instead_of_zero() {
+    use crate::db::commit::{
+        commit_memory_handle, current_commit_memory_allocation, select_commit_memory_allocation,
+    };
+    use crate::error::InternalError;
+
+    let missing = crate::metrics::metrics_report().expect_err("no database is selected");
+    assert_eq!(
+        missing.diagnostic().error_code(),
+        InternalError::commit_memory_id_unconfigured()
+            .diagnostic()
+            .error_code()
+    );
+    select_commit_memory_allocation(232, "icydb.core_tests.slot_232.v1");
+    let memory = commit_memory_handle(current_commit_memory_allocation().unwrap()).unwrap();
+    super::CommitStore::init(memory.clone());
+    memory.write(super::COMMIT_CONTROL_SLOT_OFFSET, b"CORRUPT!");
+    let corrupt = crate::metrics::metrics_report().expect_err("corrupt control must fail");
+    assert_eq!(
+        corrupt.diagnostic().error_code(),
+        InternalError::commit_corruption().diagnostic().error_code()
+    );
+}
+
 #[test]
 fn control_capacity_refusal_preserves_existing_frame_bytes() {
     use crate::testing::test_memory_runtime;

@@ -12,6 +12,8 @@ use crate::{
 };
 
 use super::store::EncodedCommitControlSlot;
+use candid::CandidType;
+use serde::Deserialize;
 
 #[cfg(not(test))]
 use crate::db::database_format::open_registered_store_memory;
@@ -48,8 +50,8 @@ thread_local! {
 use crate::db::journal::{decode_journal_batch, encode_journal_batch};
 
 /// Exact database-wide retained or proposed journal contribution.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) struct ExactBacklogMeasurement {
+#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+pub struct ExactBacklogMeasurement {
     batch_count: u64,
     record_count: u64,
     encoded_batch_bytes: u64,
@@ -57,19 +59,15 @@ pub(in crate::db) struct ExactBacklogMeasurement {
 
 impl ExactBacklogMeasurement {
     /// Empty database-wide journal debt.
-    pub(in crate::db) const EMPTY: Self = Self {
+    pub(crate) const EMPTY: Self = Self {
         batch_count: 0,
         record_count: 0,
         encoded_batch_bytes: 0,
     };
 
-    /// Construct an exact synthetic measurement for focused harnesses.
+    /// Construct one owner-validated contribution or bounded observation.
     #[must_use]
-    pub(in crate::db) const fn new(
-        batch_count: u64,
-        record_count: u64,
-        encoded_batch_bytes: u64,
-    ) -> Self {
+    pub(crate) const fn new(batch_count: u64, record_count: u64, encoded_batch_bytes: u64) -> Self {
         Self {
             batch_count,
             record_count,
@@ -122,20 +120,21 @@ impl ExactBacklogMeasurement {
         )
     }
 
+    /// Number of retained engine journal batches, not application calls.
     #[must_use]
-    pub(in crate::db) const fn batch_count(self) -> u64 {
+    pub const fn batch_count(self) -> u64 {
         self.batch_count
     }
 
+    /// Number of encoded journal records across those batches.
     #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn record_count(self) -> u64 {
+    pub const fn record_count(self) -> u64 {
         self.record_count
     }
 
+    /// Total complete encoded batch-envelope bytes, not store or heap bytes.
     #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) const fn encoded_batch_bytes(self) -> u64 {
+    pub const fn encoded_batch_bytes(self) -> u64 {
         self.encoded_batch_bytes
     }
 
@@ -446,6 +445,83 @@ mod tests {
     };
 
     const MARKER_ID: [u8; 16] = [0xA1; 16];
+
+    #[cfg(feature = "metrics")]
+    #[test]
+    fn public_debt_and_movements_follow_publication_replay_rejection_and_retirement() {
+        use super::super::store::{
+            apply_prepared_commit_control_replacement, prepare_commit_control_replacement,
+        };
+        use crate::db::{
+            DatabaseIncarnationId,
+            commit::{commit_memory_handle, select_commit_memory_allocation},
+            journal::FoldWatermark,
+            registry::StoreAllocationIdentities,
+        };
+
+        thread_local! {
+            static TAIL: RefCell<JournalTailStore> = RefCell::new(JournalTailStore::init(test_memory(225)));
+        }
+        let identities = StoreAllocationIdentities::new_journaled(
+            StoreAllocationIdentity::new(222, "icydb.test.metrics.data.v1"),
+            StoreAllocationIdentity::new(223, "icydb.test.metrics.index.v1"),
+            StoreAllocationIdentity::new(224, "icydb.test.metrics.schema.v1"),
+            StoreAllocationIdentity::new(225, "icydb.test.metrics.journal.v1"),
+        );
+        select_commit_memory_allocation(231, "icydb.core_tests.slot_231.v1");
+        let owner = current_commit_memory_allocation().unwrap();
+        let memory = commit_memory_handle(owner).unwrap();
+        crate::db::database_format::initialize_current_database_control_for_tests(&memory);
+        let replacement = prepare_commit_control_replacement(
+            memory,
+            DatabaseIncarnationId::for_tests(0x71),
+            [0x72; 32],
+            0,
+            &[super::super::PersistedStoreAllocation::active(identities).unwrap()],
+        )
+        .unwrap();
+        apply_prepared_commit_control_replacement(replacement);
+        TEST_RUNTIME_JOURNAL_TAILS
+            .with_borrow_mut(|tails| tails.push((owner, identities.journal().unwrap(), &TAIL)));
+        TAIL.with_borrow_mut(|tail| tail.initialize_current_tail_control().unwrap());
+        crate::metrics::metrics_reset_all();
+        let first = batch(1, vec![row_record(1), row_record(2)]);
+        TAIL.with_borrow_mut(|tail| tail.append_batch(&first).unwrap());
+        let report = crate::metrics::metrics_report().unwrap();
+        assert_eq!(report.journal_debt(), report.convergence().appended());
+        assert_eq!(report.journal_debt().batch_count(), 1);
+        assert_eq!(report.journal_debt().record_count(), 2);
+        assert_eq!(
+            report.convergence().retired(),
+            ExactBacklogMeasurement::EMPTY
+        );
+        // An identical replay and a conflicting retry publish no additional debt.
+        TAIL.with_borrow_mut(|tail| tail.append_batch(&first).unwrap());
+        TAIL.with_borrow_mut(|tail| {
+            assert!(tail.append_batch(&batch(2, vec![row_record(3)])).is_err());
+        });
+        let retried = crate::metrics::metrics_report().unwrap();
+        assert_eq!(retried.journal_debt(), report.journal_debt());
+        assert_eq!(retried.convergence(), report.convergence());
+        TAIL.with_borrow_mut(|tail| {
+            let retirement = tail
+                .prepare_batch_retirement(&first, FoldWatermark::new(JournalSequence::new(1), 1))
+                .unwrap();
+            tail.apply_prepared_batch_retirement(retirement);
+        });
+        let retired = crate::metrics::metrics_report().unwrap();
+        assert_eq!(retired.journal_debt(), ExactBacklogMeasurement::EMPTY);
+        assert_eq!(retired.convergence().retired(), report.journal_debt());
+        assert_eq!(
+            retired.convergence().appended(),
+            report.convergence().appended()
+        );
+        TEST_RUNTIME_JOURNAL_TAILS.with_borrow_mut(Vec::clear);
+        assert!(
+            crate::metrics::metrics_report().is_err(),
+            "missing live owner must not report zero"
+        );
+    }
 
     fn row_key(value: u64) -> RawDataStoreKey {
         DecodedDataStoreKey::new_primary_key_value(

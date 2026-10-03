@@ -47,6 +47,42 @@ thread_local! {
         const { RefCell::new(None) };
 }
 
+/// Read-only snapshot of the aggregate database budget for one request.
+///
+/// Values use each resource's native units and include retained charges from
+/// failed attempts. This snapshot neither charges nor reserves work. It is
+/// frozen at capture and reports request capacity, not per-execution capacity.
+/// `InstructionUnits` covers charged database spans, not total endpoint work
+/// or the IC's remaining instruction allowance.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RequestBudgetSnapshot {
+    observed: [u64; DiagnosticExecutionBudgetResource::ALL.len()],
+    limits: [u64; DiagnosticExecutionBudgetResource::ALL.len()],
+}
+
+impl RequestBudgetSnapshot {
+    /// Return cumulative charged work, which may exceed the limit after failure.
+    #[must_use]
+    pub const fn observed(&self, resource: DiagnosticExecutionBudgetResource) -> u64 {
+        self.observed[resource_index(resource)]
+    }
+
+    /// Return the request owner's fixed ceiling for this resource.
+    #[must_use]
+    pub const fn limit(&self, resource: DiagnosticExecutionBudgetResource) -> u64 {
+        self.limits[resource_index(resource)]
+    }
+
+    /// Return uncharged capacity, saturating at zero after exhaustion.
+    ///
+    /// Capacity does not guarantee that the next application item fits: its
+    /// costs, other resources and individual execution limits still apply.
+    #[must_use]
+    pub const fn remaining(&self, resource: DiagnosticExecutionBudgetResource) -> u64 {
+        self.limit(resource).saturating_sub(self.observed(resource))
+    }
+}
+
 /// Non-cloneable capability owning one request's aggregate database counters.
 ///
 /// Construct this once at request entry and derive every database session used
@@ -57,6 +93,12 @@ pub struct RequestExecutionRoot {
 }
 
 impl RequestExecutionRoot {
+    /// Snapshot this root's retained aggregate request counters without charging work.
+    #[must_use]
+    pub fn request_budget(&self) -> RequestBudgetSnapshot {
+        self.scope.request_budget()
+    }
+
     /// Mint the fixed production request profile.
     ///
     /// This constructor is runtime wiring for generated and guarded facade
@@ -170,6 +212,16 @@ pub(in crate::db) struct RequestExecutionScope {
 }
 
 impl RequestExecutionScope {
+    /// Project the retained owner, independently of the currently active root.
+    pub(in crate::db) fn request_budget(&self) -> RequestBudgetSnapshot {
+        RequestBudgetSnapshot {
+            observed: DiagnosticExecutionBudgetResource::ALL
+                .map(|resource| self.counters.observed[resource_index(resource)].get()),
+            limits: DiagnosticExecutionBudgetResource::ALL
+                .map(|resource| self.counters.budget.limit(resource)),
+        }
+    }
+
     fn same_counters(&self, other: &Self) -> bool {
         Rc::ptr_eq(&self.counters, &other.counters)
     }
@@ -277,6 +329,70 @@ impl RequestExecutionCounters {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn request_budget_snapshots_cover_every_resource_without_mutating_the_owner() {
+        let root = RequestExecutionRoot::__new_runtime_root();
+        let initial = root.request_budget();
+        let context = HardExecutionContext::new(
+            DiagnosticExecutionBudgetScope::Execution,
+            icydb_diagnostic_code::DiagnosticExecutionLane::PublicRead,
+            0,
+        );
+        for resource in DiagnosticExecutionBudgetResource::ALL {
+            assert_eq!(initial.observed(resource), 0);
+            assert_eq!(initial.limit(resource), REQUEST_HARD_BUDGET.limit(resource));
+            assert_eq!(initial.remaining(resource), initial.limit(resource));
+            root.scope()
+                .charge(context, resource, resource.raw())
+                .unwrap();
+        }
+        let charged = root.request_budget();
+        assert_eq!(root.request_budget(), charged);
+        for resource in DiagnosticExecutionBudgetResource::ALL {
+            assert_eq!(charged.observed(resource), resource.raw());
+            assert_eq!(
+                charged.remaining(resource),
+                charged.limit(resource) - resource.raw()
+            );
+            assert_eq!(initial.observed(resource), 0, "snapshots are frozen");
+        }
+        root.__with_current_scope(|| {
+            let nested = RequestExecutionRoot::__new_or_current_runtime_root();
+            assert_eq!(nested.request_budget(), charged);
+        });
+        let isolated = RequestExecutionRoot::__new_runtime_root();
+        isolated.__with_current_scope(|| {
+            assert_eq!(root.request_budget(), charged);
+            assert_eq!(isolated.request_budget(), initial);
+        });
+    }
+
+    #[test]
+    fn request_budget_headroom_saturates_after_failed_and_overflowing_charges() {
+        let context = HardExecutionContext::new(
+            DiagnosticExecutionBudgetScope::Execution,
+            icydb_diagnostic_code::DiagnosticExecutionLane::PublicRead,
+            0,
+        );
+        for resource in DiagnosticExecutionBudgetResource::ALL {
+            let root = RequestExecutionRoot::new_for_tests(
+                REQUEST_HARD_BUDGET.with_limit_for_tests(resource, 2),
+            );
+            let scope = root.scope();
+            scope.charge(context, resource, 2).unwrap();
+            assert_eq!(root.request_budget().remaining(resource), 0);
+            let failure = scope.charge(context, resource, 1).unwrap_err();
+            assert_eq!(failure.scope(), DiagnosticExecutionBudgetScope::Request);
+            assert_eq!(failure.observed(), 3);
+            assert_eq!(root.request_budget().observed(resource), 3);
+            assert_eq!(root.request_budget().remaining(resource), 0);
+            let overflow = scope.charge(context, resource, u64::MAX).unwrap_err();
+            assert_eq!(overflow.observed(), u64::MAX);
+            assert_eq!(root.request_budget().observed(resource), u64::MAX);
+            assert_eq!(root.request_budget().remaining(resource), 0);
+        }
+    }
 
     #[test]
     fn synchronous_scope_is_installed_then_removed() {

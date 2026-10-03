@@ -30,9 +30,10 @@ mod rollback;
 mod schema_publication;
 mod store;
 
+pub use backlog_admission::ExactBacklogMeasurement;
+
 pub(in crate::db) use backlog_admission::{
-    BACKLOG_LIMITS, BacklogAdmission, ExactBacklogMeasurement, admit_backlog,
-    current_database_backlog,
+    BACKLOG_LIMITS, BacklogAdmission, admit_backlog, current_database_backlog,
 };
 #[cfg(test)]
 pub(in crate::db) use backlog_admission::{

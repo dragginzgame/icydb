@@ -35,8 +35,8 @@ pub use query::{
     MAX_TYPED_EXACT_KEY_BATCH_INPUT_BYTES, MAX_TYPED_EXACT_KEY_BATCH_ITEMS,
     MAX_TYPED_EXACT_KEY_BATCH_RESULT_BYTES, MAX_TYPED_EXACT_KEY_BATCH_STORED_BYTES,
 };
-pub use request::RequestExecutionRoot;
 pub(in crate::db) use request::RequestExecutionScope;
+pub use request::{RequestBudgetSnapshot, RequestExecutionRoot};
 pub(in crate::db) use response::finalize_structural_grouped_projection_result;
 pub(in crate::db) use response::grouped_cursor_from_bytes;
 #[cfg(feature = "sql")]
@@ -63,6 +63,15 @@ pub struct DbSession<C: CanisterKind> {
 }
 
 impl<C: CanisterKind> DbSession<C> {
+    /// Snapshot the aggregate request budget shared by this session's root.
+    ///
+    /// Reads the retained owner even outside its active call tree; observing
+    /// capacity neither charges work nor reserves the next execution.
+    #[must_use]
+    pub fn request_budget(&self) -> RequestBudgetSnapshot {
+        self.db.request_scope.request_budget()
+    }
+
     /// Construct one session facade over a sealed runtime store registry.
     #[must_use]
     pub fn new(

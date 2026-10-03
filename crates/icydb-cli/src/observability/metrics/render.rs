@@ -1,5 +1,5 @@
 //! Module: metrics report rendering.
-//! Responsibility: render one entity execution-cost report.
+//! Responsibility: render canonical journal debt and one execution-cost window.
 //! Does not own: endpoint calls, Candid decoding, or endpoint publication.
 
 use icydb::metrics::{EntityMetrics, MetricsReport};
@@ -18,8 +18,12 @@ const ALIGNMENTS: [ColumnAlign; 5] = [
 ];
 
 pub(super) fn render_metrics_report(report: &MetricsReport) -> String {
+    let debt = report.journal_debt();
+    let convergence = report.convergence();
+    let appended = convergence.appended();
+    let retired = convergence.retired();
     let mut output = format!(
-        "IcyDB metrics\n  window: {}..{} ({} ms)\n  heap-local window ID: {}\n  entities: {} of {} (bounded path prefix, sorted by cost)\n\nentities\n",
+        "IcyDB metrics\n  window: {}..{} ({} ms)\n  heap-local window ID: {}\n  entities: {} of {} (bounded path prefix, sorted by cost)\n\njournal\n  canonical debt: {} batches, {} records, {} encoded batch bytes\n  window appended: {} batches, {} records, {} encoded batch bytes\n  window retired: {} batches, {} records, {} encoded batch bytes\n  movement overflowed: {}\n  fold: {} samples, {} total instructions, {} max instructions\n  startup recovery: {} samples, {} total instructions, {} max instructions\n  instruction spans may nest; totals are not additive\n\nentities\n",
         report.window_start_ms(),
         report.window_end_ms(),
         report
@@ -30,6 +34,28 @@ pub(super) fn render_metrics_report(report: &MetricsReport) -> String {
             .map_or_else(|| "unavailable".to_string(), |id| id.to_string()),
         report.entities().len(),
         report.total_entities(),
+        debt.batch_count(),
+        debt.record_count(),
+        debt.encoded_batch_bytes(),
+        appended.batch_count(),
+        appended.record_count(),
+        appended.encoded_batch_bytes(),
+        retired.batch_count(),
+        retired.record_count(),
+        retired.encoded_batch_bytes(),
+        convergence.overflowed(),
+        convergence.journal_fold().samples(),
+        convergence.journal_fold().instructions_total(),
+        convergence.journal_fold().instructions_max(),
+        report.schema_lifecycle().startup_recovery().samples(),
+        report
+            .schema_lifecycle()
+            .startup_recovery()
+            .instructions_total(),
+        report
+            .schema_lifecycle()
+            .startup_recovery()
+            .instructions_max(),
     );
     if report.entities().is_empty() {
         output.push_str("  None\n");
