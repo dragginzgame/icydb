@@ -2,6 +2,9 @@
 
 mod design;
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod startup_admission;
+
 #[cfg(all(test, target_os = "linux"))]
 mod memory_attribution;
 

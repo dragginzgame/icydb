@@ -559,6 +559,18 @@ pub enum RuntimeBoundaryCode {
     ConvergenceBacklogPressure,
     /// Requested manager bucket pages differ from the existing memory layout.
     MemoryBucketSizeMismatch,
+    /// Host grants cannot resolve or authorize current logical allocations.
+    MemoryAllocationResolutionFailed,
+    /// Current declarations omitted a historical IcyDB database namespace.
+    MemoryNamespaceRemoved,
+    /// Current database controls or store allocations lack a complete role set.
+    MemoryAllocationRolesIncomplete,
+    /// Current memory declarations violate their bounded identity/role contract.
+    MemoryDeclarationInvalid,
+    /// Current declaration requirements differ from established memory authority.
+    MemoryDeclarationSnapshotMismatch,
+    /// A historical allocation required for journal recovery cannot be selected.
+    MemoryHistoricalJournalUnavailable,
 }
 
 impl fmt::Debug for RuntimeBoundaryCode {
@@ -1081,7 +1093,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 275);
+        assert_eq!(last, 281);
     }
 
     #[test]

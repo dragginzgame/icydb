@@ -729,6 +729,27 @@ fn validate_diagnostic_fact_schema(
             ) && (0..2).all(|index| (1..=u64::from(u16::MAX)).contains(&fact_at(index).1))
                 && fact_at(0).1 != fact_at(1).1
         }
+        276 | 281 => {
+            fact_count == 0
+                || (tags_match(fact_count, &fact_at, &[DiagnosticFactTag::ActualMemoryId])
+                    && fact_at(0).1 <= 254)
+        }
+        278 => {
+            tags_match(fact_count, &fact_at, &[DiagnosticFactTag::ExpectedCount])
+                && matches!(fact_at(0).1, 3 | 4)
+        }
+        280 => {
+            fact_count == 0
+                || (tags_match(
+                    fact_count,
+                    &fact_at,
+                    &[
+                        DiagnosticFactTag::ExpectedMemoryId,
+                        DiagnosticFactTag::ActualMemoryId,
+                    ],
+                ) && (0..2).all(|index| fact_at(index).1 <= 254)
+                    && fact_at(0).1 != fact_at(1).1)
+        }
         226 => tags_match(
             fact_count,
             &fact_at,
@@ -768,9 +789,9 @@ fn validate_diagnostic_fact_schema(
 const fn diagnostic_fact_maximum(code: ErrorCode) -> usize {
     match code.raw() {
         5 | 15 | 17 | 186 | 187 | 226 | 227 | 253 => 3,
-        133 | 134 | 158 | 159 | 164 | 222 => 1,
+        133 | 134 | 158 | 159 | 164 | 222 | 276 | 278 | 281 => 1,
         18 | 20 | 130 | 166 | 167 | 169 | 190 | 191 | 192 | 194 | 223 | 224 | 225 | 248 | 249
-        | 250 | 251 | 262 | 264 | 271 | 272 | 274 => 2,
+        | 250 | 251 | 262 | 264 | 271 | 272 | 274 | 280 => 2,
         3 | 19 | 23 => 5,
         22 | 220 | 252 => 6,
         185 | 221 => 7,
@@ -1237,6 +1258,91 @@ mod tests {
         validate_raw_diagnostic_fact_schema,
     };
     use crate::ErrorCode;
+
+    #[test]
+    fn memory_admission_fact_schemas_keep_counts_and_ids_bounded() {
+        for code in [
+            ErrorCode::RUNTIME_BOUNDARY_MEMORY_ALLOCATION_RESOLUTION_FAILED,
+            ErrorCode::RUNTIME_BOUNDARY_MEMORY_HISTORICAL_JOURNAL_UNAVAILABLE,
+        ] {
+            assert_eq!(validate_known_diagnostic_fact_schema(code, &[]), Ok(()));
+            for id in [0, 42, 254] {
+                assert_eq!(
+                    validate_known_diagnostic_fact_schema(
+                        code,
+                        &[(DiagnosticFactTag::ActualMemoryId, id)]
+                    ),
+                    Ok(())
+                );
+            }
+            for facts in [
+                vec![(DiagnosticFactTag::ActualMemoryId, 255)],
+                vec![(DiagnosticFactTag::ExpectedMemoryId, 42)],
+            ] {
+                assert!(validate_known_diagnostic_fact_schema(code, &facts).is_err());
+            }
+        }
+        let roles = ErrorCode::RUNTIME_BOUNDARY_MEMORY_ALLOCATION_ROLES_INCOMPLETE;
+        for count in [3, 4] {
+            assert_eq!(
+                validate_known_diagnostic_fact_schema(
+                    roles,
+                    &[(DiagnosticFactTag::ExpectedCount, count)]
+                ),
+                Ok(())
+            );
+        }
+        for facts in [
+            vec![],
+            vec![(DiagnosticFactTag::ExpectedCount, 0)],
+            vec![(DiagnosticFactTag::ExpectedCount, 5)],
+            vec![(DiagnosticFactTag::ActualCount, 3)],
+        ] {
+            assert!(validate_known_diagnostic_fact_schema(roles, &facts).is_err());
+        }
+        let mismatch = ErrorCode::RUNTIME_BOUNDARY_MEMORY_DECLARATION_SNAPSHOT_MISMATCH;
+        assert_eq!(validate_known_diagnostic_fact_schema(mismatch, &[]), Ok(()));
+        assert_eq!(
+            validate_known_diagnostic_fact_schema(
+                mismatch,
+                &[
+                    (DiagnosticFactTag::ExpectedMemoryId, 0),
+                    (DiagnosticFactTag::ActualMemoryId, 254)
+                ]
+            ),
+            Ok(())
+        );
+        for facts in [
+            vec![(DiagnosticFactTag::ExpectedMemoryId, 42)],
+            vec![
+                (DiagnosticFactTag::ExpectedMemoryId, 42),
+                (DiagnosticFactTag::ActualMemoryId, 42),
+            ],
+            vec![
+                (DiagnosticFactTag::ActualMemoryId, 42),
+                (DiagnosticFactTag::ExpectedMemoryId, 43),
+            ],
+            vec![
+                (DiagnosticFactTag::ExpectedMemoryId, 255),
+                (DiagnosticFactTag::ActualMemoryId, 42),
+            ],
+        ] {
+            assert!(validate_known_diagnostic_fact_schema(mismatch, &facts).is_err());
+        }
+        for code in [
+            ErrorCode::RUNTIME_BOUNDARY_MEMORY_NAMESPACE_REMOVED,
+            ErrorCode::RUNTIME_BOUNDARY_MEMORY_DECLARATION_INVALID,
+        ] {
+            assert_eq!(validate_known_diagnostic_fact_schema(code, &[]), Ok(()));
+            assert!(
+                validate_known_diagnostic_fact_schema(
+                    code,
+                    &[(DiagnosticFactTag::ActualMemoryId, 42)]
+                )
+                .is_err()
+            );
+        }
+    }
 
     #[test]
     fn bucket_mismatch_requires_two_distinct_nonzero_page_counts() {

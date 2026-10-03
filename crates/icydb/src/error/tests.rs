@@ -4,6 +4,8 @@
 //! Does not own: production implementation or public API ownership.
 //! Boundary: verifies facade contracts through local module behavior.
 
+mod bootstrap;
+
 use super::*;
 use candid::{
     Decode, Encode,
@@ -772,7 +774,24 @@ fn database_adoption_preserves_typed_cause_until_public_projection() {
     let facade = Error::from(bootstrap);
     assert_eq!(
         facade.diagnostic_code(),
-        icydb_diagnostic_code::DiagnosticCode::RuntimeInternal
+        icydb_diagnostic_code::DiagnosticCode::RuntimeConflict
     );
     assert_eq!(facade.origin(), ErrorOrigin::Runtime);
+    assert_eq!(
+        facade.code(),
+        icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_MEMORY_DECLARATION_SNAPSHOT_MISMATCH
+    );
+    assert_eq!(
+        facade.core_facts().unwrap(),
+        vec![
+            (
+                icydb_diagnostic_code::DiagnosticFactTag::ExpectedMemoryId,
+                101
+            ),
+            (
+                icydb_diagnostic_code::DiagnosticFactTag::ActualMemoryId,
+                100
+            ),
+        ]
+    );
 }

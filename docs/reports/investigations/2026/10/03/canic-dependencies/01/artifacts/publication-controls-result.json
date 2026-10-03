@@ -1,0 +1,98 @@
+{
+  "schema": 1,
+  "complete": true,
+  "cases": [
+    {
+      "name": "corrupt_body",
+      "code": "body-digest",
+      "intentAccess": 0,
+      "transportRequests": 0
+    },
+    {
+      "name": "different_expected_digest",
+      "code": "body-digest",
+      "intentAccess": 0,
+      "transportRequests": 0
+    },
+    {
+      "name": "bounded_body",
+      "code": "body-size",
+      "intentAccess": 0,
+      "transportRequests": 0
+    },
+    {
+      "name": "malformed_digest",
+      "code": "body-digest",
+      "intentAccess": 0,
+      "transportRequests": 0
+    },
+    {
+      "name": "empty_body",
+      "code": "body-size",
+      "intentAccess": 0,
+      "transportRequests": 0
+    },
+    {
+      "name": "wrong_root",
+      "code": "root",
+      "intentAccess": 0,
+      "transportRequests": 0
+    },
+    {
+      "name": "wrong_metadata_hint",
+      "code": "root",
+      "intentAccess": 0,
+      "transportRequests": 0
+    },
+    {
+      "name": "oversized_metadata_hint",
+      "code": "metadata-hint",
+      "intentAccess": 0,
+      "transportRequests": 0
+    },
+    {
+      "name": "malformed_manifest",
+      "code": "manifest",
+      "intentAccess": 0,
+      "transportRequests": 0
+    },
+    {
+      "name": "oversized_manifest",
+      "code": "manifest-size",
+      "intentAccess": 0,
+      "transportRequests": 0
+    },
+    {
+      "name": "changed_headers",
+      "code": "manifest",
+      "intentAccess": 0,
+      "transportRequests": 0
+    },
+    {
+      "name": "changed_chunk_hashes",
+      "code": "manifest",
+      "intentAccess": 0,
+      "transportRequests": 0
+    },
+    {
+      "name": "changed_tree_type",
+      "code": "manifest",
+      "intentAccess": 0,
+      "transportRequests": 0
+    },
+    {
+      "name": "aborted_before_preparation",
+      "code": "AbortError",
+      "intentAccess": 0,
+      "transportRequests": 0
+    },
+    {
+      "name": "input_snapshots_across_await",
+      "reachesOriginalBoundIntent": true,
+      "transportRequests": 0
+    }
+  ],
+  "providerRequests": 0,
+  "certificateRequests": 0,
+  "caveat": "Deliberately refusing store and transport; actual IC/IndexedDB behavior is qualified separately."
+}

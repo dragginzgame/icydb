@@ -110,6 +110,39 @@ For example, `E274` reports a memory bucket-size conflict with requested
 correction or explicit recreation, not another recovery poll. See
 [canister memory profiles](schema-authoring.md#canister-memory-profiles).
 
+Memory bootstrap and host-adoption rejection use the same bounded diagnostic
+payload in `startup_state()`, ordinary `db!()` calls, and startup failure
+observation. `StartupFailure::kind()` is `DatabaseControl`; `error()`,
+`diagnostic()` and `facts()` retain the specific code and available numeric
+parameters. Match the typed leaf code, not its broad class or display text.
+
+| Code | Rejected boundary | Numeric evidence and correction |
+| --- | --- | --- |
+| E276 | Logical allocation resolution or host grant | Optional `ActualMemoryId`; check the authority and eligible free slots. Fresh allocations need an explicit Allowed pool. |
+| E277 | Historical IcyDB namespace removed | Restore the permanent namespace and its three controls. |
+| E278 | Incomplete allocation roles | `ExpectedCount` is 3 for database controls or 4 for a store; restore the complete role set. |
+| E279 | Invalid declarations | Check current role/key grammar, logical requests and namespace authority. |
+| E280 | Declaration snapshot or adoption requirements differ | Optional requested `ExpectedMemoryId` and committed `ActualMemoryId`; reconcile current declarations with established host authority. |
+| E281 | Historical journal allocation unavailable | Optional `ActualMemoryId`; restore its current host authority and resolve the rejected historical allocation lifecycle. |
+
+The declaration/admission owners still reject these failures before IcyDB opens
+ordinary database work. Startup observation does not grant memory or repair a
+rejected declaration. Unknown upstream variants and unrelated runtime/registry
+internal faults retain E23, with runtime origin. No unbounded upstream error text,
+namespace, authority or stable-key strings enter the public error record.
+
+The host's macro default is Reserved. Use an explicit grant for fresh logical
+allocations, before startup seals the linked declaration snapshot:
+
+```rust,ignore
+icydb::ic_memory_range!(authority = "icydb.app", start = 100, end = 254, mode = Allowed);
+```
+
+A Reserved pool does not supply new placements; an Allowed pool must have enough
+eligible free slots. This does not change upstream range modes or the admission
+and recovery policy. See [compact diagnostics](diagnostics.md) for offline code
+and fact interpretation.
+
 A journaled store whose registered Rust path differs from its verified accepted
 catalog is a deployment mismatch. The recovery driver returns
 `RUNTIME_UNSUPPORTED` before replay, without a durable terminal failure receipt;

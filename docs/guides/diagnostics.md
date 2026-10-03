@@ -53,6 +53,24 @@ Without exact accepted-schema metadata, this remains a complete numeric report.
 Categorical values such as constraint kind and mutation operation still receive
 host-owned labels.
 
+Memory startup configuration failures use E276–E281 rather than the generic
+E23 internal code. Grant/resolution failure, removed namespaces, incomplete
+roles, invalid declarations, declaration drift and historical-journal rejection
+have separate leaf identities. Available facts are bounded memory IDs and the
+required role count; names and upstream prose remain absent. E23 still reports
+unrelated internal runtime/registry failures.
+
+For example, incomplete database controls require exactly three roles:
+
+```console
+icydb diagnostic E278 --fact expected_count=3
+```
+
+[Startup readiness](startup-readiness.md#poll-typed-readiness) lists the six
+classifications and their correction boundaries. Omitting `mode` from
+`icydb::ic_memory_range!` selects Reserved; fresh logical allocations require an
+explicit Allowed grant and eligible free slots.
+
 An E23 raised while compiling an accepted relation includes `entity_tag` and
 `relation_id`, identifying the source entity and its relation in the accepted
 catalog. Existing cause facts, such as expected and actual target-key arity,

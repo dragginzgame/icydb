@@ -1,0 +1,7 @@
+{
+  "exitCode": 124,
+  "stdoutBytes": 0,
+  "stderrBytes": 0,
+  "directoryControlExitCode": 3,
+  "caveat": "Pre-existing CLI binary; exact reviewed-commit binding not independently established."
+}

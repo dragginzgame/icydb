@@ -1,0 +1,44 @@
+{
+  "evidence": "local SDK and in-memory journal with refusing fetch",
+  "results": [
+    {
+      "name": "one_request_for_tree_and_chunk",
+      "limits": {
+        "maxRequests": 1,
+        "maxRequestBytes": 65536,
+        "maxTotalRequestBytes": 65536
+      },
+      "claims": 1,
+      "certificateRequests": 1,
+      "providerRequests": 0,
+      "phase": "uncertain",
+      "failure": "offline transport refusal"
+    },
+    {
+      "name": "one_byte_per_request",
+      "limits": {
+        "maxRequests": 2,
+        "maxRequestBytes": 1,
+        "maxTotalRequestBytes": 2
+      },
+      "claims": 1,
+      "certificateRequests": 1,
+      "providerRequests": 0,
+      "phase": "uncertain",
+      "failure": "offline transport refusal"
+    },
+    {
+      "name": "one_byte_total",
+      "limits": {
+        "maxRequests": 2,
+        "maxRequestBytes": 65536,
+        "maxTotalRequestBytes": 1
+      },
+      "claims": 1,
+      "certificateRequests": 1,
+      "providerRequests": 0,
+      "phase": "uncertain",
+      "failure": "offline transport refusal"
+    }
+  ]
+}

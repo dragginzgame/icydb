@@ -16,11 +16,11 @@ Release owner: [0.264 tracker](../design/0.264-signed-index-admission/0.264-stat
 
 | Current status | Findings |
 | --- | ---: |
-| Verified fixed | 33 |
+| Verified fixed | 34 |
 | In progress | 0 |
 | Open | 0 |
 | Partial | 1 |
-| Needs verification | 273 |
+| Needs verification | 272 |
 
 “Verified fixed” requires current code evidence and focused semantic validation.
 “Open” means the reviewed defect remains visible in current source; reproduction
@@ -59,6 +59,7 @@ this queue does not authorize starting a different minor line.
 | 19 | `executor-aggregate-3` | Preserve route direction at the generic grouped sort boundary through the shared grouped comparator; qualify related key/window paths | Complete as A31 |
 | 20 | Filtered-index predicate cluster | Replace persisted SQL authority with one accepted bound predicate representation through intake, codec, runtime, identity and rename consumers | Complete as A32 |
 | 21 | `data-2` / `r2-recursive-bounds-1` | Converge borrowed and materializing current value-storage traversal on canonical enum framing and one accepted recursive-depth authority | Complete as user-selected A33 |
+| 22 | `facade-3` | Preserve memory grant/admission causes at the existing public startup/error boundary; qualify generated access and document explicit fresh-allocation grants | Complete — A34; six bounded diagnostic leaves and public startup/db qualification |
 
 The original five queued outcomes are complete. The scoped read-only
 [closeout audit](closeout-audit.md) verifies another existing fix, reproduces the
@@ -1089,7 +1090,7 @@ Counts cover inventory states, not implementation or release readiness.
 | `executor-stream-8` | low | Needs verification | PrimaryRangeKeyStream physical seek drops buffered and remaining keys when the target lies inside the loaded chunk (latent) |
 | `executor-stream-9` | low | Needs verification | Effective offset uses logical-boundary presence while keep caps use has_progress (latent offset skip/over-skip) |
 | `facade-1` | low | Needs verification | Participant lifecycle mode silently compiles when the app forgets the participant call; database stays Recovering indefinitely |
-| `facade-3` | low | Needs verification | Grant and admission misconfiguration surfaces as an opaque E23, and the re-exported ic_memory_range! defaults to a Reserved (non-granting) range |
+| `facade-3` | low | Verified fixed | Grant and admission misconfiguration surfaces as an opaque E23, and the re-exported ic_memory_range! defaults to Reserved. **Current evidence:** A34 reproduces six typed failures before classification changes, then preserves distinct E276–E281 leaves through public errors, startup diagnostics and Candid. Generated startup/db access agrees for Reserved-default, missing-grant, invalid-declaration and incomplete-role rejection; explicit Allowed succeeds. Reserved remains the upstream default and cannot supply fresh logical slots. See [A34 qualification](#a34-memory-admission-diagnostics--2026-10-03). |
 | `facade-4` | low | Needs verification | Production assert! in RequestExecutionFuture::poll can trap when a started future is polled under another request root |
 | `facade-5` | low | Needs verification | SQL reply-size guard uses the 3 MiB non-replicated limit even when icydb_query runs in replicated mode |
 | `facade-6` | low | Needs verification | crates/icydb/README.md contradicts the facade's model re-export and the workspace README |
@@ -1316,3 +1317,101 @@ Traversal ownership and implementation are simpler; behavior-axis delta is zero.
 Raw Wasm size, IC cycles and instructions are unmeasured. Earlier dirty changes
 and external dependency updates are preserved; no package-version edit, commit,
 push or network lifecycle action was performed.
+
+### A34 memory admission diagnostics — 2026-10-03
+
+The user explicitly selects `facade-3`, including real failure reproduction,
+public startup/access parity, bounded facts, current grant docs and qualification.
+Allocation, admission and recovery remain with their existing owners. Typed
+upstream causes already reach `Error::from(DatabaseBootstrapError)`; all but the
+bucket-size mismatch currently become runtime-internal errors. Generated
+`startup_state()` uses this conversion, and ordinary `db!()` returns the startup
+failure's exact error. A34 changes only that diagnostic projection and its docs.
+
+Before extending public diagnostic variants: the demonstrated need is that
+operators cannot distinguish rejected grants, incomplete roles, namespace
+removal and declaration drift from internal faults. A blanket conflict code or
+raw upstream strings would lose cause identity or abandon bounded diagnostics.
+The existing facade conversion and diagnostic registry are the canonical owners.
+Six diagnostic-only leaves are planned for resolution, removed namespaces,
+incomplete roles, invalid declarations, declaration mismatch and unavailable
+historical journals. Existing numeric memory-ID/count tags carry evidence where
+available. Diagnostic leaf-space delta is six; allocation policy, execution
+routes, persisted states and format-axis deltas are zero. Unknown/internal
+upstream failures keep the existing internal classification.
+
+
+A34 verified result: real local runtime bootstraps reproduced Reserved exhaustion,
+incomplete controls, invalid namespace authority, omitted historical namespaces,
+revoked historical-journal grants and changed sealed declarations. Before the
+conversion change, all six retained typed upstream causes but became E23 at the
+public boundary. Generated facade children separately reproduced Reserved-default,
+missing-grant, incomplete-role and invalid-declaration rejection as E23; an
+explicit Allowed grant succeeded. The historical range rejection is returned by
+upstream's outer `Admission` before the policy wrapper, so both maintained
+historical wrappers are qualified. Baseline receipts are local
+`/tmp/icydb-facade3-before-typed.log` and
+`/tmp/icydb-facade3-generated-before.log`.
+
+One private facade projection now maps known causes into the existing diagnostic
+registry: E276 resolution/grant (Unsupported), E277 removed namespace (Conflict),
+E278 incomplete roles (Unsupported), E279 invalid declarations (Unsupported),
+E280 declaration/adoption mismatch (Conflict), and E281 unavailable historical
+journal (Conflict). Runtime origin is preserved. Existing count and memory-ID
+facts are bounded to maintained role counts 3/4 and memory IDs 0–254; absent
+numeric evidence is omitted. Namespace/authority/key strings do not cross the
+public boundary. Existing E274 bucket evidence and unrelated internal E23 remain.
+No allocation/admission/recovery owner, grant, mode default or format changes.
+
+Qualification covers real incomplete store roles and rejected fixed declarations,
+real unknown-host adoption, adoption ID evidence and metadata/key conflicts,
+registry/validation range wrappers and internal state/registry controls. Rejected
+recovered admission preserves backing bytes; cold rejection publishes no committed
+allocation authority. Generated `startup_state()` and ordinary `db!()` preserve
+identical payloads on repeated calls, including Candid and diagnostic/fact access.
+Nine new regressions extend the maintained coverage. All 108 focused tests pass;
+strict repository/focused lint, the facade no-feature build, formatting and six
+direct invariants pass. The initial needless-borrow lint warning and an overly
+strict CLI-note assertion were corrected; no validation failure remains.
+
+Macro audit: all 25 original maintained canister/testing range examples already
+use explicit Allowed. The added fixture exercises one intentional omitted-mode
+Reserved declaration and one explicit Allowed success. Re-export Rustdoc, README,
+schema/startup/diagnostic guides and durability guidance now explain fresh grants.
+The CLI renders all six codes without accepted-schema artifacts. Root and shared
+0.264.5 notes record the changed error taxonomy; callers matching old E23 startup
+configuration failures must use the current codes/classes. No data migration.
+
+The inventory now has 34 Verified fixed, zero Open/In progress, one Partial and
+272 Needs verification. Full suites remain user-owned. Raw Wasm, cycles and
+instructions are unmeasured. The slice changes 22 files, approximately +1,090 net lines. Production
+adds about 180 net lines; most growth is regression coverage and documentation.
+One diagnostic projection is more expressive without adding execution complexity;
+six diagnostic leaves add no execution route, policy or format axis.
+Existing dependency edits and unrelated report artifacts are preserved; edits
+remain unstaged and uncommitted.
+
+### Validation follow-up — no-default literal binding — 2026-10-03
+
+The user's latest combined validation receipt reports one distinct compiler
+failure, repeated by parent targets: the no-default-feature core test build
+cannot resolve `input_value_from_strict_sql_literal_for_persisted_kind` through
+`db::schema`. The helper and filtered-index test binder both use
+`cfg(any(test, feature = "sql"))`, but the schema re-export used SQL alone.
+Aligning that one re-export with its existing owner/consumer gate restores the
+maintained test surface. Production feature gates and semantics are unchanged;
+no helper, fallback, format or execution route is added. This is direct A32
+qualification fallout, not another saved finding or a changed review count.
+
+Validation passes: the full no-default core unit-test target compiles and all
+eight selected filtered-index regressions pass, including strict numeric/enum
+literal admission and maintained predicate codec/identity behavior. Strict
+no-default all-target core lint, formatting, local documentation references and
+whitespace checks pass. The separate literal-helper test module is SQL-only,
+so its no-default selection contains zero tests and is not counted as evidence.
+The supplied user's workspace/canister validations passed; full suites are not
+rerun. No known validation failure remains. Four files change for this follow-up:
+one Rust line is replaced and three status/changelog docs record the correction.
+Production net lines and runtime complexity are unchanged; raw Wasm, cycles and
+instructions are unmeasured. Existing dirty changes are preserved, and all edits
+remain unstaged/uncommitted.

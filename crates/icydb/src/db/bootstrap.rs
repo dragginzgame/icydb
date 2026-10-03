@@ -128,6 +128,7 @@ impl std::error::Error for DatabaseBootstrapError {
 
 #[cfg(test)]
 mod tests {
+    mod public_failures;
     use super::*;
     use ic_memory::{
         AllocationPolicy, AllocationSlotDescriptor, MemoryManagerRangeMode, MemoryRequest,
@@ -321,6 +322,16 @@ mod tests {
         let committed = committed_allocations().unwrap();
         let before = default_memory_manager_memory_allocation_summary().unwrap();
         let error = ensure_default_memory_manager("icydb.unknown", 4).unwrap_err();
+        let public = crate::Error::from(error.clone());
+        assert_eq!(
+            public.code(),
+            icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_MEMORY_DECLARATION_SNAPSHOT_MISMATCH
+        );
+        assert!(public.facts().is_empty());
+        assert_eq!(
+            crate::db::__startup_bootstrap_failure(error.clone()).error(),
+            &public
+        );
         assert!(matches!(error, DatabaseBootstrapError::Adoption(cause)
             if matches!(cause.as_ref(), RuntimeAdoptionError::UnknownAuthority { authority }
                 if authority == "icydb.unknown")));

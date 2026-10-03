@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.264.md](docs/changelog/0.264.md)
 
-- `0.264.5` repairs numeric, grouped-query and nested-value reads and binds filtered-index semantics to accepted field/literal identity (potentially breaking; affected metadata/index artifacts require regeneration).
+- `0.264.5` repairs query/value correctness, binds filtered-index identity and distinguishes rejected startup memory admission and repairs feature-limited test builds (potentially breaking; regenerate affected metadata/index artifacts and update startup error handling).
 - `0.264.4` repairs query correctness, SQL and migration command status, and validation fixtures (potentially breaking; no data migration).
 - `0.264.3` repairs arithmetic and index correctness and simplifies reads and dependency maintenance (breaking; persisted index stores require recreation).
 - `0.264.2` updates Rust tooling, strengthens validation and simplifies read accounting while preserving supported minimum Rust versions.

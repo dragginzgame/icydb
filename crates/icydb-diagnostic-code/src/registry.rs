@@ -691,4 +691,17 @@ define_error_code_registry! {
     RUNTIME_BOUNDARY_MEMORY_BUCKET_SIZE_MISMATCH = 274 => RuntimeConflict,
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MemoryBucketSizeMismatch });
     QUERY_EXACT_COUNT_METADATA_UNAVAILABLE = 275 => QueryExactCountMetadataUnavailable;
+    RUNTIME_BOUNDARY_MEMORY_ALLOCATION_RESOLUTION_FAILED = 276 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MemoryAllocationResolutionFailed });
+    RUNTIME_BOUNDARY_MEMORY_NAMESPACE_REMOVED = 277 => RuntimeConflict,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MemoryNamespaceRemoved });
+    RUNTIME_BOUNDARY_MEMORY_ALLOCATION_ROLES_INCOMPLETE = 278 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MemoryAllocationRolesIncomplete });
+    RUNTIME_BOUNDARY_MEMORY_DECLARATION_INVALID = 279 => RuntimeUnsupported,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MemoryDeclarationInvalid });
+    RUNTIME_BOUNDARY_MEMORY_DECLARATION_SNAPSHOT_MISMATCH = 280 => RuntimeConflict,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MemoryDeclarationSnapshotMismatch });
+    RUNTIME_BOUNDARY_MEMORY_HISTORICAL_JOURNAL_UNAVAILABLE = 281 => RuntimeConflict,
+        detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MemoryHistoricalJournalUnavailable });
+
 }

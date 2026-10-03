@@ -161,9 +161,20 @@ pub use guards::{
     ReadAuthorizationContext, ReadAuthorizationDecision, ReadAuthorizationGuard,
     ReadAuthorizationSurface,
 };
-/// Declare an explicit host allocation grant before memory bootstrap.
-/// Use `mode = Allowed` for logical placement; the dependency macro otherwise
-/// defaults to a reserved range, which does not grant logical allocation.
+/// Declare a host-owned stable-memory range before memory bootstrap.
+///
+/// Omitting `mode` selects `Reserved`. A Reserved range does not provide slots
+/// for fresh logical allocation requests. Explicitly select `Allowed` to grant
+/// fresh logical placements for the database's permanent namespace:
+///
+/// ```rust,ignore
+/// icydb::ic_memory_range!(
+///     authority = "icydb.app", start = 100, end = 254, mode = Allowed,
+/// );
+/// ```
+///
+/// This re-exports the upstream macro without changing its default or granting
+/// memory implicitly. An Allowed pool must also contain enough eligible free slots.
 pub use ic_memory::ic_memory_range;
 pub use icydb_diagnostic_code::ErrorCode;
 

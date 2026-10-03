@@ -33,11 +33,19 @@ For each canister:
 
 - keep `memory_namespace` permanent;
 - give each journaled store a unique permanent `storage(journaled(key = "..."))`;
-- grant an explicit host-owned pool with `icydb::ic_memory_range!`;
+- grant fresh logical placements with `icydb::ic_memory_range!(..., mode = Allowed)`;
 - include `icydb::db::prepare_memory_bootstrap` in a composed host's bootstrap
   policy; standalone IcyDB bootstrap invokes it automatically;
 - keep the committed `ic-memory` mapping authoritative; do not remap physical
   IDs or reuse its slots for unrelated structures.
+
+Omitting the range macro's `mode` selects `Reserved`, which supplies no slots
+for fresh logical allocations. Explicit Allowed grants still require eligible
+free slots; they do not bypass admission or recovery checks. For example:
+
+```rust,ignore
+icydb::ic_memory_range!(authority = "icydb.app", start = 100, end = 254, mode = Allowed);
+```
 
 Each namespace owns three logical controls and each journaled store four logical
 roles. The allocator persists their physical placement. Changing a store key is

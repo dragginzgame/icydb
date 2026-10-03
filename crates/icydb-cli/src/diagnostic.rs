@@ -1166,6 +1166,24 @@ const fn runtime_boundary_text(boundary: RuntimeBoundaryCode) -> &'static str {
         RuntimeBoundaryCode::DatabaseStartupRecoveryPending => {
             "database startup recovery is still in progress"
         }
+        RuntimeBoundaryCode::MemoryAllocationResolutionFailed => {
+            "memory allocation cannot resolve under current host grants; fresh logical allocations require mode = Allowed and an eligible free slot"
+        }
+        RuntimeBoundaryCode::MemoryNamespaceRemoved => {
+            "current declarations omitted a historical IcyDB namespace; restore its permanent namespace and controls"
+        }
+        RuntimeBoundaryCode::MemoryAllocationRolesIncomplete => {
+            "memory declarations lack required roles (expected_count: 3 database controls or 4 store roles)"
+        }
+        RuntimeBoundaryCode::MemoryDeclarationInvalid => {
+            "memory declarations violate the current identity, logical-request or role contract"
+        }
+        RuntimeBoundaryCode::MemoryDeclarationSnapshotMismatch => {
+            "current memory declarations differ from established host allocation authority; expected_memory_id=requested, actual_memory_id=committed when present"
+        }
+        RuntimeBoundaryCode::MemoryHistoricalJournalUnavailable => {
+            "historical journal allocation cannot be selected for recovery; restore current host authority and resolve its allocation lifecycle"
+        }
         RuntimeBoundaryCode::MemoryBucketSizeMismatch => {
             "memory bucket size mismatch (pages: expected=requested, actual=persisted); retain the existing size or recreate the database"
         }
@@ -1687,8 +1705,9 @@ const fn sql_ddl_feature_text(feature: SqlFeatureCode) -> &'static str {
 mod tests {
     use super::{
         MAX_DIAGNOSTIC_ERROR_BYTES, RawDiagnosticFact, artifact::DiagnosticSchemaArtifact,
-        diagnostic_command_report, parse_error_code, read_error_json, render_error,
-        render_error_code_report, render_error_code_report_with_facts,
+        diagnostic_command_report, diagnostic_fact_schema_mismatch, parse_error_code,
+        read_error_json, render_error, render_error_code_report,
+        render_error_code_report_with_facts,
     };
     use crate::cli::{CliArgs, CliCommand};
     use clap::Parser;
@@ -2823,6 +2842,35 @@ mod tests {
         );
         assert!(report.contains("expected=16"), "{report}");
         assert!(report.contains("actual=128"), "{report}");
+    }
+
+    #[test]
+    fn memory_admission_codes_render_without_schema_artifacts() {
+        for (code, hint) in [
+            ("E276", "Allowed"),
+            ("E277", "namespace"),
+            ("E278", "roles"),
+            ("E279", "declaration"),
+            ("E280", "established"),
+            ("E281", "journal"),
+        ] {
+            let mut notes = Vec::new();
+            let facts = if code == "E278" {
+                vec![RawDiagnosticFact {
+                    tag: icydb::diagnostic::DiagnosticFactTag::ExpectedCount.raw(),
+                    value: 3,
+                }]
+            } else {
+                Vec::new()
+            };
+            let report = render_error_code_report_with_facts(code, &facts, &[], &mut notes)
+                .expect("memory admission diagnostics need no schema artifact");
+            assert!(report.contains(hint), "{code}: {report}");
+            assert_eq!(diagnostic_fact_schema_mismatch(code, &facts).unwrap(), None);
+            if code == "E278" {
+                assert!(report.contains("expected_count=3"), "{report}");
+            }
+        }
     }
 
     #[test]

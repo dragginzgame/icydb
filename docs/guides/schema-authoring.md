@@ -365,10 +365,12 @@ pub struct TransferStore;
 icydb::ic_memory_range!(authority = "icydb.app", start = 100, end = 254, mode = Allowed);
 ```
 
-The host grants the pool explicitly with `mode = Allowed`; the upstream macro's
-default reservation is not a logical placement grant. `ic-memory` persists the
-key-to-ID mapping. The schema
-does not assign physical IDs. Use disjoint host grants when composing databases
+The host grants fresh logical placement explicitly with `mode = Allowed`.
+Omitting `mode` selects `Reserved`; that range does not supply slots for fresh
+logical allocations. An Allowed pool must still contain enough eligible free
+slots. IcyDB re-exports this upstream macro without changing its default.
+`ic-memory` persists the key-to-ID mapping. The schema does not assign physical
+IDs. Use disjoint host grants when composing databases
 or frameworks. A host that bootstraps first must call
 `icydb::db::prepare_memory_bootstrap` from its `RuntimeBootstrapPolicy`
 preparation hook. Standalone IcyDB bootstrap calls that same hook automatically.
