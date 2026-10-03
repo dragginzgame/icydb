@@ -137,14 +137,20 @@ fn application_batch_workload_preserves_results_and_reports_costs() {
         module.len(),
         Sha256::digest(&module)
     );
+    let mut scenarios = Vec::new();
     for count in [1, 16, 64, 128] {
         for individual in [false, true] {
-            qualify_scenario(&module, count, count, individual, false);
+            scenarios.push((count, count, individual, false));
         }
     }
     // Chunking is application-owned across messages, not an atomic replacement:
     // a rejection in the last chunk retains the seven earlier committed chunks.
-    qualify_scenario(&module, 128, 128, false, true);
-    qualify_scenario(&module, 128, 16, false, false);
-    qualify_scenario(&module, 128, 16, false, true);
+    scenarios.extend([
+        (128, 128, false, true),
+        (128, 16, false, false),
+        (128, 16, false, true),
+    ]);
+    crate::for_each_workload_scenario(&scenarios, |&(count, chunk, individual, reject_last)| {
+        qualify_scenario(&module, count, chunk, individual, reject_last);
+    });
 }

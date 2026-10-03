@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::db::{
+    RequestExecutionRoot, desc,
     direction::Direction,
     query::plan::{
         CoveringProjectionOrder, CoveringReadFieldSource, OrderDirection, OrderTerm,
@@ -9,6 +10,363 @@ use crate::db::{
         covering_read_execution_plan_with_schema_info,
     },
 };
+use crate::value::PublicValue;
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
+
+fn initialize_long_secondary_branch() -> DbSession<TestCanister> {
+    let session = initialize();
+    for id in 0..10 {
+        let rare = match id {
+            0 => "a",
+            9 => "c",
+            _ => "b",
+        };
+        insert_row(&session, id, "everyone", rare);
+    }
+    session
+}
+
+fn secondary_membership() -> FilterExpr {
+    FieldRef::new("rare").in_list(["c", "b", "missing", "a", "b"])
+}
+
+// Replay the real authenticated tokens, including boundaries inside the long
+// branch. Each page gets a fresh request budget and the same registry identity.
+fn collect_secondary_pages(
+    query: &DynamicQuery,
+    public: bool,
+    mut cursor: Option<String>,
+) -> (Vec<Vec<OutputValue>>, Vec<(String, usize)>) {
+    let mut rows = Vec::new();
+    let mut tokens = Vec::new();
+    for _ in 0..16 {
+        let root = RequestExecutionRoot::__new_runtime_root();
+        let session = new_request_session(&root);
+        let page = if public {
+            session.execute_public_live_page(query, cursor.as_deref())
+        } else {
+            session.execute_trusted_live_page(query, cursor.as_deref())
+        }
+        .unwrap();
+        rows.extend(page.rows);
+        let Some(next) = page.continuation else {
+            return (rows, tokens);
+        };
+        assert_ne!(cursor.as_ref(), Some(&next));
+        assert!(!tokens.iter().any(|(token, _)| token == &next));
+        tokens.push((next.clone(), rows.len()));
+        cursor = Some(next);
+    }
+    panic!("secondary pages must exhaust within the bounded page count");
+}
+
+#[test]
+fn secondary_in_pages_preserve_long_branches_and_every_resume_suffix() {
+    use crate::db::query::admission::QueryAdmissionAccessKind;
+
+    let session = initialize_long_secondary_branch();
+    for descending in [false, true] {
+        for row_backed in [false, true] {
+            let fields = if row_backed {
+                vec!["id", "common"]
+            } else {
+                vec!["id"]
+            };
+            let query = DynamicQuery::new(ENTITY_NAME)
+                .filter(secondary_membership())
+                .select(fields)
+                .order_by(if descending {
+                    desc("rare")
+                } else {
+                    asc("rare")
+                });
+            assert_eq!(
+                super::materialized_sort_admission::summary(&session, &query).selected_access(),
+                QueryAdmissionAccessKind::IndexMultiLookup
+            );
+            let mut expected = (0..10)
+                .map(|id| {
+                    let mut row = vec![OutputValue::nat64(id)];
+                    if row_backed {
+                        row.push(OutputValue::text("everyone".into()));
+                    }
+                    row
+                })
+                .collect::<Vec<_>>();
+            if descending {
+                expected.reverse();
+            }
+            for capacity in [0, 4 * 1024 * 1024] {
+                session.clear_shared_query_cache_for_tests(capacity);
+                for public in [false, true] {
+                    for _ in 0..2 {
+                        let (rows, tokens) = collect_secondary_pages(&query, public, None);
+                        assert_eq!(rows, expected);
+                        assert!(tokens.len() >= 4);
+                        for (token, offset) in tokens {
+                            assert_eq!(
+                                collect_secondary_pages(&query, public, Some(token)).0,
+                                expected[offset..]
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn secondary_in_pages_match_range_and_residual_window_controls() {
+    initialize_long_secondary_branch();
+    for descending in [false, true] {
+        let base = DynamicQuery::new(ENTITY_NAME)
+            .select(["id", "common"])
+            .order_by(if descending {
+                desc("rare")
+            } else {
+                asc("rare")
+            });
+        let range = FilterExpr::and(vec![
+            FieldRef::new("rare").gte("a"),
+            FieldRef::new("rare").lte("c"),
+        ]);
+        for public in [false, true] {
+            let control =
+                collect_secondary_pages(&base.clone().filter(range.clone()), public, None).0;
+            assert_eq!(control.len(), 10);
+            for (filter, limit, expected) in [
+                (secondary_membership(), 5, control[..5].to_vec()),
+                (
+                    FilterExpr::and(vec![
+                        secondary_membership(),
+                        FieldRef::new("id").gte(InputValue::nat64(4)),
+                    ]),
+                    10,
+                    control
+                        .iter()
+                        .filter(
+                            |row| matches!(row[0].as_public(), PublicValue::Nat64(id) if *id >= 4),
+                        )
+                        .cloned()
+                        .collect(),
+                ),
+            ] {
+                let query = base.clone().filter(filter).limit(limit);
+                assert_eq!(collect_secondary_pages(&query, public, None).0, expected);
+            }
+        }
+    }
+}
+
+#[test]
+fn primary_ordered_index_sets_keep_bounded_resume_reads() {
+    use crate::db::query::admission::QueryAdmissionAccessKind;
+
+    let setup = initialize_long_secondary_branch();
+    for descending in [false, true] {
+        for (filter, kind) in [
+            (
+                secondary_membership(),
+                QueryAdmissionAccessKind::IndexMultiLookup,
+            ),
+            (
+                FilterExpr::and(vec![
+                    FieldRef::new("wide_fixed").eq("all"),
+                    FieldRef::new("wide_branch").in_list(["x", "y"]),
+                ]),
+                QueryAdmissionAccessKind::IndexBranchSet,
+            ),
+        ] {
+            let query = DynamicQuery::new(ENTITY_NAME)
+                .filter(filter)
+                .select(["id", "common"])
+                .order_by(if descending { desc("id") } else { asc("id") });
+            assert_eq!(
+                super::materialized_sort_admission::summary(&setup, &query).selected_access(),
+                kind
+            );
+            for public in [false, true] {
+                let mut cursor = None;
+                let mut rows = Vec::new();
+                for _ in 0..16 {
+                    let root = RequestExecutionRoot::__new_runtime_root();
+                    let session = new_request_session(&root);
+                    let page = if public {
+                        session.execute_public_live_page(&query, cursor.as_deref())
+                    } else {
+                        session.execute_trusted_live_page(&query, cursor.as_deref())
+                    }
+                    .unwrap();
+                    assert!(root.observed(Resource::RowsVisited) <= 3);
+                    rows.extend(page.rows);
+                    cursor = page.continuation;
+                    if cursor.is_none() {
+                        break;
+                    }
+                }
+                assert!(cursor.is_none());
+                let mut expected = (0..10)
+                    .map(|id| vec![OutputValue::nat64(id), OutputValue::text("everyone".into())])
+                    .collect::<Vec<_>>();
+                if descending {
+                    expected.reverse();
+                }
+                assert_eq!(rows, expected);
+            }
+        }
+    }
+}
+
+// Page size is two in this maintained session harness. A three-row budget
+// admits the page plus lookahead, but cannot admit rereading a consumed prefix.
+pub(super) fn bounded_secondary_request(rows: u64) -> RequestExecutionRoot {
+    use crate::db::executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom};
+    RequestExecutionRoot::new_for_tests(
+        HardExecutionBudget::uniform_for_tests(
+            16_000_000,
+            HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+        )
+        .with_limit_for_tests(Resource::RowsVisited, rows),
+    )
+}
+
+fn collect_bounded_secondary_pages(
+    query: &DynamicQuery,
+    public: bool,
+    mut cursor: Option<String>,
+) -> (Vec<Vec<OutputValue>>, Vec<(String, usize)>) {
+    let mut rows = Vec::new();
+    let mut tokens = Vec::new();
+    for _ in 0..16 {
+        let root = bounded_secondary_request(3);
+        let session = new_request_session(&root);
+        let page = if public {
+            session.execute_public_live_page(query, cursor.as_deref())
+        } else {
+            session.execute_trusted_live_page(query, cursor.as_deref())
+        }
+        .unwrap();
+        assert!(root.observed(Resource::RowsVisited) <= 3);
+        rows.extend(page.rows);
+        let Some(next) = page.continuation else {
+            return (rows, tokens);
+        };
+        assert_ne!(cursor.as_ref(), Some(&next));
+        tokens.push((next.clone(), rows.len()));
+        cursor = Some(next);
+    }
+    panic!("bounded secondary pages must exhaust");
+}
+
+#[test]
+fn secondary_index_resume_seeks_before_row_budget_and_replays_every_suffix() {
+    use crate::db::query::admission::QueryAdmissionAccessKind;
+    let setup = initialize_long_secondary_branch();
+    for descending in [false, true] {
+        for (filter, field, kind, mut ids) in [
+            (
+                secondary_membership(),
+                "rare",
+                QueryAdmissionAccessKind::IndexMultiLookup,
+                (0..10).collect::<Vec<u64>>(),
+            ),
+            (
+                FieldRef::new("rare").eq("b"),
+                "rare",
+                QueryAdmissionAccessKind::IndexPrefix,
+                (1..9).collect(),
+            ),
+            (
+                FilterExpr::and(vec![
+                    FieldRef::new("rare").gte("a"),
+                    FieldRef::new("rare").lte("c"),
+                ]),
+                "rare",
+                QueryAdmissionAccessKind::IndexRange,
+                (0..10).collect(),
+            ),
+            (
+                FieldRef::new("wide_fixed").eq("all"),
+                "wide_branch",
+                QueryAdmissionAccessKind::IndexPrefix,
+                vec![0, 2, 4, 6, 8, 1, 3, 5, 7, 9],
+            ),
+            (
+                FilterExpr::and(vec![
+                    FieldRef::new("wide_fixed").eq("all"),
+                    FieldRef::new("wide_branch").gte("x"),
+                ]),
+                "wide_branch",
+                QueryAdmissionAccessKind::IndexRange,
+                vec![0, 2, 4, 6, 8, 1, 3, 5, 7, 9],
+            ),
+        ] {
+            if descending {
+                ids.reverse();
+            }
+            let expected = ids
+                .into_iter()
+                .map(|id| vec![OutputValue::nat64(id), OutputValue::text("everyone".into())])
+                .collect::<Vec<_>>();
+            let query = DynamicQuery::new(ENTITY_NAME)
+                .filter(filter)
+                .select(["id", "common"])
+                .order_by(if descending { desc(field) } else { asc(field) });
+            assert_eq!(
+                super::materialized_sort_admission::summary(&setup, &query).selected_access(),
+                kind
+            );
+            for capacity in [0, 4 * 1024 * 1024] {
+                setup.clear_shared_query_cache_for_tests(capacity);
+                for public in [false, true] {
+                    for _ in 0..2 {
+                        let (rows, tokens) = collect_bounded_secondary_pages(&query, public, None);
+                        assert_eq!(rows, expected);
+                        assert!(!tokens.is_empty());
+                        for (token, offset) in tokens {
+                            assert_eq!(
+                                collect_bounded_secondary_pages(&query, public, Some(token)).0,
+                                expected[offset..]
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn secondary_index_resume_keeps_typed_budget_rejection() {
+    use icydb_diagnostic_code::{DiagnosticFactTag, ErrorCode};
+    initialize_long_secondary_branch();
+    let query = DynamicQuery::new(ENTITY_NAME)
+        .filter(secondary_membership())
+        .select(["id", "common"])
+        .order_by(asc("rare"));
+    let first = new_request_session(&bounded_secondary_request(3))
+        .execute_trusted_live_page(&query, None)
+        .unwrap();
+    for public in [false, true] {
+        let root = bounded_secondary_request(0);
+        let session = new_request_session(&root);
+        let error = if public {
+            session.execute_public_live_page(&query, first.continuation.as_deref())
+        } else {
+            session.execute_trusted_live_page(&query, first.continuation.as_deref())
+        }
+        .unwrap_err();
+        assert_eq!(
+            error.diagnostic().error_code(),
+            ErrorCode::RUNTIME_BOUNDARY_EXECUTION_BUDGET_EXCEEDED
+        );
+        assert!(error.diagnostic_facts().contains(&(
+            DiagnosticFactTag::BudgetResource,
+            Resource::RowsVisited.raw()
+        )));
+    }
+}
 
 #[test]
 fn cached_secondary_order_preserves_covering_and_distinct_seek_contracts() {

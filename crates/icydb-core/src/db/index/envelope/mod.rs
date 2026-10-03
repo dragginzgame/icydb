@@ -6,7 +6,7 @@
 #[cfg(test)]
 mod tests;
 
-use crate::db::index::RawIndexStoreKey;
+use crate::db::index::{IndexKey, RawIndexStoreKey};
 use crate::{db::direction::Direction, error::InternalError};
 use std::ops::Bound;
 
@@ -96,6 +96,46 @@ pub(in crate::db) fn resume_bounds_for_continuation<K: Clone + Ord>(
     Ok(match anchor {
         Some(anchor) => resume_bounds_from_refs(direction, lower, upper, anchor),
         None => (lower.clone(), upper.clone()),
+    })
+}
+
+/// Intersect a prefix branch with global index-order progress. A cursor can
+/// precede or follow an IN branch, but must retain its physical namespace.
+/// Completed branches become empty; future branches retain their original bounds.
+pub(in crate::db) fn resume_prefix_bounds_for_continuation(
+    direction: Direction,
+    anchor: Option<&RawIndexStoreKey>,
+    lower: &Bound<RawIndexStoreKey>,
+    upper: &Bound<RawIndexStoreKey>,
+) -> Result<(Bound<RawIndexStoreKey>, Bound<RawIndexStoreKey>), InternalError> {
+    let Some(anchor) = anchor else {
+        return Ok((lower.clone(), upper.clone()));
+    };
+    let decoded = IndexKey::try_from_raw(anchor)
+        .map_err(|_| InternalError::index_scan_continuation_anchor_within_envelope_required())?;
+    for edge in [lower, upper] {
+        let Some(key) = bound_key_ref(edge) else {
+            return Err(InternalError::index_scan_continuation_anchor_within_envelope_required());
+        };
+        let edge = IndexKey::try_from_raw(key).map_err(|_| {
+            InternalError::index_scan_continuation_anchor_within_envelope_required()
+        })?;
+        if edge.index_id() != decoded.index_id()
+            || edge.key_kind() != decoded.key_kind()
+            || edge.component_count() != decoded.component_count()
+        {
+            return Err(InternalError::index_scan_continuation_anchor_within_envelope_required());
+        }
+    }
+    Ok(match direction {
+        Direction::Asc if bound_key_ref(lower).is_some_and(|key| key > anchor) => {
+            (lower.clone(), upper.clone())
+        }
+        Direction::Asc => (Bound::Excluded(anchor.clone()), upper.clone()),
+        Direction::Desc if bound_key_ref(upper).is_some_and(|key| key < anchor) => {
+            (lower.clone(), upper.clone())
+        }
+        Direction::Desc => (lower.clone(), Bound::Excluded(anchor.clone())),
     })
 }
 

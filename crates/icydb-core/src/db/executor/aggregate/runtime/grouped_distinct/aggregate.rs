@@ -99,9 +99,10 @@ impl GlobalDistinctFieldAggregateDispatcher {
         Ok(Self { field_slot })
     }
 
-    // Extract the canonical distinct value from one structural row view.
-    fn extract(&self, row_view: &RowView) -> Result<Value, InternalError> {
-        row_view.extract_orderable_field_value(self.field_slot)
+    // Extract a non-NULL input before distinct-key admission, matching the
+    // per-group value-target reducer's NULL and state-budget semantics.
+    fn extract(&self, row_view: &RowView) -> Result<Option<Value>, InternalError> {
+        row_view.extract_non_null_aggregate_field_value(self.field_slot)
     }
 }
 
@@ -205,7 +206,9 @@ pub(in crate::db::executor) fn execute_global_distinct_field_aggregate(
         {
             continue;
         }
-        let distinct_value = dispatcher.extract(&row_view)?;
+        let Some(distinct_value) = dispatcher.extract(&row_view)? else {
+            continue;
+        };
         let distinct_key = distinct_value.canonical_key()?;
         let admitted = grouped_execution_context
             .admit_distinct_key(
@@ -230,14 +233,62 @@ pub(in crate::db::executor) fn execute_global_distinct_field_aggregate(
     ))
 }
 
+///
+/// TESTS
+///
+
 #[cfg(test)]
 mod tests {
     use crate::{
+        db::{
+            executor::pipeline::runtime::RowView,
+            query::plan::{FieldSlot, GroupedDistinctExecutionStrategy},
+            schema::AcceptedFieldKind,
+        },
         types::{Decimal, U256},
         value::Value,
     };
 
-    use super::{GlobalDistinctAggregateKind, GlobalDistinctFieldAccumulator};
+    use super::{
+        GlobalDistinctAggregateKind, GlobalDistinctFieldAccumulator,
+        GlobalDistinctFieldAggregateDispatcher,
+    };
+    use icydb_diagnostic_code::DiagnosticCode;
+
+    #[test]
+    fn global_distinct_extract_skips_null_but_rejects_missing_and_wrong_kind() {
+        let slot = FieldSlot::from_test_accepted_kind(0, "qty", AcceptedFieldKind::Nat64);
+        for strategy in [
+            GroupedDistinctExecutionStrategy::GlobalDistinctFieldCount {
+                target_slot: slot.clone(),
+            },
+            GroupedDistinctExecutionStrategy::GlobalDistinctFieldSum {
+                target_slot: slot.clone(),
+            },
+            GroupedDistinctExecutionStrategy::GlobalDistinctFieldAvg { target_slot: slot },
+        ] {
+            let dispatcher = GlobalDistinctFieldAggregateDispatcher::resolve(&strategy).unwrap();
+            assert!(
+                dispatcher
+                    .extract(&RowView::new(vec![Some(Value::Null)]))
+                    .unwrap()
+                    .is_none()
+            );
+            assert_eq!(
+                dispatcher
+                    .extract(&RowView::new(vec![Some(Value::Nat64(2))]))
+                    .unwrap(),
+                Some(Value::Nat64(2))
+            );
+            for slots in [vec![None], vec![Some(Value::Text("invalid".into()))]] {
+                let error = dispatcher.extract(&RowView::new(slots)).unwrap_err();
+                assert_eq!(
+                    error.diagnostic().code(),
+                    DiagnosticCode::RuntimeInvariantViolation
+                );
+            }
+        }
+    }
 
     #[test]
     fn global_distinct_accumulator_delegates_to_shared_value_reducers() {

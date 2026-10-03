@@ -1,7 +1,7 @@
 use super::{
     KeyEnvelope, continuation_advanced, key_within_envelope, resume_bounds_for_continuation,
-    resume_bounds_from_refs, validate_index_scan_continuation_advancement,
-    validate_index_scan_continuation_envelope,
+    resume_bounds_from_refs, resume_prefix_bounds_for_continuation,
+    validate_index_scan_continuation_advancement, validate_index_scan_continuation_envelope,
 };
 use crate::{
     db::{
@@ -212,6 +212,85 @@ fn canonical_raw_key(values: &[Value]) -> RawIndexStoreKey {
     };
 
     key
+}
+
+#[test]
+fn global_prefix_resume_intersects_completed_boundary_and_future_branches() {
+    let lower = Bound::Included(canonical_raw_key(&[Value::Nat64(10)]));
+    let upper = Bound::Excluded(canonical_raw_key(&[Value::Nat64(20)]));
+    for (position, empty_asc, empty_desc) in [
+        (5, false, true),
+        (10, false, true),
+        (15, false, false),
+        (20, true, false),
+        (25, true, false),
+    ] {
+        let anchor = canonical_raw_key(&[Value::Nat64(position)]);
+        for (direction, empty) in [(Direction::Asc, empty_asc), (Direction::Desc, empty_desc)] {
+            let (resumed_lower, resumed_upper) =
+                resume_prefix_bounds_for_continuation(direction, Some(&anchor), &lower, &upper)
+                    .unwrap();
+            assert_eq!(envelope_is_empty(&resumed_lower, &resumed_upper), empty);
+            for candidate in [5, 10, 14, 15, 16, 19, 20, 25] {
+                let key = canonical_raw_key(&[Value::Nat64(candidate)]);
+                assert_eq!(
+                    key_within_envelope(&key, &resumed_lower, &resumed_upper),
+                    key_within_envelope(&key, &lower, &upper)
+                        && continuation_advanced(direction, &key, &anchor)
+                );
+            }
+        }
+    }
+    assert_eq!(
+        resume_prefix_bounds_for_continuation(Direction::Asc, None, &lower, &upper).unwrap(),
+        (lower, upper)
+    );
+}
+
+#[test]
+fn global_prefix_resume_rejects_namespace_shape_and_malformed_anchors() {
+    let lower = Bound::Included(canonical_raw_key(&[Value::Nat64(10)]));
+    let upper = Bound::Included(canonical_raw_key(&[Value::Nat64(20)]));
+    let encoded = EncodedValue::try_from_ref(&Value::Nat64(15)).unwrap();
+    let wrong_namespace = crate::db::index::raw_keys_for_component_prefix_with_kind(
+        &IndexId::new(crate::types::EntityTag::new(123), 0),
+        IndexKeyKind::User,
+        1,
+        std::slice::from_ref(&encoded),
+    )
+    .unwrap()
+    .0;
+    let wrong_generation = crate::db::index::raw_keys_for_component_prefix_with_kind(
+        &IndexId::new_with_generation(crate::types::EntityTag::new(0xC01A_71C0_0000_0001), 0, 99),
+        IndexKeyKind::User,
+        1,
+        std::slice::from_ref(&encoded),
+    )
+    .unwrap()
+    .0;
+    let wrong_kind = crate::db::index::raw_keys_for_component_prefix_with_kind(
+        &property_index_id(),
+        IndexKeyKind::System,
+        1,
+        &[encoded],
+    )
+    .unwrap()
+    .0;
+    for anchor in [
+        wrong_namespace,
+        wrong_generation,
+        wrong_kind,
+        canonical_raw_key(&[Value::Nat64(15), Value::Nat64(1)]),
+        raw_key(0),
+    ] {
+        for direction in [Direction::Asc, Direction::Desc] {
+            let error =
+                resume_prefix_bounds_for_continuation(direction, Some(&anchor), &lower, &upper)
+                    .unwrap_err();
+            let expected = crate::error::InternalError::index_scan_continuation_anchor_within_envelope_required();
+            assert_eq!(error.diagnostic(), expected.diagnostic());
+        }
+    }
 }
 
 fn int_component_strategy() -> impl Strategy<Value = Value> {

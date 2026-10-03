@@ -138,7 +138,6 @@ fn memory_adoption_requirement_drift_is_a_public_conflict() {
 fn memory_bootstrap_internal_failures_retain_internal_classification() {
     for cause in [
         RuntimeBootstrapError::State(RuntimeStateError::ReentrantAccess),
-        RuntimeBootstrapError::State(RuntimeStateError::InconsistentLifecycle),
         RuntimeBootstrapError::Registry(StaticMemoryDeclarationError::RegistryPoisoned),
         RuntimeBootstrapError::Registry(StaticMemoryDeclarationError::EagerInitPanicked),
     ] {

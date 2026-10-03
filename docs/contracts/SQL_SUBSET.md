@@ -742,6 +742,12 @@ DISTINCT and FILTER compose on the same aggregate in global and grouped queries.
 FILTER selects rows before DISTINCT deduplicates admitted input values; the
 aggregate's current NULL and empty-input rules still apply.
 
+Field-target DISTINCT COUNT, SUM and AVG skip NULL before admitting distinct
+values, including zero-key Fluent grouped queries. NULL consumes no distinct
+state; reading its row still consumes the ordinary execution budget. Empty and
+all-NULL inputs yield COUNT zero and SUM/AVG NULL; the zero-key route retains
+its one implicit result group.
+
 Numeric aggregate results use the shared reducer contract. Admitted non-U256
 `SUM` and `AVG` return Decimal, not the input field's integer or floating subtype.
 `SUM(U256)` returns U256; `AVG(U256)` is unsupported. Empty/all-NULL SUM and AVG

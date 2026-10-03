@@ -89,9 +89,8 @@ impl<'a> ScalarMaterializationPlan<'a> {
 
     // Bound any final-order scalar scan at its exact output/lookahead frontier.
     // Residual predicates execute while each raw row is open, so only matched
-    // rows count toward this cap. A resumed non-primary order cannot use this
-    // optimization because the current scalar cursor does not reposition its
-    // physical secondary-index stream.
+    // rows count toward this cap. Resumed scans also require an order proof
+    // whose boundary is applied before traversal.
     fn streaming_page_scan_keep_cap(
         &self,
         plan: &AccessPlannedQuery,
@@ -106,7 +105,7 @@ impl<'a> ScalarMaterializationPlan<'a> {
                 .is_none_or(|order| order.fields.is_empty())
             || !access_order_satisfied_by_route_mode(plan)
             || self.defer_retained_slot_distinct_window
-            || (continuation.has_progress() && !scalar_order_is_primary_key_only(plan))
+            || !continuation.can_bound_ordered_scan(plan)
         {
             return None;
         }
@@ -408,22 +407,6 @@ impl KernelRowScanStrategy<'_> {
     const fn materializes_slots(self) -> bool {
         !matches!(self, Self::DataRows | Self::DataRowsFiltered { .. })
     }
-}
-
-// Return whether the canonical scalar order consists only of the complete
-// primary-key tuple. Those cursors are physically applied by access traversal,
-// so resumed scans may stop at the same bounded output/lookahead frontier as
-// initial scans.
-fn scalar_order_is_primary_key_only(plan: &AccessPlannedQuery) -> bool {
-    let Ok(primary_key_names) = plan.primary_key_names() else {
-        return false;
-    };
-
-    plan.scalar_plan().order.as_ref().is_some_and(|order| {
-        order
-            .primary_key_only_direction_fields(primary_key_names)
-            .is_some()
-    })
 }
 
 ///

@@ -214,6 +214,20 @@ When the selected access path proves that it already produces the requested
 canonical order, execution may seek or stream from that route and stop once the
 bounded page plus required lookahead is complete.
 
+Resumed scalar pages can seek selected single secondary-index prefix, range and
+IN-list scans when the accepted index order proves the complete requested order.
+The existing scalar continuation owner derives raw progress from authenticated
+order values and the complete primary-key tuple using accepted index encoding.
+Ordered scan caps require that progress to be applied before traversal. Prefix
+families intersect each branch with the global cursor, preserving remaining
+branches and excluding consumed keys in either direction.
+
+Composed access, primary-key-merged branch sets and unproven secondary orders
+retain their existing materialization and logical cursor filtering. Index
+predicates may still require materializing remaining keys, and residuals may
+consume more physical entries than returned rows. Typed request-budget exhaustion
+remains valid; physical seeking is route-dependent.
+
 When that proof is unavailable, IcyDB uses the correct materialize/filter/order/
 cursor/window path instead. That semantic fallback is allowed, but it is not a
 public-read admission bypass: a runtime fallback from a pushed or limit-stopped

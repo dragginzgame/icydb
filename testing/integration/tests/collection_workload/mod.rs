@@ -38,7 +38,7 @@ fn collection_workload_preserves_results_and_reports_costs() {
         Sha256::digest(&module)
     );
 
-    for length in [16_u32, 256, 1_024] {
+    crate::for_each_workload_scenario(&[16_u32, 256, 1_024], |&length| {
         let fixture = install_prebuilt_fixture_canister("sql", module.clone());
         let seeded: Result<(), Error> = fixture
             .update_candid("seed_collection_workload", (length,))
@@ -102,5 +102,5 @@ fn collection_workload_preserves_results_and_reports_costs() {
                 );
             }
         }
-    }
+    });
 }

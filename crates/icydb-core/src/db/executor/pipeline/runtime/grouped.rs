@@ -9,7 +9,8 @@ use crate::{
         executor::{
             ExecutionPreparation, PreparedGroupedRuntimeResidents,
             aggregate::field::{
-                AggregateFieldValueError, FieldSlot, extract_orderable_field_value_with_slot_reader,
+                AggregateFieldValueError, FieldSlot,
+                extract_non_null_aggregate_field_value_with_slot_reader,
             },
             budget::{
                 charge_current_execution_budget, charge_decoded_row, charge_materialized_data_row,
@@ -233,14 +234,14 @@ impl RowView {
         )
     }
 
-    /// Extract one validated aggregate field value from this structural row.
-    pub(in crate::db::executor) fn extract_orderable_field_value(
+    /// Extract one validated non-NULL aggregate field value from this structural row.
+    pub(in crate::db::executor) fn extract_non_null_aggregate_field_value(
         &self,
         field_slot: FieldSlot,
-    ) -> Result<Value, InternalError> {
+    ) -> Result<Option<Value>, InternalError> {
         let mut value = Some(self.require_slot_owned(field_slot.index)?);
 
-        extract_orderable_field_value_with_slot_reader(field_slot, &mut |_| value.take())
+        extract_non_null_aggregate_field_value_with_slot_reader(field_slot, &mut |_| value.take())
             .map_err(AggregateFieldValueError::into_internal_error)
     }
 

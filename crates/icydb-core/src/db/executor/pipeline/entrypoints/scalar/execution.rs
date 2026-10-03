@@ -52,6 +52,12 @@ pub(super) fn execute_prepared_scalar_kernel<T>(
         accepted_schema.revision(),
         accepted_schema.fingerprint(),
     )?;
+    let secondary_index_anchor = continuation.secondary_index_resume_anchor(
+        plan_core.plan(),
+        authority.accepted_schema_info(),
+        plan_core.index_prefix_specs(),
+        plan_core.index_range_specs(),
+    )?;
     let runtime = ExecutionRuntimeAdapter::from_scalar_runtime(
         TraversalRuntime::new(
             store,
@@ -98,7 +104,7 @@ pub(super) fn execute_prepared_scalar_kernel<T>(
         stream_bindings: AccessStreamBindings::new(
             index_prefix_specs,
             index_range_specs,
-            access_continuation.access_scan_input(direction, plan),
+            access_continuation.access_scan_input(direction, plan, secondary_index_anchor.as_ref()),
         )
         .with_index_prefix_child_expansion(route_plan.scan_hints.index_prefix_child_expansion),
         execution_preparation: &prep,

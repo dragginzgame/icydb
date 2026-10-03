@@ -2,7 +2,7 @@
 
 use super::*;
 
-fn initialize_nullable_rows() -> DbSession<TestCanister> {
+pub(super) fn initialize_nullable_rows() -> DbSession<TestCanister> {
     DATA_STORE.with(|store| *store.borrow_mut() = DataStore::init_heap());
     INDEX_STORE.with(|store| *store.borrow_mut() = IndexStore::init_heap());
     SCHEMA_STORE.with(|store| *store.borrow_mut() = SchemaStore::init_heap());

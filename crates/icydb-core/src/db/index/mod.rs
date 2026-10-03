@@ -22,7 +22,8 @@ pub(in crate::db) use entry::IndexEntryRowWitness;
 pub(in crate::db) use entry::IndexRowIdentity;
 pub(in crate::db) use envelope::{envelope_is_empty, key_within_envelope};
 pub(in crate::db) use envelope::{
-    resume_bounds_for_continuation, validate_index_scan_continuation_advancement,
+    resume_bounds_for_continuation, resume_prefix_bounds_for_continuation,
+    validate_index_scan_continuation_advancement,
 };
 pub(in crate::db) use expression_contract::{
     SemanticIndexExpression, index_expression_output_kind,

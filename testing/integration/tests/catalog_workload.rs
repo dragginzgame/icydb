@@ -72,7 +72,7 @@ fn full_catalogue_rows_preserve_values_and_report_costs() {
         module.len(),
         Sha256::digest(&module)
     );
-    for count in [16_u32, 128] {
+    crate::for_each_workload_scenario(&[16_u32, 128], |&count| {
         let fixture = install_prebuilt_fixture_canister("sql", module.clone());
         for start in (0..count).step_by(16) {
             let seeded: Result<(), Error> = fixture
@@ -134,7 +134,7 @@ fn full_catalogue_rows_preserve_values_and_report_costs() {
             }
         }
         check_catalog_labels(&fixture, count);
-    }
+    });
 }
 
 fn check_catalog_labels(fixture: &StandaloneCanisterFixture, count: u32) {

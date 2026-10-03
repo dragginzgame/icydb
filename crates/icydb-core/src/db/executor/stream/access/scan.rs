@@ -24,6 +24,7 @@ use crate::{
                 IndexPredicateExecution, eval_index_execution_on_decoded_key,
                 eval_index_program_on_prefix_components,
             },
+            resume_prefix_bounds_for_continuation,
         },
         registry::StoreHandle,
     },
@@ -643,17 +644,23 @@ impl IndexScan {
         store: StoreHandle,
         entity_tag: EntityTag,
         spec: &LoweredIndexPrefixSpec,
-        direction: Direction,
+        continuation: IndexScanContinuationInput<'_>,
         limit: usize,
         predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<Vec<DecodedDataStoreKey>, InternalError> {
         let (lower, upper) = spec.raw_bounds(&ExecutionConstructionBudget)?;
+        let (lower, upper) = resume_prefix_bounds_for_continuation(
+            continuation.direction(),
+            continuation.anchor(),
+            lower,
+            upper,
+        )?;
         Self::resolve_data_values_in_raw_range_limited(
             store,
             entity_tag,
-            lower,
-            upper,
-            IndexScanContinuationInput::new(None, direction),
+            &lower,
+            &upper,
+            IndexScanContinuationInput::new(None, continuation.direction()),
             limit,
             predicate_execution,
         )

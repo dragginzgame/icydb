@@ -32,7 +32,10 @@ use crate::{
             stream::key::KeyOrderComparator,
             traversal::IndexRangeTraversalContract,
         },
-        index::{IndexKey, RawIndexStoreKey, predicate::IndexPredicateExecution},
+        index::{
+            IndexKey, RawIndexStoreKey, predicate::IndexPredicateExecution,
+            resume_prefix_bounds_for_continuation,
+        },
         key_taxonomy::RawDataStoreKeyRange,
         registry::StoreHandle,
     },
@@ -119,6 +122,9 @@ impl<'a> MergedIndexPrefixStreamSpec<'a> {
         self,
         spec: &LoweredIndexPrefixSpec,
     ) -> Result<Option<RawIndexStoreKey>, InternalError> {
+        if let Some(anchor) = self.continuation.index_scan_continuation().anchor() {
+            return Ok(Some(anchor.clone()));
+        }
         match self.resume_policy {
             PrefixMergeResumePolicy::None => Ok(None),
             PrefixMergeResumePolicy::PrimaryKeySuffix => self
@@ -285,7 +291,7 @@ impl KeyAccessRuntime {
     fn resolve_index_prefix(
         &self,
         index_prefix_specs: &[LoweredIndexPrefixSpec],
-        direction: Direction,
+        continuation: IndexScanContinuationInput<'_>,
         index_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<(Vec<DecodedDataStoreKey>, KeyOrderState), InternalError> {
@@ -311,7 +317,7 @@ impl KeyAccessRuntime {
             self.store,
             self.entity_tag,
             spec,
-            direction,
+            continuation,
             index_fetch_hint.unwrap_or(usize::MAX),
             index_predicate_execution,
         )?;
@@ -366,18 +372,26 @@ impl KeyAccessRuntime {
         &self,
         index_prefix_specs: &[LoweredIndexPrefixSpec],
         value_count: usize,
-        direction: Direction,
+        continuation: IndexScanContinuationInput<'_>,
+        index_leaf_order_policy: IndexLeafOrderPolicy,
         index_fetch_hint: Option<usize>,
         index_predicate_execution: Option<IndexPredicateExecution<'_>>,
     ) -> Result<(Vec<DecodedDataStoreKey>, KeyOrderState), InternalError> {
         validate_index_prefix_count(index_prefix_specs, value_count)?;
 
         let per_prefix_limit = index_fetch_hint.unwrap_or(usize::MAX);
-        let active_specs = active_lowered_index_prefix_specs(
+        let mut active_specs = active_lowered_index_prefix_specs(
             Some(self.store),
             index_prefix_specs,
             index_predicate_execution,
         );
+        let preserve_branch_order = index_leaf_order_policy.preserves_prefix_branch_order();
+        if preserve_branch_order {
+            sort_lowered_index_prefix_specs_by_raw_lower_key(&mut active_specs)?;
+            if matches!(continuation.direction(), Direction::Desc) {
+                active_specs.reverse();
+            }
+        }
         let key_capacity = index_fetch_hint.map_or(0, |hint| {
             hint.saturating_mul(active_specs.len())
                 .min(ACCESS_SCAN_CHUNK_ENTRIES)
@@ -388,13 +402,18 @@ impl KeyAccessRuntime {
                 self.store,
                 self.entity_tag,
                 spec,
-                direction,
+                continuation,
                 per_prefix_limit,
                 index_predicate_execution,
             )?;
             charge_materialized_secondary_index_keys(child.as_slice(), child.capacity())?;
             reserve_materialized_secondary_index_key_capacity(&mut keys, child.len())?;
             keys.extend(child);
+        }
+        // Distinct canonical IN prefixes are disjoint. Preserve their index
+        // order for secondary paging even when a predicate requires materialization.
+        if preserve_branch_order {
+            return Ok((keys, KeyOrderState::FinalOrder));
         }
         charge_sort_work::<DecodedDataStoreKey>(keys.len())?;
         keys.sort_unstable();
@@ -1225,12 +1244,14 @@ impl IndexRangeKeyStream {
         chunk_entries: usize,
     ) -> Result<Self, InternalError> {
         let (lower, upper) = spec.raw_bounds(&ExecutionConstructionBudget)?;
+        let bounds =
+            resume_prefix_bounds_for_continuation(direction, anchor.as_ref(), lower, upper)?;
         Ok(Self::new(
             store,
             entity_tag,
-            (lower.clone(), upper.clone()),
+            bounds,
             direction,
-            anchor,
+            None,
             limit,
             chunk_entries,
         ))
@@ -1490,7 +1511,8 @@ fn resolve_index_multi_lookup_physical_key_stream(
         let (candidates, key_order_state) = runtime.resolve_index_multi_lookup(
             request.index_prefix_specs,
             value_count,
-            request.continuation.direction(),
+            request.continuation.index_scan_continuation(),
+            request.execution_policy.index_leaf_order_policy(),
             request.execution_policy.physical_fetch_hint(),
             request.index_predicate_execution,
         )?;
@@ -1517,7 +1539,8 @@ fn resolve_index_multi_lookup_physical_key_stream(
     let (candidates, key_order_state) = runtime.resolve_index_multi_lookup(
         request.index_prefix_specs,
         value_count,
-        request.continuation.direction(),
+        request.continuation.index_scan_continuation(),
+        request.execution_policy.index_leaf_order_policy(),
         request.execution_policy.physical_fetch_hint(),
         request.index_predicate_execution,
     )?;
@@ -1549,7 +1572,7 @@ fn resolve_index_physical_key_stream(
 
             runtime.resolve_index_prefix(
                 request.index_prefix_specs,
-                request.continuation.direction(),
+                request.continuation.index_scan_continuation(),
                 request.execution_policy.physical_fetch_hint(),
                 request.index_predicate_execution,
             )?
@@ -1589,7 +1612,8 @@ fn resolve_index_physical_key_stream(
             runtime.resolve_index_multi_lookup(
                 request.index_prefix_specs,
                 *branch_count,
-                request.continuation.direction(),
+                request.continuation.index_scan_continuation(),
+                request.execution_policy.index_leaf_order_policy(),
                 request.execution_policy.physical_fetch_hint(),
                 request.index_predicate_execution,
             )?

@@ -187,6 +187,7 @@ fn apply_index_set_page_fetch_hint(
                 .is_none_or(|order| order.fields.is_empty()))
         || !access_order_satisfied_by_route_mode(plan)
         || !route_plan.load_order_route_mode().allows_streaming_load()
+        || !continuation.can_bound_ordered_scan(plan)
     {
         return;
     }

@@ -5,20 +5,31 @@
 
 use crate::{
     db::{
+        access::{AccessPathKind, IndexShapeDetails},
         cursor::{
-            CursorBoundary, effective_keep_count_for_limit as continuation_keep_count_for_limit,
+            CursorBoundary, CursorBoundarySlot,
+            effective_keep_count_for_limit as continuation_keep_count_for_limit,
             effective_page_offset_for_window as continuation_page_offset_for_window,
         },
+        data::primary_key_value_from_structural_value,
         direction::Direction,
         executor::{
-            AccessScanContinuationInput, ContinuationMode, RouteContinuationPlan,
-            planning::route::LoadOrderRouteMode,
+            AccessScanContinuationInput, ContinuationMode, LoweredIndexPrefixSpec,
+            LoweredIndexRangeSpec, LoweredKey, RouteContinuationPlan,
+            budget::ExecutionConstructionBudget, planning::route::LoadOrderRouteMode,
+            route::access_order_satisfied_by_route_mode,
         },
-        query::plan::{AccessPlannedQuery, ContinuationPolicy},
+        index::IndexKey,
+        query::{
+            construction::ConstructionBudget,
+            plan::{AccessPlannedQuery, ContinuationPolicy, DeterministicSecondaryIndexOrderMatch},
+        },
+        schema::SchemaInfo,
     },
     error::InternalError,
+    value::Value,
 };
-use std::rc::Rc;
+use std::{ops::Bound, rc::Rc};
 
 ///
 /// ScalarContinuationContext
@@ -82,6 +93,73 @@ impl ScalarContinuationContext {
         self.cursor_boundary.is_some() || self.physical_primary_key_boundary.is_some()
     }
 
+    /// Return whether a final-order scan cap applies after consumed progress.
+    /// Initial scans need no resume anchor. Resumed primary-key and proven
+    /// secondary-index orders apply their boundary before output caps.
+    #[must_use]
+    pub(in crate::db::executor) fn can_bound_ordered_scan(
+        &self,
+        plan: &AccessPlannedQuery,
+    ) -> bool {
+        !self.has_progress()
+            || scalar_order_is_primary_key_only(plan)
+            || scalar_secondary_index_order(plan).is_some()
+    }
+
+    /// Encode authenticated logical progress with the accepted index owner.
+    /// The returned key is local to execution; token and plan formats stay unchanged.
+    pub(in crate::db::executor) fn secondary_index_resume_anchor(
+        &self,
+        plan: &AccessPlannedQuery,
+        schema: &SchemaInfo,
+        prefixes: &[LoweredIndexPrefixSpec],
+        ranges: &[LoweredIndexRangeSpec],
+    ) -> Result<Option<LoweredKey>, InternalError> {
+        let Some(boundary) = self.cursor_boundary() else {
+            return Ok(None);
+        };
+        let Some((index, prefix_len)) = scalar_secondary_index_order(plan) else {
+            return Ok(None);
+        };
+        let primary_len = plan.primary_key_names()?.len();
+        let order = plan
+            .planner_route_profile()
+            .secondary_order_contract()
+            .ok_or_else(InternalError::query_executor_invariant)?;
+        if boundary.slots.len() != order.non_primary_key_terms().len() + primary_len {
+            return Err(InternalError::query_executor_invariant());
+        }
+        let budget: &dyn ConstructionBudget = &ExecutionConstructionBudget;
+        let mut values = budget.vec_with_capacity(boundary.slots.len())?;
+        for slot in &boundary.slots {
+            let CursorBoundarySlot::Present(value) = slot else {
+                return Err(InternalError::query_executor_invariant());
+            };
+            values.push(value);
+        }
+        let primary_values = values
+            .get(values.len().saturating_sub(primary_len)..)
+            .ok_or_else(InternalError::query_executor_invariant)?;
+        let primary_key = match primary_values {
+            [value] => primary_key_value_from_structural_value(value)?,
+            _ => primary_key_value_from_structural_value(&Value::List(
+                budget.copy_slice(primary_values, |value| budget.copy_value(value))?,
+            ))?,
+        };
+        let start = secondary_index_template(prefixes, ranges)?;
+        if start.component_count() != index.key_arity() {
+            return Err(InternalError::query_executor_invariant());
+        }
+        Ok(Some(start.raw_resume_anchor_with_accepted_suffix(
+            schema,
+            index.name(),
+            prefix_len,
+            &values,
+            &primary_key,
+            budget,
+        )?))
+    }
+
     /// Derive route continuation mode from scalar continuation context shape.
     #[must_use]
     pub(in crate::db::executor) const fn route_continuation_mode(&self) -> ContinuationMode {
@@ -111,20 +189,15 @@ impl ScalarContinuationContext {
 
     /// Build access-stream continuation input for routed stream resolution.
     #[must_use]
-    pub(in crate::db::executor) fn access_scan_input(
-        &self,
+    pub(in crate::db::executor) fn access_scan_input<'a>(
+        &'a self,
         direction: Direction,
         plan: &AccessPlannedQuery,
-    ) -> AccessScanContinuationInput<'_> {
-        let primary_key_ordered = plan.primary_key_names().is_ok_and(|primary_key_names| {
-            plan.scalar_plan().order.as_ref().is_some_and(|order| {
-                order
-                    .primary_key_only_direction_fields(primary_key_names)
-                    .is_some()
-            })
-        });
+        secondary_index_anchor: Option<&'a LoweredKey>,
+    ) -> AccessScanContinuationInput<'a> {
+        let primary_key_ordered = scalar_order_is_primary_key_only(plan);
         AccessScanContinuationInput::with_primary_key_boundary(
-            None,
+            secondary_index_anchor,
             direction,
             primary_key_ordered
                 .then_some(
@@ -184,4 +257,69 @@ impl ScalarContinuationContext {
 
         Ok(())
     }
+}
+
+// Bind primary progress only when the complete canonical order is the PK tuple.
+fn scalar_order_is_primary_key_only(plan: &AccessPlannedQuery) -> bool {
+    let Ok(primary_key_names) = plan.primary_key_names() else {
+        return false;
+    };
+
+    plan.scalar_plan().order.as_ref().is_some_and(|order| {
+        order
+            .primary_key_only_direction_fields(primary_key_names)
+            .is_some()
+    })
+}
+
+// Reuse the planner's accepted final-order proof, narrowing it to physical
+// leaves whose raw-key order is retained. PK-merged branch sets are separate.
+fn scalar_secondary_index_order(plan: &AccessPlannedQuery) -> Option<(IndexShapeDetails, usize)> {
+    if !access_order_satisfied_by_route_mode(plan) {
+        return None;
+    }
+    let facts = plan.access_shape_facts();
+    if !matches!(
+        facts.single_path_facts()?.kind(),
+        AccessPathKind::IndexPrefix | AccessPathKind::IndexRange | AccessPathKind::IndexMultiLookup
+    ) {
+        return None;
+    }
+    let index = facts
+        .single_path_index_prefix_details()
+        .or_else(|| facts.single_path_index_range_details())?;
+    let contract = plan.planner_route_profile().secondary_order_contract()?;
+    if contract.non_primary_key_terms().is_empty() {
+        return None;
+    }
+    let prefix_len = match contract.classify_index_key_items(index.key_items(), index.slot_arity())
+    {
+        DeterministicSecondaryIndexOrderMatch::Full => 0,
+        DeterministicSecondaryIndexOrderMatch::Suffix => index.slot_arity(),
+        DeterministicSecondaryIndexOrderMatch::None => return None,
+    };
+    Some((index, prefix_len))
+}
+
+// Lowering already owns the physical generation and key kind; never rebuild
+// either from generated schema models or cursor values.
+fn secondary_index_template(
+    prefixes: &[LoweredIndexPrefixSpec],
+    ranges: &[LoweredIndexRangeSpec],
+) -> Result<IndexKey, InternalError> {
+    let (lower, upper) = if let Some(spec) = prefixes.first() {
+        spec.raw_bounds(&ExecutionConstructionBudget)?
+    } else if let [spec] = ranges {
+        (spec.lower(), spec.upper())
+    } else {
+        return Err(InternalError::query_executor_invariant());
+    };
+    let raw = match lower {
+        Bound::Included(key) | Bound::Excluded(key) => key,
+        Bound::Unbounded => match upper {
+            Bound::Included(key) | Bound::Excluded(key) => key,
+            Bound::Unbounded => return Err(InternalError::query_executor_invariant()),
+        },
+    };
+    IndexKey::try_from_raw(raw).map_err(|_| InternalError::query_executor_invariant())
 }

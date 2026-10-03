@@ -163,6 +163,23 @@ fn assert_paged_rows(query: &DynamicQuery, expected: &[Vec<OutputValue>]) {
     assert!(
         access.as_index_range_path().is_some() || access.as_index_prefix_contract_path().is_some()
     );
+    // The maintained secondary order must resume a complete wide PK suffix
+    // before consuming the next page's row budget.
+    let mut cursor = None;
+    let mut bounded_rows = Vec::new();
+    for _ in 0..32 {
+        let root = super::secondary_order::bounded_secondary_request(3);
+        let page = new_request_session(&root)
+            .execute_trusted_live_page(query, cursor.as_deref())
+            .unwrap();
+        bounded_rows.extend(page.rows);
+        cursor = page.continuation;
+        if cursor.is_none() {
+            break;
+        }
+    }
+    assert!(cursor.is_none());
+    assert_eq!(bounded_rows, expected);
     let (actual, tokens) = collect_pages(query, None);
     assert_eq!(actual, expected);
     assert!(!tokens.is_empty());

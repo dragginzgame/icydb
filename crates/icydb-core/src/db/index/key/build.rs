@@ -10,11 +10,13 @@ use crate::{
     db::{
         data::CanonicalSlotReader,
         index::{
+            RawIndexStoreKey, admit_index_prefix_bounds, admit_query_index_component,
             derive_index_expression_value,
             key::ordered::encode_canonical_index_component,
             key::{IndexId, IndexKey, IndexKeyEncodeError, IndexKeyKind, OrderedValueEncodeError},
         },
         key_taxonomy::PrimaryKeyValue,
+        query::construction::ConstructionBudget,
         schema::{
             AcceptedFieldKind, AcceptedValueAdmissionContract, PersistedIndexExpressionOp,
             SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo,
@@ -37,6 +39,49 @@ type ExpressionRebuildComponentEncoder<'a> =
     dyn FnMut(&SchemaExpressionIndexRebuildKey) -> Result<Option<Vec<u8>>, InternalError> + 'a;
 
 impl IndexKey {
+    /// Encode authenticated ordered progress against accepted index components.
+    /// Keep fixed-prefix bytes and physical generation from the lowered template;
+    /// cursor values supply only the remaining components and complete row identity.
+    pub(in crate::db) fn raw_resume_anchor_with_accepted_suffix(
+        &self,
+        schema: &SchemaInfo,
+        index_name: &str,
+        prefix_len: usize,
+        suffix_values: &[&Value],
+        primary_key: &PrimaryKeyValue,
+        budget: &dyn ConstructionBudget,
+    ) -> Result<RawIndexStoreKey, InternalError> {
+        if prefix_len > self.component_count() {
+            return Err(InternalError::query_executor_invariant());
+        }
+        let mut components: Vec<Vec<u8>> = budget.vec_with_capacity(self.component_count())?;
+        for position in 0..self.component_count() {
+            let component = if position < prefix_len {
+                budget.copy_slice(
+                    self.component(position)
+                        .ok_or_else(InternalError::query_executor_invariant)?,
+                    |byte| Ok(*byte),
+                )?
+            } else {
+                let value = suffix_values
+                    .get(position - prefix_len)
+                    .ok_or_else(InternalError::query_executor_invariant)?;
+                admit_query_index_component(value, budget)?;
+                encode_accepted_index_literal_component(schema, index_name, position, value)?
+                    .ok_or_else(InternalError::query_executor_invariant)?
+            };
+            components.push(component);
+        }
+        admit_index_prefix_bounds(self.component_count(), &components, budget)?;
+        Ok(Self::new_from_components_with_primary_key_value(
+            self.index_id(),
+            self.key_kind(),
+            &components,
+            primary_key,
+        )?
+        .to_raw()?)
+    }
+
     /// Build a field-path index key from one canonical slot reader using
     /// accepted index-contract slot authority and scalar-or-composite row
     /// identity.

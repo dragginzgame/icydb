@@ -91,6 +91,23 @@ struct AcceptedSchemaReadInstructionResult {
     local_instructions: u64,
 }
 
+// Independent cost scenarios keep fresh instances and run on bounded workers.
+// Each scenario retains its original setup, drain, and measured calls.
+fn for_each_workload_scenario<T: Sync>(scenarios: &[T], run: impl Fn(&T) + Sync) {
+    const WORKERS: usize = 3;
+
+    std::thread::scope(|scope| {
+        for worker in 0..WORKERS.min(scenarios.len()) {
+            let run = &run;
+            scope.spawn(move || {
+                for scenario in scenarios.iter().skip(worker).step_by(WORKERS) {
+                    run(scenario);
+                }
+            });
+        }
+    });
+}
+
 const SQL_FIXTURE_POOL_CAPACITY: usize = 8;
 const SQL_BOUNDED_FIXTURE_POOL_CAPACITY: usize = 4;
 

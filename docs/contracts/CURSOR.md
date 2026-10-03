@@ -88,6 +88,19 @@ that match or retains enough bounded state to return it on the next page. If
 lookahead proves physical exhaustion, continuation is null even when the page
 is exactly full.
 
+Physical resume applies to primary-key-ordered scalar pages and selected single
+secondary-index prefix, range and IN-list scans whose accepted index order
+matches the complete canonical order. Secondary anchors use the accepted
+component encoder, physical index generation and complete primary-key suffix.
+Each IN branch is intersected with the global boundary before scan caps: consumed
+branches become empty, the boundary branch resumes exclusively, and future
+branches keep their full bounds. Lookahead remains available to the next page.
+
+Other order/access combinations retain logical boundary filtering after access
+and may revisit earlier entries. An ordered resumed scan is capped only when its
+progress is applied before traversal. Residuals and normal request budgets still
+apply; seeking does not promise every query fits a page-sized request budget.
+
 ## Live And Exhaustive Modes
 
 Live pages are revision-tolerant keyset traversal for ordinary UI browsing.
