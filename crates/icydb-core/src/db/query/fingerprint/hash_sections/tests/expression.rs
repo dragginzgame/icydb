@@ -263,3 +263,45 @@ fn filter_hash_failure_prevents_continuation_return_and_fresh_retry_succeeds() {
     assert_eq!(root.observed(Resource::RowsVisited), 0);
     assert_eq!(root.observed(Resource::QueryExecutions), 0);
 }
+
+#[test]
+fn expression_and_continuation_identity_resist_fast_hash_collision() {
+    with_test_hash_override(Ok([0x27; 16]), || {
+        let left = Expr::Literal(Value::Text("victim".into()));
+        let right = Expr::Literal(Value::Text("attacker".into()));
+        for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
+            for as_projection in [false, true] {
+                let root = request_with_limit(Resource::NestedValueSteps, 16_000_000);
+                assert_ne!(
+                    query_hash(&left, as_projection, &root, lane).unwrap(),
+                    query_hash(&right, as_projection, &root, lane).unwrap()
+                );
+            }
+            let signature = |expr: &Expr| {
+                let mut plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
+                let LogicalPlan::Scalar(scalar) = &mut plan.logical else {
+                    unreachable!()
+                };
+                scalar.filter_expr = Some(expr.clone());
+                let root = request_with_limit(Resource::NestedValueSteps, 16_000_000);
+                PreparationWork::run(&root.scope(), lane, |work| {
+                    plan.planned_continuation_contract_with_accepted_identity(
+                        "tests::Entity",
+                        None,
+                        work,
+                    )
+                    .map_err(QueryError::execute)
+                })
+                .unwrap()
+                .unwrap()
+                .continuation_signature()
+            };
+            assert_ne!(signature(&left), signature(&right));
+        }
+        #[cfg(feature = "sql")]
+        assert_ne!(
+            crate::db::query::fingerprint::resumable_update_scope_fingerprint(&left).unwrap(),
+            crate::db::query::fingerprint::resumable_update_scope_fingerprint(&right).unwrap()
+        );
+    });
+}

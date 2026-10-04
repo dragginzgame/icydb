@@ -250,9 +250,9 @@ fn bind_expr(
         // Boolean wrappers use the shared WHERE truth-shape owner above. Broad
         // expression inference would narrow maintained predicate/null semantics.
         SqlExpr::Unary { expr, .. } => return bind_expr(expr, schema, bindings, infer_here, work),
-        SqlExpr::NullTest { expr, .. } | SqlExpr::Like { expr, .. } => {
-            bind_expr(expr, schema, bindings, false, work)?
-        }
+        SqlExpr::BooleanTest { expr, .. }
+        | SqlExpr::NullTest { expr, .. }
+        | SqlExpr::Like { expr, .. } => bind_expr(expr, schema, bindings, false, work)?,
         SqlExpr::FunctionCall { args, .. } => {
             let mut bound = false;
             for arg in args {

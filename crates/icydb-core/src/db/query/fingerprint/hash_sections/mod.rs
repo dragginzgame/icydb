@@ -24,7 +24,7 @@ use crate::{
         },
     },
     error::InternalError,
-    value::{Value, hash_value},
+    value::{Value, fingerprint_value},
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 use sha2::{Digest, Sha256};
@@ -199,7 +199,7 @@ pub(in crate::db::query::fingerprint) fn write_value(
     value: &Value,
 ) -> Result<(), InternalError> {
     // An incomplete value hash must never become a usable identity.
-    hasher.update(hash_value(value)?);
+    hasher.update(fingerprint_value(value)?);
     Ok(())
 }
 
@@ -215,11 +215,11 @@ pub(super) fn write_value_bound(
         Bound::Unbounded => write_tag(hasher, VALUE_BOUND_UNBOUNDED_TAG),
         Bound::Included(value) => {
             write_tag(hasher, VALUE_BOUND_INCLUDED_TAG);
-            hasher.update(budget.hash_value(value)?);
+            hasher.update(budget.fingerprint_value(value)?);
         }
         Bound::Excluded(value) => {
             write_tag(hasher, VALUE_BOUND_EXCLUDED_TAG);
-            hasher.update(budget.hash_value(value)?);
+            hasher.update(budget.fingerprint_value(value)?);
         }
     }
     Ok(())

@@ -1,3 +1,6 @@
+#[cfg(feature = "sql")]
+mod boolean_truth;
+
 use super::*;
 
 use crate::{

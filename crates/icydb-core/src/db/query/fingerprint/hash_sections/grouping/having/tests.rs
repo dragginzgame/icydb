@@ -124,7 +124,7 @@ fn having_hash_preserves_planner_expression_grammar() {
     });
     assert_eq!(
         encode_hex_lower(&finalize_sha256_digest(plan_hash)),
-        "d32de1031cc115b3dd2e6bf3928cf9511717b0957c8dd01dd073ad5de0587960",
+        "64f640463c5a71b64482db9f7c84d1d3d475331228a01ae93c32d6e392f7648a",
     );
 }
 
@@ -573,4 +573,19 @@ fn group_field_lookup_admits_candidates_and_preserves_first_match_and_missing_id
             assert_eq!(root.observed(Resource::NestedValueSteps), 0);
         }
     }
+}
+
+#[test]
+fn having_identity_resists_fast_hash_collision() {
+    crate::value::with_test_hash_override(Ok([0x27; 16]), || {
+        let root = request_with_limit(Resource::NestedValueSteps, 16_000_000);
+        let left = Expr::Literal(Value::Text("victim".into()));
+        let right = Expr::Literal(Value::Text("attacker".into()));
+        for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
+            assert_ne!(
+                admitted_hash(&left, &root, lane).unwrap(),
+                admitted_hash(&right, &root, lane).unwrap()
+            );
+        }
+    });
 }

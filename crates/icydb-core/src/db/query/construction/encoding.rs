@@ -4,7 +4,7 @@
 use crate::{
     db::{predicate::CoercionId, query::construction::ConstructionBudget},
     error::InternalError,
-    value::{Value, hash_value, lower_text_construction_allowance},
+    value::{Value, fingerprint_value, lower_text_construction_allowance},
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
@@ -15,9 +15,12 @@ pub(in crate::db) const ENCODING_NODE_BYTES: u64 = 64;
 impl dyn ConstructionBudget + '_ {
     /// Admit traversal, streamed bytes and map scratch before canonical hashing.
     /// The hash writer and its successful identity are shared with other consumers.
-    pub(in crate::db) fn hash_value(&self, value: &Value) -> Result<[u8; 16], InternalError> {
+    pub(in crate::db) fn fingerprint_value(
+        &self,
+        value: &Value,
+    ) -> Result<[u8; 32], InternalError> {
         self.admit_value_hash(value)?;
-        hash_value(value)
+        fingerprint_value(value)
     }
 
     /// Admit the same hash work when a shared encoder owns the later write.

@@ -1,3 +1,4 @@
+mod cardinality_publication;
 mod identity_remap;
 
 use super::{

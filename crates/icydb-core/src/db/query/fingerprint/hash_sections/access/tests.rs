@@ -320,3 +320,76 @@ fn access_projection_hash_preserves_canonical_postorder() {
     with_preparation_work(|work| hash_access_plan(&mut planned, &access, work)).unwrap();
     assert_eq!(planned.finalize(), expected.clone().finalize());
 }
+
+#[test]
+fn access_identity_resists_fast_hash_collision() {
+    crate::value::with_test_hash_override(Ok([0x27; 16]), || {
+        let left = Value::Text("victim".into());
+        let right = Value::Text("attacker".into());
+        for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
+            let root = request_with_limit(Resource::NestedValueSteps, 16_000_000);
+            for (before, after) in [
+                (
+                    AccessPlan::by_key(left.clone()),
+                    AccessPlan::by_key(right.clone()),
+                ),
+                (
+                    AccessPlan::by_keys(vec![left.clone(), left.clone()]),
+                    AccessPlan::by_keys(vec![right.clone(), left.clone()]),
+                ),
+                (
+                    AccessPlan::key_range(left.clone(), left.clone()),
+                    AccessPlan::key_range(left.clone(), right.clone()),
+                ),
+            ] {
+                assert_ne!(
+                    admitted_hash(&before, &root, lane).unwrap(),
+                    admitted_hash(&after, &root, lane).unwrap()
+                );
+            }
+            // Indexed routes share the visitor but bind distinct value positions.
+            for route in 0..4 {
+                let hash = |value: &Value| {
+                    PreparationWork::run(&root.scope(), lane, |work| {
+                        let mut hasher = Sha256::new();
+                        let mut visitor = AccessFingerprintVisitor {
+                            hasher: &mut hasher,
+                            budget: work,
+                        };
+                        match route {
+                            0 => visitor.index_prefix(
+                                "by_tenant",
+                                std::iter::once("tenant"),
+                                1,
+                                std::slice::from_ref(value),
+                            ),
+                            1 => visitor.index_multi_lookup(
+                                "by_tenant",
+                                std::iter::once("tenant"),
+                                std::slice::from_ref(value),
+                            ),
+                            2 => visitor.index_branch_set(
+                                "by_tenant",
+                                ["tenant", "id"].into_iter(),
+                                std::slice::from_ref(&left),
+                                std::slice::from_ref(value),
+                            ),
+                            _ => visitor.index_range(
+                                "by_tenant",
+                                std::iter::once("tenant"),
+                                0,
+                                &[],
+                                &Bound::Included(value.clone()),
+                                &Bound::Excluded(left.clone()),
+                            ),
+                        }
+                        .map_err(QueryError::execute)?;
+                        Ok(<[u8; 32]>::from(hasher.finalize()))
+                    })
+                    .unwrap()
+                };
+                assert_ne!(hash(&left), hash(&right));
+            }
+        }
+    });
+}

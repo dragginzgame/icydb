@@ -522,3 +522,78 @@ fn warm_query_limit_changes_cannot_reuse_the_previous_plan() {
         assert!(prepare(&changed.limit(1)).1.is_hit());
     }
 }
+
+#[test]
+fn warm_projection_cache_preserves_literals_despite_fast_hash_collision() {
+    crate::value::with_test_hash_override(Ok([0x27; 16]), || {
+        let session = initialize();
+        seed_singleton(&session);
+        for (sequence_index, sequence) in [
+            ["victim", "attacker", "victim"],
+            ["attacker", "victim", "attacker"],
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            // Fresh SQL aliases keep prior compiled-command hits from bypassing
+            // the cleared shared-plan cache at the next sequence boundary.
+            session.clear_shared_query_cache_for_tests(4 * 1024 * 1024);
+            for literal in sequence {
+                let result = session
+                    .execute_trusted_sql_query(&format!(
+                        "SELECT CASE WHEN label = 'singleton' THEN '{literal}' ELSE label END AS tenant_{sequence_index} FROM Singleton"
+                    ))
+                    .unwrap();
+                let SqlStatementResult::Projection { rows, .. } = result else {
+                    panic!("projected result expected");
+                };
+                assert_eq!(rows, vec![vec![OutputValue::text(literal.into())]]);
+            }
+            assert_eq!(session.shared_query_cache_usage_for_tests().0, 2);
+        }
+    });
+}
+
+#[test]
+fn warm_filter_cache_keeps_current_scope_under_fast_hash_collision() {
+    crate::value::with_test_hash_override(Ok([0x27; 16]), || {
+        let session = initialize();
+        seed_singleton(&session);
+        for with_null_test in [false, true] {
+            for public in [false, true] {
+                for sequence in [
+                    ["singleton", "attacker", "singleton"],
+                    ["attacker", "singleton", "attacker"],
+                ] {
+                    session.clear_shared_query_cache_for_tests(4 * 1024 * 1024);
+                    for literal in sequence {
+                        let comparison = FieldRef::new("label").eq(literal);
+                        let filter = if with_null_test {
+                            FilterExpr::and(vec![comparison, FilterExpr::is_not_null("label")])
+                        } else {
+                            comparison
+                        };
+                        let request = DynamicQuery::new(ENTITY_NAME)
+                            .select(["label"])
+                            .filter(filter)
+                            .limit(1);
+                        let page = if public {
+                            session.execute_public_live_page(&request, None)
+                        } else {
+                            session.execute_trusted_live_page(&request, None)
+                        }
+                        .unwrap();
+                        let expected = if literal == "singleton" {
+                            vec![vec![OutputValue::text(literal.into())]]
+                        } else {
+                            vec![]
+                        };
+                        assert_eq!(page.rows, expected);
+                        assert!(page.continuation.is_none());
+                    }
+                    assert!(session.shared_query_cache_usage_for_tests().0 > 0);
+                }
+            }
+        }
+    });
+}

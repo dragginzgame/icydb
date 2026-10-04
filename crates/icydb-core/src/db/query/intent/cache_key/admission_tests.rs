@@ -13,7 +13,10 @@ use crate::{
         test_support::request_with_limit,
     },
     types::{Decimal, IntBig, NatBig},
-    value::{Value, ValueEnum, hash_value, test_hash_budget_error, with_test_hash_override},
+    value::{
+        Value, ValueEnum, fingerprint_value, hash_value, test_hash_budget_error,
+        with_test_hash_override,
+    },
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
@@ -53,7 +56,7 @@ fn literal_hash_admission_preserves_digests_and_cumulative_limits() {
         ]),
     ];
     for value in &values {
-        let expected = ValueCacheKey::Canonical(hash_value(value).unwrap());
+        let expected = ValueCacheKey::Canonical(fingerprint_value(value).unwrap());
         for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
             let measured = request_with_limit(Resource::NestedValueSteps, 16_000_000);
             assert_eq!(literal_key(value, &measured, lane).unwrap(), expected);
@@ -102,7 +105,7 @@ fn map_scratch_is_admitted_before_hashing_without_changing_canonical_order() {
         (Value::Nat64(1), Value::Text("first".into())),
         (Value::Nat64(2), Value::Text("second".into())),
     ];
-    let expected = hash_value(&Value::Map(entries.clone())).unwrap();
+    let expected = fingerprint_value(&Value::Map(entries.clone())).unwrap();
     let scratch = 4 * size_of::<&(Value, Value)>() as u64;
     for entries in [entries.clone(), entries.into_iter().rev().collect()] {
         let value = Value::Map(entries);
@@ -161,4 +164,33 @@ fn literal_hash_failure_leaves_no_partial_memo_and_completed_reuse_skips_hashing
     assert_eq!(build(&admitted).unwrap(), key);
     assert_eq!(admitted.observed(Resource::NestedValueSteps), 2);
     assert_eq!(build(&denied).unwrap(), key);
+}
+
+#[test]
+fn literal_identity_distinguishes_values_despite_fast_hash_collision() {
+    with_test_hash_override(Ok([0x27; 16]), || {
+        let root = request_with_limit(Resource::NestedValueSteps, 16_000_000);
+        for (left, right) in [
+            (Value::Text("victim".into()), Value::Text("attacker".into())),
+            (Value::Blob(vec![1; 58]), Value::Blob(vec![2; 58])),
+            (Value::Null, Value::Unit),
+            (Value::Nat64(7), Value::Int64(7)),
+            (
+                Value::List(vec![Value::Nat64(1)]),
+                Value::List(vec![Value::Nat64(2)]),
+            ),
+            (
+                Value::Map(vec![(Value::Nat64(1), Value::Bool(true))]),
+                Value::Map(vec![(Value::Nat64(1), Value::Bool(false))]),
+            ),
+        ] {
+            assert_eq!(hash_value(&left).unwrap(), hash_value(&right).unwrap());
+            for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
+                assert_ne!(
+                    literal_key(&left, &root, lane).unwrap(),
+                    literal_key(&right, &root, lane).unwrap()
+                );
+            }
+        }
+    });
 }

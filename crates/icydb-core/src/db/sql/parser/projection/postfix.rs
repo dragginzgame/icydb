@@ -1,8 +1,7 @@
 use crate::{
     db::{
         sql::parser::{
-            Parser, SqlExpr, SqlExprBinaryOp, SqlExprUnaryOp, SqlMembershipValue,
-            projection::SqlExprParseSurface,
+            Parser, SqlExpr, SqlExprBinaryOp, SqlMembershipValue, projection::SqlExprParseSurface,
         },
         sql_shared::{Keyword, SqlExpectedToken, SqlParseError, SqlSyntaxErrorKind, TokenKind},
     },
@@ -45,25 +44,15 @@ impl Parser {
                 });
             }
             if self.peek_keyword(Keyword::True) || self.peek_keyword(Keyword::False) {
-                let value = if self.eat_keyword(Keyword::True) {
-                    Value::Bool(true)
-                } else {
+                let value = self.eat_keyword(Keyword::True);
+                if !value {
                     let _ = self.cursor.advance();
-                    Value::Bool(false)
-                };
-                let expr = SqlExpr::Binary {
-                    op: SqlExprBinaryOp::Eq,
-                    left: Box::new(left),
-                    right: Box::new(SqlExpr::Literal(value)),
-                };
+                }
 
-                return Ok(if negated {
-                    SqlExpr::Unary {
-                        op: SqlExprUnaryOp::Not,
-                        expr: Box::new(expr),
-                    }
-                } else {
-                    expr
+                return Ok(SqlExpr::BooleanTest {
+                    expr: Box::new(left),
+                    value,
+                    negated,
                 });
             }
 

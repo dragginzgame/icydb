@@ -38,7 +38,9 @@ pub(crate) use canonical::{canonicalize_value_set, value_set_is_strictly_canonic
 pub(crate) use canonical_enum::{CanonicalEnumBody, CanonicalEnumValue, EnumTypeId, EnumVariantId};
 pub(crate) use cleanup::clear_value;
 pub use coercion::CoercionFamily;
-pub(crate) use hash::{ValueHashWriter, hash_single_list_identity_canonical_value, hash_value};
+pub(crate) use hash::{
+    ValueHashWriter, fingerprint_value, hash_single_list_identity_canonical_value, hash_value,
+};
 #[cfg(test)]
 pub(crate) use hash::{test_hash_budget_error, with_test_hash_override};
 pub use input::InputValue;

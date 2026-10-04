@@ -28,6 +28,14 @@ nominal accepted type, visits every finite direct or nested occurrence, and
 reports the first bounded typed path. Generated declarations and SQL text do
 not remain as parallel enforcement authority.
 
+Generated and SQL row-local CHECK Boolean tests are total before accepted
+binding: `field IS TRUE/FALSE` rejects NULL, while `field IS NOT TRUE/FALSE`
+accepts NULL. The same generated source semantics serve filtered-index
+membership. Ordinary nullable equality remains three-valued, so UNKNOWN still
+satisfies CHECK. Existing accepted snapshots remain runtime authority; generated
+semantics change through normal proposal, historical validation and publication,
+without reinterpretation of accepted checks or a write bypass.
+
 A semantic edit to one generated targeted rule keeps its accepted constraint
 ID. Until historical proof completes, the prior accepted operation remains
 authoritative and a same-ID activation evaluates the candidate operation as an
@@ -35,6 +43,25 @@ additional new-write gate. Promotion atomically replaces the old operation;
 abort removes only the candidate and leaves the prior accepted operation and
 source binding unchanged. Recovery resumes this lifecycle from accepted
 catalog and validation-job state without consulting the generated model.
+
+Schema application proves whether historical rows exist from the effective row
+store's entity key prefix, including live journal puts and tombstones, without
+decoding row payloads. New entity domains and empty entity/field/index/relation
+removals share that boundary. Generated check/rule additions and semantic edits
+validate populated domains through the existing bounded scan and durable pending
+job; empty domains can complete directly. Optional cardinality being absent,
+Building or source-stale is not corruption and does not decide these proofs.
+Physical index/relation closure, row validation and typed rejection remain
+required before publication.
+
+An unchanged generated entity may retain SQL-owned constraint activations and
+their candidate state across generated reconciliation, including NOT VALID,
+Forward and Verify work. The existing exact comparison must prove that the
+generated facts are unchanged; SQL catalogs and validation jobs remain owned by
+their SQL lifecycle. An actual generated edit to that entity still rejects while
+activation is live, as do generated-owned activation states and removals. A
+proposal changing another entity may publish without altering the SQL-owned
+entity's snapshot or job. Readiness does not bypass SQL validation or promotion.
 
 IcyDB has no non-strict entity or table mode. There is no trusted row-write
 bypass that disables accepted-schema validation.

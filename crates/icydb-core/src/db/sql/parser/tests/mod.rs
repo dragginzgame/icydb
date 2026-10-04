@@ -35,6 +35,44 @@ fn sql_write_literal(value: Value) -> SqlWriteValue {
     SqlWriteValue::Literal(value)
 }
 
+#[test]
+fn scalar_tree_visitation_preserves_order_scope_and_aggregate_rejection() {
+    let SqlStatement::Select(statement) = parse_sql(
+        "SELECT CASE WHEN flag IS TRUE THEN SUM(input_only) FILTER (WHERE filter_only > 0) \
+         WHEN fallback IS NULL THEN MAX(other_input) ELSE visible END FROM users",
+    )
+    .unwrap() else {
+        panic!("expected SELECT");
+    };
+    let SqlProjection::Items(items) = &statement.projection else {
+        panic!("expected projection items");
+    };
+    let SqlSelectItem::Expr(expr) = &items[0] else {
+        panic!("expected CASE expression");
+    };
+    let mut fields = Vec::new();
+    expr.for_each_tree_expr(&mut |node| {
+        if let SqlExpr::Field(field) = node {
+            fields.push(field.clone());
+        }
+    });
+    assert_eq!(fields, ["flag", "fallback", "visible"]);
+    let mut aggregates = Vec::new();
+    expr.try_for_each_tree_aggregate(&mut |aggregate| {
+        aggregates.push(aggregate.kind);
+        Ok::<_, SqlAggregateKind>(())
+    })
+    .unwrap();
+    assert_eq!(aggregates, [SqlAggregateKind::Sum, SqlAggregateKind::Max]);
+    aggregates.clear();
+    let rejected = expr.try_for_each_tree_aggregate(&mut |aggregate| {
+        aggregates.push(aggregate.kind);
+        Err(aggregate.kind)
+    });
+    assert_eq!(rejected, Err(SqlAggregateKind::Sum));
+    assert_eq!(aggregates, [SqlAggregateKind::Sum]);
+}
+
 fn ddl_field_paths(paths: &[&str]) -> Vec<SqlCreateIndexKeyItem> {
     paths
         .iter()
@@ -2882,137 +2920,28 @@ fn parse_select_statement_with_in_trailing_comma_predicate() {
 }
 
 #[test]
-fn parse_select_statement_with_is_true_and_is_false_predicates() {
-    let is_true = parse_sql(
-        "SELECT * FROM users \
-         WHERE active IS TRUE \
-         ORDER BY id ASC LIMIT 1",
-    )
-    .expect("IS TRUE select statement should parse");
-    let is_false = parse_sql(
-        "SELECT * FROM users \
-         WHERE active IS FALSE \
-         ORDER BY id ASC LIMIT 1",
-    )
-    .expect("IS FALSE select statement should parse");
-
-    assert_eq!(
-        is_true,
-        SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
-            projection: SqlProjection::All,
-            projection_aliases: Vec::default(),
-            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
-                "active",
-                CompareOp::Eq,
-                Value::Bool(true),
-                CoercionId::Strict,
-            ))),
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("id"),
-                direction: SqlOrderDirection::Asc,
-            }],
-            limit: Some(1),
-            offset: None,
-        }),
-    );
-    assert_eq!(
-        is_false,
-        SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
-            projection: SqlProjection::All,
-            projection_aliases: Vec::default(),
-            predicate: option_sql_pred!(Predicate::Compare(ComparePredicate::with_coercion(
-                "active",
-                CompareOp::Eq,
-                Value::Bool(false),
-                CoercionId::Strict,
-            ))),
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("id"),
-                direction: SqlOrderDirection::Asc,
-            }],
-            limit: Some(1),
-            offset: None,
-        }),
-    );
-}
-
-#[test]
-fn parse_select_statement_with_is_not_true_and_is_not_false_predicates() {
-    let is_not_true = parse_sql(
-        "SELECT * FROM users \
-         WHERE active IS NOT TRUE \
-         ORDER BY id ASC LIMIT 1",
-    )
-    .expect("IS NOT TRUE select statement should parse");
-    let is_not_false = parse_sql(
-        "SELECT * FROM users \
-         WHERE active IS NOT FALSE \
-         ORDER BY id ASC LIMIT 1",
-    )
-    .expect("IS NOT FALSE select statement should parse");
-
-    assert_eq!(
-        is_not_true,
-        SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
-            projection: SqlProjection::All,
-            projection_aliases: Vec::default(),
-            predicate: option_sql_pred!(Predicate::Not(Box::new(Predicate::Compare(
-                ComparePredicate::with_coercion(
-                    "active",
-                    CompareOp::Eq,
-                    Value::Bool(true),
-                    CoercionId::Strict,
-                ),
-            )))),
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("id"),
-                direction: SqlOrderDirection::Asc,
-            }],
-            limit: Some(1),
-            offset: None,
-        }),
-    );
-    assert_eq!(
-        is_not_false,
-        SqlStatement::Select(SqlSelectStatement {
-            entity: "users".to_string(),
-            table_alias: None,
-            projection: SqlProjection::All,
-            projection_aliases: Vec::default(),
-            predicate: option_sql_pred!(Predicate::Not(Box::new(Predicate::Compare(
-                ComparePredicate::with_coercion(
-                    "active",
-                    CompareOp::Eq,
-                    Value::Bool(false),
-                    CoercionId::Strict,
-                ),
-            )))),
-            distinct: false,
-            group_by: vec![],
-            having: vec![],
-            order_by: vec![SqlOrderTerm {
-                field: sql_order_expr("id"),
-                direction: SqlOrderDirection::Asc,
-            }],
-            limit: Some(1),
-            offset: None,
-        }),
-    );
+fn parse_select_statement_preserves_boolean_tests() {
+    for (spelling, value, negated) in [
+        ("TRUE", true, false),
+        ("FALSE", false, false),
+        ("NOT TRUE", true, true),
+        ("NOT FALSE", false, true),
+    ] {
+        let SqlStatement::Select(statement) = parse_sql(&format!(
+            "SELECT * FROM users WHERE active IS {spelling} ORDER BY id ASC LIMIT 1"
+        ))
+        .unwrap() else {
+            panic!("expected SELECT");
+        };
+        assert_eq!(
+            statement.predicate,
+            Some(SqlExpr::BooleanTest {
+                expr: Box::new(SqlExpr::Field("active".into())),
+                value,
+                negated,
+            })
+        );
+    }
 }
 
 #[test]
@@ -3915,12 +3844,8 @@ fn parse_select_grouped_statement_accepts_having_is_true_for_post_aggregate_lowe
                 ..
             }) if matches!(
                 having.as_slice(),
-                [SqlExpr::Binary {
-                    op: SqlExprBinaryOp::Eq,
-                    left,
-                    right
-                }] if matches!(left.as_ref(), SqlExpr::Aggregate(_))
-                    && matches!(right.as_ref(), SqlExpr::Literal(Value::Bool(true)))
+                [SqlExpr::BooleanTest { expr, value: true, negated: false }]
+                    if matches!(expr.as_ref(), SqlExpr::Aggregate(_))
             )
         ),
         "grouped HAVING IS TRUE should stay parser-owned syntax and defer semantic typing to lowering",

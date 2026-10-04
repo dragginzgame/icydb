@@ -32,10 +32,10 @@ RELEASE_TMP_DIR := $(ROOT_DIR)/.cache/release-tmp
 CARGO_WORK_ENV := CARGO_HOME="$(CARGO_WORK_HOME)" CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
 CARGO_PUBLISH_ENV := CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
 IC_TESTKIT_ENV := TMPDIR="$(ROOT_DIR)/.cache"
-# Core-only and workspace lanes have different measured memory envelopes, but
-# neither may inherit unbounded host CPU parallelism.
+# Workspace and integration lanes share a lower cap to limit concurrent
+# PocketIC test bodies; core-only lanes retain their wider bounded parallelism.
 CORE_TEST_ENV := RUST_TEST_THREADS=8
-WORKSPACE_TEST_ENV := RUST_TEST_THREADS=4
+WORKSPACE_TEST_ENV := RUST_TEST_THREADS=2
 VALIDATION_RUNNER := bash "$(ROOT_DIR)/scripts/ci/run-validation-targets.sh"
 POCKET_IC_RUNNER := bash "$(ROOT_DIR)/scripts/ci/run-with-pocketic-server.sh"
 ACTIONLINT_VERSION ?= 1.7.12
@@ -297,7 +297,7 @@ _test-workspace:
 	$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --no-fail-fast --workspace --all-targets --exclude canister_demo_rpg --exclude canister_test_sql --exclude canister_test_sql_bounded
 
 _test-canister-libs:
-	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test --no-fail-fast -p canister_test_sql -p canister_test_sql_bounded --lib
+	$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --no-fail-fast -p canister_test_sql -p canister_test_sql_bounded --lib
 
 test-no-default-smoke:
 	$(VALIDATION_RUNNER) _test-icydb-no-default _test-core-no-default
@@ -305,9 +305,9 @@ test-no-default-smoke:
 test-integration-feedback:
 	@test -n "$(TEST_TARGET)" || { echo "TEST_TARGET must name one icydb-testing-integration test binary" >&2; exit 1; }
 	@test -n "$(TEST_NAME)" || { echo "TEST_NAME must name one exact test in $(TEST_TARGET)" >&2; exit 1; }
-	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test --locked -p icydb-testing-integration \
+	$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked -p icydb-testing-integration \
 		--test "$(TEST_TARGET)" "$(TEST_NAME)" -- --exact --nocapture
-	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
+	$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
 		-p icydb-testing-integration --test "$(TEST_TARGET)"
 
 test-durability:
@@ -323,7 +323,7 @@ _test-durability-core-mutation-job:
 	$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib 'db::mutation_job::'
 
 _test-durability-integration:
-	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
+	$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
 		-p icydb-testing-integration \
 		--test convergence_candidate \
 		--test durable_mutation_job_scale \
@@ -336,7 +336,7 @@ test-canister-artifact-contract:
 		-- --ignored --exact --nocapture
 
 test-sql-canister-matrix:
-	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test --no-fail-fast -p icydb-testing-integration --test sql_canister -- --nocapture
+	$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --no-fail-fast -p icydb-testing-integration --test sql_canister -- --nocapture
 
 test-sql-tier-c-shard:
 	@test -n "$(TIER_C_SHARD)" || { echo "TIER_C_SHARD must be an index from 0 through 7" >&2; exit 1; }
@@ -583,12 +583,12 @@ _ci-tier-a-mutation:
 		db::session::tests::mutation_reference --verbose
 
 _ci-tier-a-integration:
-	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
+	$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
 		-p icydb-testing-integration --test sql_correctness --verbose
 
 ci-sql-tier-b:
 	@test -n "$(POCKET_IC_BIN)" || { echo "POCKET_IC_BIN must name the exact PocketIC binary used by Tier B" >&2; exit 1; }
-	$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) POCKET_IC_BIN="$(POCKET_IC_BIN)" \
+	$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) POCKET_IC_BIN="$(POCKET_IC_BIN)" \
 		$(POCKET_IC_RUNNER) $(VALIDATION_RUNNER) \
 		_ci-tier-b-sql-canister \
 		_ci-tier-b-sql-perf

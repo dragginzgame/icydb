@@ -61,10 +61,11 @@ enum QueryModeCacheKey {
     Delete { limit: Option<u32>, offset: u32 },
 }
 
+// Literal identity is cryptographic; fast-hash collisions cannot reuse plans.
 // Hash failures reject key construction; errors are never reusable identities.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 enum ValueCacheKey {
-    Canonical([u8; 16]),
+    Canonical([u8; 32]),
 }
 
 ///
@@ -292,7 +293,7 @@ impl QueryModeCacheKey {
 impl ValueCacheKey {
     fn from_value(value: &Value, work: &PreparationWork<'_>) -> Result<Self, QueryError> {
         (work as &dyn ConstructionBudget)
-            .hash_value(value)
+            .fingerprint_value(value)
             .map(Self::Canonical)
             .map_err(QueryError::execute)
     }

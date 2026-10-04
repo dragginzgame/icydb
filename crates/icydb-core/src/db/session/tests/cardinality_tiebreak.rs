@@ -1325,6 +1325,67 @@ fn unavailable_fallback_refreshes_only_on_lifecycle_change_and_keeps_cursor_rout
     );
 }
 
+#[test]
+fn schema_publication_preserves_ready_counts_but_requires_fresh_source_evidence() {
+    use crate::db::commit::{RecoveryProgress, continue_recovery};
+
+    let session = initialize_journaled();
+    seed_rows(&session);
+    let drain = || {
+        assert!(
+            (0..16)
+                .any(|_| { continue_recovery(&session.db).unwrap() == RecoveryProgress::Complete })
+        );
+    };
+    drain();
+    drive_journaled_cardinality_to_ready(&session);
+    let store = session.db.store_handle(JOURNALED_STORE_PATH).unwrap();
+    let before =
+        store.with_schema(|schema| schema.cardinality_generation_header().unwrap().unwrap());
+    assert_eq!(store.exact_entity_count(ENTITY_TAG), Some(12));
+    let next = schema_candidate_at(JOURNALED_STORE_PATH, AcceptedSchemaRevision::new(2));
+    crate::db::commit::publish_accepted_schema_candidate(
+        JOURNALED_STORE_PATH,
+        store,
+        AcceptedSchemaRevision::INITIAL,
+        &next,
+    )
+    .unwrap();
+    assert_eq!(
+        store.with_schema(|schema| schema.cardinality_generation_header().unwrap()),
+        Some(before)
+    );
+    assert_eq!(
+        store.exact_entity_count(ENTITY_TAG),
+        None,
+        "the new live root cannot consume old counts"
+    );
+    assert_eq!(projection_rows(
+        &session,
+        "SELECT id FROM PlannerRow WHERE common = 'everyone' AND rare = 'group-a' ORDER BY id LIMIT 20",
+    ).len(), 6);
+    drain();
+    assert_eq!(
+        store.with_schema(|schema| schema.cardinality_generation_header().unwrap()),
+        Some(before)
+    );
+    assert_eq!(
+        store.exact_entity_count(ENTITY_TAG),
+        None,
+        "canonical fold must also reject old evidence"
+    );
+    drive_journaled_cardinality_to_ready(&session);
+    let rebuilt =
+        store.with_schema(|schema| schema.cardinality_generation_header().unwrap().unwrap());
+    assert_ne!(rebuilt.generation(), before.generation());
+    assert_eq!(rebuilt.slot(), before.slot().alternate());
+    assert_eq!(store.exact_entity_count(ENTITY_TAG), Some(12));
+    assert_eq!(projection_rows(
+        &session,
+        "SELECT id FROM PlannerRow WHERE common = 'everyone' AND rare = 'group-a' ORDER BY id LIMIT 20",
+    ).len(), 6);
+}
+
 // Reuse accepted session authority for direct evidence-owner qualification.
 pub(in crate::db::session) fn ranking_candidates_for_tests() -> (
     DbSession<impl CanisterKind>,

@@ -263,34 +263,23 @@ fn explain_preserves_scalar_and_grouped_continuation_identity() {
             right: Box::new(Expr::Literal(Value::Nat64(7))),
         });
     }
-    for (continuation, query) in [
-        (
-            "93e5a878df31ba54250a3a275a81191859b2aa0e63b68b8602628b11ad8d2f9c",
-            AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore),
-        ),
-        (
-            "5ef8f23e8a427a0df7a43d2ee49c9443e06da077acfed0732b48686efde58866",
-            scalar_query(),
-        ),
-        (
-            "74e2ef90fb89dfacb65751d8f04a405dc682b2d5edbed491fdf3896fd38375d7",
-            predicate_only,
-        ),
-        (
-            "d650ce52f3c6c0b4a9824e24ecce67c739fe05173a58bb7e4618f62a534493bf",
-            grouped_query(),
-        ),
-        (
-            "53e168dfd90b00a36e91b6a889c629ff1f14e07baa16cfffc5b113fb3608eae9",
-            grouped_having,
-        ),
+    for query in [
+        AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore),
+        scalar_query(),
+        predicate_only,
+        grouped_query(),
+        grouped_having,
     ] {
+        // Explain owns non-mutating projection; the fingerprint owner qualifies
+        // canonical encoding independently of this diagnostic boundary.
+        let continuation =
+            with_preparation_work(|work| query.continuation_signature("tests::Entity", work))
+                .unwrap();
         let root = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         let plan = project(&query, &root).unwrap();
         assert_eq!(
             with_preparation_work(|work| query.continuation_signature("tests::Entity", work))
-                .unwrap()
-                .to_string(),
+                .unwrap(),
             continuation
         );
         drop(query);

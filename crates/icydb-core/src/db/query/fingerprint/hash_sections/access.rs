@@ -69,7 +69,7 @@ fn write_values(
 ) -> Result<(), InternalError> {
     write_u32(hasher, values.len() as u32);
     for value in values {
-        hasher.update(budget.hash_value(value)?);
+        hasher.update(budget.fingerprint_value(value)?);
     }
     Ok(())
 }
@@ -80,7 +80,7 @@ impl AccessPlanProjection<Value> for AccessFingerprintVisitor<'_> {
     fn by_key(&mut self, key: &Value) -> Self::Output {
         self.budget.charge(Resource::PredicateExpressionSteps, 1)?;
         write_tag(self.hasher, ACCESS_TAG_BY_KEY);
-        self.hasher.update(self.budget.hash_value(key)?);
+        self.hasher.update(self.budget.fingerprint_value(key)?);
         Ok(())
     }
 
@@ -94,17 +94,17 @@ impl AccessPlanProjection<Value> for AccessFingerprintVisitor<'_> {
     fn key_range(&mut self, start: Option<&Value>, end: Option<&Value>) -> Self::Output {
         self.budget.charge(Resource::PredicateExpressionSteps, 1)?;
         if let (Some(start), Some(end)) = (start, end) {
-            // Preserve existing two-ended identities; only the new open shape
-            // needs presence framing.
+            // Two-ended ranges have compact endpoint framing; open ranges
+            // additionally bind which endpoint is present.
             write_tag(self.hasher, ACCESS_TAG_KEY_RANGE);
-            self.hasher.update(self.budget.hash_value(start)?);
-            self.hasher.update(self.budget.hash_value(end)?);
+            self.hasher.update(self.budget.fingerprint_value(start)?);
+            self.hasher.update(self.budget.fingerprint_value(end)?);
         } else {
             write_tag(self.hasher, ACCESS_TAG_KEY_OPEN_RANGE);
             for endpoint in [start, end] {
                 self.hasher.update([u8::from(endpoint.is_some())]);
                 if let Some(value) = endpoint {
-                    self.hasher.update(self.budget.hash_value(value)?);
+                    self.hasher.update(self.budget.fingerprint_value(value)?);
                 }
             }
         }

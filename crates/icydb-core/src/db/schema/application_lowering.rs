@@ -1826,9 +1826,17 @@ fn lower_existing_entity(
     let entity_tag = source_bindings
         .entity(entity.source_key())
         .ok_or_else(InternalError::store_invariant)?;
-    if !current.constraint_activations().is_empty()
+    let has_live_state = !current.constraint_activations().is_empty()
         || !current.candidate_indexes().is_empty()
-        || !current.candidate_relations().is_empty()
+        || !current.candidate_relations().is_empty();
+    // SQL-owned activations can outlive a deployment. Compare generated facts
+    // before rejecting them; generated-owned work still has its exact job owner.
+    if has_live_state
+        && (current.constraint_activations().is_empty()
+            || current
+                .constraint_activations()
+                .iter()
+                .any(|activation| activation.origin() != ConstraintOrigin::SqlDdl))
     {
         return Err(InternalError::store_unsupported());
     }
@@ -1890,6 +1898,9 @@ fn lower_existing_entity(
         && !constraints_changed
     {
         return Ok(None);
+    }
+    if has_live_state {
+        return Err(InternalError::store_unsupported());
     }
     let version = if schema_version_already_advanced {
         current.version()

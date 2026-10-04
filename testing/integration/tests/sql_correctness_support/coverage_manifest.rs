@@ -217,22 +217,6 @@ const REQ_ROUTE_EXECUTE: &[EvidenceRequirement] = &[
     },
 ];
 
-const EVIDENCE_CLASS_TAXONOMY: &[EvidenceClass] = &[
-    EvidenceClass::Parse,
-    EvidenceClass::Lower,
-    EvidenceClass::Execute,
-    EvidenceClass::Route,
-    EvidenceClass::Boundary,
-    EvidenceClass::State,
-    EvidenceClass::ReferenceDifferential,
-    EvidenceClass::Regression,
-];
-const EVIDENCE_STRENGTH_TAXONOMY: &[EvidenceStrength] = &[
-    EvidenceStrength::ReferenceOracle,
-    EvidenceStrength::MetamorphicInvariant,
-    EvidenceStrength::ContractAssertion,
-    EvidenceStrength::BoundaryAssertion,
-];
 const ELIGIBLE_SQLITE: &[EligibleProvider] = &[
     EligibleProvider::SqliteReference,
     EligibleProvider::FrontendEquivalent,
@@ -590,7 +574,7 @@ const PROVIDERS: &[ProviderSpec] = &[
     provider!(
         "core.query.boolean_truth",
         "crates/icydb-core/src/db/sql/parser/tests/mod.rs",
-        "parse_select_statement_with_is_true_and_is_false_predicates",
+        "parse_select_statement_preserves_boolean_tests",
         ContractAssertion,
         [Execute]
     ),
@@ -2335,22 +2319,26 @@ fn validate_source_path(path: &str) -> Result<(), String> {
 }
 
 fn source_declares_test(source: &str, test_symbol: &str) -> bool {
-    let signature = format!("fn {test_symbol}(");
-    source
-        .match_indices(&signature)
-        .any(|(signature_index, _)| {
-            let line_start = source[..signature_index]
-                .rfind('\n')
-                .map_or(0, |index| index + 1);
-            if !source[line_start..signature_index].trim().is_empty() {
-                return false;
-            }
+    syn::parse_file(source).is_ok_and(|file| items_declare_test(&file.items, test_symbol))
+}
 
-            let Some(test_attribute_index) = source[..signature_index].rfind("#[test]") else {
-                return false;
-            };
-            !source[test_attribute_index + "#[test]".len()..signature_index].contains("fn ")
-        })
+// Resolve test attributes on actual function items, including inline modules;
+// comments, strings and formatting must not determine evidence eligibility.
+fn items_declare_test(items: &[syn::Item], test_symbol: &str) -> bool {
+    items.iter().any(|item| match item {
+        syn::Item::Fn(function) => {
+            function.sig.ident == test_symbol
+                && function
+                    .attrs
+                    .iter()
+                    .any(|attr| attr.path().is_ident("test"))
+        }
+        syn::Item::Mod(module) => module
+            .content
+            .as_ref()
+            .is_some_and(|(_, items)| items_declare_test(items, test_symbol)),
+        _ => false,
+    })
 }
 
 fn provider_specs() -> Result<BTreeMap<&'static str, &'static ProviderSpec>, String> {
@@ -2373,16 +2361,10 @@ fn provider_specs() -> Result<BTreeMap<&'static str, &'static ProviderSpec>, Str
                 source_path.display()
             )
         })?;
-        if !source.contains(&format!("fn {}(", provider.test_symbol)) {
-            return Err(format!(
-                "provider {:?} names missing test symbol {:?} in {}",
-                provider.id, provider.test_symbol, provider.source_path
-            ));
-        }
         if !source_declares_test(&source, provider.test_symbol) {
             return Err(format!(
-                "provider {:?} symbol {:?} is not a test",
-                provider.id, provider.test_symbol
+                "provider {:?} symbol {:?} is missing or not a test in {}",
+                provider.id, provider.test_symbol, provider.source_path
             ));
         }
         if specs.insert(provider.id, provider).is_some() {
@@ -2631,9 +2613,6 @@ fn sql_coverage_manifest_revision_has_a_fixed_golden_vector() {
 
 #[test]
 fn sql_coverage_manifest_is_complete_and_consistent() {
-    assert_eq!(EVIDENCE_CLASS_TAXONOMY.len(), 8);
-    assert_eq!(EVIDENCE_STRENGTH_TAXONOMY.len(), 4);
-
     let providers = provider_specs().expect("deterministic SQL providers should resolve");
     let mut manifest_features = BTreeSet::new();
     let mut used_providers = BTreeSet::new();
@@ -2752,11 +2731,27 @@ fn manifest_consistency_gate_rejects_missing_or_invalid_evidence() {
             .is_err(),
         "a SQLite differential obligation without SQLite eligibility must fail"
     );
+}
 
-    let adjacent_non_test = "#[test]\nfn actual_test() {}\nfn adjacent_helper() {}";
-    assert!(source_declares_test(adjacent_non_test, "actual_test"));
+#[test]
+fn provider_test_resolution_uses_rust_items_and_attributes() {
+    for source in [
+        "#[test] fn evidence() {}",
+        "#[test]\n/// fn unrelated( in a doc comment\npub fn evidence () {}",
+        "mod tests { #[ test ] fn evidence\n() {} }",
+    ] {
+        assert!(source_declares_test(source, "evidence"));
+    }
+    for source in [
+        "#[test] fn actual_test() {} fn evidence() {}",
+        "// #[test]\nfn evidence() {}",
+        "const FAKE: &str = \"#[test] fn evidence() {}\";",
+        "#[test] fn evidence() {",
+    ] {
+        assert!(!source_declares_test(source, "evidence"));
+    }
     assert!(
-        !source_declares_test(adjacent_non_test, "adjacent_helper"),
-        "a nearby test attribute must not bless a non-test provider symbol"
+        !source_declares_test("#[test] fn evidence() {}", "missing"),
+        "a real test must not satisfy a missing evidence symbol",
     );
 }

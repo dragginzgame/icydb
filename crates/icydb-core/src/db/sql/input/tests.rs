@@ -184,3 +184,25 @@ fn rejected_sql_and_parser_errors_drop_on_a_small_stack() {
         .join()
         .expect("parser and preparation rejection cleanup");
 }
+
+#[test]
+fn repeated_boolean_tests_retain_linear_nodes_and_exact_depth_admission() {
+    // The postfix parser owns one child per test. Admission rejects depth
+    // before copying or lowering; recursive operand duplication is unnecessary.
+    for (count, admitted) in [
+        (MAX_QUERY_INPUT_DEPTH - 1, true),
+        (MAX_QUERY_INPUT_DEPTH, false),
+    ] {
+        let sql = format!("SELECT id FROM E WHERE flag{}", " IS TRUE".repeat(count));
+        let result = parse_sql(&sql);
+        if admitted {
+            let statement = result.unwrap();
+            validate_sql_statement_input(&statement, &[]).unwrap();
+        } else {
+            assert_eq!(
+                result.unwrap_err(),
+                input_error(QueryReadAdmissionCode::InputDepthExceeded)
+            );
+        }
+    }
+}

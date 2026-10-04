@@ -66,6 +66,12 @@ contract binds:
   unconsumed lookahead state; and
 - in exhaustive mode, the complete `ReadSetRevisionProof` identity.
 
+Query signatures bind access endpoint/prefix, filter, projection and grouped
+HAVING literals using full SHA-256 over the canonical value stream. A collision in a fast internal value hash cannot identify two different
+literal scopes. This current version-1 signature replaces the prior signature
+in place: regenerate saved continuations and recreate affected stored mutation
+jobs whose scope fingerprint includes literals. No old signature is accepted.
+
 Changing any bound fact rejects the token. Ordered boundary values are capped
 at 4 KiB across at most 32 terms; a single unrepresentable boundary fails with
 the typed terminal page-unit error rather than returning a looping cursor.

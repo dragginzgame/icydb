@@ -134,6 +134,15 @@ user validators, reevaluate accepted checks or new-write gates, or turn external
 raw bytes into an admitted mutation. Those admission decisions are resolved
 before the original marker and recovery replays their complete row bytes.
 
+Accepted-schema publication owns only catalog snapshots, bundles, roots and
+constraint-job namespaces. Its positioned effects and cleanup range over those
+namespaces before collecting keys, in direct publication, live replay and
+canonical fold. Identity transitions retain their exact owner effects.
+Cardinality headers, cursors and count slots remain owned by source qualification
+and the paged cardinality builder: a changed accepted root makes old evidence
+unavailable, and bounded slot clearing and rebuilding refresh it. Publication
+and fold must not sweep or tombstone cardinality records as catalog garbage.
+
 Constraint activations and validation jobs use the same marker authority.
 Recovery restores the accepted activation/job pair and reconstructs only the
 candidate unique-index generation authorized by the durable checkpoint.
@@ -314,6 +323,14 @@ malformed/checksum rejection in the
 [schema-control tests](../../crates/icydb-core/src/db/schema/control_store.rs), and
 [identity-state tests](../../crates/icydb-core/src/db/schema/identity_state.rs).
 These execute the codecs; prose wording is not a correctness gate.
+
+Deep inspection yields between physical source units. Its row and derived-entry
+phases let the first source row reach the bounded envelope classifier even when
+corrupt oversized bytes exceed the page allowance. The row phase reports
+`OversizedRow`; index and reverse phases report divergent witnesses and advance
+their checkpoints. Later entries retain their byte reserve and yield before
+consumption. This exception does not admit oversized payload decoding or change
+the entry, verifier, finding, persisted-row or progress-record ceilings.
 
 ## Recovery Size And Scale Limits
 

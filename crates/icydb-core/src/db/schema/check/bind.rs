@@ -445,6 +445,28 @@ fn sql_check_expr_input(
             op: sql_check_compare_op(*op)?,
             right: sql_check_value_input(right, Some(left), snapshot)?,
         }),
+        SqlExpr::BooleanTest {
+            expr,
+            value,
+            negated,
+        } => {
+            // CHECK admits UNKNOWN, so totalize the Boolean test before its
+            // accepted expression reaches either checks or index membership.
+            let literal = SqlExpr::Literal(Value::Bool(*value));
+            let operand = sql_check_value_input(expr, Some(&literal), snapshot)?;
+            let comparison = CheckExprV1Input::Compare {
+                left: operand.clone(),
+                op: AcceptedCheckCompareOpV1::Eq,
+                right: sql_check_value_input(&literal, Some(expr), snapshot)?,
+            };
+            let total =
+                CheckExprV1Input::And(vec![CheckExprV1Input::IsNotNull(operand), comparison]);
+            Ok(if *negated {
+                CheckExprV1Input::Not(Box::new(total))
+            } else {
+                total
+            })
+        }
         SqlExpr::NullTest { expr, negated } => {
             let value = sql_check_value_input(expr, None, snapshot)?;
             Ok(if *negated {
@@ -532,6 +554,7 @@ fn sql_check_value_input(
         | SqlExpr::Param { .. }
         | SqlExpr::Membership { .. }
         | SqlExpr::NullTest { .. }
+        | SqlExpr::BooleanTest { .. }
         | SqlExpr::Like { .. }
         | SqlExpr::Unary { .. }
         | SqlExpr::Binary { .. }

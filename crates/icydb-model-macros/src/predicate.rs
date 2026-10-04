@@ -420,15 +420,23 @@ impl Parser {
                 match self.next() {
                     Some(Token::Null) => Ok(Predicate::IsNull { field, negated }),
                     Some(Token::Literal(Literal::Bool(value))) => {
-                        let compare = Predicate::Compare {
-                            field,
-                            op: CompareOp::Eq,
-                            operand: CompareOperand::Literal(Literal::Bool(value)),
-                        };
+                        // Source CHECK comparisons are three-valued. Guard
+                        // NULL before negation so every Boolean test is total.
+                        let total = Predicate::And(vec![
+                            Predicate::IsNull {
+                                field: field.clone(),
+                                negated: true,
+                            },
+                            Predicate::Compare {
+                                field,
+                                op: CompareOp::Eq,
+                                operand: CompareOperand::Literal(Literal::Bool(value)),
+                            },
+                        ]);
                         Ok(if negated {
-                            Predicate::Not(Box::new(compare))
+                            Predicate::Not(Box::new(total))
                         } else {
-                            compare
+                            total
                         })
                     }
                     _ => Err(DarlingError::custom("IS accepts only NULL, TRUE, or FALSE")),
