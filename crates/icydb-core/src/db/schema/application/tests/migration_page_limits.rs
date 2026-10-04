@@ -183,17 +183,34 @@ fn assert_large_migration_completes(first_bytes: usize, second_bytes: usize) {
     assert_eq!(applied.rows_rewritten(), 3);
     assert!(phases.contains(&SchemaMigrationPhase::RewritingRows));
     assert!(phases.contains(&SchemaMigrationPhase::FinalValidation));
-    for (entity, bytes) in [(entities[0], first_bytes), (entities[1], second_bytes)] {
-        let rows = session
-            .execute_trusted_live_page(
-                &DynamicQuery::new(entity).select(["payload", "copied"]),
-                None,
-            )
-            .unwrap();
-        assert!(rows.continuation.is_none());
-        assert!(!rows.rows.is_empty());
-        for row in rows.rows {
-            assert_eq!(row, vec![OutputValue::blob(vec![7; bytes]); 2]);
+    for (entity, bytes, ids) in [
+        (entities[0], first_bytes, vec![1, 2]),
+        (entities[1], second_bytes, vec![1]),
+    ] {
+        let query = DynamicQuery::new(entity).select(["id", "payload", "copied"]);
+        let mut continuation = None;
+        let mut rows = Vec::new();
+        for _ in 0..8 {
+            let page = session
+                .execute_trusted_live_page(&query, continuation.as_deref())
+                .unwrap();
+            rows.extend(page.rows);
+            continuation = page.continuation;
+            if continuation.is_none() {
+                break;
+            }
+        }
+        assert!(continuation.is_none(), "post-migration read must terminate");
+        assert_eq!(rows.len(), ids.len());
+        for (row, id) in rows.into_iter().zip(ids) {
+            assert_eq!(
+                row,
+                vec![
+                    OutputValue::nat64(id),
+                    OutputValue::blob(vec![7; bytes]),
+                    OutputValue::blob(vec![7; bytes]),
+                ]
+            );
         }
     }
     forget_recovered_domain_for_tests(&db).unwrap();

@@ -44,6 +44,7 @@ type SchemaMigrationFindingKind = variant {
   Constraint;
   UniqueIndex;
   Transform;
+  ResourceLimit;
 };
 type SchemaMigrationPhase = variant {
   Applied;
