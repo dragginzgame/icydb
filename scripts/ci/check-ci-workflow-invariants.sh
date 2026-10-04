@@ -138,13 +138,22 @@ if ! rg -q '^CORE_TEST_ENV := RUST_TEST_THREADS=8$' Makefile ||
      rg -q --fixed-strings '$(CORE_TEST_ENV)' ||
    ! make_target_recipe _ci-core-no-default-test |
      rg -q --fixed-strings '$(CORE_TEST_ENV)' ||
-   ! rg -q '^WORKSPACE_TEST_ENV := RUST_TEST_THREADS=4$' Makefile ||
+   ! rg -q '^WORKSPACE_TEST_ENV := RUST_TEST_THREADS=2$' Makefile ||
    ! make_target_recipe _test-workspace |
      rg -q --fixed-strings '$(WORKSPACE_TEST_ENV)' ||
    ! make_target_recipe _ci-workspace-tests |
      rg -q --fixed-strings '$(WORKSPACE_TEST_ENV)'; then
   fail "local release and CI core/workspace tests must retain bounded libtest concurrency"
 fi
+
+for target in _test-canister-libs test-integration-feedback \
+  _test-durability-integration test-sql-canister-matrix \
+  _ci-tier-a-integration ci-sql-tier-b; do
+  if ! make_target_recipe "$target" |
+    rg -q --fixed-strings '$(WORKSPACE_TEST_ENV)'; then
+    fail "$target must share the bounded workspace/integration test concurrency"
+  fi
+done
 
 if ! rg -q --fixed-strings 'bash scripts/ci/install-pocketic.sh' .github/workflows/ci.yml ||
    ! rg -q --fixed-strings 'scripts/ci/run-with-pocketic-server.sh' Makefile ||
