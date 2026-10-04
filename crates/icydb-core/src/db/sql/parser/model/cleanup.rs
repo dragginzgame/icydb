@@ -52,7 +52,8 @@ fn detach_children(expr: &mut SqlExpr, pending: &mut Vec<SqlExpr>) {
                 }
             }
         }
-        SqlExpr::NullTest { expr, .. }
+        SqlExpr::BooleanTest { expr, .. }
+        | SqlExpr::NullTest { expr, .. }
         | SqlExpr::Like { expr, .. }
         | SqlExpr::Unary { expr, .. } => detach_child(expr, pending),
         SqlExpr::Binary { left, right, .. } => {

@@ -192,6 +192,17 @@ impl RawSchemaKey {
         )
     }
 
+    // Publication owns catalog namespaces only. Identity transitions and the
+    // paged cardinality lifecycle own the remaining records in this allocation.
+    const fn all_catalog_range_bounds() -> (RangeBound<Self>, RangeBound<Self>) {
+        let mut end = [u8::MAX; SCHEMA_KEY_BYTES_USIZE];
+        end[0] = SCHEMA_KEY_NAMESPACE_CONSTRAINT_VALIDATION_JOB;
+        (
+            RangeBound::Included(Self([0; SCHEMA_KEY_BYTES_USIZE])),
+            RangeBound::Included(Self(end)),
+        )
+    }
+
     #[cfg(test)]
     fn entity_range_bounds(entity: EntityTag) -> (RangeBound<Self>, RangeBound<Self>) {
         (
@@ -3677,23 +3688,18 @@ impl SchemaStore {
         else {
             return Err(InternalError::store_invariant());
         };
-        for entry in canonical.iter() {
+        for entry in canonical.range(RawSchemaKey::all_catalog_range_bounds()) {
             let has_relevant_overlay = matches!(view, IdentityStateStorageView::Effective)
                 || positions.is_positioned(entry.key())
                 || live.contains_key(entry.key())
                 || tombstones.contains(entry.key());
-            if has_relevant_overlay
-                && !keys.contains(entry.key())
-                && !entry.key().is_identity_state()
-            {
+            if has_relevant_overlay {
                 keys.insert(*entry.key());
             }
         }
         if matches!(view, IdentityStateStorageView::Effective) {
-            for key in live.keys() {
-                if !keys.contains(key) && !key.is_identity_state() {
-                    keys.insert(*key);
-                }
+            for (key, _) in live.range(RawSchemaKey::all_catalog_range_bounds()) {
+                keys.insert(*key);
             }
         }
         Ok(keys)
@@ -3790,9 +3796,9 @@ impl SchemaStore {
         Ok(keys)
     }
 
-    // Keep only the current entity snapshots, immutable bundle, and selected
-    // root. The inactive root is needed only during publication and is removed
-    // after the new root has been verified.
+    // Keep only the current catalog entries. Range before collecting or removing
+    // keys so publication work cannot scale with cardinality count records.
+    // Identity and cardinality retain their own exact/paged lifecycle effects.
     fn retain_durable_candidate_entries(
         &mut self,
         candidate: &CandidateSchemaRevision,
@@ -3802,7 +3808,7 @@ impl SchemaStore {
         self.accepted_bundle_cache.get_mut().take();
         match &mut self.backend {
             SchemaStoreBackend::Heap(map) => {
-                map.retain(|key, _| keep.contains(key) || key.is_identity_state());
+                Self::retain_heap_catalog_entries(map, &keep);
             }
             SchemaStoreBackend::Journaled {
                 canonical,
@@ -3811,20 +3817,37 @@ impl SchemaStore {
                 ..
             } => {
                 let stale = canonical
-                    .iter()
-                    .filter_map(|entry| {
-                        (!keep.contains(entry.key()) && !entry.key().is_identity_state())
-                            .then_some(*entry.key())
-                    })
+                    .range(RawSchemaKey::all_catalog_range_bounds())
+                    .filter_map(|entry| (!keep.contains(entry.key())).then_some(*entry.key()))
                     .collect::<Vec<_>>();
                 for key in stale {
                     canonical.remove(&key);
                 }
-                live.retain(|key, _| keep.contains(key) || key.is_identity_state());
-                tombstones.clear();
+                Self::retain_heap_catalog_entries(live, &keep);
+                let cleared = tombstones
+                    .range(RawSchemaKey::all_catalog_range_bounds())
+                    .copied()
+                    .collect::<Vec<_>>();
+                for key in cleared {
+                    tombstones.remove(&key);
+                }
             }
         }
         Ok(())
+    }
+
+    // Use the same bounded catalog range for heap storage and live overlays.
+    fn retain_heap_catalog_entries(
+        map: &mut StdBTreeMap<RawSchemaKey, RawSchemaSnapshot>,
+        keep: &BTreeSet<RawSchemaKey>,
+    ) {
+        let stale = map
+            .range(RawSchemaKey::all_catalog_range_bounds())
+            .filter_map(|(key, _)| (!keep.contains(key)).then_some(*key))
+            .collect::<Vec<_>>();
+        for key in stale {
+            map.remove(&key);
+        }
     }
 
     fn retain_materialized_candidate_entries(
@@ -3843,17 +3866,12 @@ impl SchemaStore {
         else {
             return Err(InternalError::store_invariant());
         };
-        live.retain(|key, _| keep.contains(key) || key.is_identity_state());
+        Self::retain_heap_catalog_entries(live, &keep);
         let canonical_keys = canonical
-            .iter()
+            .range(RawSchemaKey::all_catalog_range_bounds())
             .map(|entry| *entry.key())
             .collect::<Vec<_>>();
         for key in canonical_keys {
-            // Identity moves and retirements own their exact live effects;
-            // generic catalog cleanup must preserve a moved owner's tombstone.
-            if key.is_identity_state() {
-                continue;
-            }
             if keep.contains(&key) {
                 tombstones.remove(&key);
             } else {
@@ -3872,11 +3890,8 @@ impl SchemaStore {
             return Err(InternalError::store_invariant());
         };
         let stale = canonical
-            .iter()
-            .filter_map(|entry| {
-                (!keep.contains(entry.key()) && !entry.key().is_identity_state())
-                    .then_some(*entry.key())
-            })
+            .range(RawSchemaKey::all_catalog_range_bounds())
+            .filter_map(|entry| (!keep.contains(entry.key())).then_some(*entry.key()))
             .collect::<Vec<_>>();
         for key in stale {
             canonical.remove(&key);

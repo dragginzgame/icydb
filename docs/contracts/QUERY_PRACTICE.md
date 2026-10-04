@@ -143,6 +143,15 @@ For `Compare`:
   comparison families; the builder exposes helpers such as `eq_field` and
   `gt_field`.
 
+SQL expression conditions preserve TRUE, FALSE and UNKNOWN before selecting
+rows. Ordinary SQL NOT keeps UNKNOWN excluded from WHERE, including nullable
+comparisons and text predicates. SQL `IS TRUE` and `IS FALSE` are total tests:
+NULL returns FALSE; `IS NOT TRUE` and `IS NOT FALSE` return TRUE for NULL.
+Nested tests and Boolean COALESCE with a constant Boolean fallback retain the
+same result through expression reads and compilable predicate/count/mutation
+consumers. General expressions remain subject to each consumer's existing
+capability and admission limits.
+
 ### Coercion Model (Data, Not Behavior)
 
 Every `Compare` and `CompareFields` predicate carries an explicit `CoercionSpec`.

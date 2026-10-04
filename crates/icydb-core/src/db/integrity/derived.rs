@@ -28,7 +28,7 @@ const MAX_DERIVED_FINDINGS_PER_PAGE: usize = 64;
 const MAX_DERIVED_DECODED_BYTES_PER_PAGE: usize =
     crate::db::codec::MAX_ROW_BYTES as usize + (64 * 1024);
 
-/// Hard per-call bounds for one active derived-state page.
+/// Per-call entry, atom and finding ceilings plus a source-byte yield allowance.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) struct DerivedInspectionLimits {
     entries: usize,
@@ -156,7 +156,11 @@ impl DerivedPageAccumulator {
         let Some(next) = self.decoded_bytes.checked_add(row_len) else {
             return Err(InternalError::store_invariant());
         };
-        if next > limits.decoded_bytes {
+        // Like row inspection, classify the first source unit even if corrupt
+        // oversized bytes exceed the page allowance. The envelope decoder
+        // rejects that length before payload traversal; refusing it here would
+        // yield forever without advancing either derived-domain checkpoint.
+        if next > limits.decoded_bytes && self.entries_started != 1 {
             self.stopped = true;
             return Ok(false);
         }
@@ -868,5 +872,29 @@ mod tests {
             assert_eq!(result.decoded_bytes, entry_bytes as u64);
             assert!(!result.exhausted);
         }
+    }
+
+    #[test]
+    fn source_budget_classifies_first_row_and_defers_later_overflow() {
+        let limits = DerivedInspectionLimits::standard();
+        let oversized = limits.decoded_bytes + 1;
+        let mut first = DerivedPageAccumulator::new(PhysicalUnitCheckpoint::BeforeFirst);
+        first.entries_started = 1;
+        assert!(first.consume_source_row(oversized, limits).unwrap());
+        assert_eq!(first.decoded_bytes, oversized);
+        assert!(!first.stopped);
+
+        let mut later = DerivedPageAccumulator::new(PhysicalUnitCheckpoint::BeforeFirst);
+        later.entries_started = 2;
+        later.decoded_bytes = 1;
+        assert!(
+            later
+                .consume_source_row(limits.decoded_bytes - 1, limits)
+                .unwrap()
+        );
+        assert_eq!(later.decoded_bytes, limits.decoded_bytes);
+        assert!(!later.consume_source_row(1, limits).unwrap());
+        assert_eq!(later.decoded_bytes, limits.decoded_bytes);
+        assert!(later.stopped);
     }
 }

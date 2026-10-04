@@ -1345,9 +1345,9 @@ dependencies = [
 
 [[package]]
 name = "ic-memory"
-version = "0.24.4"
+version = "0.24.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1ed3012af2bdf485502c9a300e4545fbfe1212d7beb914e6036be5188f1e7c5"
+checksum = "a53df182bdc73e9d5d5061cd79418780852f1260d988ce5f8dc774047d7a370a"
 dependencies = [
  "ciborium",
  "ctor",
@@ -1367,9 +1367,9 @@ dependencies = [
 
 [[package]]
 name = "ic-testkit"
-version = "0.14.3"
+version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa4d3a58514af175973cc07b3c0fcdf538ad485b92d57cc1f7b95494847db085"
+checksum = "1bb25e8bc0f134058c291cec9d90a04140af21558e2f4ebbead7d28dbccbbc8d"
 dependencies = [
  "candid",
  "fs2",
@@ -1384,9 +1384,9 @@ dependencies = [
 
 [[package]]
 name = "ic-timers"
-version = "0.10.10"
+version = "0.10.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "79efaf9818396ad26b5851992c481ca4728bab4471fa4f14bc88dbf6c61a174b"
+checksum = "dc70de654ad6130f8fec59d3927160196fe6649da21d83e0e37ce6044e107a4c"
 dependencies = [
  "ic-cdk-timers",
  "ic0",

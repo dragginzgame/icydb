@@ -200,3 +200,189 @@ fn sql_not_null_delete_preserves_unknown_rows() {
 fn sql_not_null_not_like_delete_preserves_unknown_rows() {
     assert_delete_preserves_unknown("status NOT LIKE 'act%'");
 }
+
+#[test]
+fn sql_boolean_tests_are_total_across_read_lanes_and_counts() {
+    let session = initialize_nullable_rows();
+    for (predicate, expected) in [
+        ("flag IS TRUE", vec![1, 4]),
+        ("flag IS FALSE", vec![2, 5]),
+        ("flag IS NOT TRUE", vec![2, 3, 5, 6]),
+        ("flag IS NOT FALSE", vec![1, 3, 4, 6]),
+        ("NOT (flag IS TRUE)", vec![2, 3, 5, 6]),
+        ("NOT (flag IS FALSE)", vec![1, 3, 4, 6]),
+        ("NOT (flag IS NOT TRUE)", vec![1, 4]),
+        ("NOT (flag IS NOT FALSE)", vec![2, 5]),
+        ("(flag IS TRUE) IS FALSE", vec![2, 3, 5, 6]),
+        ("(qty > 0) IS NOT TRUE", vec![3, 5, 6]),
+        ("(flag = TRUE) = FALSE", vec![2, 5]),
+        ("FALSE = (flag = TRUE)", vec![2, 5]),
+        ("NOT ((flag = TRUE) = FALSE)", vec![1, 4]),
+        ("NOT (flag IS TRUE OR qty > 0)", vec![5]),
+        ("flag IS NOT TRUE AND status IS NULL", vec![3, 6]),
+        ("flag IS TRUE OR status IS NULL", vec![1, 3, 4, 6]),
+        ("COALESCE(flag, FALSE)", vec![1, 4]),
+        ("NOT COALESCE(flag, FALSE)", vec![2, 3, 5, 6]),
+        ("COALESCE(flag, TRUE)", vec![1, 3, 4, 6]),
+        ("NOT COALESCE(flag, TRUE)", vec![2, 5]),
+    ] {
+        for condition in [
+            predicate.to_string(),
+            format!("({predicate}) AND id + 0 = id"),
+        ] {
+            assert_ids(&session, &condition, &expected);
+        }
+        assert_eq!(
+            sql_rows(
+                &session,
+                &format!("SELECT COUNT(*) FROM PlannerRow WHERE {predicate}")
+            ),
+            vec![vec![OutputValue::nat64(
+                u64::try_from(expected.len()).unwrap()
+            )]],
+            "count for {predicate}",
+        );
+    }
+}
+
+#[test]
+fn sql_boolean_tests_preserve_operand_type_admission() {
+    use icydb_diagnostic_code::ErrorCode;
+
+    let session = initialize_nullable_rows();
+    for spelling in ["TRUE", "FALSE", "NOT TRUE", "NOT FALSE"] {
+        assert_eq!(
+            session
+                .execute_trusted_sql_query(&format!("SELECT flag IS {spelling} FROM PlannerRow"))
+                .unwrap_err()
+                .diagnostic()
+                .error_code(),
+            ErrorCode::RUNTIME_UNSUPPORTED
+        );
+        for (operand, filter_error) in [
+            ("qty", ErrorCode::QUERY_PLAN),
+            ("status", ErrorCode::QUERY_PLAN),
+            ("1", ErrorCode::SQL_LOWERING_WHERE_EXPRESSION_SHAPE),
+            ("'text'", ErrorCode::SQL_LOWERING_WHERE_EXPRESSION_SHAPE),
+        ] {
+            let predicate = format!("{operand} IS {spelling}");
+            for (sql, code) in [
+                (
+                    format!("SELECT CASE WHEN {predicate} THEN 1 ELSE 0 END FROM PlannerRow"),
+                    ErrorCode::QUERY_PLAN,
+                ),
+                (
+                    format!("SELECT id FROM PlannerRow WHERE {predicate}"),
+                    filter_error,
+                ),
+                (
+                    format!("SELECT COUNT(*) FROM PlannerRow WHERE {predicate}"),
+                    filter_error,
+                ),
+            ] {
+                let error = session.execute_trusted_sql_query(&sql).unwrap_err();
+                assert_eq!(error.diagnostic().error_code(), code, "{sql}");
+            }
+        }
+    }
+}
+
+#[test]
+fn sql_boolean_tests_select_null_rows_for_updates_and_deletes() {
+    let session = initialize_nullable_rows();
+    let result = session
+        .execute_trusted_sql_exact_update(
+            "UPDATE PlannerRow SET marked = TRUE WHERE flag IS NOT TRUE",
+            6,
+        )
+        .unwrap();
+    assert!(matches!(result, SqlStatementResult::Count { row_count: 4 }));
+    assert_ids(&session, "marked = TRUE", &[2, 3, 5, 6]);
+    let result = session
+        .execute_trusted_sql_mutation("DELETE FROM PlannerRow WHERE flag IS NOT FALSE")
+        .unwrap();
+    assert!(matches!(result, SqlStatementResult::Count { row_count: 4 }));
+    assert_ids(&session, "id > 0", &[2, 5]);
+}
+
+fn assert_boolean_check_new_write_gate(spelling: &str, allowed: [bool; 3]) {
+    use icydb_diagnostic_code::ErrorCode;
+
+    let session = initialize_nullable_rows();
+    session.execute_admin_sql_ddl(&format!(
+            "ALTER TABLE PlannerRow ADD CONSTRAINT truth_policy CHECK (flag IS {spelling}) NOT VALID EXPECT SCHEMA VERSION 1 SET SCHEMA VERSION 2"
+        )).unwrap();
+    // NOT VALID preserves historical rows while enforcing new after-images.
+    for (index, (value, allowed)) in ["TRUE", "FALSE", "NULL"]
+        .into_iter()
+        .zip(allowed)
+        .enumerate()
+    {
+        let id = 7 + index;
+        let result = session.execute_trusted_sql_mutation(&format!(
+            "INSERT INTO PlannerRow (id, flag, marked) VALUES ({id}, {value}, FALSE)"
+        ));
+        if allowed {
+            result.unwrap();
+        } else {
+            assert_eq!(
+                result.unwrap_err().diagnostic().error_code(),
+                ErrorCode::RUNTIME_BOUNDARY_CONSTRAINT_VIOLATION,
+                "IS {spelling} for {value}"
+            );
+            assert_ids(&session, &format!("id = {id}"), &[]);
+        }
+    }
+}
+
+#[test]
+fn sql_boolean_check_true_enforces_new_write_gate() {
+    assert_boolean_check_new_write_gate("TRUE", [true, false, false]);
+}
+
+#[test]
+fn sql_boolean_check_false_enforces_new_write_gate() {
+    assert_boolean_check_new_write_gate("FALSE", [false, true, false]);
+}
+
+#[test]
+fn sql_boolean_check_not_true_enforces_new_write_gate() {
+    assert_boolean_check_new_write_gate("NOT TRUE", [false, true, true]);
+}
+
+#[test]
+fn sql_boolean_check_not_false_enforces_new_write_gate() {
+    assert_boolean_check_new_write_gate("NOT FALSE", [true, false, true]);
+}
+
+#[test]
+fn sql_boolean_tests_preserve_parameters_and_case_conditions() {
+    let session = initialize_nullable_rows();
+    let dispatch = crate::db::sql_statement_dispatch(
+        "SELECT id FROM PlannerRow WHERE (flag = ?) IS NOT TRUE ORDER BY id",
+    )
+    .unwrap();
+    for (value, ids) in [(true, vec![2, 3, 5, 6]), (false, vec![1, 3, 4, 6])] {
+        let (result, _) = session
+            .execute_trusted_sql_query_with_entity_name(&dispatch, &[InputValue::boolean(value)])
+            .unwrap();
+        let SqlStatementResult::Projection { rows, .. } = result else {
+            panic!("expected projection");
+        };
+        assert_eq!(
+            rows,
+            ids.into_iter()
+                .map(|id| vec![OutputValue::nat64(id)])
+                .collect::<Vec<_>>()
+        );
+    }
+    assert_eq!(
+        sql_rows(
+            &session,
+            "SELECT CASE WHEN flag IS NOT TRUE THEN 1 ELSE 0 END FROM PlannerRow ORDER BY id"
+        ),
+        [0, 1, 1, 0, 1, 1]
+            .map(|value| vec![OutputValue::int64(value)])
+            .to_vec()
+    );
+}

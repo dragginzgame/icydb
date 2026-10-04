@@ -182,3 +182,63 @@ fn nullable_false_truth_guards_obey_cumulative_construction_admission() {
         );
     }
 }
+
+#[test]
+fn boolean_coalesce_truth_sets_preserve_exact_cumulative_admission() {
+    for fallback in [false, true] {
+        for negated in [false, true] {
+            let total = Expr::FunctionCall {
+                function: Function::Coalesce,
+                args: vec![
+                    compare(Value::Text("archived".into())),
+                    Expr::Literal(Value::Bool(fallback)),
+                ],
+            };
+            let expr = if negated {
+                Expr::Unary {
+                    op: UnaryOp::Not,
+                    expr: Box::new(total),
+                }
+            } else {
+                total
+            };
+            for resource in [Resource::TemporaryBytes, Resource::PredicateExpressionSteps] {
+                let generous = request_with_limit(resource, 16_000_000);
+                let expected = extract(&generous, &expr).unwrap().unwrap();
+                let observed = generous.observed(resource);
+                let exact = request_with_limit(resource, observed);
+                assert_eq!(extract(&exact, &expr).unwrap(), Some(expected));
+                assert_resource(
+                    extract(&request_with_limit(resource, observed - 1), &expr).unwrap_err(),
+                    resource,
+                );
+                assert_resource(extract(&exact, &expr).unwrap_err(), resource);
+            }
+        }
+    }
+}
+
+#[test]
+fn general_boolean_coalesce_keeps_expression_capability_boundary() {
+    for args in [
+        vec![Expr::Field(FieldId::new("flag"))],
+        vec![
+            Expr::Field(FieldId::new("flag")),
+            Expr::Literal(Value::Null),
+        ],
+        vec![
+            Expr::Field(FieldId::new("flag")),
+            Expr::Literal(Value::Bool(false)),
+            Expr::Literal(Value::Bool(true)),
+        ],
+    ] {
+        let expr = Expr::FunctionCall {
+            function: Function::Coalesce,
+            args,
+        };
+        assert_eq!(
+            extract(&request_with_limit(Resource::TemporaryBytes, 0), &expr).unwrap(),
+            None
+        );
+    }
+}

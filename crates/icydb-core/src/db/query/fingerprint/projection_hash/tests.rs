@@ -341,9 +341,9 @@ fn projection_filter_and_mutation_scope_preserve_structural_literal_bytes() {
     // Current binary-add framing: preserve each admitted operand's value
     // digest. Preparation, not this encoder, owns numeric normalization.
     let mut bytes = vec![0x23, 0x01, 0x21];
-    bytes.extend_from_slice(&crate::value::hash_value(&left).unwrap());
+    bytes.extend_from_slice(&crate::value::fingerprint_value(&left).unwrap());
     bytes.push(0x21);
-    bytes.extend_from_slice(&crate::value::hash_value(&right).unwrap());
+    bytes.extend_from_slice(&crate::value::fingerprint_value(&right).unwrap());
 
     let mut expected = new_hash_sha256();
     write_hash_tag_u8(&mut expected, 0x01);
@@ -403,7 +403,7 @@ fn borrowed_aggregate_identity_preserves_field_filter_and_count_framing() {
     expected.update([0x10, 0x24, 0x02, 0x01]);
     write_hash_str_u32(&mut expected, "rank");
     expected.update([0x03, 0x05, 0x21]);
-    expected.update(crate::value::hash_value(&Value::Bool(true)).unwrap());
+    expected.update(crate::value::fingerprint_value(&Value::Bool(true)).unwrap());
     assert_eq!(
         hash_projection(&projection(filtered)),
         super::super::finalize_sha256_digest(expected)

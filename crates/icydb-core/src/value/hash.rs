@@ -11,6 +11,7 @@ use crate::{
     types::AccountStorageCodec,
     value::{Value, ValueTag},
 };
+use sha2::{Digest, Sha256};
 use xxhash_rust::xxh3::Xxh3;
 
 /// Value-hash format version byte used by canonical digest encoding.
@@ -19,39 +20,57 @@ const VALUE_HASH_VERSION: u8 = 1;
 /// Stable XXH3 seed used by canonical value hashing across upgrades.
 const VALUE_HASH_SEED: u64 = 0;
 
-fn feed_i32(h: &mut Xxh3, x: i32) {
+// One canonical value traversal feeds both cryptographic query identity and
+// fast internal bucketing. Hash choice must never change the encoded semantics.
+trait ValueHashSink {
+    fn update(&mut self, bytes: &[u8]);
+}
+
+impl ValueHashSink for Sha256 {
+    fn update(&mut self, bytes: &[u8]) {
+        Digest::update(self, bytes);
+    }
+}
+
+impl ValueHashSink for Xxh3 {
+    fn update(&mut self, bytes: &[u8]) {
+        Self::update(self, bytes);
+    }
+}
+
+fn feed_i32(h: &mut impl ValueHashSink, x: i32) {
     h.update(&x.to_be_bytes());
 }
-fn feed_i64(h: &mut Xxh3, x: i64) {
+fn feed_i64(h: &mut impl ValueHashSink, x: i64) {
     h.update(&x.to_be_bytes());
 }
-fn feed_i128(h: &mut Xxh3, x: i128) {
+fn feed_i128(h: &mut impl ValueHashSink, x: i128) {
     h.update(&x.to_be_bytes());
 }
-fn feed_u8(h: &mut Xxh3, x: u8) {
+fn feed_u8(h: &mut impl ValueHashSink, x: u8) {
     h.update(&[x]);
 }
-fn feed_u32(h: &mut Xxh3, x: u32) {
+fn feed_u32(h: &mut impl ValueHashSink, x: u32) {
     h.update(&x.to_be_bytes());
 }
-fn feed_len_u32(h: &mut Xxh3, len: usize) -> Result<(), InternalError> {
+fn feed_len_u32(h: &mut impl ValueHashSink, len: usize) -> Result<(), InternalError> {
     let len = u32::try_from(len).map_err(|_| InternalError::query_executor_invariant())?;
     feed_u32(h, len);
 
     Ok(())
 }
-fn feed_u64(h: &mut Xxh3, x: u64) {
+fn feed_u64(h: &mut impl ValueHashSink, x: u64) {
     h.update(&x.to_be_bytes());
 }
-fn feed_u128(h: &mut Xxh3, x: u128) {
+fn feed_u128(h: &mut impl ValueHashSink, x: u128) {
     h.update(&x.to_be_bytes());
 }
-fn feed_bytes(h: &mut Xxh3, b: &[u8]) {
+fn feed_bytes(h: &mut impl ValueHashSink, b: &[u8]) {
     h.update(b);
 }
 
 // Batch borrowed encoded bytes into fixed scratch, never a value-sized buffer.
-fn feed_leb128(h: &mut Xxh3, bytes: impl Iterator<Item = u8>) {
+fn feed_leb128(h: &mut impl ValueHashSink, bytes: impl Iterator<Item = u8>) {
     let mut chunk = [0_u8; 64];
     let mut used = 0;
     for byte in bytes {
@@ -254,7 +273,7 @@ pub(crate) fn with_test_hash_override<T>(
 #[expect(clippy::cast_possible_truncation)]
 fn write_map_entries_to_hasher(
     entries: &[(Value, Value)],
-    h: &mut Xxh3,
+    h: &mut impl ValueHashSink,
 ) -> Result<(), InternalError> {
     let ordered = Value::ordered_map_entries(entries);
 
@@ -270,7 +289,7 @@ fn write_map_entries_to_hasher(
 }
 
 #[expect(clippy::cast_possible_truncation)]
-fn write_to_hasher(value: &Value, h: &mut Xxh3) -> Result<(), InternalError> {
+fn write_to_hasher(value: &Value, h: &mut impl ValueHashSink) -> Result<(), InternalError> {
     feed_u8(h, value.canonical_tag().to_u8());
 
     match value {
@@ -390,4 +409,21 @@ pub(crate) fn hash_value(value: &Value) -> Result<[u8; 16], InternalError> {
     writer.write_value(value)?;
 
     Ok(writer.finish())
+}
+
+/// Cryptographic identity over the current canonical value stream.
+/// Query equality/signatures must not depend on the fast bucketing digest.
+/// Framing and canonicalization share the fast writer's sole value encoder;
+/// fixed hash state streams bytes without retaining a value-sized buffer.
+pub(crate) fn fingerprint_value(value: &Value) -> Result<[u8; 32], InternalError> {
+    #[cfg(test)]
+    if let Some(Err(error)) = test_hash_override() {
+        return Err(error);
+    }
+
+    let mut hasher = Sha256::new();
+    feed_u8(&mut hasher, VALUE_HASH_VERSION);
+    write_to_hasher(value, &mut hasher)?;
+
+    Ok(hasher.finalize().into())
 }

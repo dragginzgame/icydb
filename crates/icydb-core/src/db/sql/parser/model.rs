@@ -453,6 +453,12 @@ pub(crate) enum SqlExpr {
         expr: Box<Self>,
         negated: bool,
     },
+    // Preserve total Boolean tests without cloning arbitrary parsed operands.
+    BooleanTest {
+        expr: Box<Self>,
+        value: bool,
+        negated: bool,
+    },
     Like {
         expr: Box<Self>,
         pattern: String,
@@ -494,6 +500,7 @@ impl SqlExpr {
             | Self::Param { .. } => {}
             Self::Membership { expr, .. }
             | Self::NullTest { expr, .. }
+            | Self::BooleanTest { expr, .. }
             | Self::Like { expr, .. }
             | Self::Unary { expr, .. } => visit(expr)?,
             Self::FunctionCall { args, .. } => {
@@ -586,6 +593,7 @@ impl SqlExpr {
             Self::Literal(_)
             | Self::Param { .. }
             | Self::NullTest { .. }
+            | Self::BooleanTest { .. }
             | Self::Like { .. }
             | Self::Unary { .. }
             | Self::Binary { .. } => true,
@@ -614,6 +622,7 @@ impl SqlExpr {
             | Self::Param { .. }
             | Self::Membership { .. }
             | Self::NullTest { .. }
+            | Self::BooleanTest { .. }
             | Self::Like { .. }
             | Self::FunctionCall { .. }
             | Self::Unary { .. }
@@ -634,37 +643,10 @@ impl SqlExpr {
     /// Visit every SQL expression node through the owner-local parser
     /// traversal contract.
     pub(in crate::db::sql) fn for_each_tree_expr(&self, visit: &mut impl FnMut(&Self)) {
-        visit(self);
-
-        match self {
-            Self::Field(_)
-            | Self::FieldPath { .. }
-            | Self::Aggregate(_)
-            | Self::Literal(_)
-            | Self::Param { .. } => {}
-            Self::Membership { expr, .. }
-            | Self::NullTest { expr, .. }
-            | Self::Like { expr, .. }
-            | Self::Unary { expr, .. } => expr.for_each_tree_expr(visit),
-            Self::FunctionCall { args, .. } => {
-                for arg in args {
-                    arg.for_each_tree_expr(visit);
-                }
-            }
-            Self::Binary { left, right, .. } => {
-                left.for_each_tree_expr(visit);
-                right.for_each_tree_expr(visit);
-            }
-            Self::Case { arms, else_expr } => {
-                for arm in arms {
-                    arm.condition.for_each_tree_expr(visit);
-                    arm.result.for_each_tree_expr(visit);
-                }
-                if let Some(else_expr) = else_expr.as_ref() {
-                    else_expr.for_each_tree_expr(visit);
-                }
-            }
-        }
+        self.any_tree_expr(&mut |expr| {
+            visit(expr);
+            false
+        });
     }
 
     /// Visit every aggregate leaf owned by this SQL expression tree through
@@ -691,9 +673,9 @@ impl SqlExpr {
         split_qualified_identifier(identifier).is_none()
     }
 
-    // Walk the whole SQL expression tree and return true as soon as one node
-    // matches the supplied predicate. This keeps aggregate and omitted-ELSE
-    // detection on one traversal shape instead of repeating the same tree walk.
+    // Own borrowed scalar-tree traversal in preorder, stopping at the first
+    // match. Aggregates are leaves: their input/filter scopes belong to their
+    // callers. Full visitation and universal admission reuse this child order.
     fn any_tree_expr(&self, predicate: &mut impl FnMut(&Self) -> bool) -> bool {
         if predicate(self) {
             return true;
@@ -707,6 +689,7 @@ impl SqlExpr {
             | Self::Param { .. } => false,
             Self::Membership { expr, .. }
             | Self::NullTest { expr, .. }
+            | Self::BooleanTest { expr, .. }
             | Self::Like { expr, .. }
             | Self::Unary { expr, .. } => expr.any_tree_expr(predicate),
             Self::FunctionCall { args, .. } => args.iter().any(|arg| arg.any_tree_expr(predicate)),
@@ -723,37 +706,9 @@ impl SqlExpr {
         }
     }
 
-    // Walk the whole SQL expression tree and require every visited node to
-    // satisfy the supplied admission rule. This keeps the local-scalar and
-    // local-field checks on one recursive traversal while still letting each
-    // caller define its own leaf policy.
+    // Universal admission stops at the first rejection in the same traversal.
     fn all_tree_expr(&self, predicate: &mut impl FnMut(&Self) -> bool) -> bool {
-        if !predicate(self) {
-            return false;
-        }
-
-        match self {
-            Self::Field(_)
-            | Self::FieldPath { .. }
-            | Self::Aggregate(_)
-            | Self::Literal(_)
-            | Self::Param { .. } => true,
-            Self::Membership { expr, .. }
-            | Self::NullTest { expr, .. }
-            | Self::Like { expr, .. }
-            | Self::Unary { expr, .. } => expr.all_tree_expr(predicate),
-            Self::FunctionCall { args, .. } => args.iter().all(|arg| arg.all_tree_expr(predicate)),
-            Self::Binary { left, right, .. } => {
-                left.all_tree_expr(predicate) && right.all_tree_expr(predicate)
-            }
-            Self::Case { arms, else_expr } => {
-                arms.iter().all(|arm| {
-                    arm.condition.all_tree_expr(predicate) && arm.result.all_tree_expr(predicate)
-                }) && else_expr
-                    .as_ref()
-                    .is_none_or(|else_expr| else_expr.all_tree_expr(predicate))
-            }
-        }
+        !self.any_tree_expr(&mut |expr| !predicate(expr))
     }
 }
 
@@ -1116,6 +1071,7 @@ impl SqlOrderTerm {
             | SqlExpr::Param { .. }
             | SqlExpr::Membership { .. }
             | SqlExpr::NullTest { .. }
+            | SqlExpr::BooleanTest { .. }
             | SqlExpr::Like { .. }
             | SqlExpr::FunctionCall { .. }
             | SqlExpr::Unary { .. }

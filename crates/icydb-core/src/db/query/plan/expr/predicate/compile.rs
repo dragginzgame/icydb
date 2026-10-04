@@ -383,8 +383,36 @@ fn compile_bool_compare_truth_predicate(
         return Ok(Predicate::False);
     }
 
+    if let Some((child, value)) = boolean_compare_operand(op, left, right) {
+        let child_truth = if truth.matches_bool(value) {
+            BoolTruth::True
+        } else {
+            BoolTruth::False
+        };
+        return compile_bool_truth_predicate(child, child_truth, work);
+    }
     let when_true = compile_bool_compare_leaf(op, left, right, work)?;
     wrap_truth_predicate(when_true, truth, work)
+}
+
+// Equality against a Boolean literal selects a computed operand's true or
+// false set. Keep direct field comparisons under their existing strict owner.
+const fn boolean_compare_operand<'a>(
+    op: BinaryOp,
+    left: &'a Expr,
+    right: &'a Expr,
+) -> Option<(&'a Expr, bool)> {
+    if !matches!(op, BinaryOp::Eq) {
+        return None;
+    }
+    match (left, right) {
+        (child, Expr::Literal(Value::Bool(value))) | (Expr::Literal(Value::Bool(value)), child)
+            if !matches!(child, Expr::Field(_) | Expr::FieldPath(_)) =>
+        {
+            Some((child, *value))
+        }
+        _ => None,
+    }
 }
 
 // Compile one compare-ready boolean expression leaf onto the corresponding
@@ -534,7 +562,24 @@ fn compile_bool_function_truth_predicate(
         Some(BooleanFunctionShape::Membership) => {
             compile_bool_membership_truth_predicate(args, truth, work)
         }
-        Some(BooleanFunctionShape::TruthCoalesce) | None => Err(PredicateCompileError::Unsupported),
+        Some(BooleanFunctionShape::TruthCoalesce) => {
+            let [child, Expr::Literal(Value::Bool(fallback))] = args else {
+                return Err(PredicateCompileError::Unsupported);
+            };
+            // If the fallback belongs to the requested truth set, include
+            // UNKNOWN by complementing the opposite set. Otherwise UNKNOWN
+            // stays excluded and the child's requested set is sufficient.
+            let complement = truth.matches_bool(*fallback);
+            let child_truth = if complement { truth.invert() } else { truth };
+            let predicate = compile_bool_truth_predicate(child, child_truth, work)?;
+            if complement {
+                work.charge(Resource::TemporaryBytes, size_of::<Predicate>() as u64)?;
+                Ok(Predicate::Not(Box::new(predicate)))
+            } else {
+                Ok(predicate)
+            }
+        }
+        None => Err(PredicateCompileError::Unsupported),
     }
 }
 
@@ -932,7 +977,10 @@ impl RuntimePredicateAdmission {
 
     // Admit only normalized compare shapes that lower directly onto runtime
     // predicate compare shells.
-    const fn is_compare_expr(op: BinaryOp, left: &Expr, right: &Expr) -> bool {
+    fn is_compare_expr(op: BinaryOp, left: &Expr, right: &Expr) -> bool {
+        if let Some((child, _)) = boolean_compare_operand(op, left, right) {
+            return Self::is_admissible(child);
+        }
         if truth_condition_binary_compare_op(op).is_none() {
             return false;
         }
@@ -975,7 +1023,10 @@ impl RuntimePredicateAdmission {
                             && membership_values_are_predicate_admissible(target, values)
                 )
             }
-            Some(BooleanFunctionShape::TruthCoalesce) | None => false,
+            Some(BooleanFunctionShape::TruthCoalesce) => {
+                matches!(args, [child, Expr::Literal(Value::Bool(_))] if Self::is_admissible(child))
+            }
+            None => false,
         }
     }
 

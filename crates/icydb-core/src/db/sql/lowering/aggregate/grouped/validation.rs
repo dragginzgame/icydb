@@ -186,10 +186,7 @@ fn sql_expr_fingerprint(expr: &SqlExpr) -> Result<u64, SqlLoweringError> {
             3_u8.hash(&mut hasher);
             value_fingerprint(value)?.hash(&mut hasher);
         }
-        SqlExpr::Param { index } => {
-            4_u8.hash(&mut hasher);
-            index.hash(&mut hasher);
-        }
+        SqlExpr::Param { index } => (4_u8, index).hash(&mut hasher),
         SqlExpr::Membership {
             expr,
             values,
@@ -210,6 +207,16 @@ fn sql_expr_fingerprint(expr: &SqlExpr) -> Result<u64, SqlLoweringError> {
                     }
                 }
             }
+        }
+        SqlExpr::BooleanTest {
+            expr,
+            value,
+            negated,
+        } => {
+            12_u8.hash(&mut hasher);
+            sql_expr_fingerprint(expr)?.hash(&mut hasher);
+            value.hash(&mut hasher);
+            negated.hash(&mut hasher);
         }
         SqlExpr::NullTest { expr, negated } => {
             6_u8.hash(&mut hasher);

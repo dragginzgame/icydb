@@ -326,3 +326,36 @@ fn single_list_identity_canonical_hash_matches_generic_hash_contract() {
         );
     }
 }
+
+#[test]
+fn cryptographic_fingerprints_stream_current_canonical_bytes() {
+    for (value, bytes) in [
+        (
+            Value::Text("victim".into()),
+            b"\x01\x12\x00\x00\x00\x06victim".to_vec(),
+        ),
+        (
+            Value::Blob(vec![0, 1, 255]),
+            vec![1, 2, 1, 0, 0, 0, 3, 0, 1, 255],
+        ),
+        (Value::Null, vec![1, 15]),
+        (Value::Unit, vec![1, 24]),
+    ] {
+        assert_eq!(
+            fingerprint_value(&value).unwrap(),
+            <[u8; 32]>::from(Sha256::digest(bytes))
+        );
+    }
+    let entries = vec![
+        (Value::Text("b".into()), Value::Nat64(2)),
+        (Value::Text("a".into()), Value::Nat64(1)),
+    ];
+    assert_eq!(
+        fingerprint_value(&Value::Map(entries.clone())).unwrap(),
+        fingerprint_value(&Value::Map(entries.into_iter().rev().collect())).unwrap()
+    );
+    assert_eq!(
+        fingerprint_value(&Value::Decimal(Decimal::new(100, 2))).unwrap(),
+        fingerprint_value(&Value::Decimal(Decimal::new(1, 0))).unwrap()
+    );
+}

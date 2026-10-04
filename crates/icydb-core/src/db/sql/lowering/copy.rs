@@ -123,6 +123,15 @@ fn copy_sql_expr(expr: &SqlExpr, work: &PreparationWork<'_>) -> Result<SqlExpr, 
                 negated: *negated,
             }
         }
+        SqlExpr::BooleanTest {
+            expr,
+            value,
+            negated,
+        } => SqlExpr::BooleanTest {
+            expr: copy_box(expr, work)?,
+            value: *value,
+            negated: *negated,
+        },
         SqlExpr::NullTest { expr, negated } => SqlExpr::NullTest {
             expr: copy_box(expr, work)?,
             negated: *negated,
@@ -158,22 +167,26 @@ fn copy_sql_expr(expr: &SqlExpr, work: &PreparationWork<'_>) -> Result<SqlExpr, 
                 args: copied,
             }
         }
-        SqlExpr::Case { arms, else_expr } => {
-            charge_storage::<SqlCaseArm>(arms.len(), work)?;
-            let mut copied = Vec::with_capacity(arms.len());
-            for arm in arms {
-                copied.push(SqlCaseArm {
-                    condition: copy_sql_expr(&arm.condition, work)?,
-                    result: copy_sql_expr(&arm.result, work)?,
-                });
-            }
-            SqlExpr::Case {
-                arms: copied,
-                else_expr: else_expr
-                    .as_deref()
-                    .map(|expr| copy_box(expr, work))
-                    .transpose()?,
-            }
-        }
+        SqlExpr::Case { arms, else_expr } => copy_sql_case(arms, else_expr.as_deref(), work)?,
+    })
+}
+
+// Copy CASE backing through the same charged scalar-copy owner.
+fn copy_sql_case(
+    arms: &[SqlCaseArm],
+    else_expr: Option<&SqlExpr>,
+    work: &PreparationWork<'_>,
+) -> Result<SqlExpr, SqlLoweringError> {
+    charge_storage::<SqlCaseArm>(arms.len(), work)?;
+    let mut copied = Vec::with_capacity(arms.len());
+    for arm in arms {
+        copied.push(SqlCaseArm {
+            condition: copy_sql_expr(&arm.condition, work)?,
+            result: copy_sql_expr(&arm.result, work)?,
+        });
+    }
+    Ok(SqlExpr::Case {
+        arms: copied,
+        else_expr: else_expr.map(|expr| copy_box(expr, work)).transpose()?,
     })
 }

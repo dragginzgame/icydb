@@ -92,6 +92,13 @@ appended predicate constraints. Changing or revisiting a key scope must return
 the same results as fresh planning. Fully covered parameterized plans bind
 current operands through their maintained coverage contract.
 
+Literal-specific plan identity uses full SHA-256 fingerprints of canonical
+values. Expression, access, projection and grouped HAVING identity must preserve
+literal distinctions even when a fast internal value hash collides. Canonical
+value framing and construction admission remain shared; values are streamed
+without retaining a complete encoding buffer. XXH3 is not a query identity
+boundary. Fully covered parameter templates still rebind current operands.
+
 When an uncovered expression and an independent predicate both remain, the
 effective runtime filter enforces their conjunction before windows, reductions
 or mutation selection. Only a complete-coverage proof permits the predicate to

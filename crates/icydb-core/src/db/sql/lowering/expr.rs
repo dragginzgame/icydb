@@ -73,6 +73,11 @@ pub(in crate::db::sql::lowering) fn lower_sql_expr(
             values,
             negated,
         } => lower_sql_membership_expr(expr.as_ref(), values.as_slice(), *negated, phase, work),
+        SqlExpr::BooleanTest {
+            expr,
+            value,
+            negated,
+        } => lower_sql_boolean_test(expr, *value, *negated, phase, work),
         SqlExpr::NullTest { expr, negated } => {
             let arg = lower_sql_expr(expr, phase, work)?;
             charge_storage::<Expr>(1, work)?;
@@ -134,6 +139,34 @@ pub(in crate::db::sql::lowering) fn lower_sql_expr(
             })
         }
     }
+}
+
+// Lower a total Boolean test without duplicating its operand or adding IR kinds.
+fn lower_sql_boolean_test(
+    expr: &SqlExpr,
+    value: bool,
+    negated: bool,
+    phase: SqlExprPhase,
+    work: &PreparationWork<'_>,
+) -> Result<Expr, SqlLoweringError> {
+    // Default UNKNOWN to the opposite Boolean before optional inversion:
+    // IS TRUE uses COALESCE(x, FALSE); IS FALSE uses NOT COALESCE(x, TRUE).
+    // The same operators handle both negated forms, retaining the operand once.
+    let operand = lower_sql_expr(expr, phase, work)?;
+    let invert = value == negated;
+    charge_storage::<Expr>(2 + usize::from(invert), work)?;
+    let total = Expr::FunctionCall {
+        function: Function::Coalesce,
+        args: vec![operand, Expr::Literal(Value::Bool(!value))],
+    };
+    Ok(if invert {
+        Expr::Unary {
+            op: UnaryOp::Not,
+            expr: Box::new(total),
+        }
+    } else {
+        total
+    })
 }
 
 // Charge requested backing immediately before allocation, not retained source

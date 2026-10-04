@@ -170,9 +170,9 @@ impl<'a> SqlInput<'a> {
                 self.budget.payload(pattern.len())?;
                 self.expr(expr, depth + 1)
             }
-            SqlExpr::NullTest { expr, .. } | SqlExpr::Unary { expr, .. } => {
-                self.expr(expr, depth + 1)
-            }
+            SqlExpr::BooleanTest { expr, .. }
+            | SqlExpr::NullTest { expr, .. }
+            | SqlExpr::Unary { expr, .. } => self.expr(expr, depth + 1),
             SqlExpr::Binary { left, right, .. } => {
                 self.expr(left, depth + 1)?;
                 self.expr(right, depth + 1)

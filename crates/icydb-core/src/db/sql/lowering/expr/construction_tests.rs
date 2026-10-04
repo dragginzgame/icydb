@@ -205,17 +205,7 @@ fn scalar_construction_charges_exact_requested_backing() {
             6 + 4 * slot + lower_text_construction_allowance(2).0,
         ),
     ];
-    for (input, bytes) in cases {
-        let exact = request_with_limit(Resource::TemporaryBytes, bytes);
-        assert!(lower(&input, &exact).is_ok(), "{input:?}");
-        assert_eq!(exact.observed(Resource::TemporaryBytes), bytes, "{input:?}");
-        let short = request_with_limit(Resource::TemporaryBytes, bytes - 1);
-        let error = lower(&input, &short).expect_err("must reject before last backing allocation");
-        assert!(error.diagnostic_facts().contains(&(
-            DiagnosticFactTag::BudgetResource,
-            Resource::TemporaryBytes.raw()
-        )));
-    }
+    assert_exact_scalar_backing(cases);
 }
 
 #[test]
@@ -268,4 +258,39 @@ fn failed_construction_preserves_syntax_and_accumulates_retry_work() {
         )
         .is_ok()
     );
+}
+
+fn assert_exact_scalar_backing(cases: impl IntoIterator<Item = (SqlExpr, u64)>) {
+    for (input, bytes) in cases {
+        let exact = request_with_limit(Resource::TemporaryBytes, bytes);
+        assert!(lower(&input, &exact).is_ok(), "{input:?}");
+        assert_eq!(exact.observed(Resource::TemporaryBytes), bytes, "{input:?}");
+        let short = request_with_limit(Resource::TemporaryBytes, bytes - 1);
+        let error = lower(&input, &short).expect_err("must reject before last backing allocation");
+        assert!(error.diagnostic_facts().contains(&(
+            DiagnosticFactTag::BudgetResource,
+            Resource::TemporaryBytes.raw()
+        )));
+    }
+}
+
+#[test]
+fn boolean_test_construction_charges_exact_requested_backing() {
+    let slot = size_of::<Expr>() as u64;
+    // Two COALESCE argument slots, plus an outer NOT box when present.
+    for (value, negated, slots) in [
+        (true, false, 2),
+        (false, false, 3),
+        (true, true, 3),
+        (false, true, 2),
+    ] {
+        assert_exact_scalar_backing([(
+            SqlExpr::BooleanTest {
+                expr: Box::new(field()),
+                value,
+                negated,
+            },
+            4 + slots * slot,
+        )]);
+    }
 }

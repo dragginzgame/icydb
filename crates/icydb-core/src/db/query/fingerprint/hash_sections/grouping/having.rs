@@ -178,7 +178,7 @@ fn hash_group_having_value_expr(
         }
         Expr::Literal(value) => {
             write_tag(hasher, GROUP_HAVING_VALUE_LITERAL_TAG);
-            hasher.update(budget.hash_value(value)?);
+            hasher.update(budget.fingerprint_value(value)?);
         }
         Expr::FunctionCall { function, args } => {
             write_tag(hasher, GROUP_HAVING_VALUE_FUNCTION_TAG);

@@ -165,6 +165,7 @@ fn conjunctive_leaves(expr: &SqlExpr) -> Vec<&SqlExpr> {
         | SqlExpr::Param { .. }
         | SqlExpr::Membership { .. }
         | SqlExpr::NullTest { .. }
+        | SqlExpr::BooleanTest { .. }
         | SqlExpr::Like { .. }
         | SqlExpr::FunctionCall { .. }
         | SqlExpr::Unary { .. }
@@ -214,6 +215,7 @@ fn simple_field_name<'a>(
         | SqlExpr::Param { .. }
         | SqlExpr::Membership { .. }
         | SqlExpr::NullTest { .. }
+        | SqlExpr::BooleanTest { .. }
         | SqlExpr::Like { .. }
         | SqlExpr::FunctionCall { .. }
         | SqlExpr::Unary { .. }

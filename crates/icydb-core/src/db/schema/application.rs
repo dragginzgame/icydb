@@ -16,7 +16,7 @@ use crate::{
             publish_accepted_schema_candidates_with_database_control,
             publish_generated_row_local_abort_with_application_record,
         },
-        data::{DataStore, RawDataStoreKey},
+        data::{DataStore, RawDataStoreKey, StoreVisit},
         index::{IndexState, IndexStore},
         integrity::DatabaseIncarnationId,
         key_taxonomy::RawDataStoreKeyRange,
@@ -220,7 +220,7 @@ struct DirectGeneratedRowLocalProof {
     entity_tag: crate::types::EntityTag,
     entity_path: String,
     constraint_id: ConstraintId,
-    historical_rows: u64,
+    has_rows: bool,
 }
 
 /// One generated row-local constraint whose proof requires durable continuation.
@@ -2335,7 +2335,7 @@ fn preflight_initial_application(
 
 /// Complete generated row-local additions only after a bounded exact proof.
 ///
-/// Empty domains use maintained exact cardinality. At most one non-empty
+/// Empty domains use effective row-key presence. At most one non-empty
 /// activation may consume the canonical exact scan budget. A journaled
 /// proof that exceeds that page becomes one durable pending application;
 /// volatile or additional non-empty proofs reject before publication.
@@ -2350,12 +2350,7 @@ fn preflight_existing_application(
     require_empty_physical_index_removals(authorities, current_bundles, candidates)?;
     require_empty_physical_relation_removals(authorities, current_bundles, candidates)?;
     let proofs = generated_row_local_constraint_proofs(authorities, current_bundles, candidates)?;
-    if proofs
-        .iter()
-        .filter(|proof| proof.historical_rows != 0)
-        .count()
-        > 1
-    {
+    if proofs.iter().filter(|proof| proof.has_rows).count() > 1 {
         return Err(InternalError::store_unsupported());
     }
 
@@ -2376,7 +2371,7 @@ fn preflight_existing_application(
         let mut snapshots = candidate.bundle().entity_snapshots().clone();
         for proof in candidate_proofs {
             let mut promote = true;
-            if proof.historical_rows != 0 {
+            if proof.has_rows {
                 match validate_unpublished_row_local_candidate_bounded(
                     proof.store,
                     proof.store_path,
@@ -2460,18 +2455,7 @@ fn preflight_new_entity_domains(
             if current.entity_snapshots().contains_key(tag) {
                 continue;
             }
-            // Cardinality authority deliberately covers only accepted tags.
-            // Seek the fresh physical prefix and stop at its first visible key;
-            // this also checks journal overlays without reading row payloads.
-            authority.handle.with_data(|store| {
-                let range = RawDataStoreKeyRange::entity_prefix(*tag);
-                let lower = Bound::Included(RawDataStoreKey::store_range_lower_key(&range));
-                let upper = range
-                    .upper_exclusive()
-                    .map(RawDataStoreKey::from_store_range_bound)
-                    .map_or(Bound::Unbounded, Bound::Excluded);
-                store.visit_key_range((lower, upper), |_| Err(InternalError::store_unsupported()))
-            })?;
+            require_exact_empty_entity(authority.handle, *tag)?;
             authority
                 .handle
                 .with_index(|store| prove_empty_user_index_domain(store, *tag))
@@ -2704,7 +2688,7 @@ fn require_empty_physical_index_removals(
 }
 
 /// Prove that every dense field-removal candidate has no historical row to
-/// rewrite. Missing or corrupt maintained cardinality fails closed.
+/// rewrite by inspecting the effective row-key prefix.
 fn require_empty_physical_field_removals(
     authorities: &[StoreApplicationAuthority],
     current_bundles: &[Option<AcceptedSchemaRevisionBundle>],
@@ -2736,23 +2720,34 @@ fn require_empty_physical_field_removals(
     Ok(())
 }
 
-// Prove exact logical emptiness from the maintained cardinality authority.
-// Missing cardinality is corrupt state, not an empty domain or an unsupported
-// user transition.
+// Logical emptiness comes from the effective row owner, not optional counts.
 fn require_exact_empty_entity(
     store: StoreHandle,
     entity_tag: EntityTag,
 ) -> Result<(), InternalError> {
-    require_exact_empty_entity_count(store.exact_entity_count(entity_tag))
-}
-
-fn require_exact_empty_entity_count(count: Option<u64>) -> Result<(), InternalError> {
-    let count = count.ok_or_else(InternalError::store_corruption)?;
-    if count != 0 {
+    if store.with_data(|data| entity_has_rows(data, entity_tag))? {
         return Err(InternalError::store_unsupported());
     }
 
     Ok(())
+}
+
+// Seek this entity's effective prefix and stop at its first visible key. The
+// row store owns overlay/tombstone merging; a presence proof reads no payloads.
+fn entity_has_rows(data: &DataStore, entity: EntityTag) -> Result<bool, InternalError> {
+    let range = RawDataStoreKeyRange::entity_prefix(entity);
+    let lower = Bound::Included(RawDataStoreKey::store_range_lower_key(&range));
+    let upper = range
+        .upper_exclusive()
+        .map(RawDataStoreKey::from_store_range_bound)
+        .map_or(Bound::Unbounded, Bound::Excluded);
+    let mut has_rows = false;
+    data.visit_key_range((lower, upper), |_| {
+        has_rows = true;
+        Ok::<_, InternalError>(StoreVisit::Stop)
+    })?;
+
+    Ok(has_rows)
 }
 
 fn generated_row_local_constraint_proofs(
@@ -2775,11 +2770,14 @@ fn generated_row_local_constraint_proofs(
             let Some(before) = current.entity_snapshots().get(entity_tag) else {
                 continue;
             };
-            for constraint_id in added_generated_row_local_activations(before, after) {
-                let historical_rows = authority
-                    .handle
-                    .exact_entity_count(*entity_tag)
-                    .ok_or_else(InternalError::store_corruption)?;
+            let added = added_generated_row_local_activations(before, after);
+            if added.is_empty() {
+                continue;
+            }
+            let has_rows = authority
+                .handle
+                .with_data(|data| entity_has_rows(data, *entity_tag))?;
+            for constraint_id in added {
                 proofs.push(DirectGeneratedRowLocalProof {
                     candidate_index,
                     store: authority.handle,
@@ -2787,7 +2785,7 @@ fn generated_row_local_constraint_proofs(
                     entity_tag: *entity_tag,
                     entity_path: after.entity_path().to_string(),
                     constraint_id,
-                    historical_rows,
+                    has_rows,
                 });
             }
         }
@@ -3263,6 +3261,11 @@ fn write_allocation_identity(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "sql")]
+    mod sql_activations;
+
+    mod row_presence;
+
     mod entity_creation;
 
     mod collection_relations;
@@ -3296,7 +3299,7 @@ mod tests {
         derive_schema_change_job_id, final_candidates_for_pending_row_local_constraint,
         generated_database_identity, include_identity_state_count, lower_existing_schema_proposal,
         lower_initial_schema_proposal, publish_accepted_schema_candidates_with_application_record,
-        require_exact_empty_entity_count, schema_application_target,
+        schema_application_target,
     };
     use crate::{
         db::{
@@ -3436,18 +3439,6 @@ mod tests {
             generated_database_identity(&ABORT_REGISTRY, first_incarnation),
             first,
         );
-    }
-
-    #[test]
-    fn exact_empty_entity_proof_distinguishes_corruption_from_non_empty_input() {
-        let corrupt = require_exact_empty_entity_count(None)
-            .expect_err("uninspectable cardinality must fail closed");
-        assert_eq!(corrupt.class(), ErrorClass::Corruption);
-
-        let non_empty = require_exact_empty_entity_count(Some(1))
-            .expect_err("non-empty cardinality must reject removal");
-        assert_eq!(non_empty.class(), ErrorClass::Unsupported);
-        assert!(require_exact_empty_entity_count(Some(0)).is_ok());
     }
 
     thread_local! {
@@ -4429,7 +4420,7 @@ mod tests {
                 .entity_path()
                 .to_string(),
             constraint_id,
-            historical_rows: 0,
+            has_rows: false,
         };
         let final_candidates = final_candidates_for_pending_row_local_constraint(
             std::slice::from_ref(&staged),
