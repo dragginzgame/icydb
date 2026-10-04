@@ -223,3 +223,73 @@ fn unsupported_labels_are_bounded_and_first_term_errors_are_preserved() {
         );
     }
 }
+
+#[test]
+fn canonical_group_key_prefix_requires_one_direction_but_top_k_keeps_each_term() {
+    for first in [OrderDirection::Asc, OrderDirection::Desc] {
+        let second = if first == OrderDirection::Asc {
+            OrderDirection::Desc
+        } else {
+            OrderDirection::Asc
+        };
+        let (mut logical, mut group) = fixture(vec![], Some(3));
+        group.group_fields = GroupFieldSet::Direct(vec![
+            FieldSlot::from_test_slot(0, "key"),
+            FieldSlot::from_test_slot(1, "label"),
+        ]);
+        for limit in [None, Some(3)] {
+            logical.page = Some(PageSpec { limit, offset: 0 });
+            logical.order = Some(OrderSpec {
+                fields: vec![
+                    OrderTerm::field("key", first),
+                    OrderTerm::field("label", second),
+                ],
+            });
+            for lane in [Lane::PublicRead, Lane::Diagnostic] {
+                assert_policy(
+                    validate(
+                        &request_with_limit(Resource::TemporaryBytes, 0),
+                        lane,
+                        &logical,
+                        &group,
+                    )
+                    .unwrap_err(),
+                    GroupPlanError::OrderPrefixNotAlignedWithGroupKeys,
+                );
+            }
+            // Terms after the complete unique group key cannot reorder groups.
+            logical.order = Some(OrderSpec {
+                fields: vec![
+                    OrderTerm::field("key", first),
+                    OrderTerm::field("label", first),
+                    OrderTerm::field("key", second),
+                ],
+            });
+            validate(
+                &request_with_limit(Resource::TemporaryBytes, 0),
+                Lane::PublicRead,
+                &logical,
+                &group,
+            )
+            .unwrap();
+        }
+        logical.page = Some(PageSpec {
+            limit: Some(3),
+            offset: 0,
+        });
+        logical.order = Some(OrderSpec {
+            fields: vec![
+                OrderTerm::field("key", first),
+                OrderTerm::field("label", second),
+                OrderTerm::new(Expr::Aggregate(count()), second),
+            ],
+        });
+        validate(
+            &request_with_limit(Resource::TemporaryBytes, 0),
+            Lane::PublicRead,
+            &logical,
+            &group,
+        )
+        .unwrap();
+    }
+}

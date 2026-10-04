@@ -371,16 +371,13 @@ impl GroupedIndexOrderContract {
         order: &OrderSpec,
         budget: &dyn ConstructionBudget,
     ) -> Result<Option<Self>, InternalError> {
-        let Some(first) = order.fields.first() else {
+        let Some(direction) = order
+            .try_uniform_prefix_direction(order.fields.len(), &mut |steps| {
+                budget.charge(Resource::PredicateExpressionSteps, steps)
+            })?
+        else {
             return Ok(None);
         };
-        let direction = first.direction();
-        for term in &order.fields {
-            budget.charge(Resource::PredicateExpressionSteps, 1)?;
-            if term.direction() != direction {
-                return Ok(None);
-            }
-        }
 
         Ok(Some(Self {
             terms: budget.copy_slice(&order.fields, |term| {
@@ -444,6 +441,27 @@ pub(in crate::db) fn grouped_index_key_items_satisfied(
 }
 
 impl OrderSpec {
+    /// Qualify the existing leading order terms against one traversal direction.
+    /// Grouped admission/strategy inspect only the complete group-key prefix;
+    /// index matching inspects every term. No expression labels are allocated.
+    pub(in crate::db) fn try_uniform_prefix_direction<E>(
+        &self,
+        prefix_len: usize,
+        observe: &mut impl FnMut(u64) -> Result<(), E>,
+    ) -> Result<Option<OrderDirection>, E> {
+        let Some(first) = self.fields.first() else {
+            return Ok(None);
+        };
+        let direction = first.direction();
+        for term in self.fields.iter().take(prefix_len) {
+            observe(1)?;
+            if term.direction() != direction {
+                return Ok(None);
+            }
+        }
+        Ok(Some(direction))
+    }
+
     /// Return ordering direction when `ORDER BY` is exactly the ordered
     /// primary-key field list and every term has the same direction.
     #[must_use]

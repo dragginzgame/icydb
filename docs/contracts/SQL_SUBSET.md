@@ -432,6 +432,13 @@ fields and accepted scalar record paths, not arbitrary expressions. A raw path
 in grouped projection, `HAVING`, or grouped `ORDER BY` must match the exact
 canonical identity of a declared grouping key.
 
+Canonical grouped `ORDER BY` must start with the complete grouping-key prefix
+using one direction throughout that prefix. For example, `GROUP BY country,
+city ORDER BY country ASC, city DESC` rejects with a typed grouped-order policy
+error. Aggregate-driven Top-K ordering retains per-term directions and requires
+an explicit LIMIT; it does not issue grouped continuations. See
+`docs/contracts/GROUP-BY.md` for the maintained ordering boundary.
+
 `CREATE INDEX` currently admits field-path secondary indexes and deterministic
 text expression secondary indexes. Single-field, multi-field, unique, explicit
 `ASC`, filtered `WHERE` predicates, and `LOWER`/`UPPER`/`TRIM` expression keys
@@ -916,6 +923,19 @@ Narrow casefolded predicate forms are also supported:
 
 - `LOWER(field) LIKE 'prefix%'`
 - `STARTS_WITH(LOWER(field), 'prefix')`
+
+These filters fold their text literals before predicate extraction or expression
+execution. Mixed-case prefixes and literals have the same meaning in optimized
+reads, expression-backed filters, exact UPDATE and newly prepared resumable
+UPDATE scopes. For example, `name ILIKE 'Al%'` matches both `Alice` and `alan`;
+adding a nonmatching expression branch does not change those matches.
+The same rule applies to literal comparisons, text membership and
+`CONTAINS`/`ENDS_WITH` filters whose target is `LOWER(field)`. NULL retains SQL
+UNKNOWN semantics. Ordinary scalar `LOWER` projections retain their transform
+semantics.
+Recreate pre-fix mutation jobs affected by mixed-case casefold literals with
+fresh identities and restart affected saved continuations; their captured
+expression/signature literals now use the current canonical form.
 
 `UPPER(...)` remains available as an ordinary scalar expression, including in
 full SQL boolean expressions, projections, ordering, and accepted expression

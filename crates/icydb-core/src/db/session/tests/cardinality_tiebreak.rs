@@ -3,6 +3,7 @@
 mod access_projection;
 mod aggregate_composition;
 mod branch_distinct;
+mod casefold_filters;
 mod composite_primary_keys;
 mod cursor_entropy;
 mod historical_field_paths;
@@ -16,6 +17,7 @@ mod owned_group_keys;
 mod prefix_accounting;
 mod prepared_explain;
 mod primary_key_ranges;
+mod principal_ranges;
 mod projection_metadata;
 mod residual_bounds;
 mod residual_filters;
@@ -27,6 +29,7 @@ mod sql_not_null;
 mod timestamp_ranges;
 mod typed_explain;
 mod unordered_distinct;
+mod zero_key_aggregates;
 
 use crate::{
     db::{

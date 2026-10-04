@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::{
-    db::{count, sum},
+    db::{QueryError, count, sum},
     types::Decimal,
     value::Value,
 };
@@ -400,6 +400,159 @@ fn owned_group_order_signed_matrix() {
         AcceptedFieldKind::Int128,
         [-7, 0, 9].map(Value::Int128).to_vec(),
     );
+}
+
+fn assert_canonical_order_rejection(error: QueryError) {
+    use crate::db::query::plan::validate::{GroupPlanError, PlanErrorKind, PlanPolicyError};
+    let QueryError::Plan(error) = error else {
+        panic!("expected grouped planning rejection");
+    };
+    let PlanErrorKind::Policy(error) = error.into_kind() else {
+        panic!("expected grouped order policy rejection");
+    };
+    let PlanPolicyError::Group(error) = *error else {
+        panic!("expected grouped order error");
+    };
+    assert_eq!(*error, GroupPlanError::OrderPrefixNotAlignedWithGroupKeys);
+}
+
+#[test]
+fn owned_group_order_rejects_mixed_canonical_directions() {
+    assert_mixed_group_direction_rejection(
+        AcceptedFieldKind::Text { max_len: None },
+        ["eng", "ops", "sales"]
+            .map(|key| Value::Text(key.into()))
+            .to_vec(),
+    );
+}
+
+#[test]
+fn owned_group_order_rejects_signed_mixed_canonical_directions() {
+    assert_mixed_group_direction_rejection(
+        AcceptedFieldKind::Int128,
+        [-7, 0, 9].map(Value::Int128).to_vec(),
+    );
+}
+
+fn assert_mixed_group_direction_rejection(kind: AcceptedFieldKind, values: Vec<Value>) {
+    use crate::db::desc;
+    seed_order_groups(kind, &values);
+    let root = crate::db::RequestExecutionRoot::__new_runtime_root();
+    let session = new_request_session(&root);
+    for descending in [false, true] {
+        let base = DynamicQuery::new(ENTITY_NAME)
+            .filter(FieldRef::new("category").eq(InputValue::nat64(3)))
+            .group_by("operand")
+            .group_by("label")
+            .order_by(if descending {
+                desc("operand")
+            } else {
+                asc("operand")
+            })
+            .order_by(if descending {
+                asc("label")
+            } else {
+                desc("label")
+            })
+            .grouped_limits(8, 64 * 1024);
+        for aggregates in 0..3 {
+            let query = match aggregates {
+                0 => base.clone().aggregate(count()),
+                1 => base.clone().aggregate(sum("id")),
+                _ => base.clone().aggregate(count()).aggregate(sum("id")),
+            };
+            for limit in [None, Some(2), Some(20)] {
+                let query = limit.map_or_else(|| query.clone(), |limit| query.clone().limit(limit));
+                session.clear_shared_query_cache_for_tests(4 * 1024 * 1024);
+                for _ in 0..2 {
+                    assert_canonical_order_rejection(
+                        session
+                            .execute_public_dynamic_grouped_query(&query)
+                            .expect_err("mixed group-key directions must reject before execution"),
+                    );
+                    assert_canonical_order_rejection(
+                        session
+                            .execute_trusted_dynamic_grouped_query(&query)
+                            .expect_err("trusted execution retains grouped order admission"),
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "sql")]
+#[test]
+fn owned_group_order_sql_rejects_mixed_keys_and_preserves_top_k() {
+    let values = ["eng", "ops", "sales"].map(|key| Value::Text(key.into()));
+    seed_order_groups(AcceptedFieldKind::Text { max_len: None }, &values);
+    let root = crate::db::RequestExecutionRoot::__new_runtime_root();
+    let session = new_request_session(&root);
+    for order in ["operand ASC, label DESC", "operand DESC, label ASC"] {
+        for aggregate in ["COUNT(*)", "SUM(id)", "COUNT(*), SUM(id)"] {
+            for window in ["", " LIMIT 2", " LIMIT 20 OFFSET 1"] {
+                let sql = format!(
+                    "SELECT operand, label, {aggregate} FROM PlannerRow WHERE category = 3 GROUP BY operand, label ORDER BY {order}{window}"
+                );
+                for _ in 0..2 {
+                    assert_canonical_order_rejection(
+                        session.execute_trusted_sql_query(&sql).unwrap_err(),
+                    );
+                }
+            }
+        }
+    }
+    // An aggregate term selects the existing per-term, non-resumable Top-K lane.
+    // Its mixed key directions are valid and must not inherit canonical rejection.
+    for order in [
+        "operand ASC, label DESC, COUNT(*) DESC",
+        "operand DESC, label ASC, COUNT(*) ASC",
+    ] {
+        let descending = order.starts_with("operand DESC");
+        let mut counts = BTreeMap::<(usize, &str), u64>::new();
+        for (key, label) in ORDER_ROWS {
+            *counts.entry((key, label)).or_default() += 1;
+        }
+        let mut expected = counts.into_iter().collect::<Vec<_>>();
+        expected.sort_by(
+            |((left_key, left_label), _), ((right_key, right_label), _)| {
+                let cmp = left_key.cmp(right_key);
+                let cmp = if descending { cmp.reverse() } else { cmp };
+                cmp.then_with(|| {
+                    let cmp = left_label.cmp(right_label);
+                    if descending { cmp } else { cmp.reverse() }
+                })
+            },
+        );
+        expected.truncate(3);
+        let sql = format!(
+            "SELECT operand, label, COUNT(*) FROM PlannerRow WHERE category = 3 GROUP BY operand, label ORDER BY {order} LIMIT 3"
+        );
+        for _ in 0..2 {
+            let SqlStatementResult::Grouped {
+                rows, next_cursor, ..
+            } = session.execute_trusted_sql_query(&sql).unwrap()
+            else {
+                panic!("expected grouped Top-K rows");
+            };
+            assert!(next_cursor.is_none());
+            assert_eq!(
+                rows.iter()
+                    .map(|row| (row.group_key().to_vec(), row.aggregate_values().to_vec()))
+                    .collect::<Vec<_>>(),
+                expected
+                    .iter()
+                    .map(|((key, label), count)| (
+                        vec![
+                            OutputValue::from(values[*key].clone()),
+                            OutputValue::text((*label).into())
+                        ],
+                        vec![OutputValue::nat64(*count)]
+                    ))
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
 }
 
 #[test]

@@ -529,7 +529,8 @@ pub enum GroupPlanError {
     /// GROUP BY does not accept DISTINCT unless adjacency eligibility is explicit.
     DistinctAdjacencyEligibilityRequired,
 
-    /// GROUP BY ORDER BY shape must start with grouped-key prefix.
+    /// GROUP BY ORDER BY must start with the canonical grouped-key prefix,
+    /// whose terms share one traversal direction.
     OrderPrefixNotAlignedWithGroupKeys,
 
     /// GROUP BY ORDER BY expression parses but is not admissible for grouped ordering.

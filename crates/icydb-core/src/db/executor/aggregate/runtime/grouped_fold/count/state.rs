@@ -49,12 +49,12 @@ impl GroupedCountState {
         Ok(())
     }
 
-    // Insert one newly observed grouped key after the borrowed fast path has
-    // already ruled out an existing canonical group match.
+    // Admit one canonical group with zero implicit rows or its first observed row.
     pub(super) fn insert_new_group(
         &mut self,
         group_hash: StableHash,
         group_key: GroupKey,
+        initial_count: u32,
         grouped_execution_context: &mut ExecutionContext,
     ) -> Result<(), InternalError> {
         grouped_execution_context
@@ -73,7 +73,7 @@ impl GroupedCountState {
         if new_hash_bucket {
             try_reserve_hash_entry(&mut self.bucket_index)?;
         }
-        self.groups.push((group_key, 1));
+        self.groups.push((group_key, initial_count));
         if let Some(bucket) = self.bucket_index.get_mut(&group_hash) {
             bucket.push_index(new_index)?;
         } else {

@@ -128,6 +128,20 @@ fn validate_canonical_order_lane(
         }
     }
 
+    // Canonical finalization and continuation compare the complete key using
+    // one direction. Hash fallback cannot implement a mixed-direction prefix.
+    if !group_fields.is_empty()
+        && order
+            .try_uniform_prefix_direction(group_fields.len(), &mut |steps| {
+                work.charge(Resource::PredicateExpressionSteps, steps)
+            })?
+            .is_none()
+    {
+        return Err(
+            PlanError::from(GroupPlanError::order_prefix_not_aligned_with_group_keys()).into(),
+        );
+    }
+
     Ok(GroupedOrderCursorLane::Canonical)
 }
 

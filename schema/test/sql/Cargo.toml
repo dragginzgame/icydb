@@ -18,7 +18,7 @@ entity-creation = ["entity-rename"]
 entity-creation-physical = ["entity-creation"]
 
 [dependencies]
-icydb = { workspace = true }
+icydb = { workspace = true, default-features = true }
 icydb-model = { workspace = true }
 icydb-testing-wasm-helpers = { workspace = true }
 

@@ -91,7 +91,7 @@ done
 
 model_dependency_leaks="$(
   rg -n --no-heading --color=never \
-    '^[[:space:]]*icydb[[:space:]]*=|^[[:space:]]*icydb-(cli|config|core|diagnostic-code|utils)[[:space:]]*=|package[[:space:]]*=[[:space:]]*"icydb"' \
+    '^[[:space:]]*(icydb|runtime_api)[[:space:]]*=|^[[:space:]]*icydb-(cli|config|core|diagnostic-code|utils)[[:space:]]*=|package[[:space:]]*=[[:space:]]*"icydb"' \
     "$MODEL_CARGO" "$MODEL_MACROS_CARGO" || true
 )"
 if [[ -n "$model_dependency_leaks" ]]; then
@@ -112,7 +112,7 @@ done
 
 schema_only_runtime_leaks="$(
   rg -n --no-heading --color=never \
-    'package[[:space:]]*=[[:space:]]*"icydb(-core)?"|^[[:space:]]*icydb(-core)?[[:space:]]*=' \
+    'package[[:space:]]*=[[:space:]]*"icydb(-core)?"|^[[:space:]]*(icydb(-core)?|runtime_api)[[:space:]]*=' \
     "$SCHEMA_ONLY_FIXTURE_CARGO" || true
 )"
 if [[ -n "$schema_only_runtime_leaks" ]]; then
@@ -121,13 +121,16 @@ if [[ -n "$schema_only_runtime_leaks" ]]; then
     "$schema_only_runtime_leaks"
 fi
 
+# Fixture imports stay renamed; package identity is inherited from the root.
 for required_typed_fixture_dependency in \
-  'package = "icydb-model"' \
-  'package = "icydb"'
+  'model_api:icydb-model' \
+  'runtime_api:icydb'
 do
-  if ! rg -q --fixed-strings \
-    "$required_typed_fixture_dependency" \
-    "$TYPED_ADAPTER_FIXTURE_CARGO"
+  alias="${required_typed_fixture_dependency%%:*}"
+  package="${required_typed_fixture_dependency#*:}"
+  if ! rg -q "^${alias}[[:space:]]*=.*workspace[[:space:]]*=[[:space:]]*true" \
+    "$TYPED_ADAPTER_FIXTURE_CARGO" ||
+     ! rg -q "^${alias}[[:space:]]*=.*package[[:space:]]*=[[:space:]]*\"${package}\"" Cargo.toml
   then
     echo "[ERROR] typed-adapter fixture must exercise both renamed direct dependencies: $required_typed_fixture_dependency" >&2
     status=1
@@ -139,7 +142,7 @@ if ! rg -q --fixed-strings 'pub use icydb_model as model;' "$FACADE_LIB"; then
   status=1
 fi
 
-if ! rg -q --fixed-strings 'package = "icydb"' "$FACADE_ONLY_FIXTURE_CARGO" ||
+if ! rg -q '^runtime_api[[:space:]]*=.*workspace[[:space:]]*=[[:space:]]*true' "$FACADE_ONLY_FIXTURE_CARGO" ||
    rg -q --no-heading --color=never \
      '^[[:space:]]*icydb-(core|model|model-macros|schema)[[:space:]]*=' \
      "$FACADE_ONLY_FIXTURE_CARGO"

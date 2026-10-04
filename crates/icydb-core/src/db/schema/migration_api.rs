@@ -153,6 +153,8 @@ pub enum SchemaMigrationFindingKind {
     Relation,
     /// Candidate row-constraint meaning failed.
     Constraint,
+    /// One indivisible row or its derived effects exceed fixed migration page capacity.
+    ResourceLimit,
 }
 
 /// One bounded accepted-ID migration finding.

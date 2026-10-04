@@ -21,12 +21,12 @@ test-admin-api = ["sql"]
 candid = { workspace = true }
 ic-cdk = { workspace = true }
 ic-timers = { workspace = true }
-icydb = { path = "../../../crates/icydb", default-features = false }
+icydb = { workspace = true }
 icydb-testing-audit-sql-perf-fixtures = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 
 [build-dependencies]
-icydb = { path = "../../../crates/icydb", default-features = false }
+icydb = { workspace = true }
 icydb-testing-audit-sql-perf-fixtures = { workspace = true }
 
 [lints]

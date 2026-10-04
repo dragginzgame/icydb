@@ -23,10 +23,10 @@ use crate::{
         registry::{StoreHandle, StoreRecoveryCapability},
         relation::{RelationConstraintProjection, ReverseRelationSourceInfo},
         schema::{
-            AcceptedCatalogSnapshotSelection, CompiledAcceptedRowConstraints,
-            PersistedSchemaMigrationFinding, PersistedSchemaMigrationFindingKind,
-            PersistedSchemaMigrationProgress, PersistedSchemaMigrationRowCursor,
-            UniqueConstraintProjection, accepted_schema_cache_fingerprint,
+            AcceptedCatalogSnapshotSelection, PersistedSchemaMigrationFinding,
+            PersistedSchemaMigrationFindingKind, PersistedSchemaMigrationProgress,
+            PersistedSchemaMigrationRowCursor, UniqueConstraintProjection,
+            migration_execution::{prepare_candidate_entity, prepare_candidate_row_rewrite},
             migration_planner::PlannedSchemaMigration,
             migration_transform::CompiledMigrationEntityProgram,
         },
@@ -83,6 +83,7 @@ pub(in crate::db::schema) fn validate_migration_page<C: CanisterKind>(
     db: &Db<C>,
     planned: &PlannedSchemaMigration,
     before_progress: &PersistedSchemaMigrationProgress,
+    plan_digest: icydb_schema::SchemaMigrationPlanDigest,
 ) -> Result<MigrationValidationPage, InternalError> {
     MaintenanceConstructionBudget::new().run(
         |work| {
@@ -132,6 +133,7 @@ pub(in crate::db::schema) fn validate_migration_page<C: CanisterKind>(
                     remaining_decoded_bytes,
                     remaining_staged_bytes,
                     MAX_SCHEMA_MIGRATION_FINDINGS.saturating_sub(findings.len()),
+                    plan_digest,
                     work,
                 )?;
                 remaining_rows = remaining_rows.saturating_sub(page.rows);
@@ -197,6 +199,7 @@ fn validate_entity_page<C: CanisterKind>(
     decoded_budget: usize,
     staged_budget: usize,
     finding_budget: usize,
+    plan_digest: icydb_schema::SchemaMigrationPlanDigest,
     work: &dyn ConstructionBudget,
 ) -> Result<EntityValidationPage, InternalError> {
     let before_selection = store
@@ -222,19 +225,10 @@ fn validate_entity_page<C: CanisterKind>(
     )?
     .ok_or_else(InternalError::store_invariant)?;
     let candidate_schema = candidate_selection.snapshot();
-    let candidate_authority =
-        crate::db::data::AcceptedStructuralRowAuthority::from_catalog_selection(
-            program.candidate_path(),
-            &candidate_selection,
-        )?;
-    let (_, candidate_contract) = candidate_authority.into_parts();
-    let fingerprint = accepted_schema_cache_fingerprint(&candidate_schema)?;
-    let constraints = CompiledAcceptedRowConstraints::compile(
-        &candidate_schema,
-        candidate_selection.value_catalog_handle(),
-        fingerprint,
-        work,
-    )?;
+    let prepared = prepare_candidate_entity(db, program, candidate, work)?;
+    let candidate_contract = &prepared.candidate_contract;
+    let fingerprint = prepared.candidate_fingerprint;
+    let constraints = &prepared.constraints;
     let unique = candidate_schema
         .persisted_snapshot()
         .indexes()
@@ -249,7 +243,7 @@ fn validate_entity_page<C: CanisterKind>(
         })
         .chain(candidate_schema.persisted_snapshot().candidate_indexes())
         .filter(|index| index.unique())
-        .map(|index| UniqueConstraintProjection::new(program.entity(), index, &candidate_contract))
+        .map(|index| UniqueConstraintProjection::new(program.entity(), index, candidate_contract))
         .collect::<Result<Vec<_>, _>>()?;
     let source = ReverseRelationSourceInfo::new(program.candidate_path(), program.entity());
     let relations = candidate_schema
@@ -267,7 +261,7 @@ fn validate_entity_page<C: CanisterKind>(
                 db,
                 source.clone(),
                 candidate_schema.persisted_snapshot(),
-                &candidate_contract,
+                candidate_contract,
                 edge,
                 crate::db::relation::accepted_relation_target_contract(db, edge.target_path())?,
             )
@@ -283,7 +277,7 @@ fn validate_entity_page<C: CanisterKind>(
                         db,
                         source.clone(),
                         candidate_schema.persisted_snapshot(),
-                        &candidate_contract,
+                        candidate_contract,
                         edge,
                         crate::db::relation::accepted_relation_target_contract(
                             db,
@@ -336,10 +330,17 @@ fn validate_entity_page<C: CanisterKind>(
                     .decoded_bytes
                     .checked_add(raw_row.len())
                     .ok_or_else(InternalError::store_invariant)?;
+                if raw_row.len() > MAX_MIGRATION_VALIDATION_DECODED_BYTES_PER_PAGE {
+                    page.findings.push(migration_finding(
+                        PersistedSchemaMigrationFindingKind::ResourceLimit,
+                        program,
+                        raw_key,
+                    )?);
+                    // Only key/length are inspected; oversized stored bytes are never decoded.
+                    observe_row_progress(&mut page, program, raw_key, 0)?;
+                    return Ok(StoreVisit::Continue);
+                }
                 if next_decoded_bytes > decoded_budget {
-                    if page.rows == 0 {
-                        return Err(InternalError::store_unsupported());
-                    }
                     page.exhausted = false;
                     return Ok(StoreVisit::Stop);
                 }
@@ -352,7 +353,7 @@ fn validate_entity_page<C: CanisterKind>(
                     &before_contract,
                 )?;
                 before.validate_primary_key(&decoded)?;
-                let candidate_row = match program.evaluate(&before, &candidate_contract, &decoded) {
+                let candidate_row = match program.evaluate(&before, candidate_contract, &decoded) {
                     Ok(row) => row,
                     Err(finding) => {
                         page.findings
@@ -364,7 +365,7 @@ fn validate_entity_page<C: CanisterKind>(
                 let candidate_reader =
                     StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
                         candidate_row.as_raw_row(),
-                        &candidate_contract,
+                        candidate_contract,
                     )?;
                 let values =
                     candidate_reader.decode_selected_slot_values(constraints.required_slots())?;
@@ -450,14 +451,32 @@ fn validate_entity_page<C: CanisterKind>(
                         key,
                     });
                 }
+                let rewrite = prepare_candidate_row_rewrite(
+                    store,
+                    program,
+                    &prepared,
+                    raw_key,
+                    &decoded,
+                    candidate_row.as_raw_row(),
+                    plan_digest,
+                    work,
+                )?;
+                if !rewrite.fits_full_page()
+                    || row_staged_bytes > MAX_MIGRATION_VALIDATION_STAGED_BYTES_PER_PAGE
+                {
+                    page.findings.push(migration_finding(
+                        PersistedSchemaMigrationFindingKind::ResourceLimit,
+                        program,
+                        raw_key,
+                    )?);
+                    observe_row_progress(&mut page, program, raw_key, raw_row.len())?;
+                    return Ok(StoreVisit::Continue);
+                }
                 let next_bytes = page
                     .staged_bytes
                     .checked_add(row_staged_bytes)
                     .ok_or_else(InternalError::store_invariant)?;
                 if next_bytes > staged_budget {
-                    if page.rows == 0 {
-                        return Err(InternalError::store_unsupported());
-                    }
                     page.exhausted = false;
                     return Ok(StoreVisit::Stop);
                 }

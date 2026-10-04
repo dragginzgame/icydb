@@ -596,8 +596,8 @@ fn index_key_golden_snapshot_system_two_component_text_and_identifier() {
     expected.push(2);
     expected.extend_from_slice(&[0x00, 0x08]);
     expected.extend_from_slice(&[0x12, b'a', b'l', b'p', b'h', b'a', 0x00, 0x00]);
-    expected.extend_from_slice(&[0x00, 0x06]);
-    expected.extend_from_slice(&[0x10, 0x01, 0x02, 0x03, 0x00, 0x00]);
+    expected.extend_from_slice(&[0x00, 0x05]);
+    expected.extend_from_slice(&[0x10, 0x03, 0x01, 0x02, 0x03]);
     expected.extend_from_slice(&[0x00, 0x01, 0x10]);
 
     assert_eq!(
@@ -1517,6 +1517,81 @@ fn in_range(
         RangeBound::Excluded(bound) => raw < bound,
     };
     lower_ok && upper_ok
+}
+
+#[test]
+fn principal_component_bounds_match_semantic_order_inside_compound_keys() {
+    let principals = [
+        Principal::from_slice(&[]),
+        Principal::from_slice(&[255]),
+        Principal::from_slice(&[4]),
+        Principal::from_slice(&[0, 255]),
+        Principal::from_slice(&[1, 0]),
+        Principal::from_slice(&[0; 29]),
+        Principal::from_slice(&[2; 29]),
+        Principal::from_slice(&[255; 29]),
+    ];
+    let prefix = [encode_component(&Value::Nat64(7))];
+    for bound in principals {
+        for inclusive in [false, true] {
+            for lower in [false, true] {
+                let bytes = encode_component(&Value::Principal(bound));
+                let endpoint = if inclusive {
+                    RangeBound::Included(bytes)
+                } else {
+                    RangeBound::Excluded(bytes)
+                };
+                let (start, end) = IndexKey::raw_bounds_for_prefix_component_range_with_kind(
+                    &index_id(),
+                    IndexKeyKind::User,
+                    3,
+                    &prefix,
+                    if lower {
+                        &endpoint
+                    } else {
+                        &RangeBound::Unbounded
+                    },
+                    if lower {
+                        &RangeBound::Unbounded
+                    } else {
+                        &endpoint
+                    },
+                )
+                .unwrap();
+                for owner in principals {
+                    for leading in [7, 8] {
+                        for trailing in [0, 255] {
+                            let key = key_with(
+                                IndexKeyKind::User,
+                                index_id(),
+                                vec![
+                                    encode_component(&Value::Nat64(leading)),
+                                    encode_component(&Value::Principal(owner)),
+                                    encode_component(&Value::Nat64(trailing)),
+                                ],
+                                vec![1],
+                            );
+                            let raw = key.to_raw().unwrap();
+                            assert_eq!(IndexKey::try_from_raw(&raw).unwrap(), key);
+                            let expected = leading == 7
+                                && if lower {
+                                    if inclusive {
+                                        owner >= bound
+                                    } else {
+                                        owner > bound
+                                    }
+                                } else if inclusive {
+                                    owner <= bound
+                                } else {
+                                    owner < bound
+                                };
+                            assert_eq!(in_range(&raw, &start, &end), expected);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[test]

@@ -246,13 +246,17 @@ impl<State> OrderedGroupFoldState<State> {
         Ok(())
     }
 
-    // Open one active group after reserving its one-group live-state budget.
-    fn open_group(
+    // Open one active group, including an implicit group before any source row,
+    // after reserving its one-group live-state budget.
+    pub(super) fn open_group(
         &mut self,
         group_key: GroupKey,
         create_state: impl FnOnce() -> State,
         execution_context: &mut ExecutionContext,
     ) -> Result<(), GroupError> {
+        if self.active.is_some() {
+            return Err(GroupError::from(InternalError::query_executor_invariant()));
+        }
         execution_context.reserve_ordered_group_states(self.aggregate_state_count, &group_key)?;
         self.active = Some((group_key, create_state()));
 
@@ -298,6 +302,19 @@ impl OrderedGroupedAggregateFold {
     #[must_use]
     pub(super) const fn aggregate_count(&self) -> usize {
         self.aggregate_specs.len()
+    }
+
+    // Admit the empty-tuple group with the ordinary initial reducer states.
+    pub(super) fn open_implicit_group(
+        &mut self,
+        execution_context: &mut ExecutionContext,
+    ) -> Result<(), GroupError> {
+        let specs = self.aggregate_specs.as_slice();
+        self.transitions.open_group(
+            GroupKey::from_group_values(Vec::new()).map_err(GroupError::from)?,
+            || GroupedAggregateGroupState::from_specs(specs),
+            execution_context,
+        )
     }
 
     /// Ingest one ordered generic aggregate row through the shared transition owner.
@@ -513,9 +530,8 @@ impl GroupedAggregateBundle {
         .map_err(GroupError::from)
     }
 
-    // Create one new group entry and preserve grouped budget accounting under
-    // the old per-aggregate-state budget model.
-    fn insert_new_group(
+    // Admit one canonical group and its reducer states before retaining backing.
+    pub(super) fn insert_new_group(
         &mut self,
         group_key: GroupKey,
         execution_context: &mut ExecutionContext,

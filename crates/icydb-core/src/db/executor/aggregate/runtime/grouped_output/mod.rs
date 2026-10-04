@@ -18,15 +18,21 @@ use crate::{
 };
 use std::borrow::Cow;
 
-// Check grouped cardinality where the fold still owns its filtered-row count.
-// Global DISTINCT can emit one implicit group for empty input and bypasses this check.
+// Keyed output cannot exceed input rows; zero keys own one implicit group even
+// on empty input. HAVING and pagination may suppress that result.
 pub(in crate::db::executor::aggregate::runtime) fn finalize_grouped_output(
     page: GroupedCursorPage,
     filtered_rows: usize,
+    group_field_count: usize,
 ) -> GroupedCursorPage {
+    let max_groups = if group_field_count == 0 {
+        1
+    } else {
+        filtered_rows
+    };
     debug_assert!(
-        filtered_rows >= page.rows.len(),
-        "grouped pagination must return at most filtered row cardinality",
+        max_groups >= page.rows.len(),
+        "grouped pagination must respect keyed or implicit-group cardinality",
     );
 
     page

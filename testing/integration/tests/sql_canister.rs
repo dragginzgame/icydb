@@ -112,23 +112,23 @@ const SQL_FIXTURE_POOL_CAPACITY: usize = 8;
 const SQL_BOUNDED_FIXTURE_POOL_CAPACITY: usize = 4;
 
 static SQL_FIXTURE_POOL: CachedStandaloneCanisterFixturePool<SQL_FIXTURE_POOL_CAPACITY> =
-    CachedStandaloneCanisterFixturePool::new();
+    CachedStandaloneCanisterFixturePool::new(|| install_fixture_canister("sql"));
 static SQL_BOUNDED_FIXTURE_POOL: CachedStandaloneCanisterFixturePool<
     SQL_BOUNDED_FIXTURE_POOL_CAPACITY,
-> = CachedStandaloneCanisterFixturePool::new();
+> = CachedStandaloneCanisterFixturePool::new(|| install_fixture_canister("sql_bounded"));
 
 fn install_sql_canister_fixture() -> CachedStandaloneCanisterFixtureGuard<'static> {
     // Bound concurrent PocketIC ownership while restoring the installed
     // canister to its exact post-install baseline for every test lease.
     SQL_FIXTURE_POOL
-        .acquire(|| install_fixture_canister("sql"))
+        .acquire()
         .unwrap_or_else(|error| panic!("SQL fixture pool should restore cleanly: {error}"))
         .0
 }
 
 fn install_sql_bounded_canister_fixture() -> CachedStandaloneCanisterFixtureGuard<'static> {
     SQL_BOUNDED_FIXTURE_POOL
-        .acquire(|| install_fixture_canister("sql_bounded"))
+        .acquire()
         .unwrap_or_else(|error| panic!("bounded SQL fixture pool should restore cleanly: {error}"))
         .0
 }

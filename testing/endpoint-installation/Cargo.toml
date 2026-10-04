@@ -22,11 +22,11 @@ candid-export = []
 [dependencies]
 candid = { workspace = true }
 ic-cdk = { workspace = true }
-runtime_api = { package = "icydb", path = "../../crates/icydb", default-features = false }
+runtime_api = { workspace = true }
 
 [build-dependencies]
 icydb-testing-audit-default-empty-fixtures = { workspace = true }
-runtime_api = { package = "icydb", path = "../../crates/icydb", default-features = false }
+runtime_api = { workspace = true }
 
 [lints]
 workspace = true

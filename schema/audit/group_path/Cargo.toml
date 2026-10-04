@@ -10,7 +10,7 @@ description = "Frozen scalar record-path grouping comparison schema"
 ignored = ["icydb"]
 
 [dependencies]
-icydb = { path = "../../../crates/icydb", default-features = false }
+icydb = { workspace = true }
 icydb-model = { workspace = true }
 icydb-testing-wasm-helpers = { workspace = true }
 

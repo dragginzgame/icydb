@@ -71,6 +71,22 @@ Paths through lists, sets, maps, tuples, newtypes, or blobs do not become group
 keys. A raw path used by grouped projection, `HAVING`, or grouped `ORDER BY`
 must match the exact canonical identity of a declared grouping key.
 
+### 2.6 Zero-Key Aggregate Group
+
+An admitted grouped aggregate with no grouping keys owns one implicit group,
+identified by the canonical empty tuple. Empty source input or no rows matching
+`WHERE` still produces that group's aggregate result: `COUNT` is zero, while
+`SUM`, `AVG`, `MIN` and `MAX` are `NULL` when their inputs contain no values.
+An aggregate `FILTER` excludes values from its reducer without removing the
+group. `COUNT(*)` counts rows; value-input `COUNT` excludes `NULL` values.
+
+Existing `HAVING`, offset and limit semantics apply to the finalized group and
+may suppress its output. The group and its reducer states consume the existing
+group count, memory and request budgets even when the source is empty. Keyed
+grouping with no matching rows produces no groups. These result guarantees do
+not widen aggregate-shape admission or add implicit grouped execution to scalar
+APIs.
+
 ## 3. Ordering Semantics
 
 ### 3.1 GROUP BY Without ORDER BY
@@ -94,6 +110,18 @@ If `ORDER BY` is supplied:
 
 - ordering semantics follow explicit order-by evaluation
 - deterministic ordering MUST still hold under grouping
+
+Canonical grouped-key ordering requires the complete grouping-key prefix in
+grouping order, with one shared direction (all ASC or all DESC). Mixed directions
+inside that prefix reject with the typed `OrderPrefixNotAlignedWithGroupKeys`
+planning policy error before execution. Additional terms after the complete key
+cannot change group order. This restriction applies to both COUNT and generic
+reducers, with or without a finite LIMIT.
+
+Aggregate-driven Top-K ordering evaluates each term's own direction, requires
+an explicit LIMIT and remains non-resumable. It can admit mixed grouped-key
+directions because it uses that existing per-term comparator. Ordinary scalar
+mixed-direction ordering is unchanged.
 
 ## 4. Execution Shape
 

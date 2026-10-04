@@ -1319,7 +1319,8 @@ fn advance_active_schema_migration<C: CanisterKind>(
                 ));
             }
             let planned = recompile_active_physical_migration(db, proposal, record)?;
-            let page = validate_migration_page(db, &planned, record.progress())?;
+            let page =
+                validate_migration_page(db, &planned, record.progress(), record.plan_digest())?;
             let (progress, staged_entries, exhausted) = page.into_parts();
             let phase = if progress.findings().is_empty() {
                 if exhausted {
@@ -1806,6 +1807,9 @@ fn active_migration_status(
                 }
                 PersistedSchemaMigrationFindingKind::Constraint => {
                     SchemaMigrationFindingKind::Constraint
+                }
+                PersistedSchemaMigrationFindingKind::ResourceLimit => {
+                    SchemaMigrationFindingKind::ResourceLimit
                 }
             };
             SchemaMigrationFinding::new(
@@ -3277,6 +3281,9 @@ mod tests {
 
     #[cfg(feature = "migration")]
     mod nested_migration;
+
+    #[cfg(feature = "migration")]
+    mod migration_page_limits;
 
     #[cfg(feature = "migration")]
     mod record_member_rename;
@@ -5199,8 +5206,13 @@ mod tests {
         let planned = super::recompile_active_physical_migration(&db, &proposal, &record)
             .expect("the exact active plan should recompile");
         for _ in 0..2 {
-            let page = super::validate_migration_page(&db, &planned, record.progress())
-                .expect("the same validation page should remain replayable");
+            let page = super::validate_migration_page(
+                &db,
+                &planned,
+                record.progress(),
+                record.plan_digest(),
+            )
+            .expect("the same validation page should remain replayable");
             let (progress, staged, exhausted) = page.into_parts();
             assert!(progress.findings().is_empty());
             assert!(exhausted);

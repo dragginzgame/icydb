@@ -65,6 +65,16 @@ pub(super) fn execute_single_grouped_count_fold_stage(
     let consistency = route.consistency();
     let key_path = GroupedCountKeyPath::for_route(route, effective_runtime_filter_program);
     let mut grouped_counts = GroupedCountState::new();
+    // Empty global input still owns one real, budgeted result group.
+    if route.group_fields().is_empty() {
+        let group_key = GroupKey::from_group_values(Vec::new())?;
+        grouped_counts.insert_new_group(
+            group_key.hash(),
+            group_key,
+            0,
+            grouped_execution_context,
+        )?;
+    }
     let mut filtered_rows = 0usize;
 
     // Phase 1: fold grouped source rows directly into one canonical count map.
@@ -123,6 +133,7 @@ pub(super) fn execute_single_grouped_count_fold_stage(
             next_cursor,
         },
         filtered_rows,
+        route.group_fields().len(),
     ))
 }
 
@@ -135,6 +146,15 @@ fn execute_ordered_grouped_count_fold_stage(
     grouped_projection_spec: &ProjectionSpec,
 ) -> Result<GroupedCursorPage, InternalError> {
     let mut transitions = OrderedGroupFoldState::<u32>::new(1);
+    if route.group_fields().is_empty() {
+        transitions
+            .open_group(
+                GroupKey::from_group_values(Vec::new())?,
+                || 0,
+                grouped_execution_context,
+            )
+            .map_err(GroupError::into_internal_error)?;
+    }
     let mut selection = OrderedGroupedPageSelection::new(route, grouped_projection_spec, 1)?;
     let (row_runtime, execution_preparation, resolved) = stream.fold_inputs_mut();
     let effective_runtime_filter_program = execution_preparation.effective_runtime_filter_program();
@@ -210,6 +230,7 @@ fn execute_ordered_grouped_count_fold_stage(
             next_cursor,
         },
         filtered_rows,
+        route.group_fields().len(),
     ))
 }
 

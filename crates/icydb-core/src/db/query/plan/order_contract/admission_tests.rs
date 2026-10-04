@@ -265,6 +265,50 @@ fn absent_and_empty_order_preserve_distinct_contracts_without_backing() {
 }
 
 #[test]
+fn grouped_direction_proof_preserves_prefix_scope_and_typed_work_rejection() {
+    let order = OrderSpec {
+        fields: vec![
+            OrderTerm::field("key", OrderDirection::Desc),
+            OrderTerm::field("label", OrderDirection::Desc),
+            OrderTerm::field("key", OrderDirection::Asc),
+        ],
+    };
+    let qualify = |root: &RequestExecutionRoot| {
+        PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
+            order.try_uniform_prefix_direction(2, &mut |steps| {
+                work.charge(Resource::PredicateExpressionSteps, steps)
+            })
+        })
+    };
+    let root = request_with_limit(Resource::PredicateExpressionSteps, 2);
+    assert_eq!(qualify(&root).unwrap(), Some(OrderDirection::Desc));
+    assert_eq!(root.observed(Resource::PredicateExpressionSteps), 2);
+    assert_eq!(root.observed(Resource::TemporaryBytes), 0);
+    let error = qualify(&request_with_limit(Resource::PredicateExpressionSteps, 1)).unwrap_err();
+    assert!(error.diagnostic_facts().contains(&(
+        DiagnosticFactTag::BudgetResource,
+        Resource::PredicateExpressionSteps.raw()
+    )));
+    assert!(
+        error
+            .diagnostic_facts()
+            .contains(&(DiagnosticFactTag::ExecutionLane, Lane::Diagnostic.raw()))
+    );
+    // Canonical groups need only their complete key prefix; an index contract
+    // must prove every term and decline this conflicting trailing term.
+    let root = request_with_limit(Resource::PredicateExpressionSteps, 3);
+    let contract = PreparationWork::run(&root.scope(), Lane::Diagnostic, |work| {
+        order
+            .grouped_index_order_contract(work)
+            .map_err(QueryError::execute)
+    })
+    .unwrap();
+    assert!(contract.is_none());
+    assert_eq!(root.observed(Resource::PredicateExpressionSteps), 3);
+    assert_eq!(root.observed(Resource::TemporaryBytes), 0);
+}
+
+#[test]
 fn retained_order_rejection_prevents_a_continuation_after_hashing() {
     let mut plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
     let LogicalPlan::Scalar(scalar) = &mut plan.logical else {

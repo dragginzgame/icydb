@@ -413,6 +413,16 @@ fn access_bound_clauses_imply_required(
     cmp: &ComparePredicate,
     budget: &dyn ConstructionBudget,
 ) -> Result<bool, InternalError> {
+    // Access bounds use strict/numeric equality. That proof cannot discharge
+    // an exclusion evaluated in another comparison domain.
+    if matches!(cmp.op(), CompareOp::Ne | CompareOp::NotIn)
+        && !matches!(
+            cmp.coercion().id,
+            CoercionId::Strict | CoercionId::NumericWiden
+        )
+    {
+        return Ok(false);
+    }
     if access_bound_text_prefix_range_implies_required(&implied_bounds.ranges, cmp, budget)?
         || branch_in_clause_implies_required(implied_bounds.branch_in.as_ref(), cmp, budget)?
     {

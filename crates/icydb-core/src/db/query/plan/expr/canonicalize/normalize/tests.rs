@@ -1,19 +1,81 @@
 use super::bool_expr_normalized_order;
 use crate::{
-    db::query::{
-        builder::scalar_projection::render_scalar_projection_expr_plan_label,
-        plan::{
-            expr::{
-                BinaryOp, CaseWhenArm, Expr, FieldId, Function, UnaryOp,
-                canonicalize::canonicalize_scalar_where_bool_expr_artifact,
-                is_normalized_bool_expr, normalize_bool_expr,
+    db::{
+        QueryError, RequestExecutionRoot,
+        query::{
+            builder::scalar_projection::render_scalar_projection_expr_plan_label,
+            plan::{
+                expr::{
+                    BinaryOp, CaseWhenArm, Expr, FieldId, Function, UnaryOp,
+                    canonicalize::canonicalize_scalar_where_bool_expr_artifact,
+                    is_normalized_bool_expr, normalize_bool_expr,
+                },
+                render_scalar_filter_expr_plan_label,
             },
-            render_scalar_filter_expr_plan_label,
+            preparation::PreparationWork,
         },
+        test_support::request_with_limit,
     },
     value::Value,
 };
+use icydb_diagnostic_code::{
+    DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane, DiagnosticFactTag,
+};
 use sha2::{Digest as _, Sha256};
+
+#[test]
+fn casefold_literal_normalization_is_idempotent_and_preserves_budget_failures() {
+    let input = Expr::membership(
+        Expr::FunctionCall {
+            function: Function::Lower,
+            args: vec![field(0)],
+        },
+        vec![
+            Value::Text("ALİ".into()),
+            Value::Null,
+            Value::Text("ΟΣ".into()),
+        ],
+        true,
+    );
+    let before = input.clone();
+    let run = |root: &RequestExecutionRoot| -> Result<Expr, QueryError> {
+        PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
+            normalize_bool_expr(input.clone(), work)
+        })
+    };
+    let generous = RequestExecutionRoot::__new_runtime_root();
+    let canonical = run(&generous).unwrap();
+    assert_eq!(input, before);
+    crate::db::query::preparation::with_preparation_work(|work| {
+        assert_eq!(
+            normalize_bool_expr(canonical.clone(), work).unwrap(),
+            canonical
+        );
+    });
+    for resource in [Resource::TemporaryBytes, Resource::PredicateExpressionSteps] {
+        let used = generous.observed(resource);
+        assert!(used > 0);
+        let short = request_with_limit(resource, used - 1);
+        let error = run(&short).unwrap_err();
+        assert!(
+            error
+                .diagnostic_facts()
+                .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
+        );
+        let exact = request_with_limit(resource, used);
+        assert_eq!(run(&exact).unwrap(), canonical);
+        assert_eq!(exact.observed(resource), used);
+        let repeated = request_with_limit(resource, used * 2);
+        assert_eq!(run(&repeated).unwrap(), canonical);
+        assert_eq!(run(&repeated).unwrap(), canonical);
+        assert!(
+            run(&repeated)
+                .unwrap_err()
+                .diagnostic_facts()
+                .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
+        );
+    }
+}
 
 fn binary(op: BinaryOp, left: Expr, right: Expr) -> Expr {
     Expr::Binary {

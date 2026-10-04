@@ -8,7 +8,9 @@ use crate::db::sql::lowering::{SqlLoweringError, aggregate::lower_aggregate_call
 use crate::{
     db::{
         predicate::supported_like_prefix,
-        query::plan::expr::{BinaryOp, CaseWhenArm, Expr, FieldId, FieldPath, Function, UnaryOp},
+        query::plan::expr::{
+            BinaryOp, CaseWhenArm, Expr, FieldId, FieldPath, Function, UnaryOp, normalize_bool_expr,
+        },
         sql::parser::{
             SqlExpr, SqlExprBinaryOp, SqlExprUnaryOp, SqlMembershipValue, SqlScalarFunction,
         },
@@ -204,6 +206,13 @@ fn lower_sql_like_expr(
     let expr = Expr::FunctionCall {
         function: Function::StartsWith,
         args: vec![target, Expr::Literal(Value::Text(prefix))],
+    };
+    // ILIKE has the same casefold meaning even in a scalar projection, which
+    // does not pass through WHERE normalization. Reuse the boolean IR owner.
+    let expr = if casefold {
+        normalize_bool_expr(expr, work)?
+    } else {
+        expr
     };
 
     Ok(if negated {

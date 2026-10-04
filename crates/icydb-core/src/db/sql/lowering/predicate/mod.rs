@@ -52,8 +52,8 @@ pub(in crate::db::sql::lowering) fn lower_sql_where_bool_expr(
     lower_sql_bool_expr_internal(expr, false, SqlExprPhase::Where, work)
 }
 
-// Lower one SQL boolean expression that uses WHERE admission rules but does
-// not own the top-level WHERE-only text-predicate casefold compatibility path.
+// Lower one pre-aggregate boolean expression with its clause admission rules;
+// canonical text-filter meaning is shared with the other boolean contexts.
 pub(in crate::db::sql::lowering) fn lower_sql_pre_aggregate_bool_expr(
     expr: &SqlExpr,
     work: &PreparationWork<'_>,

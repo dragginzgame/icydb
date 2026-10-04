@@ -16,6 +16,7 @@ use crate::{
             },
             runtime::grouped_output::finalize_grouped_output,
         },
+        group::GroupKey,
         pipeline::{
             contracts::{GroupedCursorPage, GroupedRouteStage},
             runtime::GroupedStreamStage,
@@ -72,6 +73,15 @@ impl<'a> GenericGroupedFoldRunner<'a> {
         grouped_execution_context: &mut ExecutionContext,
         mut grouped_bundle: GroupedAggregateBundle,
     ) -> Result<GroupedCursorPage, InternalError> {
+        // Reducer initialization owns empty values; insertion owns admission.
+        if self.group_fields.is_empty() {
+            grouped_bundle
+                .insert_new_group(
+                    GroupKey::from_group_values(Vec::new())?,
+                    grouped_execution_context,
+                )
+                .map_err(GroupError::into_internal_error)?;
+        }
         let filtered_rows =
             self.fold_rows_into_bundle(stream, grouped_execution_context, &mut grouped_bundle)?;
         let (page_rows, next_cursor) =
@@ -83,6 +93,7 @@ impl<'a> GenericGroupedFoldRunner<'a> {
                 next_cursor,
             },
             filtered_rows,
+            self.group_fields.len(),
         ))
     }
 
@@ -94,6 +105,11 @@ impl<'a> GenericGroupedFoldRunner<'a> {
         grouped_execution_context: &mut ExecutionContext,
         mut grouped_fold: OrderedGroupedAggregateFold,
     ) -> Result<GroupedCursorPage, InternalError> {
+        if self.group_fields.is_empty() {
+            grouped_fold
+                .open_implicit_group(grouped_execution_context)
+                .map_err(GroupError::into_internal_error)?;
+        }
         let mut selection = OrderedGroupedPageSelection::new(
             self.route,
             self.grouped_projection_spec,
@@ -159,6 +175,7 @@ impl<'a> GenericGroupedFoldRunner<'a> {
                 next_cursor,
             },
             filtered_rows,
+            self.group_fields.len(),
         ))
     }
 

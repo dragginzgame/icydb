@@ -191,7 +191,7 @@ impl GroupedCountState {
         // proven this row opens a genuinely new canonical group.
         let group_key = materialize_new_group(group_hash)?;
 
-        self.insert_new_group(group_hash, group_key, grouped_execution_context)
+        self.insert_new_group(group_hash, group_key, 1, grouped_execution_context)
     }
 
     // Increment one grouped count row from an already-owned canonical key.

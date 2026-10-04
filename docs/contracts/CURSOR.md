@@ -72,11 +72,15 @@ the typed terminal page-unit error rather than returning a looping cursor.
 
 ## Ordering And Progress
 
-Continuation is strict, deterministic, and forward-only in the canonical
+Scalar continuation is strict, deterministic, and forward-only in the canonical
 mixed-direction order. IcyDB appends missing primary-key components as hidden
 tie breakers while preserving explicitly supplied primary-key terms and their
 directions. Null and value comparison use the frozen canonical comparison
 contract rather than locale collation.
+
+Canonical grouped continuation uses one shared direction across its complete
+group-key prefix. Mixed directions within that prefix reject during planning.
+Aggregate-driven Top-K ordering is non-resumable and retains per-term directions.
 
 A non-null continuation means traversal has not been proven exhausted. It
 does not guarantee another matching row exists. Page-envelope exhaustion may

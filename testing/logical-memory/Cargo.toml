@@ -18,10 +18,10 @@ omit-retiring-store = []
 candid = { workspace = true }
 ic-cdk = { workspace = true }
 ic-memory = { workspace = true }
-icydb = { workspace = true }
+icydb = { workspace = true, default-features = true }
 
 [build-dependencies]
-icydb = { workspace = true }
+icydb = { workspace = true, default-features = true }
 
 [lints]
 workspace = true

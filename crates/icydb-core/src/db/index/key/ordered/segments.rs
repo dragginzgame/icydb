@@ -14,6 +14,22 @@ const ACCOUNT_SUBACCOUNT_LEN: usize = 32;
 const ACCOUNT_SUBACCOUNT_TAG: u8 = 0x80;
 pub(super) const ACCOUNT_PAYLOAD_BYTES: usize = 1 + ACCOUNT_OWNER_MAX_LEN + ACCOUNT_SUBACCOUNT_LEN;
 
+/// Principal's shared `Ord` compares length before contents. The outer key
+/// frame owns tuple boundaries, so this bounded payload needs no terminator.
+pub(super) fn push_principal_payload(
+    out: &mut Vec<u8>,
+    principal: &Principal,
+) -> Result<(), OrderedValueEncodeError> {
+    let bytes = principal
+        .stored_bytes()
+        .map_err(|_| OrderedValueEncodeError::SegmentTooLarge)?;
+    let len = u8::try_from(bytes.len()).map_err(|_| OrderedValueEncodeError::SegmentTooLarge)?;
+    out.push(len);
+    out.extend_from_slice(bytes);
+
+    Ok(())
+}
+
 /// Account ordering uses the same tuple contract as `Account::cmp`.
 pub(super) fn push_account_payload(
     out: &mut Vec<u8>,

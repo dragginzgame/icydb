@@ -17,7 +17,7 @@ use crate::{
         },
         test_support::request_with_limit,
     },
-    value::Value,
+    value::{Value, lower_text_construction_allowance},
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane, DiagnosticFactTag,
@@ -202,7 +202,7 @@ fn scalar_construction_charges_exact_requested_backing() {
                 negated: true,
                 casefold: true,
             },
-            6 + 4 * slot,
+            6 + 4 * slot + lower_text_construction_allowance(2).0,
         ),
     ];
     for (input, bytes) in cases {

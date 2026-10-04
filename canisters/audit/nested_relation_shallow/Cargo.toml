@@ -15,11 +15,11 @@ candid-export = []
 [dependencies]
 candid = { workspace = true }
 ic-cdk = { workspace = true }
-icydb = { path = "../../../crates/icydb", default-features = false }
+icydb = { workspace = true }
 icydb-testing-audit-nested-relation-fixtures = { workspace = true }
 
 [build-dependencies]
-icydb = { path = "../../../crates/icydb", default-features = false }
+icydb = { workspace = true }
 icydb-testing-audit-nested-relation-fixtures = { workspace = true }
 
 [lints]

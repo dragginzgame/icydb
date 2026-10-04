@@ -158,7 +158,7 @@ fn component_capacity(value: &Value) -> Result<usize, OrderedValueEncodeError> {
             .checked_mul(2)
             .and_then(|len| len.checked_add(2))
             .ok_or(OrderedValueEncodeError::SegmentTooLarge)?,
-        Value::Principal(principal) => principal.as_slice().len() * 2 + 2,
+        Value::Principal(principal) => principal.as_slice().len() + 1,
         Value::IntBig(value) => {
             let bytes = value.magnitude_bits().div_ceil(8);
             let bytes =
@@ -226,7 +226,7 @@ pub(crate) fn encode_canonical_index_component_from_primary_key_value(
             Ok(out)
         }
         PrimaryKeyComponent::Principal(value) => {
-            segments::push_terminated_bytes(&mut out, value.as_slice());
+            segments::push_principal_payload(&mut out, &value)?;
             Ok(out)
         }
         PrimaryKeyComponent::Subaccount(value) => {
@@ -291,7 +291,7 @@ fn encode_component_payload(
         Value::IntBig(v) => normalize::push_signed_big_integer_payload(out, v),
         Value::Null => Err(OrderedValueEncodeError::NullNotIndexable),
         Value::Principal(v) => {
-            segments::push_terminated_bytes(out, v.as_slice());
+            segments::push_principal_payload(out, v)?;
             Ok(())
         }
         Value::Subaccount(v) => {

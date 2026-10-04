@@ -361,16 +361,16 @@ fn grouped_canonical_order_strategy_projection<E>(
 
     // Only the grouped-key prefix contributes to this proof. Heap detection
     // already inspected the complete ORDER BY list before choosing this lane.
-    let mut canonical_direction = None;
+    if !group_fields.is_empty()
+        && order
+            .try_uniform_prefix_direction(group_fields.len(), observe)?
+            .is_none()
+    {
+        return Ok(GroupedOrderStrategyProjection::HashFallback(
+            GroupedPlanFallbackReason::GroupKeyOrderDirectionMismatch,
+        ));
+    }
     for (index, term) in order.fields.iter().take(group_fields.len()).enumerate() {
-        observe(1)?;
-        let direction = term.direction();
-        if canonical_direction.is_some_and(|expected| expected != direction) {
-            return Ok(GroupedOrderStrategyProjection::HashFallback(
-                GroupedPlanFallbackReason::GroupKeyOrderDirectionMismatch,
-            ));
-        }
-        canonical_direction.get_or_insert(direction);
         let Some(group_field) = group_fields.get(index) else {
             return Ok(GroupedOrderStrategyProjection::HashFallback(
                 GroupedPlanFallbackReason::GroupKeyOrderPrefixMismatch,

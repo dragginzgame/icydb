@@ -20,11 +20,11 @@ population-seed = []
 candid = { workspace = true }
 ic-cdk = { workspace = true }
 ic-timers = { workspace = true }
-icydb = { path = "../../../crates/icydb", default-features = false }
+icydb = { workspace = true }
 icydb-testing-audit-one-simple-fixtures = { workspace = true }
 
 [build-dependencies]
-icydb = { path = "../../../crates/icydb", default-features = false }
+icydb = { workspace = true }
 icydb-testing-audit-one-simple-fixtures = { workspace = true }
 
 [lints]

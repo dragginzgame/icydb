@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.264.md](docs/changelog/0.264.md)
 
+- `0.264.8` repairs query and migration correctness and centralizes workspace dependencies (potentially breaking: regenerate affected query artifacts/jobs and update aggregate ordering/result and migration-finding handling).
 - `0.264.7` repairs aggregate and pagination correctness, updates upstream memory handling and strengthens SQL test and Wasm build qualification.
 - `0.264.6` honors historical record fills in nested reads, preserves effective canister compiler flags and exposes request-budget headroom and convergence debt (potentially breaking: metrics collection is fallible; regenerate report consumers).
 - `0.264.5` repairs query/value correctness, binds filtered-index identity and distinguishes rejected startup memory admission and repairs feature-limited test builds (potentially breaking; regenerate affected metadata/index artifacts and update startup error handling).

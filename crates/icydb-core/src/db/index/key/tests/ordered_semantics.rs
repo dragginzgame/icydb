@@ -12,7 +12,7 @@ use crate::{
                 encode_canonical_index_component_from_primary_key_value,
             },
         },
-        key_taxonomy::PrimaryKeyComponent,
+        key_taxonomy::{EncodedPrimaryKey, PrimaryKeyComponent},
     },
     types::{
         Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
@@ -116,6 +116,51 @@ fn canonical_encoder_rejects_non_indexable_and_unsupported_values() {
     assert!(encode_canonical_index_component(&Value::Blob(vec![1u8, 2u8])).is_err());
     assert!(encode_canonical_index_component(&Value::List(vec![Value::Int64(1)])).is_err());
     assert!(encode_canonical_index_component(&Value::Map(vec![])).is_err());
+}
+
+#[test]
+fn principal_ordered_components_match_semantic_and_primary_key_order() {
+    let mut principals = vec![Principal::from_slice(&[])];
+    for len in 1..=29 {
+        for byte in [0, 1, 4, 255] {
+            principals.push(Principal::from_slice(&vec![byte; len]));
+        }
+    }
+    for &left in &principals {
+        let left_value = Value::Principal(left);
+        let left_bytes = encode_canonical_index_component(&left_value).unwrap();
+        assert_eq!(
+            left_bytes,
+            encode_canonical_index_component_from_primary_key_value(
+                PrimaryKeyComponent::Principal(left)
+            )
+            .unwrap()
+        );
+        for &right in &principals {
+            let right_value = Value::Principal(right);
+            let expected = left.cmp(&right);
+            assert_eq!(
+                compare_index_component_values(&left_value, &right_value),
+                expected
+            );
+            assert_eq!(
+                left_bytes.cmp(&encode_canonical_index_component(&right_value).unwrap()),
+                expected,
+                "index order for {left:?} vs {right:?}"
+            );
+            assert_eq!(
+                EncodedPrimaryKey::encode(PrimaryKeyComponent::Principal(left))
+                    .unwrap()
+                    .as_bytes()
+                    .cmp(
+                        EncodedPrimaryKey::encode(PrimaryKeyComponent::Principal(right))
+                            .unwrap()
+                            .as_bytes()
+                    ),
+                expected,
+            );
+        }
+    }
 }
 
 #[test]
@@ -496,7 +541,7 @@ fn canonical_encoder_golden_vectors_freeze_primitive_bytes() {
         (
             "Principal([1,0,2])",
             Value::Principal(Principal::from_slice(&[1u8, 0u8, 2u8])),
-            vec![0x10, 0x01, 0x00, 0xFF, 0x02, 0x00, 0x00],
+            vec![0x10, 0x03, 0x01, 0x00, 0x02],
         ),
         (
             "IntBig(-7)",

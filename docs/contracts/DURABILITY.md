@@ -151,9 +151,19 @@ Those keys are folded in their journaled store before the migration-progress
 compare-and-replace is marker-published. Interruption before that marker leaves
 the old cursor authoritative, so reentry repeats the same accepted-ID program
 and exact raw keys; identical keys are idempotent and any different prior value
-fails closed. A page with a transform, constraint, relation, or uniqueness
-finding stages nothing. Validation never rewrites accepted rows or advances
+fails closed. A page with a transform, constraint, relation, uniqueness, or
+resource-limit finding stages nothing. Validation never rewrites accepted rows or advances
 source lineage.
+
+Validation proves that each indivisible candidate row can fit a full rewrite
+page and the final-validation page. It uses the same exact row-effect builder as
+rewriting to measure candidate row bytes, changed index/reverse-key bytes, effect
+count and journal payload bytes. A stored row or staged keys that cannot fit the
+validation page also reject with a typed `ResourceLimit` finding naming accepted
+entity and primary key. Rejection remains abortable and never changes row bytes.
+A row that fits full capacity but exceeds the capacity left by earlier rows or
+entities ends the page and resumes on the next one; entity-local row counts are
+not full-page capacity evidence. All page ceilings remain fixed.
 
 After a clean validation reaches `ReadyToRewrite`, each physical rewrite page
 binds its complete candidate row bytes, candidate index/reverse keys, and next

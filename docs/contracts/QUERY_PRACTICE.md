@@ -165,6 +165,20 @@ There is **no implicit coercion**.
 `CoercionSpec::new(CoercionId::TextCasefold)` selects canonical text
 casefolding. The coercion ID completely specifies comparison policy.
 
+Canonical boolean expressions fold text literals paired with a `LOWER` target,
+including membership-list entries, before selecting a runtime predicate or
+expression filter. This keeps casefold filters equivalent across SQL, fluent
+queries and newly captured resumable mutation scopes. NULL literals remain NULL;
+strict plain-field filters and ordinary scalar LOWER/UPPER projections retain
+their semantics.
+
+Index access bounds prove strict/numeric equality. The planner removes an
+exclusion (`Ne` or `NotIn`) only when it uses that same comparison domain.
+Casefolded exclusions remain residual filters for row reads, exact counts and
+mutation selection, including equality prefixes, range prefixes and IN branches.
+For example, `common = 'Alice' AND LOWER(common) <> 'alice'` matches no rows:
+the strict lookup does not prove the casefolded exclusion.
+
 #### Coercion Table (Conceptual)
 
 The evaluator uses a static, declarative conversion table:
@@ -353,6 +367,11 @@ These constraints are binding for all future work in the query engine:
 * Missing vs Null rules are non-negotiable.
 * Validation failures are `Unsupported(Query)`.
 * Executors never panic on user input.
+
+Principal ordering compares byte length first, then contents of equal-length
+values. Indexed equality/ranges, ordered reads and primary-key merges must
+preserve this same order, including empty and maximum-length Principals;
+byte-content order alone is insufficient.
 
 ### Implementation Notes
 

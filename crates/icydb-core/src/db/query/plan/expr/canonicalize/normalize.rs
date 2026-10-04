@@ -12,12 +12,12 @@ use crate::{
         },
         preparation::PreparationWork,
     },
-    value::Value,
+    value::{Value, casefold_text, lower_text_construction_allowance},
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
-/// Normalize one planner-owned boolean expression without changing
-/// three-valued semantics inside subexpressions.
+/// Normalize text-filter domains and planner-owned boolean structure while
+/// preserving three-valued logic inside subexpressions.
 pub(in crate::db::query::plan::expr::canonicalize) fn normalize_bool_expr_impl(
     mut expr: Expr,
     work: &PreparationWork<'_>,
@@ -50,6 +50,7 @@ pub(in crate::db::query::plan::expr::canonicalize) fn normalize_bool_expr_impl(
             **left = normalize_bool_compare_operand(left.take(), work)?;
             **right = normalize_bool_compare_operand(right.take(), work)?;
             normalize_bool_compare_expr(op, left, right);
+            normalize_casefold_literal(left, right, work)?;
         }
         Expr::FunctionCall { function, args } => {
             normalize_bool_function_args(*function, args, work)?;
@@ -343,6 +344,7 @@ fn normalize_bool_function_args(
             if let [left, right] = args {
                 *left = normalize_bool_compare_operand(left.take(), work)?;
                 *right = normalize_bool_compare_operand(right.take(), work)?;
+                normalize_casefold_literal(left, right, work)?;
             }
         }
         Some(
@@ -352,9 +354,43 @@ fn normalize_bool_function_args(
         )
         | None => {}
         Some(BooleanFunctionShape::Membership) => {
-            if let [target, _] = args {
+            if let [target, values] = args {
                 *target = normalize_bool_compare_operand(target.take(), work)?;
+                normalize_casefold_literal(target, values, work)?;
             }
+        }
+    }
+    Ok(())
+}
+
+// Literal casefolding belongs to the canonical boolean expression, before
+// predicate extraction or durable scope capture. Otherwise an unrelated
+// expression branch can change the meaning of the same text filter.
+fn normalize_casefold_literal(
+    target: &Expr,
+    literal: &mut Expr,
+    work: &PreparationWork<'_>,
+) -> Result<(), QueryError> {
+    if !matches!(target, Expr::FunctionCall { function: Function::Lower, args } if args.len() == 1)
+    {
+        return Ok(());
+    }
+    let Expr::Literal(value) = literal else {
+        return Ok(());
+    };
+    let values = match value {
+        Value::List(values) => values.as_mut_slice(),
+        value => std::slice::from_mut(value),
+    };
+    for value in values {
+        work.charge(Resource::PredicateExpressionSteps, 1)?;
+        if let Value::Text(text) = value {
+            // Current LOWER and casefold share this bounded value transform;
+            // admit its requested backing and Unicode work before allocation.
+            let (backing, steps) = lower_text_construction_allowance(text.len());
+            work.charge(Resource::TemporaryBytes, backing)?;
+            work.charge(Resource::PredicateExpressionSteps, steps)?;
+            *text = casefold_text(text);
         }
     }
     Ok(())

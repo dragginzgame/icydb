@@ -25,11 +25,11 @@ u256-audit = ["icydb-testing-audit-one-simple-fixtures/u256-audit"]
 [dependencies]
 candid = { workspace = true }
 ic-cdk = { workspace = true }
-icydb = { path = "../../../crates/icydb", default-features = false }
+icydb = { workspace = true }
 icydb-testing-audit-one-simple-fixtures = { workspace = true }
 
 [build-dependencies]
-icydb = { path = "../../../crates/icydb", default-features = false }
+icydb = { workspace = true }
 icydb-testing-audit-one-simple-fixtures = { workspace = true }
 
 [lints]

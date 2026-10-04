@@ -43,7 +43,10 @@ fn scalar_admission_covers_shared_capacity_and_rejects_before_encoding() {
             )),
             63,
         ),
-        (Value::Principal(Principal::from_slice(&[0; 29])), 61),
+        (Value::Principal(Principal::from_slice(&[])), 2),
+        (Value::Principal(Principal::from_slice(&[0])), 3),
+        (Value::Principal(Principal::from_slice(&[0; 29])), 31),
+        (Value::Principal(Principal::from_slice(&[255; 29])), 31),
         (Value::Text(String::new()), 3),
         (Value::Text("a\0é".into()), 11),
         // Comparison operands keep their existing domain beyond stored-key caps.

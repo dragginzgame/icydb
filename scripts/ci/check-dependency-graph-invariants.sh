@@ -48,16 +48,28 @@ for package in "${INTERNAL_WORKSPACE_PACKAGES[@]}"; do
   fi
 done
 
-non_workspace_internal_edges="$({
-  rg -n --no-heading --color=never \
-    '^[[:space:]]*icydb(-[a-z0-9-]+)?[[:space:]]*=' \
-    crates/*/Cargo.toml || true
-} | rg -v 'workspace[[:space:]]*=[[:space:]]*true' || true)"
-if [[ -n "$non_workspace_internal_edges" ]]; then
-  echo "Published IcyDB crates must inherit exact internal versions from the workspace:" >&2
-  printf '%s\n' "$non_workspace_internal_edges" >&2
-  exit 1
-fi
+# Member manifests use inline inherited declarations, including target-specific
+# and renamed dependencies. The root owns all requirements and local paths.
+mapfile -t member_manifests < <(
+  rg --files --glob Cargo.toml \
+    "$ROOT/canisters" "$ROOT/crates" "$ROOT/schema" "$ROOT/testing"
+)
+awk '
+  /^\[/ {
+    in_package = ($0 == "[package]")
+    in_dependencies = ($0 ~ /(^\[|\.)(dev-|build-)?dependencies\]$/)
+    next
+  }
+  (in_package && /^version[[:space:]]*=/) ||
+  (in_dependencies && /^[a-zA-Z0-9_-]+[[:space:]]*=/) {
+    if ($0 !~ /workspace[[:space:]]*=[[:space:]]*true/ ||
+        (in_dependencies && $0 ~ /(^|[,{[:space:]])(version|path|git|branch|tag|rev)[[:space:]]*=/)) {
+      printf "%s:%d: package versions and dependencies must inherit the workspace\n", FILENAME, FNR > "/dev/stderr"
+      failed = 1
+    }
+  }
+  END { if (failed) exit 1 }
+' "${member_manifests[@]}"
 
 workspace_time_version="$(
   awk '

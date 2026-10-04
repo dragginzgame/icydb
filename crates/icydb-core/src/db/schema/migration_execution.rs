@@ -146,10 +146,10 @@ pub(in crate::db::schema) struct MigrationPhysicalEffect {
     record: JournalRecord,
 }
 
-struct PreparedCandidateEntity {
-    candidate_contract: crate::db::data::StructuralRowContract,
-    candidate_fingerprint: crate::db::commit::CommitSchemaFingerprint,
-    constraints: CompiledAcceptedRowConstraints,
+pub(in crate::db::schema) struct PreparedCandidateEntity {
+    pub(in crate::db::schema) candidate_contract: crate::db::data::StructuralRowContract,
+    pub(in crate::db::schema) candidate_fingerprint: crate::db::commit::CommitSchemaFingerprint,
+    pub(in crate::db::schema) constraints: CompiledAcceptedRowConstraints,
     indexes: Vec<MigrationIndexProjection>,
     relations: Vec<RelationConstraintProjection>,
 }
@@ -255,10 +255,6 @@ struct EntityRewritePage {
     clippy::too_many_arguments,
     reason = "the bounded rewrite loop keeps all engine-owned budgets explicit"
 )]
-#[expect(
-    clippy::too_many_lines,
-    reason = "one bounded row visit keeps transform, candidate admission, and exact row/index effect construction adjacent"
-)]
 fn rewrite_entity_page(
     store: StoreHandle,
     program: &CompiledMigrationEntityProgram,
@@ -328,111 +324,36 @@ fn rewrite_entity_page(
                     .map_err(|_| {
                         InternalError::schema_migration(SchemaMigrationCode::CandidateMismatch)
                     })?;
-                let candidate_bytes = candidate.as_raw_row().as_bytes().to_vec();
-                let next_row_bytes = page
-                    .row_bytes
-                    .checked_add(candidate_bytes.len())
-                    .ok_or_else(InternalError::store_invariant)?;
-                let candidate_reader =
-                    StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
-                        candidate.as_raw_row(),
-                        &prepared.candidate_contract,
-                    )?;
-                candidate_reader.validate_primary_key(&decoded)?;
-                let mut row_effects = Vec::new();
-                let mut row_index_bytes = 0usize;
-                for projection in &prepared.indexes {
-                    work.charge(Resource::PredicateExpressionSteps, 1)?;
-                    let Some(key) =
-                        projection.derive_key(&decoded.primary_key_value(), &candidate_reader)?
-                    else {
-                        continue;
-                    };
-                    row_index_bytes = row_index_bytes
-                        .checked_add(key.as_bytes().len())
-                        .ok_or_else(InternalError::store_invariant)?;
-                    row_effects.push(MigrationPhysicalEffect {
-                        store_path: program.store_path(),
-                        store,
-                        record: JournalRecord::schema_migration_index_put(
-                            program.store_path(),
-                            key,
-                            plan_digest,
-                        )?,
-                    });
-                }
-                let mut relation_projection_budget =
-                    crate::db::relation::RelationProjectionBudget::default();
-                let mut relation_commit_budget =
-                    crate::db::relation::RelationCommitBudget::default();
-                for relation in &prepared.relations {
-                    let projected = relation.project_row_with_budgets(
-                        &decoded.primary_key_value(),
-                        &candidate_reader,
-                        true,
-                        &mut relation_projection_budget,
-                        &mut relation_commit_budget,
-                    )?;
-                    if !projected.missing_targets().is_empty() {
-                        return Err(InternalError::schema_migration(
-                            SchemaMigrationCode::CandidateMismatch,
-                        ));
-                    }
-                    for entry in projected.into_entries() {
-                        row_index_bytes = row_index_bytes
-                            .checked_add(entry.key().as_bytes().len())
-                            .ok_or_else(InternalError::store_invariant)?;
-                        row_effects.push(MigrationPhysicalEffect {
-                            store_path: entry.target_store_path(),
-                            store: entry.target_store(),
-                            record: JournalRecord::schema_migration_index_put(
-                                entry.target_store_path(),
-                                entry.key().clone(),
-                                plan_digest,
-                            )?,
-                        });
-                    }
-                }
-                let next_index_bytes = page
-                    .index_bytes
-                    .checked_add(row_index_bytes)
-                    .ok_or_else(InternalError::store_invariant)?;
-                if next_row_bytes > row_byte_budget || next_index_bytes > index_byte_budget {
-                    if page.rows == 0 {
-                        return Err(InternalError::store_unsupported());
-                    }
-                    page.exhausted = false;
-                    return Ok(StoreVisit::Stop);
-                }
-                let row_record = JournalRecord::schema_migration_row_put(
-                    program.store_path(),
-                    raw_key.clone(),
-                    candidate_bytes,
-                    prepared.candidate_fingerprint,
-                    plan_digest,
-                )?;
-                let row_effect_count = row_effects.len().saturating_add(1);
-                let next_effect_count = page.effects.len().saturating_add(row_effect_count);
-                let row_journal_bytes = row_effects.iter().fold(
-                    journal_record_payload_len(&row_record),
-                    |bytes, effect| {
-                        bytes.saturating_add(journal_record_payload_len(&effect.record))
-                    },
-                );
-                let next_journal_bytes = page.journal_bytes.saturating_add(row_journal_bytes);
-                if next_effect_count > effect_budget || next_journal_bytes > journal_byte_budget {
-                    if page.rows == 0 {
-                        return Err(InternalError::store_unsupported());
-                    }
-                    page.exhausted = false;
-                    return Ok(StoreVisit::Stop);
-                }
-                page.effects.push(MigrationPhysicalEffect {
-                    store_path: program.store_path(),
+                let row = prepare_candidate_row_rewrite(
                     store,
-                    record: row_record,
-                });
-                page.effects.extend(row_effects);
+                    program,
+                    prepared,
+                    raw_key,
+                    &decoded,
+                    candidate.as_raw_row(),
+                    plan_digest,
+                    work,
+                )?;
+                if !row.fits_full_page() {
+                    // Clean validation proves this; fail closed if durable state disagrees.
+                    return Err(InternalError::schema_migration(
+                        SchemaMigrationCode::CandidateMismatch,
+                    ));
+                }
+                let next_row_bytes = page.row_bytes.saturating_add(row.row_bytes);
+                let next_index_bytes = page.index_bytes.saturating_add(row.index_bytes);
+                let next_effect_count = page.effects.len().saturating_add(row.effects.len());
+                let next_journal_bytes = page.journal_bytes.saturating_add(row.journal_bytes);
+                if next_row_bytes > row_byte_budget
+                    || next_index_bytes > index_byte_budget
+                    || next_effect_count > effect_budget
+                    || next_journal_bytes > journal_byte_budget
+                {
+                    // The row fits a fresh page. Publish earlier entities/rows and resume here.
+                    page.exhausted = false;
+                    return Ok(StoreVisit::Stop);
+                }
+                page.effects.extend(row.effects);
                 page.rows = page.rows.saturating_add(1);
                 page.row_bytes = next_row_bytes;
                 page.index_bytes = next_index_bytes;
@@ -447,6 +368,137 @@ fn rewrite_entity_page(
         )
     })?;
     Ok(page)
+}
+
+/// Exact candidate effects are the capacity proof for both validation and rewrite.
+pub(in crate::db::schema) struct PreparedMigrationRewriteRow {
+    row_bytes: usize,
+    index_bytes: usize,
+    journal_bytes: usize,
+    effects: Vec<MigrationPhysicalEffect>,
+}
+
+impl PreparedMigrationRewriteRow {
+    pub(in crate::db::schema) const fn fits_full_page(&self) -> bool {
+        migration_rewrite_row_fits_full_page(
+            self.row_bytes,
+            self.index_bytes,
+            self.effects.len(),
+            self.journal_bytes,
+        )
+    }
+}
+
+// An indivisible row must fit both the rewrite page and the later final scan.
+// Remaining capacity may defer that row, but cannot change this admission proof.
+const fn migration_rewrite_row_fits_full_page(
+    row_bytes: usize,
+    index_bytes: usize,
+    effects: usize,
+    journal_bytes: usize,
+) -> bool {
+    row_bytes <= MAX_MIGRATION_REWRITE_ROW_BYTES_PER_PAGE
+        && row_bytes <= MAX_MIGRATION_FINAL_VALIDATION_BYTES_PER_PAGE
+        && index_bytes <= MAX_MIGRATION_REWRITE_INDEX_BYTES_PER_PAGE
+        && effects <= MAX_JOURNAL_BATCH_RECORDS
+        && journal_bytes <= MAX_MIGRATION_REWRITE_JOURNAL_BYTES_PER_PAGE
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "exact candidate effects retain their row and plan authorities"
+)]
+pub(in crate::db::schema) fn prepare_candidate_row_rewrite(
+    store: StoreHandle,
+    program: &CompiledMigrationEntityProgram,
+    prepared: &PreparedCandidateEntity,
+    raw_key: &RawDataStoreKey,
+    decoded: &DecodedDataStoreKey,
+    candidate: &RawRow,
+    plan_digest: icydb_schema::SchemaMigrationPlanDigest,
+    work: &dyn crate::db::query::construction::ConstructionBudget,
+) -> Result<PreparedMigrationRewriteRow, InternalError> {
+    let row_bytes = candidate.len();
+    let candidate_bytes = candidate.as_bytes().to_vec();
+    let candidate_reader = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
+        candidate,
+        &prepared.candidate_contract,
+    )?;
+    candidate_reader.validate_primary_key(decoded)?;
+    let mut row_effects = Vec::new();
+    let mut row_index_bytes = 0usize;
+    for projection in &prepared.indexes {
+        work.charge(Resource::PredicateExpressionSteps, 1)?;
+        let Some(key) = projection.derive_key(&decoded.primary_key_value(), &candidate_reader)?
+        else {
+            continue;
+        };
+        row_index_bytes = row_index_bytes
+            .checked_add(key.as_bytes().len())
+            .ok_or_else(InternalError::store_invariant)?;
+        row_effects.push(MigrationPhysicalEffect {
+            store_path: program.store_path(),
+            store,
+            record: JournalRecord::schema_migration_index_put(
+                program.store_path(),
+                key,
+                plan_digest,
+            )?,
+        });
+    }
+    let mut relation_projection_budget = crate::db::relation::RelationProjectionBudget::default();
+    let mut relation_commit_budget = crate::db::relation::RelationCommitBudget::default();
+    for relation in &prepared.relations {
+        let projected = relation.project_row_with_budgets(
+            &decoded.primary_key_value(),
+            &candidate_reader,
+            true,
+            &mut relation_projection_budget,
+            &mut relation_commit_budget,
+        )?;
+        if !projected.missing_targets().is_empty() {
+            return Err(InternalError::schema_migration(
+                SchemaMigrationCode::CandidateMismatch,
+            ));
+        }
+        for entry in projected.into_entries() {
+            row_index_bytes = row_index_bytes
+                .checked_add(entry.key().as_bytes().len())
+                .ok_or_else(InternalError::store_invariant)?;
+            row_effects.push(MigrationPhysicalEffect {
+                store_path: entry.target_store_path(),
+                store: entry.target_store(),
+                record: JournalRecord::schema_migration_index_put(
+                    entry.target_store_path(),
+                    entry.key().clone(),
+                    plan_digest,
+                )?,
+            });
+        }
+    }
+    let row_record = JournalRecord::schema_migration_row_put(
+        program.store_path(),
+        raw_key.clone(),
+        candidate_bytes,
+        prepared.candidate_fingerprint,
+        plan_digest,
+    )?;
+    let journal_bytes = row_effects
+        .iter()
+        .fold(journal_record_payload_len(&row_record), |bytes, effect| {
+            bytes.saturating_add(journal_record_payload_len(&effect.record))
+        });
+    row_effects.push(MigrationPhysicalEffect {
+        store_path: program.store_path(),
+        store,
+        record: row_record,
+    });
+    Ok(PreparedMigrationRewriteRow {
+        row_bytes,
+        index_bytes: row_index_bytes,
+        journal_bytes,
+        effects: row_effects,
+    })
 }
 
 pub(in crate::db::schema) fn publish_migration_rewrite_page(
@@ -765,10 +817,12 @@ fn final_validate_entity_page(
                 .bytes
                 .checked_add(raw_row.len())
                 .ok_or_else(InternalError::store_invariant)?;
+            if raw_row.len() > MAX_MIGRATION_FINAL_VALIDATION_BYTES_PER_PAGE {
+                return Err(InternalError::schema_migration(
+                    SchemaMigrationCode::CandidateMismatch,
+                ));
+            }
             if next_bytes > byte_budget {
-                if page.rows == 0 {
-                    return Err(InternalError::store_unsupported());
-                }
                 page.exhausted = false;
                 return Ok(StoreVisit::Stop);
             }
@@ -847,7 +901,7 @@ fn candidate_for_program<'a>(
         .ok_or_else(InternalError::store_invariant)
 }
 
-fn prepare_candidate_entity<C: CanisterKind>(
+pub(in crate::db::schema) fn prepare_candidate_entity<C: CanisterKind>(
     db: &Db<C>,
     program: &CompiledMigrationEntityProgram,
     candidate: &crate::db::schema::CandidateSchemaRevision,
@@ -1139,4 +1193,31 @@ fn require_journaled(store: StoreHandle) -> Result<(), InternalError> {
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn migration_page_limits_qualify_every_indivisible_rewrite_resource() {
+        let capacity = [
+            MAX_MIGRATION_REWRITE_ROW_BYTES_PER_PAGE
+                .min(MAX_MIGRATION_FINAL_VALIDATION_BYTES_PER_PAGE),
+            MAX_MIGRATION_REWRITE_INDEX_BYTES_PER_PAGE,
+            MAX_JOURNAL_BATCH_RECORDS,
+            MAX_MIGRATION_REWRITE_JOURNAL_BYTES_PER_PAGE,
+        ];
+        let fits = |[rows, indexes, effects, journal]: [usize; 4]| {
+            migration_rewrite_row_fits_full_page(rows, indexes, effects, journal)
+        };
+        assert!(fits(capacity));
+        for resource in 0..capacity.len() {
+            let mut usage = capacity;
+            usage[resource] += 1;
+            assert!(!fits(usage), "resource={resource}");
+            usage[resource] = usize::MAX;
+            assert!(!fits(usage), "resource={resource}");
+        }
+    }
 }

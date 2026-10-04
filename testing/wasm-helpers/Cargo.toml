@@ -6,7 +6,7 @@ version = { workspace = true }
 publish = false
 
 [dependencies]
-icydb = { workspace = true }
+icydb = { workspace = true, default-features = true }
 icydb-model = { workspace = true }
 
 [lints]

@@ -329,6 +329,7 @@ pub(in crate::db::schema) enum PersistedSchemaMigrationFindingKind {
     UniqueIndex,
     Relation,
     Constraint,
+    ResourceLimit,
 }
 
 /// Exact row-local reason retained for a failed closed transform.
@@ -415,7 +416,8 @@ impl PersistedSchemaMigrationFinding {
                 }
                 PersistedSchemaMigrationFindingKind::UniqueIndex
                 | PersistedSchemaMigrationFindingKind::Relation
-                | PersistedSchemaMigrationFindingKind::Constraint => {
+                | PersistedSchemaMigrationFindingKind::Constraint
+                | PersistedSchemaMigrationFindingKind::ResourceLimit => {
                     self.source_field.is_none()
                         && self.target_field.is_none()
                         && self.transform_reason.is_none()
@@ -1137,6 +1139,7 @@ fn encode_progress(
             PersistedSchemaMigrationFindingKind::UniqueIndex => 1,
             PersistedSchemaMigrationFindingKind::Relation => 2,
             PersistedSchemaMigrationFindingKind::Constraint => 3,
+            PersistedSchemaMigrationFindingKind::ResourceLimit => 4,
         });
         writer.push_bytes(&finding.store.to_bytes());
         writer.push_u64(finding.entity.value());
@@ -1196,6 +1199,7 @@ fn decode_progress(
             1 => PersistedSchemaMigrationFindingKind::UniqueIndex,
             2 => PersistedSchemaMigrationFindingKind::Relation,
             3 => PersistedSchemaMigrationFindingKind::Constraint,
+            4 => PersistedSchemaMigrationFindingKind::ResourceLimit,
             _ => return Err(InternalError::store_corruption()),
         };
         let store = TargetStoreIdentity::from_bytes(reader.read_array()?);
