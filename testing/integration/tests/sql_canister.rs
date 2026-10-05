@@ -14,7 +14,7 @@ mod batch_workload;
 mod catalog_workload;
 mod collection_workload;
 
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, num::NonZeroUsize};
 
 use crate::sql_harness::{
     CorrectnessObservation, CorrectnessScenario, CorrectnessVerdict, EligibleProvider,
@@ -108,14 +108,17 @@ fn for_each_workload_scenario<T: Sync>(scenarios: &[T], run: impl Fn(&T) + Sync)
     });
 }
 
-const SQL_FIXTURE_POOL_CAPACITY: usize = 8;
-const SQL_BOUNDED_FIXTURE_POOL_CAPACITY: usize = 4;
+const SQL_FIXTURE_POOL_CAPACITY: NonZeroUsize = NonZeroUsize::new(8).unwrap();
+const SQL_BOUNDED_FIXTURE_POOL_CAPACITY: NonZeroUsize = NonZeroUsize::new(4).unwrap();
 
-static SQL_FIXTURE_POOL: CachedStandaloneCanisterFixturePool<SQL_FIXTURE_POOL_CAPACITY> =
-    CachedStandaloneCanisterFixturePool::new(|| install_fixture_canister("sql"));
-static SQL_BOUNDED_FIXTURE_POOL: CachedStandaloneCanisterFixturePool<
-    SQL_BOUNDED_FIXTURE_POOL_CAPACITY,
-> = CachedStandaloneCanisterFixturePool::new(|| install_fixture_canister("sql_bounded"));
+static SQL_FIXTURE_POOL: CachedStandaloneCanisterFixturePool =
+    CachedStandaloneCanisterFixturePool::new(SQL_FIXTURE_POOL_CAPACITY, || {
+        install_fixture_canister("sql")
+    });
+static SQL_BOUNDED_FIXTURE_POOL: CachedStandaloneCanisterFixturePool =
+    CachedStandaloneCanisterFixturePool::new(SQL_BOUNDED_FIXTURE_POOL_CAPACITY, || {
+        install_fixture_canister("sql_bounded")
+    });
 
 fn install_sql_canister_fixture() -> CachedStandaloneCanisterFixtureGuard<'static> {
     // Bound concurrent PocketIC ownership while restoring the installed

@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 Detailed notes: [docs/changelog/0.264.md](docs/changelog/0.264.md)
 
 - Adopt the pinned shared engineering baseline and verified tooling snapshots, preserving complete validation failure logs and checksum-pinning actionlint installation.
+- Update SQL fixture pools to the current ic-testkit constructor while preserving their bounded concurrency.
 
 ## [0.264.x] - 2026-10-01 - Signed Filter Index Admission
 
