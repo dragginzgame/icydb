@@ -5,6 +5,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 FIXTURE="$(mktemp -d "${TMPDIR:-/tmp}/icydb-workstation.XXXXXX")"
 trap 'rm -rf "$FIXTURE"' EXIT
 mkdir -p "$FIXTURE/scripts/dev" "$FIXTURE/scripts/ci" "$FIXTURE/bin" "$FIXTURE/outside"
+mkdir -p "$FIXTURE/ci"
+cp "$ROOT/ci/tool-versions.env" "$FIXTURE/ci/"
+# shellcheck source=/dev/null
+source "$ROOT/ci/tool-versions.env"
 cp "$ROOT/scripts/dev/workstation-setup.sh" "$FIXTURE/scripts/dev/"
 for script in install-gh.sh install-wasm-optimizer.sh verify-wasm-optimizer.sh \
   wasm-optimizer-pin.sh verify-file-checksum.sh; do
@@ -69,6 +73,8 @@ for host in Linux Darwin; do
     cmp "$FIXTURE/Cargo.lock" "$FIXTURE/lock.before"
     rg -F "rustup toolchain install --target wasm32-unknown-unknown in $FIXTURE" "$TEST_TRACE" >/dev/null
     rg -F 'cargo install' "$TEST_TRACE" | rg -F cargo-watch | rg -F -- --locked >/dev/null
+    rg -F "cargo install cargo-sort --version $SHARED_TOOLING_CARGO_SORT_VERSION --locked" "$TEST_TRACE" >/dev/null
+    rg -F "cargo install cargo-sort-derives --version $ICYDB_CARGO_SORT_DERIVES_VERSION --locked" "$TEST_TRACE" >/dev/null
     rg -F "npm install -g --prefix $HOME/.local @icp-sdk/icp-cli @icp-sdk/ic-wasm" "$TEST_TRACE" >/dev/null
     rg -F "make --no-print-directory -C $FIXTURE install-hooks" "$TEST_TRACE" >/dev/null
     if [[ "$mode" == install ]]; then

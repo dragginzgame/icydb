@@ -123,7 +123,7 @@ wait_for_registry_version() {
     return 1
 }
 
-# Returns success only when release-commit recorded this exact annotated
+# Returns success only when the shared release workflow recorded this exact annotated
 # version tag after verifying its tested candidate transition.
 release_receipt_matches() {
     local head_commit

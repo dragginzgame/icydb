@@ -1,4 +1,49 @@
-use crate::db::sql_shared::{Keyword, SqlSyntaxErrorKind, TokenKind, tokenize_sql};
+use crate::db::sql_shared::{Keyword, SqlParseError, SqlSyntaxErrorKind, TokenKind, tokenize_sql};
+
+#[test]
+fn tokenize_sql_rejects_numeric_suffixes_before_alias_tokens() {
+    for literal in [
+        "1e3", "1E3", "1e+3", "1e-3", "1.5e2", "0x1F", "0X1F", "0b10", "0o17", "1_000", "1column",
+        "1FROM",
+    ] {
+        assert_eq!(
+            tokenize_sql(literal),
+            Err(SqlParseError::invalid_numeric_literal()),
+            "{literal}",
+        );
+    }
+}
+
+#[test]
+fn tokenize_sql_preserves_numeric_boundaries_and_literal_contents() {
+    let tokens = tokenize_sql("1+2 3.5*4 -5,6; 7 e3 0 x1F '1e3' X'1F' U256 '1000'")
+        .expect("supported numeric boundaries should tokenize");
+    let kinds: Vec<_> = tokens.into_iter().map(|token| token.kind).collect();
+    assert_eq!(
+        kinds,
+        [
+            TokenKind::Number("1".into()),
+            TokenKind::Plus,
+            TokenKind::Number("2".into()),
+            TokenKind::Number("3.5".into()),
+            TokenKind::Star,
+            TokenKind::Number("4".into()),
+            TokenKind::Minus,
+            TokenKind::Number("5".into()),
+            TokenKind::Comma,
+            TokenKind::Number("6".into()),
+            TokenKind::Semicolon,
+            TokenKind::Number("7".into()),
+            TokenKind::Identifier("e3".into()),
+            TokenKind::Number("0".into()),
+            TokenKind::Identifier("x1F".into()),
+            TokenKind::StringLiteral("1e3".into()),
+            TokenKind::BlobLiteral(vec![0x1F]),
+            TokenKind::Identifier("U256".into()),
+            TokenKind::StringLiteral("1000".into()),
+        ],
+    );
+}
 
 #[test]
 fn tokenize_sql_classifies_mixed_case_keywords_without_normalization_changes() {

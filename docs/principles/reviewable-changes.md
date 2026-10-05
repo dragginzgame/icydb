@@ -9,7 +9,8 @@ not the unit of work.
 This principle combines IcyDB's landing-slice guidance with Canic's distinction
 between implementation slices and release batches. The shared baseline owns
 continuation, validation authority and effect authorization. Consumers define
-their accepted outcomes, qualification gates and release targets within it.
+their accepted outcomes, qualification gates and release inputs within it.
+Release command names and sequencing follow the [common contract](../releases.md).
 
 ## Coherent outcome
 
@@ -75,7 +76,8 @@ Each repository retains authority over:
 
 - its planned outcomes and how they map to pull requests and releases;
 - exact focused-check commands and complete qualification gates;
-- explicitly selected release versions; and
+- explicit release execution and version overrides within the
+  [common compatibility and automatic changelog rules](../../rules/changelogs.md); and
 - closeout, publication, and deployment gates.
 
 Ordinary continuation completes the accepted coherent batch, including its direct

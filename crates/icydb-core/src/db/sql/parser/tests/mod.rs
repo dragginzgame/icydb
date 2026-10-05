@@ -36,6 +36,67 @@ fn sql_write_literal(value: Value) -> SqlWriteValue {
 }
 
 #[test]
+fn parse_sql_rejects_numeric_suffixes_across_statement_surfaces() {
+    for literal in ["1e3", "1E+3", "1e-3", "1.5e2", "0x1F", "0b10", "1_000"] {
+        for sql in [
+            format!("SELECT price * {literal} FROM Product"),
+            format!("SELECT price * {literal} AS scaled FROM Product"),
+            format!("SELECT price FROM Product WHERE price > {literal}"),
+            format!("SELECT ROUND(price, {literal}) FROM Product"),
+            format!("SELECT price FROM Product LIMIT {literal}"),
+            format!("UPDATE Product SET price = {literal} WHERE id = 1"),
+            format!("INSERT INTO Product (id, price) VALUES (1, {literal})"),
+            format!("DELETE FROM Product WHERE price > {literal}"),
+            format!("CREATE INDEX price_idx ON Product (price) WHERE price > {literal}"),
+        ] {
+            assert_eq!(
+                parse_sql(&sql),
+                Err(SqlParseError::invalid_numeric_literal()),
+                "{sql}",
+            );
+        }
+    }
+}
+
+#[test]
+fn parse_sql_preserves_numeric_values_with_separated_projection_aliases() {
+    for (sql, alias, value) in [
+        ("SELECT price * 1 e3 FROM Product", "e3", Value::Int64(1)),
+        ("SELECT price * 1 AS e3 FROM Product", "e3", Value::Int64(1)),
+        ("SELECT price * 0 x1F FROM Product", "x1F", Value::Int64(0)),
+        (
+            "SELECT price * 1.5 e2 FROM Product",
+            "e2",
+            Value::Decimal("1.5".parse().unwrap()),
+        ),
+        (
+            "SELECT price * 1\n_scaled FROM Product",
+            "_scaled",
+            Value::Int64(1),
+        ),
+        (
+            "SELECT price * 1\t_scaled FROM Product",
+            "_scaled",
+            Value::Int64(1),
+        ),
+    ] {
+        let SqlStatement::Select(statement) = parse_sql(sql).expect("separated alias should parse")
+        else {
+            panic!("expected SELECT");
+        };
+        assert_eq!(statement.projection_aliases, [Some(alias.into())]);
+        assert_eq!(
+            statement.projection,
+            SqlProjection::Items(vec![SqlSelectItem::Expr(sql_binary_expr(
+                SqlExpr::Field("price".into()),
+                SqlExprBinaryOp::Mul,
+                SqlExpr::Literal(value),
+            ))]),
+        );
+    }
+}
+
+#[test]
 fn scalar_tree_visitation_preserves_order_scope_and_aggregate_rejection() {
     let SqlStatement::Select(statement) = parse_sql(
         "SELECT CASE WHEN flag IS TRUE THEN SUM(input_only) FILTER (WHERE filter_only > 0) \
@@ -5163,6 +5224,164 @@ fn parse_sql_rejects_excessive_binary_chain_depth() {
             },
         }
     );
+}
+
+#[test]
+fn parse_sql_rejects_excessive_order_arithmetic_parentheses() {
+    let depth = MAX_SQL_EXPR_DEPTH + 12;
+    for operand in [
+        format!("{}1{}", "(".repeat(depth), ")".repeat(depth)),
+        format!("{}1", "(".repeat(depth)),
+        format!(
+            "{}1{}",
+            "(".repeat(MAX_SQL_TOKENS / 2 - 32),
+            ")".repeat(MAX_SQL_TOKENS / 2 - 32),
+        ),
+    ] {
+        for statement in [
+            "SELECT id FROM T",
+            "UPDATE T SET id = 2",
+            "DELETE FROM T",
+            "EXPLAIN SELECT id FROM T",
+            "EXPLAIN DELETE FROM T",
+        ] {
+            for target in ["id", "COUNT(*)", "SUM(id)"] {
+                let sql = format!("{statement} ORDER BY {target} + {operand} DESC LIMIT 1");
+                assert_eq!(
+                    parse_sql(&sql),
+                    Err(crate::db::sql_shared::sql_expr_depth_limit_error()),
+                    "{sql}",
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn parse_sql_rejects_excessive_order_arithmetic_binary_chains() {
+    let operand = format!("(1{})", " + 1".repeat(MAX_SQL_EXPR_DEPTH + 12));
+    for statement in [
+        "SELECT id FROM T",
+        "UPDATE T SET id = 2",
+        "DELETE FROM T",
+        "EXPLAIN SELECT id FROM T",
+        "EXPLAIN DELETE FROM T",
+    ] {
+        for target in ["id", "COUNT(*)", "SUM(id)"] {
+            let sql = format!("{statement} ORDER BY {target} + {operand} DESC LIMIT 1");
+            assert_eq!(
+                parse_sql(&sql),
+                Err(crate::db::sql_shared::sql_expr_depth_limit_error()),
+                "{sql}",
+            );
+        }
+    }
+}
+
+#[test]
+fn parse_sql_rejects_composed_order_arithmetic_depth_before_admission() {
+    let mut bounded_operand = String::from("1");
+    for _ in 0..12 {
+        bounded_operand = format!("({bounded_operand}{})", " + 1".repeat(8));
+    }
+    parse_sql(&format!("SELECT id FROM T ORDER BY id + {bounded_operand}"))
+        .expect("bounded composed arithmetic should remain supported");
+
+    let mut operand = String::from("1");
+    for _ in 0..12 {
+        operand = format!("({operand}{})", " + 1".repeat(12));
+    }
+    let sql = format!("SELECT id FROM T ORDER BY id + {operand}");
+    assert_eq!(
+        parse_sql(&sql),
+        Err(crate::db::sql_shared::sql_expr_depth_limit_error()),
+    );
+}
+
+#[test]
+fn parse_sql_preserves_bounded_order_arithmetic_parentheses_across_routes() {
+    for statement in [
+        "SELECT id FROM T",
+        "UPDATE T SET id = 2",
+        "DELETE FROM T",
+        "EXPLAIN SELECT id FROM T",
+        "EXPLAIN DELETE FROM T",
+    ] {
+        for target in ["id", "COUNT(*)", "SUM(id)"] {
+            let expected = parse_sql(&format!(
+                "{statement} ORDER BY {target} + 1 DESC LIMIT 1 OFFSET 2",
+            ))
+            .expect("supported direct order arithmetic should parse");
+            for depth in [1, 8, MAX_SQL_EXPR_DEPTH - 4] {
+                let sql = format!(
+                    "{statement} ORDER BY {target} + {}1{} DESC LIMIT 1 OFFSET 2",
+                    "(".repeat(depth),
+                    ")".repeat(depth),
+                );
+                assert_eq!(parse_sql(&sql), Ok(expected.clone()), "{sql}");
+            }
+        }
+    }
+}
+
+#[test]
+fn parse_sql_preserves_order_arithmetic_precedence_parameters_and_term_boundaries() {
+    let SqlStatement::Select(statement) = parse_sql(
+        "SELECT id + ? AS base FROM T \
+         ORDER BY id + (? * ? + 2) ASC, COUNT(*) + (? / 2) DESC LIMIT 3 OFFSET 1",
+    )
+    .expect("bounded computed ordering should parse") else {
+        panic!("expected SELECT");
+    };
+
+    assert_eq!(
+        statement.projection,
+        SqlProjection::Items(vec![SqlSelectItem::Expr(sql_binary_expr(
+            SqlExpr::Field("id".into()),
+            SqlExprBinaryOp::Add,
+            SqlExpr::Param { index: 0 },
+        ))]),
+    );
+    assert_eq!(
+        statement.order_by,
+        [
+            SqlOrderTerm {
+                field: sql_binary_expr(
+                    SqlExpr::Field("id".into()),
+                    SqlExprBinaryOp::Add,
+                    sql_binary_expr(
+                        sql_binary_expr(
+                            SqlExpr::Param { index: 1 },
+                            SqlExprBinaryOp::Mul,
+                            SqlExpr::Param { index: 2 },
+                        ),
+                        SqlExprBinaryOp::Add,
+                        SqlExpr::Literal(Value::Int64(2)),
+                    ),
+                ),
+                direction: SqlOrderDirection::Asc,
+            },
+            SqlOrderTerm {
+                field: sql_binary_expr(
+                    SqlExpr::Aggregate(SqlAggregateCall {
+                        kind: SqlAggregateKind::Count,
+                        input: None,
+                        filter_expr: None,
+                        distinct: false,
+                    }),
+                    SqlExprBinaryOp::Add,
+                    sql_binary_expr(
+                        SqlExpr::Param { index: 3 },
+                        SqlExprBinaryOp::Div,
+                        SqlExpr::Literal(Value::Int64(2)),
+                    ),
+                ),
+                direction: SqlOrderDirection::Desc,
+            },
+        ],
+    );
+    assert_eq!(statement.limit, Some(3));
+    assert_eq!(statement.offset, Some(1));
 }
 
 #[test]

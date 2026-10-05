@@ -1357,6 +1357,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "ic-metrics"
+version = "0.1.1"
+
+[[package]]
 name = "ic-stable-structures"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1367,9 +1371,9 @@ dependencies = [
 
 [[package]]
 name = "ic-testkit"
-version = "0.16.0"
+version = "0.17.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91ba3564c4bda4c04ff66e201dd2ff2523935ee0f75fa7f537c1d61b6244328e"
+checksum = "339cc6acfbac2e2ee4d2d0b5c199c829f2ac4f62709258e0459e65fc661cbb60"
 dependencies = [
  "candid",
  "fs2",
@@ -1384,9 +1388,9 @@ dependencies = [
 
 [[package]]
 name = "ic-timers"
-version = "0.11.8"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "890cf797237fe38c503df843f08cb33f363f3b7ff895056dccaa639f4afcb020"
+checksum = "2d6a74d728fae66b9fd8f50c3a6de8f51c44cf62a7330eef3826bcc4c3bfc412"
 dependencies = [
  "ic-cdk-timers",
  "ic0",
@@ -1586,6 +1590,7 @@ dependencies = [
  "getrandom 0.4.3",
  "ic-cdk",
  "ic-memory",
+ "ic-metrics",
  "icydb-diagnostic-code",
  "icydb-schema",
  "icydb-testing-sql-generator",

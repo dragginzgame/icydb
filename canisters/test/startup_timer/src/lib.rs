@@ -3,10 +3,10 @@
 use candid::CandidType;
 use ic_cdk::{query, update};
 use ic_timers::{
-    AfterCompletionRegistration, DeclarationLifetime, TimerCadence, TimerCompletion,
-    TimerDirective, TimerIdentity, TimerRunResult, WatchdogDecision, WatchdogRegistration,
-    WatchdogRunResult, initialize_runtime, register_after_completion, register_watchdog,
-    timer_snapshot,
+    AfterCompletionDecision, AfterCompletionRegistration, AfterCompletionRunResult,
+    DeclarationLifetime, TimerCadence, TimerCompletion, TimerIdentity, WatchdogDecision,
+    WatchdogRegistration, WatchdogRunResult, initialize_runtime, register_after_completion,
+    register_watchdog, timer_snapshot,
 };
 use std::{
     cell::{Cell, RefCell},
@@ -125,9 +125,9 @@ fn startup_timer_probe_start() -> bool {
                 &APPLICATION_INSTRUCTIONS,
                 &APPLICATION_TIMES,
             );
-            TimerRunResult::new(
+            AfterCompletionRunResult::new(
                 TimerCompletion::success(1),
-                TimerDirective::RecurAfterCompletion,
+                AfterCompletionDecision::RecurAfterCompletion,
             )
         },
     ) else {

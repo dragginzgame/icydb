@@ -16,8 +16,12 @@ if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+
   exit 2
 fi
 
-sed -i -E "s/Current workspace version: \`[^\`]+\`/Current workspace version: \`$VERSION\`/" README.md
-sed -i -E "s/tag = \"v[0-9]+\.[0-9]+\.[0-9]+([-.+][^\"]*)?\"/tag = \"v$VERSION\"/g" README.md
+sed -E "s/Current workspace version: \`[^\`]+\`/Current workspace version: \`$VERSION\`/" README.md > README.md.release-tmp
+cat README.md.release-tmp > README.md
+rm -f README.md.release-tmp
+sed -E "s/tag = \"v[0-9]+\.[0-9]+\.[0-9]+([-.+][^\"]*)?\"/tag = \"v$VERSION\"/g" README.md > README.md.release-tmp
+cat README.md.release-tmp > README.md
+rm -f README.md.release-tmp
 
 if ! rg -q "Current workspace version: \`$VERSION\`" README.md; then
   echo "README workspace version did not sync to $VERSION" >&2

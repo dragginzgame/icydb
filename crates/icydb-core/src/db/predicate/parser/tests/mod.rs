@@ -16,6 +16,22 @@ use crate::{
 use icydb_diagnostic_code::SqlFeatureCode;
 
 #[test]
+fn parse_sql_predicate_rejects_numeric_suffixes_at_the_lexical_boundary() {
+    for literal in ["1e3", "1E+3", "1.5e2", "0x1F", "1_000"] {
+        for sql in [
+            format!("price > {literal}"),
+            format!("price IN ({literal})"),
+        ] {
+            assert_eq!(
+                parse_sql_predicate(&sql),
+                Err(SqlParseError::invalid_numeric_literal()),
+                "{sql}"
+            );
+        }
+    }
+}
+
+#[test]
 fn parse_sql_predicate_parses_expression_without_statement_wrapper() {
     let predicate = parse_sql_predicate("active = true AND age >= 21")
         .expect("predicate-only SQL should parse");

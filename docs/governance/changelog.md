@@ -55,34 +55,33 @@ The root changelog must link to the detailed file when present.
 
 ## 2.3 Active Version Work
 
-The latest release or current draft stays at the top. The repository has no
+The latest release or numbered pending entry stays at the top. The repository has no
 `Unreleased` section or separate notes queue. Record meaningful completed
 behavior and tooling in the current root entry and shared minor-line notes;
 governance-only edits need no note unless requested.
 
-When the next release version is undecided, use one undated `## [Draft]` at the
-top of the root and relevant minor-line file. The root links to that file. A
-Draft has no patch number and does not authorize a new minor. Keep an explicitly
-selected, unpublished target current without creating a version per landing
-slice. Once a target has a release tag or is reported published, preserve it
-and collect continued authorized work in the current Draft.
+Apply [the shared automatic next-version rules](../../rules/changelogs.md).
+Use one undated `## [X.Y.Z]` at the top of root and matching minor-line notes.
+Derive the version from the latest finalized release and the complete pending
+batch: compatible pre-1.0 work selects the next patch; breaking public API,
+semantics or output selects the next minor. Honour compatible maintainer overrides
+and report conflicting selections. Do not increment again for each landing slice.
 
-Resolve the Draft's version during explicitly authorized release preparation.
-Do not automatically choose the next patch or mutate Cargo versions. Breaking
-public API or semantic changes require a minor release before 1.0; report a
-conflicting supplied target instead of silently renumbering it or crossing the
-authorized release boundary. Existing published historical notes remain intact.
+When the pending candidate changes minor line, move only its unpublished notes
+and update the root detail link. Keep finalized notes in their original files.
+Selecting that heading does not change Cargo versions or authorize new
+implementation scope, commits, tags, pushes or publication.
 
-Changelog position, draft labeling and an undecided release number must not
-block deployment. Report and repair missing notes when practical; final labeling
-and unambiguous release selection belong to release preparation.
+Release preparation reconciles the computed candidate with the pending heading
+and adds its UTC date. Note presentation must not block deployment; concrete
+release identity conflicts must be resolved before preparation.
 
 ---
 
 # 3. Version Entry Rules (Root CHANGELOG.md)
 
-Released entries use the following form; an undecided current entry uses
-`## [Draft]` without a date or version:
+Released entries use the following form; pending entries use
+`## [X.Y.Z]` without a date:
 
 ## [<version>] – <YYYY-MM-DD> – <Short Title>
 
@@ -115,7 +114,7 @@ Rules:
 15. If a patch bullet starts becoming a multi-clause internal inventory, shorten it and move detail to `docs/changelog/<major>.<minor>.md`.
 16. Do not add a new root patch bullet for every code slice. Update the one
     active patch bullet until that version is reported published; then open the
-    current draft after publication as defined above; never infer the next patch.
+    numbered pending entry after publication under the shared selection rules.
 
 ## 3.1 Section Header Emoji Mapping
 
@@ -157,9 +156,9 @@ During ordinary development:
 2. Keep meaningful completed behavior/tooling in the current draft and shared
    minor-line notes before handoff. Governance-only edits remain exempt unless
    the user requests a note.
-3. Use an undated Draft when the next version is undecided; resolve its version
-   only during explicitly authorized release preparation. Never infer a patch
-   number or treat draft presentation as a deployment prerequisite.
+3. Automatically maintain one numbered, undated pending entry from the latest
+   finalized release and the complete batch. Date it only during release
+   preparation; numbering alone authorizes no package or publication effects.
 4. Never add an `Unreleased` section or rewrite a published version.
 
 When preparing a release:
@@ -201,8 +200,8 @@ Agents must never:
 
 # 5. Breaking Changes
 
-Breaking public API or semantic changes require an explicitly selected minor
-release before 1.0. Do not silently accept a conflicting patch target or reuse a
+Breaking public API or semantic changes require a minor release before 1.0.
+Select the pending heading automatically, but do not accept a conflicting patch target or reuse a
 frozen storage discriminator; coordinate retained consumers and reset/retirement
 obligations before the hard cut.
 
@@ -291,39 +290,27 @@ Testing section rules:
 
 For each release:
 
-1. Confirm the active target patch entry includes every relevant candidate change.
-2. Update CHANGELOG.md with one concise bullet for the target patch.
-3. Create or update docs/changelog/<major>.<minor>.md.
-4. Commit the code and changelog changes.
-5. Run `make patch`, `make minor`, or `make major`. The target runs
-   `make validate` once against the source candidate before any version mutation. Root or
-   detailed changelog edits may remain staged or unstaged and are included in
-   the release transition; every other tracked change stops the release before
-   the expensive gate starts and is checked again afterward. The version bump
-   changes workspace package versions and their exact intra-workspace
-   dependency pins together, preserves the validated external dependency graph,
-   verifies that result offline, then records the exact
-   version-and-release-note diff. A failure leaves any generated mutation
-   visible for review; release tooling never restores files automatically.
-6. Review the release diff.
-7. Run `make release-stage` to stage known release files.
-8. Run `make release-commit`. It must verify the staged diff against the tested
-   candidate receipt, commit only that transition, verify the committed diff
-   again, then tag it and record the exact release-commit receipt. It must not
-   rerun validation after creating the commit.
-9. Run `make release-push` to publish the release tag. Push performs no hidden
-   validation; the explicit pre-bump `make validate` workflow owns that work.
-   Successful push cleanup removes transient release state but preserves the
-   validated Cargo build cache. `make release-clean` removes only transient
-   release state. Cargo build-cache cleanup is always a separate manual action,
-   including before or after package, publish, deployment, and push workflows.
+1. Include every relevant change in the numbered, undated root and minor-line
+   pending entries. Select the release kind matching the whole batch's compatibility.
+2. The maintainer reviews and commits the source and notes; start from a clean
+   tree on the configured release branch.
+3. Invoke `make release-patch`, `make release-minor` or `make release-major`.
+   The shared runner checks release identities, validates the committed source,
+   saves preparation intent, prepares and formats exact metadata, then stages,
+   commits, tags and atomically pushes the branch and selected tag. Consumer
+   receipts bind the prepared transition to the tested source and dependency graph.
+4. After a failure, inspect the retained plan and lock owner. Resume a saved
+   candidate with `make release-resume VERSION=X.Y.Z`; a preflight or validation
+   failure before preparation permits a fresh attempt. Never reset conflicting
+   source, index or remote identities to force a retry.
+5. Invoke package publication or deployment separately when authorized. Retain
+   build outputs, validation evidence and recovery plans after successful push;
+   cleanup is separately scoped and explicitly invoked.
 
-Order must be preserved.
-Patch releases are batch boundaries, not required endpoints for each code
-slice. After code and changelog changes are committed, the reviewable release flow is
-`make patch`, `git diff`, `make release-stage`, `make release-commit`,
-`make release-push`, then `cargo publish`. A failed validation workflow leaves the
-version, release commit, and tag untouched.
+The [shared release contract](../releases.md) owns execution and recovery.
+Pending notes are batch boundaries, not a new version per landing slice. A failed
+validation leaves package versions, release commits and tags untouched. Agent
+sessions maintain notes and focused evidence; the maintainer owns release execution.
 
 ---
 

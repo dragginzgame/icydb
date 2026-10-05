@@ -2,7 +2,7 @@
 
 Apply the local [shared engineering baseline](DRAGGINZGAME.md), recorded in
 [the snapshot manifest](.shared-tooling.snapshot) at reviewed revision
-`41e1fd0ba41460bd2127cbf98ac8a4b2b2020d3e`. This file is
+`c0206f1943238e21bd00fbe01658e6a0864c24fa`. This file is
 IcyDB's local overlay; there are no baseline exceptions. See
 [shared-tooling adoption](docs/governance/shared-tooling.md) for tool provenance
 and consumer boundaries. Keep this file small; open detailed docs as needed.
@@ -14,7 +14,7 @@ and consumer boundaries. Keep this file small; open detailed docs as needed.
 - Use GitHub issues exclusively for upstream feedback and follow-up tracking.
   Check issue bodies and comments; local notes may summarize linked evidence
   but must not become a separate feedback queue.
-- Do not edit Cargo workspace/package version numbers in `Cargo.toml` or `Cargo.lock`; `make patch` owns version bumps. If version churn is present, report it and leave it alone unless the user explicitly asks for release tooling.
+- Do not edit Cargo workspace/package version numbers in `Cargo.toml` or `Cargo.lock`; the shared release workflow owns version bumps. If version churn is present, report it and leave it alone unless the user explicitly asks for release tooling.
 - Do not revert user or unrelated dirty-worktree changes; re-read affected files and continue.
 - Codex may start, stop, or restart local ICP and PocketIC networks when required
   by the requested development, validation, or measurement work. Avoid
@@ -52,8 +52,8 @@ and consumer boundaries. Keep this file small; open detailed docs as needed.
   explicitly asks.
 - Repository-owned models are unversioned or use version `1` before `1.0.0`.
   Do not add V2+, parallel formats, hidden versions or predecessor decoders.
-- Breaking public API or semantic changes require an explicitly selected minor
-  release before `1.0.0`; do not silently put them into a patch release.
+- Breaking public API or semantic changes require a minor release before `1.0.0`;
+  select the pending changelog version under the shared automatic numbering rules.
 - Never reuse a frozen wire/storage discriminator for an incompatible layout.
   Trace producers, consumers and retained installations before a hard cut.
   Coordinate regeneration/reinstall/reset and explicit retirement of the old
@@ -153,9 +153,10 @@ and consumer boundaries. Keep this file small; open detailed docs as needed.
 - Keep meaningful completed behavior/tooling notes in the latest current root
   and minor-line draft before handoff. Governance-only edits need no note unless
   requested. Never create an `Unreleased` section or a separate notes queue.
-- When the release version is undecided, use one undated `Draft` at the top.
-  Resolve its version during explicitly authorized release preparation; do not
-  automatically select a patch number or mutate Cargo versions.
+- Keep one numbered, undated pending entry under `rules/changelogs.md`.
+  Derive its version from the latest finalized release and the whole pending
+  batch; move only pending detail notes when its minor line changes. Numbering
+  does not authorize Cargo version changes or release execution.
 - Preserve published notes and tags. An explicitly supplied target needs root
   and detailed release notes; report SemVer conflicts rather than renumbering it.
 - Changelog position, draft labels or a missing chosen version must not block
@@ -177,6 +178,8 @@ and consumer boundaries. Keep this file small; open detailed docs as needed.
   minor and directs the agent to start it (for example, "start 0.212"). A
   roadmap, existing next design, clean worktree, successful push, or question
   such as "what is next?" is not authorization to cross the minor boundary.
+  Automatically selecting a pending changelog heading is documentation work,
+  not authorization to implement another minor line.
 
 ## Final Response
 

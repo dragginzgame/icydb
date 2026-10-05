@@ -1,5 +1,5 @@
 //! Module: SQL shell tests.
-//! Responsibility: exercise shell input normalization, routing, decoding, and output rendering.
+//! Responsibility: exercise shell input preservation, routing, decoding, and output rendering.
 //! Does not own: top-level clap parsing or ICP process command construction.
 //! Boundary: test-only assertions over shell helpers and decoded SQL payload text.
 
@@ -8,8 +8,7 @@ use crate::{
     shell::test_support::{
         SqlShellCallKind, candid_escape_string, drain_complete_shell_statements,
         finalize_successful_command_output, interactive_start_message, is_shell_exit_command,
-        is_shell_help_command, normalize_shell_statement_line, render_grouped_shell_text,
-        render_projection_shell_text, shell_help_text, sql_error_with_recovery_hint,
+        is_shell_help_command, render_sql_response, shell_help_text, sql_error_with_recovery_hint,
         sql_shell_call_kind,
     },
 };
@@ -54,21 +53,25 @@ fn exit_command_matches_supported_spellings_case_insensitively() {
 }
 
 #[test]
-fn normalize_shell_statement_line_trims_surrounding_whitespace() {
-    assert_eq!(
-        normalize_shell_statement_line("   SELECT * FROM character   "),
-        "SELECT * FROM character",
-    );
-}
-
-#[test]
-fn normalize_shell_statement_line_collapses_repeated_trailing_semicolons() {
-    assert_eq!(normalize_shell_statement_line("  query();;   "), "query();",);
-}
-
-#[test]
-fn normalize_shell_statement_line_preserves_semicolon_only_terminator_lines() {
-    assert_eq!(normalize_shell_statement_line("  ;; "), ";");
+fn drain_complete_shell_statements_ignores_empty_separators() {
+    for (input, expected) in [
+        ("  ;;  ", vec![]),
+        ("SELECT 1;;   ", vec!["SELECT 1;"]),
+        (
+            "; SELECT 1;;;\nSELECT 2; ;;",
+            vec!["SELECT 1;", "SELECT 2;"],
+        ),
+        ("SELECT ';;' AS marker;;;", vec!["SELECT ';;' AS marker;"]),
+    ] {
+        let mut statement = input.to_string();
+        assert_eq!(
+            drain_complete_shell_statements(&mut statement)
+                .into_iter()
+                .collect::<Vec<_>>(),
+            expected,
+        );
+        assert!(statement.is_empty());
+    }
 }
 
 #[test]
@@ -96,14 +99,33 @@ fn drain_complete_shell_statements_preserves_semicolons_inside_strings() {
 }
 
 #[test]
+fn drain_complete_shell_statements_accepts_literal_backslashes() {
+    for literal in [r"C:\", r"C:\folder\", r"\", r"\'';quoted", "café\\"] {
+        let sql = format!("UPDATE Character SET name = '{literal}' WHERE id = 1;");
+        assert_eq!(
+            sql_shell_call_kind(&sql),
+            Ok(SqlShellCallKind::Update),
+            "{sql}"
+        );
+        let mut statement = format!("{sql}\nSELECT 2;");
+        let drained = drain_complete_shell_statements(&mut statement);
+        assert_eq!(
+            drained.into_iter().collect::<Vec<_>>(),
+            [sql, "SELECT 2;".into()]
+        );
+        assert!(statement.is_empty());
+    }
+}
+
+#[test]
 fn drain_complete_shell_statements_preserves_semicolons_after_escaped_quote() {
-    let mut statement = String::from("SELECT 'it\\'s; ok' AS marker;\nSELECT 2;");
+    let mut statement = String::from("SELECT 'it''s; ok' AS marker;\nSELECT 2;");
     let drained = drain_complete_shell_statements(&mut statement);
 
     assert_eq!(
         drained.into_iter().collect::<Vec<_>>(),
         vec![
-            "SELECT 'it\\'s; ok' AS marker;".to_string(),
+            "SELECT 'it''s; ok' AS marker;".to_string(),
             "SELECT 2;".to_string()
         ],
     );
@@ -119,7 +141,7 @@ fn drain_complete_shell_statements_keeps_incomplete_remainder() {
         drained.into_iter().collect::<Vec<_>>(),
         vec!["SELECT 1;".to_string()]
     );
-    assert_eq!(statement, "SELECT");
+    assert_eq!(statement, "\nSELECT");
 }
 
 #[test]
@@ -339,12 +361,13 @@ fn ddl_constraint_validation_page_roundtrips_typed_acknowledgement_state() {
 
 #[test]
 fn projection_shell_text_leaves_footer_without_embedded_trailing_blank_line() {
-    let rendered = render_projection_shell_text(RowProjectionOutput {
+    let rendered = SqlQueryResult::Projection(RowProjectionOutput {
         entity: "Character".to_string(),
         columns: vec!["name".to_string()],
         rows: vec![vec![OutputValue::text("alice".to_string())]],
         row_count: 1,
-    });
+    })
+    .render_text();
 
     assert!(
         rendered.ends_with("1 row,"),
@@ -354,12 +377,13 @@ fn projection_shell_text_leaves_footer_without_embedded_trailing_blank_line() {
 
 #[test]
 fn projection_shell_text_renders_null_cells_as_sql_null() {
-    let rendered = render_projection_shell_text(RowProjectionOutput {
+    let rendered = SqlQueryResult::Projection(RowProjectionOutput {
         entity: "Character".to_string(),
         columns: vec!["nickname".to_string()],
         rows: vec![vec![OutputValue::null()]],
         row_count: 1,
-    });
+    })
+    .render_text();
 
     assert!(
         rendered.contains("NULL"),
@@ -373,13 +397,14 @@ fn projection_shell_text_renders_null_cells_as_sql_null() {
 
 #[test]
 fn grouped_shell_text_leaves_footer_without_embedded_trailing_blank_line() {
-    let rendered = render_grouped_shell_text(SqlGroupedRowsOutput {
+    let rendered = SqlQueryResult::Grouped(SqlGroupedRowsOutput {
         entity: "Character".to_string(),
         columns: vec!["class_name".to_string(), "COUNT(*)".to_string()],
         rows: vec![vec!["Bard".to_string(), "5".to_string()]],
         row_count: 1,
         next_cursor: None,
-    });
+    })
+    .render_text();
 
     assert!(
         rendered.ends_with("1 row,"),
@@ -389,13 +414,14 @@ fn grouped_shell_text_leaves_footer_without_embedded_trailing_blank_line() {
 
 #[test]
 fn grouped_shell_text_renders_null_cells_as_sql_null() {
-    let rendered = render_grouped_shell_text(SqlGroupedRowsOutput {
+    let rendered = SqlQueryResult::Grouped(SqlGroupedRowsOutput {
         entity: "Character".to_string(),
         columns: vec!["class_name".to_string(), "COUNT(*)".to_string()],
-        rows: vec![vec!["null".to_string(), "5".to_string()]],
+        rows: vec![vec!["NULL".to_string(), "5".to_string()]],
         row_count: 1,
         next_cursor: None,
-    });
+    })
+    .render_text();
 
     assert!(
         rendered.contains("NULL"),
@@ -405,4 +431,80 @@ fn grouped_shell_text_renders_null_cells_as_sql_null() {
         !rendered.contains("null"),
         "grouped shell output should not leak lowercase transport null cells: {rendered:?}",
     );
+}
+
+#[test]
+fn sql_response_null_rendering_is_shared_by_query_and_returning() {
+    let result = SqlQueryResult::Projection(RowProjectionOutput {
+        entity: "User".into(),
+        columns: vec!["missing".into(), "lower".into(), "upper".into()],
+        rows: vec![vec![
+            OutputValue::null(),
+            OutputValue::text("null".into()),
+            OutputValue::text("NULL".into()),
+        ]],
+        row_count: 1,
+    });
+    let response: Result<SqlQueryResult, icydb::Error> = Ok(result.clone());
+    let bytes = Encode!(&response).expect("SQL response should encode");
+    let expected = icydb::db::sql::render_projection_display_rows_lines(
+        &["missing".into(), "lower".into(), "upper".into()],
+        &[vec!["NULL".into(), "'null'".into(), "'NULL'".into()]],
+        1,
+    )
+    .join("\n");
+
+    for (sql, kind) in [
+        ("SELECT nickname FROM User", SqlShellCallKind::Query),
+        (
+            "UPDATE User SET nickname = NULL RETURNING nickname",
+            SqlShellCallKind::Update,
+        ),
+        (
+            "DELETE FROM User RETURNING nickname",
+            SqlShellCallKind::Query,
+        ),
+        (
+            "INSERT INTO User (nickname) VALUES (NULL) RETURNING nickname",
+            SqlShellCallKind::Query,
+        ),
+    ] {
+        assert_eq!(sql_shell_call_kind(sql), Ok(kind), "{sql}");
+        assert_eq!(render_sql_response(&bytes), Ok(expected.clone()), "{sql}");
+    }
+    assert_eq!(result.render_text(), expected);
+}
+
+#[test]
+fn sql_response_preserves_preformatted_grouped_cells_and_cursor() {
+    let result = SqlQueryResult::Grouped(SqlGroupedRowsOutput {
+        entity: "User".into(),
+        columns: vec!["key".into(), "value".into()],
+        rows: vec![
+            vec!["NULL".into(), "'null'".into()],
+            vec!["'NULL'".into(), "NULL".into()],
+            vec!["null".into(), "0.000".into()],
+        ],
+        row_count: 3,
+        next_cursor: Some("opaque-cursor".into()),
+    });
+    let expected = result.render_text();
+    let response: Result<SqlQueryResult, icydb::Error> = Ok(result);
+    let bytes = Encode!(&response).expect("grouped response should encode");
+    assert_eq!(render_sql_response(&bytes), Ok(expected));
+}
+
+#[test]
+fn sql_response_keeps_endpoint_and_decode_failures_as_errors() {
+    let error = icydb::Error::from_diagnostic(icydb::diagnostic::Diagnostic::new(
+        icydb::diagnostic::DiagnosticCode::QueryReadAdmission,
+        icydb::diagnostic::ErrorOrigin::Query,
+        Some(icydb::diagnostic::DiagnosticDetail::QueryReadAdmission {
+            reason: icydb::diagnostic::QueryReadAdmissionCode::PublicQueryRequiresLimit,
+        }),
+    ));
+    let response: Result<SqlQueryResult, icydb::Error> = Err(error);
+    let bytes = Encode!(&response).expect("endpoint failure should encode");
+    assert!(render_sql_response(&bytes).is_err());
+    assert!(render_sql_response(&[]).is_err());
 }

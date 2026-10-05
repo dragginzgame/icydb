@@ -50,7 +50,7 @@ impl<'a> Lexer<'a> {
                         SqlFeatureCode::QuotedIdentifiers,
                     ));
                 }
-                next if next.is_ascii_digit() => TokenKind::Number(self.lex_number()),
+                next if next.is_ascii_digit() => TokenKind::Number(self.lex_number()?),
                 next if is_identifier_start(next) => self.lex_identifier_or_keyword(),
                 other => {
                     return Err(SqlParseError::invalid_syntax(

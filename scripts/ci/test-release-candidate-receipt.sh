@@ -38,7 +38,7 @@ git -C "$FIXTURE" config user.name "IcyDB release fixture"
 git -C "$FIXTURE" config user.email "release-fixture@invalid.example"
 mkdir -p "$FIXTURE/docs/changelog"
 printf '.ignored/\n' > "$FIXTURE/.gitignore"
-printf '[workspace.package]\nversion = "0.223.6"\n' > "$FIXTURE/Cargo.toml"
+printf '[workspace]\n[workspace.package]\nversion = "0.223.6"\n[package]\nname = "fixture"\nversion.workspace = true\nedition = "2024"\n[lib]\npath = "code.txt"\n' > "$FIXTURE/Cargo.toml"
 write_lockfile 0.223.6
 printf 'IcyDB 0.223.6\n' > "$FIXTURE/README.md"
 printf 'root release notes\n' > "$FIXTURE/CHANGELOG.md"
@@ -67,7 +67,7 @@ run_subject verify-tested-tree "$candidate_commit"
 git -C "$FIXTURE" add CHANGELOG.md docs/changelog/0.223.md
 run_subject verify-tested-tree "$candidate_commit"
 
-printf '[workspace.package]\nversion = "0.223.7"\n' > "$FIXTURE/Cargo.toml"
+printf '[workspace]\n[workspace.package]\nversion = "0.223.7"\n[package]\nname = "fixture"\nversion.workspace = true\nedition = "2024"\n[lib]\npath = "code.txt"\n' > "$FIXTURE/Cargo.toml"
 write_lockfile 0.223.7
 printf 'IcyDB 0.223.7\n' > "$FIXTURE/README.md"
 expect_failure run_subject record patch 0000000000000000000000000000000000000000
@@ -88,7 +88,7 @@ expect_failure run_subject verify-staged
 git -C "$FIXTURE" commit -q --no-verify -m "tampered release"
 expect_failure run_subject verify-commit
 git -C "$FIXTURE" switch -q --detach "$candidate_commit"
-printf '[workspace.package]\nversion = "0.223.7"\n' > "$FIXTURE/Cargo.toml"
+printf '[workspace]\n[workspace.package]\nversion = "0.223.7"\n[package]\nname = "fixture"\nversion.workspace = true\nedition = "2024"\n[lib]\npath = "code.txt"\n' > "$FIXTURE/Cargo.toml"
 write_lockfile 0.223.7
 printf 'IcyDB 0.223.7\n' > "$FIXTURE/README.md"
 printf 'root release notes updated during test\n' > "$FIXTURE/CHANGELOG.md"
@@ -103,7 +103,7 @@ printf 'dirty source\n' >> "$FIXTURE/code.txt"
 expect_failure run_subject verify-commit
 git -C "$FIXTURE" restore code.txt
 
-printf '[workspace.package]\nversion = "0.223.8"\n' > "$FIXTURE/Cargo.toml"
+printf '[workspace]\n[workspace.package]\nversion = "0.223.8"\n[package]\nname = "fixture"\nversion.workspace = true\nedition = "2024"\n[lib]\npath = "code.txt"\n' > "$FIXTURE/Cargo.toml"
 write_lockfile 0.223.8
 printf 'IcyDB 0.223.8\n' > "$FIXTURE/README.md"
 printf 'candidate source changed during bump\n' > "$FIXTURE/code.txt"

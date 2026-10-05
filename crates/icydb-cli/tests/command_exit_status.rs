@@ -16,8 +16,11 @@ use std::{
 use candid::{CandidType, Encode};
 use icydb::{
     Error, ErrorOrigin,
-    db::{SchemaMigrationPhase, SchemaMigrationStatusPage, sql::SqlQueryResult},
+    db::{
+        RowProjectionOutput, SchemaMigrationPhase, SchemaMigrationStatusPage, sql::SqlQueryResult,
+    },
     diagnostic::RuntimeBoundaryCode,
+    value::OutputValue,
 };
 
 const STATEMENTS: [(&str, &str, bool); 3] = [
@@ -218,6 +221,47 @@ fn one_shot_sql_success_keeps_stdout_and_success_status() {
     let expected = format!("{}\n\n", result.render_text());
     let response = response_hex(Ok(result));
     for (sql, method, query) in STATEMENTS {
+        for explicit in [false, true] {
+            let fixture = IcpFixture::new();
+            let output = fixture.one_shot(&response, sql, explicit);
+            assert_eq!(output.status.code(), Some(0));
+            assert_eq!(output.stdout, expected.as_bytes());
+            assert!(output.stderr.is_empty());
+            fixture.assert_call(method, query);
+        }
+    }
+}
+
+#[test]
+fn one_shot_sql_null_display_matches_query_and_update_returning() {
+    let result = SqlQueryResult::Projection(RowProjectionOutput {
+        entity: "Character".into(),
+        columns: vec!["missing".into(), "lower".into(), "upper".into()],
+        rows: vec![vec![
+            OutputValue::null(),
+            OutputValue::text("null".into()),
+            OutputValue::text("NULL".into()),
+        ]],
+        row_count: 1,
+    });
+    let expected = format!(
+        "{}\n\n",
+        icydb::db::sql::render_projection_display_rows_lines(
+            &["missing".into(), "lower".into(), "upper".into()],
+            &[vec!["NULL".into(), "'null'".into(), "'NULL'".into()]],
+            1,
+        )
+        .join("\n"),
+    );
+    let response = response_hex(Ok(result));
+    for (sql, method, query) in [
+        ("SELECT name FROM Character", "icydb_query", true),
+        (
+            "UPDATE Character SET name = NULL WHERE id = 1 RETURNING name",
+            "icydb_update",
+            false,
+        ),
+    ] {
         for explicit in [false, true] {
             let fixture = IcpFixture::new();
             let output = fixture.one_shot(&response, sql, explicit);

@@ -363,14 +363,14 @@ fn clear_application_startup_poll() {
 }
 
 #[cfg(feature = "test-admin-api")]
-fn application_startup_poll_result() -> ic_timers::TimerRunResult {
+fn application_startup_poll_result() -> ic_timers::OnceRunResult {
     let recovering = observe_application_startup(startup_state());
     let directive = if recovering {
-        ic_timers::TimerDirective::RetryAfter(std::time::Duration::from_secs(1))
+        ic_timers::OnceDecision::RetryAfter(std::time::Duration::from_secs(1))
     } else {
-        ic_timers::TimerDirective::Stop
+        ic_timers::OnceDecision::Stop
     };
-    ic_timers::TimerRunResult::new(ic_timers::TimerCompletion::no_work(), directive)
+    ic_timers::OnceRunResult::new(ic_timers::TimerCompletion::no_work(), directive)
 }
 
 #[cfg(feature = "test-admin-api")]

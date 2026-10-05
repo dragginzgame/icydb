@@ -51,6 +51,10 @@ pub(super) const fn shell_help_text() -> &'static str {
   ? / help         show this help
   \\q / quit / exit quit the interactive shell
 
+SQL strings:
+  Escape a quote by doubling it (''); backslashes are literal.
+  Multiline strings retain their whitespace and semicolons.
+
 examples:
   SELECT name FROM character;
   EXPLAIN EXECUTION SELECT name FROM character;
@@ -78,12 +82,8 @@ pub(super) fn read_statement(
     loop {
         match editor.readline(prompt) {
             Ok(line) => {
-                // Normalize recalled or freshly typed lines before they enter
-                // the statement buffer so history recall does not reintroduce
-                // trailing spaces or duplicate terminators.
-                let normalized_line = normalize_shell_statement_line(line.as_str());
                 if partial_statement_is_empty(partial_statement) {
-                    match top_level_shell_input(normalized_line.as_str()) {
+                    match top_level_shell_input(line.as_str()) {
                         // Ignore top-level blank input so pressing Enter on an
                         // empty prompt simply reprompts instead of executing empty SQL.
                         ShellTopLevelInput::Blank => {
@@ -99,14 +99,16 @@ pub(super) fn read_statement(
                 // Split one pasted batch into every complete top-level
                 // semicolon-terminated statement while preserving any trailing
                 // incomplete remainder for the continuation prompt.
-                append_shell_statement_line(partial_statement, normalized_line.as_str());
+                // Line-edge bytes may belong to an open literal. Classify meta
+                // commands separately; never normalize text sent to SQL.
+                append_shell_statement_line(partial_statement, line.as_str());
                 pending_sql.extend(drain_complete_shell_statements(partial_statement));
 
                 if let Some(sql) = pending_sql.pop_front() {
                     return Ok(ShellInput::Sql(sql));
                 }
 
-                prompt = SHELL_CONTINUATION_PROMPT;
+                prompt = shell_prompt(partial_statement);
             }
             Err(ReadlineError::Interrupted) => {
                 clear_shell_input_state(pending_sql, partial_statement);
@@ -148,13 +150,11 @@ fn shell_input_at_eof(partial_statement: &mut String) -> ShellInput {
         return ShellInput::Exit;
     }
 
-    let sql = partial_statement.trim().to_string();
-    partial_statement.clear();
-
-    ShellInput::Sql(sql)
+    ShellInput::Sql(std::mem::take(partial_statement))
 }
 
 fn top_level_shell_input(line: &str) -> ShellTopLevelInput {
+    let line = line.trim();
     if line.is_empty() {
         return ShellTopLevelInput::Blank;
     }
@@ -179,11 +179,8 @@ pub(super) fn drain_complete_shell_statements(statement: &mut String) -> VecDequ
 
     while index < chars.len() {
         let (offset, ch) = chars[index];
-        if in_single_quote && ch == '\\' {
-            index += 2;
-            continue;
-        }
-
+        // Match the SQL lexer: doubled quotes escape a quote; a backslash
+        // has no effect on string or statement boundaries.
         if ch == '\'' {
             let next_is_quote = chars.get(index + 1).is_some_and(|(_, next)| *next == '\'');
             if in_single_quote && next_is_quote {
@@ -199,7 +196,7 @@ pub(super) fn drain_complete_shell_statements(statement: &mut String) -> VecDequ
         if ch == ';' && !in_single_quote {
             let end = offset + ch.len_utf8();
             let candidate = statement[start..end].trim();
-            if !candidate.is_empty() {
+            if candidate != ";" {
                 complete.push_back(candidate.to_string());
             }
             start = end;
@@ -208,22 +205,137 @@ pub(super) fn drain_complete_shell_statements(statement: &mut String) -> VecDequ
         index += 1;
     }
 
-    let remainder = statement[start..].trim().to_string();
-    statement.clear();
-    statement.push_str(remainder.as_str());
+    // The unfinished suffix may end inside a literal, including on spaces or
+    // a blank line. Remove only completed statements, then discard a suffix
+    // only when it contains no SQL text at all.
+    statement.drain(..start);
+    if partial_statement_is_empty(statement) {
+        statement.clear();
+    }
 
     complete
 }
 
-// Trim shell-facing line noise while preserving the SQL text itself, so
-// history recall does not force users to remove stray whitespace or `;;`.
-pub(super) fn normalize_shell_statement_line(line: &str) -> String {
-    let trimmed = line.trim();
-    let without_extra_semicolons = trimmed.trim_end_matches(';');
+#[cfg(test)]
+mod tests {
+    use super::{
+        SHELL_CONTINUATION_PROMPT, SHELL_PROMPT, ShellInput, ShellTopLevelInput,
+        append_shell_statement_line, clear_shell_input_state, drain_complete_shell_statements,
+        shell_input_at_eof, shell_prompt, top_level_shell_input,
+    };
+    use crate::shell::route::{SqlShellCallKind, sql_shell_call_kind};
+    use std::slice;
 
-    if without_extra_semicolons.len() == trimmed.len() {
-        return trimmed.to_string();
+    #[test]
+    fn statement_lines_preserve_multiline_literal_contents() {
+        let lines = [
+            "UPDATE character SET bio = 'Line one   ",
+            "    indented line two;;",
+            "",
+            "  café; it''s SQL  ",
+            "last line' WHERE id = 7;",
+        ];
+        let mut partial = String::new();
+        for (index, line) in lines.iter().enumerate() {
+            append_shell_statement_line(&mut partial, line);
+            let complete = drain_complete_shell_statements(&mut partial);
+            if index + 1 == lines.len() {
+                let expected = lines.join("\n");
+                assert_eq!(
+                    complete.into_iter().collect::<Vec<_>>().as_slice(),
+                    slice::from_ref(&expected),
+                );
+                assert_eq!(sql_shell_call_kind(&expected), Ok(SqlShellCallKind::Update));
+                assert!(partial.is_empty());
+            } else {
+                assert!(complete.is_empty());
+                assert_eq!(partial, lines[..=index].join("\n"));
+            }
+        }
     }
 
-    format!("{without_extra_semicolons};")
+    #[test]
+    fn pasted_statements_preserve_an_unfinished_literal() {
+        let first = "SELECT * FROM character;";
+        let remainder = "\nUPDATE character SET bio = 'unfinished   ";
+        let mut partial = format!("{first}{remainder}");
+        assert_eq!(
+            drain_complete_shell_statements(&mut partial)
+                .into_iter()
+                .collect::<Vec<_>>(),
+            [first],
+        );
+        assert_eq!(partial, remainder);
+        assert_eq!(shell_prompt(&partial), SHELL_CONTINUATION_PROMPT);
+
+        let next = "    next line;;' WHERE id = 7;";
+        append_shell_statement_line(&mut partial, next);
+        let expected = format!("UPDATE character SET bio = 'unfinished   \n{next}");
+        assert_eq!(
+            drain_complete_shell_statements(&mut partial)
+                .into_iter()
+                .collect::<Vec<_>>()
+                .as_slice(),
+            slice::from_ref(&expected),
+        );
+        assert_eq!(sql_shell_call_kind(&expected), Ok(SqlShellCallKind::Update));
+        assert_eq!(shell_prompt(&partial), SHELL_PROMPT);
+    }
+
+    #[test]
+    fn shell_meta_commands_ignore_outer_whitespace() {
+        for line in ["", "  ", "\t"] {
+            assert!(matches!(
+                top_level_shell_input(line),
+                ShellTopLevelInput::Blank
+            ));
+        }
+        for line in ["  EXIT  ", "\t\\q\t", " Quit "] {
+            assert!(matches!(
+                top_level_shell_input(line),
+                ShellTopLevelInput::Exit
+            ));
+        }
+        for line in ["  help;;;  ", "  ?  ", "\\help\t"] {
+            assert!(matches!(
+                top_level_shell_input(line),
+                ShellTopLevelInput::Help
+            ));
+        }
+        assert!(matches!(
+            top_level_shell_input("SELECT * FROM character;"),
+            ShellTopLevelInput::Sql
+        ));
+    }
+
+    #[test]
+    fn eof_preserves_sql_text_for_the_parser() {
+        for sql in [
+            "  UPDATE character SET bio = 'last  ' WHERE id = 7  ",
+            "UPDATE character SET bio = 'unfinished   \n  ",
+        ] {
+            let mut partial = sql.to_string();
+            let ShellInput::Sql(actual) = shell_input_at_eof(&mut partial) else {
+                panic!("EOF should deliver the pending SQL");
+            };
+            assert_eq!(actual, sql);
+            assert!(partial.is_empty());
+        }
+        assert!(matches!(
+            shell_input_at_eof(&mut String::from(" \t")),
+            ShellInput::Exit
+        ));
+    }
+
+    #[test]
+    fn interruption_clears_pasted_and_unfinished_input() {
+        let mut pending = ["SELECT * FROM character;".into()].into();
+        let mut partial = String::from("UPDATE character SET bio = 'unfinished");
+        clear_shell_input_state(&mut pending, &mut partial);
+        assert!(pending.is_empty());
+        assert!(partial.is_empty());
+        assert_eq!(shell_prompt(&partial), SHELL_PROMPT);
+        append_shell_statement_line(&mut partial, "SELECT * FROM character;");
+        assert_eq!(drain_complete_shell_statements(&mut partial).len(), 1);
+    }
 }

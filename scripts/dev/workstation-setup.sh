@@ -19,6 +19,8 @@ case "$MODE" in
 esac
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck source=/dev/null
+source "$ROOT/ci/tool-versions.env"
 ACTIONLINT_INSTALL_DIR="${ACTIONLINT_INSTALL_DIR:-$HOME/.local/bin}"
 # npm owns ic-wasm; prefer its user-local binary over any older Cargo install.
 export PATH="$HOME/.local/bin:$ACTIONLINT_INSTALL_DIR:${CARGO_HOME:-$HOME/.cargo}/bin:$HOME/.cargo/bin:$PATH"
@@ -48,8 +50,6 @@ CARGO_WORKSTATION_TOOLS=(
   twiggy
   cargo-edit
   cargo-get
-  cargo-sort
-  cargo-sort-derives
   cargo-watch
 )
 
@@ -108,6 +108,9 @@ install_tooling() {
   rustup toolchain install --target wasm32-unknown-unknown
 
   install_actionlint
+
+  cargo install cargo-sort --version "$SHARED_TOOLING_CARGO_SORT_VERSION" --locked
+  cargo install cargo-sort-derives --version "$ICYDB_CARGO_SORT_DERIVES_VERSION" --locked
 
   if [[ "$MODE" == "update" ]]; then
     cargo install --quiet "${CARGO_WORKSTATION_TOOLS[@]}" --locked

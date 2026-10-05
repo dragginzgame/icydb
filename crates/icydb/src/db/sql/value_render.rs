@@ -27,7 +27,11 @@ pub(in crate::db::sql) fn sql_projection_output_rows(
 
 pub(in crate::db::sql) fn render_projection_rows(rows: &[Vec<OutputValue>]) -> Vec<Vec<String>> {
     rows.iter()
-        .map(|row| row.iter().map(render_output_value_text).collect::<Vec<_>>())
+        .map(|row| {
+            row.iter()
+                .map(|value| render_projection_value_text(None, value))
+                .collect()
+        })
         .collect()
 }
 
@@ -47,12 +51,16 @@ pub(in crate::db::sql) fn render_projection_value_text(
     fixed_scale: Option<u32>,
     value: &OutputValue,
 ) -> String {
-    let Some(scale) = fixed_scale else {
-        return render_output_value_text(value);
-    };
-
-    match value.as_public() {
-        PublicValue::Decimal(decimal) => render_decimal_with_fixed_scale(decimal, scale),
+    // Resolve NULL while values are typed, before grouped output becomes text.
+    // Quote only marker-like text; preserve ordinary text and fixed-scale cells.
+    match (value.as_public(), fixed_scale) {
+        (PublicValue::Null, _) => "NULL".to_string(),
+        (PublicValue::Text(text), _) if text.trim().eq_ignore_ascii_case("null") => {
+            format!("'{text}'")
+        }
+        (PublicValue::Decimal(decimal), Some(scale)) => {
+            render_decimal_with_fixed_scale(decimal, scale)
+        }
         _ => render_output_value_text(value),
     }
 }

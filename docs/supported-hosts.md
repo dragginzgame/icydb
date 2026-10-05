@@ -46,7 +46,8 @@ Repository CI exercises the offline regression set on:
 | Host | Scope |
 | --- | --- |
 | Ubuntu 24.04 GitHub-hosted runner | Portable scripts, ShellCheck, workflow lint, installer downloads, and secret scan |
-| macOS 15 GitHub-hosted runner | Portable offline regression set with the runner-provided Bash |
+| macOS 15 Apple Silicon GitHub-hosted runner | Portable offline regression set, including release recovery fixtures, with Apple's Bash 3.2 |
+| macOS 15 Intel GitHub-hosted runner | Same portable offline regression set with Apple's Bash 3.2 |
 
 The table describes the intended CI contract. Passing qualification for a
 revision requires its matching workflow run; adding a matrix entry does not
@@ -67,6 +68,12 @@ through its own qualified tooling.
 | `scripts/ci/run-sccache.sh` | An executable `sccache` binary |
 | Snapshot verification | A SHA-256 implementation |
 | Snapshot refresh | Git, a clean Shared Tooling checkout, and a SHA-256 implementation |
+| Release runner | GNU Make, Git, `date`, explicit consumer metadata/check targets, and Bash 3.2 |
+| Rust pre-commit hook and installer | Git, GNU Make, consumer-owned `fmt` prerequisites (Cargo/rustfmt and an exact `cargo-sort` version), Bash 3.2 and standard Unix file utilities |
+
+The hook regression fixture also requires `jq` and the `cargo-sort` version from
+`ci/tool-versions.env` (`2.1.4`). CI installs it before offline tests; local
+validation requires it to be prepared beforehand and never installs it implicitly.
 
 ## Installer-capable platforms
 

@@ -5,6 +5,38 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.265.0]
+
+### Changed
+
+- Use the shared formatting hook and pinned formatters, enforce all formatting
+  checks in native CI, and preserve release retry evidence and numbered notes.
+- Adapt application timer callbacks to `ic-timers 0.12` while preserving retry,
+  stop and recurrence behavior; retain the existing `ic-testkit 0.17` integration.
+- Use shared `ic-metrics 0.1.1` arithmetic for saturating instruction and entity
+  counters, preserving inclusive spans, report shapes and reset identity. The exact
+  dependency is local extraction wiring pending registry publication.
+- Standardize `make release-patch`, `release-minor` and `release-major` on the
+  reviewed Shared Tooling runner, with exact-version resume, atomic branch/tag
+  push and retained build artifacts.
+
+Detailed notes: [docs/changelog/0.265.md](docs/changelog/0.265.md)
+
+### 🩹 Fixed
+
+- Interactive SQL preserves multiline literal contents and uses the SQL lexer's quote rules when separating statements ([#125](https://github.com/dragginzgame/icydb/issues/125), [#136](https://github.com/dragginzgame/icydb/issues/136)).
+- SQL rejects malformed numeric literals instead of silently treating their suffixes as projection aliases ([#108](https://github.com/dragginzgame/icydb/issues/108)).
+- Excessively nested `ORDER BY` arithmetic returns the existing depth-limit error during parsing ([#106](https://github.com/dragginzgame/icydb/issues/106)).
+- SQL output distinguishes `NULL` from text such as `'null'` and renders queries and `RETURNING` consistently ([#129](https://github.com/dragginzgame/icydb/issues/129)).
+
+### Breaking
+
+- Release automation must use `make release-patch`, `release-minor` or
+  `release-major`, and `release-resume` for recovery; the manual bump, staging,
+  commit and push targets are removed.
+- SQL display distinguishes `NULL` from text such as `'null'`; update rendered-output
+  comparisons ([#129](https://github.com/dragginzgame/icydb/issues/129)).
+
 ## [0.264.x] - 2026-10-01 - Signed Filter Index Admission
 
 Detailed notes: [docs/changelog/0.264.md](docs/changelog/0.264.md)

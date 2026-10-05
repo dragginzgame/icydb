@@ -1,17 +1,18 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `41e1fd0ba41460bd2127cbf98ac8a4b2b2020d3e`. Root
+at reviewed revision `c0206f1943238e21bd00fbe01658e6a0864c24fa`. Root
 [AGENTS.md](../../AGENTS.md) is the local overlay; there are no baseline
 exceptions. Product architecture, resource limits, exact qualification gates
-and release targets remain local. A sibling checkout cannot silently change
+remain local; standard release commands follow the shared contract. A sibling checkout cannot silently change
 these rules.
 
 ## Ownership and provenance
 
-[The snapshot manifest](../../.shared-tooling.snapshot) records thirteen exact
-upstream files: the baseline, five principle documents, snapshot-consumption
-and supported-host guidance, and five tools. Every entry records SHA-256 and
+[The snapshot manifest](../../.shared-tooling.snapshot) records twenty-three exact
+upstream files, including the baseline and all linked rules, shared principles,
+consumer/host guidance, formatting hook and installer, and selected tools and
+release fixtures. Every entry records SHA-256 and
 executable mode. Refresh through the upstream distribution helper from a clean
 checkout, then review and validate the consumer diff. Never patch declared
 snapshot files locally. The recorded HTTPS source identifies the same upstream
@@ -143,3 +144,45 @@ added lines, excluding the user's lockfile updates. Most additions are immutable
 shared guidance, host CI and focused fixtures. Runtime declaration handling is
 simpler; installation/report authorities converge without adding database state.
 Raw Wasm-size, IC-cycle and instruction deltas remain unmeasured.
+
+## Standard releases and extraction
+
+Standard SemVer entry points use the [common release contract](../releases.md)
+with explicit `RELEASE_REMOTE=origin` and `RELEASE_BRANCH=main`. They retain the
+complete IcyDB gate and source/tag-bound receipts. The runner owns Git effects;
+consumer adapters own exact metadata, UTC notes and retained dependency selection.
+`make release-resume VERSION=X.Y.Z` resumes the saved candidate after inspection
+of `.git/release-state/` and its lock owner. Publishing and cleanup remain separate.
+The superseded manual bump/stage/commit/push path and its confirmation helper
+have been deleted. The shared runner owns the sole release execution flow;
+consumer callbacks retain metadata, dependency-selection and receipt obligations.
+Release fixtures are explicit entries in the invariant gate, rather than nested
+under cleanup checks. No release mode or persisted state is added by this removal.
+
+Shared `ic-metrics` arithmetic is wired through an explicit local path dependency.
+Its exact pin and lock entry now select the maintainer-tagged 0.1.1 package. Locked
+offline Linux metadata and the selected metrics-enabled Core library build pass.
+Unfiltered metadata required an uncached Windows-only package; no online retry or
+other dependency selection changed. Nine focused state tests and strict selected
+core Clippy passed during extraction. No IC cost delta, native macOS release
+qualification or registry publication is claimed. [Dependency adoption](https://github.com/dragginzgame/icydb/issues/298)
+tracks replacement of the temporary path.
+
+## Shared Tooling 0.1.2 refresh
+
+The snapshot now adopts automatic numbered pending notes, the direct Cargo
+dependency catalog policy, the isolated-index formatting hook and safe local
+installer. All fifty Cargo manifests inherit their direct dependencies.
+Developer setup and CI read formatter versions from `ci/tool-versions.env`;
+native CI and release validation run the complete `fmt-check` target. The shared
+release runner allows fresh preflight/validation retries before preparation and
+retains exact recovery plans afterward. Numbered note finalization preserves
+published minor-line history.
+
+Snapshot integrity and isolated fixture checks qualify their own boundaries;
+local hook activation and actual staged-source formatting are separate evidence.
+The temporary `../ic-metrics` dependency cannot resolve in the isolated index
+export. The maintainer elected to retain local development wiring; actual staged
+formatting remains unqualified while that dependency is absent from the export.
+No sibling sources are copied or formatted to hide that prerequisite. Native
+macOS execution of this refresh remains pending.

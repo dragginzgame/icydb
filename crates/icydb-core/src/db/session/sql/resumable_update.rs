@@ -83,6 +83,8 @@ macro_rules! resumable_policy_bound {
 }
 
 const fn bounded_usize_policy_identity(value: usize) -> u32 {
+    // Wasm32 values already fit; wider hosts must reject policy truncation.
+    #[cfg(target_pointer_width = "64")]
     assert!(value <= 0xffff_ffff_usize);
     let bytes = value.to_le_bytes();
     u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])

@@ -12,8 +12,9 @@ Consumer choices described in those guides remain subject to this baseline.
   or explicit revision-bound reference. Their AGENTS.md must identify that baseline
   and the local overlay. A moving sibling checkout is not hidden inheritance.
 - Shared rules govern engineering practice. Product architecture, identities,
-  numeric limits, exact commands, qualification gates and release targets stay
-  local. Do not copy one consumer's architecture into the common baseline.
+  numeric limits, validation gates and release identities stay local. Release
+  target names and workflow follow the common contract below. Do not copy one
+  consumer's architecture into the common baseline.
 - Local overlays may strengthen the baseline or define product-specific choices
   within its delegated scope. A change to an explicit common rule, including
   command authority or delivery cadence, requires a maintainer-approved exception
@@ -36,8 +37,8 @@ Consumer choices described in those guides remain subject to this baseline.
   siblings are read-only unless a named mutation is explicitly authorized.
 - Never create or amend Git commits, directly or through helpers. The maintainer
   owns commits. Inspect scripts before invoking targets that may commit.
-- Agents may execute version changes, tags, pushes, publication, deployment and
-  paid effects when explicitly authorized for their target and effect.
+- Agents may execute package/manifest version changes, tags, pushes, publication,
+  deployment and paid effects when explicitly authorized for their target and effect.
   Continuation and readiness requests do not supply that authority. Commits
   remain maintainer-owned, including inside otherwise authorized helpers.
 - An explicit instruction is sufficient for its named action. Carry established
@@ -83,8 +84,9 @@ Consumer choices described in those guides remain subject to this baseline.
   Give exact names, their former file or module, why each was removed and its
   replacement when applicable. Distinguish deletions from moves or renames.
   Shared reasons may be grouped, but every removed name must still be listed.
-- Meaningful completed behavior and tooling changes belong in the current
-  changelog draft. Do not choose a new release version for every focused slice.
+- Complete changelog maintenance under the [common changelog rules](rules/changelogs.md)
+  as part of the coherent batch, including automatically selecting and maintaining
+  the numbered next release at the top. Do not wait for a separate notes request.
 
 ## Pre-1.0 contracts
 
@@ -95,8 +97,9 @@ Consumer choices described in those guides remain subject to this baseline.
   parallel aliases or hidden versions such as Next/New/Legacy/Compat or numbered
   modules. This does not prohibit package versions or external standard versions.
 - Breaking public API or semantic changes require a minor release before 1.0;
-  a hard cut does not make an incompatible patch acceptable. Release selection
-  remains an explicitly authorized consumer action.
+  a hard cut does not make an incompatible patch acceptable. Select the pending
+  changelog version automatically under the common rules; changing package
+  versions or executing a release remains an explicitly authorized consumer action.
 - Never reuse a wire/storage discriminator for an incompatible layout or interpret
   retained bytes under a new layout merely because both contracts use V1.
   A hard cut identifies the frozen format,
@@ -137,16 +140,36 @@ Consumer choices described in those guides remain subject to this baseline.
 - Enforce structured facts, schemas, hashes and executable behavior in guards.
   Do not freeze explanatory prose or require manual status-marker rotation.
 
+## Release commands
+
+- Every `dragginzgame` repository, including Shared Tooling, must expose
+  `make release-patch`, `make release-minor` and `make release-major`.
+  All three use the same [release contract and Makefile pattern](docs/releases.md):
+  preflight, validate, bump and finalize the changelog, stage, commit and tag,
+  then push. Only the selected semantic-version component differs.
+- Keep one release workflow per repository. The three entry points must delegate
+  to it; do not give patch releases an implicit fast lane or change effects by
+  repository. Consumer-owned validation gates, metadata files, branches and
+  remotes are explicit inputs, not alternate meanings for the commands.
+- These are maintainer-owned one-shot commands. Agents must not execute them
+  because they create commits. Separate preparation and inspection remain
+  available within their authorized effects; adding targets is not a release.
+- Use standard semantic-version increments: patch increments the patch; minor
+  increments the minor and resets the patch; major increments the major and
+  resets both lower components. Apply the pre-1.0 compatibility rule above.
+- Stop on failure and preserve build and evidence artifacts. Preflight or
+  validation-only failures restart through the normal target against current
+  source with fresh preflight and complete validation; retain earlier evidence.
+  Persist exact release intent before preparation may begin, then reconcile an
+  interrupted release at its exact version and commit before retrying. Do not
+  force-push, overwrite tags, silently bump again or add implicit package
+  publication, deployment or post-release cleanup.
+
 ## Changelogs and artifact preservation
 
-- All `dragginzgame` repositories with changelogs keep the latest release or current
-  draft at the top. Do not use Unreleased or a separate notes queue.
-- If the next major, minor or patch is undecided, use one undated draft without a
-  patch number, such as `## [Draft]`. Resolve its version during release preparation;
-  never invent or bump a version to satisfy a presentation check.
-- Changelog checks must not block deployment. A section position, draft label or
-  missing chosen version is not a deployment prerequisite. Final release labeling
-  and unambiguous release selection belong in release preparation.
+- Before editing a changelog, read and apply [the changelog rules](rules/changelogs.md).
+  They are part of this mandatory baseline and own release-note content, issue
+  links, draft/history preservation and detailed-note structure.
 - Releases and deployments preserve consumer-owned build and evidence artifacts
   on success, failure and retry. Never append cargo clean or equivalent cleanup.
   Cleanup requires explicit scope and authority. Tools may clean temporary files
@@ -154,14 +177,24 @@ Consumer choices described in those guides remain subject to this baseline.
 
 ## Rust workspaces and portable tooling
 
-- Cargo workspace members inherit package versions and dependency declarations
-  from the root. Centralize versions and local paths there; members select target
-  conditions, features and publication policy. Do not upgrade a toolchain or raise
-  MSRV without an established need and appropriate validation.
+- Cargo workspace members inherit package versions from the root. Apply the
+  [Cargo dependency rules](rules/cargo-dependencies.md): every direct dependency
+  is declared in root `[workspace.dependencies]`, and every child manifest uses
+  `workspace = true`, including development, build and target-specific tables.
+  Keep version/source selections in the root; children select target conditions,
+  features and publication policy. Do not upgrade a toolchain or raise MSRV
+  without an established need and appropriate validation.
 - Follow the [Rust hygiene baseline](docs/principles/rust-code-hygiene.md): narrow
   visibility, documented APIs/invariants, ordinary module discovery, bounded
   fallible decoding and typed errors. Exact edition, layout and lint choices stay
   local. Do not fake platform behavior with production cfg(test) paths.
+- Rust repositories adopt the [standard formatting hook](rules/git-hooks.md):
+  `make install-hooks` enables a reviewed repository-local pre-commit hook that
+  auto-formats and refreshes only selected files, rejects partial staging and
+  preserves unrelated working edits. Formatting includes `cargo sort --workspace`
+  for root and child manifests before Rust formatting. Keep matching `fmt-check`
+  sorting and Rust checks in CI and release gates;
+  hook activation and independent formatting qualification are separate checks.
 - Keep shell wrappers small and declare dependencies and effects. Use the
   project's maintained implementation language for substantial tooling. Do not
   add Python tooling. Fail on invalid inputs rather than hiding broken assumptions.

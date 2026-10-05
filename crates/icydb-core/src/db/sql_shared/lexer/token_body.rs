@@ -1,5 +1,5 @@
 use crate::db::sql_shared::{
-    SqlSyntaxErrorKind, TokenKind,
+    SqlParseError, SqlSyntaxErrorKind, TokenKind,
     lexer::{
         Lexer,
         keywords::{is_identifier_continue, keyword_from_ident_bytes},
@@ -73,7 +73,7 @@ impl Lexer<'_> {
         }
     }
 
-    pub(super) fn lex_number(&mut self) -> String {
+    pub(super) fn lex_number(&mut self) -> Result<String, SqlParseError> {
         let start = self.pos;
         let len = self.bytes.len();
 
@@ -90,7 +90,14 @@ impl Lexer<'_> {
             }
         }
 
-        self.source_slice(start, self.pos).to_owned()
+        // Adjacent identifier bytes belong to a malformed numeric token, not
+        // an implicit projection alias (for example, `1e3` or `0x1F`). Reject
+        // before any statement or predicate parser can reinterpret the suffix.
+        if self.peek_byte().is_some_and(is_identifier_continue) {
+            return Err(SqlParseError::invalid_numeric_literal());
+        }
+
+        Ok(self.source_slice(start, self.pos).to_owned())
     }
 
     pub(super) fn lex_identifier_or_keyword(&mut self) -> TokenKind {

@@ -68,6 +68,14 @@ through the registered runtime selector and then requires an exact accepted-auth
 match. Query and direct mutation surfaces return SQL-shaped output; resumable
 update and integrity execution return their canonical typed receipts instead.
 
+SQL display renders a typed NULL cell as `NULL`. Text matching that marker
+case-insensitively after trimming is quoted while retaining its original
+contents, for example `'null'` or `' NULL '`. Ordinary text and fixed-scale
+decimal displays are unchanged. Projection values stay typed on the wire;
+grouped cells are formatted at the facade before conversion to strings.
+Consumers render grouped cells as supplied rather than inferring NULL from
+their text. CLI queries and mutation `RETURNING` share this display authority.
+
 Read-admission lanes, generated endpoint lane ownership, and the current
 read-surface inventory are documented in `docs/contracts/READ_ADMISSION.md`.
 In particular, generated `icydb_query` is controller-gated by default and may
@@ -155,6 +163,18 @@ Supported `SELECT` families are:
 places `NULL` before present values and `DESC` reverses that comparator, so
 `NULL` sorts after present values. Later `ORDER BY` terms remain tie-breakers
 inside equal nullable groups.
+
+#### Numeric literals
+
+Ordinary numeric literals use digits, optionally followed by a decimal point and
+more digits; a leading minus is parsed separately. Scientific notation (`1e3`),
+numeric base prefixes (`0x1F`) and digit separators (`1_000`) are unsupported.
+An identifier immediately following a number is rejected with the existing
+invalid-numeric-literal diagnostic in statements and standalone predicates;
+it cannot become an implicit projection alias. Separate a bare alias with
+whitespace, for example `SELECT price * 1 e3 FROM Product`, or use `AS e3`.
+This restriction does not apply inside strings, hex blob literals or typed
+`U256` string literals.
 
 #### Fixed-width `U256`
 
@@ -843,6 +863,12 @@ Supported text scalar functions include `LOWER`, `UPPER`, `LENGTH`,
 call shapes, argument types, and direct ordering eligibility remain bounded by
 the clause-specific lowering contract; admission in the shared expression
 family does not make every expression a valid `ORDER BY` target.
+
+Direct ordering arithmetic shares the parser's 128-level expression-depth
+limit. Excessive parenthesis recursion or arithmetic-tree depth, including
+composed short chains, returns the existing `ExpressionDepthLimit` diagnostic
+during parsing. Authored-input admission still independently checks the final
+statement; this does not establish a whole-pipeline stack or allocation bound.
 
 The current conditional form is intentionally narrow:
 

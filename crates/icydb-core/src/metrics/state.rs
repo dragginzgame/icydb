@@ -39,8 +39,11 @@ impl InstructionMetrics {
     }
 
     fn record(&mut self, instructions: u64) {
-        self.samples = self.samples.saturating_add(1);
-        self.instructions_total = self.instructions_total.saturating_add(instructions);
+        ic_metrics::record_sample(
+            &mut self.samples,
+            &mut self.instructions_total,
+            instructions,
+        );
         self.instructions_max = self.instructions_max.max(instructions);
     }
 }
@@ -319,8 +322,11 @@ pub(super) fn record_entity_execution(entity_path: &str, instructions: u64) {
     STATE.with(|state| {
         let mut state = state.borrow_mut();
         let counter = state.entities.entry(entity_path.to_string()).or_default();
-        counter.hits = counter.hits.saturating_add(1);
-        counter.instructions_total = counter.instructions_total.saturating_add(instructions);
+        ic_metrics::record_sample(
+            &mut counter.hits,
+            &mut counter.instructions_total,
+            instructions,
+        );
         counter.instructions_max = counter.instructions_max.max(instructions);
     });
 }

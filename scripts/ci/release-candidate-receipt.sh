@@ -88,13 +88,39 @@ validate_transition() {
     fi
 }
 
+project_release_surface() {
+    local path="$1" previous="$2" release="$3"
+    if [[ "$path" != Cargo.lock ]]; then
+        sed "s/${previous//./\\.}/$release/g"
+        return
+    fi
+    # Lockfile registry packages and checksums retain their validated selection,
+    # even when their numeric version happens to equal the workspace version.
+    ICYDB_RELEASE_NAMES="$RELEASE_PACKAGE_NAMES" perl -0777 -e '
+        my ($previous, $release) = @ARGV;
+        local $/; $_ = <STDIN>;
+        my %owned = map { $_ => 1 } split /\n/, $ENV{ICYDB_RELEASE_NAMES};
+        s{(\[\[package\]\]\n.*?)(?=\n\[\[package\]\]|\z)}{
+            my $block = $1; my ($name) = $block =~ /^name = "([^"]+)"$/m;
+            if ($owned{$name // ""} && $block !~ /^source = /m) {
+                $block =~ s/^version = "\Q$previous\E"$/version = "$release"/m;
+            }
+            for my $package (keys %owned) {
+                $block =~ s/"\Q$package $previous\E"/"$package $release"/g;
+            }
+            $block
+        }gse;
+        print $_;
+    ' "$previous" "$release"
+}
+
 validate_changed_paths() {
     local diff_mode="$1"
     local base="$2"
     local head="${3:-}"
     local candidate_version="$4"
     local release_version="$5"
-    local escaped_candidate_version path
+    local path
     local -a command=(git -C "$ROOT_DIR" diff --name-only -z)
 
     case "$diff_mode" in
@@ -113,6 +139,19 @@ validate_changed_paths() {
             ;;
     esac
 
+    RELEASE_PACKAGE_NAMES="$(
+        cargo metadata --manifest-path "$ROOT_DIR/Cargo.toml" --locked --offline --no-deps --format-version 1 |
+        perl -MJSON::PP -0777 -e '
+            my $release = shift @ARGV;
+            my $metadata = decode_json(<>);
+            my %members = map { $_ => 1 } @{$metadata->{workspace_members}};
+            my @names = map { $_->{name} }
+                grep { $members{$_->{id}} && $_->{version} eq $release }
+                @{$metadata->{packages}};
+            die "no workspace package identity at release version\n" unless @names;
+            print join("\n", @names), "\n";
+        ' "$release_version"
+    )"
     while IFS= read -r -d '' path; do
         if is_release_note_path "$path"; then
             continue
@@ -126,11 +165,10 @@ validate_changed_paths() {
                 ;;
         esac
 
-        escaped_candidate_version="${candidate_version//./\\.}"
         case "$diff_mode" in
             working)
                 if ! cmp -s \
-                    <(git -C "$ROOT_DIR" show "$base:$path" | sed "s/$escaped_candidate_version/$release_version/g") \
+                    <(git -C "$ROOT_DIR" show "$base:$path" | project_release_surface "$path" "$candidate_version" "$release_version") \
                     "$ROOT_DIR/$path"; then
                     echo "Release transition contains non-version changes in: $path" >&2
                     exit 1
@@ -138,7 +176,7 @@ validate_changed_paths() {
                 ;;
             staged)
                 if ! cmp -s \
-                    <(git -C "$ROOT_DIR" show "$base:$path" | sed "s/$escaped_candidate_version/$release_version/g") \
+                    <(git -C "$ROOT_DIR" show "$base:$path" | project_release_surface "$path" "$candidate_version" "$release_version") \
                     <(git -C "$ROOT_DIR" show ":$path"); then
                     echo "Release transition contains non-version changes in: $path" >&2
                     exit 1
@@ -146,7 +184,7 @@ validate_changed_paths() {
                 ;;
             commits)
                 if ! cmp -s \
-                    <(git -C "$ROOT_DIR" show "$base:$path" | sed "s/$escaped_candidate_version/$release_version/g") \
+                    <(git -C "$ROOT_DIR" show "$base:$path" | project_release_surface "$path" "$candidate_version" "$release_version") \
                     <(git -C "$ROOT_DIR" show "$head:$path"); then
                     echo "Release transition contains non-version changes in: $path" >&2
                     exit 1
@@ -201,6 +239,10 @@ verify_tested_tree() {
     done < <(git -C "$ROOT_DIR" diff --name-only -z HEAD --)
 }
 
+checksum_diff() {
+    if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi
+}
+
 diff_hash() {
     local diff_mode="$1"
     local base="$2"
@@ -208,13 +250,13 @@ diff_hash() {
 
     case "$diff_mode" in
         working)
-            git -C "$ROOT_DIR" diff --binary "$base" -- | sha256sum | awk '{ print $1 }'
+            git -C "$ROOT_DIR" diff --binary "$base" -- | checksum_diff | awk '{ print $1 }'
             ;;
         staged)
-            git -C "$ROOT_DIR" diff --cached --binary "$base" -- | sha256sum | awk '{ print $1 }'
+            git -C "$ROOT_DIR" diff --cached --binary "$base" -- | checksum_diff | awk '{ print $1 }'
             ;;
         commits)
-            git -C "$ROOT_DIR" diff --binary "$base" "$head" -- | sha256sum | awk '{ print $1 }'
+            git -C "$ROOT_DIR" diff --binary "$base" "$head" -- | checksum_diff | awk '{ print $1 }'
             ;;
         *)
             echo "Unknown diff mode: $diff_mode" >&2
@@ -233,7 +275,11 @@ read_receipt() {
         echo "Oversized release candidate receipt: $receipt" >&2
         exit 1
     fi
-    mapfile -t -n 7 lines < "$receipt"
+    lines=()
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        lines[${#lines[@]}]="$line"
+        [[ ${#lines[@]} -le 6 ]] || break
+    done < "$receipt"
     if [[ "${#lines[@]}" -ne 6 || "${lines[0]}" != "format=1" ]]; then
         echo "Malformed release candidate receipt: $receipt" >&2
         exit 1

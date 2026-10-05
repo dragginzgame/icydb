@@ -1,5 +1,7 @@
-.PHONY: help version tags patch minor major package publish release-prepare release-clean release-stage release-commit release-push \
-        release-patch release-minor release-major release \
+.DEFAULT_GOAL := help
+
+.PHONY: help version tags package publish release-clean \
+        release-patch release-minor release-major \
         test test-unit test-integration-feedback test-durability test-documentation \
         test-canister-artifact-contract test-sql-canister-matrix \
         test-sql-tier-c-shard test-sql-tier-c-merge \
@@ -73,19 +75,13 @@ help:
 	@echo "Version Management:"
 	@echo "  version          Show current version"
 	@echo "  tags             List available git tags"
-	@echo "  patch            Test a source candidate, then bump patch version files (0.0.x)"
-	@echo "  minor            Confirm and test a source candidate, then bump minor files (0.x.0)"
-	@echo "  major            Confirm and test a source candidate, then bump major files (x.0.0)"
 	@echo "  release-clean    Remove transient release artifacts; Cargo cleanup stays manual"
-	@echo "  release-stage    Stage known release files"
-	@echo "  release-commit   Verify the tested candidate transition, commit, and tag"
-	@echo "  release-push     Atomically push the release commit and exact tag, then clean transient artifacts"
-	@echo "  release-patch    Human-owned one-shot patch release"
-	@echo "  release-minor    Confirm, bump, stage, commit, tag, and push a minor release"
-	@echo "  release-major    Confirm, bump, stage, commit, tag, and push a major release"
-	@echo "  release          CI-driven release (local target is no-op)"
+	@echo "  release-patch    Validate, prepare, commit, tag, and push a patch release"
+	@echo "  release-minor    Confirm and run the shared minor release workflow"
+	@echo "  release-major    Confirm and run the shared major release workflow"
+	@echo "  release-resume VERSION=X.Y.Z  Resume the exact saved release candidate"
 	@echo "  package          Build publishable crate tarballs"
-	@echo "  publish          Publish crates; reuse the exact release-commit receipt when available"
+	@echo "  publish          Publish crates; reuse the exact shared release receipt when available"
 	@echo ""
 	@echo "Development:"
 	@echo "  test             Run all tests; PocketIC needs a cached/explicit binary or download opt-in"
@@ -127,7 +123,7 @@ help:
 	@echo "  security-check   Verify GitHub Protected Tags (informational)"
 	@echo ""
 	@echo "Examples:"
-	@echo "  make patch       # Bump patch version"
+	@echo "  make release-patch # Maintainer-owned patch release"
 	@echo "  make test        # Run tests"
 	@echo "  make build       # Build project"
 	@echo "  make wasm-size-report SIZE_REPORT_ARGS=\"--sql-variants both\""
@@ -156,16 +152,7 @@ install-gh:
 # Keep hook installation explicit and refuse to replace an unrelated local
 # hook authority. Git resolves the relative path from this repository.
 install-hooks:
-	@set -e; \
-	git -C "$(ROOT_DIR)" rev-parse --git-dir >/dev/null; \
-	current="$$(git -C "$(ROOT_DIR)" config --local --get core.hooksPath || true)"; \
-	if [ -n "$$current" ] && [ "$$current" != ".githooks" ]; then \
-		echo "Refusing to replace existing core.hooksPath: $$current" >&2; \
-		exit 1; \
-	fi; \
-	git -C "$(ROOT_DIR)" config --local core.hooksPath .githooks; \
-	chmod +x "$(ROOT_DIR)/.githooks/pre-commit"; \
-	echo "Formatting-only pre-commit hook installed (.githooks/pre-commit)."
+	bash scripts/dev/install-git-hooks.sh
 
 #
 # Version management (the source candidate is gated before any version mutation)
@@ -177,101 +164,14 @@ version:
 tags:
 	@git tag --sort=-version:refname | head -10
 
-patch:
-	@$(MAKE) --no-print-directory release-prepare
-	@set -e; \
-	candidate_commit="$$(git rev-parse --verify HEAD)"; \
-	scripts/ci/release-candidate-receipt.sh verify-tested-tree "$$candidate_commit"; \
-	TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory validate; \
-	scripts/ci/release-candidate-receipt.sh verify-tested-tree "$$candidate_commit"; \
-	TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh patch; \
-	RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" \
-		scripts/ci/release-candidate-receipt.sh record patch "$$candidate_commit"
-
-minor:
-	@$(CARGO_WORK_ENV) scripts/ci/confirm-version-bump.sh minor
-	@$(MAKE) --no-print-directory release-prepare
-	@set -e; \
-	candidate_commit="$$(git rev-parse --verify HEAD)"; \
-	scripts/ci/release-candidate-receipt.sh verify-tested-tree "$$candidate_commit"; \
-	TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory validate; \
-	scripts/ci/release-candidate-receipt.sh verify-tested-tree "$$candidate_commit"; \
-	TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh minor; \
-	RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" \
-		scripts/ci/release-candidate-receipt.sh record minor "$$candidate_commit"
-
-major:
-	@$(CARGO_WORK_ENV) scripts/ci/confirm-version-bump.sh major
-	@$(MAKE) --no-print-directory release-prepare
-	@set -e; \
-	candidate_commit="$$(git rev-parse --verify HEAD)"; \
-	scripts/ci/release-candidate-receipt.sh verify-tested-tree "$$candidate_commit"; \
-	TMPDIR="$(RELEASE_TMP_DIR)" $(MAKE) --no-print-directory validate; \
-	scripts/ci/release-candidate-receipt.sh verify-tested-tree "$$candidate_commit"; \
-	TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) scripts/ci/bump-version.sh major; \
-	RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" \
-		scripts/ci/release-candidate-receipt.sh record major "$$candidate_commit"
-
-release-prepare:
-	@mkdir -p "$(RELEASE_TMP_DIR)"
-
 release-clean:
 	@bash scripts/ci/cleanup-release-workspace.sh
-
-release: ensure-clean
-	@echo "Release artifacts are handled by CI on the main release commit"
 
 package: ensure-clean
 	$(CARGO_WORK_ENV) cargo package
 
 publish: ensure-clean
 	$(CARGO_PUBLISH_ENV) scripts/ci/publish-workspace.sh
-
-release-stage:
-	git add Cargo.toml Cargo.lock README.md scripts/ci/sync-release-surface-version.sh $$(git ls-files -m -- '*/Cargo.toml' CHANGELOG.md 'docs/changelog/*.md' || true)
-
-release-commit:
-	@version="$$( $(CARGO_WORK_ENV) cargo get workspace.package.version )"; \
-	if git rev-parse "v$$version" >/dev/null 2>&1; then \
-		echo "❌ Tag v$$version already exists. Aborting." >&2; \
-		exit 1; \
-	fi; \
-	RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" \
-		scripts/ci/release-candidate-receipt.sh verify-staged; \
-	git commit -m "Release $$version"
-	@RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" \
-		scripts/ci/release-candidate-receipt.sh verify-commit
-	@version="$$( $(CARGO_WORK_ENV) cargo get workspace.package.version )"; \
-	git tag -a "v$$version" -m "Release $$version"; \
-	RELEASE_RECEIPT_DIR="$(ROOT_DIR)/.cache/release-receipts" \
-		scripts/ci/record-release-gate-receipt.sh
-
-release-push:
-	@set -e; \
-	version="$$( $(CARGO_WORK_ENV) cargo get workspace.package.version )"; \
-	branch="$$(git symbolic-ref --quiet --short HEAD)"; \
-	git push --no-follow-tags --atomic origin \
-		"HEAD:refs/heads/$$branch" \
-		"refs/tags/v$$version:refs/tags/v$$version"
-	@bash scripts/ci/cleanup-release-workspace.sh
-
-release-patch:
-	@$(MAKE) --no-print-directory patch
-	@$(MAKE) --no-print-directory release-stage
-	@$(MAKE) --no-print-directory release-commit
-	@$(MAKE) --no-print-directory release-push
-
-release-minor:
-	@$(MAKE) --no-print-directory minor
-	@$(MAKE) --no-print-directory release-stage
-	@$(MAKE) --no-print-directory release-commit
-	@$(MAKE) --no-print-directory release-push
-
-release-major:
-	@$(MAKE) --no-print-directory major
-	@$(MAKE) --no-print-directory release-stage
-	@$(MAKE) --no-print-directory release-commit
-	@$(MAKE) --no-print-directory release-push
 
 #
 # Tests
@@ -471,6 +371,8 @@ test-documentation:
 	$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib --all-features db::schema::identity_state::tests::
 
 check-invariants:
+	bash scripts/release/test-finalize-notes.sh
+	bash scripts/release/test-lock-selection.sh
 	bash scripts/ci/verify-shared-tooling-snapshot.sh
 	bash scripts/ci/test-shared-tooling-adapters.sh
 	bash scripts/ci/test-workstation-setup.sh
@@ -483,6 +385,10 @@ check-invariants:
 	bash scripts/ci/check-layer-authority-invariants.sh
 	bash scripts/ci/check-mutation-atomicity-invariants.sh
 	bash scripts/ci/check-release-cleanup-invariants.sh
+	bash scripts/release/test-standard-release.sh
+	bash scripts/ci/test-release-runner.sh
+	bash scripts/ci/test-release-candidate-receipt.sh
+	bash scripts/ci/test-delete-github-tags-up-to.sh
 	bash scripts/ci/test-pre-commit.sh
 	bash scripts/ci/check-persisted-format-invariants.sh
 	perl scripts/ci/test-documentation.pl
@@ -515,7 +421,7 @@ lint-workflows:
 
 shellcheck:
 	shellcheck --exclude=SC2001,SC2016 \
-		scripts/app/*.sh scripts/ci/*.sh scripts/dev/*.sh .githooks/pre-commit
+		scripts/app/*.sh scripts/ci/*.sh scripts/dev/*.sh scripts/release/*.sh .githooks/pre-commit
 
 # GitHub Actions consumes these exact local targets as parallel lanes. The
 # terminal `check` job remains the one branch-protection and release gate.
@@ -523,7 +429,7 @@ ci-static:
 	$(VALIDATION_RUNNER) --fail-fast _ci-format lint-workflows shellcheck check-invariants
 
 _ci-format:
-	$(CARGO_WORK_ENV) cargo fmt --all -- --check
+	$(MAKE) --no-print-directory fmt-check
 
 ci-core:
 	$(VALIDATION_RUNNER) \
@@ -613,3 +519,45 @@ test-watch:
 all: ensure-clean
 	$(MAKE) --no-print-directory validate
 	$(MAKE) --no-print-directory build
+
+# Shared Tooling owns the standard release order and Git effects.
+RELEASE_REMOTE ?= origin
+RELEASE_BRANCH ?= main
+ifneq ($(word 2,$(filter release-patch release-minor release-major release-resume,$(MAKECMDGOALS))),)
+$(error Select exactly one release target)
+endif
+.PHONY: release-resume release-version release-preflight release-prepare-version release-prepared-check release-files release-commit-check release-committed-check release-tagged-check release-push-check
+
+release-patch release-minor release-major:
+	+@bash scripts/ci/run-release.sh "$(@:release-%=%)" "$(RELEASE_REMOTE)" "$(RELEASE_BRANCH)"
+
+release-resume:
+	+@bash scripts/ci/run-release.sh resume "$(VERSION)" "$(RELEASE_REMOTE)" "$(RELEASE_BRANCH)"
+
+.PHONY: release-verify
+release-version:
+	@$(CARGO_WORK_ENV) cargo get workspace.package.version
+release-preflight:
+	@awk -v version="$(RELEASE_VERSION)" -v date="$(RELEASE_DATE)" \
+		-f scripts/ci/finalize-release-changelog.awk CHANGELOG.md >/dev/null
+	@bash scripts/ci/release-candidate-receipt.sh verify-tested-tree "$(RELEASE_SOURCE)"
+	@mkdir -p "$(RELEASE_TMP_DIR)"
+	@$(CARGO_WORK_ENV) cargo fetch --locked --offline
+release-verify:
+	+TMPDIR="$(RELEASE_TMP_DIR)" CARGO_NET_OFFLINE=true $(MAKE) --no-print-directory validate
+release-prepare-version:
+	@TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) bash scripts/release/prepare.sh
+release-prepared-check:
+	@bash scripts/release/check-metadata.sh
+release-files:
+	@bash scripts/release/files.sh
+release-commit-check:
+	@bash scripts/release/check-metadata.sh
+	@bash scripts/ci/release-candidate-receipt.sh verify-staged
+release-committed-check:
+	@bash scripts/ci/release-candidate-receipt.sh verify-commit
+release-tagged-check:
+	@bash scripts/ci/record-release-gate-receipt.sh
+release-push-check:
+	@bash scripts/ci/release-candidate-receipt.sh verify-commit
+	@bash scripts/ci/verify-release-gate-receipt.sh

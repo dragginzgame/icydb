@@ -1,25 +1,59 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# Only refresh paths already selected for this commit. Check for partial staging
-# before formatting so refreshing the index cannot absorb unrelated edits.
-mapfile -d '' -t staged < <(
-  git -C "$ROOT" diff --cached --name-only -z --diff-filter=ACMR -- '*.rs' 'Cargo.toml'
+# Format the selected index payload, without exposing unrelated working edits.
+# Dependencies: Bash 3.2, Git, GNU Make and consumer-owned fmt prerequisites.
+root="$(git rev-parse --show-toplevel)"
+cd "$root"
+snapshot="$(mktemp -d "${TMPDIR:-/tmp}/pre-commit-format.XXXXXX")"
+trap 'rm -rf -- "$snapshot"' EXIT
+
+git diff --cached --name-only -z --diff-filter=ACMR > "$snapshot/selected"
+selected=()
+count=0
+while IFS= read -r -d '' path; do
+    if ! git --literal-pathspecs diff --quiet --no-ext-diff -- "$path"; then
+        printf 'pre-commit: partially staged file: %s\n' "$path" >&2
+        echo 'Finish staging that file or preserve its unstaged edits separately, then retry.' >&2
+        exit 1
+    fi
+    selected[count]="$path"
+    count=$((count + 1))
+done < "$snapshot/selected"
+[[ "$count" -gt 0 ]] || exit 0
+
+# A symlink or submodule's target bytes are not part of this index snapshot.
+# Do not let formatting escape into another checkout or the real working tree.
+git ls-files --stage -z > "$snapshot/entries"
+while IFS= read -r -d '' entry; do
+    case "$entry" in
+        100644\ *|100755\ *) ;;
+        *) echo 'pre-commit: formatting requires regular tracked files, with no symlinks, submodules or unresolved entries.' >&2; exit 1 ;;
+    esac
+done < "$snapshot/entries"
+
+index_tree="$(git write-tree)"
+mkdir "$snapshot/worktree"
+git checkout-index --all --prefix="$snapshot/worktree/"
+[[ "$(git write-tree)" == "$index_tree" ]] || { echo 'pre-commit: index changed during snapshot creation; retry.' >&2; exit 1; }
+git_variables="$(git rev-parse --local-env-vars)"
+(
+    # Commit hooks can inherit a temporary GIT_INDEX_FILE. Keep that index for
+    # staging, but do not expose it to formatters running outside the checkout.
+    while IFS= read -r variable; do unset "$variable"; done <<< "$git_variables"
+    export GIT_CEILING_DIRECTORIES="$snapshot/worktree"
+    make --no-print-directory -C "$snapshot/worktree" fmt
 )
-for path in "${staged[@]}"; do
-  if ! git -C "$ROOT" --literal-pathspecs diff --quiet -- "$path"; then
-    printf 'Cannot auto-format partially staged file: %s\n' "$path" >&2
-    echo "Finish staging that file before committing. No formatting or staging was performed." >&2
-    exit 1
-  fi
+
+[[ "$(git write-tree)" == "$index_tree" ]] || { echo 'pre-commit: index changed during formatting; retry.' >&2; exit 1; }
+for path in "${selected[@]}"; do
+    git --literal-pathspecs diff --quiet --no-ext-diff -- "$path" || { echo 'pre-commit: selected working files changed during formatting; retry.' >&2; exit 1; }
+    [[ -f "$snapshot/worktree/$path" && ! -L "$snapshot/worktree/$path" ]] || { echo 'pre-commit: formatter removed or replaced a selected file; review its fmt target.' >&2; exit 1; }
 done
-
-echo "Running pre-commit formatting (Cargo manifests, derives, and Rust code)..."
-make --no-print-directory -C "$ROOT" fmt
-
-if ((${#staged[@]})); then
-  git -C "$ROOT" --literal-pathspecs add -- "${staged[@]}"
-fi
-
-echo "Pre-commit formatting passed; formatted staged files are included in the commit."
+for path in "${selected[@]}"; do
+    if ! cmp -s "$root/$path" "$snapshot/worktree/$path"; then
+        cp "$snapshot/worktree/$path" "$root/$path"
+    fi
+done
+git --literal-pathspecs add -- "${selected[@]}"
+echo 'Pre-commit formatting passed; refreshed only the selected files.'

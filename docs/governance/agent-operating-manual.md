@@ -38,30 +38,28 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
 
 - During active development, run `cargo fmt --all` after edits instead of using `--check` as a discovery step.
 - Use non-mutating format checks for final release/readiness verification.
-  `cargo fmt --all --check` matches CI's Rustfmt check; `make fmt-check` also
-  enforces the repository's manifest and derive sorting policy.
-- The sole repository hook is a formatting-only pre-commit hook. It runs
-  `make fmt`, refreshes already fully staged Rust/Cargo-manifest paths, and
-  continues the commit. Other formatted files remain unstaged. Partially staged
-  formatter inputs are rejected before formatting to avoid committing unrelated
-  edits. Formatter failures still stop the commit without refreshing the index.
+  `make fmt-check` is CI's complete gate for manifests, derive ordering and Rust.
+- The shared pre-commit hook runs `make fmt` in an isolated index export, then
+  refreshes only fully staged selected files. Partial staging rejects before
+  formatting. Unselected working edits and the real index survive formatter
+  failure. The reviewed hook and installer are immutable snapshot files.
 - `git push` performs no repository validation. `make test`, `make clippy`, and
   `make check` run only the operation they name; `make validate` explicitly
   composes the complete local validation workflow. Release preparation runs
-  that workflow once against the pre-bump source candidate. Staged or unstaged root and
-  detailed changelog edits become part of the exact transition; other tracked
-  changes stop before the expensive gate and are checked again afterward. The
-  bump resolves offline, never rolls files back automatically, and a bounded
-  receipt proves the resulting version-and-release-note transition so tagging
-  and publication can reuse the result without a second full validation run.
+  that workflow against the committed pre-bump source candidate. The shared runner
+  requires a clean source tree, saves the exact preparation intent and retains
+  recovery plans. Consumer metadata preparation resolves offline, formats its
+  output and records the exact version-and-release-note transition. Failed
+  preparation restores its bounded metadata file set; validation failures leave
+  package versions untouched. Tagging and publication reuse the tested receipt.
 - Development checks: select the changed package, target or named tests; run
   strict Clippy for that same selection. `make check`, `make clippy`,
   `make validate-fast` and `make validate` are broad gates, requiring an explicit
   request or their configured CI pipeline. Do not run them on ordinary continuation.
 - `make check-versioning` verifies that release helper tools are available; it
   is not a release-readiness verdict. Human-owned release publication uses
-  `make patch|minor|major`, then `make release-stage`, `make release-commit`,
-  and `make release-push`.
+  `make release-patch`, `make release-minor` or `make release-major`; the shared
+  runner owns preparation, staging, commit, tag and atomic branch/tag push.
 - Formatting helpers: install `cargo-sort` and `cargo-sort-derives` as described
   in `INSTALLING.md`. `make install-hooks` installs the hook explicitly;
   `make install-dev` and `make update-dev` also ensure it is installed.
@@ -184,22 +182,25 @@ struct TypeName;
 
 - Follow `docs/governance/changelog.md`.
 - Keep meaningful completed behavior/tooling in the current root and minor-line
-  draft. Use one undated Draft when the version is undecided. Do not create
-  an `Unreleased` section or choose a patch for each landing slice. Missing
+  pending entry. Automatically select its numbered, undated heading under
+  `rules/changelogs.md`; do not create an `Unreleased` section or a version per
+  landing slice. Missing
   notes and draft presentation must not become deployment gates.
 - Governance-only edits do not need release notes unless explicitly requested.
 - In `docs/changelog/0.*.md`, separate every `## 0.x.y` entry with `---`.
 - Root changelog summaries should be plain-language, user-impact first, and concise.
 - Root minor-line summaries use exactly one bullet per patch version.
 - Put implementation detail in `docs/changelog/0.*.md`.
-- Releases use `make patch|minor|major`, then `make release-stage`, `make release-commit`, and `make release-push`; `make validate` must finish before the bump target mutates version files, and tags must never be hand-edited. In agent sessions these bump, commit, tag, and push actions are user-owned.
-- Before `make patch|minor|major`, prepare the target root and detailed
+- Releases use the shared `make release-patch`, `make release-minor` or
+  `make release-major` workflow. Validation precedes version preparation; commits,
+  tags and pushes remain user-owned in agent sessions. Never hand-edit tags.
+- Before invoking the selected release command, prepare the target root and detailed
   changelog entries, but do not pre-bump package versions or `Cargo.lock`.
   Missing changelog notes should be reported and reconstructed when practical;
   their absence alone is not a mechanical release blocker.
 - Once a version has a matching release tag or is reported pushed/published,
-  never rewrite it. Continued work uses the current draft. Release preparation
-  resolves its explicit version; never select the next patch automatically.
+  never rewrite it. Continued work uses the automatically numbered pending entry.
+  Release preparation reconciles that candidate and adds its UTC date.
   Breaking public API or semantic changes require a minor release before 1.0.
 - Never modify pushed release tags.
 

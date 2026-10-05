@@ -31,6 +31,9 @@ const MAX_PUBLIC_SQL_QUERY_REPLY_BYTES: usize = 3 * 1024 * 1024;
 pub struct SqlGroupedRowsOutput {
     pub entity: String,
     pub columns: Vec<String>,
+    /// SQL display cells: NULL is uppercase and marker-like text is quoted.
+    /// Values are formatted before conversion; consumers must not infer types
+    /// from these strings or rewrite them.
     pub rows: Vec<Vec<String>>,
     pub row_count: u32,
     pub next_cursor: Option<String>,

@@ -18,7 +18,6 @@ use crate::{
     cli::{SqlArgs, SqlShellFields},
     endpoint::{Endpoint, SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT, SQL_UPDATE_ENDPOINT},
     icp::require_created_canister,
-    shell::render::render_shell_text,
 };
 
 ///
@@ -82,14 +81,16 @@ fn execute_sql(environment: &str, canister: &str, sql: &str) -> Result<String, S
     require_created_canister(environment, canister)?;
 
     let escaped_sql = call::candid_escape_string(sql);
-    match call_kind {
+    let candid_bytes = match call_kind {
         route::SqlShellCallKind::Query => {
-            execute_trusted_sql_query(environment, canister, endpoint, &escaped_sql)
+            call::icp_query(environment, canister, endpoint.method(), &escaped_sql)?
         }
         route::SqlShellCallKind::Ddl | route::SqlShellCallKind::Update => {
-            execute_trusted_sql_mutation_call(environment, canister, endpoint, &escaped_sql)
+            call::icp_update(environment, canister, endpoint.method(), &escaped_sql)?
         }
-    }
+    };
+
+    render_sql_response(candid_bytes.as_slice(), environment, canister)
 }
 
 const fn sql_endpoint(call_kind: route::SqlShellCallKind) -> Endpoint {
@@ -100,33 +101,14 @@ const fn sql_endpoint(call_kind: route::SqlShellCallKind) -> Endpoint {
     }
 }
 
-fn execute_trusted_sql_query(
+// Both call lanes decode the same public envelope and retain typed values until
+// the facade's SQL renderer decides how to display them.
+fn render_sql_response(
+    candid_bytes: &[u8],
     environment: &str,
     canister: &str,
-    endpoint: Endpoint,
-    escaped_sql: &str,
 ) -> Result<String, String> {
-    let candid_bytes = call::icp_query(environment, canister, endpoint.method(), escaped_sql)?;
-    let response = Decode!(
-        candid_bytes.as_slice(),
-        Result<icydb::db::sql::SqlQueryResult, icydb::Error>
-    )
-    .map_err(|err| err.to_string())?;
-
-    match response {
-        Ok(result) => Ok(render_shell_text(result)),
-        Err(err) => Err(render_sql_error(err, environment, canister)),
-    }
-}
-
-fn execute_trusted_sql_mutation_call(
-    environment: &str,
-    canister: &str,
-    endpoint: Endpoint,
-    escaped_sql: &str,
-) -> Result<String, String> {
-    let candid_bytes = call::icp_update(environment, canister, endpoint.method(), escaped_sql)?;
-    let response = Decode!(candid_bytes.as_slice(), Result<SqlQueryResult, icydb::Error>)
+    let response = Decode!(candid_bytes, Result<SqlQueryResult, icydb::Error>)
         .map_err(|err| err.to_string())?;
 
     match response {
@@ -167,10 +149,6 @@ pub(crate) mod test_support {
         super::interactive::interactive_start_message(environment, canister)
     }
 
-    pub(crate) fn normalize_shell_statement_line(line: &str) -> String {
-        super::input::normalize_shell_statement_line(line)
-    }
-
     pub(crate) const fn shell_help_text() -> &'static str {
         super::input::shell_help_text()
     }
@@ -195,12 +173,8 @@ pub(crate) mod test_support {
         super::render::finalize_successful_command_output(rendered)
     }
 
-    pub(crate) fn render_grouped_shell_text(rows: icydb::db::sql::SqlGroupedRowsOutput) -> String {
-        super::render::render_grouped_shell_text(rows)
-    }
-
-    pub(crate) fn render_projection_shell_text(rows: icydb::db::RowProjectionOutput) -> String {
-        super::render::render_projection_shell_text(rows)
+    pub(crate) fn render_sql_response(candid_bytes: &[u8]) -> Result<String, String> {
+        super::render_sql_response(candid_bytes, "local", "demo")
     }
 
     pub(crate) fn sql_shell_config_inputs(args: super::SqlArgs) -> SqlShellConfigInputs {

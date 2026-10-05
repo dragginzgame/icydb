@@ -44,9 +44,12 @@ if [[ -f Cargo.lock ]]; then
   LOCKFILE_SNAPSHOT_DIR="$(mktemp -d)"
   LOCKFILE_SNAPSHOT="$LOCKFILE_SNAPSHOT_DIR/Cargo.lock"
   cp Cargo.lock "$LOCKFILE_SNAPSHOT"
+  cargo metadata --locked --offline --no-deps --format-version 1 > "$LOCKFILE_SNAPSHOT_DIR/metadata.json"
 fi
 
-cargo set-version --workspace --bump "$BUMP_TYPE" --offline >/dev/null
+PLANNED="$(bash scripts/ci/next-release-version.sh "$PREV" "$BUMP_TYPE")"
+[[ -z "${RELEASE_VERSION:-}" || "$RELEASE_VERSION" == "$PLANNED" ]]
+cargo set-version --workspace "$PLANNED" --offline >/dev/null
 
 # New version
 NEW=$(cargo get workspace.package.version)
@@ -60,9 +63,10 @@ fi
 # Keep every registry-facing intra-workspace edge on the exact release rather
 # than allowing Cargo's default caret range to split the family by patch.
 for package in "${INTERNAL_WORKSPACE_PACKAGES[@]}"; do
-  sed -i -E \
+  sed -E \
     "s#^(${package}[[:space:]]*=[[:space:]]*\\{[^}]*version[[:space:]]*=[[:space:]]*\\\")[^\\\"]+(\\\"[^}]*\\})#\\1=$NEW\\2#" \
-    Cargo.toml
+    Cargo.toml > "$LOCKFILE_SNAPSHOT_DIR/manifest"
+  cat "$LOCKFILE_SNAPSHOT_DIR/manifest" > Cargo.toml
   if ! grep -E "^${package}[[:space:]]*=" Cargo.toml |
     grep -Fq "version = \"=$NEW\""
   then
@@ -73,8 +77,27 @@ done
 
 if [[ -n "$LOCKFILE_SNAPSHOT" ]]; then
   cp "$LOCKFILE_SNAPSHOT" Cargo.lock
-  escaped_prev="${PREV//./\.}"
-  sed -i "s/^version = \"$escaped_prev\"$/version = \"$NEW\"/" Cargo.lock
+  perl -0777 -e '
+    use JSON::PP qw(decode_json);
+    my ($previous, $new, $metadata_file) = @ARGV;
+    open my $input, "<", $metadata_file or die "$metadata_file: $!\n";
+    my $metadata = decode_json(do { local $/; <$input> });
+    my %members = map { $_ => 1 } @{$metadata->{workspace_members}};
+    my %owned = map { $_->{name} => 1 }
+      grep { $members{$_->{id}} && $_->{version} eq $previous } @{$metadata->{packages}};
+    local $/; my $text = <STDIN>;
+    $text =~ s{(\[\[package\]\]\n.*?)(?=\n\[\[package\]\]|\z)}{
+      my $block = $1; my ($name) = $block =~ /^name = "([^"]+)"$/m;
+      if ($owned{$name // ""} && $block !~ /^source = /m) {
+        $block =~ s/^version = "\Q$previous\E"$/version = "$new"/m;
+      }
+      for my $package (keys %owned) {
+        $block =~ s/"\Q$package $previous\E"/"$package $new"/g;
+      }
+      $block
+    }gse; print $text;
+  ' "$PREV" "$NEW" "$LOCKFILE_SNAPSHOT_DIR/metadata.json" < "$LOCKFILE_SNAPSHOT" > "$LOCKFILE_SNAPSHOT_DIR/new-lock"
+  cat "$LOCKFILE_SNAPSHOT_DIR/new-lock" > Cargo.lock
   cargo metadata --locked --offline --no-deps --format-version 1 >/dev/null
 fi
 
@@ -86,8 +109,3 @@ if git rev-parse "v$NEW" >/dev/null 2>&1; then
 fi
 
 echo "✅ Bumped: $PREV → $NEW"
-echo "Next:"
-echo "  git diff"
-echo "  make release-stage"
-echo "  make release-commit"
-echo "  make release-push"

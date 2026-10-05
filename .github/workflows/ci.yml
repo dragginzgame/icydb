@@ -62,7 +62,13 @@ jobs:
       - name: Install static-analysis tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y perl ripgrep shellcheck
+          sudo apt-get install -y perl ripgrep shellcheck jq
+      - name: Install pinned formatting tools
+        run: |
+          source ci/tool-versions.env
+          cargo install cargo-sort --version "$SHARED_TOOLING_CARGO_SORT_VERSION" --locked
+          cargo install cargo-sort-derives --version "$ICYDB_CARGO_SORT_DERIVES_VERSION" --locked
+          echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
       - name: Run static validation with complete feedback
         run: make ci-static
 
@@ -175,6 +181,7 @@ jobs:
           /bin/bash scripts/ci/verify-shared-tooling-snapshot.sh
           /bin/bash scripts/ci/test-shared-tooling-adapters.sh
           /bin/bash scripts/ci/test-workstation-setup.sh
+          /bin/bash scripts/ci/test-pre-commit.sh
           /bin/bash scripts/ci/test-wasm-audit-report.sh
           /bin/bash scripts/ci/verify-wasm-optimizer.sh
           shellcheck --exclude=SC2001,SC2016 scripts/dev/workstation-setup.sh scripts/ci/install-gh.sh scripts/ci/install-wasm-optimizer.sh scripts/ci/verify-wasm-optimizer.sh scripts/ci/wasm-optimizer-pin.sh scripts/ci/wasm-report-common.sh scripts/ci/wasm-size-report.sh scripts/ci/wasm-audit-report.sh scripts/ci/test-workstation-setup.sh scripts/ci/test-wasm-audit-report.sh
@@ -186,7 +193,7 @@ jobs:
           cargo test --locked -p icydb-testing-integration --lib wasm_optimizer::tests::post_link_optimizer_contract_is_exact_and_available
           cargo test --locked -p icydb-core --lib --all-features db::integrity::tests::quick_
           make build-canister-production CANISTER=default_empty
-          cargo fmt --all -- --check
+          make fmt-check
           icp --version
           ic-wasm --version
 

@@ -1067,6 +1067,94 @@ fn sql_query_result_row_count_footer_uses_grouped_decimal_formatting() {
 }
 
 #[test]
+fn sql_null_rendering_distinguishes_typed_projection_values_after_candid() {
+    let original_rows = vec![vec![
+        OutputValue::null(),
+        text("null"),
+        text("NULL"),
+        text("NuLl"),
+        text("alice"),
+        text("'null'"),
+        text("0.000"),
+        text(" NULL "),
+    ]];
+    let result = sql_query_result_from_statement(
+        SqlStatementResult::Projection {
+            columns: [
+                "missing", "lower", "upper", "mixed", "plain", "quoted", "scale", "padded",
+            ]
+            .map(str::to_string)
+            .to_vec(),
+            fixed_scales: vec![None; 8],
+            rows: original_rows.clone(),
+            row_count: 1,
+        },
+        "User".into(),
+    );
+    let response: Result<SqlQueryResult, crate::Error> = Ok(result);
+    let bytes = Encode!(&response).expect("projection response should encode");
+    let decoded = Decode!(&bytes, Result<SqlQueryResult, crate::Error>)
+        .expect("projection response should decode")
+        .expect("projection response should succeed");
+    let SqlQueryResult::Projection(projection) = &decoded else {
+        panic!("expected projection");
+    };
+    assert_eq!(projection.rows, original_rows);
+    assert_eq!(
+        decoded.render_lines(),
+        crate::db::sql::render_projection_display_rows_lines(
+            &projection.columns,
+            &[vec![
+                "NULL", "'null'", "'NULL'", "'NuLl'", "alice", "'null'", "0.000", "' NULL '"
+            ]
+            .into_iter()
+            .map(str::to_string)
+            .collect()],
+            1,
+        ),
+    );
+}
+
+#[test]
+fn sql_null_rendering_distinguishes_group_keys_and_aggregate_values_after_candid() {
+    let result = sql_query_result_from_statement(
+        SqlStatementResult::Grouped {
+            columns: vec!["key".into(), "value".into()],
+            fixed_scales: vec![None, Some(3)],
+            rows: vec![
+                GroupedRow::new(vec![OutputValue::null()], vec![text("null")]),
+                GroupedRow::new(vec![text("NULL")], vec![OutputValue::null()]),
+                GroupedRow::new(
+                    vec![text("alice")],
+                    vec![OutputValue::decimal(Decimal::ZERO)],
+                ),
+            ],
+            row_count: 3,
+            next_cursor: Some("opaque-cursor".into()),
+        },
+        "User".into(),
+    );
+    let response: Result<SqlQueryResult, crate::Error> = Ok(result);
+    let bytes = Encode!(&response).expect("grouped response should encode");
+    let decoded = Decode!(&bytes, Result<SqlQueryResult, crate::Error>)
+        .expect("grouped response should decode")
+        .expect("grouped response should succeed");
+    let SqlQueryResult::Grouped(grouped) = decoded else {
+        panic!("expected grouped rows");
+    };
+    assert_eq!(
+        grouped.rows,
+        vec![
+            vec!["NULL", "'null'"],
+            vec!["'NULL'", "NULL"],
+            vec!["alice", "0.000"],
+        ],
+    );
+    assert_eq!(grouped.row_count, 3);
+    assert_eq!(grouped.next_cursor.as_deref(), Some("opaque-cursor"));
+}
+
+#[test]
 fn sql_query_result_from_statement_preserves_count_entity_and_row_count() {
     let result = sql_query_result_from_statement(
         SqlStatementResult::Count { row_count: 3 },

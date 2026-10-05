@@ -171,7 +171,7 @@ fn increment(counter: &mut u32, context: &str) {
     *counter = next;
 }
 
-fn run_deferred_database_work() -> ic_timers::TimerRunResult {
+fn run_deferred_database_work() -> ic_timers::OnceRunResult {
     with_composition_mut(|snapshot| {
         increment(
             &mut snapshot.deferred_runs,
@@ -180,9 +180,9 @@ fn run_deferred_database_work() -> ic_timers::TimerRunResult {
     });
 
     match startup_state() {
-        Ok(icydb::db::DatabaseStartupState::Recovering) => ic_timers::TimerRunResult::new(
+        Ok(icydb::db::DatabaseStartupState::Recovering) => ic_timers::OnceRunResult::new(
             ic_timers::TimerCompletion::retryable_failure(0),
-            ic_timers::TimerDirective::RetryAfter(APPLICATION_STARTUP_RETRY),
+            ic_timers::OnceDecision::RetryAfter(APPLICATION_STARTUP_RETRY),
         ),
         Ok(icydb::db::DatabaseStartupState::Ready) => {
             let opened = icydb::db::with_request_execution(|| db().map(|_| ()));
@@ -195,25 +195,25 @@ fn run_deferred_database_work() -> ic_timers::TimerRunResult {
                         );
                         snapshot.activation = ApplicationActivationState::Active;
                     });
-                    ic_timers::TimerRunResult::new(
+                    ic_timers::OnceRunResult::new(
                         ic_timers::TimerCompletion::success(1),
-                        ic_timers::TimerDirective::Stop,
+                        ic_timers::OnceDecision::Stop,
                     )
                 }
                 Err(error) => {
                     with_composition_mut(|snapshot| snapshot.database_failure = Some(error));
-                    ic_timers::TimerRunResult::new(
+                    ic_timers::OnceRunResult::new(
                         ic_timers::TimerCompletion::invariant_failure(0),
-                        ic_timers::TimerDirective::Stop,
+                        ic_timers::OnceDecision::Stop,
                     )
                 }
             }
         }
         Err(failure) => {
             with_composition_mut(|snapshot| snapshot.startup_failure = Some(failure));
-            ic_timers::TimerRunResult::new(
+            ic_timers::OnceRunResult::new(
                 ic_timers::TimerCompletion::invariant_failure(0),
-                ic_timers::TimerDirective::Stop,
+                ic_timers::OnceDecision::Stop,
             )
         }
     }

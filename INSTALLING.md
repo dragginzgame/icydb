@@ -222,7 +222,9 @@ Formatting and lint-oriented Make targets expect the Cargo helper binaries used
 by the repository:
 
 ```bash
-cargo install cargo-sort cargo-sort-derives --locked
+source ci/tool-versions.env
+cargo install cargo-sort --version "$SHARED_TOOLING_CARGO_SORT_VERSION" --locked
+cargo install cargo-sort-derives --version "$ICYDB_CARGO_SORT_DERIVES_VERSION" --locked
 ```
 
 Setup also installs `cargo-edit`, `cargo-get`, and `cargo-watch` for release
@@ -421,12 +423,18 @@ hook. To install it without changing any other developer tooling, run:
 make install-hooks
 ```
 
-The pre-commit hook runs `make fmt`, covering Cargo manifests, derive ordering,
-and Rust code. It refreshes already fully staged Rust/Cargo-manifest paths and
-continues; other formatted files remain unstaged. Partially staged formatter
-inputs reject before formatting. Formatter failures stop the commit without
-refreshing the index. The hook does not run tests, Clippy, builds, PocketIC, or
-release validation.
+The shared pre-commit hook runs `make fmt` in an isolated copy of the index,
+covering Cargo manifests, derive ordering and Rust code. It refreshes only fully
+staged selected files, preserving unselected working edits. Partial staging
+rejects before formatting; formatter failure leaves the real files and index
+unchanged. Installation refuses to replace existing hook authority. The hook
+does not run tests, Clippy, builds, PocketIC or release validation.
+
+The current local `../ic-metrics` dependency is absent from the isolated index
+copy, so Cargo metadata prevents staged Rust formatting in this checkout. Local
+development wiring is retained; hook activation and real staged formatting remain
+unqualified until that prerequisite is resolved. See
+[dependency adoption](https://github.com/dragginzgame/icydb/issues/298).
 
 `git commit --no-verify` remains an explicit bypass, and `git push` performs no
 repository validation. `make validate` retains the non-mutating `fmt-check`
@@ -495,7 +503,9 @@ manually and use `make update-dev` to install user-local tools.
 Install the repository's formatting helper binaries:
 
 ```bash
-cargo install cargo-sort cargo-sort-derives --locked
+source ci/tool-versions.env
+cargo install cargo-sort --version "$SHARED_TOOLING_CARGO_SORT_VERSION" --locked
+cargo install cargo-sort-derives --version "$ICYDB_CARGO_SORT_DERIVES_VERSION" --locked
 ```
 
 ### `make test` cannot find the IC testkit runner
