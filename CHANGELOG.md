@@ -16,9 +16,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   keep release cache checks usable inside the offline gate.
 - Adapt application timer callbacks to `ic-timers 0.12` while preserving retry,
   stop and recurrence behavior; retain the existing `ic-testkit 0.17` integration.
-- Use shared `ic-metrics 0.1.1` arithmetic for saturating instruction and entity
-  counters, preserving inclusive spans, report shapes and reset identity. The exact
-  dependency is local extraction wiring pending registry publication.
+- Use published registry `ic-metrics 0.1.3` for saturating instruction and entity
+  counters without a sibling checkout, preserving inclusive spans, report shapes
+  and reset identity ([#298](https://github.com/dragginzgame/icydb/issues/298)).
 - Standardize `make release-patch`, `release-minor` and `release-major` on the
   reviewed Shared Tooling runner, with exact-version resume, atomic branch/tag
   push and retained build artifacts.

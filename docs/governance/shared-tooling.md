@@ -162,14 +162,26 @@ failure stops before those phases without changing dependency selection.
 Release fixtures are explicit entries in the invariant gate, rather than nested
 under cleanup checks. No release mode or persisted state is added by this removal.
 
-Shared `ic-metrics` arithmetic is wired through an explicit local path dependency.
-Its exact pin and lock entry now select the maintainer-tagged 0.1.1 package. Locked
-offline Linux metadata and the selected metrics-enabled Core library build pass.
-Unfiltered metadata required an uncached Windows-only package; no online retry or
-other dependency selection changed. Nine focused state tests and strict selected
-core Clippy passed during extraction. No IC cost delta, native macOS release
-qualification or registry publication is claimed. [Dependency adoption](https://github.com/dragginzgame/icydb/issues/298)
-tracks replacement of the temporary path.
+Shared `ic-metrics` arithmetic uses published registry 0.1.3 with the compatible
+root `0.1` requirement and no sibling path. An isolated worktree of committed
+adoption source `1a8511c3a` resolves exactly that registry package and passes
+metrics-enabled, warning-denied Core library Clippy with locked offline Linux
+inputs. Its selected cache was checked before compilation; the existing
+designated IcyDB Cargo home supplied dependencies and the worktree's separate
+`target/icydb` retained artifacts. No dependency selection or consumer package
+metadata changed. All nine focused metrics-state tests pass, covering saturation,
+reset identity, failed owner attempts, lifecycle/journal separation, report
+bounds/order and the current Candid shape. Primary source and lock bytes were
+rechecked against the isolated inputs. After the primary release command stopped,
+active-process/free-lock and exact-revision checks admitted the prepared note
+corrections and obsolete-comment removal. Primary locked Linux metadata and
+manifest sorting pass; typed Cargo metadata and lock bytes are unchanged.
+An initial one-off history assertion assumed the pending-only detailed ledger
+had a second release heading and failed; exact intended-bullet comparison
+verified that all other changelog bytes remain unchanged.
+These are native consumer-contract checks, not IC instruction measurements or
+native macOS qualification. [Dependency adoption](https://github.com/dragginzgame/icydb/issues/298)
+tracks the remaining owning release/CI qualification.
 
 ## Shared Tooling 0.1.2 refresh
 
@@ -184,8 +196,7 @@ published minor-line history.
 
 Snapshot integrity and isolated fixture checks qualify their own boundaries;
 local hook activation and actual staged-source formatting are separate evidence.
-The temporary `../ic-metrics` dependency cannot resolve in the isolated index
-export. The maintainer elected to retain local development wiring; actual staged
-formatting remains unqualified while that dependency is absent from the export.
-No sibling sources are copied or formatted to hide that prerequisite. Native
-macOS execution of this refresh remains pending.
+The earlier temporary `../ic-metrics` dependency prevented isolated-index
+resolution. Registry adoption removes that sibling prerequisite. Actual staged
+formatting and native macOS execution of this refresh still require their own
+qualification; dependency resolution alone does not supply hook evidence.
