@@ -2,7 +2,15 @@
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/standard-release-entry.XXXXXX")"
-trap 'rm -rf "$fixture"' EXIT
+# Surface inner Make diagnostics before removing disposable fixture inputs.
+trap '
+    status=$?
+    if [[ "$status" != 0 && -f "$fixture/output" ]]; then
+        cat "$fixture/output" >&2 || true
+    fi
+    rm -rf "$fixture"
+    exit "$status"
+' EXIT
 mkdir -p "$fixture/bin"
 real_bash="$(command -v bash)"
 printf '#!%s\n' "$real_bash" > "$fixture/bin/bash"
@@ -85,7 +93,8 @@ for fail in 0 1; do
     : > "$EVENTS"
     rm -f "$CACHE_READY"
     status=0
-    PATH="$fixture/bin:$PATH" FAIL_FETCH="$fail" "$real_make" --no-print-directory -f "$root/Makefile" \
+    # Only command stubs run here; the simulated preflight precedes offline validation.
+    CARGO_NET_OFFLINE=false PATH="$fixture/bin:$PATH" FAIL_FETCH="$fail" "$real_make" --no-print-directory -f "$root/Makefile" \
         release-preflight release-verify "MAKE=$fixture/bin/make" \
         RELEASE_SOURCE=1111111111111111111111111111111111111111 \
         RELEASE_VERSION=0.1.1 RELEASE_DATE=2026-10-05 \
