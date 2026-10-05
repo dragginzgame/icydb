@@ -87,7 +87,7 @@ getrandom = "0.4"
 ic-cdk = "0.20.3"
 ic-memory = "0.25"
 # Explicit local extraction integration; use a released dependency before publication.
-ic-metrics = { version = "=0.1.1", path = "../ic-metrics/crates/ic-metrics" }
+ic-metrics = { version = "0.1" }
 ic-testkit = "0.17"
 ic-timers = "0.12"
 icrc-ledger-types = "0.2.0"
