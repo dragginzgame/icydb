@@ -1,9 +1,17 @@
 # Shared Tooling snapshot v1
 format	1
-source	git@github.com:dragginzgame/shared-tooling.git
-revision	e16c9c99bd800567189c8024eaf4242a5d1c9e29
+source	https://github.com/dragginzgame/shared-tooling
+revision	41e1fd0ba41460bd2127cbf98ac8a4b2b2020d3e
 file	99de53db4bbe7af00d2da5591b18f65e6022d474769d1e3b9a8424010e0eccf6	x	scripts/ci/verify-file-checksum.sh
-file	5357b125a816455e8e20562b980344e863754377988b61f55076acd5ed42068b	x	scripts/ci/verify-shared-tooling-snapshot.sh
+file	4024efa6850788102bbfa97c471ea3b45d760e547a31b11e7c6a91a79e3eaca8	x	scripts/ci/verify-shared-tooling-snapshot.sh
 file	e8da23b6e4eff3085abfb0f14c40b58f65a1d241365a099b6bfb6865c92d75df	x	scripts/ci/install-actionlint.sh
 file	e2e9d50c6734f99c3e979019c005cfb3f74ce892ec514a94cbdbfe7d9df2e272	x	scripts/ci/run-validation-targets.sh
-file	97a8f42bf3e8dbd1d89683eacbcf28c551bb87eda995551e2bcfa04e20d3a853	x	scripts/dev/cloc.sh
+file	955db0c3b1ba072ddf5334ed584da74c645119a3af354b7223b28921ecb924a2	x	scripts/dev/cloc.sh
+file	ffba6c9fd9113063543497e8e47e9a5b43c7852e421fb4409456eb18cd85ff96	-	DRAGGINZGAME.md
+file	3b7610675eff9625deb60ed3f81cfc8b4a9e76ec30afbe24db9894cc742fea2c	-	docs/principles/README.md
+file	9315c9faffa4f36cfab496342535bf49d728ddd2111e8e127cbc44b3fac89ce7	-	docs/principles/decision-artifact-discipline.md
+file	8eeb6f3924763b34c7b9a08f9a0fabd2bb9f053e0e24eadb6613dd875dacd76b	-	docs/principles/reviewable-changes.md
+file	7e5fd8a3c3b1dc5a829a19ad1a4933fdc17792c8e923871da1e9f36586baff41	-	docs/principles/rust-code-hygiene.md
+file	457fd38e0073c91ba470b918d4facd9faac3c5200ebd38c97e9d6b76acdaea55	-	docs/principles/simplicity-and-maintainability.md
+file	58161787a89c0acd266718d334b3970a91c9b2e4e40c5f8db34c539d10d8cd79	-	docs/consuming-snapshots.md
+file	51c13a7e5e126ab6478f44898d91571cc7e269914fc7211eb7b91a89a8cb1425	-	docs/supported-hosts.md

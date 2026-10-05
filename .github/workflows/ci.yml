@@ -143,11 +143,58 @@ jobs:
             timeout --signal=TERM --kill-after=30s "${HARD_TIMEOUT_SECONDS}s" make "$MAKE_TARGET"
           fi
 
+  macos_host:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      RUSTC_WRAPPER: ""
+      RUST_TEST_THREADS: "2"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: ${{ env.RUST_CURRENT }}
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+      - name: Install native workstation prerequisites and tools
+        run: make install-dev
+      - name: Expose installed tool directories
+        run: |
+          printf '%s\n' "$CARGO_HOME/bin" >> "$GITHUB_PATH"
+          printf '%s\n' "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Qualify portable automation with system Bash
+        run: |
+          export PATH="/bin:/usr/bin:/usr/sbin:/sbin:$PATH"
+          /bin/bash --version
+          /bin/bash scripts/ci/verify-shared-tooling-snapshot.sh
+          /bin/bash scripts/ci/test-shared-tooling-adapters.sh
+          /bin/bash scripts/ci/test-workstation-setup.sh
+          /bin/bash scripts/ci/test-wasm-audit-report.sh
+          /bin/bash scripts/ci/verify-wasm-optimizer.sh
+          shellcheck --exclude=SC2001,SC2016 scripts/dev/workstation-setup.sh scripts/ci/install-gh.sh scripts/ci/install-wasm-optimizer.sh scripts/ci/verify-wasm-optimizer.sh scripts/ci/wasm-optimizer-pin.sh scripts/ci/wasm-report-common.sh scripts/ci/wasm-size-report.sh scripts/ci/wasm-audit-report.sh scripts/ci/test-workstation-setup.sh scripts/ci/test-wasm-audit-report.sh
+      - name: Qualify native library and CLI builds
+        run: |
+          cargo fetch --locked
+          cargo clippy --locked -p icydb-testing-integration --lib --bin write_wasm_size_report -- -D warnings
+          cargo clippy --locked -p icydb-cli --bin icydb -- -D warnings
+          cargo test --locked -p icydb-testing-integration --lib wasm_optimizer::tests::post_link_optimizer_contract_is_exact_and_available
+          cargo test --locked -p icydb-core --lib --all-features db::integrity::tests::quick_
+          make build-canister-production CANISTER=default_empty
+          cargo fmt --all -- --check
+          icp --version
+          ic-wasm --version
+
   # Preserve the existing required-check identity while the independent lanes
   # finish in parallel and report their own complete failure sets.
   check:
     if: always()
-    needs: [static, rust]
+    needs: [static, rust, macos_host]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -155,9 +202,11 @@ jobs:
         env:
           RUST_RESULT: ${{ needs.rust.result }}
           STATIC_RESULT: ${{ needs.static.result }}
+          MACOS_RESULT: ${{ needs.macos_host.result }}
         run: |
           test "$STATIC_RESULT" = "success"
           test "$RUST_RESULT" = "success"
+          test "$MACOS_RESULT" = "success"
 
   wasm_size_report:
     runs-on: ubuntu-24.04

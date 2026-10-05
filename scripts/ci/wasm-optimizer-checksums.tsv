@@ -1,0 +1,6 @@
+# Official Binaryen 132 archives and extracted bin/wasm-opt digests.
+# Archives verified against the release API's SHA-256 asset digests.
+version	version_132
+linux_x86_64	binaryen-version_132-x86_64-linux.tar.gz	195ddc94f9bc89f45abdabb0b9eea86023d727ba90eac8b35b80f2544fc30572	1014958e6f20d412f1542320b43970214b0fb1ed780595e8f7c0d8761ed53725
+darwin_x86_64	binaryen-version_132-x86_64-macos.tar.gz	40c3de90bb3766bd0282a895e139a6f50253dba49b4f5bb89e66faca162d832e	c3cbd288eef3402119d8183df1739887ff0e6430caba2e1c801406df725a2bd3
+darwin_arm64	binaryen-version_132-arm64-macos.tar.gz	98aad827847af7ef990ed7098d885725c8e5b5aae75073403635617ae4e259aa	a9c8d09d84186e4c8efe937f3de19b887404d24a96e2638f3bd3b476e17b7218

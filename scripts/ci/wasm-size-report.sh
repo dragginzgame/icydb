@@ -55,6 +55,9 @@ if [[ -z "$sql_variants_mode" ]]; then
     echo "[wasm-size] --sql-variants requires a value" >&2
     exit 1
 fi
+if [[ -z "${canister_names[0]+set}" ]]; then
+    read -r -a canister_names <<< "$(wasm_report_default_canisters | tr '\n' ' ')"
+fi
 for canister_name in "${canister_names[@]}"; do
     if [[ -z "$canister_name" ]]; then
         echo "[wasm-size] --canister requires a value" >&2
@@ -65,9 +68,6 @@ for canister_name in "${canister_names[@]}"; do
         exit 1
     fi
 done
-if [[ "${#canister_names[@]}" -eq 0 ]]; then
-    mapfile -t canister_names < <(wasm_report_default_canisters)
-fi
 
 mkdir -p "$out_dir"
 
@@ -93,7 +93,7 @@ fi
 # wasm-size measurements without provisioning replica tooling it never uses.
 
 if sql_variants_output="$(wasm_report_sql_variants "$sql_variants_mode" yes)"; then
-    mapfile -t sql_variants <<<"$sql_variants_output"
+    read -r -a sql_variants <<< "${sql_variants_output//$'\n'/ }"
 else
     echo "[wasm-size] invalid --sql-variants value '$sql_variants_mode'; expected 'sql-on', 'sql-off', or 'both'" >&2
     exit 1

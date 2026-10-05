@@ -71,6 +71,9 @@ if [[ -z "${crate_rows}" ]]; then
     exit 1
 fi
 
+FILE_LIST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/shared-tooling-cloc.XXXXXX")"
+trap 'rm -rf "$FILE_LIST_DIR"' EXIT
+
 crates=()
 while IFS= read -r crate_row; do
     crates[${#crates[@]}]="${crate_row}"
@@ -115,44 +118,67 @@ printf "%-*s %12s %12s %10s %9s %10s\n" \
     "inline_fns"
 print_divider
 
-# Count Rust test attributes and split out those hidden inside runtime files.
+# Use the same file lists for LOC and test-attribute counts.
 count_test_fns() {
-    local crate_path="$1"
+    local file_list="$1"
     local total=0
-    local inline=0
     local rust_file
     local file_count
 
-    while IFS= read -r -d '' rust_file; do
+    while IFS= read -r rust_file; do
         file_count=$(grep -Ec "${test_attr_pattern}" "${rust_file}" || true)
         total=$((total + file_count))
+    done <"$file_list"
 
-        if [[ ! "${rust_file}" =~ ${tests_pattern} ]]; then
-            inline=$((inline + file_count))
-        fi
-    done < <(find "${crate_path}" -type f -name '*.rs' -print0)
-
-    printf "%d %d\n" "${total}" "${inline}"
+    printf "%d\n" "${total}"
 }
 
 for crate_row in "${crates[@]}"; do
     IFS=$'\t' read -r crate_name crate_path <<<"${crate_row}"
 
-    test_loc=$(cloc "${crate_path}" \
-        --fullpath \
-        --match-f="${tests_pattern}" \
+    # Each member owns its subtree, excluding any nested workspace members.
+    find_args=("$crate_path")
+    for member_row in "${crates[@]}"; do
+        IFS=$'\t' read -r _ member_path <<<"$member_row"
+        if [[ "$member_path" == "$crate_path/"* ]]; then
+            # find's -path takes a glob; escape literal path metacharacters.
+            member_pattern="${member_path//\\/\\\\}"
+            member_pattern="${member_pattern//\*/\\*}"
+            member_pattern="${member_pattern//\?/\\?}"
+            member_pattern="${member_pattern//\[/\\[}"
+            find_args+=(-path "$member_pattern" -prune -o)
+        fi
+    done
+    find "${find_args[@]}" -type f -name '*.rs' -print0 >"$FILE_LIST_DIR/files"
+    : >"$FILE_LIST_DIR/runtime"
+    : >"$FILE_LIST_DIR/tests"
+    while IFS= read -r -d '' rust_file; do
+        # cloc's --list-file format has one literal path per line.
+        if [[ "$rust_file" == *$'\n'* ]]; then
+            echo "error: cloc file lists cannot represent paths containing newlines" >&2
+            exit 1
+        fi
+        relative_file="${rust_file#"$crate_path/"}"
+        if [[ "$relative_file" =~ ${tests_pattern} ]]; then
+            printf '%s\n' "$rust_file" >>"$FILE_LIST_DIR/tests"
+        else
+            printf '%s\n' "$rust_file" >>"$FILE_LIST_DIR/runtime"
+        fi
+    done <"$FILE_LIST_DIR/files"
+
+    test_loc=$(cloc --list-file="$FILE_LIST_DIR/tests" \
         --include-lang=Rust \
         --json 2>/dev/null \
         | jq '.Rust.code // 0')
 
-    runtime_loc=$(cloc "${crate_path}" \
-        --fullpath \
-        --not-match-f="${tests_pattern}" \
+    runtime_loc=$(cloc --list-file="$FILE_LIST_DIR/runtime" \
         --include-lang=Rust \
         --json 2>/dev/null \
         | jq '.Rust.code // 0')
 
-    read -r test_fns inline_test_fns < <(count_test_fns "${crate_path}")
+    inline_test_fns="$(count_test_fns "$FILE_LIST_DIR/runtime")"
+    test_fns="$(count_test_fns "$FILE_LIST_DIR/tests")"
+    test_fns=$((test_fns + inline_test_fns))
     crate_loc=$((runtime_loc + test_loc))
 
     if [[ "${crate_loc}" -gt 0 ]]; then

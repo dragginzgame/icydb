@@ -1,7 +1,8 @@
 # IcyDB Agent Rules
 
-Apply the [shared engineering baseline](https://github.com/dragginzgame/shared-tooling/blob/e16c9c99bd800567189c8024eaf4242a5d1c9e29/DRAGGINZGAME.md)
-at reviewed revision `e16c9c99bd800567189c8024eaf4242a5d1c9e29`. This file is
+Apply the local [shared engineering baseline](DRAGGINZGAME.md), recorded in
+[the snapshot manifest](.shared-tooling.snapshot) at reviewed revision
+`41e1fd0ba41460bd2127cbf98ac8a4b2b2020d3e`. This file is
 IcyDB's local overlay; there are no baseline exceptions. See
 [shared-tooling adoption](docs/governance/shared-tooling.md) for tool provenance
 and consumer boundaries. Keep this file small; open detailed docs as needed.

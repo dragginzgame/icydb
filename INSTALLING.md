@@ -152,37 +152,50 @@ downstream canister dependency installation.
 
 macOS host support is required; the
 [host qualification matrix](docs/governance/shared-tooling.md#host-qualification)
-records the current setup and native-validation gaps. The bootstrap below uses
-`apt-get` and currently cannot complete on macOS, even after manual package setup.
+records the current native-validation gaps. Setup selects apt packages on Linux
+and Homebrew packages on macOS; installer branches do not qualify native builds,
+tests or deployment workflows.
 
-The repository provides local maintainer targets for Ubuntu-like hosts with
-`apt-get`. `make install-dev` is the initial workstation bootstrap: it installs
-system packages, Rust, Cargo helper tools, ICP tooling, and repository hooks.
+Install [rustup](https://rustup.rs) before using these targets. On macOS, also
+install Xcode Command Line Tools and [Homebrew](https://brew.sh).
+`make install-dev` installs system packages, the repository's Rust toolchain,
+Cargo helper tools, ICP tooling, and repository hooks.
 `make update-dev` refreshes user-local Rust, Cargo, actionlint, and npm-backed
 ICP tooling (apart from installing `gh` if missing), ensures the repository's
-formatting hook is installed, then runs the maintainer update checks.
+formatting hook is installed, and leaves repository dependencies unchanged.
+Dependency upgrades and security audits are separate maintainer actions: review
+any intentional `cargo update` diff, then audit the selected graph with
+`cargo audit`. Neither action runs automatically during workstation setup.
 
 ### System Prerequisites
 
 On Ubuntu, `make install-dev` installs the normal build and script dependencies:
 
 ```bash
-build-essential cmake curl wget gzip libssl-dev pkg-config perl ripgrep shellcheck nodejs npm
+build-essential cmake curl wget gzip libssl-dev pkg-config perl ripgrep shellcheck nodejs npm cloc
 ```
 
 Canister development and wasm inspection also need:
 
 ```bash
-bubblewrap binaryen wabt jq
+bubblewrap wabt jq
 ```
 
-These are Linux package names. macOS needs its own dependency setup and native
-qualification; this list does not provide a working macOS bootstrap.
+On macOS, setup installs these Homebrew formulas:
+
+```bash
+cmake curl openssl@3 pkg-config perl ripgrep shellcheck node wabt jq cloc make
+```
+
+Binaryen is installed separately from the official pinned release, using the
+archive and executable digests in
+[the optimizer pin table](scripts/ci/wasm-optimizer-checksums.tsv). Linux x86-64
+and macOS ARM64/x86-64 assets are admitted. An update reports whether a newer
+release exists; it does not change the qualified optimizer version.
 
 Both `make install-dev` and `make update-dev` use the shared `make install-gh`
 path to ensure the GitHub CLI is available. It installs the apt-backed `gh`
-package only when the command is missing; on non-apt systems it reports the
-required manual action.
+package, or the macOS Homebrew formula, only when the command is missing.
 
 Actionlint installation uses the version and verified platform digests in
 [scripts/ci/actionlint-checksums.tsv](scripts/ci/actionlint-checksums.tsv).
@@ -192,8 +205,8 @@ release checksum list; no version-only environment override bypasses verificatio
 
 ### Rust
 
-`make install-dev` installs rustup when missing, then installs the Rust channel
-declared in `rust-toolchain.toml`:
+Both setup targets require rustup and install the Rust channel declared in
+`rust-toolchain.toml`, including rustfmt, Clippy and the Wasm target:
 
 ```bash
 rustup toolchain install --target wasm32-unknown-unknown
@@ -212,11 +225,24 @@ by the repository:
 cargo install cargo-sort cargo-sort-derives --locked
 ```
 
+Setup also installs `cargo-edit`, `cargo-get`, and `cargo-watch` for release
+helpers and `make test-watch`. General analysis tools are optional; install
+`cargo-audit`, `cargo-bloat`, `cargo-deny`, `cargo-expand`, `cargo-machete`,
+`cargo-llvm-lines`, or `cargo-tarpaulin` explicitly when needed. For example:
+
+```bash
+cargo install cargo-audit --locked
+```
+
 ### ICP And Canister Tools
 
-Local ICP workflows require the current Canic ICP tools with `icp` on `PATH`.
+Local ICP workflows require the ICP SDK CLI with `icp` on `PATH`.
 Both `make install-dev` and `make update-dev` install or update
 `@icp-sdk/icp-cli` and `@icp-sdk/ic-wasm` under `$HOME/.local` through npm.
+Keep `$HOME/.local/bin` before `$HOME/.cargo/bin` on your shell's `PATH` so
+the maintained npm `ic-wasm` is selected if an older Cargo copy remains installed.
+Workstation setup uses that ordering itself. Add both directories to your shell's
+`PATH`; setup cannot change its parent shell's environment.
 
 Optional canister-operation utilities should be installed explicitly when you
 need them:
@@ -231,11 +257,11 @@ Install local developer dependencies with:
 make install-dev
 ```
 
-That target installs apt-backed system prerequisites when `apt-get` is present,
+That target installs host-specific system prerequisites,
 the pinned Rust toolchain, the wasm target, standard Cargo helper tools,
 `candid-extractor`, `ic-wasm`, `twiggy`, and npm-backed ICP CLI tools.
 
-`make update-dev` may install the apt-backed GitHub CLI if it is missing. Other
+`make update-dev` may install the GitHub CLI if it is missing. Other
 missing system packages require manual installation or `make install-dev`.
 
 ### Common Commands
@@ -460,8 +486,9 @@ is useful secondary context for transport.
 
 ### `make install-dev` cannot install system packages
 
-On non-apt systems, install the packages listed in System Prerequisites with
-your platform package manager, then re-run `make install-dev`.
+On macOS, ensure Xcode Command Line Tools and Homebrew are installed. On other
+non-apt systems, the bootstrap has no package mapping; install prerequisites
+manually and use `make update-dev` to install user-local tools.
 
 ### `make fmt` or `make check` cannot find `cargo sort`
 

@@ -21,8 +21,8 @@ use icydb_testing_integration::{
         WasmLineBudget, validate_wasm_measurement_contract,
     },
     wasm_optimizer::{
-        POST_LINK_PIPELINE_IDENTITY, WASM_OPT_FLAGS, WASM_OPT_OUTPUT_FEATURES, WASM_OPT_SHA256,
-        WASM_OPT_VERSION,
+        POST_LINK_PIPELINE_IDENTITY, WASM_OPT_FLAGS, WASM_OPT_OUTPUT_FEATURES, WASM_OPT_VERSION,
+        wasm_opt_sha256,
     },
 };
 use serde::Serialize;
@@ -201,7 +201,7 @@ fn run() -> Result<(), String> {
     let workspace_root = workspace_root()?;
     let provenance = capture_provenance(&workspace_root)?;
     let tools = capture_tools(&workspace_root, &args.ic_wasm_bin, &args.wasm_opt_bin)?;
-    if tools.wasm_opt_version != WASM_OPT_VERSION || tools.wasm_opt_sha256 != WASM_OPT_SHA256 {
+    if tools.wasm_opt_version != WASM_OPT_VERSION || tools.wasm_opt_sha256 != wasm_opt_sha256()? {
         return Err(format!(
             "size report optimizer does not match the deployable pipeline: version='{}', sha256='{}'",
             tools.wasm_opt_version, tools.wasm_opt_sha256

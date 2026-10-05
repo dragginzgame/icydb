@@ -2,6 +2,9 @@
 
 ## Purpose
 
+The [shared Rust baseline](../../principles/rust-code-hygiene.md) owns common
+hygiene requirements. This document adds IcyDB's module, import and comment style.
+
 This document defines source consistency and readability standards used across `icydb-core`.
 The goal is to keep the codebase easy to navigate, maintain, and evolve as the system grows.
 

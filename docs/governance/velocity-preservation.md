@@ -2,6 +2,10 @@
 
 This document defines release-engineering rules that protect feature velocity.
 
+The [shared reviewable-change principle](../principles/reviewable-changes.md)
+owns common scope, cleanup reporting and evidence requirements. This document
+supplies IcyDB's release-line planning and landing discipline.
+
 The recurring `complexity-and-technical-debt` audit measures future extension
 friction from the current codebase. It asks which owner boundaries, state axes,
 and decision surfaces make maintained work harder than necessary.

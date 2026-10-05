@@ -5,4 +5,9 @@
 /scripts/ci/ @dragginzgame
 /Makefile @dragginzgame
 /rust-toolchain.toml @dragginzgame
-
+/.shared-tooling.snapshot @dragginzgame
+/DRAGGINZGAME.md @dragginzgame
+/docs/principles/ @dragginzgame
+/docs/consuming-snapshots.md @dragginzgame
+/docs/supported-hosts.md @dragginzgame
+/scripts/dev/ @dragginzgame

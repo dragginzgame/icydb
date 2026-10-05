@@ -2,6 +2,10 @@
 
 ## Purpose
 
+The [shared principle](../principles/simplicity-and-maintainability.md) owns the
+common decision gate. This document applies it to IcyDB's product contracts and
+review workflow; it does not define a separate common-policy authority.
+
 This document governs scope creep, incidental complexity, duplicated flows,
 and technical debt. It applies to design, implementation, review, testing, and
 audit work.

@@ -66,7 +66,7 @@ help:
 	@echo "Setup / Installation:"
 	@echo "  install          Install the local icydb CLI binary"
 	@echo "  install-dev      Install developer dependencies, GitHub CLI, actionlint, and the formatting hook"
-	@echo "  update-dev       Update developer tooling and the pinned Binaryen optimizer"
+	@echo "  update-dev       Update developer tooling and hooks without changing dependencies"
 	@echo "  install-gh       Ensure the GitHub CLI is installed"
 	@echo "  install-hooks    Configure the formatting-only pre-commit hook"
 	@echo ""
@@ -473,6 +473,7 @@ test-documentation:
 check-invariants:
 	bash scripts/ci/verify-shared-tooling-snapshot.sh
 	bash scripts/ci/test-shared-tooling-adapters.sh
+	bash scripts/ci/test-workstation-setup.sh
 	bash scripts/ci/check-ci-workflow-invariants.sh
 	bash scripts/ci/check-deployment-inventory-invariants.sh
 	bash scripts/ci/check-dependency-graph-invariants.sh

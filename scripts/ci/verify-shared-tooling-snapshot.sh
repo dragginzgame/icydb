@@ -104,10 +104,11 @@ while IFS=$'\t' read -r record first second third extra || [[ -n "$record" ]]; d
         [[ "$first" =~ ^[0-9a-f]{64}$ && "$second" =~ ^(-|x)$ && -n "$third" && -z "$extra" ]] ||
             fail "malformed file record"
         validate_relative_path "$third"
-        for declared_file in "${declared_files[@]}"; do
-            [[ "$declared_file" != "$third" ]] || fail "duplicate file record: $third"
+        # Bash 3.2 treats an empty array expansion as unset under nounset.
+        for ((declared_index = 0; declared_index < file_count; declared_index++)); do
+            [[ "${declared_files[$declared_index]}" != "$third" ]] || fail "duplicate file record: $third"
         done
-        declared_files[${#declared_files[@]}]="$third"
+        declared_files[file_count]="$third"
         [[ "$third" != "scripts/ci/verify-file-checksum.sh" ]] || checksum_tool_declared=true
         [[ "$third" != "scripts/ci/verify-shared-tooling-snapshot.sh" ]] || snapshot_verifier_declared=true
         target="$CONSUMER_ROOT/$third"

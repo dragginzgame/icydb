@@ -83,8 +83,8 @@ require_text \
     'WebAssembly/binaryen/releases/download' \
     'the optimizer installer must use the checksum-pinned official Binaryen release.'
 require_text \
-    scripts/ci/install-wasm-optimizer.sh \
-    'BINARYEN_VERSION="version_132"' \
+    scripts/ci/wasm-optimizer-checksums.tsv \
+    $'version\tversion_132' \
     'the optimizer installer must retain the qualified Binaryen release.'
 require_text \
     scripts/dev/workstation-setup.sh \

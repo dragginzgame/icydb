@@ -1,106 +1,145 @@
 # Shared Tooling Adoption
 
-IcyDB adopts the [shared engineering baseline](https://github.com/dragginzgame/shared-tooling/blob/e16c9c99bd800567189c8024eaf4242a5d1c9e29/DRAGGINZGAME.md)
-at revision `e16c9c99bd800567189c8024eaf4242a5d1c9e29`. Root
-[AGENTS.md](../../AGENTS.md) is the local overlay. There are no baseline exceptions.
-Product architecture, resource limits, exact qualification gates and release
-targets remain local. This reference is immutable; a sibling checkout does not
-silently change the adopted rules.
+IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
+at reviewed revision `41e1fd0ba41460bd2127cbf98ac8a4b2b2020d3e`. Root
+[AGENTS.md](../../AGENTS.md) is the local overlay; there are no baseline
+exceptions. Product architecture, resource limits, exact qualification gates
+and release targets remain local. A sibling checkout cannot silently change
+these rules.
 
-## Tool ownership
+## Ownership and provenance
 
-The canonical shared scripts are recorded in
-[the snapshot manifest](../../.shared-tooling.snapshot), including their source
-revision, SHA-256 digests and executable modes. Refresh from a clean checkout
-with the upstream distribution helper, then review and validate the consumer
-diff. Never edit a declared snapshot file locally.
+[The snapshot manifest](../../.shared-tooling.snapshot) records thirteen exact
+upstream files: the baseline, five principle documents, snapshot-consumption
+and supported-host guidance, and five tools. Every entry records SHA-256 and
+executable mode. Refresh through the upstream distribution helper from a clean
+checkout, then review and validate the consumer diff. Never patch declared
+snapshot files locally. The recorded HTTPS source identifies the same upstream
+repository as the original adoption.
 
-Two demonstrated consumer requirements need adapters outside that snapshot:
+Common governance delegates to the [shared principles](../principles/README.md).
+IcyDB overlays retain product-specific architecture and validation requirements;
+CODEOWNERS covers shared guidance, the manifest and consumer tooling. The public
+GitHub description, “ic database”, was reviewed against the README and remains
+accurate; no remote metadata change was needed.
 
-- IcyDB's validation handoff requires one complete log for all failed targets.
-  The shared runner owns execution and diagnostics; the local adapter combines
-  its retained raw logs and maintains `target/validation-failures/latest.log`.
-  It adds no validation target, retry or alternate execution flow.
-- IcyDB owns actionlint's version and admitted platform digests. One local pin
-  file supplies installation and workflow checks. The shared installer owns
-  downloading, checksum verification and installation; the adapter selects the
-  consumer's pin and destination without introducing a version override.
+Two demonstrated consumer requirements use adapters outside the snapshot:
 
-The snapshot is an existing upstream format-1 provenance boundary, not new
-runtime state. The adapters keep one execution/installation owner; neither
-changes database protocols or release selection. Bash 3.2 remains the portable
-syntax target. Current upstream macOS snapshot-verifier execution fails with an
-empty-array/nounset error; Ubuntu regressions and lint pass in the
-[reviewed CI run](https://github.com/dragginzgame/shared-tooling/actions/runs/37275788887).
-This adoption does not claim macOS runtime qualification or patch vendored code
-to work around that upstream failure. IcyDB's configured CI host is Ubuntu.
+- The shared runner owns execution and diagnostics. IcyDB combines retained raw
+  logs into `target/validation-failures/latest.log` for a complete handoff. This
+  adds no validation target, retry or alternate execution flow.
+- The shared actionlint installer owns download, verification and installation.
+  IcyDB's adapter supplies the consumer version, platform digests and destination
+  from [one pin file](../../scripts/ci/actionlint-checksums.tsv).
 
-The shared script set is limited to the runner, installer, checksum/snapshot
-verifiers and the already-identical LOC tool. No sccache lifecycle change is
-introduced without a demonstrated consumer failure. Official actionlint 1.7.12
-[release checksums](https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_checksums.txt)
-are recorded in [the consumer pin file](../../scripts/ci/actionlint-checksums.tsv);
-changing that file is the explicit tool-version/platform admission workflow.
-Installer platform branches are installation capabilities, not host CI claims.
+The format-1 manifest is an existing upstream provenance boundary, not database
+state. The refreshed LOC tool counts disjoint member-owned files, excludes nested
+workspace members and classifies test paths relative to each crate. No sccache
+lifecycle change is introduced without a demonstrated consumer failure.
 
 ## Host qualification
 
-macOS support is required, including dependency setup, native tools, builds,
-tests and deployment tooling. The declared host targets and current evidence are:
+macOS support is required for setup, native tools, builds, tests and deployment
+tooling. Bash 3.2 is the portable syntax target. The current evidence is:
 
 | Host target | Qualification |
 | --- | --- |
-| Ubuntu 24.04, x86-64 | Configured IcyDB CI; focused tooling checks pass locally on Linux. |
-| macOS 15, ARM64 and x86-64 | Required targets; IcyDB native execution is pending and no macOS CI lane is configured. |
+| Ubuntu 24.04, x86-64 | Existing CI lanes; the focused checks below pass locally on Linux. |
+| macOS 15, ARM64 | Required CI lane configured with `macos-15`; native execution pending. |
+| macOS 15, x86-64 | Required CI lane configured with `macos-15-intel`; native execution pending. |
 
-The shared snapshot verifier currently fails on upstream macOS 15 / Bash 3.2
-before consumer qualification. Its vendored bytes are unchanged in this refresh.
-IcyDB's workstation bootstrap also requires `apt-get`; its Linux dependency list
-is not a macOS installation recipe. Host-specific setup and native build, test
-and deployment-tool qualification remain unresolved. These gaps do not weaken
-the support requirement; passing Ubuntu tooling checks do not establish
-macOS release readiness. See [installation prerequisites](../../INSTALLING.md#system-prerequisites).
-No macOS exception or native qualification is claimed.
+[CI](../../.github/workflows/ci.yml) now gates its central check on both native
+macOS lanes as well as Ubuntu. The macOS lanes run real workstation installation,
+system Bash snapshot/adapter/setup/report fixtures, focused library and CLI
+checks, integrity and optimizer tests, a production canister build, formatting
+and native ICP tool version checks. GitHub documents the runner architectures in
+[its hosted-runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
+This closes the missing CI configuration; it does not claim an unexecuted lane
+has passed. Deployment workflows outside these selections remain unqualified
+on macOS until native evidence exists.
 
-## Focused qualification
+Setup selects Homebrew prerequisites on macOS and apt prerequisites on Linux.
+Binaryen 132 has admitted archive and executable digests for both macOS
+architectures and Linux x86-64. Shell installation, verification and Rust artifact
+checks consume [one table](../../scripts/ci/wasm-optimizer-checksums.tsv). The macOS
+archives were downloaded and hashed on Linux; installer fixtures qualify
+selection and rejection, not native execution. Report scripts use Bash 3.2
+array operations and either host SHA-256 implementation.
 
-Verify snapshot integrity, shell syntax/lint, the local adapters' focused
-regressions, workflow invariants and documentation links. Full workspace,
-release and deployment gates require an explicit request or configured CI.
-Downloaded tool execution is qualified separately from offline installer
-fixtures; do not label a stubbed download as a live installation.
+At the original `e16c9c99` baseline adoption, upstream macOS snapshot verification
+failed on an empty array under nounset; Ubuntu passed in the
+[reviewed upstream CI run](https://github.com/dragginzgame/shared-tooling/actions/runs/37275788887).
+The current snapshot includes the upstream correction. Linux checks do not
+establish macOS release readiness or weaken its support requirement. See
+[installation prerequisites](../../INSTALLING.md#system-prerequisites).
 
-The consumer checks pass on Linux: snapshot verification, offline adapter
-regressions, ShellCheck, workflow lint/invariants, release-preservation fixtures,
-links and whitespace. A real actionlint 1.7.12 Linux amd64 archive is separately
-downloaded, verified and installed only in a disposable directory. Full suites
-and macOS execution remain unrun; no database compilation or runtime cost
-measurement is required for this tooling-only adoption.
+## Focused evidence and boundaries
 
-The latest review refreshes the source record and common baseline to `e16c9c9`;
-all five vendored tool files retain their previously verified bytes. The user's
-independent lockfile updates to ic-memory 0.25.4 and ic-testkit 0.15.4 are preserved.
-Earlier Rust results used other dependency revisions and do not qualify these
-new pins; Rust and full release validation remain separate from this tooling evidence.
+Snapshot integrity, shell syntax/ShellCheck, offline consumer adapter and
+workstation fixtures, workflow lint/invariants, documentation links and
+whitespace pass on Linux. Setup fixtures exercise install/update selection,
+repository-root execution, lockfile preservation, required tools and optimizer
+integrity before execution/replacement. Rustup is an explicit prerequisite;
+workstation updates do not audit or resolve repository dependencies.
+
+The original workstation review stopped integration Clippy at the removed
+ic-memory `AllocationDeclaration::validate()` API and the Wasm invariant wrapper
+at missing jq. These failures were captured before repair. The current locked
+ic-memory 0.25.10 exposes an opaque committed capability that guarantees valid,
+unique declarations; IcyDB now checks availability and retains exact generation
+identity without rebuilding the upstream validation sets. Bootstrap error
+classification also uses only current upstream variants. User lockfile updates
+and repository package versions are preserved.
+
+Focused strict Clippy passes for core/facade production and test targets, the
+integration optimizer/report targets and the CLI. The installed Linux optimizer passes its
+version and binary digest checks. All Wasm audit capture cases, including the
+default subject set, and post-link invariants pass with an official jq 1.8.1
+binary verified against the release SHA-256 and installed only in a disposable
+directory. Stubbed downloads are not reported as live installations. Earlier
+standalone optimizer checks remain narrower evidence than current package lint.
+
+All sixteen selected native tests pass: five Quick integrity tests, six Deep
+integrity/session tests, four public bootstrap diagnostic tests and the real
+pinned optimizer contract. These qualify maintained behavior at the changed
+boundaries; they do not run a PocketIC network or a full workspace suite.
+
+The existing terminal CI check owns qualification. Adding two declared host
+lanes is the simplest way to exercise the support requirement, with no new
+runtime mode, persisted state or database protocol. The optimizer table expands
+one prerequisite authority to three assets; Homebrew's unqualified Binaryen
+cannot replace the admitted release. Full workspace/release gates remain
+user-owned validation unless explicitly requested or run by configured CI.
+Native macOS execution remains pending; raw Wasm-size, IC-cycle and instruction
+deltas are unmeasured.
 
 ## Cleanup disposition
 
-- `platform()` in `scripts/ci/install-actionlint.sh` is replaced by upstream
-  `resolve_platform()`; consumer version/digest selection belongs to the adapter.
-- `persist_combined_failure_log()` in `scripts/ci/run-validation-targets.sh`
-  is replaced by the consumer adapter's aggregation of retained raw logs.
-  Upstream remains the sole target-execution owner.
-- `cleanup_validation_runner_test()` in the workflow-invariant script is
-  removed with its temporary, prose-coupled probes. The dedicated focused
-  adapter regressions own and clean their fixtures.
+The current workstation/adoption cleanup removes:
 
-The existing `main()`, `persist_failure_log()`, `print_failure_detail()` and
-`write_github_summary()` names remain in the corresponding canonical installer
-or runner; their implementations are upstream-owned replacements, not deleted
-behavior. No Rust function, method or type is removed by this adoption.
+- `run_update_checks()` from `scripts/dev/workstation-setup.sh`: dependency
+  audits and resolution do not belong to tool updates; explicit dependency
+  maintenance remains the owner.
+- `validate_committed_allocation_declarations()` from
+  `crates/icydb-core/src/db/integrity/proof.rs`: the opaque upstream committed
+  capability owns declaration validity and uniqueness; local availability and
+  generation checks remain.
+- `tests::declaration()` and
+  `tests::quick_allocation_registry_closure_requires_unique_keys_and_slots()`
+  from that module: fabricated declarations duplicated the upstream contract;
+  maintained integrity and proof behavior remain covered by current tests.
+- The Linux-only `WASM_OPT_SHA256` constant from
+  `testing/integration/src/wasm_optimizer.rs`: `wasm_opt_sha256()` reads the
+  admitted native platform digest from the common table.
 
-The adoption changes 24 files with approximately 680 net added lines, primarily
-immutable shared verifiers, adapter regressions and governance evidence. The
-full local runner/installer implementations are replaced by shared authorities
-and two thin adapters; database execution shape is unchanged. Raw Wasm-size,
-IC-cycle and instruction deltas are unmeasured for this tooling-only change.
+The earlier baseline adoption replaced installer `platform()` with upstream
+`resolve_platform()`, moved runner `persist_combined_failure_log()` to the
+consumer adapter and removed `cleanup_validation_runner_test()` with its
+prose-coupled probes. Dedicated adapter fixtures own those regressions. Existing
+canonical runner/installer function names remain upstream-owned replacements.
+
+This workstation/adoption batch changes 39 files with approximately 1,100 net
+added lines, excluding the user's lockfile updates. Most additions are immutable
+shared guidance, host CI and focused fixtures. Runtime declaration handling is
+simpler; installation/report authorities converge without adding database state.
+Raw Wasm-size, IC-cycle and instruction deltas remain unmeasured.

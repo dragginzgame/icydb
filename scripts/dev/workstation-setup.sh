@@ -6,6 +6,10 @@ usage() {
 }
 
 MODE="${1:-}"
+if [[ $# -ne 1 ]]; then
+  usage
+  exit 2
+fi
 case "$MODE" in
   install|update) ;;
   *)
@@ -16,6 +20,9 @@ esac
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ACTIONLINT_INSTALL_DIR="${ACTIONLINT_INSTALL_DIR:-$HOME/.local/bin}"
+# npm owns ic-wasm; prefer its user-local binary over any older Cargo install.
+export PATH="$HOME/.local/bin:$ACTIONLINT_INSTALL_DIR:${CARGO_HOME:-$HOME/.cargo}/bin:$HOME/.cargo/bin:$PATH"
+cd "$ROOT"
 
 DEV_SYSTEM_PACKAGES=(
   build-essential
@@ -33,23 +40,17 @@ DEV_SYSTEM_PACKAGES=(
   bubblewrap
   wabt
   jq
+  cloc
 )
 
 CARGO_WORKSTATION_TOOLS=(
   candid-extractor
-  ic-wasm
   twiggy
-  cargo-audit
-  cargo-bloat
-  cargo-deny
   cargo-edit
-  cargo-expand
   cargo-get
-  cargo-machete
-  cargo-llvm-lines
   cargo-sort
-  cargo-tarpaulin
   cargo-sort-derives
+  cargo-watch
 )
 
 NPM_WORKSTATION_TOOLS=(
@@ -58,24 +59,33 @@ NPM_WORKSTATION_TOOLS=(
 )
 
 install_system_packages() {
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    if ! xcode-select -p >/dev/null 2>&1 || ! command -v brew >/dev/null 2>&1; then
+      echo "Install Xcode Command Line Tools and Homebrew, then re-run this target." >&2
+      exit 1
+    fi
+    brew install cmake curl openssl@3 pkg-config perl ripgrep shellcheck node wabt jq cloc make
+    return
+  fi
+
   if ! command -v apt-get >/dev/null 2>&1; then
     echo "apt-get not found. Install these packages manually, then re-run this target:" >&2
     echo "  ${DEV_SYSTEM_PACKAGES[*]}" >&2
     exit 1
   fi
 
-  local sudo_cmd=()
+  local privilege_cmd="env"
   if [[ "$(id -u)" -ne 0 ]]; then
     if ! command -v sudo >/dev/null 2>&1; then
       echo "Missing sudo. Install these packages manually, then re-run this target:" >&2
       echo "  ${DEV_SYSTEM_PACKAGES[*]}" >&2
       exit 1
     fi
-    sudo_cmd=(sudo)
+    privilege_cmd=sudo
   fi
 
-  "${sudo_cmd[@]}" apt-get update
-  "${sudo_cmd[@]}" apt-get install -y "${DEV_SYSTEM_PACKAGES[@]}"
+  "$privilege_cmd" apt-get update
+  "$privilege_cmd" apt-get install -y "${DEV_SYSTEM_PACKAGES[@]}"
 }
 
 install_actionlint() {
@@ -86,55 +96,16 @@ install_actionlint() {
 }
 
 ensure_rustup() {
-  if command -v rustup >/dev/null 2>&1 || [[ -x "$HOME/.cargo/bin/rustup" ]]; then
-    return
+  if ! command -v rustup >/dev/null 2>&1; then
+    echo "Missing rustup. Install it using https://rustup.rs, then re-run this target." >&2
+    exit 1
   fi
-
-  local rustup_installer
-  local tmp_dir
-
-  tmp_dir="$(mktemp -d)"
-  trap 'rm -rf "$tmp_dir"' EXIT
-  rustup_installer="$tmp_dir/rustup-init.sh"
-  curl \
-    --proto '=https' \
-    --tlsv1.2 \
-    --fail \
-    --location \
-    --show-error \
-    --silent \
-    --retry 5 \
-    --retry-all-errors \
-    --retry-delay 2 \
-    --connect-timeout 15 \
-    --max-time 120 \
-    --output "$rustup_installer" \
-    https://sh.rustup.rs
-  sh "$rustup_installer" -y
-  trap - EXIT
-  rm -rf "$tmp_dir"
 }
 
 install_tooling() {
-  export PATH="$ACTIONLINT_INSTALL_DIR:$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
-
   bash "$ROOT/scripts/ci/install-gh.sh"
 
-  if [[ "$MODE" == "update" ]]; then
-    command -v rustup >/dev/null 2>&1 || {
-      echo "Missing rustup after workstation setup." >&2
-      exit 1
-    }
-    command -v cargo >/dev/null 2>&1 || {
-      echo "Missing cargo after workstation setup." >&2
-      exit 1
-    }
-  fi
-
-  (
-    cd "$ROOT"
-    rustup toolchain install --target wasm32-unknown-unknown
-  )
+  rustup toolchain install --target wasm32-unknown-unknown
 
   install_actionlint
 
@@ -154,15 +125,6 @@ install_tooling() {
   ic-wasm --version
 }
 
-run_update_checks() {
-  export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
-  export CARGO_HOME="${CARGO_HOME:-$(make --no-print-directory -s -C "$ROOT" print-cargo-home)}"
-  export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$(make --no-print-directory -s -C "$ROOT" print-cargo-target-dir)}"
-
-  cargo audit
-  cargo update --quiet
-}
-
 install_repository_hook() {
   make --no-print-directory -C "$ROOT" install-hooks
 }
@@ -177,5 +139,5 @@ install_repository_hook
 if [[ "$MODE" == "install" ]]; then
   echo "Local developer dependencies and formatting hook installed"
 else
-  run_update_checks
+  echo "Local developer tooling and formatting hook updated; repository dependencies are unchanged"
 fi

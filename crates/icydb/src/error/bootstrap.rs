@@ -70,9 +70,6 @@ fn cold_bootstrap_error(
         | RuntimeBootstrapError::Resolution(MemoryResolutionError::Registry(cause)) => {
             registry_error(cause)
         }
-        RuntimeBootstrapError::Validation(AllocationValidationError::Snapshot(_)) => Some(
-            boundary(RuntimeBoundaryCode::MemoryDeclarationInvalid, vec![]),
-        ),
         _ => None,
     }
 }

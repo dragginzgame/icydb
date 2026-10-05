@@ -1345,9 +1345,9 @@ dependencies = [
 
 [[package]]
 name = "ic-memory"
-version = "0.25.5"
+version = "0.25.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81241ee8a89172007cf5667a3c0db6aa6899f9ba3cd4116418399d5de00ea998"
+checksum = "3aef1120bf96287e7e7a3d94d5928af982d5c4da55f946a560468611c73b25aa"
 dependencies = [
  "ciborium",
  "ctor",
@@ -1367,9 +1367,9 @@ dependencies = [
 
 [[package]]
 name = "ic-testkit"
-version = "0.15.4"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "589c8c0b754f45721b0a289d44cc01ed291d3f9d7302aab42e2cd35e458103bc"
+checksum = "91ba3564c4bda4c04ff66e201dd2ff2523935ee0f75fa7f537c1d61b6244328e"
 dependencies = [
  "candid",
  "fs2",
@@ -1384,9 +1384,9 @@ dependencies = [
 
 [[package]]
 name = "ic-timers"
-version = "0.11.5"
+version = "0.11.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "df0710079d6c5873ffec3124ef7a831322531cbaa3ee9f927928a3d4512680ba"
+checksum = "890cf797237fe38c503df843f08cb33f363f3b7ff895056dccaa639f4afcb020"
 dependencies = [
  "ic-cdk-timers",
  "ic0",
@@ -2276,9 +2276,9 @@ dependencies = [
 
 [[package]]
 name = "powerfmt"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391"
+checksum = "4a6394b9e965e73d0a289ee54f589087e2c676aedf60885baf52c76b771e4958"
 
 [[package]]
 name = "ppv-lite86"
@@ -3561,9 +3561,9 @@ checksum = "eaea85b334db583fe3274d12b4cd1880032beab409c0d774be044d4480ab9a94"
 
 [[package]]
 name = "unicase"
-version = "2.9.0"
+version = "2.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dbc4bc3a9f746d862c45cb89d705aa10f187bb96c76001afab07a0d35ce60142"
+checksum = "357cc3acc6a036009fd6c973ed009037c732d60d0b4f6c673e9041497482a28f"
 
 [[package]]
 name = "unicode-ident"

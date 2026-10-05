@@ -13,9 +13,6 @@ use sha2::{Digest, Sha256};
 pub const WASM_OPT_BIN_ENV: &str = "ICYDB_WASM_OPT_BIN";
 /// Exact Binaryen CLI version accepted by the deployable-Wasm pipeline.
 pub const WASM_OPT_VERSION: &str = "wasm-opt version 132 (version_132)";
-/// SHA-256 of the official Binaryen 132 Linux x86-64 `wasm-opt` executable.
-pub const WASM_OPT_SHA256: &str =
-    "1014958e6f20d412f1542320b43970214b0fb1ed780595e8f7c0d8761ed53725";
 /// Stable identity of the only deployable post-link pipeline.
 pub const POST_LINK_PIPELINE_IDENTITY: &str =
     "binaryen-132-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v1";
@@ -44,11 +41,49 @@ pub const WASM_OPT_OUTPUT_FEATURES: [&str; 5] = [
 static TEMPORARY_OUTPUT_ORDINAL: AtomicU64 = AtomicU64::new(0);
 const HEX: &[u8; 16] = b"0123456789abcdef";
 
+/// Resolve the admitted executable digest for the native host.
+///
+/// Installation, runtime verification and reports consume the same pin table.
+pub fn wasm_opt_sha256() -> Result<&'static str, String> {
+    let platform = match (env::consts::OS, env::consts::ARCH) {
+        ("linux", "x86_64") => "linux_x86_64",
+        ("macos", "x86_64") => "darwin_x86_64",
+        ("macos", "aarch64") => "darwin_arm64",
+        (os, arch) => return Err(format!("unsupported Binaryen platform: {os} {arch}")),
+    };
+    let pins = include_str!("../../../scripts/ci/wasm-optimizer-checksums.tsv");
+    pins.lines()
+        .find_map(|line| {
+            let mut fields = line.split_whitespace();
+            if fields.next()? != platform {
+                return None;
+            }
+            fields.nth(2)
+        })
+        .filter(|digest| {
+            digest.len() == 64
+                && digest
+                    .bytes()
+                    .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+        })
+        .ok_or_else(|| format!("missing or invalid Binaryen digest for {platform}"))
+}
+
 /// Resolve and validate the exact optimizer used by the deployable-Wasm pipeline.
 pub fn pinned_wasm_optimizer() -> Result<PathBuf, String> {
     let requested =
         env::var_os(WASM_OPT_BIN_ENV).map_or_else(|| PathBuf::from("wasm-opt"), PathBuf::from);
     let executable = resolve_executable(&requested)?;
+    // Verify the admitted bytes before executing the candidate.
+    let observed_sha256 = sha256_hex(&executable)?;
+    let expected_sha256 = wasm_opt_sha256()?;
+    if observed_sha256 != expected_sha256 {
+        return Err(format!(
+            "unsupported wasm optimizer binary {} with SHA-256 {observed_sha256}, expected {expected_sha256}",
+            executable.display()
+        ));
+    }
+
     let version = Command::new(&executable)
         .arg("--version")
         .output()
@@ -68,14 +103,6 @@ pub fn pinned_wasm_optimizer() -> Result<PathBuf, String> {
     if observed_version != WASM_OPT_VERSION {
         return Err(format!(
             "unsupported wasm optimizer version '{observed_version}', expected '{WASM_OPT_VERSION}'"
-        ));
-    }
-
-    let observed_sha256 = sha256_hex(&executable)?;
-    if observed_sha256 != WASM_OPT_SHA256 {
-        return Err(format!(
-            "unsupported wasm optimizer binary {} with SHA-256 {observed_sha256}, expected {WASM_OPT_SHA256}",
-            executable.display()
         ));
     }
 
@@ -208,17 +235,21 @@ fn format_process_failure(context: &str, output: &std::process::Output) -> Strin
     )
 }
 
+///
+/// TESTS
+///
+
 #[cfg(test)]
 mod tests {
     use super::{
-        POST_LINK_PIPELINE_IDENTITY, WASM_OPT_FLAGS, WASM_OPT_OUTPUT_FEATURES, WASM_OPT_SHA256,
-        WASM_OPT_VERSION, pinned_wasm_optimizer,
+        POST_LINK_PIPELINE_IDENTITY, WASM_OPT_FLAGS, WASM_OPT_OUTPUT_FEATURES, WASM_OPT_VERSION,
+        pinned_wasm_optimizer, wasm_opt_sha256,
     };
 
     #[test]
     fn post_link_optimizer_contract_is_exact_and_available() {
         assert_eq!(WASM_OPT_VERSION, "wasm-opt version 132 (version_132)");
-        assert_eq!(WASM_OPT_SHA256.len(), 64);
+        assert_eq!(wasm_opt_sha256().unwrap().len(), 64);
         assert_eq!(
             WASM_OPT_FLAGS,
             [

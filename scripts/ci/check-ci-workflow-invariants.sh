@@ -56,7 +56,12 @@ fi
 
 mutable_actions="$({
   rg -n 'uses:[[:space:]]+[^[:space:]#]+@' "${workflow_files[@]}" || true
-} | awk '$0 !~ /@[0-9a-f]{40}([[:space:]]|$)/')"
+} | awk '{
+  revision = $0
+  sub(/^.*uses:[[:space:]]+[^[:space:]@]+@/, "", revision)
+  sub(/[[:space:]].*$/, "", revision)
+  if (length(revision) != 40 || revision ~ /[^0-9a-f]/) print
+}')"
 if [[ -n "$mutable_actions" ]]; then
   printf '%s\n' "$mutable_actions" >&2
   fail "third-party actions must use immutable 40-character revisions"
@@ -105,7 +110,7 @@ if ! rg -q '^[[:space:]]+fail-fast:[[:space:]]+false$' .github/workflows/ci.yml;
   fail "parallel Rust validation must retain every lane after one lane fails"
 fi
 
-if ! ci_job_recipe check | rg -q --fixed-strings 'needs: [static, rust]'; then
+if ! ci_job_recipe check | rg -q --fixed-strings 'needs: [static, rust, macos_host]'; then
   fail "the terminal check identity must aggregate every validation lane"
 fi
 

@@ -78,15 +78,15 @@ if [[ -z "$audit_date" ]]; then
     echo "[wasm-audit] --date requires a value" >&2
     exit 1
 fi
+if [[ -z "${canister_names[0]+set}" ]]; then
+    read -r -a canister_names <<< "$(wasm_report_default_canisters | tr '\n' ' ')"
+fi
 for canister_name in "${canister_names[@]}"; do
     if [[ -z "$canister_name" ]]; then
         echo "[wasm-audit] --canister requires a value" >&2
         exit 1
     fi
 done
-if [[ "${#canister_names[@]}" -eq 0 ]]; then
-    mapfile -t canister_names < <(wasm_report_default_canisters)
-fi
 
 audit_year="${audit_date:0:4}"
 audit_month="${audit_date:5:2}"
@@ -105,8 +105,7 @@ artifact_scope_dir="$report_dir/artifacts"
 # Resolve the audited SQL variant once so both the batch summary path and the
 # per-canister child runs agree on the same stable output naming.
 if sql_variants_output="$(wasm_report_sql_variants "$sql_variant_mode" no)"; then
-    mapfile -t resolved_sql_variants <<<"$sql_variants_output"
-    SQL_VARIANT="${resolved_sql_variants[0]}"
+    SQL_VARIANT="$sql_variants_output"
     SIZE_REPORT_SUFFIX="$(wasm_report_size_suffix "$SQL_VARIANT" 1)"
 else
     sql_variant_status=$?
@@ -136,8 +135,8 @@ display_path() {
 validate_capture() {
     local report="$1" wasm="$2" gz="$3" canister="$4"
     local wasm_hash gz_hash identity
-    wasm_hash="$(sha256sum "$wasm")"
-    gz_hash="$(sha256sum "$gz")"
+    wasm_hash="$(wasm_report_sha256 "$wasm")"
+    gz_hash="$(wasm_report_sha256 "$gz")"
     if ! jq -e \
         --arg canister "$canister" --arg profile "$profile" --arg sql "$SQL_VARIANT" \
         --arg wasm_hash "${wasm_hash%% *}" --arg gz_hash "${gz_hash%% *}" \

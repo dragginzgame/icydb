@@ -3,6 +3,8 @@ set -euo pipefail
 
 # Exercise capture/provenance decisions without Cargo, a replica, or Twiggy.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck source=scripts/ci/wasm-report-common.sh
+source "$ROOT/scripts/ci/wasm-report-common.sh"
 TEST_ROOT="$(mktemp -d)"
 cleanup() {
     local status=$?
@@ -35,8 +37,8 @@ write_fixture() {
     stem="$ARTIFACTS/$canister.wasm-release"
     printf '\000asm\001\000\000\000' > "$stem.final-deployable.wasm"
     gzip -n -9 -c "$stem.final-deployable.wasm" > "$stem.final-deployable.wasm.gz"
-    hash="$(sha256sum "$stem.final-deployable.wasm")"
-    gz_hash="$(sha256sum "$stem.final-deployable.wasm.gz")"
+    hash="$(wasm_report_sha256 "$stem.final-deployable.wasm")"
+    gz_hash="$(wasm_report_sha256 "$stem.final-deployable.wasm.gz")"
     printf 'Fixture summary\n' > "$stem.summary.md"
     jq -n --arg canister "$canister" --arg revision "$revision" --arg tree "$tree" \
         --arg digest "$digest" --arg hash "${hash%% *}" --arg gz_hash "${gz_hash%% *}" \
@@ -93,6 +95,14 @@ grep -Fq "code snapshot identifier: \`$revision\`" "$report_dir/report.md"
 grep -Fq "source tree: \`$tree\`" "$report_dir/report.md"
 grep -Fq "lockfile SHA-256: \`$digest\`" "$report_dir/report.md"
 
+# Resolve the default subject set through the same owner as explicit subjects.
+while IFS= read -r canister; do
+    write_fixture "$canister"
+done < <(wasm_report_default_canisters)
+bash "$FIXTURE/scripts/ci/wasm-audit-report.sh" --skip-build \
+    --date 2026-09-05 --report-dir "$TEST_ROOT/default-subjects" > "$TEST_ROOT/output" 2>&1
+test -s "$TEST_ROOT/default-subjects/report.md"
+
 # Preserve a comparable byte-count baseline for subsequent capture decisions.
 baseline="$FIXTURE/docs/reports/recurring/2026/01/01/wasm-footprint/01"
 mkdir -p "${baseline%/*}"
@@ -102,16 +112,16 @@ grep -Fq 'comparability status: `comparable`' "$report_dir/report.md"
 
 # Completed reports and their evidence are immutable, even with --report-dir.
 existing_report="$report_dir"
-report_hash="$(sha256sum "$existing_report/report.md")"
+report_hash="$(wasm_report_sha256 "$existing_report/report.md")"
 evidence="$existing_report/artifacts/wasm-footprint.default_empty.wasm-release.sql-on.size-report.json"
-evidence_hash="$(sha256sum "$evidence")"
+evidence_hash="$(wasm_report_sha256 "$evidence")"
 change_report default_empty '.provenance.source_dirty = true'
 if run_subject --report-dir "$existing_report"; then
     echo 'Expected existing report directory to be rejected' >&2
     exit 1
 fi
-test "$(sha256sum "$existing_report/report.md")" = "$report_hash"
-test "$(sha256sum "$evidence")" = "$evidence_hash"
+test "$(wasm_report_sha256 "$existing_report/report.md")" = "$report_hash"
+test "$(wasm_report_sha256 "$evidence")" = "$evidence_hash"
 
 # A reserved or incomplete directory must also be left to its original run.
 reserved="$TEST_ROOT/reserved"
