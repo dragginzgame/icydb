@@ -209,7 +209,7 @@ fn scalar_path_grouping_matches_direct_and_preserves_null_semantics() {
         optional
             .rows
             .iter()
-            .find(|row| row[0] == "null")
+            .find(|row| row[0] == "NULL")
             .map(|row| row[1].as_str()),
         Some("683"),
     );
@@ -500,7 +500,7 @@ fn omission_capable_path_index_requires_a_non_null_query_proof() {
             .sum::<u32>(),
         GROUP_PATH_FIXTURE_ROWS,
     );
-    assert!(excluding.rows.iter().all(|row| row[0] != "null"));
+    assert!(excluding.rows.iter().all(|row| row[0] != "NULL"));
 }
 
 #[test]
@@ -509,7 +509,7 @@ fn predicate_selected_composite_path_index_requires_complete_nullable_suffix() {
     load_group_path_rows(&fixture);
     let unindexed = query_group_path_rows(&fixture, GROUP_PATH_OMISSION_PREFIX_QUERY);
     assert_eq!(unindexed.row_count, 2);
-    assert!(unindexed.rows.contains(&vec!["null".into(), "6".into()]));
+    assert!(unindexed.rows.contains(&vec!["NULL".into(), "6".into()]));
     assert!(unindexed.rows.contains(&vec!["0".into(), "11".into()]));
 
     let ddl: Result<SqlQueryResult, Error> = fixture
