@@ -62,6 +62,7 @@ impl<C: CanisterKind> DbSession<C> {
     /// The expected sequence prevents acknowledgement of a replaced state.
     /// Repeating an acknowledgement after a lost reply succeeds when the job
     /// is already absent. Active jobs with remaining continuation fail closed.
+    /// Recovery admission must succeed before retained progress can be removed.
     pub fn acknowledge_resumable_job(
         &self,
         job_id: ResumableJobId,
@@ -71,6 +72,9 @@ impl<C: CanisterKind> DbSession<C> {
             DiagnosticExecutionLane::Mutation,
             RESUMABLE_JOB_ACKNOWLEDGE_SHAPE,
         )?;
+        self.db
+            .ensure_recovered_control_state()
+            .map_err(|_| ResumableJobError::Internal)?;
         with_resumable_progress_store::<C, _>(|store| {
             let record = match store.load_resumable(job_id) {
                 Ok(record) => record,

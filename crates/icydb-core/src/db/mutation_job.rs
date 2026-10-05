@@ -268,7 +268,7 @@ pub enum MutationJobError {
     CommitCorruption,
     /// Target mutation execution failed before progress committed.
     TargetMutationFailed(MutationJobTargetFailureReason),
-    /// Target traversal failed before progress committed.
+    /// Target or recovery admission, or traversal, failed before progress committed.
     TargetQueryFailed,
     /// An internal database invariant prevented the operation.
     Internal,

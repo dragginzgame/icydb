@@ -10,11 +10,11 @@ use crate::db::{MemoryBootstrapAdmissionError, prepare_memory_bootstrap};
 use std::{fmt, sync::Arc};
 
 use ic_memory::{
-    AllocationPolicy, AllocationSlotDescriptor, BootstrapAdmission, MemoryManagerConfig,
-    PolicyIdentity, PolicyIdentityError, RuntimeAdoptionError, RuntimeBootstrapError,
-    RuntimeBootstrapPolicy, RuntimeStateError, StableKey,
-    bootstrap_default_memory_manager_with_config, is_default_memory_manager_bootstrapped,
-    sealed_declaration_snapshot, verify_default_memory_manager_authority,
+    AllocationPolicy, BootstrapAdmission, MemoryManagerConfig, MemoryManagerSlot, PolicyIdentity,
+    PolicyIdentityError, RuntimeAdoptionError, RuntimeBootstrapError, RuntimeBootstrapPolicy,
+    RuntimeStateError, StableKey, bootstrap_default_memory_manager_with_config,
+    is_default_memory_manager_bootstrapped, sealed_declaration_snapshot,
+    verify_default_memory_manager_authority,
 };
 
 /// Ensure that the default memory manager contains one database authority.
@@ -55,17 +55,13 @@ impl AllocationPolicy for DatabaseMemoryPolicy {
     fn validate_key(&self, _: &StableKey) -> Result<(), Self::Error> {
         Ok(())
     }
-    fn validate_slot(
-        &self,
-        _: &StableKey,
-        _: &AllocationSlotDescriptor,
-    ) -> Result<(), Self::Error> {
+    fn validate_slot(&self, _: &StableKey, _: &MemoryManagerSlot) -> Result<(), Self::Error> {
         Ok(())
     }
     fn validate_reserved_slot(
         &self,
         _: &StableKey,
-        _: &AllocationSlotDescriptor,
+        _: &MemoryManagerSlot,
     ) -> Result<(), Self::Error> {
         Ok(())
     }
@@ -131,9 +127,9 @@ mod tests {
     mod public_failures;
     use super::*;
     use ic_memory::{
-        AllocationPolicy, AllocationSlotDescriptor, MemoryManagerRangeMode, MemoryRequest,
-        PolicyIdentity, PolicyIdentityError, RuntimeBootstrapPolicy, RuntimeOpenError,
-        SchemaMetadata, StableKey, bootstrap_default_memory_manager, committed_allocations,
+        AllocationPolicy, MemoryManagerRangeMode, MemoryManagerSlot, MemoryRequest, PolicyIdentity,
+        PolicyIdentityError, RuntimeBootstrapPolicy, RuntimeOpenError, SchemaMetadata, StableKey,
+        bootstrap_default_memory_manager, committed_allocations,
         default_memory_manager_memory_allocation_summary, register_memory_request,
         register_static_memory_manager_range,
     };
@@ -156,7 +152,7 @@ mod tests {
         fn validate_slot(
             &self,
             _key: &StableKey,
-            _slot: &AllocationSlotDescriptor,
+            _slot: &MemoryManagerSlot,
         ) -> Result<(), Self::Error> {
             Ok(())
         }
@@ -164,7 +160,7 @@ mod tests {
         fn validate_reserved_slot(
             &self,
             _key: &StableKey,
-            _slot: &AllocationSlotDescriptor,
+            _slot: &MemoryManagerSlot,
         ) -> Result<(), Self::Error> {
             Ok(())
         }

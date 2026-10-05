@@ -50,12 +50,7 @@ fn allocations() -> Vec<(String, u8)> {
         .unwrap()
         .declarations()
         .iter()
-        .map(|allocation| {
-            (
-                allocation.stable_key().to_string(),
-                allocation.slot().memory_manager_id().unwrap(),
-            )
-        })
+        .map(|allocation| (allocation.stable_key().to_string(), allocation.slot().id()))
         .collect()
 }
 

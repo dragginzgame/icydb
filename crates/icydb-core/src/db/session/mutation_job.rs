@@ -49,7 +49,7 @@ impl<C: CanisterKind> DbSession<C> {
         sql: &str,
     ) -> Result<MutationJobState, MutationJobError> {
         job_id.validate()?;
-        self.charge_mutation_job_operation(
+        self.admit_mutation_job_operation(
             DiagnosticExecutionLane::Mutation,
             MUTATION_JOB_START_SHAPE,
         )?;
@@ -73,7 +73,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         job_id: MutationJobId,
     ) -> Result<MutationJobState, MutationJobError> {
-        self.charge_mutation_job_operation(
+        self.admit_mutation_job_operation(
             DiagnosticExecutionLane::TrustedRead,
             MUTATION_JOB_LOAD_SHAPE,
         )?;
@@ -85,6 +85,11 @@ impl<C: CanisterKind> DbSession<C> {
     ///
     /// The request carries only job identity, expected sequence, and a replay
     /// key. SQL and continuation bytes remain private IcyDB custody.
+    /// Catalog admission or inspection failure returns
+    /// [`MutationJobError::TargetQueryFailed`] without changing retained progress;
+    /// retry the same request after the obstruction is resolved. Successfully
+    /// inspected missing or changed schema authority requires a terminal restart.
+    /// Execution-budget policy exhaustion retains its terminal restart reason.
     #[cfg(feature = "sql")]
     pub fn advance_trusted_mutation_job(
         &self,
@@ -95,7 +100,7 @@ impl<C: CanisterKind> DbSession<C> {
         if let Some(receipt) = retained.exact_replay(request)? {
             return Ok(receipt.clone());
         }
-        self.charge_mutation_job_operation(
+        self.admit_mutation_job_operation(
             DiagnosticExecutionLane::Mutation,
             MUTATION_JOB_ADVANCE_SHAPE,
         )?;
@@ -119,12 +124,13 @@ impl<C: CanisterKind> DbSession<C> {
     ///
     /// Repeating acknowledgement after a lost response succeeds when the job
     /// is already absent. Active jobs and stale terminal sequences fail closed.
+    /// Recovery admission must succeed before retained progress can be removed.
     pub fn acknowledge_mutation_job(
         &self,
         job_id: MutationJobId,
         expected_terminal_sequence: u64,
     ) -> Result<(), MutationJobError> {
-        self.charge_mutation_job_operation(
+        self.admit_mutation_job_operation(
             DiagnosticExecutionLane::Mutation,
             MUTATION_JOB_ACKNOWLEDGE_SHAPE,
         )?;
@@ -138,6 +144,7 @@ impl<C: CanisterKind> DbSession<C> {
     /// Cancellation is available only before any page or receipt exists. A
     /// logical restart must use a fresh [`MutationJobId`]; absent-record
     /// success never makes an old identity reusable.
+    /// Recovery admission must succeed before retained progress can be removed.
     #[cfg(feature = "sql")]
     pub fn cancel_unadvanced_mutation_job(
         &self,
@@ -145,7 +152,7 @@ impl<C: CanisterKind> DbSession<C> {
         expected_sequence: u64,
     ) -> Result<(), MutationJobError> {
         job_id.validate()?;
-        self.charge_mutation_job_operation(
+        self.admit_mutation_job_operation(
             DiagnosticExecutionLane::Mutation,
             MUTATION_JOB_CANCEL_UNADVANCED_SHAPE,
         )?;
@@ -163,14 +170,14 @@ impl<C: CanisterKind> DbSession<C> {
     /// Callers remain responsible for authorization. The result exposes only
     /// family, job identity, bounded lifecycle, sequence, and capacity facts.
     pub fn progress_job_inventory(&self) -> Result<ProgressJobInventory, MutationJobError> {
-        self.charge_mutation_job_operation(
+        self.admit_mutation_job_operation(
             DiagnosticExecutionLane::TrustedRead,
             PROGRESS_JOB_INVENTORY_SHAPE,
         )?;
         with_mutation_progress_store::<C, _>(|store| store.inventory())
     }
 
-    fn charge_mutation_job_operation(
+    fn admit_mutation_job_operation(
         &self,
         lane: DiagnosticExecutionLane,
         shape: u64,
@@ -182,7 +189,15 @@ impl<C: CanisterKind> DbSession<C> {
                 DiagnosticExecutionBudgetResource::QueryExecutions,
                 1,
             )
-            .map_err(mutation_job_execution_budget_error)
+            .map_err(mutation_job_execution_budget_error)?;
+        // Every progress writer shares control admission. Observation and exact
+        // replay remain state-only; this check never drives pending recovery.
+        if lane == DiagnosticExecutionLane::Mutation {
+            self.db
+                .ensure_recovered_control_state()
+                .map_err(|_| MutationJobError::TargetQueryFailed)?;
+        }
+        Ok(())
     }
 }
 
@@ -270,7 +285,9 @@ mod tests {
 
     fn session() -> DbSession<TestCanister> {
         let root = RequestExecutionRoot::__new_runtime_root();
-        DbSession::new(&STORE_REGISTRY, &root)
+        let session = DbSession::new(&STORE_REGISTRY, &root);
+        assert!(session.db.drive_startup_recovery_page().unwrap());
+        session
     }
 
     #[cfg(feature = "sql")]

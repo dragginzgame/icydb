@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 Detailed notes: [docs/changelog/0.264.md](docs/changelog/0.264.md)
 
+- `0.264.10` preserves jobs through unavailable catalogs and pending recovery and adopts the checked ic-memory 0.25 slot API.
 - `0.264.9` repairs startup, integrity and SQL correctness, strengthens query identity, simplifies internals and strengthens test evidence with bounded concurrency (potentially breaking: regenerate affected continuations and stored mutation jobs).
 - `0.264.8` repairs query and migration correctness and centralizes workspace dependencies (potentially breaking: regenerate affected query artifacts/jobs and update aggregate ordering/result and migration-finding handling).
 - `0.264.7` repairs aggregate and pagination correctness, updates upstream memory handling and strengthens SQL test and Wasm build qualification.
