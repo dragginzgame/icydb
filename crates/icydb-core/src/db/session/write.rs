@@ -4435,6 +4435,8 @@ mod identity_pre_key_tests {
     mod historical_scalar_tests;
     #[cfg(feature = "sql")]
     mod historical_update_tests;
+    #[cfg(feature = "sql")]
+    mod mutation_job_authority_tests;
     mod nested_relation_tests;
     mod replay_construction_tests;
     mod result_boundary_tests;

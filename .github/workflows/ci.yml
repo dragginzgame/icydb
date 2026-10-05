@@ -12,7 +12,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  ACTIONLINT_VERSION: "1.7.12"
   CARGO_HOME: ${{ github.workspace }}/.cache/cargo/icydb
   CARGO_TARGET_DIR: ${{ github.workspace }}/target/icydb
   CARGO_TERM_COLOR: always
@@ -54,7 +53,7 @@ jobs:
         run: make install-gh
       - name: Install actionlint
         run: |
-          bin="$(bash scripts/ci/install-actionlint.sh "$ACTIONLINT_VERSION")"
+          bin="$(bash scripts/ci/install-icydb-actionlint.sh)"
           echo "ACTIONLINT_BIN=$bin" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:

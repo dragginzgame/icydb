@@ -150,6 +150,11 @@ version-1 adoption, adjacent deployment, bounded run/resume, and abort flow.
 This section is for maintaining this repository. It is not required for ordinary
 downstream canister dependency installation.
 
+macOS host support is required; the
+[host qualification matrix](docs/governance/shared-tooling.md#host-qualification)
+records the current setup and native-validation gaps. The bootstrap below uses
+`apt-get` and currently cannot complete on macOS, even after manual package setup.
+
 The repository provides local maintainer targets for Ubuntu-like hosts with
 `apt-get`. `make install-dev` is the initial workstation bootstrap: it installs
 system packages, Rust, Cargo helper tools, ICP tooling, and repository hooks.
@@ -171,13 +176,19 @@ Canister development and wasm inspection also need:
 bubblewrap binaryen wabt jq
 ```
 
-On other operating systems, install those packages manually before using the
-developer targets.
+These are Linux package names. macOS needs its own dependency setup and native
+qualification; this list does not provide a working macOS bootstrap.
 
 Both `make install-dev` and `make update-dev` use the shared `make install-gh`
 path to ensure the GitHub CLI is available. It installs the apt-backed `gh`
 package only when the command is missing; on non-apt systems it reports the
 required manual action.
+
+Actionlint installation uses the version and verified platform digests in
+[scripts/ci/actionlint-checksums.tsv](scripts/ci/actionlint-checksums.tsv).
+`make install-dev` and `make update-dev` use the same pin as CI and workflow
+lint. To change the tool version, update that reviewed pin file from the official
+release checksum list; no version-only environment override bypasses verification.
 
 ### Rust
 

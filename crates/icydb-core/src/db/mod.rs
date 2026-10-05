@@ -282,9 +282,9 @@ impl<C: CanisterKind> Db<C> {
             .map(|progress| progress == commit::RecoveryProgress::Complete)
     }
 
-    /// Recover durable state for an explicit control-plane operation that is
-    /// allowed to inspect a gated migration. This never clears or bypasses the
-    /// gate for ordinary database work.
+    /// Admit an explicit control-plane operation after durable recovery completes.
+    /// Such operations may inspect a gated migration. This state-only check
+    /// never advances recovery or clears the gate for ordinary database work.
     pub(in crate::db) fn ensure_recovered_control_state(&self) -> Result<(), InternalError> {
         ensure_recovery_admitted(self)
     }

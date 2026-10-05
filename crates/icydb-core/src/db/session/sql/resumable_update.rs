@@ -488,16 +488,21 @@ impl<C: CanisterKind> DbSession<C> {
             ));
         }
 
+        // Only successful inspection can prove schema drift. Admission or
+        // inspection failure must not replace the retained job with a terminal receipt.
         let catalog = self
-            .accepted_schema_catalog_context_for_entity_source_key(intent.target_entity_path())
+            .find_accepted_schema_catalog_context_for_entity_source_key(intent.target_entity_path())
             .map_err(|error| {
                 mutation_job_execution_budget_restart_reason(&error).map_or(
-                    MutationJobExecutionPreparationError::Restart(
-                        MutationJobRestartReason::AcceptedSchemaChanged,
+                    MutationJobExecutionPreparationError::Failure(
+                        MutationJobError::TargetQueryFailed,
                     ),
                     MutationJobExecutionPreparationError::Restart,
                 )
-            })?;
+            })?
+            .ok_or(MutationJobExecutionPreparationError::Restart(
+                MutationJobRestartReason::AcceptedSchemaChanged,
+            ))?;
         if !mutation_job_catalog_authority_matches(&intent, &catalog) {
             return Err(MutationJobExecutionPreparationError::Restart(
                 MutationJobRestartReason::AcceptedSchemaChanged,

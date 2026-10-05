@@ -1,0 +1,9 @@
+# Shared Tooling snapshot v1
+format	1
+source	git@github.com:dragginzgame/shared-tooling.git
+revision	e16c9c99bd800567189c8024eaf4242a5d1c9e29
+file	99de53db4bbe7af00d2da5591b18f65e6022d474769d1e3b9a8424010e0eccf6	x	scripts/ci/verify-file-checksum.sh
+file	5357b125a816455e8e20562b980344e863754377988b61f55076acd5ed42068b	x	scripts/ci/verify-shared-tooling-snapshot.sh
+file	e8da23b6e4eff3085abfb0f14c40b58f65a1d241365a099b6bfb6865c92d75df	x	scripts/ci/install-actionlint.sh
+file	e2e9d50c6734f99c3e979019c005cfb3f74ce892ec514a94cbdbfe7d9df2e272	x	scripts/ci/run-validation-targets.sh
+file	97a8f42bf3e8dbd1d89683eacbcf28c551bb87eda995551e2bcfa04e20d3a853	x	scripts/dev/cloc.sh

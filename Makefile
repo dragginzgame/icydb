@@ -36,9 +36,9 @@ IC_TESTKIT_ENV := TMPDIR="$(ROOT_DIR)/.cache"
 # PocketIC test bodies; core-only lanes retain their wider bounded parallelism.
 CORE_TEST_ENV := RUST_TEST_THREADS=8
 WORKSPACE_TEST_ENV := RUST_TEST_THREADS=2
-VALIDATION_RUNNER := bash "$(ROOT_DIR)/scripts/ci/run-validation-targets.sh"
+VALIDATION_RUNNER := bash "$(ROOT_DIR)/scripts/ci/run-icydb-validation-targets.sh"
 POCKET_IC_RUNNER := bash "$(ROOT_DIR)/scripts/ci/run-with-pocketic-server.sh"
-ACTIONLINT_VERSION ?= 1.7.12
+ACTIONLINT_VERSION := $(shell awk '$$1 == "version" {print $$2}' "$(ROOT_DIR)/scripts/ci/actionlint-checksums.tsv")
 ACTIONLINT_INSTALL_DIR ?= $(HOME)/.local/bin
 ACTIONLINT_BIN ?= $(ACTIONLINT_INSTALL_DIR)/actionlint
 TIER_C_ARTIFACT_DIR ?= $(ROOT_DIR)/artifacts/correctness/sql_tier_c
@@ -143,11 +143,11 @@ install:
 
 # Install local developer prerequisites, tools, and the formatting hook.
 install-dev:
-	ACTIONLINT_VERSION="$(ACTIONLINT_VERSION)" ACTIONLINT_INSTALL_DIR="$(ACTIONLINT_INSTALL_DIR)" scripts/dev/workstation-setup.sh install
+	ACTIONLINT_INSTALL_DIR="$(ACTIONLINT_INSTALL_DIR)" scripts/dev/workstation-setup.sh install
 
 # Update user-local Rust/Cargo/actionlint/ICP developer tooling and the hook.
 update-dev:
-	ACTIONLINT_VERSION="$(ACTIONLINT_VERSION)" ACTIONLINT_INSTALL_DIR="$(ACTIONLINT_INSTALL_DIR)" scripts/dev/workstation-setup.sh update
+	ACTIONLINT_INSTALL_DIR="$(ACTIONLINT_INSTALL_DIR)" scripts/dev/workstation-setup.sh update
 
 # Keep one idempotent GitHub CLI installer for workstation setup and CI jobs.
 install-gh:
@@ -428,7 +428,7 @@ validate:
 		check-feature-matrix \
 		test
 
-# Fast local/Codex preflight. This intentionally does not replace `validate`:
+# Explicit broad static preflight. This intentionally does not replace `validate`:
 # feature-specific clippy lanes and executable tests remain in the full gate.
 validate-fast:
 	$(VALIDATION_RUNNER) --fail-fast \
@@ -471,6 +471,8 @@ test-documentation:
 	$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib --all-features db::schema::identity_state::tests::
 
 check-invariants:
+	bash scripts/ci/verify-shared-tooling-snapshot.sh
+	bash scripts/ci/test-shared-tooling-adapters.sh
 	bash scripts/ci/check-ci-workflow-invariants.sh
 	bash scripts/ci/check-deployment-inventory-invariants.sh
 	bash scripts/ci/check-dependency-graph-invariants.sh

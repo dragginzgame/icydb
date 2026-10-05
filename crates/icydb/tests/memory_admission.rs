@@ -4,13 +4,12 @@
 use std::{cell::Cell, rc::Rc};
 
 use ic_memory::{
-    AllocationDeclaration, AllocationPolicy, AllocationSlotDescriptor, BootstrapAdmission,
-    BootstrapAdmissionError, GenericRangePolicy, MemoryManagerAuthorityRecord, MemoryManagerConfig,
-    MemoryManagerIdRange, MemoryManagerRangeMode, MemoryRequest, MemoryResolutionError,
-    MemoryRuntime, PolicyIdentity, PolicyIdentityError, RuntimeAdoptionError,
-    RuntimeBootstrapError, RuntimeBootstrapPolicy, RuntimeConstructionError, RuntimeOpenError,
-    SchemaMetadata, SealedDeclarationSnapshot, StableKey, StaticMemoryDeclaration,
-    StaticMemoryRangeDeclaration,
+    AllocationDeclaration, AllocationPolicy, BootstrapAdmission, BootstrapAdmissionError,
+    GenericRangePolicy, MemoryManagerAuthorityRecord, MemoryManagerConfig, MemoryManagerIdRange,
+    MemoryManagerRangeMode, MemoryManagerSlot, MemoryRequest, MemoryResolutionError, MemoryRuntime,
+    PolicyIdentity, PolicyIdentityError, RuntimeAdoptionError, RuntimeBootstrapError,
+    RuntimeBootstrapPolicy, RuntimeConstructionError, RuntimeOpenError, SchemaMetadata,
+    SealedDeclarationSnapshot, StableKey, StaticMemoryDeclaration, StaticMemoryRangeDeclaration,
     ic_stable_structures::{Memory, VectorMemory},
 };
 use icydb::db::{MemoryBootstrapAdmissionError, prepare_memory_bootstrap};
@@ -28,18 +27,14 @@ impl AllocationPolicy for HostPolicy {
         Ok(())
     }
 
-    fn validate_slot(
-        &self,
-        _: &StableKey,
-        _: &AllocationSlotDescriptor,
-    ) -> Result<(), Self::Error> {
+    fn validate_slot(&self, _: &StableKey, _: &MemoryManagerSlot) -> Result<(), Self::Error> {
         Ok(())
     }
 
     fn validate_reserved_slot(
         &self,
         _: &StableKey,
-        _: &AllocationSlotDescriptor,
+        _: &MemoryManagerSlot,
     ) -> Result<(), Self::Error> {
         Ok(())
     }
@@ -125,7 +120,7 @@ fn fixed(authority: &str, key: &str, id: u8) -> StaticMemoryDeclaration {
         authority,
         AllocationDeclaration::new(
             key,
-            AllocationSlotDescriptor::memory_manager(id).unwrap(),
+            MemoryManagerSlot::new(id).unwrap(),
             None,
             SchemaMetadata::default(),
         )

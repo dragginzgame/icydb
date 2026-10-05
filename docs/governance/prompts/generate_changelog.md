@@ -13,11 +13,12 @@ this helper when the two differ.
 - Changes since the last released tag
 - Existing active-version root and detailed notes
 
-If the user has not supplied a target version, update the latest active version
-directly. If it has a matching release tag or was reported published, open the
-next patch in the same explicitly authorized minor; an explicitly started new
-minor opens at `.0`. Never create an `Unreleased` section or cross a minor
-boundary implicitly.
+When the user has not selected a release version, use one undated Draft at the
+top of the root and relevant minor-line notes. Preserve published entries; do
+not automatically choose the next patch. Resolve the version only during
+explicitly authorized release preparation. Never create an Unreleased section
+or cross a minor boundary implicitly. Breaking public API or semantic changes
+require a minor release before 1.0; report a conflicting target.
 
 ## Required Work
 
@@ -26,8 +27,8 @@ boundary implicitly.
    internal renames, and tests that do not establish meaningful behavior.
 2. Report any mismatch between the supplied version and the repository's
    current SemVer policy; never silently change the target.
-3. Keep one concise root bullet for the active target patch and update the
-   shared minor-line detail file at `docs/changelog/<major>.<minor>.md`.
+3. Keep the current Draft or explicitly selected unpublished target concise
+   and update the shared minor-line detail file at `docs/changelog/<major>.<minor>.md`.
 4. Preserve the existing root header style, section structure, chronological
    order, and all historical content. Link the root entry to the minor-line
    detail file when it exists.

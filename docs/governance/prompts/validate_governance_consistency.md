@@ -16,7 +16,7 @@ This is read-only unless the user explicitly asks for corrections.
 Check that:
 
 1. root `CHANGELOG.md` has no `Unreleased` section, has one latest active
-   version with concise minor-line entries, and links to shared minor-line
+   release or undated Draft with concise minor-line entries, and links to shared minor-line
    detail files;
 2. maintained guidance agrees on per-slice notes, release preparation,
    version ownership, agent/human execution boundaries, and historical-content

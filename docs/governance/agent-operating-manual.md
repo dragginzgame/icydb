@@ -1,7 +1,7 @@
 # Agent Operating Manual
 
 This document holds detailed repository instructions that are too large for
-`AGENTS.md`. Open it when a task touches code style, module boundaries,
+`AGENTS.md`, the local overlay of the pinned shared engineering baseline. Open it when a task touches code style, module boundaries,
 testing, release flow, changelogs, persistence safety, or repo navigation.
 
 ## Project Map
@@ -54,7 +54,10 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
   bump resolves offline, never rolls files back automatically, and a bounded
   receipt proves the resulting version-and-release-note transition so tagging
   and publication can reuse the result without a second full validation run.
-- Fast local gate: `make check && make clippy`.
+- Development checks: select the changed package, target or named tests; run
+  strict Clippy for that same selection. `make check`, `make clippy`,
+  `make validate-fast` and `make validate` are broad gates, requiring an explicit
+  request or their configured CI pipeline. Do not run them on ordinary continuation.
 - `make check-versioning` verifies that release helper tools are available; it
   is not a release-readiness verdict. Human-owned release publication uses
   `make patch|minor|major`, then `make release-stage`, `make release-commit`,
@@ -170,10 +173,9 @@ struct TypeName;
 ```
 
 - Leave one blank line before and after that test banner.
-- Agents run focused package, target, or named-test selections for the changed
-  slice. The user owns `make test` and `make validate`, which run the complete
-  suite and validation workflow; agents report them as skipped user-owned
-  validation instead of executing them.
+- Agents run focused package, target, or named-test selections for accepted
+  development work. Full suites and broad validation run only on an explicit
+  request or configured CI; report them as skipped user-owned validation otherwise.
 - IC testkit-backed tests and perf probes must run outside the sandbox by default.
 - If the IC testkit runner appears stuck before the test body or fixture loading, treat it as an environment execution problem first.
 - If tests fail due to environment-specific build/linker issues, report and stop retrying.
@@ -181,9 +183,10 @@ struct TypeName;
 ## Changelog And Release
 
 - Follow `docs/governance/changelog.md`.
-- Keep the latest active root version and its shared minor-line notes current
-  for every code slice. Do not create an `Unreleased` section. Treat this as
-  handoff discipline, not a release blocker when a note is missing.
+- Keep meaningful completed behavior/tooling in the current root and minor-line
+  draft. Use one undated Draft when the version is undecided. Do not create
+  an `Unreleased` section or choose a patch for each landing slice. Missing
+  notes and draft presentation must not become deployment gates.
 - Governance-only edits do not need release notes unless explicitly requested.
 - In `docs/changelog/0.*.md`, separate every `## 0.x.y` entry with `---`.
 - Root changelog summaries should be plain-language, user-impact first, and concise.
@@ -195,9 +198,9 @@ struct TypeName;
   Missing changelog notes should be reported and reconstructed when practical;
   their absence alone is not a mechanical release blocker.
 - Once a version has a matching release tag or is reported pushed/published,
-  never rewrite it. Continued work opens the next patch automatically within
-  the same explicitly authorized minor; an explicitly started new minor opens
-  at `.0`.
+  never rewrite it. Continued work uses the current draft. Release preparation
+  resolves its explicit version; never select the next patch automatically.
+  Breaking public API or semantic changes require a minor release before 1.0.
 - Never modify pushed release tags.
 
 ## Downstream Qualification Ownership

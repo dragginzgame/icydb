@@ -15,7 +15,6 @@ case "$MODE" in
 esac
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-ACTIONLINT_VERSION="${ACTIONLINT_VERSION:-1.7.12}"
 ACTIONLINT_INSTALL_DIR="${ACTIONLINT_INSTALL_DIR:-$HOME/.local/bin}"
 
 DEV_SYSTEM_PACKAGES=(
@@ -82,7 +81,7 @@ install_system_packages() {
 install_actionlint() {
   local bin
 
-  bin="$(ACTIONLINT_INSTALL_DIR="$ACTIONLINT_INSTALL_DIR" bash "$ROOT/scripts/ci/install-actionlint.sh" "$ACTIONLINT_VERSION")"
+  bin="$(ACTIONLINT_INSTALL_DIR="$ACTIONLINT_INSTALL_DIR" bash "$ROOT/scripts/ci/install-icydb-actionlint.sh")"
   "$bin" -version
 }
 

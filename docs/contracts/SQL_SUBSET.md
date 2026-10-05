@@ -621,6 +621,22 @@ or a residual row restarts Forward from the beginning; accepted-authority,
 internal-policy, candidate-size, managed-time, or admitted execution-policy
 drift persists a typed `RestartRequired` terminal receipt.
 
+Failed accepted-catalog admission or inspection, including a migration gate,
+recovery wait or corrupt catalog, returns `TargetQueryFailed` without changing
+retained job progress. Resolve the obstruction and retry the same advance
+request. A successfully inspected missing entity or mismatched accepted schema
+still requires terminal restart; execution-budget policy exhaustion retains its
+existing terminal reason.
+
+Recovery admission also protects mutation-job start, non-replay advance,
+cancellation and acknowledgement before progress writes. Generic resumable
+acknowledgement uses the same recovered control authority; source-proof checks
+admit its start and each side of application work. These checks never drive
+recovery. Job state, inventory and exact receipt replay remain observable while
+a marker is pending; the recovery driver owns its exact before/after transition.
+Control admission preserves migration inspection without clearing the ordinary
+database migration gate.
+
 Each non-replay advance uses one fixed engine-owned execution allocation of 30
 billion instructions with a 5-billion failure reserve and further IC
 update-message margin. Exact replay returns before page execution. Applications

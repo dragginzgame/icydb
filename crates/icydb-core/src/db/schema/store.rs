@@ -4232,6 +4232,19 @@ impl SchemaStore {
         }
     }
 
+    /// Damage the selected root so public consumers exercise fallible inspection.
+    #[cfg(all(test, feature = "sql"))]
+    pub(in crate::db) fn corrupt_current_accepted_schema_root_for_tests(
+        &mut self,
+    ) -> Result<(), InternalError> {
+        let selected = self
+            .current_accepted_schema_root()?
+            .ok_or_else(InternalError::store_corruption)?;
+        let key = RawSchemaKey::from_accepted_root_slot(selected.slot())?;
+        self.insert_durable_raw_value(key, vec![0xff]);
+        Ok(())
+    }
+
     fn get_raw_snapshot_for_backend(&self, key: &RawSchemaKey) -> Option<RawSchemaSnapshot> {
         let SchemaStoreBackend::Journaled {
             canonical,

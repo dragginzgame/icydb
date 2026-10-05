@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+DEFAULT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
+CONSUMER_ROOT="$DEFAULT_ROOT"
+MANIFEST_PATH=".shared-tooling.snapshot"
+
+usage() {
+    cat >&2 <<'USAGE'
+usage: verify-shared-tooling-snapshot.sh [--consumer <repository>] [--manifest <relative-path>]
+USAGE
+}
+
+fail() {
+    echo "shared-tooling snapshot verification failed: $1" >&2
+    exit 1
+}
+
+validate_relative_path() {
+    local path="$1"
+
+    [[ -n "$path" && "$path" != /* ]] || fail "path must be relative: $path"
+    case "/$path/" in
+    *'/../'* | *'/./'* | *'//'*) fail "path is not canonical: $path" ;;
+    esac
+    case "$path" in
+    *$'\n'* | *$'\t'*) fail "path contains a forbidden control character" ;;
+    esac
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+    --consumer)
+        [[ $# -ge 2 ]] || { usage; exit 2; }
+        CONSUMER_ROOT="$2"
+        shift 2
+        ;;
+    --manifest)
+        [[ $# -ge 2 ]] || { usage; exit 2; }
+        MANIFEST_PATH="$2"
+        shift 2
+        ;;
+    -h | --help)
+        usage
+        exit 0
+        ;;
+    *)
+        usage
+        exit 2
+        ;;
+    esac
+done
+
+validate_relative_path "$MANIFEST_PATH"
+CONSUMER_ROOT="$(cd "$CONSUMER_ROOT" 2>/dev/null && pwd -P)" ||
+    fail "consumer repository does not exist: $CONSUMER_ROOT"
+[[ "$CONSUMER_ROOT" != "/" ]] || fail "consumer repository may not be the filesystem root"
+
+manifest="$CONSUMER_ROOT/$MANIFEST_PATH"
+[[ -f "$manifest" && ! -L "$manifest" ]] || fail "manifest is missing or symlinked: $manifest"
+manifest_parent="$(cd "$(dirname "$manifest")" && pwd -P)"
+case "$manifest_parent/" in
+"$CONSUMER_ROOT/"*) ;;
+*) fail "manifest escapes the consumer repository: $MANIFEST_PATH" ;;
+esac
+
+checksum_tool="$CONSUMER_ROOT/scripts/ci/verify-file-checksum.sh"
+[[ -f "$checksum_tool" && ! -L "$checksum_tool" ]] ||
+    fail "vendored checksum verifier is missing or symlinked: $checksum_tool"
+checksum_parent="$(cd "$(dirname "$checksum_tool")" && pwd -P)"
+case "$checksum_parent/" in
+"$CONSUMER_ROOT/"*) ;;
+*) fail "vendored checksum verifier escapes the consumer repository" ;;
+esac
+
+format_count=0
+source_count=0
+revision_count=0
+file_count=0
+declared_files=()
+checksum_tool_declared=false
+snapshot_verifier_declared=false
+
+while IFS=$'\t' read -r record first second third extra || [[ -n "$record" ]]; do
+    case "$record" in
+    '' | \#*) continue ;;
+    format)
+        [[ "$first" == "1" && -z "$second" && -z "$third" && -z "$extra" ]] ||
+            fail "unsupported or malformed format record"
+        format_count=$((format_count + 1))
+        ;;
+    source)
+        [[ -n "$first" && -z "$second" && -z "$third" && -z "$extra" ]] ||
+            fail "malformed source record"
+        source_count=$((source_count + 1))
+        ;;
+    revision)
+        [[ "$first" =~ ^[0-9a-f]{40,64}$ && -z "$second" && -z "$third" && -z "$extra" ]] ||
+            fail "malformed revision record"
+        revision_count=$((revision_count + 1))
+        ;;
+    file)
+        [[ "$first" =~ ^[0-9a-f]{64}$ && "$second" =~ ^(-|x)$ && -n "$third" && -z "$extra" ]] ||
+            fail "malformed file record"
+        validate_relative_path "$third"
+        for declared_file in "${declared_files[@]}"; do
+            [[ "$declared_file" != "$third" ]] || fail "duplicate file record: $third"
+        done
+        declared_files[${#declared_files[@]}]="$third"
+        [[ "$third" != "scripts/ci/verify-file-checksum.sh" ]] || checksum_tool_declared=true
+        [[ "$third" != "scripts/ci/verify-shared-tooling-snapshot.sh" ]] || snapshot_verifier_declared=true
+        target="$CONSUMER_ROOT/$third"
+        [[ -f "$target" && ! -L "$target" ]] ||
+            fail "declared file is missing or symlinked: $third"
+        if [[ "$second" == "x" ]]; then
+            [[ -x "$target" ]] || fail "declared file lost its executable mode: $third"
+        else
+            [[ ! -x "$target" ]] || fail "declared file gained executable mode: $third"
+        fi
+        resolved_parent="$(cd "$(dirname "$target")" && pwd -P)"
+        case "$resolved_parent/" in
+        "$CONSUMER_ROOT/"*) ;;
+        *) fail "declared file escapes the consumer repository: $third" ;;
+        esac
+        bash "$checksum_tool" sha256 "$first" "$target" ||
+            fail "declared file differs from the snapshot: $third"
+        file_count=$((file_count + 1))
+        ;;
+    *) fail "unknown manifest record: $record" ;;
+    esac
+done <"$manifest"
+
+[[ "$format_count" -eq 1 ]] || fail "manifest must contain exactly one format record"
+[[ "$source_count" -eq 1 ]] || fail "manifest must contain exactly one source record"
+[[ "$revision_count" -eq 1 ]] || fail "manifest must contain exactly one revision record"
+[[ "$file_count" -gt 0 ]] || fail "manifest contains no files"
+[[ "$checksum_tool_declared" == "true" ]] || fail "manifest does not declare the checksum verifier"
+[[ "$snapshot_verifier_declared" == "true" ]] || fail "manifest does not declare the snapshot verifier"
+
+echo "shared-tooling snapshot verified: $file_count file(s)"

@@ -1,6 +1,10 @@
 # IcyDB Agent Rules
 
-Keep this file small. Open detailed governance docs only when the task needs them.
+Apply the [shared engineering baseline](https://github.com/dragginzgame/shared-tooling/blob/e16c9c99bd800567189c8024eaf4242a5d1c9e29/DRAGGINZGAME.md)
+at reviewed revision `e16c9c99bd800567189c8024eaf4242a5d1c9e29`. This file is
+IcyDB's local overlay; there are no baseline exceptions. See
+[shared-tooling adoption](docs/governance/shared-tooling.md) for tool provenance
+and consumer boundaries. Keep this file small; open detailed docs as needed.
 
 ## Hard Rules
 
@@ -14,8 +18,14 @@ Keep this file small. Open detailed governance docs only when the task needs the
 - Codex may start, stop, or restart local ICP and PocketIC networks when required
   by the requested development, validation, or measurement work. Avoid
   unrelated lifecycle churn and report any network lifecycle action taken.
-- Do not run full repository or workspace test suites, including `make test`, `cargo test --workspace`, `cargo test --all`, or equivalent commands. The user owns full-suite execution through the explicit validation or release workflow. Run only focused package, target, or named-test selections for the changed slice; when release instructions list a full suite, report it as user-owned validation instead of executing it.
+- Run focused checks during development. Full repository/workspace tests, broad
+  checks and release gates require an explicit request or configured CI.
+  Continuation and readiness do not authorize those gates; report them as
+  skipped user-owned validation when they were not requested.
 - Use absolute filesystem paths in final file references.
+- macOS host workflows are required by the baseline. See the local
+  [host qualification matrix](docs/governance/shared-tooling.md#host-qualification)
+  for declared hosts and evidence gaps; Linux checks do not qualify macOS.
 - Before `1.0.0`, follow the hard-cut compatibility rules below; do not keep legacy fallbacks.
 - For wasm decisions, prioritize raw non-gzipped `.wasm` bytes; gzip is secondary context.
 - Performance metrics are Wasm size, IC cycles, and instruction counts only.
@@ -39,22 +49,18 @@ Keep this file small. Open detailed governance docs only when the task needs the
   shims, compatibility wrappers, legacy fallback paths, dual dispatch,
   backwards-compatibility layers, or legacy feature support unless the user
   explicitly asks.
-- Before `1.0.0`, every internal protocol, persisted/runtime format, generated
-  API encoding, cursor encoding, or schema/catalog encoding that has a format
-  version discriminator uses exactly version `1`. Do not increment a current
-  pre-1.0 format to version `2`, `3`, or later. A version field exists only
-  where the representation genuinely needs a versioned boundary; it is not a
-  release counter or an implementation-history counter.
-- Internal protocols, persisted/runtime formats, generated API shapes, cursor
-  formats, and schema/catalog representations move directly to the latest
-  current version-1 form by replacing the encoder, decoder, and canonical shape
-  in place. Decode and execute only that current version-1 form or fail with a
-  typed error. Do not retain or add predecessor-version constants, decoders,
-  inspectors, upgrade bridges, translators, repair shims, fallback tags, dual
-  formats, or old-form fixtures.
-- An incompatible pre-1.0 representation change requires reinstall,
-  recreation, or explicit regeneration of the current form. Never preserve an
-  old pre-1.0 representation merely to make an in-place upgrade succeed.
+- Repository-owned models are unversioned or use version `1` before `1.0.0`.
+  Do not add V2+, parallel formats, hidden versions or predecessor decoders.
+- Breaking public API or semantic changes require an explicitly selected minor
+  release before `1.0.0`; do not silently put them into a patch release.
+- Never reuse a frozen wire/storage discriminator for an incompatible layout.
+  Trace producers, consumers and retained installations before a hard cut.
+  Coordinate regeneration/reinstall/reset and explicit retirement of the old
+  contract; retain one current encoder/decoder after those obligations are met.
+- A hard cut does not permit discarding the only record of effects, assets or
+  liabilities. Preserve same-contract interruption recovery and backup/restore;
+  do not add a compatibility reader or migration engine to avoid resolving a
+  transition's prerequisites.
 - Before `1.0.0`, do not add, keep, or maintain anti-resurrection tests for
   removed legacy behavior, old aliases, retired feature spellings, or deleted
   compatibility paths. Delete tests whose only purpose is proving the old path
@@ -97,19 +103,14 @@ Keep this file small. Open detailed governance docs only when the task needs the
   its direct tests, diagnostics, docs, fixtures, and mechanical propagation.
   Do not create micro-slices for fallout from the same change, and do not
   combine independent planned outcomes into a multi-hour mega-slice.
-- One planned landing slice is one reviewable worktree handoff and the default
-  implementation-turn boundary. Complete that slice, validate it, update its
-  status and latest active-version changelog notes, then stop and hand it back;
-  do not begin the next planned slice in the same turn.
-- Generic continuation such as "continue", "keep going", or "next" authorizes
-  exactly the next planned landing slice within the current minor-version
-  line. It never authorizes starting a different minor. Implement multiple
-  landing slices in one turn only when the user explicitly names them and asks
-  to combine them.
-- Batch coherent routine work within the current landing slice, never across
-  planned slice boundaries. Record it under the latest active changelog
-  version; changelog governance owns automatic next-SemVer-patch selection
-  after publication.
+- A landing slice is a reviewable outcome, not a compulsory agent-turn limit.
+  Complete the accepted coherent in-repository batch through its implementation,
+  focused checks, direct propagation, cleanup and current changelog draft.
+- Ordinary continuation resumes that accepted scope in the current release line.
+  Stop at new independent scope or a release boundary; continuation never
+  authorizes starting another minor or publishing work.
+- Split independently reviewable outcomes rather than compiler fallout or each
+  proof of one change. Do not invent a release version for each landing slice.
 - Treat file and delivery-domain counts as reporting signals, not execution
   limits. Include direct tests, documentation, fixtures, exhaustive matches,
   and mechanical propagation required by the current planned outcome. If work
@@ -117,7 +118,9 @@ Keep this file small. Open detailed governance docs only when the task needs the
   the tracker instead of folding it into the active landing slice.
 - Run `cargo fmt --all` after code edits; reserve `cargo fmt --all --check` for non-mutating release/readiness verification.
 - Run focused checks after edits; run broader checks only when the slice is otherwise ready.
-- When validation reports a clippy failure, stop later validation work, run `make clippy`, fix every warning, and rerun the focused gate before handing back to the user.
+- When focused validation reports a Clippy warning, stop later validation, fix
+  every warning in that selected gate, and rerun it before handoff. Do not
+  expand to workspace-wide `make clippy` without explicit authorization.
 - Do not repeatedly rerun expensive failing commands; capture the first failure and report it.
 - Report measured cycle/instruction and wasm-size deltas alongside a complexity delta: files touched,
   approximate line delta, and whether the implementation shape got simpler,
@@ -145,37 +148,29 @@ Keep this file small. Open detailed governance docs only when the task needs the
 
 ## Changelog / Release Notes
 
-- Before any changelog edit, open and follow `docs/governance/changelog.md`; it is the changelog source of truth.
-- Do not create or retain an `Unreleased` section. Record every code slice
-  directly in the latest active root version and its shared minor-line notes.
-- Keep the latest active root and detailed entries current before reporting a
-  slice complete; do not wait for a separate changelog request.
-- This is agent authoring discipline, not a mechanical push or release gate;
-  a missing note must be reported and repaired when practical, but its absence
-  alone does not make an otherwise ready slice unpushable.
-- When the user names a target version or asks whether it is ready to push, automatically prepare its root and detailed changelog entries as part of readiness; do not wait for another changelog request.
-- Treat the newest root patch without a matching release tag and not reported
-  pushed/published as active. Once its tag exists or the user reports it
-  published, automatically open the next patch in the same explicitly
-  authorized minor line; an explicitly started new minor opens at `.0`. Never
-  cross a minor boundary without the existing user authorization.
-- Automatic patch selection applies only to changelog release entries. Do not
-  infer patch numbers for design/status docs, and keep release-prep details
-  governed by `docs/governance/changelog.md`.
-- Governance-only edits do not need release notes unless requested.
+- Before any changelog edit, follow `docs/governance/changelog.md`.
+- Keep meaningful completed behavior/tooling notes in the latest current root
+  and minor-line draft before handoff. Governance-only edits need no note unless
+  requested. Never create an `Unreleased` section or a separate notes queue.
+- When the release version is undecided, use one undated `Draft` at the top.
+  Resolve its version during explicitly authorized release preparation; do not
+  automatically select a patch number or mutate Cargo versions.
+- Preserve published notes and tags. An explicitly supplied target needs root
+  and detailed release notes; report SemVer conflicts rather than renumbering it.
+- Changelog position, draft labels or a missing chosen version must not block
+  deployment. Report and repair missing notes when practical.
 
 ## Push / Commit Boundaries
 
 - Do not run `git commit` or `git push`; the user owns commits and pushes.
 - If the user asks "push?", report whether the current slice is ready to push and summarize validation.
-- A statement that a patch is live/pushed records the completed boundary but
-  does not by itself authorize more implementation. If the user also says to
-  continue, start exactly the next planned landing slice in the same minor line
-  and do not rewrite the published changelog unless asked.
-- When the current minor's planned landing slices are exhausted, generic
-  continuation stays in that minor and starts a read-only closeout audit.
-  Report findings before making closeout corrections; keep approved corrections
-  in the same minor line.
+- A statement that a release is live/pushed records the completed boundary.
+  Continued work resumes the accepted coherent scope in that line, uses the
+  current draft and preserves published notes. Publication itself does not
+  authorize new implementation or a different minor.
+- When accepted implementation scope is exhausted, continuation starts a
+  read-only closeout audit in the current line. Report independent findings
+  before extending scope; keep approved compatible corrections in that line.
 - Do not start a new minor-version line until the current minor has a reported
   ready/complete closeout verdict and the user then explicitly names the target
   minor and directs the agent to start it (for example, "start 0.212"). A

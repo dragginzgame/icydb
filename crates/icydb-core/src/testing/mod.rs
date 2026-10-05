@@ -7,7 +7,7 @@ mod entity_tags;
 
 use ic_memory::ic_stable_structures::{DefaultMemoryImpl, Memory};
 use ic_memory::{
-    AllocationPolicy, AllocationSlotDescriptor, MemoryManagerConfig, MemoryRuntime, PolicyIdentity,
+    AllocationPolicy, MemoryManagerConfig, MemoryManagerSlot, MemoryRuntime, PolicyIdentity,
     PolicyIdentityError, RuntimeBootstrapPolicy, RuntimeMemory, SealedDeclarationSnapshot,
     StableKey, register_static_memory_manager_declaration, sealed_declaration_snapshot,
 };
@@ -84,18 +84,14 @@ impl AllocationPolicy for TestMemoryPolicy {
         Ok(())
     }
 
-    fn validate_slot(
-        &self,
-        _: &StableKey,
-        _: &AllocationSlotDescriptor,
-    ) -> Result<(), Self::Error> {
+    fn validate_slot(&self, _: &StableKey, _: &MemoryManagerSlot) -> Result<(), Self::Error> {
         Ok(())
     }
 
     fn validate_reserved_slot(
         &self,
         _: &StableKey,
-        _: &AllocationSlotDescriptor,
+        _: &MemoryManagerSlot,
     ) -> Result<(), Self::Error> {
         Ok(())
     }
