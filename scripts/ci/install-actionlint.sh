@@ -1,83 +1,115 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-VERSION="${1:-${ACTIONLINT_VERSION:-1.7.12}}"
-INSTALL_DIR="${ACTIONLINT_INSTALL_DIR:-$HOME/.local/bin}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VERSION=""
+CHECKSUM=""
+INSTALL_DIR="${TOOL_INSTALL_DIR:-$HOME/.local/bin}"
+TMP_DIR=""
 
-platform() {
-  local os
-  local arch
+usage() {
+    cat >&2 <<'USAGE'
+usage: install-actionlint.sh --version <version> --sha256 <digest> [--install-dir <directory>]
+USAGE
+}
 
-  case "$(uname -s)" in
-    Linux) os="linux" ;;
-    Darwin) os="darwin" ;;
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+    --version)
+        [ "$#" -ge 2 ] || { usage; exit 2; }
+        VERSION="$2"
+        shift 2
+        ;;
+    --sha256)
+        [ "$#" -ge 2 ] || { usage; exit 2; }
+        CHECKSUM="$2"
+        shift 2
+        ;;
+    --install-dir)
+        [ "$#" -ge 2 ] || { usage; exit 2; }
+        INSTALL_DIR="$2"
+        shift 2
+        ;;
+    -h | --help)
+        usage
+        exit 0
+        ;;
     *)
-      echo "unsupported actionlint platform: $(uname -s)" >&2
-      exit 1
-      ;;
-  esac
+        usage
+        exit 2
+        ;;
+    esac
+done
 
-  case "$(uname -m)" in
-    x86_64 | amd64) arch="amd64" ;;
-    arm64 | aarch64) arch="arm64" ;;
+if [ -z "$VERSION" ] || [ -z "$CHECKSUM" ]; then
+    usage
+    exit 2
+fi
+
+VERSION="${VERSION#v}"
+if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]]; then
+    echo "invalid actionlint version: $VERSION" >&2
+    exit 1
+fi
+if [[ ! "$CHECKSUM" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "invalid SHA-256 digest" >&2
+    exit 1
+fi
+
+resolve_platform() {
+    case "$(uname -s):$(uname -m)" in
+    Darwin:x86_64 | Darwin:amd64)
+        platform="darwin_amd64"
+        ;;
+    Darwin:arm64 | Darwin:aarch64)
+        platform="darwin_arm64"
+        ;;
+    Linux:x86_64 | Linux:amd64)
+        platform="linux_amd64"
+        ;;
+    Linux:arm64 | Linux:aarch64)
+        platform="linux_arm64"
+        ;;
     *)
-      echo "unsupported actionlint architecture: $(uname -m)" >&2
-      exit 1
-      ;;
-  esac
-
-  printf '%s_%s\n' "$os" "$arch"
+        echo "unsupported actionlint platform: $(uname -s) $(uname -m)" >&2
+        exit 1
+        ;;
+    esac
 }
 
 main() {
-  local version_no_v="${VERSION#v}"
-  local archive
-  local url
-  local archive_path
-  local install_path="$INSTALL_DIR/actionlint"
-  local installed_version
-  local tmp_dir
+    local version_no_v="$VERSION"
+    local archive="actionlint_${version_no_v}_${platform}.tar.gz"
+    local url="https://github.com/rhysd/actionlint/releases/download/v${version_no_v}/${archive}"
+    local installed
+    local candidate
+    local reported_version
+    local version_output
 
-  archive="actionlint_${version_no_v}_$(platform).tar.gz"
-  url="https://github.com/rhysd/actionlint/releases/download/v${version_no_v}/${archive}"
-
-  if [[ -x "$install_path" ]]; then
-    installed_version="$("$install_path" -version 2>&1 | sed -n '1{s/[[:space:]].*//;p;}')"
-    if [[ "$installed_version" == "$version_no_v" ]]; then
-      printf '%s\n' "$install_path"
-      return
+    TMP_DIR="$(mktemp -d)"
+    trap 'rm -rf "$TMP_DIR"' EXIT
+    mkdir -p "$INSTALL_DIR"
+    curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL \
+        --retry 5 --retry-all-errors --retry-delay 2 \
+        --connect-timeout 15 --max-time 120 \
+        -o "$TMP_DIR/$archive" "$url"
+    bash "$SCRIPT_DIR/verify-file-checksum.sh" sha256 "$CHECKSUM" "$TMP_DIR/$archive"
+    tar -xzf "$TMP_DIR/$archive" -C "$TMP_DIR" actionlint
+    candidate="$TMP_DIR/actionlint"
+    chmod +x "$candidate"
+    version_output="$("$candidate" -version 2>&1)"
+    reported_version="${version_output%%$'\n'*}"
+    if [ "$reported_version" != "$VERSION" ]; then
+        echo "installed actionlint does not report the pinned version" >&2
+        echo "expected: $VERSION" >&2
+        echo "actual:   $version_output" >&2
+        exit 1
     fi
-  fi
 
-  if [[ -n "${TMPDIR:-}" ]]; then
-    mkdir -p "$TMPDIR"
-  fi
-
-  tmp_dir="$(mktemp -d)"
-  trap 'rm -rf "$tmp_dir"' EXIT
-  archive_path="$tmp_dir/$archive"
-  mkdir -p "$INSTALL_DIR"
-  curl \
-    --fail \
-    --location \
-    --show-error \
-    --silent \
-    --retry 5 \
-    --retry-all-errors \
-    --retry-delay 2 \
-    --connect-timeout 15 \
-    --max-time 120 \
-    --output "$archive_path" \
-    "$url"
-
-  tar -tzf "$archive_path" actionlint >/dev/null
-  tar -xzf "$archive_path" -C "$tmp_dir" actionlint
-  mv "$tmp_dir/actionlint" "$install_path"
-  chmod +x "$install_path"
-  trap - EXIT
-  rm -rf "$tmp_dir"
-
-  printf '%s\n' "$install_path"
+    installed="$INSTALL_DIR/actionlint"
+    mv "$candidate" "$installed"
+    printf '%s\n' "$installed"
 }
 
-main "$@"
+resolve_platform
+main

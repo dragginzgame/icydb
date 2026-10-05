@@ -5,6 +5,12 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [Draft]
+
+Detailed notes: [docs/changelog/0.264.md](docs/changelog/0.264.md)
+
+- Adopt the pinned shared engineering baseline and verified tooling snapshots, preserving complete validation failure logs and checksum-pinning actionlint installation.
+
 ## [0.264.x] - 2026-10-01 - Signed Filter Index Admission
 
 Detailed notes: [docs/changelog/0.264.md](docs/changelog/0.264.md)

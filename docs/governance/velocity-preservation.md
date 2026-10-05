@@ -30,10 +30,10 @@ The goal of this document is to keep routine work:
 
 The recurring audit owns forward-looking structure and debt assessment. These
 rules describe code-review and landing slices. One planned minor-line patch is
-one reviewable landing patch and worktree handoff. A landing patch does not
-acquire a version number until the user names a release target, but agents must
-not use that distinction to accumulate multiple planned patches in one worktree
-batch.
+one reviewable outcome. A landing patch does not acquire a version number
+until the user names a release target. The adopted shared baseline governs
+continuation: complete the accepted coherent batch without an artificial
+one-slice-per-turn stop; independent scope and release boundaries need direction.
 
 These rules are intended to guide automated agents and code review.
 
@@ -67,21 +67,12 @@ warning cleanup caused by its bounded outcome. Those are not separate patches.
 Conversely, do not combine independent owners or independently reviewable
 outcomes merely to reduce the patch count.
 
-One planned landing patch is the default maximum for one agent implementation
-turn.
-After completing its code, focused validation, status update, and root
-latest-active-version changelog update, the agent stops and hands the landing
-patch back for review. It does not start the next planned patch in the same
-turn.
-
-Continuation language is deliberately bounded:
-
-- `continue`, `keep going`, and `next` mean exactly the next planned landing
-  patch within the current minor-version line;
-- a statement that the previous patch is live plus `continue` also means one
-  next planned landing patch in the same minor line; and
-- combining multiple landing patches requires the user to name them and ask for
-  them together.
+Landing patches are review boundaries, not a maximum for one agent turn.
+Ordinary continuation resumes the accepted coherent in-repository batch through
+its directly required implementation, focused checks, propagation, cleanup and
+current changelog draft. Stop at new independent scope or a release boundary.
+Do not split one correction's compiler fallout or evidence into extra turns,
+and do not silently combine independent outcomes outside the accepted batch.
 
 Generic continuation never crosses a minor-version boundary. When no planned
 implementation patch remains, it means closeout/readiness work for the current
@@ -106,9 +97,10 @@ wider to hit a planning range, and do not manufacture micro-patches solely to
 hit a number. Later evidence-backed extensions remain in the same explicitly
 authorized minor when that produces the clearest release history.
 
-A completed landing patch is normally handed back as a candidate push for the
-next patch release in the minor line. Agents must not invent release numbers;
-the user decides the exact target and whether a particular handoff is pushed.
+A completed batch is handed back for review against its accepted scope. Agents
+must not invent release numbers; use an undated Draft when the version is
+undecided. The user selects the exact release and owns commits and publication.
+Breaking public API or semantic changes require a minor release before 1.0.
 
 ---
 

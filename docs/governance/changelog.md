@@ -55,33 +55,34 @@ The root changelog must link to the detailed file when present.
 
 ## 2.3 Active Version Work
 
-Canonical rule: the repository has no `Unreleased` section. Every code slice
-is recorded directly under the latest active root version and its shared
-`docs/changelog/<major>.<minor>.md` entry.
+The latest release or current draft stays at the top. The repository has no
+`Unreleased` section or separate notes queue. Record meaningful completed
+behavior and tooling in the current root entry and shared minor-line notes;
+governance-only edits need no note unless requested.
 
-The newest root version is active while it has no matching `v<version>` release
-tag and the user has not reported it pushed, published, or live. Revise its one
-concise root patch bullet and detailed notes as coherent work accumulates; do
-not create one patch entry per landing slice. Governance-only edits do not
-require a note unless explicitly requested.
+When the next release version is undecided, use one undated `## [Draft]` at the
+top of the root and relevant minor-line file. The root links to that file. A
+Draft has no patch number and does not authorize a new minor. Keep an explicitly
+selected, unpublished target current without creating a version per landing
+slice. Once a target has a release tag or is reported published, preserve it
+and collect continued authorized work in the current Draft.
 
-Once the latest version has a matching release tag or is reported published,
-never rewrite it. If work continues in the same explicitly authorized minor
-line, automatically open the next patch number. When the user explicitly
-starts a different minor line, automatically open its `.0` entry. This
-changelog-only version selection does not authorize crossing a minor boundary,
-mutating Cargo versions, committing, tagging, or publishing.
+Resolve the Draft's version during explicitly authorized release preparation.
+Do not automatically choose the next patch or mutate Cargo versions. Breaking
+public API or semantic changes require a minor release before 1.0; report a
+conflicting supplied target instead of silently renumbering it or crossing the
+authorized release boundary. Existing published historical notes remain intact.
 
-This is authoring and handoff discipline, not a mechanical push or release
-gate. If a note is missing, report and reconstruct it when practical, but do
-not stop an otherwise ready push or release solely because the changelog was
-not updated.
+Changelog position, draft labeling and an undecided release number must not
+block deployment. Report and repair missing notes when practical; final labeling
+and unambiguous release selection belong to release preparation.
 
 ---
 
 # 3. Version Entry Rules (Root CHANGELOG.md)
 
-Each version entry must follow:
+Released entries use the following form; an undecided current entry uses
+`## [Draft]` without a date or version:
 
 ## [<version>] – <YYYY-MM-DD> – <Short Title>
 
@@ -114,7 +115,7 @@ Rules:
 15. If a patch bullet starts becoming a multi-clause internal inventory, shorten it and move detail to `docs/changelog/<major>.<minor>.md`.
 16. Do not add a new root patch bullet for every code slice. Update the one
     active patch bullet until that version is reported published; then open the
-    next patch only as defined by the active-version rule above.
+    current draft after publication as defined above; never infer the next patch.
 
 ## 3.1 Section Header Emoji Mapping
 
@@ -153,12 +154,12 @@ Do not use plain backticked path text for detailed-breakdown links.
 During ordinary development:
 
 1. Prefer focused code slices and focused validation.
-2. For every code slice, update the latest active root patch bullet and its
-   shared minor-line notes before handoff. Governance-only edits remain exempt
-   unless the user requests a note.
-3. If the latest version has a matching release tag or was reported published,
-   select the next patch within the same explicitly authorized minor
-   automatically. An explicitly started new minor begins at `.0`.
+2. Keep meaningful completed behavior/tooling in the current draft and shared
+   minor-line notes before handoff. Governance-only edits remain exempt unless
+   the user requests a note.
+3. Use an undated Draft when the next version is undecided; resolve its version
+   only during explicitly authorized release preparation. Never infer a patch
+   number or treat draft presentation as a deployment prerequisite.
 4. Never add an `Unreleased` section or rewrite a published version.
 
 When preparing a release:
@@ -199,6 +200,11 @@ Agents must never:
 ---
 
 # 5. Breaking Changes
+
+Breaking public API or semantic changes require an explicitly selected minor
+release before 1.0. Do not silently accept a conflicting patch target or reuse a
+frozen storage discriminator; coordinate retained consumers and reset/retirement
+obligations before the hard cut.
 
 If a change alters:
 
