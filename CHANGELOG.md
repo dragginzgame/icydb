@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 - Use the shared formatting hook and pinned formatters, enforce all formatting
   checks in native CI, and preserve release retry evidence and numbered notes.
+- Refresh the selected release dependency cache with a locked fetch before
+  offline validation, so newly locked packages are available without upgrades.
 - Adapt application timer callbacks to `ic-timers 0.12` while preserving retry,
   stop and recurrence behavior; retain the existing `ic-testkit 0.17` integration.
 - Use shared `ic-metrics 0.1.1` arithmetic for saturating instruction and entity

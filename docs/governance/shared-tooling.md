@@ -156,6 +156,9 @@ of `.git/release-state/` and its lock owner. Publishing and cleanup remain separ
 The superseded manual bump/stage/commit/push path and its confirmation helper
 have been deleted. The shared runner owns the sole release execution flow;
 consumer callbacks retain metadata, dependency-selection and receipt obligations.
+Preflight uses the existing locked fetch target to prepare the selected Cargo
+cache; the validation gate and metadata preparation remain offline. A fetch
+failure stops before those phases without changing dependency selection.
 Release fixtures are explicit entries in the invariant gate, rather than nested
 under cleanup checks. No release mode or persisted state is added by this removal.
 

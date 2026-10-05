@@ -542,7 +542,7 @@ release-preflight:
 		-f scripts/ci/finalize-release-changelog.awk CHANGELOG.md >/dev/null
 	@bash scripts/ci/release-candidate-receipt.sh verify-tested-tree "$(RELEASE_SOURCE)"
 	@mkdir -p "$(RELEASE_TMP_DIR)"
-	@$(CARGO_WORK_ENV) cargo fetch --locked --offline
+	@$(MAKE) --no-print-directory fetch
 release-verify:
 	+TMPDIR="$(RELEASE_TMP_DIR)" CARGO_NET_OFFLINE=true $(MAKE) --no-print-directory validate
 release-prepare-version:
