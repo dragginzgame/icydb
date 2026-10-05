@@ -42,7 +42,7 @@ records, marketplace listings and relationships between records. Its queries
 are deliberately predictable and resource-limited to fit the Internet
 Computer's execution environment.
 
-Current workspace version: `0.264.10`
+Current workspace version: `0.265.0`
 
 > **Before using IcyDB:** IcyDB is still before version 1.0. Ordinary supported
 > schema changes can use explicit migrations, but some IcyDB upgrades may change
@@ -105,10 +105,10 @@ Use the same release for runtime and host-side model generation:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.264.10" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.265.0" }
 
 [build-dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.264.10" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.265.0" }
 ```
 
 The default feature set includes structural, typed, and dynamic reads and writes.
