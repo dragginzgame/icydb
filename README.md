@@ -52,46 +52,17 @@ Current workspace version: `0.264.9`
 
 ## At A Glance
 
-| Question | Answer |
-| --- | --- |
-| What is IcyDB? | A database library embedded inside an Internet Computer canister |
-| What does it store? | Structured records such as users, products, scores or application settings |
-| Where is the data kept? | In the canister's heap or long-term stable memory |
-| Does it need a separate server? | No. The database runs as part of the canister |
-| How is data accessed? | Typed Rust APIs, bounded dynamic queries and optional restricted SQL |
-| Who controls access? | The application; IcyDB does not replace application authorization |
-| Is it a PostgreSQL replacement? | No. It deliberately supports a smaller, predictable query model |
-
 <p align="center">
   <img src="https://raw.githubusercontent.com/dragginzgame/shared-assets/main/icydb/icydb-at-a-glance.svg" alt="IcyDB at a glance: an embedded canister database for structured records, typed and bounded access, application-owned authorization and a deliberately smaller scope than PostgreSQL" width="800">
 </p>
 
 ## When Might IcyDB Be Useful?
 
-| IcyDB may be useful when… | It may not be suitable when… |
-| --- | --- |
-| An Internet Computer application stores structured records | The application needs a general-purpose external SQL server |
-| Important data should survive ordinary supported canister upgrades | Queries require joins across several entity types |
-| Developers want generated, typed Rust access to stored data | Arbitrary or unbounded queries are required |
-| Records need indexes, relations or validation | The workload depends on background threads |
-| The application needs predictable query resource use | PostgreSQL-style transactions or automatic rollback are expected |
-| Supported schema changes need explicit migration | Data must be changed atomically across multiple canisters |
-
 <p align="center">
   <img src="https://raw.githubusercontent.com/dragginzgame/shared-assets/main/icydb/icydb-decision-guide.svg" alt="Decision guide for whether an Internet Computer application with structured records, upgrade persistence and predictable single-entity queries is a good fit for IcyDB" width="800">
 </p>
 
 ## Key Ideas In Plain Language
-
-| Term | Meaning here |
-| --- | --- |
-| Schema | A blueprint describing the records and fields an application stores |
-| Entity | One kind of stored record, similar to a table row |
-| Stable memory | Long-term canister storage used for durable application data |
-| Index | An additional structure that makes selected searches faster |
-| Typed API | Rust code where many invalid operations are caught during compilation |
-| Bounded query | A query whose work and resource use are explicitly limited |
-| Single-entity SQL | SQL that works with one record type at a time; it does not support joins |
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/dragginzgame/shared-assets/main/icydb/icydb-terminology.svg" alt="Plain-language definitions of schema, entity, stable memory, index, typed API, bounded query and single-entity SQL" width="800">
