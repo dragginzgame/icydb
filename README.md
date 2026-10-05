@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/dragginzgame/shared-assets/main/icydb/icydb-readme-header.svg" alt="IcyDB" width="100%">
+  <img src="https://raw.githubusercontent.com/dragginzgame/shared-assets/main/icydb/icydb-readme-header.svg" alt="IcyDB — Store, organize and query data inside Internet Computer apps" width="100%">
 </p>
 
 <!-- helper-navigation:start -->
@@ -27,18 +27,106 @@
 [![CI](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml/badge.svg)](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml)
 [![License: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](LICENSE-APACHE)
 
-# IcyDB
+IcyDB is a database toolkit for applications running on the Internet Computer.
+It helps developers describe the information their application stores, save
+that information inside a canister, and find or update records without building
+a database layer from scratch.
 
-IcyDB is a schema-first persistence and query runtime for Internet Computer
-canisters. It provides typed entities, durable stable-memory storage, indexes,
-bounded typed and dynamic queries, a single-entity SQL frontend, explicit
-schema migrations, and generated operational endpoints.
+On the Internet Computer, applications run in programs called **canisters**.
+Canisters can hold both application code and data. IcyDB is embedded in a Rust
+canister and uses the canister's own memory, so it does not require a separate
+database server.
+
+IcyDB is designed for structured information such as users, products, game
+records, marketplace listings and relationships between records. Its queries
+are deliberately predictable and resource-limited to fit the Internet
+Computer's execution environment.
 
 Current workspace version: `0.264.9`
 
-IcyDB is pre-1.0. Incompatible internal format changes require recreation or
-reinstall; schema migration operates only within the current supported format.
-Read the [release notes](CHANGELOG.md) before upgrading.
+> **Before using IcyDB:** IcyDB is still before version 1.0. Ordinary supported
+> schema changes can use explicit migrations, but some IcyDB upgrades may change
+> its internal storage format and require the database to be recreated or the
+> canister to be reinstalled. Always read the [release notes](CHANGELOG.md)
+> before upgrading an application that contains important data.
+
+## At A Glance
+
+| Question | Answer |
+| --- | --- |
+| What is IcyDB? | A database library embedded inside an Internet Computer canister |
+| What does it store? | Structured records such as users, products, scores or application settings |
+| Where is the data kept? | In the canister's heap or long-term stable memory |
+| Does it need a separate server? | No. The database runs as part of the canister |
+| How is data accessed? | Typed Rust APIs, bounded dynamic queries and optional restricted SQL |
+| Who controls access? | The application; IcyDB does not replace application authorization |
+| Is it a PostgreSQL replacement? | No. It deliberately supports a smaller, predictable query model |
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/dragginzgame/shared-assets/main/icydb/icydb-at-a-glance.svg" alt="IcyDB at a glance: an embedded canister database for structured records, typed and bounded access, application-owned authorization and a deliberately smaller scope than PostgreSQL" width="800">
+</p>
+
+## When Might IcyDB Be Useful?
+
+| IcyDB may be useful when… | It may not be suitable when… |
+| --- | --- |
+| An Internet Computer application stores structured records | The application needs a general-purpose external SQL server |
+| Important data should survive ordinary supported canister upgrades | Queries require joins across several entity types |
+| Developers want generated, typed Rust access to stored data | Arbitrary or unbounded queries are required |
+| Records need indexes, relations or validation | The workload depends on background threads |
+| The application needs predictable query resource use | PostgreSQL-style transactions or automatic rollback are expected |
+| Supported schema changes need explicit migration | Data must be changed atomically across multiple canisters |
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/dragginzgame/shared-assets/main/icydb/icydb-decision-guide.svg" alt="Decision guide for whether an Internet Computer application with structured records, upgrade persistence and predictable single-entity queries is a good fit for IcyDB" width="800">
+</p>
+
+## Key Ideas In Plain Language
+
+| Term | Meaning here |
+| --- | --- |
+| Schema | A blueprint describing the records and fields an application stores |
+| Entity | One kind of stored record, similar to a table row |
+| Stable memory | Long-term canister storage used for durable application data |
+| Index | An additional structure that makes selected searches faster |
+| Typed API | Rust code where many invalid operations are caught during compilation |
+| Bounded query | A query whose work and resource use are explicitly limited |
+| Single-entity SQL | SQL that works with one record type at a time; it does not support joins |
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/dragginzgame/shared-assets/main/icydb/icydb-terminology.svg" alt="Plain-language definitions of schema, entity, stable memory, index, typed API, bounded query and single-entity SQL" width="800">
+</p>
+
+## How It Works
+
+1. The developer describes the application's records, fields, identities,
+   indexes and relationships in a schema.
+2. IcyDB generates typed Rust interfaces from that shared schema.
+3. The canister accepts the schema as runtime metadata and uses it to validate
+   storage and query behavior.
+4. Application endpoints authorize callers, then use typed APIs or the optional
+   restricted SQL frontend to read and change data.
+5. IcyDB plans and executes admitted work within explicit resource limits and
+   stores durable records through journaled stable-memory operations.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/dragginzgame/shared-assets/main/icydb/icydb-how-it-works.svg" alt="How a developer's data blueprint becomes typed Rust interfaces used by an application canister with stable records, indexes and bounded query planning" width="800">
+</p>
+
+## Important Limits
+
+- IcyDB is embedded in an Internet Computer canister; it is not an external
+  hosted database service.
+- Queries operate on one entity type at a time. Joins, subqueries, common table
+  expressions and window functions are not supported.
+- Application code owns caller authorization. Enabling a capability does not
+  automatically make a public endpoint safe.
+- Separate writes are separate commits unless the application uses an explicitly
+  supported bounded atomic batch.
+- Returning `Err` from application code does not undo writes that already
+  succeeded.
+- Atomic behavior does not extend automatically across messages, stores or
+  canisters.
 
 ## Add IcyDB
 
@@ -105,6 +193,19 @@ Accepted schema snapshots are the runtime authority. Generated declarations
 propose schema and supply typed adapters; query planning, admission, storage,
 and recovery consume accepted metadata.
 
+In practical terms, the schema is not only build-time documentation. The
+accepted runtime form controls which records, fields, queries, indexes and
+relationships the database may use.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/dragginzgame/shared-assets/main/icydb/icydb-query-journey.svg" alt="Query journey from application-owned authorization through schema validation and deterministic bounded planning to indexed or admitted record access and bounded results" width="800">
+</p>
+
+| Storage | Intended use | Durability |
+| --- | --- | --- |
+| Journaled stable storage | Important application records | Publishes durable batches and participates in replicated recovery |
+| Heap storage | Temporary caches or deliberately volatile state | Live only; it has no stable allocation identity or durable recovery path |
+
 - Journaled stores publish durable batches and converge them through the
   existing replicated recovery driver. Heap stores are intentionally volatile.
 - Ordinary typed/dynamic reads use bounded public admission. A limit alone does
@@ -124,16 +225,31 @@ and recovery consume accepted metadata.
   accepted identity and data; physical transformations use bounded advancement,
   recovery, and terminal receipts.
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/dragginzgame/shared-assets/main/icydb/icydb-schema-lifecycle.svg" alt="Schema lifecycle from declaration and accepted runtime schema through stored records, supported schema changes and explicit bounded migration, with pre-1.0 internal format changes shown as a separate recreation or reinstall boundary" width="800">
+</p>
+
+> **Write behavior:** Separate successful writes remain committed even if later
+> application code returns `Err`. Use the supported bounded same-store mutation
+> batch when several admitted entity changes must commit atomically.
+
 Use the [public facade guide](docs/guides/public-facade-api.md) for maintained
 query/write examples, [read intent](docs/guides/read-intent.md) for caller-facing
 endpoints, and [schema migrations](docs/guides/schema-migrations.md) for deployment.
 
 ## SQL And Observability
 
-The optional SQL frontend supports single-entity reads, mutations, aggregates,
-grouping, introspection, and accepted-catalog DDL. It excludes joins, subqueries,
-CTEs, window functions, and transaction blocks. The
-[SQL subset contract](docs/contracts/SQL_SUBSET.md) owns the exact supported
+The optional SQL frontend operates on one entity type at a time:
+
+| Supported | Not supported |
+| --- | --- |
+| Filtering and projection | Joins |
+| Sorting and pagination | Subqueries |
+| Grouping and aggregates | Common table expressions |
+| Selected mutations | Window functions |
+| Schema inspection and accepted-catalog DDL | PostgreSQL-style transaction blocks |
+
+The [SQL subset contract](docs/contracts/SQL_SUBSET.md) owns the exact supported
 syntax and semantics.
 
 Generated SQL reads are controller-gated by default; an explicit synchronous
@@ -165,25 +281,18 @@ fixtures.
 Guides explain usage; contracts define maintained behavior. Design reports and
 release notes retain historical evidence and do not replace current contracts.
 
-- [Durability operations](docs/operations/DURABILITY_GUIDE.md),
-  [durability](docs/contracts/DURABILITY.md),
-  [atomicity](docs/contracts/ATOMICITY.md), and
-  [transaction semantics](docs/contracts/TRANSACTION_SEMANTICS.md)
-- [Query contract](docs/contracts/QUERY_CONTRACT.md),
-  [predicate semantics](docs/contracts/QUERY_PRACTICE.md),
-  [cursors](docs/contracts/CURSOR.md), and
-  [resource bounds](docs/contracts/RESOURCE_MODEL.md)
-- [Read admission](docs/contracts/READ_ADMISSION.md),
-  [write admission](docs/contracts/WRITE_ADMISSION.md),
-  [relations](docs/contracts/REF_INTEGRITY.md),
-  [identity](docs/contracts/IDENTITY_CONTRACT.md), and
-  [nested storage](docs/contracts/NESTED_STORAGE.md)
-- [Persisted-format policy](docs/contracts/PERSISTED_FORMAT_POLICY.md) and
-  [durable-surface inventory](docs/contracts/PERSISTED_FORMAT_INVENTORY.md)
-- [Multi-canister workflows](docs/guides/multi-canister-workflows.md) and
-  [foundations](docs/FOUNDATIONS.md)
-- [1.0 feature contract](docs/1.0-FEATURES.md) and
-  [1.0 readiness](docs/1.0-TODO.md)
+| Topic | Start here |
+| --- | --- |
+| Installation and endpoint setup | [Installing IcyDB](INSTALLING.md) |
+| Schema and generated Rust models | [Schema authoring](docs/guides/schema-authoring.md) |
+| Typed reads and writes | [Public facade API](docs/guides/public-facade-api.md) |
+| Durability and transactions | [Durability operations](docs/operations/DURABILITY_GUIDE.md), [durability contract](docs/contracts/DURABILITY.md), [atomicity](docs/contracts/ATOMICITY.md) and [transaction semantics](docs/contracts/TRANSACTION_SEMANTICS.md) |
+| Queries and resource limits | [Query contract](docs/contracts/QUERY_CONTRACT.md), [predicate semantics](docs/contracts/QUERY_PRACTICE.md), [cursors](docs/contracts/CURSOR.md) and [resource bounds](docs/contracts/RESOURCE_MODEL.md) |
+| Read and write safety | [Read admission](docs/contracts/READ_ADMISSION.md) and [write admission](docs/contracts/WRITE_ADMISSION.md) |
+| Relations, identity and nested data | [Relations](docs/contracts/REF_INTEGRITY.md), [identity](docs/contracts/IDENTITY_CONTRACT.md) and [nested storage](docs/contracts/NESTED_STORAGE.md) |
+| Stored-format compatibility | [Persisted-format policy](docs/contracts/PERSISTED_FORMAT_POLICY.md) and [durable-surface inventory](docs/contracts/PERSISTED_FORMAT_INVENTORY.md) |
+| Architecture and multi-canister use | [Foundations](docs/FOUNDATIONS.md) and [multi-canister workflows](docs/guides/multi-canister-workflows.md) |
+| Path to 1.0 | [Feature contract](docs/1.0-FEATURES.md) and [readiness tracker](docs/1.0-TODO.md) |
 
 ## License
 
