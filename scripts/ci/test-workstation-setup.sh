@@ -34,12 +34,13 @@ cargo() { trace "cargo $* in $PWD"; }
 npm() { trace "npm $*"; }
 make() { trace "make $*"; }
 gh() { trace "gh $*"; }
-icp() { trace "icp $*"; }
-function ic-wasm() { trace "ic-wasm $*"; }
+icp() { trace "icp $*"; printf 'icp %s\n' "$ICYDB_ICP_CLI_VERSION"; }
+function ic-wasm() { trace "ic-wasm $*"; printf 'ic-wasm %s\n' "${TEST_IC_WASM_VERSION:-$ICYDB_IC_WASM_VERSION}"; }
+function candid-extractor() { trace "candid-extractor $*"; printf 'candid-extractor %s\n' "$ICYDB_CANDID_EXTRACTOR_VERSION"; }
 brew() { trace "brew $*"; }
 function xcode-select() { trace "xcode-select $*"; }
 id() { printf '0\n'; }
-export -f trace uname rustup cargo npm make gh icp ic-wasm brew xcode-select id
+export -f trace uname rustup cargo npm make gh icp ic-wasm candid-extractor brew xcode-select id
 
 cat > "$FIXTURE/bin/apt-get" <<'TOOL'
 #!/usr/bin/env bash
@@ -62,6 +63,10 @@ cat > "$FIXTURE/scripts/ci/install-wasm-optimizer.sh" <<'INSTALL'
 #!/usr/bin/env bash
 trace "optimizer $*"
 INSTALL
+cat > "$FIXTURE/scripts/ci/install-icydb-yq.sh" <<'INSTALL'
+#!/usr/bin/env bash
+trace 'install selected yq'
+INSTALL
 printf 'maintainer-selected dependency graph\n' > "$FIXTURE/Cargo.lock"
 cp "$FIXTURE/Cargo.lock" "$FIXTURE/lock.before"
 
@@ -75,7 +80,14 @@ for host in Linux Darwin; do
     rg -F 'cargo install' "$TEST_TRACE" | rg -F cargo-watch | rg -F -- --locked >/dev/null
     rg -F "cargo install cargo-sort --version $SHARED_TOOLING_CARGO_SORT_VERSION --locked" "$TEST_TRACE" >/dev/null
     rg -F "cargo install cargo-sort-derives --version $ICYDB_CARGO_SORT_DERIVES_VERSION --locked" "$TEST_TRACE" >/dev/null
-    rg -F "npm install -g --prefix $HOME/.local @icp-sdk/icp-cli @icp-sdk/ic-wasm" "$TEST_TRACE" >/dev/null
+    rg -F "npm install -g --prefix $HOME/.local @icp-sdk/icp-cli@$ICYDB_ICP_CLI_VERSION" "$TEST_TRACE" >/dev/null
+    rg -Fx 'install selected yq' "$TEST_TRACE" >/dev/null
+    for selection in "candid-extractor:$ICYDB_CANDID_EXTRACTOR_VERSION" \
+      "ic-wasm:$ICYDB_IC_WASM_VERSION" "twiggy:$ICYDB_TWIGGY_VERSION" \
+      "cargo-edit:$ICYDB_CARGO_EDIT_VERSION" "cargo-get:$ICYDB_CARGO_GET_VERSION" \
+      "cargo-watch:$ICYDB_CARGO_WATCH_VERSION"; do
+      rg -F "${selection%:*} --version ${selection##*:} --locked" "$TEST_TRACE" >/dev/null
+    done
     rg -F "make --no-print-directory -C $FIXTURE install-hooks" "$TEST_TRACE" >/dev/null
     if [[ "$mode" == install ]]; then
       if [[ "$host" == Linux ]]; then
@@ -87,6 +99,33 @@ for host in Linux Darwin; do
       rg -Fx 'optimizer --check-latest' "$TEST_TRACE" >/dev/null
     fi
   done
+done
+
+# An unexpected installed reporting binary stops before enabling the hook.
+: > "$TEST_TRACE"
+status=0
+TEST_IC_WASM_VERSION=unexpected bash "$FIXTURE/scripts/dev/workstation-setup.sh" update \
+  > "$FIXTURE/version-rejection" 2>&1 || status=$?
+[[ "$status" != 0 ]]
+if rg -F 'install-hooks' "$TEST_TRACE" >/dev/null; then exit 1; fi
+
+# The consumer adapter passes the reviewed digest for each supported host.
+cp "$ROOT/scripts/ci/install-icydb-yq.sh" "$FIXTURE/scripts/ci/"
+cat > "$FIXTURE/scripts/ci/install-yq.sh" <<'INSTALL'
+#!/usr/bin/env bash
+trace "parser $*"
+INSTALL
+for platform in "Linux:x86_64:$ICYDB_YQ_SHA256_LINUX_AMD64" \
+  "Linux:aarch64:$ICYDB_YQ_SHA256_LINUX_ARM64" \
+  "Darwin:x86_64:$ICYDB_YQ_SHA256_DARWIN_AMD64" \
+  "Darwin:arm64:$ICYDB_YQ_SHA256_DARWIN_ARM64"; do
+  TEST_HOST="${platform%%:*}"
+  selected="${platform#*:}"
+  TEST_ARCH="${selected%%:*}"
+  export TEST_HOST TEST_ARCH
+  : > "$TEST_TRACE"
+  bash "$FIXTURE/scripts/ci/install-icydb-yq.sh"
+  rg -Fx "parser --version $ICYDB_YQ_VERSION --sha256 ${selected#*:} --install-dir $FIXTURE/.cache/tools" "$TEST_TRACE" >/dev/null
 done
 
 : > "$TEST_TRACE"

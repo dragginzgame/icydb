@@ -75,6 +75,14 @@ for package in "${INTERNAL_WORKSPACE_PACKAGES[@]}"; do
   fi
 done
 
+# Pinning exceptions describe the existing coupled release constraint; they do
+# not select another version. Reuse the release projection used by admission.
+packages="$(printf '%s\n' "${INTERNAL_WORKSPACE_PACKAGES[@]}" | jq -Rn '[inputs]')"
+jq --arg previous "$PREV" --arg release "$NEW" --argjson packages "$packages" \
+  -f scripts/release/pin-exceptions.jq ci/dependency-pinning-exceptions.json \
+  > "$LOCKFILE_SNAPSHOT_DIR/pin-exceptions"
+cat "$LOCKFILE_SNAPSHOT_DIR/pin-exceptions" > ci/dependency-pinning-exceptions.json
+
 if [[ -n "$LOCKFILE_SNAPSHOT" ]]; then
   cp "$LOCKFILE_SNAPSHOT" Cargo.lock
   perl -0777 -e '

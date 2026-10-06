@@ -3,6 +3,8 @@
 These rules are part of the mandatory [engineering baseline](../DRAGGINZGAME.md).
 The repository's root `Cargo.toml` is the authoritative catalog of direct
 dependencies and their version/source selections.
+The [pinning rules](dependency-pinning.md) define compatible ranges, justified
+exact constraints, immutable Git revisions, lockfiles and external path inputs.
 
 ## Required inheritance
 
@@ -37,6 +39,31 @@ dependencies and their version/source selections.
   [shared formatting contract](git-hooks.md). Include manifest sorting in both
   automatic pre-commit formatting and independent CI/release checks; ordering
   must preserve the catalog and every inherited selection.
+
+## Preparing authorized dependency changes
+
+- For an authorized version, source or feature change, trace every affected
+  independent workspace graph, including examples, probes and test harnesses
+  reached through path dependencies. A root library and an independent
+  `testing/` workspace that depends on it can both need lockfile updates even
+  when only the root library's dependency declaration changed.
+- Prepare every affected lockfile in the same change batch using the narrowest
+  authorized dependency operation. Preserve unrelated selections and local
+  command-authority exceptions. Independent graphs must satisfy their declared
+  contracts; compatible requirements need not resolve to identical versions.
+  This does not collapse approved workspace boundaries or authorize an otherwise
+  unrequested dependency upgrade.
+- Before declaring dependency preparation complete, run each affected graph's
+  owning cheap locked metadata check, including both root and `testing/` checks
+  in the example above. Prepare selected caches explicitly when required and
+  report any unavailable evidence. Metadata checks establish graph consistency,
+  not build, test or native-host qualification; a full gate is not required just
+  to prepare a dependency change.
+- Keep ordinary release cache fetching locked. Reconcile manifest/lockfile
+  mismatches during the authorized dependency change, before the pre-bump
+  validation gate. Never silently unlock, upgrade or automatically repair
+  dependencies during release. Preserve the complete consumer gate and its
+  existing phase order.
 
 ## Example
 

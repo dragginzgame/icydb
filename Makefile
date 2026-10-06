@@ -11,7 +11,7 @@
         fetch test-watch all ensure-clean security-check check-versioning \
         test-no-default-smoke \
         wasm-size-report wasm-audit-report \
-        lint-workflows shellcheck check-invariants check-feature-matrix \
+        lint-workflows shellcheck check-dependency-pins check-invariants check-feature-matrix \
         ci-static ci-core ci-workspace ci-sql-tier-a ci-sql-tier-b \
         _test-icydb-no-default _test-core-no-default _test-workspace _test-canister-libs \
         _test-durability-core-commit _test-durability-core-mutation-job _test-durability-integration \
@@ -20,7 +20,7 @@
         _ci-workspace-clippy _ci-workspace-integration-clippy _ci-workspace-tests \
         _ci-tier-a-sqlite _ci-tier-a-mutation _ci-tier-a-integration \
         _ci-tier-b-sql-canister _ci-tier-b-sql-perf \
-        print-cargo-home print-cargo-target-dir
+        print-cargo-home print-cargo-target-dir check-dependency-pins
 
 # Resolve the repo root from this Makefile so scripts can query these values
 # via `make -C "$$ROOT"` and share a single source of truth.
@@ -43,6 +43,7 @@ POCKET_IC_RUNNER := bash "$(ROOT_DIR)/scripts/ci/run-with-pocketic-server.sh"
 ACTIONLINT_VERSION := $(shell awk '$$1 == "version" {print $$2}' "$(ROOT_DIR)/scripts/ci/actionlint-checksums.tsv")
 ACTIONLINT_INSTALL_DIR ?= $(HOME)/.local/bin
 ACTIONLINT_BIN ?= $(ACTIONLINT_INSTALL_DIR)/actionlint
+YQ ?= $(ROOT_DIR)/.cache/tools/yq
 TIER_C_ARTIFACT_DIR ?= $(ROOT_DIR)/artifacts/correctness/sql_tier_c
 TIER_C_FAILURE_ARTIFACT ?=
 
@@ -104,7 +105,7 @@ help:
 	@echo "  build-canister-production CANISTER=demo_rpg"
 	@echo "                  Build and stage the exact production feature profile"
 	@echo "  build            Build all crates"
-	@echo "  check            Run cargo check"
+	@echo "  check            Run cargo check --locked"
 	@echo "  clippy           Run clippy checks"
 	@echo "  validate         Fail fast through clippy, then accumulate test failures"
 	@echo "  validate-fast    Run the quick formatting, automation, invariant, and workspace-check preflight"
@@ -168,7 +169,7 @@ release-clean:
 	@bash scripts/ci/cleanup-release-workspace.sh
 
 package: ensure-clean
-	$(CARGO_WORK_ENV) cargo package
+	$(CARGO_WORK_ENV) cargo package --locked
 
 publish:
 	$(CARGO_PUBLISH_ENV) scripts/ci/publish-workspace.sh
@@ -188,16 +189,16 @@ test-unit:
 		_test-canister-libs
 
 _test-icydb-no-default:
-	$(CARGO_WORK_ENV) cargo test --no-fail-fast -p icydb --no-default-features
+	$(CARGO_WORK_ENV) cargo test --locked --no-fail-fast -p icydb --no-default-features
 
 _test-core-no-default:
-	$(CORE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --no-fail-fast -p icydb-core --no-default-features
+	$(CORE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast -p icydb-core --no-default-features
 
 _test-workspace:
-	$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --no-fail-fast --workspace --all-targets --exclude canister_demo_rpg --exclude canister_test_sql --exclude canister_test_sql_bounded
+	$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast --workspace --all-targets --exclude canister_demo_rpg --exclude canister_test_sql --exclude canister_test_sql_bounded
 
 _test-canister-libs:
-	$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --no-fail-fast -p canister_test_sql -p canister_test_sql_bounded --lib
+	$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast -p canister_test_sql -p canister_test_sql_bounded --lib
 
 test-no-default-smoke:
 	$(VALIDATION_RUNNER) _test-icydb-no-default _test-core-no-default
@@ -236,7 +237,7 @@ test-canister-artifact-contract:
 		-- --ignored --exact --nocapture
 
 test-sql-canister-matrix:
-	$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --no-fail-fast -p icydb-testing-integration --test sql_canister -- --nocapture
+	$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast -p icydb-testing-integration --test sql_canister -- --nocapture
 
 test-sql-tier-c-shard:
 	@test -n "$(TIER_C_SHARD)" || { echo "TIER_C_SHARD must be an index from 0 through 7" >&2; exit 1; }
@@ -293,15 +294,15 @@ fetch:
 	$(CARGO_WORK_ENV) cargo fetch --locked
 
 build:
-	$(CARGO_WORK_ENV) cargo build --release --workspace
+	$(CARGO_WORK_ENV) cargo build --locked --release --workspace
 
 check:
-	$(CARGO_WORK_ENV) cargo check --workspace
+	$(CARGO_WORK_ENV) cargo check --locked --workspace
 
 clippy:
-	$(CARGO_WORK_ENV) cargo clippy --workspace --all-targets -- -D warnings
-	$(CARGO_WORK_ENV) cargo clippy -p icydb-core --no-default-features --features sql -- -D warnings
-	$(CARGO_WORK_ENV) cargo clippy -p canister_audit_one_entity_sql_query -p canister_test_sql_guard \
+	$(CARGO_WORK_ENV) cargo clippy --locked --workspace --all-targets -- -D warnings
+	$(CARGO_WORK_ENV) cargo clippy --locked -p icydb-core --no-default-features --features sql -- -D warnings
+	$(CARGO_WORK_ENV) cargo clippy --locked -p canister_audit_one_entity_sql_query -p canister_test_sql_guard \
 		--all-targets --all-features -- -D warnings
 
 fmt:
@@ -320,6 +321,7 @@ validate:
 		fmt-check \
 		lint-workflows \
 		shellcheck \
+		check-dependency-pins \
 		check-invariants \
 		check \
 		clippy
@@ -335,6 +337,7 @@ validate-fast:
 		fmt-check \
 		lint-workflows \
 		shellcheck \
+		check-dependency-pins \
 		check-invariants \
 		check
 
@@ -370,6 +373,9 @@ test-documentation:
 	$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib --all-features db::schema::control_store::tests::
 	$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib --all-features db::schema::identity_state::tests::
 
+check-dependency-pins:
+	$(CARGO_WORK_ENV) YQ="$(YQ)" bash scripts/ci/check-dependency-pins.sh
+
 check-invariants:
 	bash scripts/release/test-finalize-notes.sh
 	bash scripts/release/test-lock-selection.sh
@@ -387,6 +393,7 @@ check-invariants:
 	bash scripts/ci/check-release-cleanup-invariants.sh
 	bash scripts/release/test-standard-release.sh
 	bash scripts/release/test-receipt-callbacks.sh
+	bash scripts/release/test-pin-exceptions.sh
 	bash scripts/ci/test-publish-workspace.sh
 	bash scripts/ci/test-release-runner.sh
 	bash scripts/ci/test-release-candidate-receipt.sh
@@ -403,11 +410,11 @@ check-invariants:
 	bash scripts/ci/check-memory-id-invariants.sh
 
 check-feature-matrix:
-	$(CARGO_WORK_ENV) cargo check -p icydb --no-default-features
-	$(CARGO_WORK_ENV) cargo check -p icydb-core --no-default-features
-	$(CARGO_WORK_ENV) cargo check -p icydb --no-default-features --features sql
-	$(CARGO_WORK_ENV) cargo check -p icydb-core --no-default-features --features sql
-	$(CARGO_WORK_ENV) cargo check --workspace --no-default-features
+	$(CARGO_WORK_ENV) cargo check --locked -p icydb --no-default-features
+	$(CARGO_WORK_ENV) cargo check --locked -p icydb-core --no-default-features
+	$(CARGO_WORK_ENV) cargo check --locked -p icydb --no-default-features --features sql
+	$(CARGO_WORK_ENV) cargo check --locked -p icydb-core --no-default-features --features sql
+	$(CARGO_WORK_ENV) cargo check --locked --workspace --no-default-features
 
 lint-workflows:
 	@if [ ! -x "$(ACTIONLINT_BIN)" ]; then \
@@ -428,7 +435,7 @@ shellcheck:
 # GitHub Actions consumes these exact local targets as parallel lanes. The
 # terminal `check` job remains the one branch-protection and release gate.
 ci-static:
-	$(VALIDATION_RUNNER) --fail-fast _ci-format lint-workflows shellcheck check-invariants
+	$(VALIDATION_RUNNER) --fail-fast _ci-format lint-workflows shellcheck check-dependency-pins check-invariants
 
 _ci-format:
 	$(MAKE) --no-print-directory fmt-check
@@ -514,7 +521,7 @@ _ci-tier-b-sql-perf:
 
 # Run tests in watch mode
 test-watch:
-	$(CARGO_WORK_ENV) cargo watch -x test
+	$(CARGO_WORK_ENV) cargo watch -x "test --locked"
 
 # Build and test everything through explicit, sequential workflow steps while
 # preserving the reusable Cargo build cache. `make clean` remains manual.

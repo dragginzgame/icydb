@@ -13,7 +13,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   and host artifact hashing and inspection, avoid repeated metrics-key allocations
   ([#300](https://github.com/dragginzgame/icydb/issues/300)), and repair release
   recovery ([#299](https://github.com/dragginzgame/icydb/issues/299)), push checks
-  and publication retries.
+  and publication retries. Preserve locked validation inputs and reviewed tool
+  versions, and enforce the shared dependency-selection checks.
 
 Detailed notes: [docs/changelog/0.265.md](docs/changelog/0.265.md)
 

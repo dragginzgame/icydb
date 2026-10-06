@@ -36,15 +36,16 @@ mkdir -p "$FIXTURE"
 git -C "$FIXTURE" init -q
 git -C "$FIXTURE" config user.name "IcyDB release fixture"
 git -C "$FIXTURE" config user.email "release-fixture@invalid.example"
-mkdir -p "$FIXTURE/docs/changelog"
+mkdir -p "$FIXTURE/docs/changelog" "$FIXTURE/ci"
 printf '.ignored/\n' > "$FIXTURE/.gitignore"
 printf '[workspace]\n[workspace.package]\nversion = "0.223.6"\n[package]\nname = "fixture"\nversion.workspace = true\nedition = "2024"\n[lib]\npath = "code.txt"\n' > "$FIXTURE/Cargo.toml"
 write_lockfile 0.223.6
 printf 'IcyDB 0.223.6\n' > "$FIXTURE/README.md"
 printf 'root release notes\n' > "$FIXTURE/CHANGELOG.md"
 printf 'detailed release notes\n' > "$FIXTURE/docs/changelog/0.223.md"
+printf '[{"rule":"cargo-exact","file":"Cargo.toml","subject":"fixture","value":"=0.223.6","reason":"Coupled generated API","evidence":"README.md"}]\n' | jq . > "$FIXTURE/ci/dependency-pinning-exceptions.json"
 printf 'candidate source\n' > "$FIXTURE/code.txt"
-git -C "$FIXTURE" add .gitignore Cargo.toml Cargo.lock README.md CHANGELOG.md docs/changelog/0.223.md code.txt
+git -C "$FIXTURE" add .gitignore Cargo.toml Cargo.lock README.md CHANGELOG.md docs/changelog/0.223.md code.txt ci/dependency-pinning-exceptions.json
 git -C "$FIXTURE" commit -q --no-verify -m "candidate"
 candidate_commit="$(git -C "$FIXTURE" rev-parse HEAD)"
 
@@ -69,6 +70,9 @@ run_subject verify-tested-tree "$candidate_commit"
 
 printf '[workspace]\n[workspace.package]\nversion = "0.223.7"\n[package]\nname = "fixture"\nversion.workspace = true\nedition = "2024"\n[lib]\npath = "code.txt"\n' > "$FIXTURE/Cargo.toml"
 write_lockfile 0.223.7
+jq --arg previous 0.223.6 --arg release 0.223.7 --argjson packages '["fixture"]' \
+    -f "$ROOT_DIR/scripts/release/pin-exceptions.jq" "$FIXTURE/ci/dependency-pinning-exceptions.json" > "$TEST_ROOT/projected.json"
+cp "$TEST_ROOT/projected.json" "$FIXTURE/ci/dependency-pinning-exceptions.json"
 printf 'IcyDB 0.223.7\n' > "$FIXTURE/README.md"
 expect_failure run_subject record patch 0000000000000000000000000000000000000000
 run_subject record patch "$candidate_commit" >/dev/null
@@ -79,7 +83,16 @@ grep -Fxq "candidate_commit=$candidate_commit" "$receipt"
 grep -Fxq "candidate_version=0.223.6" "$receipt"
 grep -Fxq "release_version=0.223.7" "$receipt"
 
-git -C "$FIXTURE" add Cargo.toml Cargo.lock README.md
+git -C "$FIXTURE" add Cargo.toml Cargo.lock README.md ci/dependency-pinning-exceptions.json
+run_subject verify-staged
+
+# An exception reason is source policy, not version-only release metadata.
+jq '.[0].reason = "changed during release"' "$FIXTURE/ci/dependency-pinning-exceptions.json" > "$TEST_ROOT/tampered.json"
+cp "$TEST_ROOT/tampered.json" "$FIXTURE/ci/dependency-pinning-exceptions.json"
+git -C "$FIXTURE" add ci/dependency-pinning-exceptions.json
+expect_failure run_subject verify-staged
+cp "$TEST_ROOT/projected.json" "$FIXTURE/ci/dependency-pinning-exceptions.json"
+git -C "$FIXTURE" add ci/dependency-pinning-exceptions.json
 run_subject verify-staged
 
 printf 'IcyDB 0.223.7 tampered\n' > "$FIXTURE/README.md"
@@ -90,10 +103,13 @@ expect_failure run_subject verify-commit
 git -C "$FIXTURE" switch -q --detach "$candidate_commit"
 printf '[workspace]\n[workspace.package]\nversion = "0.223.7"\n[package]\nname = "fixture"\nversion.workspace = true\nedition = "2024"\n[lib]\npath = "code.txt"\n' > "$FIXTURE/Cargo.toml"
 write_lockfile 0.223.7
+jq --arg previous 0.223.6 --arg release 0.223.7 --argjson packages '["fixture"]' \
+    -f "$ROOT_DIR/scripts/release/pin-exceptions.jq" "$FIXTURE/ci/dependency-pinning-exceptions.json" > "$TEST_ROOT/projected.json"
+cp "$TEST_ROOT/projected.json" "$FIXTURE/ci/dependency-pinning-exceptions.json"
 printf 'IcyDB 0.223.7\n' > "$FIXTURE/README.md"
 printf 'root release notes updated during test\n' > "$FIXTURE/CHANGELOG.md"
 printf 'detailed release notes updated during test\n' > "$FIXTURE/docs/changelog/0.223.md"
-git -C "$FIXTURE" add Cargo.toml Cargo.lock README.md CHANGELOG.md docs/changelog/0.223.md
+git -C "$FIXTURE" add Cargo.toml Cargo.lock README.md ci/dependency-pinning-exceptions.json CHANGELOG.md docs/changelog/0.223.md
 run_subject verify-staged
 
 git -C "$FIXTURE" commit -q --no-verify -m "Release 0.223.7"

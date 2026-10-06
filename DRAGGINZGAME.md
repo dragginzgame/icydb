@@ -183,6 +183,11 @@ Consumer choices described in those guides remain subject to this baseline.
 
 ## Rust workspaces and portable tooling
 
+- Apply the [dependency pinning rules](rules/dependency-pinning.md): immutable
+  Git/action identities, compatible registry requirements with locked builds,
+  verified tool downloads, and explicitly qualified sibling or moving inputs.
+  Run the declaration checker in CI and release gates; consumers own the chosen
+  versions, approved exceptions and runtime qualification evidence.
 - Cargo workspace members inherit package versions from the root. Apply the
   [Cargo dependency rules](rules/cargo-dependencies.md): every direct dependency
   is declared in root `[workspace.dependencies]`, and every child manifest uses

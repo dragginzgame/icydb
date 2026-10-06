@@ -1,7 +1,7 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `9437bab201bb6071da0bdc4de0336daf553113f5`. Root
+at reviewed revision `a7efade1a68e43f148252a1a73908a46c4cbe9e9`. Root
 [AGENTS.md](../../AGENTS.md) is the local overlay; there are no baseline
 exceptions. Product architecture, resource limits, exact qualification gates
 remain local; standard release commands follow the shared contract. A sibling checkout cannot silently change
@@ -9,7 +9,7 @@ these rules.
 
 ## Ownership and provenance
 
-[The snapshot manifest](../../.shared-tooling.snapshot) records twenty-four exact
+[The snapshot manifest](../../.shared-tooling.snapshot) records twenty-eight exact
 upstream files, including the baseline and all linked rules, shared principles,
 consumer/host guidance, formatting hook and installer, and selected tools and
 release fixtures. Every entry records SHA-256 and
@@ -50,6 +50,43 @@ The format-1 manifest is an existing upstream provenance boundary, not database
 state. The refreshed LOC tool counts disjoint member-owned files, excludes nested
 workspace members and classifies test paths relative to each crate. No sccache
 lifecycle change is introduced without a demonstrated consumer failure.
+
+## Dependency selection
+
+The [shared declaration checker](../../scripts/ci/check-dependency-pins.sh) and
+[jq module](../../scripts/ci/dependency-pins.jq) run through
+`make check-dependency-pins` in static CI, native host qualification and the
+release gate. `make install-dev` / `make update-dev` prepare the checksum-verified
+Mike Farah yq parser in `.cache/tools`; Git, jq and the selected Rust toolchain
+are prerequisites. The checker is offline and never changes dependency selections.
+
+[Exact constraints](../../ci/dependency-pinning-exceptions.json) have two owners:
+
+- Published IcyDB crates share generated-code and schema contracts, so all six
+  registry-facing workspace edges must match the release exactly. The existing
+  release bump updates only their exception values through the same structured
+  projection used by candidate admission. Rollback, staging and receipt identity
+  include this metadata. No manual exception update is required after a release.
+- The bundled `rusqlite =0.40.2` backend is the pinned SQLite correctness oracle
+  described by `icydb-testing-sqlite-reference`. Its constraint remains fixed
+  across IcyDB releases; changes need explicit dependency review and applicable
+  SQL evidence. It is not a canister dependency.
+
+There is one maintained Cargo workspace and tracked lockfile, and no external
+Cargo paths or Git dependencies. CI, release validation and artifact-producing
+Cargo commands use `--locked`. Authorized future dependency changes must prepare
+and cheaply verify every affected independent graph if one is introduced.
+
+[Tool selections](../../ci/tool-versions.env) pin the existing qualified
+`candid-extractor 0.1.6`, `ic-wasm 0.11.1` and ICP CLI 1.6.0, plus developer
+utilities. Both workstation and Wasm-report CI install `ic-wasm` through Cargo;
+ICP CLI alone uses its versioned npm package. Binaryen and actionlint retain
+their existing checksum authorities. Tool updates preserve these reviewed
+selections until an explicit version change is qualified.
+
+The adopted source's [native CI](https://github.com/dragginzgame/shared-tooling/actions/runs/37443591873)
+passed Linux and macOS ARM64/Intel. This is upstream qualification; the changed
+IcyDB consumer wiring still needs its own configured native CI.
 
 ## Host qualification
 

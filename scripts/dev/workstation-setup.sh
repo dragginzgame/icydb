@@ -22,8 +22,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck source=/dev/null
 source "$ROOT/ci/tool-versions.env"
 ACTIONLINT_INSTALL_DIR="${ACTIONLINT_INSTALL_DIR:-$HOME/.local/bin}"
-# npm owns ic-wasm; prefer its user-local binary over any older Cargo install.
-export PATH="$HOME/.local/bin:$ACTIONLINT_INSTALL_DIR:${CARGO_HOME:-$HOME/.cargo}/bin:$HOME/.cargo/bin:$PATH"
+# Cargo owns ic-wasm in both workstation and CI artifact flows.
+export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$HOME/.cargo/bin:$HOME/.local/bin:$ACTIONLINT_INSTALL_DIR:$PATH"
 cd "$ROOT"
 
 DEV_SYSTEM_PACKAGES=(
@@ -46,16 +46,12 @@ DEV_SYSTEM_PACKAGES=(
 )
 
 CARGO_WORKSTATION_TOOLS=(
-  candid-extractor
-  twiggy
-  cargo-edit
-  cargo-get
-  cargo-watch
-)
-
-NPM_WORKSTATION_TOOLS=(
-  @icp-sdk/icp-cli
-  @icp-sdk/ic-wasm
+  "candid-extractor@$ICYDB_CANDID_EXTRACTOR_VERSION"
+  "ic-wasm@$ICYDB_IC_WASM_VERSION"
+  "twiggy@$ICYDB_TWIGGY_VERSION"
+  "cargo-edit@$ICYDB_CARGO_EDIT_VERSION"
+  "cargo-get@$ICYDB_CARGO_GET_VERSION"
+  "cargo-watch@$ICYDB_CARGO_WATCH_VERSION"
 )
 
 install_system_packages() {
@@ -103,29 +99,46 @@ ensure_rustup() {
 }
 
 install_tooling() {
+  local tool name version
   bash "$ROOT/scripts/ci/install-gh.sh"
 
   rustup toolchain install --target wasm32-unknown-unknown
 
   install_actionlint
+  bash "$ROOT/scripts/ci/install-icydb-yq.sh"
 
   cargo install cargo-sort --version "$SHARED_TOOLING_CARGO_SORT_VERSION" --locked
   cargo install cargo-sort-derives --version "$ICYDB_CARGO_SORT_DERIVES_VERSION" --locked
 
-  if [[ "$MODE" == "update" ]]; then
-    cargo install --quiet "${CARGO_WORKSTATION_TOOLS[@]}" --locked
-  else
-    cargo install "${CARGO_WORKSTATION_TOOLS[@]}" --locked
-  fi
+  for tool in "${CARGO_WORKSTATION_TOOLS[@]}"; do
+    name="${tool%@*}"
+    version="${tool##*@}"
+    if [[ "$MODE" == "update" ]]; then
+      cargo install --quiet "$name" --version "$version" --locked
+    else
+      cargo install "$name" --version "$version" --locked
+    fi
+  done
 
-  npm install -g --prefix "$HOME/.local" "${NPM_WORKSTATION_TOOLS[@]}"
+  npm install -g --prefix "$HOME/.local" "@icp-sdk/icp-cli@$ICYDB_ICP_CLI_VERSION"
+
   if [[ "$MODE" == "update" ]]; then
     bash "$ROOT/scripts/ci/install-wasm-optimizer.sh" --check-latest
   else
     bash "$ROOT/scripts/ci/install-wasm-optimizer.sh"
   fi
-  icp --version
-  ic-wasm --version
+  [[ "$(candid-extractor --version)" == "candid-extractor $ICYDB_CANDID_EXTRACTOR_VERSION" ]] || {
+    echo "candid-extractor does not report the reviewed version $ICYDB_CANDID_EXTRACTOR_VERSION" >&2
+    exit 1
+  }
+  [[ "$(icp --version)" == "icp $ICYDB_ICP_CLI_VERSION" ]] || {
+    echo "icp does not report the reviewed version $ICYDB_ICP_CLI_VERSION" >&2
+    exit 1
+  }
+  [[ "$(ic-wasm --version)" == "ic-wasm $ICYDB_IC_WASM_VERSION" ]] || {
+    echo "ic-wasm does not report the reviewed version $ICYDB_IC_WASM_VERSION" >&2
+    exit 1
+  }
 }
 
 install_repository_hook() {

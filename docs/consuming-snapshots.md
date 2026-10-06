@@ -32,9 +32,14 @@ File paths are intentionally identical in source and consumer. A repository
 that needs a different path or behavior owns an adapter rather than a patched
 shared copy.
 
-The declared destination files will be overwritten. Inspect their current
-contents and preserve unrelated edits before refreshing. Only declare paths
-owned by the shared snapshot; the consumer's `AGENTS.md` remains local.
+Refresh checks every declared destination before replacing any file. It refuses
+to overwrite staged or unstaged changes, deletions, or existing untracked/ignored
+files. Preserve or reconcile those changes before retrying; unrelated dirty paths
+remain allowed. A destination already matching the selected source bytes and
+executable state is safe to retry, including after an interrupted refresh. Only
+declare paths owned by the shared snapshot; the consumer's `AGENTS.md` remains local.
+The manifest is reviewed configuration: an intentional file-set edit is read as
+input and replaced with the resulting manifest, rather than rejected as dirty work.
 
 ## Refresh
 
@@ -95,12 +100,15 @@ the required verifiers, adding any selected tools to the same command:
   --file DRAGGINZGAME.md \
   --file rules/changelogs.md \
   --file rules/cargo-dependencies.md \
+  --file rules/dependency-pinning.md \
   --file rules/git-hooks.md \
   --file rules/agent-maintenance.md \
   --file docs/releases.md \
   --file scripts/ci/run-release.sh \
   --file scripts/ci/next-release-version.sh \
   --file scripts/ci/finalize-release-changelog.awk \
+  --file scripts/ci/check-dependency-pins.sh \
+  --file scripts/ci/dependency-pins.jq \
   --file docs/principles/README.md \
   --file docs/principles/decision-artifact-discipline.md \
   --file docs/principles/reviewable-changes.md \
@@ -136,3 +144,9 @@ Release adoption also requires aligning the consumer's entry points, adapters,
 instructions and checks with the [release contract](releases.md), including
 artifact retention and the exact atomic branch/tag push. A passing snapshot
 check alone does not verify those behaviors.
+Pinning adoption also requires the checker and its jq module, prepared Git/jq/yq
+tools (and Cargo for Rust workspaces), a CI/release invocation, and consumer-owned
+qualification for locked builds and external inputs. Consumers may also vendor
+`scripts/ci/install-yq.sh` with the checksum helper; choose and record their own
+reviewed version and platform digests. Resolve existing exceptions under the
+[pinning policy](../rules/dependency-pinning.md) before claiming adoption.

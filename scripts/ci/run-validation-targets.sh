@@ -20,6 +20,11 @@ if [[ "${VALIDATION_RUNNER_SNAPSHOT_PATH:-}" != "$RUNNER_SOURCE" ]]; then
     exit "$snapshot_status"
 fi
 
+# These values identify only this runner's temporary source snapshot. Targets
+# may invoke a logger in another checkout; let that invocation choose its root.
+# Keep release selections, failure-log policy and nesting depth inherited.
+unset VALIDATION_REPOSITORY_ROOT VALIDATION_RUNNER_SNAPSHOT_PATH
+
 FAIL_FAST=false
 if [[ "${1:-}" == "--fail-fast" ]]; then
     FAIL_FAST=true
@@ -32,7 +37,16 @@ if [[ $# -eq 0 ]]; then
 fi
 
 LOG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/validation.XXXXXX")"
-trap 'rm -rf "$LOG_DIR"' EXIT
+preserve_temporary_logs=true
+retention_failed=false
+cleanup_logs() {
+    if [[ "$preserve_temporary_logs" == true ]]; then
+        printf 'Validation logs retained at: %s\n' "$LOG_DIR" >&2
+    else
+        rm -rf "$LOG_DIR"
+    fi
+}
+trap cleanup_logs EXIT
 FAILURE_LOG_ROOT="${VALIDATION_FAILURE_LOG_DIR:-$REPOSITORY_ROOT/target/validation-failures}"
 FAILURE_RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 
@@ -222,8 +236,11 @@ for target in "$@"; do
         if [[ -n "$retained_log" ]]; then
             print_error_line "$target" "Full failure log retained at: $retained_log"
         else
+            retention_failed=true
+            retained_log="$log"
             print_error_line "$target" \
                 "Unable to retain the complete failure log under: $FAILURE_LOG_ROOT"
+            print_error_line "$target" "Full failure log retained at: $retained_log"
         fi
         print_failure_detail "$log" "$target"
     fi
@@ -242,6 +259,8 @@ for target in "$@"; do
         break
     fi
 done
+
+if [[ "$retention_failed" == false ]]; then preserve_temporary_logs=false; fi
 
 printf '\nValidation summary:\n'
 for index in "${!targets[@]}"; do

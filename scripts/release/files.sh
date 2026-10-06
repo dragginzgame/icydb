@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # Explicit metadata set; Git records preserve spaces and terminate every path.
-printf '%s\0' Cargo.toml Cargo.lock README.md CHANGELOG.md
+printf '%s\0' Cargo.toml Cargo.lock README.md CHANGELOG.md ci/dependency-pinning-exceptions.json
 previous_line="${RELEASE_PREVIOUS%.*}"
 candidate_line="${RELEASE_VERSION%.*}"
 printf '%s\0' "docs/changelog/$candidate_line.md"

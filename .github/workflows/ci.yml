@@ -63,6 +63,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y perl ripgrep shellcheck jq
+      - name: Install pinned configuration parser
+        run: bash scripts/ci/install-icydb-yq.sh
       - name: Install pinned formatting tools
         run: |
           source ci/tool-versions.env
@@ -184,6 +186,8 @@ jobs:
           /bin/bash scripts/ci/test-pre-commit.sh
           /bin/bash scripts/release/test-standard-release.sh
           /bin/bash scripts/release/test-receipt-callbacks.sh
+          /bin/bash scripts/release/test-pin-exceptions.sh
+          make check-dependency-pins
           /bin/bash scripts/ci/test-publish-workspace.sh
           /bin/bash scripts/ci/test-wasm-audit-report.sh
           /bin/bash scripts/ci/verify-wasm-optimizer.sh
@@ -242,7 +246,9 @@ jobs:
         run: bash scripts/ci/install-wasm-optimizer.sh
       - name: Install wasm reporting tools
         run: |
-          cargo install candid-extractor ic-wasm --locked
+          source ci/tool-versions.env
+          cargo install candid-extractor --version "$ICYDB_CANDID_EXTRACTOR_VERSION" --locked
+          cargo install ic-wasm --version "$ICYDB_IC_WASM_VERSION" --locked
           test -x "$CARGO_HOME/bin/candid-extractor"
           test -x "$CARGO_HOME/bin/ic-wasm"
           printf '%s\n' "$CARGO_HOME/bin" >> "$GITHUB_PATH"

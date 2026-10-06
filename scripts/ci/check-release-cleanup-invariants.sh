@@ -52,8 +52,8 @@ if ! target_recipe validate | awk '
 fi
 
 if ! target_recipe clippy | awk '
-  /cargo clippy --workspace --all-targets/ { workspace_line = NR }
-  /cargo clippy -p icydb-core --no-default-features --features sql/ { sql_line = NR }
+  /cargo clippy --locked --workspace --all-targets/ { workspace_line = NR }
+  /cargo clippy --locked -p icydb-core --no-default-features --features sql/ { sql_line = NR }
   END {
     exit !(workspace_line > 0 && sql_line > workspace_line)
   }

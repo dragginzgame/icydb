@@ -90,6 +90,12 @@ validate_transition() {
 
 project_release_surface() {
     local path="$1" previous="$2" release="$3"
+    if [[ "$path" == ci/dependency-pinning-exceptions.json ]]; then
+        jq --arg previous "$previous" --arg release "$release" \
+            --argjson packages "$(printf '%s\n' "$RELEASE_PACKAGE_NAMES" | jq -Rn '[inputs | select(length > 0)]')" \
+            -f "$(dirname "${BASH_SOURCE[0]}")/../release/pin-exceptions.jq"
+        return
+    fi
     if [[ "$path" != Cargo.lock ]]; then
         sed "s/${previous//./\\.}/$release/g"
         return
@@ -157,7 +163,7 @@ validate_changed_paths() {
             continue
         fi
         case "$path" in
-            Cargo.toml|Cargo.lock|README.md|*/Cargo.toml)
+            Cargo.toml|Cargo.lock|README.md|*/Cargo.toml|ci/dependency-pinning-exceptions.json)
                 ;;
             *)
                 echo "Release transition contains non-version path: $path" >&2

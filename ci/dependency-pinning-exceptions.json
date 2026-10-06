@@ -1,0 +1,58 @@
+[
+  {
+    "rule": "cargo-exact",
+    "file": "Cargo.toml",
+    "subject": "icydb",
+    "value": "=0.265.0",
+    "reason": "Published IcyDB crates must share the same generated-code and schema contract.",
+    "evidence": "docs/governance/shared-tooling.md#dependency-selection"
+  },
+  {
+    "rule": "cargo-exact",
+    "file": "Cargo.toml",
+    "subject": "icydb-core",
+    "value": "=0.265.0",
+    "reason": "Published IcyDB crates must share the same generated-code and schema contract.",
+    "evidence": "docs/governance/shared-tooling.md#dependency-selection"
+  },
+  {
+    "rule": "cargo-exact",
+    "file": "Cargo.toml",
+    "subject": "icydb-diagnostic-code",
+    "value": "=0.265.0",
+    "reason": "Published IcyDB crates must share the same generated-code and schema contract.",
+    "evidence": "docs/governance/shared-tooling.md#dependency-selection"
+  },
+  {
+    "rule": "cargo-exact",
+    "file": "Cargo.toml",
+    "subject": "icydb-model",
+    "value": "=0.265.0",
+    "reason": "Published IcyDB crates must share the same generated-code and schema contract.",
+    "evidence": "docs/governance/shared-tooling.md#dependency-selection"
+  },
+  {
+    "rule": "cargo-exact",
+    "file": "Cargo.toml",
+    "subject": "icydb-model-macros",
+    "value": "=0.265.0",
+    "reason": "Published IcyDB crates must share the same generated-code and schema contract.",
+    "evidence": "docs/governance/shared-tooling.md#dependency-selection"
+  },
+  {
+    "rule": "cargo-exact",
+    "file": "Cargo.toml",
+    "subject": "icydb-schema",
+    "value": "=0.265.0",
+    "reason": "Published IcyDB crates must share the same generated-code and schema contract.",
+    "evidence": "docs/governance/shared-tooling.md#dependency-selection"
+  },
+  {
+    "rule": "cargo-exact",
+    "file": "Cargo.toml",
+    "subject": "rusqlite",
+    "value": "=0.40.2",
+    "reason": "Fix the bundled SQLite reference backend used as the SQL correctness oracle.",
+    "evidence": "docs/governance/shared-tooling.md#dependency-selection"
+  }
+]

@@ -160,9 +160,11 @@ Install [rustup](https://rustup.rs) before using these targets. On macOS, also
 install Xcode Command Line Tools and [Homebrew](https://brew.sh).
 `make install-dev` installs system packages, the repository's Rust toolchain,
 Cargo helper tools, ICP tooling, and repository hooks.
-`make update-dev` refreshes user-local Rust, Cargo, actionlint, and npm-backed
-ICP tooling (apart from installing `gh` if missing), ensures the repository's
-formatting hook is installed, and leaves repository dependencies unchanged.
+`make update-dev` ensures the reviewed Rust, Cargo, actionlint, parser and ICP
+tool selections are installed (apart from installing `gh` if missing), ensures
+the repository's formatting hook is installed, and leaves repository dependencies
+unchanged. Tool versions are recorded in `ci/tool-versions.env`; changing those
+selections is an explicit maintenance action.
 Dependency upgrades and security audits are separate maintainer actions: review
 any intentional `cargo update` diff, then audit the selected graph with
 `cargo audit`. Neither action runs automatically during workstation setup.
@@ -236,15 +238,25 @@ helpers and `make test-watch`. General analysis tools are optional; install
 cargo install cargo-audit --locked
 ```
 
+### Dependency Declaration Checks
+
+Setup installs the checksum-verified Mike Farah `yq` parser in `.cache/tools`.
+Run `make check-dependency-pins` for an offline declaration and tracked-lockfile
+check; static CI and release validation include it. Builds and tests preserve
+the selected dependency graph with `--locked`. Exact constraints are documented
+in [dependency selection](docs/governance/shared-tooling.md#dependency-selection),
+and release preparation updates coupled IcyDB exception values automatically.
+
 ### ICP And Canister Tools
 
 Local ICP workflows require the ICP SDK CLI with `icp` on `PATH`.
-Both `make install-dev` and `make update-dev` install or update
-`@icp-sdk/icp-cli` and `@icp-sdk/ic-wasm` under `$HOME/.local` through npm.
-Keep `$HOME/.local/bin` before `$HOME/.cargo/bin` on your shell's `PATH` so
-the maintained npm `ic-wasm` is selected if an older Cargo copy remains installed.
-Workstation setup uses that ordering itself. Add both directories to your shell's
-`PATH`; setup cannot change its parent shell's environment.
+Both `make install-dev` and `make update-dev` install the reviewed
+`@icp-sdk/icp-cli` version under `$HOME/.local` through npm. Wasm reporting uses
+the reviewed Cargo `ic-wasm` version in both development and CI. Keep
+`${CARGO_HOME:-$HOME/.cargo}/bin` and `$HOME/.cargo/bin` before `$HOME/.local/bin`
+on your shell's `PATH` so that Cargo's reporting tool is selected. Workstation
+setup uses that ordering itself and verifies the reporting/ICP versions after
+installation; setup cannot change its parent shell's environment.
 
 Optional canister-operation utilities should be installed explicitly when you
 need them:
