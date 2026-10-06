@@ -162,8 +162,8 @@ failure stops before those phases without changing dependency selection.
 Release fixtures are explicit entries in the invariant gate, rather than nested
 under cleanup checks. No release mode or persisted state is added by this removal.
 
-Shared `ic-metrics` arithmetic uses published registry 0.1.3 with the compatible
-root `0.1` requirement and no sibling path. An isolated worktree of committed
+The 0.265.0 release adopted shared `ic-metrics` arithmetic from registry 0.1.3
+with the compatible root `0.1` requirement and no sibling path. An isolated worktree of committed
 adoption source `1a8511c3a` resolves exactly that registry package and passes
 metrics-enabled, warning-denied Core library Clippy with locked offline Linux
 inputs. Its selected cache was checked before compilation; the existing
@@ -196,6 +196,28 @@ published minor-line history.
 
 Snapshot integrity and isolated fixture checks qualify their own boundaries;
 local hook activation and actual staged-source formatting are separate evidence.
+
+The current compatible 0.265.1 batch selects registry ic-metrics 0.1.5 with
+feature `ic` and delegates the Wasm call-context reader to its safe binding.
+Native zero, inclusive spans, saturation, reset identity and reports remain
+unchanged. Before propagation, an isolated worktree at `43a66e10a` (package
+0.264.10) passed strict metrics-enabled native/Wasm Core Clippy and all nine
+state tests. Its designated cache initially lacked the new package index entry;
+an explicit locked fixture fetch supplied only the selected reader dependency.
+Copied owned artifacts and separate build directories were retained.
+
+The maintainer released 0.265.0 while that isolated qualification ran. Primary
+source identity, clean-tree, process and lock checks then admitted the migration
+without modifying any package version or finalized changelog. At the actual
+0.265.0 package identity, native/Wasm strict Core Clippy and all nine selected
+state tests pass using the primary designated target and cache. Every other
+lock record is preserved. The first failed cache lookup and earlier package
+results remain distinct from this primary qualification. No full local gate,
+consumer IC measurement or performance improvement is claimed. The runtime
+change replaces one direct read with the shared owner, adding no state, mode or
+attribution API. [Issue #298](https://github.com/dragginzgame/icydb/issues/298)
+retains owning release/CI coordination.
+
 The earlier temporary `../ic-metrics` dependency prevented isolated-index
 resolution. Registry adoption removes that sibling prerequisite. Actual staged
 formatting and native macOS execution of this refresh still require their own

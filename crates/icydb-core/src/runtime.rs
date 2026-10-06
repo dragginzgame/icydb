@@ -10,7 +10,7 @@ use std::time::SystemTime;
 #[must_use]
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn local_instruction_counter() -> u64 {
-    ic_cdk::api::performance_counter(1)
+    ic_metrics::call_context_instructions()
 }
 
 /// Return zero when local instruction accounting runs outside the IC.

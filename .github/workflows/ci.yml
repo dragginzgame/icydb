@@ -182,6 +182,8 @@ jobs:
           /bin/bash scripts/ci/test-shared-tooling-adapters.sh
           /bin/bash scripts/ci/test-workstation-setup.sh
           /bin/bash scripts/ci/test-pre-commit.sh
+          /bin/bash scripts/release/test-standard-release.sh
+          /bin/bash scripts/release/test-receipt-callbacks.sh
           /bin/bash scripts/ci/test-wasm-audit-report.sh
           /bin/bash scripts/ci/verify-wasm-optimizer.sh
           shellcheck --exclude=SC2001,SC2016 scripts/dev/workstation-setup.sh scripts/ci/install-gh.sh scripts/ci/install-wasm-optimizer.sh scripts/ci/verify-wasm-optimizer.sh scripts/ci/wasm-optimizer-pin.sh scripts/ci/wasm-report-common.sh scripts/ci/wasm-size-report.sh scripts/ci/wasm-audit-report.sh scripts/ci/test-workstation-setup.sh scripts/ci/test-wasm-audit-report.sh

@@ -386,6 +386,7 @@ check-invariants:
 	bash scripts/ci/check-mutation-atomicity-invariants.sh
 	bash scripts/ci/check-release-cleanup-invariants.sh
 	bash scripts/release/test-standard-release.sh
+	bash scripts/release/test-receipt-callbacks.sh
 	bash scripts/ci/test-release-runner.sh
 	bash scripts/ci/test-release-candidate-receipt.sh
 	bash scripts/ci/test-delete-github-tags-up-to.sh
@@ -560,4 +561,5 @@ release-tagged-check:
 	@bash scripts/ci/record-release-gate-receipt.sh
 release-push-check:
 	@bash scripts/ci/release-candidate-receipt.sh verify-commit
-	@bash scripts/ci/verify-release-gate-receipt.sh
+	@head_commit="$$(git rev-parse --verify HEAD)" && \
+		bash scripts/ci/verify-release-gate-receipt.sh "$$head_commit"

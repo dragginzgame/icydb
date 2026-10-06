@@ -5,6 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.265.1]
+
+- Use published `ic-metrics 0.1.5` for shared instruction reads and saturating
+  counters, preserving inclusive spans, native substitutes and report/reset
+  contracts ([#298](https://github.com/dragginzgame/icydb/issues/298)), and fix
+  release push checks to verify the exact commit's receipt.
+
+Detailed notes: [docs/changelog/0.265.md](docs/changelog/0.265.md)
+
 ## [0.265.0] - 2026-10-05
 
 ### Changed
