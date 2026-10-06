@@ -561,7 +561,12 @@ the registry's latest release. Registry inspection failures stop publication.
 requests. Both require a clean checkout. An exact release receipt reuses prior
 package validation; otherwise Cargo verifies packages before upload.
 
-The adopted shared release runner still blocks an unfinished older release when
-HEAD has advanced. [Shared Tooling #5](https://github.com/dragginzgame/shared-tooling/issues/5)
-tracks simplifying normal-command recovery. Publication retries do not repair
-that release-stage failure.
+If a release stops, rerun the ordinary release command. The shared runner
+reconciles the exact older commit/tag and confirmed push state automatically.
+After newer fixes are committed, `make release-patch` finishes that older release
+and then validates the next patch from the actual local version. An unchanged
+same-kind retry finishes only the saved release. Explicit
+`make release-resume VERSION=X.Y.Z` selects only that version. Genuine history,
+tag, destination or concurrent-run conflicts still stop safely
+([IcyDB #299](https://github.com/dragginzgame/icydb/issues/299),
+[Shared Tooling #5](https://github.com/dragginzgame/shared-tooling/issues/5)).

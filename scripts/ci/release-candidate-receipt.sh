@@ -393,15 +393,23 @@ verify_staged() {
 verify_commit() {
     local release_commit parent_commit current_version receipt committed_hash
 
-    receipt="$(receipt_for_current_version)"
+    # Recovery may select a historical release while HEAD contains newer fixes.
+    # Validate that exact transition; newer source does not replace its receipt.
+    release_commit="${RELEASE_COMMIT:-$(git -C "$ROOT_DIR" rev-parse --verify HEAD)}"
+    [[ "$release_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "Invalid selected release commit" >&2; exit 1; }
+    git -C "$ROOT_DIR" merge-base --is-ancestor "$release_commit" HEAD || {
+        echo "Selected release commit is not on the current history" >&2
+        exit 1
+    }
+    current_version="$(workspace_version_from_commit "$release_commit")"
+    validate_version "$current_version"
+    receipt="$RELEASE_RECEIPT_DIR/v$current_version.candidate"
     if [[ ! -f "$receipt" ]]; then
         echo "No release candidate receipt for the current version" >&2
         exit 1
     fi
     read_receipt "$receipt"
-    release_commit="$(git -C "$ROOT_DIR" rev-parse --verify HEAD)"
-    parent_commit="$(git -C "$ROOT_DIR" rev-parse --verify HEAD^)"
-    current_version="$(workspace_version_from_file "$ROOT_DIR/Cargo.toml")"
+    parent_commit="$(git -C "$ROOT_DIR" show -s --format=%P "$release_commit")"
 
     if [[ "$parent_commit" != "$RECEIPT_CANDIDATE_COMMIT" ||
           "$current_version" != "$RECEIPT_RELEASE_VERSION" ]]; then

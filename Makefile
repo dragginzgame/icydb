@@ -562,5 +562,6 @@ release-tagged-check:
 	@bash scripts/ci/record-release-gate-receipt.sh
 release-push-check:
 	@bash scripts/ci/release-candidate-receipt.sh verify-commit
-	@head_commit="$$(git rev-parse --verify HEAD)" && \
-		bash scripts/ci/verify-release-gate-receipt.sh "$$head_commit"
+	@release_commit="$(RELEASE_COMMIT)"; \
+		if [ -z "$$release_commit" ]; then release_commit="$$(git rev-parse --verify HEAD)" || exit; fi; \
+		bash scripts/ci/verify-release-gate-receipt.sh "$$release_commit"

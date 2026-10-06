@@ -1,7 +1,7 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `c0206f1943238e21bd00fbe01658e6a0864c24fa`. Root
+at reviewed revision `9437bab201bb6071da0bdc4de0336daf553113f5`. Root
 [AGENTS.md](../../AGENTS.md) is the local overlay; there are no baseline
 exceptions. Product architecture, resource limits, exact qualification gates
 remain local; standard release commands follow the shared contract. A sibling checkout cannot silently change
@@ -9,7 +9,7 @@ these rules.
 
 ## Ownership and provenance
 
-[The snapshot manifest](../../.shared-tooling.snapshot) records twenty-three exact
+[The snapshot manifest](../../.shared-tooling.snapshot) records twenty-four exact
 upstream files, including the baseline and all linked rules, shared principles,
 consumer/host guidance, formatting hook and installer, and selected tools and
 release fixtures. Every entry records SHA-256 and
@@ -164,8 +164,11 @@ Standard SemVer entry points use the [common release contract](../releases.md)
 with explicit `RELEASE_REMOTE=origin` and `RELEASE_BRANCH=main`. They retain the
 complete IcyDB gate and source/tag-bound receipts. The runner owns Git effects;
 consumer adapters own exact metadata, UTC notes and retained dependency selection.
-`make release-resume VERSION=X.Y.Z` resumes the saved candidate after inspection
-of `.git/release-state/` and its lock owner. Publishing and cleanup remain separate.
+Ordinary release commands reconcile unfinished committed releases automatically,
+then validate the requested increment when HEAD contains newer fixes or the
+requested increment differs. Late receipt callbacks inspect `RELEASE_COMMIT`,
+which may precede HEAD. `make release-resume VERSION=X.Y.Z` selects only that
+saved version explicitly. Publishing and cleanup remain separate.
 The superseded manual bump/stage/commit/push path and its confirmation helper
 have been deleted. The shared runner owns the sole release execution flow;
 consumer callbacks retain metadata, dependency-selection and receipt obligations.

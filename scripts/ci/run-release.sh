@@ -44,7 +44,8 @@ hook() {
     "$make_bin" --no-print-directory "$@" \
         "RELEASE_KIND=$kind" "RELEASE_PREVIOUS=$previous" \
         "RELEASE_VERSION=$candidate" "RELEASE_DATE=$release_date" \
-        "RELEASE_REMOTE=$remote" "RELEASE_BRANCH=$branch" "RELEASE_SOURCE=$source"
+        "RELEASE_REMOTE=$remote" "RELEASE_BRANCH=$branch" "RELEASE_SOURCE=$source" \
+        "RELEASE_COMMIT=${release_commit:-}"
 }
 read_plan() {
     [[ -f "$1" && ! -L "$1" ]] || fail 'release plan is missing or symlinked'
@@ -72,9 +73,7 @@ read_plan() {
     [[ "$(bash "$(dirname "${BASH_SOURCE[0]}")/next-release-version.sh" "$saved_previous" "$saved_kind")" == "$saved_candidate" ]] || fail 'release plan increment is invalid'
     case "$saved_phase" in preflight|validate|prepare|stage|commit|tag|push|complete) ;; *) fail 'release plan phase is invalid' ;; esac
 }
-if [[ "$mode" == resume ]]; then
-    [[ "$requested_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || usage
-    plan="$state_root/$requested_version.plan"
+load_plan() {
     read_plan "$plan"
     [[ "$remote" == "$saved_remote" && "$branch" == "$saved_branch" && "$remote_identity" == "$saved_destination" ]] || fail 'release destination changed'
     kind="$saved_kind"
@@ -86,40 +85,78 @@ if [[ "$mode" == resume ]]; then
     phase="$saved_phase"
     # Early plans have no reusable validation: repeat preflight and the full gate.
     case "$phase" in preflight|validate) phase=preflight ;; esac
-else
-    kind="$mode"
-    previous="$("$make_bin" --no-print-directory -s release-version)"
-    candidate="$(bash "$(dirname "${BASH_SOURCE[0]}")/next-release-version.sh" "$previous" "$kind")"
-    release_date="$(date -u +%F)"
-    source="$(git rev-parse --verify HEAD)"
-    plan="$state_root/$candidate.plan"
-    # Validation has no release mutations to resume. Retain its old identity as
-    # evidence, then validate the current source afresh through the normal target.
-    # Once preparation starts, even a failed bump may have effects to reconcile.
-    for retained_plan in "$state_root"/*.plan; do
-        [[ -e "$retained_plan" || -L "$retained_plan" ]] || continue
-        read_plan "$retained_plan"
-        case "$saved_phase" in
-            complete)
-                [[ "$saved_candidate" != "$candidate" ]] || fail "release $candidate is already complete; inspect its metadata and tag"
-                ;;
-            preflight|validate)
-                [[ "$saved_previous" == "$previous" && -z "$saved_tree" && ! -e "$retained_plan.files" && ! -L "$retained_plan.files" ]] || fail "release $saved_candidate has possible preparation effects; reconcile its saved plan"
-                [[ "$remote" == "$saved_remote" && "$branch" == "$saved_branch" && "$remote_identity" == "$saved_destination" ]] || fail 'release destination changed'
-                retained_tags="$(git tag --list "v$saved_candidate")"
-                [[ -z "$retained_tags" ]] || fail 'preparation-free retry conflicts with a local release tag'
-                retained_tags="$(git ls-remote --refs -- "$destination" "refs/tags/v$saved_candidate")"
-                [[ -z "$retained_tags" ]] || fail 'preparation-free retry conflicts with a remote release tag'
-                archive="$(mktemp -d "$state_root/$saved_candidate.attempt.XXXXXX")"
-                mv "$retained_plan" "$archive/$saved_candidate.plan"
-                printf 'Restarting before preparation; retained earlier attempt: %s\n' "$archive/$saved_candidate.plan"
-                ;;
-            *) fail "unfinished release $saved_candidate is at $saved_phase; use make release-resume VERSION=$saved_candidate" ;;
-        esac
-    done
-    index_tree=""
-    phase=preflight
-fi
+}
+select_release() {
+    plan=""
+    release_commit=""
+    followup=no
+    if [[ "$mode" == resume ]]; then
+        [[ "$requested_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || usage
+        plan="$state_root/$requested_version.plan"
+    else
+        # Select saved intent before reading possibly bumped metadata. Recovery uses
+        # the saved increment, not another increment from the prepared version.
+        early_intent=no
+        for retained_plan in "$state_root"/*.plan; do
+            [[ -e "$retained_plan" || -L "$retained_plan" ]] || continue
+            read_plan "$retained_plan"
+            case "$saved_phase" in
+                complete) ;;
+                preflight|validate) early_intent=yes ;;
+                *)
+                    [[ -z "$plan" ]] || fail 'multiple unfinished release identities; inspect retained plans'
+                    plan="$retained_plan"
+                    ;;
+            esac
+        done
+        [[ -z "$plan" || "$early_intent" == no ]] || fail 'multiple unfinished release identities; inspect retained plans'
+    fi
+    if [[ -n "$plan" ]]; then
+        load_plan
+        if [[ "$mode" != resume && "$kind" != "$mode" ]]; then
+            case "$phase" in
+                commit|tag|push)
+                    [[ "$(git rev-parse HEAD)" != "$source" ]] || fail "unfinished release $candidate is not yet committed; rerun make release-$kind to finish its preparation"
+                    followup=yes
+                    ;;
+                *) fail "unfinished release $candidate is not yet committed; rerun make release-$kind to finish its preparation" ;;
+            esac
+        fi
+    else
+        kind="$mode"
+        previous="$("$make_bin" --no-print-directory -s release-version)"
+        candidate="$(bash "$(dirname "${BASH_SOURCE[0]}")/next-release-version.sh" "$previous" "$kind")"
+        release_date="$(date -u +%F)"
+        source="$(git rev-parse --verify HEAD)"
+        plan="$state_root/$candidate.plan"
+        # Validation has no release mutations to resume. Retain its old identity as
+        # evidence, then validate the current source afresh through the normal target.
+        # Once preparation starts, even a failed bump may have effects to reconcile.
+        for retained_plan in "$state_root"/*.plan; do
+            [[ -e "$retained_plan" || -L "$retained_plan" ]] || continue
+            read_plan "$retained_plan"
+            case "$saved_phase" in
+                complete)
+                    [[ "$saved_candidate" != "$candidate" ]] || fail "release $candidate is already complete; inspect its metadata and tag"
+                    ;;
+                preflight|validate)
+                    [[ "$saved_previous" == "$previous" && -z "$saved_tree" && ! -e "$retained_plan.files" && ! -L "$retained_plan.files" ]] || fail "release $saved_candidate has possible preparation effects; reconcile its saved plan"
+                    [[ "$remote" == "$saved_remote" && "$branch" == "$saved_branch" && "$remote_identity" == "$saved_destination" ]] || fail 'release destination changed'
+                    retained_tags="$(git tag --list "v$saved_candidate")"
+                    [[ -z "$retained_tags" ]] || fail 'preparation-free retry conflicts with a local release tag'
+                    retained_tags="$(git ls-remote --refs -- "$destination" "refs/tags/v$saved_candidate")"
+                    [[ -z "$retained_tags" ]] || fail 'preparation-free retry conflicts with a remote release tag'
+                    archive="$(mktemp -d "$state_root/$saved_candidate.attempt.XXXXXX")"
+                    mv "$retained_plan" "$archive/$saved_candidate.plan"
+                    printf 'Restarting before preparation; retained earlier attempt: %s\n' "$archive/$saved_candidate.plan"
+                    ;;
+                *) fail 'release plan changed during selection' ;;
+            esac
+        done
+        index_tree=""
+        phase=preflight
+    fi
+}
 
 save_phase() {
     phase="$1"
@@ -130,11 +167,23 @@ save_phase() {
 }
 assert_source() { [[ "$(git rev-parse HEAD)" == "$source" ]] || fail 'validated source commit changed'; }
 assert_release_commit() {
-    [[ "$(git rev-parse HEAD^)" == "$source" && "$(git log -1 --format=%s)" == "Release $candidate" ]] || fail 'release commit does not match the saved source/version'
-    [[ "$index_tree" =~ ^[0-9a-f]{40,64}$ && "$(git rev-parse 'HEAD^{tree}')" == "$index_tree" ]] || fail 'release commit tree differs from the exact staged release'
+    # The first direct descendant must be the exact staged release. Later fixes
+    # may be committed without changing its identity or repeating its commit.
+    if [[ -z "$release_commit" ]]; then
+        history="$(git rev-list --first-parent --reverse "$source..HEAD")"
+        release_commit="${history%%$'\n'*}"
+    fi
+    [[ "$release_commit" =~ ^[0-9a-f]{40,64}$ && "$(git log -1 --format=%P "$release_commit")" == "$source" && "$(git log -1 --format=%s "$release_commit")" == "Release $candidate" ]] || fail 'release commit does not match the saved source/version'
+    [[ "$index_tree" =~ ^[0-9a-f]{40,64}$ && "$(git rev-parse "$release_commit^{tree}")" == "$index_tree" ]] || fail 'release commit tree differs from the exact staged release'
+    git merge-base --is-ancestor "$release_commit" HEAD || fail 'release commit is not an ancestor of the selected branch'
     [[ "$("$make_bin" --no-print-directory -s release-version)" == "$candidate" ]] || fail 'release metadata no longer matches the candidate'
     git diff --quiet HEAD -- || fail 'release worktree differs from the committed payload'
-    [[ -z "$(git ls-files --others --exclude-standard)" ]] || fail 'release worktree has untracked source'
+    untracked="$(git ls-files --others --exclude-standard)" || fail 'cannot inventory untracked release source'
+    [[ -z "$untracked" ]] || fail 'release worktree has untracked source'
+    if [[ "$mode" != resume && "$(git rev-parse HEAD)" != "$release_commit" ]]; then followup=yes; fi
+}
+assert_release_tag() {
+    [[ "$(git cat-file -t "refs/tags/v$candidate")" == tag && "$(git rev-parse "refs/tags/v$candidate^{commit}")" == "$release_commit" ]] || fail 'existing tag differs from the exact release commit'
 }
 read_remote_refs() {
     refs="$(git ls-remote --refs -- "$destination" "refs/heads/$branch" "refs/tags/v$candidate")"
@@ -150,102 +199,116 @@ read_remote_refs() {
         esac
     done <<< "$refs"
 }
-printf 'Release %s -> %s on %s via %s: validate, prepare, stage, commit/tag, atomic push\n' "$previous" "$candidate" "$branch" "$remote"
-while [[ "$phase" != complete ]]; do
-    case "$phase" in
-        preflight)
-            assert_source
-            hook release-preflight
-            local_tags="$(git tag --list "v$candidate")"
-            [[ -z "$local_tags" ]] || fail 'candidate tag already exists'
-            remote_tags="$(git ls-remote --refs -- "$destination" "refs/tags/v$candidate")"
-            [[ -z "$remote_tags" ]] || fail 'remote candidate tag already exists'
-            phase=validate
-            ;;
-        validate)
-            assert_source
-            before="$(git diff --binary HEAD | git hash-object --stdin)"
-            hook release-verify
-            assert_source
-            after="$(git diff --binary HEAD | git hash-object --stdin)"
-            [[ "$before" == "$after" ]] || fail 'source or metadata changed during validation'
-            # Persist exact intent before the first possible release mutation.
-            # Failed validation needs no recovery plan and can start afresh.
-            save_phase prepare
-            ;;
-        prepare)
-            assert_source
-            current="$("$make_bin" --no-print-directory -s release-version)"
-            if [[ "$current" == "$previous" ]]; then
+while true; do
+    select_release
+    printf 'Release %s -> %s on %s via %s: validate, prepare, stage, commit/tag, atomic push\n' "$previous" "$candidate" "$branch" "$remote"
+    while [[ "$phase" != complete ]]; do
+        case "$phase" in
+            preflight)
+                assert_source
                 hook release-preflight
-                hook release-prepare-version
-            elif [[ "$current" != "$candidate" ]]; then
-                fail 'prepared version differs from the exact saved release'
-            fi
-            hook release-prepared-check
-            [[ "$("$make_bin" --no-print-directory -s release-version)" == "$candidate" ]] || fail 'preparation did not produce the candidate'
-            save_phase stage
-            ;;
-        stage)
-            assert_source
-            hook release-prepared-check
-            [[ ! -L "$plan.files" ]] || fail 'release file set is symlinked'
-            hook -s release-files > "$plan.files"
-            release_files=()
-            file_count=0
-            while true; do
-                path=""
-                if ! IFS= read -r -d '' path; then
-                    [[ -z "$path" ]] || fail 'release file output is not NUL terminated'
-                    break
+                local_tags="$(git tag --list "v$candidate")"
+                [[ -z "$local_tags" ]] || fail 'candidate tag already exists'
+                remote_tags="$(git ls-remote --refs -- "$destination" "refs/tags/v$candidate")"
+                [[ -z "$remote_tags" ]] || fail 'remote candidate tag already exists'
+                phase=validate
+                ;;
+            validate)
+                assert_source
+                before="$(git diff --binary HEAD | git hash-object --stdin)"
+                hook release-verify
+                assert_source
+                after="$(git diff --binary HEAD | git hash-object --stdin)"
+                [[ "$before" == "$after" ]] || fail 'source or metadata changed during validation'
+                # Persist exact intent before the first possible release mutation.
+                # Failed validation needs no recovery plan and can start afresh.
+                save_phase prepare
+                ;;
+            prepare)
+                assert_source
+                current="$("$make_bin" --no-print-directory -s release-version)"
+                if [[ "$current" == "$previous" ]]; then
+                    hook release-preflight
+                    hook release-prepare-version
+                elif [[ "$current" != "$candidate" ]]; then
+                    fail 'prepared version differs from the exact saved release'
                 fi
-                [[ -n "$path" && "$path" != /* ]] || fail 'release file path must be relative'
-                case "/$path/" in *'/../'*|*'/./'*|*'//'*) fail 'release file path is not canonical' ;; esac
-                release_files[file_count]="$path"
-                file_count=$((file_count + 1))
-            done < "$plan.files"
-            [[ "$file_count" -gt 0 ]] || fail 'release file set is empty'
-            git add -- "${release_files[@]}"
-            index_tree="$(git write-tree)"
-            save_phase commit
-            ;;
-        commit)
-            if [[ "$(git rev-parse HEAD)" == "$source" ]]; then
-                hook release-commit-check
-                [[ "$(git write-tree)" == "$index_tree" ]] || fail 'release index changed after staging'
-                git commit -m "Release $candidate"
-            fi
-            assert_release_commit
-            hook release-committed-check
-            save_phase tag
-            ;;
-        tag)
-            assert_release_commit
-            tags="$(git tag --list "v$candidate")"
-            if [[ -z "$tags" ]]; then
-                git tag -a "v$candidate" HEAD -m "Release $candidate"
-            fi
-            [[ "$(git cat-file -t "refs/tags/v$candidate")" == tag && "$(git rev-parse "refs/tags/v$candidate^{commit}")" == "$(git rev-parse HEAD)" ]] || fail 'existing tag differs from the exact release commit'
-            hook release-tagged-check
-            save_phase push
-            ;;
-        push)
-            assert_release_commit
-            hook release-push-check
-            local_head="$(git rev-parse HEAD)"
-            local_tag="$(git rev-parse "refs/tags/v$candidate")"
-            read_remote_refs
-            if [[ "$remote_head" != "$local_head" || "$remote_tag" != "$local_tag" ]]; then
-                [[ -z "$remote_tag" ]] || fail 'remote tag conflicts with the saved atomic push'
-                git push --no-follow-tags --atomic "$remote" \
-                    "HEAD:refs/heads/$branch" "refs/tags/v$candidate:refs/tags/v$candidate"
+                hook release-prepared-check
+                [[ "$("$make_bin" --no-print-directory -s release-version)" == "$candidate" ]] || fail 'preparation did not produce the candidate'
+                save_phase stage
+                ;;
+            stage)
+                assert_source
+                hook release-prepared-check
+                [[ ! -L "$plan.files" ]] || fail 'release file set is symlinked'
+                hook -s release-files > "$plan.files"
+                release_files=()
+                file_count=0
+                while true; do
+                    path=""
+                    if ! IFS= read -r -d '' path; then
+                        [[ -z "$path" ]] || fail 'release file output is not NUL terminated'
+                        break
+                    fi
+                    [[ -n "$path" && "$path" != /* ]] || fail 'release file path must be relative'
+                    case "/$path/" in *'/../'*|*'/./'*|*'//'*) fail 'release file path is not canonical' ;; esac
+                    release_files[file_count]="$path"
+                    file_count=$((file_count + 1))
+                done < "$plan.files"
+                [[ "$file_count" -gt 0 ]] || fail 'release file set is empty'
+                git add -- "${release_files[@]}"
+                index_tree="$(git write-tree)"
+                save_phase commit
+                ;;
+            commit)
+                if [[ "$(git rev-parse HEAD)" == "$source" ]]; then
+                    hook release-commit-check
+                    [[ "$(git write-tree)" == "$index_tree" ]] || fail 'release index changed after staging'
+                    git commit -m "Release $candidate"
+                fi
+                assert_release_commit
+                hook release-committed-check
+                save_phase tag
+                ;;
+            tag)
+                assert_release_commit
+                tags="$(git tag --list "v$candidate")"
+                if [[ -z "$tags" ]]; then
+                    git tag -a "v$candidate" "$release_commit" -m "Release $candidate"
+                fi
+                assert_release_tag
+                hook release-tagged-check
+                save_phase push
+                ;;
+            push)
+                assert_release_commit
+                assert_release_tag
+                hook release-push-check
+                local_head="$release_commit"
+                local_tag="$(git rev-parse "refs/tags/v$candidate")"
                 read_remote_refs
-                [[ "$remote_head" == "$local_head" && "$remote_tag" == "$local_tag" ]] || fail 'remote push identity could not be verified; retain the plan and reconcile'
-            fi
-            save_phase complete
-            ;;
-        *) fail 'release plan phase is invalid' ;;
-    esac
+                # A confirmed descendant already includes this release. Preserve that
+                # branch tip when publishing a missing tag; never rewind it.
+                if [[ -n "$remote_head" && "$remote_head" != "$local_head" && "$(git rev-parse HEAD)" != "$release_commit" ]]; then
+                    git merge-base --is-ancestor "$remote_head" HEAD || fail 'remote branch is unavailable locally or diverged; fetch and reconcile before retrying'
+                    if git merge-base --is-ancestor "$release_commit" "$remote_head"; then local_head="$remote_head"; fi
+                fi
+                if [[ "$remote_head" != "$local_head" || "$remote_tag" != "$local_tag" ]]; then
+                    [[ -z "$remote_tag" ]] || fail 'remote tag conflicts with the saved atomic push'
+                    push_source=HEAD
+                    if [[ "$(git rev-parse HEAD)" != "$local_head" ]]; then push_source="$local_head"; fi
+                    git push --no-follow-tags --atomic "$remote" \
+                        "$push_source:refs/heads/$branch" "refs/tags/v$candidate:refs/tags/v$candidate"
+                    read_remote_refs
+                    [[ "$remote_head" == "$local_head" && "$remote_tag" == "$local_tag" ]] || fail 'remote push identity could not be verified; retain the plan and reconcile'
+                fi
+                save_phase complete
+                ;;
+            *) fail 'release plan phase is invalid' ;;
+        esac
+    done
+    assert_release_commit
+    printf 'Release %s completed; retained plan: %s\n' "$candidate" "$plan"
+    [[ "$followup" == yes ]] || break
+    printf 'Saved release reconciled; validating current source for make release-%s.\n' "$mode"
 done
-assert_release_commit
-printf 'Release %s completed; retained plan: %s\n' "$candidate" "$plan"

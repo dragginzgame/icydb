@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# This independent fixture owns its Make selections and simulated commit IDs.
+# Release-gate command-line overrides must not replace those fixture identities.
+unset MAKEFLAGS MAKEOVERRIDES MFLAGS RELEASE_COMMIT
+
 # Exercise the real Make callbacks and receipt scripts without Git mutations.
 # Candidate admission and Git reads are substitutes; receipts are real files.
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -44,14 +48,17 @@ case "$*" in
         [[ "${FAIL_HEAD:-0}" == 0 ]] || exit 9
         printf '%s\n' "$HEAD_COMMIT"
         ;;
+    show*':Cargo.toml') cat "$FIXTURE_CARGO" ;;
+    merge-base*) [[ "${FAIL_ANCESTOR:-0}" == 0 ]] ;;
     'cat-file -t refs/tags/v0.1.1') printf '%s\n' "${TAG_TYPE:-tag}" ;;
     'rev-parse --verify refs/tags/v0.1.1^{commit}')
-        printf '%s\n' "${TAG_COMMIT:-$HEAD_COMMIT}"
+        printf '%s\n' "${TAG_COMMIT:-${RELEASE_COMMIT:-$HEAD_COMMIT}}"
         ;;
     *) echo "Unexpected Git command: $*" >&2; exit 99 ;;
 esac
 GIT
 chmod +x "$fixture/bin/bash" "$fixture/bin/git"
+export FIXTURE_CARGO="$fixture/Cargo.toml"
 export PATH="$fixture/bin:$PATH"
 cd "$fixture"
 
@@ -74,6 +81,22 @@ run_callback pass release-push-check
 printf '%s\n' 'scripts/ci/release-candidate-receipt.sh verify-commit' \
     "scripts/ci/verify-release-gate-receipt.sh $HEAD_COMMIT" > "$fixture/expected"
 cmp "$fixture/expected" "$EVENTS"
+
+# Newer fix commits must not replace the saved release's receipt identity.
+saved_commit="$HEAD_COMMIT"
+export HEAD_COMMIT="$OTHER_COMMIT"
+export RELEASE_COMMIT="$saved_commit"
+run_callback pass release-committed-check
+run_callback pass release-tagged-check
+[[ "$(cat "$RELEASE_RECEIPT_DIR/v0.1.1.commit")" == "$saved_commit" ]]
+run_callback pass release-push-check
+printf '%s\n' 'scripts/ci/release-candidate-receipt.sh verify-commit' \
+    "scripts/ci/verify-release-gate-receipt.sh $saved_commit" > "$fixture/expected"
+cmp "$fixture/expected" "$EVENTS"
+FAIL_ANCESTOR=1 run_callback fail release-tagged-check
+TAG_COMMIT="$OTHER_COMMIT" run_callback fail release-push-check
+export HEAD_COMMIT="$saved_commit"
+unset RELEASE_COMMIT
 
 # Missing/stale evidence and conflicting tags must never authorize a push.
 rm "$RELEASE_RECEIPT_DIR/v0.1.1.commit"

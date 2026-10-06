@@ -12,7 +12,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Share instruction accounting ([#298](https://github.com/dragginzgame/icydb/issues/298))
   and host artifact hashing and inspection, avoid repeated metrics-key allocations
   ([#300](https://github.com/dragginzgame/icydb/issues/300)), and repair release
-  push checks and publication retries.
+  recovery ([#299](https://github.com/dragginzgame/icydb/issues/299)), push checks
+  and publication retries.
 
 Detailed notes: [docs/changelog/0.265.md](docs/changelog/0.265.md)
 

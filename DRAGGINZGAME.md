@@ -161,8 +161,14 @@ Consumer choices described in those guides remain subject to this baseline.
   validation-only failures restart through the normal target against current
   source with fresh preflight and complete validation; retain earlier evidence.
   Persist exact release intent before preparation may begin, then reconcile an
-  interrupted release at its exact version and commit before retrying. Do not
-  force-push, overwrite tags, silently bump again or add implicit package
+  interrupted release automatically when a normal target is rerun, at its saved
+  version and commit. If that release is already committed and HEAD has newer
+  fixes or a different increment is requested, reconcile it first, then run fresh
+  preflight and complete validation for the requested increment from the actual
+  local version. Late evidence checks use the selected `RELEASE_COMMIT`, which
+  may precede HEAD. Select unfinished intent before computing another increment;
+  stop for identity, payload, destination or concurrency conflicts.
+  Do not force-push, overwrite tags, silently bump again or add implicit package
   publication, deployment or post-release cleanup.
 
 ## Changelogs and artifact preservation
@@ -229,6 +235,10 @@ Consumer choices described in those guides remain subject to this baseline.
 
 ## Feedback and handoff
 
+- Follow the [user-triggered agent maintenance rules](rules/agent-maintenance.md)
+  when asked to check CI, review issues or inspect for work after completing a
+  task. Session activation carries forward within its scope; inspection and
+  repair requests retain their distinct authority.
 - GitHub issues in the owning repository are the sole tracker for bugs, feature
   requests, review findings, reusable gaps and follow-up work. Search existing
   issues before filing; update matching evidence rather than creating duplicates.

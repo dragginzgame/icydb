@@ -43,7 +43,7 @@ git_variables="$(git rev-parse --local-env-vars)"
     while IFS= read -r variable; do unset "$variable"; done <<< "$git_variables"
     export GIT_CEILING_DIRECTORIES="$snapshot/worktree"
     make --no-print-directory -C "$snapshot/worktree" fmt
-)
+) || exit $?
 
 [[ "$(git write-tree)" == "$index_tree" ]] || { echo 'pre-commit: index changed during formatting; retry.' >&2; exit 1; }
 for path in "${selected[@]}"; do

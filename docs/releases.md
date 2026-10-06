@@ -71,7 +71,7 @@ The common runner uses exactly this push shape with its saved selections:
 
 ```bash
 git push --no-follow-tags --atomic "$remote" \
-  "HEAD:refs/heads/$branch" "refs/tags/v$candidate:refs/tags/v$candidate"
+  "$push_source:refs/heads/$branch" "refs/tags/v$candidate:refs/tags/v$candidate"
 ```
 
 `--no-follow-tags` disables implicit annotated-tag publication, including a
@@ -80,6 +80,12 @@ and this release's tag, without publishing other local tags. `--atomic` requires
 the remote to accept both ref updates together or reject both; do not fall back
 to separate pushes. An interrupted reply still requires reconciliation against
 the saved release identities before retrying.
+For an ordinary release, `push_source` is HEAD. When recovering an older release,
+it is that exact release commit: newer fixes are validated separately before their
+next release is pushed. If the remote branch already contains the older release,
+preserve its verified tip when atomically publishing a missing tag. Never rewind
+the branch. Unknown or diverged remote history stops with a fetch/reconciliation
+diagnostic; remote inspection failure does not authorize replay.
 
 ## Makefile example
 
@@ -141,15 +147,21 @@ Consumer Make targets provide these adapters:
 | `release-prepared-check` | Check the candidate and prepared metadata without another bump. |
 | `release-files` | Print the explicit relative release paths, each terminated by NUL, and no explanatory output. |
 | `release-commit-check` | Admit the exact release index and source-bound validation evidence. |
-| `release-committed-check` | Check the release commit and any consumer-owned evidence binding. |
-| `release-tagged-check` | Check or record exact tag-bound evidence without another Git effect. |
-| `release-push-check` | Check the complete local release and destination before dispatch/reconciliation. |
+| `release-committed-check` | Check `RELEASE_COMMIT` and its consumer-owned evidence binding. |
+| `release-tagged-check` | Check or record exact tag-bound evidence for `RELEASE_COMMIT` without another Git effect. |
+| `release-push-check` | Check the selected `RELEASE_COMMIT`, tag, evidence and destination before dispatch/reconciliation. |
 
 The runner passes `RELEASE_KIND`, `RELEASE_PREVIOUS`, `RELEASE_VERSION`,
-`RELEASE_DATE`, `RELEASE_SOURCE`, `RELEASE_BRANCH` and `RELEASE_REMOTE` as Make
+`RELEASE_DATE`, `RELEASE_SOURCE`, `RELEASE_COMMIT`, `RELEASE_BRANCH` and `RELEASE_REMOTE` as Make
 variables. Adapters consume those selections instead of independently choosing a
 version or target. Git staging, commit creation, annotated tagging and atomic
 push belong only to the common runner. Publishing and deployment stay separate.
+`RELEASE_COMMIT` is empty until the exact staged release commit exists. Late
+checks must read committed metadata and receipts from that selected SHA, rather
+than equating it with HEAD. The current maintained adapter code runs the checks;
+the runner does not reconstruct an old checkout or substitute new validation for
+the older release. Update receipt verifier arguments and their source/tree/tag
+bindings together during adoption. A failed consumer check still stops recovery.
 
 ## Authority and recovery
 
@@ -158,13 +170,37 @@ push or version change has been authorized, because commits remain
 maintainer-owned under the [engineering baseline](../DRAGGINZGAME.md). Agents
 may use separate read-only or preparation phases within existing authorization.
 
-Once version preparation has started, the normal targets reject any unfinished
-release, including when the bumped metadata would otherwise select another
-candidate. If preparation, tagging or a push is interrupted, retain the exact candidate,
-source/commit identity, completed phases and evidence. Inspect local and remote
-state before `make release-resume VERSION=X.Y.Z` resumes that release. A missing push reply does not prove failure.
-Never rerun the increment from the already bumped version, recreate an existing
-release commit, overwrite a tag or discard artifacts to obtain a clean retry.
+Once version preparation may have started, rerun a normal target to
+automatically reconcile the unfinished release at its saved version. The runner
+selects that intent before computing a new candidate, including when metadata
+has already been bumped. It retains the source/commit identity, UTC date,
+destination, completed phases and evidence. Uncommitted preparation remains bound
+to its saved source and kind. After the release commit exists, newer commits are
+allowed only on its direct descendant history, with the exact staged tree, sole
+source parent and release subject still verified. A dirty tree, changed release
+payload, competing unfinished identities, conflicting tag or destination, or an
+occupied lock stops recovery; the existence of a plan alone does not.
+
+An unchanged same-kind retry finishes only the saved release. If HEAD contains
+newer committed fixes, or a different increment is explicitly requested after the
+release commit exists, the normal command first finishes the older release and
+then computes the requested increment from the actual local version. Fresh
+preflight and complete validation run against current source before preparation.
+For example, an interrupted minor release prepared `0.265.0`; after committing a
+callback fix while metadata still reads `0.265.0`, `make release-patch` reconciles
+that release, then validates and prepares `0.265.1`. It never recreates the older
+commit or tag. A failure in the new gate leaves the older release complete, keeps
+both attempts' evidence, and permits the normal target to retry the new attempt.
+
+Recovery checks the saved phase against actual local and remote state. It never
+increments the prepared version again, recreates a matching release commit,
+overwrites a tag or replays a push whose outcome cannot be established. A missing
+push reply does not prove failure: matching remote branch and tag identities
+complete that release without another push; a failed remote query stops it.
+`make release-resume VERSION=X.Y.Z` remains available for explicit selection of
+only that retained release, using the same reconciliation and conflict checks;
+it never starts a next increment. Preserve
+artifacts throughout recovery; publication and cleanup remain separate.
 
 `Release X.Y.Z completed; retained plan: ...` is a success message. The completed
 plan is retained evidence and does not block the next release. A later failure

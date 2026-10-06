@@ -96,6 +96,7 @@ the required verifiers, adding any selected tools to the same command:
   --file rules/changelogs.md \
   --file rules/cargo-dependencies.md \
   --file rules/git-hooks.md \
+  --file rules/agent-maintenance.md \
   --file docs/releases.md \
   --file scripts/ci/run-release.sh \
   --file scripts/ci/next-release-version.sh \

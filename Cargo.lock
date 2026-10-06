@@ -1354,9 +1354,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-tools"
-version = "0.1.8"
+version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2427a45cdfa5a2de35ed9cc9d3ecadfce2067815944d4e5c2c1122b7a9556ff8"
+checksum = "bbc0e8dd5d8cdec7ad50dfd75d32dc173f2e5d83335506a5c533567211c79d3a"
 dependencies = [
  "flate2",
  "rustix",
@@ -1428,9 +1428,9 @@ dependencies = [
 
 [[package]]
 name = "ic-timers"
-version = "0.13.4"
+version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "151a99b2ac3e763f79180d006c3c81fbe22a87ecdb76a2e1beb3c783895b148b"
+checksum = "7b786908d0a69342c03bedc16d86563ed6d5187e9b3318451078926d1d33f6ed"
 dependencies = [
  "ic-cdk-timers",
  "ic-metrics",
@@ -2686,9 +2686,9 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "1.1.4"
+version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6fe4565b9518b83ef4f91bb47ce29620ca828bd32cb7e408f0062e9930ba190"
+checksum = "891efababe418670775f199f0d233d84843c227a0949a883ce15b37c78d6629d"
 dependencies = [
  "bitflags",
  "errno",
@@ -3201,9 +3201,9 @@ dependencies = [
 
 [[package]]
 name = "tar"
-version = "0.4.40"
+version = "0.4.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b16afcea1f22891c49a00c751c7b63b2233284064f11a200fc624137c51e2ddb"
+checksum = "3f6221d9a6003c78398e3b239969f352578258df48c8eb051caadae0015bc840"
 dependencies = [
  "filetime",
  "libc",

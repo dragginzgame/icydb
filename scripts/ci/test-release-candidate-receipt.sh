@@ -99,9 +99,20 @@ run_subject verify-staged
 git -C "$FIXTURE" commit -q --no-verify -m "Release 0.223.7"
 run_subject verify-commit
 
-printf 'dirty source\n' >> "$FIXTURE/code.txt"
+# A newer committed fix does not replace the selected release's tested proof.
+release_commit="$(git -C "$FIXTURE" rev-parse HEAD)"
+printf 'newer committed fix\n' >> "$FIXTURE/code.txt"
+git -C "$FIXTURE" add code.txt
+git -C "$FIXTURE" commit -q --no-verify -m "later fix"
 expect_failure run_subject verify-commit
+RELEASE_COMMIT="$release_commit" run_subject verify-commit
+RELEASE_COMMIT="$candidate_commit" expect_failure run_subject verify-commit
+RELEASE_COMMIT=invalid expect_failure run_subject verify-commit
+
+printf 'dirty source\n' >> "$FIXTURE/code.txt"
+RELEASE_COMMIT="$release_commit" expect_failure run_subject verify-commit
 git -C "$FIXTURE" restore code.txt
+RELEASE_COMMIT="$release_commit" run_subject verify-commit
 
 printf '[workspace]\n[workspace.package]\nversion = "0.223.8"\n[package]\nname = "fixture"\nversion.workspace = true\nedition = "2024"\n[lib]\npath = "code.txt"\n' > "$FIXTURE/Cargo.toml"
 write_lockfile 0.223.8
