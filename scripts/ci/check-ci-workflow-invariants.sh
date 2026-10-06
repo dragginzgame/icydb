@@ -3,6 +3,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
+export PATH="$ROOT/.tools/host/bin:$PATH"
+YQ="${YQ:-$ROOT/.tools/host/bin/yq}"
 
 status=0
 
@@ -11,20 +13,9 @@ fail() {
   status=1
 }
 
-ci_job_recipe() {
-  local job="$1"
-  awk -v job="$job" '
-    $0 == "  " job ":" {
-      in_job = 1
-      next
-    }
-    in_job && /^  [[:alnum:]_-]+:$/ {
-      exit
-    }
-    in_job {
-      print
-    }
-  ' .github/workflows/ci.yml
+# YAML structure is parsed once; shell recipe policy reads decoded run values.
+ci_job_runs() {
+  jq -r --arg job "$1" '.jobs[$job].steps[]?.run // empty' <<< "$ci_json"
 }
 
 make_target_recipe() {
@@ -45,96 +36,38 @@ make_target_recipe() {
 
 shopt -s nullglob
 workflow_files=(.github/workflows/*.yml .github/workflows/*.yaml)
-if [[ ${#workflow_files[@]} -eq 0 ]]; then
+if [[ -z "${workflow_files[*]:-}" ]]; then
   echo "[ERROR] no GitHub Actions workflows found" >&2
   exit 1
 fi
 
-if rg -n 'runs-on:[[:space:]]+ubuntu-latest' "${workflow_files[@]}"; then
-  fail "workflow runners must use the fixed Ubuntu 24.04 image"
-fi
-
-mutable_actions="$({
-  rg -n 'uses:[[:space:]]+[^[:space:]#]+@' "${workflow_files[@]}" || true
-} | awk '{
-  revision = $0
-  sub(/^.*uses:[[:space:]]+[^[:space:]@]+@/, "", revision)
-  sub(/[[:space:]].*$/, "", revision)
-  if (length(revision) != 40 || revision ~ /[^0-9a-f]/) print
-}')"
-if [[ -n "$mutable_actions" ]]; then
-  printf '%s\n' "$mutable_actions" >&2
-  fail "third-party actions must use immutable 40-character revisions"
-fi
-
+ci_json=""
 for workflow in "${workflow_files[@]}"; do
-  run_count="$(rg -c '^[[:space:]]+runs-on:' "$workflow" || true)"
-  timeout_count="$(rg -c '^[[:space:]]+timeout-minutes:' "$workflow" || true)"
-  if [[ "$run_count" != "$timeout_count" ]]; then
-    fail "$workflow must bound every runner job with timeout-minutes"
+  parsed="$("$YQ" -p yaml -o json -I 0 '.' "$workflow")" || {
+    echo "[ERROR] cannot parse workflow: $workflow" >&2; exit 1;
+  }
+  jq -se 'length == 1 and (.[0] | type == "object")' <<< "$parsed" >/dev/null || {
+    echo "[ERROR] expected one workflow mapping: $workflow" >&2; exit 1;
+  }
+  findings="$(jq -r -L "$ROOT/scripts/ci" --arg file "$workflow" \
+    -f "$ROOT/scripts/ci/ci-workflow-invariants.jq" <<< "$parsed")" || {
+    echo "[ERROR] cannot validate workflow: $workflow" >&2; exit 1;
+  }
+  if [[ -n "$findings" ]]; then
+    fail "$workflow: $findings"
   fi
-
-  if ! rg -q '^permissions:$' "$workflow"; then
-    fail "$workflow must declare top-level token permissions"
-  fi
-
-  checkout_count="$(rg -c 'uses:[[:space:]]+actions/checkout@' "$workflow" || true)"
-  credential_count="$(rg -c 'persist-credentials:[[:space:]]+false' "$workflow" || true)"
-  if [[ "$checkout_count" != "$credential_count" ]]; then
-    fail "$workflow must disable persisted checkout credentials"
-  fi
-
-  if rg -q "(^|[[:space:]\"'])gh[[:space:]]+api([[:space:]\"']|$)" "$workflow" &&
-     ! rg -q 'run:[[:space:]]+make install-gh' "$workflow"; then
-    fail "$workflow uses gh without the shared make install-gh prerequisite"
-  fi
+  if [[ "$workflow" == .github/workflows/ci.yml ]]; then ci_json="$parsed"; fi
 done
-
-if rg -q '^[[:space:]]+tags:' .github/workflows/ci.yml; then
-  fail "CI must not duplicate the main release commit through a tag trigger"
-fi
-
-for job in dependency_msrv static rust check wasm_size_report release; do
-  if ! rg -q "^  ${job}:$" .github/workflows/ci.yml; then
-    fail "CI is missing the ${job} validation job"
-  fi
-done
-
-for lane in core workspace tier-a tier-b; do
-  if ! rg -q --fixed-strings -- "- lane: $lane" .github/workflows/ci.yml; then
-    fail "CI is missing the $lane Rust validation lane"
-  fi
-done
-
-if ! rg -q '^[[:space:]]+fail-fast:[[:space:]]+false$' .github/workflows/ci.yml; then
-  fail "parallel Rust validation must retain every lane after one lane fails"
-fi
-
-if ! ci_job_recipe check | rg -q --fixed-strings 'needs: [static, rust, macos_host]'; then
-  fail "the terminal check identity must aggregate every validation lane"
-fi
-
-if ci_job_recipe wasm_size_report | rg -q '^[[:space:]]+needs:'; then
-  fail "Wasm evidence must run independently from validation"
-fi
-
-if ! ci_job_recipe release |
-  rg -q --fixed-strings 'needs: [dependency_msrv, check, wasm_size_report]'; then
-  fail "release artifacts must require MSRV, validation, and Wasm evidence"
-fi
+[[ -n "$ci_json" ]] || { echo '[ERROR] central CI workflow is missing' >&2; exit 1; }
 
 for target in ci-static ci-core ci-workspace ci-sql-tier-a ci-sql-tier-b; do
   if ! rg -q "^${target}:$" Makefile; then
     fail "Make is missing the shared $target validation authority"
   fi
-  if [[ "$target" != "ci-static" ]] &&
-     ! rg -q --fixed-strings "make_target: $target" .github/workflows/ci.yml; then
-    fail "CI is missing the shared $target validation authority"
-  fi
 done
 
-if ! rg -q 'run:[[:space:]]+make ci-static' .github/workflows/ci.yml ||
-   ! rg -q --fixed-strings 'make "$MAKE_TARGET"' .github/workflows/ci.yml; then
+if ! ci_job_runs static | rg -q '(^|[[:space:]])make[[:space:]]+ci-static([[:space:]]|$)' ||
+   ! ci_job_runs rust | rg -q --fixed-strings 'make "$MAKE_TARGET"'; then
   fail "CI jobs must consume the shared local validation targets"
 fi
 
@@ -160,7 +93,8 @@ for target in _test-canister-libs test-integration-feedback \
   fi
 done
 
-if ! rg -q --fixed-strings 'bash scripts/ci/install-pocketic.sh' .github/workflows/ci.yml ||
+if ! ci_job_runs rust | rg -q --fixed-strings 'make install-tools tools-check' ||
+   ! rg -q --fixed-strings 'scripts/ci/check-pocketic-alignment.sh' Makefile ||
    ! rg -q --fixed-strings 'scripts/ci/run-with-pocketic-server.sh' Makefile ||
    ! rg -q --fixed-strings 'ICYDB_POCKET_IC_SERVER_URL' testing/integration/src/lib.rs; then
   fail "PocketIC workflows must install one locked binary and Tier B must use one governed server"
@@ -172,10 +106,10 @@ if [[ "$tier_b_perf_target_refs" -lt 3 ]] ||
   fail "Tier B must retain the total-only SQL performance gate"
 fi
 
-if rg -q '^[[:space:]]+CARGO_HOME:' .github/workflows/ci.yml &&
+if jq -e '.env // {} | has("CARGO_HOME")' <<< "$ci_json" >/dev/null &&
    ! rg -q --fixed-strings \
      "printf '%s\\n' \"\$CARGO_HOME/bin\" >> \"\$GITHUB_PATH\"" \
-     .github/workflows/ci.yml; then
+     <(jq -r '.jobs[].steps[]?.run // empty' <<< "$ci_json"); then
   fail "repo-local Cargo installs must expose their bin directory to later CI steps"
 fi
 
@@ -207,7 +141,7 @@ done
 
 if ! rg -q '^install-gh:$' Makefile ||
    ! rg -q 'bash scripts/ci/install-gh\.sh' Makefile ||
-   ! rg -q 'run:[[:space:]]+make install-gh' .github/workflows/ci.yml; then
+   ! ci_job_runs static | rg -q '(^|[[:space:]])make[[:space:]]+install-gh([[:space:]]|$)'; then
   fail "the shared GitHub CLI installation path is incomplete"
 fi
 

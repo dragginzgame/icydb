@@ -61,10 +61,13 @@ cleanup() {
     wait "$SERVER_PID" 2>/dev/null || true
   fi
   if [[ "$status" -ne 0 ]]; then
-    report_server_output
+    report_server_output || true
+    # Process ownership ends here; complete failure evidence must outlive it.
+    echo "==> full PocketIC server logs retained: $scratch" >&2 || true
+  else
+    rm -f "$port_file" "$stdout_file" "$stderr_file"
+    rmdir "$scratch" 2>/dev/null || true
   fi
-  rm -f "$port_file" "$stdout_file" "$stderr_file"
-  rmdir "$scratch" 2>/dev/null || true
   exit "$status"
 }
 trap cleanup EXIT

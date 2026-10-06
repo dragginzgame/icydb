@@ -11,7 +11,7 @@ use crate::{
         executor::EntityAuthority,
         schema::{
             AcceptedFieldKind, AcceptedRowLayoutRuntimeContract, SchemaFieldWritePolicy,
-            SchemaInfo, input_value_from_strict_sql_literal_for_persisted_kind,
+            SchemaInfo, ValidateError, input_value_from_strict_sql_literal_for_persisted_kind,
         },
         session::{
             AcceptedSchemaCatalogContext,
@@ -41,13 +41,21 @@ fn checked_accepted_write_descriptor_for_returning<'a>(
     Ok(descriptor)
 }
 
-fn accepted_write_field_slot(
+// Unknown authored names are caller validation failures on every write route,
+// including DEFAULT and resumable preparation; they are never engine damage.
+fn unknown_sql_write_field(field_name: &str) -> QueryError {
+    QueryError::validate(ValidateError::UnknownField {
+        field: field_name.to_string(),
+    })
+}
+
+pub(super) fn accepted_write_field_slot(
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     field_name: &str,
 ) -> Result<FieldSlot, QueryError> {
     let accepted_slot = descriptor
         .field_slot_index_by_name(field_name)
-        .ok_or_else(QueryError::invariant)?;
+        .ok_or_else(|| unknown_sql_write_field(field_name))?;
 
     Ok(FieldSlot::from_validated_index(accepted_slot))
 }
@@ -88,7 +96,7 @@ fn write_policy_for_accepted_name(
     field_name: &str,
 ) -> Result<SchemaFieldWritePolicy, QueryError> {
     let Some(field) = descriptor.field_by_name(field_name) else {
-        return Err(QueryError::invariant());
+        return Err(unknown_sql_write_field(field_name));
     };
 
     Ok(field.write_policy())
@@ -101,7 +109,7 @@ pub(super) fn sql_write_input_for_accepted_field(
 ) -> Result<InputValue, QueryError> {
     let accepted_field = descriptor
         .field_by_name(field_name)
-        .ok_or_else(QueryError::invariant)?;
+        .ok_or_else(|| unknown_sql_write_field(field_name))?;
     if matches!(value, Value::Null) {
         return accepted_field
             .decode_contract()
@@ -129,9 +137,7 @@ pub(super) fn reject_explicit_sql_write_to_managed_field(
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     field_name: &str,
 ) -> Result<(), QueryError> {
-    let Ok(policy) = write_policy_for_accepted_name(descriptor, field_name) else {
-        return Ok(());
-    };
+    let policy = write_policy_for_accepted_name(descriptor, field_name)?;
 
     if policy.write_management().is_some() {
         return Err(QueryError::sql_write_boundary(
@@ -146,9 +152,7 @@ pub(super) fn reject_explicit_sql_write_to_generated_field(
     descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
     field_name: &str,
 ) -> Result<(), QueryError> {
-    let Ok(policy) = write_policy_for_accepted_name(descriptor, field_name) else {
-        return Ok(());
-    };
+    let policy = write_policy_for_accepted_name(descriptor, field_name)?;
 
     if policy.insert_generation().is_some() {
         return Err(QueryError::sql_write_boundary(

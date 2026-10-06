@@ -1,8 +1,9 @@
 use super::{
     SqlWriteCandidateBounds, SqlWriteMutationBatch, SqlWriteMutationExecution,
-    reject_explicit_sql_write_to_generated_field, reject_explicit_sql_write_to_managed_field,
-    sql_write_candidate_bounds, sql_write_input_for_accepted_field,
-    sql_write_patch_set_accepted_field, sql_write_patch_set_insert_default,
+    accepted_write_field_slot, reject_explicit_sql_write_to_generated_field,
+    reject_explicit_sql_write_to_managed_field, sql_write_candidate_bounds,
+    sql_write_input_for_accepted_field, sql_write_patch_set_accepted_field,
+    sql_write_patch_set_insert_default,
 };
 use crate::{
     db::{
@@ -336,6 +337,11 @@ impl<C: CanisterKind> DbSession<C> {
             statement.returning.as_ref(),
             |catalog, descriptor| {
                 let columns = sql_insert_columns(&descriptor, statement);
+                // Check the whole authored column list before omission policy or
+                // source execution, including SELECT sources returning no rows.
+                for column in &statement.columns {
+                    accepted_write_field_slot(&descriptor, column)?;
+                }
                 if !matches!(statement.source, SqlInsertSource::DefaultValues) {
                     ensure_sql_insert_required_fields(&descriptor, columns.as_slice())?;
                 }

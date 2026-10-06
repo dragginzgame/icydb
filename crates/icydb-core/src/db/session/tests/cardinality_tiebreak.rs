@@ -26,6 +26,7 @@ mod secondary_order;
 mod seek_intersection;
 mod sparse_indexes;
 mod sql_not_null;
+mod sql_write_fields;
 mod timestamp_ranges;
 mod typed_explain;
 mod unordered_distinct;

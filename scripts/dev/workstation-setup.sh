@@ -21,36 +21,34 @@ esac
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck source=/dev/null
 source "$ROOT/ci/tool-versions.env"
+# shellcheck source=/dev/null
+source "$ROOT/ci/icydb-tools.env"
 ACTIONLINT_INSTALL_DIR="${ACTIONLINT_INSTALL_DIR:-$HOME/.local/bin}"
-# Cargo owns ic-wasm in both workstation and CI artifact flows.
-export PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$HOME/.cargo/bin:$HOME/.local/bin:$ACTIONLINT_INSTALL_DIR:$PATH"
+export PATH="$ROOT/.tools/host/bin:$ROOT/.tools/ic/bin:${CARGO_HOME:-$HOME/.cargo}/bin:$HOME/.cargo/bin:$HOME/.local/bin:$ACTIONLINT_INSTALL_DIR:$PATH"
 cd "$ROOT"
 
 DEV_SYSTEM_PACKAGES=(
   build-essential
   cmake
   curl
+  git
+  tar
+  xz-utils
   wget
   gzip
   libssl-dev
   pkg-config
   perl
-  ripgrep
   shellcheck
-  nodejs
-  npm
   bubblewrap
   wabt
-  jq
   cloc
 )
 
 CARGO_WORKSTATION_TOOLS=(
   "candid-extractor@$ICYDB_CANDID_EXTRACTOR_VERSION"
-  "ic-wasm@$ICYDB_IC_WASM_VERSION"
   "twiggy@$ICYDB_TWIGGY_VERSION"
   "cargo-edit@$ICYDB_CARGO_EDIT_VERSION"
-  "cargo-get@$ICYDB_CARGO_GET_VERSION"
   "cargo-watch@$ICYDB_CARGO_WATCH_VERSION"
 )
 
@@ -60,7 +58,7 @@ install_system_packages() {
       echo "Install Xcode Command Line Tools and Homebrew, then re-run this target." >&2
       exit 1
     fi
-    brew install cmake curl openssl@3 pkg-config perl ripgrep shellcheck node wabt jq cloc make
+    brew install cmake curl git xz openssl@3 pkg-config perl shellcheck wabt cloc make
     return
   fi
 
@@ -105,7 +103,7 @@ install_tooling() {
   rustup toolchain install --target wasm32-unknown-unknown
 
   install_actionlint
-  bash "$ROOT/scripts/ci/install-icydb-yq.sh"
+  make --no-print-directory -C "$ROOT" install-tools
 
   cargo install cargo-sort --version "$SHARED_TOOLING_CARGO_SORT_VERSION" --locked
   cargo install cargo-sort-derives --version "$ICYDB_CARGO_SORT_DERIVES_VERSION" --locked
@@ -120,25 +118,11 @@ install_tooling() {
     fi
   done
 
-  npm install -g --prefix "$HOME/.local" "@icp-sdk/icp-cli@$ICYDB_ICP_CLI_VERSION"
-
-  if [[ "$MODE" == "update" ]]; then
-    bash "$ROOT/scripts/ci/install-wasm-optimizer.sh" --check-latest
-  else
-    bash "$ROOT/scripts/ci/install-wasm-optimizer.sh"
-  fi
   [[ "$(candid-extractor --version)" == "candid-extractor $ICYDB_CANDID_EXTRACTOR_VERSION" ]] || {
     echo "candid-extractor does not report the reviewed version $ICYDB_CANDID_EXTRACTOR_VERSION" >&2
     exit 1
   }
-  [[ "$(icp --version)" == "icp $ICYDB_ICP_CLI_VERSION" ]] || {
-    echo "icp does not report the reviewed version $ICYDB_ICP_CLI_VERSION" >&2
-    exit 1
-  }
-  [[ "$(ic-wasm --version)" == "ic-wasm $ICYDB_IC_WASM_VERSION" ]] || {
-    echo "ic-wasm does not report the reviewed version $ICYDB_IC_WASM_VERSION" >&2
-    exit 1
-  }
+  make --no-print-directory -C "$ROOT" tools-check
 }
 
 install_repository_hook() {

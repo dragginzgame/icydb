@@ -56,16 +56,14 @@ if [[ -n "$executor_sql_label_leaks" ]]; then
 fi
 
 TERMINAL_ROOT="crates/icydb-core/src/db/executor/terminal"
-if [[ -d "$TERMINAL_ROOT" ]]; then
-  terminal_sql_output_leaks="$(
-    run_rg "alias|label|render_text_projection_expr_sql_label|\\.sql_label\\(" "$TERMINAL_ROOT" \
-      | strip_comment_only
-  )"
-  if [[ -n "$terminal_sql_output_leaks" ]]; then
-    echo "[ERROR] Terminal layer must not own SQL-facing alias/label formatting." >&2
-    echo "$terminal_sql_output_leaks" >&2
-    status=1
-  fi
+terminal_sql_output_leaks="$(
+  run_rg "alias|label|render_text_projection_expr_sql_label|\\.sql_label\\(" "$TERMINAL_ROOT" \
+    | strip_comment_only
+)"
+if [[ -n "$terminal_sql_output_leaks" ]]; then
+  echo "[ERROR] Terminal layer must not own SQL-facing alias/label formatting." >&2
+  echo "$terminal_sql_output_leaks" >&2
+  status=1
 fi
 
 # -----------------------------------------------------------------------------

@@ -6,11 +6,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
 YQ="${YQ:-yq}"
-usage() { echo 'usage: check-dependency-pins.sh [--consumer <repository>]' >&2; }
+inheritance=false
+usage() { echo 'usage: check-dependency-pins.sh [--consumer <repository>] [--cargo-inheritance]' >&2; }
 fail() { echo "dependency pin check failed: $*" >&2; exit 1; }
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --consumer) [[ $# -ge 2 ]] || { usage; exit 2; }; ROOT="$2"; shift 2 ;;
+        --cargo-inheritance) inheritance=true; shift ;;
         -h|--help) usage; exit 0 ;;
         *) usage; exit 2 ;;
     esac
@@ -77,6 +79,15 @@ while IFS= read -r -d '' path; do
         workspace_root="$(cd "$(dirname "$workspace")" && pwd -P)"
         case "$workspace_root/" in "$ROOT/"*) ;; *) fail "workspace root escapes consumer: $path" ;; esac
         printf '%s\n' "$workspace_root" >> "$temporary/workspaces"
+        if [[ "$inheritance" == true ]]; then
+            [[ -f "$workspace" && ! -L "$workspace" ]] || fail "workspace manifest must be a regular file: $workspace"
+            "$YQ" -p toml -o json -I 0 '.' "$workspace" > "$temporary/root.json" || fail "cannot parse $workspace"
+            jq -se 'length == 1 and (.[0] | type == "object")' "$temporary/root.json" >/dev/null || fail "expected one workspace object: $workspace"
+            jq -c -L "$SCRIPT_DIR" --slurpfile root "$temporary/root.json" \
+                --argjson member "$(if [[ "$ROOT/$path" == "$workspace_root/Cargo.toml" ]]; then echo false; else echo true; fi)" \
+                'include "dependency-pins"; inheritance_checks($root[0]; $member)' \
+                "$temporary/document" >> "$temporary/findings"
+        fi
         jq -c -L "$SCRIPT_DIR" 'include "dependency-pins"; dependencies | select(.spec.path? != null)' \
             "$temporary/parsed" > "$temporary/paths"
         while IFS= read -r dependency; do

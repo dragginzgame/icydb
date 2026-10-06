@@ -117,6 +117,13 @@ Report source/snapshot adoption and local activation separately. Shared Tooling
 distributes and tests the Rust hook; its own shell-only checkout does not activate
 it.
 
+Consumers may replace repeated mechanical adoption fixtures with
+`scripts/ci/check-formatting-hooks.sh`, retaining their selected manifests,
+formatter inputs and product-specific cases. Its [documented contract](../docs/verification-helpers.md#consumer-formatting-hook-adoption)
+requires already-prepared tools and retains failed exports. A committed snapshot
+and focused native consumer qualification are still required before deleting
+superseded checks.
+
 Hooks are developer convenience, not CI or release evidence. Git permits bypassing
 pre-commit hooks; CI must still enforce formatting independently. See the official
 [Git hook documentation](https://git-scm.com/docs/githooks) and

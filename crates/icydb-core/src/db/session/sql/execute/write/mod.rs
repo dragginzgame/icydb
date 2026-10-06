@@ -31,9 +31,10 @@ use crate::{
     value::Value,
 };
 use authority::{
-    reject_explicit_sql_write_to_generated_field, reject_explicit_sql_write_to_managed_field,
-    sql_write_input_for_accepted_field, sql_write_patch_set_accepted_field,
-    sql_write_patch_set_insert_default, sql_write_patch_set_update_default,
+    accepted_write_field_slot, reject_explicit_sql_write_to_generated_field,
+    reject_explicit_sql_write_to_managed_field, sql_write_input_for_accepted_field,
+    sql_write_patch_set_accepted_field, sql_write_patch_set_insert_default,
+    sql_write_patch_set_update_default,
 };
 use candidate::{
     SqlWriteCandidateBounds, SqlWriteMutationBatch, sql_exact_update_candidate_bounds,

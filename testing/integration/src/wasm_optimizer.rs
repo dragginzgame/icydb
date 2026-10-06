@@ -7,7 +7,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use ic_host_tools::artifact::Sha256Digest;
+use ic_host_tools::{artifact::hash_file, tool::resolve_executable};
 
 /// Environment variable that may point at the pinned `wasm-opt` executable.
 pub const WASM_OPT_BIN_ENV: &str = "ICYDB_WASM_OPT_BIN";
@@ -42,7 +42,8 @@ static TEMPORARY_OUTPUT_ORDINAL: AtomicU64 = AtomicU64::new(0);
 
 /// Resolve the admitted executable digest for the native host.
 ///
-/// Installation, runtime verification and reports consume the same pin table.
+/// Runtime verification and reports consume the raw executable admission table;
+/// the shared installer separately owns archive selection and verification.
 pub fn wasm_opt_sha256() -> Result<&'static str, String> {
     let platform = match (env::consts::OS, env::consts::ARCH) {
         ("linux", "x86_64") => "linux_x86_64",
@@ -57,7 +58,7 @@ pub fn wasm_opt_sha256() -> Result<&'static str, String> {
             if fields.next()? != platform {
                 return None;
             }
-            fields.nth(2)
+            fields.next()
         })
         .filter(|digest| {
             digest.len() == 64
@@ -70,9 +71,20 @@ pub fn wasm_opt_sha256() -> Result<&'static str, String> {
 
 /// Resolve and validate the exact optimizer used by the deployable-Wasm pipeline.
 pub fn pinned_wasm_optimizer() -> Result<PathBuf, String> {
-    let requested =
-        env::var_os(WASM_OPT_BIN_ENV).map_or_else(|| PathBuf::from("wasm-opt"), PathBuf::from);
-    let executable = resolve_executable(&requested)?;
+    let requested = env::var_os(WASM_OPT_BIN_ENV).map_or_else(
+        || PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.tools/ic/bin/wasm-opt"),
+        PathBuf::from,
+    );
+    let current_dir = env::current_dir()
+        .map_err(|error| format!("failed to resolve optimizer working directory: {error}"))?;
+    // The consumer supplies PATH only for an explicit bare-name override.
+    let search_directories = env::var_os("PATH")
+        .map(|path| env::split_paths(&path).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let executable =
+        resolve_executable(&requested, &current_dir, &search_directories).map_err(|error| {
+            format!("failed to resolve wasm optimizer: {error}; run make install-ic-tools")
+        })?;
     // Verify the admitted bytes before executing the candidate.
     let observed_sha256 = sha256_hex(&executable)?;
     let expected_sha256 = wasm_opt_sha256()?;
@@ -173,31 +185,6 @@ pub(crate) fn optimize_deployable_wasm_with_optimizer(
     })
 }
 
-fn resolve_executable(requested: &Path) -> Result<PathBuf, String> {
-    if requested.is_absolute() || requested.components().count() > 1 {
-        return requested.canonicalize().map_err(|error| {
-            format!(
-                "failed to resolve wasm optimizer {}: {error}",
-                requested.display()
-            )
-        });
-    }
-
-    let path = env::var_os("PATH").ok_or_else(|| {
-        format!("PATH is unset and {WASM_OPT_BIN_ENV} does not name an absolute wasm optimizer")
-    })?;
-    env::split_paths(&path)
-        .map(|directory| directory.join(requested))
-        .find(|candidate| candidate.is_file())
-        .and_then(|candidate| candidate.canonicalize().ok())
-        .ok_or_else(|| {
-            format!(
-                "missing pinned wasm optimizer '{}'; run `bash scripts/ci/install-wasm-optimizer.sh` or set {WASM_OPT_BIN_ENV}",
-                requested.display()
-            )
-        })
-}
-
 fn temporary_output_path(output: &Path) -> PathBuf {
     let ordinal = TEMPORARY_OUTPUT_ORDINAL.fetch_add(1, Ordering::Relaxed);
     let file_name = output
@@ -212,9 +199,10 @@ fn temporary_output_path(output: &Path) -> PathBuf {
 }
 
 fn sha256_hex(path: &Path) -> Result<String, String> {
-    let bytes = fs::read(path)
+    // Preserve whole-file admission while hashing without a payload-sized buffer.
+    let identity = hash_file(path, u64::MAX)
         .map_err(|error| format!("failed to read {} for SHA-256: {error}", path.display()))?;
-    Ok(Sha256Digest::compute(&bytes).to_string())
+    Ok(identity.sha256.to_string())
 }
 
 fn format_process_failure(context: &str, output: &std::process::Output) -> String {

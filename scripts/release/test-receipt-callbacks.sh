@@ -8,6 +8,7 @@ unset MAKEFLAGS MAKEOVERRIDES MFLAGS RELEASE_COMMIT
 # Exercise the real Make callbacks and receipt scripts without Git mutations.
 # Candidate admission and Git reads are substitutes; receipts are real files.
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+export PATH="$root/.tools/host/bin:$PATH"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/release-receipt-callbacks.XXXXXX")"
 trap '
     status=$?
@@ -17,11 +18,14 @@ trap '
     rm -rf "$fixture"
     exit "$status"
 ' EXIT
-mkdir -p "$fixture/bin" "$fixture/scripts/ci"
+mkdir -p "$fixture/bin" "$fixture/scripts/ci" "$fixture/scripts/release" "$fixture/committed"
 cp "$root/scripts/ci/record-release-gate-receipt.sh" \
     "$root/scripts/ci/verify-release-gate-receipt.sh" "$fixture/scripts/ci/"
+cp "$root/scripts/ci/read-cargo-workspace-version.sh" "$fixture/scripts/ci/"
+cp "$root/scripts/release/read-committed-version.sh" "$fixture/scripts/release/"
 if [[ -f "$root/tool-versions.env" ]]; then cp "$root/tool-versions.env" "$fixture/"; fi
-printf '[workspace.package]\nversion = "0.1.1"\n' > "$fixture/Cargo.toml"
+printf "[workspace.package]\nversion = '0.1.1' # selected committed source\n" > "$fixture/Cargo.toml"
+cp "$fixture/Cargo.toml" "$fixture/committed/Cargo.toml"
 REAL_BASH="$(command -v bash)"
 export REAL_BASH
 real_make="$(command -v make)"
@@ -44,6 +48,10 @@ cat >> "$fixture/bin/git" <<'GIT'
 set -euo pipefail
 if [[ "${1:-}" == -C ]]; then shift 2; fi
 case "$*" in
+    'archive --format=tar '*)
+        [[ "${FAIL_ARCHIVE_READ:-0}" == 0 ]] || exit 9
+        tar -cf - -C "$FIXTURE_COMMITTED" .
+        ;;
     'rev-parse --verify HEAD')
         [[ "${FAIL_HEAD:-0}" == 0 ]] || exit 9
         printf '%s\n' "$HEAD_COMMIT"
@@ -59,6 +67,7 @@ esac
 GIT
 chmod +x "$fixture/bin/bash" "$fixture/bin/git"
 export FIXTURE_CARGO="$fixture/Cargo.toml"
+export FIXTURE_COMMITTED="$fixture/committed"
 export PATH="$fixture/bin:$PATH"
 cd "$fixture"
 
@@ -77,6 +86,11 @@ run_callback() {
 # The recorder and push checker must agree on the annotated tag's exact commit.
 run_callback pass release-tagged-check
 [[ "$(cat "$RELEASE_RECEIPT_DIR/v0.1.1.commit")" == "$HEAD_COMMIT" ]]
+FAIL_ARCHIVE_READ=1 run_callback fail release-tagged-check
+[[ "$(cat "$RELEASE_RECEIPT_DIR/v0.1.1.commit")" == "$HEAD_COMMIT" ]]
+# Newer working metadata cannot replace the selected committed version.
+printf '[workspace.package]\nversion = "0.9.0"\n' > "$fixture/Cargo.toml"
+run_callback pass release-tagged-check
 run_callback pass release-push-check
 printf '%s\n' 'scripts/ci/release-candidate-receipt.sh verify-commit' \
     "scripts/ci/verify-release-gate-receipt.sh $HEAD_COMMIT" > "$fixture/expected"

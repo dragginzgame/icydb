@@ -10,6 +10,27 @@ def dependencies:
   | {name: .key, spec: (if .value | type == "string" then {version: .value} else .value end)};
 def finding($file; $rule; $subject; $value; $message):
   {file: $file, rule: $rule, subject: $subject, value: $value, message: $message};
+def package_dependencies:
+  {dependencies, "dev-dependencies": .["dev-dependencies"], "build-dependencies": .["build-dependencies"]},
+  (.target[]? | {dependencies, "dev-dependencies": .["dev-dependencies"], "build-dependencies": .["build-dependencies"]})
+  | to_entries[] | select(.value != null) | .key as $section
+  | .value | to_entries[] | {name: .key, spec: .value, section: $section};
+def inheritance_checks($root; $member):
+  .file as $file | .data as $data |
+  (if $member and $data.package != null and $data.package.version != {workspace: true} then
+    finding($file; "cargo-inheritance"; "package.version"; ($data.package.version | tojson); "member package version must inherit workspace.package.version")
+  else empty end),
+  (if $data.package.version == {workspace: true} and ($root.workspace.package.version | type) != "string" then
+    finding($file; "cargo-inheritance"; "package.version"; "null"; "owning workspace must declare package.version")
+  else empty end),
+  ($data | package_dependencies | . as $dependency |
+    if (.spec | type) != "object" or .spec.workspace != true then
+      finding($file; "cargo-inheritance"; .name; (.spec | tojson); "package dependencies must inherit workspace.dependencies")
+    elif (.spec | keys - ["workspace", "features", "optional", "default-features"] | length) != 0 then
+      finding($file; "cargo-inheritance"; .name; (.spec | tojson); "child dependencies may select only features, optionality and default-features")
+    elif ($root.workspace.dependencies // {} | has($dependency.name) | not) then
+      finding($file; "cargo-inheritance"; .name; (.spec | tojson); "dependency alias is missing from the owning workspace catalog")
+    else empty end);
 def action_refs:
   (.jobs[]? | select(has("uses")) | .uses),
   (.jobs[]?.steps[]? | select(has("uses")) | .uses),

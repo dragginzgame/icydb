@@ -2,16 +2,24 @@
 use strict;
 use warnings;
 use FindBin;
-use File::Spec;
+use File::Copy qw(copy);
+use File::Path qw(make_path);
+use File::Basename qw(dirname);
 use File::Temp qw(tempdir);
 use Test::More;
 
+# Qualify consumer projection; generic Markdown grammar belongs upstream.
 my $directory = tempdir('icydb-documentation-XXXXXX', TMPDIR => 1, CLEANUP => 1);
-my $checker = "$FindBin::Bin/check-documentation.pl";
+make_path("$directory/scripts/ci");
+for my $script ('check-documentation.pl', 'check-documentation-links.pl') {
+    copy("$FindBin::Bin/$script", "$directory/scripts/ci/$script") or die "copy $script: $!";
+}
+my $checker = "$directory/scripts/ci/check-documentation.pl";
 
 sub fixture {
     my ($name, $contents) = @_;
-    my $path = File::Spec->catfile($directory, $name);
+    my $path = "$directory/$name";
+    make_path(dirname($path));
     open my $file, '>', $path or die "cannot create $path: $!";
     print {$file} $contents;
     close $file or die "cannot close $path: $!";
@@ -19,41 +27,48 @@ sub fixture {
 }
 
 sub check_document {
-    my ($path) = @_;
-    # List-form execution preserves spaces and keeps Markdown out of the shell.
-    open my $result, '-|', $^X, $checker, $path or die "cannot run checker: $!";
+    # List-form execution keeps caller-selected paths out of the shell.
+    open my $result, '-|', $^X, $checker, @_ or die "cannot run checker: $!";
     local $/;
     my $output = <$result>;
     close $result;
     return ($? >> 8, $output);
 }
 
-my $target = fixture('target file.md', "# Destination\n");
-my $valid = fixture('valid.md', <<"MARKDOWN");
-# Any heading
+fixture('selected target.md', "# Target\n");
+my $selected = fixture('selected document.md', '[Selected](<selected target.md>)');
+my ($status) = check_document($selected);
+is($status, 0, 'explicit document selection reaches the shared checker');
+fixture('selected document.md', '[Selected](missing.md)');
+($status) = check_document($selected);
+isnt($status, 0, 'shared failure stops the consumer adapter');
 
-[Relative](target%20file.md#section)
-[Absolute](<$target>)
-[Reference][destination]
-
-[destination]: <target%20file.md> "A title"
-[Remote](https://example.invalid/document)
-[Fragment](#local-heading)
-
-~~~markdown
-[Example only](missing-example.md)
-~~~
-MARKDOWN
-my ($status, $output) = check_document($valid);
-is($status, 0, 'local targets, encoded spaces, references and fences are handled');
-like($output, qr/3 local references/, 'only navigational local targets are checked');
-
-my $rewritten = fixture('rewritten.md', "# Different prose\n\n[Another label](<$target>)\n");
-($status, $output) = check_document($rewritten);
-is($status, 0, 'wording and labels do not determine navigation validity');
-
-my $broken = fixture('broken.md', '[Missing](missing-target.md)');
-($status, $output) = check_document($broken);
-isnt($status, 0, 'missing local target rejects');
-
+for my $document (
+    'README.md', 'INSTALLING.md', 'SECURITY.md', 'docs/governance/documentation.md',
+    'docs/governance/shared-tooling.md', 'docs/audits/README.md',
+    'docs/audits/recurring/crosscutting/crosscutting-flow-convergence-and-duplication.md',
+    'docs/audits/recurring/crosscutting/crosscutting-complexity-and-technical-debt.md',
+    'docs/audits/targeted/modules/module-surface-hardening.md',
+    'docs/audits/targeted/modules/module-cleanup-runner.md',
+    'docs/audits/archive/shared-adoption/README.md',
+) { fixture($document, "# Fixture\n"); }
+fixture('Cargo.toml', "[workspace.package]\nversion = \"0.1.1\"\n");
+fixture('README.md', "tag = \"v0.1.1\"\n");
+fixture('crates/owner.rs', "// Source owner\n");
+fixture('docs/contracts/PERSISTED_FORMAT_INVENTORY.md', '`crates/owner.rs`');
+fixture('shared-guide.md', '[Owner](crates/owner.rs)');
+fixture('.shared-tooling.snapshot', "file\tunused\t-\tshared-guide.md\n");
+($status) = check_document();
+is($status, 0, 'default roster admits current version and persisted source owner');
+fixture('shared-guide.md', '[Owner](missing.md)');
+($status) = check_document();
+isnt($status, 0, 'snapshot Markdown is part of the default roster');
+fixture('shared-guide.md', "# Guide\n");
+fixture('README.md', "tag = \"v0.1.0\"\n");
+($status) = check_document();
+isnt($status, 0, 'product dependency example must match the workspace version');
+fixture('README.md', "tag = \"v0.1.1\"\n");
+fixture('docs/contracts/PERSISTED_FORMAT_INVENTORY.md', '`crates/missing.rs`');
+($status) = check_document();
+isnt($status, 0, 'product persisted inventory requires an existing source owner');
 done_testing();

@@ -333,6 +333,11 @@ fn hex_response_bytes_accepts_plain_or_labeled_icp_hex_output() {
         hex_response_bytes("response (hex): 44 49 44 4c").expect("labeled hex should parse"),
         vec![0x44, 0x49, 0x44, 0x4c],
     );
+    assert_eq!(
+        hex_response_bytes("call completed\nresponse (hex): 4A\u{2003}ff\n00")
+            .expect("CLI presentation should normalize before shared decoding"),
+        vec![0x4a, 0xff, 0x00],
+    );
 }
 
 #[test]

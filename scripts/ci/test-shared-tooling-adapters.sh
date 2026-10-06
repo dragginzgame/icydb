@@ -3,10 +3,11 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 FIXTURE="$(mktemp -d "${TMPDIR:-/tmp}/icydb-shared-adapters.XXXXXX")"
-trap 'rm -rf "$FIXTURE"' EXIT
+trap 'status=$?; if [[ "$status" == 0 ]]; then rm -rf "$FIXTURE";
+  else echo "Shared adapter fixture retained: $FIXTURE" >&2; fi; exit "$status"' EXIT
 mkdir -p "$FIXTURE/scripts/ci" "$FIXTURE/bin" "$FIXTURE/install"
 for script in run-validation-targets.sh run-icydb-validation-targets.sh \
-  install-actionlint.sh install-icydb-actionlint.sh verify-file-checksum.sh; do
+  install-actionlint.sh install-ci-tool.sh install-icydb-actionlint.sh verify-file-checksum.sh; do
   cp "$ROOT/scripts/ci/$script" "$FIXTURE/scripts/ci/"
 done
 
@@ -94,12 +95,7 @@ printf '%s\n' 1.7.12
 TOOL
 chmod +x "$FIXTURE/bin/"*
 tar -czf "$FIXTURE/artifact.tar.gz" -C "$FIXTURE/bin" actionlint
-if command -v sha256sum > /dev/null 2>&1; then
-  digest="$(sha256sum "$FIXTURE/artifact.tar.gz")"
-else
-  digest="$(shasum -a 256 "$FIXTURE/artifact.tar.gz")"
-fi
-digest="${digest%% *}"
+digest="$(bash "$FIXTURE/scripts/ci/verify-file-checksum.sh" --print sha256 "$FIXTURE/artifact.tar.gz")"
 printf 'version\t1.7.12\n' > "$FIXTURE/scripts/ci/actionlint-checksums.tsv"
 for platform in linux_amd64 linux_arm64 darwin_amd64 darwin_arm64; do
   printf '%s\tactionlint_1.7.12_%s.tar.gz\n' "$digest" "$platform" \
@@ -137,4 +133,30 @@ PATH="$FIXTURE/bin:$PATH" TEST_HOST=Linux TEST_ARCH=x86_64 \
   > "$FIXTURE/rejection" 2>&1 || status=$?
 [[ "$status" -ne 0 && ! -e "$FIXTURE/executed" ]]
 cmp "$FIXTURE/install/actionlint" "$FIXTURE/installed-before"
+# Authentic bytes with the wrong version also preserve the selected executable
+# and retain their failed candidate on the destination filesystem.
+cat > "$FIXTURE/bin/actionlint" <<'WRONG_VERSION'
+#!/usr/bin/env bash
+touch "$TEST_SIDE_EFFECT"
+printf '%s\n' 1.7.120
+WRONG_VERSION
+tar -czf "$FIXTURE/wrong-version.tar.gz" -C "$FIXTURE/bin" actionlint
+digest="$(bash "$FIXTURE/scripts/ci/verify-file-checksum.sh" --print sha256 "$FIXTURE/wrong-version.tar.gz")"
+printf 'version\t1.7.12\n%s\tactionlint_1.7.12_linux_amd64.tar.gz\n' "$digest" \
+  > "$FIXTURE/scripts/ci/actionlint-checksums.tsv"
+status=0
+PATH="$FIXTURE/bin:$PATH" TEST_HOST=Linux TEST_ARCH=x86_64 \
+  TEST_REQUEST="$FIXTURE/request" TEST_ARCHIVE="$FIXTURE/wrong-version.tar.gz" \
+  TEST_SIDE_EFFECT="$FIXTURE/version-executed" ACTIONLINT_INSTALL_DIR="$FIXTURE/install" \
+  bash "$FIXTURE/scripts/ci/install-icydb-actionlint.sh" \
+  > "$FIXTURE/version-rejection" 2>&1 || status=$?
+[[ "$status" -ne 0 && -f "$FIXTURE/version-executed" ]]
+cmp "$FIXTURE/install/actionlint" "$FIXTURE/installed-before"
+retained=0
+for stage in "$FIXTURE/install"/.actionlint-install.*; do
+  if [[ -f "$stage/actionlint" ]] && cmp -s "$stage/actionlint" "$FIXTURE/bin/actionlint"; then
+    retained=$((retained + 1))
+  fi
+done
+[[ "$retained" == 1 ]]
 echo "shared-tooling adapter regressions passed"

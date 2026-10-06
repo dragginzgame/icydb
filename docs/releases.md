@@ -12,8 +12,12 @@ a publishable package, must provide these Make targets:
 The names, version arithmetic, phase order, failure behavior and external effects
 are identical across repositories. Each repository supplies its canonical version
 source, metadata file set, validation gate, branch and remote. A repository
-without package metadata uses its latest finalized changelog version as the
-version source. Pre-release versions require a separately selected release plan;
+without package metadata may use a dedicated version file; otherwise it uses
+its latest finalized changelog version. Shared Tooling owns its current local
+version in root `VERSION`, displayed by `make version`. Its undated changelog
+heading names the next proposed release. Preparation updates both files and
+stages them together; neither a version file nor a changelog heading proves
+that a tag was pushed. Pre-release versions require a separately selected release plan;
 these commands must reject ambiguous or unsupported version inputs.
 
 ## Required workflow

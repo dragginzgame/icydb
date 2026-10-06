@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+export PATH="$ROOT/.tools/host/bin:$PATH"
 LOCK="$ROOT/Cargo.lock"
 MANIFEST="$ROOT/Cargo.toml"
 INTERNAL_WORKSPACE_PACKAGES=(
@@ -18,21 +19,7 @@ if [[ ! -f "$LOCK" || ! -f "$MANIFEST" ]]; then
   exit 1
 fi
 
-workspace_version="$(
-  awk '
-    /^\[workspace\.package\]$/ { in_workspace_package = 1; next }
-    /^\[/ { in_workspace_package = 0 }
-    in_workspace_package && $1 == "version" {
-      gsub(/"/, "", $3)
-      print $3
-      exit
-    }
-  ' "$MANIFEST"
-)"
-if [[ -z "$workspace_version" ]]; then
-  echo "Unable to resolve the workspace package version from $MANIFEST" >&2
-  exit 1
-fi
+workspace_version="$(bash "$ROOT/scripts/ci/read-cargo-workspace-version.sh" --stable "$MANIFEST")" || exit 1
 
 for package in "${INTERNAL_WORKSPACE_PACKAGES[@]}"; do
   workspace_requirement="$(
@@ -48,28 +35,8 @@ for package in "${INTERNAL_WORKSPACE_PACKAGES[@]}"; do
   fi
 done
 
-# Member manifests use inline inherited declarations, including target-specific
-# and renamed dependencies. The root owns all requirements and local paths.
-mapfile -t member_manifests < <(
-  rg --files --glob Cargo.toml \
-    "$ROOT/canisters" "$ROOT/crates" "$ROOT/schema" "$ROOT/testing"
-)
-awk '
-  /^\[/ {
-    in_package = ($0 == "[package]")
-    in_dependencies = ($0 ~ /(^\[|\.)(dev-|build-)?dependencies\]$/)
-    next
-  }
-  (in_package && /^version[[:space:]]*=/) ||
-  (in_dependencies && /^[a-zA-Z0-9_-]+[[:space:]]*=/) {
-    if ($0 !~ /workspace[[:space:]]*=[[:space:]]*true/ ||
-        (in_dependencies && $0 ~ /(^|[,{[:space:]])(version|path|git|branch|tag|rev)[[:space:]]*=/)) {
-      printf "%s:%d: package versions and dependencies must inherit the workspace\n", FILENAME, FNR > "/dev/stderr"
-      failed = 1
-    }
-  }
-  END { if (failed) exit 1 }
-' "${member_manifests[@]}"
+# Parsed inheritance is owned by the shared pin-check gate. This guard retains
+# only IcyDB's coupled pins, banned packages and resolved graph constraints.
 
 workspace_time_version="$(
   awk '

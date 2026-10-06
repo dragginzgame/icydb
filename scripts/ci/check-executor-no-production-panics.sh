@@ -10,7 +10,10 @@ source "$ROOT/scripts/ci/invariant-common.sh"
 require_rg "executor no-production-panics invariant"
 
 status=0
-while IFS= read -r -d '' file; do
+# Capture discovery first; process-substitution failure would be invisible to
+# the loop's exit status. An empty or missing production inventory also fails.
+files="$(rg --files --hidden --no-ignore crates/icydb-core/src/db/executor --glob '*.rs' "${COMMON_GLOBS[@]}")"
+while IFS= read -r file; do
   hits="$(
     awk '
       function brace_delta(line,    i, ch, delta) {
@@ -27,13 +30,10 @@ while IFS= read -r -d '' file; do
       }
 
       function cfg_test_item(line) {
-        if (line !~ /^[[:space:]]*#\[cfg\(/) {
-          return 0
-        }
-        if (line ~ /not[[:space:]]*\([[:space:]]*test/) {
-          return 0
-        }
-        return line ~ /(^|[^[:alnum:]_])test([^[:alnum:]_]|$)/
+        # Only skip attributes that require test. Merely mentioning test in
+        # cfg(any(test, feature = "sql")) does not exclude production builds.
+        return line ~ /^[[:space:]]*#\[cfg\([[:space:]]*test[[:space:]]*\)\]/ || \
+          line ~ /^[[:space:]]*#\[cfg\([[:space:]]*all\([[:space:]]*test[[:space:]]*[,)]/
       }
 
       function reset_skip() {
@@ -76,7 +76,9 @@ while IFS= read -r -d '' file; do
         next
       }
 
-      $0 ~ /[.]expect[(]|[.]unwrap[(]|panic![(]|(^|[^[:alnum:]_])assert![(]/ {
+      $0 ~ /^[[:space:]]*\/\// { next }
+
+      $0 ~ /[.](expect|unwrap)[[:space:]]*[(]|(^|[^[:alnum:]_])(panic|assert(_eq|_ne)?|unreachable|todo|unimplemented)[[:space:]]*!/ {
         print FILENAME ":" FNR ":" $0
       }
     ' "$file"
@@ -85,20 +87,11 @@ while IFS= read -r -d '' file; do
   if [[ -n "$hits" ]]; then
     if (( status == 0 )); then
       echo "[ERROR] Production executor code must return typed errors instead of panicking." >&2
-      echo "[ERROR] Offending patterns: .unwrap(), .expect(), panic!, assert!." >&2
+      echo "[ERROR] Offending patterns: .unwrap(), .expect(), panic!, assert!, assert_eq!, assert_ne!, unreachable!, todo!, unimplemented!." >&2
     fi
     printf '%s\n' "$hits" >&2
     status=1
   fi
-done < <(
-  find crates/icydb-core/src/db/executor \
-    -type f \
-    -name '*.rs' \
-    ! -path '*/tests/*' \
-    ! -name 'tests.rs' \
-    ! -name '*_tests.rs' \
-    ! -name 'test_*.rs' \
-    -print0
-)
+done <<< "$files"
 
 exit "$status"

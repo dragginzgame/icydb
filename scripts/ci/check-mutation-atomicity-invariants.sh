@@ -33,11 +33,10 @@ for guarded_path in "${GUARDED_PATHS[@]}"; do
 done
 
 interleaving_points="$(
-  rg -n --no-heading --color=never "$INTERLEAVING_PATTERN" \
+  rg_checked -n --no-heading --color=never "$INTERLEAVING_PATTERN" \
     "${GUARDED_PATHS[@]}" \
     "${COMMON_GLOBS[@]}" \
-    | strip_comment_only \
-    || true
+    | strip_comment_only
 )"
 
 if [[ -n "$interleaving_points" ]]; then
@@ -49,11 +48,11 @@ fi
 
 RAW_RESUMABLE_CONTINUATION_PATTERN="TrustedResumableUpdateContinuation|prepare_trusted_sql_resumable_update|resume_trusted_sql_resumable_update"
 raw_resumable_generated_surface="$({
-  rg -n --no-heading --color=never "$RAW_RESUMABLE_CONTINUATION_PATTERN" \
+  rg_checked -n --no-heading --color=never "$RAW_RESUMABLE_CONTINUATION_PATTERN" \
     crates/icydb-model/src/build/actor \
     "${COMMON_GLOBS[@]}" \
     | strip_comment_only
-} || true)"
+})"
 
 if [[ -n "$raw_resumable_generated_surface" ]]; then
   echo "[ERROR] Generated surfaces must not expose raw resumable-update continuations." >&2

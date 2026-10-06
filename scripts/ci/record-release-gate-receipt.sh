@@ -10,22 +10,7 @@ git -C "$ROOT_DIR" merge-base --is-ancestor "$release_commit" HEAD || {
     echo "Selected release commit is not on the current history" >&2
     exit 1
 }
-workspace_version="$(
-    git -C "$ROOT_DIR" show "$release_commit:Cargo.toml" | awk '
-        /^\[workspace.package\]/ { in_section = 1; next }
-        /^\[/ && in_section { exit }
-        in_section && $1 == "version" {
-            gsub(/"/, "", $3);
-            print $3;
-            exit;
-        }
-    '
-)"
-
-if [ -z "$workspace_version" ]; then
-    echo "Failed to determine workspace version from Cargo.toml" >&2
-    exit 1
-fi
+workspace_version="$(bash "$ROOT_DIR/scripts/release/read-committed-version.sh" "$ROOT_DIR" "$release_commit")" || exit 1
 
 release_tag="v$workspace_version"
 tag_type="$(git -C "$ROOT_DIR" cat-file -t "refs/tags/$release_tag" 2>/dev/null || true)"

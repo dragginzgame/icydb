@@ -59,24 +59,42 @@ through its own qualified tooling.
 
 ## Tool-specific dependencies
 
+The [local setup guide](local-setup.md) provides Linux Mint/macOS bootstrap
+commands and the shared `make install-tools` / `make tools-check` targets.
+Pinned jq and Mike Farah yq install under `.tools/host/bin`; neither parser is
+required to run setup. Make targets and CI select this same local parser pair.
+
 | Tool | Additional dependencies |
 | --- | --- |
 | `scripts/dev/cloc.sh` | Git, Cargo, `cloc`, `jq`, `awk`, `find`, `grep`, and `sort` |
 | `scripts/dev/gh-ci.sh` | Git and an authenticated GitHub CLI |
 | `scripts/ci/run-validation-targets.sh` | GNU Make plus `awk`, `grep` or `rg`, `sed`, `tail`, and `tee` |
 | Installer scripts | `curl`, `tar`, a SHA-256 implementation, and the archive codec used by the selected tool |
+| Local IC tool setup | Bash 3.2+, `curl`, `tar`, xz/gzip, Perl, and a SHA-256 implementation; see [IC tools](ic-tools.md) |
+| Nonempty Cargo test helper | Cargo with normal libtest summaries, `awk`, and `tee` |
+| Exact release-tag checker | Git and the caller's selected exact commit/version |
 | `scripts/ci/run-sccache.sh` | An executable `sccache` binary |
 | Snapshot verification | A SHA-256 implementation |
 | Snapshot refresh | Git, a clean Shared Tooling checkout, and a SHA-256 implementation |
 | Dependency pin checker | Git, jq, Mike Farah yq v4.47.2+; Cargo when Cargo manifests exist |
+| Workspace-version reader | Prepared Cargo, jq and Mike Farah yq v4.47.2+; explicit Cargo.toml input; no dependency resolution |
 | Release runner | GNU Make, Git, `date`, explicit consumer metadata/check targets, and Bash 3.2 |
 | Rust pre-commit hook and installer | Git, GNU Make, consumer-owned `fmt` prerequisites (Cargo/rustfmt and an exact `cargo-sort` version), Bash 3.2 and standard Unix file utilities |
+| Consumer formatting adoption checker | The hook prerequisites above, Perl-free shell utilities, and reviewed consumer Make inputs; no implicit downloads |
+| Local lockfile transformer | Perl core only; the caller separately validates the prepared graph with Cargo |
+| Explicit tag maintenance | Git and Perl core modules; atomic push support for remote deletion; see [tag maintenance](tag-maintenance.md) |
+
+Host setup optionally selects ripgrep with `--with-ripgrep`; Shared Tooling's
+Make/CI callers enable it. Its archive verification also requires tar/gzip and
+cmp. The selected native binary must report PCRE2 support. All four Linux/macOS
+architecture mappings have substitute fixtures; only native execution qualifies
+the corresponding official binary. See [local setup](local-setup.md).
 
 The hook regression fixture also requires `jq` and the `cargo-sort` version from
 `ci/tool-versions.env` (`2.1.4`). CI installs it before offline tests; local
 validation requires it to be prepared beforehand and never installs it implicitly.
-The pinning regression fixture also requires the reviewed yq parser. CI installs
-it from checksum-pinned Linux and macOS binaries; checks and fixtures never
+The pinning regression fixture also requires the reviewed jq and yq parsers. CI installs
+them from checksum-pinned Linux and macOS binaries; checks and fixtures never
 download it implicitly. Its installer also maps Linux ARM64; only matching
 native execution qualifies that host.
 
@@ -87,3 +105,10 @@ Linux and Darwin on x86-64 and ARM64. Branches not exercised by the repository's
 installer-download CI are install-capable, not support claims.
 
 Consumers own the exact tool versions and platform digests they admit.
+
+The IC toolset additionally provisions and checks native executables on all
+three CI hosts above. Offline fixtures exercise digest/version refusals, retained
+failed and interrupted setup, and atomic activation using substituted payloads;
+only the separate native installation step qualifies actual upstream binaries.
+The full IC set currently excludes Linux ARM64 because its Quill release has
+no matching ARM64 asset. No translation or source build is substituted silently.

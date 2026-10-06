@@ -120,7 +120,7 @@ for check in "${REQUIRED_MATCHES[@]}"; do
 done
 
 for pattern in "${FORBIDDEN_PATTERNS[@]}"; do
-  matches="$(rg -n --no-heading --color=never "$pattern" "${INDEX_EXECUTOR_FILES[@]}" || true)"
+  matches="$(rg_checked -n --no-heading --color=never "$pattern" "${INDEX_EXECUTOR_FILES[@]}")"
   if [[ -n "$matches" ]]; then
     echo "[ERROR] Executor index-path invariant violated: found forbidden pattern '$pattern'" >&2
     echo "$matches" >&2
@@ -130,11 +130,10 @@ done
 
 for pattern in "${EXECUTOR_RUNTIME_FORBIDDEN_PATTERNS[@]}"; do
   matches="$(
-    rg -n --no-heading --color=never "$pattern" \
+    rg_checked -n --no-heading --color=never "$pattern" \
       crates/icydb-core/src/db/executor \
       --glob '!**/tests/**' \
-      --glob '!**/mutation/**' \
-      || true
+      --glob '!**/mutation/**'
   )"
   if [[ -n "$matches" ]]; then
     echo "[ERROR] Executor runtime must stay byte-only: found forbidden pattern '$pattern'" >&2
@@ -144,7 +143,7 @@ for pattern in "${EXECUTOR_RUNTIME_FORBIDDEN_PATTERNS[@]}"; do
 done
 
 for pattern in "${BRANCH_SET_RUNTIME_FORBIDDEN_PATTERNS[@]}"; do
-  matches="$(rg -n --no-heading --color=never "$pattern" "${BRANCH_SET_RUNTIME_FILES[@]}" || true)"
+  matches="$(rg_checked -n --no-heading --color=never "$pattern" "${BRANCH_SET_RUNTIME_FILES[@]}")"
   if [[ -n "$matches" ]]; then
     echo "[ERROR] Branch-set executor runtime must consume lowered specs, not semantic branch values: found forbidden pattern '$pattern'" >&2
     echo "$matches" >&2
@@ -153,9 +152,8 @@ for pattern in "${BRANCH_SET_RUNTIME_FORBIDDEN_PATTERNS[@]}"; do
 done
 
 lookup_value_matches="$(
-  rg -n --no-heading --color=never "\\bValue\\b" \
-    crates/icydb-core/src/db/index/store.rs \
-    || true
+  rg_checked -n --no-heading --color=never "\\bValue\\b" \
+    crates/icydb-core/src/db/index/store.rs
 )"
 if [[ -n "$lookup_value_matches" ]]; then
   echo "[ERROR] Index traversal lookup must stay raw-key only (found Value usage)." >&2
@@ -164,11 +162,10 @@ if [[ -n "$lookup_value_matches" ]]; then
 fi
 
 prefix_builder_calls_outside_index="$(
-  rg -n --no-heading --color=never \
+  rg_checked -n --no-heading --color=never \
     "IndexKey::bounds_for_prefix(_with_kind|_component_range(_with_kind)?)?\\(" \
     crates/icydb-core/src/db \
-    --glob '!crates/icydb-core/src/db/index/**' \
-    || true
+    --glob '!crates/icydb-core/src/db/index/**'
 )"
 if [[ -n "$prefix_builder_calls_outside_index" ]]; then
   echo "[ERROR] Raw prefix/range key builder calls must stay inside db/index." >&2
@@ -177,13 +174,12 @@ if [[ -n "$prefix_builder_calls_outside_index" ]]; then
 fi
 
 bespoke_stream_set_reduction_matches="$(
-  rg -n --no-heading --color=never \
+  rg_checked -n --no-heading --color=never \
     "OrderedKeyStreamBox::(merge|intersect)\\(" \
     crates/icydb-core/src/db/executor \
     --glob '!crates/icydb-core/src/db/executor/stream/key/contracts.rs' \
     --glob '!**/tests.rs' \
-    --glob '!**/tests/**' \
-    || true
+    --glob '!**/tests/**'
 )"
 if [[ -n "$bespoke_stream_set_reduction_matches" ]]; then
   echo "[ERROR] Executor stream-set reduction must use merge_all/intersect_all helpers." >&2
@@ -192,13 +188,12 @@ if [[ -n "$bespoke_stream_set_reduction_matches" ]]; then
 fi
 
 direct_stream_combinator_matches="$(
-  rg -n --no-heading --color=never \
+  rg_checked -n --no-heading --color=never \
     "(MergeOrderedKeyStream|IntersectOrderedKeyStream)::new_with_comparator" \
     crates/icydb-core/src/db/executor \
     --glob '!crates/icydb-core/src/db/executor/stream/key/contracts.rs' \
     --glob '!**/tests.rs' \
-    --glob '!**/tests/**' \
-    || true
+    --glob '!**/tests/**'
 )"
 if [[ -n "$direct_stream_combinator_matches" ]]; then
   echo "[ERROR] Executor route assembly must not bypass OrderedKeyStreamBox stream trees." >&2

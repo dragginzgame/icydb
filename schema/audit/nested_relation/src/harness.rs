@@ -1,11 +1,11 @@
 //! One shared operation harness for all controlled relation-cost actors.
 
-// IC measurements use the shared Wasm reader; native Candid builds retain
-// the CDK host binding, which cannot supply IC measurements.
+// Read IC counter 1 through the CDK; native Candid builds use its
+// unsupported host binding and provide no IC measurement evidence.
 #[cfg(not(target_arch = "wasm32"))]
-use ic_cdk::api::call_context_instruction_counter as call_context_instructions;
+use ic_cdk::api::call_context_instruction_counter;
 #[cfg(target_arch = "wasm32")]
-use ic_metrics::call_context_instructions;
+use ic_cdk::api::call_context_instruction_counter;
 
 use icydb::{
     db::{DbSession, StructuralMutation, StructuralPatch, WriteCell},
@@ -107,9 +107,9 @@ fn delete(entity: &str, id: i32) -> StructuralMutation {
 }
 
 fn measured<T>(operation: impl FnOnce() -> T) -> (T, u64) {
-    let start = call_context_instructions();
+    let start = call_context_instruction_counter();
     let result = operation();
-    let instructions = call_context_instructions().saturating_sub(start);
+    let instructions = call_context_instruction_counter().saturating_sub(start);
     (result, instructions)
 }
 

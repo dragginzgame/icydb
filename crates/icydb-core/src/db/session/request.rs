@@ -241,19 +241,11 @@ impl RequestExecutionScope {
         &self,
         per_unit: &[(DiagnosticExecutionBudgetResource, u64)],
     ) -> u64 {
-        per_unit
-            .iter()
-            .filter(|(_resource, amount)| *amount != 0)
-            .map(|(resource, amount)| {
-                let index = resource_index(*resource);
-                self.counters
-                    .budget
-                    .limit(*resource)
-                    .saturating_sub(self.counters.observed[index].get())
-                    / amount
+        self.counters
+            .budget
+            .remaining_budget_units(per_unit, |resource| {
+                self.counters.observed[resource_index(resource)].get()
             })
-            .min()
-            .unwrap_or(u64::MAX)
     }
 
     /// Preflight one fixed resource bundle without retaining a rejected or
@@ -262,13 +254,11 @@ impl RequestExecutionScope {
         &self,
         charges: &[(DiagnosticExecutionBudgetResource, u64)],
     ) -> bool {
-        charges.iter().all(|(resource, amount)| {
-            let index = resource_index(*resource);
-            self.counters.observed[index]
-                .get()
-                .checked_add(*amount)
-                .is_some_and(|observed| observed <= self.counters.budget.limit(*resource))
-        })
+        self.counters
+            .budget
+            .can_charge_budget_bundle(charges, |resource| {
+                self.counters.observed[resource_index(resource)].get()
+            })
     }
 
     /// Commit one complete bundle only when every request resource fits.
@@ -472,6 +462,39 @@ mod tests {
         assert!(scope.try_commit_budget_bundle(&[(entries, 3), (bytes, 30)]));
         assert_eq!(root.observed(entries), 5);
         assert_eq!(root.observed(bytes), 50);
+    }
+
+    #[test]
+    fn repeated_budget_bundle_resources_use_total_remaining_capacity() {
+        let context = HardExecutionContext::new(
+            DiagnosticExecutionBudgetScope::Execution,
+            icydb_diagnostic_code::DiagnosticExecutionLane::PublicRead,
+            0,
+        );
+        for resource in DiagnosticExecutionBudgetResource::ALL {
+            let root = RequestExecutionRoot::new_for_tests(HardExecutionBudget::uniform_for_tests(
+                10,
+                REQUEST_FAILURE_HEADROOM,
+            ));
+            let scope = root.scope();
+            scope.charge(context, resource, 2).unwrap();
+            let before = root.request_budget();
+            let per_unit = [(resource, 2), (resource, 0), (resource, 2)];
+            assert_eq!(scope.remaining_budget_units(&per_unit), 2);
+            assert_eq!(root.request_budget(), before);
+
+            let rejected = [(resource, 5), (resource, 4)];
+            assert!(!scope.can_charge_budget_bundle(&rejected));
+            assert!(!scope.try_commit_budget_bundle(&rejected));
+            assert_eq!(root.request_budget(), before);
+
+            let admitted = [(resource, 5), (resource, 0), (resource, 3)];
+            assert!(scope.can_charge_budget_bundle(&admitted));
+            assert_eq!(root.request_budget(), before);
+            assert!(scope.try_commit_budget_bundle(&admitted));
+            assert_eq!(root.observed(resource), 10);
+            assert_eq!(scope.remaining_budget_units(&per_unit), 0);
+        }
     }
 
     #[test]

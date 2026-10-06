@@ -89,7 +89,7 @@ fn measure_catalog_labels(selected: bool) -> CatalogLabelSample {
     };
     sample.result = with_request_execution(|| {
         let session = icydb::db!()?;
-        let start = crate::call_context_instructions();
+        let start = crate::call_context_instruction_counter();
         let mut labels = Vec::new();
         let mut continuation = None;
         for _ in 0..4 {
@@ -148,7 +148,7 @@ fn measure_catalog_labels(selected: bool) -> CatalogLabelSample {
         if continuation.is_some() {
             return Err(typed_fixture_invariant_error());
         }
-        sample.instructions = crate::call_context_instructions() - start;
+        sample.instructions = crate::call_context_instruction_counter() - start;
         Ok(labels)
     });
     sample
@@ -273,11 +273,11 @@ fn measure_catalog_workload(staged: bool) -> CatalogWorkloadSample {
     };
     sample.result = with_request_execution(|| {
         let session = icydb::db!()?;
-        let start = crate::call_context_instructions();
+        let start = crate::call_context_instruction_counter();
         let mut rows = Vec::new();
         let mut continuation = None;
         for _ in 0..4 {
-            let page_start = crate::call_context_instructions();
+            let page_start = crate::call_context_instruction_counter();
             let (page_rows, next) = if staged {
                 // Same owners as Query::execute_live_page, with counters at its
                 // existing boundaries; this is not a separate executor.
@@ -290,11 +290,11 @@ fn measure_catalog_workload(staged: bool) -> CatalogWorkloadSample {
                         .order_by(asc(SqlTestCatalogItem::KEY))
                         .limit(257),
                 );
-                let bound = crate::call_context_instructions();
+                let bound = crate::call_context_instruction_counter();
                 let page = cursor
                     .execute_page(continuation.as_deref())
                     .map_err(typed_operation_fixture_error)?;
-                let executed = crate::call_context_instructions();
+                let executed = crate::call_context_instruction_counter();
                 let rows = page
                     .rows
                     .map(|row| {
@@ -302,7 +302,7 @@ fn measure_catalog_workload(staged: bool) -> CatalogWorkloadSample {
                             .map_err(typed_adapter_fixture_error)
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                let adapted = crate::call_context_instructions();
+                let adapted = crate::call_context_instruction_counter();
                 sample.binding_instructions += bound - page_start;
                 sample.page_instructions += executed - bound;
                 sample.adapter_instructions += adapted - executed;
@@ -331,7 +331,7 @@ fn measure_catalog_workload(staged: bool) -> CatalogWorkloadSample {
         if continuation.is_some() {
             return Err(typed_fixture_invariant_error());
         }
-        sample.total_instructions = crate::call_context_instructions() - start;
+        sample.total_instructions = crate::call_context_instruction_counter() - start;
         // Transport shaping is outside the query interval. Every returned
         // field is independently checked by the host, including nested bytes.
         Ok(rows

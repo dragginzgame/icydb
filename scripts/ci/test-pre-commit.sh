@@ -1,101 +1,73 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/icydb-pre-commit.XXXXXX")"
-
-cleanup() {
-  rm -rf "$TEST_ROOT"
+# Shared Tooling qualifies the real consumer fmt/fmt-check commands. Keep only
+# IcyDB's additional derive sorter and unusual selected-filename cases here.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+fixture="$(mktemp -d "${TMPDIR:-/tmp}/icydb-formatting.XXXXXX")"
+fixture="$(cd "$fixture" && pwd -P)"
+finish() {
+  local status=$?
+  if [[ "$status" == 0 ]]; then rm -rf "$fixture"
+  else echo "IcyDB formatting evidence retained: $fixture" >&2; fi
 }
-trap cleanup EXIT
+trap finish EXIT
+export PATH="$ROOT/.tools/host/bin:$PATH"
+export CARGO_NET_OFFLINE=true RUSTUP_AUTO_INSTALL=0
+cd "$ROOT"
 
-# Exercise selected-file preservation in disposable indexes, without commits,
-# dependency resolution or formatting the caller's worktree.
-setup_fixture() {
-  local fixture="$TEST_ROOT/$1"
-  mkdir -p "$fixture/.githooks" "$fixture/scripts/dev"
-  git -C "$fixture" init -q
-  cp "$ROOT_DIR/.githooks/pre-commit" "$fixture/.githooks/pre-commit"
-  cp "$ROOT_DIR/scripts/dev/install-git-hooks.sh" "$fixture/scripts/dev/"
-  cat > "$fixture/Makefile" <<'MAKE'
-fmt:
-	@for path in *.rs Cargo.toml README.md; do \
-		[ -f "$$path" ] || continue; \
-		perl -pi -e 's/unformatted/formatted/g' "$$path"; \
-	done
-	@test "$(FORMAT_TEST_FAIL)" != yes
-MAKE
-  cd "$fixture"
-  printf 'unformatted\n' > Cargo.toml
-  git add Makefile
-}
+# Perturb only dependency ordering; the actual manifest sorter must restore it.
+perl -0777 -pe 's/(\[workspace.dependencies\]\n)([A-Za-z0-9_-]+ = [^\n]*\n)([A-Za-z0-9_-]+ = [^\n]*\n)/$1$3$2/ or die "expected adjacent formatter inputs\n"' \
+  Cargo.toml > "$fixture/unsorted.toml"
+overlays=(Cargo.lock rust-toolchain.toml ci/tool-versions.env ci/icydb-tools.env)
+git ls-files --modified --others --exclude-standard -z > "$fixture/working-inputs"
+while IFS= read -r -d '' path; do
+  case "$path" in
+    Cargo.toml|Cargo.lock|rust-toolchain.toml|ci/tool-versions.env|ci/icydb-tools.env|crates/icydb-diagnostic-code/src/lib.rs) continue ;;
+    *.rs|*/Cargo.toml|*/Cargo.lock|.cargo/*)
+      [[ ! -f "$path" ]] || overlays[${#overlays[@]}]="$path" ;;
+  esac
+done < "$fixture/working-inputs"
+bash scripts/ci/check-formatting-hooks.sh "$ROOT" crates/icydb-diagnostic-code/src/lib.rs \
+  Cargo.toml "$fixture/unsorted.toml" "${overlays[@]}"
 
-expect_failure() {
-  if "$@" > "$TEST_ROOT/rejection" 2>&1; then
-    echo "Expected rejection of this fixture." >&2
-    exit 1
-  fi
-}
+# A dependency-free disposable workspace runs IcyDB's same Makefile formatters
+# against derive ordering and filenames Cargo can select as explicit targets.
+mkdir -p "$fixture/product/src" "$fixture/product/scripts/ci" "$fixture/product/.githooks" "$fixture/templates"
+export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TEMPLATE_DIR="$fixture/templates"
+cp "$ROOT/Makefile" "$ROOT/rust-toolchain.toml" "$fixture/product/"
+cp "$ROOT/scripts/ci/actionlint-checksums.tsv" "$fixture/product/scripts/ci/"
+cp "$ROOT/.githooks/pre-commit" "$fixture/product/.githooks/"
+cd "$fixture/product"
+git init --quiet
+cat > Cargo.toml <<'MANIFEST'
+[package]
+name = "icydb-formatting-fixture"
+version = "0.1.0"
+edition = "2024"
 
-setup_fixture fully-staged
-printf 'unformatted\n' > 'staged [1].rs'
-newline_path=$'staged\nnewline.rs'
-printf 'unformatted\n' > "$newline_path"
-printf 'unformatted\n' > unselected.rs
-git add -- 'staged [1].rs' "$newline_path" Cargo.toml
-bash .githooks/pre-commit
-test "$(git show ':staged [1].rs')" = formatted
-test "$(git show ":$newline_path")" = formatted
-test "$(git show :Cargo.toml)" = formatted
-test "$(git ls-files -- unselected.rs)" = ''
-test "$(<unselected.rs)" = unformatted
+[[bin]]
+name = "brackets"
+path = "src/staged [1].rs"
+
+[[bin]]
+name = "newline"
+path = "src/staged\nnewline.rs"
+MANIFEST
+newline_path=$'src/staged\nnewline.rs'
+printf 'fn main() {}\n' > 'src/staged [1].rs'
+printf 'fn main() {}\n' > "$newline_path"
+printf '#[derive(Clone, Copy, Eq, PartialEq)]\nstruct Flag;\n' > src/lib.rs
+make --no-print-directory fmt > "$fixture/product-baseline.log" 2>&1
+printf '#[derive(PartialEq, Clone, Eq, Copy)]\nstruct Flag;\n' > src/lib.rs
+printf 'fn main( ) { }\n' > 'src/staged [1].rs'
+printf 'fn main( ) { }\n' > "$newline_path"
+git add -- Makefile rust-toolchain.toml Cargo.toml src/lib.rs 'src/staged [1].rs' "$newline_path" .githooks/pre-commit scripts/ci/actionlint-checksums.tsv
+printf 'fn unrelated( ) { }\n' > unselected.rs
+cp unselected.rs "$fixture/unselected-before"
+bash .githooks/pre-commit > "$fixture/product-hook.log" 2>&1
 git diff --exit-code
-before="$(git write-tree)"
-bash .githooks/pre-commit
-test "$(git write-tree)" = "$before"
-
-setup_fixture partially-staged
-printf 'unformatted staged\n' > partial.rs
-git add partial.rs
-printf 'unformatted unstaged\n' >> partial.rs
-before="$(git write-tree)"
-cp partial.rs "$TEST_ROOT/partial-before"
-expect_failure bash .githooks/pre-commit
-test "$(git write-tree)" = "$before"
-cmp "$TEST_ROOT/partial-before" partial.rs
-test "$(<Cargo.toml)" = unformatted
-
-setup_fixture formatter-failure
-printf 'unformatted\n' > staged.rs
-git add staged.rs Cargo.toml
-before="$(git write-tree)"
-FORMAT_TEST_FAIL=yes expect_failure bash .githooks/pre-commit
-test "$(git write-tree)" = "$before"
-test "$(<staged.rs)" = unformatted
-test "$(<Cargo.toml)" = unformatted
-
-setup_fixture prose-selection
-printf 'unformatted\n' > unselected.rs
-printf 'selected prose\n' > README.md
-git add README.md
-before="$(git write-tree)"
-bash .githooks/pre-commit
-test "$(git write-tree)" = "$before"
-test "$(<unselected.rs)" = unformatted
-
-setup_fixture installer
-bash scripts/dev/install-git-hooks.sh
-test "$(git config --local --get core.hooksPath)" = .githooks
-bash scripts/dev/install-git-hooks.sh
-git config --local core.hooksPath private-hooks
-expect_failure bash scripts/dev/install-git-hooks.sh
-test "$(git config --local --get core.hooksPath)" = private-hooks
-
-setup_fixture private-default-hook
-printf '#!/bin/sh\nexit 0\n' > .git/hooks/pre-push
-chmod +x .git/hooks/pre-push
-cp .git/hooks/pre-push "$TEST_ROOT/private-before"
-expect_failure bash scripts/dev/install-git-hooks.sh
-cmp "$TEST_ROOT/private-before" .git/hooks/pre-push
-
-echo "Shared pre-commit selection, failure isolation and installer tests passed."
+rg -Fx '#[derive(Clone, Copy, Eq, PartialEq)]' src/lib.rs >/dev/null
+rg -Fx 'fn main() {}' 'src/staged [1].rs' "$newline_path" >/dev/null
+cmp "$fixture/unselected-before" unselected.rs
+echo 'IcyDB real formatting, derive sorting and unusual selected paths passed'

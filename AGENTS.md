@@ -2,7 +2,7 @@
 
 Apply the local [shared engineering baseline](DRAGGINZGAME.md), recorded in
 [the snapshot manifest](.shared-tooling.snapshot) at reviewed revision
-`a7efade1a68e43f148252a1a73908a46c4cbe9e9`. This file is
+`d957d1f8801885c5b69e4a9ef900155f5f2a8a9d`. This file is
 IcyDB's local overlay; there are no baseline exceptions. See
 [shared-tooling adoption](docs/governance/shared-tooling.md) for tool provenance
 and consumer boundaries. Keep this file small; open detailed docs as needed.

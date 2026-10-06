@@ -62,12 +62,15 @@ jobs:
       - name: Install static-analysis tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y perl ripgrep shellcheck jq
-      - name: Install pinned configuration parser
-        run: bash scripts/ci/install-icydb-yq.sh
+          sudo apt-get install -y perl shellcheck
+      - name: Install pinned local parsers
+        run: |
+          make install-host-tools host-tools-check
+          echo "$GITHUB_WORKSPACE/.tools/host/bin" >> "$GITHUB_PATH"
       - name: Install pinned formatting tools
         run: |
           source ci/tool-versions.env
+          source ci/icydb-tools.env
           cargo install cargo-sort --version "$SHARED_TOOLING_CARGO_SORT_VERSION" --locked
           cargo install cargo-sort-derives --version "$ICYDB_CARGO_SORT_DERIVES_VERSION" --locked
           echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
@@ -94,7 +97,7 @@ jobs:
             make_target: ci-sql-tier-b
             hard_timeout_seconds: "780"
     env:
-      IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD: "1"
+      IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD: "0"
       TMPDIR: ${{ github.workspace }}/.cache
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -131,15 +134,12 @@ jobs:
           key: icydb-tier-b-wasm-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_CURRENT }}-${{ github.sha }}
           restore-keys: |
             icydb-tier-b-wasm-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_CURRENT }}-
-      - name: Install pinned Tier B Wasm optimizer
-        if: matrix.lane == 'tier-b'
-        run: bash scripts/ci/install-wasm-optimizer.sh
-      - run: cargo fetch --locked
-      - name: Install exact locked PocketIC server
-        if: matrix.lane == 'tier-b'
+      - name: Install pinned local tools
         run: |
-          pocket_ic_bin="$(bash scripts/ci/install-pocketic.sh)"
-          echo "POCKET_IC_BIN=$pocket_ic_bin" >> "$GITHUB_ENV"
+          make install-tools tools-check
+          echo "$GITHUB_WORKSPACE/.tools/host/bin" >> "$GITHUB_PATH"
+          echo "$GITHUB_WORKSPACE/.tools/ic/bin" >> "$GITHUB_PATH"
+      - run: cargo fetch --locked
       - name: Run ${{ matrix.lane }} validation with complete feedback
         env:
           HARD_TIMEOUT_SECONDS: ${{ matrix.hard_timeout_seconds }}
@@ -150,6 +150,15 @@ jobs:
           else
             timeout --signal=TERM --kill-after=30s "${HARD_TIMEOUT_SECONDS}s" make "$MAKE_TARGET"
           fi
+      - name: Retain PocketIC server failure logs
+        if: always() && matrix.lane == 'tier-b'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: pocketic-server-logs-${{ github.run_attempt }}
+          path: |
+            .cache/icydb-pocketic-server.*/stdout
+            .cache/icydb-pocketic-server.*/stderr
+          if-no-files-found: ignore
 
   macos_host:
     strategy:
@@ -174,8 +183,8 @@ jobs:
         run: make install-dev
       - name: Expose installed tool directories
         run: |
-          printf '%s\n' "$CARGO_HOME/bin" >> "$GITHUB_PATH"
-          printf '%s\n' "$HOME/.local/bin" >> "$GITHUB_PATH"
+          printf '%s\n' "$CARGO_HOME/bin" "$HOME/.local/bin" \
+            "$GITHUB_WORKSPACE/.tools/host/bin" "$GITHUB_WORKSPACE/.tools/ic/bin" >> "$GITHUB_PATH"
       - name: Qualify portable automation with system Bash
         run: |
           export PATH="/bin:/usr/bin:/usr/sbin:/sbin:$PATH"
@@ -183,20 +192,31 @@ jobs:
           /bin/bash scripts/ci/verify-shared-tooling-snapshot.sh
           /bin/bash scripts/ci/test-shared-tooling-adapters.sh
           /bin/bash scripts/ci/test-workstation-setup.sh
+          /bin/bash scripts/ci/test-cargo-metadata-adoption.sh
+          /bin/bash scripts/ci/test-pocketic-server-wrapper.sh
+          /bin/bash scripts/ci/test-ci-workflow-invariants.sh
+          /bin/bash scripts/ci/test-invariant-scanners.sh
+          /bin/bash scripts/ci/check-ci-workflow-invariants.sh
+          perl scripts/ci/test-documentation.pl
+          perl scripts/ci/check-documentation.pl
           /bin/bash scripts/ci/test-pre-commit.sh
+          perl scripts/dev/delete-github-tags-up-to.pl --cutoff 0.210 >/dev/null
           /bin/bash scripts/release/test-standard-release.sh
           /bin/bash scripts/release/test-receipt-callbacks.sh
           /bin/bash scripts/release/test-pin-exceptions.sh
+          /bin/bash scripts/release/test-lock-selection.sh
           make check-dependency-pins
           /bin/bash scripts/ci/test-publish-workspace.sh
           /bin/bash scripts/ci/test-wasm-audit-report.sh
           /bin/bash scripts/ci/verify-wasm-optimizer.sh
-          shellcheck --exclude=SC2001,SC2016 scripts/dev/workstation-setup.sh scripts/ci/install-gh.sh scripts/ci/install-wasm-optimizer.sh scripts/ci/verify-wasm-optimizer.sh scripts/ci/wasm-optimizer-pin.sh scripts/ci/wasm-report-common.sh scripts/ci/wasm-size-report.sh scripts/ci/wasm-audit-report.sh scripts/ci/test-workstation-setup.sh scripts/ci/test-wasm-audit-report.sh
+          make tools-check
+          shellcheck --exclude=SC2001,SC2016 scripts/dev/workstation-setup.sh scripts/dev/install-host-tools.sh scripts/dev/install-ic-tools.sh scripts/ci/install-gh.sh scripts/ci/verify-wasm-optimizer.sh scripts/ci/check-pocketic-alignment.sh scripts/ci/wasm-report-common.sh scripts/ci/wasm-size-report.sh scripts/ci/wasm-audit-report.sh scripts/ci/test-workstation-setup.sh scripts/ci/test-wasm-audit-report.sh
       - name: Qualify native library and CLI builds
         run: |
           cargo fetch --locked
           cargo clippy --locked -p icydb-testing-integration --lib --bin write_wasm_size_report -- -D warnings
           cargo clippy --locked -p icydb-cli --bin icydb -- -D warnings
+          cargo test --locked -p icydb-cli --bin icydb tests::icp::hex_response_bytes
           cargo test --locked -p icydb-testing-integration --lib wasm_optimizer::tests::post_link_optimizer_contract_is_exact_and_available
           cargo test --locked -p icydb-testing-integration --bin write_wasm_size_report
           cargo test --locked -p icydb-core --lib --all-features db::integrity::tests::quick_
@@ -250,15 +270,16 @@ jobs:
           cargo check --locked --target wasm32-unknown-unknown \
             -p canister_test_sql -p canister_test_sql_bounded \
             --no-default-features --features local-sql-query,test-admin-api,candid-export
-      - name: Install pinned Wasm optimizer
-        run: bash scripts/ci/install-wasm-optimizer.sh
+      - name: Install pinned local tools
+        run: |
+          make install-tools tools-check
+          echo "$GITHUB_WORKSPACE/.tools/host/bin" >> "$GITHUB_PATH"
+          echo "$GITHUB_WORKSPACE/.tools/ic/bin" >> "$GITHUB_PATH"
       - name: Install wasm reporting tools
         run: |
-          source ci/tool-versions.env
+          source ci/icydb-tools.env
           cargo install candid-extractor --version "$ICYDB_CANDID_EXTRACTOR_VERSION" --locked
-          cargo install ic-wasm --version "$ICYDB_IC_WASM_VERSION" --locked
           test -x "$CARGO_HOME/bin/candid-extractor"
-          test -x "$CARGO_HOME/bin/ic-wasm"
           printf '%s\n' "$CARGO_HOME/bin" >> "$GITHUB_PATH"
       - name: Report default-empty and request-future-scale wasm sizes
         run: bash scripts/ci/wasm-size-report.sh --profile wasm-release --canister default_empty --canister request_future_scale

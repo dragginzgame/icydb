@@ -56,7 +56,7 @@ fn seed_batch_workload(count: u32, reject_last: bool) -> Result<(), icydb::Error
 // host, not this endpoint, owns chunking across separate committed requests.
 #[update]
 fn measure_batch_workload(start: u32, count: u32, individual_reads: bool) -> BatchWorkloadSample {
-    let total_start = crate::call_context_instructions();
+    let total_start = crate::call_context_instruction_counter();
     let mut sample = BatchWorkloadSample {
         result: Ok(()),
         rejected_at: None,
@@ -70,7 +70,7 @@ fn measure_batch_workload(start: u32, count: u32, individual_reads: bool) -> Bat
             return Err(typed_fixture_invariant_error());
         }
         let session = icydb::db!()?;
-        let read_start = crate::call_context_instructions();
+        let read_start = crate::call_context_instruction_counter();
         let ids = (start..start + count).map(source_id).collect::<Vec<_>>();
         let rows = if individual_reads {
             ids.iter()
@@ -79,25 +79,26 @@ fn measure_batch_workload(start: u32, count: u32, individual_reads: bool) -> Bat
         } else {
             session.get_many::<SqlTestEnrollmentUser>(&ids)
         };
-        sample.read_instructions = crate::call_context_instructions().saturating_sub(read_start);
+        sample.read_instructions =
+            crate::call_context_instruction_counter().saturating_sub(read_start);
         let rows = rows.map_err(typed_operation_fixture_error)?;
 
         // Validate all rows before staging any output. A late domain rejection
         // is an ordinary application result, not database-budget exhaustion.
-        let validation_start = crate::call_context_instructions();
+        let validation_start = crate::call_context_instruction_counter();
         let rejected = rows.iter().zip(&ids).position(|(row, id)| {
             row.as_ref()
                 .is_none_or(|row| row.id != id.key() || !row.display_name.starts_with("eligible-"))
         });
         sample.validation_instructions =
-            crate::call_context_instructions().saturating_sub(validation_start);
+            crate::call_context_instruction_counter().saturating_sub(validation_start);
         if let Some(position) = rejected {
             sample.rejected_at =
                 Some(start + u32::try_from(position).map_err(|_| typed_fixture_invariant_error())?);
             return Ok(());
         }
 
-        let write_start = crate::call_context_instructions();
+        let write_start = crate::call_context_instruction_counter();
         let result = (|| {
             let mut batch = session.trusted_typed_write_batch();
             for (position, row) in (start..start + count).zip(rows) {
@@ -113,9 +114,11 @@ fn measure_batch_workload(start: u32, count: u32, individual_reads: bool) -> Bat
             batch.execute().map_err(typed_operation_fixture_error)?;
             Ok(())
         })();
-        sample.write_instructions = crate::call_context_instructions().saturating_sub(write_start);
+        sample.write_instructions =
+            crate::call_context_instruction_counter().saturating_sub(write_start);
         result
     });
-    sample.total_instructions = crate::call_context_instructions().saturating_sub(total_start);
+    sample.total_instructions =
+        crate::call_context_instruction_counter().saturating_sub(total_start);
     sample
 }

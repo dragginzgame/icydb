@@ -1,27 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# Qualify IcyDB orchestration. Shared Tooling owns installer byte/version fixtures.
+unset MAKEFLAGS MAKEOVERRIDES MFLAGS
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 FIXTURE="$(mktemp -d "${TMPDIR:-/tmp}/icydb-workstation.XXXXXX")"
-trap 'rm -rf "$FIXTURE"' EXIT
-mkdir -p "$FIXTURE/scripts/dev" "$FIXTURE/scripts/ci" "$FIXTURE/bin" "$FIXTURE/outside"
-mkdir -p "$FIXTURE/ci"
-cp "$ROOT/ci/tool-versions.env" "$FIXTURE/ci/"
+trap 'status=$?; if [[ "$status" == 0 ]]; then rm -rf "$FIXTURE";
+  else echo "Workstation fixture retained: $FIXTURE" >&2; fi; exit "$status"' EXIT
+mkdir -p "$FIXTURE/scripts/dev" "$FIXTURE/scripts/ci" "$FIXTURE/bin" "$FIXTURE/outside" "$FIXTURE/ci"
+cp "$ROOT/ci/"{tool-versions.env,icydb-tools.env,ic-tools.tsv} "$FIXTURE/ci/"
+cp "$ROOT/scripts/dev/workstation-setup.sh" "$FIXTURE/scripts/dev/"
+cp "$ROOT/scripts/ci/install-gh.sh" "$FIXTURE/scripts/ci/"
 # shellcheck source=/dev/null
 source "$ROOT/ci/tool-versions.env"
-cp "$ROOT/scripts/dev/workstation-setup.sh" "$FIXTURE/scripts/dev/"
-for script in install-gh.sh install-wasm-optimizer.sh verify-wasm-optimizer.sh \
-  wasm-optimizer-pin.sh verify-file-checksum.sh; do
-  cp "$ROOT/scripts/ci/$script" "$FIXTURE/scripts/ci/"
-done
-cp "$ROOT/scripts/ci/wasm-optimizer-checksums.tsv" "$FIXTURE/scripts/ci/"
-
+# shellcheck source=/dev/null
+source "$ROOT/ci/icydb-tools.env"
 export TEST_FIXTURE="$FIXTURE" TEST_HOST=Linux TEST_ARCH=x86_64
-export TEST_TRACE="$FIXTURE/trace" TEST_EXECUTION="$FIXTURE/executed"
-export TEST_TOOL_VERSION='wasm-opt version 132 (version_132)'
+export TEST_TRACE="$FIXTURE/trace"
 export PATH="$FIXTURE/bin:$PATH"
 
 trace() { printf '%s\n' "$*" >> "$TEST_TRACE"; }
+# Invoked by the exported child setup fixture, then unset for native admission.
+# shellcheck disable=SC2329
 uname() {
   case "$1" in
     -s) printf '%s\n' "$TEST_HOST" ;;
@@ -31,45 +31,35 @@ uname() {
 }
 rustup() { trace "rustup $* in $PWD"; }
 cargo() { trace "cargo $* in $PWD"; }
-npm() { trace "npm $*"; }
-make() { trace "make $*"; }
+# Invoked by the child workstation script through the exported function.
+# shellcheck disable=SC2329
+make() {
+  trace "make $*"
+  case "$*" in
+    *tools-check) [[ "${TEST_CHECK_FAIL:-0}" == 0 ]] ;;
+  esac
+}
 gh() { trace "gh $*"; }
-icp() { trace "icp $*"; printf 'icp %s\n' "$ICYDB_ICP_CLI_VERSION"; }
-function ic-wasm() { trace "ic-wasm $*"; printf 'ic-wasm %s\n' "${TEST_IC_WASM_VERSION:-$ICYDB_IC_WASM_VERSION}"; }
-function candid-extractor() { trace "candid-extractor $*"; printf 'candid-extractor %s\n' "$ICYDB_CANDID_EXTRACTOR_VERSION"; }
+function candid-extractor() { printf 'candid-extractor %s\n' "$ICYDB_CANDID_EXTRACTOR_VERSION"; }
 brew() { trace "brew $*"; }
 function xcode-select() { trace "xcode-select $*"; }
 id() { printf '0\n'; }
-export -f trace uname rustup cargo npm make gh icp ic-wasm candid-extractor brew xcode-select id
-
+export -f trace uname rustup cargo make gh candid-extractor brew xcode-select id
 cat > "$FIXTURE/bin/apt-get" <<'TOOL'
 #!/usr/bin/env bash
 trace "apt-get $*"
 TOOL
-chmod +x "$FIXTURE/bin/apt-get"
-
 cat > "$FIXTURE/bin/actionlint" <<'TOOL'
 #!/usr/bin/env bash
 echo 1.7.12
 TOOL
-chmod +x "$FIXTURE/bin/actionlint"
+chmod +x "$FIXTURE/bin/"*
 cat > "$FIXTURE/scripts/ci/install-icydb-actionlint.sh" <<'INSTALL'
 #!/usr/bin/env bash
 printf '%s\n' "$TEST_FIXTURE/bin/actionlint"
 INSTALL
-# Tool downloads and installations are stubbed for orchestration checks.
-cp "$FIXTURE/scripts/ci/install-wasm-optimizer.sh" "$FIXTURE/optimizer-installer"
-cat > "$FIXTURE/scripts/ci/install-wasm-optimizer.sh" <<'INSTALL'
-#!/usr/bin/env bash
-trace "optimizer $*"
-INSTALL
-cat > "$FIXTURE/scripts/ci/install-icydb-yq.sh" <<'INSTALL'
-#!/usr/bin/env bash
-trace 'install selected yq'
-INSTALL
 printf 'maintainer-selected dependency graph\n' > "$FIXTURE/Cargo.lock"
 cp "$FIXTURE/Cargo.lock" "$FIXTURE/lock.before"
-
 for host in Linux Darwin; do
   export TEST_HOST="$host"
   for mode in install update; do
@@ -77,153 +67,116 @@ for host in Linux Darwin; do
     (cd "$FIXTURE/outside"; bash "$FIXTURE/scripts/dev/workstation-setup.sh" "$mode") > "$FIXTURE/output"
     cmp "$FIXTURE/Cargo.lock" "$FIXTURE/lock.before"
     rg -F "rustup toolchain install --target wasm32-unknown-unknown in $FIXTURE" "$TEST_TRACE" >/dev/null
-    rg -F 'cargo install' "$TEST_TRACE" | rg -F cargo-watch | rg -F -- --locked >/dev/null
-    rg -F "cargo install cargo-sort --version $SHARED_TOOLING_CARGO_SORT_VERSION --locked" "$TEST_TRACE" >/dev/null
-    rg -F "cargo install cargo-sort-derives --version $ICYDB_CARGO_SORT_DERIVES_VERSION --locked" "$TEST_TRACE" >/dev/null
-    rg -F "npm install -g --prefix $HOME/.local @icp-sdk/icp-cli@$ICYDB_ICP_CLI_VERSION" "$TEST_TRACE" >/dev/null
-    rg -Fx 'install selected yq' "$TEST_TRACE" >/dev/null
-    for selection in "candid-extractor:$ICYDB_CANDID_EXTRACTOR_VERSION" \
-      "ic-wasm:$ICYDB_IC_WASM_VERSION" "twiggy:$ICYDB_TWIGGY_VERSION" \
-      "cargo-edit:$ICYDB_CARGO_EDIT_VERSION" "cargo-get:$ICYDB_CARGO_GET_VERSION" \
+    for selection in "cargo-sort:$SHARED_TOOLING_CARGO_SORT_VERSION" \
+      "cargo-sort-derives:$ICYDB_CARGO_SORT_DERIVES_VERSION" \
+      "candid-extractor:$ICYDB_CANDID_EXTRACTOR_VERSION" "twiggy:$ICYDB_TWIGGY_VERSION" \
+      "cargo-edit:$ICYDB_CARGO_EDIT_VERSION" \
       "cargo-watch:$ICYDB_CARGO_WATCH_VERSION"; do
       rg -F "${selection%:*} --version ${selection##*:} --locked" "$TEST_TRACE" >/dev/null
     done
-    rg -F "make --no-print-directory -C $FIXTURE install-hooks" "$TEST_TRACE" >/dev/null
+    printf '%s\n' "make --no-print-directory -C $FIXTURE install-tools" \
+      "make --no-print-directory -C $FIXTURE tools-check" \
+      "make --no-print-directory -C $FIXTURE install-hooks" > "$FIXTURE/expected"
+    rg '^make ' "$TEST_TRACE" > "$FIXTURE/actual"
+    cmp "$FIXTURE/expected" "$FIXTURE/actual"
     if [[ "$mode" == install ]]; then
       if [[ "$host" == Linux ]]; then
         rg -F 'apt-get install -y' "$TEST_TRACE" | rg -F cloc >/dev/null
       else
         rg -F 'brew install' "$TEST_TRACE" | rg -F cloc >/dev/null
       fi
-    else
-      rg -Fx 'optimizer --check-latest' "$TEST_TRACE" >/dev/null
     fi
   done
 done
-
-# An unexpected installed reporting binary stops before enabling the hook.
+# An offline tool refusal stops setup before hook activation.
 : > "$TEST_TRACE"
 status=0
-TEST_IC_WASM_VERSION=unexpected bash "$FIXTURE/scripts/dev/workstation-setup.sh" update \
-  > "$FIXTURE/version-rejection" 2>&1 || status=$?
+TEST_CHECK_FAIL=1 bash "$FIXTURE/scripts/dev/workstation-setup.sh" update > "$FIXTURE/rejected" 2>&1 || status=$?
 [[ "$status" != 0 ]]
 if rg -F 'install-hooks' "$TEST_TRACE" >/dev/null; then exit 1; fi
-
-# The consumer adapter passes the reviewed digest for each supported host.
-cp "$ROOT/scripts/ci/install-icydb-yq.sh" "$FIXTURE/scripts/ci/"
-cat > "$FIXTURE/scripts/ci/install-yq.sh" <<'INSTALL'
-#!/usr/bin/env bash
-trace "parser $*"
-INSTALL
-for platform in "Linux:x86_64:$ICYDB_YQ_SHA256_LINUX_AMD64" \
-  "Linux:aarch64:$ICYDB_YQ_SHA256_LINUX_ARM64" \
-  "Darwin:x86_64:$ICYDB_YQ_SHA256_DARWIN_AMD64" \
-  "Darwin:arm64:$ICYDB_YQ_SHA256_DARWIN_ARM64"; do
-  TEST_HOST="${platform%%:*}"
-  selected="${platform#*:}"
-  TEST_ARCH="${selected%%:*}"
-  export TEST_HOST TEST_ARCH
-  : > "$TEST_TRACE"
-  bash "$FIXTURE/scripts/ci/install-icydb-yq.sh"
-  rg -Fx "parser --version $ICYDB_YQ_VERSION --sha256 ${selected#*:} --install-dir $FIXTURE/.cache/tools" "$TEST_TRACE" >/dev/null
-done
-
 : > "$TEST_TRACE"
 status=0
 bash "$FIXTURE/scripts/dev/workstation-setup.sh" update extra > "$FIXTURE/invalid" 2>&1 || status=$?
-[[ "$status" -eq 2 && ! -s "$TEST_TRACE" ]]
+[[ "$status" == 2 && ! -s "$TEST_TRACE" ]]
 
-# Exercise missing-gh installation with only the declared macOS package manager.
-mkdir -p "$FIXTURE/gh-bin"
-ln -s /bin/bash "$FIXTURE/gh-bin/bash"
-export TEST_HOST=Darwin
-(
-  unset -f gh
-  export PATH="$TEST_FIXTURE/gh-bin"
-  # Exported into the child installer.
-  # shellcheck disable=SC2329
-  brew() {
-    trace "brew $*"
-    printf '#!/bin/bash\nprintf "fixture-gh\\n"\n' > "$TEST_FIXTURE/gh-bin/gh"
-    /bin/chmod +x "$TEST_FIXTURE/gh-bin/gh"
-  }
-  export -f brew
-  /bin/bash "$TEST_FIXTURE/scripts/ci/install-gh.sh"
-) > "$FIXTURE/gh-output"
-rg -Fx 'brew install gh' "$TEST_TRACE" >/dev/null
-rg -Fx fixture-gh "$FIXTURE/gh-output" >/dev/null
-
-# Run the real Binaryen installer/verifier with disposable digest-pinned
-# fixtures. Platform simulation proves selection, not native macOS execution.
-mv "$FIXTURE/optimizer-installer" "$FIXTURE/scripts/ci/install-wasm-optimizer.sh"
-mkdir -p "$FIXTURE/archive/binaryen-version_132/bin"
-cat > "$FIXTURE/archive/binaryen-version_132/bin/wasm-opt" <<'TOOL'
+# Exercise actual Make dispatch with local script stubs, without installations.
+unset -f make
+cp "$ROOT/Makefile" "$FIXTURE/Makefile"
+cp "$ROOT/scripts/ci/actionlint-checksums.tsv" "$FIXTURE/scripts/ci/"
+for tool in host ic; do
+  cat > "$FIXTURE/scripts/dev/install-$tool-tools.sh" <<'INSTALL'
 #!/usr/bin/env bash
-printf 'executed\n' >> "$TEST_EXECUTION"
-printf '%s\n' "$TEST_TOOL_VERSION"
-TOOL
-chmod +x "$FIXTURE/archive/binaryen-version_132/bin/wasm-opt"
-tar -czf "$FIXTURE/archive.tar.gz" -C "$FIXTURE/archive" binaryen-version_132
-digest() {
-  local output
-  if command -v sha256sum >/dev/null 2>&1; then
-    output="$(sha256sum "$1")"
-  else
-    output="$(shasum -a 256 "$1")"
-  fi
-  printf '%s\n' "${output%% *}"
-}
-archive_digest="$(digest "$FIXTURE/archive.tar.gz")"
-binary_digest="$(digest "$FIXTURE/archive/binaryen-version_132/bin/wasm-opt")"
-curl() {
-  local output="" request=""
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --output) output="$2"; shift 2 ;;
-      *) request="$1"; shift ;;
-    esac
-  done
-  trace "$request"
-  cp "$TEST_FIXTURE/archive.tar.gz" "$output"
-}
-export -f curl
-
-for host_arch in Linux:x86_64 Darwin:x86_64 Darwin:arm64; do
-  export TEST_HOST="${host_arch%:*}" TEST_ARCH="${host_arch#*:}"
-  platform="$(bash -c 'ROOT="$TEST_FIXTURE"; source "$ROOT/scripts/ci/wasm-optimizer-pin.sh"; printf "%s" "$platform"')"
-  asset="$(awk -v platform="$platform" '$1 == platform {print $2}' "$ROOT/scripts/ci/wasm-optimizer-checksums.tsv")"
-  printf 'version\tversion_132\n%s\t%s\t%s\t%s\n' "$platform" "$asset" "$archive_digest" "$binary_digest" > "$FIXTURE/scripts/ci/wasm-optimizer-checksums.tsv"
-  install_dir="$FIXTURE/install-$platform"
-  WASM_OPT_INSTALL_DIR="$install_dir" bash "$FIXTURE/scripts/ci/install-wasm-optimizer.sh" > "$FIXTURE/output"
-  cmp "$install_dir/wasm-opt" "$FIXTURE/archive/binaryen-version_132/bin/wasm-opt"
-  cp "$install_dir/wasm-opt" "$FIXTURE/installed.before"
-
-  # A version mismatch cannot replace the previously verified installation.
-  export TEST_TOOL_VERSION=wrong
-  printf 'tampered\n' >> "$install_dir/wasm-opt"
-  cp "$install_dir/wasm-opt" "$FIXTURE/tampered.before"
-  status=0
-  WASM_OPT_INSTALL_DIR="$install_dir" bash "$FIXTURE/scripts/ci/install-wasm-optimizer.sh" > "$FIXTURE/rejected" 2>&1 || status=$?
-  [[ "$status" -ne 0 ]]
-  cmp "$install_dir/wasm-opt" "$FIXTURE/tampered.before"
-  export TEST_TOOL_VERSION='wasm-opt version 132 (version_132)'
-  cp "$FIXTURE/installed.before" "$install_dir/wasm-opt"
-
-  # Reject changed download bytes before extracting or executing a candidate.
-  executions_before="$(wc -l < "$TEST_EXECUTION")"
-  printf 'version\tversion_132\n%s\t%s\t%064d\t%s\n' "$platform" "$asset" 0 "$binary_digest" > "$FIXTURE/scripts/ci/wasm-optimizer-checksums.tsv"
-  status=0
-  WASM_OPT_INSTALL_DIR="$FIXTURE/reject-$platform" bash "$FIXTURE/scripts/ci/install-wasm-optimizer.sh" > "$FIXTURE/rejected" 2>&1 || status=$?
-  [[ "$status" -ne 0 && ! -e "$FIXTURE/reject-$platform/wasm-opt" ]]
-  [[ "$(wc -l < "$TEST_EXECUTION")" -eq "$executions_before" ]]
-
-  # Even an intact archive must contain the admitted executable bytes.
-  printf 'version\tversion_132\n%s\t%s\t%s\t%064d\n' "$platform" "$asset" "$archive_digest" 0 > "$FIXTURE/scripts/ci/wasm-optimizer-checksums.tsv"
-  status=0
-  WASM_OPT_INSTALL_DIR="$FIXTURE/reject-binary-$platform" bash "$FIXTURE/scripts/ci/install-wasm-optimizer.sh" > "$FIXTURE/rejected" 2>&1 || status=$?
-  [[ "$status" -ne 0 && ! -e "$FIXTURE/reject-binary-$platform/wasm-opt" ]]
-  [[ "$(wc -l < "$TEST_EXECUTION")" -eq "$executions_before" ]]
-  cp "$ROOT/scripts/ci/wasm-optimizer-checksums.tsv" "$FIXTURE/scripts/ci/"
+printf '%s %s\n' "${0##*/}" "$*" >> "$TEST_TRACE"
+[[ "${TEST_INSTALL_FAIL:-0}" == 0 ]]
+INSTALL
 done
+for script in check-pocketic-alignment.sh verify-wasm-optimizer.sh; do
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$FIXTURE/scripts/ci/$script"
+done
+: > "$TEST_TRACE"
+command make --no-print-directory -C "$FIXTURE" install-tools > "$FIXTURE/dispatch"
+printf '%s\n' "install-host-tools.sh --versions $FIXTURE/ci/tool-versions.env --with-ripgrep" \
+  "install-ic-tools.sh --pins $FIXTURE/ci/ic-tools.tsv" > "$FIXTURE/expected"
+cmp "$FIXTURE/expected" "$TEST_TRACE"
+: > "$TEST_TRACE"
+command make --no-print-directory -C "$FIXTURE" tools-check > "$FIXTURE/offline"
+printf '%s\n' "install-host-tools.sh --versions $FIXTURE/ci/tool-versions.env --with-ripgrep --check" \
+  "install-ic-tools.sh --pins $FIXTURE/ci/ic-tools.tsv --check" > "$FIXTURE/expected"
+cmp "$FIXTURE/expected" "$TEST_TRACE"
+: > "$TEST_TRACE"
+status=0
+# Use an external environment command so Bash 3.2 captures the failed child,
+# rather than exiting at an assignment preceding the command builtin.
+env TEST_INSTALL_FAIL=1 make --no-print-directory -C "$FIXTURE" install-tools > "$FIXTURE/failed-dispatch" 2>&1 || status=$?
+[[ "$status" != 0 && "$(wc -l < "$TEST_TRACE")" -eq 1 ]]
 
-echo '[OK] workstation orchestration and Binaryen integrity boundaries verified (offline fixtures)'
+# Provisioning cannot qualify a server that differs from the locked client.
+cp "$ROOT/scripts/ci/check-pocketic-alignment.sh" "$FIXTURE/scripts/ci/"
+printf '[[package]]\nname = "pocket-ic"\nversion = "16.0.0"\n' > "$FIXTURE/Cargo.lock"
+bash "$FIXTURE/scripts/ci/check-pocketic-alignment.sh" > "$FIXTURE/aligned"
+awk -F '\t' 'BEGIN { OFS="\t" } $1=="pocket-ic" && $3=="darwin-arm64" { $2="15.0.0" } { print }' \
+  "$FIXTURE/ci/ic-tools.tsv" > "$FIXTURE/mismatched.tsv"
+mv "$FIXTURE/mismatched.tsv" "$FIXTURE/ci/ic-tools.tsv"
+if bash "$FIXTURE/scripts/ci/check-pocketic-alignment.sh" \
+  > "$FIXTURE/mismatch" 2>&1; then exit 1; fi
+cp "$ROOT/ci/ic-tools.tsv" "$FIXTURE/ci/ic-tools.tsv"
+printf '[[package]]\nname = "other-client"\nversion = "16.0.0"\n' > "$FIXTURE/Cargo.lock"
+if bash "$FIXTURE/scripts/ci/check-pocketic-alignment.sh" > "$FIXTURE/missing-client" 2>&1; then exit 1; fi
+
+# IcyDB's raw optimizer admission is independent of shared archive provisioning.
+# Check consumer ordering with a harmless executable; no real optimizer runs.
+cp "$ROOT/scripts/ci/"{verify-wasm-optimizer.sh,verify-file-checksum.sh} "$FIXTURE/scripts/ci/"
+unset -f uname
+mkdir -p "$FIXTURE/.tools/ic/bin"
+cat > "$FIXTURE/.tools/ic/bin/wasm-opt" <<'OPTIMIZER'
+#!/usr/bin/env bash
+printf 'executed\n' >> "$TEST_TRACE"
+printf '%s\n' 'wasm-opt version 132 (version_132)'
+OPTIMIZER
+chmod +x "$FIXTURE/.tools/ic/bin/wasm-opt"
+digest="$(bash "$ROOT/scripts/ci/verify-file-checksum.sh" --print sha256 "$FIXTURE/.tools/ic/bin/wasm-opt")"
+for platform in linux_x86_64 darwin_x86_64 darwin_arm64; do
+  printf '%s\t%s\n' "$platform" "$digest"
+done > "$FIXTURE/scripts/ci/wasm-optimizer-checksums.tsv"
+: > "$TEST_TRACE"
+bash "$FIXTURE/scripts/ci/verify-wasm-optimizer.sh" > "$FIXTURE/optimizer-admitted"
+[[ "$(wc -l < "$TEST_TRACE")" -eq 1 ]]
+printf '\n# changed bytes\n' >> "$FIXTURE/.tools/ic/bin/wasm-opt"
+: > "$TEST_TRACE"
+if bash "$FIXTURE/scripts/ci/verify-wasm-optimizer.sh" > "$FIXTURE/optimizer-tampered" 2>&1; then exit 1; fi
+[[ ! -s "$TEST_TRACE" ]]
+perl -pi -e 's/version 132/version 133/' "$FIXTURE/.tools/ic/bin/wasm-opt"
+digest="$(bash "$ROOT/scripts/ci/verify-file-checksum.sh" --print sha256 "$FIXTURE/.tools/ic/bin/wasm-opt")"
+for platform in linux_x86_64 darwin_x86_64 darwin_arm64; do
+  printf '%s\t%s\n' "$platform" "$digest"
+done > "$FIXTURE/scripts/ci/wasm-optimizer-checksums.tsv"
+: > "$TEST_TRACE"
+if bash "$FIXTURE/scripts/ci/verify-wasm-optimizer.sh" > "$FIXTURE/optimizer-version-refused" 2>&1; then exit 1; fi
+[[ "$(wc -l < "$TEST_TRACE")" -eq 1 ]]
+awk -F '\t' 'BEGIN { OFS="\t" } $1=="wasm-opt" { $2="133" } { print }' \
+  "$FIXTURE/ci/ic-tools.tsv" > "$FIXTURE/changed-optimizer.tsv"
+mv "$FIXTURE/changed-optimizer.tsv" "$FIXTURE/ci/ic-tools.tsv"
+: > "$TEST_TRACE"
+if bash "$FIXTURE/scripts/ci/verify-wasm-optimizer.sh" > "$FIXTURE/optimizer-selection-refused" 2>&1; then exit 1; fi
+[[ ! -s "$TEST_TRACE" ]]
+echo '[OK] workstation and Make local-tool orchestration verified (offline substitutes)'

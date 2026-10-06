@@ -176,6 +176,42 @@ impl HardExecutionBudget {
         self.limits[resource_index(resource)]
     }
 
+    /// Preflight the combined cost of repeated resources without charging work.
+    pub(in crate::db) fn can_charge_budget_bundle(
+        &self,
+        charges: &[(DiagnosticExecutionBudgetResource, u64)],
+        observed: impl Fn(DiagnosticExecutionBudgetResource) -> u64,
+    ) -> bool {
+        let Some(totals) = budget_bundle_totals(charges) else {
+            return false;
+        };
+        charges.iter().all(|(resource, _amount)| {
+            observed(*resource)
+                .checked_add(totals[resource_index(*resource)])
+                .is_some_and(|next| next <= self.limit(*resource))
+        })
+    }
+
+    /// Count complete units using the combined per-resource cost at both owners.
+    pub(in crate::db) fn remaining_budget_units(
+        &self,
+        per_unit: &[(DiagnosticExecutionBudgetResource, u64)],
+        observed: impl Fn(DiagnosticExecutionBudgetResource) -> u64,
+    ) -> u64 {
+        let Some(totals) = budget_bundle_totals(per_unit) else {
+            return 0;
+        };
+        DiagnosticExecutionBudgetResource::ALL
+            .into_iter()
+            .zip(totals)
+            .filter(|(_resource, amount)| *amount != 0)
+            .map(|(resource, amount)| {
+                self.limit(resource).saturating_sub(observed(resource)) / amount
+            })
+            .min()
+            .unwrap_or(u64::MAX)
+    }
+
     /// Return the reserve retained for typed failure construction.
     #[cfg(test)]
     #[must_use]
@@ -204,6 +240,20 @@ impl HardExecutionBudget {
         self.limits[resource_index(resource)] = limit;
         self
     }
+}
+
+/// Both budget owners use checked totals: overflow cannot fit even a maximum
+/// ceiling. The closed resource set needs only fixed-size scratch accounting.
+fn budget_bundle_totals(
+    charges: &[(DiagnosticExecutionBudgetResource, u64)],
+) -> Option<[u64; RESOURCE_COUNT]> {
+    let mut totals = [0_u64; RESOURCE_COUNT];
+    for (resource, amount) in charges {
+        let total = &mut totals[resource_index(*resource)];
+        *total = total.checked_add(*amount)?;
+    }
+
+    Some(totals)
 }
 
 /// Immutable attribution attached to one hard-budget counter set.
@@ -510,18 +560,10 @@ impl HardExecutionBudgetTracker {
     }
 
     fn remaining_budget_units(&self, per_unit: &[(DiagnosticExecutionBudgetResource, u64)]) -> u64 {
-        let execution_remaining = per_unit
-            .iter()
-            .filter(|(_resource, amount)| *amount != 0)
-            .map(|(resource, amount)| {
-                self.budget
-                    .budget()
-                    .limit(*resource)
-                    .saturating_sub(self.observed[resource_index(*resource)])
-                    / amount
-            })
-            .min()
-            .unwrap_or(u64::MAX);
+        let execution_remaining = self
+            .budget
+            .budget()
+            .remaining_budget_units(per_unit, |resource| self.observed[resource_index(resource)]);
         let request_remaining = self
             .request_scope
             .as_ref()
@@ -534,14 +576,13 @@ impl HardExecutionBudgetTracker {
         &self,
         charges: &[(DiagnosticExecutionBudgetResource, u64)],
     ) -> bool {
-        charges.iter().all(|(resource, amount)| {
-            self.observed[resource_index(*resource)]
-                .checked_add(*amount)
-                .is_some_and(|observed| observed <= self.budget.budget().limit(*resource))
-        }) && self
-            .request_scope
-            .as_ref()
-            .is_none_or(|scope| scope.can_charge_budget_bundle(charges))
+        self.budget
+            .budget()
+            .can_charge_budget_bundle(charges, |resource| self.observed[resource_index(resource)])
+            && self
+                .request_scope
+                .as_ref()
+                .is_none_or(|scope| scope.can_charge_budget_bundle(charges))
     }
 
     fn try_charge_budget_bundle(
@@ -1557,6 +1598,24 @@ mod tests {
                 charge_current_execution_budget(bytes, 10)?;
                 let before = current_execution_budget_usage()?;
 
+                assert_eq!(
+                    current_execution_remaining_budget_units(&[(entries, 1), (entries, 1)])?,
+                    1
+                );
+                assert!(!try_charge_current_execution_budget_bundle(&[
+                    (entries, 2),
+                    (bytes, 10),
+                    (entries, 1),
+                ])?);
+                let duplicate_rejected = current_execution_budget_usage()?;
+                assert_eq!(
+                    duplicate_rejected.observed(entries),
+                    before.observed(entries)
+                );
+                assert_eq!(duplicate_rejected.observed(bytes), before.observed(bytes));
+                assert_eq!(root.observed(entries), 1);
+                assert_eq!(root.observed(bytes), 10);
+
                 assert!(!try_charge_current_execution_budget_bundle(&[
                     (entries, 3),
                     (bytes, 10),
@@ -1583,6 +1642,130 @@ mod tests {
             ExecutionBudgetFinish::Automatic,
         )
         .expect("atomic bundle proof should complete");
+    }
+
+    #[test]
+    fn repeated_budget_bundle_resources_are_atomic_for_each_limiting_scope() {
+        let entries = DiagnosticExecutionBudgetResource::GroupDistinctEntries;
+        let bytes = DiagnosticExecutionBudgetResource::GroupDistinctStateBytes;
+        for (execution_limit, request_limit) in [(10, 100), (100, 10), (10, 10)] {
+            let root = RequestExecutionRoot::new_for_tests(
+                HardExecutionBudget::uniform_for_tests(u64::MAX, TEST_HEADROOM)
+                    .with_limit_for_tests(entries, request_limit),
+            );
+            let mut tracker = HardExecutionBudgetTracker::new_for_tests(
+                HardExecutionBudget::uniform_for_tests(u64::MAX, TEST_HEADROOM)
+                    .with_limit_for_tests(entries, execution_limit),
+                TEST_CONTEXT,
+            );
+            tracker.request_scope = Some(root.scope());
+            tracker.precharge(entries, 2).unwrap();
+            tracker.precharge(bytes, 1).unwrap();
+            let before_execution = tracker.observed;
+            let before_request = root.request_budget();
+
+            for bundle in [
+                [(entries, 5), (bytes, 1), (entries, 4)],
+                [(entries, 4), (entries, 5), (bytes, 1)],
+            ] {
+                assert!(!tracker.try_charge_budget_bundle(&bundle).unwrap());
+                assert_eq!(tracker.observed, before_execution);
+                assert_eq!(root.request_budget(), before_request);
+            }
+            assert_eq!(
+                tracker.remaining_budget_units(&[(entries, 2), (entries, 2)]),
+                2
+            );
+            assert!(
+                tracker
+                    .try_charge_budget_bundle(&[
+                        (entries, 5),
+                        (bytes, 1),
+                        (entries, 0),
+                        (entries, 3),
+                    ])
+                    .unwrap()
+            );
+            assert_eq!(tracker.observed(entries), 10);
+            assert_eq!(root.observed(entries), 10);
+            assert_eq!(tracker.observed(bytes), 2);
+            assert_eq!(root.observed(bytes), 2);
+            let committed_request = root.request_budget();
+            let committed_execution = tracker.observed;
+            assert!(
+                !tracker
+                    .try_charge_budget_bundle(&[(entries, 1), (bytes, 1)])
+                    .unwrap()
+            );
+            assert_eq!(root.request_budget(), committed_request);
+            assert_eq!(tracker.observed, committed_execution);
+        }
+    }
+
+    #[test]
+    fn budget_bundle_instruction_exhaustion_preserves_semantic_counters() {
+        let instructions = DiagnosticExecutionBudgetResource::InstructionUnits;
+        let entries = DiagnosticExecutionBudgetResource::GroupDistinctEntries;
+        for (execution_limit, request_limit, expected_scope) in [
+            (0, u64::MAX, DiagnosticExecutionBudgetScope::Execution),
+            (u64::MAX, 0, DiagnosticExecutionBudgetScope::Request),
+        ] {
+            let root = RequestExecutionRoot::new_for_tests(
+                HardExecutionBudget::uniform_for_tests(u64::MAX, TEST_HEADROOM)
+                    .with_limit_for_tests(instructions, request_limit),
+            );
+            let mut tracker = HardExecutionBudgetTracker::new_for_tests(
+                HardExecutionBudget::uniform_for_tests(u64::MAX, TEST_HEADROOM)
+                    .with_limit_for_tests(instructions, execution_limit),
+                TEST_CONTEXT,
+            );
+            tracker.request_scope = Some(root.scope());
+            tracker.precharge(instructions, 1).unwrap_err();
+            let before_request = root.request_budget();
+            let before_execution = tracker.observed;
+            let failure = tracker
+                .try_charge_budget_bundle(&[(entries, 1), (entries, 1)])
+                .unwrap_err();
+            assert_eq!(failure.resource(), instructions);
+            assert_eq!(failure.scope(), expected_scope);
+            assert_eq!(failure.observed(), 1);
+            assert_eq!(root.request_budget(), before_request);
+            assert_eq!(tracker.observed, before_execution);
+        }
+    }
+
+    #[test]
+    fn budget_bundle_overflow_is_rejected_without_saturating_into_admission() {
+        let resource = DiagnosticExecutionBudgetResource::ResultBytes;
+        let unlimited = HardExecutionBudget::uniform_for_tests(u64::MAX, TEST_HEADROOM);
+        let root = RequestExecutionRoot::new_for_tests(unlimited);
+        let mut tracker = HardExecutionBudgetTracker::new_for_tests(unlimited, TEST_CONTEXT);
+        let scope = root.scope();
+        let overflow = [(resource, u64::MAX), (resource, 1)];
+        // The execution-only owner must enforce the same totals as an attached request.
+        assert!(!tracker.try_charge_budget_bundle(&overflow).unwrap());
+        assert_eq!(tracker.observed(resource), 0);
+        tracker.request_scope = Some(root.scope());
+        assert!(!scope.can_charge_budget_bundle(&overflow));
+        assert!(!scope.try_commit_budget_bundle(&overflow));
+        assert!(!tracker.try_charge_budget_bundle(&overflow).unwrap());
+        assert_eq!(scope.remaining_budget_units(&overflow), 0);
+        assert_eq!(tracker.remaining_budget_units(&overflow), 0);
+        assert_eq!(root.observed(resource), 0);
+        assert_eq!(tracker.observed(resource), 0);
+        assert_eq!(scope.remaining_budget_units(&[]), u64::MAX);
+        assert_eq!(tracker.remaining_budget_units(&[(resource, 0)]), u64::MAX);
+        assert!(scope.try_commit_budget_bundle(&[]));
+        assert!(tracker.try_charge_budget_bundle(&[(resource, 0)]).unwrap());
+        assert!(
+            tracker
+                .try_charge_budget_bundle(&[(resource, u64::MAX - 1), (resource, 1)])
+                .unwrap()
+        );
+        let exhausted = root.request_budget();
+        assert!(!tracker.try_charge_budget_bundle(&[(resource, 1)]).unwrap());
+        assert_eq!(root.request_budget(), exhausted);
+        assert_eq!(tracker.observed(resource), u64::MAX);
     }
 
     #[test]

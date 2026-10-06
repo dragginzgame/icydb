@@ -6,6 +6,7 @@ export CARGO_HOME="${CARGO_HOME:-$(make --no-print-directory -s -C "$ROOT" print
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$(make --no-print-directory -s -C "$ROOT" print-cargo-target-dir)}"
 
 cd "$ROOT"
+export PATH="$ROOT/.tools/host/bin:$PATH"
 
 BUMP_TYPE=${1:-patch}
 INTERNAL_WORKSPACE_PACKAGES=(
@@ -21,8 +22,13 @@ LOCKFILE_SNAPSHOT_DIR=""
 LOCKFILE_SNAPSHOT=""
 
 cleanup_lockfile_snapshot() {
+  local status=$?
   if [[ -n "$LOCKFILE_SNAPSHOT_DIR" && -d "$LOCKFILE_SNAPSHOT_DIR" ]]; then
-    find "$LOCKFILE_SNAPSHOT_DIR" -depth -delete
+    if [[ "$status" == 0 ]]; then
+      find "$LOCKFILE_SNAPSHOT_DIR" -depth -delete
+    else
+      echo "Failed version preparation retained: $LOCKFILE_SNAPSHOT_DIR" >&2
+    fi
   fi
 }
 
@@ -34,7 +40,7 @@ if ! cargo set-version --help >/dev/null 2>&1; then
 fi
 
 # Current version (from [workspace.package])
-PREV=$(cargo get workspace.package.version)
+PREV=$(bash scripts/ci/read-cargo-workspace-version.sh --stable "$ROOT/Cargo.toml") || exit 1
 
 # Keep the tested dependency graph fixed while changing workspace versions.
 # cargo-edit may re-resolve registry or target-specific edges while updating
@@ -47,12 +53,12 @@ if [[ -f Cargo.lock ]]; then
   cargo metadata --locked --offline --no-deps --format-version 1 > "$LOCKFILE_SNAPSHOT_DIR/metadata.json"
 fi
 
-PLANNED="$(bash scripts/ci/next-release-version.sh "$PREV" "$BUMP_TYPE")"
-[[ -z "${RELEASE_VERSION:-}" || "$RELEASE_VERSION" == "$PLANNED" ]]
+PLANNED="$(bash scripts/ci/next-release-version.sh "$PREV" "$BUMP_TYPE")" || exit 1
+[[ -z "${RELEASE_VERSION:-}" || "$RELEASE_VERSION" == "$PLANNED" ]] || exit 1
 cargo set-version --workspace "$PLANNED" --offline >/dev/null
 
 # New version
-NEW=$(cargo get workspace.package.version)
+NEW=$(bash scripts/ci/read-cargo-workspace-version.sh --stable "$ROOT/Cargo.toml") || exit 1
 
 if [[ "$PREV" == "$NEW" ]]; then
   echo "Version unchanged ($NEW)"
@@ -85,26 +91,17 @@ cat "$LOCKFILE_SNAPSHOT_DIR/pin-exceptions" > ci/dependency-pinning-exceptions.j
 
 if [[ -n "$LOCKFILE_SNAPSHOT" ]]; then
   cp "$LOCKFILE_SNAPSHOT" Cargo.lock
-  perl -0777 -e '
-    use JSON::PP qw(decode_json);
-    my ($previous, $new, $metadata_file) = @ARGV;
-    open my $input, "<", $metadata_file or die "$metadata_file: $!\n";
-    my $metadata = decode_json(do { local $/; <$input> });
-    my %members = map { $_ => 1 } @{$metadata->{workspace_members}};
-    my %owned = map { $_->{name} => 1 }
-      grep { $members{$_->{id}} && $_->{version} eq $previous } @{$metadata->{packages}};
-    local $/; my $text = <STDIN>;
-    $text =~ s{(\[\[package\]\]\n.*?)(?=\n\[\[package\]\]|\z)}{
-      my $block = $1; my ($name) = $block =~ /^name = "([^"]+)"$/m;
-      if ($owned{$name // ""} && $block !~ /^source = /m) {
-        $block =~ s/^version = "\Q$previous\E"$/version = "$new"/m;
-      }
-      for my $package (keys %owned) {
-        $block =~ s/"\Q$package $previous\E"/"$package $new"/g;
-      }
-      $block
-    }gse; print $text;
-  ' "$PREV" "$NEW" "$LOCKFILE_SNAPSHOT_DIR/metadata.json" < "$LOCKFILE_SNAPSHOT" > "$LOCKFILE_SNAPSHOT_DIR/new-lock"
+  # Cargo metadata owns the local roster; the shared transformer owns exact
+  # lockfile identities and preserves every external dependency selection.
+  jq -r --arg previous "$PREV" '
+    .workspace_members as $members | .packages[] |
+    select(.id as $id | $members | index($id)) |
+    select(.version == $previous) | .name
+  ' "$LOCKFILE_SNAPSHOT_DIR/metadata.json" > "$LOCKFILE_SNAPSHOT_DIR/local-packages"
+  owned=()
+  while IFS= read -r package; do owned[${#owned[@]}]="$package"; done < "$LOCKFILE_SNAPSHOT_DIR/local-packages"
+  perl scripts/ci/rewrite-local-lock-versions.pl "$LOCKFILE_SNAPSHOT" "$PREV" "$NEW" \
+    "${owned[@]}" > "$LOCKFILE_SNAPSHOT_DIR/new-lock"
   cat "$LOCKFILE_SNAPSHOT_DIR/new-lock" > Cargo.lock
   cargo metadata --locked --offline --no-deps --format-version 1 >/dev/null
 fi

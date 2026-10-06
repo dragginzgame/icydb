@@ -2,8 +2,6 @@
 use strict;
 use warnings;
 use FindBin;
-use File::Basename qw(dirname);
-use File::Spec;
 
 # Validate references, not sentences. Current behavior is exercised by the
 # compiled example and codec tests linked from the maintained contracts.
@@ -13,8 +11,14 @@ my @documents = @ARGV ? @ARGV : (
     glob('docs/*.md'), glob('docs/contracts/*.md'),
     glob('docs/guides/*.md'), glob('docs/operations/*.md'),
     glob('crates/*/README.md'),
+    'docs/governance/shared-tooling.md', 'docs/audits/README.md',
+    'docs/audits/recurring/crosscutting/crosscutting-flow-convergence-and-duplication.md',
+    'docs/audits/recurring/crosscutting/crosscutting-complexity-and-technical-debt.md',
+    'docs/audits/targeted/modules/module-surface-hardening.md',
+    'docs/audits/targeted/modules/module-cleanup-runner.md',
+    'docs/audits/archive/shared-adoption/README.md',
 );
-my ($failures, $references) = (0, 0);
+my $failures = 0;
 
 sub read_file {
     my ($path) = @_;
@@ -23,37 +27,30 @@ sub read_file {
     return <$file>;
 }
 
-sub check_target {
-    my ($document, $target, $from_root) = @_;
-    return if $target =~ m{^(?:[a-z][a-z0-9+.-]*:|\#|//)}i;
-    $target =~ s/[#?].*\z//;
-    $target =~ s/%([0-9a-f]{2})/chr(hex($1))/egi;
-    return unless length $target;
-    my $path = ($from_root || File::Spec->file_name_is_absolute($target))
-        ? $target : File::Spec->catfile(dirname($document), $target);
-    ++$references;
-    unless (-e $path) {
-        warn "$document: missing local target $target\n";
-        ++$failures;
-    }
+unless (@ARGV) {
+    # The snapshot owns its Markdown file set; keep navigation qualification
+    # aligned with it instead of maintaining a second shared-document roster.
+    my $snapshot = read_file('.shared-tooling.snapshot');
+    push @documents, ($snapshot =~ /^file\t[^\t]+\t[^\t]+\t([^\n]+\.md)$/mg);
 }
+my %seen;
+@documents = grep { !$seen{$_}++ } @documents;
+
+# Shared Tooling owns Markdown navigation mechanics. IcyDB owns this roster
+# and the structured product facts checked below.
+system($^X, "$FindBin::Bin/check-documentation-links.pl", '--root', '.', @documents) == 0
+    or die "shared documentation link check failed\n";
 
 for my $document (@documents) {
     my $text = read_file($document);
-    # Fenced examples are code, not document navigation. Anchor validation and
-    # external network availability are deliberately outside this local gate.
-    $text =~ s/^(`{3,}|~{3,})[^\n]*\n.*?^\1\s*$//msg;
-    while ($text =~ /\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+"[^"]*")?\s*\)/g) {
-        check_target($document, defined($1) ? $1 : $2, 0);
-    }
-    while ($text =~ /^\s*\[[^\]]+\]:\s*<?([^\s>]+)>?/mg) {
-        check_target($document, $1, 0);
-    }
     # The durable-surface inventory's source-owner cells use repository paths.
     # Check those references without prescribing table labels or prose.
     if ($document eq 'docs/contracts/PERSISTED_FORMAT_INVENTORY.md') {
         while ($text =~ /`((?:crates|testing)\/[^`]+)`/g) {
-            check_target($document, $1, 1);
+            unless (-e $1) {
+                warn "$document: missing source owner $1\n";
+                ++$failures;
+            }
         }
     }
 }
@@ -76,4 +73,4 @@ unless (@ARGV) {
 }
 
 die "documentation references failed ($failures)\n" if $failures;
-print "[OK] $references local references across ", scalar(@documents), " documents.\n";
+print "[OK] IcyDB documentation inventory and version facts verified.\n";

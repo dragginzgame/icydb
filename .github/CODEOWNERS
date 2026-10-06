@@ -11,3 +11,11 @@
 /docs/consuming-snapshots.md @dragginzgame
 /docs/supported-hosts.md @dragginzgame
 /scripts/dev/ @dragginzgame
+/ci/ @dragginzgame
+/audits/ @dragginzgame
+/rules/ @dragginzgame
+/docs/provenance.md @dragginzgame
+/docs/local-setup.md @dragginzgame
+/docs/ic-tools.md @dragginzgame
+/docs/verification-helpers.md @dragginzgame
+/docs/tag-maintenance.md @dragginzgame

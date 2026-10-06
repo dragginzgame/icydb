@@ -1,185 +1,52 @@
-# Recurring Audit — Flow Convergence And Duplication
+# IcyDB flow convergence and duplication overlay
 
-## Identity
+Apply [the shared method](../../../../audits/flow-convergence-and-duplication.md).
 
-- report scope: `flow-convergence-and-duplication`
-- method: `FCD-1.0`
-- report path:
-  `docs/reports/recurring/YYYY/MM/DD/flow-convergence-and-duplication/<run>/report.md`
+IcyDB adopts Shared Tooling `d957d1f8801885c5b69e4a9ef900155f5f2a8a9d` through
+[the snapshot](../../../../.shared-tooling.snapshot). Apply the shared method
+and [local audit governance](../../README.md) together. This changes method
+identity; earlier reports remain historical and affected comparisons are
+`N/A (method change)`. No audit supplies implementation or broad-gate authority.
 
-This method replaces the former canonical-semantic-authority,
-DRY/consolidation, flow-convergence, and semantic portions of layer-violation
-audits. Earlier reports are historical context and are non-comparable except
-for explicitly named stable anchors.
+## Identity and scope
 
-## Purpose
+- Report scope: `flow-convergence-and-duplication`.
+- Method: shared revision above plus `ICYDB-FCD-2`; record both identities.
+- Reports: `docs/reports/recurring/YYYY/MM/DD/flow-convergence-and-duplication/<run>/report.md`.
+- Trigger: affected owners at minor-line closeout, or changes to frontends,
+  prepared plans, generated boundaries, diagnostics, replay or public adapters.
+  A whole-system baseline needs an explicit request.
 
-Determine whether equivalent behavior has one canonical semantic owner and
-converges through one maintained internal flow, without removing defensive
-boundary checks or measured specializations that have distinct authority.
+Trace participating SQL, Fluent, dynamic/typed session, prepared, facade,
+generated, `EXPLAIN`, diagnostics, migration, recovery and replay entrypoints.
+Include their direct fixtures and generated producers rather than inspecting
+only edited lines. Exclude unrelated owners, historical prose and build output.
 
-This audit targets duplicated flows and policy rediscovery. It is not a style,
-line-count, general correctness, performance, or speculative redesign audit.
+## IcyDB authority and retained boundaries
 
-## Run Triggers
+Accepted schema snapshots own runtime planning, execution, decoding and mutation.
+Generated `EntityModel` / `IndexModel` belong only to proposal, reconciliation,
+model-only convenience and tests. SQL DDL lowers into catalog-native mutation;
+SQL text and generated models must not reconstruct accepted runtime authority.
 
-Run this audit:
+Prepared plans carry normalized decisions into execution and `EXPLAIN`.
+Publication, indexes, cursors, durable jobs, startup observation and replay keep
+their owning contracts. Check equivalent prepared/non-prepared and SQL/Fluent
+paths at the actual convergence point. Preserve independent corruption,
+namespace, generation, trust and interruption-recovery checks.
 
-- at minor-line closeout for owners changed by that line;
-- after adding or changing a frontend-to-runtime path, execution route,
-  planner artifact, public adapter, `EXPLAIN` projection, replay path, or
-  generated boundary; or
-- as a periodic broad baseline when explicitly requested.
+Use [architecture contracts](../../architecture-contracts.md) for layer direction
+and [simplicity rules](../../../governance/simplicity-and-maintainability.md) for
+state-space decisions. Apply the pre-1.0 hard cuts and retained-data obligations
+in [AGENTS.md](../../../../AGENTS.md). Retain measured specialization only with
+matching raw Wasm, IC-cycle or instruction evidence.
 
-The default closeout run is affected-owner scoped. Do not scan unrelated
-subsystems merely because the method can do so.
+## Focused evidence
 
-## Core Contract
-
-The maintained flow is:
-
-```text
-owner derives -> contract carries -> consumers project
-```
-
-Distinct public construction surfaces may remain separate. Equivalent internal
-semantics must converge as early as practical. Downstream runtime,
-diagnostics, replay, or `EXPLAIN` code must not reparse or reclassify a policy
-already decided by its owner.
-
-Similar-looking code is not automatically duplication debt. Independent
-fail-closed checks, trust-boundary enforcement, recovery containment, and
-measured hot-path specialization may remain separate when their reason is
-explicit.
-
-## Evidence Discipline
-
-Enumerate evidence once for the run and reuse it throughout the report. Record:
-
-- code snapshot and dirty-worktree relevance;
-- affected behavior and owner boundaries;
-- public and internal entrypoints;
-- carried semantic/planner/runtime artifacts;
-- downstream classification and projection sites;
-- relevant focused tests and invariant gates; and
-- the compared baseline or `N/A`.
-
-Mention counts are discovery signals only. A duplicated-flow finding requires
-inspection of the branch conditions, outcomes, and authority role.
-
-## Method
-
-### 1. Behavior And Owner Map
-
-Select the behavior families in scope. For each, record:
-
-| Behavior | Canonical owner | Inputs | Carried contract | Consumers |
-| --- | --- | --- | --- | --- |
-
-If the canonical owner is unclear or plural, carry that fact into the findings
-rather than inventing an owner during the audit.
-
-### 2. Flow Trace
-
-Trace every maintained entry surface to its convergence point:
-
-| Entry surface | Frontend-only work | Convergence point | Runtime path | Result projection |
-| --- | --- | --- | --- | --- |
-
-Inspect SQL, Fluent, prepared, generated, facade, recovery, diagnostics,
-`EXPLAIN`, and replay surfaces only when they participate in the selected
-behavior.
-
-### 3. Duplication And Rediscovery Scan
-
-Look for:
-
-- equivalent semantic branch trees in multiple owners;
-- runtime or `EXPLAIN` classifiers that infer an upstream decision;
-- adapters that validate or reinterpret instead of translate;
-- repeated conversions between equivalent representations;
-- stale wrappers, aliases, compatibility paths, or fallback DTOs;
-- separate prepared/non-prepared or SQL/Fluent execution implementations; and
-- tests or generated code widening production surface solely for convenience.
-
-### 4. Retention Gate
-
-Before recommending convergence, determine whether separation:
-
-- independently protects a trust boundary;
-- preserves fail-closed corruption or recovery behavior;
-- belongs to a distinct semantic owner; or
-- is supported by current performance/Wasm evidence.
-
-Do not consolidate across architectural layers merely to reduce repetition.
-Do not replace direct hot-path code with allocation, dynamic dispatch, clone,
-formatting, or monomorphization risk without measurement.
-
-### 5. State-Space And Debt Projection
-
-For each confirmed duplicated flow, state:
-
-- which behavior axis is duplicated;
-- which combinations or switch sites it multiplies;
-- the current maintenance friction;
-- the canonical convergence point; and
-- whether removal changes public or persisted state.
-
-Apply `docs/governance/simplicity-and-maintainability.md`. An audit finding is
-evidence, not implementation authority.
-
-## Finding Classification
-
-Use exactly one class:
-
-- `DuplicateFlow`: equivalent behavior executes through multiple maintained
-  paths;
-- `PolicyRediscovery`: a consumer independently derives an owner decision;
-- `LateConvergence`: equivalent inputs converge only after avoidable duplicate
-  work;
-- `OwnershipLeak`: one layer depends on another layer's private decision;
-- `StaleSurface`: a wrapper, adapter, alias, or fallback has no current
-  authority reason;
-- `ProtectiveDuplication`: intentional separate enforcement at a trust or
-  recovery boundary; or
-- `MeasuredSpecialization`: intentional separate implementation justified by
-  current cost evidence.
-
-Use `LOW`, `MEDIUM`, or `HIGH` risk. Do not compute a composite score.
-
-## Finding Disposition
-
-Every finding uses exactly one disposition:
-
-- `DELETE`
-- `CONSOLIDATE`
-- `LOCALIZE`
-- `KEEP — BOUNDARY`
-- `KEEP — MEASURED HOT PATH`
-- `NO ACTION`
-
-The report may contain at most five active findings with `DELETE`,
-`CONSOLIDATE`, or `LOCALIZE` dispositions. Additional observations remain
-supporting evidence.
-
-## Required Report
-
-1. preamble and comparability;
-2. verdict: `PASS`, `PASS WITH FINDINGS`, `FAIL`, or `BLOCKED`;
-3. behavior/owner map;
-4. flow trace;
-5. findings table with ID, class, risk, owner, evidence, friction,
-   disposition, and action trigger;
-6. retained separations and their boundary or measured reason;
-7. complexity/state-space delta; and
-8. focused verification readout using `PASS`, `FAIL`, or `BLOCKED`.
-
-If no action is warranted, say so. Do not manufacture cleanup work to populate
-the report.
-
-## Authorization
-
-Apply [Authorization And Read-Only Work](../../README.md#authorization-and-read-only-work).
-An audit produces evidence; findings do not authorize production edits,
-promotion into a design, or creation of an active debt ledger. A bounded
-implementation request already given in the session remains authoritative.
+Start with targeted source and caller inspection in `crates/`, then include
+`schema/`, `canisters/` and `testing/` only for participating boundaries.
+Use the owning invariant script, generated output or focused Cargo target as
+needed. List and execute the same package, features and test filter using the
+repository Cargo environment; full workspace/release gates remain user-owned.
+There is no native timing proof. Record unavailable permitted measurements as
+unmeasured. Follow [verification readout](../../README.md#verification-readout).

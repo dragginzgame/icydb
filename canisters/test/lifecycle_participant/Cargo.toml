@@ -19,7 +19,6 @@ population-seed = []
 [dependencies]
 candid = { workspace = true }
 ic-cdk = { workspace = true }
-ic-metrics = { workspace = true }
 ic-timers = { workspace = true }
 icydb = { workspace = true }
 icydb-testing-audit-one-simple-fixtures = { workspace = true }

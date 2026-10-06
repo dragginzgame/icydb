@@ -1,7 +1,20 @@
-# IcyDB Audit Governance
+# IcyDB audit overlay
 
-This directory contains audit definitions and reusable audit playbooks. Executed
-results do not belong here; all report output is stored under `docs/reports/`.
+Apply [the shared audit contract](../../audits/README.md) at reviewed Shared
+Tooling `d957d1f8801885c5b69e4a9ef900155f5f2a8a9d`, recorded in
+[the snapshot](../../.shared-tooling.snapshot). This overlay owns IcyDB's product
+obligations, audit selection and report destinations. Shared methods own generic
+inspection, evidence, findings and authorized cleanup; they add no schedule or
+automatic full gate. Reports stay in `docs/reports/`.
+
+[Code hygiene](../../audits/code-hygiene.md) uses
+[the local style/architecture rules](../governance/code-hygiene/README.md) and
+[architecture contracts](architecture-contracts.md). Existing domain audits
+retain their distinct correctness and measurement questions. The four structural
+and cleanup overlays below carry new `ICYDB-*` identities; their
+[prior definitions](archive/shared-adoption/README.md) are frozen historical
+references. Earlier reports and artifacts are unchanged and affected comparisons
+are `N/A (method change)`.
 
 ## Audit Definitions
 
@@ -92,6 +105,8 @@ repeat those facts.
 
 ### Domain Scope And Change Triggers
 
+
+
 For domain-safety audits, default to the affected owners at minor-line closeout
 or when a change touches a boundary below. A recurring label does not require
 a weekly whole-system sweep. Run a broad domain baseline only when explicitly
@@ -130,14 +145,9 @@ explicitly equivalent obligations and evidence can remain comparable.
 
 ### Finding Ownership And Shared Evidence
 
-Choose the owning audit by the violated contract, not the number of directories
-it crosses. A recovery or cursor defect remains a domain finding even when it
-crosses several layers. Structural crosscutting audits own duplicated flow,
-semantic ownership, state-space, and maintenance-friction findings.
-
-Keep one owning finding per underlying cause; adjacent reports link it and
-explain the consequence for their own scoped verdict. Do not copy finding tables
-or create parallel debt entries. Distinct defects still need distinct findings.
+The [common ownership/evidence contract](../../audits/README.md#ownership-and-history)
+owns one finding per cause and source-bound evidence reuse. IcyDB routes domain
+findings by their violated contract:
 
 Use these ownership splits when coverage overlaps:
 
@@ -149,116 +159,26 @@ Use these ownership splits when coverage overlaps:
 | State transitions / recovery | State transitions owns legal entry, publication, and readiness gates; recovery consistency owns replay equivalence and idempotence. Share interruption evidence without repeating the full recovery matrix. |
 | Error taxonomy / domain audits | Error taxonomy owns class, origin, diagnostic context, and public projection; the domain audit owns the behavior producing that error. Share typed producer assertions. |
 
-The targeted handoff review routes known obligations to these owners and
-investigates only the remaining coverage gap. Protective checks at distinct
-trust boundaries are not duplicate semantic authority merely because they
-enforce the same invariant.
-
-Collect a shared owner map or test result once and link its exact report section
-or artifact. Reuse requires the same relevant source snapshot (including dirty
-changes) and compatible proof method. Behavioral evidence also requires matching
-test selection, features, toolchain, configuration, and runtime conditions.
-Inspect the assertions and state which obligation the evidence actually proves; a neighboring audit's
-`PASS` alone is not evidence. If identity or applicability cannot be established,
-collect fresh focused proof or record the gap. Reused tests are attributed to
-their original execution, never counted as newly executed tests. Preserve the
-original artifact and report; put any new output under its own authorized run.
+The targeted handoff review investigates the remaining boundary proof gap;
+independent trust, corruption and recovery checks keep their owners. Reused tests
+retain their original source, features, lockfile, configuration and runtime
+identity and are never counted as new executions.
 
 ### Authorization And Read-Only Work
 
-The user's request and existing session authorization determine which actions
-are in scope. Apply this contract to every recurring audit and targeted
-playbook; report paths and verification checklists do not grant extra authority.
-
-- A request to inspect, review, or give feedback is inspection-only. Return
-  findings in the conversation unless saving a report is also requested.
-- A request to run an audit authorizes its new report and necessary focused
-  verification outputs, unless the user restricts writes. It does not authorize
-  fixing findings, changing the audit definition, updating designs or debt
-  ledgers, or modifying release metadata.
-- An explicit read-only constraint means no repository writes, including
-  reports, generated files, build outputs, or automatic formatting. Use source
-  inspection and existing evidence. A specific request to save a report or run
-  a test permits only the outputs necessary for that requested action; it does
-  not grant general editing authority.
-- A request to implement a finding or improve the audit authorizes the bounded
-  change and its direct validation. Honor approval already given in the session;
-  do not ask again merely because a playbook normally starts with inspection.
-
-For inspection-only work, do not mutate services or start, stop, reset, or
-reconfigure networks. A running service does not make its mutation endpoints
-read-only. For requested validation or measurement, use the existing local
-network permissions in `AGENTS.md` only as needed, and report lifecycle actions.
-Do not deploy to or mutate unrelated application environments.
-
-When a required check cannot run within the authorized scope, record `BLOCKED`
-and the reason, continue independent inspection, and limit the verdict to the
-available evidence. Do not run a writer merely because it skips a build or
-describe source inspection as an executed behavioral check.
-
-When report writing is authorized, reserve a new canonical run directory and
-assemble that run's output there. Never overwrite a prior report, findings file,
-or its evidence to record a correction or rerun. New evidence receives a new
-run and links to the earlier result. A stale definition is a finding unless
-updating definitions is already part of the authorized task.
-
-For each audit run:
-
-1. Use one audit definition or one explicitly bounded investigation scope.
-2. Apply the no-build, state-space, and debt rules from
-   `docs/governance/simplicity-and-maintainability.md`.
-3. Keep the prompt and method fixed for the run.
-4. Record findings with `LOW`, `MEDIUM`, or `HIGH` risk and an explicit
-   disposition; do not create a composite score.
-5. When report writing is authorized, write directly to a new canonical
-   `docs/reports/` run directory; otherwise return findings in the conversation.
-6. Never overwrite or delete a prior report or structured findings file.
-7. Keep all machine-readable findings and generated artifacts beneath their
-   owning run.
-8. Do not create aliases, symlinks, compatibility directories, or duplicate
-   copies at former report paths.
-9. Limit structural reports to five active findings. Supporting observations
-   remain evidence and do not become an implicit backlog.
+Apply [the shared authority contract](../../audits/README.md#authority-and-execution)
+and [AGENTS.md](../../AGENTS.md). Audit/report instructions do not supply repair,
+service mutation, dependency update, broad gate or publication authority. Existing
+bounded implementation authority remains valid. Inspection-only work cannot
+mutate a running service. Requested local validation may use the network
+lifecycle permission only when necessary; report any lifecycle action.
 
 ### Findings And Verdicts
 
-All recurring audits and targeted playbooks use individual findings with
-`LOW`, `MEDIUM`, or `HIGH` severity. Justify severity with the current
-consequence and affected boundary:
-
-- `HIGH`: evidence of a serious correctness, integrity, security, availability,
-  or authority failure requiring prompt attention.
-- `MEDIUM`: a concrete bounded defect, verification gap, or maintenance burden
-  requiring an owner decision or a named action trigger.
-- `LOW`: limited present impact with a proportionate correction or explicit
-  no-action disposition.
-
-Missing evidence is a verification gap, not proof of a runtime defect. Explain
-what is unknown and its consequence; do not infer severity from file size,
-finding count, or the absence of an out-of-scope feature.
-
-Use these overall verdicts when a method requests a verdict:
-
-- `PASS`: the scoped requirements have sufficient evidence and no actionable
-  findings remain.
-- `PASS WITH FINDINGS`: the scoped requirements are supported, with explicit
-  non-blocking findings or accepted debt.
-- `FAIL`: a demonstrated scoped contract violation or unresolved required
-  verification failure remains.
-- `BLOCKED`: required evidence is unavailable and prevents a supported verdict;
-  identify the missing evidence. A known violation must still be reported.
-
-Do not compute overall risk indices, numerical maturity ratings, weighted
-completeness averages, or score-based action thresholds. Preserve feature and
-stage labels, individual findings, and measured quantities such as bytes,
-instructions, or executed-test counts. Those quantities do not become a
-composite health score. Follow-up depends on the finding's consequence,
-disposition, or unresolved verification obligation.
-
-For a method moving to this contract, record the method change and mark old
-score comparisons `N/A (method change)`. Compare only explicitly retained
-evidence, feature states, or measured anchors. Do not rewrite historical
-reports or convert their scores into new severity labels.
+Apply [shared severity, verdict and evidence rules](../../audits/README.md#evidence-and-report-contract).
+Do not convert historic scores into severities or use counts as cleanup targets.
+Keep product/domain scopes explicit and name missing proof without treating it
+as evidence of a runtime defect. GitHub issues are the only follow-up tracker.
 
 ### Daily baseline rule
 
@@ -293,36 +213,20 @@ record only the combined verdict and cross-report dependencies.
 
 ## Required Report Preamble
 
-Every report must record:
-
-- audit definition or investigation scope;
-- compared baseline report path, or `N/A`;
-- code snapshot identifier;
-- method tag/version;
-- comparability status:
-  - `comparable`, or
-  - `non-comparable` with a concise reason.
-
-If a metric formula, counting scope, or classification model changes:
-
-1. bump the method tag;
-2. add a `Method Changes` section;
-3. mark affected deltas `N/A (method change)`;
-4. retain at least one unchanged anchor metric where practical.
+Use [the shared identity contract](../../audits/README.md#evidence-and-report-contract)
+with the selected local overlay/method identity, baseline and comparability.
+Record source and relevant dirty work, trigger, affected owners and excluded
+families. A method/scope change makes affected comparisons `N/A (method change)`;
+name equivalent owner or measured anchors separately.
 
 ## Verification Readout
 
-Every report must include command outcomes using only:
-
-- `PASS`
-- `FAIL`
-- `BLOCKED`
-
-For `BLOCKED`, record the concrete reason once and do not repeatedly run an
-expensive command that is blocked by the same environment condition.
-
-Full repository and workspace test suites remain user-owned under `AGENTS.md`.
-Audit agents run only the focused validation appropriate to their scope.
+Use `PASS`, `FAIL` or `BLOCKED` for each selected check and identify missing proof.
+Source inspection is distinct from behavioral execution. Full repository,
+workspace and release gates remain user-owned. Use the Cargo home and target
+selected by Make, locked dependency inputs and explicit package/target/features.
+Raw Wasm bytes, IC cycles and instruction counts are the only performance
+metrics. Missing permitted measurements remain unmeasured.
 
 ### Executed-Test Evidence
 
@@ -368,46 +272,16 @@ When the selected proof changes the method or coverage, follow the method-change
 and comparability rules above. Reuse this contract rather than copying its
 status and counting rules into each definition.
 
-## Actionability
-
-Every `MEDIUM` or `HIGH` finding must include:
-
-- owner boundary;
-- concrete present friction;
-- disposition or reason for accepted retention; and
-- action trigger when it is not being fixed now.
-
-Audit-local finding or issue inventories are immutable evidence. They do not
-become the active technical-debt ledger automatically.
-
-If no follow-up is required, state that explicitly.
-
 ## History Preservation
 
-Reports and structured findings are append-only evidence:
-
-- do not delete or overwrite prior reports or structured findings;
-- relocation may simplify paths but must preserve content and ownership;
-- a naming collision receives a new run number, never a compatibility suffix;
-- execution-time paths quoted inside historical reports remain evidence of the
-  original run and do not define a current repository location.
-
-Superseded audit definitions may move to `docs/audits/archive/` without path
-aliases. Historical reports retain the code snapshot and execution-time
-definition path needed to interpret their result. A new method compares with
-an old report only through explicitly named stable anchor evidence and otherwise
-records `non-comparable (method change)`.
-
-Generated artifacts are retained only while they provide a live baseline,
-unique non-reproducible evidence, or detail not captured by the owning report.
-Raw searches, duplicate formats, derived tables already summarized in the
-report, and superseded comparison baselines should be deleted.
+Use [report ownership](../reports/README.md) for the existing recurring,
+release-closeout and investigation hierarchy. Never overwrite reports or their
+structured findings. New evidence receives a new run; historical definitions
+are ineligible for new runs and keep their original source identity.
 
 ## Sources of Truth
 
-- `docs/audits/README.md`: execution and storage policy
-- `docs/audits/architecture-contracts.md`: architectural invariants enforced
-- `docs/audits/recurring/`: recurring audit definitions
-- `docs/audits/archive/`: inactive historical audit methods
-- `docs/audits/targeted/`: targeted reusable playbooks
-- `docs/reports/README.md`: report ownership and history layout
+- [Shared methods](../../audits/README.md): common procedure and evidence contract.
+- [Architecture contracts](architecture-contracts.md): IcyDB invariants.
+- `docs/audits/recurring/` and `docs/audits/targeted/`: local overlays/domain methods.
+- [Reports](../reports/README.md): immutable evidence and local output layout.

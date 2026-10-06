@@ -15,6 +15,7 @@ path = "src/main.rs"
 [dependencies]
 candid = { workspace = true }
 clap = { workspace = true }
+ic-host-tools = { workspace = true }
 icydb = { workspace = true, default-features = true, features = ["metrics", "migration", "sql"] }
 icydb-schema = { workspace = true }
 rustyline = { workspace = true }

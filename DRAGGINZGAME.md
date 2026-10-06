@@ -114,6 +114,10 @@ Consumer choices described in those guides remain subject to this baseline.
 
 ## Validation and evidence
 
+- Use the [shared audit methods](audits/README.md) for reusable code-hygiene,
+  structural and module reviews. Keep product invariants and validation commands
+  in consumer overlays. Audit adoption adds no automatic broad gate or schedule;
+  findings do not supply repair authority. Preserve historical reports locally.
 - Run the smallest relevant checks automatically during authorized development.
   Broad workspace, full CI and release gates run only when explicitly requested
   or in their configured CI pipeline. Local command lists must distinguish focused
@@ -183,6 +187,15 @@ Consumer choices described in those guides remain subject to this baseline.
 
 ## Rust workspaces and portable tooling
 
+- Provide [local developer setup](docs/local-setup.md) through explicit
+  `make install-tools` and offline `make tools-check`, including pinned jq and
+  Mike Farah yq under `.tools/host/bin`. Make/CI callers select the local tools;
+  document system bootstrap packages and product toolchains separately.
+- Provide the [common local IC executable setup](docs/ic-tools.md) through
+  `make install-ic-tools` and offline `make ic-tools-check`. Keep the common tool
+  names available under the checkout's `.tools/ic/bin`, with one reviewed pin
+  matrix and explicit installation. Consumers own version qualification and
+  scoped pin exceptions; ordinary validation never downloads tools implicitly.
 - Apply the [dependency pinning rules](rules/dependency-pinning.md): immutable
   Git/action identities, compatible registry requirements with locked builds,
   verified tool downloads, and explicitly qualified sibling or moving inputs.

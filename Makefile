@@ -20,11 +20,14 @@
         _ci-workspace-clippy _ci-workspace-integration-clippy _ci-workspace-tests \
         _ci-tier-a-sqlite _ci-tier-a-mutation _ci-tier-a-integration \
         _ci-tier-b-sql-canister _ci-tier-b-sql-perf \
-        print-cargo-home print-cargo-target-dir check-dependency-pins
+        print-cargo-home print-cargo-target-dir check-dependency-pins \
+        install-tools tools-check install-host-tools host-tools-check install-ic-tools ic-tools-check
 
 # Resolve the repo root from this Makefile so scripts can query these values
 # via `make -C "$$ROOT"` and share a single source of truth.
 ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
+export PATH := $(ROOT_DIR)/.tools/host/bin:$(ROOT_DIR)/.tools/ic/bin:$(PATH)
+POCKET_IC_BIN ?= $(ROOT_DIR)/.tools/ic/bin/pocket-ic
 
 # Keep workspace cargo state repo-local so sibling repos compiling on the same
 # filesystem do not contend on a shared cargo home or target directory.
@@ -33,7 +36,7 @@ CARGO_WORK_TARGET_DIR := $(ROOT_DIR)/target/icydb
 RELEASE_TMP_DIR := $(ROOT_DIR)/.cache/release-tmp
 CARGO_WORK_ENV := CARGO_HOME="$(CARGO_WORK_HOME)" CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
 CARGO_PUBLISH_ENV := CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
-IC_TESTKIT_ENV := TMPDIR="$(ROOT_DIR)/.cache"
+IC_TESTKIT_ENV := TMPDIR="$(ROOT_DIR)/.cache" POCKET_IC_BIN="$(POCKET_IC_BIN)" IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=0
 # Workspace and integration lanes share a lower cap to limit concurrent
 # PocketIC test bodies; core-only lanes retain their wider bounded parallelism.
 CORE_TEST_ENV := RUST_TEST_THREADS=8
@@ -43,7 +46,7 @@ POCKET_IC_RUNNER := bash "$(ROOT_DIR)/scripts/ci/run-with-pocketic-server.sh"
 ACTIONLINT_VERSION := $(shell awk '$$1 == "version" {print $$2}' "$(ROOT_DIR)/scripts/ci/actionlint-checksums.tsv")
 ACTIONLINT_INSTALL_DIR ?= $(HOME)/.local/bin
 ACTIONLINT_BIN ?= $(ACTIONLINT_INSTALL_DIR)/actionlint
-YQ ?= $(ROOT_DIR)/.cache/tools/yq
+YQ ?= $(ROOT_DIR)/.tools/host/bin/yq
 TIER_C_ARTIFACT_DIR ?= $(ROOT_DIR)/artifacts/correctness/sql_tier_c
 TIER_C_FAILURE_ARTIFACT ?=
 
@@ -67,6 +70,8 @@ help:
 	@echo "Available commands:"
 	@echo ""
 	@echo "Setup / Installation:"
+	@echo "  install-tools    Install pinned repository-local parsers and IC executables"
+	@echo "  tools-check      Verify the selected local tools offline"
 	@echo "  install          Install the local icydb CLI binary"
 	@echo "  install-dev      Install developer dependencies, GitHub CLI, actionlint, and the formatting hook"
 	@echo "  update-dev       Update developer tooling and hooks without changing dependencies"
@@ -85,7 +90,7 @@ help:
 	@echo "  publish          Publish crates; reuse the exact shared release receipt when available"
 	@echo ""
 	@echo "Development:"
-	@echo "  test             Run all tests; PocketIC needs a cached/explicit binary or download opt-in"
+	@echo "  test             Run all tests; prepare local PocketIC with install-tools first"
 	@echo "  test-integration-feedback TEST_TARGET=... TEST_NAME=..."
 	@echo "                  Run one exact integration test, then its complete binary"
 	@echo "  test-durability  Run the focused commit, mutation-job, convergence, and recovery checks"
@@ -155,12 +160,34 @@ install-gh:
 install-hooks:
 	bash scripts/dev/install-git-hooks.sh
 
+install-tools:
+	+$(MAKE) --no-print-directory install-host-tools
+	+$(MAKE) --no-print-directory install-ic-tools
+
+tools-check:
+	+$(MAKE) --no-print-directory host-tools-check
+	+$(MAKE) --no-print-directory ic-tools-check
+
+install-host-tools:
+	bash scripts/dev/install-host-tools.sh --versions "$(ROOT_DIR)/ci/tool-versions.env" --with-ripgrep
+
+host-tools-check:
+	bash scripts/dev/install-host-tools.sh --versions "$(ROOT_DIR)/ci/tool-versions.env" --with-ripgrep --check
+
+install-ic-tools:
+	bash scripts/dev/install-ic-tools.sh --pins "$(ROOT_DIR)/ci/ic-tools.tsv"
+
+ic-tools-check:
+	bash scripts/dev/install-ic-tools.sh --pins "$(ROOT_DIR)/ci/ic-tools.tsv" --check
+	bash scripts/ci/check-pocketic-alignment.sh
+	bash scripts/ci/verify-wasm-optimizer.sh
+
 #
 # Version management (the source candidate is gated before any version mutation)
 #
 
 version:
-	@$(CARGO_WORK_ENV) cargo get workspace.package.version
+	@$(CARGO_WORK_ENV) YQ="$(YQ)" bash scripts/ci/read-cargo-workspace-version.sh --stable "$(CURDIR)/Cargo.toml"
 
 tags:
 	@git tag --sort=-version:refname | head -10
@@ -316,6 +343,7 @@ fmt-check:
 	$(CARGO_WORK_ENV) cargo fmt --all -- --check
 
 validate:
+	$(MAKE) --no-print-directory tools-check
 	# Do not run feature or test lanes until every clippy warning is repaired.
 	$(VALIDATION_RUNNER) --fail-fast \
 		fmt-check \
@@ -333,6 +361,7 @@ validate:
 # Explicit broad static preflight. This intentionally does not replace `validate`:
 # feature-specific clippy lanes and executable tests remain in the full gate.
 validate-fast:
+	$(MAKE) --no-print-directory tools-check
 	$(VALIDATION_RUNNER) --fail-fast \
 		fmt-check \
 		lint-workflows \
@@ -374,7 +403,7 @@ test-documentation:
 	$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib --all-features db::schema::identity_state::tests::
 
 check-dependency-pins:
-	$(CARGO_WORK_ENV) YQ="$(YQ)" bash scripts/ci/check-dependency-pins.sh
+	$(CARGO_WORK_ENV) YQ="$(YQ)" bash scripts/ci/check-dependency-pins.sh --cargo-inheritance
 
 check-invariants:
 	bash scripts/release/test-finalize-notes.sh
@@ -382,6 +411,10 @@ check-invariants:
 	bash scripts/ci/verify-shared-tooling-snapshot.sh
 	bash scripts/ci/test-shared-tooling-adapters.sh
 	bash scripts/ci/test-workstation-setup.sh
+	bash scripts/ci/test-cargo-metadata-adoption.sh
+	bash scripts/ci/test-pocketic-server-wrapper.sh
+	bash scripts/ci/test-ci-workflow-invariants.sh
+	bash scripts/ci/test-invariant-scanners.sh
 	bash scripts/ci/check-ci-workflow-invariants.sh
 	bash scripts/ci/check-deployment-inventory-invariants.sh
 	bash scripts/ci/check-dependency-graph-invariants.sh
@@ -397,7 +430,7 @@ check-invariants:
 	bash scripts/ci/test-publish-workspace.sh
 	bash scripts/ci/test-release-runner.sh
 	bash scripts/ci/test-release-candidate-receipt.sh
-	bash scripts/ci/test-delete-github-tags-up-to.sh
+	perl scripts/dev/delete-github-tags-up-to.pl --cutoff 0.210 >/dev/null
 	bash scripts/ci/test-pre-commit.sh
 	bash scripts/ci/check-persisted-format-invariants.sh
 	perl scripts/ci/test-documentation.pl
@@ -435,7 +468,7 @@ shellcheck:
 # GitHub Actions consumes these exact local targets as parallel lanes. The
 # terminal `check` job remains the one branch-protection and release gate.
 ci-static:
-	$(VALIDATION_RUNNER) --fail-fast _ci-format lint-workflows shellcheck check-dependency-pins check-invariants
+	$(VALIDATION_RUNNER) --fail-fast host-tools-check _ci-format lint-workflows shellcheck check-dependency-pins check-invariants
 
 _ci-format:
 	$(MAKE) --no-print-directory fmt-check
@@ -545,7 +578,7 @@ release-resume:
 
 .PHONY: release-verify
 release-version:
-	@$(CARGO_WORK_ENV) cargo get workspace.package.version
+	@$(CARGO_WORK_ENV) YQ="$(YQ)" bash scripts/ci/read-cargo-workspace-version.sh --stable "$(CURDIR)/Cargo.toml"
 release-preflight:
 	@awk -v version="$(RELEASE_VERSION)" -v date="$(RELEASE_DATE)" \
 		-f scripts/ci/finalize-release-changelog.awk CHANGELOG.md >/dev/null

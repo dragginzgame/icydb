@@ -21,7 +21,7 @@ trap cleanup EXIT
 FIXTURE="$TEST_ROOT/repository"
 ARTIFACTS="$FIXTURE/artifacts/wasm-size"
 mkdir -p "$FIXTURE/scripts/ci" "$FIXTURE/docs/reports/recurring" "$ARTIFACTS" "$TEST_ROOT/bin"
-cp "$ROOT/scripts/ci/wasm-audit-report.sh" "$ROOT/scripts/ci/wasm-report-common.sh" "$FIXTURE/scripts/ci/"
+cp "$ROOT/scripts/ci/wasm-audit-report.sh" "$ROOT/scripts/ci/wasm-report-common.sh" "$ROOT/scripts/ci/verify-file-checksum.sh" "$FIXTURE/scripts/ci/"
 # A real executable stub keeps the test independent of installed Wasm tools.
 printf '#!/usr/bin/env bash\nexit 0\n' > "$TEST_ROOT/bin/twiggy"
 chmod +x "$TEST_ROOT/bin/twiggy"

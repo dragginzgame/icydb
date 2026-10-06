@@ -5,6 +5,7 @@ set -euo pipefail
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "$SELF_DIR/../.." && pwd)"
 cd "$ROOT_DIR"
+export PATH="$ROOT_DIR/.tools/host/bin:$PATH"
 
 PUBLISH_DRY_RUN="${PUBLISH_DRY_RUN:-0}"
 PUBLISH_FROM="${PUBLISH_FROM:-}"
@@ -23,19 +24,6 @@ PUBLISH_ORDER=(
     icydb
     icydb-cli
 )
-
-# Extracts the current workspace version from the root manifest.
-workspace_version() {
-    awk '
-        /^\[workspace.package\]/ { in_section = 1; next }
-        /^\[/ && in_section { exit }
-        in_section && $1 == "version" {
-            gsub(/"/, "", $3);
-            print $3;
-            exit;
-        }
-    ' Cargo.toml
-}
 
 # Returns the package name for a manifest, ignoring unpublished helper crates.
 publishable_manifest_name() {
@@ -84,23 +72,6 @@ validate_publish_order() {
     fi
 }
 
-# Check the exact version, including older releases. Registry failures are not
-# evidence that a package is absent and must stop before another publication.
-registry_has_version() {
-    local crate="$1"
-    local version="$2"
-    local status
-
-    status="$(curl --silent --show-error --location --connect-timeout 10 --max-time 30 --output /dev/null \
-        --write-out '%{http_code}' --user-agent 'icydb-publish (https://github.com/dragginzgame/icydb)' \
-        "https://crates.io/api/v1/crates/$crate/$version")" || return 2
-    case "$status" in
-        200) return 0 ;;
-        404) return 1 ;;
-        *) echo "Registry lookup failed for $crate $version (HTTP $status)" >&2; return 2 ;;
-    esac
-}
-
 # Waits until crates.io exposes the freshly published version before publishing
 # dependent crates that resolve the dependency from the registry.
 wait_for_registry_version() {
@@ -109,7 +80,7 @@ wait_for_registry_version() {
     local deadline=$((SECONDS + PUBLISH_TIMEOUT_SECS)) status
 
     while [ "$SECONDS" -lt "$deadline" ]; do
-        if registry_has_version "$crate" "$version"; then
+        if bash "$ROOT_DIR/scripts/ci/check-crates-io-version.sh" "$crate" "$version"; then
             echo "Observed $crate $version on crates.io"
             return 0
         else
@@ -133,11 +104,7 @@ release_receipt_matches() {
         scripts/ci/verify-release-gate-receipt.sh "$head_commit"
 }
 
-version="$(workspace_version)"
-if [ -z "$version" ]; then
-    echo "Failed to determine workspace version from Cargo.toml" >&2
-    exit 1
-fi
+version="$(bash "$SELF_DIR/read-cargo-workspace-version.sh" --stable "$ROOT_DIR/Cargo.toml")" || exit 1
 
 validate_publish_order
 
@@ -199,7 +166,7 @@ if [ "$PUBLISH_VALIDATE_ONLY" = "1" ]; then
 fi
 
 for crate in "${PUBLISH_ORDER[@]:start}"; do
-    if registry_has_version "$crate" "$version"; then
+    if bash "$ROOT_DIR/scripts/ci/check-crates-io-version.sh" "$crate" "$version"; then
         echo "Skipping $crate $version (already on crates.io)"
         continue
     else

@@ -17,10 +17,24 @@ require_rg() {
   fi
 }
 
+# Matches and no matches are both successful searches. Discovery/read/regex
+# failures terminate even a grouped pipeline inside command substitution.
+rg_checked() {
+  local scan_status=0
+  rg "$@" || scan_status=$?
+  case "$scan_status" in
+    0|1) return 0 ;;
+    *)
+      echo "[ERROR] Invariant search failed with status $scan_status." >&2
+      exit "$scan_status"
+      ;;
+  esac
+}
+
 run_rg() {
   local pattern=$1
   shift
-  rg -n --no-heading --color=never "$pattern" "$@" "${COMMON_GLOBS[@]}" || true
+  rg_checked -n --with-filename --no-heading --color=never "$pattern" "$@" "${COMMON_GLOBS[@]}"
 }
 
 strip_comment_only() {

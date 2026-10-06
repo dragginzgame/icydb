@@ -77,9 +77,9 @@ fn measure_collection_workload(length: u32, scenario: u8) -> CollectionWorkloadS
             .select(fields)
             .limit(1);
         let session = icydb::db!()?;
-        let start = crate::call_context_instructions();
+        let start = crate::call_context_instruction_counter();
         let result = session.execute_trusted_live_page(&query, None);
-        query_instructions = crate::call_context_instructions().saturating_sub(start);
+        query_instructions = crate::call_context_instruction_counter().saturating_sub(start);
         result.map(|page| page.rows)
     });
     CollectionWorkloadSample {

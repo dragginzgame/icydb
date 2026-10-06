@@ -5,6 +5,30 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.266.0]
+
+- Reject unknown SQL write fields as validation errors
+  ([#221](https://github.com/dragginzgame/icydb/issues/221)), enforce combined
+  budget costs ([#286](https://github.com/dragginzgame/icydb/issues/286)), harden invariant and
+  parsed-workflow checks ([#266](https://github.com/dragginzgame/icydb/issues/266),
+  [#304](https://github.com/dragginzgame/icydb/issues/304)), and preserve complete
+  PocketIC failure logs ([#303](https://github.com/dragginzgame/icydb/issues/303)).
+  Consolidate pinned local-tool setup, actual hook qualification, audit methods,
+  structured Cargo checks and version observations
+  ([#306](https://github.com/dragginzgame/icydb/issues/306)), verification helpers and
+  host-tools for CLI decoding and optimizer resolution
+  ([#301](https://github.com/dragginzgame/icydb/issues/301),
+  [#302](https://github.com/dragginzgame/icydb/issues/302)), and adopt arithmetic-only
+  ic-metrics 0.2 and IC Timers 0.14 with consumer-owned instruction reads,
+  preserving spans and diagnostics
+  ([ic-metrics #10](https://github.com/dragginzgame/ic-metrics/issues/10)).
+
+**Breaking:** Use the shared Perl tag-maintenance command with an explicit
+`--cutoff`; the shell command, default cutoff and implicit remote are removed
+([#305](https://github.com/dragginzgame/icydb/issues/305)).
+
+Detailed notes: [docs/changelog/0.266.md](docs/changelog/0.266.md)
+
 ## [0.265.1] - 2026-10-06
 
 ### 🔧 Changed

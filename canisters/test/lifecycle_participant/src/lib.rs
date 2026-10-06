@@ -1,11 +1,11 @@
 //! Framework-neutral lifecycle-participant composition evidence canister.
 
-// IC measurements use the shared Wasm reader; native Candid builds retain
-// the CDK host binding, which cannot supply IC measurements.
+// Read IC counter 1 through the CDK; native Candid builds use its
+// unsupported host binding and provide no IC measurement evidence.
 #[cfg(not(target_arch = "wasm32"))]
-use ic_cdk::api::call_context_instruction_counter as call_context_instructions;
+use ic_cdk::api::call_context_instruction_counter;
 #[cfg(target_arch = "wasm32")]
-use ic_metrics::call_context_instructions;
+use ic_cdk::api::call_context_instruction_counter;
 
 use std::{cell::RefCell, time::Duration};
 
@@ -229,18 +229,18 @@ fn run_deferred_database_work() -> ic_timers::OnceRunResult {
 #[ic_cdk::init]
 fn application_init() {
     begin_lifecycle(LifecycleHook::Init);
-    let start = call_context_instructions();
+    let start = call_context_instruction_counter();
     crate::__icydb_lifecycle_participant::init();
-    let participant_instructions = call_context_instructions().saturating_sub(start);
+    let participant_instructions = call_context_instruction_counter().saturating_sub(start);
     complete_synchronous_lifecycle(participant_instructions);
 }
 
 #[ic_cdk::post_upgrade]
 fn application_post_upgrade(trap_after_participant: Option<bool>) {
     begin_lifecycle(LifecycleHook::PostUpgrade);
-    let start = call_context_instructions();
+    let start = call_context_instruction_counter();
     crate::__icydb_lifecycle_participant::post_upgrade();
-    let participant_instructions = call_context_instructions().saturating_sub(start);
+    let participant_instructions = call_context_instruction_counter().saturating_sub(start);
     if trap_after_participant.unwrap_or(false) {
         ic_cdk::trap("lifecycle participant post-upgrade rollback probe");
     }

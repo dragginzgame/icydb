@@ -5,6 +5,8 @@
 
 use std::process::{Command, Stdio};
 
+use ic_host_tools::response::{ResponseError, ResponseFormat, ResponseLimits, decode};
+
 use crate::icp::process::output_stderr;
 
 pub(super) fn icp_query_command(
@@ -72,6 +74,8 @@ fn icp_call_command(
 }
 
 pub(super) fn hex_response_bytes(output: &str) -> Result<Vec<u8>, String> {
+    // IcyDB owns presentation labels and Unicode whitespace normalization.
+    // The shared owner receives one compact hex body, without format inference.
     let candidate = output
         .rsplit_once("response (hex):")
         .map_or(output, |(_, value)| value)
@@ -84,14 +88,26 @@ pub(super) fn hex_response_bytes(output: &str) -> Result<Vec<u8>, String> {
         return Err("icp canister call returned odd-length hex response".to_string());
     }
 
-    let mut bytes = Vec::with_capacity(hex.len() / 2);
-    for pair in hex.as_bytes().as_chunks::<2>().0 {
-        let high = hex_nibble(pair[0])?;
-        let low = hex_nibble(pair[1])?;
-        bytes.push((high << 4) | low);
-    }
-
-    Ok(bytes)
+    decode(
+        hex.as_bytes(),
+        ResponseFormat::Hex,
+        ResponseLimits {
+            input_bytes: hex.len(),
+            decoded_bytes: hex.len() / 2,
+        },
+    )
+    .map_err(|error| match error {
+        ResponseError::InvalidHex { offset } => hex.as_bytes().get(offset).map_or_else(
+            || "icp canister call returned invalid hex response".to_string(),
+            |byte| {
+                format!(
+                    "icp canister call returned non-hex byte '{}'",
+                    char::from(*byte)
+                )
+            },
+        ),
+        other => format!("icp canister call response decoding failed: {other}"),
+    })
 }
 
 pub(super) fn call_query_hex(
@@ -139,16 +155,4 @@ fn call_hex(
     let stdout = String::from_utf8(output.stdout).map_err(|err| err.to_string())?;
 
     hex_response_bytes(stdout.as_str())
-}
-
-fn hex_nibble(byte: u8) -> Result<u8, String> {
-    match byte {
-        b'0'..=b'9' => Ok(byte - b'0'),
-        b'a'..=b'f' => Ok(byte - b'a' + 10),
-        b'A'..=b'F' => Ok(byte - b'A' + 10),
-        other => Err(format!(
-            "icp canister call returned non-hex byte '{}'",
-            char::from(other)
-        )),
-    }
 }

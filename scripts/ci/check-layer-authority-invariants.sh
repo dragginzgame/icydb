@@ -46,10 +46,10 @@ if [[ -n "$application_behavior_leaks" ]]; then
 fi
 
 literal_source_scans="$(
-  rg -n --no-heading --color=never 'include_str!\s*\(\s*".*\.rs"' "$CORE_ROOT" || true
+  rg_checked -n --no-heading --color=never 'include_str!\s*\(\s*".*\.rs"' "$CORE_ROOT"
 )"
 concat_source_scans="$(
-  rg -n --no-heading --color=never 'include_str!\s*\(\s*concat!\([^)]*\.rs' "$CORE_ROOT" || true
+  rg_checked -n --no-heading --color=never 'include_str!\s*\(\s*concat!\([^)]*\.rs' "$CORE_ROOT"
 )"
 if [[ -n "$literal_source_scans" || -n "$concat_source_scans" ]]; then
   echo "[ERROR] include_str!-based source text scans are prohibited in $CORE_ROOT." >&2
@@ -78,8 +78,8 @@ else
   fi
 
   route_families="$(
-    { rg -o --no-heading --color=never '(access|direction|executor|query|sql|session|cursor|data|commit|index)::' \
-      "$ROUTE_PLANNER_ROOT" || true; } \
+    { rg_checked -o --no-heading --color=never '(access|direction|executor|query|sql|session|cursor|data|commit|index)::' \
+      "$ROUTE_PLANNER_ROOT"; } \
       | sed 's/::$//' \
       | sort -u
   )"

@@ -25,7 +25,6 @@ test-admin-api = ["sql"]
 [dependencies]
 candid = { workspace = true }
 ic-cdk = { workspace = true }
-ic-metrics = { workspace = true }
 icydb = { workspace = true, features = ["metrics"] }
 icydb-model = { workspace = true }
 icydb-testing-test-sql-fixtures = { workspace = true }

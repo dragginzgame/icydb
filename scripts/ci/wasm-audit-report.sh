@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/../.. && pwd)"
+export PATH="$ROOT/.tools/host/bin:$ROOT/.tools/ic/bin:$PATH"
 profile="wasm-release"
 sql_variant_mode="sql-on"
 audit_date="$(date +%F)"

@@ -4,18 +4,22 @@ set -euo pipefail
 # Execute publication preflight, order and retries using command substitutes.
 # No Git mutations, credentials, registry requests or real publication occur.
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+export PATH="$root/.tools/host/bin:$PATH"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/publish-workspace.XXXXXX")"
 trap '
     status=$?
     if [[ "$status" != 0 && -f "$fixture/output" ]]; then
         cat "$fixture/output" >&2 || true
     fi
-    rm -rf "$fixture"
+    if [[ "$status" == 0 ]]; then rm -rf "$fixture"
+    else echo "Publication fixture retained: $fixture" >&2; fi
     exit "$status"
 ' EXIT
 mkdir -p "$fixture/bin" "$fixture/scripts/ci" "$fixture/state" "$fixture/receipts"
 cp "$root/scripts/ci/publish-workspace.sh" \
-    "$root/scripts/ci/verify-release-gate-receipt.sh" "$fixture/scripts/ci/"
+    "$root/scripts/ci/verify-release-gate-receipt.sh" \
+    "$root/scripts/ci/check-crates-io-version.sh" \
+    "$root/scripts/ci/read-cargo-workspace-version.sh" "$fixture/scripts/ci/"
 printf '[workspace.package]\nversion = "0.265.0"\n' > "$fixture/Cargo.toml"
 crates=(icydb-diagnostic-code icydb-schema icydb-model-macros icydb-model icydb-core icydb icydb-cli)
 for crate in "${crates[@]}"; do
@@ -72,6 +76,11 @@ esac
 CURL
 cat >> "$fixture/bin/cargo" <<'CARGO'
 set -euo pipefail
+if [[ "$1" == locate-project ]]; then
+    [[ "${FAIL_VERSION_READ:-0}" == 0 ]] || exit 7
+    printf '%s\n' "$PWD/Cargo.toml"
+    exit 0
+fi
 [[ "$1" == publish && "$2" == -p && "$4" == --locked && "$5" == --registry && "$6" == crates-io ]]
 printf 'cargo %s\n' "$*" >> "$EVENTS"
 [[ "${FAIL_PUBLISH:-0}" == 0 ]] || exit 7
@@ -103,6 +112,17 @@ for input in PUBLISH_FROM=missing PUBLISH_DRY_RUN=invalid PUBLISH_VERIFY=invalid
     run_subject fail "$input"
     [[ ! -s "$EVENTS" ]]
 done
+# Version observation failures stop before registry or publication effects.
+cp "$fixture/Cargo.toml" "$fixture/original.toml"
+printf "[workspace.package]\nversion = '0.265.0' # valid TOML\n" > "$fixture/Cargo.toml"
+run_subject 0 PUBLISH_VALIDATE_ONLY=1
+[[ ! -s "$EVENTS" ]]
+run_subject fail FAIL_VERSION_READ=1
+[[ ! -s "$EVENTS" ]]
+printf '[workspace.package]\nversion = "0.265.0"\nversion = "invalid"\n' > "$fixture/Cargo.toml"
+run_subject fail
+[[ ! -s "$EVENTS" ]]
+cp "$fixture/original.toml" "$fixture/Cargo.toml"
 run_subject 0 PUBLISH_VALIDATE_ONLY=1
 [[ ! -s "$EVENTS" ]]
 

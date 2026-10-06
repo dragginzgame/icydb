@@ -79,38 +79,21 @@ require_text \
     '--one-caller-inline-max-function-size=0' \
     'the post-link pipeline must prevent unbounded one-caller inlining.'
 require_text \
-    scripts/ci/install-wasm-optimizer.sh \
-    'WebAssembly/binaryen/releases/download' \
-    'the optimizer installer must use the checksum-pinned official Binaryen release.'
+    Makefile \
+    'bash scripts/dev/install-ic-tools.sh --pins' \
+    'tool installation must use the reviewed shared installer.'
 require_text \
-    scripts/ci/wasm-optimizer-checksums.tsv \
-    $'version\tversion_132' \
-    'the optimizer installer must retain the qualified Binaryen release.'
-require_text \
-    scripts/dev/workstation-setup.sh \
-    "bash \"\$ROOT/scripts/ci/install-wasm-optimizer.sh\"" \
-    'workstation setup must install the repository-owned Binaryen executable.'
+    ci/ic-tools.tsv \
+    $'wasm-opt\t132\t' \
+    'the IC toolset must retain the qualified optimizer release.'
 require_text \
     scripts/dev/workstation-setup.sh \
-    "bash \"\$ROOT/scripts/ci/install-wasm-optimizer.sh\" --check-latest" \
-    'workstation updates must report whether the Binaryen pin matches the latest release.'
+    'install-tools' \
+    'workstation setup must prepare the common local toolset.'
 require_text \
     .github/workflows/ci.yml \
-    'bash scripts/ci/install-wasm-optimizer.sh' \
-    'CI must install the repository-owned Binaryen executable.'
-if rg -Fiq -- 'canic' \
-    "$ROOT/scripts/ci/install-wasm-optimizer.sh" \
-    "$ROOT/scripts/ci/verify-wasm-optimizer.sh" \
-    "$ROOT/testing/integration/src/wasm_optimizer.rs"; then
-    echo '[ERROR] the IcyDB optimizer contract must not depend on Canic.' >&2
-    failures=1
-fi
-if rg -Fq -- 'binaryen' \
-    "$ROOT/scripts/dev/workstation-setup.sh" \
-    "$ROOT/.github/workflows/ci.yml"; then
-    echo '[ERROR] maintained setup paths must delegate Binaryen installation to the canonical script.' >&2
-    failures=1
-fi
+    'make install-tools tools-check' \
+    'CI must explicitly provision and check the common local toolset.'
 
 if [[ "$failures" -ne 0 ]]; then
     echo "[FAIL] Wasm post-link invariants failed." >&2

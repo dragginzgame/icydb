@@ -163,8 +163,10 @@ Cargo helper tools, ICP tooling, and repository hooks.
 `make update-dev` ensures the reviewed Rust, Cargo, actionlint, parser and ICP
 tool selections are installed (apart from installing `gh` if missing), ensures
 the repository's formatting hook is installed, and leaves repository dependencies
-unchanged. Tool versions are recorded in `ci/tool-versions.env`; changing those
-selections is an explicit maintenance action.
+unchanged. Common executables are selected by [ci/ic-tools.tsv](ci/ic-tools.tsv)
+and [ci/tool-versions.env](ci/tool-versions.env); IcyDB Cargo utilities are selected
+by [ci/icydb-tools.env](ci/icydb-tools.env). Changing selections is an explicit
+maintenance action.
 Dependency upgrades and security audits are separate maintainer actions: review
 any intentional `cargo update` diff, then audit the selected graph with
 `cargo audit`. Neither action runs automatically during workstation setup.
@@ -174,26 +176,37 @@ any intentional `cargo update` diff, then audit the selected graph with
 On Ubuntu, `make install-dev` installs the normal build and script dependencies:
 
 ```bash
-build-essential cmake curl wget gzip libssl-dev pkg-config perl ripgrep shellcheck nodejs npm cloc
+build-essential cmake curl git tar xz-utils wget gzip libssl-dev pkg-config perl shellcheck cloc
 ```
 
 Canister development and wasm inspection also need:
 
 ```bash
-bubblewrap wabt jq
+bubblewrap wabt
 ```
 
 On macOS, setup installs these Homebrew formulas:
 
 ```bash
-cmake curl openssl@3 pkg-config perl ripgrep shellcheck node wabt jq cloc make
+cmake curl git xz openssl@3 pkg-config perl shellcheck wabt cloc make
 ```
 
-Binaryen is installed separately from the official pinned release, using the
-archive and executable digests in
-[the optimizer pin table](scripts/ci/wasm-optimizer-checksums.tsv). Linux x86-64
-and macOS ARM64/x86-64 assets are admitted. An update reports whether a newer
-release exists; it does not change the qualified optimizer version.
+Install the common checksum-verified host and IC executables explicitly:
+
+```bash
+make install-tools
+make tools-check
+```
+
+This provisions pinned jq, Mike Farah yq and PCRE2-enabled ripgrep in
+`.tools/host/bin`, plus ICP CLI, ic-wasm,
+ic-admin, didc, Binaryen and PocketIC in `.tools/ic/bin`. The second command
+checks the selected sets offline, including PocketIC client/server alignment
+and IcyDB's admitted optimizer digest. It never installs missing tools. See
+[shared setup](docs/local-setup.md) and [IC executable setup](docs/ic-tools.md)
+for archive pins, bootstrap packages and supported hosts. IcyDB retains the
+qualified Binaryen 132 optimization policy and its raw executable digests in
+[the admission table](scripts/ci/wasm-optimizer-checksums.tsv).
 
 Both `make install-dev` and `make update-dev` use the shared `make install-gh`
 path to ensure the GitHub CLI is available. It installs the apt-backed `gh`
@@ -225,11 +238,12 @@ by the repository:
 
 ```bash
 source ci/tool-versions.env
+source ci/icydb-tools.env
 cargo install cargo-sort --version "$SHARED_TOOLING_CARGO_SORT_VERSION" --locked
 cargo install cargo-sort-derives --version "$ICYDB_CARGO_SORT_DERIVES_VERSION" --locked
 ```
 
-Setup also installs `cargo-edit`, `cargo-get`, and `cargo-watch` for release
+Setup also installs `cargo-edit` and `cargo-watch` for release
 helpers and `make test-watch`. General analysis tools are optional; install
 `cargo-audit`, `cargo-bloat`, `cargo-deny`, `cargo-expand`, `cargo-machete`,
 `cargo-llvm-lines`, or `cargo-tarpaulin` explicitly when needed. For example:
@@ -240,75 +254,32 @@ cargo install cargo-audit --locked
 
 ### Dependency Declaration Checks
 
-Setup installs the checksum-verified Mike Farah `yq` parser in `.cache/tools`.
+Setup installs pinned jq, the checksum-verified Mike Farah `yq` parser and
+PCRE2-enabled ripgrep in `.tools/host/bin`.
 Run `make check-dependency-pins` for an offline declaration and tracked-lockfile
 check; static CI and release validation include it. Builds and tests preserve
 the selected dependency graph with `--locked`. Exact constraints are documented
 in [dependency selection](docs/governance/shared-tooling.md#dependency-selection),
 and release preparation updates coupled IcyDB exception values automatically.
+The same gate checks package-version and dependency inheritance structurally,
+including ordinary TOML tables and renamed dependencies. IcyDB retains its
+separate resolved-graph constraints. Version display, preparation, publication
+and receipt checks use the shared offline Cargo/yq/jq reader.
 
 ### ICP And Canister Tools
 
-Local ICP workflows require the ICP SDK CLI with `icp` on `PATH`.
-Both `make install-dev` and `make update-dev` install the reviewed
-`@icp-sdk/icp-cli` version under `$HOME/.local` through npm. Wasm reporting uses
-the reviewed Cargo `ic-wasm` version in both development and CI. Keep
-`${CARGO_HOME:-$HOME/.cargo}/bin` and `$HOME/.cargo/bin` before `$HOME/.local/bin`
-on your shell's `PATH` so that Cargo's reporting tool is selected. Workstation
-setup uses that ordering itself and verifies the reporting/ICP versions after
-installation; setup cannot change its parent shell's environment.
-
-Optional canister-operation utilities should be installed explicitly when you
-need them:
-
-- `didc` from DFINITY Candid releases.
-- `idl2json` and `yaml2candid` from DFINITY idl2json releases.
-- `quill` from DFINITY Quill releases.
-
-Install local developer dependencies with:
+Local ICP workflows require the selected ICP SDK CLI. Make and CI prepend
+`.tools/host/bin` and `.tools/ic/bin` to `PATH`. For direct shell commands, use:
 
 ```bash
-make install-dev
+export PATH="$PWD/.tools/host/bin:$PWD/.tools/ic/bin:$PATH"
 ```
 
-That target installs host-specific system prerequisites,
-the pinned Rust toolchain, the wasm target, standard Cargo helper tools,
-`candid-extractor`, `ic-wasm`, `twiggy`, and npm-backed ICP CLI tools.
-
-`make update-dev` may install the GitHub CLI if it is missing. Other
-missing system packages require manual installation or `make install-dev`.
-
-### Common Commands
-
-```bash
-make validate-fast # formatting, workflows, shell, invariants, and type checks
-make check         # type-check workspace
-make clippy        # lint with warnings denied
-make test          # complete unit and integration test boundary
-make test-documentation # focused compiled examples, capability lists, and codec evidence
-make validate      # complete formatting, invariant, feature, lint, and test gate
-make fmt           # format workspace
-make install-hooks # install the formatting-only pre-commit hook
-make build         # release workspace build
-```
-
-For an integration change, use the focused feedback target before the complete
-gate. It runs the named case first and, if that passes, its complete test
-binary:
-
-```bash
-make test-integration-feedback \
-  TEST_TARGET=sql_canister \
-  TEST_NAME=exact_test_name
-```
-
-`make validate-fast` intentionally omits executable tests and the
-feature-specific Clippy lanes. It is an iteration preflight, not a substitute
-for `make validate`.
-
-The [documentation maintenance policy](docs/governance/documentation.md) names
-the source owners and explains the distinction between structural link checks
-and executable behavioral evidence.
+Run this from the repository root after `make install-tools`. The shared
+installer selects release executables; neither npm nor Cargo installs a second
+ICP/ic-wasm copy. Cargo still owns IcyDB-specific tools such as candid-extractor
+and Twiggy. Workstation setup verifies tools before enabling the formatting hook;
+it cannot change its parent shell's environment.
 
 ### SQL Evidence Commands
 
@@ -331,12 +302,16 @@ Run the CI-equivalent required Tier B lane on Linux x86-64 with the exact
 PocketIC release pinned by `Cargo.lock`:
 
 ```bash
-POCKET_IC_BIN="$(bash scripts/ci/install-pocketic.sh)" make ci-sql-tier-b
+make install-tools
+make ci-sql-tier-b
 ```
 
 Tier B starts one runner-owned PocketIC server, connects the parallel fixture
 pool to that server, and runs the complete `sql_canister` and `sql_perf_audit`
 binaries. The runner stops the server on success, failure, or termination.
+On failure or interruption, it retains full stdout/stderr in the reported
+scratch directory. Successful runs remove their scratch logs. Tier B CI uploads
+retained server logs as a separate diagnostic artifact.
 
 The complete Tier C native profile is a scheduled eight-shard lane. Run one
 exact shard locally with:
@@ -442,44 +417,55 @@ rejects before formatting; formatter failure leaves the real files and index
 unchanged. Installation refuses to replace existing hook authority. The hook
 does not run tests, Clippy, builds, PocketIC or release validation.
 
-The current local `../ic-metrics` dependency is absent from the isolated index
-copy, so Cargo metadata prevents staged Rust formatting in this checkout. Local
-development wiring is retained; hook activation and real staged formatting remain
-unqualified until that prerequisite is resolved. See
-[dependency adoption](https://github.com/dragginzgame/icydb/issues/298).
+Shared dependencies, including ic-metrics 0.2, resolve through the registry;
+the isolated index copy does not need sibling repository checkouts. Hook
+formatting still requires the selected Cargo dependencies and formatter tools
+to be prepared. See
+[dependency adoption](docs/governance/shared-tooling.md#consumer-owned-instruction-measurement).
 
 `git commit --no-verify` remains an explicit bypass, and `git push` performs no
 repository validation. `make validate` retains the non-mutating `fmt-check`
 gate for release readiness and other hook bypasses.
 
+### Tag Maintenance
+
+Use the shared Perl command with an explicit reviewed cutoff:
+
+```bash
+perl scripts/dev/delete-github-tags-up-to.pl --cutoff 0.210
+```
+
+This previews local stable tags through every patch of that minor line, including
+their object identities. Use a full patch cutoff to select an exact upper bound.
+There is no default cutoff or remote; `--remote origin` adds a read-only inventory
+of that remote's configured push destination.
+
+Deletion is a separate maintainer decision requiring `--delete-local` and/or
+`--delete-remote` plus `--yes`. Review the
+[shared maintenance guide](docs/tag-maintenance.md) before selecting those effects;
+it explains exact-identity checks, per-batch remote atomicity and interruption
+recovery. Release, publication and cleanup commands do not invoke tag maintenance.
+
 ## IC Testkit Tests
 
-Some integration tests need the PocketIC server binary. `ic-testkit` resolves
-the binary in this order:
-
-1. `POCKET_IC_BIN`, when it points at an executable.
-2. A cached binary for the pinned `pocket-ic` crate version under `.cache`.
-3. A pinned GitHub release download through `ic-testkit`, but only when
-   `IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1` explicitly permits it.
-
-Use a trusted local binary when you have one:
+Some integration tests need the PocketIC server binary. Prepare the selected
+local tools before running those tests:
 
 ```bash
-POCKET_IC_BIN=/path/to/pocket-ic make test
+make install-tools
+make tools-check
 ```
 
-Or explicitly allow `ic-testkit` to download the pinned release into the repo
-cache when it is missing:
+Make selects `.tools/ic/bin/pocket-ic` explicitly and disables test-process
+server downloads. IcyDB requires all three supported host pins to match the
+`pocket-ic` client selected in `Cargo.lock`. An intentional client upgrade must
+qualify and update its matching server pins before using the new selection.
+`POCKET_IC_BIN=/path/to/pocket-ic` remains an explicit caller selection for a
+trusted executable matching that client; it does not bypass the common toolset
+checks in validation.
 
-```bash
-IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 make test
-```
-
-CI Tier B does not rely on a test-process download. On Linux x86-64,
-`scripts/ci/install-pocketic.sh` resolves the exact locked version, validates
-its reported version, and prints its cached executable path. `ci-sql-tier-b`
-then requires that path through `POCKET_IC_BIN` and owns one shared server for
-the complete lane.
+CI installs and verifies tools before testing. `ci-sql-tier-b` owns one shared
+server for the complete lane and stops it on success, failure or termination.
 
 ## Wasm Reports
 
@@ -516,16 +502,16 @@ Install the repository's formatting helper binaries:
 
 ```bash
 source ci/tool-versions.env
+source ci/icydb-tools.env
 cargo install cargo-sort --version "$SHARED_TOOLING_CARGO_SORT_VERSION" --locked
 cargo install cargo-sort-derives --version "$ICYDB_CARGO_SORT_DERIVES_VERSION" --locked
 ```
 
 ### `make test` cannot find the IC testkit runner
 
-Set `POCKET_IC_BIN=/path/to/pocket-ic`, or explicitly opt into the pinned
-download with `IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=1 make test`. For the
-CI-equivalent Linux x86-64 Tier B lane, let `scripts/ci/install-pocketic.sh`
-resolve and validate the exact locked binary as shown above.
+Run `make install-tools` and `make tools-check` to prepare and verify the
+selected local server. Make passes that path explicitly; tests do not download
+missing executables. Confirm the server pins match the client in `Cargo.lock`.
 
 ### Local SQL demo cannot find a canister
 

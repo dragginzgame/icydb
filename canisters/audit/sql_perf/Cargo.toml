@@ -20,7 +20,6 @@ test-admin-api = ["sql"]
 [dependencies]
 candid = { workspace = true }
 ic-cdk = { workspace = true }
-ic-metrics = { workspace = true }
 ic-timers = { workspace = true }
 icydb = { workspace = true }
 icydb-testing-audit-sql-perf-fixtures = { workspace = true }

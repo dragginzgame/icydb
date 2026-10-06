@@ -2,6 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="${ICYDB_RELEASE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PATH="$ROOT_DIR/.tools/host/bin:$PATH"
+VERSION_READER="$SCRIPT_DIR/read-cargo-workspace-version.sh"
 RELEASE_RECEIPT_DIR="${RELEASE_RECEIPT_DIR:-$ROOT_DIR/.cache/release-receipts}"
 
 usage() {
@@ -20,32 +23,6 @@ is_release_note_path() {
             return 1
             ;;
     esac
-}
-
-workspace_version_from_file() {
-    awk '
-        /^\[workspace.package\]/ { in_section = 1; next }
-        /^\[/ && in_section { exit }
-        in_section && $1 == "version" {
-            gsub(/"/, "", $3);
-            print $3;
-            exit;
-        }
-    ' "$1"
-}
-
-workspace_version_from_commit() {
-    local commit="$1"
-
-    git -C "$ROOT_DIR" show "$commit:Cargo.toml" | awk '
-        /^\[workspace.package\]/ { in_section = 1; next }
-        /^\[/ && in_section { exit }
-        in_section && $1 == "version" {
-            gsub(/"/, "", $3);
-            print $3;
-            exit;
-        }
-    '
 }
 
 validate_version() {
@@ -314,7 +291,7 @@ read_receipt() {
 receipt_for_current_version() {
     local current_version
 
-    current_version="$(workspace_version_from_file "$ROOT_DIR/Cargo.toml")"
+    current_version="$(bash "$VERSION_READER" --stable "$ROOT_DIR/Cargo.toml")" || exit 1
     validate_version "$current_version"
     printf '%s/v%s.candidate\n' "$RELEASE_RECEIPT_DIR" "$current_version"
 }
@@ -334,8 +311,8 @@ record_receipt() {
         echo "Current HEAD is not the candidate commit that completed the full gate" >&2
         exit 1
     fi
-    candidate_version="$(workspace_version_from_commit "$candidate_commit")"
-    release_version="$(workspace_version_from_file "$ROOT_DIR/Cargo.toml")"
+    candidate_version="$(bash "$SCRIPT_DIR/../release/read-committed-version.sh" "$ROOT_DIR" "$candidate_commit")" || exit 1
+    release_version="$(bash "$VERSION_READER" --stable "$ROOT_DIR/Cargo.toml")" || exit 1
     validate_transition "$bump" "$candidate_version" "$release_version"
 
     verify_only_staged_release_notes
@@ -371,7 +348,7 @@ verify_staged() {
     fi
     read_receipt "$receipt"
     current_commit="$(git -C "$ROOT_DIR" rev-parse --verify HEAD)"
-    current_version="$(workspace_version_from_file "$ROOT_DIR/Cargo.toml")"
+    current_version="$(bash "$VERSION_READER" --stable "$ROOT_DIR/Cargo.toml")" || exit 1
 
     if [[ "$current_commit" != "$RECEIPT_CANDIDATE_COMMIT" ||
           "$current_version" != "$RECEIPT_RELEASE_VERSION" ]]; then
@@ -407,7 +384,7 @@ verify_commit() {
         echo "Selected release commit is not on the current history" >&2
         exit 1
     }
-    current_version="$(workspace_version_from_commit "$release_commit")"
+    current_version="$(bash "$SCRIPT_DIR/../release/read-committed-version.sh" "$ROOT_DIR" "$release_commit")" || exit 1
     validate_version "$current_version"
     receipt="$RELEASE_RECEIPT_DIR/v$current_version.candidate"
     if [[ ! -f "$receipt" ]]; then

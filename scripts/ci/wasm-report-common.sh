@@ -1,17 +1,8 @@
 # shellcheck shell=bash
 
-# Report captures need the digest itself, using the host's SHA-256 implementation.
+# Shared Tooling owns portable file hashing; report subjects and schema stay local.
 wasm_report_sha256() {
-    local output
-    if command -v sha256sum >/dev/null 2>&1; then
-        output="$(sha256sum "$1")"
-    elif command -v shasum >/dev/null 2>&1; then
-        output="$(shasum -a 256 "$1")"
-    else
-        echo "no SHA-256 implementation is available" >&2
-        return 1
-    fi
-    printf '%s\n' "${output%% *}"
+    bash "$ROOT/scripts/ci/verify-file-checksum.sh" --print sha256 "$1"
 }
 
 wasm_report_default_canisters() {
