@@ -1,6 +1,7 @@
 //! Collection costs and independent typed results over one retained actor.
 
 use candid::CandidType;
+use ic_host_tools::artifact::Sha256Digest;
 use icydb::{
     Error,
     value::{OutputValue, PublicValue},
@@ -10,7 +11,6 @@ use icydb_testing_integration::{
     CanisterWasmProfile, build_canister_with_options, install_prebuilt_fixture_canister,
 };
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
 
 #[derive(CandidType, Deserialize)]
 struct CollectionWorkloadSample {
@@ -32,10 +32,10 @@ fn collection_workload_preserves_results_and_reports_costs() {
     .expect("retained collection actor build");
     let module = std::fs::read(&artifact).expect("read while artifact retention is alive");
     println!(
-        "collection_wasm path={} raw_bytes={} sha256={:x}",
+        "collection_wasm path={} raw_bytes={} sha256={}",
         artifact.as_ref().display(),
         module.len(),
-        Sha256::digest(&module)
+        Sha256Digest::compute(&module)
     );
 
     crate::for_each_workload_scenario(&[16_u32, 256, 1_024], |&length| {

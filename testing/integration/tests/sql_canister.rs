@@ -153,11 +153,11 @@ fn reset_sql_fixtures(fixture: &StandaloneCanisterFixture) {
 #[test]
 #[ignore = "manual wasm-release RETURNING instruction and cycle measurement"]
 fn returning_selected_cells_wasm_cost_matrix() {
+    use ic_host_tools::artifact::Sha256Digest;
     use icydb_testing_integration::{
         CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
         CanisterWasmProfile, build_canister_with_options, install_prebuilt_fixture_canister,
     };
-    use sha2::{Digest, Sha256};
 
     let artifact = build_canister_with_options(
         "sql",
@@ -171,10 +171,10 @@ fn returning_selected_cells_wasm_cost_matrix() {
     .expect("retained SQL actor build");
     let module = std::fs::read(&artifact).expect("read while artifact retention is alive");
     println!(
-        "returning_wasm path={} raw_bytes={} sha256={:x}",
+        "returning_wasm path={} raw_bytes={} sha256={}",
         artifact.as_ref().display(),
         module.len(),
-        Sha256::digest(&module)
+        Sha256Digest::compute(&module)
     );
 
     for wide in [false, true] {
@@ -244,9 +244,9 @@ fn returning_selected_cells_wasm_cost_matrix() {
                 );
                 let response = candid::encode_one(&sample.result).unwrap();
                 println!(
-                    "returning_cost wide={wide} shape={shape} repeat={repeat} instructions={} cycles={cycles} response_sha256={:x}",
+                    "returning_cost wide={wide} shape={shape} repeat={repeat} instructions={} cycles={cycles} response_sha256={}",
                     sample.local_instructions,
-                    Sha256::digest(response)
+                    Sha256Digest::compute(&response)
                 );
             }
         }

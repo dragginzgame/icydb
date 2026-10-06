@@ -2,6 +2,7 @@
 
 use crate::{expect_projection, query_sql};
 use candid::CandidType;
+use ic_host_tools::artifact::Sha256Digest;
 use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{Error, types::Ulid};
 use icydb_testing_integration::{
@@ -9,7 +10,6 @@ use icydb_testing_integration::{
     CanisterWasmProfile, build_canister_with_options, install_prebuilt_fixture_canister,
 };
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
 
 #[derive(CandidType, Debug, Deserialize)]
 struct BatchWorkloadSample {
@@ -132,10 +132,10 @@ fn application_batch_workload_preserves_results_and_reports_costs() {
     .expect("retained actor build");
     let module = std::fs::read(&artifact).expect("read while retention is alive");
     println!(
-        "batch_wasm path={} raw_bytes={} sha256={:x}",
+        "batch_wasm path={} raw_bytes={} sha256={}",
         artifact.as_ref().display(),
         module.len(),
-        Sha256::digest(&module)
+        Sha256Digest::compute(&module)
     );
     let mut scenarios = Vec::new();
     for count in [1, 16, 64, 128] {

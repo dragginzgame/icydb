@@ -14,7 +14,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   ([#300](https://github.com/dragginzgame/icydb/issues/300)), and repair release
   recovery ([#299](https://github.com/dragginzgame/icydb/issues/299)), push checks
   and publication retries. Preserve locked validation inputs and reviewed tool
-  versions, and enforce the shared dependency-selection checks.
+  versions, enforce shared dependency-selection checks, and repair host integration
+  test builds.
 
 Detailed notes: [docs/changelog/0.265.md](docs/changelog/0.265.md)
 

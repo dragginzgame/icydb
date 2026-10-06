@@ -975,7 +975,7 @@ mod tests {
     #[test]
     fn artifact_identity_keeps_report_fields_and_hashes_complete_files() {
         let path = env::temp_dir().join(format!("icydb-report-artifact-{}", std::process::id()));
-        let streamed_bytes = [0x80; 16 * 1024 + 1];
+        let streamed_bytes = vec![0x80; 16 * 1024 + 1];
         for (bytes, digest) in [
             (
                 b"".as_slice(),

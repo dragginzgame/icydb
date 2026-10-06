@@ -1,6 +1,7 @@
 use std::{collections::BTreeSet, fs, process::Command};
 
 use candid::Principal;
+use ic_host_tools::artifact::Sha256Digest;
 use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{
     Error, ErrorCode,
@@ -12,7 +13,6 @@ use icydb_testing_integration::{
     canister_artifact::{CanisterMethod, CanisterMethodMode, inspect_canister_artifacts},
     deliver_fixture_startup_watchdog, install_fixture_canister,
 };
-use sha2::{Digest, Sha256};
 
 const CUMULATIVE_GUARDED_READ_RAW_WASM_GROWTH_CEILING: u64 = 128 * 1024;
 
@@ -21,7 +21,7 @@ fn principal(seed: u8) -> Principal {
 }
 
 fn sha256(bytes: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(bytes))
+    Sha256Digest::compute(bytes).to_string()
 }
 
 fn query_sql(

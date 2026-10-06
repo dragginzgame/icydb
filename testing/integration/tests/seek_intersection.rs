@@ -2,6 +2,7 @@
 
 use super::{SqlQueryPerfResult, preparation_measurement_wasm, settle_measurement_rounds};
 use candid::CandidType;
+use ic_host_tools::artifact::Sha256Digest;
 use icydb::{
     Error,
     db::{ScalarPageWork, sql::SqlQueryResult},
@@ -9,7 +10,6 @@ use icydb::{
 };
 use icydb_testing_integration::install_prebuilt_fixture_canister;
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
 
 #[derive(CandidType, Debug, Deserialize)]
 struct IntersectionPageSample {
@@ -192,8 +192,8 @@ fn polling_wasm_cost_controls() {
 fn dense_selection_wasm_cost_matrix() {
     let module = preparation_measurement_wasm();
     println!(
-        "seek_wasm sha256={:x} raw_bytes={}",
-        Sha256::digest(&module),
+        "seek_wasm sha256={} raw_bytes={}",
+        Sha256Digest::compute(&module),
         module.len()
     );
     for case in 7..=19_u8 {
@@ -296,8 +296,8 @@ fn measure_dynamic_pages(
 fn run_wasm_cost_cases(cases: &[u8]) {
     let module = preparation_measurement_wasm();
     println!(
-        "seek_wasm sha256={:x} raw_bytes={}",
-        Sha256::digest(&module),
+        "seek_wasm sha256={} raw_bytes={}",
+        Sha256Digest::compute(&module),
         module.len()
     );
     for &case in cases {
