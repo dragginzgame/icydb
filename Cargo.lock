@@ -485,6 +485,7 @@ version = "0.265.0"
 dependencies = [
  "candid",
  "ic-cdk",
+ "ic-metrics",
  "icydb",
  "icydb-model",
  "icydb-testing-test-sql-fixtures",
@@ -1354,9 +1355,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-tools"
-version = "0.1.9"
+version = "0.1.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbc0e8dd5d8cdec7ad50dfd75d32dc173f2e5d83335506a5c533567211c79d3a"
+checksum = "54432a69fe062d693a232fe6c775f9bdbc76feb1ccdfa3ebafca43ee726bf767"
 dependencies = [
  "flate2",
  "rustix",
@@ -1380,9 +1381,9 @@ dependencies = [
 
 [[package]]
 name = "ic-memory"
-version = "0.27.1"
+version = "0.27.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6834e001dd05ad69d3f727c76210afdf2ed4f7928933a3a4df286c77894b2861"
+checksum = "13e970c29e5c13eed13770c1a043d892db5e406e075428953489ddd8c8c755d9"
 dependencies = [
  "ciborium",
  "ctor",
@@ -1393,9 +1394,9 @@ dependencies = [
 
 [[package]]
 name = "ic-metrics"
-version = "0.1.7"
+version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e8632a16ca69a8a9ab1fd4daa276f7739d9996bd970373992e6c97087a04378"
+checksum = "14478c4b7c31f0b9ac3226cd33056d273b8488dc5cb8820b13e64dff171ded65"
 dependencies = [
  "ic0",
 ]

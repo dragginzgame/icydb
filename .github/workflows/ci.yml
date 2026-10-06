@@ -242,6 +242,14 @@ jobs:
             . -> target
           cache-targets: "false"
       - run: cargo fetch --locked
+      - name: Check shared SQL source in both Wasm profiles
+        run: |
+          cargo check --locked --target wasm32-unknown-unknown \
+            -p canister_test_sql -p canister_test_sql_bounded \
+            --no-default-features --features sql
+          cargo check --locked --target wasm32-unknown-unknown \
+            -p canister_test_sql -p canister_test_sql_bounded \
+            --no-default-features --features local-sql-query,test-admin-api,candid-export
       - name: Install pinned Wasm optimizer
         run: bash scripts/ci/install-wasm-optimizer.sh
       - name: Install wasm reporting tools
