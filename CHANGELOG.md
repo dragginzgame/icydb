@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   parsed-workflow checks ([#266](https://github.com/dragginzgame/icydb/issues/266),
   [#304](https://github.com/dragginzgame/icydb/issues/304)), and preserve complete
   PocketIC failure logs ([#303](https://github.com/dragginzgame/icydb/issues/303)).
-  Consolidate pinned local-tool setup, actual hook qualification, audit methods,
+  Consolidate pinned local-tool setup, release-safe hook qualification, audit methods,
   structured Cargo checks and version observations
   ([#306](https://github.com/dragginzgame/icydb/issues/306)), verification helpers and
   host-tools for CLI decoding and optimizer resolution

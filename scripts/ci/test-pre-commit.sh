@@ -40,7 +40,10 @@ cp "$ROOT/scripts/ci/actionlint-checksums.tsv" "$fixture/product/scripts/ci/"
 cp "$ROOT/.githooks/pre-commit" "$fixture/product/.githooks/"
 cd "$fixture/product"
 git init --quiet
+# Release TMPDIR can be inside IcyDB; keep this package its own workspace.
 cat > Cargo.toml <<'MANIFEST'
+[workspace]
+
 [package]
 name = "icydb-formatting-fixture"
 version = "0.1.0"
