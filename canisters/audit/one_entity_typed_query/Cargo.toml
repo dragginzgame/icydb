@@ -25,6 +25,7 @@ u256-audit = ["icydb-testing-audit-one-simple-fixtures/u256-audit"]
 [dependencies]
 candid = { workspace = true }
 ic-cdk = { workspace = true }
+ic-metrics = { workspace = true }
 icydb = { workspace = true }
 icydb-testing-audit-one-simple-fixtures = { workspace = true }
 

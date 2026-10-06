@@ -5,6 +5,23 @@
 #[cfg(any(feature = "typed-explain-measurement", feature = "sql"))]
 mod explain_measurement;
 
+// IC measurements use the shared Wasm reader; native Candid builds retain
+// the CDK host binding, which cannot supply IC measurements.
+#[cfg(any(
+    feature = "exact-key-measurement",
+    feature = "typed-explain-measurement",
+    feature = "sql-explain-measurement"
+))]
+#[cfg(not(target_arch = "wasm32"))]
+use ic_cdk::api::call_context_instruction_counter as call_context_instructions;
+#[cfg(any(
+    feature = "exact-key-measurement",
+    feature = "typed-explain-measurement",
+    feature = "sql-explain-measurement"
+))]
+#[cfg(target_arch = "wasm32")]
+use ic_metrics::call_context_instructions;
+
 use icydb::types::{Id, Ulid};
 #[cfg(feature = "exact-key-measurement")]
 use icydb::{db::DynamicQuery, db::query::FieldRef};
@@ -60,9 +77,9 @@ fn measure_exact_key_batch(items: u16, distinct: bool) -> ((u16, u16, u32, u64),
         let Ok(database) = db() else {
             return ((0, 1, 0, 0),);
         };
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let result = database.get_many::<OneSimpleEntity01>(&keys);
-        let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let local_instructions = call_context_instructions().saturating_sub(start);
         match result {
             Ok(rows) => {
                 let found = rows.iter().filter(|row| row.is_some()).count();
@@ -90,7 +107,7 @@ fn measure_dynamic_key_loop(items: u16, distinct: bool) -> ((u16, u16, u32, u64)
         };
         let mut failures = 0_u16;
         let mut rows = 0_u32;
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         for key in keys {
             let request =
                 DynamicQuery::new("OneSimpleEntity01").filter(FieldRef::new("id").eq(key.key()));
@@ -101,7 +118,7 @@ fn measure_dynamic_key_loop(items: u16, distinct: bool) -> ((u16, u16, u32, u64)
                 Err(_) => failures = failures.saturating_add(1),
             }
         }
-        let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let local_instructions = call_context_instructions().saturating_sub(start);
 
         ((items, failures, rows, local_instructions),)
     })

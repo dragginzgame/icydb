@@ -24,6 +24,19 @@ CODEOWNERS covers shared guidance, the manifest and consumer tooling. The public
 GitHub description, “ic database”, was reviewed against the README and remains
 accurate; no remote metadata change was needed.
 
+Host artifact hashing and Wasm inspection consume registry `ic-host-tools` through
+`icydb-testing-integration`; it is absent from runtime and canister dependencies.
+The library owns SHA-256 computation, digest formatting and core Wasm structure
+decoding for size reports. Inspection count ceilings derive from input length;
+the consumer keeps defined-function counts and code-section payload bytes in
+report format v1. Structure inspection does not establish instruction/type
+validity or deployability. IcyDB retains
+optimizer pins and admission, paths, report format v1, subprocess execution and
+optimization policy. Report hashing preserves its whole-stream byte allowance.
+The native host CI lanes compile both consumers and exercise optimizer admission,
+report identities and Wasm structural counts; Linux qualification does not establish native
+macOS execution.
+
 Two demonstrated consumer requirements use adapters outside the snapshot:
 
 - The shared runner owns execution and diagnostics. IcyDB combines retained raw
@@ -222,3 +235,53 @@ The earlier temporary `../ic-metrics` dependency prevented isolated-index
 resolution. Registry adoption removes that sibling prerequisite. Actual staged
 formatting and native macOS execution of this refresh still require their own
 qualification; dependency resolution alone does not supply hook evidence.
+
+### Audit instruction-reader integration
+
+The compatible 0.265.1 batch also delegates all 205 audit/fixture counter-1 reads
+across 19 source files to registry `ic-metrics 0.1.5` on Wasm. Ten canisters and
+the nested-relation fixture inherit the workspace dependency; the lockfile adds
+only eleven dependency edges, preserving every package version, source and
+checksum. Counter-0 message measurements remain unchanged. Each consumer's
+native import retains the CDK's unsupported host binding for Candid compilation;
+Core's existing native zero policy stays separate. There is no new public API,
+runtime configuration, attribution policy, persisted state or report shape.
+
+Focused Linux qualification passes strict native default-feature Clippy, native
+measurement-feature/Candid Clippy, and Wasm measurement-feature Clippy for the
+eleven affected packages. Five real PocketIC tests cover durable update metrics,
+query and trapped-query isolation, reset/debt conservation, upgrade recovery,
+timer recurrence/coalescing, traps and instruction exhaustion. Two Clippy
+default-construction warnings in the affected schema-measurement fixture were
+corrected before further qualification.
+
+Matched `wasm-release` builds use Rust 1.99.0 and the unchanged selected package
+versions. Canonical Binaryen 132 post-link flags and the admitted optimizer digest
+produce these raw non-gzipped deployable sizes:
+
+| Subject | Before bytes | After bytes | Delta bytes |
+| --- | ---: | ---: | ---: |
+| One-entity dynamic-query audit | 3,030,668 | 3,030,668 | 0 |
+| Startup timer probe | 208,081 | 208,077 | -4 |
+
+PocketIC 16.0.0 instruction comparisons on the optimized dynamic-query artifacts
+are unchanged for 200-execution point, distinct-point, scan and grouped workloads:
+42,337,663; 85,372,864; 48,779,217; and 43,485,367 instructions respectively.
+The preceding compiler-emitted artifact comparison added six instructions per
+workload; that result is distinct from the optimized deployable measurement.
+Source/lock/tool/server identities, both artifact pairs, measurements and logs
+are retained under `target/ic-metrics-integration`. Every server started for this
+qualification was stopped by its owning wrapper. IC-cycle deltas, other
+canister-size deltas and native macOS execution remain unmeasured. Full workspace
+and release gates were not requested and remain user-owned.
+
+The code/dependency propagation changes 31 files by approximately +114 lines;
+three existing documentation files record its scope and evidence. Implementation
+shape stays neutral: compile-time imports replace local IC reads, with no new
+helpers or behavior axes. Existing upstream
+[reader qualification #3](https://github.com/dragginzgame/ic-metrics/issues/3) and
+[consumer adoption #298](https://github.com/dragginzgame/icydb/issues/298) own the
+remaining hosted/release coordination; no additional library API gap was found.
+The upstream [documentation follow-up](https://github.com/dragginzgame/ic-metrics/issues/3#issuecomment-6011590931)
+requests a platform-gated Rust import example for native Candid builds; detailed
+unpublished qualification artifacts remain local.

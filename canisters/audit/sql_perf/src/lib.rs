@@ -8,6 +8,15 @@ mod indexed_big_integer;
 #[cfg(feature = "test-admin-api")]
 mod seek_intersection;
 
+// IC measurements use the shared Wasm reader; native Candid builds retain
+// the CDK host binding, which cannot supply IC measurements.
+#[cfg(feature = "sql")]
+#[cfg(not(target_arch = "wasm32"))]
+use ic_cdk::api::call_context_instruction_counter as call_context_instructions;
+#[cfg(feature = "sql")]
+#[cfg(target_arch = "wasm32")]
+use ic_metrics::call_context_instructions;
+
 #[cfg(all(feature = "test-admin-api", feature = "candid-export"))]
 use crate::indexed_big_integer::IndexedBigIntegerAttempt;
 #[cfg(all(feature = "test-admin-api", feature = "candid-export"))]
@@ -1065,9 +1074,9 @@ fn validate_scale_fixture_rows(row_count: u32) -> Result<i32, icydb::Error> {
 
 #[cfg(feature = "sql")]
 fn query_entity_with_perf(sql: &str) -> Result<SqlQueryPerfResult, icydb::Error> {
-    let start = ic_cdk::api::performance_counter(1);
+    let start = call_context_instructions();
     let result = db()?.execute_trusted_sql_query(sql)?;
-    let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    let instructions = call_context_instructions().saturating_sub(start);
 
     Ok(SqlQueryPerfResult {
         result,
@@ -1083,14 +1092,14 @@ fn query_entity_with_perf_loop(sql: &str, runs: u32) -> Result<SqlQueryPerfResul
 
     let session = icydb::db!()?;
     let mut first_result = None;
-    let start = ic_cdk::api::performance_counter(1);
+    let start = call_context_instructions();
     for _ in 0..runs {
         let result = session.execute_trusted_sql_query(sql)?;
         if first_result.is_none() {
             first_result = Some(result);
         }
     }
-    let instructions = ic_cdk::api::performance_counter(1)
+    let instructions = call_context_instructions()
         .saturating_sub(start)
         .checked_div(u64::from(runs))
         .ok_or_else(invalid_perf_loop_runs_error)?;
@@ -1337,12 +1346,12 @@ fn query_cardinality_tiebreak_live_page_with_perf(
     continuation: Option<String>,
 ) -> Result<LiveQueryPagePerfOutput, icydb::Error> {
     icydb::db::with_request_execution(|| {
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let page = db()?.execute_trusted_live_page(
             &cardinality_tiebreak_continuation_query(),
             continuation.as_deref(),
         )?;
-        let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let instructions = call_context_instructions().saturating_sub(start);
 
         Ok(LiveQueryPagePerfOutput { page, instructions })
     })
@@ -1706,7 +1715,7 @@ fn reject_joint_fanout_over_boundary_fixture() -> Result<u32, icydb::Error> {
 fn load_joint_fanout_boundary_fixture() -> Result<JointFanoutFixtureFacts, icydb::Error> {
     icydb::db::with_request_execution(|| {
         reset_perf_fixtures()?;
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let inserted = db()?.execute_trusted_structural_insert_batch(
             "PerfAuditMaxFanout",
             joint_fanout_patches(JOINT_FANOUT_ADMITTED_ROWS)?,
@@ -1714,7 +1723,7 @@ fn load_joint_fanout_boundary_fixture() -> Result<JointFanoutFixtureFacts, icydb
         if inserted.affected_rows != JOINT_FANOUT_ADMITTED_ROWS {
             return Err(query_validate_error());
         }
-        let load_local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let load_local_instructions = call_context_instructions().saturating_sub(start);
 
         Ok(JointFanoutFixtureFacts {
             rows: inserted.affected_rows,
@@ -1827,14 +1836,14 @@ fn measure_schema_application() -> Result<SchemaApplicationPerfResult, icydb::Er
         icydb::db::ExpectedAcceptedHead::Empty => (1, 0),
         icydb::db::ExpectedAcceptedHead::Exact { .. } => (0, 1),
     };
-    let start = ic_cdk::api::performance_counter(1);
+    let start = call_context_instructions();
     session.apply_generated_schema_fragment(
         crate::__icydb_generated::ICYDB_SCHEMA_FRAGMENT,
         crate::__icydb_generated::ICYDB_SCHEMA_MIGRATION_PLAN,
         crate::__icydb_generated::ICYDB_SCHEMA_SUBMISSION_KEY,
         crate::__icydb_generated::ICYDB_SCHEMA_ENTITY_STORES,
     )?;
-    let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    let local_instructions = call_context_instructions().saturating_sub(start);
 
     Ok(SchemaApplicationPerfResult {
         local_instructions,
@@ -1863,9 +1872,9 @@ fn measure_schema_application_update() -> Result<SchemaApplicationPerfResult, ic
 #[query]
 fn measure_startup_observation() -> Result<StartupObservationPerfResult, icydb::db::StartupFailure>
 {
-    let start = ic_cdk::api::performance_counter(1);
+    let start = call_context_instructions();
     let state = startup_state()?;
-    let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    let local_instructions = call_context_instructions().saturating_sub(start);
 
     Ok(StartupObservationPerfResult {
         state,
@@ -1880,9 +1889,9 @@ fn measure_accepted_schema_read_instructions(
     entity: String,
 ) -> Result<AcceptedSchemaReadInstructionResult, icydb::Error> {
     icydb::db::with_request_execution(|| {
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let description = db()?.try_describe_entity_by_name(entity.as_str())?;
-        let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let local_instructions = call_context_instructions().saturating_sub(start);
 
         Ok(AcceptedSchemaReadInstructionResult {
             description,
@@ -1927,12 +1936,12 @@ fn observe_application_startup_for_tests(
 #[cfg(feature = "test-admin-api")]
 #[update]
 fn initialize_startup_observation_fixture() -> Result<(), icydb::Error> {
-    let start = ic_cdk::api::performance_counter(1);
+    let start = call_context_instructions();
     let result: Result<(), icydb::Error> = icydb::db::with_request_execution(|| {
         let _session = crate::__icydb_generated::db()?;
         Ok(())
     });
-    let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    let local_instructions = call_context_instructions().saturating_sub(start);
     if result.as_ref().is_err_and(|error| {
         error.code() == icydb::ErrorCode::RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING
     }) {
@@ -2011,15 +2020,15 @@ fn query_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error>
 #[cfg(feature = "sql")]
 #[update]
 fn warm_user_query_with_perf(sql: String) -> Result<SqlQueryPhasePerfResult, icydb::Error> {
-    let entry = ic_cdk::api::performance_counter(1);
+    let entry = call_context_instructions();
     let mut sample = icydb::db::with_request_execution(|| {
-        let request_ready = ic_cdk::api::performance_counter(1);
+        let request_ready = call_context_instructions();
         let session = db()?;
-        let session_ready = ic_cdk::api::performance_counter(1);
+        let session_ready = call_context_instructions();
         let result = session.execute_trusted_sql_query(sql.as_str())?;
         // Preserve the former call's session-drop boundary inside the read sample.
         drop(session);
-        let query_complete = ic_cdk::api::performance_counter(1);
+        let query_complete = call_context_instructions();
         Ok::<_, icydb::Error>(SqlQueryPhasePerfResult {
             result,
             instructions: query_complete.saturating_sub(request_ready),
@@ -2030,7 +2039,7 @@ fn warm_user_query_with_perf(sql: String) -> Result<SqlQueryPhasePerfResult, icy
             request_complete: 0,
         })
     })?;
-    sample.request_complete = ic_cdk::api::performance_counter(1);
+    sample.request_complete = call_context_instructions();
     Ok(sample)
 }
 
@@ -2046,7 +2055,7 @@ fn measure_typed_filter_preparation(
         return Err(query_validate_error());
     }
     icydb::db::with_request_execution(|| {
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let values = (0..terms).rev().map(i64::from);
         let filter = match shape {
             0 => FilterExpr::and(values.map(|n| FieldRef::new("age").gte(-n)).collect()),
@@ -2059,7 +2068,7 @@ fn measure_typed_filter_preparation(
             .order_by(asc("id"))
             .limit(100);
         let page = db()?.execute_trusted_live_page(&query, None)?;
-        let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let instructions = call_context_instructions().saturating_sub(start);
         Ok(ReadTotalOnlyPerfResult {
             row_count: page.row_count,
             instructions,
@@ -2084,7 +2093,7 @@ fn measure_big_literal_preparation(
     );
     let field = if negative { "signed" } else { "unsigned" };
     icydb::db::with_request_execution(|| {
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let query = DynamicQuery::new("PerfAuditBigLiteral")
             .filter(FilterExpr::eq(field, text))
             .select(["id"])
@@ -2092,7 +2101,7 @@ fn measure_big_literal_preparation(
         let page = db()?.execute_trusted_live_page(&query, None)?;
         Ok(ReadTotalOnlyPerfResult {
             row_count: page.row_count,
-            instructions: ic_cdk::api::performance_counter(1).saturating_sub(start),
+            instructions: call_context_instructions().saturating_sub(start),
         })
     })
 }
@@ -2117,14 +2126,14 @@ fn measure_big_integer_write(
         .field("signed", authored(InputValue::int_big(signed)))
         .field("unsigned", authored(InputValue::nat_big(unsigned)));
     icydb::db::with_request_execution(|| {
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let result = db()?.execute_trusted_structural_mutation(StructuralMutation::Insert {
             entity: "PerfAuditBigLiteral".into(),
             patch,
         })?;
         Ok(ReadTotalOnlyPerfResult {
             row_count: result.affected_rows,
-            instructions: ic_cdk::api::performance_counter(1).saturating_sub(start),
+            instructions: call_context_instructions().saturating_sub(start),
         })
     })
 }
@@ -2159,9 +2168,9 @@ fn query_user_distinct_budget_fallback_with_perf(
         } else {
             EXACT_SQL
         };
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let outcome = session.execute_trusted_sql_query(sql);
-        let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let instructions = call_context_instructions().saturating_sub(start);
 
         Ok(SqlBudgetFallbackPerfResult {
             outcome,
@@ -2193,9 +2202,9 @@ fn query_user_range_budget_fallback_with_perf(
         } else {
             EXACT_SQL
         };
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let outcome = session.execute_trusted_sql_query(sql);
-        let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let instructions = call_context_instructions().saturating_sub(start);
 
         Ok(SqlBudgetFallbackPerfResult {
             outcome,
@@ -2226,9 +2235,9 @@ fn query_user_numeric_budget_fallback_with_perf(
         } else {
             EXACT_SQL
         };
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let outcome = session.execute_trusted_sql_query(sql);
-        let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let instructions = call_context_instructions().saturating_sub(start);
 
         Ok(SqlBudgetFallbackPerfResult {
             outcome,
@@ -2283,12 +2292,12 @@ where
 {
     let session = db()?;
     let first_row = build(base_id, "first-insert", 41);
-    let start = ic_cdk::api::performance_counter(1);
+    let start = call_context_instructions();
     session.execute_trusted_structural_mutation(StructuralMutation::Insert {
         entity: E::ENTITY.to_string(),
         patch: first_row.into_structural_patch(),
     })?;
-    let first_insert_local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    let first_insert_local_instructions = call_context_instructions().saturating_sub(start);
 
     let mut steady_insert_total = 0_u64;
     for offset in 0..STORAGE_WRITE_MATRIX_RUNS {
@@ -2298,13 +2307,13 @@ where
             "steady-insert",
             42 + i32::try_from(offset % 7).unwrap_or(0),
         );
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         session.execute_trusted_structural_mutation(StructuralMutation::Insert {
             entity: E::ENTITY.to_string(),
             patch: row.into_structural_patch(),
         })?;
         steady_insert_total =
-            steady_insert_total.saturating_add(ic_cdk::api::performance_counter(1) - start);
+            steady_insert_total.saturating_add(call_context_instructions() - start);
     }
 
     let mut steady_update_total = 0_u64;
@@ -2316,20 +2325,20 @@ where
             51 + i32::try_from(offset % 7).unwrap_or(0),
         );
         let key = row.primary_key_input();
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         session.execute_trusted_structural_mutation(StructuralMutation::Update {
             entity: E::ENTITY.to_string(),
             key,
             patch: row.into_structural_patch(),
         })?;
         steady_update_total =
-            steady_update_total.saturating_add(ic_cdk::api::performance_counter(1) - start);
+            steady_update_total.saturating_add(call_context_instructions() - start);
     }
 
     let mut steady_delete_total = 0_u64;
     for offset in 0..STORAGE_WRITE_MATRIX_RUNS {
         let id = base_id + 100 + i32::try_from(offset).unwrap_or(i32::MAX);
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let deleted = session
             .execute_trusted_structural_mutation(StructuralMutation::Delete {
                 entity: E::ENTITY.to_string(),
@@ -2337,7 +2346,7 @@ where
             })?
             .affected_rows;
         steady_delete_total =
-            steady_delete_total.saturating_add(ic_cdk::api::performance_counter(1) - start);
+            steady_delete_total.saturating_add(call_context_instructions() - start);
         if deleted != 1 {
             return Err(unexpected_write_perf_count_error(storage_label, 1, deleted));
         }
@@ -2345,7 +2354,7 @@ where
 
     let read_back_id = base_id + 10_000;
     let read_back_row = build(read_back_id, "write-read-back", 73);
-    let start = ic_cdk::api::performance_counter(1);
+    let start = call_context_instructions();
     session.execute_trusted_structural_mutation(StructuralMutation::Insert {
         entity: E::ENTITY.to_string(),
         patch: read_back_row.into_structural_patch(),
@@ -2354,8 +2363,7 @@ where
         "SELECT id FROM {} WHERE id = {read_back_id} LIMIT 1",
         E::ENTITY
     ))?;
-    let write_then_read_back_local_instructions =
-        ic_cdk::api::performance_counter(1).saturating_sub(start);
+    let write_then_read_back_local_instructions = call_context_instructions().saturating_sub(start);
     let read_back_rows = sql_write_result_row_count(&response).ok_or_else(query_validate_error)?;
     if read_back_rows != 1 {
         return Err(unexpected_write_perf_count_error(
@@ -2400,9 +2408,9 @@ fn measure_sql_write_statement(
     sql: &str,
     expected_rows: u32,
 ) -> Result<(u64, u32), icydb::Error> {
-    let start = ic_cdk::api::performance_counter(1);
+    let start = call_context_instructions();
     let result = db()?.execute_trusted_sql_mutation(sql)?;
-    let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    let instructions = call_context_instructions().saturating_sub(start);
     let row_count = ensure_sql_write_row_count(label, &result, expected_rows)?;
 
     Ok((instructions, row_count))
@@ -2414,9 +2422,9 @@ fn measure_sql_exact_update_statement(
     sql: &str,
     expected_rows: u32,
 ) -> Result<(u64, u32), icydb::Error> {
-    let start = ic_cdk::api::performance_counter(1);
+    let start = call_context_instructions();
     let result = db()?.execute_trusted_sql_exact_update(sql, expected_rows)?;
-    let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    let instructions = call_context_instructions().saturating_sub(start);
     let row_count = ensure_sql_write_row_count(label, &result, expected_rows)?;
 
     Ok((instructions, row_count))
@@ -2558,14 +2566,13 @@ fn measure_journaled_user_constraint_write_perf()
             build_perf_audit_journaled_user,
         )?;
 
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let add_result = db()?.execute_admin_sql_ddl(
             "ALTER TABLE PerfAuditJournaledUser ADD CONSTRAINT \
          perf_audit_age_nonnegative CHECK (age >= 0) NOT VALID \
          EXPECT SCHEMA VERSION 1 SET SCHEMA VERSION 2",
         )?;
-        let add_check_local_instructions =
-            ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let add_check_local_instructions = call_context_instructions().saturating_sub(start);
         let SqlQueryResult::Ddl {
             rows_scanned: add_check_rows_scanned,
             ..
@@ -2741,7 +2748,7 @@ fn collection_mutation_scale_fact(fact: MutationScaleFact) -> Result<u32, icydb:
 fn recover_collection_mutation_scale_store() -> Result<MutationScaleRecoveryEvidence, icydb::Error>
 {
     icydb::db::with_request_execution(|| {
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let ready = match startup_state() {
             Ok(icydb::db::DatabaseStartupState::Ready) => true,
             Ok(icydb::db::DatabaseStartupState::Recovering) => false,
@@ -2756,7 +2763,7 @@ fn recover_collection_mutation_scale_store() -> Result<MutationScaleRecoveryEvid
         } else {
             0
         };
-        let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let local_instructions = call_context_instructions().saturating_sub(start);
 
         Ok(MutationScaleRecoveryEvidence {
             complete: ready,
@@ -2807,9 +2814,9 @@ fn advance_collection_mutation_scale_job(
             expected_sequence,
             MutationJobIdempotencyKey::new(idempotency_key)?,
         );
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let receipt = session.advance_trusted_mutation_job(&request)?;
-        let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let local_instructions = call_context_instructions().saturating_sub(start);
 
         Ok(MutationScaleAdvancePerfResult {
             receipt,
@@ -2855,12 +2862,12 @@ fn cancel_journaled_user_mutation_job(
 ) -> Result<MutationJobCancellationPerfResult, MutationJobError> {
     icydb::db::with_request_execution(|| {
         let session = db().map_err(|_| MutationJobError::Internal)?;
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         session.cancel_unadvanced_mutation_job(
             audit_mutation_job_id(job_discriminator)?,
             expected_sequence,
         )?;
-        let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let local_instructions = call_context_instructions().saturating_sub(start);
         Ok(MutationJobCancellationPerfResult { local_instructions })
     })
 }
@@ -2871,9 +2878,9 @@ fn cancel_journaled_user_mutation_job(
 fn progress_job_inventory_perf() -> Result<ProgressJobInventoryPerfResult, MutationJobError> {
     icydb::db::with_request_execution(|| {
         let session = db().map_err(|_| MutationJobError::Internal)?;
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let inventory = session.progress_job_inventory()?;
-        let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let local_instructions = call_context_instructions().saturating_sub(start);
         Ok(ProgressJobInventoryPerfResult {
             inventory,
             local_instructions,
@@ -2894,9 +2901,9 @@ fn measure_journaled_user_mutation_forward_perf()
         let mut job_bytes = [0; 32];
         job_bytes[31] = 73;
         let job_id = MutationJobId::try_from_bytes(job_bytes)?;
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let state = session.start_trusted_sql_mutation_job(job_id, sql)?;
-        let start_local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let start_local_instructions = call_context_instructions().saturating_sub(start);
         let mut sequence = state.sequence;
         let mut forward_local_instructions = Vec::new();
         let mut forward_keys_scanned = 0_u64;
@@ -2910,9 +2917,9 @@ fn measure_journaled_user_mutation_forward_perf()
                 sequence,
                 MutationJobIdempotencyKey::new(format!("forward-{sequence}"))?,
             );
-            let start = ic_cdk::api::performance_counter(1);
+            let start = call_context_instructions();
             let receipt = session.advance_trusted_mutation_job(&request)?;
-            let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+            let instructions = call_context_instructions().saturating_sub(start);
             forward_local_instructions.push(instructions);
             forward_keys_scanned = forward_keys_scanned.saturating_add(receipt.keys_scanned);
             rows_updated = rows_updated.saturating_add(receipt.rows_updated);
@@ -2920,10 +2927,9 @@ fn measure_journaled_user_mutation_forward_perf()
             rows_updated_per_step.push(receipt.rows_updated);
             sequence = receipt.committed_sequence;
             if receipt.phase == MutationJobPhase::Verify {
-                let start = ic_cdk::api::performance_counter(1);
+                let start = call_context_instructions();
                 let replay = session.advance_trusted_mutation_job(&request)?;
-                let replay_local_instructions =
-                    ic_cdk::api::performance_counter(1).saturating_sub(start);
+                let replay_local_instructions = call_context_instructions().saturating_sub(start);
                 let timestamp_groups = match session
                     .execute_trusted_sql_query(
                         "SELECT updated_at, COUNT(*) FROM PerfAuditJournaledUser \
@@ -3025,9 +3031,9 @@ fn complete_audit_mutation_job_after_restart(
             sequence,
             MutationJobIdempotencyKey::new(format!("verify-resume-{sequence}"))?,
         );
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let receipt = session.advance_trusted_mutation_job(&request)?;
-        let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let local_instructions = call_context_instructions().saturating_sub(start);
         if phase == MutationJobPhase::Verify {
             stable_verify_local_instructions.push(local_instructions);
         }
@@ -3114,9 +3120,9 @@ fn advance_audit_verify_after_unrelated_write(
         sequence,
         MutationJobIdempotencyKey::new(format!("verify-unrelated-{sequence}"))?,
     );
-    let start = ic_cdk::api::performance_counter(1);
+    let start = call_context_instructions();
     let receipt = session.advance_trusted_mutation_job(&request)?;
-    let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    let local_instructions = call_context_instructions().saturating_sub(start);
     if receipt.phase != MutationJobPhase::Verify
         || receipt.status != MutationJobStatus::Active
         || receipt.verify_restarts_total != 0
@@ -3138,9 +3144,9 @@ fn advance_audit_verify_after_target_write(
         sequence,
         MutationJobIdempotencyKey::new(format!("verify-drift-{sequence}"))?,
     );
-    let start = ic_cdk::api::performance_counter(1);
+    let start = call_context_instructions();
     let receipt = session.advance_trusted_mutation_job(&request)?;
-    let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    let local_instructions = call_context_instructions().saturating_sub(start);
     if receipt.phase != MutationJobPhase::Forward
         || receipt.status != MutationJobStatus::Active
         || receipt.verify_restarts_total != 1
@@ -3172,19 +3178,17 @@ fn verify_journaled_user_mutation_job_lifecycle()
             sequence,
             MutationJobIdempotencyKey::new(format!("verify-page-{sequence}"))?,
         );
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let first_verify = session.advance_trusted_mutation_job(&first_verify_request)?;
-        let first_verify_local_instructions =
-            ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let first_verify_local_instructions = call_context_instructions().saturating_sub(start);
         if first_verify.phase != MutationJobPhase::Verify
             || first_verify.status != MutationJobStatus::Active
         {
             return Err(MutationJobError::Internal);
         }
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let first_verify_replay = session.advance_trusted_mutation_job(&first_verify_request)?;
-        let verify_replay_local_instructions =
-            ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let verify_replay_local_instructions = call_context_instructions().saturating_sub(start);
         sequence = first_verify.committed_sequence;
 
         let (unrelated_verify, unrelated_verify_local_instructions) =
@@ -3201,24 +3205,22 @@ fn verify_journaled_user_mutation_job_lifecycle()
             terminal_receipt,
         } = complete_audit_mutation_job_after_restart(&session, job_id, sequence)?;
         sequence = terminal_receipt.committed_sequence;
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let terminal_state = session.mutation_job_state(job_id)?;
-        let state_local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let state_local_instructions = call_context_instructions().saturating_sub(start);
         if terminal_state.status != MutationJobStatus::Completed {
             return Err(MutationJobError::Internal);
         }
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let terminal_replay = session.advance_trusted_mutation_job(&terminal_request)?;
-        let terminal_replay_local_instructions =
-            ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let terminal_replay_local_instructions = call_context_instructions().saturating_sub(start);
         let stale_acknowledgement_rejected = matches!(
             session.acknowledge_mutation_job(job_id, sequence.saturating_sub(1)),
             Err(MutationJobError::StaleSequence { .. })
         );
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         session.acknowledge_mutation_job(job_id, sequence)?;
-        let acknowledgement_local_instructions =
-            ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let acknowledgement_local_instructions = call_context_instructions().saturating_sub(start);
         session.acknowledge_mutation_job(job_id, sequence)?;
         let terminal_acknowledged = matches!(
             session.mutation_job_state(job_id),
@@ -3273,9 +3275,9 @@ fn start_journaled_user_mutation_job(
             6 => "UPDATE PerfAuditMaxFanout SET a = 1001 WHERE id >= 0",
             _ => return Err(MutationJobError::IneligibleIntent),
         };
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let state = session.start_trusted_sql_mutation_job(job_id, sql)?;
-        let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let local_instructions = call_context_instructions().saturating_sub(start);
         let target_rows_changed = sql_write_result_row_count(&session
             .execute_trusted_sql_query(
                 "SELECT id FROM PerfAuditJournaledUser WHERE name = 'durable-start' ORDER BY id LIMIT 1",
@@ -3318,9 +3320,9 @@ fn advance_journaled_user_mutation_job(
             MutationJobIdempotencyKey::new(idempotency_key)?,
         );
         let session = db().map_err(|_| MutationJobError::Internal)?;
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let receipt = session.advance_trusted_mutation_job(&request)?;
-        let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let local_instructions = call_context_instructions().saturating_sub(start);
         Ok(MutationScaleAdvancePerfResult {
             receipt,
             local_instructions,
@@ -3340,9 +3342,9 @@ fn measure_integrity_sql_perf(sql: String) -> Result<IntegritySqlPerfResult, Sql
         let owner = IntegrityJobOwner::new("audit::sql-perf")
             .map_err(IntegrityCheckError::Job)
             .map_err(SqlIntegrityError::Integrity)?;
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let result = session.execute_admin_integrity_sql(sql.as_str(), owner)?;
-        let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let local_instructions = call_context_instructions().saturating_sub(start);
 
         Ok(IntegritySqlPerfResult {
             result,
@@ -3376,11 +3378,11 @@ fn query_journaled_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icy
 #[update]
 fn measure_journaled_reentry_perf() -> Result<ReadTotalOnlyPerfResult, icydb::Error> {
     icydb::db::with_request_execution(|| {
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let response = db()?.execute_trusted_sql_query(
             "SELECT id FROM PerfAuditJournaledUser ORDER BY id LIMIT 1",
         )?;
-        let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let instructions = call_context_instructions().saturating_sub(start);
         let row_count = sql_write_result_row_count(&response).ok_or_else(query_validate_error)?;
 
         Ok(ReadTotalOnlyPerfResult {
@@ -4185,9 +4187,9 @@ fn mutate_cardinality_closeout_index(
                  EXPECT SCHEMA VERSION {expected_version} SET SCHEMA VERSION {next_version}"
             )
         };
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let result = db()?.execute_admin_sql_ddl(sql.as_str())?;
-        let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let local_instructions = call_context_instructions().saturating_sub(start);
         let SqlQueryResult::Ddl {
             rows_scanned,
             index_keys_written,
@@ -4248,12 +4250,12 @@ fn append_promotion_index_fixture_page(first_id: u32, row_count: u32) -> Result<
 #[update]
 fn publish_promotion_index_fixture() -> Result<PromotionIndexPublicationFacts, icydb::Error> {
     icydb::db::with_request_execution(|| {
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let result = db()?.execute_admin_sql_ddl(
             "CREATE INDEX perf_promotion_name_idx ON PerfAuditJournaledUser (name) \
              EXPECT SCHEMA VERSION 1 SET SCHEMA VERSION 2",
         )?;
-        let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let local_instructions = call_context_instructions().saturating_sub(start);
         let SqlQueryResult::Ddl {
             rows_scanned,
             index_keys_written,

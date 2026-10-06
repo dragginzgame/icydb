@@ -7,10 +7,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.265.1]
 
-- Use published `ic-metrics 0.1.5` for shared instruction reads and saturating
-  counters, preserving inclusive spans, native substitutes and report/reset
-  contracts ([#298](https://github.com/dragginzgame/icydb/issues/298)), and fix
-  release push checks to verify the exact commit's receipt.
+### 🔧 Changed
+
+- Share instruction accounting ([#298](https://github.com/dragginzgame/icydb/issues/298))
+  and host artifact hashing and inspection, avoid repeated metrics-key allocations
+  ([#300](https://github.com/dragginzgame/icydb/issues/300)), and repair release
+  push checks and publication retries.
 
 Detailed notes: [docs/changelog/0.265.md](docs/changelog/0.265.md)
 

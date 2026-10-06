@@ -321,7 +321,12 @@ pub(super) fn record_journal_movement(retirement: bool, debt: crate::db::ExactBa
 pub(super) fn record_entity_execution(entity_path: &str, instructions: u64) {
     STATE.with(|state| {
         let mut state = state.borrow_mut();
-        let counter = state.entities.entry(entity_path.to_string()).or_default();
+        // Repeated observations borrow the existing path; only a new owner allocates.
+        let counter = if let Some(counter) = state.entities.get_mut(entity_path) {
+            counter
+        } else {
+            state.entities.entry(entity_path.to_owned()).or_default()
+        };
         ic_metrics::record_sample(
             &mut counter.hits,
             &mut counter.instructions_total,
@@ -413,6 +418,39 @@ mod tests {
         record_entity_execution, record_owner_execution,
     };
     use crate::metrics::{ExecutionMetricsPhase, ExecutionMetricsSpan};
+
+    #[test]
+    fn repeated_entity_observations_preserve_distinct_paths_and_reset() {
+        metrics_reset_all();
+        record_entity_execution("entity::a", 0);
+        record_entity_execution("entity::b", 7);
+        record_entity_execution("entity::a", u64::MAX);
+        record_entity_execution("entity::a", 1);
+        let report = metrics_snapshot(crate::db::ExactBacklogMeasurement::EMPTY);
+        assert_eq!(report.total_entities(), 2);
+        let a = report
+            .entities()
+            .iter()
+            .find(|entry| entry.path() == "entity::a")
+            .expect("observed entity");
+        assert_eq!(a.hits(), 3);
+        assert_eq!(a.instructions_total(), u64::MAX);
+        assert_eq!(a.instructions_max(), u64::MAX);
+        let b = report
+            .entities()
+            .iter()
+            .find(|entry| entry.path() == "entity::b")
+            .expect("distinct entity");
+        assert_eq!(b.hits(), 1);
+        assert_eq!(b.instructions_total(), 7);
+        metrics_reset_all();
+        record_entity_execution("entity::a", 2);
+        let reset = metrics_snapshot(crate::db::ExactBacklogMeasurement::EMPTY);
+        assert_ne!(reset.window_id(), report.window_id());
+        assert_eq!(reset.total_entities(), 1);
+        assert_eq!(reset.entities()[0].hits(), 1);
+        assert_eq!(reset.entities()[0].instructions_total(), 2);
+    }
 
     #[test]
     fn convergence_movements_mark_overflow_and_reset_independently_of_debt() {

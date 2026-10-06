@@ -85,7 +85,8 @@ derive_more = { version = "2.0", default-features = false, features = [
 ethnum = { version = "1.5.3", default-features = false }
 getrandom = "0.4"
 ic-cdk = "0.20.3"
-ic-memory = "0.26"
+ic-host-tools = "0.1.8"
+ic-memory = "0.27"
 ic-metrics = { version = "0.1.5", features = ["ic"] }
 ic-testkit = "0.18"
 ic-timers = "0.13"

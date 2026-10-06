@@ -319,6 +319,7 @@ version = "0.265.0"
 dependencies = [
  "candid",
  "ic-cdk",
+ "ic-metrics",
  "icydb",
  "icydb-testing-audit-one-simple-fixtures",
 ]
@@ -329,6 +330,7 @@ version = "0.265.0"
 dependencies = [
  "candid",
  "ic-cdk",
+ "ic-metrics",
  "icydb",
  "icydb-model",
  "icydb-testing-audit-one-simple-fixtures",
@@ -351,6 +353,7 @@ version = "0.265.0"
 dependencies = [
  "candid",
  "ic-cdk",
+ "ic-metrics",
  "icydb",
  "icydb-testing-audit-one-simple-fixtures",
 ]
@@ -371,6 +374,7 @@ version = "0.265.0"
 dependencies = [
  "candid",
  "ic-cdk",
+ "ic-metrics",
  "ic-timers",
  "icydb",
  "icydb-testing-audit-sql-perf-fixtures",
@@ -383,6 +387,7 @@ version = "0.265.0"
 dependencies = [
  "candid",
  "ic-cdk",
+ "ic-metrics",
  "icydb",
  "icydb-model",
  "icydb-testing-audit-ten-simple-fixtures",
@@ -415,6 +420,7 @@ version = "0.265.0"
 dependencies = [
  "candid",
  "ic-cdk",
+ "ic-metrics",
  "ic-timers",
  "icydb",
  "icydb-testing-audit-one-simple-fixtures",
@@ -446,6 +452,7 @@ version = "0.265.0"
 dependencies = [
  "candid",
  "ic-cdk",
+ "ic-metrics",
  "icydb",
  "icydb-testing-audit-one-simple-fixtures",
 ]
@@ -466,6 +473,7 @@ version = "0.265.0"
 dependencies = [
  "candid",
  "ic-cdk",
+ "ic-metrics",
  "icydb",
  "icydb-model",
  "icydb-testing-test-sql-fixtures",
@@ -488,6 +496,7 @@ version = "0.265.0"
 dependencies = [
  "candid",
  "ic-cdk",
+ "ic-metrics",
  "icydb",
  "icydb-testing-audit-one-simple-fixtures",
 ]
@@ -498,6 +507,7 @@ version = "0.265.0"
 dependencies = [
  "candid",
  "ic-cdk",
+ "ic-metrics",
  "ic-timers",
 ]
 
@@ -930,6 +940,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 
 [[package]]
+name = "filetime"
+version = "0.2.29"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c287a33c7f0a620c38e641e7f60827713987b3c0f26e8ddc9462cc69cf75759"
+dependencies = [
+ "cfg-if",
+ "libc",
+]
+
+[[package]]
 name = "find-msvc-tools"
 version = "0.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1333,6 +1353,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ic-host-tools"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2427a45cdfa5a2de35ed9cc9d3ecadfce2067815944d4e5c2c1122b7a9556ff8"
+dependencies = [
+ "flate2",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tar",
+ "wasmparser",
+]
+
+[[package]]
 name = "ic-management-canister-types"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1345,9 +1380,9 @@ dependencies = [
 
 [[package]]
 name = "ic-memory"
-version = "0.26.1"
+version = "0.27.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d64c4c2b9546223c189bf4ac097bf096a75396bc5126863378a0cd0aaf5cc64"
+checksum = "6834e001dd05ad69d3f727c76210afdf2ed4f7928933a3a4df286c77894b2861"
 dependencies = [
  "ciborium",
  "ctor",
@@ -1358,9 +1393,9 @@ dependencies = [
 
 [[package]]
 name = "ic-metrics"
-version = "0.1.5"
+version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "93e1e69de216c78594571678fea2531cded9d586e9c2e23b3131539b4cc302c4"
+checksum = "9e8632a16ca69a8a9ab1fd4daa276f7739d9996bd970373992e6c97087a04378"
 dependencies = [
  "ic0",
 ]
@@ -1376,9 +1411,9 @@ dependencies = [
 
 [[package]]
 name = "ic-testkit"
-version = "0.18.1"
+version = "0.18.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd1bfb062f1b861a06d0203c64982dc75dec178af2ac53c348d7100a7b4455d6"
+checksum = "0bc73a70f0cc7235d28eb15f34db350034396ed9da649a3b876053623ed52aec"
 dependencies = [
  "candid",
  "fs2",
@@ -1393,9 +1428,9 @@ dependencies = [
 
 [[package]]
 name = "ic-timers"
-version = "0.13.1"
+version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b42059aba704a989161d15a178fb4f53ffb7cab9468dbcc6143f4fb35ab10b9"
+checksum = "151a99b2ac3e763f79180d006c3c81fbe22a87ecdb76a2e1beb3c783895b148b"
 dependencies = [
  "ic-cdk-timers",
  "ic-metrics",
@@ -1702,6 +1737,7 @@ version = "0.265.0"
 dependencies = [
  "candid",
  "ic-cdk",
+ "ic-metrics",
  "icydb",
  "icydb-model",
  "icydb-testing-wasm-helpers",
@@ -1759,13 +1795,13 @@ version = "0.265.0"
 dependencies = [
  "blake3",
  "candid",
+ "ic-host-tools",
  "ic-testkit",
  "icydb",
  "icydb-testing-sql-generator",
  "icydb-testing-sqlite-reference",
  "serde",
  "serde_json",
- "sha2",
  "syn 3.0.6",
 ]
 
@@ -2650,9 +2686,9 @@ dependencies = [
 
 [[package]]
 name = "rustix"
-version = "1.1.5"
+version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "891efababe418670775f199f0d233d84843c227a0949a883ce15b37c78d6629d"
+checksum = "b6fe4565b9518b83ef4f91bb47ce29620ca828bd32cb7e408f0062e9930ba190"
 dependencies = [
  "bitflags",
  "errno",
@@ -3161,6 +3197,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.6",
+]
+
+[[package]]
+name = "tar"
+version = "0.4.40"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b16afcea1f22891c49a00c751c7b63b2233284064f11a200fc624137c51e2ddb"
+dependencies = [
+ "filetime",
+ "libc",
 ]
 
 [[package]]
@@ -3752,6 +3798,16 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "wasmparser"
+version = "0.253.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "19db11f87d2486580e1e8b6f494c54df7e0566b87d0b599db843c24019667339"
+dependencies = [
+ "bitflags",
+ "indexmap",
 ]
 
 [[package]]

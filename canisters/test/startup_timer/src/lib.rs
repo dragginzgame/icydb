@@ -1,5 +1,12 @@
 //! Real-canister timer semantics probe for startup-recovery design evidence.
 
+// IC measurements use the shared Wasm reader; native Candid builds retain
+// the CDK host binding, which cannot supply IC measurements.
+#[cfg(not(target_arch = "wasm32"))]
+use ic_cdk::api::call_context_instruction_counter as call_context_instructions;
+#[cfg(target_arch = "wasm32")]
+use ic_metrics::call_context_instructions;
+
 use candid::CandidType;
 use ic_cdk::{query, update};
 use ic_timers::{
@@ -56,7 +63,7 @@ fn record_callback(
     instructions: &'static std::thread::LocalKey<Cell<u64>>,
     times: &'static std::thread::LocalKey<RefCell<Vec<u64>>>,
 ) {
-    let start = ic_cdk::api::performance_counter(1);
+    let start = call_context_instructions();
     callbacks.with(|count| count.set(count.get().saturating_add(1)));
     times.with_borrow_mut(|observed| {
         if observed.len() < MAX_RECORDED_CALLBACKS {
@@ -65,7 +72,7 @@ fn record_callback(
     });
     instructions.with(|count| {
         count.set(
-            ic_cdk::api::performance_counter(1)
+            call_context_instructions()
                 .saturating_sub(start)
                 .saturating_add(count.get()),
         );

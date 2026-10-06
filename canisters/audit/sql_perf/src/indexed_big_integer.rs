@@ -86,7 +86,7 @@ fn measure_indexed_big_integer_write(
                 .field("unsigned", authored(InputValue::nat_big(unsigned))),
         });
     }
-    let start = ic_cdk::api::performance_counter(1);
+    let start = crate::call_context_instructions();
     let outcome = icydb::db::with_request_execution(|| {
         db()?
             .execute_trusted_structural_mutation_batch(mutations)
@@ -94,6 +94,6 @@ fn measure_indexed_big_integer_write(
     });
     Ok(IndexedBigIntegerAttempt {
         outcome,
-        instructions: ic_cdk::api::performance_counter(1).saturating_sub(start),
+        instructions: crate::call_context_instructions().saturating_sub(start),
     })
 }

@@ -184,6 +184,7 @@ jobs:
           /bin/bash scripts/ci/test-pre-commit.sh
           /bin/bash scripts/release/test-standard-release.sh
           /bin/bash scripts/release/test-receipt-callbacks.sh
+          /bin/bash scripts/ci/test-publish-workspace.sh
           /bin/bash scripts/ci/test-wasm-audit-report.sh
           /bin/bash scripts/ci/verify-wasm-optimizer.sh
           shellcheck --exclude=SC2001,SC2016 scripts/dev/workstation-setup.sh scripts/ci/install-gh.sh scripts/ci/install-wasm-optimizer.sh scripts/ci/verify-wasm-optimizer.sh scripts/ci/wasm-optimizer-pin.sh scripts/ci/wasm-report-common.sh scripts/ci/wasm-size-report.sh scripts/ci/wasm-audit-report.sh scripts/ci/test-workstation-setup.sh scripts/ci/test-wasm-audit-report.sh
@@ -193,6 +194,7 @@ jobs:
           cargo clippy --locked -p icydb-testing-integration --lib --bin write_wasm_size_report -- -D warnings
           cargo clippy --locked -p icydb-cli --bin icydb -- -D warnings
           cargo test --locked -p icydb-testing-integration --lib wasm_optimizer::tests::post_link_optimizer_contract_is_exact_and_available
+          cargo test --locked -p icydb-testing-integration --bin write_wasm_size_report
           cargo test --locked -p icydb-core --lib --all-features db::integrity::tests::quick_
           make build-canister-production CANISTER=default_empty
           make fmt-check

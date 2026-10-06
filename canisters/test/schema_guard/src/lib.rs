@@ -1,5 +1,14 @@
 //! One-entity generated schema authorization evidence canister.
 
+// IC measurements use the shared Wasm reader; native Candid builds retain
+// the CDK host binding, which cannot supply IC measurements.
+#[cfg(feature = "guarded-schema")]
+#[cfg(not(target_arch = "wasm32"))]
+use ic_cdk::api::call_context_instruction_counter as call_context_instructions;
+#[cfg(feature = "guarded-schema")]
+#[cfg(target_arch = "wasm32")]
+use ic_metrics::call_context_instructions;
+
 #[cfg(feature = "guarded-schema")]
 use std::cell::Cell;
 
@@ -85,9 +94,9 @@ fn maximum_allowlist_guard(context: ReadAuthorizationContext) -> ReadAuthorizati
 fn read_authorization_cost() -> Result<ReadAuthorizationCostResult, icydb::Error> {
     #[cfg(feature = "guarded-schema")]
     {
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let caller = ic_cdk::api::msg_caller();
-        let caller_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let caller_instructions = call_context_instructions().saturating_sub(start);
 
         let context = ReadAuthorizationContext {
             caller,
@@ -95,24 +104,24 @@ fn read_authorization_cost() -> Result<ReadAuthorizationCostResult, icydb::Error
         };
         let mut readers = [Principal::anonymous(); MAX_READ_AUTHORIZATION_ALLOWLIST_PRINCIPALS];
         readers[MAX_READ_AUTHORIZATION_ALLOWLIST_PRINCIPALS - 1] = caller;
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let helper_decision = allowlist(context, &readers);
-        let helper_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let helper_instructions = call_context_instructions().saturating_sub(start);
 
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let guard_decision = maximum_allowlist_guard(context);
-        let guard_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let guard_instructions = call_context_instructions().saturating_sub(start);
 
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         icydb::__macro::authorize_schema_read(caller, maximum_allowlist_guard)?;
-        let authorization_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let authorization_instructions = call_context_instructions().saturating_sub(start);
         let wrapper_instructions = authorization_instructions.saturating_sub(guard_instructions);
 
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let schema_result = icydb::db::with_request_execution(|| {
             crate::__icydb_generated::endpoint_handlers::schema()
         });
-        let schema_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let schema_instructions = call_context_instructions().saturating_sub(start);
         schema_result?;
 
         Ok(ReadAuthorizationCostResult {

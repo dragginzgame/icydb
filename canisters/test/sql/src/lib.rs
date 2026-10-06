@@ -13,6 +13,13 @@ mod entity_creation;
 #[cfg(all(feature = "entity-rename", feature = "test-admin-api"))]
 mod entity_rename;
 
+// IC measurements use the shared Wasm reader; native Candid builds retain
+// the CDK host binding, which cannot supply IC measurements.
+#[cfg(not(target_arch = "wasm32"))]
+use ic_cdk::api::call_context_instruction_counter as call_context_instructions;
+#[cfg(target_arch = "wasm32")]
+use ic_metrics::call_context_instructions;
+
 // Candid's service collector resolves endpoint return types at the crate root.
 #[cfg(all(feature = "test-admin-api", feature = "candid-export"))]
 use crate::batch_workload::BatchWorkloadSample;
@@ -107,10 +114,10 @@ struct AcceptedSchemaReadInstructionResult {
 #[cfg(feature = "test-admin-api")]
 #[query]
 fn measure_sql_query_instructions(sql: String) -> SqlExecutionInstructionResult {
-    let start = ic_cdk::api::performance_counter(1);
+    let start = call_context_instructions();
     let result =
         icydb::db::with_request_execution(|| icydb::db!()?.execute_trusted_sql_query(sql.as_str()));
-    let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    let local_instructions = call_context_instructions().saturating_sub(start);
 
     SqlExecutionInstructionResult {
         result,
@@ -176,10 +183,10 @@ fn check_bound_sql_null_parity() -> Vec<Result<icydb::db::sql::SqlQueryResult, i
 #[cfg(feature = "test-admin-api")]
 #[update]
 fn measure_sql_ddl_admission_instructions(sql: String) -> SqlExecutionInstructionResult {
-    let start = ic_cdk::api::performance_counter(1);
+    let start = call_context_instructions();
     let result =
         icydb::db::with_request_execution(|| icydb::db!()?.execute_admin_sql_ddl(sql.as_str()));
-    let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    let local_instructions = call_context_instructions().saturating_sub(start);
 
     SqlExecutionInstructionResult {
         result,
@@ -191,11 +198,11 @@ fn measure_sql_ddl_admission_instructions(sql: String) -> SqlExecutionInstructio
 #[cfg(feature = "test-admin-api")]
 #[update]
 fn measure_trusted_sql_exact_update_instructions(sql: String) -> SqlExecutionInstructionResult {
-    let start = ic_cdk::api::performance_counter(1);
+    let start = call_context_instructions();
     let result = icydb::db::with_request_execution(|| {
         icydb::db!()?.execute_trusted_sql_exact_update(sql.as_str(), 1)
     });
-    let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    let local_instructions = call_context_instructions().saturating_sub(start);
 
     SqlExecutionInstructionResult {
         result,
@@ -210,9 +217,9 @@ fn measure_accepted_schema_read_instructions(
     entity: String,
 ) -> Result<AcceptedSchemaReadInstructionResult, icydb::Error> {
     icydb::db::with_request_execution(|| {
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let description = icydb::db!()?.try_describe_entity_by_name(entity.as_str())?;
-        let local_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let local_instructions = call_context_instructions().saturating_sub(start);
 
         Ok(AcceptedSchemaReadInstructionResult {
             description,
@@ -259,33 +266,32 @@ struct ApplicationBehaviorPerfResult {
 #[query]
 fn measure_application_behavior_perf() -> Result<ApplicationBehaviorPerfResult, String> {
     let mut normalized_bytes = 0_u64;
-    let start = ic_cdk::api::performance_counter(1);
+    let start = call_context_instructions();
     for _ in 0..APPLICATION_BEHAVIOR_PERF_ITERATIONS {
         let mut value = MimeType::from("  Text/HTML  ");
         normalize(&mut value).map_err(|error| error.to_string())?;
         normalized_bytes = normalized_bytes.saturating_add(value.inner().len() as u64);
     }
-    let normalize_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    let normalize_instructions = call_context_instructions().saturating_sub(start);
 
     let mut validated_bytes = 0_u64;
-    let start = ic_cdk::api::performance_counter(1);
+    let start = call_context_instructions();
     for _ in 0..APPLICATION_BEHAVIOR_PERF_ITERATIONS {
         let value = MimeType::from("text/html");
         validate(&value).map_err(|error| error.to_string())?;
         validated_bytes = validated_bytes.saturating_add(value.inner().len() as u64);
     }
-    let validate_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    let validate_instructions = call_context_instructions().saturating_sub(start);
 
     let mut composed_bytes = 0_u64;
-    let start = ic_cdk::api::performance_counter(1);
+    let start = call_context_instructions();
     for _ in 0..APPLICATION_BEHAVIOR_PERF_ITERATIONS {
         let value = MimeType::from("  Text/HTML  ")
             .normalize_and_validate()
             .map_err(|error| error.to_string())?;
         composed_bytes = composed_bytes.saturating_add(value.inner().len() as u64);
     }
-    let normalize_and_validate_instructions =
-        ic_cdk::api::performance_counter(1).saturating_sub(start);
+    let normalize_and_validate_instructions = call_context_instructions().saturating_sub(start);
 
     Ok(ApplicationBehaviorPerfResult {
         normalize_instructions,
@@ -683,7 +689,7 @@ fn measure_typed_enrollment_costs<C: icydb::traits::CanisterKind>(
 ) -> Result<(u64, u64), icydb::Error> {
     let sequential_user_id = Id::<SqlTestEnrollmentUser>::generate().map_err(icydb::Error::from)?;
     let sequential_principal = icydb::types::Principal::from_slice(b"icydb-0.235-sequential");
-    let start = ic_cdk::api::performance_counter(1);
+    let start = call_context_instructions();
     execute_one_typed(
         session,
         enrollment_user_input(sequential_user_id, "Sequential User"),
@@ -696,11 +702,11 @@ fn measure_typed_enrollment_costs<C: icydb::traits::CanisterKind>(
         session,
         enrollment_robot_input(sequential_user_id, "Sequential Robot"),
     )?;
-    let sequential = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    let sequential = call_context_instructions().saturating_sub(start);
 
     let atomic_user_id = Id::<SqlTestEnrollmentUser>::generate().map_err(icydb::Error::from)?;
     let atomic_principal = icydb::types::Principal::from_slice(b"icydb-0.235-atomic");
-    let start = ic_cdk::api::performance_counter(1);
+    let start = call_context_instructions();
     let mut batch = session.trusted_typed_write_batch();
     let user = batch
         .push(enrollment_user_input(atomic_user_id, "Atomic User"))
@@ -715,7 +721,7 @@ fn measure_typed_enrollment_costs<C: icydb::traits::CanisterKind>(
         .push(enrollment_robot_input(atomic_user_id, "Atomic Robot"))
         .map_err(typed_operation_fixture_error)?;
     let mut results = batch.execute().map_err(typed_operation_fixture_error)?;
-    let atomic = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    let atomic = call_context_instructions().saturating_sub(start);
 
     let user_row = results.row(&user).map_err(typed_operation_fixture_error)?;
     let membership_row = results
@@ -748,7 +754,7 @@ fn measure_typed_enrollment_costs<C: icydb::traits::CanisterKind>(
 fn measure_three_entity_write_costs<C: icydb::traits::CanisterKind>(
     session: &icydb::db::DbSession<C>,
 ) -> Result<(u64, u64), icydb::Error> {
-    let start = ic_cdk::api::performance_counter(1);
+    let start = call_context_instructions();
     for entity in [
         "SqlTestIdentityNat64",
         "SqlTestIdentityNat128",
@@ -759,9 +765,9 @@ fn measure_three_entity_write_costs<C: icydb::traits::CanisterKind>(
             patch: identity_payload_patch(3),
         })?;
     }
-    let sequential = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    let sequential = call_context_instructions().saturating_sub(start);
 
-    let start = ic_cdk::api::performance_counter(1);
+    let start = call_context_instructions();
     let atomic = session.execute_trusted_structural_mutation_batch(vec![
         StructuralMutation::Insert {
             entity: "SqlTestIdentityNat64".to_string(),
@@ -776,7 +782,7 @@ fn measure_three_entity_write_costs<C: icydb::traits::CanisterKind>(
             patch: identity_payload_patch(4),
         },
     ])?;
-    let atomic_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    let atomic_instructions = call_context_instructions().saturating_sub(start);
     if atomic.len() != 3
         || atomic
             .iter()
@@ -801,9 +807,9 @@ fn measure_maximum_entity_context_cost<C: icydb::traits::CanisterKind>(
             patch: caller_nat64_patch(1, u64::from(index)),
         })
         .collect();
-    let start = ic_cdk::api::performance_counter(1);
+    let start = call_context_instructions();
     let results = session.execute_trusted_structural_mutation_batch(batch)?;
-    let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+    let instructions = call_context_instructions().saturating_sub(start);
     if results.len() != 64
         || results
             .iter()
@@ -838,28 +844,26 @@ fn measure_identity_closeout_perf() -> Result<IdentityCloseoutPerfResult, icydb:
             patch: identity_payload_patch(1),
         })?;
 
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         session.execute_trusted_structural_mutation(StructuralMutation::Insert {
             entity: "SqlTestCallerNat64".to_string(),
             patch: caller_nat64_patch(2, 2),
         })?;
-        let caller_nat64_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let caller_nat64_instructions = call_context_instructions().saturating_sub(start);
 
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         session.execute_trusted_structural_mutation(StructuralMutation::Insert {
             entity: "SqlTestIdentityNat64".to_string(),
             patch: identity_payload_patch(2),
         })?;
-        let generated_nat64_instructions =
-            ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let generated_nat64_instructions = call_context_instructions().saturating_sub(start);
 
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         session.execute_trusted_structural_mutation(StructuralMutation::Insert {
             entity: "SqlTestIdentityNat128".to_string(),
             patch: identity_payload_patch(2),
         })?;
-        let generated_nat128_instructions =
-            ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let generated_nat128_instructions = call_context_instructions().saturating_sub(start);
 
         let (sequential_three_entity_instructions, atomic_three_entity_instructions) =
             measure_three_entity_write_costs(&session)?;
@@ -868,12 +872,12 @@ fn measure_identity_closeout_perf() -> Result<IdentityCloseoutPerfResult, icydb:
         let (sequential_typed_enrollment_instructions, atomic_typed_enrollment_instructions) =
             measure_typed_enrollment_costs(&session)?;
 
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let one_row = session.execute_trusted_structural_insert_batch(
             "SqlTestIdentityBatch",
             vec![identity_payload_patch(2)],
         )?;
-        let one_row_batch_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let one_row_batch_instructions = call_context_instructions().saturating_sub(start);
         if one_row.affected_rows != 1 {
             return Err(icydb::Error::from_kind(
                 ErrorKind::Query(QueryErrorKind::Validate),
@@ -884,10 +888,10 @@ fn measure_identity_closeout_perf() -> Result<IdentityCloseoutPerfResult, icydb:
         let maximum_batch = (0..IDENTITY_MAX_BATCH_ROWS)
             .map(|ordinal| identity_payload_patch(u64::from(ordinal) + 3))
             .collect();
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let maximum = session
             .execute_trusted_structural_insert_batch("SqlTestIdentityBatch", maximum_batch)?;
-        let maximum_batch_instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let maximum_batch_instructions = call_context_instructions().saturating_sub(start);
         if maximum.affected_rows != IDENTITY_MAX_BATCH_ROWS {
             return Err(icydb::Error::from_kind(
                 ErrorKind::Query(QueryErrorKind::Validate),

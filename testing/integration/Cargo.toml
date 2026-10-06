@@ -13,13 +13,13 @@ authors = { workspace = true }
 [dependencies]
 blake3 = { workspace = true }
 candid = { workspace = true }
+ic-host-tools = { workspace = true }
 ic-testkit = { workspace = true }
 icydb = { workspace = true, default-features = true, features = ["metrics", "migration", "sql"] }
 icydb-testing-sql-generator = { workspace = true }
 icydb-testing-sqlite-reference = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-sha2 = { workspace = true }
 
 [dev-dependencies]
 syn = { workspace = true, features = ["full"] }

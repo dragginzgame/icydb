@@ -38,7 +38,7 @@ fn check_created_quest_target_delete() -> Result<icydb::Error, icydb::Error> {
 /// Insert a new row through accepted structural authority, including named values.
 #[update]
 fn write_created_quest(id: u64, item_id: u64, code: u64) -> EntityCreationMeasurement {
-    let start = ic_cdk::api::performance_counter(1);
+    let start = crate::call_context_instructions();
     let result = with_request_execution(|| {
         let session = icydb::db!()?;
         let patch = StructuralPatch::new()
@@ -61,14 +61,14 @@ fn write_created_quest(id: u64, item_id: u64, code: u64) -> EntityCreationMeasur
     });
     EntityCreationMeasurement {
         result,
-        local_instructions: ic_cdk::api::performance_counter(1).saturating_sub(start),
+        local_instructions: crate::call_context_instructions().saturating_sub(start),
     }
 }
 
 /// Decode the added record and enum through the generated entity's accepted binding.
 #[query]
 fn check_created_quest() -> EntityCreationMeasurement {
-    let start = ic_cdk::api::performance_counter(1);
+    let start = crate::call_context_instructions();
     let result = with_request_execution(|| {
         let row = icydb::db!()?
             .get::<Quest>(Id::from_key(7))
@@ -85,6 +85,6 @@ fn check_created_quest() -> EntityCreationMeasurement {
     });
     EntityCreationMeasurement {
         result,
-        local_instructions: ic_cdk::api::performance_counter(1).saturating_sub(start),
+        local_instructions: crate::call_context_instructions().saturating_sub(start),
     }
 }

@@ -2,7 +2,7 @@
 
 use crate::typed_fixture_invariant_error;
 use candid::CandidType;
-use ic_cdk::{api::performance_counter, update};
+use ic_cdk::update;
 use icydb::{
     Error,
     db::{
@@ -77,9 +77,9 @@ fn measure_collection_workload(length: u32, scenario: u8) -> CollectionWorkloadS
             .select(fields)
             .limit(1);
         let session = icydb::db!()?;
-        let start = performance_counter(1);
+        let start = crate::call_context_instructions();
         let result = session.execute_trusted_live_page(&query, None);
-        query_instructions = performance_counter(1).saturating_sub(start);
+        query_instructions = crate::call_context_instructions().saturating_sub(start);
         result.map(|page| page.rows)
     });
     CollectionWorkloadSample {

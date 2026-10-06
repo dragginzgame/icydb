@@ -12,6 +12,7 @@ ignored = ["candid", "icydb"]
 [dependencies]
 candid = { workspace = true }
 ic-cdk = { workspace = true }
+ic-metrics = { workspace = true }
 icydb = { workspace = true }
 icydb-model = { workspace = true }
 icydb-testing-wasm-helpers = { workspace = true }

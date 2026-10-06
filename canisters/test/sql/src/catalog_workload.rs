@@ -4,7 +4,7 @@ use crate::{
     typed_adapter_fixture_error, typed_fixture_invariant_error, typed_operation_fixture_error,
 };
 use candid::CandidType;
-use ic_cdk::{api::performance_counter, update};
+use ic_cdk::update;
 use icydb::{
     db::{
         DynamicQuery, StructuralPatch, TypedRowAdapter, WriteCell,
@@ -89,7 +89,7 @@ fn measure_catalog_labels(selected: bool) -> CatalogLabelSample {
     };
     sample.result = with_request_execution(|| {
         let session = icydb::db!()?;
-        let start = performance_counter(1);
+        let start = crate::call_context_instructions();
         let mut labels = Vec::new();
         let mut continuation = None;
         for _ in 0..4 {
@@ -148,7 +148,7 @@ fn measure_catalog_labels(selected: bool) -> CatalogLabelSample {
         if continuation.is_some() {
             return Err(typed_fixture_invariant_error());
         }
-        sample.instructions = performance_counter(1) - start;
+        sample.instructions = crate::call_context_instructions() - start;
         Ok(labels)
     });
     sample
@@ -273,11 +273,11 @@ fn measure_catalog_workload(staged: bool) -> CatalogWorkloadSample {
     };
     sample.result = with_request_execution(|| {
         let session = icydb::db!()?;
-        let start = performance_counter(1);
+        let start = crate::call_context_instructions();
         let mut rows = Vec::new();
         let mut continuation = None;
         for _ in 0..4 {
-            let page_start = performance_counter(1);
+            let page_start = crate::call_context_instructions();
             let (page_rows, next) = if staged {
                 // Same owners as Query::execute_live_page, with counters at its
                 // existing boundaries; this is not a separate executor.
@@ -290,11 +290,11 @@ fn measure_catalog_workload(staged: bool) -> CatalogWorkloadSample {
                         .order_by(asc(SqlTestCatalogItem::KEY))
                         .limit(257),
                 );
-                let bound = performance_counter(1);
+                let bound = crate::call_context_instructions();
                 let page = cursor
                     .execute_page(continuation.as_deref())
                     .map_err(typed_operation_fixture_error)?;
-                let executed = performance_counter(1);
+                let executed = crate::call_context_instructions();
                 let rows = page
                     .rows
                     .map(|row| {
@@ -302,7 +302,7 @@ fn measure_catalog_workload(staged: bool) -> CatalogWorkloadSample {
                             .map_err(typed_adapter_fixture_error)
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                let adapted = performance_counter(1);
+                let adapted = crate::call_context_instructions();
                 sample.binding_instructions += bound - page_start;
                 sample.page_instructions += executed - bound;
                 sample.adapter_instructions += adapted - executed;
@@ -331,7 +331,7 @@ fn measure_catalog_workload(staged: bool) -> CatalogWorkloadSample {
         if continuation.is_some() {
             return Err(typed_fixture_invariant_error());
         }
-        sample.total_instructions = performance_counter(1) - start;
+        sample.total_instructions = crate::call_context_instructions() - start;
         // Transport shaping is outside the query interval. Every returned
         // field is independently checked by the host, including nested bytes.
         Ok(rows

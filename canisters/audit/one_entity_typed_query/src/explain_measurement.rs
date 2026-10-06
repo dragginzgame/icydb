@@ -15,9 +15,9 @@ fn measure_typed_explain(kind: u8) -> Result<Vec<(u64, u64, String, u64)>, u16> 
         let database = crate::db().map_err(|error| error.code().raw())?;
         let mut results = Vec::with_capacity(3);
         for _ in 0..3 {
-            let start = ic_cdk::api::performance_counter(1);
+            let start = crate::call_context_instructions();
             let query = database.query::<OneSimpleEntity01>().map_err(|_| 1_u16)?;
-            let bound = ic_cdk::api::performance_counter(1);
+            let bound = crate::call_context_instructions();
             let query = match kind {
                 0 => query.filter(FieldRef::new("id").eq(Ulid::MIN)),
                 1 => query.order_by(asc("name")),
@@ -28,9 +28,9 @@ fn measure_typed_explain(kind: u8) -> Result<Vec<(u64, u64, String, u64)>, u16> 
                 _ => return Err(2),
             };
             let plan = query.explain().map_err(|_| 3_u16)?;
-            let planned = ic_cdk::api::performance_counter(1);
+            let planned = crate::call_context_instructions();
             let json = plan.render_json_canonical().map_err(|_| 4_u16)?;
-            let rendered = ic_cdk::api::performance_counter(1);
+            let rendered = crate::call_context_instructions();
             results.push((
                 planned.saturating_sub(start),
                 rendered.saturating_sub(planned),
@@ -57,9 +57,9 @@ fn measure_sql_explain(kind: u8) -> Result<Vec<(u64, u64, String)>, u16> {
         };
         let mut results = Vec::with_capacity(3);
         for _ in 0..3 {
-            let start = ic_cdk::api::performance_counter(1);
+            let start = crate::call_context_instructions();
             let result = database.execute_trusted_sql_query(sql).map_err(|_| 3_u16)?;
-            let elapsed = ic_cdk::api::performance_counter(1).saturating_sub(start);
+            let elapsed = crate::call_context_instructions().saturating_sub(start);
             let icydb::db::sql::SqlQueryResult::Explain { explain, .. } = result else {
                 return Err(4);
             };

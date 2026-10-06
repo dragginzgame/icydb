@@ -7,7 +7,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use sha2::{Digest, Sha256};
+use ic_host_tools::artifact::Sha256Digest;
 
 /// Environment variable that may point at the pinned `wasm-opt` executable.
 pub const WASM_OPT_BIN_ENV: &str = "ICYDB_WASM_OPT_BIN";
@@ -39,7 +39,6 @@ pub const WASM_OPT_OUTPUT_FEATURES: [&str; 5] = [
 ];
 
 static TEMPORARY_OUTPUT_ORDINAL: AtomicU64 = AtomicU64::new(0);
-const HEX: &[u8; 16] = b"0123456789abcdef";
 
 /// Resolve the admitted executable digest for the native host.
 ///
@@ -215,13 +214,7 @@ fn temporary_output_path(output: &Path) -> PathBuf {
 fn sha256_hex(path: &Path) -> Result<String, String> {
     let bytes = fs::read(path)
         .map_err(|error| format!("failed to read {} for SHA-256: {error}", path.display()))?;
-    let digest = Sha256::digest(bytes);
-    let mut encoded = String::with_capacity(digest.len() * 2);
-    for byte in digest {
-        encoded.push(char::from(HEX[usize::from(byte >> 4)]));
-        encoded.push(char::from(HEX[usize::from(byte & 0x0f)]));
-    }
-    Ok(encoded)
+    Ok(Sha256Digest::compute(&bytes).to_string())
 }
 
 fn format_process_failure(context: &str, output: &std::process::Output) -> String {

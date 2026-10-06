@@ -2,6 +2,13 @@
 //! One-entity reachable-operation canister used for Wasm specialization auditing.
 //!
 
+// IC measurements use the shared Wasm reader; native Candid builds retain
+// the CDK host binding, which cannot supply IC measurements.
+#[cfg(not(target_arch = "wasm32"))]
+use ic_cdk::api::call_context_instruction_counter as call_context_instructions;
+#[cfg(target_arch = "wasm32")]
+use ic_metrics::call_context_instructions;
+
 use icydb::db::{TypedAdapterError, TypedOperationError};
 use icydb_testing_audit_one_simple_fixtures::one_simple::{
     OneSimpleEntity01, OneSimpleEntity01Insert, OneSimpleEntity01Patch, ReachableInputChoice,
@@ -60,7 +67,7 @@ fn unbound_structural_input_rejects<C: icydb::traits::CanisterKind>(
 
 fn exercise_reachable_entity_operation(entity: u8, operation: u8) -> ((u32, u64),) {
     icydb::db::with_request_execution(|| {
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let result = match (db(), entity, operation) {
             (Ok(database), 0, 7) => u32::from(unbound_structural_input_rejects(&database)),
             (Ok(database), 0, _) => execute_simple_reachable_entity_operation!(
@@ -75,7 +82,7 @@ fn exercise_reachable_entity_operation(entity: u8, operation: u8) -> ((u32, u64)
             ),
             _ => 0,
         };
-        let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let instructions = call_context_instructions().saturating_sub(start);
         ((result, instructions),)
     })
 }

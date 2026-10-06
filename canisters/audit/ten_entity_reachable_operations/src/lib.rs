@@ -2,6 +2,13 @@
 //! Ten-entity reachable-operation canister used for Wasm specialization auditing.
 //!
 
+// IC measurements use the shared Wasm reader; native Candid builds retain
+// the CDK host binding, which cannot supply IC measurements.
+#[cfg(not(target_arch = "wasm32"))]
+use ic_cdk::api::call_context_instruction_counter as call_context_instructions;
+#[cfg(target_arch = "wasm32")]
+use ic_metrics::call_context_instructions;
+
 use icydb::db::{TypedAdapterError, TypedOperationError};
 use icydb_testing_audit_ten_simple_fixtures::ten_simple::{
     ReachableInputChoice, ReachableInputProfile, TenSimpleEntity01, TenSimpleEntity01Insert,
@@ -86,7 +93,7 @@ macro_rules! dispatch_entity {
 
 fn exercise_reachable_entity_operation(entity: u8, operation: u8) -> ((u32, u64),) {
     icydb::db::with_request_execution(|| {
-        let start = ic_cdk::api::performance_counter(1);
+        let start = call_context_instructions();
         let result = match (db(), entity, operation) {
             (Ok(database), 0, 7) => u32::from(unbound_structural_input_rejects(&database)),
             (Ok(database), _, _) => dispatch_entity!(
@@ -177,7 +184,7 @@ fn exercise_reachable_entity_operation(entity: u8, operation: u8) -> ((u32, u64)
             ),
             (Err(_), _, _) => 0,
         };
-        let instructions = ic_cdk::api::performance_counter(1).saturating_sub(start);
+        let instructions = call_context_instructions().saturating_sub(start);
         ((result, instructions),)
     })
 }

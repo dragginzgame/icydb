@@ -18,6 +18,7 @@ candid-export = []
 [dependencies]
 candid = { workspace = true }
 ic-cdk = { workspace = true }
+ic-metrics = { workspace = true }
 icydb = { workspace = true }
 icydb-model = { workspace = true }
 icydb-testing-audit-one-simple-fixtures = { workspace = true }

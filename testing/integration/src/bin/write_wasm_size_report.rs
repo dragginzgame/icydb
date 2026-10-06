@@ -5,11 +5,14 @@
 
 use std::{
     env, fs,
-    io::Read,
     path::{Path, PathBuf},
     process::Command,
 };
 
+use ic_host_tools::{
+    artifact::hash_reader,
+    wasm::{InspectionLimits, inspect},
+};
 use icydb_testing_integration::{
     CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
     CanisterWasmProfile, ResolvedCanisterBuildConfiguration,
@@ -26,7 +29,6 @@ use icydb_testing_integration::{
     },
 };
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 
 const SIZE_REPORT_FORMAT_VERSION: u32 = 1;
 
@@ -533,32 +535,12 @@ fn optional_file_meta(path: &Path) -> Result<Option<FileMeta>, String> {
 }
 
 fn sha256_hex(path: &Path) -> Result<String, String> {
-    let mut file =
+    let file =
         fs::File::open(path).map_err(|err| format!("failed to open {}: {err}", path.display()))?;
-    let mut hasher = Sha256::new();
-    let mut buffer = vec![0_u8; 1024 * 1024];
-
-    loop {
-        let read = file
-            .read(&mut buffer)
-            .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..read]);
-    }
-
-    Ok(encode_hex_lower(&hasher.finalize()))
-}
-
-fn encode_hex_lower(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push(char::from(HEX[usize::from(byte >> 4)]));
-        out.push(char::from(HEX[usize::from(byte & 0x0f)]));
-    }
-    out
+    // Preserve the report's whole-stream policy; it has no per-artifact byte cap.
+    let identity = hash_reader(file, u64::MAX)
+        .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
+    Ok(identity.sha256.to_string())
 }
 
 fn parse_info(path: &Path, wasm_path: &Path, wasm_opt_bin: &Path) -> Result<WasmInfo, String> {
@@ -583,52 +565,22 @@ fn parse_info(path: &Path, wasm_path: &Path, wasm_opt_bin: &Path) -> Result<Wasm
 fn wasm_code_structure(path: &Path) -> Result<(u64, u64), String> {
     let bytes = fs::read(path)
         .map_err(|error| format!("failed to read Wasm '{}': {error}", path.display()))?;
-    if !bytes.starts_with(b"\0asm\x01\0\0\0") {
-        return Err(format!("invalid Wasm header: '{}'", path.display()));
-    }
+    // Each structural entry consumes input bytes. Natural input-size ceilings
+    // preserve whole-artifact reporting without adding a consumer budget knob.
+    let facts = inspect(
+        &bytes,
+        InspectionLimits {
+            module_bytes: bytes.len(),
+            sections: bytes.len(),
+            exports: u32::try_from(bytes.len()).unwrap_or(u32::MAX),
+            custom_sections: bytes.len(),
+        },
+    )
+    .map_err(|error| format!("failed to inspect Wasm '{}': {error}", path.display()))?;
+    let code_section_bytes = u64::try_from(facts.code_section_bytes)
+        .map_err(|_| format!("Wasm code section is too large: '{}'", path.display()))?;
 
-    let mut position = 8_usize;
-    let mut defined_functions = 0_u64;
-    let mut code_section_bytes = 0_u64;
-    while position < bytes.len() {
-        let section = bytes[position];
-        position = position.saturating_add(1);
-        let payload_len = usize::try_from(read_u32_leb(&bytes, &mut position)?)
-            .map_err(|_| format!("Wasm section is too large: '{}'", path.display()))?;
-        let payload_end = position
-            .checked_add(payload_len)
-            .filter(|end| *end <= bytes.len())
-            .ok_or_else(|| format!("truncated Wasm section: '{}'", path.display()))?;
-        if section == 3 {
-            let mut payload_position = position;
-            defined_functions = u64::from(read_u32_leb(&bytes, &mut payload_position)?);
-        } else if section == 10 {
-            code_section_bytes = u64::try_from(payload_len)
-                .map_err(|_| format!("Wasm code section is too large: '{}'", path.display()))?;
-        }
-        position = payload_end;
-    }
-
-    Ok((defined_functions, code_section_bytes))
-}
-
-fn read_u32_leb(bytes: &[u8], position: &mut usize) -> Result<u32, String> {
-    let mut value = 0_u32;
-    for shift in (0..35).step_by(7) {
-        let byte = *bytes
-            .get(*position)
-            .ok_or_else(|| "truncated unsigned LEB128 value".to_string())?;
-        *position = position.saturating_add(1);
-        let payload = u32::from(byte & 0x7f);
-        if shift == 28 && payload > 0x0f {
-            return Err("unsigned LEB128 value exceeds u32".to_string());
-        }
-        value |= payload << shift;
-        if byte & 0x80 == 0 {
-            return Ok(value);
-        }
-    }
-    Err("unsigned LEB128 value exceeds five bytes".to_string())
+    Ok((u64::from(facts.defined_functions), code_section_bytes))
 }
 
 fn wasm_call_indirect_count(path: &Path, wasm_opt_bin: &Path) -> Result<u64, String> {
@@ -965,15 +917,95 @@ fn append_step_summary(path: &Path, summary: &str) -> Result<(), String> {
         .map_err(|err| format!("failed to write step summary {}: {err}", path.display()))
 }
 
+///
+/// TESTS
+///
 #[cfg(test)]
 mod tests {
+    use std::{env, fs};
+
     use icydb_testing_integration::{
         CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
         CanisterWasmProfile, ResolvedCanisterBuildConfiguration,
         resolve_fixture_canister_build_configuration,
     };
 
-    use super::{WasmInfo, endpoint_surface, parse_args, pipeline};
+    use super::{WasmInfo, endpoint_surface, file_meta, parse_args, pipeline, wasm_code_structure};
+
+    #[test]
+    fn wasm_structure_reports_defined_functions_and_complete_code_payload_bytes() {
+        let path = env::temp_dir().join(format!("icydb-report-wasm-valid-{}", std::process::id()));
+        let mut bytes = b"\0asm\x01\0\0\0".to_vec();
+        fs::write(&path, &bytes).expect("empty module should be writable");
+        assert_eq!(wasm_code_structure(&path).unwrap(), (0, 0));
+
+        // Imported functions do not count as defined functions.
+        bytes.extend([1, 4, 1, 0x60, 0, 0, 2, 7, 1, 1, b'm', 1, b'f', 0, 0]);
+        fs::write(&path, &bytes).expect("import-only module should be writable");
+        assert_eq!(wasm_code_structure(&path).unwrap(), (0, 0));
+
+        // Two defined functions: one body crosses the one-byte LEB128 boundary.
+        // The code payload includes its vector count and both body lengths,
+        // while excluding the section ID and the section-length prefix.
+        bytes.extend([3, 3, 2, 0, 0, 10, 0x88, 0x01, 2, 0x82, 0x01, 0]);
+        bytes.extend(std::iter::repeat_n(0x01, 128));
+        bytes.extend([0x0b, 2, 0, 0x0b, 0, 2, 1, b'x']);
+        fs::write(&path, &bytes).expect("defined-function module should be writable");
+        assert_eq!(wasm_code_structure(&path).unwrap(), (2, 136));
+        fs::remove_file(path).expect("module fixture should be removable");
+    }
+
+    #[test]
+    fn wasm_structure_rejects_malformed_framing_and_inconsistent_function_counts() {
+        let path =
+            env::temp_dir().join(format!("icydb-report-wasm-invalid-{}", std::process::id()));
+        for tail in [
+            &[3, 2, 1, 0][..],
+            &[3, 2, 1, 0, 10, 1, 0][..],
+            &[10, 1, 1][..],
+            &[1, 0x80, 0x80, 0x80, 0x80, 0x10][..],
+        ] {
+            let bytes = [b"\0asm\x01\0\0\0".as_slice(), tail].concat();
+            fs::write(&path, bytes).expect("malformed module should be writable");
+            assert!(wasm_code_structure(&path).is_err());
+        }
+        fs::remove_file(path).expect("module fixture should be removable");
+    }
+
+    #[test]
+    fn artifact_identity_keeps_report_fields_and_hashes_complete_files() {
+        let path = env::temp_dir().join(format!("icydb-report-artifact-{}", std::process::id()));
+        let streamed_bytes = [0x80; 16 * 1024 + 1];
+        for (bytes, digest) in [
+            (
+                b"".as_slice(),
+                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            ),
+            (
+                b"abc".as_slice(),
+                "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            ),
+            (
+                streamed_bytes.as_slice(),
+                "06d3b72e7e774a68bba5660dc7225971c8069732da200495a9a5869d074cd8a8",
+            ),
+        ] {
+            fs::write(&path, bytes).expect("report artifact should be writable");
+            let report =
+                serde_json::to_value(file_meta(&path).expect("artifact should be readable"))
+                    .expect("artifact metadata should serialize");
+            assert_eq!(
+                report,
+                serde_json::json!({
+                    "path": path.display().to_string(),
+                    "bytes": bytes.len(),
+                    "sha256": digest,
+                })
+            );
+        }
+        fs::remove_file(&path).expect("report artifact should be removable");
+        assert!(file_meta(&path).is_err());
+    }
 
     fn resolved(
         canister: &str,

@@ -540,5 +540,28 @@ disk contents.
 
 ### Publishing crates
 
-Publishing is manual maintainer work through `cargo publish`. There is no repo
-Make target or script that reads crates.io credentials.
+For a patch release, run the maintainer-owned release workflow, then publish:
+
+```sh
+make release-patch && make publish
+```
+
+Use `release-minor` or `release-major` for the corresponding version component.
+The shared workflow validates, prepares metadata, commits, tags and pushes.
+`make publish` then publishes the workspace crates in dependency order using
+Cargo's configured crates.io credentials. Release and publication remain separate
+steps; neither clears build artifacts. See [Cargo's publication documentation](https://doc.rust-lang.org/cargo/commands/cargo-publish.html)
+for authentication setup and package verification.
+
+If publication stops, rerun `make publish`. It checks the exact version on
+crates.io and skips packages already published, including versions older than
+the registry's latest release. Registry inspection failures stop publication.
+`PUBLISH_DRY_RUN=1 make publish` checks packaging without uploading, and
+`PUBLISH_VALIDATE_ONLY=1 make publish` checks local prerequisites without registry
+requests. Both require a clean checkout. An exact release receipt reuses prior
+package validation; otherwise Cargo verifies packages before upload.
+
+The adopted shared release runner still blocks an unfinished older release when
+HEAD has advanced. [Shared Tooling #5](https://github.com/dragginzgame/shared-tooling/issues/5)
+tracks simplifying normal-command recovery. Publication retries do not repair
+that release-stage failure.

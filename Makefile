@@ -170,7 +170,7 @@ release-clean:
 package: ensure-clean
 	$(CARGO_WORK_ENV) cargo package
 
-publish: ensure-clean
+publish:
 	$(CARGO_PUBLISH_ENV) scripts/ci/publish-workspace.sh
 
 #
@@ -387,6 +387,7 @@ check-invariants:
 	bash scripts/ci/check-release-cleanup-invariants.sh
 	bash scripts/release/test-standard-release.sh
 	bash scripts/release/test-receipt-callbacks.sh
+	bash scripts/ci/test-publish-workspace.sh
 	bash scripts/ci/test-release-runner.sh
 	bash scripts/ci/test-release-candidate-receipt.sh
 	bash scripts/ci/test-delete-github-tags-up-to.sh
