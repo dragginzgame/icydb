@@ -5,7 +5,7 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.266.0]
+## [0.266.0] - 2026-10-06
 
 - Reject unknown SQL write fields as validation errors
   ([#221](https://github.com/dragginzgame/icydb/issues/221)), enforce combined
