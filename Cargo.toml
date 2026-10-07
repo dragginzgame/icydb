@@ -89,7 +89,7 @@ ic-host-artifacts = { version = "0.4", default-features = false }
 ic-host-fs = "0.4"
 ic-host-process = "0.4"
 ic-host-tools = { version = "0.4", default-features = false }
-ic-memory = "0.30"
+ic-memory = "0.31"
 ic-metrics = "0.2.6"
 ic-testkit = "0.20"
 ic-timers = "0.14"
