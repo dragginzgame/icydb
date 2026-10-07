@@ -11,8 +11,11 @@ use candid::{
     pretty::candid::compile,
     types::{FuncMode, Function, Type, TypeInner, internal::TypeContainer},
 };
-use ic_host_artifacts::wasm::{ExportKind, InspectionLimits, inspect};
-use ic_host_fs::read::hash_file;
+use ic_host_artifacts::{
+    artifact::ArtifactError,
+    wasm::{ExportKind, InspectionLimits, inspect},
+};
+use ic_host_fs::read::{hash_file, read_opened_file};
 use ic_host_process::tool::{
     AdmittedTool, ExecutionContext, OutputLimits, ToolSpec, resolve_executable,
 };
@@ -375,7 +378,7 @@ impl CanisterArtifactManifest {
 /// extraction, malformed Candid service declarations, or a method/mode drift
 /// between the two artifacts.
 pub fn inspect_canister_artifacts(wasm_path: &Path) -> Result<CanisterArtifactManifest, String> {
-    let wasm = fs::read(wasm_path)
+    let wasm = read_wasm_artifact(wasm_path)
         .map_err(|error| format!("failed to read {}: {error}", wasm_path.display()))?;
     let wasm_methods = inspect_wasm_methods(&wasm)?;
 
@@ -398,6 +401,23 @@ pub fn inspect_canister_artifacts(wasm_path: &Path) -> Result<CanisterArtifactMa
         candid_methods,
         wasm_methods,
     })
+}
+
+/// Read a complete regular Wasm artifact through its selected descriptor.
+///
+/// The observed descriptor length bounds allocation and stream growth without
+/// imposing a fixed cap on compiler or report artifacts. Symbolic links remain
+/// allowed in caller-controlled paths. Retained build ownership, immutable
+/// inputs and Wasm validity remain caller responsibilities.
+///
+/// # Errors
+/// Returns typed open, metadata, non-regular-file, size, read or allocation
+/// failures, including growth beyond the observed artifact length.
+pub fn read_wasm_artifact(path: &Path) -> Result<Vec<u8>, ArtifactError> {
+    let file = fs::File::open(path)?;
+    let maximum_bytes = usize::try_from(file.metadata()?.len())
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+    read_opened_file(file, maximum_bytes)
 }
 
 // The setup catalog owns version selection. Capture the installed executable's
@@ -686,8 +706,36 @@ mod tests {
     use super::{
         CanisterMethod, CanisterMethodMode, MAINTAINED_CANISTER_POLICIES,
         candid_visible_wasm_methods, inspect_candid_methods, inspect_canister_artifacts,
-        inspect_wasm_methods, render_schema_migration_endpoint_abi,
+        inspect_wasm_methods, read_wasm_artifact, render_schema_migration_endpoint_abi,
     };
+
+    #[test]
+    fn artifact_reads_preserve_complete_regular_files_and_follow_selected_links() {
+        use ic_host_artifacts::artifact::ArtifactError;
+
+        let root = std::env::temp_dir().join(format!("icydb wasm reads {}", std::process::id()));
+        fs::create_dir(&root).unwrap();
+        let path = root.join("complete.wasm");
+        for bytes in [Vec::new(), vec![0x80; 16 * 1024 + 1]] {
+            fs::write(&path, &bytes).unwrap();
+            assert_eq!(read_wasm_artifact(&path).unwrap(), bytes);
+        }
+        #[cfg(unix)]
+        {
+            let link = root.join("selected-link.wasm");
+            std::os::unix::fs::symlink(&path, &link).unwrap();
+            assert_eq!(read_wasm_artifact(&link).unwrap(), fs::read(&path).unwrap());
+        }
+        assert!(matches!(
+            read_wasm_artifact(&root),
+            Err(ArtifactError::NotRegularFile)
+        ));
+        assert!(matches!(
+            read_wasm_artifact(&root.join("missing.wasm")),
+            Err(ArtifactError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound
+        ));
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn candid_inspection_preserves_names_and_modes_through_nested_types() {

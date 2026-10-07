@@ -1355,12 +1355,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "ic-host-artifacts"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee65d6926f85dfcecf3418a4bb20a071c00325a1269b63252f2662475d4680aa"
+dependencies = [
+ "sha2",
+ "wasmparser",
+]
+
+[[package]]
 name = "ic-host-fs"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f840a2a3db8922b0e0b1559d16fe54511809cac5c246427937fb3d8ca690569e"
 dependencies = [
- "ic-host-artifacts",
+ "ic-host-artifacts 0.3.3",
+ "rustix",
+]
+
+[[package]]
+name = "ic-host-fs"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d71631b03129c773045d7c29037476ba09c36ee50e35bd99578a7e4488bd6a7a"
+dependencies = [
+ "ic-host-artifacts 0.4.0",
  "rustix",
 ]
 
@@ -1370,8 +1390,19 @@ version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b687189ccf57435614cbcbdf09e60866eadcf4becfc0c459e07e4549db33f13"
 dependencies = [
- "ic-host-artifacts",
- "ic-host-fs",
+ "ic-host-artifacts 0.3.3",
+ "ic-host-fs 0.3.3",
+ "rustix",
+]
+
+[[package]]
+name = "ic-host-process"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "45b84cd074ef423fe58071034120a054a4e09d2cf2db8965f9e5435d5cbdda4d"
+dependencies = [
+ "ic-host-artifacts 0.4.0",
+ "ic-host-fs 0.4.0",
  "rustix",
 ]
 
@@ -1381,9 +1412,22 @@ version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5ddad8025b267157fadbd7ec29372719f68491f7b9ab6b3c6e97c6d4b985a13d"
 dependencies = [
- "ic-host-artifacts",
- "ic-host-fs",
- "ic-host-process",
+ "ic-host-artifacts 0.3.3",
+ "ic-host-fs 0.3.3",
+ "ic-host-process 0.3.3",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "ic-host-tools"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "49c2f0fe2c95d2ad293fa58340af470d9c15c1e1c6ead28f922f901434d8996e"
+dependencies = [
+ "ic-host-artifacts 0.4.0",
+ "ic-host-fs 0.4.0",
+ "ic-host-process 0.4.0",
  "serde",
  "serde_json",
 ]
@@ -1436,10 +1480,10 @@ dependencies = [
  "candid",
  "fs2",
  "ic-cdk",
- "ic-host-artifacts",
- "ic-host-fs",
- "ic-host-process",
- "ic-host-tools",
+ "ic-host-artifacts 0.3.3",
+ "ic-host-fs 0.3.3",
+ "ic-host-process 0.3.3",
+ "ic-host-tools 0.3.3",
  "libc",
  "pocket-ic",
  "serde",
@@ -1637,9 +1681,9 @@ version = "0.266.0"
 dependencies = [
  "candid",
  "clap",
- "ic-host-artifacts",
- "ic-host-fs",
- "ic-host-tools",
+ "ic-host-artifacts 0.4.0",
+ "ic-host-fs 0.4.0",
+ "ic-host-tools 0.4.0",
  "ic-metrics",
  "icydb",
  "icydb-schema",
@@ -1820,10 +1864,10 @@ version = "0.266.0"
 dependencies = [
  "blake3",
  "candid",
- "ic-host-artifacts",
- "ic-host-fs",
- "ic-host-process",
- "ic-host-tools",
+ "ic-host-artifacts 0.4.0",
+ "ic-host-fs 0.4.0",
+ "ic-host-process 0.4.0",
+ "ic-host-tools 0.4.0",
  "ic-testkit",
  "icydb",
  "icydb-testing-sql-generator",

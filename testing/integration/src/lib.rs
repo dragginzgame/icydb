@@ -14,6 +14,7 @@ pub mod nested_relation_contract;
 pub mod wasm_measurement;
 pub mod wasm_optimizer;
 
+use crate::canister_artifact::read_wasm_artifact;
 use crate::canister_build_cache::{
     CargoWasmBatchEntry, CargoWasmCacheRequest, PostLinkBatchEntry, PostLinkCacheRequest,
     build_cached_cargo_wasm, build_cached_cargo_wasm_batch, cache_post_link_wasm,
@@ -814,7 +815,8 @@ fn build_fixture_variant_wasm_with_profile(
                 .join(format!("{label}.wasm")),
         },
     )?;
-    fs::read(&artifacts).map_err(|error| format!("read retained {label}: {error}"))
+    read_wasm_artifact(artifacts.as_ref())
+        .map_err(|error| format!("read retained {label}: {error}"))
 }
 
 fn finish_canister_build(
@@ -983,20 +985,22 @@ pub fn build_fixture_canister_wasm_stages_with_options(
         &canister_build_label(&fixture, options),
     )
     .unwrap_or_else(|error| panic!("{} canister should build: {error}", fixture.name()));
-    let compiler_emitted = fs::read(&artifacts.compiler_emitted).unwrap_or_else(|error| {
-        panic!(
-            "failed to read compiler-emitted {} canister wasm at {}: {error}",
-            fixture.name(),
-            artifacts.compiler_emitted.display()
-        )
-    });
-    let final_deployable = fs::read(&artifacts.final_deployable).unwrap_or_else(|error| {
-        panic!(
-            "failed to read final deployable {} canister wasm at {}: {error}",
-            fixture.name(),
-            artifacts.final_deployable.display()
-        )
-    });
+    let compiler_emitted =
+        read_wasm_artifact(&artifacts.compiler_emitted).unwrap_or_else(|error| {
+            panic!(
+                "failed to read compiler-emitted {} canister wasm at {}: {error}",
+                fixture.name(),
+                artifacts.compiler_emitted.display()
+            )
+        });
+    let final_deployable =
+        read_wasm_artifact(&artifacts.final_deployable).unwrap_or_else(|error| {
+            panic!(
+                "failed to read final deployable {} canister wasm at {}: {error}",
+                fixture.name(),
+                artifacts.final_deployable.display()
+            )
+        });
     (compiler_emitted, final_deployable)
 }
 
@@ -1178,7 +1182,7 @@ fn build_local_fixture_wasm_bytes_with_options(
     )
     .unwrap_or_else(|err| panic!("{} canister should build: {err}", fixture.name()));
 
-    fs::read(&artifacts).unwrap_or_else(|err| {
+    read_wasm_artifact(artifacts.as_ref()).unwrap_or_else(|err| {
         panic!(
             "failed to read built {} canister wasm at {}: {err}",
             fixture.name(),

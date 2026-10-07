@@ -199,9 +199,12 @@ fn temporary_output_path(output: &Path) -> PathBuf {
     ))
 }
 
-// Keep bounded process evidence in the consumer's existing error projection,
-// including cleanup failures; shared Display intentionally omits captured bytes.
-pub(crate) fn format_tool_failure(context: &str, error: &ToolError) -> String {
+/// Format bounded process output and cleanup evidence with IcyDB's context.
+///
+/// Shared error display omits captured bytes; callers use this projection when
+/// their diagnostic contract needs the original status, streams and cleanup errors.
+#[must_use]
+pub fn format_tool_failure(context: &str, error: &ToolError) -> String {
     let mut message = format!("{context}: {error}");
     if let Some(evidence) = error.evidence() {
         let _ = write!(

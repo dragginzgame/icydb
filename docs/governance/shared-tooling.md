@@ -27,7 +27,7 @@ CODEOWNERS covers shared guidance, the manifest and consumer tooling. The public
 GitHub description, “ic database”, was reviewed against the README and remains
 accurate; no remote metadata change was needed.
 
-The four registry host packages at 0.3 are consumed only by host tooling.
+The four direct registry host packages at 0.4 are consumed only by host tooling.
 `icydb-testing-integration` selects `ic-host-artifacts` with its `wasm` feature
 for streaming hashes, digest formatting and report/method structure inspection,
 and `ic-host-process` for executable resolution, pinned admission and bounded
@@ -51,10 +51,11 @@ The native host CI lanes compile both consumers and exercise optimizer admission
 report identities and Wasm structural counts; Linux qualification does not establish native
 macOS execution.
 
-The current published host source is `38a2a5127be064014e6d39d72d0300ffb2cf20be` in
+The current published host source is `6b171744def811882ba6c71d50135efa898302a9` in
 [IC Host Tooling](https://github.com/dragginzgame/ic-host-tooling). Its four
-0.3.1 archives match the selected registry checksums. Testkit's locked dependency
-on the old host package is retained until its owning
+0.4.0 archives match the selected registry checksums and all 48 packaged Rust
+source files match that revision. Testkit 0.20.0's locked dependencies on the four
+0.3.3 host packages are retained until its owning
 [adoption issue](https://github.com/dragginzgame/ic-testkit/issues/13) is resolved;
 IcyDB adds no compatibility path. Candid extraction and streamed ICP artifact
 publication now use these shared owners, with qualification below
@@ -848,3 +849,47 @@ Portable external-producer staging remains [Host #8](https://github.com/dragginz
 Version-only installed-tool admission remains [Host #11](https://github.com/dragginzgame/ic-host-tooling/issues/11);
 IcyDB's current Candid digest is still explicitly an installed-tool observation.
 Those shared API gaps do not justify local fallback implementations.
+
+## 2026-10-07 Host 0.4 artifact reads and report capture
+
+The maintainer-selected direct dependencies now use published Host 0.4.0 at
+`6b171744def811882ba6c71d50135efa898302a9`. Registry archive checksums and all
+48 packaged Rust source files match; the exact revision is remotely retrievable.
+[Exact-source owner CI](https://github.com/dragginzgame/ic-host-tooling/actions/runs/37602699181)
+passed Linux x86_64, macOS 15 ARM/Intel and MSRV. This qualifies the shared owner;
+native IcyDB consumer qualification remains separate. Earlier dated sections
+record historical selections and checks.
+
+One IcyDB artifact policy selects a descriptor, observes its complete length,
+and delegates regular-file admission, bounded streaming and fallible allocation
+to `read_opened_file`. All six production Wasm reads use that policy, retaining
+the build/cache owner's lifetime and selected-file symlink behavior. This adds
+no arbitrary fixed cap or input-size configuration; growth beyond the observed
+extent fails instead of increasing allocation. Descriptor custody does not
+freeze contents or establish Wasm validity.
+
+Report version/provenance, feature and structural-metric commands use
+`capture_command`, retaining caller arguments, cwd and inherited environment.
+They now share the existing optimizer envelope of 1 MiB per stream and a
+600-second operational deadline, with no retries or process-group ownership.
+Nonzero exits, overflow and cleanup failures use IcyDB's existing bounded
+evidence formatter. Success parsing and report format remain unchanged.
+Inherited-output CLI commands and its response-only dependency profile remain
+separate contracts.
+
+Strict selected integration library/report and CLI checks pass, along with
+the artifact/report/CLI response selections recorded in
+`target/host-adoption-040/`. These focused Linux checks do not establish native
+consumer macOS execution or full workspace/release readiness. No ICP/PocketIC
+network lifecycle action or permitted performance measurement was performed.
+
+Testkit 0.20.0 retains all four 0.3.3 packages alongside IcyDB's direct 0.4.0
+packages; its public re-exports require a minor adoption release
+([Testkit #13](https://github.com/dragginzgame/ic-testkit/issues/13)). No Cargo
+patch, forced resolution or compatibility path was introduced. `copy_reader`
+returns `CopyError`, which has no `io::Error` conversion in 0.4: publication
+retains its existing typed copy-error wrapper. The initial audit's proposed
+direct conversion was incorrect; the correction and remaining owner-level
+projection gap are on [Host #14](https://github.com/dragginzgame/ic-host-tooling/issues/14#issuecomment-6035787706).
+Named optimizer staging and observed-identity extractor admission still await
+Host #8/#11. No upstream or sibling files were edited.

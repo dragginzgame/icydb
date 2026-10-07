@@ -7,13 +7,16 @@ use std::{
     env, fs,
     path::{Path, PathBuf},
     process::Command,
+    time::Duration,
 };
 
 use ic_host_artifacts::wasm::{InspectionLimits, inspect};
 use ic_host_fs::read::hash_file;
+use ic_host_process::tool::{OutputLimits, capture_command};
 use icydb_testing_integration::{
     CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
     CanisterWasmProfile, ResolvedCanisterBuildConfiguration,
+    canister_artifact::read_wasm_artifact,
     resolve_fixture_canister_build_configuration,
     wasm_measurement::{
         MINIMUM_POST_LINK_RAW_REDUCTION_BASIS_POINTS, WASM_LINE_BUDGETS,
@@ -23,12 +26,20 @@ use icydb_testing_integration::{
     },
     wasm_optimizer::{
         POST_LINK_PIPELINE_IDENTITY, WASM_OPT_FLAGS, WASM_OPT_OUTPUT_FEATURES, WASM_OPT_VERSION,
-        wasm_opt_sha256,
+        format_tool_failure, wasm_opt_sha256,
     },
 };
 use serde::Serialize;
 
 const SIZE_REPORT_FORMAT_VERSION: u32 = 1;
+
+// These commands emit version/provenance or structural text, never Wasm bytes.
+// Match the existing optimizer capture envelope; this is an operational bound.
+const REPORT_OUTPUT_LIMITS: OutputLimits = OutputLimits {
+    stdout_bytes: 1024 * 1024,
+    stderr_bytes: 1024 * 1024,
+    timeout: Duration::from_secs(600),
+};
 
 const GENERATED_EXPORTS: &[&str] = &[
     "icydb_query",
@@ -457,18 +468,11 @@ fn capture_tools(
 }
 
 fn command_text(current_dir: &Path, program: &Path, args: &[&str]) -> Result<String, String> {
-    let output = Command::new(program)
-        .current_dir(current_dir)
-        .args(args)
-        .output()
-        .map_err(|error| format!("failed to run {}: {error}", program.display()))?;
-    if !output.status.success() {
-        return Err(format!(
-            "{} exited with status {}",
-            program.display(),
-            output.status
-        ));
-    }
+    let output = capture_command(
+        Command::new(program).current_dir(current_dir).args(args),
+        REPORT_OUTPUT_LIMITS,
+    )
+    .map_err(|error| format_tool_failure(&format!("run {}", program.display()), &error))?;
     String::from_utf8(output.stdout)
         .map(|text| text.trim().to_string())
         .map_err(|error| format!("{} emitted non-UTF-8 output: {error}", program.display()))
@@ -479,20 +483,15 @@ fn validate_final_wasm_features(
     wasm_opt_bin: &Path,
     final_wasm: &Path,
 ) -> Result<Vec<String>, String> {
-    let output = Command::new(wasm_opt_bin)
-        .current_dir(workspace_root)
-        .arg(final_wasm)
-        .args(&WASM_OPT_FLAGS[1..])
-        .arg("--print-features")
-        .output()
-        .map_err(|error| format!("failed to validate final Wasm features: {error}"))?;
-    if !output.status.success() {
-        return Err(format!(
-            "final Wasm feature validation failed with status {}: {}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr).trim_end()
-        ));
-    }
+    let output = capture_command(
+        Command::new(wasm_opt_bin)
+            .current_dir(workspace_root)
+            .arg(final_wasm)
+            .args(&WASM_OPT_FLAGS[1..])
+            .arg("--print-features"),
+        REPORT_OUTPUT_LIMITS,
+    )
+    .map_err(|error| format_tool_failure("final Wasm feature validation", &error))?;
     let mut features = String::from_utf8(output.stdout)
         .map_err(|error| format!("wasm-opt emitted non-UTF-8 feature output: {error}"))?
         .lines()
@@ -559,7 +558,7 @@ fn parse_info(path: &Path, wasm_path: &Path, wasm_opt_bin: &Path) -> Result<Wasm
 }
 
 fn wasm_code_structure(path: &Path) -> Result<(u64, u64), String> {
-    let bytes = fs::read(path)
+    let bytes = read_wasm_artifact(path)
         .map_err(|error| format!("failed to read Wasm '{}': {error}", path.display()))?;
     // Each structural entry consumes input bytes. Natural input-size ceilings
     // preserve whole-artifact reporting without adding a consumer budget knob.
@@ -580,23 +579,15 @@ fn wasm_code_structure(path: &Path) -> Result<(u64, u64), String> {
 }
 
 fn wasm_call_indirect_count(path: &Path, wasm_opt_bin: &Path) -> Result<u64, String> {
-    let output = Command::new(wasm_opt_bin)
-        .arg(path)
-        .args(["--metrics", "--all-features"])
-        .output()
-        .map_err(|error| {
-            format!(
-                "failed to run '{}' for Wasm metrics: {error}",
-                wasm_opt_bin.display()
-            )
-        })?;
-    if !output.status.success() {
-        return Err(format!(
-            "Wasm metrics failed for '{}': {}",
-            path.display(),
-            String::from_utf8_lossy(&output.stderr).trim()
-        ));
-    }
+    let output = capture_command(
+        Command::new(wasm_opt_bin)
+            .arg(path)
+            .args(["--metrics", "--all-features"]),
+        REPORT_OUTPUT_LIMITS,
+    )
+    .map_err(|error| {
+        format_tool_failure(&format!("Wasm metrics for '{}'", path.display()), &error)
+    })?;
     let metrics = format!(
         "{}\n{}",
         String::from_utf8_lossy(&output.stdout),
@@ -926,7 +917,56 @@ mod tests {
         resolve_fixture_canister_build_configuration,
     };
 
-    use super::{WasmInfo, endpoint_surface, file_meta, parse_args, pipeline, wasm_code_structure};
+    use super::{
+        WasmInfo, command_text, endpoint_surface, file_meta, parse_args, pipeline,
+        validate_final_wasm_features, wasm_call_indirect_count, wasm_code_structure,
+    };
+
+    #[test]
+    fn report_capture_keeps_native_arguments_utf8_and_refuses_failed_or_oversized_output() {
+        let current_dir = env::current_dir().unwrap();
+        let shell = std::path::Path::new("sh");
+        assert_eq!(
+            command_text(
+                &current_dir,
+                shell,
+                &["-c", "printf '  %s  \\n' \"$1\"", "report", "spaced value"]
+            )
+            .unwrap(),
+            "spaced value"
+        );
+        for script in [
+            "printf '\\377'",
+            "printf 'partial output'; printf 'producer failure' >&2; exit 7",
+            "i=0; while [ \"$i\" -lt 1025 ]; do printf '%01024d' 0; i=$((i + 1)); done",
+            "i=0; while [ \"$i\" -lt 1025 ]; do printf '%01024d' 0 >&2; i=$((i + 1)); done",
+        ] {
+            assert!(command_text(&current_dir, shell, &["-c", script]).is_err());
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn report_capture_keeps_feature_and_metrics_parsing_for_spaced_artifact_paths() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = env::temp_dir().join(format!("icydb report capture {}", std::process::id()));
+        fs::create_dir(&root).unwrap();
+        let tool = root.join("fixture tool");
+        let wasm = root.join("selected artifact.wasm");
+        fs::write(&wasm, b"\0asm\x01\0\0\0").unwrap();
+        let features = crate::WASM_OPT_OUTPUT_FEATURES.join("\n");
+        fs::write(&tool, format!(
+            "#!/bin/sh\n[ -f \"$1\" ] || exit 9\ncase \"$2\" in\n--metrics) [ \"$3\" = --all-features ] || exit 6; printf 'CallIndirect : 7\\n' >&2 ;;\n--enable-bulk-memory) [ \"$6\" = --print-features ] || exit 5; printf '%s\\n' '{features}' ;;\n*) exit 8 ;;\nesac\n"
+        )).unwrap();
+        fs::set_permissions(&tool, fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(
+            validate_final_wasm_features(&root, &tool, &wasm).unwrap(),
+            crate::WASM_OPT_OUTPUT_FEATURES
+        );
+        assert_eq!(wasm_call_indirect_count(&wasm, &tool).unwrap(), 7);
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn wasm_structure_reports_defined_functions_and_complete_code_payload_bytes() {
