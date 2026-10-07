@@ -29,12 +29,12 @@ fn snapshot(blob_limit: u32) -> AcceptedSchemaSnapshot {
             codec,
         )
     };
-    // Public field order deliberately differs from the dense physical slots.
+    // Keep canonical dense field order with the primary key after the payload.
     let fields = vec![
         field(
-            3,
+            1,
             "payload",
-            2,
+            0,
             AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Map {
                 key: Box::new(AcceptedFieldKind::Text { max_len: Some(16) }),
                 value: Box::new(AcceptedFieldKind::Blob {
@@ -46,29 +46,29 @@ fn snapshot(blob_limit: u32) -> AcceptedSchemaSnapshot {
             LeafCodec::Structural,
         ),
         field(
-            1,
+            2,
             "id",
-            0,
+            1,
             AcceptedFieldKind::Nat64,
             false,
             FieldStorageDecode::ByKind,
             LeafCodec::Scalar(ScalarCodec::Nat64),
         ),
         field(
-            2,
+            3,
             "label",
-            1,
+            2,
             AcceptedFieldKind::Text { max_len: Some(16) },
             false,
             FieldStorageDecode::ByKind,
             LeafCodec::Scalar(ScalarCodec::Text),
         ),
     ];
-    AcceptedSchemaSnapshot::new(PersistedSchemaSnapshot::new(
+    AcceptedSchemaSnapshot::try_new(PersistedSchemaSnapshot::new(
         SchemaVersion::initial(),
         "tests::MutationOutput".into(),
         "MutationOutput".into(),
-        FieldId::new(1),
+        FieldId::new(2),
         SchemaRowLayout::initial(
             fields
                 .iter()
@@ -77,6 +77,7 @@ fn snapshot(blob_limit: u32) -> AcceptedSchemaSnapshot {
         ),
         fields,
     ))
+    .expect("mutation output fixture must satisfy accepted schema integrity")
 }
 
 fn contract(descriptor: &AcceptedRowLayoutRuntimeContract<'_>) -> StructuralRowContract {
@@ -100,9 +101,9 @@ fn payload(bytes: usize) -> Value {
 
 fn row(contract: &StructuralRowContract, payload: &Value) -> RawRow {
     let values = [
+        payload.clone(),
         Value::Nat64(7),
         Value::Text("label".into()),
-        payload.clone(),
     ];
     canonical_row_from_runtime_value_source_with_accepted_contract(contract, |slot| {
         Ok(Cow::Borrowed(&values[slot]))

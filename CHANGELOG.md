@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Simplify developer setup and host tooling, including response-only CLI
   dependencies, shared artifact reads and bounded report commands; strengthen
   CI and installer invariants, metrics endpoints,
-  row-layout checks and durable memory-identity guidance; simplify persisted
+  row-layout checks and fixtures, and durable memory-identity guidance; simplify persisted
   decoding, row publication, SQL parsing and index authoring
   ([#302](https://github.com/dragginzgame/icydb/issues/302),
   [#310](https://github.com/dragginzgame/icydb/issues/310),

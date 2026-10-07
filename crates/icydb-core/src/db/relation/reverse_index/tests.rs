@@ -232,7 +232,7 @@ fn accepted_relations_require_accepted_target_authority() {
         FieldId::new(1),
         SchemaRowLayout::initial(vec![
             (FieldId::new(1), SchemaFieldSlot::new(0)),
-            (FieldId::new(2), SchemaFieldSlot::new(4)),
+            (FieldId::new(2), SchemaFieldSlot::new(1)),
         ]),
         vec![
             PersistedFieldSnapshot::new_initial(
@@ -249,13 +249,13 @@ fn accepted_relations_require_accepted_target_authority() {
             PersistedFieldSnapshot::new_initial(
                 FieldId::new(2),
                 "target_id".to_string(),
-                SchemaFieldSlot::new(4),
+                SchemaFieldSlot::new(1),
                 relation_kind,
                 Vec::new(),
                 false,
                 SchemaInsertDefault::None,
                 FieldStorageDecode::ByKind,
-                LeafCodec::Structural,
+                LeafCodec::Scalar(ScalarCodec::Ulid),
             ),
         ],
     );
@@ -265,11 +265,12 @@ fn accepted_relations_require_accepted_target_authority() {
         std::slice::from_ref(&relation),
     )
     .expect("test relation constraint should close");
-    let accepted = AcceptedSchemaSnapshot::new(
+    let accepted = AcceptedSchemaSnapshot::try_new(
         snapshot
             .with_relations(vec![relation])
             .with_constraint_catalog(constraint_catalog),
-    );
+    )
+    .expect("relation authority fixture must satisfy accepted schema integrity");
     let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
         .expect("accepted relation runtime contract should build");
     let catalog = empty_accepted_enum_catalog_for_tests();
