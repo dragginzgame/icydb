@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# This fixture owns its Make controls; production admission is tested below.
+unset MAKEFLAGS MFLAGS MAKEOVERRIDES GNUMAKEFLAGS MAKEFILES
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 FIXTURE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/release-runner-test.XXXXXX")"
-trap 'rm -rf "$FIXTURE_ROOT"' EXIT
+trap 'if [[ $? == 0 ]]; then rm -rf "$FIXTURE_ROOT"; else printf "Failed release-runner fixture retained: %s\n" "$FIXTURE_ROOT" >&2; fi' EXIT
 export REAL_GIT REAL_MAKE
 REAL_GIT="$(command -v git)"
 REAL_MAKE="$(command -v make)"
@@ -12,6 +15,8 @@ mkdir -p "$FIXTURE_ROOT/bin"
 cat > "$FIXTURE_ROOT/bin/make" <<'STUB'
 #!/usr/bin/env bash
 set -euo pipefail
+# Admission uses real GNU Make; all release effects below remain substitutes.
+if [[ "${2:-}" == -f && "${3:-}" == - ]]; then exec "$REAL_MAKE" "$@"; fi
 while [[ "$1" == --no-print-directory || "$1" == -s ]]; do shift; done
 target="$1"
 shift
@@ -25,6 +30,9 @@ if [[ "$target" == release-verify ]]; then
     printf 'build source: %s\n' "$RELEASE_SOURCE" > "build.$attempt.evidence"
 fi
 [[ "${FIXTURE_FAIL_TARGET:-}" != "$target" ]] || exit 7
+if [[ "${FIXTURE_DRIFT_TARGET:-}" == "$target" ]]; then
+    printf '%s\n' "$FIXTURE_DRIFT_URL" > destination
+fi
 case "$target" in
     release-preflight) [[ "$(cat version)" == "$RELEASE_PREVIOUS" ]] ;;
     release-verify) ;;
@@ -63,7 +71,10 @@ ancestor() {
 case "$1" in
     check-ref-format) [[ "$2" == refs/heads/main ]] ;;
     symbolic-ref) echo main ;;
-    remote) printf '%s\n' "${FIXTURE_DESTINATION:-https://example.invalid/release-fixture}" ;;
+    remote)
+        if [[ -f destination ]]; then cat destination
+        else printf '%s\n' "${FIXTURE_DESTINATION:-https://example.invalid/release-fixture}"; fi
+        ;;
     hash-object) exec "$REAL_GIT" hash-object --stdin ;;
     rev-parse)
         case "${*: -1}" in
@@ -127,6 +138,9 @@ case "$1" in
     cat-file) [[ -f tag ]]; echo "${FIXTURE_TAG_TYPE:-tag}" ;;
     ls-remote)
         [[ "${FIXTURE_REMOTE_FAIL:-}" != yes ]] || exit 9
+        if [[ "${FIXTURE_DRIFT_TARGET:-}" == remote-observation && -f tag ]]; then
+            printf '%s\n' "$FIXTURE_DRIFT_URL" > destination
+        fi
         for ref in "$@"; do
             case "$ref" in
                 refs/heads/main) if [[ -f remote-head ]]; then printf '%s\t%s\n' "$(cat remote-head)" "$ref"; fi ;;
@@ -152,8 +166,8 @@ case "$1" in
         if [[ "${FIXTURE_FAIL_EFFECT:-}" == commit && ! -f lost-commit ]]; then touch lost-commit; exit 9; fi
         ;;
     push)
-        [[ "$#" == 6 && "$2" == --no-follow-tags && "$3" == --atomic && "$4" == origin && "$5" == *:refs/heads/main && "$6" == "refs/tags/v$(cat tag):refs/tags/v$(cat tag)" ]]
-        push_head="$(resolve "${5%:refs/heads/main}")"
+        [[ "$#" == 7 && "$2" == --no-follow-tags && "$3" == --atomic && "$4" == -- && "$5" == https://example.invalid/release-fixture && "$6" == *:refs/heads/main && "$7" == "refs/tags/v$(cat tag):refs/tags/v$(cat tag)" ]]
+        push_head="$(resolve "${6%:refs/heads/main}")"
         if [[ -f remote-head ]]; then ancestor "$(cat remote-head)" "$push_head"; fi
         printf '%s %s\n' "$push_head" "$(cat tag)" >> pushes
         echo push >> events
@@ -192,6 +206,36 @@ expect_failure() {
         exit 1
     fi
 }
+
+for kind in patch minor major; do
+    for flags in '' i n q t v; do
+        new_fixture "make-mode-$kind-${flags:-control}"
+        cat > Makefile <<'MAKE'
+.PHONY: release-version release-preflight release-verify release-prepare-version
+release-version:
+	@cat version
+release-preflight:
+	@echo preflight >> events
+release-verify:
+	@echo validation-failed >> events
+	@exit 23
+release-prepare-version:
+	@echo preparation-started >> events
+	@exit 24
+MAKE
+        MAKEFLAGS="$flags" RELEASE_MAKE="$REAL_MAKE" expect_failure "$kind" origin main
+        [[ "$(cat version)" == 0.1.0 && ! -e .release-state/lock ]]
+        plans=(.release-state/*.plan)
+        [[ ! -e "${plans[0]}" ]]
+        if [[ -z "$flags" ]]; then
+            [[ "$(cat events)" == $'preflight\nvalidation-failed' ]]
+        else
+            [[ ! -e events && ! -e .release-state ]]
+            rg -F 'requires recipe execution and failure propagation' output >/dev/null
+        fi
+        [[ ! -e tag && ! -e commits && ! -e pushes ]]
+    done
+done
 
 for kind in patch minor major; do
     new_fixture "$kind"
@@ -554,6 +598,33 @@ for conflict in source metadata index commit-tree tag-type tag-commit remote-tag
     unset FIXTURE_INDEX_TREE FIXTURE_COMMIT_TREE FIXTURE_TAG_TYPE FIXTURE_TAG_COMMIT FIXTURE_REMOTE_FAIL FIXTURE_DESTINATION FIXTURE_DIRTY FIXTURE_UNTRACKED
 done
 
+# Destination changes within one attempt must stop before dispatch, including
+# adding a second URL and changes during the final remote observation.
+for drift_target in release-verify release-push-check remote-observation; do
+    for drift in replaced additional; do
+        new_fixture "destination-$drift_target-$drift"
+        export FIXTURE_DRIFT_TARGET="$drift_target"
+        export FIXTURE_DRIFT_URL=https://example.invalid/other
+        if [[ "$drift" == additional ]]; then
+            FIXTURE_DRIFT_URL=$'https://example.invalid/release-fixture\nhttps://example.invalid/other'
+        fi
+        expect_failure patch origin main
+        [[ "$(count_event push)" == 0 && ! -e .release-state/lock ]]
+        if [[ "$drift_target" == release-verify ]]; then
+            [[ ! -e .release-state/0.1.1.plan && "$(cat version)" == 0.1.0 ]]
+        else
+            [[ "$(tail -n 1 .release-state/0.1.1.plan)" == push ]]
+            [[ "$(count_event commit)" == 1 && "$(count_event tag)" == 1 ]]
+        fi
+        # Restore the exact destination; normal retry preserves recovery rules.
+        unset FIXTURE_DRIFT_TARGET FIXTURE_DRIFT_URL
+        rm destination
+        bash "$ROOT/scripts/ci/run-release.sh" patch origin main > recovered-output
+        [[ "$(count_event commit)" == 1 && "$(count_event tag)" == 1 && "$(count_event push)" == 1 ]]
+        [[ -f validation.1.log && -f build.1.evidence ]]
+    done
+done
+
 for second_phase in prepare validate; do
     new_fixture "competing-$second_phase"
     early_plan patch prepare
@@ -610,10 +681,85 @@ cmp expected prepared
 printf '\n## [0.2.0]\n\n- Competing selection.\n' >> CHANGELOG.md
 if awk -v version=0.1.1 -v date=2026-10-06 -f "$ROOT/scripts/ci/finalize-release-changelog.awk" CHANGELOG.md > prepared 2>/dev/null; then exit 1; fi
 
+# Consumer adapters carry the saved previous version, including after a bump.
+cat > CHANGELOG.md <<'NOTES'
+# Changelog
+
+## [0.1.1]
+
+- Current completed change.
+
+## [0.1.0]
+
+- Imported undated history.
+NOTES
+sed 's/## \[0.1.1\]/## [0.1.1] - 2026-10-06/' CHANGELOG.md > expected
+awk -v version=0.1.1 -v previous=0.1.0 -v date=2026-10-06 \
+    -f "$ROOT/scripts/ci/finalize-release-changelog.awk" CHANGELOG.md > prepared
+cmp expected prepared
+cp prepared CHANGELOG.md
+awk -v version=0.1.1 -v previous=0.1.0 -v date=2026-10-06 -v allow_finalized=1 \
+    -f "$ROOT/scripts/ci/finalize-release-changelog.awk" CHANGELOG.md > prepared
+cmp expected prepared
+for selected_date in 2026-10-06 2026-10-07; do
+    # Reconciliation is opt-in; another date always conflicts.
+    allowed=0
+    [[ "$selected_date" == 2026-10-06 ]] || allowed=1
+    if awk -v version=0.1.1 -v previous=0.1.0 -v date="$selected_date" -v allow_finalized="$allowed" \
+        -f "$ROOT/scripts/ci/finalize-release-changelog.awk" CHANGELOG.md > prepared 2>/dev/null; then exit 1; fi
+done
+
 [[ "$(bash "$ROOT/scripts/ci/next-release-version.sh" 9.8.7 patch)" == 9.8.8 ]]
 [[ "$(bash "$ROOT/scripts/ci/next-release-version.sh" 9.8.7 minor)" == 9.9.0 ]]
 [[ "$(bash "$ROOT/scripts/ci/next-release-version.sh" 9.8.7 major)" == 10.0.0 ]]
 for version in 01.2.3 1.2.3-beta 1.2 9223372036854775807.0.0; do
     if bash "$ROOT/scripts/ci/next-release-version.sh" "$version" patch > /dev/null 2>&1; then exit 1; fi
+done
+# Preserve exact note ownership beyond binary64 precision and across lengths.
+for components in '9007199254740992 9007199254740993 9007199254740991' \
+    '999999999999999 1000000000000000 999999999999998'; do
+    read -r previous_component candidate_component older_component <<< "$components"
+    for position in major minor patch; do
+        case "$position" in
+            major)
+                previous="$previous_component.0.0"
+                candidate="$candidate_component.0.0"
+                older="$older_component.0.0"
+                ;;
+            minor)
+                previous="0.$previous_component.0"
+                candidate="0.$candidate_component.0"
+                older="0.$older_component.0"
+                ;;
+            patch)
+                previous="0.0.$previous_component"
+                candidate="0.0.$candidate_component"
+                older="0.0.$older_component"
+                ;;
+        esac
+        cat > CHANGELOG.md <<NOTES
+# Changelog
+
+## [$candidate]
+
+- Pending release notes.
+
+## [$previous]
+
+- Equal cutoff history.
+
+## [$older]
+
+- Older history.
+NOTES
+        sed "s/## \[$candidate\]/## [$candidate] - 2026-10-06/" CHANGELOG.md > expected
+        awk -v version="$candidate" -v previous="$previous" -v date=2026-10-06 \
+            -f "$ROOT/scripts/ci/finalize-release-changelog.awk" CHANGELOG.md > prepared
+        cmp expected prepared
+        # A newer draft must not be reclassified as history at the cutoff.
+        if awk -v version="$previous" -v previous="$previous" -v date=2026-10-06 \
+            -f "$ROOT/scripts/ci/finalize-release-changelog.awk" CHANGELOG.md \
+            > prepared 2> conflict.log; then exit 1; fi
+    done
 done
 echo 'release runner command-stub tests passed'

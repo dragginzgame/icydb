@@ -16,7 +16,7 @@ else
     [[ "$unsorted" == /* ]] || unsorted="$PWD/$unsorted"
     [[ -f "$unsorted" && ! -L "$unsorted" ]] || exit 2
 fi
-for path in "$rust" "$manifest" Makefile README.md .githooks/pre-commit scripts/dev/install-git-hooks.sh "$@"; do
+for path in "$rust" "$manifest" Makefile README.md .githooks/pre-commit scripts/dev/install-git-hooks.sh scripts/ci/check-make-execution.sh "$@"; do
     case "$path" in
         ''|/*|..|../*|*/../*|*/..|./*|*/./*|*/.|.git|.git/*) echo "invalid relative input: $path" >&2; exit 2 ;;
     esac
@@ -52,7 +52,7 @@ if LC_ALL=C grep -Ev '^100(644|755) ' "$fixture/entries" > "$fixture/unsupported
     echo 'formatting adoption requires regular tracked files' >&2; exit 1
 fi
 git checkout-index --all
-for path in "$rust" "$manifest" Makefile .githooks/pre-commit scripts/dev/install-git-hooks.sh "$@"; do
+for path in "$rust" "$manifest" Makefile .githooks/pre-commit scripts/dev/install-git-hooks.sh scripts/ci/check-make-execution.sh "$@"; do
     mkdir -p "$(dirname "$path")"
     cp -p "$root/$path" "$path"
     git --literal-pathspecs add -- "$path"

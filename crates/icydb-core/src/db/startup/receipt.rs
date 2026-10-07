@@ -15,6 +15,7 @@ use std::cell::RefCell;
 
 use crate::{
     db::{
+        codec::{ByteDecodeError, ByteReader},
         integrity::DatabaseIncarnationId,
         journal::JournalTailProofIdentity,
         registry::StoreAllocationIdentity,
@@ -260,30 +261,31 @@ fn encode_receipt(receipt: &StartupFailureReceipt) -> Result<Vec<u8>, InternalEr
 }
 
 fn decode_payload(payload: &[u8]) -> Result<StartupFailureReceipt, InternalError> {
-    let mut reader = Reader::new(payload);
-    let kind = decode_kind(reader.u8()?)?;
-    let code =
-        ErrorCode::known(reader.u16()?).ok_or_else(InternalError::startup_control_corruption)?;
-    let origin = ErrorOrigin::from_known_wire_code(reader.u8()?)
+    let mut reader = ByteReader::new(payload);
+    let kind = decode_kind(reader.read_u8().map_err(primitive_decode_error)?)?;
+    let code = ErrorCode::known(reader.read_u16_le().map_err(primitive_decode_error)?)
         .ok_or_else(InternalError::startup_control_corruption)?;
-    let fact_count = usize::from(reader.u8()?);
+    let origin =
+        ErrorOrigin::from_known_wire_code(reader.read_u8().map_err(primitive_decode_error)?)
+            .ok_or_else(InternalError::startup_control_corruption)?;
+    let fact_count = usize::from(reader.read_u8().map_err(primitive_decode_error)?);
     if fact_count > MAX_PUBLIC_DIAGNOSTIC_FACTS {
         return Err(InternalError::startup_control_corruption());
     }
     let mut facts = Vec::with_capacity(fact_count);
     let mut raw_facts = Vec::with_capacity(fact_count);
     for _ in 0..fact_count {
-        let raw_tag = reader.u8()?;
+        let raw_tag = reader.read_u8().map_err(primitive_decode_error)?;
         let tag = DiagnosticFactTag::known(raw_tag)
             .ok_or_else(InternalError::startup_control_corruption)?;
-        let value = reader.u64()?;
+        let value = reader.read_u64_le().map_err(primitive_decode_error)?;
         facts.push((tag, value));
         raw_facts.push((raw_tag, value));
     }
     validate_raw_diagnostic_fact_schema(code, raw_facts.as_slice())
         .map_err(|_| InternalError::startup_control_corruption())?;
     let binding = decode_binding(&mut reader)?;
-    reader.finish()?;
+    reader.finish().map_err(primitive_decode_error)?;
     StartupFailureReceipt::new(
         StartupFailure::new(kind, code.diagnostic(origin), facts),
         binding,
@@ -417,17 +419,19 @@ fn encode_binding(out: &mut Vec<u8>, binding: &StartupFailureBinding) -> Result<
     Ok(())
 }
 
-fn decode_binding(reader: &mut Reader<'_>) -> Result<StartupFailureBinding, InternalError> {
-    match reader.u8()? {
+fn decode_binding(reader: &mut ByteReader<'_>) -> Result<StartupFailureBinding, InternalError> {
+    match reader.read_u8().map_err(primitive_decode_error)? {
         1 => {
-            let commit_memory_id = reader.u8()?;
-            let commit_stable_key = reader.string()?;
-            let control = match reader.u8()? {
+            let commit_memory_id = reader.read_u8().map_err(primitive_decode_error)?;
+            let commit_stable_key = read_binding_key(reader)?;
+            let control = match reader.read_u8().map_err(primitive_decode_error)? {
                 0 => None,
                 1 => Some(DatabaseControlBinding::new(
-                    DatabaseIncarnationId::try_from_bytes(reader.array()?)
-                        .map_err(|_| InternalError::startup_control_corruption())?,
-                    reader.array()?,
+                    DatabaseIncarnationId::try_from_bytes(
+                        reader.read_array().map_err(primitive_decode_error)?,
+                    )
+                    .map_err(|_| InternalError::startup_control_corruption())?,
+                    reader.read_array().map_err(primitive_decode_error)?,
                 )),
                 _ => return Err(InternalError::startup_control_corruption()),
             };
@@ -438,18 +442,20 @@ fn decode_binding(reader: &mut Reader<'_>) -> Result<StartupFailureBinding, Inte
             })
         }
         2 => {
-            let incarnation = DatabaseIncarnationId::try_from_bytes(reader.array()?)
-                .map_err(|_| InternalError::startup_control_corruption())?;
+            let incarnation = DatabaseIncarnationId::try_from_bytes(
+                reader.read_array().map_err(primitive_decode_error)?,
+            )
+            .map_err(|_| InternalError::startup_control_corruption())?;
             let allocation = StoreAllocationIdentityOwned {
-                memory_id: reader.u8()?,
-                stable_key: reader.string()?,
+                memory_id: reader.read_u8().map_err(primitive_decode_error)?,
+                stable_key: read_binding_key(reader)?,
             };
             let proof = JournalTailProofIdentity::from_persisted_parts(
-                reader.u64()?,
-                reader.u64()?,
-                reader.u64()?,
-                reader.u64()?,
-                reader.u64()?,
+                reader.read_u64_le().map_err(primitive_decode_error)?,
+                reader.read_u64_le().map_err(primitive_decode_error)?,
+                reader.read_u64_le().map_err(primitive_decode_error)?,
+                reader.read_u64_le().map_err(primitive_decode_error)?,
+                reader.read_u64_le().map_err(primitive_decode_error)?,
             );
             Ok(StartupFailureBinding::JournalRecovery {
                 incarnation,
@@ -458,14 +464,16 @@ fn decode_binding(reader: &mut Reader<'_>) -> Result<StartupFailureBinding, Inte
             })
         }
         3 => {
-            let incarnation = DatabaseIncarnationId::try_from_bytes(reader.array()?)
-                .map_err(|_| InternalError::startup_control_corruption())?;
-            let submission_key = reader.string()?;
-            let accepted_head = match reader.u8()? {
+            let incarnation = DatabaseIncarnationId::try_from_bytes(
+                reader.read_array().map_err(primitive_decode_error)?,
+            )
+            .map_err(|_| InternalError::startup_control_corruption())?;
+            let submission_key = read_binding_key(reader)?;
+            let accepted_head = match reader.read_u8().map_err(primitive_decode_error)? {
                 0 => AcceptedHeadBinding::Empty,
                 1 => AcceptedHeadBinding::Exact {
-                    revision: reader.u64()?,
-                    fingerprint: reader.array()?,
+                    revision: reader.read_u64_le().map_err(primitive_decode_error)?,
+                    fingerprint: reader.read_array().map_err(primitive_decode_error)?,
                 },
                 _ => return Err(InternalError::startup_control_corruption()),
             };
@@ -525,64 +533,16 @@ fn checksum(payload: &[u8]) -> u32 {
     u32::from_le_bytes([digest[0], digest[1], digest[2], digest[3]])
 }
 
-struct Reader<'a> {
-    bytes: &'a [u8],
-    cursor: usize,
-}
-
-impl<'a> Reader<'a> {
-    const fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, cursor: 0 }
+// Receipt binding keys use a u8 length, not the shared u32 string frame.
+fn read_binding_key(reader: &mut ByteReader<'_>) -> Result<String, InternalError> {
+    let len = usize::from(reader.read_u8().map_err(primitive_decode_error)?);
+    if len == 0 || len > MAX_BINDING_KEY_BYTES {
+        return Err(InternalError::startup_control_corruption());
     }
-
-    fn take(&mut self, len: usize) -> Result<&'a [u8], InternalError> {
-        let end = self
-            .cursor
-            .checked_add(len)
-            .ok_or_else(InternalError::startup_control_corruption)?;
-        let bytes = self
-            .bytes
-            .get(self.cursor..end)
-            .ok_or_else(InternalError::startup_control_corruption)?;
-        self.cursor = end;
-        Ok(bytes)
-    }
-
-    fn u8(&mut self) -> Result<u8, InternalError> {
-        Ok(self.take(1)?[0])
-    }
-
-    fn u16(&mut self) -> Result<u16, InternalError> {
-        Ok(u16::from_le_bytes(self.array()?))
-    }
-
-    fn u64(&mut self) -> Result<u64, InternalError> {
-        Ok(u64::from_le_bytes(self.array()?))
-    }
-
-    fn array<const N: usize>(&mut self) -> Result<[u8; N], InternalError> {
-        self.take(N)?
-            .try_into()
-            .map_err(|_| InternalError::startup_control_corruption())
-    }
-
-    fn string(&mut self) -> Result<String, InternalError> {
-        let len = usize::from(self.u8()?);
-        if len == 0 || len > MAX_BINDING_KEY_BYTES {
-            return Err(InternalError::startup_control_corruption());
-        }
-        std::str::from_utf8(self.take(len)?)
-            .map(str::to_string)
-            .map_err(|_| InternalError::startup_control_corruption())
-    }
-
-    fn finish(self) -> Result<(), InternalError> {
-        if self.cursor == self.bytes.len() {
-            Ok(())
-        } else {
-            Err(InternalError::startup_control_corruption())
-        }
-    }
+    let bytes = reader.read_exact(len).map_err(primitive_decode_error)?;
+    std::str::from_utf8(bytes)
+        .map(str::to_string)
+        .map_err(|_| InternalError::startup_control_corruption())
 }
 
 #[cfg(test)]
@@ -607,6 +567,11 @@ pub(in crate::db) fn startup_memory<C: CanisterKind>()
         memories.push((id, C::STARTUP_STABLE_KEY, memory.clone()));
         Ok(memory)
     })
+}
+
+// This codec retains its domain classification for every primitive failure.
+fn primitive_decode_error(_: ByteDecodeError) -> InternalError {
+    InternalError::startup_control_corruption()
 }
 
 #[cfg(test)]

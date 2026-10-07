@@ -36,6 +36,11 @@ pub const MAX_FRAGMENT_TYPES: usize = 1_024;
 /// Maximum number of fields in one entity or record definition.
 pub const MAX_FRAGMENT_FIELDS: usize = 256;
 
+/// Maximum number of key terms in one index.
+///
+/// Authoring and runtime storage share this bound.
+pub const MAX_INDEX_FIELDS: usize = 4;
+
 /// Maximum number of indexes in one entity definition.
 pub const MAX_FRAGMENT_INDEXES: usize = 64;
 

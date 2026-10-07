@@ -65,14 +65,17 @@ case "$manifest_parent/" in
 *) fail "manifest escapes the consumer repository: $MANIFEST_PATH" ;;
 esac
 
-checksum_tool="$CONSUMER_ROOT/scripts/ci/verify-file-checksum.sh"
-[[ -f "$checksum_tool" && ! -L "$checksum_tool" ]] ||
-    fail "vendored checksum verifier is missing or symlinked: $checksum_tool"
-checksum_parent="$(cd "$(dirname "$checksum_tool")" && pwd -P)"
-case "$checksum_parent/" in
-"$CONSUMER_ROOT/"*) ;;
-*) fail "vendored checksum verifier escapes the consumer repository" ;;
-esac
+# This is the integrity bootstrap: never execute code from the snapshot being
+# inspected, including its checksum helper. Keep this small SHA-256 boundary
+# independent of that helper; all other consumers reuse the shared digest tool.
+if command -v sha256sum >/dev/null 2>&1; then
+    checksum_command=(sha256sum)
+elif command -v shasum >/dev/null 2>&1; then
+    checksum_command=(shasum -a 256)
+else
+    fail 'no SHA-256 implementation is available'
+fi
+checksum_pattern='^([0-9a-f]{64}) [ *]-$'
 
 format_count=0
 source_count=0
@@ -124,8 +127,10 @@ while IFS=$'\t' read -r record first second third extra || [[ -n "$record" ]]; d
         "$CONSUMER_ROOT/"*) ;;
         *) fail "declared file escapes the consumer repository: $third" ;;
         esac
-        bash "$checksum_tool" sha256 "$first" "$target" ||
-            fail "declared file differs from the snapshot: $third"
+        checksum_output="$(LC_ALL=C "${checksum_command[@]}" < "$target")" ||
+            fail "checksum backend failed: $third"
+        [[ "$checksum_output" =~ $checksum_pattern ]] || fail "malformed checksum output: $third"
+        [[ "${BASH_REMATCH[1]}" == "$first" ]] || fail "declared file differs from the snapshot: $third"
         file_count=$((file_count + 1))
         ;;
     *) fail "unknown manifest record: $record" ;;

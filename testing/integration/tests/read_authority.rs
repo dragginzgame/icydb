@@ -1,7 +1,7 @@
-use std::{collections::BTreeSet, fs, process::Command};
+use std::{collections::BTreeSet, fs};
 
 use candid::Principal;
-use ic_host_tools::artifact::Sha256Digest;
+use ic_host_artifacts::artifact::Sha256Digest;
 use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{
     Error, ErrorCode,
@@ -306,22 +306,15 @@ fn controller_and_guarded_combined_artifacts_preserve_one_bounded_surface() {
             mode: CanisterMethodMode::Query,
         },
     ]);
-    for wasm in [&controller_wasm, &guarded_wasm] {
+    let [controller_manifest, guarded_manifest] = [&controller_wasm, &guarded_wasm].map(|wasm| {
         let manifest = inspect_canister_artifacts(wasm.as_ref())
             .expect("Candid and raw Wasm exports should agree");
         assert_eq!(manifest.icydb_methods(), expected);
-    }
+        manifest
+    });
 
-    let extract_candid = |wasm: &std::path::Path| {
-        let output = Command::new("candid-extractor")
-            .arg(wasm)
-            .output()
-            .expect("candid-extractor should run");
-        assert!(output.status.success(), "Candid extraction should succeed");
-        output.stdout
-    };
-    let controller_candid = extract_candid(controller_wasm.as_ref());
-    let guarded_candid = extract_candid(guarded_wasm.as_ref());
+    let controller_candid = controller_manifest.candid;
+    let guarded_candid = guarded_manifest.candid;
     assert_eq!(
         controller_candid, guarded_candid,
         "guarded reads must not change the complete Candid service",
@@ -339,7 +332,7 @@ fn controller_and_guarded_combined_artifacts_preserve_one_bounded_surface() {
         sha256(&fs::read(&controller_wasm).expect("controller Wasm should read")),
         sha256(&fs::read(&guarded_wasm).expect("guarded Wasm should read")),
         guarded_candid.len(),
-        sha256(&guarded_candid),
+        sha256(guarded_candid.as_bytes()),
     );
     assert!(growth <= CUMULATIVE_GUARDED_READ_RAW_WASM_GROWTH_CEILING);
 }

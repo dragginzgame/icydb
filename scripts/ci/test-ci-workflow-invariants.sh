@@ -32,6 +32,13 @@ mutate() { "$YQ" -i "$1" "$subject"; }
 
 reset
 check pass baseline
+reset
+mutate '.env.RUSTC_WRAPPER = "sccache"'
+check fail unprepared-inherited-wrapper
+reset
+mutate '.jobs.rust.steps |= map(select((.uses // "" | test("^mozilla-actions/sccache-action@")) | not))'
+check fail unprepared-job-wrapper
+reset
 # Comments cannot override the parsed value of an individual checkout input.
 perl -pi -e 'if (!$done && s/persist-credentials: false/persist-credentials: true # persist-credentials: false/) { $done=1 }' "$subject"
 check fail credentials-comment

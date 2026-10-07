@@ -22,6 +22,8 @@ fi
 remote="$2"
 branch="$3"
 [[ "$remote" =~ ^[A-Za-z0-9._-]+$ ]] || usage
+make_bin="${RELEASE_MAKE:-make}"
+bash "$(dirname "${BASH_SOURCE[0]}")/check-make-execution.sh" "$make_bin"
 git check-ref-format "refs/heads/$branch" >/dev/null
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
@@ -29,6 +31,11 @@ cd "$root"
 destination="$(git remote get-url --push --all "$remote")"
 [[ -n "$destination" && "$destination" != *$'\n'* ]] || fail 'release requires exactly one push URL'
 remote_identity="$(printf '%s\n' "$destination" | git hash-object --stdin)"
+assert_destination() {
+    local current_destination
+    current_destination="$(git remote get-url --push --all "$remote")" || fail 'cannot inspect release destination'
+    [[ "$current_destination" == "$destination" ]] || fail 'release destination changed'
+}
 state_root="$(git rev-parse --git-path release-state)"
 [[ ! -L "$state_root" ]] || fail 'release state directory is symlinked'
 mkdir -p "$state_root"
@@ -39,7 +46,6 @@ trap 'exit 143' TERM
 printf '%s\n' "$$" > "$state_root/lock/owner"
 trap 'rm -f "$state_root/lock/owner"; rmdir "$state_root/lock"' EXIT
 
-make_bin="${RELEASE_MAKE:-make}"
 hook() {
     "$make_bin" --no-print-directory "$@" \
         "RELEASE_KIND=$kind" "RELEASE_PREVIOUS=$previous" \
@@ -220,6 +226,7 @@ while true; do
                 assert_source
                 after="$(git diff --binary HEAD | git hash-object --stdin)"
                 [[ "$before" == "$after" ]] || fail 'source or metadata changed during validation'
+                assert_destination
                 # Persist exact intent before the first possible release mutation.
                 # Failed validation needs no recovery plan and can start afresh.
                 save_phase prepare
@@ -284,6 +291,7 @@ while true; do
                 assert_release_commit
                 assert_release_tag
                 hook release-push-check
+                assert_destination
                 local_head="$release_commit"
                 local_tag="$(git rev-parse "refs/tags/v$candidate")"
                 read_remote_refs
@@ -297,7 +305,10 @@ while true; do
                     [[ -z "$remote_tag" ]] || fail 'remote tag conflicts with the saved atomic push'
                     push_source=HEAD
                     if [[ "$(git rev-parse HEAD)" != "$local_head" ]]; then push_source="$local_head"; fi
-                    git push --no-follow-tags --atomic "$remote" \
+                    assert_destination
+                    # Dispatch to the captured URL even if remote configuration
+                    # changes after the final check. Never re-resolve its name.
+                    git push --no-follow-tags --atomic -- "$destination" \
                         "$push_source:refs/heads/$branch" "refs/tags/v$candidate:refs/tags/v$candidate"
                     read_remote_refs
                     [[ "$remote_head" == "$local_head" && "$remote_tag" == "$local_tag" ]] || fail 'remote push identity could not be verified; retain the plan and reconcile'

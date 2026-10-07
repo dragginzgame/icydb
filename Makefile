@@ -1,5 +1,13 @@
 .DEFAULT_GOAL := help
 
+# Reject execution modes while parsing: an outer `make -i` could otherwise
+# suppress a shared runner's refusal. MFLAGS retains invocation options even
+# when MAKEFLAGS is explicitly overridden; assignment words are not options.
+override icydb_make_execution_flags := $(filter-out --% %=%,$(firstword $(MAKEFLAGS)) $(firstword $(MFLAGS)))
+ifneq ($(strip $(foreach mode,i n t q,$(findstring $(mode),$(icydb_make_execution_flags)))),)
+$(error IcyDB requires execution with errors enforced; remove ignore-errors, dry-run, touch and question modes)
+endif
+
 .PHONY: help version tags package publish release-clean \
         release-patch release-minor release-major \
         test test-unit test-integration-feedback test-durability test-documentation \
@@ -21,12 +29,13 @@
         _ci-tier-a-sqlite _ci-tier-a-mutation _ci-tier-a-integration \
         _ci-tier-b-sql-canister _ci-tier-b-sql-perf \
         print-cargo-home print-cargo-target-dir check-dependency-pins \
-        install-tools tools-check install-host-tools host-tools-check install-ic-tools ic-tools-check
+        _icydb-ic-tool-policy
 
 # Resolve the repo root from this Makefile so scripts can query these values
 # via `make -C "$$ROOT"` and share a single source of truth.
 ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
-export PATH := $(ROOT_DIR)/.tools/host/bin:$(ROOT_DIR)/.tools/ic/bin:$(PATH)
+SHARED_TOOLING_ROOT := $(ROOT_DIR)
+include $(ROOT_DIR)/make/tools.mk
 POCKET_IC_BIN ?= $(ROOT_DIR)/.tools/ic/bin/pocket-ic
 
 # Keep workspace cargo state repo-local so sibling repos compiling on the same
@@ -70,7 +79,7 @@ help:
 	@echo "Available commands:"
 	@echo ""
 	@echo "Setup / Installation:"
-	@echo "  install-tools    Install pinned repository-local parsers and IC executables"
+	@echo "  install-tools    Install pinned repository-local host and IC tools, including cloc"
 	@echo "  tools-check      Verify the selected local tools offline"
 	@echo "  install          Install the local icydb CLI binary"
 	@echo "  install-dev      Install developer dependencies, GitHub CLI, actionlint, and the formatting hook"
@@ -90,6 +99,8 @@ help:
 	@echo "  publish          Publish crates; reuse the exact shared release receipt when available"
 	@echo ""
 	@echo "Development:"
+	@echo "  cloc             Report workspace Rust runtime and test source counts"
+	@echo "  cloc-tooling     Inventory sibling tooling and shared snapshot reuse"
 	@echo "  test             Run all tests; prepare local PocketIC with install-tools first"
 	@echo "  test-integration-feedback TEST_TARGET=... TEST_NAME=..."
 	@echo "                  Run one exact integration test, then its complete binary"
@@ -160,25 +171,12 @@ install-gh:
 install-hooks:
 	bash scripts/dev/install-git-hooks.sh
 
-install-tools:
-	+$(MAKE) --no-print-directory install-host-tools
-	+$(MAKE) --no-print-directory install-ic-tools
+# Provisioning and offline bundle verification belong to the shared include.
+# These independent IcyDB admissions additionally qualify the selected client
+# and executable; neither changes the toolset or implicitly installs anything.
+ic-tools-check: _icydb-ic-tool-policy
 
-tools-check:
-	+$(MAKE) --no-print-directory host-tools-check
-	+$(MAKE) --no-print-directory ic-tools-check
-
-install-host-tools:
-	bash scripts/dev/install-host-tools.sh --versions "$(ROOT_DIR)/ci/tool-versions.env" --with-ripgrep
-
-host-tools-check:
-	bash scripts/dev/install-host-tools.sh --versions "$(ROOT_DIR)/ci/tool-versions.env" --with-ripgrep --check
-
-install-ic-tools:
-	bash scripts/dev/install-ic-tools.sh --pins "$(ROOT_DIR)/ci/ic-tools.tsv"
-
-ic-tools-check:
-	bash scripts/dev/install-ic-tools.sh --pins "$(ROOT_DIR)/ci/ic-tools.tsv" --check
+_icydb-ic-tool-policy:
 	bash scripts/ci/check-pocketic-alignment.sh
 	bash scripts/ci/verify-wasm-optimizer.sh
 
@@ -206,10 +204,10 @@ publish:
 #
 
 test:
-	$(VALIDATION_RUNNER) test-unit test-canister-artifact-contract
+	+$(VALIDATION_RUNNER) test-unit test-canister-artifact-contract
 
 test-unit:
-	$(VALIDATION_RUNNER) \
+	+$(VALIDATION_RUNNER) \
 		_test-icydb-no-default \
 		_test-core-no-default \
 		_test-workspace \
@@ -228,7 +226,7 @@ _test-canister-libs:
 	$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast -p canister_test_sql -p canister_test_sql_bounded --lib
 
 test-no-default-smoke:
-	$(VALIDATION_RUNNER) _test-icydb-no-default _test-core-no-default
+	+$(VALIDATION_RUNNER) _test-icydb-no-default _test-core-no-default
 
 test-integration-feedback:
 	@test -n "$(TEST_TARGET)" || { echo "TEST_TARGET must name one icydb-testing-integration test binary" >&2; exit 1; }
@@ -239,7 +237,7 @@ test-integration-feedback:
 		-p icydb-testing-integration --test "$(TEST_TARGET)"
 
 test-durability:
-	$(VALIDATION_RUNNER) \
+	+$(VALIDATION_RUNNER) \
 		_test-durability-core-commit \
 		_test-durability-core-mutation-job \
 		_test-durability-integration
@@ -333,11 +331,13 @@ clippy:
 		--all-targets --all-features -- -D warnings
 
 fmt:
+	$(CARGO_WORK_ENV) bash -eu -c 'source ci/tool-versions.env; exec bash scripts/ci/check-format-tools.sh "$$SHARED_TOOLING_CARGO_SORT_VERSION"'
 	$(CARGO_WORK_ENV) cargo sort --workspace
 	$(CARGO_WORK_ENV) cargo sort-derives
 	$(CARGO_WORK_ENV) cargo fmt --all
 
 fmt-check:
+	$(CARGO_WORK_ENV) bash -eu -c 'source ci/tool-versions.env; exec bash scripts/ci/check-format-tools.sh "$$SHARED_TOOLING_CARGO_SORT_VERSION"'
 	$(CARGO_WORK_ENV) cargo sort --workspace --check
 	$(CARGO_WORK_ENV) cargo sort-derives --check
 	$(CARGO_WORK_ENV) cargo fmt --all -- --check
@@ -345,7 +345,7 @@ fmt-check:
 validate:
 	$(MAKE) --no-print-directory tools-check
 	# Do not run feature or test lanes until every clippy warning is repaired.
-	$(VALIDATION_RUNNER) --fail-fast \
+	+$(VALIDATION_RUNNER) --fail-fast \
 		fmt-check \
 		lint-workflows \
 		shellcheck \
@@ -354,7 +354,7 @@ validate:
 		check \
 		clippy
 	# Once clippy passes, retain every later long-lane failure in one combined log.
-	$(VALIDATION_RUNNER) \
+	+$(VALIDATION_RUNNER) \
 		check-feature-matrix \
 		test
 
@@ -362,7 +362,7 @@ validate:
 # feature-specific clippy lanes and executable tests remain in the full gate.
 validate-fast:
 	$(MAKE) --no-print-directory tools-check
-	$(VALIDATION_RUNNER) --fail-fast \
+	+$(VALIDATION_RUNNER) --fail-fast \
 		fmt-check \
 		lint-workflows \
 		shellcheck \
@@ -409,6 +409,7 @@ check-invariants:
 	bash scripts/release/test-finalize-notes.sh
 	bash scripts/release/test-lock-selection.sh
 	bash scripts/ci/verify-shared-tooling-snapshot.sh
+	bash scripts/ci/test-gh-ci.sh
 	bash scripts/ci/test-shared-tooling-adapters.sh
 	bash scripts/ci/test-workstation-setup.sh
 	bash scripts/ci/test-cargo-metadata-adoption.sh
@@ -468,13 +469,13 @@ shellcheck:
 # GitHub Actions consumes these exact local targets as parallel lanes. The
 # terminal `check` job remains the one branch-protection and release gate.
 ci-static:
-	$(VALIDATION_RUNNER) --fail-fast host-tools-check _ci-format lint-workflows shellcheck check-dependency-pins check-invariants
+	+$(VALIDATION_RUNNER) --fail-fast host-tools-check _ci-format lint-workflows shellcheck check-dependency-pins check-invariants
 
 _ci-format:
 	$(MAKE) --no-print-directory fmt-check
 
 ci-core:
-	$(VALIDATION_RUNNER) \
+	+$(VALIDATION_RUNNER) \
 		_ci-core-no-default-check \
 		_ci-core-sql-check \
 		_ci-core-sql-clippy \
@@ -500,7 +501,7 @@ _ci-core-sql-clippy:
 		--all-targets --all-features -- -D warnings
 
 ci-workspace:
-	$(VALIDATION_RUNNER) \
+	+$(VALIDATION_RUNNER) \
 		_ci-workspace-clippy \
 		_ci-workspace-integration-clippy \
 		_ci-workspace-tests
@@ -518,7 +519,7 @@ _ci-workspace-tests:
 		--workspace --all-targets --exclude icydb-testing-integration --verbose
 
 ci-sql-tier-a:
-	$(VALIDATION_RUNNER) \
+	+$(VALIDATION_RUNNER) \
 		_ci-tier-a-sqlite \
 		_ci-tier-a-mutation \
 		_ci-tier-a-integration
@@ -539,7 +540,7 @@ _ci-tier-a-integration:
 
 ci-sql-tier-b:
 	@test -n "$(POCKET_IC_BIN)" || { echo "POCKET_IC_BIN must name the exact PocketIC binary used by Tier B" >&2; exit 1; }
-	$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) POCKET_IC_BIN="$(POCKET_IC_BIN)" \
+	+$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) POCKET_IC_BIN="$(POCKET_IC_BIN)" \
 		$(POCKET_IC_RUNNER) $(VALIDATION_RUNNER) \
 		_ci-tier-b-sql-canister \
 		_ci-tier-b-sql-perf

@@ -23,6 +23,8 @@ use crate::{
     observability::{load_schema_report, render_hex_lower},
 };
 
+use ic_host_artifacts::artifact::{ArtifactError, read_reader};
+
 #[derive(Clone, Copy)]
 struct RawDiagnosticFact {
     tag: u8,
@@ -37,19 +39,15 @@ struct DiagnosticSchemaIdentity {
     constraint_id: Option<u32>,
 }
 
-const MAX_DIAGNOSTIC_ERROR_BYTES: u64 = 64 * 1024;
+const MAX_DIAGNOSTIC_ERROR_BYTES: usize = 64 * 1024;
 
 // Bound bytes before deserializing the existing public payload. JSON's default
 // recursion bound stays enabled; no CLI-owned transport shape is introduced.
 fn read_error_json(reader: impl Read) -> Result<icydb::Error, String> {
-    let mut bytes = Vec::new();
-    reader
-        .take(MAX_DIAGNOSTIC_ERROR_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|err| format!("cannot read diagnostic error JSON: {err}"))?;
-    if bytes.len() as u64 > MAX_DIAGNOSTIC_ERROR_BYTES {
-        return Err("diagnostic error JSON exceeds 64 KiB".to_string());
-    }
+    let bytes = read_reader(reader, MAX_DIAGNOSTIC_ERROR_BYTES).map_err(|error| match error {
+        ArtifactError::LimitExceeded { .. } => "diagnostic error JSON exceeds 64 KiB".to_string(),
+        other => format!("cannot read diagnostic error JSON: {other}"),
+    })?;
     if bytes.iter().find(|byte| !byte.is_ascii_whitespace()) != Some(&b'{') {
         return Err("diagnostic error JSON must be an object".to_string());
     }
@@ -1731,17 +1729,19 @@ mod tests {
     fn error_json_bounds_reads_and_accepts_the_exact_byte_limit() {
         let mut input =
             br#"{"code":7,"class":0,"origin":0,"facts":[],"query_field":null}"#.to_vec();
-        input.resize(usize::try_from(MAX_DIAGNOSTIC_ERROR_BYTES).unwrap(), b' ');
+        input.resize(MAX_DIAGNOSTIC_ERROR_BYTES, b' ');
         assert!(read_error_json(input.as_slice()).is_ok());
         input.extend_from_slice(&[b' '; 32]);
         let mut reader = Cursor::new(input);
         assert!(read_error_json(&mut reader).is_err());
-        assert_eq!(reader.position(), MAX_DIAGNOSTIC_ERROR_BYTES + 1);
+        assert_eq!(reader.position(), (MAX_DIAGNOSTIC_ERROR_BYTES + 1) as u64);
     }
 
     #[test]
     fn error_json_rejects_malformed_wrong_shape_and_trailing_data() {
         for input in [
+            "",
+            "   ",
             "{",
             "[]",
             "{}",
@@ -1751,6 +1751,31 @@ mod tests {
             r#"{"code":7,"class":0,"origin":0,"facts":[]} {}"#,
         ] {
             assert!(read_error_json(input.as_bytes()).is_err());
+        }
+    }
+
+    #[test]
+    fn error_json_retries_interrupted_reads_and_preserves_io_failures() {
+        struct Reader<'a> {
+            bytes: &'a [u8],
+            error: Option<std::io::ErrorKind>,
+        }
+
+        impl std::io::Read for Reader<'_> {
+            fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+                if let Some(kind) = self.error.take() {
+                    return Err(std::io::Error::from(kind));
+                }
+                self.bytes.read(buffer)
+            }
+        }
+
+        for kind in [std::io::ErrorKind::Interrupted, std::io::ErrorKind::Other] {
+            let result = read_error_json(Reader {
+                bytes: br#"{"code":7,"class":0,"origin":0,"facts":[],"query_field":null}"#,
+                error: Some(kind),
+            });
+            assert_eq!(result.is_ok(), kind == std::io::ErrorKind::Interrupted);
         }
     }
 

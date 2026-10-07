@@ -5,6 +5,7 @@
 
 use crate::{
     db::{
+        codec::{ByteDecodeError, ByteReader},
         database_format::crc32c,
         integrity::DatabaseIncarnationId,
         schema::{AcceptedFieldKind, FieldId},
@@ -837,31 +838,31 @@ pub(in crate::db::schema) fn decode_identity_state(
         return Err(InternalError::identity_state_corruption());
     }
 
-    let mut reader = IdentityStateReader::new(body);
-    if reader.read_array::<8>()? != *IDENTITY_STATE_MAGIC
-        || reader.read_u8()? != IDENTITY_STATE_VERSION
+    let mut reader = ByteReader::new(body);
+    if reader.read_array::<8>().map_err(primitive_decode_error)? != *IDENTITY_STATE_MAGIC
+        || reader.read_u8().map_err(primitive_decode_error)? != IDENTITY_STATE_VERSION
     {
         return Err(InternalError::identity_state_corruption());
     }
-    let database_incarnation_id = DatabaseIncarnationId::try_from_bytes(reader.read_array::<16>()?)
-        .map_err(|_| InternalError::identity_state_corruption())?;
-    let entity_tag = EntityTag::new(reader.read_u64()?);
-    let field_id = FieldId::new(reader.read_u32()?);
-    let accepted_kind = decode_identity_kind(reader.read_u8()?)?;
-    let lifecycle = match reader.read_u8()? {
+    let database_incarnation_id = DatabaseIncarnationId::try_from_bytes(
+        reader.read_array::<16>().map_err(primitive_decode_error)?,
+    )
+    .map_err(|_| InternalError::identity_state_corruption())?;
+    let entity_tag = EntityTag::new(reader.read_u64().map_err(primitive_decode_error)?);
+    let field_id = FieldId::new(reader.read_u32().map_err(primitive_decode_error)?);
+    let accepted_kind = decode_identity_kind(reader.read_u8().map_err(primitive_decode_error)?)?;
+    let lifecycle = match reader.read_u8().map_err(primitive_decode_error)? {
         IDENTITY_STATE_LIFECYCLE_ACTIVE => IdentityStateLifecycle::Active,
         IDENTITY_STATE_LIFECYCLE_RETIRED => IdentityStateLifecycle::Retired,
         _ => return Err(InternalError::identity_state_corruption()),
     };
-    let materialized_high_water = reader.read_u128()?;
-    let advance_tag = reader.read_u8()?;
-    let commit_marker_id = reader.read_array::<16>()?;
-    let journal_batch_id = reader.read_array::<16>()?;
-    let journal_sequence = reader.read_u64()?;
-    let record_ordinal = reader.read_u32()?;
-    if !reader.is_exhausted() {
-        return Err(InternalError::identity_state_corruption());
-    }
+    let materialized_high_water = reader.read_u128().map_err(primitive_decode_error)?;
+    let advance_tag = reader.read_u8().map_err(primitive_decode_error)?;
+    let commit_marker_id = reader.read_array::<16>().map_err(primitive_decode_error)?;
+    let journal_batch_id = reader.read_array::<16>().map_err(primitive_decode_error)?;
+    let journal_sequence = reader.read_u64().map_err(primitive_decode_error)?;
+    let record_ordinal = reader.read_u32().map_err(primitive_decode_error)?;
+    reader.finish().map_err(primitive_decode_error)?;
     let last_applied_advance = match advance_tag {
         IDENTITY_STATE_ADVANCE_ABSENT
             if commit_marker_id == [0; 16]
@@ -913,50 +914,9 @@ fn decode_identity_kind(tag: u8) -> Result<AcceptedFieldKind, InternalError> {
     }
 }
 
-struct IdentityStateReader<'a> {
-    bytes: &'a [u8],
-    cursor: usize,
-}
-
-impl<'a> IdentityStateReader<'a> {
-    const fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, cursor: 0 }
-    }
-
-    fn read_array<const N: usize>(&mut self) -> Result<[u8; N], InternalError> {
-        let end = self
-            .cursor
-            .checked_add(N)
-            .ok_or_else(InternalError::identity_state_corruption)?;
-        let bytes = self
-            .bytes
-            .get(self.cursor..end)
-            .ok_or_else(InternalError::identity_state_corruption)?;
-        self.cursor = end;
-        bytes
-            .try_into()
-            .map_err(|_| InternalError::identity_state_corruption())
-    }
-
-    fn read_u8(&mut self) -> Result<u8, InternalError> {
-        Ok(self.read_array::<1>()?[0])
-    }
-
-    fn read_u32(&mut self) -> Result<u32, InternalError> {
-        Ok(u32::from_be_bytes(self.read_array()?))
-    }
-
-    fn read_u64(&mut self) -> Result<u64, InternalError> {
-        Ok(u64::from_be_bytes(self.read_array()?))
-    }
-
-    fn read_u128(&mut self) -> Result<u128, InternalError> {
-        Ok(u128::from_be_bytes(self.read_array()?))
-    }
-
-    const fn is_exhausted(&self) -> bool {
-        self.cursor == self.bytes.len()
-    }
+// This codec retains its domain classification for every primitive failure.
+fn primitive_decode_error(_: ByteDecodeError) -> InternalError {
+    InternalError::identity_state_corruption()
 }
 
 #[cfg(test)]

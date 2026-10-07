@@ -3,7 +3,6 @@
 //! Does not own: marker shape semantics, recovery orchestration, or commit-window policy.
 //! Boundary: commit::{guard,recovery} -> commit::store (one-way).
 
-mod bytes;
 mod control_slot;
 mod marker_envelope;
 #[cfg(test)]

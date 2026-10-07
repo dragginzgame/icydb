@@ -16,14 +16,15 @@ env:
   CARGO_TARGET_DIR: ${{ github.workspace }}/target/icydb
   CARGO_TERM_COLOR: always
   RUST_CURRENT: "1.99.0"
-  RUST_MSRV: "1.88.0"
-  RUSTC_WRAPPER: sccache
+  RUST_MSRV: "1.96.0"
   SCCACHE_GHA_ENABLED: "true"
 
 jobs:
   dependency_msrv:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    env:
+      RUSTC_WRAPPER: sccache
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -97,6 +98,7 @@ jobs:
             make_target: ci-sql-tier-b
             hard_timeout_seconds: "780"
     env:
+      RUSTC_WRAPPER: sccache
       IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD: "0"
       TMPDIR: ${{ github.workspace }}/.cache
     steps:
@@ -190,6 +192,7 @@ jobs:
           export PATH="/bin:/usr/bin:/usr/sbin:/sbin:$PATH"
           /bin/bash --version
           /bin/bash scripts/ci/verify-shared-tooling-snapshot.sh
+          /bin/bash scripts/ci/test-gh-ci.sh
           /bin/bash scripts/ci/test-shared-tooling-adapters.sh
           /bin/bash scripts/ci/test-workstation-setup.sh
           /bin/bash scripts/ci/test-cargo-metadata-adoption.sh
@@ -202,6 +205,8 @@ jobs:
           /bin/bash scripts/ci/test-pre-commit.sh
           perl scripts/dev/delete-github-tags-up-to.pl --cutoff 0.210 >/dev/null
           /bin/bash scripts/release/test-standard-release.sh
+          /bin/bash scripts/ci/test-release-runner.sh
+          /bin/bash scripts/ci/test-tool-commands.sh
           /bin/bash scripts/release/test-receipt-callbacks.sh
           /bin/bash scripts/release/test-pin-exceptions.sh
           /bin/bash scripts/release/test-lock-selection.sh
@@ -216,10 +221,13 @@ jobs:
           cargo fetch --locked
           cargo clippy --locked -p icydb-testing-integration --lib --bin write_wasm_size_report -- -D warnings
           cargo clippy --locked -p icydb-cli --bin icydb -- -D warnings
-          cargo test --locked -p icydb-cli --bin icydb tests::icp::hex_response_bytes
-          cargo test --locked -p icydb-testing-integration --lib wasm_optimizer::tests::post_link_optimizer_contract_is_exact_and_available
-          cargo test --locked -p icydb-testing-integration --bin write_wasm_size_report
-          cargo test --locked -p icydb-core --lib --all-features db::integrity::tests::quick_
+          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --bin icydb tests::icp::hex_response_bytes
+          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --bin icydb diagnostic::
+          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-integration --lib canister_artifact::tests
+          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-integration --lib wasm_optimizer::tests
+          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-integration --lib canister_build_cache::tests::post_link_batch_reports_failure_and_finishes_later_artifact
+          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-integration --bin write_wasm_size_report
+          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-core --lib --all-features db::integrity::tests::quick_
           make build-canister-production CANISTER=default_empty
           make fmt-check
           icp --version
@@ -246,6 +254,8 @@ jobs:
   wasm_size_report:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      RUSTC_WRAPPER: sccache
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:

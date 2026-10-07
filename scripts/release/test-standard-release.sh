@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-bash "$root/scripts/ci/check-release-commands.sh" "$root" scripts/ci/actionlint-checksums.tsv
+bash "$root/scripts/ci/check-release-commands.sh" "$root" scripts/ci/actionlint-checksums.tsv make/tools.mk
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/standard-release-entry.XXXXXX")"
 # Surface inner Make diagnostics before removing disposable fixture inputs.
 trap '
@@ -25,6 +25,48 @@ if [[ -f "$root/tool-versions.env" ]]; then cp "$root/tool-versions.env" "$fixtu
 export EVENTS="$fixture/events"
 cd "$fixture"
 real_make="$(command -v make)"
+# The consumer parse boundary rejects unsafe outer Make modes even when an
+# invocation overrides MAKEFLAGS. The substitute runner must never be called.
+for flags in -i -n -q -t --ignore-errors --just-print --question --touch -in; do
+    for override in normal override; do
+        : > "$EVENTS"
+        status=0
+        if [[ "$override" == override ]]; then
+            "$real_make" --no-print-directory -f "$root/Makefile" "$flags" \
+                release-patch MAKEFLAGS= > "$fixture/refused.log" 2>&1 || status=$?
+        else
+            "$real_make" --no-print-directory -f "$root/Makefile" "$flags" \
+                release-patch > "$fixture/refused.log" 2>&1 || status=$?
+        fi
+        [[ "$status" -ne 0 && ! -s "$EVENTS" ]]
+    done
+done
+for flags in i n q t; do
+    : > "$EVENTS"
+    status=0
+    MAKEFLAGS="$flags" "$real_make" --no-print-directory -f "$root/Makefile" \
+        release-patch > "$fixture/refused.log" 2>&1 || status=$?
+    [[ "$status" -ne 0 && ! -s "$EVENTS" ]]
+done
+# Direct runner admission also precedes all Git observation/mutation, including
+# version-only modes which never read a consumer Makefile. Git is a strict
+# substitute, so an admission regression cannot perform a release effect.
+mkdir "$fixture/refusal-bin"
+printf '#!%s\nprintf "git called\\n" >> "$EVENTS"\nexit 97\n' "$real_bash" \
+    > "$fixture/refusal-bin/git"
+chmod +x "$fixture/refusal-bin/git"
+for kind in patch minor major resume; do
+    args=("$kind")
+    if [[ "$kind" == resume ]]; then args+=(0.266.1); fi
+    for flags in i n q t v --ignore-errors --just-print --question --touch --version; do
+        : > "$EVENTS"
+        status=0
+        MAKEFLAGS="$flags" PATH="$fixture/refusal-bin:$PATH" \
+            "$real_bash" "$root/scripts/ci/run-release.sh" "${args[@]}" origin main \
+            > "$fixture/refused.log" 2>&1 || status=$?
+        [[ "$status" -ne 0 && ! -s "$EVENTS" ]]
+    done
+done
 # Real preflight must fill its selected cache before the offline validation gate.
 # Simulate a cold cache without registry requests or dependency changes.
 mkdir -p scripts/ci

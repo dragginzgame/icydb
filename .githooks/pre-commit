@@ -21,6 +21,7 @@ while IFS= read -r -d '' path; do
     count=$((count + 1))
 done < "$snapshot/selected"
 [[ "$count" -gt 0 ]] || exit 0
+bash "$root/scripts/ci/check-make-execution.sh"
 
 # A symlink or submodule's target bytes are not part of this index snapshot.
 # Do not let formatting escape into another checkout or the real working tree.

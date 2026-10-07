@@ -13,6 +13,7 @@ Run the refresh helper from a clean Shared Tooling checkout:
   --consumer /path/to/consumer \
   --file scripts/ci/verify-file-checksum.sh \
   --file scripts/ci/verify-shared-tooling-snapshot.sh \
+  --file scripts/ci/check-make-execution.sh \
   --file scripts/ci/run-validation-targets.sh
 ```
 
@@ -71,9 +72,13 @@ source revision. Verify the completed snapshot before resuming validation.
 To change the declared file set, edit or recreate the manifest as an explicit
 reviewed consumer change; ordinary refresh does not silently widen it.
 
-When refreshing `install-actionlint.sh`, `install-shellcheck.sh` or
-`install-gitleaks.sh`, also declare `scripts/ci/install-ci-tool.sh` and the existing
-`scripts/ci/verify-file-checksum.sh`. The three entry points now share that
+The release runner, validation logger and formatting hook require
+`scripts/ci/check-make-execution.sh`. Include it when adding or refreshing any of
+those entrypoints; existing manifests need that explicit file-set addition.
+
+When refreshing `install-actionlint.sh`, `install-shellcheck.sh`, `install-gitleaks.sh`,
+`install-sccache.sh` or `install-yq.sh`, also declare `scripts/ci/install-ci-tool.sh`
+and the existing `scripts/ci/verify-file-checksum.sh`. These entry points share that
 implementation; refreshing only an entry point leaves an incomplete installation.
 Pins and command arguments remain consumer-owned and unchanged.
 
@@ -93,8 +98,13 @@ bash scripts/ci/verify-shared-tooling-snapshot.sh
 ```
 
 The verifier fails when a declared file is absent, symlinked, has different
-content, or changes executable state. It validates local snapshot integrity;
-the source commit and normal review establish provenance.
+content, or changes executable state. It hashes files directly through the host's
+`sha256sum` or `shasum`, without executing the inspected snapshot's checksum helper
+or any other declared file. This independent bootstrap is deliberate: shared
+checksum code cannot establish its own integrity. Invoke a trusted copy of the
+verifier; this is local integrity checking, not signed provenance or protection
+against replacement of the verifier and manifest themselves. The source commit
+and normal review establish provenance.
 
 ## Shared baseline and local instructions
 
@@ -103,46 +113,24 @@ Vendor it with its linked guides so the complete rule set remains readable
 offline. Keep the consumer's `AGENTS.md` as its entry point and local overlay;
 do not copy Shared Tooling's `AGENTS.md` over it.
 
-For a new governance snapshot, use this complete documentation file set with
-the required verifiers, adding any selected tools to the same command:
+For a new governance snapshot, use the canonical
+[governance file list](../scripts/distribution/governance-files.txt), including
+linked guides and required helpers. Add selected tools explicitly to the command:
 
 ```bash
-/path/to/shared-tooling/scripts/distribution/refresh-consumer.sh \
-  --consumer /path/to/consumer \
-  --file DRAGGINZGAME.md \
-  --file rules/changelogs.md \
-  --file rules/cargo-dependencies.md \
-  --file rules/dependency-pinning.md \
-  --file rules/git-hooks.md \
-  --file rules/agent-maintenance.md \
-  --file audits/README.md \
-  --file audits/code-hygiene.md \
-  --file audits/flow-convergence-and-duplication.md \
-  --file audits/complexity-and-technical-debt.md \
-  --file audits/module-surface-hardening.md \
-  --file audits/module-cleanup.md \
-  --file docs/releases.md \
-  --file scripts/ci/run-release.sh \
-  --file scripts/ci/next-release-version.sh \
-  --file scripts/ci/finalize-release-changelog.awk \
-  --file scripts/ci/check-dependency-pins.sh \
-  --file scripts/ci/dependency-pins.jq \
-  --file docs/principles/README.md \
-  --file docs/principles/decision-artifact-discipline.md \
-  --file docs/principles/reviewable-changes.md \
-  --file docs/principles/rust-code-hygiene.md \
-  --file docs/principles/simplicity-and-maintainability.md \
-  --file docs/consuming-snapshots.md \
-  --file docs/provenance.md \
-  --file docs/verification-helpers.md \
-  --file docs/ic-tools.md \
-  --file docs/local-setup.md \
-  --file ci/ic-tools.tsv \
-  --file ci/tool-versions.env \
-  --file docs/supported-hosts.md \
-  --file scripts/ci/verify-file-checksum.sh \
-  --file scripts/ci/verify-shared-tooling-snapshot.sh
+shared_tooling=/path/to/shared-tooling
+files=()
+while IFS= read -r file; do
+  files+=(--file "$file")
+done < "$shared_tooling/scripts/distribution/governance-files.txt"
+bash "$shared_tooling/scripts/distribution/refresh-consumer.sh" \
+  --consumer /path/to/consumer "${files[@]}"
 ```
+
+The distribution fixture exports this list and checks its Markdown links inside
+the isolated consumer. The source checkout's link check alone cannot establish
+that exported documentation is complete. Keep the list current when adding guides.
+It is an initial selection, not hidden inheritance or automatic manifest widening.
 
 For an existing snapshot, update its declared file set through the reviewed
 manifest procedure above, including all shared rule files. Include
@@ -153,14 +141,32 @@ state local product contracts, commands and approved exceptions. Resolve local
 conflicts before claiming adoption. Do not edit a vendored shared document in
 place or attribute dirty upstream bytes to a committed revision.
 
+When adopting the local-repair and owning-repository issue workflow, refresh
+`DRAGGINZGAME.md` and `rules/agent-maintenance.md` together from the reviewed
+commit. Remove equivalent local instructions after checking their obligations;
+retain approved scoped exceptions and consumer release boundaries. Walk through
+an authorized local repair (apply in the working tree and run focused checks)
+and an upstream finding (search, report evidence in the owning issue, then adopt
+the committed correction). Reporting an issue neither applies the upstream fix
+nor verifies consumer adoption; broad validation authority stays unchanged.
+
+Consumers using the maintenance rule's exact-commit CI inspection command also
+refresh `scripts/dev/gh-ci.sh` from that reviewed revision. It remains a read-only
+interactive helper using the consumer checkout and authenticated GitHub CLI.
+The portable-suite prerequisite check is Shared Tooling's own test setup, not a
+required consumer gate. If vendoring the complete portable suite, include its
+new `scripts/ci/check-portable-prerequisites.sh`, `scripts/ci/test-portable-prerequisites.sh`
+and `scripts/ci/test-gh-ci.sh` dependencies along with the existing suite inputs.
+
 A revision-bound baseline reference remains an allowed alternative under the
 baseline. It must identify the exact source revision and document; a branch URL
 or moving sibling path does not establish which rules were reviewed. Snapshot
 integrity checks detect changes to declared files; they do not prove that a
 consumer has adopted the newest policy or resolved its local instruction conflicts.
-Rust consumers also add `.githooks/pre-commit` and
-`scripts/dev/install-git-hooks.sh` to the declared file set, align their formatting
-targets with the [hook contract](../rules/git-hooks.md), and enable the hook through
+Rust consumers also add `.githooks/pre-commit`,
+`scripts/dev/install-git-hooks.sh` and `scripts/ci/check-make-execution.sh` to the
+declared file set, align their formatting targets with the
+[hook contract](../rules/git-hooks.md), and enable the hook through
 `make install-hooks`. Refresh preserves executable modes but does not activate
 hooks or replace Git configuration. Review existing local hooks before declaring
 their paths for replacement; preserve and reconcile their obligations.
@@ -171,14 +177,15 @@ check alone does not verify those behaviors.
 Pinning adoption also requires the checker and its jq module, prepared Git/jq/yq
 tools (and Cargo for Rust workspaces), a CI/release invocation, and consumer-owned
 qualification for locked builds and external inputs. Consumers may also vendor
-`scripts/ci/install-yq.sh` with the checksum helper; choose and record their own
-reviewed version and platform digests. Resolve existing exceptions under the
+`scripts/ci/install-yq.sh` with `scripts/ci/install-ci-tool.sh` and the checksum
+helper; choose and record their own reviewed version and platform digests.
+Resolve existing exceptions under the
 [pinning policy](../rules/dependency-pinning.md) before claiming adoption.
 
 ## Audit method adoption
 
-Include the complete `audits/` file set above when adopting this baseline, so
-its method links work offline. The snapshot's reviewed source revision identifies
+Include the complete `audits/` file set in the governance list when adopting this
+baseline, so its method links work offline. The snapshot's reviewed source revision identifies
 the common contract; do not read methods from a moving sibling checkout or copy
 uncommitted documents and attribute them to an older revision.
 
@@ -208,43 +215,51 @@ documentation adoption alone does not call for full CI or native builds.
 After the new files are committed and reviewed, add `ci/ic-tools.tsv`,
 `scripts/dev/install-ic-tools.sh`, `scripts/ci/verify-evidence-checksums.sh` and
 `scripts/ci/verify-file-checksum.sh` to the snapshot, with `docs/ic-tools.md`.
-Also include `scripts/dev/install-host-tools.sh`, `ci/tool-versions.env` and
-`docs/local-setup.md` for the pinned jq/yq setup. Add `/.tools/` to the consumer's
-ignore rules. Expose these targets:
+Also include `make/tools.mk`, `scripts/dev/install-host-tools.sh`,
+`scripts/dev/cloc.sh`, `scripts/dev/cloc-tooling.pl`, `ci/tool-versions.env` and `docs/local-setup.md` for the
+common commands and pinned host setup. Adopt the complete
+[required tool inventory](local-setup.md#required-tool-inventory), including
+ripgrep and cloc pins, and add `/.tools/` to the consumer's ignore rules. Remove
+the consumer's duplicate setup/check/LOC recipes and include the shared commands
+once in its root Makefile:
 
 ```makefile
-IC_TOOL_PINS ?= ci/ic-tools.tsv
-HOST_TOOL_VERSIONS ?= ci/tool-versions.env
-export PATH := $(CURDIR)/.tools/host/bin:$(CURDIR)/.tools/ic/bin:$(PATH)
-
-.PHONY: install-tools tools-check install-host-tools host-tools-check install-ic-tools ic-tools-check
-install-tools:
-	+$(MAKE) --no-print-directory install-host-tools
-	+$(MAKE) --no-print-directory install-ic-tools
-
-tools-check:
-	+$(MAKE) --no-print-directory host-tools-check
-	+$(MAKE) --no-print-directory ic-tools-check
-
-install-host-tools:
-	bash scripts/dev/install-host-tools.sh --versions "$(HOST_TOOL_VERSIONS)"
-
-host-tools-check:
-	bash scripts/dev/install-host-tools.sh --versions "$(HOST_TOOL_VERSIONS)" --check
-
-install-ic-tools:
-	bash scripts/dev/install-ic-tools.sh --pins "$(IC_TOOL_PINS)"
-
-ic-tools-check:
-	bash scripts/dev/install-ic-tools.sh --pins "$(IC_TOOL_PINS)" --check
+include make/tools.mk
 ```
+
+That include supplies `install-tools`, `tools-check`, `install-host-tools`,
+`host-tools-check`, `install-ic-tools`, `ic-tools-check`, `cloc` and `cloc-tooling`, plus the
+checkout-local PATH. It preserves the consumer's default Make goal; including it
+does not trigger installation. Future changes to these recipes and tool
+selections arrive with the reviewed snapshot rather than another copied recipe.
+Existing checkouts need an explicit snapshot refresh and installation to receive
+new files and executables; they never execute a mutable sibling checkout.
+
+Defaults use scripts and pins at the checkout root. For a snapshot stored below
+that root, set `SHARED_TOOLING_ROOT` to its reviewed local directory before the
+include, and include its `make/tools.mk`. `HOST_TOOL_VERSIONS` and `IC_TOOL_PINS`
+select consumer-owned pin exceptions; their defaults remain the checkout's
+`ci/tool-versions.env` and `ci/ic-tools.tsv`. Installations always target the
+consumer checkout. Include `make/tools.mk` in any isolated Makefile export,
+including the extra inputs to `check-release-commands.sh`.
+
+`make cloc` reports the consumer's root Cargo workspace and requires its prepared
+Rust toolchain. Shared Tooling itself selects `CLOC_REPORT` and `CLOC_ROOT` before
+the include to summarize sibling workspaces; consumers normally use the defaults.
+Installing the raw cloc executable alone does not add these Make commands.
+`make cloc-tooling` scans sibling CI and tooling, including non-Rust repositories;
+`CLOC_PARENT` selects its parent directory. It needs Git, cloc and core Perl
+modules, with no Cargo dependency or consumer command execution.
 
 Review pins against existing qualified versions before activation. A local
 exception uses its own explicitly selected matrix outside the snapshot; remove
 superseded pin ownership rather than maintaining two independent selections.
 Update local setup/CI callers to use `.tools/host/bin` and `.tools/ic/bin`; CI
-must put these paths on its own PATH after explicit setup. Remove separate
-package-manager jq/yq selections and preserve one owner for each parser pin.
+must invoke the same Make installation/check targets and put these paths on its
+own PATH after explicit setup. Document the shell export for direct interactive commands;
+installation and Make exports do not change the user's terminal PATH. Remove
+separate package-manager jq/yq/ripgrep/cloc selections and preserve one owner
+for each tool pin.
 The existing single-yq installer remains available to consumers that need only
 that standalone parser; it accepts caller-owned pins rather than defining them.
 Document the [system bootstrap prerequisites](local-setup.md#bootstrap-prerequisites)

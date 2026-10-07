@@ -6,10 +6,11 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs::{File, OpenOptions},
-    io::{Read, Write},
+    io::Write,
     path::Path,
 };
 
+use ic_host_fs::read::read_opened_file;
 use serde::{Deserialize, Serialize};
 
 const DIAGNOSTIC_ARTIFACT_FORMAT: &str = "icydb-diagnostic-schema";
@@ -146,34 +147,14 @@ impl DiagnosticSchemaArtifact {
                 path.display()
             )
         })?;
-        let metadata = file.metadata().map_err(|err| {
+        // Keep the selected descriptor and existing symlink policy; the shared
+        // owner enforces regular-file admission and the independent stream bound.
+        let bytes = read_opened_file(file, MAX_DIAGNOSTIC_ARTIFACT_BYTES).map_err(|err| {
             format!(
-                "failed to inspect diagnostic artifact '{}': {err}",
+                "failed to read diagnostic artifact '{}': {err}",
                 path.display()
             )
         })?;
-        let byte_len = usize::try_from(metadata.len())
-            .map_err(|_| "diagnostic artifact length does not fit this host".to_string())?;
-        if byte_len > MAX_DIAGNOSTIC_ARTIFACT_BYTES {
-            return Err(format!(
-                "diagnostic artifact is {byte_len} bytes; maximum is {MAX_DIAGNOSTIC_ARTIFACT_BYTES}"
-            ));
-        }
-
-        let mut bytes = Vec::with_capacity(byte_len);
-        file.take((MAX_DIAGNOSTIC_ARTIFACT_BYTES + 1) as u64)
-            .read_to_end(&mut bytes)
-            .map_err(|err| {
-                format!(
-                    "failed to read diagnostic artifact '{}': {err}",
-                    path.display()
-                )
-            })?;
-        if bytes.len() > MAX_DIAGNOSTIC_ARTIFACT_BYTES {
-            return Err(format!(
-                "diagnostic artifact exceeds {MAX_DIAGNOSTIC_ARTIFACT_BYTES} bytes"
-            ));
-        }
         let artifact = serde_json::from_slice::<Self>(bytes.as_slice()).map_err(|err| {
             format!(
                 "failed to decode current diagnostic artifact '{}': {err}",
@@ -645,6 +626,49 @@ mod tests {
         assert!(artifact.write_new(path.as_path()).is_err());
 
         std::fs::remove_file(path).expect("test artifact should be removable");
+    }
+
+    #[test]
+    fn artifact_reads_preserve_exact_limits_and_reject_invalid_files() {
+        let path = std::env::temp_dir().join(format!(
+            "icydb-diagnostic-read-boundary-{}.json",
+            std::process::id()
+        ));
+        let artifact = DiagnosticSchemaArtifact::test_fixture();
+        let mut bytes = serde_json::to_vec(&artifact).unwrap();
+        bytes.resize(super::MAX_DIAGNOSTIC_ARTIFACT_BYTES, b' ');
+        std::fs::write(&path, &bytes).unwrap();
+        assert_eq!(
+            DiagnosticSchemaArtifact::read_deployment(&path).unwrap(),
+            artifact
+        );
+        bytes.push(b' ');
+        std::fs::write(&path, &bytes).unwrap();
+        assert!(DiagnosticSchemaArtifact::read_deployment(&path).is_err());
+        std::fs::write(&path, b"{invalid JSON").unwrap();
+        assert!(DiagnosticSchemaArtifact::read_deployment(&path).is_err());
+        std::fs::remove_file(&path).unwrap();
+        assert!(DiagnosticSchemaArtifact::read_deployment(&path).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn artifact_reads_preserve_symlink_selection_and_reject_special_files() {
+        let path = std::env::temp_dir().join(format!(
+            "icydb-diagnostic-read-link-{}.json",
+            std::process::id()
+        ));
+        let link = path.with_extension("link");
+        let artifact = DiagnosticSchemaArtifact::test_fixture();
+        std::fs::write(&path, serde_json::to_vec(&artifact).unwrap()).unwrap();
+        std::os::unix::fs::symlink(&path, &link).unwrap();
+        assert_eq!(
+            DiagnosticSchemaArtifact::read_deployment(&link).unwrap(),
+            artifact
+        );
+        assert!(DiagnosticSchemaArtifact::read_deployment(Path::new("/dev/null")).is_err());
+        std::fs::remove_file(link).unwrap();
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]

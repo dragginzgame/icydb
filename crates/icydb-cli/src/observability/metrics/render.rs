@@ -68,16 +68,57 @@ pub(super) fn render_metrics_report(report: &MetricsReport) -> String {
 }
 
 fn entity_row(entity: &EntityMetrics) -> MetricsEntityRow {
-    let average = if entity.hits() == 0 {
-        0
-    } else {
-        entity.instructions_total() / entity.hits()
+    // Counts and totals saturate independently; unavailable means are not zero.
+    let average = match ic_metrics::checked_mean(entity.hits(), entity.instructions_total()) {
+        Ok(Some(value)) => value.to_string(),
+        Ok(None) | Err(_) => "unavailable".to_string(),
     };
     [
         entity.path().to_string(),
         entity.hits().to_string(),
         entity.instructions_total().to_string(),
-        average.to_string(),
+        average,
         entity.instructions_max().to_string(),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::entity_row;
+    use icydb::metrics::EntityMetrics;
+
+    fn decoded_entity(hits: u64, total: u64) -> EntityMetrics {
+        serde_json::from_value(serde_json::json!({
+            "path": "app.Entity",
+            "hits": hits,
+            "instructions_total": total,
+            "instructions_max": total,
+        }))
+        .expect("decode report entity")
+    }
+
+    #[test]
+    fn metrics_entity_row_keeps_fields_and_rounds_average_down() {
+        assert_eq!(
+            entity_row(&decoded_entity(3, 10)),
+            ["app.Entity", "3", "10", "3", "10"].map(str::to_string),
+        );
+    }
+
+    #[test]
+    fn metrics_average_distinguishes_empty_from_measured_zero() {
+        assert_eq!(entity_row(&decoded_entity(0, 0))[3], "unavailable");
+        assert_eq!(entity_row(&decoded_entity(3, 0))[3], "0");
+    }
+
+    #[test]
+    fn metrics_average_rejects_inconsistent_or_saturated_report_fields() {
+        for (hits, total) in [(0, 1), (1, u64::MAX), (u64::MAX, 0), (u64::MAX, u64::MAX)] {
+            assert_eq!(entity_row(&decoded_entity(hits, total))[3], "unavailable");
+        }
+        assert_eq!(
+            entity_row(&decoded_entity(1, u64::MAX - 1))[3],
+            (u64::MAX - 1).to_string()
+        );
+    }
 }

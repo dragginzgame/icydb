@@ -2,7 +2,7 @@
 
 use crate::{expect_projection, query_sql};
 use candid::CandidType;
-use ic_host_tools::artifact::Sha256Digest;
+use ic_host_artifacts::artifact::Sha256Digest;
 use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{Error, types::Ulid};
 use icydb_testing_integration::{

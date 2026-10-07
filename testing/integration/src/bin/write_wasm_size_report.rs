@@ -9,10 +9,8 @@ use std::{
     process::Command,
 };
 
-use ic_host_tools::{
-    artifact::hash_reader,
-    wasm::{InspectionLimits, inspect},
-};
+use ic_host_artifacts::wasm::{InspectionLimits, inspect};
+use ic_host_fs::read::hash_file;
 use icydb_testing_integration::{
     CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
     CanisterWasmProfile, ResolvedCanisterBuildConfiguration,
@@ -515,14 +513,14 @@ fn validate_final_wasm_features(
 }
 
 fn file_meta(path: &Path) -> Result<FileMeta, String> {
-    let bytes = path
-        .metadata()
-        .map_err(|err| format!("failed to stat {}: {err}", path.display()))?
-        .len();
+    // The bytes and digest describe the same complete stream, rather than a
+    // separate pathname stat followed by a second open for hashing.
+    let identity = hash_file(path, u64::MAX)
+        .map_err(|error| format!("failed to identify {}: {error}", path.display()))?;
     Ok(FileMeta {
         path: path.display().to_string(),
-        bytes,
-        sha256: sha256_hex(path)?,
+        bytes: identity.bytes,
+        sha256: identity.sha256.to_string(),
     })
 }
 
@@ -535,10 +533,8 @@ fn optional_file_meta(path: &Path) -> Result<Option<FileMeta>, String> {
 }
 
 fn sha256_hex(path: &Path) -> Result<String, String> {
-    let file =
-        fs::File::open(path).map_err(|err| format!("failed to open {}: {err}", path.display()))?;
     // Preserve the report's whole-stream policy; it has no per-artifact byte cap.
-    let identity = hash_reader(file, u64::MAX)
+    let identity = hash_file(path, u64::MAX)
         .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
     Ok(identity.sha256.to_string())
 }

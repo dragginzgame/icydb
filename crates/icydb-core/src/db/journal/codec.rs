@@ -6,7 +6,7 @@
 use crate::db::index::{IndexKey, IndexKeyKind, RawIndexStoreKey};
 use crate::{
     db::{
-        codec::MAX_ROW_BYTES,
+        codec::{ByteDecodeError, ByteReader, MAX_ROW_BYTES},
         commit::{CommitSchemaFingerprint, MAX_COMMIT_BYTES},
         data::{DecodedDataStoreKey, RawDataStoreKey},
         integrity::DatabaseIncarnationId,
@@ -588,18 +588,15 @@ pub(in crate::db) fn decode_journal_batch(bytes: &[u8]) -> Result<JournalBatch, 
         return Err(journal_batch_corruption());
     }
 
-    let mut cursor = JOURNAL_BATCH_FIXED_HEADER_BYTES;
-    let payload_end = fixed_header.total_len();
+    let mut reader = ByteReader::new(&bytes[JOURNAL_BATCH_FIXED_HEADER_BYTES..]);
     let record_count = fixed_header.record_count() as usize;
 
     let mut records = Vec::with_capacity(record_count);
     for _ in 0..record_count {
-        records.push(read_journal_record(bytes, &mut cursor)?);
+        records.push(read_journal_record(&mut reader)?);
     }
 
-    if cursor != payload_end {
-        return Err(journal_batch_corruption());
-    }
+    reader.finish().map_err(primitive_decode_error)?;
 
     JournalBatch::new_with_database_commit_sequence(
         fixed_header.batch_id(),
@@ -639,17 +636,16 @@ pub(in crate::db::journal) fn inspect_raw_journal_batch_header(
         return Err(journal_batch_corruption());
     }
 
-    let mut cursor = 0usize;
-    let magic = read_fixed_array::<4>(bytes, &mut cursor)?;
+    let mut reader = ByteReader::new(bytes);
+    let magic = reader.read_array::<4>().map_err(primitive_decode_error)?;
     if magic != JOURNAL_BATCH_MAGIC {
         return Err(journal_batch_corruption());
     }
 
-    let format_version = *bytes.get(cursor).ok_or_else(journal_batch_corruption)?;
-    cursor = cursor.saturating_add(1);
+    let format_version = reader.read_u8().map_err(primitive_decode_error)?;
     validate_journal_batch_format_version(format_version)?;
 
-    let payload_len = read_len_u32(bytes, &mut cursor)? as usize;
+    let payload_len = reader.read_u32_le().map_err(primitive_decode_error)? as usize;
     let total_len = JOURNAL_BATCH_HEADER_BYTES
         .checked_add(payload_len)
         .ok_or_else(journal_batch_corruption)?;
@@ -732,26 +728,33 @@ pub(in crate::db::journal) fn inspect_raw_journal_batch_fixed_header(
         return Err(journal_batch_corruption());
     }
 
-    let mut cursor = JOURNAL_BATCH_HEADER_BYTES;
-    let batch_id = read_fixed_array::<JOURNAL_BATCH_ID_BYTES>(bytes, &mut cursor)?;
+    let mut reader = ByteReader::new(&bytes[JOURNAL_BATCH_HEADER_BYTES..]);
+    let batch_id = reader
+        .read_array::<JOURNAL_BATCH_ID_BYTES>()
+        .map_err(primitive_decode_error)?;
     if batch_id == [0; JOURNAL_BATCH_ID_BYTES] {
         return Err(journal_batch_corruption());
     }
-    let commit_marker_id = read_fixed_array::<JOURNAL_COMMIT_MARKER_ID_BYTES>(bytes, &mut cursor)?;
+    let commit_marker_id = reader
+        .read_array::<JOURNAL_COMMIT_MARKER_ID_BYTES>()
+        .map_err(primitive_decode_error)?;
     if commit_marker_id == [0; JOURNAL_COMMIT_MARKER_ID_BYTES] {
         return Err(journal_batch_corruption());
     }
-    let journal_sequence = JournalSequence::new(read_u64_le(bytes, &mut cursor)?);
-    let database_commit_sequence = DatabaseCommitSequence::new(read_u64_le(bytes, &mut cursor)?);
+    let journal_sequence =
+        JournalSequence::new(reader.read_u64_le().map_err(primitive_decode_error)?);
+    let database_commit_sequence =
+        DatabaseCommitSequence::new(reader.read_u64_le().map_err(primitive_decode_error)?);
     if database_commit_sequence.get() == 0 {
         return Err(journal_batch_corruption());
     }
-    let record_count = read_len_u32(bytes, &mut cursor)?;
+    let record_count = reader.read_u32_le().map_err(primitive_decode_error)?;
     if record_count as usize > MAX_JOURNAL_BATCH_RECORDS {
         return Err(journal_batch_corruption());
     }
-    let batch_fingerprint =
-        read_fixed_array::<JOURNAL_BATCH_FINGERPRINT_BYTES>(bytes, &mut cursor)?;
+    let batch_fingerprint = reader
+        .read_array::<JOURNAL_BATCH_FINGERPRINT_BYTES>()
+        .map_err(primitive_decode_error)?;
 
     Ok(RawJournalBatchFixedHeader {
         header,
@@ -997,39 +1000,53 @@ fn write_index_key_chunk(
     clippy::too_many_lines,
     reason = "one exhaustive decoder keeps every current journal record tag on the same bounded cursor authority"
 )]
-fn read_journal_record(bytes: &[u8], cursor: &mut usize) -> Result<JournalRecord, InternalError> {
-    let tag = *bytes.get(*cursor).ok_or_else(journal_batch_corruption)?;
-    *cursor = cursor.saturating_add(1);
+fn read_journal_record(reader: &mut ByteReader<'_>) -> Result<JournalRecord, InternalError> {
+    let tag = reader.read_u8().map_err(primitive_decode_error)?;
 
     match tag {
         JOURNAL_RECORD_ROW_PUT => {
-            let entity_path = read_utf8_path(bytes, cursor)?;
-            let primary_key = read_primary_key(bytes, cursor)?;
-            let row_bytes = read_len_prefixed_bytes(bytes, cursor)?.to_vec();
-            let schema_fingerprint =
-                read_fixed_array::<JOURNAL_SCHEMA_FINGERPRINT_BYTES>(bytes, cursor)?;
+            let entity_path = read_utf8_path(reader)?;
+            let primary_key = read_primary_key(reader)?;
+            let row_bytes = reader
+                .read_len_prefixed_bytes_le()
+                .map_err(primitive_decode_error)?
+                .to_vec();
+            let schema_fingerprint = reader
+                .read_array::<JOURNAL_SCHEMA_FINGERPRINT_BYTES>()
+                .map_err(primitive_decode_error)?;
 
             JournalRecord::row_put(entity_path, primary_key, row_bytes, schema_fingerprint)
         }
         JOURNAL_RECORD_ROW_DELETE => {
-            let entity_path = read_utf8_path(bytes, cursor)?;
-            let primary_key = read_primary_key(bytes, cursor)?;
-            let schema_fingerprint =
-                read_fixed_array::<JOURNAL_SCHEMA_FINGERPRINT_BYTES>(bytes, cursor)?;
+            let entity_path = read_utf8_path(reader)?;
+            let primary_key = read_primary_key(reader)?;
+            let schema_fingerprint = reader
+                .read_array::<JOURNAL_SCHEMA_FINGERPRINT_BYTES>()
+                .map_err(primitive_decode_error)?;
 
             JournalRecord::row_delete(entity_path, primary_key, schema_fingerprint)
         }
         JOURNAL_RECORD_SCHEMA_PUT => {
-            let store_path = read_utf8_path(bytes, cursor)?;
-            let schema_snapshot_bytes = read_len_prefixed_bytes(bytes, cursor)?.to_vec();
+            let store_path = read_utf8_path(reader)?;
+            let schema_snapshot_bytes = reader
+                .read_len_prefixed_bytes_le()
+                .map_err(primitive_decode_error)?
+                .to_vec();
 
             JournalRecord::schema_put(store_path, schema_snapshot_bytes)
         }
         JOURNAL_RECORD_ACCEPTED_SCHEMA_PUBLISH => {
-            let store_path = read_utf8_path(bytes, cursor)?;
-            let expected_revision = AcceptedSchemaRevision::new(read_u64_le(bytes, cursor)?);
-            let schema_bundle_bytes = read_len_prefixed_bytes(bytes, cursor)?.to_vec();
-            let schema_root_bytes = read_len_prefixed_bytes(bytes, cursor)?.to_vec();
+            let store_path = read_utf8_path(reader)?;
+            let expected_revision =
+                AcceptedSchemaRevision::new(reader.read_u64_le().map_err(primitive_decode_error)?);
+            let schema_bundle_bytes = reader
+                .read_len_prefixed_bytes_le()
+                .map_err(primitive_decode_error)?
+                .to_vec();
+            let schema_root_bytes = reader
+                .read_len_prefixed_bytes_le()
+                .map_err(primitive_decode_error)?
+                .to_vec();
             JournalRecord::accepted_schema_publish(
                 store_path,
                 expected_revision,
@@ -1039,7 +1056,7 @@ fn read_journal_record(bytes: &[u8], cursor: &mut usize) -> Result<JournalRecord
         }
         JOURNAL_RECORD_ACCEPTED_SCHEMA_INDEX_DELETE => {
             let (store_path, entity_tag, accepted_after_fingerprint, keys) =
-                read_accepted_schema_index_chunk(bytes, cursor)?;
+                read_accepted_schema_index_chunk(reader)?;
             JournalRecord::accepted_schema_index_delete(
                 store_path,
                 entity_tag,
@@ -1049,7 +1066,7 @@ fn read_journal_record(bytes: &[u8], cursor: &mut usize) -> Result<JournalRecord
         }
         JOURNAL_RECORD_ACCEPTED_SCHEMA_INDEX_PUT => {
             let (store_path, entity_tag, accepted_after_fingerprint, keys) =
-                read_accepted_schema_index_chunk(bytes, cursor)?;
+                read_accepted_schema_index_chunk(reader)?;
             JournalRecord::accepted_schema_index_put(
                 store_path,
                 entity_tag,
@@ -1058,11 +1075,15 @@ fn read_journal_record(bytes: &[u8], cursor: &mut usize) -> Result<JournalRecord
             )
         }
         JOURNAL_RECORD_CONSTRAINT_VALIDATION_JOB_PUT => {
-            let store_path = read_utf8_path(bytes, cursor)?;
-            let entity_tag = EntityTag::new(read_u64_le(bytes, cursor)?);
-            let constraint_id = ConstraintId::new(read_u32_le(bytes, cursor)?)
-                .ok_or_else(journal_batch_corruption)?;
-            let job_bytes = read_len_prefixed_bytes(bytes, cursor)?.to_vec();
+            let store_path = read_utf8_path(reader)?;
+            let entity_tag = EntityTag::new(reader.read_u64_le().map_err(primitive_decode_error)?);
+            let constraint_id =
+                ConstraintId::new(reader.read_u32_le().map_err(primitive_decode_error)?)
+                    .ok_or_else(journal_batch_corruption)?;
+            let job_bytes = reader
+                .read_len_prefixed_bytes_le()
+                .map_err(primitive_decode_error)?
+                .to_vec();
             let job = decode_constraint_validation_job(&job_bytes)
                 .map_err(|_| journal_batch_corruption())?;
             if job.entity_tag() != entity_tag || job.constraint_id() != constraint_id {
@@ -1071,18 +1092,22 @@ fn read_journal_record(bytes: &[u8], cursor: &mut usize) -> Result<JournalRecord
             JournalRecord::constraint_validation_job_put(store_path, &job)
         }
         JOURNAL_RECORD_CONSTRAINT_VALIDATION_JOB_DELETE => {
-            let store_path = read_utf8_path(bytes, cursor)?;
-            let entity_tag = EntityTag::new(read_u64_le(bytes, cursor)?);
-            let constraint_id = ConstraintId::new(read_u32_le(bytes, cursor)?)
-                .ok_or_else(journal_batch_corruption)?;
+            let store_path = read_utf8_path(reader)?;
+            let entity_tag = EntityTag::new(reader.read_u64_le().map_err(primitive_decode_error)?);
+            let constraint_id =
+                ConstraintId::new(reader.read_u32_le().map_err(primitive_decode_error)?)
+                    .ok_or_else(journal_batch_corruption)?;
             JournalRecord::constraint_validation_job_delete(store_path, entity_tag, constraint_id)
         }
         JOURNAL_RECORD_CONSTRAINT_VALIDATION_INDEX_PUT => {
-            let store_path = read_utf8_path(bytes, cursor)?;
-            let entity_tag = EntityTag::new(read_u64_le(bytes, cursor)?);
-            let constraint_id = ConstraintId::new(read_u32_le(bytes, cursor)?)
-                .ok_or_else(journal_batch_corruption)?;
-            let key_bytes = read_len_prefixed_bytes(bytes, cursor)?;
+            let store_path = read_utf8_path(reader)?;
+            let entity_tag = EntityTag::new(reader.read_u64_le().map_err(primitive_decode_error)?);
+            let constraint_id =
+                ConstraintId::new(reader.read_u32_le().map_err(primitive_decode_error)?)
+                    .ok_or_else(journal_batch_corruption)?;
+            let key_bytes = reader
+                .read_len_prefixed_bytes_le()
+                .map_err(primitive_decode_error)?;
             if key_bytes.len() > crate::db::index::IndexKey::MAX_STORED_SIZE_USIZE {
                 return Err(journal_batch_corruption());
             }
@@ -1095,14 +1120,15 @@ fn read_journal_record(bytes: &[u8], cursor: &mut usize) -> Result<JournalRecord
             )
         }
         JOURNAL_RECORD_IDENTITY_RANGE_ADVANCE => {
-            let database_incarnation_id =
-                DatabaseIncarnationId::try_from_bytes(read_fixed_array::<16>(bytes, cursor)?)
-                    .map_err(|_| journal_batch_corruption())?;
-            let entity_tag = EntityTag::new(read_u64_le(bytes, cursor)?);
-            let field_id = FieldId::new(read_u32_le(bytes, cursor)?);
-            let expected_high_water = read_u128_le(bytes, cursor)?;
-            let new_high_water = read_u128_le(bytes, cursor)?;
-            let allocation_count = read_u32_le(bytes, cursor)?;
+            let database_incarnation_id = DatabaseIncarnationId::try_from_bytes(
+                reader.read_array::<16>().map_err(primitive_decode_error)?,
+            )
+            .map_err(|_| journal_batch_corruption())?;
+            let entity_tag = EntityTag::new(reader.read_u64_le().map_err(primitive_decode_error)?);
+            let field_id = FieldId::new(reader.read_u32_le().map_err(primitive_decode_error)?);
+            let expected_high_water = reader.read_u128_le().map_err(primitive_decode_error)?;
+            let new_high_water = reader.read_u128_le().map_err(primitive_decode_error)?;
+            let allocation_count = reader.read_u32_le().map_err(primitive_decode_error)?;
             let owner = IdentityStateOwner::try_new(database_incarnation_id, entity_tag, field_id)
                 .map_err(|_| journal_batch_corruption())?;
             let range = IdentityRangeAdvance::try_new(
@@ -1116,13 +1142,18 @@ fn read_journal_record(bytes: &[u8], cursor: &mut usize) -> Result<JournalRecord
         }
         #[cfg(any(test, feature = "migration"))]
         JOURNAL_RECORD_SCHEMA_MIGRATION_ROW_PUT => {
-            let store_path = read_utf8_path(bytes, cursor)?;
-            let primary_key = read_primary_key(bytes, cursor)?;
-            let row_bytes = read_len_prefixed_bytes(bytes, cursor)?.to_vec();
-            let schema_fingerprint =
-                read_fixed_array::<JOURNAL_SCHEMA_FINGERPRINT_BYTES>(bytes, cursor)?;
-            let plan_digest =
-                SchemaMigrationPlanDigest::from_bytes(read_fixed_array::<32>(bytes, cursor)?);
+            let store_path = read_utf8_path(reader)?;
+            let primary_key = read_primary_key(reader)?;
+            let row_bytes = reader
+                .read_len_prefixed_bytes_le()
+                .map_err(primitive_decode_error)?
+                .to_vec();
+            let schema_fingerprint = reader
+                .read_array::<JOURNAL_SCHEMA_FINGERPRINT_BYTES>()
+                .map_err(primitive_decode_error)?;
+            let plan_digest = SchemaMigrationPlanDigest::from_bytes(
+                reader.read_array::<32>().map_err(primitive_decode_error)?,
+            );
             JournalRecord::schema_migration_row_put(
                 store_path,
                 primary_key,
@@ -1133,14 +1164,17 @@ fn read_journal_record(bytes: &[u8], cursor: &mut usize) -> Result<JournalRecord
         }
         #[cfg(any(test, feature = "migration"))]
         JOURNAL_RECORD_SCHEMA_MIGRATION_INDEX_PUT => {
-            let store_path = read_utf8_path(bytes, cursor)?;
-            let key_bytes = read_len_prefixed_bytes(bytes, cursor)?;
+            let store_path = read_utf8_path(reader)?;
+            let key_bytes = reader
+                .read_len_prefixed_bytes_le()
+                .map_err(primitive_decode_error)?;
             if key_bytes.len() > crate::db::index::IndexKey::MAX_STORED_SIZE_USIZE {
                 return Err(journal_batch_corruption());
             }
             let key = <RawIndexStoreKey as Storable>::from_bytes(Cow::Borrowed(key_bytes));
-            let plan_digest =
-                SchemaMigrationPlanDigest::from_bytes(read_fixed_array::<32>(bytes, cursor)?);
+            let plan_digest = SchemaMigrationPlanDigest::from_bytes(
+                reader.read_array::<32>().map_err(primitive_decode_error)?,
+            );
             JournalRecord::schema_migration_index_put(store_path, key, plan_digest)
         }
         _ => Err(journal_batch_corruption()),
@@ -1148,8 +1182,7 @@ fn read_journal_record(bytes: &[u8], cursor: &mut usize) -> Result<JournalRecord
 }
 
 fn read_accepted_schema_index_chunk(
-    bytes: &[u8],
-    cursor: &mut usize,
+    reader: &mut ByteReader<'_>,
 ) -> Result<
     (
         String,
@@ -1159,17 +1192,20 @@ fn read_accepted_schema_index_chunk(
     ),
     InternalError,
 > {
-    let store_path = read_utf8_path(bytes, cursor)?;
-    let entity_tag = EntityTag::new(read_u64_le(bytes, cursor)?);
-    let accepted_after_fingerprint =
-        read_fixed_array::<JOURNAL_SCHEMA_FINGERPRINT_BYTES>(bytes, cursor)?;
-    let key_count = read_len_u32(bytes, cursor)? as usize;
+    let store_path = read_utf8_path(reader)?;
+    let entity_tag = EntityTag::new(reader.read_u64_le().map_err(primitive_decode_error)?);
+    let accepted_after_fingerprint = reader
+        .read_array::<JOURNAL_SCHEMA_FINGERPRINT_BYTES>()
+        .map_err(primitive_decode_error)?;
+    let key_count = reader.read_u32_le().map_err(primitive_decode_error)? as usize;
     if !(1..=MAX_ACCEPTED_SCHEMA_INDEX_KEYS_PER_RECORD).contains(&key_count) {
         return Err(journal_batch_corruption());
     }
     let mut keys = Vec::with_capacity(key_count);
     for _ in 0..key_count {
-        let key_bytes = read_len_prefixed_bytes(bytes, cursor)?;
+        let key_bytes = reader
+            .read_len_prefixed_bytes_le()
+            .map_err(primitive_decode_error)?;
         if key_bytes.len() > IndexKey::MAX_STORED_SIZE_USIZE {
             return Err(journal_batch_corruption());
         }
@@ -1180,8 +1216,10 @@ fn read_accepted_schema_index_chunk(
     Ok((store_path, entity_tag, accepted_after_fingerprint, keys))
 }
 
-fn read_primary_key(bytes: &[u8], cursor: &mut usize) -> Result<RawDataStoreKey, InternalError> {
-    let primary_key = read_len_prefixed_bytes(bytes, cursor)?;
+fn read_primary_key(reader: &mut ByteReader<'_>) -> Result<RawDataStoreKey, InternalError> {
+    let primary_key = reader
+        .read_len_prefixed_bytes_le()
+        .map_err(primitive_decode_error)?;
     if primary_key.len() > RawDataStoreKey::MAX_STORED_SIZE_USIZE {
         return Err(journal_batch_corruption());
     }
@@ -1901,72 +1939,10 @@ fn write_len_prefixed_bytes(out: &mut Vec<u8>, bytes: &[u8]) -> Result<(), Inter
     Ok(())
 }
 
-fn read_len_u32(bytes: &[u8], cursor: &mut usize) -> Result<u32, InternalError> {
-    let payload = bytes
-        .get(*cursor..cursor.saturating_add(size_of::<u32>()))
-        .ok_or_else(journal_batch_corruption)?;
-    *cursor = cursor.saturating_add(size_of::<u32>());
-
-    Ok(u32::from_le_bytes([
-        payload[0], payload[1], payload[2], payload[3],
-    ]))
-}
-
-fn read_u64_le(bytes: &[u8], cursor: &mut usize) -> Result<u64, InternalError> {
-    let payload = bytes
-        .get(*cursor..cursor.saturating_add(size_of::<u64>()))
-        .ok_or_else(journal_batch_corruption)?;
-    *cursor = cursor.saturating_add(size_of::<u64>());
-
-    Ok(u64::from_le_bytes([
-        payload[0], payload[1], payload[2], payload[3], payload[4], payload[5], payload[6],
-        payload[7],
-    ]))
-}
-
-fn read_u128_le(bytes: &[u8], cursor: &mut usize) -> Result<u128, InternalError> {
-    let payload = read_fixed_array::<16>(bytes, cursor)?;
-    Ok(u128::from_le_bytes(payload))
-}
-
-fn read_u32_le(bytes: &[u8], cursor: &mut usize) -> Result<u32, InternalError> {
-    let payload = bytes
-        .get(*cursor..cursor.saturating_add(size_of::<u32>()))
-        .ok_or_else(journal_batch_corruption)?;
-    *cursor = cursor.saturating_add(size_of::<u32>());
-
-    Ok(u32::from_le_bytes([
-        payload[0], payload[1], payload[2], payload[3],
-    ]))
-}
-
-fn read_fixed_array<const N: usize>(
-    bytes: &[u8],
-    cursor: &mut usize,
-) -> Result<[u8; N], InternalError> {
-    let payload = bytes
-        .get(*cursor..cursor.saturating_add(N))
-        .ok_or_else(journal_batch_corruption)?;
-    *cursor = cursor.saturating_add(N);
-
-    payload.try_into().map_err(|_| journal_batch_corruption())
-}
-
-fn read_len_prefixed_bytes<'a>(
-    bytes: &'a [u8],
-    cursor: &mut usize,
-) -> Result<&'a [u8], InternalError> {
-    let len = read_len_u32(bytes, cursor)? as usize;
-    let payload = bytes
-        .get(*cursor..cursor.saturating_add(len))
-        .ok_or_else(journal_batch_corruption)?;
-    *cursor = cursor.saturating_add(len);
-
-    Ok(payload)
-}
-
-fn read_utf8_path(bytes: &[u8], cursor: &mut usize) -> Result<String, InternalError> {
-    let path = read_len_prefixed_bytes(bytes, cursor)?;
+fn read_utf8_path(reader: &mut ByteReader<'_>) -> Result<String, InternalError> {
+    let path = reader
+        .read_len_prefixed_bytes_le()
+        .map_err(primitive_decode_error)?;
     let path = std::str::from_utf8(path).map_err(|_| journal_batch_corruption())?;
     validate_path(path)?;
 
@@ -1975,4 +1951,9 @@ fn read_utf8_path(bytes: &[u8], cursor: &mut usize) -> Result<String, InternalEr
 
 fn journal_batch_corruption() -> InternalError {
     InternalError::store_corruption()
+}
+
+// This codec retains its domain classification for every primitive failure.
+fn primitive_decode_error(_: ByteDecodeError) -> InternalError {
+    journal_batch_corruption()
 }

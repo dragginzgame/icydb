@@ -510,9 +510,6 @@ fn inspect_row_atom<C: CanisterKind>(
             let Some(Ok(reader)) = reader.as_mut() else {
                 return Ok(RowAtomOutcome::Blocked(IntegrityVerifierFamily::FieldValue));
             };
-            if !plan.row_contract().has_active_field_slot(slot) {
-                return Ok(RowAtomOutcome::Clean);
-            }
             match reader.get_value(slot) {
                 Ok(_) => Ok(RowAtomOutcome::Clean),
                 Err(error) => {
@@ -751,10 +748,6 @@ fn decode_all_fields<'a>(
     }
     let mut values = Vec::with_capacity(plan.row_contract().field_count());
     for slot in 0..plan.row_contract().field_count() {
-        if !plan.row_contract().has_active_field_slot(slot) {
-            values.push(None);
-            continue;
-        }
         match reader.get_value(slot) {
             Ok(value) => values.push(value.map(Cow::Owned)),
             Err(error)

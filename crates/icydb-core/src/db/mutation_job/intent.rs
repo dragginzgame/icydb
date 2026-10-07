@@ -7,8 +7,8 @@ use crate::{
     db::{
         MutationJobError, MutationJobPayloadKind,
         codec::{
-            finalize_hash_sha256, new_hash_sha256_prefixed, write_hash_str_u32, write_hash_u32,
-            write_hash_u64,
+            ByteDecodeError, ByteReader, finalize_hash_sha256, new_hash_sha256_prefixed,
+            write_hash_str_u32, write_hash_u32, write_hash_u64,
         },
         cursor::{decode_current_value_payload, encode_current_value_payload},
         data::{AcceptedFixedUpdatePatch, FieldSlot},
@@ -183,34 +183,40 @@ impl CanonicalMutationIntent {
         if crc32c(payload) != checksum {
             return Err(MutationJobError::CorruptProgressStore);
         }
-        let mut reader = Reader::new(payload);
-        if reader.array::<8>()? != *INTENT_MAGIC {
+        let mut reader = ByteReader::new(payload);
+        if reader.read_array::<8>().map_err(primitive_decode_error)? != *INTENT_MAGIC {
             return Err(MutationJobError::IncompatibleProgressFormat);
         }
-        if reader.u8()? != INTENT_FORMAT_VERSION {
+        if reader.read_u8().map_err(primitive_decode_error)? != INTENT_FORMAT_VERSION {
             return Err(MutationJobError::IncompatibleProgressFormat);
         }
         let intent = Self {
-            database_incarnation: reader.array()?,
-            target_store_identity: reader.array()?,
-            target_entity_identity: reader.array()?,
-            target_store_path: reader.string(MAX_CANONICAL_PATH_BYTES)?,
-            target_entity_path: reader.string(MAX_CANONICAL_PATH_BYTES)?,
-            target_entity_tag: reader.u64()?,
-            accepted_schema_revision: reader.u64()?,
-            accepted_schema_fingerprint_method: reader.u8()?,
-            accepted_schema_fingerprint: reader.array()?,
-            canonical_scope: reader.bytes(MAX_CANONICAL_SCOPE_BYTES)?.to_vec(),
-            canonical_fixed_patch: reader.bytes(MAX_CANONICAL_PATCH_BYTES)?.to_vec(),
-            start_request_fingerprint: reader.array()?,
-            scope_fingerprint: reader.array()?,
-            patch_fingerprint: reader.array()?,
-            operation_timestamp: Timestamp::from_millis(reader.i64()?),
-            batch_policy_identity: reader.u32()?,
+            database_incarnation: reader.read_array().map_err(primitive_decode_error)?,
+            target_store_identity: reader.read_array().map_err(primitive_decode_error)?,
+            target_entity_identity: reader.read_array().map_err(primitive_decode_error)?,
+            target_store_path: read_intent_string(&mut reader, MAX_CANONICAL_PATH_BYTES)?,
+            target_entity_path: read_intent_string(&mut reader, MAX_CANONICAL_PATH_BYTES)?,
+            target_entity_tag: reader.read_u64().map_err(primitive_decode_error)?,
+            accepted_schema_revision: reader.read_u64().map_err(primitive_decode_error)?,
+            accepted_schema_fingerprint_method: reader.read_u8().map_err(primitive_decode_error)?,
+            accepted_schema_fingerprint: reader.read_array().map_err(primitive_decode_error)?,
+            canonical_scope: reader
+                .read_bounded_len_prefixed_bytes(MAX_CANONICAL_SCOPE_BYTES)
+                .map_err(primitive_decode_error)?
+                .to_vec(),
+            canonical_fixed_patch: reader
+                .read_bounded_len_prefixed_bytes(MAX_CANONICAL_PATCH_BYTES)
+                .map_err(primitive_decode_error)?
+                .to_vec(),
+            start_request_fingerprint: reader.read_array().map_err(primitive_decode_error)?,
+            scope_fingerprint: reader.read_array().map_err(primitive_decode_error)?,
+            patch_fingerprint: reader.read_array().map_err(primitive_decode_error)?,
+            operation_timestamp: Timestamp::from_millis(
+                reader.read_i64().map_err(primitive_decode_error)?,
+            ),
+            batch_policy_identity: reader.read_u32().map_err(primitive_decode_error)?,
         };
-        if !reader.is_empty() {
-            return Err(MutationJobError::CorruptProgressStore);
-        }
+        reader.finish().map_err(primitive_decode_error)?;
         intent.validate()?;
         Ok(intent)
     }
@@ -402,15 +408,15 @@ fn decode_scope(bytes: &[u8]) -> Result<Expr, MutationJobError> {
     if bytes.len() > MAX_CANONICAL_SCOPE_BYTES {
         return Err(MutationJobError::CorruptProgressStore);
     }
-    let mut reader = Reader::new(bytes);
-    if reader.array::<8>()? != *SCOPE_MAGIC || reader.u8()? != SCOPE_FORMAT_VERSION {
+    let mut reader = ByteReader::new(bytes);
+    if reader.read_array::<8>().map_err(primitive_decode_error)? != *SCOPE_MAGIC
+        || reader.read_u8().map_err(primitive_decode_error)? != SCOPE_FORMAT_VERSION
+    {
         return Err(MutationJobError::IncompatibleProgressFormat);
     }
     let mut nodes = 0usize;
     let expr = decode_expr(&mut reader, 0, &mut nodes)?;
-    if !reader.is_empty() {
-        return Err(MutationJobError::CorruptProgressStore);
-    }
+    reader.finish().map_err(primitive_decode_error)?;
     Ok(expr)
 }
 
@@ -483,36 +489,39 @@ fn encode_expr(
 }
 
 fn decode_expr(
-    reader: &mut Reader<'_>,
+    reader: &mut ByteReader<'_>,
     depth: usize,
     nodes: &mut usize,
 ) -> Result<Expr, MutationJobError> {
     count_expr_node_for_decode(depth, nodes)?;
-    match reader.u8()? {
-        0 => Ok(Expr::Field(FieldId::new(
-            reader.string(MAX_CANONICAL_PATH_BYTES)?,
-        ))),
+    match reader.read_u8().map_err(primitive_decode_error)? {
+        0 => Ok(Expr::Field(FieldId::new(read_intent_string(
+            reader,
+            MAX_CANONICAL_PATH_BYTES,
+        )?))),
         1 => {
-            let root = reader.string(MAX_CANONICAL_PATH_BYTES)?;
-            let count = reader.bounded_count(MAX_CANONICAL_PATH_SEGMENTS)?;
+            let root = read_intent_string(reader, MAX_CANONICAL_PATH_BYTES)?;
+            let count = read_intent_count(reader, MAX_CANONICAL_PATH_SEGMENTS)?;
             if count == 0 {
                 return Err(MutationJobError::CorruptProgressStore);
             }
             let mut segments = Vec::with_capacity(count);
             for _ in 0..count {
-                segments.push(reader.string(MAX_CANONICAL_PATH_BYTES)?);
+                segments.push(read_intent_string(reader, MAX_CANONICAL_PATH_BYTES)?);
             }
             Ok(Expr::FieldPath(FieldPath::new(root, segments)))
         }
         2 => {
-            let payload = reader.bytes(MAX_CANONICAL_SCOPE_BYTES)?;
+            let payload = reader
+                .read_bounded_len_prefixed_bytes(MAX_CANONICAL_SCOPE_BYTES)
+                .map_err(primitive_decode_error)?;
             decode_current_value_payload(payload)
                 .map(Expr::Literal)
                 .map_err(|_| MutationJobError::CorruptProgressStore)
         }
         3 => {
-            let function = function_from_tag(reader.u8()?)?;
-            let count = reader.bounded_count(MAX_CANONICAL_EXPR_NODES)?;
+            let function = function_from_tag(reader.read_u8().map_err(primitive_decode_error)?)?;
+            let count = read_intent_count(reader, MAX_CANONICAL_EXPR_NODES)?;
             let mut args = Vec::with_capacity(count);
             for _ in 0..count {
                 args.push(decode_expr(reader, depth + 1, nodes)?);
@@ -520,16 +529,16 @@ fn decode_expr(
             Ok(Expr::FunctionCall { function, args })
         }
         4 => Ok(Expr::Unary {
-            op: unary_from_tag(reader.u8()?)?,
+            op: unary_from_tag(reader.read_u8().map_err(primitive_decode_error)?)?,
             expr: Box::new(decode_expr(reader, depth + 1, nodes)?),
         }),
         5 => Ok(Expr::Binary {
-            op: binary_from_tag(reader.u8()?)?,
+            op: binary_from_tag(reader.read_u8().map_err(primitive_decode_error)?)?,
             left: Box::new(decode_expr(reader, depth + 1, nodes)?),
             right: Box::new(decode_expr(reader, depth + 1, nodes)?),
         }),
         6 => {
-            let count = reader.bounded_count(MAX_CANONICAL_CASE_ARMS)?;
+            let count = read_intent_count(reader, MAX_CANONICAL_CASE_ARMS)?;
             if count == 0 {
                 return Err(MutationJobError::CorruptProgressStore);
             }
@@ -598,23 +607,26 @@ fn decode_fixed_patch(bytes: &[u8]) -> Result<AcceptedFixedUpdatePatch, Mutation
     if bytes.len() > MAX_CANONICAL_PATCH_BYTES {
         return Err(MutationJobError::CorruptProgressStore);
     }
-    let mut reader = Reader::new(bytes);
-    if reader.array::<8>()? != *PATCH_MAGIC || reader.u8()? != PATCH_FORMAT_VERSION {
+    let mut reader = ByteReader::new(bytes);
+    if reader.read_array::<8>().map_err(primitive_decode_error)? != *PATCH_MAGIC
+        || reader.read_u8().map_err(primitive_decode_error)? != PATCH_FORMAT_VERSION
+    {
         return Err(MutationJobError::IncompatibleProgressFormat);
     }
-    let count = reader.bounded_count(MAX_CANONICAL_PATCH_FIELDS)?;
+    let count = read_intent_count(&mut reader, MAX_CANONICAL_PATCH_FIELDS)?;
     if count == 0 {
         return Err(MutationJobError::CorruptProgressStore);
     }
     let mut fields = Vec::with_capacity(count);
     for _ in 0..count {
-        let slot = reader.bounded_count(u32::MAX as usize)?;
-        let payload = reader.bytes(MAX_CANONICAL_PATCH_BYTES)?.to_vec();
+        let slot = read_intent_count(&mut reader, u32::MAX as usize)?;
+        let payload = reader
+            .read_bounded_len_prefixed_bytes(MAX_CANONICAL_PATCH_BYTES)
+            .map_err(primitive_decode_error)?
+            .to_vec();
         fields.push((FieldSlot::from_validated_index(slot), payload));
     }
-    if !reader.is_empty() {
-        return Err(MutationJobError::CorruptProgressStore);
-    }
+    reader.finish().map_err(primitive_decode_error)?;
     AcceptedFixedUpdatePatch::from_canonical_fields(fields)
         .map_err(|_| MutationJobError::CorruptProgressStore)
 }
@@ -821,78 +833,29 @@ impl Writer {
     }
 }
 
-struct Reader<'a> {
-    bytes: &'a [u8],
-    offset: usize,
+// Counts and nonempty intent paths are format rules, above primitive extraction.
+fn read_intent_count(reader: &mut ByteReader<'_>, max: usize) -> Result<usize, MutationJobError> {
+    let value = usize::try_from(reader.read_u32().map_err(primitive_decode_error)?)
+        .map_err(|_| MutationJobError::CorruptProgressStore)?;
+    if value > max {
+        return Err(MutationJobError::CorruptProgressStore);
+    }
+    Ok(value)
 }
 
-impl<'a> Reader<'a> {
-    const fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, offset: 0 }
+fn read_intent_string(reader: &mut ByteReader<'_>, max: usize) -> Result<String, MutationJobError> {
+    let value = reader
+        .read_bounded_string(max)
+        .map_err(primitive_decode_error)?;
+    if value.is_empty() {
+        return Err(MutationJobError::CorruptProgressStore);
     }
+    Ok(value)
+}
 
-    fn exact(&mut self, len: usize) -> Result<&'a [u8], MutationJobError> {
-        let end = self
-            .offset
-            .checked_add(len)
-            .ok_or(MutationJobError::CorruptProgressStore)?;
-        let value = self
-            .bytes
-            .get(self.offset..end)
-            .ok_or(MutationJobError::CorruptProgressStore)?;
-        self.offset = end;
-        Ok(value)
-    }
-
-    fn array<const N: usize>(&mut self) -> Result<[u8; N], MutationJobError> {
-        self.exact(N)?
-            .try_into()
-            .map_err(|_| MutationJobError::CorruptProgressStore)
-    }
-
-    fn u8(&mut self) -> Result<u8, MutationJobError> {
-        Ok(self.exact(1)?[0])
-    }
-
-    fn u32(&mut self) -> Result<u32, MutationJobError> {
-        Ok(u32::from_be_bytes(self.array()?))
-    }
-
-    fn u64(&mut self) -> Result<u64, MutationJobError> {
-        Ok(u64::from_be_bytes(self.array()?))
-    }
-
-    fn i64(&mut self) -> Result<i64, MutationJobError> {
-        Ok(i64::from_be_bytes(self.array()?))
-    }
-
-    fn bounded_count(&mut self, max: usize) -> Result<usize, MutationJobError> {
-        let value =
-            usize::try_from(self.u32()?).map_err(|_| MutationJobError::CorruptProgressStore)?;
-        if value > max {
-            return Err(MutationJobError::CorruptProgressStore);
-        }
-        Ok(value)
-    }
-
-    fn bytes(&mut self, max: usize) -> Result<&'a [u8], MutationJobError> {
-        let len = self.bounded_count(max)?;
-        self.exact(len)
-    }
-
-    fn string(&mut self, max: usize) -> Result<String, MutationJobError> {
-        let bytes = self.bytes(max)?;
-        let value =
-            std::str::from_utf8(bytes).map_err(|_| MutationJobError::CorruptProgressStore)?;
-        if value.is_empty() {
-            return Err(MutationJobError::CorruptProgressStore);
-        }
-        Ok(value.to_string())
-    }
-
-    const fn is_empty(&self) -> bool {
-        self.offset == self.bytes.len()
-    }
+// This codec retains its domain classification for every primitive failure.
+const fn primitive_decode_error(_: ByteDecodeError) -> MutationJobError {
+    MutationJobError::CorruptProgressStore
 }
 
 #[cfg(test)]

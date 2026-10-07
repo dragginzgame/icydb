@@ -6,7 +6,7 @@ FIXTURE="$(mktemp -d "${TMPDIR:-/tmp}/icydb-shared-adapters.XXXXXX")"
 trap 'status=$?; if [[ "$status" == 0 ]]; then rm -rf "$FIXTURE";
   else echo "Shared adapter fixture retained: $FIXTURE" >&2; fi; exit "$status"' EXIT
 mkdir -p "$FIXTURE/scripts/ci" "$FIXTURE/bin" "$FIXTURE/install"
-for script in run-validation-targets.sh run-icydb-validation-targets.sh \
+for script in check-make-execution.sh run-validation-targets.sh run-icydb-validation-targets.sh \
   install-actionlint.sh install-ci-tool.sh install-icydb-actionlint.sh verify-file-checksum.sh; do
   cp "$ROOT/scripts/ci/$script" "$FIXTURE/scripts/ci/"
 done
@@ -15,6 +15,7 @@ cat > "$FIXTURE/Makefile" <<'MAKE'
 .PHONY: pass fail-one fail-two nested
 pass:
 	@echo pass-payload
+	@touch executed
 fail-one:
 	@echo first-complete-payload
 	@echo 'error: first-diagnostic'
@@ -24,7 +25,14 @@ fail-two:
 	@echo 'error: second-diagnostic'
 	@exit 9
 nested:
-	@bash scripts/ci/run-icydb-validation-targets.sh --fail-fast fail-one
+	+@bash scripts/ci/run-icydb-validation-targets.sh --fail-fast fail-one
+parallel:
+	+@bash scripts/ci/run-icydb-validation-targets.sh selections
+selections:
+	@test "$(RELEASE_VERSION)" = 0.266.1
+	@test "$(RELEASE_REMOTE)" = reviewed
+	@test "$(RELEASE_BRANCH)" = main
+	@test "$(SELECTION_WITH_SPACE)" = 'kept value'
 MAKE
 
 # Exercise the canonical runner via the adapter, retaining every raw target
@@ -47,6 +55,18 @@ ICYDB_VALIDATION_FAILURE_LOG_DIR="$FIXTURE/logs" \
   > "$FIXTURE/pass-output" 2>&1
 cmp "$FIXTURE/logs/latest.log" "$FIXTURE/previous.log"
 
+# Direct adapter callers must not report evidence from an unexecuted or
+# failure-suppressing Make invocation, or replace prior complete failure logs.
+rm "$FIXTURE/executed"
+for flags in i n q t v --ignore-errors --just-print --question --touch --version; do
+  status=0
+  MAKEFLAGS="$flags" ICYDB_VALIDATION_FAILURE_LOG_DIR="$FIXTURE/logs" \
+    bash "$FIXTURE/scripts/ci/run-icydb-validation-targets.sh" pass \
+    > "$FIXTURE/refused-${flags#--}" 2>&1 || status=$?
+  [[ "$status" -ne 0 && ! -e "$FIXTURE/executed" ]]
+  cmp "$FIXTURE/logs/latest.log" "$FIXTURE/previous.log"
+done
+
 status=0
 ICYDB_VALIDATION_FAILURE_LOG_DIR="$FIXTURE/fast-logs" \
   bash "$FIXTURE/scripts/ci/run-icydb-validation-targets.sh" --fail-fast fail-one fail-two \
@@ -64,6 +84,16 @@ ICYDB_VALIDATION_FAILURE_LOG_DIR="$FIXTURE/nested-logs" \
   > "$FIXTURE/nested-output" 2>&1 || status=$?
 [[ "$status" -eq 1 ]]
 rg -F first-complete-payload "$FIXTURE/nested-logs/latest.log" > /dev/null
+
+# Legitimate selections and the live jobserver survive nested adapter dispatch.
+ICYDB_VALIDATION_FAILURE_LOG_DIR="$FIXTURE/parallel-logs" \
+  make --no-print-directory -C "$FIXTURE" -j2 parallel RELEASE_VERSION=0.266.1 \
+    RELEASE_REMOTE=reviewed RELEASE_BRANCH=main 'SELECTION_WITH_SPACE=kept value' \
+    > "$FIXTURE/parallel-output" 2>&1
+if rg -i 'jobserver unavailable|jobserver.*invalid|forced in submake' "$FIXTURE/parallel-output" >/dev/null; then
+  cat "$FIXTURE/parallel-output" >&2
+  exit 1
+fi
 
 # Stub only the network and host identity. The real shared installer verifies
 # the archive bytes and tool version, then installs into this disposable fixture.

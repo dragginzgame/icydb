@@ -1,7 +1,7 @@
 //! Collection costs and independent typed results over one retained actor.
 
 use candid::CandidType;
-use ic_host_tools::artifact::Sha256Digest;
+use ic_host_artifacts::artifact::Sha256Digest;
 use icydb::{
     Error,
     value::{OutputValue, PublicValue},

@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, fs, process::Command};
+use std::{collections::BTreeSet, fs};
 
 use candid::{CandidType, Principal};
 use icydb::{Error, ErrorCode, db::EntitySchemaDescription};
@@ -172,23 +172,15 @@ fn guarded_and_controller_schema_artifacts_keep_one_identical_public_surface() {
         name: "icydb_schema".to_string(),
         mode: CanisterMethodMode::Query,
     }]);
-    for wasm in [&controller_wasm, &guarded_wasm] {
+    let [controller_manifest, guarded_manifest] = [&controller_wasm, &guarded_wasm].map(|wasm| {
         let manifest = inspect_canister_artifacts(wasm.as_ref())
             .expect("Candid and raw Wasm exports should agree");
         assert_eq!(manifest.icydb_methods(), expected);
-    }
+        manifest
+    });
 
-    let extract_candid = |wasm: &std::path::Path| {
-        let output = Command::new("candid-extractor")
-            .arg(wasm)
-            .output()
-            .expect("candid-extractor should run");
-        assert!(output.status.success(), "Candid extraction should succeed");
-        output.stdout
-    };
     assert_eq!(
-        extract_candid(controller_wasm.as_ref()),
-        extract_candid(guarded_wasm.as_ref()),
+        controller_manifest.candid, guarded_manifest.candid,
         "guarded schema must not change the complete Candid service",
     );
 

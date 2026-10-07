@@ -94,7 +94,10 @@ versions before switching. Keep overrides outside the immutable shared snapshot.
 Do not copy version constants into a second catalog or upgrade tools implicitly
 as part of baseline adoption.
 
-This script owns provisioning only. Host artifact inspection and runtime/tool
-execution contracts supplied by `ic-host-tools` remain with that library;
-consumer orchestration, credentials, destinations and measurement policy remain
-local.
+This script owns provisioning only. The four packages in
+[IC Host Tooling](https://github.com/dragginzgame/ic-host-tooling) own their library
+contracts: `ic-host-artifacts` owns artifact streams and inspection; `ic-host-fs`
+owns bounded filesystem reads, publication and locks; `ic-host-process` owns
+admitted executable execution; and `ic-host-tools` owns Candid extraction and IC
+response decoding. Consumer orchestration, credentials, destinations and
+measurement policy remain local.

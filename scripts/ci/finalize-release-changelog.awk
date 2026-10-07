@@ -5,7 +5,7 @@ function historical(value, a, b, n) {
     split(value, a, "."); split(previous, b, ".")
     for (n = 1; n <= 3; n++) {
         if (length(a[n]) != length(b[n])) return length(a[n]) < length(b[n])
-        if (a[n] != b[n]) return ("x" a[n]) < ("x" b[n])
+        if (("x" a[n]) != ("x" b[n])) return ("x" a[n]) < ("x" b[n])
     }
     return 1
 }

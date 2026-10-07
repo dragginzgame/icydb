@@ -1,13 +1,18 @@
 //! Canonical post-link optimizer for deployable fixture-canister Wasm.
 
 use std::{
-    env, fs,
+    env,
+    ffi::OsString,
+    fmt::Write as _,
+    fs,
     path::{Path, PathBuf},
-    process::Command,
     sync::atomic::{AtomicU64, Ordering},
+    time::Duration,
 };
 
-use ic_host_tools::{artifact::hash_file, tool::resolve_executable};
+use ic_host_process::tool::{
+    AdmittedTool, ExecutionContext, OutputLimits, ToolError, ToolSpec, resolve_executable,
+};
 
 /// Environment variable that may point at the pinned `wasm-opt` executable.
 pub const WASM_OPT_BIN_ENV: &str = "ICYDB_WASM_OPT_BIN";
@@ -37,6 +42,14 @@ pub const WASM_OPT_OUTPUT_FEATURES: [&str; 5] = [
     "--enable-nontrapping-float-to-int",
     "--enable-sign-ext",
 ];
+
+// Binaryen diagnostics are captured, never the Wasm payload. Fixed resource
+// ceilings prevent unbounded output or a stuck child; this is not a performance gate.
+const OPTIMIZER_OUTPUT_LIMITS: OutputLimits = OutputLimits {
+    stdout_bytes: 1024 * 1024,
+    stderr_bytes: 1024 * 1024,
+    timeout: Duration::from_secs(600),
+};
 
 static TEMPORARY_OUTPUT_ORDINAL: AtomicU64 = AtomicU64::new(0);
 
@@ -70,7 +83,7 @@ pub fn wasm_opt_sha256() -> Result<&'static str, String> {
 }
 
 /// Resolve and validate the exact optimizer used by the deployable-Wasm pipeline.
-pub fn pinned_wasm_optimizer() -> Result<PathBuf, String> {
+pub fn pinned_wasm_optimizer() -> Result<AdmittedTool, String> {
     let requested = env::var_os(WASM_OPT_BIN_ENV).map_or_else(
         || PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.tools/ic/bin/wasm-opt"),
         PathBuf::from,
@@ -85,39 +98,26 @@ pub fn pinned_wasm_optimizer() -> Result<PathBuf, String> {
         resolve_executable(&requested, &current_dir, &search_directories).map_err(|error| {
             format!("failed to resolve wasm optimizer: {error}; run make install-ic-tools")
         })?;
-    // Verify the admitted bytes before executing the candidate.
-    let observed_sha256 = sha256_hex(&executable)?;
-    let expected_sha256 = wasm_opt_sha256()?;
-    if observed_sha256 != expected_sha256 {
-        return Err(format!(
-            "unsupported wasm optimizer binary {} with SHA-256 {observed_sha256}, expected {expected_sha256}",
-            executable.display()
-        ));
-    }
-
-    let version = Command::new(&executable)
-        .arg("--version")
-        .output()
-        .map_err(|error| {
-            format!(
-                "failed to execute pinned wasm optimizer {}: {error}",
-                executable.display()
-            )
-        })?;
-    if !version.status.success() {
-        return Err(format_process_failure(
-            "pinned wasm optimizer version check",
-            &version,
-        ));
-    }
-    let observed_version = String::from_utf8_lossy(&version.stdout).trim().to_owned();
-    if observed_version != WASM_OPT_VERSION {
-        return Err(format!(
-            "unsupported wasm optimizer version '{observed_version}', expected '{WASM_OPT_VERSION}'"
-        ));
-    }
-
-    Ok(executable)
+    // Preserve the caller's inherited execution environment explicitly. The
+    // admitted handle carries pin authority into every batch transform.
+    let environment = env::vars_os().collect::<Vec<_>>();
+    AdmittedTool::admit(
+        &ToolSpec {
+            executable: &executable,
+            sha256: wasm_opt_sha256()?
+                .parse()
+                .map_err(|error| format!("invalid pinned optimizer digest: {error}"))?,
+            executable_bytes: u64::MAX,
+            version_arguments: &[OsString::from("--version")],
+            version_identity: WASM_OPT_VERSION,
+        },
+        &ExecutionContext {
+            current_dir: &current_dir,
+            environment: &environment,
+        },
+        OPTIMIZER_OUTPUT_LIMITS,
+    )
+    .map_err(|error| format_tool_failure("pinned wasm optimizer admission", &error))
 }
 
 /// Transform compiler-emitted Wasm into the sole final deployable artifact.
@@ -130,7 +130,7 @@ pub fn optimize_deployable_wasm(input: &Path, output: &Path) -> Result<(), Strin
 pub(crate) fn optimize_deployable_wasm_with_optimizer(
     input: &Path,
     output: &Path,
-    optimizer: &Path,
+    optimizer: &AdmittedTool,
 ) -> Result<(), String> {
     if !input.is_file() {
         return Err(format!(
@@ -152,22 +152,23 @@ pub(crate) fn optimize_deployable_wasm_with_optimizer(
     })?;
 
     let temporary = temporary_output_path(output);
-    let mut command = Command::new(optimizer);
-    command.arg(input);
-    command.args(WASM_OPT_FLAGS);
-    command.arg("-o").arg(&temporary);
-    let result = command.output().map_err(|error| {
-        format!(
-            "failed to run canonical wasm optimizer for {}: {error}",
-            input.display()
-        )
-    })?;
-    if !result.status.success() {
+    let current_dir = env::current_dir()
+        .map_err(|error| format!("failed to resolve optimizer working directory: {error}"))?;
+    let environment = env::vars_os().collect::<Vec<_>>();
+    let arguments = std::iter::once(input.as_os_str().to_owned())
+        .chain(WASM_OPT_FLAGS.map(OsString::from))
+        .chain([OsString::from("-o"), temporary.as_os_str().to_owned()])
+        .collect::<Vec<_>>();
+    if let Err(error) = optimizer.run(
+        &arguments,
+        &ExecutionContext {
+            current_dir: &current_dir,
+            environment: &environment,
+        },
+        OPTIMIZER_OUTPUT_LIMITS,
+    ) {
         let _ = fs::remove_file(&temporary);
-        return Err(format_process_failure(
-            "canonical wasm optimization",
-            &result,
-        ));
+        return Err(format_tool_failure("canonical wasm optimization", &error));
     }
     if !temporary.is_file() {
         return Err(format!(
@@ -198,22 +199,29 @@ fn temporary_output_path(output: &Path) -> PathBuf {
     ))
 }
 
-fn sha256_hex(path: &Path) -> Result<String, String> {
-    // Preserve whole-file admission while hashing without a payload-sized buffer.
-    let identity = hash_file(path, u64::MAX)
-        .map_err(|error| format!("failed to read {} for SHA-256: {error}", path.display()))?;
-    Ok(identity.sha256.to_string())
-}
-
-fn format_process_failure(context: &str, output: &std::process::Output) -> String {
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    format!(
-        "{context} failed with status {}\nstdout:\n{}\nstderr:\n{}",
-        output.status,
-        stdout.trim_end(),
-        stderr.trim_end()
-    )
+// Keep bounded process evidence in the consumer's existing error projection,
+// including cleanup failures; shared Display intentionally omits captured bytes.
+pub(crate) fn format_tool_failure(context: &str, error: &ToolError) -> String {
+    let mut message = format!("{context}: {error}");
+    if let Some(evidence) = error.evidence() {
+        let _ = write!(
+            message,
+            "\nstatus: {:?}\nstdout:\n{}\nstderr:\n{}",
+            evidence.status,
+            String::from_utf8_lossy(&evidence.stdout).trim_end(),
+            String::from_utf8_lossy(&evidence.stderr).trim_end(),
+        );
+    }
+    if let Some(failure) = error.execution_error()
+        && (failure.kill_error.is_some() || failure.wait_error.is_some())
+    {
+        let _ = write!(
+            message,
+            "\ncleanup: kill={:?}, wait={:?}",
+            failure.kill_error, failure.wait_error,
+        );
+    }
+    message
 }
 
 ///
@@ -224,7 +232,7 @@ fn format_process_failure(context: &str, output: &std::process::Output) -> Strin
 mod tests {
     use super::{
         POST_LINK_PIPELINE_IDENTITY, WASM_OPT_FLAGS, WASM_OPT_OUTPUT_FEATURES, WASM_OPT_VERSION,
-        pinned_wasm_optimizer, wasm_opt_sha256,
+        optimize_deployable_wasm_with_optimizer, pinned_wasm_optimizer, wasm_opt_sha256,
     };
 
     #[test]
@@ -255,6 +263,31 @@ mod tests {
             POST_LINK_PIPELINE_IDENTITY,
             "binaryen-132-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v1"
         );
-        assert!(pinned_wasm_optimizer().is_ok());
+        let optimizer = pinned_wasm_optimizer().expect("pinned optimizer should admit");
+        assert_eq!(
+            optimizer.identity().sha256.to_string(),
+            wasm_opt_sha256().unwrap()
+        );
+        assert_eq!(optimizer.version_identity(), WASM_OPT_VERSION);
+    }
+
+    #[test]
+    fn admitted_optimizer_preserves_outputs_on_failure_and_handles_spaced_paths() {
+        let root =
+            std::env::temp_dir().join(format!("icydb optimizer host {}", std::process::id()));
+        std::fs::create_dir(&root).unwrap();
+        let input = root.join("compiler input.wasm");
+        let output = root.join("final output.wasm");
+        let optimizer = pinned_wasm_optimizer().unwrap();
+        let wasm = b"\0asm\x01\0\0\0";
+        std::fs::write(&input, wasm).unwrap();
+        optimize_deployable_wasm_with_optimizer(&input, &output, &optimizer).unwrap();
+        assert_eq!(std::fs::read(&output).unwrap(), wasm);
+        std::fs::write(&input, b"invalid wasm").unwrap();
+        assert!(optimize_deployable_wasm_with_optimizer(&input, &output, &optimizer).is_err());
+        assert_eq!(std::fs::read(&output).unwrap(), wasm);
+        assert_eq!(std::fs::read(&input).unwrap(), b"invalid wasm");
+        assert_eq!(std::fs::read_dir(&root).unwrap().count(), 2);
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

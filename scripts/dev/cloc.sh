@@ -1,13 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
+export PATH="$ROOT/.tools/host/bin:$PATH"
+
 usage() {
     cat <<'EOF'
 Usage: cloc.sh [repository]
+       cloc.sh --check-tools
 
 Report Rust runtime/test lines and test-function totals for each Cargo
 workspace member. The repository defaults to the current working directory.
+Prepared host tools beside this script's checkout take precedence over PATH.
+--check-tools checks prerequisites without inspecting a workspace or installing.
 EOF
+}
+
+check_tools() {
+    local tool missing=""
+    for tool in cargo cloc jq; do
+        if ! command -v "$tool" >/dev/null 2>&1; then missing="$missing $tool"; fi
+    done
+    if [[ -n "$missing" ]]; then
+        echo "error: missing LOC tools:$missing" >&2
+        echo "Run make install-host-tools in $ROOT; prepare the Cargo toolchain separately if missing." >&2
+        return 1
+    fi
 }
 
 if [[ "$#" -gt 1 ]]; then
@@ -17,6 +35,10 @@ fi
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
     usage
+    exit 0
+fi
+if [[ "${1:-}" == --check-tools ]]; then
+    check_tools
     exit 0
 fi
 
@@ -36,17 +58,13 @@ if [[ ! -f "${manifest_path}" ]]; then
     exit 1
 fi
 
-for command in cargo cloc jq; do
-    if ! command -v "${command}" >/dev/null 2>&1; then
-        echo "error: ${command} not found in PATH" >&2
-        exit 1
-    fi
-done
+check_tools
 
 if ! metadata="$(
-    cargo metadata \
+    RUSTUP_AUTO_INSTALL=0 cargo metadata \
         --format-version 1 \
         --manifest-path "${manifest_path}" \
+        --locked --offline \
         --no-deps
 )"; then
     echo "error: unable to resolve Cargo workspace metadata" >&2
@@ -68,6 +86,11 @@ fi
 
 if [[ -z "${crate_rows}" ]]; then
     echo "error: Cargo workspace contains no packages" >&2
+    exit 1
+fi
+
+if ! target_path="$(jq -er '.target_directory | select(type == "string" and startswith("/"))' <<<"$metadata")"; then
+    echo 'error: Cargo metadata has no absolute target directory' >&2
     exit 1
 fi
 
@@ -136,18 +159,23 @@ count_test_fns() {
 for crate_row in "${crates[@]}"; do
     IFS=$'\t' read -r crate_name crate_path <<<"${crate_row}"
 
-    # Each member owns its subtree, excluding any nested workspace members.
+    # Cargo owns the build-output identity, including configured target paths.
+    # Prune it before either LOC or test counting, even inside a package.
     find_args=("$crate_path")
+    excluded_paths=("$target_path")
     for member_row in "${crates[@]}"; do
         IFS=$'\t' read -r _ member_path <<<"$member_row"
         if [[ "$member_path" == "$crate_path/"* ]]; then
-            # find's -path takes a glob; escape literal path metacharacters.
-            member_pattern="${member_path//\\/\\\\}"
-            member_pattern="${member_pattern//\*/\\*}"
-            member_pattern="${member_pattern//\?/\\?}"
-            member_pattern="${member_pattern//\[/\\[}"
-            find_args+=(-path "$member_pattern" -prune -o)
+            excluded_paths+=("$member_path")
         fi
+    done
+    for excluded_path in "${excluded_paths[@]}"; do
+        # find's -path takes a glob; escape literal path metacharacters.
+        excluded_pattern="${excluded_path//\\/\\\\}"
+        excluded_pattern="${excluded_pattern//\*/\\*}"
+        excluded_pattern="${excluded_pattern//\?/\\?}"
+        excluded_pattern="${excluded_pattern//\[/\\[}"
+        find_args+=(-path "$excluded_pattern" -prune -o)
     done
     find "${find_args[@]}" -type f -name '*.rs' -print0 >"$FILE_LIST_DIR/files"
     : >"$FILE_LIST_DIR/runtime"

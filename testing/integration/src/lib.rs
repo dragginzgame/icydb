@@ -1494,74 +1494,60 @@ pub fn stage_canister_for_icp_with_options(
         ),
     )?;
 
-    let icp_canister_dir = root.join(".icp/local/canisters").join(canister_name);
-    fs::create_dir_all(&icp_canister_dir).map_err(|err| {
-        format!(
-            "failed to create ICP canister output directory {}: {err}",
-            icp_canister_dir.display()
-        )
-    })?;
+    stage_canister_artifact_paths(
+        &artifacts.compiler_emitted,
+        &artifacts.final_deployable,
+        &root.join(".icp/local/canisters").join(canister_name),
+        canister_name,
+        options.candid_export.enabled_for_profile(options.profile),
+    )
+}
 
-    let staged_wasm_path = icp_canister_dir.join(format!("{canister_name}.wasm"));
-    fs::copy(&artifacts.final_deployable, &staged_wasm_path).map_err(|err| {
-        format!(
-            "failed to copy built wasm from {} to {}: {err}",
-            artifacts.final_deployable.display(),
-            staged_wasm_path.display()
-        )
-    })?;
-    let staged_compiler_wasm_path = icp_canister_dir.join(format!("{canister_name}.compiler.wasm"));
-    fs::copy(&artifacts.compiler_emitted, &staged_compiler_wasm_path).map_err(|err| {
-        format!(
-            "failed to copy compiler-emitted wasm from {} to {}: {err}",
-            artifacts.compiler_emitted.display(),
-            staged_compiler_wasm_path.display()
-        )
-    })?;
-
-    let staged_did_path = icp_canister_dir.join(format!("{canister_name}.did"));
-
-    let candid_output = Command::new("candid-extractor")
-        .arg(&staged_wasm_path)
-        .output()
-        .map_err(|err| {
-            format!(
-                "failed to invoke candid-extractor on {}: {err}",
-                staged_wasm_path.display()
-            )
-        })?;
-    // Release wasm-size builds now intentionally allow canisters to omit the
-    // `export_candid!()` entrypoint. In that case, keep staging the wasm and
-    // report DID export as unavailable instead of failing the whole size pass.
-    if !candid_output.status.success() {
-        let stderr = String::from_utf8_lossy(&candid_output.stderr);
-        if stderr.contains("get_candid_pointer") {
-            // Remove any previously staged DID so release size reports do not
-            // accidentally reuse stale export output from an earlier debug build.
-            if staged_did_path.exists() {
-                fs::remove_file(&staged_did_path).map_err(|err| {
-                    format!(
-                        "failed to remove stale staged did {}: {err}",
-                        staged_did_path.display()
-                    )
-                })?;
-            }
-
-            return Ok((staged_wasm_path, None));
+// Each file publishes independently, as before; shared filesystem mechanics
+// preserve an existing destination when the stream/extractor producer fails.
+fn stage_canister_artifact_paths(
+    compiler_wasm: &Path,
+    deployable_wasm: &Path,
+    directory: &Path,
+    canister_name: &str,
+    candid_enabled: bool,
+) -> Result<(PathBuf, Option<PathBuf>), String> {
+    let wasm = directory.join(format!("{canister_name}.wasm"));
+    let compiler = directory.join(format!("{canister_name}.compiler.wasm"));
+    publish_artifact_copy(deployable_wasm, &wasm)?;
+    publish_artifact_copy(compiler_wasm, &compiler)?;
+    let did = directory.join(format!("{canister_name}.did"));
+    if !candid_enabled {
+        // Build feature selection owns deliberate Candid omission. Never infer
+        // optional export from an extractor's diagnostic prose.
+        match fs::remove_file(&did) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(format!("remove stale staged Candid: {error}")),
         }
+        return Ok((wasm, None));
+    }
+    let candid = canister_artifact::extract_canister_candid(&wasm)?;
+    ic_host_fs::durable::write_bytes(&did, candid.as_bytes())
+        .map_err(|error| format!("publish staged Candid '{}': {error}", did.display()))?;
+    Ok((wasm, Some(did)))
+}
 
+fn publish_artifact_copy(input: &Path, output: &Path) -> Result<(), String> {
+    let mut source = fs::File::open(input)
+        .map_err(|error| format!("open artifact '{}': {error}", input.display()))?;
+    let metadata = source.metadata().map_err(|error| error.to_string())?;
+    if !metadata.is_file() {
         return Err(format!(
-            "candid-extractor failed for {}: {stderr}",
-            staged_wasm_path.display()
+            "artifact is not a regular file: '{}'",
+            input.display()
         ));
     }
-
-    fs::write(&staged_did_path, &candid_output.stdout).map_err(|err| {
-        format!(
-            "failed to write candid output to {}: {err}",
-            staged_did_path.display()
-        )
-    })?;
-
-    Ok((staged_wasm_path, Some(staged_did_path)))
+    ic_host_fs::durable::write_with(output, |sink| {
+        sink.set_permissions(metadata.permissions())?;
+        ic_host_artifacts::artifact::copy_reader(&mut source, sink, u64::MAX)
+            .map_err(std::io::Error::other)
+    })
+    .map_err(|error| format!("publish artifact '{}': {error}", output.display()))?;
+    Ok(())
 }

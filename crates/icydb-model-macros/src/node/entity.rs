@@ -6,8 +6,9 @@
 #[cfg(test)]
 mod tests;
 
-use crate::{case::Casing, imp::*, prelude::*};
+use crate::{imp::*, prelude::*};
 use darling::ast::NestedMeta;
+use icydb_schema::{MAX_INDEX_FIELDS, MAX_SCHEMA_NAME_BYTES};
 use std::collections::HashSet;
 
 //
@@ -254,7 +255,7 @@ impl Entity {
         def_ident: &Ident,
     ) -> Result<(), DarlingError> {
         let segments = index.generated_name_segments();
-        validate_index_name_text(entity_name, segments.as_slice(), index.unique)
+        validate_index_name_text(index, entity_name, segments.as_slice())
             .map_err(|err| err.with_index_or_def_span(index, def_ident))?;
 
         Ok(())
@@ -335,11 +336,11 @@ fn validate_entity_name_text(value: &str) -> Result<(), DarlingError> {
 }
 
 fn validate_index_name_text(
+    index: &Index,
     entity_name: &str,
     fields: &[String],
-    unique: bool,
 ) -> Result<(), DarlingError> {
-    if fields.is_empty() || fields.len() > 4 {
+    if fields.is_empty() || fields.len() > MAX_INDEX_FIELDS {
         return Err(DarlingError::custom(
             "index must contain between one and four key terms",
         ));
@@ -351,30 +352,10 @@ fn validate_index_name_text(
             )));
         }
     }
-    let prefix_len = if unique { 4 } else { 3 };
-    let slug_len = |value: &str| {
-        value
-            .chars()
-            .map(|character| {
-                if character.is_ascii_alphanumeric() {
-                    character
-                } else {
-                    '_'
-                }
-            })
-            .collect::<String>()
-            .to_case(crate::case::Case::Snake)
-            .len()
-    };
-    let total_len = prefix_len
-        + 1
-        + slug_len(entity_name)
-        + 2
-        + fields.iter().map(|field| slug_len(field)).sum::<usize>()
-        + fields.len().saturating_sub(1);
-    if total_len > 486 {
+    // Check the exact emitted name, not an independent slug/length estimate.
+    if index.generated_name(entity_name).len() > MAX_SCHEMA_NAME_BYTES {
         return Err(DarlingError::custom(format!(
-            "derived index name for '{entity_name}' exceeds max length 486"
+            "derived index name for '{entity_name}' exceeds max length {MAX_SCHEMA_NAME_BYTES}"
         )));
     }
     Ok(())

@@ -219,7 +219,7 @@ pub(crate) fn cache_post_link_wasm(
     request: &PostLinkCacheRequest<'_>,
 ) -> Result<ArtifactCacheOutcome, String> {
     let optimizer = pinned_wasm_optimizer()?;
-    let spec = post_link_cache_spec(request, &optimizer);
+    let spec = post_link_cache_spec(request, optimizer.path());
 
     match prepare_artifact_cache(&spec)
         .map_err(|error| format!("post-link artifact cache failed: {error}"))?
@@ -258,7 +258,7 @@ pub(crate) fn cache_post_link_wasm_batch(
         .map(|request| {
             LabeledArtifactCacheSpec::new(
                 request.coordination_scope,
-                post_link_cache_spec(request, &optimizer),
+                post_link_cache_spec(request, optimizer.path()),
             )
         })
         .collect::<Vec<_>>();

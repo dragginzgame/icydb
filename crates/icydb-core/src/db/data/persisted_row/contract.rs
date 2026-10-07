@@ -22,8 +22,6 @@ use std::borrow::Cow;
 
 use crate::db::data::persisted_row::codec::{ScalarSlotValueRef, decode_scalar_slot_value};
 
-pub(in crate::db::data::persisted_row) const RETIRED_SLOT_PLACEHOLDER_PAYLOAD: &[u8] = &[0];
-
 /// Decode one slot payload through an accepted-schema field contract.
 ///
 /// It keeps accepted `AcceptedFieldKind` metadata intact for recursive
@@ -106,10 +104,6 @@ where
     F: FnMut(usize) -> Result<Cow<'a, Value>, InternalError>,
 {
     dense_slot_image_from_source(contract.field_count(), |slot| {
-        if !contract.has_active_field_slot(slot) {
-            return Ok(RETIRED_SLOT_PLACEHOLDER_PAYLOAD.to_vec());
-        }
-
         let value = value_for_slot(slot)?;
         let encoding = contract.required_accepted_field_persistence_contract(slot)?;
 

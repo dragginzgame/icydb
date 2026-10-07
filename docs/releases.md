@@ -90,9 +90,14 @@ for their actual validation commands, not just simulated fixture evidence.
 The common runner uses exactly this push shape with its saved selections:
 
 ```bash
-git push --no-follow-tags --atomic "$remote" \
+git push --no-follow-tags --atomic -- "$destination" \
   "$push_source:refs/heads/$branch" "refs/tags/v$candidate:refs/tags/v$candidate"
 ```
+
+`destination` is the sole push URL captured from the selected remote at entry.
+The runner rechecks that selection after validation and before push, rejecting
+changed or additional URLs. Observation and dispatch both use the captured URL,
+so a later remote-name change cannot redirect the push.
 
 `--no-follow-tags` disables implicit annotated-tag publication, including a
 configured `push.followTags`. Both refspecs are explicit: push the selected branch
@@ -187,7 +192,15 @@ bindings together during adoption. A failed consumer check still stops recovery.
 
 Release selections propagate through Make command-line variables, including
 `MAKEFLAGS` and `MAKEOVERRIDES`. Preserve them in normal adapters and same-checkout
-nested validation. An independently configured fixture owns its own selections:
+nested validation. The release runner, validation logger and formatting hook use
+`scripts/ci/check-make-execution.sh` to reject inherited ignore-errors, dry-run,
+question, touch and version-only modes before dispatch. An isolated Make probe
+must execute a harmless failing recipe and report its failure; it loads no consumer
+Makefile. Ordinary release variables and jobserver settings remain inherited by
+the actual targets. Rerun without the rejected mode. Consumer
+recipes must still propagate failures and execute their declared gate.
+
+An independently configured fixture owns its own selections:
 clear inherited `MAKEFLAGS`, `MFLAGS` and `MAKEOVERRIDES` before its Make calls,
 then supply the fixture's intended release variables explicitly.
 
@@ -251,13 +264,48 @@ from a separately chained command does not undo that successful branch/tag push.
 Package publication requires a consumer-owned publication command and an eligible
 package; do not append `make publish` automatically to the standard release flow.
 
+## Shared changelog finalization
+
+Release adapters reuse `scripts/ci/finalize-release-changelog.awk` for candidate
+selection and heading rewriting instead of implementing another changelog parser:
+
+```bash
+awk -v version="$RELEASE_VERSION" -v previous="$RELEASE_PREVIOUS" \
+  -v date="$RELEASE_DATE" \
+  -f scripts/ci/finalize-release-changelog.awk CHANGELOG.md > "$candidate"
+```
+
+The adapter validates these identities from the saved release intent and owns
+the temporary candidate path. Check the command's status before using its
+output; never redirect directly over the input. Preflight can discard a
+successful candidate without modifying the changelog. Preparation installs it
+inside the consumer's existing metadata transaction, preserving backups,
+rollback, receipts and exact prepared-payload checks.
+
+Pass the saved previous version even after package metadata has been bumped.
+Undated numbered sections at or below that version remain history. One pending
+numbered section must agree with the target; competing candidates or a target
+already dated differently are conflicts. The helper also understands the older
+`Draft` input, but maintained notes follow the numbered-draft rules. With no
+draft it creates the selected heading; it does not invent release-note content.
+
+The optional `-v allow_finalized=1` admits exactly one already-finalized target
+at the top with the same date and no pending candidate. Select it only where
+the adapter's recovery contract admits that exact state; it does not establish
+source, payload or publication identity. The helper is not a general historical
+ledger linter or an empty-note gate. Before deleting local selectors, review
+their extra checks separately: preserve independent corruption/identity checks,
+and reconcile prose requirements with the [changelog rules](../rules/changelogs.md).
+Do not silently change a consumer's refusal or recovery behavior during adoption.
+
 ## Adoption and verification
 
 The Makefile pattern specifies a contract; adding this document does not install
 helpers or prove consumer adoption. Consumers implement or align their targets,
 vendor a clean reviewed Shared Tooling revision with this document,
 `scripts/ci/run-release.sh`, `scripts/ci/next-release-version.sh` and any selected
-changelog helper in the [governance snapshot](consuming-snapshots.md), and qualify the workflow on their
+changelog helper, together with `scripts/ci/check-make-execution.sh`, in the
+[governance snapshot](consuming-snapshots.md), and qualify the workflow on their
 declared Linux and macOS hosts. Report upstream policy changes separately from
 verified consumer adoption.
 

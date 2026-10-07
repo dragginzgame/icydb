@@ -14,6 +14,67 @@ use std::ops::Bound;
 
 const SINGLE_MEMORY_MANAGER_BUCKET_PAGES: u64 = 128;
 
+#[test]
+fn positioned_publication_preserves_presence_and_cold_warm_cardinality() {
+    for materialized in [false, true] {
+        let memory = test_memory(230);
+        let mut store = DataStore::init_journaled(memory.clone());
+        let key = raw_key(1, 1);
+        store
+            .fold_recovered_journal_put(key.clone(), raw_row(11))
+            .expect("canonical seed");
+        drop(store);
+        let mut store = DataStore::init_journaled(memory);
+        if materialized {
+            store.rebuild_entity_cardinality_from_entries();
+        }
+        for (index, payload) in [Some(22), None, None, Some(33), Some(44), None]
+            .into_iter()
+            .enumerate()
+        {
+            store
+                .publish_positioned_journal_entry(
+                    key.clone(),
+                    payload.map(raw_row),
+                    overlay_position(index as u64 + 1),
+                )
+                .expect("positioned effect");
+            assert_eq!(store.contains(&key), payload.is_some());
+            assert_eq!(
+                store.get(&key).map(|row| row.as_bytes().to_vec()),
+                payload.map(|value| vec![value])
+            );
+            assert_eq!(
+                store.exact_entity_count(EntityTag::new(1)),
+                materialized.then_some(u64::from(payload.is_some()))
+            );
+            assert_eq!(
+                store.exact_entity_cardinality_delta(EntityTag::new(1)),
+                Some(if payload.is_some() { 0 } else { -1 })
+            );
+        }
+        let missing_key = raw_key(1, 2);
+        for (index, payload) in [None, Some(55), Some(66), None].into_iter().enumerate() {
+            store
+                .publish_positioned_journal_entry(
+                    missing_key.clone(),
+                    payload.map(raw_row),
+                    overlay_position(index as u64 + 7),
+                )
+                .expect("absent/live effect");
+            assert_eq!(store.contains(&missing_key), payload.is_some());
+            assert_eq!(
+                store.exact_entity_count(EntityTag::new(1)),
+                materialized.then_some(u64::from(payload.is_some()))
+            );
+            assert_eq!(
+                store.exact_entity_cardinality_delta(EntityTag::new(1)),
+                Some(if payload.is_some() { 0 } else { -1 })
+            );
+        }
+    }
+}
+
 fn raw_key(entity: u64, id: u64) -> RawDataStoreKey {
     DecodedDataStoreKey::new(
         EntityTag::new(entity),

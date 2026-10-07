@@ -43,7 +43,7 @@ of working versus committed sources and their release/preparation transactions.
 
 ## CI binary installers
 
-The actionlint, ShellCheck and gitleaks entry points delegate to
+The actionlint, ShellCheck, gitleaks and sccache entry points delegate to
 `scripts/ci/install-ci-tool.sh`. Their existing version, SHA-256 and installation
 directory arguments are unchanged. The implementation shares host selection,
 HTTPS download, checksum admission, extraction, exact version admission and
@@ -52,7 +52,38 @@ Staging lives on the destination filesystem; failures retain the candidate and
 leave the installed executable intact. Successful installation removes its own
 staging files. This does not merge repository-local host/IC bundle activation
 or change any consumer's pins. Include the internal helper and checksum verifier
-in snapshots with any of these three entry points.
+in snapshots with any of these entry points.
+
+`install-sccache.sh` uses the same explicit version, SHA-256 and installation
+directory arguments. Its reviewed asset scope is Linux x86-64, using the
+`sccache-vVERSION-x86_64-unknown-linux-musl.tar.gz` release asset. Other hosts
+are rejected before installation or download; consumers retain their explicit
+Cargo/native setup on those hosts. Extending binary asset selection requires
+reviewed pins and corresponding qualification, not guessed download names.
+The installer prints the selected executable path; callers own `GITHUB_PATH`,
+`RUSTC_WRAPPER`, cache configuration and any server startup. Include this entry
+point, `install-ci-tool.sh` and `verify-file-checksum.sh` in the same snapshot.
+
+## Compiler-cache launcher adoption
+
+`scripts/ci/run-sccache.sh` owns stable, repository-scoped temporary files and
+socket selection for a cache server that outlives one validation invocation.
+It forwards the exact arguments, diagnostics and exit status to `SCCACHE_BIN`;
+it does not select Cargo's compiler wrapper or retry compiler failures.
+
+Consumers with an existing cache-failure adapter can select that executable as
+`SCCACHE_BIN`, keeping the actual cache executable under a separate local
+selection. The shared launcher establishes the runtime before executing the
+adapter, which inherits `TMPDIR` and `SCCACHE_SERVER_UDS`. The adapter must not
+call the launcher recursively or reselect/delete its stable runtime directory.
+Keep fallback classification and diagnostic policy local until independently
+qualified for the selected cache version; text resembling a cache diagnostic
+does not by itself establish that a compiler has not already run.
+
+During adoption, replace duplicated directory/socket setup and retain focused
+checks for exact argv, compiler failure without replay, cache-management calls,
+adapter failure status and runtime survival after invocation scratch cleanup.
+Snapshot adoption does not change consumer toolchain or compiler-wrapper policy.
 
 ## Local documentation links
 
@@ -281,6 +312,33 @@ the input file, invoke dependency resolution online, or use this to repair an
 already inconsistent graph. The upstream fixture includes independent real-Cargo
 locked/offline validation with local-only dependencies.
 
+## Formatter prerequisites
+
+```bash
+source ci/tool-versions.env
+bash scripts/ci/check-format-tools.sh "$SHARED_TOOLING_CARGO_SORT_VERSION"
+# An independent workspace can select its prepared toolchain explicitly:
+RUSTUP_TOOLCHAIN="$VALIDATION_TOOLCHAIN" \
+  bash scripts/ci/check-format-tools.sh "$SHARED_TOOLING_CARGO_SORT_VERSION" /path/to/cargo
+```
+
+The helper requires an explicit exact cargo-sort version and accepts an optional
+Cargo executable path, defaulting to `cargo` on PATH. It requires successful
+`sort --version` with the exact expected output and successful `fmt --version`.
+It forces Cargo offline and disables rustup automatic installation for these
+probes; it never installs tools, formats files, resolves dependencies or builds.
+A command that prints the expected version but exits unsuccessfully is rejected.
+An executable path is one argument, not a shell command; use `RUSTUP_TOOLCHAIN`
+for a selected rustup toolchain instead of embedding `cargo +toolchain` in it.
+
+Vendor this file in the reviewed snapshot and call it from a prerequisite shared
+by `fmt` and `fmt-check`. Keep the pin in the consumer's reviewed versions file;
+setup and CI must use that same value. Retire the replaced local version checks.
+Consumers retain workspace discovery, nested manifests, rustfmt configuration,
+frontend adapters and additional formatting steps. Probe every independently
+selected toolchain. This check establishes availability, not that formatting
+covers the right files; the adoption checker below supplies that separate proof.
+
 ## Consumer formatting-hook adoption
 
 ```sh
@@ -300,8 +358,9 @@ proof. Never add synthetic dependencies to qualify a dependency-free consumer.
 Remaining relative arguments explicitly overlay additional current
 files needed by the consumer's formatter (other manifests, source, lockfiles,
 configuration or Make includes). The checker exports existing HEAD, overlays
-the named inputs plus Makefile/hook/installer, and stages them only in temporary
-repositories. It never creates commits or activates the real checkout's hook.
+the named inputs plus the Makefile, hook, installer and Make execution check,
+and stages them only in temporary repositories. It never creates commits or
+activates the real checkout's hook.
 README.md must exist as an unrelated-edit preservation input. Tracked files must
 be regular files, matching the shared hook's support contract.
 

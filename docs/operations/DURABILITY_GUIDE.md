@@ -182,8 +182,8 @@ surfaces in the current line.
 Supported:
 
 - normal IC stable-memory preservation for the same canister;
-- normal canister upgrade preservation when memory IDs and generated wiring
-  remain stable;
+- normal canister upgrade preservation when `memory_namespace`, journaled store
+  keys, accepted store paths and the committed `ic-memory` mapping remain stable;
 - startup recovery of IcyDB-produced interrupted commit/recovery state.
 
 Unsupported:
@@ -244,7 +244,8 @@ Before deploying durable IcyDB data:
 
 - use `storage(journaled(...))` for durable stores;
 - keep `heap()` stores limited to intentionally volatile state;
-- reserve stable-memory IDs and do not reuse them;
+- keep `memory_namespace` and journaled store keys permanent; never reuse a
+  retired identity or remap the committed `ic-memory` allocation slots;
 - use generated/session APIs instead of direct raw-store access;
 - use `execute_trusted_structural_mutation_batch` for bounded same-store
   all-or-nothing changes and its insert-only convenience shape for same-entity

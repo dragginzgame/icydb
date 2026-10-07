@@ -60,6 +60,18 @@ for workflow in "${workflow_files[@]}"; do
 done
 [[ -n "$ci_json" ]] || { echo '[ERROR] central CI workflow is missing' >&2; exit 1; }
 
+# Cargo observes inherited wrappers even during formatter installation. Each
+# job selecting sccache must provision it; static jobs use Cargo directly.
+unprepared_wrapper_jobs="$(jq -r '
+  . as $workflow | .jobs | to_entries[]
+  | select((.value.env.RUSTC_WRAPPER // $workflow.env.RUSTC_WRAPPER // "") == "sccache")
+  | select(any(.value.steps[]?; (.uses // "" | startswith("mozilla-actions/sccache-action@"))) | not)
+  | .key
+' <<< "$ci_json")"
+if [[ -n "$unprepared_wrapper_jobs" ]]; then
+  fail "jobs select sccache without provisioning it: $unprepared_wrapper_jobs"
+fi
+
 for target in ci-static ci-core ci-workspace ci-sql-tier-a ci-sql-tier-b; do
   if ! rg -q "^${target}:$" Makefile; then
     fail "Make is missing the shared $target validation authority"

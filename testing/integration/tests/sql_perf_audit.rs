@@ -172,7 +172,7 @@ fn preparation_measurement_wasm() -> Vec<u8> {
 #[test]
 #[ignore = "manual wasm-release grouped heap instruction and cycle measurement"]
 fn grouped_heap_wasm_cost_matrix() {
-    use ic_host_tools::artifact::Sha256Digest;
+    use ic_host_artifacts::artifact::Sha256Digest;
 
     let module = preparation_measurement_wasm();
     println!(

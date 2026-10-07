@@ -8,12 +8,13 @@ mod tests;
 
 use crate::{
     db::{
+        codec::{ByteDecodeError, ByteReader},
         commit::{
             marker::{
                 CommitMarker, MAX_COMMIT_BYTES, commit_marker_payload_capacity,
                 validate_commit_marker_shape, write_commit_marker_payload,
             },
-            store::{bytes::read_u32_le, marker_envelope::write_commit_marker_envelope_header},
+            store::marker_envelope::write_commit_marker_envelope_header,
         },
         integrity::DatabaseIncarnationId,
         registry::{StoreAllocationIdentities, StoreAllocationIdentity},
@@ -400,21 +401,25 @@ fn parse_current_control(bytes: &[u8]) -> Result<ParsedCurrentControl<'_>, Inter
     if bytes.len() < CURRENT_CONTROL_PREFIX_BYTES + COMMIT_MARKER_LENGTH_BYTES {
         return Err(control_slot_canonical_envelope_required());
     }
-    let mut cursor = COMMIT_CONTROL_MAGIC.len() + 1;
-    let database_incarnation_id = read_incarnation(bytes, &mut cursor)?;
-    let cursor_authentication_key = read_cursor_key(bytes, &mut cursor)?;
-    let database_commit_sequence = read_u64(bytes, &mut cursor)?;
-    let registry_count = usize::from(read_u8(bytes, &mut cursor)?);
+    let mut reader = ByteReader::new(&bytes[COMMIT_CONTROL_MAGIC.len() + 1..]);
+    let database_incarnation_id = DatabaseIncarnationId::try_from_bytes(
+        reader.read_array().map_err(primitive_decode_error)?,
+    )?;
+    let cursor_authentication_key = reader.read_array().map_err(primitive_decode_error)?;
+    validate_cursor_key(cursor_authentication_key)?;
+    let database_commit_sequence = reader.read_u64_le().map_err(primitive_decode_error)?;
+    let registry_count = usize::from(reader.read_u8().map_err(primitive_decode_error)?);
     if registry_count > MAX_PERSISTED_STORE_ALLOCATIONS {
         return Err(control_slot_canonical_envelope_required());
     }
     let mut registry = Vec::with_capacity(registry_count);
     for _ in 0..registry_count {
-        registry.push(read_registry_entry(bytes, &mut cursor)?);
+        registry.push(read_registry_entry(&mut reader)?);
     }
     validate_registry(registry.iter().map(|entry| entry.roles))?;
-    let marker_len = read_u32_le(bytes, &mut cursor)? as usize;
-    let encoded_len = cursor
+    let marker_len = reader.read_u32_le().map_err(primitive_decode_error)? as usize;
+    let marker_offset = bytes.len() - reader.remaining();
+    let encoded_len = marker_offset
         .checked_add(marker_len)
         .ok_or_else(control_slot_canonical_envelope_required)?;
     if encoded_len > MAX_COMMIT_BYTES as usize {
@@ -425,7 +430,7 @@ fn parse_current_control(bytes: &[u8]) -> Result<ParsedCurrentControl<'_>, Inter
         cursor_authentication_key,
         database_commit_sequence,
         registry,
-        marker_offset: cursor,
+        marker_offset,
         marker_len,
         encoded_len,
     })
@@ -469,25 +474,18 @@ fn write_current_control_prefix(
 }
 
 fn read_registry_entry<'a>(
-    bytes: &'a [u8],
-    cursor: &mut usize,
+    reader: &mut ByteReader<'a>,
 ) -> Result<StoreAllocationRef<'a>, InternalError> {
-    let state = match read_u8(bytes, cursor)? {
+    let state = match reader.read_u8().map_err(primitive_decode_error)? {
         1 => PersistedStoreAllocationState::Active,
         2 => PersistedStoreAllocationState::Retired,
         _ => return Err(control_slot_canonical_envelope_required()),
     };
     let mut roles = [(0, ""); STORE_ALLOCATION_ROLES];
     for role in &mut roles {
-        let memory_id = read_u8(bytes, cursor)?;
-        let key_len = usize::from(read_u8(bytes, cursor)?);
-        let key_end = cursor
-            .checked_add(key_len)
-            .ok_or_else(control_slot_canonical_envelope_required)?;
-        let key_bytes = bytes
-            .get(*cursor..key_end)
-            .ok_or_else(control_slot_canonical_envelope_required)?;
-        *cursor = key_end;
+        let memory_id = reader.read_u8().map_err(primitive_decode_error)?;
+        let key_len = usize::from(reader.read_u8().map_err(primitive_decode_error)?);
+        let key_bytes = reader.read_exact(key_len).map_err(primitive_decode_error)?;
         let stable_key = std::str::from_utf8(key_bytes)
             .map_err(|_| control_slot_canonical_envelope_required())?;
         *role = (memory_id, stable_key);
@@ -551,60 +549,11 @@ fn control_version(bytes: &[u8]) -> Result<u8, InternalError> {
         .ok_or_else(control_slot_canonical_envelope_required)
 }
 
-fn read_incarnation(
-    bytes: &[u8],
-    cursor: &mut usize,
-) -> Result<DatabaseIncarnationId, InternalError> {
-    let end = cursor.saturating_add(DATABASE_INCARNATION_BYTES);
-    let encoded: [u8; DATABASE_INCARNATION_BYTES] = bytes
-        .get(*cursor..end)
-        .ok_or_else(control_slot_canonical_envelope_required)?
-        .try_into()
-        .map_err(|_| control_slot_canonical_envelope_required())?;
-    *cursor = end;
-    DatabaseIncarnationId::try_from_bytes(encoded)
-}
-
-fn read_cursor_key(
-    bytes: &[u8],
-    cursor: &mut usize,
-) -> Result<[u8; CURSOR_AUTHENTICATION_KEY_BYTES], InternalError> {
-    let end = cursor.saturating_add(CURSOR_AUTHENTICATION_KEY_BYTES);
-    let key = bytes
-        .get(*cursor..end)
-        .ok_or_else(control_slot_canonical_envelope_required)?
-        .try_into()
-        .map_err(|_| control_slot_canonical_envelope_required())?;
-    *cursor = end;
-    validate_cursor_key(key)?;
-    Ok(key)
-}
-
 fn validate_cursor_key(key: [u8; CURSOR_AUTHENTICATION_KEY_BYTES]) -> Result<(), InternalError> {
     if key == [0; CURSOR_AUTHENTICATION_KEY_BYTES] {
         return Err(control_slot_canonical_envelope_required());
     }
     Ok(())
-}
-
-fn read_u8(bytes: &[u8], cursor: &mut usize) -> Result<u8, InternalError> {
-    let value = bytes
-        .get(*cursor)
-        .copied()
-        .ok_or_else(control_slot_canonical_envelope_required)?;
-    *cursor = cursor.saturating_add(1);
-    Ok(value)
-}
-
-fn read_u64(bytes: &[u8], cursor: &mut usize) -> Result<u64, InternalError> {
-    let end = cursor.saturating_add(size_of::<u64>());
-    let encoded = bytes
-        .get(*cursor..end)
-        .ok_or_else(control_slot_canonical_envelope_required)?
-        .try_into()
-        .map_err(|_| control_slot_canonical_envelope_required())?;
-    *cursor = end;
-    Ok(u64::from_le_bytes(encoded))
 }
 
 fn validate_stable_key(stable_key: &str) -> Result<(), InternalError> {
@@ -617,4 +566,9 @@ fn required_allocation(
     allocation: Option<StoreAllocationIdentity>,
 ) -> Result<StoreAllocationIdentity, InternalError> {
     allocation.ok_or_else(InternalError::store_invariant)
+}
+
+// This codec retains its domain classification for every primitive failure.
+fn primitive_decode_error(_: ByteDecodeError) -> InternalError {
+    control_slot_canonical_envelope_required()
 }

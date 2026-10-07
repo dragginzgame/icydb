@@ -1,7 +1,7 @@
 //! Module: db::codec::reader
 //! Responsibility: checked primitive reads from borrowed binary payloads.
 //! Does not own: format tags, envelope limits, or domain error classification.
-//! Boundary: format decoders -> bounded big-endian byte extraction.
+//! Boundary: format decoders -> checked byte extraction with explicit endianness.
 
 /// A truncated, oversized, malformed, or incompletely consumed primitive payload.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -63,6 +63,29 @@ impl<'a> ByteReader<'a> {
         Ok(u128::from_be_bytes(self.read_array()?))
     }
 
+    pub(in crate::db) fn read_u16_le(&mut self) -> Result<u16, ByteDecodeError> {
+        Ok(u16::from_le_bytes(self.read_array()?))
+    }
+
+    pub(in crate::db) fn read_u32_le(&mut self) -> Result<u32, ByteDecodeError> {
+        Ok(u32::from_le_bytes(self.read_array()?))
+    }
+
+    pub(in crate::db) fn read_u64_le(&mut self) -> Result<u64, ByteDecodeError> {
+        Ok(u64::from_le_bytes(self.read_array()?))
+    }
+
+    pub(in crate::db) fn read_u128_le(&mut self) -> Result<u128, ByteDecodeError> {
+        Ok(u128::from_le_bytes(self.read_array()?))
+    }
+
+    pub(in crate::db) fn read_len_prefixed_bytes_le(
+        &mut self,
+    ) -> Result<&'a [u8], ByteDecodeError> {
+        let len = usize::try_from(self.read_u32_le()?).map_err(|_| ByteDecodeError)?;
+        self.read_exact(len)
+    }
+
     pub(in crate::db) fn read_len_prefixed_bytes(&mut self) -> Result<&'a [u8], ByteDecodeError> {
         self.read_bounded_len_prefixed_bytes(usize::MAX)
     }
@@ -108,6 +131,37 @@ impl<'a> ByteReader<'a> {
 #[cfg(test)]
 mod tests {
     use super::{ByteDecodeError, ByteReader};
+
+    #[test]
+    fn little_endian_reads_preserve_known_wire_bytes() {
+        assert_eq!(ByteReader::new(&[0x34, 0x12]).read_u16_le(), Ok(0x1234));
+        assert_eq!(
+            ByteReader::new(&[0x78, 0x56, 0x34, 0x12]).read_u32_le(),
+            Ok(0x1234_5678)
+        );
+        let bytes = [0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01];
+        assert_eq!(
+            ByteReader::new(&bytes).read_u64_le(),
+            Ok(0x0123_4567_89ab_cdef)
+        );
+        let bytes = [
+            0xef, 0xcd, 0xab, 0x89, 0x67, 0x45, 0x23, 0x01, 0, 0, 0, 0, 0, 0, 0, 0x80,
+        ];
+        assert_eq!(
+            ByteReader::new(&bytes).read_u128_le(),
+            Ok(0x8000_0000_0000_0000_0123_4567_89ab_cdef)
+        );
+        let framed = [2, 0, 0, 0, b'a', b'b'];
+        let mut reader = ByteReader::new(&framed);
+        assert_eq!(reader.read_len_prefixed_bytes_le(), Ok(b"ab".as_slice()));
+        assert_eq!(reader.finish(), Ok(()));
+        for end in 0..framed.len() {
+            assert_eq!(
+                ByteReader::new(&framed[..end]).read_len_prefixed_bytes_le(),
+                Err(ByteDecodeError)
+            );
+        }
+    }
 
     #[test]
     fn failed_byte_reads_preserve_the_unread_payload() {

@@ -1,15 +1,18 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `d957d1f8801885c5b69e4a9ef900155f5f2a8a9d`. Root
-[AGENTS.md](../../AGENTS.md) is the local overlay; there are no baseline
-exceptions. Product architecture, resource limits, exact qualification gates
+at reviewed revision `bfb50bd0884b5e6c5ee9592056531c6108f96d73`. Root
+[AGENTS.md](../../AGENTS.md) is the local overlay. The shared approved layout
+retains the 42 existing canister, schema and testing packages in their
+restored directories, in the single root workspace and lockfile; no new package
+move is part of this adoption ([#310](https://github.com/dragginzgame/icydb/issues/310)).
+Product architecture, resource limits, exact qualification gates
 remain local; standard release commands follow the shared contract. A sibling checkout cannot silently change
 these rules.
 
 ## Ownership and provenance
 
-[The snapshot manifest](../../.shared-tooling.snapshot) records fifty-one exact
+[The snapshot manifest](../../.shared-tooling.snapshot) records sixty-two exact
 upstream files, including the baseline and all linked rules, shared principles,
 consumer/host guidance, formatting hook, shared audit methods, pinned host/IC
 setup and selected verification helpers and release fixtures. Every entry records SHA-256 and
@@ -24,20 +27,38 @@ CODEOWNERS covers shared guidance, the manifest and consumer tooling. The public
 GitHub description, “ic database”, was reviewed against the README and remains
 accurate; no remote metadata change was needed.
 
-Host artifact hashing and Wasm inspection consume registry `ic-host-tools` through
-`icydb-testing-integration` and `icydb-cli`; it is absent from runtime and canister dependencies.
-The library owns streaming SHA-256 computation, digest formatting, explicit
-executable resolution, hex decoding and core Wasm structure decoding for size
-reports. CLI normalization retains its current labels and whitespace handling
+The four registry host packages at 0.3 are consumed only by host tooling.
+`icydb-testing-integration` selects `ic-host-artifacts` with its `wasm` feature
+for streaming hashes, digest formatting and report/method structure inspection,
+and `ic-host-process` for executable resolution, pinned admission and bounded
+execution. `icydb-cli` uses the artifact stream reader for diagnostic error JSON,
+`ic-host-fs` for opened schema-artifact admission and bounded reads, and retains
+IC response decoding in `ic-host-tools`.
+These direct dependencies are absent from runtime and canister packages.
+CLI normalization retains its current labels and whitespace handling
 before shared decoding; no command grammar or Candid policy changes. Inspection count ceilings derive from input length;
 the consumer keeps defined-function counts and code-section payload bytes in
 report format v1. Structure inspection does not establish instruction/type
-validity or deployability. IcyDB retains
-optimizer pins and admission, paths, report format v1, subprocess execution and
-optimization policy. Report hashing preserves its whole-stream byte allowance.
+validity or deployability. IcyDB retains method/CDK policy, JSON/provenance checks,
+optimizer pins, paths, report format v1, publication/cache and optimization policy.
+Diagnostic reads retain 64 KiB/2 MiB limits and selected-file symlink behavior;
+schema artifacts require regular files. Optimizer execution explicitly supplies
+the inherited environment, with 1 MiB per captured stream and a 600-second
+operational deadline. Shared admission checks the pin and version; its handle
+rechecks the executable digest before each batch transform. Captured failure and
+cleanup evidence is retained. Report hashing preserves its whole-stream allowance.
 The native host CI lanes compile both consumers and exercise optimizer admission,
 report identities and Wasm structural counts; Linux qualification does not establish native
 macOS execution.
+
+The current published host source is `38a2a5127be064014e6d39d72d0300ffb2cf20be` in
+[IC Host Tooling](https://github.com/dragginzgame/ic-host-tooling). Its four
+0.3.1 archives match the selected registry checksums. Testkit's locked dependency
+on the old host package is retained until its owning
+[adoption issue](https://github.com/dragginzgame/ic-testkit/issues/13) is resolved;
+IcyDB adds no compatibility path. Candid extraction and streamed ICP artifact
+publication now use these shared owners, with qualification below
+([#307](https://github.com/dragginzgame/icydb/issues/307)).
 
 Two demonstrated consumer requirements use adapters outside the snapshot:
 
@@ -50,7 +71,8 @@ Two demonstrated consumer requirements use adapters outside the snapshot:
 
 The format-1 manifest is an existing upstream provenance boundary, not database
 state. The refreshed LOC tool counts disjoint member-owned files, excludes nested
-workspace members and classifies test paths relative to each crate. No sccache
+workspace members and Cargo's selected target directory, and classifies test
+paths relative to each crate. No sccache
 lifecycle change is introduced without a demonstrated consumer failure.
 
 The shared lockfile rewriter owns exact local package identities and preserves
@@ -161,11 +183,18 @@ and cheaply verify every affected independent graph if one is introduced.
 [The common pin matrix](../../ci/ic-tools.tsv) selects ICP CLI 1.6.0,
 ic-wasm 0.11.1, ic-admin, didc, Binaryen 132 and PocketIC 16.0.0 for all three
 supported hosts. [Shared host selections](../../ci/tool-versions.env) select jq,
-yq, PCRE2-enabled ripgrep and the common formatter; [IcyDB utility selections](../../ci/icydb-tools.env)
+yq, PCRE2-enabled ripgrep, cloc 2.10 and the common formatter; [IcyDB utility selections](../../ci/icydb-tools.env)
 retain candid-extractor, Twiggy and Cargo helpers. `make install-tools` explicitly
 installs verified host/IC toolsets; `make tools-check` checks them offline.
-Make and CI select checkout-local executables. Workstation setup delegates to
-these commands, with no second npm/Cargo ICP or ic-wasm installation.
+[The shared Make include](../../make/tools.mk) owns setup, offline verification,
+`make cloc` for this workspace and `make cloc-tooling` for a sibling tooling
+inventory. Make and CI select checkout-local executables; workstation setup
+uses the same targets and does not install a second system cloc. Interactive
+shells must add `.tools/host/bin` and `.tools/ic/bin` to PATH explicitly, as
+[the setup guide](../local-setup.md) describes. IcyDB adds independent PocketIC
+alignment and raw optimizer admission prerequisites to `ic-tools-check`; the
+shared include retains bundle verification. No second npm/Cargo ICP or ic-wasm
+installation is selected ([#302](https://github.com/dragginzgame/icydb/issues/302)).
 
 IcyDB retains raw optimizer executable admission and the Binaryen 132 pipeline
 identity. Shared archive pins are provisioning metadata, not optimizer admission.
@@ -175,8 +204,8 @@ Ordinary validation never downloads missing executables.
 
 ## Audit and verification ownership
 
-Shared Tooling 0.1.8 is adopted from committed revision
-`d957d1f8801885c5b69e4a9ef900155f5f2a8a9d`. The
+Shared Tooling 0.1.11 is adopted from committed revision
+`46c02774a8335cb3949d6f04284c4f53375353c1`. The
 [shared methods](../../audits/README.md) own generic audit procedure;
 [IcyDB's catalog](../audits/README.md) selects scopes, report paths, test evidence
 and product overlays:
@@ -254,6 +283,213 @@ failed on an empty array under nounset; Ubuntu passed in the
 The current snapshot includes the upstream correction. Linux checks do not
 establish macOS release readiness or weaken its support requirement. See
 [installation prerequisites](../../INSTALLING.md#system-prerequisites).
+
+### 2026-10-07 compatible Shared Tooling 0.1.12 pass
+
+The 56-file snapshot selects committed `33c2a6f`. Its complete governance export,
+read-only exact-commit CI helper and nonempty Cargo runner come from a clean
+detached source checkout. The distribution helper exported that exact selection
+to an isolated consumer; every existing local snapshot byte/mode was qualified
+before applying it, preserving unrelated dirty work and the real Git index.
+No shared file was patched locally. Baseline and maintenance rule move together;
+the installer/verifier/release fixes retain their consumer-owned inputs.
+
+Focused Linux checks pass: compromised-checksum-helper and distribution refusals,
+destination-drift release fixtures, exact-commit CI-selection fixtures, installer
+preservation, IcyDB adapters/metadata, graph, shell lint and workflow invariants.
+Release/CI-selection/verifier and nonempty-runner boundaries also pass under
+Linux Bash 3.2. Real dependency-free Cargo execution qualifies passing selection,
+zero-test exit 3 and retained failed-test exit 101; the initially missing fixture
+lockfile refusal was retained before explicit offline fixture preparation.
+Product Rust tests and full repository/release gates were not run.
+
+The upstream exact-source [0.1.12 CI](https://github.com/dragginzgame/shared-tooling/actions/runs/37511845192)
+passes Linux and both native macOS jobs. IcyDB's native CI now checks shared CI
+inspection and uses the nonempty runner for its existing focused tests; those
+uncommitted consumer changes have no native result yet
+([#309](https://github.com/dragginzgame/icydb/issues/309)). Evidence is retained
+under `target/shared-tooling-012-pass/`. Runtime/package versions, dependency
+selections and previous Rust edits are preserved; permitted performance deltas
+remain unmeasured and no local network lifecycle action occurred.
+
+At that handoff, the newer committed 0.1.13 layout policy was reviewed but not
+adopted; its 42 package moves were independently scoped in
+[#310](https://github.com/dragginzgame/icydb/issues/310).
+The Make-mode bypass remains owned by
+[Shared Tooling #30](https://github.com/dragginzgame/shared-tooling/issues/30) and
+its consumer [#311](https://github.com/dragginzgame/icydb/issues/311); the LOC
+build-output correction remains owned by
+[Shared Tooling #31](https://github.com/dragginzgame/shared-tooling/issues/31).
+These source observations are separate from the normal-environment passes above.
+
+### 2026-10-07 layout rollback and retained CI repair
+
+The maintainer explicitly requested reversal of the prepared package moves
+([#310](https://github.com/dragginzgame/icydb/issues/310)). The 42 packages are
+restored to their original `canisters/`, `schema/` and `testing/` locations, with
+active callers, fixture/coverage references, shared SQL source paths, current
+guides and release inventory restored together. At that rollback, the snapshot returned
+to the previously reviewed 56-file 0.1.12 selection. Package identities,
+versions, features, dependencies, lockfile and prior source edits are preserved.
+The earlier move's evidence remains under `target/shared-tooling-layout/`;
+rollback evidence lives under `target/shared-tooling-layout-revert/`.
+
+Shared Tooling 0.1.14 is committed at `25e7ce83149e081e4dcc52c55c33724e44153f2a`.
+Its clarified workspace rule allows both reusable packages under `crates/`
+and application-owned packages under `apps/<app>/<component-role>/`
+([Shared Tooling #34](https://github.com/dragginzgame/shared-tooling/issues/34)).
+The rule does not require flattening compliant application packages into
+`crates/`. This rollback restores the requested existing paths; it does not
+introduce another relocation or claim adoption of the 0.1.14 policy.
+
+The inspected [consumer CI](https://github.com/dragginzgame/icydb/actions/runs/37496328220)
+failed static formatter installation because its global sccache wrapper had no
+provisioning in that job. The retained correction scopes the wrapper to the
+three jobs that install it, and parsed workflow fixtures reject missing
+provisioning. CI's MSRV matches the existing manifest's 1.96 declaration. The
+workstation correction passes with nested Bash 3.2 on Linux; native macOS
+qualification remains pending
+([#309](https://github.com/dragginzgame/icydb/issues/309)).
+
+Shared Make-mode, LOC and host-guide fixes are now committed in 0.1.14
+([#30](https://github.com/dragginzgame/shared-tooling/issues/30),
+[#31](https://github.com/dragginzgame/shared-tooling/issues/31),
+[#35](https://github.com/dragginzgame/shared-tooling/issues/35)). Their earlier
+prepared-source Linux fixtures passed, but those changes were not included in the
+rollback's 0.1.12 snapshot. Their subsequent adoption is recorded below; native
+consumer qualification remains separate. No commits, pushes or local network
+lifecycle actions occurred; full workspace/release gates were not run. Raw
+Wasm-size, IC-cycle and instruction deltas remain unmeasured.
+
+### 2026-10-07 committed 0.1.14 issue repairs
+
+The current 58-file snapshot selects exact committed `25e7ce8`, exported from a
+clean detached checkout. Uncommitted sibling LOC/sibling-report changes are
+excluded. The new Make execution helper accompanies all three callers and their
+consumer fixture copies. It qualifies execution and failure propagation before
+Git observation, formatting, or successful validation evidence. The local
+Makefile parse barrier prevents an outer ignore-errors invocation from
+suppressing a refusal; logger recipe prefixes retain jobserver descriptors.
+Existing release and hook behavior uses one shared authority, with no new mode
+or release state ([#311](https://github.com/dragginzgame/icydb/issues/311),
+[Shared Tooling #30](https://github.com/dragginzgame/shared-tooling/issues/30)).
+
+Focused consumer release, adapter and real staged-formatting fixtures pass on
+Linux under Bash 5 and nested Bash 3.2. Unsafe compact/long Make controls are
+refused; selected files/index and prior complete logs survive. Real nested
+parallel Make retains its selections and jobserver. Release Git effects are
+strict substitutes; formatting fixtures reuse existing objects without commits.
+Committed LOC fixtures qualify default/custom output paths, including literal
+glob characters; all 49 current consumer member totals match the prior report.
+Locked member metadata and Cargo.lock are unchanged. Snapshot, scoped ShellCheck,
+parsed workflow fixtures, actionlint and documentation checks pass. Evidence is
+retained under `target/shared-tooling-014/`. The existing native CI lane includes
+the shared release fixture; native consumer execution remains pending, and full
+workspace/release gates were not requested. No network lifecycle action occurred.
+
+The maintainer-directed layout exception in AGENTS.md preserves the 42 restored
+package paths, one workspace and its lockfile (#310). No product functions,
+methods or types are removed. The issue repair changes 30 files by approximately
+425 net added lines, principally canonical governance, admission and fixtures;
+implementation shape remains neutral, with no additional execution flow or
+persisted state. Raw Wasm-size, IC-cycle and instruction deltas are unmeasured.
+
+### 2026-10-07 direct host deduplication
+
+The published 0.3.0 owners now replace six local helpers: `read_name`,
+`read_u32_leb`, `take_byte` and `take_bytes` in canister method inspection;
+`sha256_hex` and `format_process_failure` in optimizer execution. Shared Wasm
+facts own framing; admitted tools own executable hashing/version checks and
+bounded capture. A typed local error projection preserves captured diagnostics
+and cleanup outcomes. Diagnostic stream/file read mechanics also converge on
+shared owners, with one current JSON/provenance authority in IcyDB.
+
+Focused Linux qualification passes: strict CLI/integration Clippy, 53 diagnostic
+tests, six method/ABI tests, two real optimizer tests, two cold/warm batch tests
+and eight report tests. Manifest ordering, graph, workflow and documentation
+checks pass. The CLI adds artifact/filesystem dependency edges; integration
+drops the filesystem edge no longer used after shared admission. All package
+selections/checksums and the root manifest remain unchanged. The initially
+uncached locked IC Metrics 0.2.3 was prepared at that exact version before
+successful offline checks; no dependency upgrade was substituted.
+
+Evidence is retained under `target/host-dedup-030/`. Native macOS CI now includes
+diagnostic reads, method inspection, spaced optimizer paths, failed-output
+preservation and continued batches; native consumer results remain pending.
+Full workspace/release gates were not requested. Raw Wasm bytes, IC cycles and
+instructions are unmeasured; no ICP/PocketIC lifecycle action occurred.
+
+### 2026-10-06 four-package host adoption
+
+IcyDB's four direct host selections are published 0.3.0 packages from `efd402e`.
+Strict selected CLI/integration Clippy passes, including the report binary and
+all integration targets with moved digest imports. Eight report tests preserve
+whole-stream artifact identities and Wasm structure facts; one real optimizer
+admission test and two CLI response-decoding tests pass. The selected lock graph
+and manifest ordering pass. Existing package versions are preserved; the graph
+adds Wasm parser 0.261.0 for the artifact crate's explicitly enabled feature.
+
+The first offline resolution attempt stopped at the uncached locked IC Memory
+0.28.4 selection. Exact cache preparation and locked fetching completed before
+successful offline qualification; no unselected dependency upgrade was used.
+Evidence is retained under `target/host-packages-030/`. The existing native CI
+lanes already compile both consumers and run these host contracts, but the local
+changes have no native consumer macOS result yet. Full repository/release gates
+were not requested. Raw Wasm bytes, IC cycles and instructions are unmeasured;
+no ICP or PocketIC network lifecycle action occurred.
+
+### 2026-10-06 committed 0.1.11 follow-up
+
+At that adoption the 52-file snapshot selected `46c0277`. The baseline and agent-maintenance
+rule are refreshed together: authorized local repairs are applied in the working
+tree and upstream findings are reported in their owning GitHub issues. IcyDB's
+product, broad-validation and release boundaries remain local.
+
+The committed correction for
+[Shared Tooling #22](https://github.com/dragginzgame/shared-tooling/issues/22)
+keeps successful and ignored Rust `error::` names plain, actual diagnostics and
+failed tests highlighted, and surrounding retained context neutral. Shared logger
+fixtures and IcyDB's adapter checks pass under Linux Bash 5 and 3.2, including
+nested target execution and complete raw combined logs. The adopted release
+fixtures also qualify exact changelog ownership for large major/minor/patch
+components on the local AWK executable
+([Shared Tooling #23](https://github.com/dragginzgame/shared-tooling/issues/23)).
+The committed upstream fixture-retention launcher passes its injected failure
+and preservation checks under Linux Bash 3.2
+([Shared Tooling #21](https://github.com/dragginzgame/shared-tooling/issues/21)).
+Logs are retained under `target/shared-tooling-011/`. The
+[matching upstream CI run](https://github.com/dragginzgame/shared-tooling/actions/runs/37500153922)
+was still running at handoff; neither it nor Linux Bash 3.2 establishes native macOS
+qualification. Full IcyDB workspace/release gates and native consumer checks
+remain user/CI-owned. Cargo versions, the existing lock update, Git index and
+published notes are preserved. Raw Wasm bytes, IC cycles and instructions are
+unmeasured; these changes add no database behavior or validation mode.
+
+### 2026-10-06 committed 0.1.10 follow-up
+
+At this adoption the 52-file snapshot selected `21f3ec3`. IcyDB's formatting targets
+probe the reviewed cargo-sort pin and prepared rustfmt through the shared offline
+owner. The real consumer formatter and staged-hook fixtures pass under Linux
+Bash 3.2 with repository-local release scratch directories. Shared formatter
+refusal fixtures and all 87 substitute-Git tag-maintenance cases pass; these
+checks neither install tools nor mutate real tags. Logs are retained under
+`target/shared-tooling-010/`.
+
+[The committed upstream CI run](https://github.com/dragginzgame/shared-tooling/actions/runs/37491682760)
+passes Linux and lint/security. Both native macOS portable jobs pass their
+formatter and hook checks, then fail in the fixture-retention launcher. The
+BSD-sed shebang defect and then-uncommitted correction were tracked in
+[Shared Tooling #21](https://github.com/dragginzgame/shared-tooling/issues/21#issuecomment-6020926815).
+This is not consumer native qualification. The separate logger correction in
+[Shared Tooling #22](https://github.com/dragginzgame/shared-tooling/issues/22)
+was also uncommitted and excluded from that snapshot. Both corrections are now
+committed in the separately qualified 0.1.11 adoption above.
+
+The concurrent dependency-lock update is preserved. Its selected packages were
+fetched with the lock held unchanged into IcyDB's designated Cargo home before
+continuing offline focused checks. Full repository/release gates and native
+consumer macOS checks remain user/CI-owned. Raw Wasm bytes, IC cycles and
+instructions are unmeasured; no timing measurements replace them.
 
 ### 2026-10-06 Cargo and installer adoption
 
@@ -530,3 +766,85 @@ remaining hosted/release coordination; no additional library API gap was found.
 The upstream [documentation follow-up](https://github.com/dragginzgame/ic-metrics/issues/3#issuecomment-6011590931)
 requests a platform-gated Rust import example for native Candid builds; detailed
 unpublished qualification artifacts remain local.
+
+## 2026-10-07 host extraction and streamed publication
+
+The selected four 0.3.1 packages come from committed `38a2a51`; all 42 packaged
+Rust source files match that revision. Dirty 0.3.2 source and response-only feature
+changes are excluded. Integration directly consumes filesystem/tools in addition
+to artifacts/process, adding only two dependency edges; every selected package
+version and checksum is preserved.
+
+Candid extraction now shares tool admission, bounded capture, executable
+rechecks and source before/after identity checks. The local adapter supplies the
+existing setup version catalog, explicit inherited environment, 1 MiB per-stream
+bounds and a 600-second operational deadline. Its digest captures the selected
+installed executable; it does not claim an upstream binary pin. Exact original
+stdout remains the artifact/manifest authority, preserving trailing whitespace
+and blank lines. Canic normalization does not change IcyDB's retained text.
+
+ICP staging uses shared stream copying and durable per-file replacement,
+preserving source Wasm permissions. Publication is not a multi-file transaction.
+The selected build feature determines deliberate Candid omission and removal of
+stale DID; an unexpected extractor failure preserves the old DID and returns an
+error. Report identities use bytes and digest from one admitted file stream.
+
+Focused Linux checks pass: warning-denied integration library/report and the
+three modified guard targets; seven artifact tests and eight report tests. The
+real installed extractor exercises exact text, paths with spaces, permissions,
+source preservation, failed extraction and explicit omission. Existing native CI
+already selects the artifact/report tests; native macOS consumer execution and
+full workspace/release gates remain pending/user-owned. No ICP or PocketIC
+network lifecycle action occurred. The initial missing selected IC Memory 0.30.0
+cache and test digest type error remain in retained logs; exact locked fetch and
+corrected source precede successful offline checks.
+
+Deleted the three local `extract_candid` closures in schema_guard, sql_guard and
+read_authority integration tests; their inspected manifests supply the same
+complete text. The production adapter grows by 27 lines to supply admission and
+bounds, while duplicate extraction/publication mechanics converge upstream.
+No production function, method or type is deleted. New tests and qualification
+notes account for the remaining footprint; input hashes and incremental changes
+are retained under `target/host-dedup-031/`.
+
+[Consumer #307](https://github.com/dragginzgame/icydb/issues/307) owns this adoption.
+Further named external-tool publication is tracked in
+[Host #8](https://github.com/dragginzgame/ic-host-tooling/issues/8); borrowed error
+evidence access is tracked in [Host #9](https://github.com/dragginzgame/ic-host-tooling/issues/9).
+Response-only tools dependencies remain publication-gated in
+[Host #3](https://github.com/dragginzgame/ic-host-tooling/issues/3). These are API
+proposals, not alternate local implementations or consumed unreleased source.
+Raw Wasm-size, IC-cycle and instruction deltas remain unmeasured.
+
+
+## 2026-10-07 response-only CLI and borrowed process evidence
+
+The four selected host packages at 0.3.3 are published from committed
+`3d18ca9a9ed0ac5935a16c5bac99694d8e9a7d0a`; all 46 packaged Rust source files
+match that immutable revision. The earlier 0.3.1/0.3.2 qualification above is
+historical evidence, not the current dependency selection.
+
+Root `ic-host-tools` disables defaults and declares the 0.3.2 minimum required
+for profile selection. The CLI uses response decoding alone and its normal
+graph excludes `ic-host-process`; its separately required artifact/filesystem
+edges remain. Integration explicitly enables `candid-extraction`, retaining
+shared extraction, bounded execution and identity rechecks. The process edge
+requires 0.3.3 for borrowed `ToolError::evidence()` and `execution_error()`;
+IcyDB's formatter retains captured streams, status and kill/wait diagnostics
+without mapping upstream error variants itself. No command/output grammar,
+executable admission policy, capture limit or runtime contract changes
+([IcyDB #307](https://github.com/dragginzgame/icydb/issues/307),
+[Host #3](https://github.com/dragginzgame/ic-host-tooling/issues/3),
+[Host #9](https://github.com/dragginzgame/ic-host-tooling/issues/9)).
+
+The existing native CI selections independently compile/test the CLI response
+profile and integration extraction. Focused Linux evidence stays under
+`target/host-response-032/`; final source records identify 0.3.3 separately from
+the first 0.3.2 pass. Native consumer qualification and full workspace/release
+gates remain separate. The only lock changes are the four host packages; the
+maintainer-selected IC Timers 0.14.7 and IC Testkit 0.20.0 remain unchanged.
+
+Portable external-producer staging remains [Host #8](https://github.com/dragginzgame/ic-host-tooling/issues/8).
+Version-only installed-tool admission remains [Host #11](https://github.com/dragginzgame/ic-host-tooling/issues/11);
+IcyDB's current Candid digest is still explicitly an installed-tool observation.
+Those shared API gaps do not justify local fallback implementations.

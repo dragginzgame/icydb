@@ -9,6 +9,7 @@ repository_root="$(cd "$repository_root" && pwd -P)"
 [[ "$repository_root" == "$root" ]] || { echo 'hook setup requires the repository root.' >&2; exit 1; }
 [[ -f Cargo.toml && -f Makefile ]] || { echo 'hook setup requires a Rust repository and its Makefile fmt target.' >&2; exit 1; }
 [[ ! -L .githooks && -f .githooks/pre-commit && ! -L .githooks/pre-commit && -x .githooks/pre-commit ]] || { echo 'tracked .githooks/pre-commit must be a regular executable file in a regular hook directory.' >&2; exit 1; }
+[[ -f scripts/ci/check-make-execution.sh && ! -L scripts/ci/check-make-execution.sh ]] || { echo 'hook setup requires the shared Make execution check.' >&2; exit 1; }
 
 if current="$(git config --get core.hooksPath)"; then
     if [[ "$current" != .githooks ]]; then

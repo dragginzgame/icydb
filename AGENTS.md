@@ -2,10 +2,13 @@
 
 Apply the local [shared engineering baseline](DRAGGINZGAME.md), recorded in
 [the snapshot manifest](.shared-tooling.snapshot) at reviewed revision
-`d957d1f8801885c5b69e4a9ef900155f5f2a8a9d`. This file is
-IcyDB's local overlay; there are no baseline exceptions. See
-[shared-tooling adoption](docs/governance/shared-tooling.md) for tool provenance
-and consumer boundaries. Keep this file small; open detailed docs as needed.
+`bfb50bd0884b5e6c5ee9592056531c6108f96d73`. This file is IcyDB's local overlay.
+The shared [approved layout](rules/rust-workspaces.md#approved-icydb-layout)
+retains existing packages under `crates/`, `canisters/`, `schema/` and `testing/`
+in the single root workspace and lockfile. Adoption does not authorize relocation
+or another workspace; [issue #310](https://github.com/dragginzgame/icydb/issues/310)
+owns future placement decisions. See [shared-tooling adoption](docs/governance/shared-tooling.md)
+for provenance and consumer boundaries. Keep this file small; open detailed docs as needed.
 
 ## Hard Rules
 

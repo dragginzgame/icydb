@@ -8,8 +8,9 @@ the independent, non-mutating formatting gate.
 ## One formatting contract
 
 - Vendor the reviewed Shared Tooling `.githooks/pre-commit` and
-  `scripts/dev/install-git-hooks.sh` unchanged in the
-  [recorded snapshot](../docs/consuming-snapshots.md). Keep both executable.
+  `scripts/dev/install-git-hooks.sh`, with `scripts/ci/check-make-execution.sh`,
+  unchanged in the [recorded snapshot](../docs/consuming-snapshots.md).
+  Keep the hook and installer executable.
   Retire the superseded local formatter hook after reviewing its obligations.
 - Every Rust repository provides `make fmt` and `make fmt-check`. Both cover the
   same maintained Rust workspaces, including standalone nested workspaces,
@@ -17,8 +18,12 @@ the independent, non-mutating formatting gate.
   `fmt` runs `cargo sort --workspace` before `cargo fmt --all` for each workspace;
   `fmt-check` uses `cargo sort --workspace --check` and
   `cargo fmt --all -- --check`. This sorts the root and every member's Cargo.toml,
-  including the root dependency catalog and inherited child tables. Explicitly
-  cover standalone/excluded manifests outside that workspace's member set.
+  including members under `crates/`, `apps/` and approved layout trees, the root
+  dependency catalog and inherited child tables. Explicitly cover
+  standalone/excluded manifests outside that workspace's member set.
+  Independent workspaces and their locations follow the
+  [workspace layout rules](rust-workspaces.md); formatter coverage does not
+  itself grant a layout exception.
 - Use the `cargo-sort` tool for manifest ordering. Record an exact reviewed
   version in the consumer's developer and CI setup and use the same version in
   both; Shared Tooling's fixtures use `2.1.4`, matching Canic's reviewed selection.
@@ -57,6 +62,11 @@ fmt-check:
 	cargo fmt --all -- --check
 ```
 
+Use the shared [formatter prerequisite check](../docs/verification-helpers.md#formatter-prerequisites)
+before both targets instead of duplicating version comparisons. It admits the
+consumer's exact cargo-sort pin and prepared rustfmt without installing tools.
+Consumer setup still owns installation and toolchain selection.
+
 For a separate `testing/` workspace, also run `cargo sort --workspace testing`
 before `cargo fmt --manifest-path testing/Cargo.toml --all`, with their `--check`
 equivalents in `fmt-check`. Pass one workspace root per `cargo sort --workspace`
@@ -73,6 +83,8 @@ hand-written sort or rewrite dependency declarations to enforce ordering.
   manifests, configuration and Make targets. It does not use unstaged working
   versions. It clears inherited Git repository/index variables for formatters,
   while preserving the original commit index for its own checks and staging.
+  It rejects inherited Make ignore-errors, dry-run, question, touch and version-only modes
+  before dispatch, so a skipped or failed formatter cannot refresh the index.
 - After successful formatting, the hook checks that the index and selected
   working files have not changed, copies formatting back to those selected files
   and refreshes only that selection. Unselected tracked files, untracked files

@@ -27,6 +27,6 @@ Apply the [common authority and evidence contract](README.md).
    with former owner, reason and replacement if any; distinguish moves/renames.
 
 The original finding remains evidence. Record implementation and new checks with
-their own source identity, and update the owning GitHub issue only within
-authorized issue-write scope. Never rewrite a historical audit to imply the
+their own source identity, and update the owning GitHub issue under the baseline's
+standing issue authorization. Never rewrite a historical audit to imply the
 repair was already present.

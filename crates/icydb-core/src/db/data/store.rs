@@ -182,7 +182,7 @@ impl DataStore {
             }
         };
         self.entity_cardinality
-            .apply_insert(&cardinality_key, previous.as_ref());
+            .apply_insert(&cardinality_key, previous.is_some());
         self.apply_entity_overlay_delta(&cardinality_key, previous.is_some(), true);
         self.bump_generation();
         previous
@@ -212,7 +212,7 @@ impl DataStore {
             }
         };
         self.entity_cardinality
-            .apply_insert(&cardinality_key, previous.as_ref());
+            .apply_insert(&cardinality_key, previous.is_some());
         self.apply_entity_overlay_delta(&cardinality_key, previous.is_some(), true);
         self.bump_generation();
         previous
@@ -235,7 +235,8 @@ impl DataStore {
                 previous_journaled
             }
         };
-        self.entity_cardinality.apply_remove(key, previous.as_ref());
+        self.entity_cardinality
+            .apply_remove(key, previous.is_some());
         self.apply_entity_overlay_delta(key, previous.is_some(), false);
         self.bump_generation();
         previous
@@ -297,7 +298,7 @@ impl DataStore {
         let cardinality_key = key.clone();
         live.insert(key, row);
         self.entity_cardinality
-            .apply_insert(&cardinality_key, previous.as_ref());
+            .apply_insert(&cardinality_key, previous.is_some());
         self.apply_entity_overlay_delta(&cardinality_key, previous.is_some(), true);
         self.bump_generation();
 
@@ -310,39 +311,34 @@ impl DataStore {
         key: RawDataStoreKey,
         row: Option<RawRow>,
         position: JournalOverlayPosition,
-    ) -> Result<Option<RawRow>, crate::error::InternalError> {
+    ) -> Result<(), crate::error::InternalError> {
+        // Cardinality needs presence only; never materialize a previous row.
+        let previous_present = self.contains(&key);
         let DataStoreBackend::Journaled {
-            canonical,
             live,
             tombstones,
             positions,
             entity_cardinality_delta,
+            ..
         } = &mut self.backend
         else {
             return Err(crate::error::InternalError::store_invariant());
-        };
-        let previous = if tombstones.contains(&key) {
-            None
-        } else {
-            live.get(&key).cloned().or_else(|| canonical.get(&key))
         };
         let next_present = row.is_some();
         if let Some(row) = row {
             tombstones.remove(&key);
             live.insert(key.clone(), row);
-            self.entity_cardinality
-                .apply_insert(&key, previous.as_ref());
+            self.entity_cardinality.apply_insert(&key, previous_present);
         } else {
             live.remove(&key);
             tombstones.insert(key.clone());
-            self.entity_cardinality
-                .apply_remove(&key, previous.as_ref());
+            self.entity_cardinality.apply_remove(&key, previous_present);
         }
-        entity_cardinality_delta.apply_presence_transition(&key, previous.is_some(), next_present);
+        entity_cardinality_delta.apply_presence_transition(&key, previous_present, next_present);
         positions.publish_preflighted(key, position);
         self.bump_generation();
 
-        Ok(previous)
+        Ok(())
     }
 
     /// Validate and publish one positioned row for direct store tests.
@@ -352,7 +348,7 @@ impl DataStore {
         key: RawDataStoreKey,
         row: Option<RawRow>,
         position: JournalOverlayPosition,
-    ) -> Result<Option<RawRow>, crate::error::InternalError> {
+    ) -> Result<(), crate::error::InternalError> {
         self.preflight_positioned_journal_entry(&key, position)?;
         self.publish_preflighted_journal_entry(key, row, position)
     }
@@ -474,7 +470,7 @@ impl DataStore {
         let previous = canonical.insert(key, row);
         if visible {
             self.entity_cardinality
-                .apply_insert(&cardinality_key, previous.as_ref());
+                .apply_insert(&cardinality_key, previous.is_some());
         } else if previous.is_none() {
             self.apply_entity_overlay_delta(&cardinality_key, true, false);
         }
@@ -501,7 +497,8 @@ impl DataStore {
         let visible = !live.contains_key(key) && !tombstones.contains(key);
         let previous = canonical.remove(key);
         if visible {
-            self.entity_cardinality.apply_remove(key, previous.as_ref());
+            self.entity_cardinality
+                .apply_remove(key, previous.is_some());
         } else if previous.is_some() {
             self.apply_entity_overlay_delta(key, false, true);
         }
@@ -576,8 +573,7 @@ impl DataStore {
                 tombstones,
                 ..
             } => {
-                !tombstones.contains(key)
-                    && (live.contains_key(key) || canonical.get(key).is_some())
+                !tombstones.contains(key) && (live.contains_key(key) || canonical.contains_key(key))
             }
         }
     }
@@ -1116,15 +1112,15 @@ impl EntityCardinality {
             .then(|| self.counts.get(&entity).copied().unwrap_or(0))
     }
 
-    fn apply_insert(&mut self, key: &RawDataStoreKey, previous: Option<&RawRow>) {
-        if previous.is_some() {
+    fn apply_insert(&mut self, key: &RawDataStoreKey, previous_present: bool) {
+        if previous_present {
             return;
         }
         self.apply_present_key(key);
     }
 
-    fn apply_remove(&mut self, key: &RawDataStoreKey, previous: Option<&RawRow>) {
-        if previous.is_none() {
+    fn apply_remove(&mut self, key: &RawDataStoreKey, previous_present: bool) {
+        if !previous_present {
             return;
         }
         self.apply_removed_key(key);

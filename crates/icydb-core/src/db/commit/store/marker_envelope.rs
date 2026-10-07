@@ -4,12 +4,12 @@
 //! Boundary: control-slot marker bytes -> marker envelope -> marker payload codec.
 
 use crate::{
-    db::commit::{
-        marker::{
+    db::{
+        codec::ByteReader,
+        commit::marker::{
             COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitMarker, MAX_COMMIT_BYTES,
             decode_commit_marker_payload,
         },
-        store::bytes::read_u32_le,
     },
     error::InternalError,
 };
@@ -92,15 +92,16 @@ fn decode_commit_marker_bytes(bytes: &[u8]) -> Result<(u8, Vec<u8>), InternalErr
         return Err(marker_canonical_envelope_required());
     }
 
-    let format_version = bytes[0];
-    let mut cursor = 1;
-    let payload_len = read_u32_le(bytes, &mut cursor)? as usize;
-    let payload = bytes
-        .get(cursor..)
-        .ok_or_else(marker_canonical_envelope_required)?;
-    if payload.len() != payload_len {
-        return Err(marker_canonical_envelope_required());
-    }
+    let mut reader = ByteReader::new(bytes);
+    let format_version = reader
+        .read_u8()
+        .map_err(|_| marker_canonical_envelope_required())?;
+    let payload = reader
+        .read_len_prefixed_bytes_le()
+        .map_err(|_| marker_canonical_envelope_required())?;
+    reader
+        .finish()
+        .map_err(|_| marker_canonical_envelope_required())?;
 
     Ok((format_version, payload.to_vec()))
 }

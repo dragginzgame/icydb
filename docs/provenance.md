@@ -48,8 +48,13 @@ The common installer combines existing Canic and IcyDB Binaryen/PocketIC setup
 requirements with IC Timers' verification-before-execution checks and IC Metrics'
 retained provisioning evidence. Exact default versions match the inspected
 consumers; Quill is added from the official release. Platform digests and release
-sources are recorded in [IC tools](ic-tools.md). This is setup orchestration;
-artifact inspection and execution contracts owned by `ic-host-tools` remain there.
+sources are recorded in [IC tools](ic-tools.md). This is setup orchestration.
+The current [IC Host Tooling](https://github.com/dragginzgame/ic-host-tooling)
+packages retain their library contracts: artifact streams and inspection in
+`ic-host-artifacts`, bounded filesystem reads/publication/locks in `ic-host-fs`,
+admitted executable execution in `ic-host-process`, and Candid extraction/IC
+response decoding in `ic-host-tools`. The inspected historical provisioning
+requirements above retain their original attribution.
 
 The local jq/yq pair extends the existing shared yq selection in
 `ci/tool-versions.env`; jq 1.8.2 digests were read from official release-asset
@@ -93,6 +98,37 @@ at `9f8c7c768793f4ce8f25be9e88282c0f63a06e7f`. Asset mappings, versions and
 checksum contracts are unchanged; the shared implementation stages on the
 destination filesystem and retains failed candidates. Consumers must review
 the expanded snapshot dependency set before refreshing the entry points.
+
+## Compiler-cache setup
+
+The sccache installer extracts Canic's `scripts/ci/install-sccache-ci.sh` at
+`d815abfc661d791ecf72afc5b1e4b6a990f37a91` (source file clean), preserving its
+Linux x86-64 musl archive mapping. Shared Tooling adds it to the existing CI
+installer owner so failure retention and same-filesystem replacement converge.
+Canic's reviewed 0.17.0 archive digest was checked against official release
+metadata; consumers still own their version and digest selections.
+
+Launcher adoption retains Canic's compiler-fallback policy in its own adapter
+while reusing the already-shared runtime-directory/socket owner. Neither
+extraction nor these instructions establish a committed consumer migration or
+qualify fallback behavior against a real cache failure.
+
+## Formatter prerequisites and changelog convergence
+
+The formatter prerequisite checker extracts IC Testkit's
+`scripts/ci/check-format-tools.sh` at
+`827157434eb8b2d6c13c4b8e47493bd6a38678b9` (source script clean; Makefile dirty).
+It adds explicit consumer version/executable inputs and preserves offline,
+prepared-tool checks. Repeated Makefile guards in IC Host Tools, IC Memory,
+IC Backup and IC Blob Storage motivated one shared admission owner; workspace
+rosters, toolchains and extra formatters stay local.
+
+The finalizer adoption guidance traces IC Backup's `release-data.pl` at
+`52532cca4d5276bb67810ffb346aba464d5a719a` and IC Blob Storage's at
+`c3e271449753f782a0193314f4ed3d4db21c453f` plus uncommitted release adapter edits.
+Both retain local changelog selectors while already vendoring the shared AWK
+finalizer. This batch documents convergence on that existing owner; it does not
+claim their metadata transactions or snapshots have been migrated.
 
 ## Documentation, release entry points and registry observation
 

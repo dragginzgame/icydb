@@ -1,8 +1,49 @@
 use super::*;
 use crate::db::schema::{
-    AcceptedSchemaFingerprint, NullableUniqueIndexContractError, ScalarCodec,
+    AcceptedRowLayoutRuntimeContract, AcceptedSchemaFingerprint, NullableUniqueIndexContractError,
+    ScalarCodec,
     codec::{decode_persisted_schema_snapshot, encode_persisted_schema_snapshot},
 };
+
+#[test]
+fn runtime_row_layout_preserves_primary_key_slot_order() {
+    for (key_ids, expected_slots) in [
+        (vec![FieldId::new(1)], vec![0]),
+        (vec![FieldId::new(2), FieldId::new(1)], vec![1, 0]),
+    ] {
+        let mut snapshot = nullable_unique_schema_fixture(false, &[], &["email"], None);
+        Rc::make_mut(&mut snapshot.payload).primary_key_field_ids = key_ids;
+        let accepted = AcceptedSchemaSnapshot::try_new(snapshot).expect("key schema accepts");
+        let contract = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+            .expect("accepted key layout projects");
+        assert_eq!(contract.primary_key_slot_indices(), expected_slots);
+        assert_eq!(contract.first_primary_key_slot_index(), expected_slots[0]);
+    }
+}
+
+#[test]
+fn runtime_row_layout_rejects_empty_primary_key_before_decode_handoff() {
+    let mut snapshot = nullable_unique_schema_fixture(false, &[], &["email"], None);
+    Rc::make_mut(&mut snapshot.payload)
+        .primary_key_field_ids
+        .clear();
+    let accepted = AcceptedSchemaSnapshot::new(snapshot);
+    let error = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+        .expect_err("an empty key cannot produce a runtime contract");
+    assert_eq!(error.class(), crate::error::ErrorClass::InvariantViolation);
+    assert_eq!(error.origin(), crate::error::ErrorOrigin::Store);
+}
+
+#[test]
+fn runtime_row_layout_requires_canonical_field_order_at_decode_handoff() {
+    let mut snapshot = nullable_unique_schema_fixture(false, &[], &["email"], None);
+    Rc::make_mut(&mut snapshot.payload).fields.swap(0, 1);
+    let accepted = AcceptedSchemaSnapshot::new(snapshot);
+    let error = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)
+        .expect_err("runtime slot indexing requires accepted canonical field order");
+    assert_eq!(error.class(), crate::error::ErrorClass::InvariantViolation);
+    assert_eq!(error.origin(), crate::error::ErrorOrigin::Store);
+}
 
 #[test]
 fn shared_payload_preserves_detached_candidate_and_current_encoding() {

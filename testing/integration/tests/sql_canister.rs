@@ -153,7 +153,7 @@ fn reset_sql_fixtures(fixture: &StandaloneCanisterFixture) {
 #[test]
 #[ignore = "manual wasm-release RETURNING instruction and cycle measurement"]
 fn returning_selected_cells_wasm_cost_matrix() {
-    use ic_host_tools::artifact::Sha256Digest;
+    use ic_host_artifacts::artifact::Sha256Digest;
     use icydb_testing_integration::{
         CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
         CanisterWasmProfile, build_canister_with_options, install_prebuilt_fixture_canister,

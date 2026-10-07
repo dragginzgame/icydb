@@ -33,8 +33,15 @@ Consumer choices described in those guides remain subject to this baseline.
 ## Scope and authorization
 
 - Work within the authorized repositories and preserve unrelated dirty work.
-  Re-read dirty files before editing. Inspection does not authorize mutation;
-  siblings are read-only unless a named mutation is explicitly authorized.
+  Re-read dirty files before editing. Agents working in one repository must not
+  edit code or other files in any other repository unless the maintainer expressly
+  authorizes that target repository and the intended change. This includes Shared
+  Tooling, upstream dependencies and downstream consumers, whether edits are made
+  directly, by delegated agents, or through scripts, formatters and generators.
+  Changing directories, shared ownership, dependency fixes, inspection requests
+  and issue-reporting authority do not grant cross-repository edit permission.
+  Without that authorization, keep other repositories read-only and report the
+  proposed fix in the owning repository's GitHub issue.
 - Never create or amend Git commits, directly or through helpers. The maintainer
   owns commits. Inspect scripts before invoking targets that may commit.
 - Agents may execute package/manifest version changes, tags, pushes, publication,
@@ -44,7 +51,14 @@ Consumer choices described in those guides remain subject to this baseline.
 - An explicit instruction is sufficient for its named action. Carry established
   authorization forward; do not require magic phrases or repeated confirmation.
   Complete authorized preparation so any required approval concerns a concrete
-  result. Recording feedback does not authorize upstream messages or writes.
+  result. Apply authorized current-repository fixes directly to the working tree
+  and run the appropriate focused checks; a detached patch alone does not complete
+  a local repair. Inspection remains distinct from repair authorization.
+  Relevant GitHub issue work is always authorized across repositories: create,
+  comment, update, assign, close or reopen issues as warranted by the evidence,
+  following the feedback rules below. No separate permission is required for
+  those issue actions. This does not authorize cross-repository file edits,
+  unrelated messages or release effects.
 
 ## Ownership and simplification
 
@@ -188,9 +202,14 @@ Consumer choices described in those guides remain subject to this baseline.
 ## Rust workspaces and portable tooling
 
 - Provide [local developer setup](docs/local-setup.md) through explicit
-  `make install-tools` and offline `make tools-check`, including pinned jq and
-  Mike Farah yq under `.tools/host/bin`. Make/CI callers select the local tools;
-  document system bootstrap packages and product toolchains separately.
+  `make install-tools` and offline `make tools-check`, following the
+  [required tool inventory](docs/local-setup.md#required-tool-inventory).
+  The host set includes pinned jq, Mike Farah yq, ripgrep with PCRE2 and cloc
+  under `.tools/host/bin`. Make/CI installation and check callers select the
+  complete set and their own checkout's local paths; document interactive shell
+  PATH setup, system bootstrap packages and product toolchains separately.
+  Adopt `make/tools.mk` from the reviewed snapshot for these common commands
+  and LOC reporting, replacing copied recipes; CI calls the same targets.
 - Provide the [common local IC executable setup](docs/ic-tools.md) through
   `make install-ic-tools` and offline `make ic-tools-check`. Keep the common tool
   names available under the checkout's `.tools/ic/bin`, with one reviewed pin
@@ -201,6 +220,15 @@ Consumer choices described in those guides remain subject to this baseline.
   verified tool downloads, and explicitly qualified sibling or moving inputs.
   Run the declaration checker in CI and release gates; consumers own the chosen
   versions, approved exceptions and runtime qualification evidence.
+- Use the [standard Rust workspace layout](rules/rust-workspaces.md): a virtual
+  repository-root workspace, including single-package repositories. Maintained
+  packages use `crates/<package-name>/` or application-owned `apps/<app-name>/`
+  trees, including component packages grouped beneath an App. Both inherit from
+  the same root. Approved independent workspaces use those shapes relative to
+  their own roots; other layouts need explicit exceptions.
+  The rule explicitly approves IcyDB's existing `crates/`, `canisters/`, `schema/`
+  and `testing/` layout; adoption does not require relocating those packages.
+  Repositories without Rust packages do not need a Cargo workspace.
 - Cargo workspace members inherit package versions from the root. Apply the
   [Cargo dependency rules](rules/cargo-dependencies.md): every direct dependency
   is declared in root `[workspace.dependencies]`, and every child manifest uses
@@ -210,8 +238,9 @@ Consumer choices described in those guides remain subject to this baseline.
   without an established need and appropriate validation.
 - Follow the [Rust hygiene baseline](docs/principles/rust-code-hygiene.md): narrow
   visibility, documented APIs/invariants, ordinary module discovery, bounded
-  fallible decoding and typed errors. Exact edition, layout and lint choices stay
-  local. Do not fake platform behavior with production cfg(test) paths.
+  fallible decoding and typed errors. Exact edition, internal module layout and
+  lint choices stay local within the workspace rules. Do not fake platform
+  behavior with production cfg(test) paths.
 - Rust repositories adopt the [standard formatting hook](rules/git-hooks.md):
   `make install-hooks` enables a reviewed repository-local pre-commit hook that
   auto-formats and refreshes only selected files, rejects partial staging and
@@ -270,7 +299,11 @@ Consumer choices described in those guides remain subject to this baseline.
   and the smallest useful verification.
 - Track upstream acceptance separately from verified consumer adoption. Resolve
   product-specific feedback locally instead of promoting it to universal policy.
-  Submit feedback or change another repository only within explicit authority.
+  For another repository's finding, search its issues and file or update the
+  matching issue under the standing authorization above. Include a concrete fix
+  or patch where feasible and its actual validation results. Keep shared snapshots
+  intact; repair at the source owner and adopt a reviewed committed revision.
+  Other cross-repository changes retain their separate authority.
   If issue access or a remote is unavailable, report the finding and blocker to
   the maintainer without inventing an issue URL or creating a local tracker.
 - Report the outcome, changed files, relevant verification, skipped checks,

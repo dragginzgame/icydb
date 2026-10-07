@@ -88,7 +88,7 @@ impl PreparedRowCommitOp {
                     self.data_value.map(CanonicalRow::into_raw_row),
                     position,
                 )
-                .map(|_| store.generation())
+                .map(|()| store.generation())
         })?;
         self.data_index_store.with_borrow_mut(|store| {
             store.mark_prefix_cardinality_data_generation(data_generation);

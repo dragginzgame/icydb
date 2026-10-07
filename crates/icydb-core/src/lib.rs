@@ -46,12 +46,7 @@ pub(crate) mod testing;
 ///
 /// CONSTANTS
 ///
-
-/// Maximum number of indexed fields allowed on an entity.
-///
-/// This limit keeps hashed index keys within bounded, storable sizes and
-/// simplifies sizing tests in the stores.
-pub const MAX_INDEX_FIELDS: usize = 4;
+pub use icydb_schema::MAX_INDEX_FIELDS;
 
 ///
 /// Prelude

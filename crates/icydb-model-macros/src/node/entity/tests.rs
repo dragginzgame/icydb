@@ -110,6 +110,63 @@ fn entity_with_fields_and_indexes(fields: Vec<Field>, indexes: Vec<Index>) -> En
 }
 
 #[test]
+fn index_names_obey_the_exact_schema_byte_boundary() {
+    let entity_name = "e".repeat(60);
+    for unique in [false, true] {
+        let prefix_bytes = if unique { 7 } else { 6 };
+        let field_bytes = icydb_schema::MAX_SCHEMA_NAME_BYTES - prefix_bytes - entity_name.len();
+        for excess in [0, 1] {
+            let field_name = "f".repeat(field_bytes + excess);
+            let index = Index {
+                fields: field_list(&[field_name.as_str()]),
+                unique,
+                predicate: None,
+            };
+            let name = index.generated_name(&entity_name);
+            assert_eq!(name.len(), icydb_schema::MAX_SCHEMA_NAME_BYTES + excess);
+            assert_eq!(
+                Entity::validate_index_name(&index, &entity_name, &format_ident!("TestEntity"))
+                    .is_ok(),
+                excess == 0,
+            );
+            assert_eq!(icydb_schema::SchemaName::try_new(name).is_ok(), excess == 0);
+        }
+    }
+}
+
+#[test]
+fn index_authoring_uses_the_shared_key_term_limit_and_canonical_slug() {
+    for count in [
+        0,
+        1,
+        icydb_schema::MAX_INDEX_FIELDS,
+        icydb_schema::MAX_INDEX_FIELDS + 1,
+    ] {
+        let fields = (0..count).map(|i| format!("field_{i}")).collect::<Vec<_>>();
+        let index = Index {
+            fields: fields
+                .iter()
+                .map(|field| LitStr::new(field, Span::call_site()))
+                .collect(),
+            unique: false,
+            predicate: None,
+        };
+        assert_eq!(
+            super::validate_index_name_text(&index, "TestEntity", &fields).is_ok(),
+            (1..=icydb_schema::MAX_INDEX_FIELDS).contains(&count),
+        );
+    }
+    let index = Index {
+        fields: field_list(&["LOWER(email)"]),
+        unique: false,
+        predicate: None,
+    };
+    Entity::validate_index_name(&index, "MailBox", &format_ident!("MailBox"))
+        .expect("expression terms use the same emitted canonical slug");
+    assert!(icydb_schema::SchemaName::try_new(index.generated_name("MailBox")).is_ok());
+}
+
+#[test]
 fn scalar_primary_key_does_not_emit_generated_key_struct() {
     let entity = entity_with_fields_and_indexes(vec![scalar_field("id")], vec![]);
 

@@ -2,7 +2,7 @@
 
 use super::{SqlQueryPerfResult, preparation_measurement_wasm, settle_measurement_rounds};
 use candid::CandidType;
-use ic_host_tools::artifact::Sha256Digest;
+use ic_host_artifacts::artifact::Sha256Digest;
 use icydb::{
     Error,
     db::{ScalarPageWork, sql::SqlQueryResult},

@@ -1,0 +1,29 @@
+error: endpoint declaration `icydb_metrics` requires the `icydb/metrics` Cargo feature
+ --> tests/fail-endpoints/missing_metrics_capability.rs:6:5
+  |
+6 | /     icydb::endpoints! {
+7 | |         icydb_metrics(authorization = public);
+8 | |     }
+  | |_____^
+  |
+  = note: this error originates in the macro `$crate::__icydb_with_metrics_endpoint` which comes from the expansion of the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: endpoint declaration `icydb_metrics` requires the `icydb/metrics` Cargo feature
+  --> tests/fail-endpoints/missing_metrics_capability.rs:12:5
+   |
+12 | /     icydb::endpoints! {
+13 | |         icydb_metrics(authorization = controller);
+14 | |     }
+   | |_____^
+   |
+   = note: this error originates in the macro `$crate::__icydb_with_metrics_endpoint` which comes from the expansion of the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error: endpoint declaration `icydb_metrics_reset` requires the `icydb/metrics` Cargo feature
+  --> tests/fail-endpoints/missing_metrics_capability.rs:18:5
+   |
+18 | /     icydb::endpoints! {
+19 | |         icydb_metrics_reset;
+20 | |     }
+   | |_____^
+   |
+   = note: this error originates in the macro `$crate::__icydb_with_metrics_endpoint` which comes from the expansion of the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)

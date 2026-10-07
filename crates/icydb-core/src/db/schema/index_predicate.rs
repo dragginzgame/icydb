@@ -437,9 +437,6 @@ impl AcceptedIndexPredicate {
             &|field| {
                 let mut name = None;
                 for slot in 0..contract.field_count() {
-                    if !contract.has_active_field_slot(slot) {
-                        continue;
-                    }
                     if contract.required_accepted_field_contract(slot)?.field_id() == *field {
                         name = Some(contract.field_name(slot)?.to_string());
                         break;

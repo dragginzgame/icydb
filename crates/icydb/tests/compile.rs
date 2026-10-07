@@ -16,6 +16,9 @@ fn public_facade_compile_contract() {
         #[cfg(not(feature = "sql"))]
         t.compile_fail("tests/fail-endpoints/missing_sql_capability.rs");
 
+        #[cfg(not(feature = "metrics"))]
+        t.compile_fail("tests/fail-endpoints/missing_metrics_capability.rs");
+
         #[cfg(feature = "sql")]
         {
             t.compile_fail("tests/fail-guards/abi.rs");

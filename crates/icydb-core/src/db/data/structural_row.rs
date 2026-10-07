@@ -238,16 +238,6 @@ impl StructuralRowContract {
         self.accepted_decode_contract.relation_edges()
     }
 
-    /// Return whether a physical slot is active in this row contract.
-    ///
-    /// Accepted row layouts may retain retired physical slots as allocation
-    /// history. Those slots can still be present in old rows, but they are no
-    /// longer active fields and must be skipped by dense validation/emission.
-    #[must_use]
-    pub(in crate::db) fn has_active_field_slot(&self, slot: usize) -> bool {
-        self.accepted_decode_contract.field_for_slot(slot).is_some()
-    }
-
     /// Return the leaf codec for one structural slot.
     ///
     pub(in crate::db) fn field_leaf_codec(&self, slot: usize) -> Result<LeafCodec, InternalError> {

@@ -42,7 +42,6 @@ DEV_SYSTEM_PACKAGES=(
   shellcheck
   bubblewrap
   wabt
-  cloc
 )
 
 CARGO_WORKSTATION_TOOLS=(
@@ -58,7 +57,7 @@ install_system_packages() {
       echo "Install Xcode Command Line Tools and Homebrew, then re-run this target." >&2
       exit 1
     fi
-    brew install cmake curl git xz openssl@3 pkg-config perl shellcheck wabt cloc make
+    brew install cmake curl git xz openssl@3 pkg-config perl shellcheck wabt make
     return
   fi
 

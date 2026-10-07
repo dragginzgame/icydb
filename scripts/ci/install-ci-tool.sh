@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Internal implementation of the three reviewed CI-tool entry points.
+# Internal implementation of the reviewed CI-tool entry points.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 tool="${1:-}"
-case "$tool" in actionlint|gitleaks|shellcheck) shift ;; *) echo 'unknown CI tool' >&2; exit 2 ;; esac
+case "$tool" in actionlint|gitleaks|shellcheck|sccache|yq) shift ;; *) echo 'unknown CI tool' >&2; exit 2 ;; esac
 version=""
 checksum=""
 install_dir="${TOOL_INSTALL_DIR:-$HOME/.local/bin}"
@@ -24,6 +24,9 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$ ]] || { usage; exit 2; }
+if [[ "$tool" == yq ]]; then
+    [[ "$version" =~ ^4\.[0-9]+\.[0-9]+$ ]] || { usage; exit 2; }
+fi
 [[ "$checksum" =~ ^[0-9a-f]{64}$ ]] || { echo 'invalid SHA-256 digest' >&2; exit 2; }
 case "$(uname -s):$(uname -m)" in
     Linux:x86_64|Linux:amd64) os=linux; arch=amd64 ;;
@@ -33,6 +36,10 @@ case "$(uname -s):$(uname -m)" in
     *) echo "unsupported $tool host" >&2; exit 1 ;;
 esac
 case "$tool" in
+    yq)
+        repo=mikefarah/yq
+        archive="yq_${os}_${arch}"
+        member="$archive"; format=raw; version_argument=--version ;;
     actionlint)
         repo=rhysd/actionlint
         archive="actionlint_${version}_${os}_${arch}.tar.gz"
@@ -47,6 +54,16 @@ case "$tool" in
         case "$arch" in amd64) arch=x86_64 ;; arm64) arch=aarch64 ;; esac
         archive="shellcheck-v${version}.${os}.${arch}.tar.xz"
         member="shellcheck-v$version/shellcheck"; format=xz; version_argument=--version ;;
+    sccache)
+        # Preserve Canic's reviewed CI asset scope. Other hosts prepare their
+        # consumer-selected sccache separately; no unqualified asset fallback.
+        [[ "$os:$arch" == linux:amd64 ]] || {
+            echo 'sccache CI installer requires Linux x86_64' >&2; exit 1;
+        }
+        repo=mozilla/sccache
+        package="sccache-v$version-x86_64-unknown-linux-musl"
+        archive="$package.tar.gz"
+        member="$package/sccache"; format=gzip; version_argument=--version ;;
 esac
 mkdir -p "$install_dir"
 [[ ! -d "$install_dir/$tool" ]] || { echo 'tool destination is a directory' >&2; exit 1; }
@@ -65,6 +82,7 @@ curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL \
     -o "$stage/$archive" "https://github.com/$repo/releases/download/v$version/$archive"
 bash "$SCRIPT_DIR/verify-file-checksum.sh" sha256 "$checksum" "$stage/$archive"
 case "$format" in
+    raw) ;;
     gzip) tar -xzf "$stage/$archive" -C "$stage" "$member" ;;
     xz) tar -xJf "$stage/$archive" -C "$stage" "$member" ;;
 esac
@@ -74,7 +92,12 @@ chmod +x "$candidate"
 version_output="$("$candidate" "$version_argument" 2>&1)" || { printf '%s\n' "$version_output" >&2; exit 1; }
 reported_version="$version_output"
 case "$tool" in
+    yq)
+        reported_version="${version_output#yq (https://github.com/mikefarah/yq/) version v}"
+        [[ "$version_output" == "yq (https://github.com/mikefarah/yq/) version v$reported_version" ]] || exit 1 ;;
     actionlint) reported_version="${version_output%%$'\n'*}" ;;
+    sccache) reported_version="${version_output#sccache }"
+        [[ "$version_output" == "sccache $reported_version" ]] || exit 1 ;;
     shellcheck)
         reported_version=""
         while IFS= read -r line; do

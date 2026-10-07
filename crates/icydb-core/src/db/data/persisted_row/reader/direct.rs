@@ -68,10 +68,6 @@ impl<'row, 'contract> DirectStructuralRowFields<'row, 'contract> {
     const fn field_count(&self) -> usize {
         self.contract.field_count()
     }
-
-    fn has_active_field_slot(&self, slot: usize) -> bool {
-        self.contract.has_active_field_slot(slot)
-    }
 }
 
 ///
@@ -161,11 +157,7 @@ pub(in crate::db) fn decode_dense_raw_row_with_contract(
     let field_count = fields.field_count();
     let mut values = Vec::with_capacity(field_count);
     for slot in 0..field_count {
-        if fields.has_active_field_slot(slot) {
-            values.push(Some(fields.decode_slot(slot)?));
-        } else {
-            values.push(None);
-        }
+        values.push(Some(fields.decode_slot(slot)?));
     }
 
     Ok(values)

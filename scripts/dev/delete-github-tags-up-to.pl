@@ -153,7 +153,7 @@ if (-e $pending || -l $pending) {
     $intent = $json->decode(do { local $/; <$file> });
     close $file or die $!;
     ref($intent) eq 'HASH' && ($intent->{format} // '') eq 'tag-maintenance-1'
-        && ($intent->{attempt} // '') =~ /\Aattempt\.[A-Za-z0-9]+\z/
+        && ($intent->{attempt} // '') =~ /\Aattempt\.[A-Za-z0-9_]+\z/
         && join(',', sort keys %$intent) eq 'attempt,cutoff,delete_local,delete_remote,destination,format,local,remote,remote_tags'
         or die "invalid saved intent\n";
     for my $key (keys %selection) {

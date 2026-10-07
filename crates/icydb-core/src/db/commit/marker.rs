@@ -5,6 +5,7 @@
 
 use crate::{
     db::{
+        codec::{ByteDecodeError, ByteReader},
         data::{DecodedDataStoreKey, RawDataStoreKey},
         integrity::MutationProgressRecordOp,
         journal::{
@@ -438,18 +439,22 @@ pub(in crate::db) fn decode_commit_marker_payload(
         return Err(InternalError::commit_corruption());
     }
 
-    let mut cursor = 0;
-    let id = read_fixed_array::<COMMIT_MARKER_ID_BYTES>(bytes, &mut cursor)?;
-    let journal_batch_count = read_len_u32(bytes, &mut cursor)? as usize;
+    let mut reader = ByteReader::new(bytes);
+    let id = reader
+        .read_array::<COMMIT_MARKER_ID_BYTES>()
+        .map_err(primitive_decode_error)?;
+    let journal_batch_count = reader.read_u32_le().map_err(primitive_decode_error)? as usize;
     let mut journal_batches = Vec::new();
     for _ in 0..journal_batch_count {
         journal_batches
             .try_reserve(1)
             .map_err(|_| InternalError::commit_corruption())?;
-        let encoded = read_len_prefixed_bytes(bytes, &mut cursor)?;
+        let encoded = reader
+            .read_len_prefixed_bytes_le()
+            .map_err(primitive_decode_error)?;
         journal_batches.push(decode_journal_batch(encoded)?);
     }
-    let database_control_count = usize::from(read_tag_u8(bytes, &mut cursor)?);
+    let database_control_count = usize::from(reader.read_u8().map_err(primitive_decode_error)?);
     if database_control_count > MAX_DATABASE_CONTROL_OPS_PER_MARKER {
         return Err(InternalError::commit_corruption());
     }
@@ -458,55 +463,64 @@ pub(in crate::db) fn decode_commit_marker_payload(
         .try_reserve_exact(database_control_count)
         .map_err(|_| InternalError::commit_corruption())?;
     for _ in 0..database_control_count {
-        database_control.push(decode_database_control_op(bytes, &mut cursor)?);
+        database_control.push(decode_database_control_op(&mut reader)?);
     }
 
     // Phase 3: reject trailing bytes so malformed payloads fail closed.
-    if cursor != bytes.len() {
-        return Err(InternalError::commit_corruption());
-    }
+    reader.finish().map_err(primitive_decode_error)?;
 
     CommitMarker::from_parts_with_database_control(id, journal_batches, database_control)
         .map_err(|_| InternalError::commit_corruption())
 }
 
 fn decode_database_control_op(
-    bytes: &[u8],
-    cursor: &mut usize,
+    reader: &mut ByteReader<'_>,
 ) -> Result<DatabaseControlOp, InternalError> {
-    match read_tag_u8(bytes, cursor)? {
+    match reader.read_u8().map_err(primitive_decode_error)? {
         1 => {
-            let key = ApplicationRecordKey::from_bytes(read_fixed_array::<
-                COMMIT_MARKER_SCHEMA_APPLICATION_KEY_BYTES,
-            >(bytes, cursor)?);
-            let (before, after) = read_replace_bytes(bytes, cursor)?;
+            let key = ApplicationRecordKey::from_bytes(
+                reader
+                    .read_array::<COMMIT_MARKER_SCHEMA_APPLICATION_KEY_BYTES>()
+                    .map_err(primitive_decode_error)?,
+            );
+            let (before, after) = read_replace_bytes(reader)?;
             SchemaApplicationRecordOp::from_encoded(key, before, after)
                 .map(DatabaseControlOp::SchemaApplication)
                 .map_err(|_| InternalError::commit_corruption())
         }
-        2 => decode_lineage_control_op(bytes, cursor),
-        3 => decode_migration_control_op(bytes, cursor),
-        4 => decode_mutation_progress_control_op(bytes, cursor),
+        2 => decode_lineage_control_op(reader),
+        3 => decode_migration_control_op(reader),
+        4 => decode_mutation_progress_control_op(reader),
         _ => Err(InternalError::commit_corruption()),
     }
 }
 
 fn decode_mutation_progress_control_op(
-    bytes: &[u8],
-    cursor: &mut usize,
+    reader: &mut ByteReader<'_>,
 ) -> Result<DatabaseControlOp, InternalError> {
-    let key = read_fixed_array::<COMMIT_MARKER_MUTATION_PROGRESS_KEY_BYTES>(bytes, cursor)?;
-    let job_id = crate::db::MutationJobId::try_from_bytes(read_fixed_array::<
-        COMMIT_MARKER_MUTATION_JOB_ID_BYTES,
-    >(bytes, cursor)?)
+    let key = reader
+        .read_array::<COMMIT_MARKER_MUTATION_PROGRESS_KEY_BYTES>()
+        .map_err(primitive_decode_error)?;
+    let job_id = crate::db::MutationJobId::try_from_bytes(
+        reader
+            .read_array::<COMMIT_MARKER_MUTATION_JOB_ID_BYTES>()
+            .map_err(primitive_decode_error)?,
+    )
     .map_err(|_| InternalError::commit_corruption())?;
-    let expected_sequence = u64::from_le_bytes(read_fixed_array::<
-        COMMIT_MARKER_MUTATION_SEQUENCE_BYTES,
-    >(bytes, cursor)?);
-    let expected_before_digest =
-        read_fixed_array::<COMMIT_MARKER_MUTATION_DIGEST_BYTES>(bytes, cursor)?;
-    let before = read_len_prefixed_bytes(bytes, cursor)?;
-    let after = read_len_prefixed_bytes(bytes, cursor)?;
+    let expected_sequence = u64::from_le_bytes(
+        reader
+            .read_array::<COMMIT_MARKER_MUTATION_SEQUENCE_BYTES>()
+            .map_err(primitive_decode_error)?,
+    );
+    let expected_before_digest = reader
+        .read_array::<COMMIT_MARKER_MUTATION_DIGEST_BYTES>()
+        .map_err(primitive_decode_error)?;
+    let before = reader
+        .read_len_prefixed_bytes_le()
+        .map_err(primitive_decode_error)?;
+    let after = reader
+        .read_len_prefixed_bytes_le()
+        .map_err(primitive_decode_error)?;
     if before.len() > crate::db::MAX_MUTATION_JOB_RECORD_BYTES
         || after.len() > crate::db::MAX_MUTATION_JOB_RECORD_BYTES
     {
@@ -526,10 +540,9 @@ fn decode_mutation_progress_control_op(
 
 #[cfg(any(test, feature = "migration"))]
 fn decode_lineage_control_op(
-    bytes: &[u8],
-    cursor: &mut usize,
+    reader: &mut ByteReader<'_>,
 ) -> Result<DatabaseControlOp, InternalError> {
-    let (before, after) = read_replace_bytes(bytes, cursor)?;
+    let (before, after) = read_replace_bytes(reader)?;
     crate::db::schema::EntitySourceLineageCatalogOp::from_encoded(before, after)
         .map(DatabaseControlOp::EntitySourceLineage)
         .map_err(|_| InternalError::commit_corruption())
@@ -537,18 +550,16 @@ fn decode_lineage_control_op(
 
 #[cfg(not(any(test, feature = "migration")))]
 fn decode_lineage_control_op(
-    _bytes: &[u8],
-    _cursor: &mut usize,
+    _reader: &mut ByteReader<'_>,
 ) -> Result<DatabaseControlOp, InternalError> {
     Err(InternalError::commit_corruption())
 }
 
 #[cfg(any(test, feature = "migration"))]
 fn decode_migration_control_op(
-    bytes: &[u8],
-    cursor: &mut usize,
+    reader: &mut ByteReader<'_>,
 ) -> Result<DatabaseControlOp, InternalError> {
-    let (before, after) = read_replace_bytes(bytes, cursor)?;
+    let (before, after) = read_replace_bytes(reader)?;
     crate::db::schema::SchemaMigrationRecordOp::from_encoded(before, after)
         .map(DatabaseControlOp::SchemaMigration)
         .map_err(|_| InternalError::commit_corruption())
@@ -556,8 +567,7 @@ fn decode_migration_control_op(
 
 #[cfg(not(any(test, feature = "migration")))]
 fn decode_migration_control_op(
-    _bytes: &[u8],
-    _cursor: &mut usize,
+    _reader: &mut ByteReader<'_>,
 ) -> Result<DatabaseControlOp, InternalError> {
     Err(InternalError::commit_corruption())
 }
@@ -578,24 +588,23 @@ fn write_replace_bytes(
 }
 
 fn read_replace_bytes(
-    bytes: &[u8],
-    cursor: &mut usize,
+    reader: &mut ByteReader<'_>,
 ) -> Result<(Option<Vec<u8>>, Vec<u8>), InternalError> {
-    let before = match read_tag_u8(bytes, cursor)? {
+    let before = match reader.read_u8().map_err(primitive_decode_error)? {
         0 => None,
-        1 => Some(read_len_prefixed_bytes(bytes, cursor)?.to_vec()),
+        1 => Some(
+            reader
+                .read_len_prefixed_bytes_le()
+                .map_err(primitive_decode_error)?
+                .to_vec(),
+        ),
         _ => return Err(InternalError::commit_corruption()),
     };
-    let after = read_len_prefixed_bytes(bytes, cursor)?.to_vec();
+    let after = reader
+        .read_len_prefixed_bytes_le()
+        .map_err(primitive_decode_error)?
+        .to_vec();
     Ok((before, after))
-}
-
-fn read_tag_u8(bytes: &[u8], cursor: &mut usize) -> Result<u8, InternalError> {
-    let tag = *bytes
-        .get(*cursor)
-        .ok_or_else(InternalError::commit_corruption)?;
-    *cursor = cursor.saturating_add(1);
-    Ok(tag)
 }
 
 // Write one bounded little-endian u32 length field.
@@ -613,47 +622,6 @@ fn write_len_prefixed_bytes(out: &mut Vec<u8>, bytes: &[u8]) -> Result<(), Inter
     out.extend_from_slice(bytes);
 
     Ok(())
-}
-
-// Read one little-endian u32 length from the marker payload.
-fn read_len_u32(bytes: &[u8], cursor: &mut usize) -> Result<u32, InternalError> {
-    let payload = bytes
-        .get(*cursor..cursor.saturating_add(4))
-        .ok_or_else(InternalError::commit_corruption)?;
-    *cursor = cursor.saturating_add(4);
-
-    Ok(u32::from_le_bytes([
-        payload[0], payload[1], payload[2], payload[3],
-    ]))
-}
-
-// Read one fixed-size byte array from the marker payload.
-fn read_fixed_array<const N: usize>(
-    bytes: &[u8],
-    cursor: &mut usize,
-) -> Result<[u8; N], InternalError> {
-    let payload = bytes
-        .get(*cursor..cursor.saturating_add(N))
-        .ok_or_else(InternalError::commit_corruption)?;
-    *cursor = cursor.saturating_add(N);
-
-    payload
-        .try_into()
-        .map_err(|_| InternalError::commit_corruption())
-}
-
-// Read one length-delimited byte slice from the marker payload.
-fn read_len_prefixed_bytes<'a>(
-    bytes: &'a [u8],
-    cursor: &mut usize,
-) -> Result<&'a [u8], InternalError> {
-    let len = read_len_u32(bytes, cursor)? as usize;
-    let payload = bytes
-        .get(*cursor..cursor.saturating_add(len))
-        .ok_or_else(InternalError::commit_corruption)?;
-    *cursor = cursor.saturating_add(len);
-
-    Ok(payload)
 }
 
 /// Decode a raw data-store key and validate its structural invariants.
@@ -778,4 +746,9 @@ pub(crate) fn validate_commit_marker_shape(marker: &CommitMarker) -> Result<(), 
     }
 
     Ok(())
+}
+
+// This codec retains its domain classification for every primitive failure.
+fn primitive_decode_error(_: ByteDecodeError) -> InternalError {
+    InternalError::commit_corruption()
 }

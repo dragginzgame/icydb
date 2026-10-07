@@ -5,6 +5,38 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.267.0]
+
+- Simplify developer setup and host tooling, including response-only CLI
+  dependencies and shared artifact handling; strengthen CI, metrics endpoints,
+  row-layout checks and durable memory-identity guidance; simplify persisted
+  decoding, row publication, SQL parsing and index authoring
+  ([#302](https://github.com/dragginzgame/icydb/issues/302),
+  [#310](https://github.com/dragginzgame/icydb/issues/310),
+  [#248](https://github.com/dragginzgame/icydb/issues/248),
+  [#271](https://github.com/dragginzgame/icydb/issues/271),
+  [#283](https://github.com/dragginzgame/icydb/issues/283),
+  [#307](https://github.com/dragginzgame/icydb/issues/307),
+  [#309](https://github.com/dragginzgame/icydb/issues/309),
+  [#311](https://github.com/dragginzgame/icydb/issues/311),
+  [#290](https://github.com/dragginzgame/icydb/issues/290),
+  [#268](https://github.com/dragginzgame/icydb/issues/268),
+  [#241](https://github.com/dragginzgame/icydb/issues/241),
+  [#228](https://github.com/dragginzgame/icydb/issues/228),
+  [#262](https://github.com/dragginzgame/icydb/issues/262),
+  [Shared Tooling #30](https://github.com/dragginzgame/shared-tooling/issues/30),
+  [#31](https://github.com/dragginzgame/shared-tooling/issues/31),
+  [#35](https://github.com/dragginzgame/shared-tooling/issues/35),
+  [Host #3](https://github.com/dragginzgame/ic-host-tooling/issues/3),
+  [#9](https://github.com/dragginzgame/ic-host-tooling/issues/9)).
+
+**Breaking:** Metrics averages now display `unavailable` for empty, inconsistent
+or saturated counters; measured zero remains `0`. Consumers parsing the average
+column must accept this marker
+([#313](https://github.com/dragginzgame/icydb/issues/313)).
+
+Detailed notes: [docs/changelog/0.267.md](docs/changelog/0.267.md)
+
 ## [0.266.0] - 2026-10-06
 
 - Reject unknown SQL write fields as validation errors

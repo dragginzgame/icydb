@@ -88,7 +88,8 @@ valid outcome. Do not manufacture work to fill a template.
 One underlying cause has one owning finding, selected by the violated contract.
 Adjacent methods link that evidence and explain their own consequence. GitHub
 issues remain the sole active follow-up tracker; reports are immutable evidence,
-not another debt ledger. Issue writes require their existing authorization.
+not another debt ledger. Relevant issue work has the baseline's standing
+authorization across repositories; repository file edits retain separate authority.
 
 Reports and necessary artifacts stay in the audited repository's established
 report hierarchy. If none exists, use a new

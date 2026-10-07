@@ -14,7 +14,6 @@ use crate::{
             encode_canonical_value_for_accepted_field_contract,
             persisted_row::{
                 contract::{
-                    RETIRED_SLOT_PLACEHOLDER_PAYLOAD,
                     canonical_row_from_runtime_value_source_with_accepted_contract,
                     emit_raw_row_from_slot_payloads,
                 },
@@ -576,14 +575,7 @@ pub(in crate::db) fn resolve_insert_structural_patch_with_accepted_contract(
 
     // Phase 2: resolve every exact authored/default/omitted request from the
     // accepted field policy selected for this operation.
-    // Retired slots retain their canonical placeholder but carry no field
-    // provenance because no logical field exists at that slot.
     for slot in 0..contract.field_count() {
-        if !contract.has_active_field_slot(slot) {
-            payloads[slot] = Some(RETIRED_SLOT_PLACEHOLDER_PAYLOAD.to_vec());
-            continue;
-        }
-
         let (payload, source) = resolve_insert_active_slot(
             constraint_context,
             &contract,
@@ -664,11 +656,6 @@ pub(in crate::db) fn resolve_update_structural_patch_with_accepted_contract(
         if payload.is_some() {
             continue;
         }
-        if !contract.has_active_field_slot(slot) {
-            *payload = Some(RETIRED_SLOT_PLACEHOLDER_PAYLOAD.to_vec());
-            continue;
-        }
-
         let field = contract.required_accepted_field_contract(slot)?;
         let write_policy = field.write_policy();
         if matches!(
@@ -749,7 +736,7 @@ pub(in crate::db) fn resolve_update_structural_patch_with_accepted_contract(
     // baseline value, so only assigned slots need a second encoding to compare.
     let mut logical_changed = false;
     for (slot, payload) in payloads.iter().enumerate() {
-        if !contract.has_active_field_slot(slot) || updated_at_slot == Some(slot) {
+        if updated_at_slot == Some(slot) {
             continue;
         }
         if matches!(
@@ -847,11 +834,6 @@ pub(in crate::db) fn resolve_existing_replace_structural_patch_with_accepted_con
     let mut updated_at_slot = None;
 
     for (slot, payload) in payloads.iter_mut().enumerate() {
-        if !contract.has_active_field_slot(slot) {
-            *payload = Some(RETIRED_SLOT_PLACEHOLDER_PAYLOAD.to_vec());
-            continue;
-        }
-
         let field = contract.required_accepted_field_contract(slot)?;
         let source = match field.write_policy().write_management() {
             Some(FieldWriteManagement::CreatedAt) => {
@@ -883,7 +865,7 @@ pub(in crate::db) fn resolve_existing_replace_structural_patch_with_accepted_con
 
     let mut logical_changed = false;
     for (slot, payload) in payloads.iter().enumerate() {
-        if !contract.has_active_field_slot(slot) || updated_at_slot == Some(slot) {
+        if updated_at_slot == Some(slot) {
             continue;
         }
         let before = baseline.required_cached_value(slot)?;
@@ -996,9 +978,6 @@ fn managed_timestamp_values(
     let mut updated_at = None;
 
     for slot in 0..contract.field_count() {
-        if !contract.has_active_field_slot(slot) {
-            continue;
-        }
         let field = contract.required_accepted_field_contract(slot)?;
         let target = match field.write_policy().write_management() {
             Some(FieldWriteManagement::CreatedAt) => &mut created_at,

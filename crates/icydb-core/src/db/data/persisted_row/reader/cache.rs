@@ -73,12 +73,6 @@ pub(super) fn build_initial_slot_cache(
 ) -> Result<Vec<CachedSlotValue>, InternalError> {
     (0..contract.field_count())
         .map(|slot| {
-            if !contract.has_active_field_slot(slot) {
-                return Ok(CachedSlotValue::Deferred {
-                    materialized: OnceCell::new(),
-                });
-            }
-
             Ok(match contract.field_leaf_codec(slot)? {
                 LeafCodec::Scalar(_) => CachedSlotValue::Scalar {
                     validated: OnceCell::new(),

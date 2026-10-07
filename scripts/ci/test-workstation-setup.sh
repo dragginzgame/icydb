@@ -7,7 +7,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 FIXTURE="$(mktemp -d "${TMPDIR:-/tmp}/icydb-workstation.XXXXXX")"
 trap 'status=$?; if [[ "$status" == 0 ]]; then rm -rf "$FIXTURE";
   else echo "Workstation fixture retained: $FIXTURE" >&2; fi; exit "$status"' EXIT
-mkdir -p "$FIXTURE/scripts/dev" "$FIXTURE/scripts/ci" "$FIXTURE/bin" "$FIXTURE/outside" "$FIXTURE/ci"
+mkdir -p "$FIXTURE/scripts/dev" "$FIXTURE/scripts/ci" "$FIXTURE/bin" "$FIXTURE/outside" "$FIXTURE/ci" "$FIXTURE/make"
 cp "$ROOT/ci/"{tool-versions.env,icydb-tools.env,ic-tools.tsv} "$FIXTURE/ci/"
 cp "$ROOT/scripts/dev/workstation-setup.sh" "$FIXTURE/scripts/dev/"
 cp "$ROOT/scripts/ci/install-gh.sh" "$FIXTURE/scripts/ci/"
@@ -79,13 +79,6 @@ for host in Linux Darwin; do
       "make --no-print-directory -C $FIXTURE install-hooks" > "$FIXTURE/expected"
     rg '^make ' "$TEST_TRACE" > "$FIXTURE/actual"
     cmp "$FIXTURE/expected" "$FIXTURE/actual"
-    if [[ "$mode" == install ]]; then
-      if [[ "$host" == Linux ]]; then
-        rg -F 'apt-get install -y' "$TEST_TRACE" | rg -F cloc >/dev/null
-      else
-        rg -F 'brew install' "$TEST_TRACE" | rg -F cloc >/dev/null
-      fi
-    fi
   done
 done
 # An offline tool refusal stops setup before hook activation.
@@ -102,6 +95,7 @@ bash "$FIXTURE/scripts/dev/workstation-setup.sh" update extra > "$FIXTURE/invali
 # Exercise actual Make dispatch with local script stubs, without installations.
 unset -f make
 cp "$ROOT/Makefile" "$FIXTURE/Makefile"
+cp "$ROOT/make/tools.mk" "$FIXTURE/make/"
 cp "$ROOT/scripts/ci/actionlint-checksums.tsv" "$FIXTURE/scripts/ci/"
 for tool in host ic; do
   cat > "$FIXTURE/scripts/dev/install-$tool-tools.sh" <<'INSTALL'
@@ -111,18 +105,32 @@ printf '%s %s\n' "${0##*/}" "$*" >> "$TEST_TRACE"
 INSTALL
 done
 for script in check-pocketic-alignment.sh verify-wasm-optimizer.sh; do
-  printf '#!/usr/bin/env bash\nexit 0\n' > "$FIXTURE/scripts/ci/$script"
+  cat > "$FIXTURE/scripts/ci/$script" <<'POLICY'
+#!/usr/bin/env bash
+printf '%s\n' "${0##*/}" >> "$TEST_POLICY_TRACE"
+[[ "${TEST_POLICY_FAIL:-0}" == 0 ]]
+POLICY
 done
+export TEST_POLICY_TRACE="$FIXTURE/policy-trace"
 : > "$TEST_TRACE"
+command make --no-print-directory -C "$FIXTURE" > "$FIXTURE/default-goal"
+[[ ! -s "$TEST_TRACE" ]]
 command make --no-print-directory -C "$FIXTURE" install-tools > "$FIXTURE/dispatch"
-printf '%s\n' "install-host-tools.sh --versions $FIXTURE/ci/tool-versions.env --with-ripgrep" \
-  "install-ic-tools.sh --pins $FIXTURE/ci/ic-tools.tsv" > "$FIXTURE/expected"
+printf '%s\n' "install-host-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --with-ripgrep --with-cloc" \
+  "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv" > "$FIXTURE/expected"
 cmp "$FIXTURE/expected" "$TEST_TRACE"
 : > "$TEST_TRACE"
 command make --no-print-directory -C "$FIXTURE" tools-check > "$FIXTURE/offline"
-printf '%s\n' "install-host-tools.sh --versions $FIXTURE/ci/tool-versions.env --with-ripgrep --check" \
-  "install-ic-tools.sh --pins $FIXTURE/ci/ic-tools.tsv --check" > "$FIXTURE/expected"
+printf '%s\n' "install-host-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --with-ripgrep --with-cloc --check" \
+  "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv --check" > "$FIXTURE/expected"
 cmp "$FIXTURE/expected" "$TEST_TRACE"
+printf '%s\n' check-pocketic-alignment.sh verify-wasm-optimizer.sh > "$FIXTURE/policy-expected"
+cmp "$FIXTURE/policy-expected" "$TEST_POLICY_TRACE"
+: > "$TEST_TRACE"
+status=0
+env TEST_POLICY_FAIL=1 make --no-print-directory -C "$FIXTURE" ic-tools-check \
+  > "$FIXTURE/policy-refused" 2>&1 || status=$?
+[[ "$status" != 0 ]]
 : > "$TEST_TRACE"
 status=0
 # Use an external environment command so Bash 3.2 captures the failed child,

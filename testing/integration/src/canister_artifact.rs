@@ -3,14 +3,20 @@
 //! Does not own: builds or runtime.
 //! Boundary: checks artifacts against policy.
 
-use std::{collections::BTreeSet, fs, path::Path, process::Command};
+use std::{collections::BTreeSet, env, ffi::OsString, fs, path::Path, time::Duration};
 
+use crate::wasm_optimizer::format_tool_failure;
 use candid::{
     CandidType,
     pretty::candid::compile,
     types::{FuncMode, Function, Type, TypeInner, internal::TypeContainer},
 };
-
+use ic_host_artifacts::wasm::{ExportKind, InspectionLimits, inspect};
+use ic_host_fs::read::hash_file;
+use ic_host_process::tool::{
+    AdmittedTool, ExecutionContext, OutputLimits, ToolSpec, resolve_executable,
+};
+use ic_host_tools::candid::{ExtractionError, extract};
 use icydb::{
     Error,
     db::{SchemaMigrationCommand, SchemaMigrationStatusPage, SchemaMigrationStatusRequest},
@@ -373,20 +379,8 @@ pub fn inspect_canister_artifacts(wasm_path: &Path) -> Result<CanisterArtifactMa
         .map_err(|error| format!("failed to read {}: {error}", wasm_path.display()))?;
     let wasm_methods = inspect_wasm_methods(&wasm)?;
 
-    let candid_output = Command::new("candid-extractor")
-        .arg(wasm_path)
-        .output()
-        .map_err(|error| format!("failed to invoke candid-extractor: {error}"))?;
-    if !candid_output.status.success() {
-        return Err(format!(
-            "candid-extractor failed for {}: {}",
-            wasm_path.display(),
-            String::from_utf8_lossy(&candid_output.stderr).trim_end()
-        ));
-    }
-    let candid = std::str::from_utf8(&candid_output.stdout)
-        .map_err(|error| format!("candid-extractor returned non-UTF-8 output: {error}"))?;
-    let candid_methods = inspect_candid_methods(candid)?;
+    let candid = extract_canister_candid(wasm_path)?;
+    let candid_methods = inspect_candid_methods(&candid)?;
     let application_wasm_methods = candid_visible_wasm_methods(&wasm_methods);
     if candid_methods != application_wasm_methods {
         let runtime_methods = wasm_methods
@@ -400,10 +394,61 @@ pub fn inspect_canister_artifacts(wasm_path: &Path) -> Result<CanisterArtifactMa
     }
 
     Ok(CanisterArtifactManifest {
-        candid: candid.to_string(),
+        candid,
         candid_methods,
         wasm_methods,
     })
+}
+
+// The setup catalog owns version selection. Capture the installed executable's
+// identity once, then let shared admission/extraction detect changes during use.
+// This is a local installed-tool observation, not an upstream binary digest pin.
+pub(crate) fn extract_canister_candid(wasm_path: &Path) -> Result<String, String> {
+    let current_dir = env::current_dir().map_err(|error| error.to_string())?;
+    let environment = env::vars_os().collect::<Vec<_>>();
+    let context = ExecutionContext {
+        current_dir: &current_dir,
+        environment: &environment,
+    };
+    let search = env::var_os("PATH")
+        .map(|path| env::split_paths(&path).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let executable = resolve_executable(Path::new("candid-extractor"), &current_dir, &search)
+        .map_err(|error| format!("resolve Candid extractor: {error}"))?;
+    let version = include_str!("../../../ci/icydb-tools.env")
+        .lines()
+        .find_map(|line| line.strip_prefix("export ICYDB_CANDID_EXTRACTOR_VERSION="))
+        .ok_or_else(|| "Candid extractor version is absent from the tool catalog".to_string())?;
+    let limits = OutputLimits {
+        stdout_bytes: 1024 * 1024,
+        stderr_bytes: 1024 * 1024,
+        timeout: Duration::from_secs(600),
+    };
+    let tool = AdmittedTool::admit(
+        &ToolSpec {
+            executable: &executable,
+            sha256: hash_file(&executable, u64::MAX)
+                .map_err(|error| error.to_string())?
+                .sha256,
+            executable_bytes: u64::MAX,
+            version_arguments: &[OsString::from("--version")],
+            version_identity: &format!("candid-extractor {version}"),
+        },
+        &context,
+        limits,
+    )
+    .map_err(|error| format_tool_failure("Candid extractor admission", &error))?;
+    let source =
+        fs::canonicalize(wasm_path).map_err(|error| format!("resolve Candid source: {error}"))?;
+    let extracted =
+        extract(&tool, &source, &context, u64::MAX, limits).map_err(|error| match error {
+            ExtractionError::Tool(error) => format_tool_failure("Candid extraction", &error),
+            error => format!("Candid extraction: {error}"),
+        })?;
+    // Keep the exact existing artifact/manifest text, rather than adopting
+    // Canic's whitespace normalization as an IcyDB format change.
+    String::from_utf8(extracted.evidence.stdout)
+        .map_err(|error| format!("Candid extractor returned non-UTF-8 output: {error}"))
 }
 
 /// Read IC method exports directly from a raw Wasm module.
@@ -413,46 +458,24 @@ pub fn inspect_canister_artifacts(wasm_path: &Path) -> Result<CanisterArtifactMa
 /// Returns an error for invalid framing, overflowing lengths, malformed UTF-8,
 /// duplicate IC method exports, or a truncated export section.
 pub fn inspect_wasm_methods(wasm: &[u8]) -> Result<BTreeSet<CanisterMethod>, String> {
-    const WASM_HEADER: &[u8; 8] = b"\0asm\x01\0\0\0";
-    if !wasm.starts_with(WASM_HEADER) {
-        return Err("invalid Wasm header or unsupported binary version".to_string());
-    }
-
-    let mut input = &wasm[WASM_HEADER.len()..];
-    let mut methods = BTreeSet::new();
-    while !input.is_empty() {
-        let section_id = take_byte(&mut input, "section id")?;
-        let section_len = read_u32_leb(&mut input, "section length")?;
-        let mut section = take_bytes(
-            &mut input,
-            usize::try_from(section_len).map_err(|_| "section length does not fit usize")?,
-            "section payload",
-        )?;
-        if section_id != 7 {
-            continue;
-        }
-
-        let export_count = read_u32_leb(&mut section, "export count")?;
-        for _ in 0..export_count {
-            let name = read_name(&mut section)?;
-            let kind = take_byte(&mut section, "export kind")?;
-            let _index = read_u32_leb(&mut section, "export index")?;
-            if kind != 0 {
-                continue;
-            }
-            let Some(method) = method_from_wasm_export(name) else {
-                continue;
-            };
-            if !methods.insert(method.clone()) {
-                return Err(format!("duplicate IC method export {method:?}"));
-            }
-        }
-        if !section.is_empty() {
-            return Err("Wasm export section contains trailing bytes".to_string());
-        }
-    }
-
-    Ok(methods)
+    // Natural byte-derived ceilings preserve whole-module inspection. Shared
+    // facts own framing; IcyDB owns the method namespace, modes and CDK policy.
+    let facts = inspect(
+        wasm,
+        InspectionLimits {
+            module_bytes: wasm.len(),
+            sections: wasm.len(),
+            exports: u32::try_from(wasm.len()).unwrap_or(u32::MAX),
+            custom_sections: wasm.len(),
+        },
+    )
+    .map_err(|error| format!("failed to inspect canister Wasm: {error}"))?;
+    Ok(facts
+        .exports
+        .into_iter()
+        .filter(|(_, export)| export.kind == ExportKind::Function)
+        .filter_map(|(name, _)| method_from_wasm_export(name))
+        .collect())
 }
 
 /// Read method names and modes from one generated Candid service.
@@ -656,60 +679,14 @@ fn strip_candid_line_comments(candid: &str) -> String {
     output
 }
 
-fn read_name<'a>(input: &mut &'a [u8]) -> Result<&'a str, String> {
-    let len = read_u32_leb(input, "export name length")?;
-    let bytes = take_bytes(
-        input,
-        usize::try_from(len).map_err(|_| "export name length does not fit usize")?,
-        "export name",
-    )?;
-    std::str::from_utf8(bytes).map_err(|error| format!("invalid UTF-8 export name: {error}"))
-}
-
-fn read_u32_leb(input: &mut &[u8], label: &str) -> Result<u32, String> {
-    let mut value = 0_u32;
-    for shift in [0_u32, 7, 14, 21, 28] {
-        let byte = take_byte(input, label)?;
-        let low = u32::from(byte & 0x7f);
-        if shift == 28 && low > 0x0f {
-            return Err(format!("{label} overflows u32"));
-        }
-        value |= low << shift;
-        if byte & 0x80 == 0 {
-            return Ok(value);
-        }
-    }
-    Err(format!("{label} uses an overlong u32 LEB"))
-}
-
-fn take_byte(input: &mut &[u8], label: &str) -> Result<u8, String> {
-    let (byte, rest) = input
-        .split_first()
-        .ok_or_else(|| format!("truncated {label}"))?;
-    *input = rest;
-    Ok(*byte)
-}
-
-fn take_bytes<'a>(input: &mut &'a [u8], len: usize, label: &str) -> Result<&'a [u8], String> {
-    if input.len() < len {
-        return Err(format!(
-            "truncated {label}: need {len} bytes, have {}",
-            input.len()
-        ));
-    }
-    let (taken, rest) = input.split_at(len);
-    *input = rest;
-    Ok(taken)
-}
-
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use std::{collections::BTreeSet, fs};
 
     use super::{
         CanisterMethod, CanisterMethodMode, MAINTAINED_CANISTER_POLICIES,
-        candid_visible_wasm_methods, inspect_candid_methods, inspect_wasm_methods,
-        render_schema_migration_endpoint_abi,
+        candid_visible_wasm_methods, inspect_candid_methods, inspect_canister_artifacts,
+        inspect_wasm_methods, render_schema_migration_endpoint_abi,
     };
 
     #[test]
@@ -736,6 +713,7 @@ mod tests {
     #[test]
     fn raw_wasm_inspection_reads_only_ic_function_exports() {
         let wasm = wasm_with_exports(&[
+            ("canister_composite_query composed", 0),
             ("canister_query read", 0),
             ("canister_update write", 0),
             ("canister_update <ic-cdk internal> timer_executor", 0),
@@ -745,6 +723,7 @@ mod tests {
 
         let observed = inspect_wasm_methods(&wasm).expect("Wasm should inspect");
         let expected = BTreeSet::from([
+            CanisterMethod::new("composed", CanisterMethodMode::CompositeQuery),
             CanisterMethod::new(
                 "<ic-cdk internal> timer_executor",
                 CanisterMethodMode::Update,
@@ -753,6 +732,21 @@ mod tests {
             CanisterMethod::new("write", CanisterMethodMode::Update),
         ]);
         assert_eq!(observed, expected);
+    }
+
+    #[test]
+    fn raw_wasm_inspection_rejects_duplicate_exports_and_malformed_sections() {
+        let duplicate =
+            wasm_with_exports(&[("canister_query read", 0), ("canister_query read", 0)]);
+        assert!(inspect_wasm_methods(&duplicate).is_err());
+        for tail in [
+            &[7, 2, 1][..],
+            &[7, 0x80, 0x80, 0x80, 0x80, 0x10][..],
+            &[7, 2, 0, 0][..],
+        ] {
+            let wasm = [b"\0asm\x01\0\0\0".as_slice(), tail].concat();
+            assert!(inspect_wasm_methods(&wasm).is_err());
+        }
     }
 
     #[test]
@@ -803,6 +797,101 @@ mod tests {
             render_schema_migration_endpoint_abi(),
             include_str!("contracts/0.218/schema-migration-endpoints.did")
         );
+    }
+
+    #[test]
+    fn shared_candid_and_publication_preserve_artifacts_and_failure_boundaries() {
+        let root = std::env::temp_dir().join(format!("icydb host staging {}", std::process::id()));
+        fs::create_dir(&root).unwrap();
+        let input = root.join("input.wasm");
+        let directory = root.join("missing parent").join("staged");
+        let text = "service : { icydb_schema : () -> () query; };  \n\n";
+        let bytes = candid_exporting_wasm(text);
+        fs::write(&input, &bytes).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&input, fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        let manifest = inspect_canister_artifacts(&input).unwrap();
+        assert_eq!(manifest.candid, format!("{text}\n"));
+        assert_eq!(
+            manifest.icydb_methods(),
+            BTreeSet::from([CanisterMethod::new(
+                "icydb_schema",
+                CanisterMethodMode::Query
+            ),])
+        );
+        let (wasm, did) =
+            crate::stage_canister_artifact_paths(&input, &input, &directory, "probe", true)
+                .unwrap();
+        let did = did.unwrap();
+        assert_eq!(fs::read(&wasm).unwrap(), bytes);
+        assert_eq!(
+            fs::read(directory.join("probe.compiler.wasm")).unwrap(),
+            bytes
+        );
+        assert_eq!(fs::read(&did).unwrap(), manifest.candid.as_bytes());
+        assert_eq!(fs::read(&input).unwrap(), bytes);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&wasm).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+        assert!(crate::publish_artifact_copy(&root, &wasm).is_err());
+        assert_eq!(fs::read(&wasm).unwrap(), bytes);
+        fs::write(&input, b"\0asm\x01\0\0\0").unwrap();
+        assert!(
+            crate::stage_canister_artifact_paths(&input, &input, &directory, "probe", true)
+                .is_err()
+        );
+        assert_eq!(fs::read(&did).unwrap(), manifest.candid.as_bytes());
+        let (wasm, absent) =
+            crate::stage_canister_artifact_paths(&input, &input, &directory, "probe", false)
+                .unwrap();
+        assert_eq!(fs::read(wasm).unwrap(), b"\0asm\x01\0\0\0");
+        assert!(absent.is_none() && !did.exists());
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 2);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    // Real extractor input: an exported memory contains the NUL-terminated DID,
+    // a pointer function returns its address, and the IC query is a separate body.
+    fn candid_exporting_wasm(text: &str) -> Vec<u8> {
+        let mut wasm = b"\0asm\x01\0\0\0".to_vec();
+        for (id, payload) in [
+            (1, vec![2, 0x60, 0, 1, 0x7f, 0x60, 0, 0]),
+            (3, vec![2, 0, 1]),
+            (5, vec![1, 0, 1]),
+        ] {
+            wasm.extend([id, u8::try_from(payload.len()).unwrap()]);
+            wasm.extend(payload);
+        }
+        let mut exports = vec![3];
+        for (name, kind, index) in [
+            ("get_candid_pointer", 0, 0),
+            ("canister_query icydb_schema", 0, 1),
+            ("memory", 2, 0),
+        ] {
+            push_u32_leb(&mut exports, u32::try_from(name.len()).unwrap());
+            exports.extend(name.as_bytes());
+            exports.extend([kind, index]);
+        }
+        wasm.push(7);
+        push_u32_leb(&mut wasm, u32::try_from(exports.len()).unwrap());
+        wasm.extend(exports);
+        wasm.extend([10, 9, 2, 4, 0, 0x41, 0, 0x0b, 2, 0, 0x0b]);
+        let mut data = vec![1, 0, 0x41, 0, 0x0b];
+        push_u32_leb(&mut data, u32::try_from(text.len() + 1).unwrap());
+        data.extend(text.as_bytes());
+        data.push(0);
+        wasm.push(11);
+        push_u32_leb(&mut wasm, u32::try_from(data.len()).unwrap());
+        wasm.extend(data);
+        wasm
     }
 
     fn wasm_with_exports(exports: &[(&str, u8)]) -> Vec<u8> {

@@ -501,7 +501,7 @@ pub(in crate::db) struct AcceptedRowDecodeContract {
     required_slot_count: usize,
     primary_key_slot_index: usize,
     primary_key_slot_indices: Vec<usize>,
-    fields_by_slot: Vec<Option<OwnedAcceptedFieldDecodeContract>>,
+    fields_by_slot: Vec<OwnedAcceptedFieldDecodeContract>,
     relation_edges: Vec<OwnedAcceptedRelationEdgeContract>,
     value_catalog: AcceptedValueCatalogHandle,
 }
@@ -513,12 +513,12 @@ impl AcceptedRowDecodeContract {
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         value_catalog: AcceptedValueCatalogHandle,
     ) -> Self {
-        let mut fields_by_slot = vec![None; descriptor.required_slot_count()];
-
-        for field in descriptor.fields() {
-            fields_by_slot[usize::from(field.slot().get())] =
-                Some(OwnedAcceptedFieldDecodeContract::from_runtime_field(field));
-        }
+        // Accepted schema integrity admits one dense field per physical slot.
+        let fields_by_slot = descriptor
+            .fields()
+            .iter()
+            .map(OwnedAcceptedFieldDecodeContract::from_runtime_field)
+            .collect();
 
         Self {
             current_layout_version: descriptor.current_layout_version(),
@@ -560,7 +560,6 @@ impl AcceptedRowDecodeContract {
         Ok(self
             .fields_by_slot
             .iter()
-            .filter_map(Option::as_ref)
             .filter(|field| field.introduced_in_layout() <= version)
             .count())
     }
@@ -608,7 +607,7 @@ impl AcceptedRowDecodeContract {
         &self,
         slot: usize,
     ) -> Option<&OwnedAcceptedFieldDecodeContract> {
-        self.fields_by_slot.get(slot)?.as_ref()
+        self.fields_by_slot.get(slot)
     }
 
     /// Borrow one accepted field decode contract by physical row slot,
@@ -647,6 +646,7 @@ pub(in crate::db) struct AcceptedRowLayoutRuntimeContract<'a> {
     history_floor: RowLayoutVersion,
     required_slot_count: usize,
     primary_key_names: Vec<&'a str>,
+    primary_key_slot_index: usize,
     primary_key_slot_indices: Vec<usize>,
     fields: Vec<AcceptedRowLayoutRuntimeField<'a>>,
     relation_edges: Vec<OwnedAcceptedRelationEdgeContract>,
@@ -670,10 +670,13 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
         // Phase 1: project accepted field metadata through the schema-owned
         // row-layout mapping so duplicated field-slot payloads never become
         // the runtime slot authority.
-        for field in snapshot.fields() {
+        for (index, field) in snapshot.fields().iter().enumerate() {
             let Some(slot) = row_layout.slot_for_field(field.id()) else {
                 return Err(InternalError::store_invariant());
             };
+            if usize::from(slot.get()) != index {
+                return Err(InternalError::store_invariant());
+            }
             let slot_end = usize::from(slot.get()).saturating_add(1);
             required_slot_count = required_slot_count.max(slot_end);
 
@@ -710,6 +713,11 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
             primary_key_names.push(primary_key_field.name());
             primary_key_slot_indices.push(usize::from(primary_key_field.slot().get()));
         }
+        // Capture the required first component at the fallible owner boundary.
+        let primary_key_slot_index = primary_key_slot_indices
+            .first()
+            .copied()
+            .ok_or_else(InternalError::store_invariant)?;
         let relation_edges = snapshot
             .relations()
             .iter()
@@ -728,6 +736,7 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
             history_floor: row_layout.history_floor(),
             required_slot_count,
             primary_key_names,
+            primary_key_slot_index,
             primary_key_slot_indices,
             fields,
             relation_edges,
@@ -770,8 +779,8 @@ impl<'a> AcceptedRowLayoutRuntimeContract<'a> {
     /// expose one key slot. Composite-aware code must read
     /// `primary_key_slot_indices`.
     #[must_use]
-    pub(in crate::db) fn first_primary_key_slot_index(&self) -> usize {
-        self.primary_key_slot_indices[0]
+    pub(in crate::db) const fn first_primary_key_slot_index(&self) -> usize {
+        self.primary_key_slot_index
     }
 
     /// Borrow accepted primary-key physical slot indices in key order.

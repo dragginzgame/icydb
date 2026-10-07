@@ -1,7 +1,7 @@
 //! Matched full-row catalogue measurement; not a Toko Miner deployment.
 
 use candid::CandidType;
-use ic_host_tools::artifact::Sha256Digest;
+use ic_host_artifacts::artifact::Sha256Digest;
 use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::Error;
 use icydb_testing_integration::{
