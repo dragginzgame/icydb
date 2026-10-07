@@ -80,8 +80,8 @@ require_text \
     'the post-link pipeline must prevent unbounded one-caller inlining.'
 require_text \
     Makefile \
-    'bash scripts/dev/install-ic-tools.sh --pins' \
-    'tool installation must use the reviewed shared installer.'
+    "include \$(ROOT_DIR)/make/tools.mk" \
+    'tool installation must delegate to the reviewed shared Make include.'
 require_text \
     ci/ic-tools.tsv \
     $'wasm-opt\t132\t' \
