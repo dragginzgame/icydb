@@ -5,7 +5,7 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.267.0]
+## [0.267.0] - 2026-10-07
 
 - Simplify developer setup and host tooling, including response-only CLI
   dependencies, shared artifact reads and bounded report commands; strengthen
