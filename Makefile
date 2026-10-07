@@ -19,7 +19,7 @@ endif
         fetch test-watch all ensure-clean security-check check-versioning \
         test-no-default-smoke \
         wasm-size-report wasm-audit-report \
-        lint-workflows shellcheck check-dependency-pins check-invariants check-feature-matrix \
+        lint-workflows shellcheck check-dependency-pins check-invariants check-portable-automation check-feature-matrix \
         ci-static ci-core ci-workspace ci-sql-tier-a ci-sql-tier-b \
         _test-icydb-no-default _test-core-no-default _test-workspace _test-canister-libs \
         _test-durability-core-commit _test-durability-core-mutation-job _test-durability-integration \
@@ -43,9 +43,11 @@ POCKET_IC_BIN ?= $(ROOT_DIR)/.tools/ic/bin/pocket-ic
 CARGO_WORK_HOME := $(ROOT_DIR)/.cache/cargo/icydb
 CARGO_WORK_TARGET_DIR := $(ROOT_DIR)/target/icydb
 RELEASE_TMP_DIR := $(ROOT_DIR)/.cache/release-tmp
+install-tools: install-rust-tools
+tools-check: rust-tools-check
 CARGO_WORK_ENV := CARGO_HOME="$(CARGO_WORK_HOME)" CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
 CARGO_PUBLISH_ENV := CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
-IC_TESTKIT_ENV := TMPDIR="$(ROOT_DIR)/.cache" POCKET_IC_BIN="$(POCKET_IC_BIN)" IC_TESTKIT_ALLOW_POCKET_IC_DOWNLOAD=0
+IC_TESTKIT_ENV := TMPDIR="$(ROOT_DIR)/.cache" POCKET_IC_BIN="$(POCKET_IC_BIN)"
 # Workspace and integration lanes share a lower cap to limit concurrent
 # PocketIC test bodies; core-only lanes retain their wider bounded parallelism.
 CORE_TEST_ENV := RUST_TEST_THREADS=8
@@ -79,7 +81,7 @@ help:
 	@echo "Available commands:"
 	@echo ""
 	@echo "Setup / Installation:"
-	@echo "  install-tools    Install pinned repository-local host and IC tools, including cloc"
+	@echo "  install-tools    Install pinned repository-local host, IC and Rust tools"
 	@echo "  tools-check      Verify the selected local tools offline"
 	@echo "  install          Install the local icydb CLI binary"
 	@echo "  install-dev      Install developer dependencies, GitHub CLI, actionlint, and the formatting hook"
@@ -405,18 +407,33 @@ test-documentation:
 check-dependency-pins:
 	$(CARGO_WORK_ENV) YQ="$(YQ)" bash scripts/ci/check-dependency-pins.sh --cargo-inheritance
 
-check-invariants:
-	bash scripts/release/test-finalize-notes.sh
+# The static gate and native host qualification execute this same portable
+# fixture selection. Host-specific setup, lint and Cargo gates stay with callers.
+check-portable-automation:
 	bash scripts/release/test-lock-selection.sh
 	bash scripts/ci/verify-shared-tooling-snapshot.sh
 	bash scripts/ci/test-gh-ci.sh
 	bash scripts/ci/test-shared-tooling-adapters.sh
 	bash scripts/ci/test-workstation-setup.sh
+	bash scripts/ci/test-rust-tools.sh
 	bash scripts/ci/test-cargo-metadata-adoption.sh
 	bash scripts/ci/test-pocketic-server-wrapper.sh
 	bash scripts/ci/test-ci-workflow-invariants.sh
 	bash scripts/ci/test-invariant-scanners.sh
 	bash scripts/ci/check-ci-workflow-invariants.sh
+	bash scripts/release/test-standard-release.sh
+	bash scripts/release/test-receipt-callbacks.sh
+	bash scripts/release/test-pin-exceptions.sh
+	bash scripts/ci/test-publish-workspace.sh
+	bash scripts/ci/test-release-runner.sh
+	perl scripts/dev/delete-github-tags-up-to.pl --cutoff 0.210 >/dev/null
+	bash scripts/ci/test-pre-commit.sh
+	perl scripts/ci/test-documentation.pl
+	perl scripts/ci/check-documentation.pl
+
+check-invariants:
+	+$(MAKE) --no-print-directory check-portable-automation
+	bash scripts/release/test-finalize-notes.sh
 	bash scripts/ci/check-deployment-inventory-invariants.sh
 	bash scripts/ci/check-dependency-graph-invariants.sh
 	bash scripts/ci/check-executor-no-production-panics.sh
@@ -425,17 +442,8 @@ check-invariants:
 	bash scripts/ci/check-layer-authority-invariants.sh
 	bash scripts/ci/check-mutation-atomicity-invariants.sh
 	bash scripts/ci/check-release-cleanup-invariants.sh
-	bash scripts/release/test-standard-release.sh
-	bash scripts/release/test-receipt-callbacks.sh
-	bash scripts/release/test-pin-exceptions.sh
-	bash scripts/ci/test-publish-workspace.sh
-	bash scripts/ci/test-release-runner.sh
 	bash scripts/ci/test-release-candidate-receipt.sh
-	perl scripts/dev/delete-github-tags-up-to.pl --cutoff 0.210 >/dev/null
-	bash scripts/ci/test-pre-commit.sh
 	bash scripts/ci/check-persisted-format-invariants.sh
-	perl scripts/ci/test-documentation.pl
-	perl scripts/ci/check-documentation.pl
 	bash scripts/ci/check-read-admission-invariants.sh
 	bash scripts/ci/test-read-admission-invariants.sh
 	bash scripts/ci/check-schema-model-boundary-invariants.sh

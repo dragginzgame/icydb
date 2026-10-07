@@ -43,6 +43,9 @@ git_variables="$(git rev-parse --local-env-vars)"
     # staging, but do not expose it to formatters running outside the checkout.
     while IFS= read -r variable; do unset "$variable"; done <<< "$git_variables"
     export GIT_CEILING_DIRECTORIES="$snapshot/worktree"
+    # Optional adapters consume this NUL-delimited selection against the exported
+    # worktree. They must never discover or format the original checkout.
+    export SHARED_TOOLING_FORMAT_FILES="$snapshot/selected"
     make --no-print-directory -C "$snapshot/worktree" fmt
 ) || exit $?
 

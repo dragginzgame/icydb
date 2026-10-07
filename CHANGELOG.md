@@ -5,6 +5,22 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.267.1]
+
+- Converge developer setup and portable CI on shared owners, strengthen runtime
+  safety checks, and correct diagnostic and durability guidance
+  ([#302](https://github.com/dragginzgame/icydb/issues/302),
+  [#307](https://github.com/dragginzgame/icydb/issues/307),
+  [#309](https://github.com/dragginzgame/icydb/issues/309),
+  [#317](https://github.com/dragginzgame/icydb/issues/317),
+  [#318](https://github.com/dragginzgame/icydb/issues/318),
+  [#289](https://github.com/dragginzgame/icydb/issues/289),
+  [#291](https://github.com/dragginzgame/icydb/issues/291),
+  [#274](https://github.com/dragginzgame/icydb/issues/274),
+  [#316](https://github.com/dragginzgame/icydb/issues/316)).
+
+Detailed notes: [docs/changelog/0.267.md](docs/changelog/0.267.md)
+
 ## [0.267.0] - 2026-10-07
 
 - Simplify developer setup and host tooling, including response-only CLI

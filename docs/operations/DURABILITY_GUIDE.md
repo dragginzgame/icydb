@@ -218,6 +218,16 @@ startup waits for retained debt, while ordinary operation can retain complete
 live overlays during background convergence. This is the current production
 mechanism, as described in the [durability contract](../contracts/DURABILITY.md#recovery-size-and-scale-limits).
 
+For write loops, the [journal backlog limits](../contracts/DURABILITY.md#journal-backlog-across-messages)
+span messages. An `await` does not clear persisted debt; only completed
+convergence restores capacity. Prefer the maintained batch APIs when rows can
+share one bounded commit. On typed `ConvergenceBacklogPressure` (`E263`), stop
+submitting writes, allow convergence to progress and retry the rejected write.
+Preserve the structured resource/count/limit facts. When the message returns
+normally, earlier successful writes remain committed: resuming a loop must
+preserve that progress, rather than replay its committed prefix unless the
+application makes replay idempotent.
+
 Production capacity still depends on schema size, row width, index/relation
 fanout, and retained debt. Historical rebuild row-count probes are regression
 floors, not deployment limits. For each deployment:

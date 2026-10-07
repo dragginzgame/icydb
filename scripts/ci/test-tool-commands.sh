@@ -21,7 +21,7 @@ printf '\n' >> "$TOOL_COMMAND_LOG"
 [[ "$PATH" == "$TOOL_COMMAND_CONSUMER/.tools/host/bin:$TOOL_COMMAND_CONSUMER/.tools/ic/bin:"* ]]
 if [[ "${TOOL_COMMAND_FAIL:-}" == "$name" ]]; then exit 23; fi
 SCRIPT
-for tool in install-host-tools.sh install-ic-tools.sh cloc.sh; do
+for tool in install-host-tools.sh install-ic-tools.sh install-rust-tools.sh cloc.sh; do
     cp "$fixture/tool-stub" "$snapshot/scripts/dev/$tool"
 done
 cat > "$consumer/Makefile" <<'MAKE'
@@ -82,6 +82,12 @@ printf 'cloc-siblings.sh <%s>\n' "$fixture" > "$fixture/expected"
 cmp "$fixture/expected" "$TOOL_COMMAND_LOG"
 
 # The sibling tooling inventory is available through the same shared include.
+: > "$TOOL_COMMAND_LOG"
+make --no-print-directory -C "$consumer" cloc CLOC_MANIFEST=testing/Cargo.toml \
+    > "$fixture/manifest.log" 2>&1
+printf 'cloc.sh <--manifest> <testing/Cargo.toml> <%s>\n' "$consumer" > "$fixture/expected"
+cmp "$fixture/expected" "$TOOL_COMMAND_LOG"
+
 cat > "$snapshot/scripts/dev/cloc-tooling.pl" <<'PERL'
 use strict;
 use warnings;
@@ -92,6 +98,20 @@ PERL
 make --no-print-directory -C "$consumer" cloc-tooling CLOC_PARENT="$fixture" > "$fixture/tooling.log" 2>&1
 printf 'cloc-tooling.pl <%s>\n' "$fixture" > "$fixture/expected"
 cmp "$fixture/expected" "$TOOL_COMMAND_LOG"
+
+# Rust consumers can attach the explicit shared setup to their aggregate.
+cat >> "$consumer/Makefile" <<'MAKE'
+install-tools: install-rust-tools
+tools-check: rust-tools-check
+MAKE
+: > "$TOOL_COMMAND_LOG"
+make --no-print-directory -C "$consumer" install-tools > "$fixture/rust-install.log" 2>&1
+[[ "$(head -1 "$TOOL_COMMAND_LOG")" == "install-rust-tools.sh <--consumer> <$consumer> <--versions> <$consumer/ci/tool-versions.env>" ]]
+: > "$TOOL_COMMAND_LOG"
+make --no-print-directory -C "$consumer" tools-check RUST_TOOL_VERSIONS="$consumer/rust pins.env" > "$fixture/rust-check.log" 2>&1
+[[ "$(head -1 "$TOOL_COMMAND_LOG")" == "install-rust-tools.sh <--consumer> <$consumer> <--versions> <$consumer/rust pins.env> <--check>" ]]
+# Keep later default-goal comparison on its current command record.
+cp "$TOOL_COMMAND_LOG" "$fixture/expected"
 
 # An explicitly selected default goal remains unchanged too.
 printf '.DEFAULT_GOAL := help\n' > "$fixture/prefixed.mk"

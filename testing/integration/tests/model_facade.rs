@@ -1,9 +1,6 @@
 //! Shared-source model generation must survive real install and upgrade.
 
-use ic_testkit::{
-    pic::{InstallSpec, StandaloneCanisterFixture},
-    pocket_ic::PocketIc,
-};
+use ic_testkit::pic::{InstallSpec, StandaloneCanisterFixture};
 use icydb_testing_integration::deliver_fixture_startup_watchdog;
 
 #[test]
@@ -11,7 +8,7 @@ use icydb_testing_integration::deliver_fixture_startup_watchdog;
 fn single_package_model_survives_install_write_and_upgrade() {
     let wasm = std::fs::read(std::env::var("ICYDB_MODEL_FACADE_WASM").unwrap()).unwrap();
     let fixture = StandaloneCanisterFixture::install(
-        PocketIc::new(),
+        icydb_testing_integration::start_fixture_pocket_ic(),
         InstallSpec::new(
             wasm.clone(),
             candid::encode_args(()).unwrap(),
@@ -78,7 +75,7 @@ fn single_package_model_survives_install_write_and_upgrade() {
 #[ignore = "requires ICYDB_MODEL_FACADE_WASM built from icydb-testing-model-facade-only"]
 fn single_package_install_cycle_cost() {
     let wasm = std::fs::read(std::env::var("ICYDB_MODEL_FACADE_WASM").unwrap()).unwrap();
-    let pic = PocketIc::new();
+    let pic = icydb_testing_integration::start_fixture_pocket_ic();
     let canister = pic.create_canister();
     pic.add_cycles(canister, 10_000_000_000_000);
     // PocketIC also supplies an initial balance: do not infer it from funding.

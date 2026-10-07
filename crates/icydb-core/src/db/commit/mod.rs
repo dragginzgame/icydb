@@ -18,7 +18,7 @@
 mod apply;
 mod backlog_admission;
 #[cfg(test)]
-mod convergence_candidate;
+mod convergence_candidate_tests;
 mod guard;
 mod marker;
 mod memory;

@@ -349,6 +349,42 @@ live overlays can serve reads while admitted debt converges in the background.
 Pressure rejects new writes before publication when the admitted backlog would
 be exceeded.
 
+### Journal Backlog Across Messages
+
+The retained backlog is measured from persisted journal tails across the
+database's registered stores. Ending a message or crossing an inter-canister
+`await` does not reset it. Capacity returns as the convergence driver folds and
+retires complete batches; yielding may allow that work to run, but does not
+guarantee that it has completed before another write.
+
+In the 0.267 line, the canonical
+[backlog admission owner](../../crates/icydb-core/src/db/commit/backlog_admission.rs)
+admits a proposed commit only when current debt plus its exact contribution fits
+all three cumulative limits:
+
+| Retained resource | Maximum |
+| --- | --- |
+| Journal batches | 64 |
+| Journal records | 16,384 |
+| Encoded journal-batch bytes | 16 MiB (16,777,216 bytes) |
+
+These are database-wide retained totals, not per-message allowances. A write
+can contribute batches to multiple journal tails; its contribution is measured
+from the prepared commit rather than inferred from API call or row counts.
+Batching rows reduces separate commits but must still satisfy individual commit
+limits and the cumulative limits above.
+
+Exceeding any dimension returns typed `ConvergenceBacklogPressure` (`E263`,
+`ErrorClass::Conflict`) before publishing the proposed commit. Its numeric facts
+identify the resource, current count, proposed contribution and limit. Admission
+requests convergence work and returns the error without automatically retrying.
+If the message returns normally, earlier successful writes remain committed,
+including earlier loop iterations in that message; this rejection does not roll
+them back. IC trap rollback is a separate boundary, as described by the
+[atomicity contract](ATOMICITY.md).
+
+### Capacity Qualification
+
 This bounded mechanism does not establish a universal production dataset or
 instruction-budget guarantee. Earlier 256/1,024-row rebuild probes are
 historical regression floors, not current capacity certification. Production

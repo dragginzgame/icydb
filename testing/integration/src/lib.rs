@@ -6,6 +6,8 @@
 #[cfg(test)]
 mod build_flags_tests;
 mod canister_build_cache;
+#[cfg(test)]
+mod pocketic_startup_tests;
 
 pub mod canister_artifact;
 pub mod durable_mutation_job_contract;
@@ -42,7 +44,6 @@ use serde::Deserialize;
 const FIXTURE_INSTALL_CYCLES: u128 = 100_000_000_000_000;
 const FIXTURE_STARTUP_MESSAGE_COMPLETION_TICKS: usize = 4;
 const POCKET_IC_INSTANCE_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
-const POCKET_IC_SERVER_URL_ENV: &str = "ICYDB_POCKET_IC_SERVER_URL";
 // A production watchdog callback may consume its full 30-billion-instruction
 // allocation under deterministic time slicing. The maintained timer-
 // exhaustion proof uses this same zero-time completion envelope.
@@ -1115,20 +1116,20 @@ fn install_fixture_canister_with_options_and_optional_progress(
     fixture
 }
 
-fn start_fixture_pocket_ic() -> PocketIc {
-    let Some(server_url) = env::var(POCKET_IC_SERVER_URL_ENV)
-        .ok()
-        .filter(|value| !value.is_empty())
-    else {
-        return PocketIc::new();
-    };
-
+/// Create an application-subnet instance using Testkit's explicit environment contract.
+///
+/// Connect to `IC_TESTKIT_POCKET_IC_URL` when selected, otherwise use the
+/// prepared `POCKET_IC_BIN`. No executable discovery or download occurs.
+///
+/// # Panics
+/// Panics if the selected configuration is invalid or instance startup fails.
+#[must_use]
+pub fn start_fixture_pocket_ic() -> PocketIc {
+    let config = PocketIcStartupConfig::from_env(POCKET_IC_INSTANCE_STARTUP_TIMEOUT)
+        .unwrap_or_else(|error| panic!("configure fixture PocketIC: {error}"));
     PocketIcBuilder::new()
         .with_application_subnet()
-        .try_build(PocketIcStartupConfig::connect(
-            server_url,
-            POCKET_IC_INSTANCE_STARTUP_TIMEOUT,
-        ))
+        .try_build(config)
         .unwrap_or_else(|error| panic!("start fixture PocketIC on governed server: {error}"))
 }
 
@@ -1550,7 +1551,7 @@ fn publish_artifact_copy(input: &Path, output: &Path) -> Result<(), String> {
     ic_host_fs::durable::write_with(output, |sink| {
         sink.set_permissions(metadata.permissions())?;
         ic_host_artifacts::artifact::copy_reader(&mut source, sink, u64::MAX)
-            .map_err(std::io::Error::other)
+            .map_err(std::io::Error::from)
     })
     .map_err(|error| format!("publish artifact '{}': {error}", output.display()))?;
     Ok(())

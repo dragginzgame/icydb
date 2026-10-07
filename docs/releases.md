@@ -221,6 +221,31 @@ outside immutable shared snapshots until adopting a reviewed upstream revision.
 
 ## Authority and recovery
 
+### Fixture ownership
+
+Consumer adoption runs the canonical `scripts/ci/test-release-runner.sh` suite.
+Keep consumer tests for their own contracts, using this ownership map before
+deleting duplicate scenarios or extracting test support:
+
+| Assertion | Canonical owner | Consumer obligation |
+| --- | --- | --- |
+| Phase order, all increments, restart before preparation, saved-version recovery | Shared runner fixture | One actual Make-to-adapter wiring/recovery case. |
+| Lost commit/tag/push replies, destination changes, exact atomic refspecs, locks | Shared runner fixture | Do not copy the runner's fake Git machine solely to repeat these cases. |
+| Allowed release files, metadata changes, independent locks/package sets | Consumer adapter fixture | Use actual selections and verify unrelated staged/unstaged input refusal. |
+| Receipt identity, selected older `RELEASE_COMMIT`, tag/evidence binding | Consumer adapter fixture | Preserve negative identity and payload tests across recovery. |
+| Failed preparation restoration and product-specific side effects | Consumer adapter fixture | Prove its own transaction and retained evidence. |
+| Publication eligibility and registry behavior | Consumer publication fixture | Keep separate from the branch/tag release proof. |
+
+For IC Backup and IC Blob Storage, map local assertions to these obligations
+before removing runner-only scenarios. Their receipt and package/lock checks
+remain local, even when both suites simulate Git. Extract common effect support
+only if the remaining adapter cases demonstrate that need. Raw fixture LOC is
+not a deletion target. Existing adoption work is tracked in
+[IC Backup #18](https://github.com/dragginzgame/ic-backup/issues/18) and
+[IC Blob Storage #22](https://github.com/dragginzgame/ic-blob-storage/issues/22).
+
+### Maintainer effects
+
 The maintainer invokes the one-shot commands. Agents never run them, even when a
 push or version change has been authorized, because commits remain
 maintainer-owned under the [engineering baseline](../DRAGGINZGAME.md). Agents

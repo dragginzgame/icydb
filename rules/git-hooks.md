@@ -75,6 +75,56 @@ hand-written sort or rewrite dependency declarations to enforce ordering.
 
 ## Selected files and working edits
 
+### Mixed Rust and frontend reference
+
+Vendor `scripts/dev/format-frontend.sh` with the hook for a frontend using
+Prettier's built-in parsers. Explicit setup prepares Node and dependencies with
+the [npm pinning rules](dependency-pinning.md#frontend-and-npm-inputs). Before
+committing, the caller exports `PRETTIER_BIN` as the absolute prepared executable
+path (for example, `$PWD/frontend/node_modules/.bin/prettier`). An isolated index
+export has no `node_modules`; never resolve that path relative to the export or
+install packages inside it. The consumer's Makefile reads the version from the
+selected tracked lockfile, for example:
+
+```make
+PRETTIER_VERSION = $(shell jq -er '.packages["node_modules/prettier"].version' frontend/package-lock.json)
+
+fmt:
+	cargo sort --workspace
+	cargo fmt --all
+	PRETTIER_VERSION="$(PRETTIER_VERSION)" bash scripts/dev/format-frontend.sh --write frontend
+
+fmt-check:
+	cargo sort --workspace --check
+	cargo fmt --all -- --check
+	PRETTIER_VERSION="$(PRETTIER_VERSION)" bash scripts/dev/format-frontend.sh --check frontend
+```
+
+Retain the Rust prerequisite checks and all actual workspace roots described
+above. The hook supplies `SHARED_TOOLING_FORMAT_FILES`, a NUL-delimited selection
+outside the exported worktree. The helper formats matching selected frontend
+paths inside that export; the hook alone refreshes the real index. Outside the
+hook, `--write` and `--check` cover tracked frontend inputs, with `--check` always
+checking the complete tracked scope. JavaScript/TypeScript, JSON, CSS/SCSS, HTML,
+Markdown and YAML are selected; Prettier owns configuration and ignore behavior.
+Generated files may be ignored only when the consumer's generation checks own
+their correctness. Symlink inputs are refused. No Git staging or tool install
+occurs in the helper, and formatter failures propagate.
+Explicit checks/writes reject a missing scope directory, and a failed version
+probe is rejected even if it prints the expected version. A hook selection with
+no remaining frontend files is a valid no-op, including deletion of the last
+frontend file; it does not require the prepared executable.
+
+This is a reference for prepared executables and built-in parsers. A consumer
+needing plugins or additional extensions owns their explicit prepared resolution
+and focused adapter checks. Preserve config, version and lock selections from
+the snapshot; do not make the formatter read unstaged configuration in the real
+checkout. Qualify real Prettier on the declared native hosts before claiming
+adoption; shared command-substitute tests prove wiring and selection only.
+See the [Prettier CLI contract](https://prettier.io/docs/cli).
+
+### Index ownership
+
 - The hook records the selected added/modified/renamed files using NUL-delimited
   paths. It rejects a selected file with unstaged changes before formatting,
   including a partial selection of configuration or formatter inputs. Preserve

@@ -762,4 +762,21 @@ NOTES
             > prepared 2> conflict.log; then exit 1; fi
     done
 done
+# Horizontal heading whitespace is presentation, not a different release identity.
+for heading in '## [Draft]' '## [0.1.1]'; do
+    printf '# Changelog\n\n%s  \t\n\n- Selected notes.\n\n## [0.1.0]\t \n\n- Kept history.\n' "$heading" > whitespace-notes
+    printf '# Changelog\n\n## [0.1.1] - 2026-10-06\n\n- Selected notes.\n\n## [0.1.0]\t \n\n- Kept history.\n' > whitespace-expected
+    awk -v version=0.1.1 -v previous=0.1.0 -v date=2026-10-06 \
+        -f "$ROOT/scripts/ci/finalize-release-changelog.awk" whitespace-notes > whitespace-actual
+    cmp whitespace-expected whitespace-actual
+    printf '\n## [0.1.1]\t\n' >> whitespace-notes
+    if awk -v version=0.1.1 -v previous=0.1.0 -v date=2026-10-06 \
+        -f "$ROOT/scripts/ci/finalize-release-changelog.awk" whitespace-notes > /dev/null 2>&1; then exit 1; fi
+done
+printf '# Changelog\n\n## [0.1.1] - 2026-10-06 \t\n\n- Finalized notes.\n' > whitespace-notes
+awk -v version=0.1.1 -v previous=0.1.0 -v date=2026-10-06 -v allow_finalized=1 \
+    -f "$ROOT/scripts/ci/finalize-release-changelog.awk" whitespace-notes > whitespace-actual
+cmp whitespace-notes whitespace-actual
+if awk -v version=0.1.1 -v previous=0.1.0 -v date=2026-10-07 -v allow_finalized=1 \
+    -f "$ROOT/scripts/ci/finalize-release-changelog.awk" whitespace-notes > /dev/null 2>&1; then exit 1; fi
 echo 'release runner command-stub tests passed'

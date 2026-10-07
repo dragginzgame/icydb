@@ -24,7 +24,7 @@ source "$ROOT/ci/tool-versions.env"
 # shellcheck source=/dev/null
 source "$ROOT/ci/icydb-tools.env"
 ACTIONLINT_INSTALL_DIR="${ACTIONLINT_INSTALL_DIR:-$HOME/.local/bin}"
-export PATH="$ROOT/.tools/host/bin:$ROOT/.tools/ic/bin:${CARGO_HOME:-$HOME/.cargo}/bin:$HOME/.cargo/bin:$HOME/.local/bin:$ACTIONLINT_INSTALL_DIR:$PATH"
+export PATH="$ROOT/.tools/host/bin:$ROOT/.tools/ic/bin:$ROOT/.tools/rust/bin:${CARGO_HOME:-$HOME/.cargo}/bin:$HOME/.cargo/bin:$HOME/.local/bin:$ACTIONLINT_INSTALL_DIR:$PATH"
 cd "$ROOT"
 
 DEV_SYSTEM_PACKAGES=(
@@ -45,7 +45,6 @@ DEV_SYSTEM_PACKAGES=(
 )
 
 CARGO_WORKSTATION_TOOLS=(
-  "candid-extractor@$ICYDB_CANDID_EXTRACTOR_VERSION"
   "twiggy@$ICYDB_TWIGGY_VERSION"
   "cargo-edit@$ICYDB_CARGO_EDIT_VERSION"
   "cargo-watch@$ICYDB_CARGO_WATCH_VERSION"
@@ -104,9 +103,6 @@ install_tooling() {
   install_actionlint
   make --no-print-directory -C "$ROOT" install-tools
 
-  cargo install cargo-sort --version "$SHARED_TOOLING_CARGO_SORT_VERSION" --locked
-  cargo install cargo-sort-derives --version "$ICYDB_CARGO_SORT_DERIVES_VERSION" --locked
-
   for tool in "${CARGO_WORKSTATION_TOOLS[@]}"; do
     name="${tool%@*}"
     version="${tool##*@}"
@@ -117,10 +113,6 @@ install_tooling() {
     fi
   done
 
-  [[ "$(candid-extractor --version)" == "candid-extractor $ICYDB_CANDID_EXTRACTOR_VERSION" ]] || {
-    echo "candid-extractor does not report the reviewed version $ICYDB_CANDID_EXTRACTOR_VERSION" >&2
-    exit 1
-  }
   make --no-print-directory -C "$ROOT" tools-check
 }
 

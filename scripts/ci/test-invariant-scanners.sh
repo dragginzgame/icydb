@@ -47,8 +47,17 @@ check invalid-regex 2 search '[' "$scratch/source.rs"
 check grouped-failure 2 bash -c 'set -euo pipefail; source "$1"; hits="$({ run_rg x "$2"; run_rg absent "$3"; } | strip_comment_only)"' \
   fixture "$common" "$scratch/missing.rs" "$scratch/source.rs"
 
-executor="$scratch/crates/icydb-core/src/db/executor"
-mkdir -p "$executor"
+panic_roots=(
+  crates/icydb-core/src/db/executor
+  crates/icydb-core/src/db/commit
+  crates/icydb-core/src/db/journal
+  crates/icydb-core/src/db/startup
+)
+for root in "${panic_roots[@]}"; do
+  mkdir -p "$scratch/$root"
+  printf 'fn production() {}\n' > "$scratch/$root/production.rs"
+done
+executor="$scratch/${panic_roots[0]}"
 panic_checker="$scratch/scripts/ci/check-executor-no-production-panics.sh"
 for pattern in 'value.unwrap();' 'value.expect ("reason");' 'panic!("reason");' \
   'panic! { "reason" };' 'assert!(false);' 'assert_eq!(1, 2);' 'assert_ne![1, 1];' \
@@ -56,6 +65,33 @@ for pattern in 'value.unwrap();' 'value.expect ("reason");' 'panic!("reason");' 
   printf 'fn production() { %s }\n' "$pattern" > "$executor/production.rs"
   check "panic-$cases" 1 bash "$panic_checker"
 done
+printf 'fn production() {}\n' > "$executor/production.rs"
+for root in "${panic_roots[@]:1}"; do
+  printf 'fn production() { value.unwrap(); }\n' > "$scratch/$root/production.rs"
+  check "runtime-root-$cases" 1 bash "$panic_checker"
+  printf 'fn production() {}\n' > "$scratch/$root/production.rs"
+done
+# The production inventory must not discard durable recovery files merely
+# because Git ignores them or because they have no executor-owned neighbors.
+printf 'fn recovery() { panic!("fixture"); }\n' > "$scratch/${panic_roots[1]}/recovery.rs"
+printf '/recovery.rs\n' > "$scratch/${panic_roots[1]}/.gitignore"
+check ignored-recovery-file 1 bash "$panic_checker"
+rm "$scratch/${panic_roots[1]}/recovery.rs"
+cat > "$executor/production.rs" <<'RUST'
+const _: () =
+    assert!(MAX_RECEIPT_BYTES <= MAX_PUBLIC_BYTES);
+fn production() { debug_assert!(true); }
+RUST
+check compile-time-assertion 0 bash "$panic_checker"
+printf 'fn production() { assert!(false); }\n' >> "$executor/production.rs"
+check runtime-after-compile-time-assertion 1 bash "$panic_checker"
+cat > "$executor/production.rs" <<'RUST'
+const _: () =
+    assert!(true); fn production() { panic!("fixture"); }
+RUST
+check runtime-beside-compile-time-assertion 1 bash "$panic_checker"
+printf 'const fn production() { assert!(false); }\n' > "$executor/production.rs"
+check runtime-callable-const-function 1 bash "$panic_checker"
 cat > "$executor/production.rs" <<'RUST'
 fn production() { debug_assert!(true); debug_assert_eq!(1, 1); }
 // panic!() describes the prohibition.
@@ -73,6 +109,7 @@ printf 'fn test() { panic!("fixture"); }\n' > "$executor/tests/case.rs"
 cp "$executor/tests/case.rs" "$executor/tests.rs"
 cp "$executor/tests/case.rs" "$executor/case_tests.rs"
 cp "$executor/tests/case.rs" "$executor/test_case.rs"
+cp "$executor/tests/case.rs" "$scratch/${panic_roots[1]}/convergence_candidate_tests.rs"
 check test-exclusion 0 bash "$panic_checker"
 printf '#[cfg(not(test))]\nfn production() { panic!("reason"); }\n' > "$executor/production.rs"
 check production-cfg 1 bash "$panic_checker"
@@ -84,6 +121,16 @@ rm "$executor/production.rs"
 check empty-inventory 1 bash "$panic_checker"
 mv "$executor" "$scratch/retained-executor"
 check missing-inventory 2 bash "$panic_checker"
+mv "$scratch/retained-executor" "$executor"
+printf 'fn production() {}\n' > "$executor/production.rs"
+for root in "${panic_roots[@]:1}"; do
+  rm "$scratch/$root/production.rs"
+  check "runtime-empty-$cases" 1 bash "$panic_checker"
+  printf 'fn production() {}\n' > "$scratch/$root/production.rs"
+  mv "$scratch/$root" "$scratch/absent-root"
+  check "runtime-missing-$cases" 2 bash "$panic_checker"
+  mv "$scratch/absent-root" "$scratch/$root"
+done
 
 # Qualify every SQL scan root, including terminal discovery. The product's
 # required SELECT visibility owners are copied unchanged into the fixture.

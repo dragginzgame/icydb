@@ -40,7 +40,7 @@ SERVER
 cat > "$fixture/child-command" <<'CHILD'
 #!/usr/bin/env bash
 set -euo pipefail
-[[ "$ICYDB_POCKET_IC_SERVER_URL" == http://127.0.0.1:12345/ ]]
+[[ "$IC_TESTKIT_POCKET_IC_URL" == http://127.0.0.1:12345/ ]]
 printf 'called\n' > "$TEST_STATE/child-called"
 case "$TEST_MODE" in
   child) exit 7 ;;

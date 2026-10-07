@@ -38,6 +38,38 @@ The [Cargo ownership rules](cargo-dependencies.md) define where declarations liv
   lockfiles, checksums and affected evidence together through an explicit review.
   Checker execution never upgrades, fetches, reformats or rewrites dependencies.
 
+## Frontend and npm inputs
+
+- Keep a committed `package-lock.json` for each independent npm build root.
+  Use `npm ci` during explicit CI/developer dependency preparation; validation
+  and hooks use the already prepared dependencies. A manifest/lock mismatch
+  fails instead of regenerating the lock. Preserve any reviewed project `.npmrc`
+  options needed to reproduce that lock. Compatible registry requirements are
+  fine; the lock owns resolved versions and integrity. Git dependencies still
+  need full commit identities, and external file links need the sibling-input
+  qualification below.
+- Record an exact Node version and the selected npm version with one consumer
+  owner, such as `.nvmrc` plus the package-manager declaration or tool inventory.
+  CI and local setup consume that selection. An `engines` compatibility range
+  describes supported runtimes; a moving major alone does not freeze a release
+  environment. Do not create another shared catalog of product toolchain pins.
+- Configure intended registries and scoped package routing explicitly. Keep
+  credentials outside tracked configuration and logs. Preparation may run package
+  lifecycle scripts; review those effects and do not use `npx`/`npm exec` as an
+  implicit tool installer in a formatter or gate.
+- npm publication is a separate authorized command. Bind generated declaration
+  packages to the selected source, generator/tool versions and lockfile; inspect
+  the exact package payload, version and registry before dispatch. Keep immutable
+  Action pins, least-privilege credentials or qualified trusted publishing, and
+  supported registry provenance. A release tag or passing formatter is not proof
+  that a package was published. Reconcile an uncertain publish response against
+  that package/version before retrying.
+
+The declaration checker below does not yet inspect npm manifests, lockfiles or
+Node selections. Consumer gates must enforce these inputs; a checker PASS is not
+npm qualification. See [npm ci](https://docs.npmjs.com/cli/v11/commands/npm-ci/)
+and [npm provenance](https://docs.npmjs.com/generating-provenance-statements/).
+
 ## Sibling paths and moving inputs
 
 - Paths inside the repository use that checkout's source identity. A dependency

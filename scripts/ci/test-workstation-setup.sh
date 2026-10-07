@@ -5,6 +5,7 @@ set -euo pipefail
 unset MAKEFLAGS MAKEOVERRIDES MFLAGS
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 FIXTURE="$(mktemp -d "${TMPDIR:-/tmp}/icydb-workstation.XXXXXX")"
+FIXTURE="$(cd "$FIXTURE" && pwd -P)"
 trap 'status=$?; if [[ "$status" == 0 ]]; then rm -rf "$FIXTURE";
   else echo "Workstation fixture retained: $FIXTURE" >&2; fi; exit "$status"' EXIT
 mkdir -p "$FIXTURE/scripts/dev" "$FIXTURE/scripts/ci" "$FIXTURE/bin" "$FIXTURE/outside" "$FIXTURE/ci" "$FIXTURE/make"
@@ -21,7 +22,7 @@ export PATH="$FIXTURE/bin:$PATH"
 
 trace() { printf '%s\n' "$*" >> "$TEST_TRACE"; }
 # Invoked by the exported child setup fixture, then unset for native admission.
-# shellcheck disable=SC2329
+# shellcheck disable=SC2317,SC2329
 uname() {
   case "$1" in
     -s) printf '%s\n' "$TEST_HOST" ;;
@@ -32,7 +33,7 @@ uname() {
 rustup() { trace "rustup $* in $PWD"; }
 cargo() { trace "cargo $* in $PWD"; }
 # Invoked by the child workstation script through the exported function.
-# shellcheck disable=SC2329
+# shellcheck disable=SC2317,SC2329
 make() {
   trace "make $*"
   case "$*" in
@@ -40,11 +41,10 @@ make() {
   esac
 }
 gh() { trace "gh $*"; }
-function candid-extractor() { printf 'candid-extractor %s\n' "$ICYDB_CANDID_EXTRACTOR_VERSION"; }
 brew() { trace "brew $*"; }
 function xcode-select() { trace "xcode-select $*"; }
 id() { printf '0\n'; }
-export -f trace uname rustup cargo make gh candid-extractor brew xcode-select id
+export -f trace uname rustup cargo make gh brew xcode-select id
 cat > "$FIXTURE/bin/apt-get" <<'TOOL'
 #!/usr/bin/env bash
 trace "apt-get $*"
@@ -67,9 +67,7 @@ for host in Linux Darwin; do
     (cd "$FIXTURE/outside"; bash "$FIXTURE/scripts/dev/workstation-setup.sh" "$mode") > "$FIXTURE/output"
     cmp "$FIXTURE/Cargo.lock" "$FIXTURE/lock.before"
     rg -F "rustup toolchain install --target wasm32-unknown-unknown in $FIXTURE" "$TEST_TRACE" >/dev/null
-    for selection in "cargo-sort:$SHARED_TOOLING_CARGO_SORT_VERSION" \
-      "cargo-sort-derives:$ICYDB_CARGO_SORT_DERIVES_VERSION" \
-      "candid-extractor:$ICYDB_CANDID_EXTRACTOR_VERSION" "twiggy:$ICYDB_TWIGGY_VERSION" \
+    for selection in "twiggy:$ICYDB_TWIGGY_VERSION" \
       "cargo-edit:$ICYDB_CARGO_EDIT_VERSION" \
       "cargo-watch:$ICYDB_CARGO_WATCH_VERSION"; do
       rg -F "${selection%:*} --version ${selection##*:} --locked" "$TEST_TRACE" >/dev/null
@@ -97,7 +95,7 @@ unset -f make
 cp "$ROOT/Makefile" "$FIXTURE/Makefile"
 cp "$ROOT/make/tools.mk" "$FIXTURE/make/"
 cp "$ROOT/scripts/ci/actionlint-checksums.tsv" "$FIXTURE/scripts/ci/"
-for tool in host ic; do
+for tool in rust host ic; do
   cat > "$FIXTURE/scripts/dev/install-$tool-tools.sh" <<'INSTALL'
 #!/usr/bin/env bash
 printf '%s %s\n' "${0##*/}" "$*" >> "$TEST_TRACE"
@@ -116,12 +114,14 @@ export TEST_POLICY_TRACE="$FIXTURE/policy-trace"
 command make --no-print-directory -C "$FIXTURE" > "$FIXTURE/default-goal"
 [[ ! -s "$TEST_TRACE" ]]
 command make --no-print-directory -C "$FIXTURE" install-tools > "$FIXTURE/dispatch"
-printf '%s\n' "install-host-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --with-ripgrep --with-cloc" \
+printf '%s\n' "install-rust-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env" \
+  "install-host-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --with-ripgrep --with-cloc" \
   "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv" > "$FIXTURE/expected"
 cmp "$FIXTURE/expected" "$TEST_TRACE"
 : > "$TEST_TRACE"
 command make --no-print-directory -C "$FIXTURE" tools-check > "$FIXTURE/offline"
-printf '%s\n' "install-host-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --with-ripgrep --with-cloc --check" \
+printf '%s\n' "install-rust-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --check" \
+  "install-host-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --with-ripgrep --with-cloc --check" \
   "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv --check" > "$FIXTURE/expected"
 cmp "$FIXTURE/expected" "$TEST_TRACE"
 printf '%s\n' check-pocketic-alignment.sh verify-wasm-optimizer.sh > "$FIXTURE/policy-expected"

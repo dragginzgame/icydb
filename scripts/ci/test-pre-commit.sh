@@ -12,7 +12,7 @@ finish() {
   else echo "IcyDB formatting evidence retained: $fixture" >&2; fi
 }
 trap finish EXIT
-export PATH="$ROOT/.tools/host/bin:$PATH"
+export PATH="$ROOT/.tools/host/bin:$ROOT/.tools/rust/bin:$PATH"
 export CARGO_NET_OFFLINE=true RUSTUP_AUTO_INSTALL=0
 cd "$ROOT"
 

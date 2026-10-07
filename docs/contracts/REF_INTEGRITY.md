@@ -307,10 +307,14 @@ They are reported as:
 
 They indicate invalid input, **not** corruption.
 
-Accepted and pending relations retain their stable constraint ID and name in
-typed runtime or validation diagnostics. Historical activation findings are
-reported through the bounded validation response; they are not collapsed into
-an ordinary write error.
+Accepted and pending relation catalogs retain their stable constraint IDs and
+names. Write-time relation diagnostics carry numeric constraint and accepted-schema
+identity facts, without authored names. Resolve a name through accepted-schema
+introspection only against an exact fingerprint-method, fingerprint and entity
+match, as required by [write admission](WRITE_ADMISSION.md).
+Retain the numeric diagnostics when the matching schema or name is unavailable.
+Historical activation findings are reported through the bounded validation
+response; they are not collapsed into an ordinary write error.
 
 ---
 

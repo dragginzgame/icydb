@@ -1,7 +1,7 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `bfb50bd0884b5e6c5ee9592056531c6108f96d73`. Root
+at reviewed revision `a3430b34b32a60f3b245a2b4f7e2f5321556fe56`. Root
 [AGENTS.md](../../AGENTS.md) is the local overlay. The shared approved layout
 retains the 42 existing canister, schema and testing packages in their
 restored directories, in the single root workspace and lockfile; no new package
@@ -12,9 +12,42 @@ these rules.
 
 ## Ownership and provenance
 
-[The snapshot manifest](../../.shared-tooling.snapshot) records sixty-two exact
+The compatible 0.267.1 setup follow-up uses Shared Tooling 0.1.18,
+`a3430b34b32a60f3b245a2b4f7e2f5321556fe56`
+([#302](https://github.com/dragginzgame/icydb/issues/302)). Its
+[exact-source upstream CI](https://github.com/dragginzgame/shared-tooling/actions/runs/37604299590)
+passes Linux and both native macOS architectures. Export used a disposable
+checkout at that exact commit; later sibling source was neither edited nor
+consumed. The snapshot also includes its published LOC, note-finalization and
+validation-status corrections. The current combined-log adapter remains
+IcyDB-owned pending its separate [adoption](https://github.com/dragginzgame/icydb/issues/318).
+
+The demonstrated requirement is one setup and pin owner for the same three
+existing Cargo-installed tools. Reusing the shared installer replaces local
+recipes and constants; no extra install mode or version-selection policy is
+introduced. Executables and retained installation builds live under
+`.tools/rust`; the formatter, Candid admission, Make and CI all select that owner.
+The existing Rust toolchain and IcyDB-only utility catalog are preserved.
+
+Focused Linux qualification includes a real offline installation of all three
+tools, an offline check and repeat setup without installation. Shared installer,
+actual consumer Make/workstation, workflow and validation-adapter fixtures pass;
+the adapter fixtures assert Make's status 2 for failed recipes. Real formatter,
+staged-hook preservation, release-dispatch/runner and note-finalization fixtures
+pass, as do aggregate offline tool checks and actual workspace LOC reporting.
+Selected integration library/fixture-builder strict Clippy and all eight
+artifact tests pass with the canonical Candid pin. Initial adapter/lint failures
+are retained alongside corrected logs under `target/shared-tooling-018-adoption/`.
+Missing Host 0.4.2 cache entries were explicitly prepared from the existing local
+cache after checking their locked archive hashes; the maintainer's dirty
+Cargo.lock is byte-identical to its starting state. No workspace/package
+versions, upstream files, network lifecycle or release effects were changed.
+Native consumer macOS execution and full workspace/release gates remain
+unperformed; Wasm bytes, IC cycles and instruction deltas are unmeasured.
+
+[The snapshot manifest](../../.shared-tooling.snapshot) records sixty-five exact
 upstream files, including the baseline and all linked rules, shared principles,
-consumer/host guidance, formatting hook, shared audit methods, pinned host/IC
+consumer/host guidance, formatting hook, shared audit methods, pinned host/IC/Rust
 setup and selected verification helpers and release fixtures. Every entry records SHA-256 and
 executable mode. Refresh through the upstream distribution helper from a clean
 checkout, then review and validate the consumer diff. Never patch declared
@@ -51,15 +84,115 @@ The native host CI lanes compile both consumers and exercise optimizer admission
 report identities and Wasm structural counts; Linux qualification does not establish native
 macOS execution.
 
-The current published host source is `6b171744def811882ba6c71d50135efa898302a9` in
+Initial consumer qualification used `6501d0e9fa7ba0439ec7a4010ca7bf0205e1d712` in
 [IC Host Tooling](https://github.com/dragginzgame/ic-host-tooling). Its four
-0.4.0 archives match the selected registry checksums and all 48 packaged Rust
-source files match that revision. Testkit 0.20.0's locked dependencies on the four
-0.3.3 host packages are retained until its owning
-[adoption issue](https://github.com/dragginzgame/ic-testkit/issues/13) is resolved;
-IcyDB adds no compatibility path. Candid extraction and streamed ICP artifact
-publication now use these shared owners, with qualification below
+0.4.2 archives match the selected registry checksums and all 54 packaged Rust
+source files match that revision. Testkit 0.21.0's checksum-verified archive has
+38 Rust files matching `13df6bcf7ca913fc045e10f2060de3968f1b870b`; its Host 0.4
+adoption converges the selected lock to one version of each host package
+([Testkit #13](https://github.com/dragginzgame/ic-testkit/issues/13)).
+The maintainer's manifest/lock selections are preserved. Candid extraction and
+streamed ICP artifact publication use these shared owners, with qualification below
 ([#307](https://github.com/dragginzgame/icydb/issues/307)).
+
+The current 0.267.1 consumer follow-up removes the observed hash/`ToolSpec`
+composition in favor of `admit_version` and `VersionSpec`; installer provenance,
+the exact Candid version, resolution, environment, output limits and raw text
+policy remain consumer-owned. `CopyError` now uses the owner's `io::Error`
+conversion. Named optimizer staging delegates exclusive creation, identity
+checks, sync, rename and owned cleanup to `write_named_with`. IcyDB keeps exact
+Binaryen admission, flags and bounded execution, and checks the eight-byte Wasm
+header before allowing publication. Producer/before-publication cleanup evidence
+and visible-output directory-sync failures remain distinguishable; no retry occurs.
+
+All three direct test-instance callers now reuse the existing fixture startup
+adapter, which delegates selection to `PocketIcStartupConfig::from_env`. The
+batch wrapper exports `IC_TESTKIT_POCKET_IC_URL`; direct startup requires the
+prepared `POCKET_IC_BIN`. The unread download setting is removed
+([#317](https://github.com/dragginzgame/icydb/issues/317)). Testkit's runner deletes
+its server logs on exit and only exposes bounded diagnostics, so it cannot yet
+replace IcyDB's complete-failure-log retention contract
+([Testkit #19](https://github.com/dragginzgame/ic-testkit/issues/19)).
+
+`make check-portable-automation` owns the existing common fixture selection for
+both `check-invariants` and native macOS CI. Twenty duplicate workflow entries
+are removed without dropping a selected check. Host-specific checks stay with
+their callers; both binary and governed-server startup have explicit native CI
+qualification. This creates no second validation engine or new lane
+([#309](https://github.com/dragginzgame/icydb/issues/309)).
+
+Initial focused consumer qualification passes strict integration library/test/report
+Clippy, real Binaryen staging and producer-output refusal, Candid/artifact and
+report fixtures, post-link failure continuation, and both live startup modes.
+Both owned PocketIC servers stopped after qualification; the initial sandbox
+localhost-bind refusal remains retained separately. The complete selected
+portable automation gate passes on Linux under Bash 5 and Bash 3.2.57.
+The published IcyDB [release CI](https://github.com/dragginzgame/icydb/actions/runs/37622060406)
+passed all Rust lanes but failed static ShellCheck and both native workstation
+fixtures. The current fixture normalizes its temporary root and documents
+indirect callbacks for older ShellCheck; its aliased-path failure reproduces
+before the correction and passes afterward under both Bash versions. Native CI
+also supplies a physical temporary-directory spelling to shared fixtures pending
+their qualified owner correction. The older failure logs remain evidence;
+Linux Bash 3.2 does not establish macOS qualification.
+
+Source/archive identities and focused evidence are retained under
+`target/tooling-dedup-267/`. Upstream exact-source
+[Host CI](https://github.com/dragginzgame/ic-host-tooling/actions/runs/37624014360)
+passes Linux and MSRV but fails its macOS tool-command fixture before library
+qualification. [Testkit CI](https://github.com/dragginzgame/ic-testkit/actions/runs/37619750022)
+passes its Linux complete check and all MSRV lanes, but lacks concurrency-job
+startup configuration and has macOS canonical-path fixture failures. Those
+failures remain separate from local consumer evidence.
+
+The prior review selected Host 0.4.3 with Testkit 0.21.1, `ic-memory` 0.31.1,
+`ic-metrics` 0.2.8 and `ic-timers` 0.14.12. Its Host archive checksums and 56 Rust
+files matched `644d49c096ae05c2e17e1b6aacf14770988c5cf6`. Testkit's archive
+checksum and 38 Rust files match `a98d751fb6991c12a5d0cd8faaddabe1e879199d`.
+[Testkit's exact-source CI](https://github.com/dragginzgame/ic-testkit/actions/runs/37635582990)
+passes. Against that lock, five backlog and 24 integration library tests
+pass, as does strict integration library Clippy; the live startup test remains
+ignored in this selection. Evidence is retained under `target/issue-review-267/`.
+The initial offline missing-package refusal is retained separately; fetching the
+selected packages does not change the lock or manifest.
+
+[Host 0.4.3 CI](https://github.com/dragginzgame/ic-host-tooling/actions/runs/37639415895)
+passes Linux and MSRV but fails both macOS builds: the new filesystem permission
+conversion passes `u32` to Darwin's `u16` raw mode. This is an upstream library
+compile failure, separate from the passing Linux consumer tests
+([#307](https://github.com/dragginzgame/icydb/issues/307)).
+
+The maintainer's current lock selects all four Host 0.4.5 packages, preserving
+the other selections above. Their archive checksums match the lock, and all 56
+packaged Rust files match `93a905b048bcaa2a0aed4214ac2f13f065dc2905`. Strict
+integration library Clippy and all 24 selected library tests pass; the one live
+startup fixture remains ignored. Evidence is retained under
+`target/new-packages-267/`; neither manifest nor lock changed during review.
+[Host 0.4.5 CI](https://github.com/dragginzgame/ic-host-tooling/actions/runs/37645681743)
+passes Linux/MSRV and compiles on both macOS architectures, fixing the permission
+conversion. Both native macOS jobs then fail the descriptor filename fixture's
+unconditional non-UTF-8 publication expectation with a typed pre-publication
+`Illegal byte sequence` error. This remaining native qualification gap is tracked
+in [Host #19](https://github.com/dragginzgame/ic-host-tooling/issues/19).
+
+[Shared 0.1.20 CI](https://github.com/dragginzgame/shared-tooling/actions/runs/37641211708)
+now passes lint/security, Linux and both native macOS portable jobs after a
+rerun. The initial native failures had unavailable GitHub logs; their cause
+remains unverified. Exact source `3ecc48e579f6cf6e6ab01a6645d8a250fc8c6934` is
+qualified upstream, while this consumer still records the reviewed 0.1.18
+snapshot. Combined-log and PocketIC alignment extraction await their bounded
+consumer adoption and qualification rather than consuming moving sibling files
+([#302](https://github.com/dragginzgame/icydb/issues/302),
+[#318](https://github.com/dragginzgame/icydb/issues/318)).
+
+An isolated Git checkout of that exact shared source passes the extended Rust
+installer fixtures under Linux Bash 5 and Bash 3.2, and the combined logger
+fixtures. The new offline Rust check passes against IcyDB's prepared tool route;
+PocketIC alignment passes against its actual manifest and current offline lock
+at 16.0.0. Evidence is retained under `target/new-packages-267/`. The initial
+archive-only logger fixture lacked required Git history; its failure is retained
+separately from the passing Git-checkout run. These checks qualify the reviewed
+helpers, while snapshot adoption and native consumer execution remain separate.
 
 Two demonstrated consumer requirements use adapters outside the snapshot:
 
@@ -184,14 +317,17 @@ and cheaply verify every affected independent graph if one is introduced.
 [The common pin matrix](../../ci/ic-tools.tsv) selects ICP CLI 1.6.0,
 ic-wasm 0.11.1, ic-admin, didc, Binaryen 132 and PocketIC 16.0.0 for all three
 supported hosts. [Shared host selections](../../ci/tool-versions.env) select jq,
-yq, PCRE2-enabled ripgrep, cloc 2.10 and the common formatter; [IcyDB utility selections](../../ci/icydb-tools.env)
-retain candid-extractor, Twiggy and Cargo helpers. `make install-tools` explicitly
-installs verified host/IC toolsets; `make tools-check` checks them offline.
+yq, PCRE2-enabled ripgrep, cloc 2.10, cargo-sort 2.1.4, cargo-sort-derives 0.13.0
+and candid-extractor 0.1.6; [IcyDB utility selections](../../ci/icydb-tools.env)
+retain Twiggy, cargo-edit and cargo-watch. `make install-tools` explicitly
+installs host/IC/Rust toolsets; `make tools-check` checks them offline. Cargo
+owns registry integrity and receipts for the Rust set; its check validates
+successful version output, rather than binary digests.
 [The shared Make include](../../make/tools.mk) owns setup, offline verification,
 `make cloc` for this workspace and `make cloc-tooling` for a sibling tooling
 inventory. Make and CI select checkout-local executables; workstation setup
 uses the same targets and does not install a second system cloc. Interactive
-shells must add `.tools/host/bin` and `.tools/ic/bin` to PATH explicitly, as
+shells must add `.tools/host/bin`, `.tools/ic/bin` and `.tools/rust/bin` to PATH explicitly, as
 [the setup guide](../local-setup.md) describes. IcyDB adds independent PocketIC
 alignment and raw optimizer admission prerequisites to `ic-tools-check`; the
 shared include retains bundle verification. No second npm/Cargo ICP or ic-wasm

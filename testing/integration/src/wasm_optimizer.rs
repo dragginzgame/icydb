@@ -5,11 +5,12 @@ use std::{
     ffi::OsString,
     fmt::Write as _,
     fs,
+    io::Read as _,
     path::{Path, PathBuf},
-    sync::atomic::{AtomicU64, Ordering},
     time::Duration,
 };
 
+use ic_host_fs::durable::{NamedWriteError, write_named_with};
 use ic_host_process::tool::{
     AdmittedTool, ExecutionContext, OutputLimits, ToolError, ToolSpec, resolve_executable,
 };
@@ -50,8 +51,6 @@ const OPTIMIZER_OUTPUT_LIMITS: OutputLimits = OutputLimits {
     stderr_bytes: 1024 * 1024,
     timeout: Duration::from_secs(600),
 };
-
-static TEMPORARY_OUTPUT_ORDINAL: AtomicU64 = AtomicU64::new(0);
 
 /// Resolve the admitted executable digest for the native host.
 ///
@@ -138,65 +137,64 @@ pub(crate) fn optimize_deployable_wasm_with_optimizer(
             input.display()
         ));
     }
-    let output_parent = output.parent().ok_or_else(|| {
-        format!(
-            "final deployable wasm path has no parent: {}",
-            output.display()
-        )
-    })?;
-    fs::create_dir_all(output_parent).map_err(|error| {
-        format!(
-            "failed to create final deployable wasm directory {}: {error}",
-            output_parent.display()
-        )
-    })?;
-
-    let temporary = temporary_output_path(output);
     let current_dir = env::current_dir()
         .map_err(|error| format!("failed to resolve optimizer working directory: {error}"))?;
     let environment = env::vars_os().collect::<Vec<_>>();
-    let arguments = std::iter::once(input.as_os_str().to_owned())
-        .chain(WASM_OPT_FLAGS.map(OsString::from))
-        .chain([OsString::from("-o"), temporary.as_os_str().to_owned()])
-        .collect::<Vec<_>>();
-    if let Err(error) = optimizer.run(
-        &arguments,
-        &ExecutionContext {
-            current_dir: &current_dir,
-            environment: &environment,
-        },
-        OPTIMIZER_OUTPUT_LIMITS,
-    ) {
-        let _ = fs::remove_file(&temporary);
-        return Err(format_tool_failure("canonical wasm optimization", &error));
-    }
-    if !temporary.is_file() {
-        return Err(format!(
-            "canonical wasm optimizer produced no output at {}",
-            temporary.display()
-        ));
-    }
-
-    fs::rename(&temporary, output).map_err(|error| {
-        let _ = fs::remove_file(&temporary);
-        format!(
-            "failed to publish final deployable wasm {}: {error}",
-            output.display()
-        )
+    write_named_with(output, |stage| {
+        let arguments = std::iter::once(input.as_os_str().to_owned())
+            .chain(WASM_OPT_FLAGS.map(OsString::from))
+            .chain([OsString::from("-o"), stage.as_os_str().to_owned()])
+            .collect::<Vec<_>>();
+        optimizer
+            .run(
+                &arguments,
+                &ExecutionContext {
+                    current_dir: &current_dir,
+                    environment: &environment,
+                },
+                OPTIMIZER_OUTPUT_LIMITS,
+            )
+            .map_err(|error| format_tool_failure("canonical wasm optimization", &error))?;
+        // Staging is precreated by the shared owner. Check bounded Wasm framing
+        // before admitting publication; existence alone proves no producer work.
+        let mut header = [0; 8];
+        fs::File::open(stage)
+            .and_then(|mut file| file.read_exact(&mut header))
+            .map_err(|error| format!("read optimized Wasm header: {error}"))?;
+        if header != *b"\0asm\x01\0\0\0" {
+            return Err("canonical wasm optimizer produced an invalid Wasm header".to_string());
+        }
+        Ok(())
     })
-}
-
-fn temporary_output_path(output: &Path) -> PathBuf {
-    let ordinal = TEMPORARY_OUTPUT_ORDINAL.fetch_add(1, Ordering::Relaxed);
-    let file_name = output
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("canister.wasm");
-    output.with_file_name(format!(
-        ".{file_name}.{}.{}.tmp",
-        std::process::id(),
-        ordinal
-    ))
+    .map_err(|error| match error {
+        NamedWriteError::Producer {
+            source,
+            cleanup_error,
+        } => {
+            let mut message = source;
+            if let Some(cleanup) = cleanup_error {
+                let _ = write!(message, "\nstaging cleanup: {cleanup}");
+            }
+            message
+        }
+        NamedWriteError::BeforePublication {
+            source,
+            cleanup_error,
+        } => {
+            let mut message = format!(
+                "failed before publishing deployable wasm {}: {source}",
+                output.display()
+            );
+            if let Some(cleanup) = cleanup_error {
+                let _ = write!(message, "\nstaging cleanup: {cleanup}");
+            }
+            message
+        }
+        NamedWriteError::AfterPublication { source } => format!(
+            "deployable wasm {} is published but directory sync failed: {source}",
+            output.display()
+        ),
+    })
 }
 
 /// Format bounded process output and cleanup evidence with IcyDB's context.
@@ -291,6 +289,53 @@ mod tests {
         assert_eq!(std::fs::read(&output).unwrap(), wasm);
         assert_eq!(std::fs::read(&input).unwrap(), b"invalid wasm");
         assert_eq!(std::fs::read_dir(&root).unwrap().count(), 2);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn successful_producer_must_write_a_wasm_header_before_publication() {
+        use ic_host_process::tool::{AdmittedTool, ExecutionContext, VersionSpec};
+        use std::{ffi::OsString, os::unix::fs::PermissionsExt};
+
+        let root =
+            std::env::temp_dir().join(format!("icydb empty optimizer {}", std::process::id()));
+        std::fs::create_dir(&root).unwrap();
+        let input = root.join("input.wasm");
+        let output = root.join("output.wasm");
+        let previous = b"\0asm\x01\0\0\0";
+        std::fs::write(&input, previous).unwrap();
+        std::fs::write(&output, previous).unwrap();
+        for producer in [
+            ":",
+            "printf 'short' > \"$output\"",
+            "printf 'not-wasm' > \"$output\"",
+        ] {
+            let executable = root.join("producer");
+            std::fs::write(&executable, format!(
+                "#!/bin/sh\nif [ \"$1\" = --version ]; then echo fixture; exit 0; fi\nwhile [ \"$1\" != -o ]; do shift; done\noutput=$2\n[ -f \"$output\" ] && [ ! -s \"$output\" ] || exit 9\n{producer}\n"
+            )).unwrap();
+            std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+            let executable = std::fs::canonicalize(executable).unwrap();
+            let current_dir = std::env::current_dir().unwrap();
+            let optimizer = AdmittedTool::admit_version(
+                &VersionSpec {
+                    executable: &executable,
+                    executable_bytes: u64::MAX,
+                    version_arguments: &[OsString::from("--version")],
+                    version_identity: "fixture",
+                },
+                &ExecutionContext {
+                    current_dir: &current_dir,
+                    environment: &[],
+                },
+                super::OPTIMIZER_OUTPUT_LIMITS,
+            )
+            .unwrap();
+            assert!(optimize_deployable_wasm_with_optimizer(&input, &output, &optimizer).is_err());
+            assert_eq!(std::fs::read(&output).unwrap(), previous);
+            assert_eq!(std::fs::read_dir(&root).unwrap().count(), 3);
+        }
         std::fs::remove_dir_all(root).unwrap();
     }
 }

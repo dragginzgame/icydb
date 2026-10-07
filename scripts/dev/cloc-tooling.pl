@@ -11,9 +11,11 @@ use JSON::PP;
 
 my $root = abs_path("$RealBin/../..");
 my ($json, $parent) = (0, undef);
+my %snapshot_roots;
+my %used_snapshot_roots;
 sub usage {
     return <<'USAGE';
-Usage: cloc-tooling.pl [--json] [parent-directory]
+Usage: cloc-tooling.pl [--json] [--snapshot-root MANIFEST ROOT]... [parent-directory]
 
 Count CI and other tooling in immediate Git checkouts, including non-Rust repos.
 Defaults to the parent of this script's checkout. Reads tracked and nonignored
@@ -26,16 +28,30 @@ JSON, patches and CSV/TSV tables are supporting data, counted as physical lines
 separately. Other source/config LOC uses cloc, excluding comments/blank lines.
 
 Shared LOC matches hashes AND modes in .shared-tooling*.snapshot manifests,
-including nested snapshots; paths resolve beside each manifest.
+including nested snapshots. File records resolve from the consumer root, not
+from a custom manifest directory. A default .shared-tooling.snapshot beside a
+canonical scripts/ci/verify-shared-tooling-snapshot.sh selects that bundle root;
+other manifests use the Git root. --snapshot-root explicitly selects another
+consumer root for a manifest (paths are relative to the invocation directory).
 Local LOC includes unrecorded files and drifted copies; drift is reported.
 --json includes per-file hashes/counts, skipped files and source identities.
 Repeated copies are all counted; LOC and hash matches are discovery aids,
 not proof that different contracts can be consolidated.
 USAGE
 }
-for my $arg (@ARGV) {
+while (@ARGV) {
+    my $arg = shift @ARGV;
     if ($arg eq '--help' || $arg eq '-h') { print usage(); exit 0; }
     elsif ($arg eq '--json' && !$json) { $json = 1; }
+    elsif ($arg eq '--snapshot-root') {
+        @ARGV >= 2 or die usage();
+        my ($manifest, $selected) = splice @ARGV, 0, 2;
+        $manifest = abs_path($manifest); $selected = abs_path($selected);
+        die "snapshot selection must name an existing manifest and root\n"
+            unless defined $manifest && -f $manifest && defined $selected && -d $selected;
+        die "duplicate snapshot root selection\n" if exists $snapshot_roots{$manifest};
+        $snapshot_roots{$manifest} = $selected;
+    }
     elsif ($arg !~ /^-/ && !defined $parent) { $parent = $arg; }
     else { die usage(); }
 }
@@ -91,7 +107,21 @@ sub load_snapshot {
     my ($manifest) = @_;
     safe_path($manifest);
     die "symlinked snapshot manifest\n" if is_linked($manifest);
-    my $base = dirname($manifest);
+    # The canonical verifier defaults to its own checkout/bundle root. Custom
+    # manifest placement does not relocate its file records. Never select roots
+    # by trying hashes or whichever declared files happen to exist.
+    my $directory = dirname($manifest);
+    my $base = $manifest =~ m{(?:^|/)\.shared-tooling\.snapshot$} &&
+        -f "$directory/scripts/ci/verify-shared-tooling-snapshot.sh" ? $directory : '.';
+    my $selection = $snapshot_roots{getcwd() . "/$manifest"};
+    if (defined $selection) {
+        $used_snapshot_roots{getcwd() . "/$manifest"} = 1;
+        my $checkout = getcwd();
+        die "snapshot root must stay within its checkout\n"
+            unless $selection eq $checkout || index($selection, "$checkout/") == 0;
+        $base = $selection eq $checkout ? '.' : substr($selection, length($checkout) + 1);
+    }
+    die "symlinked snapshot root\n" if is_linked($base);
     my (%files, %headers);
     for my $line (split /\n/, read_file($manifest)) {
         next if $line =~ /^\s*(?:#|$)/;
@@ -110,7 +140,7 @@ sub load_snapshot {
     }
     die "unsupported shared snapshot identity\n" unless ($headers{format} // '') eq '1' &&
         ($headers{revision} // '') =~ /^[a-f0-9]{40,64}$/ &&
-        ($headers{source} // '') =~ m{^https://github\.com/dragginzgame/shared-tooling(?:\.git)?$};
+        ($headers{source} // '') =~ m{^(?:https://github\.com/|git\@github\.com:|ssh://git\@github\.com/)dragginzgame/shared-tooling(?:\.git)?$};
     my %resolved = map { ($base eq '.' ? $_ : "$base/$_") => $files{$_} } keys %files;
     return (\%resolved, {path => $manifest, revision => $headers{revision}, root => $base});
 }
@@ -145,7 +175,8 @@ for my $name (@names) {
         my %paths = map { $_ => 1 } split /\0/, capture('git', 'ls-files', '-z', '--cached', '--others', '--exclude-standard');
         my (%snapshot, @manifests);
         for my $path (sort keys %paths) {
-            next unless $path =~ m{(?:^|/)\.shared-tooling(?:-[^/]*)?\.snapshot$} && -f $path;
+            next unless ($path =~ m{(?:^|/)\.shared-tooling(?:-[^/]*)?\.snapshot$} ||
+                exists $snapshot_roots{getcwd() . "/$path"}) && -f $path;
             my ($files, $manifest) = load_snapshot($path);
             for my $target (keys %$files) {
                 die "conflicting snapshot declarations for $target\n" if exists $snapshot{$target} &&
@@ -221,6 +252,11 @@ for my $name (@names) {
     push @repos, $repo;
 }
 chdir $start or die $!;
+for my $manifest (sort keys %snapshot_roots) {
+    next if $used_snapshot_roots{$manifest};
+    warn "snapshot root selection was not inventoried: $manifest\n";
+    $failed = 1;
+}
 if ($json) {
     print JSON::PP->new->canonical->pretty->encode({ cloc_version => $cloc_version,
         repositories => \@repos, totals => \%total, partial => $failed ? JSON::PP::true : JSON::PP::false });

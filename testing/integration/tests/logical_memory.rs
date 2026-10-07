@@ -3,10 +3,7 @@
 
 use std::sync::OnceLock;
 
-use ic_testkit::{
-    pic::{InstallSpec, StandaloneCanisterFixture},
-    pocket_ic::PocketIc,
-};
+use ic_testkit::pic::{InstallSpec, StandaloneCanisterFixture};
 use icydb::{
     Error, ErrorCode, ErrorOrigin,
     db::{DatabaseStartupState, StartupFailure},
@@ -23,7 +20,7 @@ fn install() -> StandaloneCanisterFixture {
     // its server inactivity window.
     let wasm = artifacts().0.clone();
     let fixture = StandaloneCanisterFixture::install(
-        PocketIc::new(),
+        icydb_testing_integration::start_fixture_pocket_ic(),
         InstallSpec::new(wasm, candid::encode_args(()).unwrap(), 10_000_000_000_000)
             .label("logical_memory"),
     );

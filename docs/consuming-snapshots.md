@@ -76,6 +76,15 @@ The release runner, validation logger and formatting hook require
 `scripts/ci/check-make-execution.sh`. Include it when adding or refreshing any of
 those entrypoints; existing manifests need that explicit file-set addition.
 
+Consumers running the tooling LOC regression vendor `scripts/ci/test-cloc-tooling.sh`,
+`scripts/dev/cloc-tooling.pl` and `scripts/ci/verify-file-checksum.sh`, in addition
+to their normal snapshot verifier. That test runs against adopted working-tree
+bytes before a consumer commit and does not need the distribution helper.
+`test-cloc-tooling-distribution.sh` remains upstream-only: it qualifies actual
+committed exporter/verifier integration and the consumer fixture's independence.
+`test-cloc-fixture-contexts.sh` is the upstream admission check for the reusable
+LOC fixtures under enclosing Git/Cargo configuration.
+
 When refreshing `install-actionlint.sh`, `install-shellcheck.sh`, `install-gitleaks.sh`,
 `install-sccache.sh` or `install-yq.sh`, also declare `scripts/ci/install-ci-tool.sh`
 and the existing `scripts/ci/verify-file-checksum.sh`. These entry points share that
@@ -235,6 +244,14 @@ selections arrive with the reviewed snapshot rather than another copied recipe.
 Existing checkouts need an explicit snapshot refresh and installation to receive
 new files and executables; they never execute a mutable sibling checkout.
 
+For the shared Cargo-installed set, also vendor `scripts/dev/install-rust-tools.sh`
+and the three `SHARED_TOOLING_CARGO_SORT_VERSION`, `SHARED_TOOLING_CARGO_SORT_DERIVES_VERSION`
+and `SHARED_TOOLING_CANDID_EXTRACTOR_VERSION` pins in the selected versions file.
+The include provides `install-rust-tools` and `rust-tools-check`; Rust consumers
+attach these to their aggregate commands as shown in
+[Rust setup](local-setup.md#rust-development-tools). Retire their duplicate
+Cargo-tool install recipes and version constants after qualified adoption.
+
 Defaults use scripts and pins at the checkout root. For a snapshot stored below
 that root, set `SHARED_TOOLING_ROOT` to its reviewed local directory before the
 include, and include its `make/tools.mk`. `HOST_TOOL_VERSIONS` and `IC_TOOL_PINS`
@@ -254,7 +271,8 @@ modules, with no Cargo dependency or consumer command execution.
 Review pins against existing qualified versions before activation. A local
 exception uses its own explicitly selected matrix outside the snapshot; remove
 superseded pin ownership rather than maintaining two independent selections.
-Update local setup/CI callers to use `.tools/host/bin` and `.tools/ic/bin`; CI
+Update local setup/CI callers to use `.tools/host/bin` and `.tools/ic/bin`, plus
+`.tools/rust/bin` when adopting the Cargo-installed set; CI
 must invoke the same Make installation/check targets and put these paths on its
 own PATH after explicit setup. Document the shell export for direct interactive commands;
 installation and Make exports do not change the user's terminal PATH. Remove

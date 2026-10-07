@@ -38,7 +38,31 @@ if [[ $# -eq 0 ]]; then
     exit 2
 fi
 
-LOG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/validation.XXXXXX")"
+# Admit the complete goal list before creating logs or running any target.
+# Make still interprets assignments after --; neither assignments nor options
+# are validation goals. The caller's normal exported variables remain intact.
+for target in "$@"; do
+    case "$target" in
+        ''|-*|*=*|*$'\t'*|*$'\n'*|*$'\r'*)
+            echo 'validation requires named Make targets, not options, assignments or control characters' >&2
+            exit 2
+            ;;
+    esac
+done
+
+retain_all_logs=false
+if [[ -n "${VALIDATION_LOG_DIR:-}" ]]; then
+    # One directory per invocation, including nested invocations. Never replace a
+    # previous run or delete consumer-selected evidence on success.
+    mkdir -p "$VALIDATION_LOG_DIR"
+    LOG_ROOT="$(cd "$VALIDATION_LOG_DIR" && pwd -P)"
+    LOG_DIR="$(mktemp -d "$LOG_ROOT/validation.XXXXXX")"
+    retain_all_logs=true
+    printf 'target\tresult\tseconds\tlog\n' > "$LOG_DIR/timings.tsv"
+    printf 'Validation logs and timings: %s\n' "$LOG_DIR"
+else
+    LOG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/validation.XXXXXX")"
+fi
 preserve_temporary_logs=true
 retention_failed=false
 cleanup_logs() {
@@ -49,6 +73,8 @@ cleanup_logs() {
     fi
 }
 trap cleanup_logs EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 FAILURE_LOG_ROOT="${VALIDATION_FAILURE_LOG_DIR:-$REPOSITORY_ROOT/target/validation-failures}"
 FAILURE_RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 
@@ -56,8 +82,19 @@ RUNNER_DEPTH="${VALIDATION_RUNNER_DEPTH:-0}"
 export VALIDATION_RUNNER_DEPTH="$((RUNNER_DEPTH + 1))"
 MAX_FAILURE_DETAIL_LINES=160
 FAILURE_PATTERN='---- .* stdout ----|^test .* \.\.\. FAILED$|failures:|test result: FAILED|error(\[[A-Z0-9]+\])?:([^:]|$)|target failed|make(\[[0-9]+\])?: \*\*\*'
+FAILURE_EVENT_PREFIX="${VALIDATION_FAILURE_EVENT_PREFIX:-}"
+if [[ -n "$FAILURE_EVENT_PREFIX" ]]; then
+    if [[ "$FAILURE_EVENT_PREFIX" == *$'\n'* || "$FAILURE_EVENT_PREFIX" == *$'\r'* ]]; then
+        echo 'failure event prefix must be a single line' >&2
+        exit 2
+    fi
+    # The consumer supplies a literal line prefix, never a regular expression.
+    escaped_prefix="$(printf '%s' "$FAILURE_EVENT_PREFIX" | sed 's/[][\\.^$*+?{}()|]/\\&/g')"
+    FAILURE_PATTERN="^$escaped_prefix|$FAILURE_PATTERN"
+fi
 
 failed_targets=()
+failure_status=0
 targets=()
 results=()
 elapsed_seconds=()
@@ -88,6 +125,10 @@ print_retained_error_line() {
 
 is_live_failure_line() {
     local line="$1"
+
+    if [[ -n "$FAILURE_EVENT_PREFIX" && "$line" == "$FAILURE_EVENT_PREFIX"* ]]; then
+        return 0
+    fi
 
     case "$line" in
         # Rust paths such as error::tests are names, not diagnostics.
@@ -230,12 +271,23 @@ for target in "$@"; do
         printf '\n==> %s\n' "$target"
     fi
 
-    if make --no-print-directory -C "$REPOSITORY_ROOT" "$target" 2>&1 |
+    if make --no-print-directory -C "$REPOSITORY_ROOT" -- "$target" 2>&1 |
         tee "$log" |
         annotate_live_output "$target"; then
         result="PASS"
         retained_log=""
     else
+        # Capture the pipeline before diagnostics overwrite PIPESTATUS. Preserve
+        # Make's status; if only logging failed, preserve that nonzero status.
+        pipeline_status=("${PIPESTATUS[@]}")
+        if [[ "$failure_status" == 0 ]]; then
+            for component_status in "${pipeline_status[@]}"; do
+                if [[ "$component_status" != 0 ]]; then
+                    failure_status="$component_status"
+                    break
+                fi
+            done
+        fi
         failed_targets+=("$target")
         result="FAIL"
         retained_log="$(persist_failure_log "$log" "$target" "${#targets[@]}")"
@@ -259,6 +311,9 @@ for target in "$@"; do
     elapsed_seconds+=("$elapsed")
     logs+=("$log")
     retained_logs+=("$retained_log")
+    if [[ "$retain_all_logs" == true ]]; then
+        printf '%s\t%s\t%s\t%s\n' "$target" "$result" "$elapsed" "$log" >> "$LOG_DIR/timings.tsv"
+    fi
     if [[ "${GITHUB_ACTIONS:-}" == "true" && "$RUNNER_DEPTH" == "0" ]]; then
         printf '::endgroup::\n'
     fi
@@ -268,7 +323,7 @@ for target in "$@"; do
     fi
 done
 
-if [[ "$retention_failed" == false ]]; then preserve_temporary_logs=false; fi
+if [[ "$retention_failed" == false && "$retain_all_logs" == false ]]; then preserve_temporary_logs=false; fi
 
 printf '\nValidation summary:\n'
 for index in "${!targets[@]}"; do
@@ -314,7 +369,7 @@ if [[ ${#failed_targets[@]} -ne 0 ]]; then
     fi
     echo >&2
     print_error_line summary "VALIDATION FAILED: ${failed_targets[*]}" >&2
-    exit 1
+    exit "$failure_status"
 fi
 
 echo "VALIDATION PASSED: all requested targets succeeded."

@@ -79,6 +79,23 @@ with their consumers.
 
 ## Consumer adoption
 
+### Identity storage and local resets
+
+Keep identity/key stores outside every directory removed by a consumer's reset
+or fresh-deploy commands. If a consumer selects `ICP_HOME`, it must not sit
+under disposable network or build state such as `.icp`, `.canic` or `target`.
+The consumer owns its cleanup path inventory and backup/recovery procedure;
+verify preservation with non-secret sentinel files when testing reset helpers.
+
+A dedicated repository-local home such as `.icp-local-home` is one option,
+provided it is ignored by Git, backed up appropriately and excluded from all
+cleanup paths. An existing persistent home can also satisfy the rule. Scope
+custom home selection to the consumer's CLI wrapper rather than a global shell
+export that changes identity selection in sibling repositories. Common tool
+installation does not move identity stores, create keys or change that selection.
+
+### Snapshot and pin selection
+
 Follow [snapshot adoption](consuming-snapshots.md#local-ic-tool-adoption). Use one
 authoritative pin matrix for this set; remove duplicate version/checksum selections
 from old setup files after their callers move. Product adapters may read that

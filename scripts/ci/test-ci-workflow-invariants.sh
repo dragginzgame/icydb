@@ -33,6 +33,19 @@ mutate() { "$YQ" -i "$1" "$subject"; }
 reset
 check pass baseline
 reset
+mutate '(.jobs.macos_host.steps[] | select(has("run")) | .run) |= sub("make check-portable-automation"; "make help")'
+check fail missing-native-portable-gate
+reset
+perl -pi -e 's/\$\(MAKE\) --no-print-directory check-portable-automation/\$\(MAKE\) --no-print-directory help/' "$fixture/Makefile"
+check fail missing-static-portable-gate
+cp "$ROOT/Makefile" "$fixture/Makefile"
+reset
+mutate '(.jobs.static.steps[] | select(has("run")) | .run) |= sub("/\\.tools/rust/bin"; "/missing/bin")'
+check fail missing-static-rust-tool-path
+reset
+mutate '(.jobs.macos_host.steps[] | select(has("run")) | .run) |= sub("/\\.tools/rust/bin"; "/missing/bin")'
+check fail missing-native-rust-tool-path
+reset
 mutate '.env.RUSTC_WRAPPER = "sccache"'
 check fail unprepared-inherited-wrapper
 reset

@@ -41,7 +41,8 @@ status=0
 ICYDB_VALIDATION_FAILURE_LOG_DIR="$FIXTURE/logs" \
   bash "$FIXTURE/scripts/ci/run-icydb-validation-targets.sh" pass fail-one fail-two \
   > "$FIXTURE/output" 2>&1 || status=$?
-[[ "$status" -eq 1 ]]
+# Make reports a failed recipe as status 2; preserve that through both owners.
+[[ "$status" -eq 2 ]]
 for payload in first-complete-payload second-complete-payload; do
   rg -F "$payload" "$FIXTURE/logs/latest.log" > /dev/null
 done
@@ -71,7 +72,7 @@ status=0
 ICYDB_VALIDATION_FAILURE_LOG_DIR="$FIXTURE/fast-logs" \
   bash "$FIXTURE/scripts/ci/run-icydb-validation-targets.sh" --fail-fast fail-one fail-two \
   > "$FIXTURE/fast-output" 2>&1 || status=$?
-[[ "$status" -eq 1 ]]
+[[ "$status" -eq 2 ]]
 rg -F first-complete-payload "$FIXTURE/fast-logs/latest.log" > /dev/null
 if rg -F second-complete-payload "$FIXTURE/fast-logs/latest.log" > /dev/null; then
   echo "fail-fast executed a later target" >&2
@@ -82,7 +83,7 @@ status=0
 ICYDB_VALIDATION_FAILURE_LOG_DIR="$FIXTURE/nested-logs" \
   bash "$FIXTURE/scripts/ci/run-icydb-validation-targets.sh" nested \
   > "$FIXTURE/nested-output" 2>&1 || status=$?
-[[ "$status" -eq 1 ]]
+[[ "$status" -eq 2 ]]
 rg -F first-complete-payload "$FIXTURE/nested-logs/latest.log" > /dev/null
 
 # Legitimate selections and the live jobserver survive nested adapter dispatch.

@@ -104,8 +104,8 @@ if [[ ! "$server_port" =~ ^[0-9]+$ ]] ||
   exit 1
 fi
 
-export ICYDB_POCKET_IC_SERVER_URL="http://127.0.0.1:$server_port/"
-echo "==> shared PocketIC server ready: $ICYDB_POCKET_IC_SERVER_URL"
+export IC_TESTKIT_POCKET_IC_URL="http://127.0.0.1:$server_port/"
+echo "==> shared PocketIC server ready: $IC_TESTKIT_POCKET_IC_URL"
 
 started_at="$SECONDS"
 status=0

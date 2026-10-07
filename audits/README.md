@@ -14,6 +14,7 @@ locations. Adopting these files does not schedule audits or add release gates.
 | Do current behavior axes and ownership spread create demonstrated maintenance friction? | [Complexity and technical debt](complexity-and-technical-debt.md) |
 | Which retained or exposed code units lack a current authority reason? | [Module surface hardening](module-surface-hardening.md) |
 | How should an authorized module cleanup implement those findings? | [Module cleanup](module-cleanup.md), an implementation procedure, not another audit |
+| How do those methods apply to Candid services, canister lifecycle and Wasm budgets? | [IC canister application addendum](ic-canister-applications.md), alongside the selected method |
 
 Select the smallest method and affected owners that answer the request. Follow
 contracts through producers, consumers, generated boundaries and recovery paths;
@@ -82,6 +83,9 @@ unverified behavior PASS. Prioritize at most five actionable structural findings
 in the summary; retain any additional evidenced defects and link their owning
 issues so a presentation limit never hides a serious finding. No finding is a
 valid outcome. Do not manufacture work to fill a template.
+When the requester explicitly asks for a ranked backlog, expand the finding list
+and group it by severity and owner; keep evidence and follow-up in their existing
+owners instead of creating a second tracker.
 
 ## Ownership and history
 
@@ -108,6 +112,12 @@ Keep shared files unchanged at `audits/`. A local method should contain only:
 - local scope exclusions, generated consumers and retained-state obligations;
 - focused verification commands, their effects and product-approved cost metrics;
 - local report destination and any approved exceptions.
+
+For a first run without an adopted overlay, state provisional scope and product
+authorities in that report and identify the missing adoption evidence. Review
+what the available evidence supports; missing overlay adoption alone is not a
+runtime failure. Mark conclusions needing unavailable product invariants BLOCKED,
+and do not claim baseline adoption or comparability with a qualified prior run.
 
 Replace duplicated generic instructions when the reviewed snapshot is installed.
 Preserve product obligations by mapping them to the local overlay or an owning

@@ -71,7 +71,8 @@ required to run setup. Make targets and CI select this same local tool set.
 | `scripts/dev/cloc-tooling.pl` | Git, cloc, and core Perl modules including JSON::PP and Digest::SHA; no Cargo or consumer command execution |
 | `scripts/dev/gh-ci.sh` | Git and an authenticated GitHub CLI |
 | `scripts/ci/run-validation-targets.sh` | GNU Make plus `awk`, `grep` or `rg`, `sed`, `tail`, and `tee` |
-| Installer scripts | `curl`, `tar`, a SHA-256 implementation, and the archive codec used by the selected tool |
+| Archive installer scripts | `curl`, `tar`, a SHA-256 implementation, and the archive codec used by the selected tool |
+| `scripts/dev/install-rust-tools.sh` | Prepared Rust/Cargo toolchain and native compilation prerequisites for explicit registry installation; offline `--check` only runs the selected local executables |
 | Local IC tool setup | Bash 3.2+, `curl`, `tar`, xz/gzip, Perl, and a SHA-256 implementation; see [IC tools](ic-tools.md) |
 | Nonempty Cargo test helper | Cargo with normal libtest summaries, `awk`, and `tee` |
 | Exact release-tag checker | Git and the caller's selected exact commit/version |

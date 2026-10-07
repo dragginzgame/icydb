@@ -5,7 +5,7 @@ From the checkout root, prepare the common executables explicitly:
 ```bash
 make install-tools
 make tools-check
-export PATH="$PWD/.tools/host/bin:$PWD/.tools/ic/bin:$PATH"
+export PATH="$PWD/.tools/host/bin:$PWD/.tools/ic/bin:$PWD/.tools/rust/bin:$PATH"
 ```
 
 The Makefile uses those local paths automatically. Interactive shells need the
@@ -27,7 +27,7 @@ different support scopes require an explicitly approved exception.
 | System bootstrap | Bash, Git, GNU Make, curl, CA certificates, tar, gzip, xz, Perl, a SHA-256 implementation and standard Unix utilities | Host package manager; see [bootstrap prerequisites](#bootstrap-prerequisites) |
 | Common host tools | `jq`, Mike Farah `yq`, `rg` with PCRE2, `cloc` | `make install-host-tools`; offline `make host-tools-check`; `.tools/host/bin` |
 | Common IC tools | `quill`, `icp`, `didc`, `ic-wasm`, `pocket-ic`, `wasm-opt` | `make install-ic-tools`; offline `make ic-tools-check`; `.tools/ic/bin` |
-| Rust repositories | Declared Rust/Cargo toolchain, rustfmt, pinned cargo-sort and required compilation targets | Consumer toolchain setup and the [formatter prerequisite check](verification-helpers.md#formatter-prerequisites) |
+| Rust repositories | Declared Rust/Cargo toolchain, rustfmt, pinned Cargo tools and required compilation targets | Consumer toolchain setup, [Rust tool setup](#rust-development-tools) and the [formatter prerequisite check](verification-helpers.md#formatter-prerequisites) |
 | Workflow-specific tools | ShellCheck, actionlint, Gitleaks, authenticated `gh`, Node/SDKs and other tools used by that repository | Explicit consumer setup; declare the tools required by each workflow |
 
 `make install-tools` and `make tools-check` cover both common local sets. Rust
@@ -35,6 +35,9 @@ and workflow-specific setup stays explicit; those targets do not claim to
 prepare a product toolchain or authenticate GitHub. Versions and digests remain
 owned by the reviewed pin files below, rather than another copied version list.
 dfx is excluded from the common IC set. See the host limits below before setup.
+Keep identity stores separate from resettable state as described in
+[IC identity storage](ic-tools.md#identity-storage-and-local-resets); installing
+executables does not authorize moving keys or wiping a CLI home.
 
 Make and CI must select their own checkout's local tool paths. CI exports them
 for subsequent steps explicitly; Make's export does not change the calling
@@ -59,7 +62,7 @@ If the first command works but the second is missing or points elsewhere, select
 this checkout's tools in the current terminal:
 
 ```bash
-export PATH="$PWD/.tools/host/bin:$PWD/.tools/ic/bin:$PATH"
+export PATH="$PWD/.tools/host/bin:$PWD/.tools/ic/bin:$PWD/.tools/rust/bin:$PATH"
 ```
 
 Select the paths again when switching repositories; do not permanently select a
@@ -118,6 +121,39 @@ The [IC set](ic-tools.md) supplies Quill, ICP CLI, didc, ic-wasm, PocketIC and
 wasm-opt. dfx is excluded. Linux ARM64 supports the host set only; the full IC
 set lacks a matching Quill asset. Native CI qualifies both sets on Linux x86-64
 and both macOS architectures; mapping Linux ARM64 is not native qualification.
+
+## Rust development tools
+
+After preparing the consumer's declared Rust/Cargo toolchain and compilation
+prerequisites, use `make install-rust-tools` and offline `make rust-tools-check`.
+The shared helper installs cargo-sort, cargo-sort-derives and candid-extractor
+under `.tools/rust/bin`, using their exact versions from
+[ci/tool-versions.env](../ci/tool-versions.env) and Cargo's `--locked` installation.
+`RUST_TOOL_VERSIONS` selects a reviewed alternative catalog; it defaults to
+`HOST_TOOL_VERSIONS`. Keep qualified version exceptions in that selected catalog,
+and remove duplicate consumer constants when adopting the shared pins.
+
+Rust consumers that need this set attach it to the common commands in their
+local Makefile, alongside the reviewed `make/tools.mk` include:
+
+```make
+install-tools: install-rust-tools
+tools-check: rust-tools-check
+```
+
+The common aggregate does not require a Rust toolchain in non-Rust repositories.
+Shared Make commands include `.tools/rust/bin` on PATH; interactive shells use
+the export at the top of this guide. The helper never prepares or upgrades a
+toolchain implicitly. Installation may fetch registry dependencies and compile;
+build output stays in `.tools/rust/build`, including on failure. Cargo owns
+installation locking and registry checksum verification. Tools install one at
+a time, so an interrupted setup can leave earlier tools installed; rerun setup
+and require the complete offline check before use. Cleanup remains explicit.
+
+Offline checks require each local executable to report its selected version
+successfully. They do not authenticate installed bytes or replace product/native
+host qualification. A matching set is reused without invoking Cargo. Formatting
+still requires rustfmt and the [formatter check](verification-helpers.md#formatter-prerequisites).
 
 ## Bootstrap prerequisites
 

@@ -11,16 +11,18 @@ function historical(value, a, b, n) {
 }
 {
     lines[NR] = $0
-    if ($0 ~ /^## / && first == 0) first = NR
-    if ($0 == "## [" version "] - " date) { finalized++; finalized_line=NR }
-    else if (index($0, "## [" version "] - ") == 1) conflict = 1
+    heading = $0
+    sub(/[ \t]+$/, "", heading)
+    if (heading ~ /^## / && first == 0) first = NR
+    if (heading == "## [" version "] - " date) { finalized++; finalized_line=NR }
+    else if (index(heading, "## [" version "] - ") == 1) conflict = 1
     heading_version = substr($2, 2, length($2)-2)
-    if ($0 ~ /^## \[(Draft|[0-9]+\.[0-9]+\.[0-9]+)\]$/ &&
+    if (heading ~ /^## \[(Draft|[0-9]+\.[0-9]+\.[0-9]+)\]$/ &&
         ($2 == "[Draft]" || !historical(heading_version))) {
         drafts++
         start = NR
-        if ($0 != "## [Draft]" && $0 != "## [" version "]") conflict = 1
-    } else if (start && !finish && NR > start && $0 ~ /^## /) {
+        if (heading != "## [Draft]" && heading != "## [" version "]") conflict = 1
+    } else if (start && !finish && NR > start && heading ~ /^## /) {
         finish = NR
     }
 }

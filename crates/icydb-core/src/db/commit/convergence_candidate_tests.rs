@@ -1,4 +1,4 @@
-//! Module: db::commit::convergence_candidate
+//! Module: db::commit::convergence_candidate_tests
 //! Responsibility: integrate and measure the dormant bounded-convergence candidate.
 //! Does not own: production admission, online publication, scheduling, or lifecycle state.
 //! Boundary: exact marker envelopes + tail controls + positioned metadata -> test evidence.

@@ -6,6 +6,7 @@ rules/dependency-pinning.md
 rules/git-hooks.md
 rules/agent-maintenance.md
 audits/README.md
+audits/ic-canister-applications.md
 audits/code-hygiene.md
 audits/flow-convergence-and-duplication.md
 audits/complexity-and-technical-debt.md

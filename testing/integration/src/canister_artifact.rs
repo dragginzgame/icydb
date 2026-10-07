@@ -15,9 +15,9 @@ use ic_host_artifacts::{
     artifact::ArtifactError,
     wasm::{ExportKind, InspectionLimits, inspect},
 };
-use ic_host_fs::read::{hash_file, read_opened_file};
+use ic_host_fs::read::read_opened_file;
 use ic_host_process::tool::{
-    AdmittedTool, ExecutionContext, OutputLimits, ToolSpec, resolve_executable,
+    AdmittedTool, ExecutionContext, OutputLimits, VersionSpec, resolve_executable,
 };
 use ic_host_tools::candid::{ExtractionError, extract};
 use icydb::{
@@ -435,21 +435,18 @@ pub(crate) fn extract_canister_candid(wasm_path: &Path) -> Result<String, String
         .unwrap_or_default();
     let executable = resolve_executable(Path::new("candid-extractor"), &current_dir, &search)
         .map_err(|error| format!("resolve Candid extractor: {error}"))?;
-    let version = include_str!("../../../ci/icydb-tools.env")
+    let version = include_str!("../../../ci/tool-versions.env")
         .lines()
-        .find_map(|line| line.strip_prefix("export ICYDB_CANDID_EXTRACTOR_VERSION="))
+        .find_map(|line| line.strip_prefix("export SHARED_TOOLING_CANDID_EXTRACTOR_VERSION="))
         .ok_or_else(|| "Candid extractor version is absent from the tool catalog".to_string())?;
     let limits = OutputLimits {
         stdout_bytes: 1024 * 1024,
         stderr_bytes: 1024 * 1024,
         timeout: Duration::from_secs(600),
     };
-    let tool = AdmittedTool::admit(
-        &ToolSpec {
+    let tool = AdmittedTool::admit_version(
+        &VersionSpec {
             executable: &executable,
-            sha256: hash_file(&executable, u64::MAX)
-                .map_err(|error| error.to_string())?
-                .sha256,
             executable_bytes: u64::MAX,
             version_arguments: &[OsString::from("--version")],
             version_identity: &format!("candid-extractor {version}"),

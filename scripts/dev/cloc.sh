@@ -6,11 +6,13 @@ export PATH="$ROOT/.tools/host/bin:$PATH"
 
 usage() {
     cat <<'EOF'
-Usage: cloc.sh [repository]
+Usage: cloc.sh [--manifest PATH] [repository]
        cloc.sh --check-tools
 
 Report Rust runtime/test lines and test-function totals for each Cargo
 workspace member. The repository defaults to the current working directory.
+--manifest selects one independent Cargo workspace explicitly; its own Cargo
+configuration and target directory apply. The default is the Git root workspace.
 Prepared host tools beside this script's checkout take precedence over PATH.
 --check-tools checks prerequisites without inspecting a workspace or installing.
 EOF
@@ -28,10 +30,13 @@ check_tools() {
     fi
 }
 
-if [[ "$#" -gt 1 ]]; then
-    usage >&2
-    exit 2
+selected_manifest=''
+if [[ "${1:-}" == --manifest ]]; then
+    [[ $# -ge 2 && -n "$2" ]] || { usage >&2; exit 2; }
+    selected_manifest="$2"
+    shift 2
 fi
+[[ $# -le 1 ]] || { usage >&2; exit 2; }
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
     usage
@@ -42,7 +47,14 @@ if [[ "${1:-}" == --check-tools ]]; then
     exit 0
 fi
 
-requested_root="${1:-${PWD}}"
+if [[ -n "$selected_manifest" ]]; then
+    [[ -f "$selected_manifest" && ! -L "$selected_manifest" ]] || {
+        echo 'error: selected manifest must be a regular file' >&2; exit 1;
+    }
+    selected_directory="$(cd "$(dirname "$selected_manifest")" && pwd -P)"
+    selected_manifest="$selected_directory/$(basename "$selected_manifest")"
+fi
+requested_root="${1:-${selected_directory:-$PWD}}"
 if repo_root="$(git -C "${requested_root}" rev-parse --show-toplevel 2>/dev/null)"; then
     :
 elif repo_root="$(cd "${requested_root}" 2>/dev/null && pwd)"; then
@@ -52,7 +64,12 @@ else
     exit 1
 fi
 
-manifest_path="${repo_root}/Cargo.toml"
+repo_root="$(cd "$repo_root" && pwd -P)"
+manifest_path="${selected_manifest:-${repo_root}/Cargo.toml}"
+case "$manifest_path" in
+    "$repo_root/"*) ;;
+    *) echo 'error: selected workspace must belong to the selected checkout' >&2; exit 1 ;;
+esac
 if [[ ! -f "${manifest_path}" ]]; then
     echo "error: Cargo workspace manifest not found: ${manifest_path}" >&2
     exit 1
@@ -61,6 +78,7 @@ fi
 check_tools
 
 if ! metadata="$(
+    cd "$(dirname "$manifest_path")" &&
     RUSTUP_AUTO_INSTALL=0 cargo metadata \
         --format-version 1 \
         --manifest-path "${manifest_path}" \
@@ -92,6 +110,13 @@ fi
 if ! target_path="$(jq -er '.target_directory | select(type == "string" and startswith("/"))' <<<"$metadata")"; then
     echo 'error: Cargo metadata has no absolute target directory' >&2
     exit 1
+fi
+target_paths=("$target_path")
+# Cargo preserves a configured alias. find does not follow source symlinks, but
+# can reach the existing output through its physical path elsewhere in a member.
+# A target that has never been built need not exist.
+if [[ -d "$target_path" ]]; then
+    target_paths+=("$(cd "$target_path" && pwd -P)")
 fi
 
 FILE_LIST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/shared-tooling-cloc.XXXXXX")"
@@ -162,7 +187,7 @@ for crate_row in "${crates[@]}"; do
     # Cargo owns the build-output identity, including configured target paths.
     # Prune it before either LOC or test counting, even inside a package.
     find_args=("$crate_path")
-    excluded_paths=("$target_path")
+    excluded_paths=("${target_paths[@]}")
     for member_row in "${crates[@]}"; do
         IFS=$'\t' read -r _ member_path <<<"$member_row"
         if [[ "$member_path" == "$crate_path/"* ]]; then

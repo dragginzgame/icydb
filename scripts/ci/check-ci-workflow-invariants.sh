@@ -83,6 +83,12 @@ if ! ci_job_runs static | rg -q '(^|[[:space:]])make[[:space:]]+ci-static([[:spa
   fail "CI jobs must consume the shared local validation targets"
 fi
 
+if ! ci_job_runs macos_host | rg -q '(^|[[:space:]])make[[:space:]]+check-portable-automation([[:space:]]|$)' ||
+   ! make_target_recipe check-invariants | rg -q --fixed-strings \
+     '$(MAKE) --no-print-directory check-portable-automation'; then
+  fail "static and native CI must consume the same portable automation gate"
+fi
+
 if ! rg -q '^CORE_TEST_ENV := RUST_TEST_THREADS=8$' Makefile ||
    ! make_target_recipe _test-core-no-default |
      rg -q --fixed-strings '$(CORE_TEST_ENV)' ||
@@ -108,7 +114,7 @@ done
 if ! ci_job_runs rust | rg -q --fixed-strings 'make install-tools tools-check' ||
    ! rg -q --fixed-strings 'scripts/ci/check-pocketic-alignment.sh' Makefile ||
    ! rg -q --fixed-strings 'scripts/ci/run-with-pocketic-server.sh' Makefile ||
-   ! rg -q --fixed-strings 'ICYDB_POCKET_IC_SERVER_URL' testing/integration/src/lib.rs; then
+   ! rg -q --fixed-strings 'PocketIcStartupConfig::from_env(' testing/integration/src/lib.rs; then
   fail "PocketIC workflows must install one locked binary and Tier B must use one governed server"
 fi
 
@@ -118,20 +124,19 @@ if [[ "$tier_b_perf_target_refs" -lt 3 ]] ||
   fail "Tier B must retain the total-only SQL performance gate"
 fi
 
-if jq -e '.env // {} | has("CARGO_HOME")' <<< "$ci_json" >/dev/null &&
-   ! rg -q --fixed-strings \
-     "printf '%s\\n' \"\$CARGO_HOME/bin\" >> \"\$GITHUB_PATH\"" \
-     <(jq -r '.jobs[].steps[]?.run // empty' <<< "$ci_json"); then
-  fail "repo-local Cargo installs must expose their bin directory to later CI steps"
-fi
+for job in static rust macos_host wasm_size_report; do
+  if ! ci_job_runs "$job" | rg -q --fixed-strings '.tools/rust/bin'; then
+    fail "$job must expose the shared Rust tool directory to later CI steps"
+  fi
+done
 
 # Shared bytes are verified by their manifest; consumer regressions qualify
 # execution and log retention instead of freezing the runner's diagnostic prose.
 if [[ ! -x scripts/ci/run-icydb-validation-targets.sh ]] ||
    ! rg -q 'VALIDATION_RUNNER := .*run-icydb-validation-targets.sh' Makefile ||
-   ! make_target_recipe check-invariants | rg -q --fixed-strings \
+   ! make_target_recipe check-portable-automation | rg -q --fixed-strings \
      'bash scripts/ci/verify-shared-tooling-snapshot.sh' ||
-   ! make_target_recipe check-invariants | rg -q --fixed-strings \
+   ! make_target_recipe check-portable-automation | rg -q --fixed-strings \
      'bash scripts/ci/test-shared-tooling-adapters.sh' ||
    ! rg -q '^validate-fast:$' Makefile ||
    ! rg -q '^test-integration-feedback:$' Makefile ||
