@@ -5,7 +5,7 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.267.1]
+## [0.267.1] - 2026-10-07
 
 - Converge developer setup and portable CI on shared owners, strengthen runtime
   safety checks, and correct diagnostic and durability guidance
