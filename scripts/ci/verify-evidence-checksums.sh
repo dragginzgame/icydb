@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
+# Shared companions: scripts/ci/verify-file-checksum.sh
 set -euo pipefail
 
 # Read retained sha256sum-format manifests; the reviewed helper owns hashing
 # and GNU/Perl backend selection. This check never writes evidence or builds.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+SCRIPT_DIR="${BASH_SOURCE[0]}"
+[[ "$SCRIPT_DIR" == /* ]] || SCRIPT_DIR="$PWD/$SCRIPT_DIR"
+SCRIPT_DIR="$(cd -P "${SCRIPT_DIR%/*}" && printf '%s/.' "$PWD")"
+SCRIPT_DIR="${SCRIPT_DIR%/.}"
 if [[ "$#" == 0 ]]; then
     echo 'usage: verify-evidence-checksums.sh <manifest> [...]' >&2
     exit 2

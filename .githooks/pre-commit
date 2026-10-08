@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Shared companions: scripts/ci/check-make-execution.sh
 set -euo pipefail
 
 # Format the selected index payload, without exposing unrelated working edits.

@@ -13,6 +13,13 @@ architecture on another.
 - Prefer narrow visibility. Widen a symbol only for a demonstrated consumer.
 - Keep imports at file top and group them consistently with the consumer's
   documented house style.
+- In code that requires `std`, use `std::...` instead of `core::...` whenever
+  the equivalent API is available through `std` at the package's supported MSRV.
+  Apply this to imports, fully qualified paths, tests and examples.
+- Preserve `core::...` where needed for maintained `no_std` support, including
+  conditional builds and generated code targeting `no_std` consumers. Document
+  that support boundary in the owning crate or local overlay. Import consistency
+  must not add a `std` requirement or raise MSRV.
 - Use ordinary Rust module discovery. Avoid `#[path]` wiring and ambiguous
   duplicate file/directory module shapes.
 - Keep a type, its inherent implementation, and its trait implementations near

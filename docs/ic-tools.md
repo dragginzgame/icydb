@@ -34,7 +34,7 @@ GitHub release asset metadata on 2026-10-06.
 | `icp` | 1.6.0 | [ICP CLI](https://github.com/dfinity/icp-cli/releases/tag/v1.6.0) |
 | `didc` | 0.6.2 | [Candid tools](https://github.com/dfinity/candid/releases/tag/didc-v0.6.2) |
 | `ic-wasm` | 0.11.1 | [ic-wasm](https://github.com/dfinity/ic-wasm/releases/tag/0.11.1) |
-| `pocket-ic` | 16.0.0 | [PocketIC](https://github.com/dfinity/pocketic/releases/tag/16.0.0) |
+| `pocket-ic` | 16.1.0 | [PocketIC](https://github.com/dfinity/pocketic/releases/tag/16.1.0) |
 | `wasm-opt` | 132 | [Binaryen](https://github.com/WebAssembly/binaryen/releases/tag/version_132) |
 
 The complete set has native assets for Linux x86-64, macOS Intel and macOS
@@ -66,6 +66,10 @@ global tools and shell profiles are untouched. Valid repeated setup is offline.
 Failed or interrupted attempts retain their candidate directory and leave the
 prior selected set intact; retries create a fresh candidate. Previous sets and
 downloads are not automatically deleted. Cleanup is an explicit local action.
+
+Setup and offline checks admit the literal `.tools/ic` link target. Malformed
+managed names, including trailing newlines, are refused before tool execution
+or downloads; the existing link and bundles remain intact.
 
 A directory lock prevents competing installers. After an abrupt kill, inspect
 `.tools/.ic-tools.lock/owner` and confirm the process has stopped before removing

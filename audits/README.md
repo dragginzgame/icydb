@@ -4,6 +4,8 @@ These methods apply the [engineering baseline](../DRAGGINZGAME.md) to a named
 review scope. Shared Tooling owns the common questions and evidence contract;
 consumers own product invariants, source roots, focused commands and report
 locations. Adopting these files does not schedule audits or add release gates.
+The [task catalog](../tasks/README.md) selects bounded recurring audit work and
+links these methods; it does not maintain a second set of audit questions.
 
 ## Choose a method
 
@@ -93,7 +95,9 @@ One underlying cause has one owning finding, selected by the violated contract.
 Adjacent methods link that evidence and explain their own consequence. GitHub
 issues remain the sole active follow-up tracker; reports are immutable evidence,
 not another debt ledger. Relevant issue work has the baseline's standing
-authorization across repositories; repository file edits retain separate authority.
+authorization only in `dragginzgame/*`; issue actions in other GitHub repositories
+require explicit authorization. Report a prepared external proposal until that
+authorization is available. Repository file edits retain separate authority.
 
 Reports and necessary artifacts stay in the audited repository's established
 report hierarchy. If none exists, use a new

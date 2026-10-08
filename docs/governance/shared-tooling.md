@@ -1,7 +1,7 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `3ecc48e579f6cf6e6ab01a6645d8a250fc8c6934`. Root
+at reviewed revision `4e274a2219c0b0cc3af68ec65658b373253518fb`. Root
 [AGENTS.md](../../AGENTS.md) is the local overlay. The shared approved layout
 retains the 42 existing canister, schema and testing packages in their
 restored directories, in the single root workspace and lockfile; no new package
@@ -12,12 +12,54 @@ these rules.
 
 ## Ownership and provenance
 
+The current compatible 0.267.3 follow-up adopts Shared Tooling 0.1.30,
+`4e274a2219c0b0cc3af68ec65658b373253518fb`, through its exporter from an
+isolated clean checkout. Its reviewed PocketIC 16.1.0 pins replace 16.0.0
+for all three declared hosts. The retained migration failure log shows all
+eight tests rejected at Testkit startup before any migration work because
+the selected client expects 16.1.0. Explicit `make install-ic-tools` prepares
+the corrected bundle; ordinary validation does not install it. Testkit still
+owns client/server version admission
+([#327](https://github.com/dragginzgame/icydb/issues/327),
+[Testkit #34](https://github.com/dragginzgame/ic-testkit/issues/34)).
+
+The existing sixty-seven-file selection is refreshed intact, with sixteen
+explicit governance companions for its linked task catalog and release helpers.
+This adopts installer path/link admission corrections without copying another
+pin catalog or adding a consumer version policy. The task catalog does not
+activate scheduling, and release delivery remains direct; no release command,
+PR delivery, schedule or publication was executed. The exact-source
+[upstream CI](https://github.com/dragginzgame/shared-tooling/actions/runs/37809818114)
+was queued at review, so that run does not yet qualify native macOS adoption.
+
+Linux consumer qualification uses unchanged lockfile SHA-256
+`d82813ceac8a5220b87307b131c02fb80be33117ed3b64710ffa8e02765b1989`
+(Host 0.8.3, Testkit 0.25.2, PocketIC client 16.1.0). The real migration
+binary passes all eight maintained tests, with one intentional ignore. The
+explicitly installed runner uses Testkit's published locked dependency graph;
+its restart/resume migration probe and all five wrapper fixtures pass.
+Snapshot, offline bundle/optimizer, inherited-`CDPATH`, installer, workstation,
+adapter, workflow, documentation-link and command-stub release checks pass.
+Logs are retained under `target/pocketic-327-*` and
+`target/shared-tooling-030-*`. An initial extra managed probe omitted the Cargo
+target/cache environment, started an uncached artifact build and lost the
+server to its default idle timeout; that failed log and server outputs remain
+separate from the corrected prepared-path run. The canonical lifetime boundary
+is tracked in [Testkit #37](https://github.com/dragginzgame/ic-testkit/issues/37).
+Only invocation-owned servers
+were started and torn down; retained tool bundles and build evidence remain.
+The migration source/successor raw Wasm bytes and hashes match the original
+failure log (8,984,849 / 9,029,641 bytes), so their raw size delta is zero.
+Cycle/instruction deltas are unmeasured because the original run failed before
+execution. Native macOS consumer execution, full workspace and release gates
+remain skipped user-owned validation.
+
 The compatible 0.267.2 follow-up adopts Shared Tooling 0.1.20,
 `3ecc48e579f6cf6e6ab01a6645d8a250fc8c6934`, exported from an isolated clean
 checkout. Its [exact-source CI](https://github.com/dragginzgame/shared-tooling/actions/runs/37641211708)
 passes Linux and both native macOS hosts. The original seventy-file snapshot
 included the pin validator, PocketIC equality helpers and contribution rules.
-The current selection retains sixty-seven files after retiring the three unused
+That selection retained sixty-seven files after retiring the three unused
 PocketIC equality helpers/fixtures under the maintainer's ownership direction.
 IcyDB's explicit no-commit/no-push instructions remain in force. No release command or PR delivery was executed.
 
@@ -70,7 +112,7 @@ versions, upstream files, network lifecycle or release effects were changed.
 Native consumer macOS execution and full workspace/release gates remain
 unperformed; Wasm bytes, IC cycles and instruction deltas are unmeasured.
 
-[The snapshot manifest](../../.shared-tooling.snapshot) records sixty-seven exact
+[The snapshot manifest](../../.shared-tooling.snapshot) records eighty-three exact
 upstream files, including the baseline and all linked rules, shared principles,
 consumer/host guidance, formatting hook, shared audit methods, pinned host/IC/Rust
 setup and selected verification helpers and release fixtures. Every entry records SHA-256 and
@@ -93,7 +135,7 @@ execution. `icydb-cli` uses the artifact stream reader for diagnostic error JSON
 `ic-host-fs` for opened schema-artifact admission and bounded reads, and retains
 IC response decoding in `ic-host-tools`.
 These direct dependencies are absent from runtime and canister packages.
-The selected Testkit 0.25.0 and all four direct Host 0.8.1 packages converge on
+The selected Testkit 0.25.2 and all four direct Host 0.8.3 packages converge on
 one host generation. The upstream release boundary is tracked by
 [Testkit #32](https://github.com/dragginzgame/ic-testkit/issues/32); no local
 override, re-export shim or second process implementation is added.
@@ -140,9 +182,9 @@ lock admission convergence is tracked in
 its distinct shared retention lock obligation. The live PocketIC, native
 macOS and permitted resource-measurement limitations above still apply.
 Host's Shared Tooling installer refresh is separate from Cargo adoption: the
-current IcyDB snapshot still fails an inherited-`CDPATH`, relative-consumer
-host-tool check while its control without `CDPATH` passes. The reviewed
-snapshot-refresh follow-up is recorded in
+then-current IcyDB snapshot failed an inherited-`CDPATH`, relative-consumer
+host-tool check while its control without `CDPATH` passed. The snapshot refresh
+above repairs that check; the original finding is recorded in
 [#302](https://github.com/dragginzgame/icydb/issues/302#issuecomment-6063134657).
 
 Initial consumer qualification used `6501d0e9fa7ba0439ec7a4010ca7bf0205e1d712` in
@@ -465,8 +507,8 @@ Cargo paths or Git dependencies. CI, release validation and artifact-producing
 Cargo commands use `--locked`. Authorized future dependency changes must prepare
 and cheaply verify every affected independent graph if one is introduced.
 
-[The common pin matrix](../../ci/ic-tools.tsv) selects ICP CLI 1.6.0,
-ic-wasm 0.11.1, ic-admin, didc, Binaryen 132 and PocketIC 16.0.0 for all three
+[The common pin matrix](../../ci/ic-tools.tsv) selects Quill 0.5.4, ICP CLI 1.6.0,
+ic-wasm 0.11.1, didc 0.6.2, Binaryen 132 and PocketIC 16.1.0 for all three
 supported hosts. [Shared host selections](../../ci/tool-versions.env) select jq,
 yq, PCRE2-enabled ripgrep, cloc 2.10, cargo-sort 2.1.4, cargo-sort-derives 0.13.0
 and candid-extractor 0.1.6; [IcyDB utility selections](../../ci/icydb-tools.env)

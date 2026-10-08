@@ -77,3 +77,60 @@ def checks:
         ($image | digest_image) then empty
       else finding($file; "container-image"; "image"; $image; "Docker action images require a sha256 digest or a local Dockerfile") end)
   else empty end;
+
+# Optional npm root declarations only; npm ci owns resolution and lifecycle.
+def npm_sections: ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"];
+def npm_dependencies:
+  . as $package | npm_sections[] as $section |
+  ($package[$section] // {}) | objects | to_entries[] |
+  {name: .key, spec: .value};
+def npm_local: type == "string" and test("^(file:|\\./|\\.\\./|/)");
+def npm_git:
+  test("^(git(\\+[^:]+)?://|git@|github:|gitlab:|bitbucket:|https?://.*\\.git(#.*)?$|[^/@\\s]+/[^/\\s]+(#|$))");
+def npm_exact: type == "string" and test("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$");
+def npm_checks($file; $lock; $node; $npm):
+  . as $package |
+  (if ($lock.lockfileVersion == 2 or $lock.lockfileVersion == 3) and
+      ($lock.packages | type == "object") and ($lock.packages[""] | type == "object") then
+    $lock.packages[""] as $root |
+    (["name", "version"][] as $key |
+      if $package | has($key) then
+        if ($package[$key] | type == "string") and $package[$key] == $lock[$key] and $package[$key] == $root[$key]
+        then empty else finding($file; "npm-lock"; $key; "<declaration mismatch>"; "manifest and lock root identity must agree") end
+      else empty end),
+    (npm_sections[] as $key |
+      if ($package[$key] // {}) == ($root[$key] // {}) then empty
+      else finding($file; "npm-lock"; $key; "<declaration mismatch>"; "manifest and lock root dependencies must agree") end)
+  else finding($file; "npm-lock"; "lockfileVersion/packages"; "<unsupported lock>"; "requires package-lock schema 2 or 3 with a root packages entry") end),
+  (npm_sections[] as $key |
+    if ($package | has($key)) and (($package[$key] | type) != "object") then
+      finding($file; "npm-declaration"; $key; "<invalid declaration>"; "dependency section must be an object")
+    else empty end),
+  (if ($package | has("packageManager")) then
+    if ($package.packageManager | type != "string") then
+      finding($file; "npm-toolchain"; "packageManager"; "<invalid declaration>"; "requires npm@X.Y.Z matching the selected npm version")
+    elif ($package.packageManager | test("^npm@[0-9]+\\.[0-9]+\\.[0-9]+(\\+sha(224|256|384|512)\\.[0-9a-f]+)?$")) and
+         ($package.packageManager | split("+")[0]) == "npm@\($npm)" then empty
+    else finding($file; "npm-toolchain"; "packageManager"; "<selection mismatch>"; "requires npm@X.Y.Z matching the selected npm version") end
+  else empty end),
+  (if ($package | has("engines")) and ($package.engines | type != "object") then
+    finding($file; "npm-toolchain"; "engines"; "<invalid declaration>"; "engines must be an object")
+  else
+    ([{key:"node",version:$node},{key:"npm",version:$npm}][] as $tool |
+      $package.engines[$tool.key] as $engine |
+      if $engine == null then empty
+      elif ($engine | type) != "string" then finding($file; "npm-toolchain"; "engines.\($tool.key)"; "<invalid declaration>"; "engine must be a version requirement")
+      elif ($engine | ltrimstr("v") | npm_exact) and ($engine | ltrimstr("v")) != $tool.version then
+        finding($file; "npm-toolchain"; "engines.\($tool.key)"; "<selection mismatch>"; "exact engine and selected tool version must agree")
+      else empty end)
+  end),
+  ($package | npm_dependencies |
+    if (.spec | type) != "string" or .spec == "" then
+      finding($file; "npm-declaration"; .name; "<invalid declaration>"; "dependency must be a nonempty string")
+    elif (.spec | npm_local) then empty
+    elif (.spec | npm_git) then
+      if (.spec | split("#") | length == 2 and (.[1] | full_commit)) then empty
+      else finding($file; "npm-git"; .name; "<redacted selector>"; "Git dependency requires a full commit fragment") end
+    elif (.spec | startswith("link:") or startswith("workspace:")) then
+      finding($file; "npm-declaration"; .name; "<unsupported selector>"; "use npm file directory inputs or registry requirements")
+    else empty end);

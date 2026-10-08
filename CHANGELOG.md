@@ -9,9 +9,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 - Correct public MSRV validation, preserve shared host cleanup evidence, and
   fix offline tool setup and SQL predicate/literal handling; leave PocketIC
-  version admission with Testkit, strengthen runtime panic scanning, and correct
+  version admission with Testkit, provision its reviewed server pins, strengthen
+  runtime panic scanning, and correct
   precommit SQL RETURNING sizing
   ([#302](https://github.com/dragginzgame/icydb/issues/302),
+  [#327](https://github.com/dragginzgame/icydb/issues/327),
   [#43](https://github.com/dragginzgame/icydb/issues/43),
   [#307](https://github.com/dragginzgame/icydb/issues/307),
   [#309](https://github.com/dragginzgame/icydb/issues/309),

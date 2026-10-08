@@ -65,8 +65,8 @@ The [Cargo ownership rules](cargo-dependencies.md) define where declarations liv
   that a package was published. Reconcile an uncertain publish response against
   that package/version before retrying.
 
-The declaration checker below does not yet inspect npm manifests, lockfiles or
-Node selections. Consumer gates must enforce these inputs; a checker PASS is not
+The declaration checker below offers explicit npm root checks. Consumer gates
+still own lock resolution and runtime qualification; a checker PASS is not
 npm qualification. See [npm ci](https://docs.npmjs.com/cli/v11/commands/npm-ci/)
 and [npm provenance](https://docs.npmjs.com/generating-provenance-statements/).
 
@@ -110,6 +110,35 @@ live release evidence. Consumer gates enforce those execution boundaries with
 locked commands and their existing qualification checks. A passing declaration
 check alone is not release qualification.
 
+For an npm root, opt in with all three inputs; select versions from that
+consumer's existing owner, rather than copying the example's versions:
+
+```bash
+bash scripts/ci/check-dependency-pins.sh --npm-root frontend \
+  --node-version "$(cat .nvmrc)" \
+  --npm-version "$(jq -er '.packageManager | sub("^npm@"; "")' frontend/package.json)"
+```
+
+Run separately for each independently selected build/publication root. The
+directory must be checkout-relative (`.` selects its root). Node and npm inputs
+must be exact stable versions. The checker needs neither executable: it never
+runs npm, Node, lifecycle scripts or dependency resolution. When present,
+`packageManager` must select that exact npm version; exact `engines.node` and
+`engines.npm` declarations must also agree. Compatibility ranges remain npm's
+responsibility, including checking whether the selected versions satisfy them.
+
+The tracked regular `package.json` and `package-lock.json` must contain single
+JSON objects. Supported lock schemas are 2 and 3, with a root `packages[""]`
+entry. Root name/version (when declared) and direct dependency tables must agree.
+Direct Git dependencies require a full commit fragment; errors redact their
+selectors. Relative file-directory inputs are resolved physically, so symlink
+escapes also need the scoped sibling exception below. Absolute file inputs,
+file archives, `link:`/`workspace:` selectors, and roots with `npm-shrinkwrap.json`
+are outside this bounded checker. It does not inspect workspace child manifests
+or the transitive lock graph. npm's own locked preparation and consumer tests
+remain authoritative for those semantics. Without `--npm-root`, existing
+Cargo/Action checking is unchanged and npm files are not discovered implicitly.
+
 Document approved exceptions in the local overlay or its linked policy, including
 their qualification procedure. Machine-readable entries live in the optional
 `ci/dependency-pinning-exceptions.json`, a JSON array with these exact fields:
@@ -127,10 +156,13 @@ their qualification procedure. Machine-readable entries live in the optional
 ]
 ```
 
-Allowed rule names are `cargo-exact`, `cargo-external-path` and `checkout-ref`.
+Allowed rule names are `cargo-exact`, `cargo-external-path`, `checkout-ref` and
+`npm-external-path`.
 For Cargo, `subject` is the declared dependency name/alias and `value` is the
 literal version requirement or external path. For a checkout, `subject` is
-`with.repository` and `value` is its explicit `with.ref`. `file` is the declaring
+`with.repository` and `value` is its explicit `with.ref`. For an npm sibling,
+`file` is its root `package.json`, `subject` is the dependency alias and `value`
+is the literal selector, such as `file:../../sibling`. `file` is the declaring
 file, even when a Cargo dependency is inherited elsewhere. Evidence must name a
 tracked local document, optionally with an anchor. No wildcards or blanket
 suppressions: entries match all four identity fields exactly. Changed selectors

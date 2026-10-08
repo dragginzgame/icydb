@@ -6,6 +6,76 @@ policy. They require Perl core modules or Bash 3.2+, as noted below, and run on
 Linux and macOS. The portable regression suite includes offline fixtures;
 native CI qualifies each supported host separately.
 
+## Evidence archives
+
+```bash
+bash scripts/ci/archive-evidence.sh "$RUNNER_TEMP/evidence.tar.gz" \
+  "$RUNNER_TEMP" portable-fixtures "$PWD" .tools/ic-set.failed
+```
+
+The Bash 3.2 helper takes a new output path followed by explicit root/relative-path
+pairs. Relative roots and output paths resolve from the caller's current directory,
+independently of `CDPATH` or option-like names. It requires tar and gzip.
+Select only existing evidence; the caller decides
+which optional paths exist. The output parent must exist and the output must stay
+outside every selected input. Creation refuses an occupied output, including a
+symlink or a named pipe. Failed creation retains any partial archive and all original inputs.
+Success prints the archive's absolute path and leaves the inputs intact.
+
+Each path becomes an archive member relative to its supplied root. Paths must
+be canonical and relative; `.` selects a complete root. Duplicate or overlapping
+member paths are refused, including across different roots. Parent-directory
+symlinks are refused; final symlinks are archived without following their targets.
+Git metadata named `.git` is excluded. If release-state evidence is needed,
+select the specific evidence directory as a root rather than archiving `.git`.
+
+Upload the resulting single `.tar.gz` file to preserve filenames, modes and links
+that a raw artifact upload cannot reliably represent. The archive supports Unix
+filenames containing spaces, colons and newlines; it does not widen line-oriented
+checksum-manifest formats. Callers retain ownership of selection, source and run
+identity, command outcomes, manifests, upload and retention. Archiving alone
+does not qualify evidence or prove a hosted upload/download round trip.
+
+Adopt `scripts/ci/archive-evidence.sh` through a reviewed snapshot; it has no
+shared-script dependencies. Shared Tooling's failure-collection action uses this
+helper too. Consumers can replace their tar mechanics while preserving their
+product-specific collection and identity records.
+
+## Tool-bundle evidence selection
+
+`select-tool-evidence.sh full REPOSITORY DIAGNOSTICS` emits NUL-separated
+root/relative-path pairs for every host/IC candidate. Both directories must
+already exist; diagnostics must be a regular directory. The neutral archiver
+continues to own path admission, namespace collision checks and tar creation.
+
+`select-tool-evidence.sh compact REPOSITORY DIAGNOSTICS HOST-VERSIONS IC-PINS`
+opts into smaller successful-installation evidence. For each managed relative
+active link independently, it runs the existing installer in offline `--check`
+mode against a retained copy of the caller's pins. Host checking includes jq,
+yq, ripgrep and cloc. Partial, missing, unknown or failed selections stay full;
+unselected and failed candidates stay full even when the active set passes.
+A changed selection, bundle directory identity or caller pin file refuses
+compaction. This is a fresh observation, not authority derived from an earlier
+successful installation; stop concurrent toolset mutation during collection.
+
+Successful checks retain caller pin bytes, command output and the exact selected
+bundle path. IC checks also retain `pins.tsv`, `host` and `files.sha256`; host
+sets have no equivalent bundle receipt, so caller configuration and check evidence
+remain explicit. Tiny tool fixtures can grow because diagnostic metadata exceeds
+the omitted payload. Archive size and collection time depend on the actual sets.
+The selector requires Perl core modules and the declared host/IC check companions;
+it never installs or downloads tools. Invalid selections refuse before dispatch.
+
+The common failure action defaults to full retention. Set
+`compact-successful-tools: 'true'` to opt in; `host-versions` and `ic-pins` select
+absolute caller pin files, defaulting to the repository's common configuration.
+Its native CI control uploads/downloads successful-set diagnostics alongside a
+failed candidate, separately from the existing full-failure control. Native
+acceptance requires matching executed jobs; a configured control is not evidence
+of a successful hosted transport. Rust build evidence and original logs retain
+their independent collection contract. Consumers adopt the selector only from a
+reviewed committed snapshot, rather than recreating its classifier locally.
+
 ## Runner disk capacity
 
 ```bash

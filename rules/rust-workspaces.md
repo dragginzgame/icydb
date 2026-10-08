@@ -48,6 +48,8 @@ apps/
   versions and common package metadata in `[workspace.package]`, with inherited
   child values. Keep the complete direct dependency catalog in
   `[workspace.dependencies]` under the [Cargo dependency rules](cargo-dependencies.md).
+  Those rules allow documented package-specific MSRVs; a higher internal-tool
+  floor must not become the public libraries' minimum through inheritance alone.
   Preserve package identities, selected dependencies and effective features.
   An `apps/` directory does not create an independent Cargo workspace: its
   packages belong to the same root and inherit the same versions and dependencies.

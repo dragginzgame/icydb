@@ -1,16 +1,45 @@
 #!/usr/bin/env bash
+# Shared companions: scripts/ci/run-release.sh scripts/ci/next-release-version.sh scripts/ci/finalize-release-changelog.awk
 set -euo pipefail
 
 # This fixture owns its Make controls; production admission is tested below.
 unset MAKEFLAGS MFLAGS MAKEOVERRIDES GNUMAKEFLAGS MAKEFILES
+export RELEASE_DELIVERY=direct
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ROOT="${BASH_SOURCE[0]}"
+[[ "$ROOT" == /* ]] || ROOT="$PWD/$ROOT"
+ROOT="$(cd -P "${ROOT%/*}/../.." && printf '%s/.' "$PWD")"
+ROOT="${ROOT%/.}"
 FIXTURE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/release-runner-test.XXXXXX")"
 trap 'if [[ $? == 0 ]]; then rm -rf "$FIXTURE_ROOT"; else printf "Failed release-runner fixture retained: %s\n" "$FIXTURE_ROOT" >&2; fi' EXIT
 export REAL_GIT REAL_MAKE
-REAL_GIT="$(command -v git)"
+export RELEASE_FIXTURE_HASH_GIT RELEASE_FIXTURE_GIT_REFUSALS
+RELEASE_FIXTURE_HASH_GIT="$(command -v git)"
+RELEASE_FIXTURE_GIT_REFUSALS="$FIXTURE_ROOT/forbidden-git"
 REAL_MAKE="$(command -v make)"
 mkdir -p "$FIXTURE_ROOT/bin"
+
+# The simulation may use Git's inert hash implementation, never its repository
+# operations. Record any attempted escape even if an expected-failure case masks
+# its exit status; the suite checks this record before reporting success.
+REAL_GIT="$FIXTURE_ROOT/bin/hash-git"
+cat > "$REAL_GIT" <<'GUARD'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ $# == 2 && "$1" == hash-object && "$2" == --stdin ]]; then
+    exec "$RELEASE_FIXTURE_HASH_GIT" "$@"
+fi
+printf '%s\n' "$*" >> "$RELEASE_FIXTURE_GIT_REFUSALS"
+echo 'simulation fixture refused a real Git operation' >&2
+exit 97
+GUARD
+chmod +x "$REAL_GIT"
+for effect in commit tag push; do
+    status=0
+    "$REAL_GIT" "$effect" > "$FIXTURE_ROOT/guard-$effect.log" 2>&1 || status=$?
+    [[ "$status" == 97 ]]
+done
+: > "$RELEASE_FIXTURE_GIT_REFUSALS"
 
 cat > "$FIXTURE_ROOT/bin/make" <<'STUB'
 #!/usr/bin/env bash
@@ -47,6 +76,14 @@ case "$target" in
     release-committed-check|release-tagged-check|release-push-check)
         [[ -n "$RELEASE_COMMIT" ]]
         [[ "$(cat "commits/$RELEASE_COMMIT.subject")" == "Release $RELEASE_VERSION" ]]
+        if [[ "$target" == release-push-check ]]; then
+            case "${FIXTURE_PUSH_MUTATION:-}" in
+                tag) printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' > "tags/v$RELEASE_VERSION" ;;
+                tag-object) printf 'ffffffffffffffffffffffffffffffffffffffff\n' > tag-object ;;
+                index) touch dirty-index ;;
+                worktree) touch dirty-worktree ;;
+            esac
+        fi
         ;;
     *) exit 2 ;;
 esac
@@ -69,6 +106,7 @@ ancestor() {
     done
 }
 case "$1" in
+    for-each-ref) printf '\n' ;;
     check-ref-format) [[ "$2" == refs/heads/main ]] ;;
     symbolic-ref) echo main ;;
     remote)
@@ -90,12 +128,14 @@ case "$1" in
                 name="${*: -1}"; name="${name#refs/tags/}"; name="${name%\^\{commit\}}"
                 if [[ -n "${FIXTURE_TAG_COMMIT:-}" ]]; then echo "$FIXTURE_TAG_COMMIT"; elif [[ -f "tags/$name" ]]; then cat "tags/$name"; else [[ -f tag ]]; echo "$release_sha"; fi
                 ;;
-            refs/tags/*) [[ -f tag ]]; echo "$tag_sha" ;;
+            refs/tags/*) [[ -f tag ]] || exit 1; if [[ -f tag-object ]]; then cat tag-object; else echo "$tag_sha"; fi ;;
             *) exit 2 ;;
         esac
         ;;
     diff)
-        if [[ "$2" == --quiet ]]; then [[ "${FIXTURE_DIRTY:-}" != yes ]]; else cat version; fi
+        if [[ "$2" == --cached ]]; then [[ ! -e dirty-index ]];
+        elif [[ "$2" == --quiet ]]; then [[ "${FIXTURE_DIRTY:-}" != yes && ! -e dirty-worktree ]];
+        else cat version; fi
         ;;
     ls-files)
         [[ "${FIXTURE_INVENTORY_FAIL:-}" != yes ]] || exit 9
@@ -135,7 +175,7 @@ case "$1" in
             *) exit 2 ;;
         esac
         ;;
-    cat-file) [[ -f tag ]]; echo "${FIXTURE_TAG_TYPE:-tag}" ;;
+    cat-file) [[ -f tag ]] || exit 1; echo "${FIXTURE_TAG_TYPE:-tag}" ;;
     ls-remote)
         [[ "${FIXTURE_REMOTE_FAIL:-}" != yes ]] || exit 9
         if [[ "${FIXTURE_DRIFT_TARGET:-}" == remote-observation && -f tag ]]; then
@@ -173,7 +213,7 @@ case "$1" in
         echo push >> events
         [[ "${FIXTURE_FAIL_EFFECT:-}" != before-push ]] || exit 9
         echo "$push_head" > remote-head
-        echo "$tag_sha" > remote-tag
+        if [[ -f tag-object ]]; then cat tag-object > remote-tag; else echo "$tag_sha" > remote-tag; fi
         cat tag > remote-tag-name
         if [[ "${FIXTURE_FAIL_EFFECT:-}" == push && ! -f lost-push ]]; then touch lost-push; exit 9; fi
         ;;
@@ -206,6 +246,42 @@ expect_failure() {
         exit 1
     fi
 }
+
+for mutation in tag tag-object index worktree; do
+    new_fixture "push-check-mutation-$mutation"
+    FIXTURE_PUSH_MUTATION="$mutation" expect_failure patch origin main
+    [[ "$(tail -n 1 .release-state/0.1.1.plan)" == push ]]
+    [[ "$(count_event push)" == 0 && "$(count_event commit)" == 1 && "$(count_event tag)" == 1 ]]
+    # Explicitly repair the fixture's changed state and retry its saved release.
+    cat head > tags/v0.1.1
+    rm -f dirty-index dirty-worktree tag-object
+    bash "$ROOT/scripts/ci/run-release.sh" patch origin main > recovered-output
+    [[ "$(count_event push)" == 1 && "$(count_event commit)" == 1 && "$(count_event tag)" == 1 && "$(count_event release-verify)" == 1 ]]
+done
+
+for conflict in local-tag-missing local-tag-commit local-tag-type remote-tag-missing remote-tag-changed remote-branch-missing remote-branch-diverged remote-unavailable; do
+    new_fixture "completed-conflict-$conflict"
+    bash "$ROOT/scripts/ci/run-release.sh" patch origin main > output
+    cp events completed-events
+    cp .release-state/0.1.1.plan completed-plan
+    bash "$ROOT/scripts/ci/run-release.sh" resume 0.1.1 origin main > resumed-output
+    cmp events completed-events
+    case "$conflict" in
+        local-tag-missing) rm tag ;;
+        local-tag-commit) printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' > tags/v0.1.1 ;;
+        local-tag-type) export FIXTURE_TAG_TYPE=commit ;;
+        remote-tag-missing) rm remote-tag ;;
+        remote-tag-changed) printf 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\n' > remote-tag ;;
+        remote-branch-missing) rm remote-head ;;
+        remote-branch-diverged) printf 'ffffffffffffffffffffffffffffffffffffffff\n' > remote-head ;;
+        remote-unavailable) export FIXTURE_REMOTE_FAIL=yes ;;
+    esac
+    expect_failure resume 0.1.1 origin main
+    cmp events completed-events
+    cmp .release-state/0.1.1.plan completed-plan
+    [[ ! -e .release-state/lock ]]
+    unset FIXTURE_TAG_TYPE FIXTURE_REMOTE_FAIL
+done
 
 for kind in patch minor major; do
     for flags in '' i n q t v; do
@@ -296,6 +372,10 @@ for kind in patch minor major; do
         expect_failure "$kind" origin main
         [[ ! -e ".release-state/$candidate.plan" && ! -e .release-state/lock ]]
         cp output failed-output
+        if [[ "$target" == release-preflight ]]; then
+            grep -F 'this attempt has not started validation or version preparation' failed-output > /dev/null
+            [[ "$(count_event release-verify)" == 0 && "$(count_event release-prepare-version)" == 0 ]]
+        fi
         if [[ "$target" == release-verify ]]; then
             cp validation.1.log failed-log
             cp build.1.evidence failed-evidence
@@ -440,6 +520,17 @@ commit_fix() {
     printf '%s\n' "$fix" > "commits/$fix.tree"
     printf '%s\n' "$fix" > 'head'
 }
+new_fixture completed-remote-descendant
+bash "$ROOT/scripts/ci/run-release.sh" patch origin main > output
+commit_fix
+cp head remote-head
+cp events completed-events
+cp .release-state/0.1.1.plan completed-plan
+bash "$ROOT/scripts/ci/run-release.sh" resume 0.1.1 origin main > resumed-output
+cmp events completed-events
+cmp .release-state/0.1.1.plan completed-plan
+[[ "$(cat remote-head)" == eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee ]]
+
 for next_kind in patch minor major resume; do
     for outcome in before-push push; do
         new_fixture "descendant-$next_kind-$outcome"
@@ -822,4 +913,6 @@ cat history-bytes >> byte-expected
 awk -v version=0.1.1 -v previous=0.1.0 -v date=2026-10-06 \
     -f "$ROOT/scripts/ci/finalize-release-changelog.awk" byte-notes > byte-result
 cmp byte-expected byte-result
+
+[[ ! -s "$RELEASE_FIXTURE_GIT_REFUSALS" ]]
 echo 'release runner command-stub tests passed'

@@ -19,7 +19,7 @@ cat > "$fixture/server" <<'SERVER'
 #!/usr/bin/env bash
 set -euo pipefail
 if [[ "$#" == 1 && "$1" == --version ]]; then
-  printf 'pocket-ic-server 16.0.0\n'
+  printf 'pocket-ic-server 16.1.0\n'
   exit 0
 fi
 port_file=""

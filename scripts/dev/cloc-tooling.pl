@@ -21,7 +21,7 @@ Count CI and other tooling in immediate Git checkouts, including non-Rust repos.
 Defaults to the parent of this script's checkout. Reads tracked and nonignored
 untracked working files; never runs repository scripts, Cargo, or Make targets.
 
-Scope: scripts/, .github/, .githooks/, make/, tools/, xtask/, ci/, .cargo/;
+Scope: scripts/, bin/, .github/, .githooks/, make/, tools/, xtask/, ci/, .cargo/;
 Makefiles, root shell/Perl/Python/AWK helpers and .env files; Cargo package build.rs.
 Docs, binaries, generated build/cache directories and symlinks are excluded.
 JSON, patches and CSV/TSV tables are supporting data, counted as physical lines
@@ -35,6 +35,8 @@ other manifests use the Git root. --snapshot-root explicitly selects another
 consumer root for a manifest (paths are relative to the invocation directory).
 Local LOC includes unrecorded files and drifted copies; drift is reported.
 --json includes per-file hashes/counts, skipped files and source identities.
+Repositories without a first commit are counted with head=null and unborn=true;
+the text report announces that identity on stderr. Broken Git state is an error.
 Repeated copies are all counted; LOC and hash matches are discovery aids,
 not proof that different contracts can be consolidated.
 USAGE
@@ -98,7 +100,7 @@ sub in_scope {
     my ($path, $logical) = @_;
     return 0 if $path =~ m{(?:^|/)(?:target|node_modules|__pycache__|\.tools|\.git|dist)(?:/|$)};
     return 0 if $path =~ /\.(?:md|txt|lock|png|svg|jpg|gif|wasm|pdf|glb|pyc)$/i;
-    return 1 if $logical =~ m{^(?:scripts|\.github|\.githooks|make|tools|xtask|ci|\.cargo)/};
+    return 1 if $logical =~ m{^(?:scripts|bin|\.github|\.githooks|make|tools|xtask|ci|\.cargo)/};
     return 1 if $path =~ m{(?:^|/)(?:Makefile|GNUmakefile|justfile|Dockerfile|Taskfile\.ya?ml)$};
     return 1 if $path =~ m{^[^/]+\.(?:sh|bash|pl|py|awk|env)$};
     return $path =~ m{(?:^|/)build\.rs$} && -f dirname($path) . '/Cargo.toml';
@@ -170,12 +172,26 @@ for my $name (@names) {
         chdir $repo->{root} or die "enter checkout: $!\n";
         my $git_root = capture('git', 'rev-parse', '--show-toplevel'); chomp $git_root;
         die "not a Git checkout root\n" unless abs_path($git_root) eq $repo->{root};
-        $repo->{head} = capture('git', 'rev-parse', 'HEAD'); chomp $repo->{head};
+        my $head = eval { capture('git', 'rev-parse', '--verify', '--quiet', 'HEAD^{commit}') };
+        if ($@) {
+            # Only a symbolic HEAD whose target ref is absent is unborn. A
+            # detached/malformed HEAD or an existing broken ref remains an error.
+            my $reference = capture('git', 'symbolic-ref', '--quiet', 'HEAD'); chomp $reference;
+            system('git', 'show-ref', '--verify', '--quiet', $reference) == 256
+                or die "HEAD does not resolve to a commit and is not unborn\n";
+            $repo->{head} = undef;
+            $repo->{unborn} = JSON::PP::true;
+            warn "$name: counting uncommitted bootstrap (HEAD is unborn)\n" unless $json;
+        } else {
+            chomp $head;
+            $repo->{head} = $head;
+            $repo->{unborn} = JSON::PP::false;
+        }
         $repo->{dirty} = length(capture('git', 'status', '--porcelain=v1', '-z')) ? JSON::PP::true : JSON::PP::false;
         my %paths = map { $_ => 1 } split /\0/, capture('git', 'ls-files', '-z', '--cached', '--others', '--exclude-standard');
         my (%snapshot, @manifests);
         for my $path (sort keys %paths) {
-            next unless ($path =~ m{(?:^|/)\.shared-tooling(?:-[^/]*)?\.snapshot$} ||
+            next unless ($path =~ m{(?:^|/)\.shared-tooling[^/]*\.snapshot$} ||
                 exists $snapshot_roots{getcwd() . "/$path"}) && -f $path;
             my ($files, $manifest) = load_snapshot($path);
             for my $target (keys %$files) {

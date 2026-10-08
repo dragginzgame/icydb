@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-DEFAULT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd -P)"
+SCRIPT_DIR="${BASH_SOURCE[0]}"
+[[ "$SCRIPT_DIR" == /* ]] || SCRIPT_DIR="$PWD/$SCRIPT_DIR"
+SCRIPT_DIR="$(cd -P "${SCRIPT_DIR%/*}" && printf '%s/.' "$PWD")"
+SCRIPT_DIR="${SCRIPT_DIR%/.}"
+DEFAULT_ROOT="$(cd -P "$SCRIPT_DIR/../.." && printf '%s/.' "$PWD")"
+DEFAULT_ROOT="${DEFAULT_ROOT%/.}"
 CONSUMER_ROOT="$DEFAULT_ROOT"
 MANIFEST_PATH=".shared-tooling.snapshot"
 

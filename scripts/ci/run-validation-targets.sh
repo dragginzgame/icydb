@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Shared companions: scripts/ci/check-make-execution.sh
 set -euo pipefail
 
 usage() {
@@ -7,7 +8,14 @@ usage() {
 
 RUNNER_SOURCE="${BASH_SOURCE[0]}"
 bash "$(dirname "$RUNNER_SOURCE")/check-make-execution.sh"
-REPOSITORY_ROOT="${VALIDATION_REPOSITORY_ROOT:-$(cd "$(dirname "$RUNNER_SOURCE")/../.." && pwd)}"
+if [[ -n "${VALIDATION_REPOSITORY_ROOT:-}" ]]; then
+    REPOSITORY_ROOT="$VALIDATION_REPOSITORY_ROOT"
+else
+    REPOSITORY_ROOT="$RUNNER_SOURCE"
+    [[ "$REPOSITORY_ROOT" == /* ]] || REPOSITORY_ROOT="$PWD/$REPOSITORY_ROOT"
+    REPOSITORY_ROOT="$(cd -P "${REPOSITORY_ROOT%/*}/../.." && printf '%s/.' "$PWD")"
+    REPOSITORY_ROOT="${REPOSITORY_ROOT%/.}"
+fi
 if [[ "${VALIDATION_RUNNER_SNAPSHOT_PATH:-}" != "$RUNNER_SOURCE" ]]; then
     RUNNER_SNAPSHOT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/validation-runner.XXXXXX")"
     RUNNER_SNAPSHOT="$RUNNER_SNAPSHOT_DIR/run-validation-targets.sh"

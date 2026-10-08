@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
+# Shared companions: scripts/ci/verify-file-checksum.sh scripts/ci/verify-evidence-checksums.sh scripts/ci/ic-tool-pins.awk
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+ROOT="${BASH_SOURCE[0]}"
+[[ "$ROOT" == /* ]] || ROOT="$PWD/$ROOT"
+ROOT="$(cd -P "${ROOT%/*}/../.." && printf '%s/.' "$PWD")"
+ROOT="${ROOT%/.}"
 consumer="$ROOT"
 pins=""
 check=false
@@ -19,10 +23,15 @@ while [[ $# -gt 0 ]]; do
         *) usage; exit 2 ;;
     esac
 done
-consumer="$(cd "$consumer" && pwd -P)"
+[[ "$consumer" == /* ]] || consumer="$PWD/$consumer"
+consumer="$(cd -P "$consumer" && printf '%s/.' "$PWD")"
+consumer="${consumer%/.}"
 pins="${pins:-$consumer/ci/ic-tools.tsv}"
 [[ -f "$pins" ]] || { echo "missing IC tool pins: $pins" >&2; exit 1; }
-pins="$(cd "$(dirname "$pins")" && pwd -P)/$(basename "$pins")"
+[[ "$pins" == /* ]] || pins="$PWD/$pins"
+pins_name="${pins##*/}"
+pins="$(cd -P "${pins%/*}" && printf '%s/.' "$PWD")"
+pins="${pins%/.}/$pins_name"
 case "$(uname -s):$(uname -m)" in
     Linux:x86_64|Linux:amd64) host=linux-x86_64; target=x86_64-unknown-linux-gnu; os=linux; arch=x86_64 ;;
     Darwin:x86_64|Darwin:amd64) host=darwin-x86_64; target=x86_64-apple-darwin; os=macos; arch=x86_64 ;;
@@ -72,7 +81,9 @@ if [[ -e "$active" && ! -L "$active" ]]; then
     echo 'refusing to replace an unmanaged .tools/ic path' >&2; exit 1
 fi
 if [[ -L "$active" ]]; then
-    selection="$(readlink "$active")"
+    # Preserve trailing newlines so admission checks the literal link target.
+    selection="$(perl -e 'my $s=readlink($ARGV[0]); defined($s) or exit 1; print $s,"/."' "$active")"
+    selection="${selection%/.}"
     [[ "$selection" =~ ^ic-set\.[[:alnum:]]+$ ]] || {
         echo 'refusing an unmanaged .tools/ic link' >&2; exit 1;
     }

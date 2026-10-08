@@ -1,0 +1,11 @@
+[Unit]
+Description=Shared Tooling local agent maintenance
+
+[Service]
+Type=oneshot
+# This host-owned file selects the checkout, projects, state and executable PATH.
+EnvironmentFile=%h/.config/shared-tooling/maintenance.env
+ExecStart=/bin/bash ${SHARED_TOOLING_ROOT}/scripts/dev/run-maintenance.sh --if-due ${MAINTENANCE_PROJECTS_ROOT} ${MAINTENANCE_STATE_ROOT}
+TimeoutStartSec=45min
+KillMode=control-group
+UMask=0077

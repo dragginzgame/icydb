@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
+# Shared companions: scripts/ci/check-make-execution.sh scripts/ci/next-release-version.sh
 set -euo pipefail
 
 # Canonical ordering and Git effects; consumer targets own metadata and gates.
-# Dependencies: Bash 3.2, GNU Make, Git, date and standard Unix file utilities.
+# Dependencies: Bash 3.2, GNU Make, Git, Perl, date and standard Unix file utilities.
 # Journals live in the repository's Git directory, outside build artifacts.
 usage() {
     echo 'usage: run-release.sh patch|minor|major REMOTE BRANCH' >&2
@@ -10,6 +11,17 @@ usage() {
     exit 2
 }
 fail() { echo "release refused: $1" >&2; exit 1; }
+runner_dir="${BASH_SOURCE[0]}"
+[[ "$runner_dir" == /* ]] || runner_dir="$PWD/$runner_dir"
+runner_dir="$(cd -P "${runner_dir%/*}" && printf '%s/.' "$PWD")"
+runner_dir="${runner_dir%/.}"
+delivery="${RELEASE_DELIVERY:-direct}"
+case "$delivery" in direct|pr) ;; *) fail 'RELEASE_DELIVERY must be direct or pr' ;; esac
+if [[ "$delivery" == pr ]]; then
+    for context in GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES; do
+        [[ -z "${!context:-}" ]] || fail "PR delivery requires ordinary checkout context; unset $context"
+    done
+fi
 mode="${1:-}"
 if [[ "$mode" == resume ]]; then
     [[ $# -eq 4 ]] || usage
@@ -27,7 +39,9 @@ bash "$(dirname "${BASH_SOURCE[0]}")/check-make-execution.sh" "$make_bin"
 git check-ref-format "refs/heads/$branch" >/dev/null
 root="$(git rev-parse --show-toplevel)"
 cd "$root"
-[[ "$(git symbolic-ref --quiet --short HEAD)" == "$branch" ]] || fail 'selected branch is not checked out'
+if [[ "$delivery" == direct ]]; then
+    [[ "$(git symbolic-ref --quiet --short HEAD)" == "$branch" ]] || fail 'selected branch is not checked out'
+fi
 destination="$(git remote get-url --push --all "$remote")"
 [[ -n "$destination" && "$destination" != *$'\n'* ]] || fail 'release requires exactly one push URL'
 remote_identity="$(printf '%s\n' "$destination" | git hash-object --stdin)"
@@ -37,6 +51,7 @@ assert_destination() {
     [[ "$current_destination" == "$destination" ]] || fail 'release destination changed'
 }
 state_root="$(git rev-parse --git-path release-state)"
+if [[ "$delivery" == pr ]]; then state_root="$(git rev-parse --git-common-dir)/release-state"; fi
 [[ ! -L "$state_root" ]] || fail 'release state directory is symlinked'
 mkdir -p "$state_root"
 mkdir "$state_root/lock" 2>/dev/null || fail 'release lock is occupied; inspect its owner before clearing a stale lock'
@@ -46,13 +61,15 @@ trap 'exit 143' TERM
 printf '%s\n' "$$" > "$state_root/lock/owner"
 trap 'rm -f "$state_root/lock/owner"; rmdir "$state_root/lock"' EXIT
 
-hook() {
+hook() (
+    if [[ -n "${release_worktree:-}" ]]; then cd "$release_worktree"; fi
     "$make_bin" --no-print-directory "$@" \
         "RELEASE_KIND=$kind" "RELEASE_PREVIOUS=$previous" \
         "RELEASE_VERSION=$candidate" "RELEASE_DATE=$release_date" \
-        "RELEASE_REMOTE=$remote" "RELEASE_BRANCH=$branch" "RELEASE_SOURCE=$source" \
-        "RELEASE_COMMIT=${release_commit:-}"
-}
+        "RELEASE_REMOTE=$remote" "RELEASE_BRANCH=$branch" "RELEASE_SOURCE=${validation_source:-$source}" \
+        "RELEASE_COMMIT=${release_commit:-}" "RELEASE_DELIVERY=$delivery" \
+        "RELEASE_PREPARATION_SOURCE=$source" "RELEASE_PREPARED_COMMIT=${prepared_commit:-}"
+)
 read_plan() {
     [[ -f "$1" && ! -L "$1" ]] || fail 'release plan is missing or symlinked'
     {
@@ -74,13 +91,24 @@ read_plan() {
         extra=""
         if IFS= read -r extra || [[ -n "$extra" ]]; then fail 'release plan has extra records'; fi
     } < "$1"
-    [[ "$saved_schema" == release-plan-1 && "$saved_candidate" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ && "$1" == "$state_root/$saved_candidate.plan" ]] || fail 'release plan identity is invalid'
+    case "$saved_schema" in
+        release-plan-1) saved_delivery=direct ;;
+        release-pr-plan-1) saved_delivery='pr' ;;
+        *) fail 'release plan identity is invalid' ;;
+    esac
+    [[ "$saved_candidate" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ && "$1" == "$state_root/$saved_candidate.plan" ]] || fail 'release plan identity is invalid'
     [[ "$saved_source" =~ ^[0-9a-f]{40,64}$ && "$saved_date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ && "$saved_destination" =~ ^[0-9a-f]{40,64}$ ]] || fail 'release plan source/date/destination is invalid'
     [[ "$(bash "$(dirname "${BASH_SOURCE[0]}")/next-release-version.sh" "$saved_previous" "$saved_kind")" == "$saved_candidate" ]] || fail 'release plan increment is invalid'
-    case "$saved_phase" in preflight|validate|prepare|stage|commit|tag|push|complete) ;; *) fail 'release plan phase is invalid' ;; esac
+    case "$saved_phase" in
+        preflight|validate|prepare|stage|commit|complete) ;;
+        tag|push) [[ "$saved_delivery" == direct ]] || fail 'release phase conflicts with delivery' ;;
+        pr-publish|pr-review|pr-validate|pr-tag|pr-push) [[ "$saved_delivery" == pr ]] || fail 'release phase conflicts with delivery' ;;
+        *) fail 'release plan phase is invalid' ;;
+    esac
 }
 load_plan() {
     read_plan "$plan"
+    [[ "$delivery" == "$saved_delivery" ]] || fail 'release delivery changed; reconcile the saved delivery first'
     [[ "$remote" == "$saved_remote" && "$branch" == "$saved_branch" && "$remote_identity" == "$saved_destination" ]] || fail 'release destination changed'
     kind="$saved_kind"
     previous="$saved_previous"
@@ -95,6 +123,9 @@ load_plan() {
 select_release() {
     plan=""
     release_commit=""
+    prepared_commit=""
+    release_worktree=""
+    validation_source=""
     followup=no
     if [[ "$mode" == resume ]]; then
         [[ "$requested_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || usage
@@ -167,7 +198,9 @@ select_release() {
 save_phase() {
     phase="$1"
     temporary_plan="$(mktemp "$plan.tmp.XXXXXX")"
-    printf '%s\n' release-plan-1 "$kind" "$previous" "$candidate" "$release_date" \
+    schema=release-plan-1
+    [[ "$delivery" != pr ]] || schema=release-pr-plan-1
+    printf '%s\n' "$schema" "$kind" "$previous" "$candidate" "$release_date" \
         "$source" "$remote" "$branch" "$remote_identity" "$index_tree" "$phase" > "$temporary_plan"
     mv "$temporary_plan" "$plan"
 }
@@ -183,6 +216,7 @@ assert_release_commit() {
     [[ "$index_tree" =~ ^[0-9a-f]{40,64}$ && "$(git rev-parse "$release_commit^{tree}")" == "$index_tree" ]] || fail 'release commit tree differs from the exact staged release'
     git merge-base --is-ancestor "$release_commit" HEAD || fail 'release commit is not an ancestor of the selected branch'
     [[ "$("$make_bin" --no-print-directory -s release-version)" == "$candidate" ]] || fail 'release metadata no longer matches the candidate'
+    git diff --cached --quiet HEAD -- || fail 'release index differs from the committed payload'
     git diff --quiet HEAD -- || fail 'release worktree differs from the committed payload'
     untracked="$(git ls-files --others --exclude-standard)" || fail 'cannot inventory untracked release source'
     [[ -z "$untracked" ]] || fail 'release worktree has untracked source'
@@ -205,14 +239,92 @@ read_remote_refs() {
         esac
     done <<< "$refs"
 }
+# URL-form delivery deliberately bypasses mutable remote-name resolution. Git
+# does not refresh that remote's tracking ref, so carry the confirmed observation
+# back to the matching configured upstream without another network operation.
+refresh_release_tracking() {
+    local upstream tracking_remote tracking_source tracking_ref tracking_head
+    local fetch_destination current_upstream
+    if ! upstream="$(git for-each-ref --format='%(upstream:remotename)%09%(upstream:remoteref)%09%(upstream)' -- "refs/heads/$branch")"; then
+        echo 'release delivered; local upstream could not be inspected; fetch to refresh Git status' >&2
+        return 0
+    fi
+    IFS=$'\t' read -r tracking_remote tracking_source tracking_ref <<< "$upstream"
+    [[ "$tracking_remote" == "$remote" && "$tracking_source" == "refs/heads/$branch" && "$tracking_ref" == refs/remotes/* ]] || return 0
+    if ! fetch_destination="$(git remote get-url --all "$remote")" || [[ "$fetch_destination" != "$destination" ]]; then
+        echo 'release delivered; upstream fetch destination differs; fetch to refresh Git status' >&2
+        return 0
+    fi
+    if git symbolic-ref --quiet "$tracking_ref" >/dev/null 2>&1; then
+        echo 'release delivered; symbolic tracking ref preserved; fetch to refresh Git status' >&2
+        return 0
+    fi
+    if tracking_head="$(git show-ref --verify --hash "$tracking_ref" 2>/dev/null)"; then
+        [[ "$tracking_head" != "$remote_head" ]] || return 0
+        if ! git merge-base --is-ancestor "$tracking_head" "$remote_head"; then
+            echo 'release delivered; newer or divergent tracking ref preserved; fetch to reconcile Git status' >&2
+            return 0
+        fi
+    else
+        tracking_head="${remote_head//[0-9a-f]/0}"
+    fi
+    # A changed mapping/destination or a concurrent ref update is not permission
+    # to overwrite another local observation or repeat an already delivered push.
+    current_upstream="$(git for-each-ref --format='%(upstream:remotename)%09%(upstream:remoteref)%09%(upstream)' -- "refs/heads/$branch")" || return 0
+    [[ "$current_upstream" == "$upstream" && "$(git remote get-url --all "$remote")" == "$fetch_destination" ]] || return 0
+    assert_destination
+    # An OID comparison alone also accepts a symbolic ref resolving to that OID.
+    # Prepare first, then inspect its type while Git holds the update lock.
+    if ! perl - "$tracking_ref" "$remote_head" "$tracking_head" "release: observed $remote/$branch" <<'PERL'
+use strict;
+use warnings;
+use IPC::Open2;
+my ($ref, $new, $old, $message) = @ARGV;
+$SIG{PIPE} = 'IGNORE';
+my $pid = open2(my $reply, my $request, 'git', 'update-ref', '--no-deref', '-m', $message, '--stdin');
+my $ok = eval {
+    print {$request} "start\nupdate $ref $new $old\nprepare\n" or die "cannot prepare tracking update\n";
+    for my $expected ("start: ok\n", "prepare: ok\n") {
+        my $line = <$reply>;
+        defined($line) && $line eq $expected or die "tracking transaction was not prepared\n";
+    }
+    open my $kind, '-|', 'git', 'symbolic-ref', '--quiet', $ref or die "cannot inspect locked tracking ref: $!\n";
+    { local $/; <$kind>; }
+    close $kind;
+    $? == 256 or die "locked tracking ref is symbolic or could not be inspected\n";
+    print {$request} "commit\n" or die "cannot commit tracking update\n";
+    my $line = <$reply>;
+    defined($line) && $line eq "commit: ok\n" or die "tracking transaction was not committed\n";
+    1;
+};
+my $error = $@;
+# EOF aborts a started transaction that has not committed, releasing its locks.
+close $request;
+close $reply;
+waitpid($pid, 0);
+warn $error unless $ok;
+exit($ok && $? == 0 ? 0 : 1);
+PERL
+    then
+        echo 'release delivered; tracking refresh failed or raced; fetch to refresh Git status' >&2
+    fi
+}
 while true; do
     select_release
-    printf 'Release %s -> %s on %s via %s: validate, prepare, stage, commit/tag, atomic push\n' "$previous" "$candidate" "$branch" "$remote"
+    if [[ "$delivery" == pr ]]; then
+        # shellcheck source=scripts/ci/release-pr.sh
+        source "$runner_dir/release-pr.sh"
+        pr_select
+        printf 'Release %s -> %s via PR into %s at %s: prepare, review, validate merged commit, tag\n' "$previous" "$candidate" "$branch" "$destination"
+    else
+        printf 'Release %s -> %s on %s via %s: validate, prepare, stage, commit/tag, atomic push\n' "$previous" "$candidate" "$branch" "$remote"
+    fi
     while [[ "$phase" != complete ]]; do
         case "$phase" in
             preflight)
                 assert_source
-                hook release-preflight
+                hook release-preflight || fail 'preflight refused; this attempt has not started validation or version preparation'
+                [[ "$delivery" != pr ]] || pr_preflight
                 local_tags="$(git tag --list "v$candidate")"
                 [[ -z "$local_tags" ]] || fail 'candidate tag already exists'
                 remote_tags="$(git ls-remote --refs -- "$destination" "refs/tags/v$candidate")"
@@ -233,6 +345,7 @@ while true; do
                 ;;
             prepare)
                 assert_source
+                [[ "$delivery" != pr ]] || pr_prepare_branch
                 current="$("$make_bin" --no-print-directory -s release-version)"
                 if [[ "$current" == "$previous" ]]; then
                     hook release-preflight
@@ -275,8 +388,19 @@ while true; do
                 fi
                 assert_release_commit
                 hook release-committed-check
-                save_phase tag
+                if [[ "$delivery" == pr ]]; then
+                    prepared_commit="$release_commit"
+                    pr_store
+                    save_phase pr-publish
+                else
+                    save_phase tag
+                fi
                 ;;
+            pr-publish) pr_publish ;;
+            pr-review) pr_review ;;
+            pr-validate) pr_validate ;;
+            pr-tag) pr_tag ;;
+            pr-push) pr_push ;;
             tag)
                 assert_release_commit
                 tags="$(git tag --list "v$candidate")"
@@ -290,10 +414,13 @@ while true; do
             push)
                 assert_release_commit
                 assert_release_tag
+                local_tag="$(git rev-parse "refs/tags/v$candidate")"
                 hook release-push-check
+                assert_release_commit
+                assert_release_tag
+                [[ "$(git rev-parse "refs/tags/v$candidate")" == "$local_tag" ]] || fail 'release tag changed during its final check'
                 assert_destination
                 local_head="$release_commit"
-                local_tag="$(git rev-parse "refs/tags/v$candidate")"
                 read_remote_refs
                 # A confirmed descendant already includes this release. Preserve that
                 # branch tip when publishing a missing tag; never rewind it.
@@ -318,8 +445,22 @@ while true; do
             *) fail 'release plan phase is invalid' ;;
         esac
     done
-    assert_release_commit
+    if [[ "$delivery" == pr ]]; then
+        pr_assert_merged
+        assert_release_tag
+        [[ "$remote_tag" == "$(git rev-parse "refs/tags/v$candidate")" ]] || fail 'completed PR release tag no longer matches its destination'
+    else
+        assert_release_commit
+        assert_release_tag
+        assert_destination
+        read_remote_refs
+        [[ "$remote_tag" == "$(git rev-parse "refs/tags/v$candidate")" ]] || fail 'completed release tag no longer matches its destination'
+        if [[ -z "$remote_head" ]] || ! git merge-base --is-ancestor "$release_commit" "$remote_head"; then
+            fail 'completed release is absent from the observed branch history; fetch and reconcile'
+        fi
+        refresh_release_tracking
+    fi
     printf 'Release %s completed; retained plan: %s\n' "$candidate" "$plan"
-    [[ "$followup" == yes ]] || break
+    [[ "$delivery" == direct && "$followup" == yes ]] || break
     printf 'Saved release reconciled; validating current source for make release-%s.\n' "$mode"
 done

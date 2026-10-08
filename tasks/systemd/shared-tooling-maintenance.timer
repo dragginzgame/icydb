@@ -1,0 +1,12 @@
+[Unit]
+Description=Check whether the three-day Shared Tooling maintenance pass is due
+
+[Timer]
+# Daily wakeup with a three-UTC-date check handles month boundaries/reboots.
+# The first pass runs at the next wakeup; failures also wait three days.
+OnCalendar=*-*-* 09:00:00
+Persistent=true
+Unit=shared-tooling-maintenance.service
+
+[Install]
+WantedBy=timers.target

@@ -50,8 +50,10 @@ narrows the authorized steps.
   editing sibling repositories. Coordinate their adoption through issues until
   their own changes are expressly authorized.
 
-The existing standard release runner atomically pushes its selected branch and
-release tag. That is a separately authorized release workflow, not a requirement
-to push everyday changes directly to the default branch. PR-gated release
-automation remains tracked in [#42](https://github.com/dragginzgame/shared-tooling/issues/42);
-do not bypass a protected branch to run the current direct-push workflow.
+The standard release runner defaults to an atomic selected-branch/tag push.
+Consumers can explicitly adopt `RELEASE_DELIVERY=pr` under the
+[release contract](../docs/releases.md#pr-delivery): prepare a release PR, then
+validate its exact merged commit and push only its tag. The release request
+authorizes that documented delivery, including creating the PR, but never an
+automatic approval or merge. Both policies are separately authorized release
+workflows; ordinary contributions still use PRs. Do not bypass branch protection.

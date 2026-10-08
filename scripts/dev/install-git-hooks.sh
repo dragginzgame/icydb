@@ -2,7 +2,10 @@
 set -euo pipefail
 
 # Opt-in, repository-local setup. Never replace another hook installation.
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+root="${BASH_SOURCE[0]}"
+[[ "$root" == /* ]] || root="$PWD/$root"
+root="$(cd -P "${root%/*}/../.." && printf '%s/.' "$PWD")"
+root="${root%/.}"
 cd "$root"
 repository_root="$(git rev-parse --show-toplevel)"
 repository_root="$(cd "$repository_root" && pwd -P)"

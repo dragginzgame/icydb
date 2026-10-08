@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
+# Shared companions: scripts/ci/verify-file-checksum.sh
 set -euo pipefail
 
 # Internal implementation of the reviewed CI-tool entry points.
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+SCRIPT_DIR="${BASH_SOURCE[0]}"
+[[ "$SCRIPT_DIR" == /* ]] || SCRIPT_DIR="$PWD/$SCRIPT_DIR"
+SCRIPT_DIR="$(cd -P "${SCRIPT_DIR%/*}" && printf '%s/.' "$PWD")"
+SCRIPT_DIR="${SCRIPT_DIR%/.}"
 tool="${1:-}"
 case "$tool" in actionlint|gitleaks|shellcheck|sccache|yq) shift ;; *) echo 'unknown CI tool' >&2; exit 2 ;; esac
 version=""
