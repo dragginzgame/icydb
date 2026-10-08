@@ -47,6 +47,228 @@ fn sql_multiplication_reads_padded_decimal_fields() {
 }
 
 #[test]
+fn sql_integral_decimal_literals_match_dynamic_comparisons_and_stored_writes() {
+    for scale in [0, 8, 28] {
+        std::thread::spawn(move || {
+            let session = initialize();
+            publish_operand_schema(&session, AcceptedFieldKind::Decimal { scale });
+            session
+                .execute_trusted_dynamic_insert_batch(
+                    ENTITY_NAME,
+                    vec![DynamicStructuralPatch::new(vec![
+                        ("id".into(), DynamicWriteCell::Value(InputValue::unit())),
+                        (
+                            "operand".into(),
+                            DynamicWriteCell::Value(InputValue::decimal(Decimal::ZERO)),
+                        ),
+                    ])],
+                )
+                .unwrap();
+            for integer in [-1, 0, 1] {
+                session
+                    .execute_trusted_sql_exact_update(
+                        &format!(
+                            "UPDATE Singleton SET operand = {integer} WHERE operand IS NOT NULL"
+                        ),
+                        1,
+                    )
+                    .unwrap();
+                let stored = new_request_session()
+                    .execute_trusted_live_page(
+                        &DynamicQuery::new(ENTITY_NAME).select(["operand"]),
+                        None,
+                    )
+                    .unwrap();
+                let expected = Decimal::from(integer).scale_to_integer(scale).unwrap();
+                assert_eq!(
+                    stored.rows,
+                    vec![vec![OutputValue::decimal(
+                        Decimal::try_from_i128_with_scale(expected, scale).unwrap()
+                    )]]
+                );
+                for (condition, filter) in [
+                    (
+                        "operand = 0",
+                        FieldRef::new("operand").eq(InputValue::int64(0)),
+                    ),
+                    (
+                        "operand != 0",
+                        FieldRef::new("operand").ne(InputValue::int64(0)),
+                    ),
+                    (
+                        "operand < 0",
+                        FieldRef::new("operand").lt(InputValue::int64(0)),
+                    ),
+                    (
+                        "operand <= 0",
+                        FieldRef::new("operand").lte(InputValue::int64(0)),
+                    ),
+                    (
+                        "operand > 0",
+                        FieldRef::new("operand").gt(InputValue::int64(0)),
+                    ),
+                    (
+                        "0 <= operand",
+                        FieldRef::new("operand").gte(InputValue::int64(0)),
+                    ),
+                    (
+                        "operand IN (0, 0)",
+                        FieldRef::new("operand")
+                            .in_list([InputValue::int64(0), InputValue::int64(0)]),
+                    ),
+                ] {
+                    let expected = new_request_session()
+                        .execute_trusted_live_page(
+                            &DynamicQuery::new(ENTITY_NAME)
+                                .select(["operand"])
+                                .filter(filter),
+                            None,
+                        )
+                        .unwrap()
+                        .rows;
+                    let sql = format!("SELECT operand FROM Singleton WHERE {condition}");
+                    let dispatch = sql_statement_dispatch(&sql).unwrap();
+                    for _ in 0..2 {
+                        let (result, _) = new_request_session()
+                            .execute_trusted_sql_query_with_entity_name(&dispatch, &[])
+                            .unwrap();
+                        let SqlStatementResult::Projection { rows, .. } = result else {
+                            panic!("expected projection");
+                        };
+                        assert_eq!(
+                            rows, expected,
+                            "{condition}, scale {scale}, value {integer}"
+                        );
+                    }
+                }
+            }
+        })
+        .join()
+        .unwrap();
+    }
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "bounded stored-write, integer-family and SQL/dynamic read parity matrix"
+)]
+fn sql_bare_wide_integers_match_typed_stored_writes_and_reads() {
+    for (kind, values) in [
+        (
+            AcceptedFieldKind::Nat128,
+            vec![
+                InputValue::nat128(u128::from(u64::MAX) + 1),
+                InputValue::nat128(u128::try_from(i128::MAX).unwrap()),
+            ],
+        ),
+        (
+            AcceptedFieldKind::Int128,
+            vec![InputValue::int128(i128::MIN), InputValue::int128(i128::MAX)],
+        ),
+        (
+            AcceptedFieldKind::IntBig { max_bytes: 32 },
+            vec![
+                InputValue::int_big(IntBig::from_bigint(i128::MIN.into())),
+                InputValue::int_big(IntBig::from_bigint(i128::MAX.into())),
+            ],
+        ),
+        (
+            AcceptedFieldKind::NatBig { max_bytes: 32 },
+            vec![
+                InputValue::nat_big(NatBig::from_biguint((u128::from(u64::MAX) + 1).into())),
+                InputValue::nat_big(NatBig::from_biguint(
+                    u128::try_from(i128::MAX).unwrap().into(),
+                )),
+            ],
+        ),
+    ] {
+        std::thread::spawn(move || {
+            let session = initialize();
+            publish_operand_schema(&session, kind);
+            session
+                .execute_trusted_dynamic_insert_batch(
+                    ENTITY_NAME,
+                    vec![DynamicStructuralPatch::new(vec![
+                        ("id".into(), DynamicWriteCell::Value(InputValue::unit())),
+                        ("operand".into(), DynamicWriteCell::Value(values[0].clone())),
+                    ])],
+                )
+                .unwrap();
+            for input in values {
+                // Author plain integer SQL; arbitrary-precision Display uses grouping.
+                let integer = match input.as_public() {
+                    crate::value::PublicValue::Int128(value) => value.to_string(),
+                    crate::value::PublicValue::Nat128(value) => value.to_string(),
+                    crate::value::PublicValue::IntBig(value) => {
+                        value.to_i128().unwrap().to_string()
+                    }
+                    crate::value::PublicValue::NatBig(value) => {
+                        value.to_u128().unwrap().to_string()
+                    }
+                    _ => panic!("expected wide integer fixture"),
+                };
+                session
+                    .execute_trusted_sql_exact_update(
+                        &format!(
+                            "UPDATE Singleton SET operand = {integer} WHERE operand IS NOT NULL"
+                        ),
+                        1,
+                    )
+                    .unwrap();
+                let stored = new_request_session()
+                    .execute_trusted_live_page(
+                        &DynamicQuery::new(ENTITY_NAME).select(["operand"]),
+                        None,
+                    )
+                    .unwrap();
+                assert_eq!(stored.row_count, 1);
+                assert_eq!(stored.rows[0][0].as_public(), input.as_public());
+                for (operator, filter) in [
+                    ("=", FieldRef::new("operand").eq(input.clone())),
+                    ("!=", FieldRef::new("operand").ne(input.clone())),
+                    ("<", FieldRef::new("operand").lt(input.clone())),
+                    ("<=", FieldRef::new("operand").lte(input.clone())),
+                    (">", FieldRef::new("operand").gt(input.clone())),
+                    (">=", FieldRef::new("operand").gte(input.clone())),
+                    (
+                        "IN",
+                        FieldRef::new("operand").in_list([input.clone(), input.clone()]),
+                    ),
+                ] {
+                    let control = new_request_session()
+                        .execute_trusted_live_page(
+                            &DynamicQuery::new(ENTITY_NAME)
+                                .select(["operand"])
+                                .filter(filter),
+                            None,
+                        )
+                        .unwrap();
+                    let condition = if operator == "IN" {
+                        format!("operand IN ({integer}, {integer})")
+                    } else {
+                        format!("operand {operator} {integer}")
+                    };
+                    let sql = format!("SELECT operand FROM Singleton WHERE {condition}");
+                    let dispatch = sql_statement_dispatch(&sql).unwrap();
+                    for _ in 0..2 {
+                        let (result, _) = new_request_session()
+                            .execute_trusted_sql_query_with_entity_name(&dispatch, &[])
+                            .unwrap();
+                        let SqlStatementResult::Projection { rows, .. } = result else {
+                            panic!("expected projection");
+                        };
+                        assert_eq!(rows, control.rows, "{condition}");
+                    }
+                }
+            }
+        })
+        .join()
+        .unwrap();
+    }
+}
+
+#[test]
 fn bound_scalar_families_match_structural_reads_of_stored_values() {
     let cases = [
         (

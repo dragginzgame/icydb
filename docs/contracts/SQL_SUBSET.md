@@ -176,6 +176,18 @@ whitespace, for example `SELECT price * 1 e3 FROM Product`, or use `AS e3`.
 This restriction does not apply inside strings, hex blob literals or typed
 `U256` string literals.
 
+Strict field binding for `int128`, `nat128`, `int_big` and `nat_big` accepts
+bare integers exactly within the parser's signed 128-bit range, including
+integers above `u64::MAX`. Unsigned fields reject negative values, and big-integer
+fields enforce their accepted byte limit. Decimal-point spellings such as
+`1.0` remain Decimal literals and are rejected for these integer fields.
+For values beyond the bare-literal range, use a quoted decimal integer at these
+field boundaries, for example `balance = '340282366920938463463374607431768211455'`
+for `nat128`. A quoted integer remains text in a general computed expression;
+field context owns this conversion. General numeric literal typing and scalar
+rendered spellings are unchanged; arbitrary wide integers and floating values
+are not guaranteed to round-trip through rendered SQL.
+
 #### Fixed-width `U256`
 
 The `u256` schema type represents exactly `0..=2^256-1`. SQL decimal literals
@@ -231,6 +243,12 @@ Supported shapes:
 - `EXPLAIN JSON DELETE ...`
 
 `EXPLAIN` is an operational SQL surface.
+
+Execution verbose diagnostics project secondary-order pushdown from frozen
+route facts. `diag.p.order_pushdown` and `diag.r.secondary_order_pushdown`
+report the same eligibility, rejection or non-applicability using the route's
+canonical label. Pushdown eligibility describes the selected access route;
+admission diagnostics describe the caller-selected execution lane.
 
 Logical explain constructs plan metadata and labels without an additional identity
 hash. Compare the structured DTO or canonical reports for planner diagnostics.
@@ -554,6 +572,18 @@ the complete historical domain in one bounded call and publishes the validated
 constraint only when that exact proof succeeds. If rows violate the expression
 or the proof exceeds its bound, the operation changes no accepted schema,
 activation, validation job, or physical state.
+
+CHECK field operands resolve nominal newtypes through the accepted composite
+catalog. Length operands include `LENGTH(text_field)`, `OCTET_LENGTH(blob_field)`
+and `CARDINALITY(collection_field)` for lists, sets and maps, including nominal
+wrappers. CARDINALITY belongs to CHECK expressions; query projections, filters,
+ordering and filtered-index SQL do not admit this function. NULL collection
+lengths retain CHECK's UNKNOWN policy.
+
+Integral SQL literals targeting Decimal fields bind exactly at the accepted
+field scale. Values that cannot fit that scale reject without rounding; text,
+Boolean and floating literals do not acquire this integer conversion. General
+numeric parsing and canonical Decimal display spellings are unchanged.
 
 `ADD ... NOT VALID` explicitly publishes an `EnforcingNewWrites` activation.
 Future writes are gated immediately, while historical validation advances only

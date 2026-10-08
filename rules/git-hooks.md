@@ -121,6 +121,14 @@ and focused adapter checks. Preserve config, version and lock selections from
 the snapshot; do not make the formatter read unstaged configuration in the real
 checkout. Qualify real Prettier on the declared native hosts before claiming
 adoption; shared command-substitute tests prove wiring and selection only.
+Shared Tooling additionally runs `scripts/ci/test-frontend-formatting.sh` with
+locked real Prettier and Rust formatters in its native CI matrix. It exercises
+selected-file refresh, snapshot configuration and ignore behavior, parse-failure
+isolation, partial staging, and preservation of unrelated files and the npm lock.
+Prepare its test-only dependencies with `npm ci --prefix ci/frontend`, using the
+Node/npm selections in `ci/frontend/package.json`; validation never installs
+them. A matching successful CI run qualifies this reference's built-in parsers,
+not a consumer's plugins, configuration or adoption.
 See the [Prettier CLI contract](https://prettier.io/docs/cli).
 
 ### Index ownership

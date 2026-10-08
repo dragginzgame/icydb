@@ -29,6 +29,8 @@ pub(in crate::db) use execution::{
 pub(in crate::db) use plan::ExplainGrouping;
 #[cfg(any(feature = "sql", test))]
 pub(in crate::db) use plan::ExplainPredicate;
+#[cfg(feature = "sql")]
+pub(in crate::db) use plan::explain_page;
 pub use plan::{
     ExplainAccessCandidate, ExplainAccessDecision, ExplainAccessDecisionKind,
     ExplainEligibleAlternative, ExplainPlan, ExplainRejectedIndex, ExplainResidualSummary,
@@ -37,7 +39,5 @@ pub use plan::{
 pub(in crate::db) use plan::{
     ExplainAccessPath, ExplainOrderPushdown, SecondaryOrderPushdownRejection,
 };
-#[cfg(feature = "sql")]
-pub(in crate::db) use plan::{explain_order_pushdown, explain_page};
 #[cfg(feature = "sql")]
 pub(in crate::db) use projection::explain_projection_field_name;

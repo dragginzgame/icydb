@@ -47,7 +47,8 @@ PREV=$(bash scripts/ci/read-cargo-workspace-version.sh --stable "$ROOT/Cargo.tom
 # the lockfile, so retain the validated lock and change only exact workspace
 # package version declarations after the manifests have moved.
 if [[ -f Cargo.lock ]]; then
-  LOCKFILE_SNAPSHOT_DIR="$(mktemp -d)"
+  # An explicit template preserves the selected evidence root on Darwin too.
+  LOCKFILE_SNAPSHOT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/icydb-version-preparation.XXXXXX")"
   LOCKFILE_SNAPSHOT="$LOCKFILE_SNAPSHOT_DIR/Cargo.lock"
   cp Cargo.lock "$LOCKFILE_SNAPSHOT"
   cargo metadata --locked --offline --no-deps --format-version 1 > "$LOCKFILE_SNAPSHOT_DIR/metadata.json"

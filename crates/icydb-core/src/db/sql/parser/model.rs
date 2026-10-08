@@ -804,6 +804,7 @@ impl SqlAggregateCall {
 #[remain::sorted]
 pub(crate) enum SqlScalarFunction {
     Abs,
+    Cardinality,
     Cbrt,
     Ceiling,
     Coalesce,
@@ -868,11 +869,12 @@ impl SqlScalarFunction {
         matches!(self, Self::Round | Self::Trunc)
     }
 
-    /// Return the canonical planner-owned scalar function identity for this
-    /// parsed SQL scalar function.
+    /// Return the planner identity for query functions. CHECK-only functions
+    /// bind directly to accepted constraint nodes instead.
     #[must_use]
-    pub(in crate::db::sql) const fn planner_function(self) -> Function {
-        match self {
+    pub(in crate::db::sql) const fn planner_function(self) -> Option<Function> {
+        Some(match self {
+            Self::Cardinality => return None,
             Self::Abs => Function::Abs,
             Self::Cbrt => Function::Cbrt,
             Self::Ceiling => Function::Ceiling,
@@ -905,7 +907,7 @@ impl SqlScalarFunction {
             Self::Trim => Function::Trim,
             Self::Trunc => Function::Trunc,
             Self::Upper => Function::Upper,
-        }
+        })
     }
 
     /// Return the parser call-shape used by non-WHERE scalar function parsing.
@@ -918,6 +920,7 @@ impl SqlScalarFunction {
                 SqlScalarFunctionCallShape::BinaryExprArgs
             }
             Self::Trim
+            | Self::Cardinality
             | Self::Ltrim
             | Self::Rtrim
             | Self::Abs
@@ -957,10 +960,8 @@ impl SqlScalarFunction {
                 SqlScalarFunctionCallShape::BinaryExprArgs
             }
             SqlScalarFunctionCallShape::FieldPlusLiteral
-                if self
-                    .planner_function()
-                    .boolean_text_predicate_kind()
-                    .is_some() =>
+                if matches!(self.planner_function(), Some(function)
+                    if function.boolean_text_predicate_kind().is_some()) =>
             {
                 SqlScalarFunctionCallShape::WherePredicateExprPair
             }
@@ -979,7 +980,8 @@ impl SqlScalarFunction {
     /// Resolve one parsed SQL identifier into one supported scalar function.
     #[must_use]
     pub(crate) fn from_identifier(identifier: &str) -> Option<Self> {
-        const SUPPORTED_SCALAR_FUNCTIONS: [(&str, SqlScalarFunction); 35] = [
+        const SUPPORTED_SCALAR_FUNCTIONS: [(&str, SqlScalarFunction); 36] = [
+            ("cardinality", SqlScalarFunction::Cardinality),
             ("trim", SqlScalarFunction::Trim),
             ("ltrim", SqlScalarFunction::Ltrim),
             ("rtrim", SqlScalarFunction::Rtrim),

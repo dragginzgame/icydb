@@ -151,7 +151,8 @@ fn grouped_count_bounded_candidate_selection_keeps_smallest_canonical_window() {
     );
     let selected = GroupedCountWindowSelection::new(&route)
         .expect("grouped count window selection should compile")
-        .retain_smallest_candidates(rows, 3);
+        .select_candidates(rows)
+        .expect("bounded window should select candidates");
 
     assert_eq!(
         selected
@@ -194,7 +195,8 @@ fn grouped_count_bounded_selection_matches_sorted_windows() {
                 let route = GroupedRouteStage::new_for_test(direction, Some(bound));
                 let selected = GroupedCountWindowSelection::new(&route)
                     .unwrap()
-                    .retain_smallest_candidates(rows, bound);
+                    .select_candidates(rows)
+                    .unwrap();
                 let mut expected = values.clone();
                 expected.sort_unstable();
                 if direction == Direction::Desc {
@@ -210,6 +212,72 @@ fn grouped_count_bounded_selection_matches_sorted_windows() {
                         .into_iter()
                         .map(|value| Value::List(vec![Value::Nat64(value)]))
                         .collect::<Vec<_>>(),
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn grouped_count_window_charges_sort_work() {
+    use crate::db::{
+        QueryError,
+        direction::Direction,
+        executor::{
+            budget::{
+                HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
+                with_query_execution_budget_for_tests,
+            },
+            group::GroupKey,
+            pipeline::contracts::GroupedRouteStage,
+        },
+    };
+    use icydb_diagnostic_code::{
+        DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionBudgetScope as Scope,
+        DiagnosticExecutionLane as Lane, DiagnosticFactTag,
+    };
+
+    for direction in [Direction::Asc, Direction::Desc] {
+        for bound in [None, Some(1), Some(9)] {
+            for (resource, limit) in [
+                (Resource::SortEntries, 0),
+                (Resource::SortComparisons, 0),
+                (Resource::SortTemporaryBytes, 0),
+                // A retained candidate owns its variable-size canonical key too.
+                (Resource::SortTemporaryBytes, 512),
+            ] {
+                if bound.is_none() && limit != 0 {
+                    continue;
+                }
+                let route = GroupedRouteStage::new_for_test(direction, bound);
+                let rows = ["z", "a", "m"]
+                    .map(|key| {
+                        (
+                            GroupKey::from_group_values(vec![Value::Text(key.repeat(1_024))])
+                                .unwrap(),
+                            2,
+                        )
+                    })
+                    .to_vec();
+                let error = with_query_execution_budget_for_tests(
+                    HardExecutionBudget::uniform_for_tests(
+                        16_000_000,
+                        HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+                    )
+                    .with_limit_for_tests(resource, limit),
+                    HardExecutionContext::new(Scope::Execution, Lane::TrustedRead, 0),
+                    || {
+                        GroupedCountWindowSelection::new(&route)
+                            .and_then(|selection| selection.select_page_rows(rows))
+                            .map(|_| ())
+                            .map_err(QueryError::execute)
+                    },
+                )
+                .expect_err("count window must enforce sort budgets at its own boundary");
+                assert!(
+                    error
+                        .diagnostic_facts()
+                        .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
                 );
             }
         }

@@ -197,7 +197,6 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
             | ScalarKind::Blob
             | ScalarKind::Bool
             | ScalarKind::Date
-            | ScalarKind::Decimal
             | ScalarKind::Duration
             | ScalarKind::Enum
             | ScalarKind::Float32
@@ -208,6 +207,23 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
             | ScalarKind::Timestamp
             | ScalarKind::Unit,
         ) => None,
+        AcceptedFieldKindCategory::Scalar(ScalarKind::Decimal) => {
+            let AcceptedFieldKind::Decimal { scale } = kind else {
+                return None;
+            };
+            // Integer SQL spellings lose Decimal display identity. Resolve them
+            // exactly against the accepted field scale; other literal domains
+            // retain their existing admission rules.
+            if !matches!(
+                value,
+                Value::Int64(_) | Value::Int128(_) | Value::Nat64(_) | Value::Nat128(_)
+            ) {
+                return None;
+            }
+            let mantissa =
+                crate::db::numeric::coerce_numeric_decimal(value)?.scale_to_integer(*scale)?;
+            Decimal::try_from_i128_with_scale(mantissa, *scale).map(Value::Decimal)
+        }
         AcceptedFieldKindCategory::Scalar(ScalarKind::Int) => {
             canonicalize_signed64_persisted_literal(kind, value)
         }
@@ -780,6 +796,8 @@ fn canonicalize_nat_persisted_literal(value: &Value, max: u64) -> Option<Value> 
 #[cfg(any(test, feature = "sql"))]
 fn canonicalize_int128_persisted_literal(value: &Value) -> Option<Value> {
     let value = match value {
+        // Bare integers above u64 reach strict SQL binding as scale-zero Decimal atoms.
+        Value::Decimal(inner) => inner.scale_to_integer(0)?,
         Value::Int64(inner) => i128::from(*inner),
         Value::Nat64(inner) => i128::from(*inner),
         Value::Int128(inner) => *inner,
@@ -796,6 +814,7 @@ fn canonicalize_int128_persisted_literal(value: &Value) -> Option<Value> {
 #[cfg(any(test, feature = "sql"))]
 fn canonicalize_nat128_persisted_literal(value: &Value) -> Option<Value> {
     let value = match value {
+        Value::Decimal(inner) => u128::try_from(inner.scale_to_integer(0)?).ok()?,
         Value::Int64(inner) => u128::try_from(*inner).ok()?,
         Value::Nat64(inner) => u128::from(*inner),
         Value::Int128(inner) => u128::try_from(*inner).ok()?,
@@ -811,6 +830,7 @@ fn canonicalize_nat128_persisted_literal(value: &Value) -> Option<Value> {
 
 fn canonicalize_int_big_persisted_literal(value: &Value, max_bytes: u32) -> Option<Value> {
     let value = match value {
+        Value::Decimal(inner) => IntBig::from_bigint(inner.scale_to_integer(0)?.into()),
         Value::Int64(inner) => IntBig::from(*inner),
         Value::Nat64(inner) => IntBig::from_bigint((*inner).into()),
         Value::IntBig(inner) => {
@@ -826,6 +846,9 @@ fn canonicalize_int_big_persisted_literal(value: &Value, max_bytes: u32) -> Opti
 
 fn canonicalize_nat_big_persisted_literal(value: &Value, max_bytes: u32) -> Option<Value> {
     let value = match value {
+        Value::Decimal(inner) => {
+            NatBig::from_biguint(u128::try_from(inner.scale_to_integer(0)?).ok()?.into())
+        }
         Value::Int64(inner) => NatBig::from(u64::try_from(*inner).ok()?),
         Value::Nat64(inner) => NatBig::from(*inner),
         Value::NatBig(inner) => {
@@ -859,6 +882,116 @@ mod tests {
         AcceptedFieldKind::Enum {
             type_id: crate::value::EnumTypeId::new(1).expect("test enum type ID should be valid"),
         }
+    }
+
+    #[test]
+    fn strict_wide_integer_literals_accept_only_scale_zero_decimal_atoms() {
+        for integer in [0, i128::from(u64::MAX) + 1, i128::MAX] {
+            let atom = Value::Decimal(Decimal::from_i128_with_scale(integer, 0));
+            let natural = u128::try_from(integer).unwrap();
+            for (kind, expected) in [
+                (AcceptedFieldKind::Int128, Value::Int128(integer)),
+                (AcceptedFieldKind::Nat128, Value::Nat128(natural)),
+                (
+                    AcceptedFieldKind::IntBig { max_bytes: 32 },
+                    Value::IntBig(IntBig::from_bigint(integer.into())),
+                ),
+                (
+                    AcceptedFieldKind::NatBig { max_bytes: 32 },
+                    Value::NatBig(NatBig::from_biguint(natural.into())),
+                ),
+            ] {
+                assert_eq!(
+                    input_value_from_strict_sql_literal_for_persisted_kind(&kind, &atom),
+                    InputValue::try_from_runtime_non_enum(&expected),
+                );
+                for invalid in [
+                    Value::Decimal(Decimal::new(10, 1)),
+                    Value::Decimal(Decimal::new(15, 1)),
+                    Value::Bool(true),
+                ] {
+                    assert!(
+                        input_value_from_strict_sql_literal_for_persisted_kind(&kind, &invalid)
+                            .is_none()
+                    );
+                }
+            }
+        }
+        let negative = Value::Decimal(Decimal::from_i128_with_scale(i128::MIN, 0));
+        for (kind, expected) in [
+            (AcceptedFieldKind::Int128, Value::Int128(i128::MIN)),
+            (
+                AcceptedFieldKind::IntBig { max_bytes: 32 },
+                Value::IntBig(IntBig::from_bigint(i128::MIN.into())),
+            ),
+        ] {
+            assert_eq!(
+                input_value_from_strict_sql_literal_for_persisted_kind(&kind, &negative),
+                InputValue::try_from_runtime_non_enum(&expected),
+            );
+        }
+        for kind in [
+            AcceptedFieldKind::Nat128,
+            AcceptedFieldKind::NatBig { max_bytes: 32 },
+            AcceptedFieldKind::IntBig { max_bytes: 1 },
+        ] {
+            assert!(
+                input_value_from_strict_sql_literal_for_persisted_kind(&kind, &negative).is_none()
+            );
+        }
+        let positive = Value::Decimal(Decimal::new(128, 0));
+        for kind in [
+            AcceptedFieldKind::IntBig { max_bytes: 1 },
+            AcceptedFieldKind::NatBig { max_bytes: 1 },
+            AcceptedFieldKind::Int64,
+            AcceptedFieldKind::Nat64,
+        ] {
+            assert!(
+                input_value_from_strict_sql_literal_for_persisted_kind(&kind, &positive).is_none()
+            );
+        }
+    }
+
+    #[test]
+    fn strict_decimal_integer_literals_use_exact_accepted_scale() {
+        for scale in [0, 8, 28] {
+            let kind = AcceptedFieldKind::Decimal { scale };
+            for value in [
+                Value::Int64(-1),
+                Value::Int64(0),
+                Value::Nat64(1),
+                Value::Int128(1),
+                Value::Nat128(1),
+            ] {
+                let expected = crate::db::numeric::coerce_numeric_decimal(&value)
+                    .unwrap()
+                    .scale_to_integer(scale)
+                    .unwrap();
+                assert_eq!(
+                    canonicalize_strict_sql_literal_for_persisted_kind(&kind, &value),
+                    Some(Value::Decimal(
+                        Decimal::try_from_i128_with_scale(expected, scale).unwrap()
+                    ))
+                );
+            }
+            for value in [Value::Text("1".into()), Value::Bool(true)] {
+                assert!(
+                    input_value_from_strict_sql_literal_for_persisted_kind(&kind, &value).is_none()
+                );
+            }
+        }
+        let kind = AcceptedFieldKind::Decimal { scale: 1 };
+        for value in [Value::Int128(i128::MAX), Value::Nat128(u128::MAX)] {
+            assert!(
+                input_value_from_strict_sql_literal_for_persisted_kind(&kind, &value).is_none()
+            );
+        }
+        // Existing Decimal literals retain their exact representation.
+        let value = Value::Decimal(Decimal::new(15, 1));
+        assert_eq!(
+            input_value_from_strict_sql_literal_for_persisted_kind(&kind, &value),
+            Some(InputValue::decimal(Decimal::new(15, 1)))
+        );
     }
 
     #[test]

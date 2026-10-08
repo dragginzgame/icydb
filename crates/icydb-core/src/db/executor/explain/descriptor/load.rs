@@ -145,6 +145,15 @@ pub(in crate::db) struct LoadExecutionRouteFacts {
     hybrid_covering_read_plan: Option<CoveringHybridReadExecutionPlan>,
 }
 
+impl LoadExecutionRouteFacts {
+    /// Project the frozen route's secondary-order fact through its canonical label owner.
+    pub(in crate::db::executor::explain) fn secondary_order_pushdown_label(&self) -> String {
+        self.route_plan
+            .secondary_pushdown_applicability
+            .diagnostic_label()
+    }
+}
+
 fn freeze_grouped_load_execution_route_facts(
     plan: &AccessPlannedQuery,
     explain_preparation: LoadExplainPreparation,

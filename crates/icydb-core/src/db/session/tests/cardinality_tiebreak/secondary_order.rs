@@ -13,6 +13,79 @@ use crate::db::{
 use crate::value::PublicValue;
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
+#[test]
+fn execution_explain_projects_the_same_order_pushdown_fact_on_cold_and_warm_calls() {
+    let _setup = initialize_long_secondary_branch();
+    let cases = [
+        (
+            "SELECT id FROM PlannerRow WHERE common = 'everyone' ORDER BY common, id LIMIT 5",
+            "eligible(index=a_common_idx,prefix_len=1)",
+        ),
+        (
+            "SELECT id FROM PlannerRow WHERE common = 'everyone' ORDER BY common DESC, id DESC LIMIT 5",
+            "eligible(index=a_common_idx,prefix_len=1)",
+        ),
+        (
+            "SELECT id FROM PlannerRow WHERE rare = 'b' ORDER BY wide_branch LIMIT 5",
+            "rejected(OrderFieldsDoNotMatchIndex(",
+        ),
+        (
+            "SELECT id FROM PlannerRow WHERE rare > 'a' ORDER BY wide_branch LIMIT 5",
+            "rejected(AccessPathIndexRangeUnsupported(",
+        ),
+        (
+            "SELECT id FROM PlannerRow WHERE common = 'everyone' ORDER BY id LIMIT 5",
+            "not_applicable",
+        ),
+        (
+            "SELECT id FROM PlannerRow WHERE common = 'everyone'",
+            "not_applicable",
+        ),
+        (
+            "SELECT common, COUNT(*) FROM PlannerRow WHERE common = 'everyone' GROUP BY common ORDER BY common LIMIT 5",
+            "not_applicable",
+        ),
+    ];
+    let root = RequestExecutionRoot::__new_runtime_root();
+    let reader = new_request_session(&root);
+    for (query, expected) in cases {
+        for _ in 0..2 {
+            let SqlStatementResult::Explain(text) = reader
+                .execute_trusted_sql_query(&format!("EXPLAIN EXECUTION VERBOSE {query}"))
+                .unwrap_or_else(|error| panic!("execution EXPLAIN {query}: {error:?}"))
+            else {
+                panic!("expected verbose execution explanation");
+            };
+            let logical = text
+                .lines()
+                .find_map(|line| line.strip_prefix("diag.p.order_pushdown="))
+                .unwrap();
+            let route = text
+                .lines()
+                .find_map(|line| line.strip_prefix("diag.r.secondary_order_pushdown="))
+                .unwrap();
+            assert_eq!(logical, route, "{query}");
+            assert!(route.starts_with(expected), "{query}: {route}");
+            assert_eq!(root.observed(Resource::RowsVisited), 0);
+        }
+    }
+    // Diagnostic preparation must leave the maintained ordered execution lane intact.
+    let query = DynamicQuery::new(ENTITY_NAME)
+        .filter(FieldRef::new("common").eq("everyone"))
+        .select(["id"])
+        .order_by(asc("common"))
+        .order_by(asc("id"))
+        .limit(5);
+    let (control, _) = collect_secondary_pages(&query, false, None);
+    let SqlStatementResult::Projection { rows, .. } =
+        reader.execute_trusted_sql_query(cases[0].0).unwrap()
+    else {
+        panic!("expected stored projection");
+    };
+    assert_eq!(rows.len(), 5);
+    assert_eq!(rows, control);
+}
+
 fn initialize_long_secondary_branch() -> DbSession<TestCanister> {
     let session = initialize();
     for id in 0..10 {

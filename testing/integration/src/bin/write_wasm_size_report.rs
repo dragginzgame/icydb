@@ -4,7 +4,9 @@
 //! Boundary: writes resolved report format v1.
 
 use std::{
-    env, fs,
+    env,
+    ffi::OsString,
+    fs,
     path::{Path, PathBuf},
     process::Command,
     time::Duration,
@@ -12,7 +14,7 @@ use std::{
 
 use ic_host_artifacts::wasm::{InspectionLimits, inspect};
 use ic_host_fs::read::hash_file;
-use ic_host_process::tool::{OutputLimits, capture_command};
+use ic_host_process::tool::{AdmittedTool, OutputLimits, capture_command};
 use icydb_testing_integration::{
     CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
     CanisterWasmProfile, ResolvedCanisterBuildConfiguration,
@@ -25,8 +27,8 @@ use icydb_testing_integration::{
         WasmLineBudget, validate_wasm_measurement_contract,
     },
     wasm_optimizer::{
-        POST_LINK_PIPELINE_IDENTITY, WASM_OPT_FLAGS, WASM_OPT_OUTPUT_FEATURES, WASM_OPT_VERSION,
-        format_tool_failure, wasm_opt_sha256,
+        POST_LINK_PIPELINE_IDENTITY, WASM_OPT_FLAGS, WASM_OPT_OUTPUT_FEATURES,
+        admit_wasm_optimizer, format_tool_failure, run_wasm_optimizer,
     },
 };
 use serde::Serialize;
@@ -211,13 +213,8 @@ fn run() -> Result<(), String> {
 
     let workspace_root = workspace_root()?;
     let provenance = capture_provenance(&workspace_root)?;
-    let tools = capture_tools(&workspace_root, &args.ic_wasm_bin, &args.wasm_opt_bin)?;
-    if tools.wasm_opt_version != WASM_OPT_VERSION || tools.wasm_opt_sha256 != wasm_opt_sha256()? {
-        return Err(format!(
-            "size report optimizer does not match the deployable pipeline: version='{}', sha256='{}'",
-            tools.wasm_opt_version, tools.wasm_opt_sha256
-        ));
-    }
+    let optimizer = admit_wasm_optimizer(&args.wasm_opt_bin, &workspace_root)?;
+    let tools = capture_tools(&workspace_root, &args.ic_wasm_bin, &optimizer)?;
 
     let compiler_wasm = file_meta(&args.compiler_wasm)?;
     let final_wasm = file_meta(&args.final_wasm)?;
@@ -229,10 +226,10 @@ fn run() -> Result<(), String> {
             args.canister
         ));
     }
-    let compiler_info = parse_info(&args.compiler_info, &args.compiler_wasm, &args.wasm_opt_bin)?;
-    let final_info = parse_info(&args.final_info, &args.final_wasm, &args.wasm_opt_bin)?;
+    let compiler_info = parse_info(&args.compiler_info, &args.compiler_wasm, &optimizer)?;
+    let final_info = parse_info(&args.final_info, &args.final_wasm, &optimizer)?;
     let enabled_wasm_features =
-        validate_final_wasm_features(&workspace_root, &args.wasm_opt_bin, &args.final_wasm)?;
+        validate_final_wasm_features(&workspace_root, &optimizer, &args.final_wasm)?;
 
     let candid_export = if did.is_some() {
         "available"
@@ -443,7 +440,7 @@ fn capture_provenance(workspace_root: &Path) -> Result<Provenance, String> {
 fn capture_tools(
     workspace_root: &Path,
     ic_wasm_bin: &Path,
-    wasm_opt_bin: &Path,
+    optimizer: &AdmittedTool,
 ) -> Result<Tools, String> {
     if !ic_wasm_bin.is_file() {
         return Err(format!(
@@ -452,18 +449,11 @@ fn capture_tools(
         ));
     }
 
-    if !wasm_opt_bin.is_file() {
-        return Err(format!(
-            "wasm-opt binary is missing: {}",
-            wasm_opt_bin.display()
-        ));
-    }
-
     Ok(Tools {
         ic_wasm_version: command_text(workspace_root, ic_wasm_bin, &["--version"])?,
         ic_wasm_sha256: sha256_hex(ic_wasm_bin)?,
-        wasm_opt_version: command_text(workspace_root, wasm_opt_bin, &["--version"])?,
-        wasm_opt_sha256: sha256_hex(wasm_opt_bin)?,
+        wasm_opt_version: optimizer.version_identity().to_owned(),
+        wasm_opt_sha256: optimizer.identity().sha256.to_string(),
     })
 }
 
@@ -480,18 +470,19 @@ fn command_text(current_dir: &Path, program: &Path, args: &[&str]) -> Result<Str
 
 fn validate_final_wasm_features(
     workspace_root: &Path,
-    wasm_opt_bin: &Path,
+    optimizer: &AdmittedTool,
     final_wasm: &Path,
 ) -> Result<Vec<String>, String> {
-    let output = capture_command(
-        Command::new(wasm_opt_bin)
-            .current_dir(workspace_root)
-            .arg(final_wasm)
-            .args(&WASM_OPT_FLAGS[1..])
-            .arg("--print-features"),
-        REPORT_OUTPUT_LIMITS,
-    )
-    .map_err(|error| format_tool_failure("final Wasm feature validation", &error))?;
+    let arguments = std::iter::once(final_wasm.as_os_str().to_owned())
+        .chain(WASM_OPT_FLAGS[1..].iter().map(OsString::from))
+        .chain([OsString::from("--print-features")])
+        .collect::<Vec<_>>();
+    let output = run_wasm_optimizer(
+        optimizer,
+        &arguments,
+        workspace_root,
+        "final Wasm feature validation",
+    )?;
     let mut features = String::from_utf8(output.stdout)
         .map_err(|error| format!("wasm-opt emitted non-UTF-8 feature output: {error}"))?
         .lines()
@@ -538,12 +529,12 @@ fn sha256_hex(path: &Path) -> Result<String, String> {
     Ok(identity.sha256.to_string())
 }
 
-fn parse_info(path: &Path, wasm_path: &Path, wasm_opt_bin: &Path) -> Result<WasmInfo, String> {
+fn parse_info(path: &Path, wasm_path: &Path, optimizer: &AdmittedTool) -> Result<WasmInfo, String> {
     let text = fs::read_to_string(path)
         .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
     let exported_methods = parse_exported_methods(&text);
     let (defined_function_count, code_section_bytes) = wasm_code_structure(wasm_path)?;
-    let call_indirect_count = wasm_call_indirect_count(wasm_path, wasm_opt_bin)?;
+    let call_indirect_count = wasm_call_indirect_count(wasm_path, optimizer)?;
     Ok(WasmInfo {
         function_count: int_field(&text, "Number of functions:"),
         defined_function_count,
@@ -578,16 +569,20 @@ fn wasm_code_structure(path: &Path) -> Result<(u64, u64), String> {
     Ok((u64::from(facts.defined_functions), code_section_bytes))
 }
 
-fn wasm_call_indirect_count(path: &Path, wasm_opt_bin: &Path) -> Result<u64, String> {
-    let output = capture_command(
-        Command::new(wasm_opt_bin)
-            .arg(path)
-            .args(["--metrics", "--all-features"]),
-        REPORT_OUTPUT_LIMITS,
-    )
-    .map_err(|error| {
-        format_tool_failure(&format!("Wasm metrics for '{}'", path.display()), &error)
-    })?;
+fn wasm_call_indirect_count(path: &Path, optimizer: &AdmittedTool) -> Result<u64, String> {
+    let arguments = [
+        path.as_os_str().to_owned(),
+        OsString::from("--metrics"),
+        OsString::from("--all-features"),
+    ];
+    let current_dir = env::current_dir()
+        .map_err(|error| format!("failed to resolve metrics working directory: {error}"))?;
+    let output = run_wasm_optimizer(
+        optimizer,
+        &arguments,
+        &current_dir,
+        &format!("Wasm metrics for '{}'", path.display()),
+    )?;
     let metrics = format!(
         "{}\n{}",
         String::from_utf8_lossy(&output.stdout),
@@ -948,6 +943,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn report_capture_keeps_feature_and_metrics_parsing_for_spaced_artifact_paths() {
+        use ic_host_fs::durable::write_bytes;
+        use ic_host_process::tool::{AdmittedTool, ExecutionContext, VersionSpec};
         use std::os::unix::fs::PermissionsExt;
 
         let root = env::temp_dir().join(format!("icydb report capture {}", std::process::id()));
@@ -956,15 +953,47 @@ mod tests {
         let wasm = root.join("selected artifact.wasm");
         fs::write(&wasm, b"\0asm\x01\0\0\0").unwrap();
         let features = crate::WASM_OPT_OUTPUT_FEATURES.join("\n");
-        fs::write(&tool, format!(
-            "#!/bin/sh\n[ -f \"$1\" ] || exit 9\ncase \"$2\" in\n--metrics) [ \"$3\" = --all-features ] || exit 6; printf 'CallIndirect : 7\\n' >&2 ;;\n--enable-bulk-memory) [ \"$6\" = --print-features ] || exit 5; printf '%s\\n' '{features}' ;;\n*) exit 8 ;;\nesac\n"
-        )).unwrap();
+        let script = format!(
+            "#!/bin/sh\nif [ \"$1\" = --version ]; then echo fixture; exit 0; fi\n[ -f \"$1\" ] || exit 9\ncase \"$2\" in\n--metrics) [ \"$3\" = --all-features ] || exit 6; printf 'CallIndirect : 7\\n' >&2 ;;\n--enable-bulk-memory) [ \"$6\" = --print-features ] || exit 5; printf '%s\\n' '{features}' ;;\n*) exit 8 ;;\nesac\n"
+        );
+        // Publish a closed, synchronized inode before native execution.
+        write_bytes(&tool, script.as_bytes()).unwrap();
         fs::set_permissions(&tool, fs::Permissions::from_mode(0o700)).unwrap();
+        let selected_tool = fs::canonicalize(&tool).unwrap();
+        let optimizer = AdmittedTool::admit_version(
+            &VersionSpec {
+                executable: &selected_tool,
+                executable_bytes: u64::MAX,
+                version_arguments: &["--version".into()],
+                version_identity: "fixture",
+            },
+            &ExecutionContext {
+                current_dir: &root,
+                environment: &[],
+            },
+            crate::REPORT_OUTPUT_LIMITS,
+        )
+        .unwrap();
+        let tools = super::capture_tools(&root, &tool, &optimizer).unwrap();
+        assert_eq!(tools.wasm_opt_version, optimizer.version_identity());
         assert_eq!(
-            validate_final_wasm_features(&root, &tool, &wasm).unwrap(),
+            tools.wasm_opt_sha256,
+            optimizer.identity().sha256.to_string()
+        );
+        assert_eq!(
+            validate_final_wasm_features(&root, &optimizer, &wasm).unwrap(),
             crate::WASM_OPT_OUTPUT_FEATURES
         );
-        assert_eq!(wasm_call_indirect_count(&wasm, &tool).unwrap(), 7);
+        assert_eq!(wasm_call_indirect_count(&wasm, &optimizer).unwrap(), 7);
+        // Queries must retain admission authority even if the pathname is reused.
+        // Keep otherwise-valid output: failure must come from executable drift,
+        // rather than a malformed feature/metric response masking execution.
+        let mut changed_tool = fs::read(&tool).unwrap();
+        changed_tool.extend_from_slice(b"\n# changed executable identity\n");
+        write_bytes(&tool, &changed_tool).unwrap();
+        fs::set_permissions(&tool, fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(validate_final_wasm_features(&root, &optimizer, &wasm).is_err());
+        assert!(wasm_call_indirect_count(&wasm, &optimizer).is_err());
         fs::remove_dir_all(root).unwrap();
     }
 

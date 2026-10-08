@@ -23,6 +23,66 @@ use crate::{
 };
 use ic_memory::ic_stable_structures::Memory;
 
+#[test]
+fn marker_presence_hint_tracks_publication_clear_and_allocation_switches() {
+    use crate::db::commit::select_commit_memory_allocation;
+
+    let marker = CommitMarker {
+        id: [0xA8; 16],
+        journal_batches: Vec::new(),
+        database_control: Vec::new(),
+    };
+    select_commit_memory_allocation(234, "icydb.core_tests.slot_234.v1");
+    let memory =
+        super::commit_memory_handle(super::current_commit_memory_allocation().unwrap()).unwrap();
+    crate::db::database_format::initialize_current_database_control_for_tests(&memory);
+    assert!(super::commit_marker_may_be_present());
+    super::with_commit_store(super::CommitStore::clear_verified).unwrap();
+    assert!(!super::commit_marker_may_be_present());
+    super::with_commit_store(|store| store.set_if_empty(&marker)).unwrap();
+    assert!(super::commit_marker_may_be_present());
+
+    // A verified empty allocation cannot suppress another allocation's marker.
+    select_commit_memory_allocation(235, "icydb.core_tests.slot_235.v1");
+    let memory =
+        super::commit_memory_handle(super::current_commit_memory_allocation().unwrap()).unwrap();
+    crate::db::database_format::initialize_current_database_control_for_tests(&memory);
+    assert!(super::commit_marker_may_be_present());
+    super::with_commit_store(super::CommitStore::clear_verified).unwrap();
+    assert!(!super::commit_marker_may_be_present());
+    select_commit_memory_allocation(234, "icydb.core_tests.slot_234.v1");
+    assert!(super::commit_marker_may_be_present());
+    assert!(super::with_commit_store(|store| store.set_if_empty(&marker)).is_err());
+    assert!(super::commit_marker_may_be_present());
+    super::with_commit_store(super::CommitStore::clear_verified).unwrap();
+    assert!(!super::commit_marker_may_be_present());
+
+    // A failed clear must retain the obligation to inspect durable authority.
+    let previous = super::with_commit_store(super::CommitStore::read_control_slot).unwrap();
+    super::with_commit_store(|store| {
+        store.set_raw_marker_bytes_for_tests(b"corrupt control".to_vec());
+        Ok(())
+    })
+    .unwrap();
+    assert!(super::commit_marker_may_be_present());
+    assert!(super::with_commit_store(super::CommitStore::clear_verified).is_err());
+    assert!(super::commit_marker_may_be_present());
+    super::with_commit_store(|store| {
+        store.set_raw_marker_bytes_for_tests(previous);
+        store.clear_verified()
+    })
+    .unwrap();
+    assert!(!super::commit_marker_may_be_present());
+
+    std::thread::spawn(|| {
+        select_commit_memory_allocation(234, "icydb.core_tests.slot_234.v1");
+        assert!(super::commit_marker_may_be_present());
+    })
+    .join()
+    .unwrap();
+    assert!(!super::commit_marker_may_be_present());
+}
+
 #[cfg(feature = "metrics")]
 #[test]
 fn public_metrics_propagates_unavailable_and_corrupt_controls_instead_of_zero() {

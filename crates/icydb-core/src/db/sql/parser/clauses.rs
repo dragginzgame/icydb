@@ -59,7 +59,9 @@ impl Parser {
             return Ok(SqlExpr::from_field_identifier(field));
         }
 
-        let Some(function) = SqlScalarFunction::from_identifier(field.as_str()) else {
+        let Some(function) = SqlScalarFunction::from_identifier(field.as_str())
+            .filter(|function| function.planner_function().is_some())
+        else {
             return Err(SqlParseError::unsupported_feature(
                 ORDER_BY_UNSUPPORTED_FEATURE,
             ));

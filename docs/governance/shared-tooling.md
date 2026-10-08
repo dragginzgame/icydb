@@ -1,7 +1,7 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `a3430b34b32a60f3b245a2b4f7e2f5321556fe56`. Root
+at reviewed revision `3ecc48e579f6cf6e6ab01a6645d8a250fc8c6934`. Root
 [AGENTS.md](../../AGENTS.md) is the local overlay. The shared approved layout
 retains the 42 existing canister, schema and testing packages in their
 restored directories, in the single root workspace and lockfile; no new package
@@ -12,15 +12,39 @@ these rules.
 
 ## Ownership and provenance
 
-The compatible 0.267.1 setup follow-up uses Shared Tooling 0.1.18,
+The compatible 0.267.2 follow-up adopts Shared Tooling 0.1.20,
+`3ecc48e579f6cf6e6ab01a6645d8a250fc8c6934`, exported from an isolated clean
+checkout. Its [exact-source CI](https://github.com/dragginzgame/shared-tooling/actions/runs/37641211708)
+passes Linux and both native macOS hosts. The seventy-file snapshot includes
+the pin validator, locked/offline PocketIC alignment and external-binary checker,
+their shared fixtures and contribution rules. IcyDB's explicit no-commit/no-push
+instructions remain in force. No release command or PR delivery was executed.
+
+The validation adapter now supplies only the repository, evidence root and
+target arguments. Shared Tooling owns complete failed-target aggregation in
+dispatch order and `target/validation-failures/latest-combined.log`;
+`latest.log` retains its last-failed-target meaning. Make selects the root
+manifest and canonical pins for PocketIC alignment using the existing prepared
+Cargo cache. There is no second parser, logger, pin catalog, retry or execution
+route ([#302](https://github.com/dragginzgame/icydb/issues/302),
+[#318](https://github.com/dragginzgame/icydb/issues/318)).
+
+The Wasm reporter and deployable builder share optimizer admission. A caller's
+selected path resolves under the same host digest/version pins; report fields
+project the admitted identity and feature/metrics commands retain its executable
+drift check. Report format, flags, working-directory/environment policy and
+capture bounds are preserved. No independent version/hash admission remains
+in the reporter ([#307](https://github.com/dragginzgame/icydb/issues/307)).
+
+The 0.267.1 setup follow-up used Shared Tooling 0.1.18,
 `a3430b34b32a60f3b245a2b4f7e2f5321556fe56`
 ([#302](https://github.com/dragginzgame/icydb/issues/302)). Its
 [exact-source upstream CI](https://github.com/dragginzgame/shared-tooling/actions/runs/37604299590)
 passes Linux and both native macOS architectures. Export used a disposable
 checkout at that exact commit; later sibling source was neither edited nor
 consumed. The snapshot also includes its published LOC, note-finalization and
-validation-status corrections. The current combined-log adapter remains
-IcyDB-owned pending its separate [adoption](https://github.com/dragginzgame/icydb/issues/318).
+validation-status corrections. At that revision the combined-log adapter was
+IcyDB-owned; the bounded adoption above replaces it.
 
 The demonstrated requirement is one setup and pin owner for the same three
 existing Cargo-installed tools. Reusing the shared installer replaces local
@@ -45,7 +69,7 @@ versions, upstream files, network lifecycle or release effects were changed.
 Native consumer macOS execution and full workspace/release gates remain
 unperformed; Wasm bytes, IC cycles and instruction deltas are unmeasured.
 
-[The snapshot manifest](../../.shared-tooling.snapshot) records sixty-five exact
+[The snapshot manifest](../../.shared-tooling.snapshot) records seventy exact
 upstream files, including the baseline and all linked rules, shared principles,
 consumer/host guidance, formatting hook, shared audit methods, pinned host/IC/Rust
 setup and selected verification helpers and release fixtures. Every entry records SHA-256 and
@@ -162,7 +186,7 @@ conversion passes `u32` to Darwin's `u16` raw mode. This is an upstream library
 compile failure, separate from the passing Linux consumer tests
 ([#307](https://github.com/dragginzgame/icydb/issues/307)).
 
-The maintainer's current lock selects all four Host 0.4.5 packages, preserving
+The previous package review selected all four Host 0.4.5 packages, preserving
 the other selections above. Their archive checksums match the lock, and all 56
 packaged Rust files match `93a905b048bcaa2a0aed4214ac2f13f065dc2905`. Strict
 integration library Clippy and all 24 selected library tests pass; the one live
@@ -179,9 +203,8 @@ in [Host #19](https://github.com/dragginzgame/ic-host-tooling/issues/19).
 now passes lint/security, Linux and both native macOS portable jobs after a
 rerun. The initial native failures had unavailable GitHub logs; their cause
 remains unverified. Exact source `3ecc48e579f6cf6e6ab01a6645d8a250fc8c6934` is
-qualified upstream, while this consumer still records the reviewed 0.1.18
-snapshot. Combined-log and PocketIC alignment extraction await their bounded
-consumer adoption and qualification rather than consuming moving sibling files
+qualified upstream; the bounded consumer adoption described above now records
+that exact revision. Native consumer execution remains a separate qualification
 ([#302](https://github.com/dragginzgame/icydb/issues/302),
 [#318](https://github.com/dragginzgame/icydb/issues/318)).
 
@@ -192,13 +215,77 @@ PocketIC alignment passes against its actual manifest and current offline lock
 at 16.0.0. Evidence is retained under `target/new-packages-267/`. The initial
 archive-only logger fixture lacked required Git history; its failure is retained
 separately from the passing Git-checkout run. These checks qualify the reviewed
-helpers, while snapshot adoption and native consumer execution remain separate.
+helpers; their later snapshot adoption and native consumer execution are separate.
+
+The preceding maintainer-selected lock contained all four Host 0.4.6 packages, Testkit
+0.21.2 and Metrics 0.2.9. The six archives match their locked checksums; all 56
+packaged Host Rust files match `0fb05f9e18f032425188d68e1d69317a0f0127d5`.
+[Host 0.4.6 CI](https://github.com/dragginzgame/ic-host-tooling/actions/runs/37648086908)
+passes Linux, MSRV and both native macOS hosts, repairing the prior filesystem
+fixture expectation. Consumer source/cache review and focused evidence are under
+`target/tooling-convergence-267/`; no manifest or lock selection was changed.
+Shared Tooling 0.1.21 at `45e34e92b43edb9543d5b7212774f87f8334079f` adds optional
+PR release delivery, but its inspected Intel macOS job was cancelled
+([run](https://github.com/dragginzgame/shared-tooling/actions/runs/37652236506)).
+It is reviewed separately and is not the adopted snapshot.
+
+The 2026-10-08 manifest/lock selection uses all four direct Host 0.5.0 packages
+at `db637fac8b7a9ef62301e1d9009ffeb5ffcd0be7`. Their locked archive checksums
+and all 71 packaged Rust files match the reviewed release. Missing selected
+cache entries were prepared from the already-local registry after archive and
+index checksum checks; no dependency was re-resolved. [Host 0.5 release
+CI](https://github.com/dragginzgame/ic-host-tooling/actions/runs/37744999108)
+passes Linux, MSRV and macOS 15 Intel/ARM. Consumer qualification remains distinct
+from this upstream native evidence.
+
+Transform, feature and metrics calls now share `run_wasm_optimizer`, retaining
+one existing optimizer execution policy with inherited environment, 1 MiB per
+stream, a 600-second operational deadline and contextual failure evidence.
+Admission, pins, arguments, working directories and report format remain the
+same. Host's new child-group owner does not replace IcyDB's full-log Bash
+supervisor or establish an interactive ICP execution policy. New Wasm facts and
+optional IC limits are not added to the existing report contract.
+
+Testkit 0.21.3 still requires Host 0.4 and retains all four 0.4.6 packages in
+the selected graph. The approved Testkit 0.22 adoption owns the shared child
+replacement and removal of that duplicate graph
+([Testkit #25](https://github.com/dragginzgame/ic-testkit/issues/25)); no local
+cross-minor Cargo override is introduced. Source/cache and focused consumer
+evidence are retained under `target/ic-host-050-adoption/`. This pending adoption
+remains [#307](https://github.com/dragginzgame/icydb/issues/307); matching native
+consumer qualification remains [#309](https://github.com/dragginzgame/icydb/issues/309).
+Focused Linux checks pass strict selected CLI/integration Clippy, 3 optimizer,
+10 report, 8 artifact, 53 diagnostic and 15 ICP command/response tests. Local
+documentation reference checks pass. Manifest/lock and every unrelated starting
+dirty file are preserved. No full workspace/release gate or native consumer run
+was performed; raw Wasm, cycle and instruction deltas remain unmeasured.
+
+Published IcyDB 0.267.1 at `cb8cefca1d68c20025398eae6dfab18a2eb45883`
+passes Rust/MSRV, static and Wasm-size jobs in
+[its configured CI](https://github.com/dragginzgame/icydb/actions/runs/37653174383).
+Both native macOS jobs pass the Cargo-inheritance, PocketIC-supervision,
+workflow-policy and critical-runtime scanner fixtures before failing the release
+pin fixture. These source-bound results qualify those selected boundaries
+([#306](https://github.com/dragginzgame/icydb/issues/306),
+[#303](https://github.com/dragginzgame/icydb/issues/303),
+[#304](https://github.com/dragginzgame/icydb/issues/304),
+[#266](https://github.com/dragginzgame/icydb/issues/266),
+[#289](https://github.com/dragginzgame/icydb/issues/289)); they do not qualify
+later skipped fixtures, native library/CLI builds or the dirty 0.267.2 batch.
+Complete ARM logs and focused Linux closeout evidence are retained under
+`target/issue-closeout-267-20261008/`; Intel logs remain under
+`target/tooling-convergence-267/`. The release-pin failure is the same on both hosts: template-free
+`mktemp -d` selects Darwin's native temp directory, so retained lock/candidate
+files are outside the fixture's requested root. The compatible local correction
+uses an explicit template. A Darwin-behavior substitute reproduces the failure
+and passes with the correction under Linux Bash 5 and Bash 3.2. This is focused
+substitute evidence; matching native consumer CI remains outstanding
+([#309](https://github.com/dragginzgame/icydb/issues/309)).
 
 Two demonstrated consumer requirements use adapters outside the snapshot:
 
-- The shared runner owns execution and diagnostics. IcyDB combines retained raw
-  logs into `target/validation-failures/latest.log` for a complete handoff. This
-  adds no validation target, retry or alternate execution flow.
+- The shared runner owns execution, diagnostics and combined raw logs. IcyDB's
+  adapter selects repository/evidence roots and forwards target arguments.
 - The shared actionlint installer owns download, verification and installation.
   IcyDB's adapter supplies the consumer version, platform digests and destination
   from [one pin file](../../scripts/ci/actionlint-checksums.tsv).

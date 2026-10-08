@@ -179,7 +179,8 @@ install-hooks:
 ic-tools-check: _icydb-ic-tool-policy
 
 _icydb-ic-tool-policy:
-	bash scripts/ci/check-pocketic-alignment.sh
+	$(CARGO_WORK_ENV) bash scripts/ci/check-pocketic-alignment.sh \
+		--manifest "$(ROOT_DIR)/Cargo.toml" --pins "$(ROOT_DIR)/ci/ic-tools.tsv"
 	bash scripts/ci/verify-wasm-optimizer.sh
 
 #
@@ -415,6 +416,7 @@ check-portable-automation:
 	bash scripts/ci/test-gh-ci.sh
 	bash scripts/ci/test-shared-tooling-adapters.sh
 	bash scripts/ci/test-workstation-setup.sh
+	bash scripts/ci/test-pocketic-checks.sh
 	bash scripts/ci/test-rust-tools.sh
 	bash scripts/ci/test-cargo-metadata-adoption.sh
 	bash scripts/ci/test-pocketic-server-wrapper.sh

@@ -1,4 +1,5 @@
 DRAGGINZGAME.md
+rules/contributions.md
 rules/changelogs.md
 rules/cargo-dependencies.md
 rules/rust-workspaces.md

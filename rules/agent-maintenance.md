@@ -18,6 +18,7 @@ Recognize these requests and equivalent natural-language instructions:
 | `check for work` | Finish the accepted task, check CI, then review issues and recommend the next useful work. |
 | `after each task, check CI; when there's nothing else to do, check issues` | Enable those inspections after each completed work batch for the current session. |
 | `fix CI` or `work on issue #N` | Inspect the selected problem, implement the local fix and run appropriate focused checks. |
+| `open a PR for this fix` | Complete the branch, scoped commits, branch push and PR under the [contribution rules](contributions.md); no separate commit instruction is needed. |
 
 Checks inspect and report. A repair request authorizes local source changes and
 focused verification in the selected repository; existing command authority

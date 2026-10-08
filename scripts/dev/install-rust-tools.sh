@@ -33,6 +33,28 @@ done
 install_root="$consumer/.tools/rust"
 export RUSTUP_AUTO_INSTALL=0
 
+check_install_paths() {
+    local path
+    local files=("$install_root/.crates.toml" "$install_root/.crates2.json")
+    # Admit the whole fixed route before any tool probe or Cargo dispatch. Do
+    # not follow even dangling links, or inspect unrelated host/IC bundle links.
+    for path in "$consumer/.tools" "$install_root" "$install_root/bin" "$install_root/build"; do
+        if [[ -L "$path" || ( -e "$path" && ! -d "$path" ) ]]; then
+            printf 'Rust tool directory must be a physical directory: %s\n' "$path" >&2
+            return 1
+        fi
+    done
+    # Cargo writes its receipts here too; executable/receipt symlinks must not
+    # redirect a later install after apparently valid version probes.
+    for path in "${tool_names[@]}"; do files+=("$install_root/bin/$path"); done
+    for path in "${files[@]}"; do
+        if [[ -L "$path" || ( -e "$path" && ! -f "$path" ) ]]; then
+            printf 'Rust tool executable or receipt must be a regular file: %s\n' "$path" >&2
+            return 1
+        fi
+    done
+}
+
 check_tool() {
     local tool="$1" version="$2" actual
     local arguments=(--version)
@@ -42,6 +64,7 @@ check_tool() {
         [[ "$actual" == "$tool $version" ]]
 }
 
+check_install_paths
 for index in "${!tool_names[@]}"; do
     tool="${tool_names[$index]}"
     version="${tool_versions[$index]}"
@@ -54,6 +77,7 @@ for index in "${!tool_names[@]}"; do
     # output in the selected checkout, including after a failed installation.
     cargo install "$tool" --version "=$version" --locked \
         --root "$install_root" --target-dir "$install_root/build"
+    check_install_paths
     check_tool "$tool" "$version" || {
         echo "installed $tool failed its version check" >&2; exit 1;
     }

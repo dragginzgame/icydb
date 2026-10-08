@@ -53,6 +53,10 @@ The table describes the intended CI contract. Passing qualification for a
 revision requires its matching workflow run; adding a matrix entry does not
 establish that the run passed.
 
+All three jobs also run real Prettier/Rust hook qualification and a native
+installer failure-artifact round trip, described below. These are separate
+from the offline portable suite.
+
 Shared Tooling's portable scripts do not support Windows or non-Bash shells.
 This does not prohibit a consumer from supporting additional hosts or shells
 through its own qualified tooling.
@@ -74,6 +78,8 @@ required to run setup. Make targets and CI select this same local tool set.
 | Archive installer scripts | `curl`, `tar`, a SHA-256 implementation, and the archive codec used by the selected tool |
 | `scripts/dev/install-rust-tools.sh` | Prepared Rust/Cargo toolchain and native compilation prerequisites for explicit registry installation; offline `--check` only runs the selected local executables |
 | Local IC tool setup | Bash 3.2+, `curl`, `tar`, xz/gzip, Perl, and a SHA-256 implementation; see [IC tools](ic-tools.md) |
+| PocketIC exact alignment | Prepared Cargo toolchain and locked offline dependency cache, jq and awk; explicit owning manifest and reviewed IC pin matrix |
+| PocketIC external binary admission | A SHA-256 implementation and the caller's reviewed host-specific executable digest and version |
 | Nonempty Cargo test helper | Cargo with normal libtest summaries, `awk`, and `tee` |
 | Exact release-tag checker | Git and the caller's selected exact commit/version |
 | `scripts/ci/run-sccache.sh` | An executable `sccache` binary |
@@ -82,6 +88,7 @@ required to run setup. Make targets and CI select this same local tool set.
 | Dependency pin checker | Git, jq, Mike Farah yq v4.47.2+; Cargo when Cargo manifests exist |
 | Workspace-version reader | Prepared Cargo, jq and Mike Farah yq v4.47.2+; explicit Cargo.toml input; no dependency resolution |
 | Release runner | GNU Make, Git, `date`, explicit consumer metadata/check targets, and Bash 3.2 |
+| Changelog finalizer | System awk with regular-expression `RS` (the declared Linux/macOS hosts); preserves historical EOF bytes without GNU `RT` |
 | Rust pre-commit hook and installer | Git, GNU Make, consumer-owned `fmt` prerequisites (Cargo/rustfmt and an exact `cargo-sort` version), Bash 3.2 and standard Unix file utilities |
 | Consumer formatting adoption checker | The hook prerequisites above, Perl-free shell utilities, and reviewed consumer Make inputs; no implicit downloads |
 | Formatter prerequisite checker | Prepared Cargo/rustfmt and the consumer's exact cargo-sort version; optional Cargo executable and `RUSTUP_TOOLCHAIN`; no installation |
@@ -100,6 +107,15 @@ the corresponding official binary. See [local setup](local-setup.md).
 The hook regression fixture also requires `jq` and the `cargo-sort` version from
 `ci/tool-versions.env` (`2.1.4`). CI installs it before offline tests; local
 validation requires it to be prepared beforehand and never installs it implicitly.
+The separate `scripts/ci/test-frontend-formatting.sh` fixture uses the exact
+Node/npm runtime in `ci/frontend/package.json` and the integrity-pinned Prettier
+package in its lockfile. With that runtime and the Rust formatter prerequisites
+prepared, run `npm ci --prefix ci/frontend` explicitly, then run the script.
+CI uses a commit-pinned setup-node action and checks the bundled npm selection
+before preparation. Node and npm are test-specific prerequisites here, not new
+requirements for every consumer or for the portable suite. This qualification
+covers built-in parsers; consumer plugins and product inputs still need their
+own native checks under the [hook rules](../rules/git-hooks.md).
 The pinning regression fixture also requires the reviewed jq and yq parsers. CI installs
 them from checksum-pinned Linux and macOS binaries; checks and fixtures never
 download it implicitly. Its installer also maps Linux ARM64; only matching
@@ -124,5 +140,24 @@ failed and interrupted setup, and atomic activation using substituted payloads;
 only the separate native installation step qualifies actual upstream binaries.
 Failure-artifact collection runs after native qualification and includes installer
 logs and retained host/IC candidate directories as well as portable fixtures.
+The local composite action `.github/actions/retain-failure-evidence/action.yml`
+owns that path selection and hidden-file policy. The same action collects a
+disposable negative qualification on each native host: the real IC installer
+downloads Quill and rejects an intentionally incorrect pin, then offline checking
+rejects those native bytes under a damaged receipt. Only the fixture's pins and
+receipt are altered; active tools and the reviewed catalog are untouched.
+
+`scripts/ci/qualify-native-failure-retention.sh <new-directory>` performs that
+online negative qualification. It intentionally exits 1 after validating both
+Make failure statuses and writing `expected.sha256`; earlier failures leave no
+completed manifest. All evidence is retained. CI observes the failed step,
+requires that invocation's completion output (an old manifest cannot qualify it),
+uploads through the common collector, downloads the exact returned artifact ID,
+and checks its payload against the original checksum manifest. Missing logs,
+hidden candidate files, failed uploads, early fixture failures and corrupted
+downloads fail the job. Source hashes, commit, host and run identity stay with
+the artifact. Ordinary failures still reach the final collector. A local fixture
+pass is not hosted upload evidence: qualification requires the matching run's
+successful download/verification on Linux and both macOS hosts.
 The full IC set currently excludes Linux ARM64 because its Quill release has
 no matching ARM64 asset. No translation or source build is substituted silently.

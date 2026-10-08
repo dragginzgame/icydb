@@ -73,8 +73,7 @@ pub(in crate::db) fn render_scalar_projection_expr_plan_label(expr: &Expr) -> St
     let mut rendered = String::new();
     // Every formatter below propagates only sink failures. String's fmt::Write
     // implementation is infallible; fallible sinks use the writer directly.
-    write_scalar_projection_expr_plan_label(expr, &mut rendered)
-        .expect("writing a planner label into String cannot fail");
+    let _ = write_scalar_projection_expr_plan_label(expr, &mut rendered);
 
     rendered
 }

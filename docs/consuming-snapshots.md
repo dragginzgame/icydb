@@ -76,6 +76,18 @@ The release runner, validation logger and formatting hook require
 `scripts/ci/check-make-execution.sh`. Include it when adding or refreshing any of
 those entrypoints; existing manifests need that explicit file-set addition.
 
+The IC installer now shares matrix admission through `scripts/ci/ic-tool-pins.awk`.
+Add that file explicitly before refreshing `scripts/dev/install-ic-tools.sh`;
+refresh never widens the selected file set automatically. The optional PocketIC
+alignment and binary checkers have their own
+[documented dependencies](verification-helpers.md#pocketic-alignment-and-external-binaries).
+
+Logger adoption can replace local batch concatenation with the runner's announced
+unique combined failure file and `latest-combined.log`. Its existing `latest.log`
+still names only the last failed target. Move consumer readers to the combined
+path before removing a local aggregator; preserve target selection, storage-root
+selection and any product-owned presentation in the caller.
+
 Consumers running the tooling LOC regression vendor `scripts/ci/test-cloc-tooling.sh`,
 `scripts/dev/cloc-tooling.pl` and `scripts/ci/verify-file-checksum.sh`, in addition
 to their normal snapshot verifier. That test runs against adopted working-tree
@@ -150,6 +162,18 @@ state local product contracts, commands and approved exceptions. Resolve local
 conflicts before claiming adoption. Do not edit a vendored shared document in
 place or attribute dirty upstream bytes to a committed revision.
 
+When adopting PR contribution authority, add `rules/contributions.md` explicitly
+and refresh the baseline, changelog/maintenance rules, release guidance and
+reviewable-changes guide together. Remove blanket agent-commit prohibitions from
+the consumer's `AGENTS.md`, `CLAUDE.md` and other active overlays so an authorized
+PR can include commits and a topic-branch push. Retain required reviews/checks,
+branch protections and separate merge/release authority. Historical audit reports
+remain evidence of their reviewed revision. Test the instruction interpretation
+against a scoped fix, an explicit PR request and a release request; reading or
+adopting these rules does not itself authorize Git writes or a release. Policy
+adoption requires no native builds. Existing pinned snapshots do not update
+automatically; preserve their bytes until a reviewed refresh is authorized.
+
 When adopting the local-repair and owning-repository issue workflow, refresh
 `DRAGGINZGAME.md` and `rules/agent-maintenance.md` together from the reviewed
 commit. Remove equivalent local instructions after checking their obligations;
@@ -222,7 +246,8 @@ documentation adoption alone does not call for full CI or native builds.
 ## Local IC tool adoption
 
 After the new files are committed and reviewed, add `ci/ic-tools.tsv`,
-`scripts/dev/install-ic-tools.sh`, `scripts/ci/verify-evidence-checksums.sh` and
+`scripts/dev/install-ic-tools.sh`, `scripts/ci/ic-tool-pins.awk`,
+`scripts/ci/verify-evidence-checksums.sh` and
 `scripts/ci/verify-file-checksum.sh` to the snapshot, with `docs/ic-tools.md`.
 Also include `make/tools.mk`, `scripts/dev/install-host-tools.sh`,
 `scripts/dev/cloc.sh`, `scripts/dev/cloc-tooling.pl`, `ci/tool-versions.env` and `docs/local-setup.md` for the
@@ -294,6 +319,13 @@ The evidence-manifest helper can also be adopted independently with the existing
 checksum verifier. The nonempty Cargo test helper and exact release-tag checker
 have no shared helper dependencies. Consumers keep test arguments, manifest
 selection and publication/release authority in their adapters.
+
+The read-only runner disk checker has no shared-script dependencies. Add
+`scripts/ci/check-runner-disk-space.sh` and `docs/verification-helpers.md` to the
+reviewed selection. Callers supply an existing filesystem path, minimum MiB,
+label and any diagnostic paths; move local callers before removing their old
+capacity parser. Keep thresholds, diagnostic policy and any separately authorized
+image cleanup local. See the [capacity contract](verification-helpers.md#runner-disk-capacity).
 
 The documentation-link, release-command and crates.io observation helpers also
 have no shared helper dependencies. Follow their explicit input and failure

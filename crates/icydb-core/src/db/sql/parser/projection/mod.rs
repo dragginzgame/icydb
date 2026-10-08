@@ -33,6 +33,7 @@ pub(super) enum SqlExprParseSurface {
     AggregateInputCondition,
     HavingCondition,
     Where,
+    Check,
 }
 
 impl SqlExprParseSurface {
@@ -50,6 +51,7 @@ impl SqlExprParseSurface {
                 | Self::AggregateInputCondition
                 | Self::HavingCondition
                 | Self::Where
+                | Self::Check
         )
     }
 
@@ -62,6 +64,7 @@ impl SqlExprParseSurface {
             Self::AggregateInput | Self::AggregateInputCondition => Self::AggregateInputCondition,
             Self::HavingCondition => Self::HavingCondition,
             Self::Where => Self::Where,
+            Self::Check => Self::Check,
         }
     }
 
@@ -75,12 +78,16 @@ impl SqlExprParseSurface {
             Self::AggregateInput => FunctionSurface::AggregateInput,
             Self::AggregateInputCondition => FunctionSurface::AggregateInputCondition,
             Self::HavingCondition => FunctionSurface::HavingCondition,
-            Self::Where => FunctionSurface::Where,
+            Self::Where | Self::Check => FunctionSurface::Where,
         }
     }
 }
 
 impl Parser {
+    pub(super) fn parse_check_expr(&mut self) -> Result<SqlExpr, SqlParseError> {
+        self.parse_sql_expr(SqlExprParseSurface::Check, 0)
+    }
+
     pub(super) fn parse_where_expr(&mut self) -> Result<SqlExpr, SqlParseError> {
         self.parse_sql_expr(SqlExprParseSurface::Where, 0)
     }
@@ -333,20 +340,26 @@ impl Parser {
             ));
         };
 
-        if !function
-            .planner_function()
-            .supports_surface(surface.function_surface())
-        {
-            let feature = if function.uses_numeric_scale_special_case() {
-                SqlFeatureCode::ScaleTakingNumericFunctionExpressionPosition
-            } else {
-                SqlFeatureCode::ScalarFunctionExpressionPosition
-            };
+        if let Some(planner_function) = function.planner_function() {
+            if !planner_function.supports_surface(surface.function_surface()) {
+                let feature = if function.uses_numeric_scale_special_case() {
+                    SqlFeatureCode::ScaleTakingNumericFunctionExpressionPosition
+                } else {
+                    SqlFeatureCode::ScalarFunctionExpressionPosition
+                };
 
-            return Err(SqlParseError::unsupported_feature(feature));
+                return Err(SqlParseError::unsupported_feature(feature));
+            }
+        } else if !matches!(surface, SqlExprParseSurface::Check) {
+            return Err(SqlParseError::unsupported_feature(
+                SqlFeatureCode::UnsupportedFunctionNamespace,
+            ));
         }
 
-        if matches!(surface, SqlExprParseSurface::Where) {
+        if matches!(
+            surface,
+            SqlExprParseSurface::Where | SqlExprParseSurface::Check
+        ) {
             return self.parse_where_function_expr(function);
         }
 

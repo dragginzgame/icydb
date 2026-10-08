@@ -20,6 +20,7 @@ use crate::{
                 },
                 value_reducer::finalize_count,
             },
+            budget::{charge_grouped_top_k_candidate, charge_sort_work, runtime_value_work},
             group::GroupKey,
             pipeline::contracts::GroupedRouteStage,
             projection::GroupedRowView,
@@ -94,7 +95,7 @@ impl<'a> GroupedCountWindowSelection<'a> {
 
     // Select grouped-count candidates after HAVING and resume filtering,
     // using a bounded top-k heap only when the grouped page window exposes one.
-    fn select_candidates(
+    pub(super) fn select_candidates(
         &self,
         grouped_counts: Vec<(GroupKey, u32)>,
     ) -> Result<Vec<(GroupKey, u32)>, InternalError> {
@@ -162,10 +163,10 @@ impl<'a> GroupedCountWindowSelection<'a> {
             if !self.row_matches_window(&group_key, count)? {
                 continue;
             }
-            self.retain_bounded_candidate(&mut retained, group_key, count, selection_bound);
+            self.retain_bounded_candidate(&mut retained, group_key, count, selection_bound)?;
         }
 
-        Ok(self.finish_retained_bounded_candidates(retained))
+        self.finish_retained_bounded_candidates(retained)
     }
 
     // Select every qualifying grouped-count row and restore canonical order
@@ -174,6 +175,9 @@ impl<'a> GroupedCountWindowSelection<'a> {
         &self,
         grouped_counts: Vec<(GroupKey, u32)>,
     ) -> Result<Vec<(GroupKey, u32)>, InternalError> {
+        // Admit the complete temporary vector before allocation. Like generic
+        // grouped finalization, this conservatively includes filtered groups.
+        charge_sort_work::<(GroupKey, u32)>(grouped_counts.len())?;
         let mut out = Vec::with_capacity(grouped_counts.len());
 
         // Phase 1: apply grouped HAVING and continuation-resume filters before
@@ -226,28 +230,6 @@ impl<'a> GroupedCountWindowSelection<'a> {
         Ok(true)
     }
 
-    // Retain only the smallest canonical grouped-count rows needed for one
-    // bounded grouped page window so selection does not sort every qualifying
-    // group.
-    #[cfg(test)]
-    pub(super) fn retain_smallest_candidates(
-        &self,
-        grouped_counts: Vec<(GroupKey, u32)>,
-        selection_bound: usize,
-    ) -> Vec<(GroupKey, u32)> {
-        let mut retained = BinaryHeap::<BoundedGroupedCountCandidate>::new();
-
-        // Phase 1: keep only the smallest `selection_bound` qualifying groups
-        // in a max-heap so the grouped count fast path pays `O(G log K)`
-        // instead of sorting every qualifying group when pagination bounds
-        // are active.
-        for (group_key, count) in grouped_counts {
-            self.retain_bounded_candidate(&mut retained, group_key, count, selection_bound);
-        }
-
-        self.finish_retained_bounded_candidates(retained)
-    }
-
     // Insert one already-qualified grouped-count candidate into the retained
     // bounded heap, preserving the old max-heap replacement semantics while
     // allowing callers to avoid staging all qualifying rows first.
@@ -257,7 +239,12 @@ impl<'a> GroupedCountWindowSelection<'a> {
         group_key: GroupKey,
         count: u32,
         selection_bound: usize,
-    ) {
+    ) -> Result<(), InternalError> {
+        charge_grouped_top_k_candidate::<BoundedGroupedCountCandidate>(
+            retained.len(),
+            selection_bound,
+            runtime_value_work(group_key.canonical_value()).0,
+        )?;
         let candidate = BoundedGroupedCountCandidate {
             group_key,
             count,
@@ -265,7 +252,7 @@ impl<'a> GroupedCountWindowSelection<'a> {
         };
         if retained.len() < selection_bound {
             retained.push(candidate);
-            return;
+            return Ok(());
         }
 
         if let Some(mut largest_retained) = retained.peek_mut()
@@ -274,6 +261,8 @@ impl<'a> GroupedCountWindowSelection<'a> {
             // Replacing the root repairs the heap once, without removing a slot.
             *largest_retained = candidate;
         }
+
+        Ok(())
     }
 
     // Convert the retained bounded heap back to canonical grouped-key order so
@@ -281,7 +270,8 @@ impl<'a> GroupedCountWindowSelection<'a> {
     fn finish_retained_bounded_candidates(
         &self,
         retained: BinaryHeap<BoundedGroupedCountCandidate>,
-    ) -> Vec<(GroupKey, u32)> {
+    ) -> Result<Vec<(GroupKey, u32)>, InternalError> {
+        charge_sort_work::<BoundedGroupedCountCandidate>(retained.len())?;
         // Phase 2: restore grouped-key order across the retained window only,
         // respecting the active grouped execution direction.
         let mut out: Vec<(GroupKey, u32)> = retained
@@ -297,7 +287,7 @@ impl<'a> GroupedCountWindowSelection<'a> {
             )
         });
 
-        out
+        Ok(out)
     }
 }
 

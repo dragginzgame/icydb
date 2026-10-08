@@ -1033,7 +1033,7 @@ const fn bound_constraint_count(bound: &Bound<Value>) -> usize {
     }
 }
 
-pub(in crate::db) const fn explain_order_pushdown() -> ExplainOrderPushdown {
+const fn explain_order_pushdown() -> ExplainOrderPushdown {
     // Query explain does not own physical pushdown feasibility routing.
     ExplainOrderPushdown::MissingModelContext
 }

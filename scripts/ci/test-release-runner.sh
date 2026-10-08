@@ -779,4 +779,47 @@ awk -v version=0.1.1 -v previous=0.1.0 -v date=2026-10-06 -v allow_finalized=1 \
 cmp whitespace-notes whitespace-actual
 if awk -v version=0.1.1 -v previous=0.1.0 -v date=2026-10-07 -v allow_finalized=1 \
     -f "$ROOT/scripts/ci/finalize-release-changelog.awk" whitespace-notes > /dev/null 2>&1; then exit 1; fi
+# Spacing around a dated identity cannot turn it into another candidate.
+for selected_date in 2026-10-06 2026-10-07; do
+    printf '# Changelog\n\n## [0.1.1]  - \t%s\t\n\n- Finalized.' "$selected_date" > spaced-dated
+    cp spaced-dated spaced-original
+    if awk -v version=0.1.1 -v previous=0.1.0 -v date=2026-10-06 \
+        -f "$ROOT/scripts/ci/finalize-release-changelog.awk" spaced-dated > spaced-result 2> spaced-error; then exit 1; fi
+    [[ ! -s spaced-result ]]
+    cmp spaced-dated spaced-original
+    status=0
+    awk -v version=0.1.1 -v previous=0.1.0 -v date=2026-10-06 -v allow_finalized=1 \
+        -f "$ROOT/scripts/ci/finalize-release-changelog.awk" spaced-dated > spaced-result 2> spaced-error || status=$?
+    if [[ "$selected_date" == 2026-10-06 ]]; then
+        [[ "$status" == 0 ]]; cmp spaced-dated spaced-result
+    else
+        [[ "$status" == 1 && ! -s spaced-result ]]
+    fi
+done
+
+# Preserve byte boundaries at historical EOF, even when the draft moves from EOF
+# to the front. A blanket removal of the output's last LF breaks the latter.
+for ending in lf no-lf; do
+    printf '## [0.1.0]\n\n- Historical café, literal ^$ and tabs\t.' > history-bytes
+    [[ "$ending" != lf ]] || printf '\n' >> history-bytes
+    printf '# Changelog\n\n## [0.1.1]\n\n- Pending.\n\n' > byte-notes
+    cat history-bytes >> byte-notes
+    printf '# Changelog\n\n## [0.1.1] - 2026-10-06\n\n- Pending.\n\n' > byte-expected
+    cat history-bytes >> byte-expected
+    awk -v version=0.1.1 -v previous=0.1.0 -v date=2026-10-06 \
+        -f "$ROOT/scripts/ci/finalize-release-changelog.awk" byte-notes > byte-result
+    cmp byte-expected byte-result
+    awk -v version=0.1.1 -v previous=0.1.0 -v date=2026-10-06 -v allow_finalized=1 \
+        -f "$ROOT/scripts/ci/finalize-release-changelog.awk" byte-result > byte-repeated
+    cmp byte-result byte-repeated
+done
+printf '## [0.1.0]\n\n- History.\n\n' > history-bytes
+printf '# Changelog\n\n' > byte-notes
+cat history-bytes >> byte-notes
+printf '## [0.1.1]\n\n- Draft at EOF.' >> byte-notes
+printf '# Changelog\n\n## [0.1.1] - 2026-10-06\n\n- Draft at EOF.\n' > byte-expected
+cat history-bytes >> byte-expected
+awk -v version=0.1.1 -v previous=0.1.0 -v date=2026-10-06 \
+    -f "$ROOT/scripts/ci/finalize-release-changelog.awk" byte-notes > byte-result
+cmp byte-expected byte-result
 echo 'release runner command-stub tests passed'

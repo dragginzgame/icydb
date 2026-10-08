@@ -1,10 +1,14 @@
 # Entity metric lookup evidence
 
-The uncommitted change to `crates/icydb-core/src/metrics/state.rs` borrows an
-existing entity path before allocating an owned key on a miss. It retains one
-map and the existing counter, reset, report and inclusive-span contracts.
-It addresses [#300](https://github.com/dragginzgame/icydb/issues/300) under the
-compatible pending 0.265.1 notes; no package version was changed.
+This report records the initial qualification of the borrowed entity-path
+lookup for [#300](https://github.com/dragginzgame/icydb/issues/300), originally
+prepared under the compatible 0.265.1 notes. It retains one map and the existing
+counter, reset, report and inclusive-span contracts.
+
+The lookup is present in published IcyDB 0.267.1 at
+`cb8cefca1d68c20025398eae6dfab18a2eb45883`. The 2026-10-08 closeout confirms
+the source and ten current metrics-state tests; the measurements below remain
+bound to the original fixture and dependency identities, not the current graph.
 
 The source baseline is `20a9aa7d9802cf73ad17ed9444fc06a2c37e2909`. Final
 `state.rs` SHA-256 is

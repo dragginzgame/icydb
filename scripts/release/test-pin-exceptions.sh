@@ -18,6 +18,10 @@ finish() {
 }
 trap finish EXIT
 mkdir -p "$fixture/scripts/ci" "$fixture/scripts/release" "$fixture/ci" "$fixture/bin"
+export PIN_FIXTURE_MKTEMP PIN_FIXTURE_SYSTEM_TMP
+PIN_FIXTURE_MKTEMP="$(command -v mktemp)"
+PIN_FIXTURE_SYSTEM_TMP="$fixture/native-temp"
+mkdir "$PIN_FIXTURE_SYSTEM_TMP"
 cp "$ROOT/scripts/ci/"{bump-version.sh,next-release-version.sh,sync-release-surface-version.sh} "$fixture/scripts/ci/"
 cp "$ROOT/scripts/ci/rewrite-local-lock-versions.pl" "$fixture/scripts/ci/"
 cp "$ROOT/scripts/ci/read-cargo-workspace-version.sh" "$fixture/scripts/ci/"
@@ -33,6 +37,8 @@ jq -n --arg version "$previous" --argjson names "$packages" \
 printf 'version = 3\n' > "$fixture/Cargo.lock"
 jq -r '.packages[] | "\n[[package]]\nname = \"\(.name)\"\nversion = \"\(.version)\""' "$fixture/metadata.json" >> "$fixture/Cargo.lock"
 printf '\n[[package]]\nname = "external"\nversion = "%s"\nsource = "registry+fixture"\nchecksum = "fixed"\n' "$previous" >> "$fixture/Cargo.lock"
+# Backticks are literal Markdown delimiters in the release fixture.
+# shellcheck disable=SC2016
 printf 'Current workspace version: `%s`\ntag = "v%s"\n' "$previous" "$previous" > "$fixture/README.md"
 cp "$fixture/ci/dependency-pinning-exceptions.json" "$fixture/before.json"
 cp "$fixture/Cargo.toml" "$fixture/original.toml"
@@ -61,7 +67,18 @@ case "$1" in
 esac
 CARGO
 printf '#!/usr/bin/env bash\nexit 1\n' > "$fixture/bin/git"
-chmod +x "$fixture/bin/"{cargo,git}
+# Darwin's template-free mode selects its native user temp directory before
+# TMPDIR. Preserve that behavior in the substitute; explicit paths still use
+# the real mktemp, qualifying caller-selected evidence retention on every host.
+cat > "$fixture/bin/mktemp" <<'MKTEMP'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$#" == 1 && "$1" == -d ]]; then
+  exec "$PIN_FIXTURE_MKTEMP" -d "$PIN_FIXTURE_SYSTEM_TMP/native.XXXXXX"
+fi
+exec "$PIN_FIXTURE_MKTEMP" "$@"
+MKTEMP
+chmod +x "$fixture/bin/"{cargo,git,mktemp}
 # Version discovery and candidate disagreement must stop before manifest writes,
 # including on the system Bash used by the native macOS qualification lanes.
 mkdir "$fixture/guards"

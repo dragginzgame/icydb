@@ -86,7 +86,8 @@ this contract; the [release contract](../docs/releases.md) owns release executio
   including the affected contract and required action for a breaking change.
   Selecting a changelog heading is automatic documentation maintenance; it does
   not change manifests, lockfiles or release defaults, or authorize commits,
-  tags, pushes, publication or deployment. Commits remain maintainer-owned.
+  tags, pushes, publication or deployment. Commit and PR authority follows the
+  [contribution rules](contributions.md).
 
 For a latest finalized release of `0.14.7`:
 

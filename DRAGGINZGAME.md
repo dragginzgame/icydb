@@ -42,12 +42,21 @@ Consumer choices described in those guides remain subject to this baseline.
   and issue-reporting authority do not grant cross-repository edit permission.
   Without that authorization, keep other repositories read-only and report the
   proposed fix in the owning repository's GitHub issue.
-- Never create or amend Git commits, directly or through helpers. The maintainer
-  owns commits. Inspect scripts before invoking targets that may commit.
+- Follow the [contribution rules](rules/contributions.md): ordinary contributions
+  from people and agents use branches and pull requests. Agents may create
+  scoped commits when asked to commit or deliver a PR. A PR request includes the
+  branch, commits, branch push and PR creation/update needed to deliver it;
+  do not require the maintainer to commit first or approve each substep again.
+- A PR request does not authorize merging, pushing directly to `main`, `master`
+  or another integration/release branch, or rewriting shared history. Those
+  effects require explicit authorization. Preserve branch protections and
+  required reviews/checks. Ordinary repair or continuation requests authorize
+  local work, not an unsolicited commit or push.
 - Agents may execute package/manifest version changes, tags, pushes, publication,
   deployment and paid effects when explicitly authorized for their target and effect.
-  Continuation and readiness requests do not supply that authority. Commits
-  remain maintainer-owned, including inside otherwise authorized helpers.
+  Authorization includes the necessary documented substeps of the requested
+  operation. Inspect helpers before invoking them; a contribution PR is not a
+  release request. Continuation and readiness alone do not authorize a release.
 - An explicit instruction is sufficient for its named action. Carry established
   authorization forward; do not require magic phrases or repeated confirmation.
   Complete authorized preparation so any required approval concerns a concrete
@@ -169,9 +178,11 @@ Consumer choices described in those guides remain subject to this baseline.
   to it; do not give patch releases an implicit fast lane or change effects by
   repository. Consumer-owned validation gates, metadata files, branches and
   remotes are explicit inputs, not alternate meanings for the commands.
-- These are maintainer-owned one-shot commands. Agents must not execute them
-  because they create commits. Separate preparation and inspection remain
-  available within their authorized effects; adding targets is not a release.
+- These one-shot commands require an explicit request to run the selected release
+  for the selected repository and destination. That request authorizes the
+  documented gate, version preparation, release commit, tag and atomic branch/tag
+  push. A request for a fix, commit or PR does not authorize running a release;
+  separate preparation and inspection retain their own authorized scope.
 - Use standard semantic-version increments: patch increments the patch; minor
   increments the minor and resets the patch; major increments the major and
   resets both lower components. Apply the pre-1.0 compatibility rule above.

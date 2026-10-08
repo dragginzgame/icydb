@@ -82,5 +82,7 @@ Each repository retains authority over:
 
 Ordinary continuation completes the accepted coherent batch, including its direct
 evidence and propagation, without a compulsory one-slice-per-turn stop. New
-independent scope and release boundaries still require direction. Publication and
-deployment retain explicit authority, and agents never create or amend commits.
+independent scope and release boundaries still require direction. Authorized PR
+delivery includes its scoped commits and branch push under the
+[contribution rules](../../rules/contributions.md). Merging, direct integration-branch
+pushes, releases, publication and deployment retain their own explicit authority.

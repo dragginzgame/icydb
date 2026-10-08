@@ -14,6 +14,7 @@ use crate::{
         sql::parser::{
             SqlExpr, SqlExprBinaryOp, SqlExprUnaryOp, SqlMembershipValue, SqlScalarFunction,
         },
+        sql_shared::SqlParseError,
     },
     value::Value,
 };
@@ -384,7 +385,9 @@ fn lower_sql_function_call(
         return lower_sql_numeric_scale_function_call(function, args, phase, work);
     }
 
-    let function = function.planner_function();
+    let function = function.planner_function().ok_or_else(|| {
+        SqlParseError::unsupported_feature(SqlFeatureCode::UnsupportedFunctionNamespace)
+    })?;
     charge_storage::<Expr>(args.len(), work)?;
     let mut lowered = Vec::with_capacity(args.len());
     for arg in args {
@@ -423,7 +426,9 @@ fn lower_sql_numeric_scale_function_call(
 
     charge_storage::<Expr>(2, work)?;
     Ok(Expr::FunctionCall {
-        function: function.planner_function(),
+        function: function.planner_function().ok_or_else(|| {
+            SqlParseError::unsupported_feature(SqlFeatureCode::UnsupportedFunctionNamespace)
+        })?,
         args: vec![input, scale],
     })
 }

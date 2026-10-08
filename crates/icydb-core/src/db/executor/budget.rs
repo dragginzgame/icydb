@@ -1040,6 +1040,32 @@ pub(in crate::db::executor) fn charge_sort_work<R>(entries: usize) -> Result<(),
     )
 }
 
+/// Precharge one qualifying grouped heap candidate before retention or comparison.
+pub(in crate::db::executor) fn charge_grouped_top_k_candidate<R>(
+    retained_count: usize,
+    selection_bound: usize,
+    retained_backing_bytes: u64,
+) -> Result<(), InternalError> {
+    let comparisons = if retained_count == 0 {
+        0
+    } else if retained_count < selection_bound {
+        1
+    } else {
+        retained_count.saturating_add(1)
+    };
+    charge_current_execution_budget(DiagnosticExecutionBudgetResource::SortEntries, 1)?;
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::SortComparisons,
+        u64::try_from(comparisons).unwrap_or(u64::MAX),
+    )?;
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::SortTemporaryBytes,
+        u64::try_from(std::mem::size_of::<R>())
+            .unwrap_or(u64::MAX)
+            .saturating_add(retained_backing_bytes),
+    )
+}
+
 /// Sample only the instruction watermark for the innermost active execution.
 pub(in crate::db) fn finish_current_execution_instruction_watermark() -> Result<(), InternalError> {
     ACTIVE_EXECUTION_BUDGET.with(|budget| {

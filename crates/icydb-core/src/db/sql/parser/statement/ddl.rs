@@ -165,7 +165,7 @@ impl Parser {
             ));
         }
         self.expect_lparen()?;
-        let expression = self.parse_where_expr()?;
+        let expression = self.parse_check_expr()?;
         self.expect_rparen()?;
         let not_valid = if self.eat_keyword(Keyword::Not) {
             if !self.eat_identifier_keyword("VALID") {

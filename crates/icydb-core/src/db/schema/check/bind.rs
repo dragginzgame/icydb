@@ -20,7 +20,7 @@ use icydb_schema::{ScalarLiteral, SourceCheckExpr, SourceCheckInstruction};
 
 #[cfg(feature = "sql")]
 use crate::db::{
-    schema::{PersistedFieldSnapshot, input_value_from_strict_sql_literal_for_persisted_kind},
+    schema::input_value_from_strict_sql_literal_for_persisted_kind,
     sql::parser::{SqlExpr, SqlExprBinaryOp, SqlExprUnaryOp, SqlScalarFunction},
 };
 #[cfg(feature = "sql")]
@@ -406,7 +406,7 @@ pub(in crate::db) fn bind_sql_check_expr(
     enum_catalog: &AcceptedEnumCatalog,
     composite_catalog: &AcceptedCompositeCatalog,
 ) -> Result<AcceptedCheckExprV1, AcceptedCheckExprV1Error> {
-    let input = sql_check_expr_input(expression, snapshot)?;
+    let input = sql_check_expr_input(expression, snapshot, composite_catalog)?;
     bind_check_expr_v1(input, snapshot, enum_catalog, composite_catalog)
 }
 
@@ -414,6 +414,7 @@ pub(in crate::db) fn bind_sql_check_expr(
 fn sql_check_expr_input(
     expression: &SqlExpr,
     snapshot: &PersistedSchemaSnapshot,
+    composite_catalog: &AcceptedCompositeCatalog,
 ) -> Result<CheckExprV1Input, AcceptedCheckExprV1Error> {
     match expression {
         SqlExpr::Literal(Value::Bool(true)) => Ok(CheckExprV1Input::True),
@@ -421,7 +422,7 @@ fn sql_check_expr_input(
         SqlExpr::Unary {
             op: SqlExprUnaryOp::Not,
             expr,
-        } => sql_check_expr_input(expr, snapshot)
+        } => sql_check_expr_input(expr, snapshot, composite_catalog)
             .map(Box::new)
             .map(CheckExprV1Input::Not),
         SqlExpr::Binary {
@@ -429,21 +430,21 @@ fn sql_check_expr_input(
             left,
             right,
         } => Ok(CheckExprV1Input::And(vec![
-            sql_check_expr_input(left, snapshot)?,
-            sql_check_expr_input(right, snapshot)?,
+            sql_check_expr_input(left, snapshot, composite_catalog)?,
+            sql_check_expr_input(right, snapshot, composite_catalog)?,
         ])),
         SqlExpr::Binary {
             op: SqlExprBinaryOp::Or,
             left,
             right,
         } => Ok(CheckExprV1Input::Or(vec![
-            sql_check_expr_input(left, snapshot)?,
-            sql_check_expr_input(right, snapshot)?,
+            sql_check_expr_input(left, snapshot, composite_catalog)?,
+            sql_check_expr_input(right, snapshot, composite_catalog)?,
         ])),
         SqlExpr::Binary { op, left, right } => Ok(CheckExprV1Input::Compare {
-            left: sql_check_value_input(left, Some(right), snapshot)?,
+            left: sql_check_value_input(left, Some(right), snapshot, composite_catalog)?,
             op: sql_check_compare_op(*op)?,
-            right: sql_check_value_input(right, Some(left), snapshot)?,
+            right: sql_check_value_input(right, Some(left), snapshot, composite_catalog)?,
         }),
         SqlExpr::BooleanTest {
             expr,
@@ -453,11 +454,11 @@ fn sql_check_expr_input(
             // CHECK admits UNKNOWN, so totalize the Boolean test before its
             // accepted expression reaches either checks or index membership.
             let literal = SqlExpr::Literal(Value::Bool(*value));
-            let operand = sql_check_value_input(expr, Some(&literal), snapshot)?;
+            let operand = sql_check_value_input(expr, Some(&literal), snapshot, composite_catalog)?;
             let comparison = CheckExprV1Input::Compare {
                 left: operand.clone(),
                 op: AcceptedCheckCompareOpV1::Eq,
-                right: sql_check_value_input(&literal, Some(expr), snapshot)?,
+                right: sql_check_value_input(&literal, Some(expr), snapshot, composite_catalog)?,
             };
             let total =
                 CheckExprV1Input::And(vec![CheckExprV1Input::IsNotNull(operand), comparison]);
@@ -468,7 +469,7 @@ fn sql_check_expr_input(
             })
         }
         SqlExpr::NullTest { expr, negated } => {
-            let value = sql_check_value_input(expr, None, snapshot)?;
+            let value = sql_check_value_input(expr, None, snapshot, composite_catalog)?;
             Ok(if *negated {
                 CheckExprV1Input::IsNotNull(value)
             } else {
@@ -524,12 +525,13 @@ fn sql_check_value_input(
     expression: &SqlExpr,
     counterpart: Option<&SqlExpr>,
     snapshot: &PersistedSchemaSnapshot,
+    composite_catalog: &AcceptedCompositeCatalog,
 ) -> Result<CheckValueExprV1Input, AcceptedCheckExprV1Error> {
     match expression {
         SqlExpr::Field(field_name) => Ok(CheckValueExprV1Input::Field(field_name.clone())),
         SqlExpr::Literal(value) => {
             let expected = counterpart
-                .and_then(|other| sql_check_operand_kind(other, snapshot))
+                .and_then(|other| sql_check_operand_kind(other, snapshot, composite_catalog))
                 .ok_or(AcceptedCheckExprV1Error::LiteralRequiresExpectedKind)?;
             input_value_from_strict_sql_literal_for_persisted_kind(expected, value)
                 .map(CheckValueExprV1Input::Literal)
@@ -545,6 +547,9 @@ fn sql_check_value_input(
                 }
                 SqlScalarFunction::OctetLength => {
                     Ok(CheckValueExprV1Input::OctetLength(field_name.clone()))
+                }
+                SqlScalarFunction::Cardinality => {
+                    Ok(CheckValueExprV1Input::Cardinality(field_name.clone()))
                 }
                 _ => Err(AcceptedCheckExprV1Error::UnsupportedOperator),
             }
@@ -566,18 +571,23 @@ fn sql_check_value_input(
 fn sql_check_operand_kind<'a>(
     expression: &SqlExpr,
     snapshot: &'a PersistedSchemaSnapshot,
+    composite_catalog: &'a AcceptedCompositeCatalog,
 ) -> Option<&'a AcceptedFieldKind> {
     match expression {
+        // Literal admission must observe the same accepted value kind as the
+        // frontend-neutral binder, including nominal newtype wrappers.
         SqlExpr::Field(field_name) => snapshot
             .fields()
             .iter()
             .find(|field| field.name() == field_name)
-            .map(PersistedFieldSnapshot::kind),
+            .and_then(|field| composite_catalog.resolve_newtype_value_kind(field.kind())),
         SqlExpr::FunctionCall { function, args }
             if matches!(
                 (function, args.as_slice()),
                 (
-                    SqlScalarFunction::Length | SqlScalarFunction::OctetLength,
+                    SqlScalarFunction::Length
+                        | SqlScalarFunction::OctetLength
+                        | SqlScalarFunction::Cardinality,
                     [SqlExpr::Field(_)]
                 )
             ) =>

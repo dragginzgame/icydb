@@ -50,14 +50,12 @@ use crate::db::database_format::initialize_current_database_control_for_tests;
 #[cfg(test)]
 use crate::db::journal::journal_batch_encoded_len;
 
-#[cfg(not(test))]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct CommitMarkerPresenceHint {
     allocation: CommitMemoryAllocation,
     may_be_present: bool,
 }
 
-#[cfg(not(test))]
 thread_local! {
     // Stable-memory stores are thread-local, so the observational marker hint
     // must never suppress inspection for another runtime's memory.
@@ -800,7 +798,6 @@ pub(super) fn commit_marker_present_fast() -> Result<bool, InternalError> {
 }
 
 /// Return whether a runtime-local commit-window event requires a stable marker check.
-#[cfg(not(test))]
 pub(super) fn commit_marker_may_be_present() -> bool {
     let Ok(allocation) = current_commit_memory_allocation() else {
         return true;
@@ -815,37 +812,16 @@ pub(super) fn commit_marker_may_be_present() -> bool {
     .unwrap_or(true)
 }
 
-/// Return whether a runtime-local commit-window event requires a stable marker check.
-#[cfg(test)]
-pub(super) const fn commit_marker_may_be_present() -> bool {
-    // Core unit tests intentionally exercise many synthetic commit/recovery
-    // states in parallel against the same process-local marker machinery.
-    // Keeping tests stable-marker authoritative avoids cross-test races in the
-    // process-local optimization hint while production builds retain the fast path.
-    true
-}
-
 /// Mark the runtime-local marker hint clean after a verified empty-marker observation.
-#[cfg(not(test))]
 pub(super) fn mark_commit_marker_verified_absent() {
     set_commit_marker_presence_hint(false);
 }
 
-/// Mark the runtime-local marker hint clean after a verified empty-marker observation.
-#[cfg(test)]
-pub(super) const fn mark_commit_marker_verified_absent() {}
-
 // Mark the runtime-local marker hint dirty after this runtime persists marker bytes.
-#[cfg(not(test))]
 fn mark_commit_marker_may_be_present() {
     set_commit_marker_presence_hint(true);
 }
 
-// Mark the runtime-local marker hint dirty after this runtime persists marker bytes.
-#[cfg(test)]
-const fn mark_commit_marker_may_be_present() {}
-
-#[cfg(not(test))]
 fn with_commit_marker_presence_hints<R>(
     f: impl FnOnce(&mut Vec<CommitMarkerPresenceHint>) -> R,
 ) -> Option<R> {
@@ -855,7 +831,6 @@ fn with_commit_marker_presence_hints<R>(
     })
 }
 
-#[cfg(not(test))]
 fn set_commit_marker_presence_hint(may_be_present: bool) {
     let Ok(allocation) = current_commit_memory_allocation() else {
         return;
@@ -865,7 +840,6 @@ fn set_commit_marker_presence_hint(may_be_present: bool) {
     });
 }
 
-#[cfg(not(test))]
 fn update_commit_marker_presence_hints(
     hints: &mut Vec<CommitMarkerPresenceHint>,
     allocation: CommitMemoryAllocation,

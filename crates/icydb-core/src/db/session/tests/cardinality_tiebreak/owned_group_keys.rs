@@ -562,27 +562,48 @@ fn owned_group_order_keeps_sort_budget_errors_typed() {
     let values = ["eng", "ops", "sales"].map(|key| Value::Text(key.into()));
     seed_order_groups(AcceptedFieldKind::Text { max_len: None }, &values);
     for order in [asc("operand"), desc("operand")] {
-        let query = DynamicQuery::new(ENTITY_NAME)
+        let base = DynamicQuery::new(ENTITY_NAME)
             .filter(FieldRef::new("category").eq(InputValue::nat64(3)))
             .group_by("operand")
             .aggregate(count())
-            .aggregate(sum("id"))
             .order_by(order)
             .grouped_limits(8, 64 * 1024);
-        for resource in [
-            Resource::SortEntries,
-            Resource::SortComparisons,
-            Resource::SortTemporaryBytes,
-        ] {
-            let root = request_with_limit(resource, 0);
-            let error = new_request_session(&root)
-                .execute_public_dynamic_grouped_query(&query)
-                .unwrap_err();
-            assert!(
-                error
-                    .diagnostic_facts()
-                    .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
-            );
+        // COUNT alone selects the dedicated fold; SUM forces the generic fold.
+        // Both must enforce the same maintained sort resources on every window.
+        for generic in [false, true] {
+            let query = if generic {
+                base.clone().aggregate(sum("id"))
+            } else {
+                base.clone()
+            };
+            for limit in [None, Some(1), Some(20)] {
+                let query = limit.map_or_else(|| query.clone(), |limit| query.clone().limit(limit));
+                for resource in [
+                    Resource::SortEntries,
+                    Resource::SortComparisons,
+                    Resource::SortTemporaryBytes,
+                ] {
+                    for trusted in [false, true] {
+                        let root = request_with_limit(resource, 0);
+                        let session = new_request_session(&root);
+                        session.clear_shared_query_cache_for_tests(4 * 1024 * 1024);
+                        for _ in 0..2 {
+                            let error = if trusted {
+                                session.execute_trusted_dynamic_grouped_query(&query)
+                            } else {
+                                session.execute_public_dynamic_grouped_query(&query)
+                            }
+                            .expect_err("grouped sorting must honor the request budget");
+                            assert!(
+                                error
+                                    .diagnostic_facts()
+                                    .contains(&(DiagnosticFactTag::BudgetResource, resource.raw()))
+                            );
+                            assert!(root.observed(resource) > 0);
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -619,25 +640,45 @@ fn owned_group_order_having_offset_and_projection() {
                 })
                 .collect::<Vec<_>>();
             for offset in [0, 1, 9] {
-                for limit in ["", " LIMIT 20"] {
-                    let sql = format!(
-                        "SELECT {fields}, COUNT(*), SUM(id) FROM PlannerRow WHERE category = 3 GROUP BY {fields} HAVING COUNT(*) >= 2 ORDER BY {order}{limit} OFFSET {offset}"
-                    );
-                    for _ in 0..2 {
-                        let SqlStatementResult::Grouped { rows, .. } =
-                            session.execute_trusted_sql_query(&sql).unwrap()
-                        else {
-                            panic!("expected grouped projection");
+                for (window, limit) in [("", usize::MAX), (" LIMIT 1", 1), (" LIMIT 20", 20)] {
+                    for generic in [false, true] {
+                        let aggregates = if generic {
+                            "COUNT(*), SUM(id)"
+                        } else {
+                            "COUNT(*)"
                         };
-                        let observed = rows
-                            .iter()
-                            .map(|row| (row.group_key().to_vec(), row.aggregate_values().to_vec()))
-                            .collect::<Vec<_>>();
-                        assert_eq!(
-                            observed,
-                            expected.iter().skip(offset).cloned().collect::<Vec<_>>(),
-                            "{sql}"
+                        let sql = format!(
+                            "SELECT {fields}, {aggregates} FROM PlannerRow WHERE category = 3 GROUP BY {fields} HAVING COUNT(*) >= 2 ORDER BY {order}{window} OFFSET {offset}"
                         );
+                        let expected = expected
+                            .iter()
+                            .skip(offset)
+                            .take(limit)
+                            .map(|(key, aggregates)| {
+                                (
+                                    key.clone(),
+                                    if generic {
+                                        aggregates.clone()
+                                    } else {
+                                        aggregates[..1].to_vec()
+                                    },
+                                )
+                            })
+                            .collect::<Vec<_>>();
+                        for _ in 0..2 {
+                            let SqlStatementResult::Grouped { rows, .. } =
+                                session.execute_trusted_sql_query(&sql).unwrap()
+                            else {
+                                panic!("expected grouped projection");
+                            };
+                            let observed = rows
+                                .iter()
+                                .map(|row| {
+                                    (row.group_key().to_vec(), row.aggregate_values().to_vec())
+                                })
+                                .collect::<Vec<_>>();
+                            assert_eq!(observed, expected, "{sql}");
+                        }
                     }
                 }
             }

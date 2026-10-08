@@ -311,6 +311,7 @@ const fn sql_scalar_function_tag(function: crate::db::sql::parser::SqlScalarFunc
     use crate::db::sql::parser::SqlScalarFunction;
 
     match function {
+        SqlScalarFunction::Cardinality => 37,
         SqlScalarFunction::Abs => 0,
         SqlScalarFunction::Cbrt => 1,
         SqlScalarFunction::Ceiling => 2,

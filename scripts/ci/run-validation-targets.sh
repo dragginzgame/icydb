@@ -229,6 +229,26 @@ persist_highlighted_failure_log() {
     printf '%s\n' "$highlighted_log"
 }
 
+persist_combined_failure_log() {
+    local combined="$FAILURE_LOG_ROOT/$FAILURE_RUN_ID-combined.log"
+    local index
+    mkdir -p "$FAILURE_LOG_ROOT" || return 1
+    # Concatenate only this invocation's raw failed-target logs in dispatch
+    # order. Nested logger output is already part of its parent's raw target.
+    # Never glob another invocation's files or aggregate our decorated summary.
+    if ! (
+        for index in "${!targets[@]}"; do
+            if [[ "${results[$index]}" == FAIL ]]; then
+                cat "${logs[$index]}" || exit 1
+            fi
+        done
+    ) > "$combined"; then
+        printf 'Incomplete combined failure log retained at: %s\n' "$combined" >&2
+        return 1
+    fi
+    printf '%s\n' "$combined"
+}
+
 write_github_summary() {
     if [[ "$RUNNER_DEPTH" != "0" || -z "${GITHUB_STEP_SUMMARY:-}" ]]; then
         return
@@ -341,6 +361,22 @@ done
 write_github_summary
 
 if [[ ${#failed_targets[@]} -ne 0 ]]; then
+    if combined_failure_log="$(persist_combined_failure_log)"; then
+        printf 'Combined failure log retained at: %s\n' "$combined_failure_log"
+        # Publish the latest completed batch atomically; keep the unique log
+        # and any failed candidate. latest.log retains its last-target contract.
+        if [[ ! -d "$FAILURE_LOG_ROOT/latest-combined.log" ]] &&
+            cp "$combined_failure_log" "$combined_failure_log.latest" &&
+            mv -f "$combined_failure_log.latest" "$FAILURE_LOG_ROOT/latest-combined.log"; then
+            printf 'Latest combined failure log: %s/latest-combined.log\n' "$FAILURE_LOG_ROOT"
+        else
+            printf 'Unable to publish latest combined failure log\n' >&2
+            preserve_temporary_logs=true
+        fi
+    else
+        printf 'Unable to retain complete combined failure log; original logs retained\n' >&2
+        preserve_temporary_logs=true
+    fi
     highlighted_failure_log="$(persist_highlighted_failure_log)"
     printf '\nFailure details (repeated from the full logs):\n'
     for index in "${!targets[@]}"; do

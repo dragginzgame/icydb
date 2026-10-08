@@ -44,17 +44,23 @@ ICYDB_VALIDATION_FAILURE_LOG_DIR="$FIXTURE/logs" \
 # Make reports a failed recipe as status 2; preserve that through both owners.
 [[ "$status" -eq 2 ]]
 for payload in first-complete-payload second-complete-payload; do
-  rg -F "$payload" "$FIXTURE/logs/latest.log" > /dev/null
+  rg -F "$payload" "$FIXTURE/logs/latest-combined.log" > /dev/null
 done
+# Complete batch bytes preserve dispatch order; latest.log retains the distinct
+# last-failed-target contract of the shared runner.
+awk '/^first-complete-payload$/ { first = NR } /^second-complete-payload$/ { second = NR }
+  END { exit !(first > 0 && second > first) }' "$FIXTURE/logs/latest-combined.log"
+rg -F second-complete-payload "$FIXTURE/logs/latest.log" > /dev/null
+if rg -F first-complete-payload "$FIXTURE/logs/latest.log" > /dev/null; then exit 1; fi
 [[ -s "$FIXTURE/logs/latest-errors.log" ]]
-for log in "$FIXTURE/logs"/run.*/*-[0-9]*-*.log; do
+for log in "$FIXTURE/logs"/*-[0-9]*-*.log; do
   [[ -s "$log" ]]
 done
-cp "$FIXTURE/logs/latest.log" "$FIXTURE/previous.log"
+cp "$FIXTURE/logs/latest-combined.log" "$FIXTURE/previous.log"
 ICYDB_VALIDATION_FAILURE_LOG_DIR="$FIXTURE/logs" \
   bash "$FIXTURE/scripts/ci/run-icydb-validation-targets.sh" pass \
   > "$FIXTURE/pass-output" 2>&1
-cmp "$FIXTURE/logs/latest.log" "$FIXTURE/previous.log"
+cmp "$FIXTURE/logs/latest-combined.log" "$FIXTURE/previous.log"
 
 # Direct adapter callers must not report evidence from an unexecuted or
 # failure-suppressing Make invocation, or replace prior complete failure logs.
@@ -65,7 +71,7 @@ for flags in i n q t v --ignore-errors --just-print --question --touch --version
     bash "$FIXTURE/scripts/ci/run-icydb-validation-targets.sh" pass \
     > "$FIXTURE/refused-${flags#--}" 2>&1 || status=$?
   [[ "$status" -ne 0 && ! -e "$FIXTURE/executed" ]]
-  cmp "$FIXTURE/logs/latest.log" "$FIXTURE/previous.log"
+  cmp "$FIXTURE/logs/latest-combined.log" "$FIXTURE/previous.log"
 done
 
 status=0
@@ -73,8 +79,8 @@ ICYDB_VALIDATION_FAILURE_LOG_DIR="$FIXTURE/fast-logs" \
   bash "$FIXTURE/scripts/ci/run-icydb-validation-targets.sh" --fail-fast fail-one fail-two \
   > "$FIXTURE/fast-output" 2>&1 || status=$?
 [[ "$status" -eq 2 ]]
-rg -F first-complete-payload "$FIXTURE/fast-logs/latest.log" > /dev/null
-if rg -F second-complete-payload "$FIXTURE/fast-logs/latest.log" > /dev/null; then
+rg -F first-complete-payload "$FIXTURE/fast-logs/latest-combined.log" > /dev/null
+if rg -F second-complete-payload "$FIXTURE/fast-logs/latest-combined.log" > /dev/null; then
   echo "fail-fast executed a later target" >&2
   exit 1
 fi
@@ -84,7 +90,7 @@ ICYDB_VALIDATION_FAILURE_LOG_DIR="$FIXTURE/nested-logs" \
   bash "$FIXTURE/scripts/ci/run-icydb-validation-targets.sh" nested \
   > "$FIXTURE/nested-output" 2>&1 || status=$?
 [[ "$status" -eq 2 ]]
-rg -F first-complete-payload "$FIXTURE/nested-logs/latest.log" > /dev/null
+rg -F first-complete-payload "$FIXTURE/nested-logs/latest-combined.log" > /dev/null
 
 # Legitimate selections and the live jobserver survive nested adapter dispatch.
 ICYDB_VALIDATION_FAILURE_LOG_DIR="$FIXTURE/parallel-logs" \

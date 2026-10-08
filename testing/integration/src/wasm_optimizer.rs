@@ -12,7 +12,8 @@ use std::{
 
 use ic_host_fs::durable::{NamedWriteError, write_named_with};
 use ic_host_process::tool::{
-    AdmittedTool, ExecutionContext, OutputLimits, ToolError, ToolSpec, resolve_executable,
+    AdmittedTool, ExecutionContext, ExecutionEvidence, OutputLimits, ToolError, ToolSpec,
+    resolve_executable,
 };
 
 /// Environment variable that may point at the pinned `wasm-opt` executable.
@@ -89,12 +90,20 @@ pub fn pinned_wasm_optimizer() -> Result<AdmittedTool, String> {
     );
     let current_dir = env::current_dir()
         .map_err(|error| format!("failed to resolve optimizer working directory: {error}"))?;
+    admit_wasm_optimizer(&requested, &current_dir)
+}
+
+/// Admit a caller-selected optimizer under the sole deployable pipeline's pins.
+///
+/// Relative paths and bare names resolve from `current_dir` and the inherited
+/// PATH. The returned handle carries the checked version/digest into later runs.
+pub fn admit_wasm_optimizer(requested: &Path, current_dir: &Path) -> Result<AdmittedTool, String> {
     // The consumer supplies PATH only for an explicit bare-name override.
     let search_directories = env::var_os("PATH")
         .map(|path| env::split_paths(&path).collect::<Vec<_>>())
         .unwrap_or_default();
     let executable =
-        resolve_executable(&requested, &current_dir, &search_directories).map_err(|error| {
+        resolve_executable(requested, current_dir, &search_directories).map_err(|error| {
             format!("failed to resolve wasm optimizer: {error}; run make install-ic-tools")
         })?;
     // Preserve the caller's inherited execution environment explicitly. The
@@ -111,12 +120,36 @@ pub fn pinned_wasm_optimizer() -> Result<AdmittedTool, String> {
             version_identity: WASM_OPT_VERSION,
         },
         &ExecutionContext {
-            current_dir: &current_dir,
+            current_dir,
             environment: &environment,
         },
         OPTIMIZER_OUTPUT_LIMITS,
     )
     .map_err(|error| format_tool_failure("pinned wasm optimizer admission", &error))
+}
+
+/// Run an admitted optimizer with the pipeline's inherited environment and bounds.
+///
+/// The shared handle checks executable identity before execution. Transform and
+/// report callers supply their arguments and working directory; failure evidence
+/// retains the operation context, captured streams and cleanup errors.
+pub fn run_wasm_optimizer(
+    optimizer: &AdmittedTool,
+    arguments: &[OsString],
+    current_dir: &Path,
+    operation: &str,
+) -> Result<ExecutionEvidence, String> {
+    let environment = env::vars_os().collect::<Vec<_>>();
+    optimizer
+        .run(
+            arguments,
+            &ExecutionContext {
+                current_dir,
+                environment: &environment,
+            },
+            OPTIMIZER_OUTPUT_LIMITS,
+        )
+        .map_err(|error| format_tool_failure(operation, &error))
 }
 
 /// Transform compiler-emitted Wasm into the sole final deployable artifact.
@@ -139,22 +172,17 @@ pub(crate) fn optimize_deployable_wasm_with_optimizer(
     }
     let current_dir = env::current_dir()
         .map_err(|error| format!("failed to resolve optimizer working directory: {error}"))?;
-    let environment = env::vars_os().collect::<Vec<_>>();
     write_named_with(output, |stage| {
         let arguments = std::iter::once(input.as_os_str().to_owned())
             .chain(WASM_OPT_FLAGS.map(OsString::from))
             .chain([OsString::from("-o"), stage.as_os_str().to_owned()])
             .collect::<Vec<_>>();
-        optimizer
-            .run(
-                &arguments,
-                &ExecutionContext {
-                    current_dir: &current_dir,
-                    environment: &environment,
-                },
-                OPTIMIZER_OUTPUT_LIMITS,
-            )
-            .map_err(|error| format_tool_failure("canonical wasm optimization", &error))?;
+        run_wasm_optimizer(
+            optimizer,
+            &arguments,
+            &current_dir,
+            "canonical wasm optimization",
+        )?;
         // Staging is precreated by the shared owner. Check bounded Wasm framing
         // before admitting publication; existence alone proves no producer work.
         let mut header = [0; 8];

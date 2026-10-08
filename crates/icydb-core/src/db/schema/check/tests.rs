@@ -1,6 +1,12 @@
 #[cfg(feature = "sql")]
 mod boolean_truth;
 
+#[cfg(feature = "sql")]
+use crate::db::{
+    schema::AcceptedEnumCatalog,
+    sql::parser::{SqlDdlStatement, SqlStatement, parse_sql},
+};
+
 use super::*;
 
 use crate::{
@@ -34,6 +40,177 @@ use icydb_schema::{Decimal, IntBig, NatBig, ScalarLiteral};
 use std::{borrow::Cow, collections::BTreeMap};
 
 const FINGERPRINT: CommitSchemaFingerprint = [7; 16];
+
+#[cfg(feature = "sql")]
+fn bind_sql_check_for_tests(
+    sql: &str,
+    snapshot: &PersistedSchemaSnapshot,
+    enum_catalog: &AcceptedEnumCatalog,
+    composite_catalog: &AcceptedCompositeCatalog,
+) -> Result<AcceptedCheckExprV1, AcceptedCheckExprV1Error> {
+    let SqlStatement::Ddl(SqlDdlStatement::AlterTableAddCheckConstraint(statement)) = parse_sql(
+        &format!("ALTER TABLE Compass ADD CONSTRAINT policy CHECK ({sql})"),
+    )
+    .unwrap_or_else(|error| panic!("canonical CHECK SQL should parse: {sql}: {error:?}")) else {
+        panic!("expected ADD CHECK constraint");
+    };
+    bind_sql_check_expr(
+        &statement.expression,
+        snapshot,
+        enum_catalog,
+        composite_catalog,
+    )
+}
+
+#[cfg(feature = "sql")]
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "bounded integer-family, nominal-kind and comparison round-trip matrix"
+)]
+fn sql_wide_integer_checks_bind_exact_atoms_and_nominal_kinds() {
+    for (kind, literal, integer) in [
+        (
+            AcceptedFieldKind::Int128,
+            InputValue::int128(i128::MAX),
+            i128::MAX.to_string(),
+        ),
+        (
+            AcceptedFieldKind::Nat128,
+            InputValue::nat128(u128::from(u64::MAX) + 1),
+            (u128::from(u64::MAX) + 1).to_string(),
+        ),
+        (
+            AcceptedFieldKind::IntBig { max_bytes: 32 },
+            InputValue::int_big(IntBig::from_bigint((-i128::MAX).into())),
+            (-i128::MAX).to_string(),
+        ),
+        (
+            AcceptedFieldKind::NatBig { max_bytes: 32 },
+            InputValue::nat_big(NatBig::from_biguint(
+                u128::try_from(i128::MAX).unwrap().into(),
+            )),
+            i128::MAX.to_string(),
+        ),
+    ] {
+        for wrapped in [false, true] {
+            let enums = empty_accepted_enum_catalog_for_tests();
+            let type_id = CompositeTypeId::new(1).unwrap();
+            let composites = if wrapped {
+                AcceptedCompositeCatalog::from_initial_definitions(
+                    BTreeMap::from([(
+                        type_id,
+                        (
+                            "tests::WideInteger".into(),
+                            AcceptedCompositeShape::Newtype(AcceptedCompositeElement::new(
+                                kind.clone(),
+                                false,
+                            )),
+                        ),
+                    )]),
+                    &enums,
+                )
+                .unwrap()
+            } else {
+                AcceptedCompositeCatalog::empty()
+            };
+            let mut fields = snapshot().fields().to_vec();
+            fields[1] = field(
+                2,
+                1,
+                "score",
+                if wrapped {
+                    AcceptedFieldKind::Composite { type_id }
+                } else {
+                    kind.clone()
+                },
+                false,
+                LeafCodec::Structural,
+            );
+            let schema = PersistedSchemaSnapshot::new(
+                SchemaVersion::initial(),
+                "tests::Compass".into(),
+                "Compass".into(),
+                FieldId::new(1),
+                SchemaRowLayout::initial(fields.iter().map(|f| (f.id(), f.slot())).collect()),
+                fields,
+            );
+            let catalog = AcceptedValueCatalogHandle::new_for_tests(
+                enums,
+                composites,
+                AcceptedSchemaRevision::INITIAL,
+            );
+            for (op, operator) in [
+                (AcceptedCheckCompareOpV1::Eq, "="),
+                (AcceptedCheckCompareOpV1::Ne, "!="),
+                (AcceptedCheckCompareOpV1::Lt, "<"),
+                (AcceptedCheckCompareOpV1::Lte, "<="),
+                (AcceptedCheckCompareOpV1::Gt, ">"),
+                (AcceptedCheckCompareOpV1::Gte, ">="),
+            ] {
+                for literal_first in [false, true] {
+                    let field = CheckValueExprV1Input::Field("score".into());
+                    let literal = CheckValueExprV1Input::Literal(literal.clone());
+                    let (left, right) = if literal_first {
+                        (literal, field)
+                    } else {
+                        (field, literal)
+                    };
+                    let expected = bind_check_expr_v1(
+                        CheckExprV1Input::Compare { left, op, right },
+                        &schema,
+                        catalog.enum_catalog(),
+                        catalog.composite_catalog(),
+                    )
+                    .unwrap();
+                    let sql = if literal_first {
+                        format!("{integer} {operator} score")
+                    } else {
+                        format!("score {operator} {integer}")
+                    };
+                    assert_eq!(
+                        bind_sql_check_for_tests(
+                            &sql,
+                            &schema,
+                            catalog.enum_catalog(),
+                            catalog.composite_catalog()
+                        ),
+                        Ok(expected.clone()),
+                        "{sql}"
+                    );
+                    // Fixed-width integers also round-trip through canonical rendering.
+                    // Big-integer display grouping is a separate, currently open renderer gap.
+                    if matches!(kind, AcceptedFieldKind::Int128 | AcceptedFieldKind::Nat128) {
+                        let sql =
+                            render_accepted_check_expr_sql(&expected, &schema, &catalog).unwrap();
+                        assert_eq!(
+                            bind_sql_check_for_tests(
+                                &sql,
+                                &schema,
+                                catalog.enum_catalog(),
+                                catalog.composite_catalog()
+                            ),
+                            Ok(expected),
+                            "{sql}"
+                        );
+                    }
+                }
+            }
+            for sql in ["score = 1.0", "score = 1.5", "score = TRUE"] {
+                assert_eq!(
+                    bind_sql_check_for_tests(
+                        sql,
+                        &schema,
+                        catalog.enum_catalog(),
+                        catalog.composite_catalog()
+                    ),
+                    Err(AcceptedCheckExprV1Error::LiteralAdmissionRejected),
+                    "{sql}"
+                );
+            }
+        }
+    }
+}
 
 fn borrowed_values(values: &[Option<Value>]) -> Vec<Option<Cow<'_, Value>>> {
     values
@@ -2020,6 +2197,254 @@ fn compiled_checks_reject_stale_fingerprint_and_missing_required_slot() {
     );
 }
 
+#[cfg(feature = "sql")]
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one bounded matrix qualifies SQL binding and compiled checks for direct and nominal list/set/map fields"
+)]
+fn sql_cardinality_checks_round_trip_collections_and_nominal_wrappers() {
+    let text = AcceptedFieldKind::Text { max_len: None };
+    for (kind, two_items) in [
+        (
+            AcceptedFieldKind::List(Box::new(text.clone())),
+            Value::List(vec![Value::Text("a".into()), Value::Text("b".into())]),
+        ),
+        (
+            AcceptedFieldKind::Set(Box::new(text.clone())),
+            Value::List(vec![Value::Text("a".into()), Value::Text("b".into())]),
+        ),
+        (
+            AcceptedFieldKind::Map {
+                key: Box::new(text),
+                value: Box::new(AcceptedFieldKind::Nat64),
+            },
+            Value::Map(vec![
+                (Value::Text("a".into()), Value::Nat64(1)),
+                (Value::Text("b".into()), Value::Nat64(2)),
+            ]),
+        ),
+    ] {
+        for wrapped in [false, true] {
+            let enum_catalog = empty_accepted_enum_catalog_for_tests();
+            let type_id = CompositeTypeId::new(1).unwrap();
+            let inner_id = CompositeTypeId::new(2).unwrap();
+            let composite_catalog = if wrapped {
+                AcceptedCompositeCatalog::from_initial_definitions(
+                    BTreeMap::from([
+                        (
+                            type_id,
+                            (
+                                "tests::Tags".into(),
+                                AcceptedCompositeShape::Newtype(AcceptedCompositeElement::new(
+                                    AcceptedFieldKind::Composite { type_id: inner_id },
+                                    false,
+                                )),
+                            ),
+                        ),
+                        (
+                            inner_id,
+                            (
+                                "tests::TagValues".into(),
+                                AcceptedCompositeShape::Newtype(AcceptedCompositeElement::new(
+                                    kind.clone(),
+                                    false,
+                                )),
+                            ),
+                        ),
+                    ]),
+                    &enum_catalog,
+                )
+                .unwrap()
+            } else {
+                AcceptedCompositeCatalog::empty()
+            };
+            let fields = vec![
+                field(
+                    1,
+                    0,
+                    "id",
+                    AcceptedFieldKind::Ulid,
+                    false,
+                    LeafCodec::Scalar(ScalarCodec::Ulid),
+                ),
+                field(
+                    2,
+                    1,
+                    "tags",
+                    if wrapped {
+                        AcceptedFieldKind::Composite { type_id }
+                    } else {
+                        kind.clone()
+                    },
+                    true,
+                    LeafCodec::Structural,
+                ),
+            ];
+            let snapshot = PersistedSchemaSnapshot::new(
+                SchemaVersion::initial(),
+                "tests::Compass".into(),
+                "Compass".into(),
+                FieldId::new(1),
+                SchemaRowLayout::initial(fields.iter().map(|f| (f.id(), f.slot())).collect()),
+                fields,
+            );
+            let catalog = AcceptedValueCatalogHandle::new_for_tests(
+                enum_catalog,
+                composite_catalog,
+                AcceptedSchemaRevision::INITIAL,
+            );
+            let expected = bind_check_expr_v1(
+                CheckExprV1Input::Compare {
+                    left: CheckValueExprV1Input::Cardinality("tags".into()),
+                    op: AcceptedCheckCompareOpV1::Lte,
+                    right: CheckValueExprV1Input::Literal(InputValue::nat64(1)),
+                },
+                &snapshot,
+                catalog.enum_catalog(),
+                catalog.composite_catalog(),
+            )
+            .unwrap();
+            let rendered = render_accepted_check_expr_sql(&expected, &snapshot, &catalog).unwrap();
+            assert_eq!(
+                bind_sql_check_for_tests(
+                    &rendered,
+                    &snapshot,
+                    catalog.enum_catalog(),
+                    catalog.composite_catalog()
+                ),
+                Ok(expected.clone())
+            );
+            assert!(
+                bind_sql_check_for_tests(
+                    "1 >= CARDINALITY(tags)",
+                    &snapshot,
+                    catalog.enum_catalog(),
+                    catalog.composite_catalog()
+                )
+                .is_ok()
+            );
+            for (sql, error) in [
+                (
+                    "CARDINALITY(id) <= 1",
+                    AcceptedCheckExprV1Error::LengthOperationKindMismatch,
+                ),
+                (
+                    "CARDINALITY(missing) <= 1",
+                    AcceptedCheckExprV1Error::UnknownField,
+                ),
+                (
+                    "CARDINALITY(tags) <= 1.5",
+                    AcceptedCheckExprV1Error::LiteralAdmissionRejected,
+                ),
+                (
+                    "CARDINALITY(1) <= 1",
+                    AcceptedCheckExprV1Error::UnsupportedOperator,
+                ),
+            ] {
+                assert_eq!(
+                    bind_sql_check_for_tests(
+                        sql,
+                        &snapshot,
+                        catalog.enum_catalog(),
+                        catalog.composite_catalog()
+                    ),
+                    Err(error)
+                );
+            }
+            let constraints = snapshot
+                .constraint_catalog()
+                .clone()
+                .with_added_check("tags_limit".into(), ConstraintOrigin::SqlDdl, expected)
+                .unwrap();
+            let accepted =
+                AcceptedSchemaSnapshot::try_new(snapshot.with_constraint_catalog(constraints))
+                    .unwrap();
+            let program = CompiledAcceptedRowConstraints::compile(
+                &accepted,
+                &catalog,
+                FINGERPRINT,
+                &MaintenanceConstructionBudget::new(),
+            )
+            .unwrap();
+            let empty = if matches!(kind, AcceptedFieldKind::Map { .. }) {
+                Value::Map(vec![])
+            } else {
+                Value::List(vec![])
+            };
+            let single = match &two_items {
+                Value::List(items) => Value::List(items[..1].to_vec()),
+                Value::Map(items) => Value::Map(items[..1].to_vec()),
+                _ => panic!("expected collection fixture"),
+            };
+            for value in [empty, single, Value::Null] {
+                program
+                    .evaluate(
+                        FINGERPRINT,
+                        &borrowed_values(&[
+                            Some(Value::Ulid(crate::types::Ulid::from_u128(1))),
+                            Some(value),
+                        ]),
+                    )
+                    .unwrap();
+            }
+            assert!(matches!(
+                program.evaluate(
+                    FINGERPRINT,
+                    &borrowed_values(&[
+                        Some(Value::Ulid(crate::types::Ulid::from_u128(1))),
+                        Some(two_items.clone())
+                    ])
+                ),
+                Err(AcceptedRowConstraintEvaluationError::Violation { .. })
+            ));
+        }
+    }
+}
+
+#[cfg(feature = "sql")]
+#[test]
+fn sql_cardinality_admission_belongs_to_checks() {
+    use crate::db::sql::parser::SqlParseError;
+    use icydb_diagnostic_code::SqlFeatureCode;
+
+    for (sql, expected) in [
+        (
+            "SELECT CARDINALITY(tags) FROM Compass",
+            SqlFeatureCode::UnsupportedFunctionNamespace,
+        ),
+        (
+            "SELECT * FROM Compass WHERE CARDINALITY(tags) <= 1",
+            SqlFeatureCode::UnsupportedFunctionNamespace,
+        ),
+        (
+            "SELECT * FROM Compass ORDER BY CARDINALITY(tags)",
+            SqlFeatureCode::OrderByUnsupportedForm,
+        ),
+        (
+            "CREATE INDEX limited ON Compass (id) WHERE CARDINALITY(tags) <= 1",
+            SqlFeatureCode::UnsupportedFunctionNamespace,
+        ),
+    ] {
+        assert!(
+            matches!(
+                parse_sql(sql),
+                Err(SqlParseError::UnsupportedFeature {
+                    feature
+                }) if feature == expected
+            ),
+            "{sql}: {:?}",
+            parse_sql(sql)
+        );
+    }
+    for sql in [
+        "ALTER TABLE Compass ADD CONSTRAINT c CHECK (CARDINALITY() <= 1)",
+        "ALTER TABLE Compass ADD CONSTRAINT c CHECK (CARDINALITY(tags, id) <= 1)",
+    ] {
+        assert!(parse_sql(sql).is_err());
+    }
+}
+
 #[test]
 fn binder_rejects_empty_or_oversized_membership() {
     let snapshot = snapshot();
@@ -2106,13 +2531,14 @@ fn local_validation_defers_composite_meaning_but_exact_validation_rejects_non_ne
 #[test]
 #[expect(
     clippy::too_many_lines,
-    reason = "one compiled-program fixture proves numeric, decimal, and length nominal-newtype semantics together"
+    reason = "one accepted newtype fixture qualifies SQL round-trips and compiled numeric, decimal, and length semantics"
 )]
 fn accepted_checks_resolve_nominal_newtype_values_through_catalog_authority() {
     let type_id = CompositeTypeId::new(1).expect("test composite type ID should be non-zero");
     let label_type_id = CompositeTypeId::new(2).expect("test composite type ID should be non-zero");
     let amount_type_id =
         CompositeTypeId::new(3).expect("test composite type ID should be non-zero");
+    let inner_type_id = CompositeTypeId::new(4).expect("test composite type ID should be non-zero");
     let enum_catalog = empty_accepted_enum_catalog_for_tests();
     let composite_catalog = AcceptedCompositeCatalog::from_initial_definitions(
         BTreeMap::from([
@@ -2121,7 +2547,9 @@ fn accepted_checks_resolve_nominal_newtype_values_through_catalog_authority() {
                 (
                     "tests::Degrees".to_string(),
                     AcceptedCompositeShape::Newtype(AcceptedCompositeElement::new(
-                        AcceptedFieldKind::Nat16,
+                        AcceptedFieldKind::Composite {
+                            type_id: inner_type_id,
+                        },
                         false,
                     )),
                 ),
@@ -2142,6 +2570,16 @@ fn accepted_checks_resolve_nominal_newtype_values_through_catalog_authority() {
                     "tests::Amount".to_string(),
                     AcceptedCompositeShape::Newtype(AcceptedCompositeElement::new(
                         AcceptedFieldKind::Decimal { scale: 8 },
+                        false,
+                    )),
+                ),
+            ),
+            (
+                inner_type_id,
+                (
+                    "tests::BoundedDegrees".to_string(),
+                    AcceptedCompositeShape::Newtype(AcceptedCompositeElement::new(
+                        AcceptedFieldKind::Nat16,
                         false,
                     )),
                 ),
@@ -2226,6 +2664,101 @@ fn accepted_checks_resolve_nominal_newtype_values_through_catalog_authority() {
         &composite_catalog,
     )
     .expect("newtype scalar check should bind through accepted catalog authority");
+    #[cfg(feature = "sql")]
+    {
+        let value_catalog = AcceptedValueCatalogHandle::new_for_tests(
+            enum_catalog.clone(),
+            composite_catalog.clone(),
+            AcceptedSchemaRevision::INITIAL,
+        );
+        let rendered = render_accepted_check_expr_sql(&expression, &snapshot, &value_catalog)
+            .expect("accepted newtype check should render");
+        assert_eq!(
+            bind_sql_check_for_tests(&rendered, &snapshot, &enum_catalog, &composite_catalog,),
+            Ok(expression.clone()),
+        );
+        for (name, literal) in [
+            ("degrees", InputValue::nat64(360)),
+            ("label", InputValue::text("O'Reilly".to_string())),
+            ("amount", InputValue::decimal(Decimal::new(12345, 8))),
+        ] {
+            for op in [
+                AcceptedCheckCompareOpV1::Eq,
+                AcceptedCheckCompareOpV1::Ne,
+                AcceptedCheckCompareOpV1::Lt,
+                AcceptedCheckCompareOpV1::Lte,
+                AcceptedCheckCompareOpV1::Gt,
+                AcceptedCheckCompareOpV1::Gte,
+            ] {
+                for literal_first in [false, true] {
+                    let field = CheckValueExprV1Input::Field(name.to_string());
+                    let literal = CheckValueExprV1Input::Literal(literal.clone());
+                    let (left, right) = if literal_first {
+                        (literal, field)
+                    } else {
+                        (field, literal)
+                    };
+                    let expected = bind_check_expr_v1(
+                        CheckExprV1Input::Compare { left, op, right },
+                        &snapshot,
+                        &enum_catalog,
+                        &composite_catalog,
+                    )
+                    .expect("newtype comparison should bind");
+                    let rendered =
+                        render_accepted_check_expr_sql(&expected, &snapshot, &value_catalog)
+                            .expect("newtype comparison should render");
+                    assert_eq!(
+                        bind_sql_check_for_tests(
+                            &rendered,
+                            &snapshot,
+                            &enum_catalog,
+                            &composite_catalog,
+                        ),
+                        Ok(expected),
+                        "{rendered}",
+                    );
+                }
+            }
+        }
+        for (sql, error) in [
+            (
+                "degrees <= 65536",
+                AcceptedCheckExprV1Error::LiteralAdmissionRejected,
+            ),
+            (
+                "degrees = '360'",
+                AcceptedCheckExprV1Error::LiteralAdmissionRejected,
+            ),
+            (
+                "amount = TRUE",
+                AcceptedCheckExprV1Error::LiteralAdmissionRejected,
+            ),
+            (
+                "degrees = amount",
+                AcceptedCheckExprV1Error::OperandKindMismatch,
+            ),
+            (
+                "LENGTH(degrees) = 1",
+                AcceptedCheckExprV1Error::LengthOperationKindMismatch,
+            ),
+        ] {
+            assert_eq!(
+                bind_sql_check_for_tests(sql, &snapshot, &enum_catalog, &composite_catalog),
+                Err(error),
+                "{sql}",
+            );
+        }
+        assert_eq!(
+            bind_sql_check_for_tests(
+                "degrees <= 360",
+                &snapshot,
+                &enum_catalog,
+                &AcceptedCompositeCatalog::empty(),
+            ),
+            Err(AcceptedCheckExprV1Error::LiteralRequiresExpectedKind),
+        );
+    }
     let catalog = snapshot
         .constraint_catalog()
         .clone()

@@ -11,8 +11,8 @@ use crate::db::{
     query::{
         admission::{QueryAdmissionLane, QueryAdmissionPolicy, QueryAdmissionSummary},
         explain::{
-            ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, ExplainOrderPushdown,
-            FinalizedQueryDiagnostics, explain_order_pushdown, explain_page,
+            ExplainExecutionNodeDescriptor, ExplainExecutionNodeType, FinalizedQueryDiagnostics,
+            explain_page,
         },
         intent::{QueryError, StructuralQuery},
         plan::AccessPlannedQuery,
@@ -120,7 +120,7 @@ impl StructuralQuery {
         logical_diagnostics.push(format!("diag.p.mode={:?}", scalar.mode));
         logical_diagnostics.push(format!(
             "diag.p.order_pushdown={}",
-            plan_order_pushdown_label(&explain_order_pushdown())
+            route_facts.secondary_order_pushdown_label()
         ));
         logical_diagnostics.push(format!(
             "diag.p.predicate_pushdown={}",
@@ -183,16 +183,5 @@ impl StructuralQuery {
         mutate_descriptor(&mut diagnostics.execution);
 
         Ok(diagnostics)
-    }
-}
-
-// Render the logical ORDER pushdown label for verbose execution diagnostics.
-fn plan_order_pushdown_label(order_pushdown: &ExplainOrderPushdown) -> String {
-    match order_pushdown {
-        ExplainOrderPushdown::MissingModelContext => "missing_model_context".to_string(),
-        ExplainOrderPushdown::EligibleSecondaryIndex { index, prefix_len } => {
-            format!("eligible(index={index},prefix_len={prefix_len})")
-        }
-        ExplainOrderPushdown::Rejected(reason) => format!("rejected({reason:?})"),
     }
 }

@@ -52,6 +52,8 @@ sudo, package-manager bootstrap or shell-profile editing is involved.
 `ci/ic-tools.tsv`. `--consumer <checkout>` selects another explicit destination;
 `--pins <file>` selects a reviewed alternative matrix. Missing or duplicate rows,
 inconsistent per-host versions and malformed checksums fail before downloads.
+The installer and optional alignment checker share that admission through
+`scripts/ci/ic-tool-pins.awk`; include it in the reviewed snapshot.
 
 The installer checks each archive hash before extraction or execution, then
 checks the exact version token. It retains Binaryen's runtime library beside
@@ -99,10 +101,20 @@ installation does not move identity stores, create keys or change that selection
 Follow [snapshot adoption](consuming-snapshots.md#local-ic-tool-adoption). Use one
 authoritative pin matrix for this set; remove duplicate version/checksum selections
 from old setup files after their callers move. Product adapters may read that
-matrix for version alignment, such as PocketIC client/server compatibility.
-Use the local bin path in Make/CI commands and set `POCKET_IC_BIN` to
-`$(CURDIR)/.tools/ic/bin/pocket-ic` where required; do not depend on the user's
-global PATH choosing the right binary.
+matrix for an explicitly qualified PocketIC client/server pairing. The shared
+[alignment and binary checks](verification-helpers.md#pocketic-alignment-and-external-binaries)
+cover exact version equality and external byte admission separately.
+Use the local bin path in Make/CI commands. The offline check already prints the
+verified absolute bin directory; obtain the server path without a cache glob:
+
+```bash
+verified_bin="$(bash scripts/dev/install-ic-tools.sh --consumer "$PWD" --pins ci/ic-tools.tsv --check)" || exit 1
+export POCKET_IC_BIN="$verified_bin/pocket-ic"
+```
+
+This verifies the complete selected bundle before printing its directory, with
+diagnostics on stderr. It does not install anything. Do not depend on the user's
+global PATH or glob crate download caches to select a server.
 
 Consumers can select an explicitly reviewed local matrix when an existing
 qualification requires different versions. Keep the common executable names

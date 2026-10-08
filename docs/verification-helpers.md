@@ -6,6 +6,100 @@ policy. They require Perl core modules or Bash 3.2+, as noted below, and run on
 Linux and macOS. The portable regression suite includes offline fixtures;
 native CI qualifies each supported host separately.
 
+## Runner disk capacity
+
+```bash
+bash scripts/ci/check-runner-disk-space.sh \
+  --path "$PWD" --min-free-mib 4096 --label 'before tests'
+bash scripts/ci/check-runner-disk-space.sh \
+  --path "$PWD" --min-free-mib 0 --label 'failure diagnostics' \
+  --diagnostic-path "$PWD/target" --diagnostic-path "$PWD/.tools"
+```
+
+The caller selects one existing file or directory on the filesystem to check,
+an inclusive minimum in MiB and an optional label. Zero reports capacity without
+a positive reserve requirement; negative available capacity still fails. The
+path can be absolute or relative to the caller, including spaces and literal
+glob characters. Values must be single-line without tabs. The minimum is a
+canonical non-negative decimal integer (no leading zeros), at most 18 digits
+so integer arithmetic stays bounded on supported hosts.
+
+The read-only Bash 3.2 helper requires system `df` and `awk`; it requests the
+C locale and POSIX KiB output with `df -Pk`. It admits one filesystem record
+with a KiB header and numeric capacity, rejects failed or malformed observations,
+and compares whole MiB rounded down. Available KiB magnitudes over 18 digits
+are refused rather than overflowing. Exit statuses are **0** for sufficient
+space, **1** for insufficient space and **2** for invalid arguments or an
+unavailable/malformed capacity observation. The printed summary is diagnostic
+text; callers use the exit status for gating. This samples capacity without
+reserving space or proving that a later build will fit.
+
+Each repeated `--diagnostic-path` explicitly requests a recursive `du -sk`
+total in KiB, on success or insufficient capacity. This can be expensive on
+large trees. Missing paths and failed `du` commands warn and leave the capacity
+result unchanged; they are not successful usage measurements. Without these
+arguments no `du` scan runs. The helper has no built-in paths, SDK deletion list,
+installation, artifact cleanup or filesystem mutation.
+
+Adopt `scripts/ci/check-runner-disk-space.sh` and this guide through the reviewed
+snapshot workflow; there are no shared-script dependencies. The upstream
+`test-runner-disk-space.sh` covers real host observation plus controlled failure
+and threshold cases, and runs in the portable Linux/macOS CI matrix. Consumers
+own step ordering, thresholds, filesystem selection, diagnostic paths and their
+native qualification. When replacing Canic's local helper, move its path lists
+to a consumer-owned caller and express summary-only checks by omitting diagnostic
+paths. Retire the duplicated body after qualifying those callers. Any disposable
+runner-image cleanup remains a separate, explicitly scoped consumer operation.
+
+## PocketIC alignment and external binaries
+
+```bash
+bash scripts/ci/check-pocketic-alignment.sh \
+  --manifest testing/Cargo.toml --pins ci/ic-tools.tsv
+bash scripts/ci/check-pocketic-binary.sh "$server_version" "$binary_sha256" "$POCKET_IC_BIN"
+```
+
+The alignment helper implements the exact client/server version equality policy
+already selected by Canic and IcyDB. Adopt it only for an explicitly qualified
+consumer pairing; equal version strings do not prove runtime compatibility.
+Select the owning Cargo manifest, including an independent testing workspace
+when applicable. With a prepared toolchain and dependency cache, it runs Cargo
+metadata from that manifest's directory using `--locked --offline`, disables
+implicit Rustup installation, and admits exactly one `pocket-ic` package with a
+stable version. Cargo owns manifest parsing, lock validity and graph selection;
+there is no second Cargo.lock parser. Missing or multiple client packages,
+prereleases, mismatched pins and failed metadata producers are refused. Failed
+metadata output remains in an announced temporary directory. The checker does
+not build, update the lockfile, fetch dependencies or install tools.
+
+The complete existing IC pin matrix is validated by `scripts/ci/ic-tool-pins.awk`,
+also used by the installer; no second version catalog is introduced. The helper
+requires Cargo, jq and awk, and prints only the agreed version on success.
+
+The independent binary checker takes an exact stable server version, an explicit
+reviewed host-specific SHA-256 digest and an executable path. It reuses
+`verify-file-checksum.sh` to authenticate bytes before calling `--version`, and
+requires a successful probe reporting exactly `pocket-ic-server VERSION`.
+Read-only executable symlinks are allowed. It neither installs nor searches
+caches, and emits no stdout on success. Callers retain ownership of the external
+binary's reviewed identity and host selection; generating a digest from an
+untrusted candidate does not authenticate it. For a combined check, pass both
+`--bin PATH --sha256 DIGEST` to the alignment helper.
+
+Managed bundle users can instead obtain the verified absolute directory through
+`install-ic-tools.sh --check` and project its `pocket-ic` path, as described in
+[IC tool setup](ic-tools.md#snapshot-and-pin-selection). Its archive pins and
+installed-file receipt already own managed-bundle admission. An external binary
+digest is a separate identity for an override outside that bundle.
+
+Vendor both checkers, `ic-tool-pins.awk`, `verify-file-checksum.sh` and this guide
+for alignment with optional binary admission. The binary checker alone needs
+only the checksum helper. Consumers keep runtime environment variables, endpoint
+selection and lifecycle policy in their adapters. Qualify callers on their native
+hosts before removing local checks; the upstream fixture exercises real offline
+Cargo selection and controlled metadata/binary rejection cases, without claiming
+consumer runtime compatibility.
+
 ## Cargo inheritance and workspace version
 
 ```bash

@@ -106,6 +106,11 @@ for script in check-pocketic-alignment.sh verify-wasm-optimizer.sh; do
   cat > "$FIXTURE/scripts/ci/$script" <<'POLICY'
 #!/usr/bin/env bash
 printf '%s\n' "${0##*/}" >> "$TEST_POLICY_TRACE"
+if [[ "${0##*/}" == check-pocketic-alignment.sh ]]; then
+  [[ "$#" == 4 && "$1" == --manifest && "$2" == "$PWD/Cargo.toml" && \
+    "$3" == --pins && "$4" == "$PWD/ci/ic-tools.tsv" ]]
+  [[ "$CARGO_HOME" == "$PWD/.cache/cargo/icydb" && "$CARGO_TARGET_DIR" == "$PWD/target/icydb" ]]
+fi
 [[ "${TEST_POLICY_FAIL:-0}" == 0 ]]
 POLICY
 done
@@ -137,19 +142,6 @@ status=0
 # rather than exiting at an assignment preceding the command builtin.
 env TEST_INSTALL_FAIL=1 make --no-print-directory -C "$FIXTURE" install-tools > "$FIXTURE/failed-dispatch" 2>&1 || status=$?
 [[ "$status" != 0 && "$(wc -l < "$TEST_TRACE")" -eq 1 ]]
-
-# Provisioning cannot qualify a server that differs from the locked client.
-cp "$ROOT/scripts/ci/check-pocketic-alignment.sh" "$FIXTURE/scripts/ci/"
-printf '[[package]]\nname = "pocket-ic"\nversion = "16.0.0"\n' > "$FIXTURE/Cargo.lock"
-bash "$FIXTURE/scripts/ci/check-pocketic-alignment.sh" > "$FIXTURE/aligned"
-awk -F '\t' 'BEGIN { OFS="\t" } $1=="pocket-ic" && $3=="darwin-arm64" { $2="15.0.0" } { print }' \
-  "$FIXTURE/ci/ic-tools.tsv" > "$FIXTURE/mismatched.tsv"
-mv "$FIXTURE/mismatched.tsv" "$FIXTURE/ci/ic-tools.tsv"
-if bash "$FIXTURE/scripts/ci/check-pocketic-alignment.sh" \
-  > "$FIXTURE/mismatch" 2>&1; then exit 1; fi
-cp "$ROOT/ci/ic-tools.tsv" "$FIXTURE/ci/ic-tools.tsv"
-printf '[[package]]\nname = "other-client"\nversion = "16.0.0"\n' > "$FIXTURE/Cargo.lock"
-if bash "$FIXTURE/scripts/ci/check-pocketic-alignment.sh" > "$FIXTURE/missing-client" 2>&1; then exit 1; fi
 
 # IcyDB's raw optimizer admission is independent of shared archive provisioning.
 # Check consumer ordering with a harmless executable; no real optimizer runs.

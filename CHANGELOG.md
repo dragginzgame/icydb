@@ -5,6 +5,24 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.267.2]
+
+- Converge host tooling and validation evidence, strengthen runtime and SQL
+  checks and grouped sort budgets, correct execution EXPLAIN facts, and retain release failure evidence
+  on macOS
+  ([#302](https://github.com/dragginzgame/icydb/issues/302),
+  [#307](https://github.com/dragginzgame/icydb/issues/307),
+  [#309](https://github.com/dragginzgame/icydb/issues/309),
+  [#318](https://github.com/dragginzgame/icydb/issues/318),
+  [#267](https://github.com/dragginzgame/icydb/issues/267),
+  [#276](https://github.com/dragginzgame/icydb/issues/276),
+  [#282](https://github.com/dragginzgame/icydb/issues/282),
+  [#232](https://github.com/dragginzgame/icydb/issues/232),
+  [#270](https://github.com/dragginzgame/icydb/issues/270),
+  [#269](https://github.com/dragginzgame/icydb/issues/269)).
+
+See [docs/changelog/0.267.md](docs/changelog/0.267.md).
+
 ## [0.267.1] - 2026-10-07
 
 - Converge developer setup and portable CI on shared owners, strengthen runtime

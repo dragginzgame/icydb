@@ -150,6 +150,14 @@ installation locking and registry checksum verification. Tools install one at
 a time, so an interrupted setup can leave earlier tools installed; rerun setup
 and require the complete offline check before use. Cleanup remains explicit.
 
+Setup and offline checking reject symlinks or wrong file types along the Rust
+installation route: `.tools`, `rust`, `bin`, `build`, the three executables and
+Cargo's `.crates.toml`/`.crates2.json` receipts. The complete route is admitted
+before executing a tool or Cargo, and rechecked after installation. Existing
+managed `.tools/host` and `.tools/ic` links remain supported. A checkout alias
+resolves to its physical root; this path check does not sandbox Cargo, authenticate
+tool bytes or defend against concurrent replacement of the admitted paths.
+
 Offline checks require each local executable to report its selected version
 successfully. They do not authenticate installed bytes or replace product/native
 host qualification. A matching set is reused without invoking Cargo. Formatting

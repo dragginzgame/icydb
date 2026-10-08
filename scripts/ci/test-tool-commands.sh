@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/shared-tool-commands.XXXXXX")"
+fixture="$(cd "$fixture" && pwd -P)"
 trap 'if [[ $? == 0 ]]; then rm -rf "$fixture"; else printf "Failed tool command fixture retained: %s\n" "$fixture" >&2; fi' EXIT
 unset MAKEFLAGS MFLAGS MAKEOVERRIDES GNUMAKEFLAGS MAKEFILES
 consumer="$fixture/consumer with spaces"
