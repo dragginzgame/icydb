@@ -18,6 +18,10 @@ trap finish EXIT
 cat > "$fixture/server" <<'SERVER'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ "$#" == 1 && "$1" == --version ]]; then
+  printf 'pocket-ic-server 16.0.0\n'
+  exit 0
+fi
 port_file=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -28,7 +32,7 @@ while [[ $# -gt 0 ]]; do
 done
 [[ -n "$port_file" ]]
 printf '%s\n' "$$" > "$TEST_STATE/server.pid"
-for ((line = 1; line <= 80; line++)); do
+for ((line = 1; line <= 4096; line++)); do
   printf 'stdout-%s\n' "$line"
   printf 'stderr-%s\n' "$line" >&2
 done
@@ -42,16 +46,17 @@ cat > "$fixture/child-command" <<'CHILD'
 set -euo pipefail
 [[ "$IC_TESTKIT_POCKET_IC_URL" == http://127.0.0.1:12345/ ]]
 printf 'called\n' > "$TEST_STATE/child-called"
+printf '%s\n' "$$" > "$TEST_STATE/child.pid"
 case "$TEST_MODE" in
   child) exit 7 ;;
-  term) kill -TERM "$PPID" ;;
-  int) kill -INT "$PPID" ;;
+  term) kill -TERM "$(cat "$TEST_STATE/wrapper.pid")"; exec sleep 60 ;;
+  int) kill -INT "$(cat "$TEST_STATE/wrapper.pid")"; exec sleep 60 ;;
   success) exit 0 ;;
   *) exit 99 ;;
 esac
 CHILD
 chmod +x "$fixture/server" "$fixture/child-command"
-for ((line = 1; line <= 80; line++)); do
+for ((line = 1; line <= 4096; line++)); do
   printf 'stdout-%s\n' "$line" >> "$fixture/expected-stdout"
   printf 'stderr-%s\n' "$line" >> "$fixture/expected-stderr"
 done
@@ -66,8 +71,10 @@ for mode in startup child term int success; do
   mkdir -p "$state/scratch"
   status=0
   TEST_STATE="$state" TEST_MODE="$mode" TMPDIR="$state/scratch" \
-    POCKET_IC_BIN="$fixture/server" bash "$ROOT/scripts/ci/run-with-pocketic-server.sh" \
-    "$fixture/child-command" > "$state/output" 2>&1 || status=$?
+    POCKET_IC_BIN="$fixture/server" bash -c \
+    'printf "%s\n" "$$" > "$TEST_STATE/wrapper.pid"; exec bash "$@"' \
+    wrapper "$ROOT/scripts/ci/run-with-pocketic-server.sh" "$fixture/child-command" \
+    > "$state/output" 2>&1 || status=$?
   case "$mode" in
     startup) [[ "$status" == 1 && ! -e "$state/child-called" ]] ;;
     child) [[ "$status" == 7 && -f "$state/child-called" ]] ;;
@@ -78,6 +85,9 @@ for mode in startup child term int success; do
   server_pid="$(cat "$state/server.pid")"
   if kill -0 "$server_pid" 2>/dev/null; then
     echo 'wrapper did not terminate its owned server' >&2; exit 1
+  fi
+  if [[ -f "$state/child.pid" ]] && kill -0 "$(cat "$state/child.pid")" 2>/dev/null; then
+    echo 'wrapper did not terminate its owned command' >&2; exit 1
   fi
   kill -0 "$control_pid"
   cmp "$fixture/unrelated-before" "$fixture/unrelated"

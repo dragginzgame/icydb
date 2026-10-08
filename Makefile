@@ -29,7 +29,7 @@ endif
         _ci-tier-a-sqlite _ci-tier-a-mutation _ci-tier-a-integration \
         _ci-tier-b-sql-canister _ci-tier-b-sql-perf \
         print-cargo-home print-cargo-target-dir check-dependency-pins \
-        _icydb-ic-tool-policy
+        _icydb-ic-tool-policy install-pocketic-runner
 
 # Resolve the repo root from this Makefile so scripts can query these values
 # via `make -C "$$ROOT"` and share a single source of truth.
@@ -69,6 +69,15 @@ print-cargo-home:
 print-cargo-target-dir:
 	@printf '%s\n' "$(CARGO_WORK_TARGET_DIR)"
 
+# Explicit setup only: validation never installs the server runner. Cargo's
+# selected registry package owns supervision and raw-output file creation.
+install-pocketic-runner:
+	@metadata="$$( $(CARGO_WORK_ENV) cargo metadata --locked --offline --format-version 1)" || exit; \
+		version="$$(printf '%s\n' "$$metadata" | "$(ROOT_DIR)/.tools/host/bin/jq" -er \
+			'[.packages[] | select(.name == "ic-testkit") | .version] | unique | select(length == 1) | .[0]')" || exit; \
+		$(CARGO_WORK_ENV) cargo install ic-testkit --version "=$$version" --bin ic-testkit-server --locked \
+			--root "$(ROOT_DIR)/.tools/testkit" --target-dir "$(CARGO_WORK_TARGET_DIR)/testkit-runner"
+
 # Check for clean git state
 ensure-clean:
 	@if ! git diff --quiet --ignore-submodules HEAD --; then \
@@ -83,6 +92,7 @@ help:
 	@echo "Setup / Installation:"
 	@echo "  install-tools    Install pinned repository-local host, IC and Rust tools"
 	@echo "  tools-check      Verify the selected local tools offline"
+	@echo "  install-pocketic-runner  Install the locked Testkit runner after make fetch"
 	@echo "  install          Install the local icydb CLI binary"
 	@echo "  install-dev      Install developer dependencies, GitHub CLI, actionlint, and the formatting hook"
 	@echo "  update-dev       Update developer tooling and hooks without changing dependencies"

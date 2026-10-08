@@ -1,115 +1,49 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Testkit owns startup, readiness, process groups and reaping. IcyDB selects
+# the deadline and complete output paths, relays signals and retains failures.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-SERVER_TTL_SECONDS=900
-SERVER_PID=""
-
-if [[ "$#" -eq 0 ]]; then
-  echo "usage: run-with-pocketic-server.sh <command> [args...]" >&2
-  exit 2
-fi
-if [[ -z "${POCKET_IC_BIN:-}" || ! -x "$POCKET_IC_BIN" ]]; then
-  echo "POCKET_IC_BIN must name the executable pinned PocketIC server" >&2
-  exit 1
-fi
-
+runner="$ROOT/.tools/testkit/bin/ic-testkit-server"
+[[ "$#" -gt 0 ]] || { echo 'usage: run-with-pocketic-server.sh <command> [args...]' >&2; exit 2; }
+[[ -n "${POCKET_IC_BIN:-}" && -x "$POCKET_IC_BIN" ]] || {
+  echo 'POCKET_IC_BIN must name the executable pinned PocketIC server' >&2; exit 1;
+}
+[[ -x "$runner" ]] || { echo 'run make install-pocketic-runner before validation' >&2; exit 1; }
+# This lane deliberately owns a fresh server, even if the invoking shell has a
+# borrowed URL. Testkit rejects caller-owned output files with a borrowed URL.
+unset IC_TESTKIT_POCKET_IC_URL
 scratch_root="${TMPDIR:-$ROOT/.cache}"
 mkdir -p "$scratch_root"
 scratch="$(mktemp -d "$scratch_root/icydb-pocketic-server.XXXXXX")"
-port_file="$scratch/port"
-stdout_file="$scratch/stdout"
-stderr_file="$scratch/stderr"
-
-# Invoked from the EXIT-trap cleanup path.
-# shellcheck disable=SC2317,SC2329
-report_server_output() {
-  echo "==> shared PocketIC stderr (last 40 lines)" >&2
-  tail -40 "$stderr_file" >&2 || true
-  echo "==> shared PocketIC stdout (last 40 lines)" >&2
-  tail -40 "$stdout_file" >&2 || true
-}
-
-report_server_resources() {
-  if [[ -z "$SERVER_PID" || ! -r "/proc/$SERVER_PID/status" ]]; then
-    echo "==> shared PocketIC resources: unavailable"
-    return
-  fi
-
-  local key value rss="unknown" high_water="unknown" threads="unknown"
-  while IFS=: read -r key value; do
-    value="${value#"${value%%[![:space:]]*}"}"
-    value="${value%"${value##*[![:space:]]}"}"
-    case "$key" in
-      Threads) threads="$value" ;;
-      VmHWM) high_water="$value" ;;
-      VmRSS) rss="$value" ;;
-    esac
-  done <"/proc/$SERVER_PID/status"
-  echo "==> shared PocketIC resources: rss=$rss high_water=$high_water threads=$threads"
-}
-
-# Registered as the process EXIT trap below.
-# shellcheck disable=SC2317,SC2329
-cleanup() {
-  local status="$?"
-  trap - EXIT INT TERM
-  if [[ -n "$SERVER_PID" ]]; then
-    if kill -0 "$SERVER_PID" 2>/dev/null; then
-      kill -KILL "$SERVER_PID" 2>/dev/null || true
-    fi
-    wait "$SERVER_PID" 2>/dev/null || true
-  fi
-  if [[ "$status" -ne 0 ]]; then
-    report_server_output || true
-    # Process ownership ends here; complete failure evidence must outlive it.
-    echo "==> full PocketIC server logs retained: $scratch" >&2 || true
-  else
-    rm -f "$port_file" "$stdout_file" "$stderr_file"
-    rmdir "$scratch" 2>/dev/null || true
-  fi
-  exit "$status"
-}
-trap cleanup EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
-
-"$POCKET_IC_BIN" \
-  --ttl "$SERVER_TTL_SECONDS" \
-  --hard-ttl "$SERVER_TTL_SECONDS" \
-  --port-file "$port_file" \
-  >"$stdout_file" 2>"$stderr_file" &
-SERVER_PID="$!"
-
-server_port=""
-for ((attempt = 0; attempt < 150; attempt++)); do
-  if ! kill -0 "$SERVER_PID" 2>/dev/null; then
-    wait "$SERVER_PID" || true
-    echo "PocketIC server exited before publishing its port" >&2
-    exit 1
-  fi
-  if [[ -f "$port_file" ]]; then
-    IFS= read -r server_port <"$port_file" || true
-  fi
-  if [[ "$server_port" =~ ^[0-9]+$ ]] &&
-     ((server_port >= 1 && server_port <= 65535)); then
-    break
-  fi
-  sleep 0.2
-done
-
-if [[ ! "$server_port" =~ ^[0-9]+$ ]] ||
-   ((server_port < 1 || server_port > 65535)); then
-  echo "PocketIC server did not publish a valid port within 30 seconds" >&2
-  exit 1
+signal_status=0
+runner_pid=""
+trap 'signal_status=130; kill -INT "$runner_pid" 2>/dev/null || true' INT
+trap 'signal_status=143; kill -TERM "$runner_pid" 2>/dev/null || true' TERM
+"$runner" run --ttl 900 --startup-timeout 30 \
+  --server-stdout "$scratch/stdout" --server-stderr "$scratch/stderr" -- "$@" &
+runner_pid="$!"
+# A signal may arrive between installing the traps and recording the child PID.
+if [[ "$signal_status" != 0 ]]; then
+  kill -"$((signal_status - 128))" "$runner_pid" 2>/dev/null || true
 fi
-
-export IC_TESTKIT_POCKET_IC_URL="http://127.0.0.1:$server_port/"
-echo "==> shared PocketIC server ready: $IC_TESTKIT_POCKET_IC_URL"
-
-started_at="$SECONDS"
 status=0
-"$@" || status="$?"
-echo "==> shared PocketIC command elapsed=$((SECONDS - started_at))s status=$status"
-report_server_resources
+wait "$runner_pid" || status=$?
+if [[ "$signal_status" != 0 ]]; then
+  # An interrupted wait returns before the runner finishes owned-group cleanup.
+  trap '' INT TERM
+  wait "$runner_pid" || true
+  status="$signal_status"
+fi
+trap - INT TERM
+if [[ "$status" != 0 ]]; then
+  for stream in stderr stdout; do
+    echo "==> shared PocketIC $stream (last 40 lines)" >&2
+    tail -40 "$scratch/$stream" >&2 || true
+  done
+  echo "==> full PocketIC server logs retained: $scratch" >&2
+else
+  rm -f "$scratch/stdout" "$scratch/stderr"
+  rmdir "$scratch"
+fi
 exit "$status"

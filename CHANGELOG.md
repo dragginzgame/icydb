@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 - Converge host tooling and validation evidence, strengthen runtime and SQL
   checks and grouped sort budgets, correct execution EXPLAIN facts, and retain release failure evidence
-  on macOS
+  on macOS; delegate PocketIC supervision to Testkit and narrow duplicated CI tests
   ([#302](https://github.com/dragginzgame/icydb/issues/302),
   [#307](https://github.com/dragginzgame/icydb/issues/307),
   [#309](https://github.com/dragginzgame/icydb/issues/309),

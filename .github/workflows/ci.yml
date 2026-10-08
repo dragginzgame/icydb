@@ -72,6 +72,10 @@ jobs:
         run: |
           make install-rust-tools rust-tools-check
           echo "$GITHUB_WORKSPACE/.tools/rust/bin" >> "$GITHUB_PATH"
+      - name: Install locked PocketIC runner
+        run: |
+          cargo fetch --locked
+          make install-pocketic-runner
       - name: Run static validation with complete feedback
         run: make ci-static
 
@@ -143,6 +147,9 @@ jobs:
           HARD_TIMEOUT_SECONDS: ${{ matrix.hard_timeout_seconds }}
           MAKE_TARGET: ${{ matrix.make_target }}
         run: |
+          if [[ "$MAKE_TARGET" == "ci-sql-tier-b" ]]; then
+            make install-pocketic-runner
+          fi
           if [[ "$HARD_TIMEOUT_SECONDS" == "0" ]]; then
             make "$MAKE_TARGET"
           else
@@ -184,6 +191,10 @@ jobs:
           printf '%s\n' "$CARGO_HOME/bin" "$HOME/.local/bin" \
             "$GITHUB_WORKSPACE/.tools/host/bin" "$GITHUB_WORKSPACE/.tools/ic/bin" \
             "$GITHUB_WORKSPACE/.tools/rust/bin" >> "$GITHUB_PATH"
+      - name: Install locked PocketIC runner
+        run: |
+          cargo fetch --locked
+          make install-pocketic-runner
       - name: Qualify portable automation with system Bash
         run: |
           export PATH="/bin:/usr/bin:/usr/sbin:/sbin:$PATH"

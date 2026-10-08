@@ -84,7 +84,7 @@ CODEOWNERS covers shared guidance, the manifest and consumer tooling. The public
 GitHub description, “ic database”, was reviewed against the README and remains
 accurate; no remote metadata change was needed.
 
-The four direct registry host packages at 0.4 are consumed only by host tooling.
+The four direct registry host packages at 0.7 are consumed only by host tooling.
 `icydb-testing-integration` selects `ic-host-artifacts` with its `wasm` feature
 for streaming hashes, digest formatting and report/method structure inspection,
 and `ic-host-process` for executable resolution, pinned admission and bounded
@@ -92,6 +92,10 @@ execution. `icydb-cli` uses the artifact stream reader for diagnostic error JSON
 `ic-host-fs` for opened schema-artifact admission and bounded reads, and retains
 IC response decoding in `ic-host-tools`.
 These direct dependencies are absent from runtime and canister packages.
+Published Testkit 0.23.0 still selects Host 0.6.0. The duplicate host generation
+is an upstream release boundary tracked by
+[Testkit #32](https://github.com/dragginzgame/ic-testkit/issues/32); no local
+override, re-export shim or second process implementation is added.
 CLI normalization retains its current labels and whitespace handling
 before shared decoding; no command grammar or Candid policy changes. Inspection count ceilings derive from input length;
 the consumer keeps defined-function counts and code-section payload bytes in
@@ -133,10 +137,22 @@ All three direct test-instance callers now reuse the existing fixture startup
 adapter, which delegates selection to `PocketIcStartupConfig::from_env`. The
 batch wrapper exports `IC_TESTKIT_POCKET_IC_URL`; direct startup requires the
 prepared `POCKET_IC_BIN`. The unread download setting is removed
-([#317](https://github.com/dragginzgame/icydb/issues/317)). Testkit's runner deletes
-its server logs on exit and only exposes bounded diagnostics, so it cannot yet
-replace IcyDB's complete-failure-log retention contract
-([Testkit #19](https://github.com/dragginzgame/ic-testkit/issues/19)).
+([#317](https://github.com/dragginzgame/icydb/issues/317)). The published Testkit
+runner, currently selected at 0.23.0, owns server startup, readiness, process groups, cancellation
+and reaping. Its explicit output-file contract preserves complete streams;
+IcyDB selects fresh scratch paths, relays shell signals, presents bounded tails
+and retains failed outputs. Successful invocation-owned scratch is removed
+([Testkit #29](https://github.com/dragginzgame/ic-testkit/issues/29),
+[#307](https://github.com/dragginzgame/icydb/issues/307)).
+
+Run `make fetch install-pocketic-runner` explicitly before the portable wrapper
+fixtures or Tier B. Cargo metadata selects the single locked Testkit version;
+Cargo installs its published `ic-testkit-server` into `.tools/testkit/bin`, with
+retained build outputs under `target/icydb/testkit-runner`. CI performs this
+setup before validation. Ordinary validation never installs or downloads the
+runner. This handoff removes the second server supervisor; the only retained
+local policy is evidence custody and the existing 30-second startup/900-second
+server lifetime. No additional runtime mode or retry is introduced.
 
 `make check-portable-automation` owns the existing common fixture selection for
 both `check-invariants` and native macOS CI. Twenty duplicate workflow entries
@@ -229,7 +245,7 @@ PR release delivery, but its inspected Intel macOS job was cancelled
 ([run](https://github.com/dragginzgame/shared-tooling/actions/runs/37652236506)).
 It is reviewed separately and is not the adopted snapshot.
 
-The 2026-10-08 manifest/lock selection uses all four direct Host 0.5.0 packages
+Earlier 2026-10-08 qualification selected all four direct Host 0.5.0 packages
 at `db637fac8b7a9ef62301e1d9009ffeb5ffcd0be7`. Their locked archive checksums
 and all 71 packaged Rust files match the reviewed release. Missing selected
 cache entries were prepared from the already-local registry after archive and
@@ -242,16 +258,14 @@ Transform, feature and metrics calls now share `run_wasm_optimizer`, retaining
 one existing optimizer execution policy with inherited environment, 1 MiB per
 stream, a 600-second operational deadline and contextual failure evidence.
 Admission, pins, arguments, working directories and report format remain the
-same. Host's new child-group owner does not replace IcyDB's full-log Bash
-supervisor or establish an interactive ICP execution policy. New Wasm facts and
+same. Interactive ICP execution still needs a separate policy. New Wasm facts and
 optional IC limits are not added to the existing report contract.
 
-Testkit 0.21.3 still requires Host 0.4 and retains all four 0.4.6 packages in
-the selected graph. The approved Testkit 0.22 adoption owns the shared child
-replacement and removal of that duplicate graph
-([Testkit #25](https://github.com/dragginzgame/ic-testkit/issues/25)); no local
-cross-minor Cargo override is introduced. Source/cache and focused consumer
-evidence are retained under `target/ic-host-050-adoption/`. This pending adoption
+That earlier Testkit 0.21.3 selection also retained Host 0.4.6; the shared child
+replacement and convergence were delivered upstream under
+[Testkit #25](https://github.com/dragginzgame/ic-testkit/issues/25).
+Source/cache and focused consumer evidence for that selection are retained under
+`target/ic-host-050-adoption/`. Consumer adoption
 remains [#307](https://github.com/dragginzgame/icydb/issues/307); matching native
 consumer qualification remains [#309](https://github.com/dragginzgame/icydb/issues/309).
 Focused Linux checks pass strict selected CLI/integration Clippy, 3 optimizer,

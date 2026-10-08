@@ -35,55 +35,21 @@ selections:
 	@test "$(SELECTION_WITH_SPACE)" = 'kept value'
 MAKE
 
-# Exercise the canonical runner via the adapter, retaining every raw target
-# failure and both summaries. A later passing check must preserve prior evidence.
+# Shared runner and installer failure permutations are qualified upstream at the
+# revision in .shared-tooling.snapshot. Keep these tests on the consumer boundary:
+# repository/log selection, argument/status forwarding and pin/asset selection.
+# Run from another directory so the adapter must select its own repository.
 status=0
-ICYDB_VALIDATION_FAILURE_LOG_DIR="$FIXTURE/logs" \
-  bash "$FIXTURE/scripts/ci/run-icydb-validation-targets.sh" pass fail-one fail-two \
-  > "$FIXTURE/output" 2>&1 || status=$?
+(
+  cd "$FIXTURE/bin"
+  ICYDB_VALIDATION_FAILURE_LOG_DIR="$FIXTURE/logs" \
+    bash "$FIXTURE/scripts/ci/run-icydb-validation-targets.sh" --fail-fast pass fail-one fail-two
+) > "$FIXTURE/output" 2>&1 || status=$?
 # Make reports a failed recipe as status 2; preserve that through both owners.
 [[ "$status" -eq 2 ]]
-for payload in first-complete-payload second-complete-payload; do
-  rg -F "$payload" "$FIXTURE/logs/latest-combined.log" > /dev/null
-done
-# Complete batch bytes preserve dispatch order; latest.log retains the distinct
-# last-failed-target contract of the shared runner.
-awk '/^first-complete-payload$/ { first = NR } /^second-complete-payload$/ { second = NR }
-  END { exit !(first > 0 && second > first) }' "$FIXTURE/logs/latest-combined.log"
-rg -F second-complete-payload "$FIXTURE/logs/latest.log" > /dev/null
-if rg -F first-complete-payload "$FIXTURE/logs/latest.log" > /dev/null; then exit 1; fi
-[[ -s "$FIXTURE/logs/latest-errors.log" ]]
-for log in "$FIXTURE/logs"/*-[0-9]*-*.log; do
-  [[ -s "$log" ]]
-done
-cp "$FIXTURE/logs/latest-combined.log" "$FIXTURE/previous.log"
-ICYDB_VALIDATION_FAILURE_LOG_DIR="$FIXTURE/logs" \
-  bash "$FIXTURE/scripts/ci/run-icydb-validation-targets.sh" pass \
-  > "$FIXTURE/pass-output" 2>&1
-cmp "$FIXTURE/logs/latest-combined.log" "$FIXTURE/previous.log"
-
-# Direct adapter callers must not report evidence from an unexecuted or
-# failure-suppressing Make invocation, or replace prior complete failure logs.
-rm "$FIXTURE/executed"
-for flags in i n q t v --ignore-errors --just-print --question --touch --version; do
-  status=0
-  MAKEFLAGS="$flags" ICYDB_VALIDATION_FAILURE_LOG_DIR="$FIXTURE/logs" \
-    bash "$FIXTURE/scripts/ci/run-icydb-validation-targets.sh" pass \
-    > "$FIXTURE/refused-${flags#--}" 2>&1 || status=$?
-  [[ "$status" -ne 0 && ! -e "$FIXTURE/executed" ]]
-  cmp "$FIXTURE/logs/latest-combined.log" "$FIXTURE/previous.log"
-done
-
-status=0
-ICYDB_VALIDATION_FAILURE_LOG_DIR="$FIXTURE/fast-logs" \
-  bash "$FIXTURE/scripts/ci/run-icydb-validation-targets.sh" --fail-fast fail-one fail-two \
-  > "$FIXTURE/fast-output" 2>&1 || status=$?
-[[ "$status" -eq 2 ]]
-rg -F first-complete-payload "$FIXTURE/fast-logs/latest-combined.log" > /dev/null
-if rg -F second-complete-payload "$FIXTURE/fast-logs/latest-combined.log" > /dev/null; then
-  echo "fail-fast executed a later target" >&2
-  exit 1
-fi
+[[ -f "$FIXTURE/executed" ]]
+rg -F first-complete-payload "$FIXTURE/logs/latest-combined.log" > /dev/null
+if rg -F second-complete-payload "$FIXTURE/output" > /dev/null; then exit 1; fi
 
 status=0
 ICYDB_VALIDATION_FAILURE_LOG_DIR="$FIXTURE/nested-logs" \
@@ -153,47 +119,4 @@ for host in Linux:x86_64:linux_amd64 Linux:aarch64:linux_arm64 \
     "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_${platform}.tar.gz" ]]
 done
 
-# A digest refusal must happen before executing an untrusted candidate and must
-# preserve the installed executable. No real download or global install occurs.
-cp "$FIXTURE/install/actionlint" "$FIXTURE/installed-before"
-cat > "$FIXTURE/bin/actionlint" <<'UNTRUSTED'
-#!/usr/bin/env bash
-touch "$TEST_SIDE_EFFECT"
-printf '%s\n' 1.7.12
-UNTRUSTED
-tar -czf "$FIXTURE/untrusted.tar.gz" -C "$FIXTURE/bin" actionlint
-status=0
-PATH="$FIXTURE/bin:$PATH" TEST_HOST=Linux TEST_ARCH=x86_64 \
-  TEST_REQUEST="$FIXTURE/request" TEST_ARCHIVE="$FIXTURE/untrusted.tar.gz" \
-  TEST_SIDE_EFFECT="$FIXTURE/executed" ACTIONLINT_INSTALL_DIR="$FIXTURE/install" \
-  bash "$FIXTURE/scripts/ci/install-icydb-actionlint.sh" \
-  > "$FIXTURE/rejection" 2>&1 || status=$?
-[[ "$status" -ne 0 && ! -e "$FIXTURE/executed" ]]
-cmp "$FIXTURE/install/actionlint" "$FIXTURE/installed-before"
-# Authentic bytes with the wrong version also preserve the selected executable
-# and retain their failed candidate on the destination filesystem.
-cat > "$FIXTURE/bin/actionlint" <<'WRONG_VERSION'
-#!/usr/bin/env bash
-touch "$TEST_SIDE_EFFECT"
-printf '%s\n' 1.7.120
-WRONG_VERSION
-tar -czf "$FIXTURE/wrong-version.tar.gz" -C "$FIXTURE/bin" actionlint
-digest="$(bash "$FIXTURE/scripts/ci/verify-file-checksum.sh" --print sha256 "$FIXTURE/wrong-version.tar.gz")"
-printf 'version\t1.7.12\n%s\tactionlint_1.7.12_linux_amd64.tar.gz\n' "$digest" \
-  > "$FIXTURE/scripts/ci/actionlint-checksums.tsv"
-status=0
-PATH="$FIXTURE/bin:$PATH" TEST_HOST=Linux TEST_ARCH=x86_64 \
-  TEST_REQUEST="$FIXTURE/request" TEST_ARCHIVE="$FIXTURE/wrong-version.tar.gz" \
-  TEST_SIDE_EFFECT="$FIXTURE/version-executed" ACTIONLINT_INSTALL_DIR="$FIXTURE/install" \
-  bash "$FIXTURE/scripts/ci/install-icydb-actionlint.sh" \
-  > "$FIXTURE/version-rejection" 2>&1 || status=$?
-[[ "$status" -ne 0 && -f "$FIXTURE/version-executed" ]]
-cmp "$FIXTURE/install/actionlint" "$FIXTURE/installed-before"
-retained=0
-for stage in "$FIXTURE/install"/.actionlint-install.*; do
-  if [[ -f "$stage/actionlint" ]] && cmp -s "$stage/actionlint" "$FIXTURE/bin/actionlint"; then
-    retained=$((retained + 1))
-  fi
-done
-[[ "$retained" == 1 ]]
 echo "shared-tooling adapter regressions passed"
