@@ -26,6 +26,7 @@ mod secondary_order;
 mod seek_intersection;
 mod sparse_indexes;
 mod sql_not_null;
+mod sql_scalar_comparisons;
 mod sql_write_fields;
 mod timestamp_ranges;
 mod typed_explain;
@@ -346,6 +347,10 @@ fn sql_count_only_writes_preserve_counts_values_and_returning() {
     assert!(projection_rows(&session, "SELECT id FROM PlannerRow WHERE id = 1").is_empty());
 }
 
+fn returning_result_len(output: crate::db::RowProjectionOutput) -> candid::Result<usize> {
+    candid::encode_one(Ok::<_, ()>(output)).map(|bytes| bytes.len())
+}
+
 #[test]
 fn sql_returning_bounds_reject_before_mutation_and_preserve_field_order() {
     use crate::db::{
@@ -359,7 +364,7 @@ fn sql_returning_bounds_reject_before_mutation_and_preserve_field_order() {
     };
     use icydb_diagnostic_code::{DiagnosticDetail, SqlWriteBoundaryCode};
 
-    let session = initialize();
+    let session = initialize().__with_sql_returning_response_len(returning_result_len);
     insert_row(&session, 1, "before", "group-a");
     let replacement = "x".repeat(512);
     let sql =
@@ -370,7 +375,17 @@ fn sql_returning_bounds_reject_before_mutation_and_preserve_field_order() {
         .unwrap();
     let descriptor =
         AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot()).unwrap();
-    for limit in [256, 4096] {
+    let output = crate::db::RowProjectionOutput {
+        entity: ENTITY_NAME.into(),
+        columns: vec!["common".into(), "id".into()],
+        rows: vec![vec![
+            OutputValue::text(replacement.clone()),
+            OutputValue::nat64(1),
+        ]],
+        row_count: 1,
+    };
+    let exact = u32::try_from(returning_result_len(output).unwrap()).unwrap();
+    for limit in [exact - 1, exact] {
         let plan = with_accepted_sql_update_policy_context(&descriptor, |mut context| {
             context.max_returning_response_bytes = Some(limit);
             with_preparation_work(|work| {
@@ -389,7 +404,7 @@ fn sql_returning_bounds_reject_before_mutation_and_preserve_field_order() {
             panic!("expected primary-key plan");
         };
         let result = session.execute_validated_sql_public_primary_key_update(&plan);
-        if limit == 256 {
+        if limit < exact {
             let error = result.unwrap_err();
             assert_eq!(
                 error.diagnostic().detail(),
@@ -412,6 +427,81 @@ fn sql_returning_bounds_reject_before_mutation_and_preserve_field_order() {
                     OutputValue::text(replacement.clone()),
                     OutputValue::nat64(1)
                 ]]
+            );
+        }
+    }
+}
+
+#[test]
+fn sql_delete_returning_bounds_reject_before_mutation() {
+    use crate::db::session::sql::{
+        SqlDeleteExposurePolicy, SqlDeletePolicyContext, SqlValidatedDeletePlan,
+        classify_sql_delete_statement_policy,
+    };
+    use icydb_diagnostic_code::{DiagnosticDetail, SqlWriteBoundaryCode};
+    let session = initialize().__with_sql_returning_response_len(returning_result_len);
+    let replacement = "x".repeat(512);
+    insert_row(&session, 1, &replacement, "group-a");
+    let output = crate::db::RowProjectionOutput {
+        entity: ENTITY_NAME.into(),
+        columns: vec!["common".into(), "id".into()],
+        rows: vec![vec![
+            OutputValue::text(replacement.clone()),
+            OutputValue::nat64(1),
+        ]],
+        row_count: 1,
+    };
+    let exact = u32::try_from(returning_result_len(output).unwrap()).unwrap();
+    let delete = crate::db::sql::parser::parse_sql(
+        "DELETE FROM PlannerRow WHERE id = 1 RETURNING common, id",
+    )
+    .unwrap();
+    for limit in [exact - 1, exact] {
+        let mut context = SqlDeletePolicyContext::public_generated(&["id"]);
+        context.max_returning_response_bytes = Some(limit);
+        let plan = classify_sql_delete_statement_policy(
+            &delete,
+            SqlDeleteExposurePolicy::PublicPrimaryKeyOnly,
+            context,
+        )
+        .unwrap();
+        let SqlValidatedDeletePlan::PublicPrimaryKeyOnly(plan) = plan else {
+            panic!("expected primary-key delete plan");
+        };
+        let result = session.execute_validated_sql_public_primary_key_delete(&plan);
+        if limit < exact {
+            let error = result.unwrap_err();
+            assert_eq!(
+                error.diagnostic().detail(),
+                Some(&DiagnosticDetail::SqlWriteBoundary {
+                    boundary: SqlWriteBoundaryCode::ReturningResponseTooLarge,
+                })
+            );
+            assert_eq!(
+                projection_rows(&session, "SELECT common FROM PlannerRow WHERE id = 1"),
+                vec![vec![OutputValue::text(replacement.clone())]]
+            );
+        } else {
+            let SqlStatementResult::Projection {
+                columns,
+                rows,
+                row_count,
+                ..
+            } = result.unwrap()
+            else {
+                panic!("expected deleted row projection");
+            };
+            assert_eq!(columns, ["common", "id"]);
+            assert_eq!(row_count, 1);
+            assert_eq!(
+                rows,
+                vec![vec![
+                    OutputValue::text(replacement.clone()),
+                    OutputValue::nat64(1)
+                ]]
+            );
+            assert!(
+                projection_rows(&session, "SELECT common FROM PlannerRow WHERE id = 1").is_empty()
             );
         }
     }

@@ -184,13 +184,11 @@ install-hooks:
 	bash scripts/dev/install-git-hooks.sh
 
 # Provisioning and offline bundle verification belong to the shared include.
-# These independent IcyDB admissions additionally qualify the selected client
-# and executable; neither changes the toolset or implicitly installs anything.
+# IcyDB additionally admits its raw optimizer executable. Testkit owns PocketIC
+# client/server version admission when starting the governed server.
 ic-tools-check: _icydb-ic-tool-policy
 
 _icydb-ic-tool-policy:
-	$(CARGO_WORK_ENV) bash scripts/ci/check-pocketic-alignment.sh \
-		--manifest "$(ROOT_DIR)/Cargo.toml" --pins "$(ROOT_DIR)/ci/ic-tools.tsv"
 	bash scripts/ci/verify-wasm-optimizer.sh
 
 #
@@ -426,12 +424,11 @@ check-portable-automation:
 	bash scripts/ci/test-gh-ci.sh
 	bash scripts/ci/test-shared-tooling-adapters.sh
 	bash scripts/ci/test-workstation-setup.sh
-	bash scripts/ci/test-pocketic-checks.sh
 	bash scripts/ci/test-rust-tools.sh
 	bash scripts/ci/test-cargo-metadata-adoption.sh
 	bash scripts/ci/test-pocketic-server-wrapper.sh
 	bash scripts/ci/test-ci-workflow-invariants.sh
-	bash scripts/ci/test-invariant-scanners.sh
+	$(CARGO_WORK_ENV) bash scripts/ci/test-invariant-scanners.sh
 	bash scripts/ci/check-ci-workflow-invariants.sh
 	bash scripts/release/test-standard-release.sh
 	bash scripts/release/test-receipt-callbacks.sh
@@ -448,7 +445,7 @@ check-invariants:
 	bash scripts/release/test-finalize-notes.sh
 	bash scripts/ci/check-deployment-inventory-invariants.sh
 	bash scripts/ci/check-dependency-graph-invariants.sh
-	bash scripts/ci/check-executor-no-production-panics.sh
+	$(CARGO_WORK_ENV) bash scripts/ci/check-executor-no-production-panics.sh
 	bash scripts/ci/check-generated-endpoint-invariants.sh
 	bash scripts/ci/check-index-range-spec-invariants.sh
 	bash scripts/ci/check-layer-authority-invariants.sh

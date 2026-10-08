@@ -60,9 +60,28 @@ pub(in crate::db::session) use write::{
 
 pub struct DbSession<C: CanisterKind> {
     db: Db<C>,
+    #[cfg(feature = "sql")]
+    sql_returning_response_len: fn(crate::db::RowProjectionOutput) -> candid::Result<usize>,
 }
 
 impl<C: CanisterKind> DbSession<C> {
+    /// Select the outward Candid projection envelope for precommit SQL bounds.
+    ///
+    /// The encoder must preserve `RowProjectionOutput`'s value encoding inside
+    /// a fixed envelope independent of row contents. The facade installs its
+    /// actual public response encoder; raw core sessions encode the projection.
+    /// This is session-local framing, not schema authority or mutation policy.
+    #[cfg(feature = "sql")]
+    #[doc(hidden)]
+    #[must_use]
+    pub const fn __with_sql_returning_response_len(
+        mut self,
+        encode: fn(crate::db::RowProjectionOutput) -> candid::Result<usize>,
+    ) -> Self {
+        self.sql_returning_response_len = encode;
+        self
+    }
+
     /// Snapshot the aggregate request budget shared by this session's root.
     ///
     /// Reads the retained owner even outside its active call tree; observing
@@ -80,6 +99,8 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Self {
         Self {
             db: Db::new(store, request_root.scope()),
+            #[cfg(feature = "sql")]
+            sql_returning_response_len: sql::encoded_returning_response_len,
         }
     }
 
@@ -99,6 +120,8 @@ impl<C: CanisterKind> DbSession<C> {
     pub fn __new_from_current_request(store: &'static LocalKey<StoreRegistry>) -> Option<Self> {
         request::current_request_scope().map(|scope| Self {
             db: Db::new(store, scope),
+            #[cfg(feature = "sql")]
+            sql_returning_response_len: sql::encoded_returning_response_len,
         })
     }
 }

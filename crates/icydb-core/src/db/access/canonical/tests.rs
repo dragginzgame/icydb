@@ -125,7 +125,7 @@ fn singleton_normalization_moves_payloads_and_reuses_lookup_backing() {
                 values,
             },
             _ => AccessPath::IndexBranchSet {
-                spec: IndexBranchSetSpec::from_primary_key_asc_contract(
+                spec: IndexBranchSetSpec::from_index_contract(
                     contract.clone(),
                     vec![Value::Nat64(7)],
                     values,

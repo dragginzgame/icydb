@@ -86,11 +86,7 @@ impl<K> AccessPlan<K> {
         branch_values: Vec<Value>,
     ) -> Self {
         Self::path(AccessPath::IndexBranchSet {
-            spec: IndexBranchSetSpec::from_primary_key_asc_contract(
-                index,
-                fixed_values,
-                branch_values,
-            ),
+            spec: IndexBranchSetSpec::from_index_contract(index, fixed_values, branch_values),
         })
     }
 

@@ -23,12 +23,6 @@ use crate::{
 };
 use icydb_diagnostic_code::{DiagnosticFactTag, SqlWriteBoundaryCode};
 
-pub(super) struct SqlReturningProjectionRows {
-    pub(super) columns: Vec<String>,
-    pub(super) rows: Vec<Vec<OutputValue>>,
-    pub(super) row_count: u32,
-}
-
 pub(super) struct SqlReturningFieldProjection {
     output_columns: Vec<String>,
     selection: Vec<(usize, usize)>,
@@ -123,46 +117,6 @@ pub(super) fn sql_returning_output_value_row(
             output_value_from_runtime(enum_catalog, value).map_err(|_error| QueryError::invariant())
         })
         .collect()
-}
-
-pub(super) fn sql_materialized_returning_projection_rows(
-    enum_catalog: &AcceptedEnumCatalog,
-    columns: &[String],
-    rows: &[Vec<Value>],
-    row_count: u32,
-    returning: &SqlReturningProjection,
-) -> Result<SqlReturningProjectionRows, InternalError> {
-    match returning {
-        SqlReturningProjection::All => Ok(SqlReturningProjectionRows {
-            columns: columns.to_vec(),
-            rows: rows
-                .iter()
-                .cloned()
-                .map(|row| sql_returning_output_value_row(enum_catalog, row))
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(query_error_to_internal_invariant)?,
-            row_count,
-        }),
-        SqlReturningProjection::Fields(fields) => {
-            let projection = SqlReturningFieldProjection::from_fields(columns, fields)
-                .map_err(query_error_to_internal_invariant)?;
-            let rows = rows
-                .iter()
-                .map(|row| {
-                    projection
-                        .project_borrowed_row(row)
-                        .and_then(|row| sql_returning_output_value_row(enum_catalog, row))
-                        .map_err(query_error_to_internal_invariant)
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-
-            Ok(SqlReturningProjectionRows {
-                columns: projection.output_columns(),
-                rows,
-                row_count,
-            })
-        }
-    }
 }
 
 pub(super) fn query_error_to_internal_invariant(_err: QueryError) -> InternalError {

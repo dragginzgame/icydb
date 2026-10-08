@@ -69,6 +69,3 @@ file	66f23e9de66c63c0e47456bd76dd5898b5965f2b9a831ecbb0e8e530769629d3	x	scripts/
 file	502d20283b758ad3f72f94118af3d1c8bbb28ed06bfff57ec83b0acbcffc5806	x	scripts/ci/test-rust-tools.sh
 file	3380e09c58b6c5ebc505c0ac752a15775528378320a26fa86186020b35b6b0ec	-	rules/contributions.md
 file	49e5c54defd9330aacf2635fd36803f3ea469ea278a2628f63dbd82458dfd5a9	-	scripts/ci/ic-tool-pins.awk
-file	2cb1fdf2f47c17a14d04cbb1a0e729d116ca934a76725ec2a0c4ef5808a037cf	x	scripts/ci/check-pocketic-alignment.sh
-file	63610b2055ddd3f030c326451c0a00cbd6aacba0bdb0b6e3ffa46f74a2815885	x	scripts/ci/check-pocketic-binary.sh
-file	6340160613224fb257c7b28c20c34e7f22539675368ac8b7655f2c5c57b8582e	x	scripts/ci/test-pocketic-checks.sh

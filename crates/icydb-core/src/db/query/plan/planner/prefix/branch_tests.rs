@@ -90,6 +90,40 @@ fn branch_selection_reuses_order_score_without_changing_eligibility_or_ties() {
 }
 
 #[test]
+fn unordered_branch_selection_accepts_non_primary_key_suffix() {
+    use crate::db::{
+        predicate::Predicate,
+        query::{
+            plan::{OrderDirection, OrderSpec, OrderTerm, VisibleIndexes, exact_metadata_schema},
+            preparation::with_preparation_work,
+        },
+    };
+    let schema = exact_metadata_schema(&[("secondary", &["age", "rank", "maybe"])], &[]);
+    let visible = VisibleIndexes::accepted_schema_visible(&schema).unwrap();
+    let children = [
+        Predicate::eq("age".into(), Value::Int64(7)),
+        Predicate::in_("rank".into(), vec![Value::Int64(1), Value::Int64(2)]),
+    ];
+    let order = OrderSpec {
+        fields: vec![OrderTerm::field("id", OrderDirection::Asc)],
+    };
+    for (order, expected) in [(None, true), (Some(&order), false)] {
+        let plan = with_preparation_work(|work| {
+            super::index_branch_set_from_and(
+                visible.accepted_semantic_index_contracts(),
+                &schema,
+                &children,
+                order,
+                false,
+                work,
+            )
+        })
+        .unwrap();
+        assert_eq!(plan.is_some(), expected);
+    }
+}
+
+#[test]
 fn branch_values_admit_backing_and_conversion_before_canonicalization() {
     let values = [Value::Text("İ".into()), Value::Text("İ".into())];
     for (key, coercion, bytes, steps, visits, expected) in [

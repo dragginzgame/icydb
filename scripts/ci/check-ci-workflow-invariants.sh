@@ -112,7 +112,6 @@ for target in _test-canister-libs test-integration-feedback \
 done
 
 if ! ci_job_runs rust | rg -q --fixed-strings 'make install-tools tools-check' ||
-   ! rg -q --fixed-strings 'scripts/ci/check-pocketic-alignment.sh' Makefile ||
    ! rg -q --fixed-strings 'scripts/ci/run-with-pocketic-server.sh' Makefile ||
    ! rg -q --fixed-strings 'PocketIcStartupConfig::from_env(' testing/integration/src/lib.rs; then
   fail "PocketIC workflows must install one locked binary and Tier B must use one governed server"

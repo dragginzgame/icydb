@@ -373,10 +373,9 @@ fn ensure_text_literal(field: &str, value: &Value) -> Result<(), ValidateError> 
     Ok(())
 }
 
-const fn field_types_support_field_compare_eq_ne(left: &FieldType, right: &FieldType) -> bool {
+fn field_types_support_field_compare_eq_ne(left: &FieldType, right: &FieldType) -> bool {
     field_types_are_both_numeric(left, right)
-        || field_types_are_both_text(left, right)
-        || field_types_are_both_bool(left, right)
+        || field_types_support_strict_field_compare_eq_ne(left, right)
 }
 
 const fn field_types_support_field_compare_ordering(left: &FieldType, right: &FieldType) -> bool {
@@ -391,20 +390,19 @@ const fn field_types_are_both_numeric(left: &FieldType, right: &FieldType) -> bo
     left.supports_numeric_coercion() && right.supports_numeric_coercion()
 }
 
-const fn field_types_are_both_bool(left: &FieldType, right: &FieldType) -> bool {
-    left.is_bool() && right.is_bool()
+// Strict runtime equality compares matching scalar variants. Let the scalar
+// registry own eligibility rather than maintaining a text/bool whitelist.
+fn field_types_support_strict_field_compare_eq_ne(left: &FieldType, right: &FieldType) -> bool {
+    left == right && matches!(left, FieldType::Scalar(kind) if kind.supports_equality())
 }
 
-const fn compare_fields_coercion_supported(
+fn compare_fields_coercion_supported(
     left_type: &FieldType,
     right_type: &FieldType,
     coercion: &CoercionSpec,
 ) -> bool {
     match coercion.id {
-        CoercionId::Strict => {
-            field_types_are_both_text(left_type, right_type)
-                || field_types_are_both_bool(left_type, right_type)
-        }
+        CoercionId::Strict => field_types_support_strict_field_compare_eq_ne(left_type, right_type),
         CoercionId::NumericWiden => field_types_are_both_numeric(left_type, right_type),
         CoercionId::CollectionElement | CoercionId::TextCasefold => false,
     }

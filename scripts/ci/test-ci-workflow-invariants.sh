@@ -33,6 +33,36 @@ mutate() { "$YQ" -i "$1" "$subject"; }
 reset
 check pass baseline
 reset
+mutate 'del(.jobs.dependency_msrv.env.RUSTUP_TOOLCHAIN)'
+check fail missing-msrv-selection
+reset
+mutate '.jobs.dependency_msrv.env.RUSTUP_TOOLCHAIN = "${{ env.RUST_CURRENT }}"'
+check fail wrong-msrv-selection
+reset
+mutate '(.jobs.dependency_msrv.steps[] | select(.with.toolchain == "${{ env.RUSTUP_TOOLCHAIN }}")).with.toolchain = "${{ env.RUST_CURRENT }}"'
+check fail wrong-msrv-installation
+reset
+mutate '(.jobs.dependency_msrv.steps[] | select(.with.toolchain == "${{ env.RUSTUP_TOOLCHAIN }}")) |= del(.with.targets)'
+check fail missing-msrv-wasm-target
+reset
+mutate '(.jobs.dependency_msrv.steps[] | select(.run == "bash scripts/ci/check-public-msrv.sh")).env.RUSTUP_TOOLCHAIN = "${{ env.RUST_CURRENT }}"'
+check fail overridden-msrv-compiler
+reset
+mutate '.jobs.dependency_msrv.steps |= map(select(.run != "bash scripts/ci/check-public-msrv.sh")) | .jobs.static.steps += [{"run": "bash scripts/ci/check-public-msrv.sh"}]'
+check fail msrv-gate-wrong-job
+reset
+mutate '(.jobs.dependency_msrv.steps[] | select(.run == "bash scripts/ci/check-public-msrv.sh")).continue-on-error = true'
+check fail ignored-msrv-failure
+reset
+mutate '(.jobs.dependency_msrv.steps[] | select(.run == "bash scripts/ci/check-public-msrv.sh")).if = "github.event_name == '\''pull_request'\''"'
+check fail conditional-msrv-gate
+reset
+mutate '.jobs.dependency_msrv.steps |= map(select(.run != "make fetch"))'
+check fail missing-msrv-cache-preparation
+reset
+mutate '.jobs.dependency_msrv.steps |= (map(select(.run != "make fetch")) + [{"run": "make fetch"}])'
+check fail late-msrv-cache-preparation
+reset
 mutate '(.jobs.macos_host.steps[] | select(has("run")) | .run) |= sub("make check-portable-automation"; "make help")'
 check fail missing-native-portable-gate
 reset
@@ -51,6 +81,21 @@ check fail unprepared-inherited-wrapper
 reset
 mutate '.jobs.rust.steps |= map(select((.uses // "" | test("^mozilla-actions/sccache-action@")) | not))'
 check fail unprepared-job-wrapper
+reset
+mutate '.jobs.rust.steps |= map(select(.run != "make fetch"))'
+check fail missing-locked-cache-preparation
+reset
+mutate '.jobs.rust.steps |= (map(select(.run != "make fetch")) + [{"run": "make fetch"}])'
+check fail cache-preparation-after-offline-check
+reset
+mutate '(.jobs.rust.steps[] | select(.run == "make fetch")).if = "github.event_name == '\''pull_request'\''"'
+check fail conditional-cache-preparation
+reset
+mutate '(.jobs.rust.steps[] | select(.run == "make fetch")).continue-on-error = true'
+check fail ignored-cache-preparation-failure
+reset
+mutate '.jobs.rust.steps |= map(select(.run != "make fetch")) | .jobs.static.steps += [{"run": "make fetch"}]'
+check fail cache-preparation-wrong-job
 reset
 # Comments cannot override the parsed value of an individual checkout input.
 perl -pi -e 'if (!$done && s/persist-credentials: false/persist-credentials: true # persist-credentials: false/) { $done=1 }' "$subject"

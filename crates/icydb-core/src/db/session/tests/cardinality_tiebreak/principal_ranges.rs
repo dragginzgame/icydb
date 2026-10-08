@@ -120,6 +120,106 @@ fn seed_principals(unique: bool) -> Vec<(Principal, u64)> {
     rows
 }
 
+#[test]
+fn sql_issue_principal_literals_round_trip_writes_and_indexed_or_scan_reads() {
+    use icydb_diagnostic_code::{DiagnosticDetail, SqlWriteBoundaryCode};
+
+    seed_principals(false);
+    let session = new_request_session(&RequestExecutionRoot::__new_runtime_root());
+    let reported = Principal::from_text("rrc64-oybaa-aaaai").unwrap();
+    session
+        .execute_trusted_dynamic_insert_batch(
+            ENTITY_NAME,
+            vec![DynamicStructuralPatch::new(vec![
+                ("id".into(), DynamicWriteCell::Value(InputValue::nat64(1))),
+                (
+                    "owner".into(),
+                    DynamicWriteCell::Value(InputValue::principal(reported)),
+                ),
+                (
+                    "mirror".into(),
+                    DynamicWriteCell::Value(InputValue::principal(reported)),
+                ),
+            ])],
+        )
+        .unwrap();
+    for name in ["owner", "mirror"] {
+        for condition in [
+            format!("{name} = '{reported}'"),
+            format!("'{reported}' = {name}"),
+            format!("{name} = '{reported}' AND id + 0 = id"),
+        ] {
+            assert_eq!(
+                projection_rows(
+                    &session,
+                    &format!("SELECT id, {name} FROM PlannerRow WHERE {condition}")
+                ),
+                vec![vec![
+                    OutputValue::nat64(1),
+                    OutputValue::principal(reported)
+                ]]
+            );
+        }
+    }
+    for name in ["owner", "mirror"] {
+        session
+            .execute_trusted_sql_exact_update(
+                &format!("UPDATE PlannerRow SET {name} = '2vxsx-fae' WHERE id = 1"),
+                1,
+            )
+            .unwrap();
+        let rows = projection_rows(
+            &session,
+            &format!("SELECT id, {name} FROM PlannerRow WHERE {name} = '2vxsx-fae' ORDER BY id"),
+        );
+        assert!(rows.contains(&vec![
+            OutputValue::nat64(1),
+            OutputValue::principal(Principal::anonymous())
+        ]));
+    }
+    let read = "SELECT id, owner, mirror FROM PlannerRow ORDER BY id";
+    let before = projection_rows(&session, read);
+    for text in ["not-a-principal", "rrc64-oybaa-aaaaj"] {
+        let error = session.execute_trusted_sql_exact_update(&format!("UPDATE PlannerRow SET owner = '{text}', mirror = 'rrc64-oybaa-aaaai' WHERE id = 1"), 1).unwrap_err();
+        assert_eq!(
+            error.diagnostic().detail(),
+            Some(&DiagnosticDetail::SqlWriteBoundary {
+                boundary: SqlWriteBoundaryCode::InvalidFieldLiteral
+            })
+        );
+        assert_eq!(projection_rows(&session, read), before);
+        assert_eq!(
+            session
+                .execute_trusted_sql_query(&format!(
+                    "SELECT id FROM PlannerRow WHERE owner = '{text}'"
+                ))
+                .unwrap_err()
+                .diagnostic()
+                .error_code(),
+            icydb_diagnostic_code::ErrorCode::QUERY_PLAN
+        );
+    }
+    session
+        .execute_trusted_sql_mutation(
+            "INSERT INTO PlannerRow (id, owner, mirror) VALUES (2, 'rrc64-oybaa-aaaai', NULL)",
+        )
+        .unwrap();
+    assert_eq!(
+        projection_rows(
+            &session,
+            "SELECT owner, mirror FROM PlannerRow WHERE id = 2"
+        ),
+        vec![vec![OutputValue::principal(reported), OutputValue::null()]]
+    );
+    session
+        .execute_trusted_sql_exact_update("UPDATE PlannerRow SET owner = NULL WHERE id = 2", 1)
+        .unwrap();
+    assert_eq!(
+        projection_rows(&session, "SELECT owner FROM PlannerRow WHERE id = 2"),
+        vec![vec![OutputValue::null()]]
+    );
+}
+
 fn collect_pages(
     query: &DynamicQuery,
     public: bool,

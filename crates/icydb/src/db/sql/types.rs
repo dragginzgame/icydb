@@ -113,6 +113,15 @@ pub enum SqlQueryResult {
 }
 
 impl SqlQueryResult {
+    // Measure the actual wire envelope, including all result/error type arms.
+    // Core calls this with an empty canonical projection to establish framing.
+    pub(in crate::db) fn encoded_returning_response_len(
+        projection: RowProjectionOutput,
+    ) -> candid::Result<usize> {
+        let response: Result<Self, Error> = Ok(Self::Projection(projection));
+        candid::encode_one(response).map(|bytes| bytes.len())
+    }
+
     /// Reject a success whose exact public Candid envelope cannot be delivered
     /// by the deployed IC query boundary.
     #[doc(hidden)]
@@ -231,6 +240,46 @@ mod tests {
                 other => panic!("expected named Candid field, got {other:?}"),
             })
             .collect()
+    }
+
+    #[test]
+    fn returning_frame_counts_match_the_actual_public_response() {
+        use crate::{
+            db::RowProjectionOutput,
+            value::{OutputValue, PublicValue},
+        };
+        use candid::ser::ValueSerializer;
+
+        for (count, size) in [
+            (0, 0),
+            (1, 127),
+            (1, 128),
+            (127, 128),
+            (128, 128),
+            (1, 1_048_000),
+            (100, 10_300),
+        ] {
+            let row = vec![
+                OutputValue::text("x".repeat(size)),
+                OutputValue::list(vec![PublicValue::Null, PublicValue::Bool(true)]),
+            ];
+            let output = RowProjectionOutput {
+                entity: "Row".into(),
+                columns: vec!["text".into(), "nested".into()],
+                rows: vec![row; count],
+                row_count: u32::try_from(count).unwrap(),
+            };
+            let mut empty = output.clone();
+            empty.rows.clear();
+            let empty_frame = SqlQueryResult::encoded_returning_response_len(empty).unwrap();
+            let mut values = ValueSerializer::new();
+            output.rows.idl_serialize(&mut values).unwrap();
+            let candidate: Result<SqlQueryResult, Error> = Ok(SqlQueryResult::Projection(output));
+            let actual = candid::encode_one(candidate).unwrap().len();
+            // The empty vector occupies one byte; the real vector contains its
+            // own length prefix and each row's value encoding exactly once.
+            assert_eq!(empty_frame - 1 + values.get_result().len(), actual);
+        }
     }
 
     #[test]

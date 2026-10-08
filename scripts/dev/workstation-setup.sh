@@ -113,6 +113,9 @@ install_tooling() {
     fi
   done
 
+  # PocketIC admission resolves the selected workspace offline. Prepare that
+  # exact graph in Make's repository-local cache before checking the toolsets.
+  make --no-print-directory -C "$ROOT" fetch
   make --no-print-directory -C "$ROOT" tools-check
 }
 

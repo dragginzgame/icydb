@@ -91,10 +91,10 @@ impl<C: CanisterKind> DbSession<C> {
                                 return Ok(());
                             };
                             validate_sql_materialized_returning_bounds(
+                                self.sql_returning_response_len,
                                 entity_name.as_str(),
                                 columns.as_slice(),
                                 rows,
-                                u32::try_from(rows.len()).unwrap_or(u32::MAX),
                                 returning,
                                 catalog.enum_catalog(),
                                 execution_bounds.map(|bounds| bounds.returning),

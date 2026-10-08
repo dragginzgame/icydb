@@ -236,13 +236,16 @@ fn wrap_truth_predicate(
     truth: BoolTruth,
     work: &PreparationWork<'_>,
 ) -> CompileResult<Predicate> {
-    if matches!(truth, BoolTruth::True) {
+    if matches!(truth, BoolTruth::True)
+        && !matches!(&when_true, Predicate::CompareFields(compare) if compare.op() == CompareOp::Eq)
+    {
         return Ok(when_true);
     }
 
     // FALSE excludes UNKNOWN: a boolean runtime NOT alone also admits NULL
-    // operands. Guard only null-propagating leaves; collection membership and
-    // explicit field-state predicates retain their null-observing semantics.
+    // operands. TRUE also guards field equality because strict runtime equality
+    // admits NULL == NULL. Collection membership and explicit field-state
+    // predicates retain their null-observing semantics.
     let fields = match &when_true {
         Predicate::Compare(compare) if compare.op() != CompareOp::Contains => {
             [Some(compare.field()), None]
@@ -255,7 +258,9 @@ fn wrap_truth_predicate(
         }
         _ => [None, None],
     };
-    work.charge(Resource::TemporaryBytes, size_of::<Predicate>() as u64)?;
+    if matches!(truth, BoolTruth::False) {
+        work.charge(Resource::TemporaryBytes, size_of::<Predicate>() as u64)?;
+    }
     let guard_count = fields.iter().flatten().count();
     if guard_count == 0 {
         return Ok(Predicate::Not(Box::new(when_true)));
@@ -266,7 +271,10 @@ fn wrap_truth_predicate(
             field: work.copy_text(field)?,
         });
     }
-    children.push(Predicate::Not(Box::new(when_true)));
+    children.push(match truth {
+        BoolTruth::True => when_true,
+        BoolTruth::False => Predicate::Not(Box::new(when_true)),
+    });
     Ok(Predicate::And(children))
 }
 

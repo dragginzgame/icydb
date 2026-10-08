@@ -242,12 +242,15 @@ pub fn format_tool_failure(context: &str, error: &ToolError) -> String {
         );
     }
     if let Some(failure) = error.execution_error()
-        && (failure.kill_error.is_some() || failure.wait_error.is_some())
+        && (failure.term_error.is_some()
+            || failure.group_error.is_some()
+            || failure.kill_error.is_some()
+            || failure.wait_error.is_some())
     {
         let _ = write!(
             message,
-            "\ncleanup: kill={:?}, wait={:?}",
-            failure.kill_error, failure.wait_error,
+            "\ncleanup: term={:?}, group={:?}, kill={:?}, wait={:?}",
+            failure.term_error, failure.group_error, failure.kill_error, failure.wait_error,
         );
     }
     message
@@ -259,10 +262,54 @@ pub fn format_tool_failure(context: &str, error: &ToolError) -> String {
 
 #[cfg(test)]
 mod tests {
+    use ic_host_process::tool::{ExecutionError, ExecutionEvidence, ExecutionFailure, ToolError};
+    use std::io;
+
     use super::{
         POST_LINK_PIPELINE_IDENTITY, WASM_OPT_FLAGS, WASM_OPT_OUTPUT_FEATURES, WASM_OPT_VERSION,
-        optimize_deployable_wasm_with_optimizer, pinned_wasm_optimizer, wasm_opt_sha256,
+        format_tool_failure, optimize_deployable_wasm_with_optimizer, pinned_wasm_optimizer,
+        wasm_opt_sha256,
     };
+
+    #[test]
+    fn failure_projection_retains_each_cleanup_error_and_original_evidence() {
+        for field in 0..4 {
+            let mut failure = ExecutionError {
+                failure: ExecutionFailure::Cancelled,
+                evidence: ExecutionEvidence {
+                    status: None,
+                    stdout: b"retained stdout\n".to_vec(),
+                    stderr: b"retained stderr\n".to_vec(),
+                    ..ExecutionEvidence::default()
+                },
+                term_error: None,
+                group_error: None,
+                kill_error: None,
+                wait_error: None,
+            };
+            let cleanup = io::Error::from(io::ErrorKind::PermissionDenied);
+            match field {
+                0 => failure.term_error = Some(cleanup),
+                1 => failure.group_error = Some(cleanup),
+                2 => failure.kill_error = Some(cleanup),
+                _ => failure.wait_error = Some(cleanup),
+            }
+            // Check the diagnostic projection, deriving error display from its
+            // typed owner rather than freezing platform-dependent error prose.
+            let expected = format!(
+                "fixture: {failure}\nstatus: {:?}\nstdout:\nretained stdout\nstderr:\nretained stderr\ncleanup: term={:?}, group={:?}, kill={:?}, wait={:?}",
+                failure.evidence.status,
+                failure.term_error,
+                failure.group_error,
+                failure.kill_error,
+                failure.wait_error,
+            );
+            assert_eq!(
+                format_tool_failure("fixture", &ToolError::Execution(Box::new(failure))),
+                expected,
+            );
+        }
+    }
 
     #[test]
     fn post_link_optimizer_contract_is_exact_and_available() {
@@ -334,12 +381,16 @@ mod tests {
         let previous = b"\0asm\x01\0\0\0";
         std::fs::write(&input, previous).unwrap();
         std::fs::write(&output, previous).unwrap();
-        for producer in [
+        for (case, producer) in [
             ":",
             "printf 'short' > \"$output\"",
             "printf 'not-wasm' > \"$output\"",
-        ] {
-            let executable = root.join("producer");
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            // Keep each executed inode immutable across producer cases.
+            let executable = root.join(format!("producer-{case}"));
             std::fs::write(&executable, format!(
                 "#!/bin/sh\nif [ \"$1\" = --version ]; then echo fixture; exit 0; fi\nwhile [ \"$1\" != -o ]; do shift; done\noutput=$2\n[ -f \"$output\" ] && [ ! -s \"$output\" ] || exit 9\n{producer}\n"
             )).unwrap();
@@ -363,6 +414,7 @@ mod tests {
             assert!(optimize_deployable_wasm_with_optimizer(&input, &output, &optimizer).is_err());
             assert_eq!(std::fs::read(&output).unwrap(), previous);
             assert_eq!(std::fs::read_dir(&root).unwrap().count(), 3);
+            std::fs::remove_file(&executable).unwrap();
         }
         std::fs::remove_dir_all(root).unwrap();
     }

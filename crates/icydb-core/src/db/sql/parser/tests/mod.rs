@@ -36,6 +36,59 @@ fn sql_write_literal(value: Value) -> SqlWriteValue {
 }
 
 #[test]
+fn parse_sql_not_precedence_is_shared_across_statement_expression_surfaces() {
+    for (plain, grouped) in [
+        (
+            "SELECT id FROM users WHERE NOT stage = 'draft' AND enabled",
+            "SELECT id FROM users WHERE NOT (stage = 'draft') AND enabled",
+        ),
+        (
+            "SELECT id FROM users WHERE NOT stage = 'draft' OR enabled",
+            "SELECT id FROM users WHERE NOT (stage = 'draft') OR enabled",
+        ),
+        (
+            "SELECT id FROM users WHERE NOT (stage = 'draft' OR enabled)",
+            "SELECT id FROM users WHERE NOT ((stage = 'draft') OR enabled)",
+        ),
+        (
+            "SELECT id FROM users WHERE NOT NOT stage = 'draft'",
+            "SELECT id FROM users WHERE NOT (NOT (stage = 'draft'))",
+        ),
+        (
+            "UPDATE users SET stage = 'ready' WHERE NOT stage = 'draft'",
+            "UPDATE users SET stage = 'ready' WHERE NOT (stage = 'draft')",
+        ),
+        (
+            "DELETE FROM users WHERE NOT stage = 'draft'",
+            "DELETE FROM users WHERE NOT (stage = 'draft')",
+        ),
+        (
+            "SELECT CASE WHEN NOT stage = 'draft' THEN 1 ELSE 0 END FROM users",
+            "SELECT CASE WHEN NOT (stage = 'draft') THEN 1 ELSE 0 END FROM users",
+        ),
+        (
+            "SELECT COUNT(*) FROM users HAVING NOT COUNT(*) = 0",
+            "SELECT COUNT(*) FROM users HAVING NOT (COUNT(*) = 0)",
+        ),
+        (
+            "SELECT id FROM users WHERE NOT qty BETWEEN 1 AND 3 AND enabled",
+            "SELECT id FROM users WHERE NOT (qty BETWEEN 1 AND 3) AND enabled",
+        ),
+        (
+            "SELECT id FROM users WHERE NOT stage NOT LIKE 'd%'",
+            "SELECT id FROM users WHERE NOT (stage NOT LIKE 'd%')",
+        ),
+    ] {
+        let expected = parse_sql(grouped).expect("grouped control must parse");
+        assert_eq!(
+            parse_sql(plain).expect("plain NOT must parse"),
+            expected,
+            "{plain}"
+        );
+    }
+}
+
+#[test]
 fn parse_sql_rejects_numeric_suffixes_across_statement_surfaces() {
     for literal in ["1e3", "1E+3", "1e-3", "1.5e2", "0x1F", "0b10", "1_000"] {
         for sql in [

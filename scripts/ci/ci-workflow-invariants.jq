@@ -43,6 +43,27 @@ require(has("permissions") and (.permissions != null);
   . as $ci |
   (["dependency_msrv", "static", "rust", "macos_host", "check", "wasm_size_report", "release"][] as $job |
     require($ci.jobs | has($job); "CI is missing the \($job) validation job")),
+  # Installation alone does not override rust-toolchain.toml. The executable
+  # gate compares the selected compiler with the public manifest's own floor.
+  require(.jobs.dependency_msrv.env.RUSTUP_TOOLCHAIN |
+    if type == "string" then test("^[0-9]+\\.[0-9]+\\.[0-9]+$") else false end;
+    "public MSRV must explicitly select its compiler"),
+  require(any(.jobs.dependency_msrv.steps[]?;
+    (.uses // "" | startswith("dtolnay/rust-toolchain@"))
+    and .with.toolchain == "${{ env.RUSTUP_TOOLCHAIN }}"
+    and .with.targets == "wasm32-unknown-unknown");
+    "public MSRV must install its selected compiler and Wasm target"),
+  require(all(.jobs.dependency_msrv.steps[]?;
+    .env.RUSTUP_TOOLCHAIN == null and .if == null and (.["continue-on-error"] // false) == false);
+    "public MSRV steps must retain compiler selection and stop on failure"),
+  require(any(.jobs.dependency_msrv.steps[]?;
+    run_text | test("^\\s*bash scripts/ci/check-public-msrv\\.sh\\s*$"));
+    "public MSRV must run its compiler and public feature gate"),
+  (.jobs.dependency_msrv.steps as $steps |
+    range(0; ($steps | length)) as $index |
+    select($steps[$index] | run_text | test("^\\s*bash scripts/ci/check-public-msrv\\.sh\\s*$")) |
+    require(any($steps[0:$index][]; run_text | test("^\\s*make\\s+fetch\\s*$"));
+      "public MSRV requires earlier locked cache preparation")),
   (["core", "workspace", "tier-a", "tier-b"][] as $lane |
     require(any(.jobs.rust.strategy.matrix.include[]?; .lane == $lane);
       "CI is missing the \($lane) Rust validation lane")),
@@ -59,4 +80,13 @@ require(has("permissions") and (.permissions != null);
     else true end; "CI must not duplicate the release commit through a tag trigger"),
   (["ci-core", "ci-workspace", "ci-sql-tier-a", "ci-sql-tier-b"][] as $target |
     require(any(.jobs.rust.strategy.matrix.include[]?; .make_target == $target);
-      "CI is missing the shared \($target) validation authority")))
+      "CI is missing the shared \($target) validation authority")),
+  # The tool check includes locked/offline PocketIC metadata admission. A cache
+  # action is optional evidence reuse, never a substitute for explicit setup.
+  (.jobs.rust.steps as $steps |
+    range(0; ($steps | length)) as $index |
+    select($steps[$index] | run_text | test("\\bmake\\s+install-tools\\s+tools-check\\b")) |
+    require(any($steps[0:$index][];
+      .if == null and (.["continue-on-error"] // false) == false
+      and (run_text | test("^\\s*make\\s+fetch\\s*$")));
+      "Rust tool checks require an earlier unconditional make fetch step that stops on failure")))

@@ -99,6 +99,10 @@ impl<C: CanisterKind> DbSession<C> {
 
     #[must_use]
     pub const fn new(session: core::db::DbSession<C>) -> Self {
+        #[cfg(feature = "sql")]
+        let session = session.__with_sql_returning_response_len(
+            crate::db::sql::SqlQueryResult::encoded_returning_response_len,
+        );
         Self { inner: session }
     }
 

@@ -272,7 +272,14 @@ impl Parser {
         if self.eat_keyword(Keyword::Not) {
             return Ok(SqlExpr::Unary {
                 op: SqlExprUnaryOp::Not,
-                expr: Box::new(self.parse_sql_expr_prefix(surface)?),
+                // NOT consumes comparisons and their arithmetic operands,
+                // while leaving AND/OR to the enclosing expression.
+                expr: Box::new(
+                    self.parse_sql_expr(
+                        surface,
+                        sql_expr_binary_op_precedence(SqlExprBinaryOp::Eq),
+                    )?,
+                ),
             });
         }
         if self.peek_lparen() {

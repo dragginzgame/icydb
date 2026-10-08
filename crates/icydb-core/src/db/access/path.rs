@@ -393,10 +393,11 @@ pub(crate) struct IndexBranchSetSpec {
 }
 
 impl IndexBranchSetSpec {
-    /// Construct a branch-set request from one reduced access contract after
-    /// the planner has proven a shared ascending primary-key suffix.
+    /// Construct a branch-set request from one selected semantic index contract.
+    /// This request carries no ordering proof; ordered consumers must validate
+    /// the index suffix against their own required order.
     #[must_use]
-    pub(crate) const fn from_primary_key_asc_contract(
+    pub(crate) const fn from_index_contract(
         index: SemanticIndexAccessContract,
         fixed_values: Vec<Value>,
         branch_values: Vec<Value>,

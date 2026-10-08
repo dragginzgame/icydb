@@ -218,7 +218,7 @@ impl AccessPath<Value> {
                 }
 
                 Self::IndexBranchSet {
-                    spec: IndexBranchSetSpec::from_primary_key_asc_contract(
+                    spec: IndexBranchSetSpec::from_index_contract(
                         index,
                         fixed_values,
                         branch_values,

@@ -5,69 +5,45 @@
 
 use crate::{
     db::{
-        schema::AcceptedEnumCatalog, session::sql::write_policy::SqlWriteReturningBounds,
-        sql::parser::SqlReturningProjection,
+        RowProjectionOutput, schema::AcceptedEnumCatalog,
+        session::sql::write_policy::SqlWriteReturningBounds, sql::parser::SqlReturningProjection,
     },
     error::InternalError,
     value::{OutputValue, Value},
 };
-use candid::{CandidType, ser::IDLBuilder};
+use candid::{CandidType, ser::ValueSerializer};
 use icydb_diagnostic_code::{DiagnosticFactTag, SqlWriteBoundaryCode};
-use std::io::{self, Write};
 
 use super::projection::{
-    SqlReturningFieldProjection, SqlReturningProjectionRows, query_error_to_internal_invariant,
-    sql_materialized_returning_projection_rows, sql_returning_output_value_row,
+    SqlReturningFieldProjection, query_error_to_internal_invariant, sql_returning_output_value_row,
 };
 
-#[derive(CandidType)]
-enum SqlReturningResponseSizeProbe {
-    Projection(SqlReturningProjectionSizeProbe),
-}
-
-#[derive(CandidType)]
-struct SqlReturningProjectionSizeProbe {
-    entity: String,
-    columns: Vec<String>,
-    rows: Vec<Vec<OutputValue>>,
-    row_count: u32,
-}
-
-// Count the maintained encoder's output without retaining another payload copy.
-// Candid still owns its internal value buffer and all encoding decisions.
-#[derive(Default)]
-struct EncodedLength(usize);
-
-impl Write for EncodedLength {
-    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-        self.0 = self
-            .0
-            .checked_add(bytes.len())
-            .ok_or(io::ErrorKind::InvalidData)?;
-        Ok(bytes.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-fn encoded_candid_len(value: &impl CandidType) -> Result<usize, InternalError> {
-    let mut length = EncodedLength::default();
-    IDLBuilder::new()
-        .arg(value)
-        .and_then(|builder| builder.serialize(&mut length))
+// Serialize only value bytes: each row contributes its value encoding, never
+// another DIDL header/type table. Candid remains the encoding authority.
+fn encoded_candid_value_len(value: &impl CandidType) -> Result<usize, InternalError> {
+    let mut serializer = ValueSerializer::new();
+    value
+        .idl_serialize(&mut serializer)
         .map_err(|_| InternalError::query_executor_invariant())?;
-    Ok(length.0)
+    Ok(serializer.get_result().len())
+}
+
+fn encoded_candid_vec_prefix_len(count: usize) -> Result<usize, InternalError> {
+    let mut serializer = ValueSerializer::new();
+    let count = u64::try_from(count).map_err(|_| InternalError::query_executor_invariant())?;
+    serializer
+        .write_leb128(count)
+        .map_err(|_| InternalError::query_executor_invariant())?;
+    Ok(serializer.get_result().len())
 }
 
 /// Validate SQL write `RETURNING` bounds for rows that are already materialized
 /// in accepted-schema column order.
 pub(in crate::db::session::sql::execute) fn validate_sql_materialized_returning_bounds(
+    response_len: fn(RowProjectionOutput) -> candid::Result<usize>,
     entity_name: &str,
     columns: &[String],
     rows: &[Vec<Value>],
-    row_count: u32,
     returning: &SqlReturningProjection,
     enum_catalog: &AcceptedEnumCatalog,
     bounds: Option<SqlWriteReturningBounds>,
@@ -76,19 +52,16 @@ pub(in crate::db::session::sql::execute) fn validate_sql_materialized_returning_
         return Ok(());
     };
 
-    validate_sql_returning_row_count(
-        usize::try_from(row_count).unwrap_or(usize::MAX),
-        bounds.max_rows,
-    )?;
+    validate_sql_returning_row_count(rows.len(), bounds.max_rows)?;
 
     if let Some(max_response_bytes) = bounds.max_response_bytes {
         let max_response_bytes = usize::try_from(max_response_bytes).unwrap_or(usize::MAX);
         if let SqlReturningLengthCheck::Exceeded(actual_length) =
             encoded_sql_materialized_returning_projection_response_len_check(
+                response_len,
                 entity_name,
                 columns,
                 rows,
-                row_count,
                 returning,
                 enum_catalog,
                 max_response_bytes,
@@ -96,21 +69,6 @@ pub(in crate::db::session::sql::execute) fn validate_sql_materialized_returning_
         {
             return Err(sql_returning_response_too_large_error(
                 actual_length,
-                max_response_bytes,
-            ));
-        }
-
-        let projected = sql_materialized_returning_projection_rows(
-            enum_catalog,
-            columns,
-            rows,
-            row_count,
-            returning,
-        )?;
-        let payload_len = encoded_sql_returning_projection_payload_len(entity_name, projected)?;
-        if payload_len > max_response_bytes {
-            return Err(sql_returning_response_too_large_error(
-                Some(payload_len),
                 max_response_bytes,
             ));
         }
@@ -162,108 +120,79 @@ enum SqlReturningLengthCheck {
 }
 
 fn encoded_sql_materialized_returning_projection_response_len_check(
+    response_len: fn(RowProjectionOutput) -> candid::Result<usize>,
     entity_name: &str,
     columns: &[String],
     rows: &[Vec<Value>],
-    row_count: u32,
     returning: &SqlReturningProjection,
     enum_catalog: &AcceptedEnumCatalog,
     max_response_bytes: usize,
 ) -> Result<SqlReturningLengthCheck, InternalError> {
-    match returning {
-        SqlReturningProjection::All => {
-            let base_len = encoded_empty_sql_returning_projection_payload_len(
-                entity_name,
-                columns.to_vec(),
-                row_count,
-            )?;
-
-            encoded_sql_returning_rows_len_exceeds_max(
-                base_len,
-                max_response_bytes,
-                rows.iter().map(|row| {
-                    sql_returning_output_value_row(enum_catalog, row.clone())
-                        .map_err(query_error_to_internal_invariant)
-                }),
-            )
-        }
-        SqlReturningProjection::Fields(fields) => {
-            let projection = SqlReturningFieldProjection::from_fields(columns, fields)
-                .map_err(query_error_to_internal_invariant)?;
-            let base_len = encoded_empty_sql_returning_projection_payload_len(
-                entity_name,
-                projection.output_columns(),
-                row_count,
-            )?;
-
-            encoded_sql_returning_rows_len_exceeds_max(
-                base_len,
-                max_response_bytes,
-                rows.iter().map(|row| {
-                    projection
-                        .project_borrowed_row(row)
-                        .and_then(|row| sql_returning_output_value_row(enum_catalog, row))
-                        .map_err(query_error_to_internal_invariant)
-                }),
-            )
-        }
-    }
-}
-
-fn encoded_empty_sql_returning_projection_payload_len(
-    entity_name: &str,
-    columns: Vec<String>,
-    row_count: u32,
-) -> Result<usize, InternalError> {
-    encoded_sql_returning_projection_payload_len(
-        entity_name,
-        SqlReturningProjectionRows {
-            columns,
-            rows: Vec::new(),
-            row_count,
-        },
+    let projection = match returning {
+        SqlReturningProjection::All => None,
+        SqlReturningProjection::Fields(fields) => Some(
+            SqlReturningFieldProjection::from_fields(columns, fields)
+                .map_err(query_error_to_internal_invariant)?,
+        ),
+    };
+    let columns = projection.as_ref().map_or_else(
+        || columns.to_vec(),
+        SqlReturningFieldProjection::output_columns,
+    );
+    let empty_len = response_len(RowProjectionOutput {
+        entity: entity_name.to_string(),
+        columns,
+        rows: Vec::new(),
+        row_count: u32::try_from(rows.len()).unwrap_or(u32::MAX),
+    })
+    .map_err(|_| InternalError::query_executor_invariant())?;
+    let prefix_len = encoded_candid_vec_prefix_len(rows.len())?;
+    let empty_prefix_len = encoded_candid_vec_prefix_len(0)?;
+    let Some(base_len) = empty_len
+        .checked_sub(empty_prefix_len)
+        .and_then(|len| len.checked_add(prefix_len))
+    else {
+        return Ok(SqlReturningLengthCheck::Exceeded(None));
+    };
+    encoded_sql_returning_rows_len_exceeds_max(
+        base_len,
+        max_response_bytes,
+        rows.iter().map(|row| match &projection {
+            None => sql_returning_output_value_row(enum_catalog, row.clone())
+                .map_err(query_error_to_internal_invariant),
+            Some(projection) => projection
+                .project_borrowed_row(row)
+                .and_then(|row| sql_returning_output_value_row(enum_catalog, row))
+                .map_err(query_error_to_internal_invariant),
+        }),
     )
 }
 
 fn encoded_sql_returning_rows_len_exceeds_max(
-    mut estimated_payload_len: usize,
+    mut response_len: usize,
     max_response_bytes: usize,
-    rows: impl Iterator<Item = Result<Vec<OutputValue>, InternalError>>,
+    rows: impl ExactSizeIterator<Item = Result<Vec<OutputValue>, InternalError>>,
 ) -> Result<SqlReturningLengthCheck, InternalError> {
-    if estimated_payload_len > max_response_bytes {
-        return Ok(SqlReturningLengthCheck::Exceeded(Some(
-            estimated_payload_len,
-        )));
+    let row_count = rows.len();
+    if response_len > max_response_bytes {
+        return Ok(SqlReturningLengthCheck::Exceeded(
+            (row_count == 0).then_some(response_len),
+        ));
     }
-
-    for row in rows {
-        let row = row?;
-        let row_len = encoded_candid_len(&row)?;
-        let Some(next_payload_len) = estimated_payload_len.checked_add(row_len) else {
+    for (index, row) in rows.enumerate() {
+        let row_len = encoded_candid_value_len(&row?)?;
+        let Some(next_len) = response_len.checked_add(row_len) else {
             return Ok(SqlReturningLengthCheck::Exceeded(None));
         };
-        estimated_payload_len = next_payload_len;
-        if estimated_payload_len > max_response_bytes {
-            return Ok(SqlReturningLengthCheck::Exceeded(Some(
-                estimated_payload_len,
-            )));
+        response_len = next_len;
+        if response_len > max_response_bytes {
+            // A prefix proves refusal but is not the full reply's ActualLength.
+            return Ok(SqlReturningLengthCheck::Exceeded(
+                (index + 1 == row_count).then_some(response_len),
+            ));
         }
     }
-
     Ok(SqlReturningLengthCheck::WithinLimit)
-}
-
-fn encoded_sql_returning_projection_payload_len(
-    entity_name: &str,
-    projected: SqlReturningProjectionRows,
-) -> Result<usize, InternalError> {
-    let payload = SqlReturningResponseSizeProbe::Projection(SqlReturningProjectionSizeProbe {
-        entity: entity_name.to_string(),
-        columns: projected.columns,
-        rows: projected.rows,
-        row_count: projected.row_count,
-    });
-    encoded_candid_len(&payload)
 }
 
 #[cfg(test)]
@@ -272,69 +201,104 @@ mod tests {
     use icydb_diagnostic_code::DiagnosticFactTag;
 
     #[test]
-    fn counted_returning_lengths_match_candid_bytes_and_limit_edges() {
+    fn returning_bounds_match_complete_candid_frames_at_length_edges() {
         use super::*;
-        use candid::Encode;
+        use crate::db::schema::empty_accepted_enum_catalog_for_tests;
 
-        for size in [0, 127, 128, 16_383, 16_384, 1_050_000] {
+        fn projection_len(projection: RowProjectionOutput) -> candid::Result<usize> {
+            candid::encode_one(projection).map(|bytes| bytes.len())
+        }
+        fn result_len(projection: RowProjectionOutput) -> candid::Result<usize> {
+            candid::encode_one(Ok::<_, ()>(projection)).map(|bytes| bytes.len())
+        }
+        let catalog = empty_accepted_enum_catalog_for_tests();
+        let columns = ["text", "blob", "number", "nested"].map(str::to_string);
+        for (count, size) in [
+            (0, 0),
+            (1, 127),
+            (1, 128),
+            (127, 128),
+            (128, 128),
+            (1, 16_383),
+            (1, 16_384),
+            (1, 1_048_000),
+            (100, 10_300),
+        ] {
             let row = vec![
-                OutputValue::text("x".repeat(size)),
-                OutputValue::blob(vec![7; 128]),
-                OutputValue::int64(-129),
-                OutputValue::boolean(true),
+                Value::Text("x".repeat(size)),
+                Value::Blob(vec![7; 128]),
+                Value::Int64(-129),
+                Value::List(vec![
+                    Value::Null,
+                    Value::Map(vec![(Value::Text("flag".into()), Value::Bool(true))]),
+                ]),
             ];
-            let row_len = Encode!(&row).unwrap().len();
-            assert_eq!(encoded_candid_len(&row).unwrap(), row_len);
-            for rows in [Vec::new(), vec![row.clone()]] {
-                let payload =
-                    SqlReturningResponseSizeProbe::Projection(SqlReturningProjectionSizeProbe {
-                        entity: "Row".into(),
-                        columns: vec!["text".into(), "blob".into(), "number".into(), "flag".into()],
-                        row_count: u32::try_from(rows.len()).unwrap(),
-                        rows,
-                    });
-                assert_eq!(
-                    encoded_candid_len(&payload).unwrap(),
-                    Encode!(&payload).unwrap().len()
-                );
+            let rows = vec![row; count];
+            let output_rows = rows
+                .iter()
+                .cloned()
+                .map(|row| sql_returning_output_value_row(&catalog, row).unwrap())
+                .collect();
+            let output = RowProjectionOutput {
+                entity: "Row".into(),
+                columns: columns.to_vec(),
+                rows: output_rows,
+                row_count: u32::try_from(count).unwrap(),
+            };
+            for encoder in [projection_len, result_len] {
+                let exact = encoder(output.clone()).unwrap();
+                for limit in [exact - 1, exact, exact + 1] {
+                    let result = encoded_sql_materialized_returning_projection_response_len_check(
+                        encoder,
+                        "Row",
+                        &columns,
+                        &rows,
+                        &SqlReturningProjection::All,
+                        &catalog,
+                        limit,
+                    )
+                    .unwrap();
+                    assert_eq!(
+                        matches!(result, SqlReturningLengthCheck::WithinLimit),
+                        limit >= exact
+                    );
+                    if let SqlReturningLengthCheck::Exceeded(Some(length)) = result {
+                        assert_eq!(length, exact);
+                    }
+                }
             }
-            let base_len = 17;
-            let exact_limit = base_len + row_len;
-            assert_eq!(
-                encoded_sql_returning_rows_len_exceeds_max(
-                    base_len,
-                    exact_limit,
-                    [Ok(row.clone())].into_iter()
-                )
-                .unwrap(),
-                SqlReturningLengthCheck::WithinLimit,
-            );
-            assert_eq!(
-                encoded_sql_returning_rows_len_exceeds_max(
-                    base_len,
-                    exact_limit - 1,
-                    [Ok(row)].into_iter()
-                )
-                .unwrap(),
-                SqlReturningLengthCheck::Exceeded(Some(exact_limit)),
-            );
         }
     }
 
     #[test]
-    fn encoded_length_overflow_is_fallible_and_preserves_count() {
-        use super::{EncodedLength, Write, io};
-
-        let mut length = EncodedLength(usize::MAX - 1);
-        length.write_all(&[0]).unwrap();
-        assert_eq!(length.0, usize::MAX);
+    fn returning_prefix_refusal_and_overflow_do_not_claim_full_length() {
+        use super::*;
         assert_eq!(
-            length.write(&[0]).unwrap_err().kind(),
-            io::ErrorKind::InvalidData
+            encoded_sql_returning_rows_len_exceeds_max(
+                usize::MAX,
+                usize::MAX,
+                [Ok(vec![OutputValue::nat64(1)])].into_iter(),
+            )
+            .unwrap(),
+            SqlReturningLengthCheck::Exceeded(None)
         );
-        assert_eq!(length.0, usize::MAX);
-        length.write_all(&[]).unwrap();
-        length.flush().unwrap();
+        assert_eq!(
+            encoded_sql_returning_rows_len_exceeds_max(
+                0,
+                0,
+                [Ok(vec![OutputValue::nat64(1)]), Ok(vec![])].into_iter(),
+            )
+            .unwrap(),
+            SqlReturningLengthCheck::Exceeded(None)
+        );
+        assert_eq!(
+            encoded_sql_returning_rows_len_exceeds_max(1, 0, [Ok(vec![])].into_iter(),).unwrap(),
+            SqlReturningLengthCheck::Exceeded(None)
+        );
+        assert_eq!(
+            encoded_sql_returning_rows_len_exceeds_max(1, 0, [].into_iter(),).unwrap(),
+            SqlReturningLengthCheck::Exceeded(Some(1))
+        );
     }
 
     #[test]
@@ -350,30 +314,25 @@ mod tests {
             Value::Text("name".into()),
         ]];
         let returning = SqlReturningProjection::Fields(vec!["label".into(), "id".into()]);
-        let projected =
-            sql_materialized_returning_projection_rows(&catalog, &columns, &rows, 1, &returning)
-                .unwrap();
-        assert_eq!(projected.columns, ["label", "id"]);
-        assert_eq!(
-            projected.rows,
-            vec![vec![
-                OutputValue::text("name".into()),
-                OutputValue::nat64(7)
-            ]]
-        );
         let bounds = Some(SqlWriteReturningBounds {
             max_rows: Some(1),
             max_response_bytes: Some(4096),
         });
         validate_sql_materialized_returning_bounds(
-            "Row", &columns, &rows, 1, &returning, &catalog, bounds,
-        )
-        .unwrap();
-        let error = validate_sql_materialized_returning_bounds(
+            crate::db::session::sql::encoded_returning_response_len,
             "Row",
             &columns,
             &rows,
-            1,
+            &returning,
+            &catalog,
+            bounds,
+        )
+        .unwrap();
+        let error = validate_sql_materialized_returning_bounds(
+            crate::db::session::sql::encoded_returning_response_len,
+            "Row",
+            &columns,
+            &rows,
             &SqlReturningProjection::All,
             &catalog,
             bounds,

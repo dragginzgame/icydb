@@ -112,3 +112,10 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_compiled_sql_context_owned(compiled)
     }
 }
+
+// Raw core sessions return the canonical projection without a facade envelope.
+pub(in crate::db::session) fn encoded_returning_response_len(
+    projection: crate::db::RowProjectionOutput,
+) -> candid::Result<usize> {
+    candid::encode_one(projection).map(|bytes| bytes.len())
+}

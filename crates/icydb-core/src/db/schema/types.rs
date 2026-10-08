@@ -99,11 +99,6 @@ impl FieldType {
     }
 
     #[must_use]
-    pub(crate) const fn is_bool(&self) -> bool {
-        matches!(self, Self::Scalar(ScalarKind::Bool))
-    }
-
-    #[must_use]
     pub(crate) const fn is_collection(&self) -> bool {
         matches!(self, Self::List(_) | Self::Set(_) | Self::Map { .. })
     }
@@ -201,7 +196,6 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
             | ScalarKind::Enum
             | ScalarKind::Float32
             | ScalarKind::Float64
-            | ScalarKind::Principal
             | ScalarKind::Subaccount
             | ScalarKind::Text
             | ScalarKind::Timestamp
@@ -251,6 +245,10 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
             canonicalize_nat_big_persisted_literal(value, *max_bytes)
         }
         AcceptedFieldKindCategory::Scalar(ScalarKind::U256) => canonicalize_u256_literal(value),
+        AcceptedFieldKindCategory::Scalar(ScalarKind::Principal) => match value {
+            Value::Text(inner) => Principal::from_text(inner).ok().map(Value::Principal),
+            _ => None,
+        },
         AcceptedFieldKindCategory::Scalar(ScalarKind::Ulid) => match value {
             Value::Text(inner) => inner.parse::<Ulid>().ok().map(Value::Ulid),
             _ => None,

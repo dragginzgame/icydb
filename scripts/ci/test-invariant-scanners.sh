@@ -18,6 +18,25 @@ for script in invariant-common.sh check-executor-no-production-panics.sh \
   cp "$ROOT/scripts/ci/$script" "$scratch/scripts/ci/"
 done
 
+# Build one real structural checker for all copied-source cases. The fixture's
+# Cargo adapter forwards source arguments only; it never resolves dependencies.
+export CARGO_HOME="${CARGO_HOME:-$ROOT/.cache/cargo/icydb}"
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target/icydb}"
+cargo build --locked --offline --quiet --manifest-path "$ROOT/Cargo.toml" \
+  -p icydb-testing-integration --example check_runtime_panics
+mkdir -p "$scratch/bin"
+export TEST_RUNTIME_PANIC_CHECKER="$CARGO_TARGET_DIR/debug/examples/check_runtime_panics"
+cat > "$scratch/bin/cargo" <<'CARGO'
+#!/usr/bin/env bash
+set -euo pipefail
+while [[ "$#" -gt 0 && "$1" != -- ]]; do shift; done
+[[ "$#" -gt 0 ]] || exit 2
+shift
+exec "$TEST_RUNTIME_PANIC_CHECKER" "$@"
+CARGO
+chmod +x "$scratch/bin/cargo"
+export PATH="$scratch/bin:$PATH"
+
 cases=0
 check() {
   local name="$1" expected="$2" actual=0
@@ -111,6 +130,31 @@ cp "$executor/tests/case.rs" "$executor/case_tests.rs"
 cp "$executor/tests/case.rs" "$executor/test_case.rs"
 cp "$executor/tests/case.rs" "$scratch/${panic_roots[1]}/convergence_candidate_tests.rs"
 check test-exclusion 0 bash "$panic_checker"
+# Structural item boundaries ignore lexical braces, including raw strings and
+# nested comments, and still expose the production function after the test item.
+for body in 'const EXAMPLE: &str = "{";' \
+  'const EXAMPLE: &str = r###"{ \" }"###;' \
+  '// {' '/* { /* } */ { */' \
+  'fn test() { let _ = "}"; assert!(true); }'; do
+  printf '#[cfg(test)]\nmod tests {\n%s\n}\n' "$body" > "$executor/production.rs"
+  check "lexical-test-only-$cases" 0 bash "$panic_checker"
+  printf 'fn production() { panic!("must be detected"); }\n' >> "$executor/production.rs"
+  check "lexical-production-after-$cases" 1 bash "$panic_checker"
+done
+printf 'fn production() { let _ = r###"panic! { .unwrap()"###; /* panic!() */ }\n' > "$executor/production.rs"
+check production-literal-and-comment 0 bash "$panic_checker"
+printf 'fn production() { let _ = format!("{}", value.unwrap()); }\n' > "$executor/production.rs"
+check production-inside-macro 1 bash "$panic_checker"
+printf 'macro_rules! runtime { () => { panic!("fixture"); }; }\n' > "$executor/production.rs"
+check production-macro-template 1 bash "$panic_checker"
+printf '#[cfg(all(feature = "sql", test))]\nfn test() { panic!("fixture"); }\n' > "$executor/production.rs"
+check reordered-test-cfg 0 bash "$panic_checker"
+printf '#[cfg(not(not(test)))]\nfn test() { panic!("fixture"); }\n' > "$executor/production.rs"
+check nested-test-cfg 0 bash "$panic_checker"
+printf 'struct S; impl S { #[cfg(test)] fn test() { panic!("fixture"); } }\n' > "$executor/production.rs"
+check test-only-associated-item 0 bash "$panic_checker"
+printf 'fn production() {\n' > "$executor/production.rs"
+check malformed-runtime-source 2 bash "$panic_checker"
 printf '#[cfg(not(test))]\nfn production() { panic!("reason"); }\n' > "$executor/production.rs"
 check production-cfg 1 bash "$panic_checker"
 printf '#[cfg(any(test, feature = "sql"))]\nfn production() { todo!(); }\n' > "$executor/production.rs"

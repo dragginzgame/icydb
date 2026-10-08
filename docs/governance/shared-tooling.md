@@ -15,18 +15,19 @@ these rules.
 The compatible 0.267.2 follow-up adopts Shared Tooling 0.1.20,
 `3ecc48e579f6cf6e6ab01a6645d8a250fc8c6934`, exported from an isolated clean
 checkout. Its [exact-source CI](https://github.com/dragginzgame/shared-tooling/actions/runs/37641211708)
-passes Linux and both native macOS hosts. The seventy-file snapshot includes
-the pin validator, locked/offline PocketIC alignment and external-binary checker,
-their shared fixtures and contribution rules. IcyDB's explicit no-commit/no-push
-instructions remain in force. No release command or PR delivery was executed.
+passes Linux and both native macOS hosts. The original seventy-file snapshot
+included the pin validator, PocketIC equality helpers and contribution rules.
+The current selection retains sixty-seven files after retiring the three unused
+PocketIC equality helpers/fixtures under the maintainer's ownership direction.
+IcyDB's explicit no-commit/no-push instructions remain in force. No release command or PR delivery was executed.
 
 The validation adapter now supplies only the repository, evidence root and
 target arguments. Shared Tooling owns complete failed-target aggregation in
 dispatch order and `target/validation-failures/latest-combined.log`;
-`latest.log` retains its last-failed-target meaning. Make selects the root
-manifest and canonical pins for PocketIC alignment using the existing prepared
-Cargo cache. There is no second parser, logger, pin catalog, retry or execution
-route ([#302](https://github.com/dragginzgame/icydb/issues/302),
+`latest.log` retains its last-failed-target meaning. Make supplies
+tool selections to the shared installer; Testkit owns PocketIC
+client/server version admission at managed startup. There is no second parser,
+logger, pin catalog, retry or execution route ([#302](https://github.com/dragginzgame/icydb/issues/302),
 [#318](https://github.com/dragginzgame/icydb/issues/318)).
 
 The Wasm reporter and deployable builder share optimizer admission. A caller's
@@ -69,7 +70,7 @@ versions, upstream files, network lifecycle or release effects were changed.
 Native consumer macOS execution and full workspace/release gates remain
 unperformed; Wasm bytes, IC cycles and instruction deltas are unmeasured.
 
-[The snapshot manifest](../../.shared-tooling.snapshot) records seventy exact
+[The snapshot manifest](../../.shared-tooling.snapshot) records sixty-seven exact
 upstream files, including the baseline and all linked rules, shared principles,
 consumer/host guidance, formatting hook, shared audit methods, pinned host/IC/Rust
 setup and selected verification helpers and release fixtures. Every entry records SHA-256 and
@@ -84,7 +85,7 @@ CODEOWNERS covers shared guidance, the manifest and consumer tooling. The public
 GitHub description, “ic database”, was reviewed against the README and remains
 accurate; no remote metadata change was needed.
 
-The four direct registry host packages at 0.7 are consumed only by host tooling.
+The four direct registry host packages at 0.8 are consumed only by host tooling.
 `icydb-testing-integration` selects `ic-host-artifacts` with its `wasm` feature
 for streaming hashes, digest formatting and report/method structure inspection,
 and `ic-host-process` for executable resolution, pinned admission and bounded
@@ -92,8 +93,8 @@ execution. `icydb-cli` uses the artifact stream reader for diagnostic error JSON
 `ic-host-fs` for opened schema-artifact admission and bounded reads, and retains
 IC response decoding in `ic-host-tools`.
 These direct dependencies are absent from runtime and canister packages.
-Published Testkit 0.23.0 still selects Host 0.6.0. The duplicate host generation
-is an upstream release boundary tracked by
+The selected Testkit 0.25.0 and all four direct Host 0.8.1 packages converge on
+one host generation. The upstream release boundary is tracked by
 [Testkit #32](https://github.com/dragginzgame/ic-testkit/issues/32); no local
 override, re-export shim or second process implementation is added.
 CLI normalization retains its current labels and whitespace handling
@@ -108,9 +109,41 @@ the inherited environment, with 1 MiB per captured stream and a 600-second
 operational deadline. Shared admission checks the pin and version; its handle
 rechecks the executable digest before each batch transform. Captured failure and
 cleanup evidence is retained. Report hashing preserves its whole-stream allowance.
+Host 0.8's optional TERM-grace policy is not selected by these capture callers;
+the existing shared defaults remain authoritative. Failure projection includes
+all four shared cleanup categories: TERM, group KILL, direct-child KILL and reap.
 The native host CI lanes compile both consumers and exercise optimizer admission,
 report identities and Wasm structural counts; Linux qualification does not establish native
 macOS execution.
+
+The earlier 2026-10-08 Host 0.8.0 Linux consumer qualification used lockfile SHA-256
+`5e1e2484776822df034da2129a3b3ac7b5c4a536659b62c9bea962bde9d93d4d`.
+All four Host 0.8.0 archives match their locked checksums and identify source
+`fc74f679c7503ef9dd2db8fbd893c5c5907c72c4`; Testkit 0.25.0 identifies
+`6b6d2cfe7f4c3e7a204a0c18beb6edb8895007b4`. Ninety focused integration,
+report and CLI tests and strict consumer Clippy checks passed. The live
+PocketIC startup test remained ignored; no runner reinstall or network
+lifecycle action was performed. Native macOS consumer qualification remains
+tracked in [#309](https://github.com/dragginzgame/icydb/issues/309).
+Raw Wasm bytes, IC cycles and instructions were not measured.
+
+Host 0.8.1 was separately qualified on Linux with lockfile SHA-256
+`92e6193c8427a899238863a9e41579aaf5e4c0a4267e4a784d1a459e7a976d4d`.
+All four registry archives match their locked checksums and identify source
+`973f00a029dd873c242a4d06e9f8d2d5172ff0df`; Testkit remains 0.25.0.
+The same ninety focused tests and strict consumer Clippy checks passed with
+unchanged lockfile bytes. Existing callers use the improved bounded readers,
+capture and Candid normalization; no consumer implementation changed.
+The new nonblocking path lock has no direct IcyDB caller. Remaining Testkit
+lock admission convergence is tracked in
+[Testkit #35](https://github.com/dragginzgame/ic-testkit/issues/35), including
+its distinct shared retention lock obligation. The live PocketIC, native
+macOS and permitted resource-measurement limitations above still apply.
+Host's Shared Tooling installer refresh is separate from Cargo adoption: the
+current IcyDB snapshot still fails an inherited-`CDPATH`, relative-consumer
+host-tool check while its control without `CDPATH` passes. The reviewed
+snapshot-refresh follow-up is recorded in
+[#302](https://github.com/dragginzgame/icydb/issues/302#issuecomment-6063134657).
 
 Initial consumer qualification used `6501d0e9fa7ba0439ec7a4010ca7bf0205e1d712` in
 [IC Host Tooling](https://github.com/dragginzgame/ic-host-tooling). Its four
@@ -138,8 +171,8 @@ adapter, which delegates selection to `PocketIcStartupConfig::from_env`. The
 batch wrapper exports `IC_TESTKIT_POCKET_IC_URL`; direct startup requires the
 prepared `POCKET_IC_BIN`. The unread download setting is removed
 ([#317](https://github.com/dragginzgame/icydb/issues/317)). The published Testkit
-runner, currently selected at 0.23.0, owns server startup, readiness, process groups, cancellation
-and reaping. Its explicit output-file contract preserves complete streams;
+runner owns server startup, readiness, process
+groups, cancellation and reaping. Its explicit output-file contract preserves complete streams;
 IcyDB selects fresh scratch paths, relays shell signals, presents bounded tails
 and retains failed outputs. Successful invocation-owned scratch is removed
 ([Testkit #29](https://github.com/dragginzgame/ic-testkit/issues/29),
@@ -153,6 +186,23 @@ setup before validation. Ordinary validation never installs or downloads the
 runner. This handoff removes the second server supervisor; the only retained
 local policy is evidence custody and the existing 30-second startup/900-second
 server lifetime. No additional runtime mode or retry is introduced.
+
+The critical runtime panic gate requires the prepared Cargo cache as well as
+ripgrep. Its shell adapter discovers executor, commit, journal and startup
+sources; a development-only example in the existing integration package uses
+Syn to parse Rust and exclude whole test-only items. Make supplies the same
+repository Cargo home/target as other focused tooling. Validation is locked and
+offline, retains macro-body coverage, and rejects unreadable or malformed source.
+The former AWK `brace_delta`, `cfg_test_item` and `reset_skip` functions are
+removed rather than extended into a Rust lexer
+([#320](https://github.com/dragginzgame/icydb/issues/320)).
+
+The Rust CI lanes run the existing `make fetch` before `make tools-check`.
+Workstation install/update prepares the same locked cache before its offline
+checks, so native CI reuses that preparation for runner installation and library
+qualification. Cache restoration never replaces explicit preparation, and a
+failed fetch stops before tool admission or hook activation
+([#309](https://github.com/dragginzgame/icydb/issues/309)).
 
 `make check-portable-automation` owns the existing common fixture selection for
 both `check-invariants` and native macOS CI. Twenty duplicate workflow entries
@@ -429,15 +479,21 @@ successful version output, rather than binary digests.
 inventory. Make and CI select checkout-local executables; workstation setup
 uses the same targets and does not install a second system cloc. Interactive
 shells must add `.tools/host/bin`, `.tools/ic/bin` and `.tools/rust/bin` to PATH explicitly, as
-[the setup guide](../local-setup.md) describes. IcyDB adds independent PocketIC
-alignment and raw optimizer admission prerequisites to `ic-tools-check`; the
-shared include retains bundle verification. No second npm/Cargo ICP or ic-wasm
+[the setup guide](../local-setup.md) describes. IcyDB adds raw optimizer
+admission to `ic-tools-check`; the shared include retains bundle verification. No second npm/Cargo ICP or ic-wasm
 installation is selected ([#302](https://github.com/dragginzgame/icydb/issues/302)).
 
 IcyDB retains raw optimizer executable admission and the Binaryen 132 pipeline
 identity. Shared archive pins are provisioning metadata, not optimizer admission.
-[Client/server alignment](../../scripts/ci/check-pocketic-alignment.sh) requires
-the three PocketIC server selections to match the locked client before testing.
+Testkit alone owns PocketIC client/server version admission. IcyDB does not
+compare the Rust package version with the server pin or add an external-binary
+version parser. Shared installation still verifies the exact reviewed download,
+its receipt and executable identity; that authenticates the selected artifact,
+not protocol compatibility. The retained Shared reference guides describe the
+upstream helper catalog, including optional helpers no longer selected here.
+The selected Testkit startup restriction remains tracked by
+[Testkit #34](https://github.com/dragginzgame/ic-testkit/issues/34); shared default
+pin updates remain [Shared #76](https://github.com/dragginzgame/shared-tooling/issues/76).
 Ordinary validation never downloads missing executables.
 
 ## Audit and verification ownership

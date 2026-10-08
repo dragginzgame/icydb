@@ -37,6 +37,7 @@ cargo() { trace "cargo $* in $PWD"; }
 make() {
   trace "make $*"
   case "$*" in
+    *fetch) [[ "${TEST_FETCH_FAIL:-0}" == 0 ]] ;;
     *tools-check) [[ "${TEST_CHECK_FAIL:-0}" == 0 ]] ;;
   esac
 }
@@ -73,12 +74,19 @@ for host in Linux Darwin; do
       rg -F "${selection%:*} --version ${selection##*:} --locked" "$TEST_TRACE" >/dev/null
     done
     printf '%s\n' "make --no-print-directory -C $FIXTURE install-tools" \
+      "make --no-print-directory -C $FIXTURE fetch" \
       "make --no-print-directory -C $FIXTURE tools-check" \
       "make --no-print-directory -C $FIXTURE install-hooks" > "$FIXTURE/expected"
     rg '^make ' "$TEST_TRACE" > "$FIXTURE/actual"
     cmp "$FIXTURE/expected" "$FIXTURE/actual"
   done
 done
+# A failed locked fetch stops before offline admission and hook activation.
+: > "$TEST_TRACE"
+status=0
+TEST_FETCH_FAIL=1 bash "$FIXTURE/scripts/dev/workstation-setup.sh" update > "$FIXTURE/fetch-rejected" 2>&1 || status=$?
+[[ "$status" != 0 ]]
+if rg 'tools-check|install-hooks' "$TEST_TRACE" >/dev/null; then exit 1; fi
 # An offline tool refusal stops setup before hook activation.
 : > "$TEST_TRACE"
 status=0
@@ -102,18 +110,12 @@ printf '%s %s\n' "${0##*/}" "$*" >> "$TEST_TRACE"
 [[ "${TEST_INSTALL_FAIL:-0}" == 0 ]]
 INSTALL
 done
-for script in check-pocketic-alignment.sh verify-wasm-optimizer.sh; do
-  cat > "$FIXTURE/scripts/ci/$script" <<'POLICY'
+cat > "$FIXTURE/scripts/ci/verify-wasm-optimizer.sh" <<'POLICY'
 #!/usr/bin/env bash
 printf '%s\n' "${0##*/}" >> "$TEST_POLICY_TRACE"
-if [[ "${0##*/}" == check-pocketic-alignment.sh ]]; then
-  [[ "$#" == 4 && "$1" == --manifest && "$2" == "$PWD/Cargo.toml" && \
-    "$3" == --pins && "$4" == "$PWD/ci/ic-tools.tsv" ]]
-  [[ "$CARGO_HOME" == "$PWD/.cache/cargo/icydb" && "$CARGO_TARGET_DIR" == "$PWD/target/icydb" ]]
-fi
+[[ "$#" == 0 ]]
 [[ "${TEST_POLICY_FAIL:-0}" == 0 ]]
 POLICY
-done
 export TEST_POLICY_TRACE="$FIXTURE/policy-trace"
 : > "$TEST_TRACE"
 command make --no-print-directory -C "$FIXTURE" > "$FIXTURE/default-goal"
@@ -129,7 +131,7 @@ printf '%s\n' "install-rust-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/
   "install-host-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --with-ripgrep --with-cloc --check" \
   "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv --check" > "$FIXTURE/expected"
 cmp "$FIXTURE/expected" "$TEST_TRACE"
-printf '%s\n' check-pocketic-alignment.sh verify-wasm-optimizer.sh > "$FIXTURE/policy-expected"
+printf '%s\n' verify-wasm-optimizer.sh > "$FIXTURE/policy-expected"
 cmp "$FIXTURE/policy-expected" "$TEST_POLICY_TRACE"
 : > "$TEST_TRACE"
 status=0

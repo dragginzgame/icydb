@@ -167,6 +167,9 @@ unchanged. Common executables are selected by [ci/ic-tools.tsv](ci/ic-tools.tsv)
 and [ci/tool-versions.env](ci/tool-versions.env); IcyDB Cargo utilities are selected
 by [ci/icydb-tools.env](ci/icydb-tools.env). Changing selections is an explicit
 maintenance action.
+Both setup targets prepare the selected lockfile with `make fetch` in the
+repository-local Cargo cache before offline tool verification. The same cache
+preparation supports explicit locked Testkit runner installation and downloads missing locked packages without upgrading dependency selections.
 Dependency upgrades and security audits are separate maintainer actions: review
 any intentional `cargo update` diff, then audit the selected graph with
 `cargo audit`. Neither action runs automatically during workstation setup.
@@ -195,14 +198,16 @@ Install the common checksum-verified host and IC executables explicitly:
 
 ```bash
 make install-tools
+make fetch
 make tools-check
 ```
 
 This provisions pinned jq, Mike Farah yq and PCRE2-enabled ripgrep in
 `.tools/host/bin`, plus ICP CLI, ic-wasm,
-ic-admin, didc, Binaryen and PocketIC in `.tools/ic/bin`. The second command
-checks the selected sets offline, including PocketIC client/server alignment
-and IcyDB's admitted optimizer digest. It never installs missing tools. See
+ic-admin, didc, Binaryen and PocketIC in `.tools/ic/bin`. The final command
+checks the selected sets offline, including IcyDB's admitted optimizer digest.
+Tool verification never installs missing tools. Testkit owns PocketIC
+client/server version admission at managed startup. See
 [shared setup](docs/local-setup.md) and [IC executable setup](docs/ic-tools.md)
 for archive pins, bootstrap packages and supported hosts. IcyDB retains the
 qualified Binaryen 132 optimization policy and its raw executable digests in

@@ -16,7 +16,6 @@ env:
   CARGO_TARGET_DIR: ${{ github.workspace }}/target/icydb
   CARGO_TERM_COLOR: always
   RUST_CURRENT: "1.99.0"
-  RUST_MSRV: "1.96.0"
   SCCACHE_GHA_ENABLED: "true"
 
 jobs:
@@ -25,23 +24,24 @@ jobs:
     timeout-minutes: 15
     env:
       RUSTC_WRAPPER: sccache
+      RUSTUP_TOOLCHAIN: "1.88.0"
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
-          toolchain: ${{ env.RUST_MSRV }}
+          toolchain: ${{ env.RUSTUP_TOOLCHAIN }}
+          targets: wasm32-unknown-unknown
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: |
             . -> target
           cache-targets: "false"
-      - run: cargo fetch --locked
-      - run: cargo check --locked -p icydb --no-default-features
-      - run: cargo check --locked -p icydb --no-default-features --features sql
-      - run: cargo check --locked -p icydb --no-default-features --features migration
+      - run: make fetch
+      - name: Check the declared public MSRV
+        run: bash scripts/ci/check-public-msrv.sh
 
   static:
     runs-on: ubuntu-24.04
@@ -136,12 +136,13 @@ jobs:
           key: icydb-tier-b-wasm-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_CURRENT }}-${{ github.sha }}
           restore-keys: |
             icydb-tier-b-wasm-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_CURRENT }}-
+      - name: Prepare locked workspace cache
+        run: make fetch
       - name: Install pinned local tools
         run: |
           make install-tools tools-check
           printf '%s\n' "$GITHUB_WORKSPACE/.tools/host/bin" \
             "$GITHUB_WORKSPACE/.tools/ic/bin" "$GITHUB_WORKSPACE/.tools/rust/bin" >> "$GITHUB_PATH"
-      - run: cargo fetch --locked
       - name: Run ${{ matrix.lane }} validation with complete feedback
         env:
           HARD_TIMEOUT_SECONDS: ${{ matrix.hard_timeout_seconds }}
@@ -193,7 +194,6 @@ jobs:
             "$GITHUB_WORKSPACE/.tools/rust/bin" >> "$GITHUB_PATH"
       - name: Install locked PocketIC runner
         run: |
-          cargo fetch --locked
           make install-pocketic-runner
       - name: Qualify portable automation with system Bash
         run: |
@@ -208,10 +208,9 @@ jobs:
           /bin/bash scripts/ci/test-wasm-audit-report.sh
           /bin/bash scripts/ci/verify-wasm-optimizer.sh
           make tools-check
-          shellcheck --exclude=SC2001,SC2016 scripts/dev/workstation-setup.sh scripts/dev/install-host-tools.sh scripts/dev/install-ic-tools.sh scripts/ci/install-gh.sh scripts/ci/verify-wasm-optimizer.sh scripts/ci/check-pocketic-alignment.sh scripts/ci/wasm-report-common.sh scripts/ci/wasm-size-report.sh scripts/ci/wasm-audit-report.sh scripts/ci/test-workstation-setup.sh scripts/ci/test-wasm-audit-report.sh
+          shellcheck --exclude=SC2001,SC2016 scripts/dev/workstation-setup.sh scripts/dev/install-host-tools.sh scripts/dev/install-ic-tools.sh scripts/ci/install-gh.sh scripts/ci/verify-wasm-optimizer.sh scripts/ci/wasm-report-common.sh scripts/ci/wasm-size-report.sh scripts/ci/wasm-audit-report.sh scripts/ci/test-workstation-setup.sh scripts/ci/test-wasm-audit-report.sh
       - name: Qualify native library and CLI builds
         run: |
-          cargo fetch --locked
           cargo clippy --locked -p icydb-testing-integration --lib --bin write_wasm_size_report -- -D warnings
           cargo clippy --locked -p icydb-cli --bin icydb -- -D warnings
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --bin icydb tests::icp::hex_response_bytes

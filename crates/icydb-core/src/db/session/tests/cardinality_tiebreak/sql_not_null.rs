@@ -159,6 +159,62 @@ fn sql_not_null_reads_and_counts_agree_across_execution_lanes() {
     }
 }
 
+#[test]
+fn sql_issue_not_precedence_reads_preserve_comparison_and_unknown() {
+    let session = initialize_nullable_rows();
+    for (plain, grouped, expected) in [
+        (
+            "NOT status = 'archived'",
+            "NOT (status = 'archived')",
+            vec![2, 4, 5],
+        ),
+        (
+            "NOT status = 'archived' AND qty > 0",
+            "NOT (status = 'archived') AND qty > 0",
+            vec![2, 4],
+        ),
+        (
+            "NOT status = 'archived' OR id = 3",
+            "NOT (status = 'archived') OR id = 3",
+            vec![2, 3, 4, 5],
+        ),
+        (
+            "NOT NOT status = 'archived'",
+            "NOT (NOT (status = 'archived'))",
+            vec![1],
+        ),
+        ("NOT qty + 1 > 1", "NOT (qty + 1 > 1)", vec![5]),
+        (
+            "NOT status IN ('archived', NULL)",
+            "NOT (status IN ('archived', NULL))",
+            vec![],
+        ),
+        (
+            "NOT status IS NULL",
+            "NOT (status IS NULL)",
+            vec![1, 2, 4, 5],
+        ),
+    ] {
+        for predicate in [
+            plain.to_string(),
+            grouped.to_string(),
+            format!("({plain}) AND id + 0 = id"),
+        ] {
+            assert_ids(&session, &predicate, &expected);
+        }
+    }
+}
+
+#[test]
+fn sql_issue_not_precedence_update_preserves_unknown() {
+    assert_update_preserves_unknown("NOT status = 'active'");
+}
+
+#[test]
+fn sql_issue_not_precedence_delete_preserves_unknown() {
+    assert_delete_preserves_unknown("NOT status = 'active'");
+}
+
 fn assert_update_preserves_unknown(predicate: &str) {
     let session = initialize_nullable_rows();
     let result = session

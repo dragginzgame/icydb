@@ -5,6 +5,24 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.267.3]
+
+- Correct public MSRV validation, preserve shared host cleanup evidence, and
+  fix offline tool setup and SQL predicate/literal handling; leave PocketIC
+  version admission with Testkit, strengthen runtime panic scanning, and correct
+  precommit SQL RETURNING sizing
+  ([#302](https://github.com/dragginzgame/icydb/issues/302),
+  [#43](https://github.com/dragginzgame/icydb/issues/43),
+  [#307](https://github.com/dragginzgame/icydb/issues/307),
+  [#309](https://github.com/dragginzgame/icydb/issues/309),
+  [#320](https://github.com/dragginzgame/icydb/issues/320),
+  [#321](https://github.com/dragginzgame/icydb/issues/321),
+  [#325](https://github.com/dragginzgame/icydb/issues/325),
+  [#326](https://github.com/dragginzgame/icydb/issues/326),
+  [#279](https://github.com/dragginzgame/icydb/issues/279)).
+
+See [docs/changelog/0.267.md](docs/changelog/0.267.md).
+
 ## [0.267.2] - 2026-10-08
 
 - Converge host tooling and validation evidence, strengthen runtime and SQL
