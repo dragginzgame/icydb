@@ -528,8 +528,8 @@ define_error_code_registry! {
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ExactUpdateAffectedRowsExceeded });
     SQL_WRITE_EXACT_UPDATE_WINDOW_UNSUPPORTED = 193 => QuerySqlWriteBoundary,
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ExactUpdateWindowUnsupported });
-    SQL_WRITE_EXACT_UPDATE_SCAN_BUDGET_EXCEEDED = 194 => QuerySqlWriteBoundary,
-        detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ExactUpdateScanBudgetExceeded });
+    SQL_WRITE_SCAN_BUDGET_EXCEEDED = 194 => QuerySqlWriteBoundary,
+        detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::WriteScanBudgetExceeded });
     SQL_WRITE_RESUMABLE_UPDATE_WINDOW_UNSUPPORTED = 195 => QuerySqlWriteBoundary,
         detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ResumableUpdateWindowUnsupported });
     SQL_WRITE_RESUMABLE_UPDATE_RETURNING_UNSUPPORTED = 196 => QuerySqlWriteBoundary,
@@ -703,5 +703,7 @@ define_error_code_registry! {
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MemoryDeclarationSnapshotMismatch });
     RUNTIME_BOUNDARY_MEMORY_HISTORICAL_JOURNAL_UNAVAILABLE = 281 => RuntimeConflict,
         detail(RuntimeBoundary { boundary: RuntimeBoundaryCode::MemoryHistoricalJournalUnavailable });
+    SQL_WRITE_RESUMABLE_UPDATE_EXPRESSION_UNSUPPORTED = 282 => QuerySqlWriteBoundary,
+        detail(SqlWriteBoundary { boundary: SqlWriteBoundaryCode::ResumableUpdateExpressionUnsupported });
 
 }

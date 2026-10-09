@@ -1,7 +1,8 @@
 use super::{
-    SqlWriteMutationExecution, reject_explicit_sql_write_to_generated_field,
-    reject_explicit_sql_write_to_managed_field, sql_exact_update_candidate_bounds,
-    sql_write_candidate_bounds, sql_write_input_for_accepted_field,
+    SqlWriteMutationExecution, accepted_write_field_slot,
+    reject_explicit_sql_write_to_generated_field, reject_explicit_sql_write_to_managed_field,
+    sql_exact_update_candidate_bounds, sql_write_candidate_bounds,
+    sql_write_input_for_accepted_field, sql_write_input_for_assignment_result,
     sql_write_patch_set_accepted_field, sql_write_patch_set_update_default,
 };
 use crate::db::query::preparation::PreparationWork;
@@ -9,7 +10,6 @@ use crate::{
     db::{
         DbSession, MissingRowPolicy, QueryError,
         data::{AcceptedMutationIntentPatch, DecodedDataStoreKey},
-        executor::StructuralProjectionScanBudget,
         query::intent::StructuralQuery,
         schema::AcceptedRowLayoutRuntimeContract,
         session::{
@@ -126,20 +126,10 @@ impl SqlUpdateExecutionContract {
             Self::Validated(bounds) | Self::Exact { bounds, .. } => Some(bounds.returning),
         }
     }
-
-    fn scan_budget(self) -> Result<Option<StructuralProjectionScanBudget>, QueryError> {
-        let Self::Exact { .. } = self else {
-            return Ok(None);
-        };
-
-        StructuralProjectionScanBudget::try_new(SqlExactUpdatePolicy::scan_budget())
-            .map(Some)
-            .ok_or_else(QueryError::invariant)
-    }
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    pub(in crate::db::session::sql) fn sql_structural_patch(
+    pub(in crate::db::session::sql) fn sql_update_fixed_patch(
         descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
         statement: &SqlUpdateStatement,
     ) -> Result<AcceptedMutationIntentPatch, QueryError> {
@@ -177,6 +167,18 @@ impl<C: CanisterKind> DbSession<C> {
                     patch,
                     assignment.field.as_str(),
                 )?,
+                SqlWriteValue::Expression(_) => {
+                    accepted_write_field_slot(descriptor, assignment.field.as_str())?;
+                    reject_explicit_sql_write_to_generated_field(
+                        descriptor,
+                        assignment.field.as_str(),
+                    )?;
+                    reject_explicit_sql_write_to_managed_field(
+                        descriptor,
+                        assignment.field.as_str(),
+                    )?;
+                    patch
+                }
             };
         }
 
@@ -191,12 +193,7 @@ impl<C: CanisterKind> DbSession<C> {
         if schema_info.primary_key_names().is_empty() {
             return Err(QueryError::invariant());
         }
-        let primary_key_names = schema_info
-            .primary_key_names()
-            .iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>();
-        let selector = PreparationWork::run(
+        PreparationWork::run(
             self.db.request_execution_scope(),
             icydb_diagnostic_code::DiagnosticExecutionLane::Mutation,
             |work| {
@@ -208,9 +205,7 @@ impl<C: CanisterKind> DbSession<C> {
                 )
                 .map_err(QueryError::from_sql_lowering_error)
             },
-        )?;
-
-        Ok(selector.select_fields(primary_key_names))
+        )
     }
 
     fn sql_write_key_from_projected_row(
@@ -243,10 +238,10 @@ impl<C: CanisterKind> DbSession<C> {
                 let entity_tag = catalog.identity().entity_tag();
                 let selector = execution_contract
                     .selector(self.sql_update_selector_query(&schema_info, statement)?);
-                let patch = Self::sql_structural_patch(&descriptor, statement)?;
+                let patch = Self::sql_update_fixed_patch(&descriptor, statement)?;
                 let write_context = AcceptedWriteContext::new(Timestamp::now());
                 let candidate_bounds = execution_contract.candidate_bounds();
-                let scan_budget = execution_contract.scan_budget()?;
+                let scan_budget = Some(super::sql_write_scan_budget()?);
                 let rows = self.collect_bounded_sql_write_mutation_batch_from_structural_query(
                     catalog.snapshot(),
                     authority,
@@ -254,13 +249,22 @@ impl<C: CanisterKind> DbSession<C> {
                     candidate_bounds,
                     scan_budget,
                     |row| {
-                        let key =
-                            Self::sql_write_key_from_projected_row(entity_tag, &descriptor, row)?;
+                        let key_values = row
+                            .get(..descriptor.primary_key_names().len())
+                            .ok_or_else(QueryError::invariant)?;
+                        let key = Self::sql_write_key_from_projected_row(
+                            entity_tag,
+                            &descriptor,
+                            key_values,
+                        )?;
+                        let row_patch = Self::sql_update_patch_from_projected_row(
+                            &descriptor,
+                            statement,
+                            &patch,
+                            row,
+                        )?;
 
-                        Ok((
-                            AcceptedStructuralMutationTarget::expected(key),
-                            patch.clone(),
-                        ))
+                        Ok((AcceptedStructuralMutationTarget::expected(key), row_patch))
                     },
                 )?;
                 self.execute_sql_write_mutation_batch(
@@ -277,6 +281,66 @@ impl<C: CanisterKind> DbSession<C> {
                 )
             },
         )
+    }
+
+    // All RHS values were projected from the original row before any mutation.
+    // Combining them with fixed intent here gives simultaneous SET semantics.
+    fn sql_update_patch_from_projected_row(
+        descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+        statement: &SqlUpdateStatement,
+        fixed_patch: &AcceptedMutationIntentPatch,
+        row: &[Value],
+    ) -> Result<AcceptedMutationIntentPatch, QueryError> {
+        let expression_values = row
+            .get(descriptor.primary_key_names().len()..)
+            .ok_or_else(QueryError::invariant)?;
+        if expression_values.is_empty() {
+            return Ok(fixed_patch.clone());
+        }
+        let mut values = expression_values.iter();
+        let mut patch = AcceptedMutationIntentPatch::new();
+        for assignment in &statement.assignments {
+            // Retain authored order even when a field occurs more than once.
+            // Each expression still reads only the original projected row.
+            patch = match &assignment.value {
+                SqlWriteValue::Expression(_) => {
+                    let value = values.next().ok_or_else(QueryError::invariant)?;
+                    let input = sql_write_input_for_assignment_result(
+                        descriptor,
+                        assignment.field.as_str(),
+                        value,
+                    )?;
+                    sql_write_patch_set_accepted_field(
+                        descriptor,
+                        patch,
+                        assignment.field.as_str(),
+                        input,
+                    )?
+                }
+                SqlWriteValue::Literal(value) => {
+                    let input = sql_write_input_for_accepted_field(
+                        descriptor,
+                        assignment.field.as_str(),
+                        value,
+                    )?;
+                    sql_write_patch_set_accepted_field(
+                        descriptor,
+                        patch,
+                        assignment.field.as_str(),
+                        input,
+                    )?
+                }
+                SqlWriteValue::Default => sql_write_patch_set_update_default(
+                    descriptor,
+                    patch,
+                    assignment.field.as_str(),
+                )?,
+            };
+        }
+        if values.next().is_some() {
+            return Err(QueryError::invariant());
+        }
+        Ok(patch)
     }
 
     fn schema_derived_sql_update_policy_result(

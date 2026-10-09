@@ -7,6 +7,10 @@ use super::bounds::{
     bounded_write_policy_rejection, combined_optional_row_bound, sql_write_execution_bounds,
 };
 
+/// Maximum admitted authoritative keys for a bounded or exact SQL write selector.
+/// One additional key probes overflow before any mutation effects.
+pub(in crate::db) const MAX_SQL_WRITE_SCANNED_KEYS: usize = 4_096;
+
 pub(in crate::db::session::sql) const DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT: u32 = 100;
 pub(in crate::db::session::sql) const DEFAULT_PUBLIC_WRITE_RETURNING_RESPONSE_BYTES: u32 =
     1_048_576;

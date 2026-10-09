@@ -1489,14 +1489,17 @@ const fn sql_write_boundary_text(boundary: SqlWriteBoundaryCode) -> &'static str
         SqlWriteBoundaryCode::ExactUpdateWindowUnsupported => {
             "exact UPDATE rejects LIMIT, OFFSET, and non-primary-key ordering"
         }
-        SqlWriteBoundaryCode::ExactUpdateScanBudgetExceeded => {
-            "exact UPDATE selection exceeded the engine scan budget"
+        SqlWriteBoundaryCode::WriteScanBudgetExceeded => {
+            "SQL write selection exceeded the engine scan budget"
         }
         SqlWriteBoundaryCode::ResumableUpdateWindowUnsupported => {
             "resumable UPDATE rejects LIMIT, OFFSET, and non-primary-key ordering"
         }
         SqlWriteBoundaryCode::ResumableUpdateReturningUnsupported => {
             "resumable UPDATE does not support row RETURNING"
+        }
+        SqlWriteBoundaryCode::ResumableUpdateExpressionUnsupported => {
+            "resumable UPDATE requires fixed literal or DEFAULT assignments"
         }
         SqlWriteBoundaryCode::ResumableUpdateRequiresJournaledStore => {
             "resumable UPDATE requires a journaled store"

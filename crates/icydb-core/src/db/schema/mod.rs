@@ -550,6 +550,8 @@ pub(crate) use types::FieldType;
 #[cfg(feature = "sql")]
 pub(in crate::db) use types::canonicalize_strict_sql_literal_for_persisted_kind;
 pub(in crate::db) use types::field_type_from_persisted_kind;
+#[cfg(feature = "sql")]
+pub(in crate::db) use types::input_value_from_sql_assignment_result_for_persisted_kind;
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use types::input_value_from_strict_sql_literal_for_persisted_kind;
 pub(crate) use types::literal_matches_type;

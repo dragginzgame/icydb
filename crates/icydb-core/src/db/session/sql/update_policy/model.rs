@@ -18,9 +18,6 @@ use std::num::NonZeroU32;
 /// Maximum rows one exact SQL update may assert can fit one atomic call.
 pub(in crate::db) const MAX_TRUSTED_EXACT_UPDATE_ROWS: u32 = 4_096;
 
-/// Maximum authoritative keys one exact SQL update may scan in one call.
-const MAX_TRUSTED_EXACT_UPDATE_SCANNED_KEYS: usize = 4_096;
-
 /// Validated caller assertion for one exact complete-set SQL update.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[doc(hidden)]
@@ -55,12 +52,6 @@ impl SqlExactUpdatePolicy {
     #[must_use]
     pub(in crate::db) const fn selection_limit(self) -> u32 {
         self.require_affected_at_most.get() + 1
-    }
-
-    /// Return the engine-owned scanned-key ceiling for one exact selection.
-    #[must_use]
-    pub(in crate::db) const fn scan_budget() -> usize {
-        MAX_TRUSTED_EXACT_UPDATE_SCANNED_KEYS
     }
 
     /// Return the engine-owned maximum accepted affected-row assertion.

@@ -135,7 +135,7 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_sql_projection_from_structural_prepared_plan(prepared_plan, projection, None)
     }
 
-    // Execute one exact-mutation selector through a primary-only prepared plan
+    // Execute one bounded or exact mutation selector through a primary-only prepared plan
     // and one executor-enforced scanned-key ceiling.
     pub(in crate::db::session::sql) fn execute_primary_only_sql_projection_from_structural_query_with_scan_budget(
         &self,

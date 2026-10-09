@@ -16,8 +16,8 @@ pub(in crate::db::session::sql) use model::{
     SqlWriteExposureClass, SqlWritePlanCore, SqlWritePolicyBounds,
 };
 pub(in crate::db) use model::{
-    SqlWriteExecutionBounds, SqlWriteOrderProof, SqlWriteReturningBounds,
-    SqlWriteShapePolicyRejection, SqlWriteStatementShape,
+    MAX_SQL_WRITE_SCANNED_KEYS, SqlWriteExecutionBounds, SqlWriteOrderProof,
+    SqlWriteReturningBounds, SqlWriteShapePolicyRejection, SqlWriteStatementShape,
 };
 pub(in crate::db::session::sql) use shape::{
     SqlWriteStatementShapeInput, classify_write_statement_shape, contains_field,

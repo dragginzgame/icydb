@@ -38,6 +38,36 @@ fn sql_membership_obeys_the_shared_exact_node_boundary() {
 }
 
 #[test]
+fn sql_update_expression_inputs_use_shared_depth_and_payload_admission() {
+    let mut statement = parse_sql("UPDATE E SET field = source WHERE id = 1").unwrap();
+    let mut expression = SqlExpr::Field("source".into());
+    for _ in 0..MAX_QUERY_INPUT_DEPTH {
+        expression = SqlExpr::Unary {
+            op: SqlExprUnaryOp::Not,
+            expr: Box::new(expression),
+        };
+    }
+    let SqlStatement::Update(update) = &mut statement else {
+        panic!("expected UPDATE");
+    };
+    update.assignments[0].value = SqlWriteValue::Expression(expression);
+    assert_eq!(
+        validate_sql_statement_input(&statement, &[]),
+        Err(QueryReadAdmissionCode::InputDepthExceeded)
+    );
+    let SqlStatement::Update(update) = &mut statement else {
+        panic!("expected UPDATE");
+    };
+    update.assignments[0].value = SqlWriteValue::Expression(SqlExpr::Literal(Value::Text(
+        "x".repeat(MAX_QUERY_INPUT_BYTES),
+    )));
+    assert_eq!(
+        validate_sql_statement_input(&statement, &[]),
+        Err(QueryReadAdmissionCode::InputBytesExceeded)
+    );
+}
+
+#[test]
 fn sql_payload_obeys_the_shared_exact_content_boundary() {
     for (count, admitted) in [
         (MAX_QUERY_INPUT_BYTES - 5, true),

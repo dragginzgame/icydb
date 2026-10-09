@@ -82,12 +82,22 @@ fn required_profile_executes_through_checked_adapter() {
 
 #[test]
 fn sum_distinct_witnesses_preserve_nulls_and_discriminate_duplicate_totals() {
-    let witnesses = scheduled_select_witnesses().expect("SUM schedule should derive");
+    assert_numeric_distinct_witnesses("tier_c.sum_distinct.");
+}
+
+#[test]
+fn avg_distinct_witnesses_preserve_nulls_denominators_and_exact_halves() {
+    assert!(assert_numeric_distinct_witnesses("tier_c.avg_distinct."));
+}
+
+fn assert_numeric_distinct_witnesses(prefix: &str) -> bool {
+    let witnesses = scheduled_select_witnesses().expect("numeric aggregate schedule should derive");
     let mut duplicate_total_differs = false;
     let mut filter_crosses_duplicate = false;
+    let mut exact_half = false;
     for witness in witnesses
         .iter()
-        .filter(|witness| witness.witness_id().starts_with("tier_c.sum_distinct."))
+        .filter(|witness| witness.witness_id().starts_with(prefix))
     {
         for root_seed in TIER_C_ROOT_SEEDS {
             for repetition in 0..TIER_C_SELECT_REPETITIONS {
@@ -97,16 +107,18 @@ fn sum_distinct_witnesses_preserve_nulls_and_discriminate_duplicate_totals() {
                     repetition,
                     TIER_C_SELECT_BUDGETS,
                 )
-                .expect("SUM witness should generate");
-                let result =
-                    execute_generated_select_case(&case).expect("SUM should execute in SQLite");
-                match witness.witness_id() {
-                    "tier_c.sum_distinct.all_null"
-                    | "tier_c.sum_distinct.empty"
-                    | "tier_c.sum_distinct.no_match" => {
+                .expect("numeric aggregate witness should generate");
+                let result = execute_generated_select_case(&case)
+                    .expect("numeric aggregate should execute in SQLite");
+                exact_half |=
+                    result.rows().iter().flatten().any(|value| {
+                        matches!(value, SqliteReferenceValue::Decimal { scale: 1, .. })
+                    });
+                match witness.witness_id().strip_prefix(prefix).unwrap() {
+                    "all_null" | "empty" | "no_match" => {
                         assert_eq!(result.rows(), &[vec![SqliteReferenceValue::Null; 4]]);
                     }
-                    "tier_c.sum_distinct.global" => {
+                    "global" => {
                         duplicate_total_differs |= result.rows()[0][0] != result.rows()[0][1];
                         let numeric_id = case
                             .snapshot()
@@ -115,7 +127,7 @@ fn sum_distinct_witnesses_preserve_nulls_and_discriminate_duplicate_totals() {
                             .find(|field| {
                                 field.nullable() && field.kind() == SelectFieldKind::Integer
                             })
-                            .expect("SUM fixture must declare a nullable integer")
+                            .expect("numeric aggregate fixture must declare a nullable integer")
                             .id();
                         let text_id = case
                             .snapshot()
@@ -141,20 +153,21 @@ fn sum_distinct_witnesses_preserve_nulls_and_discriminate_duplicate_totals() {
                                 })
                         });
                     }
-                    "tier_c.sum_distinct.grouped" => assert!(result.rows().len() >= 2),
-                    _ => unreachable!("filtered SUM witness must be maintained"),
+                    "grouped" => assert!(result.rows().len() >= 2),
+                    _ => unreachable!("filtered numeric aggregate witness must be maintained"),
                 }
             }
         }
     }
     assert!(
         duplicate_total_differs,
-        "oracle fixtures must distinguish SUM DISTINCT from ordinary SUM"
+        "oracle fixtures must distinguish numeric aggregate DISTINCT from ordinary numeric aggregate"
     );
     assert!(
         filter_crosses_duplicate,
         "FILTER must admit a duplicate whose peer is excluded"
     );
+    exact_half
 }
 
 #[test]

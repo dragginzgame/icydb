@@ -4180,6 +4180,30 @@ fn parse_default_rejects_non_write_positions() {
 }
 
 #[test]
+fn parse_update_scalar_assignments_preserve_expression_and_literal_intent() {
+    let SqlStatement::Update(statement) = parse_sql(
+        "UPDATE users SET name = description, age = age + 1, rank = -1, nickname = NULL, label = DEFAULT WHERE id = 7",
+    ).unwrap() else { panic!("expected UPDATE"); };
+    assert!(
+        matches!(&statement.assignments[0].value, SqlWriteValue::Expression(SqlExpr::Field(field)) if field == "description")
+    );
+    assert!(matches!(
+        &statement.assignments[1].value,
+        SqlWriteValue::Expression(SqlExpr::Binary { .. })
+    ));
+    assert_eq!(
+        statement.assignments[2].value,
+        SqlWriteValue::Literal(Value::Int64(-1))
+    );
+    assert_eq!(
+        statement.assignments[3].value,
+        SqlWriteValue::Literal(Value::Null)
+    );
+    assert_eq!(statement.assignments[4].value, SqlWriteValue::Default);
+    assert!(parse_sql("UPDATE users SET age = SUM(age) WHERE id = 7").is_err());
+}
+
+#[test]
 fn parse_update_statement_accepts_single_table_alias() {
     let statement = parse_sql("UPDATE users u SET u.name = 'Ada', u.age = 21 WHERE u.id = 7")
         .expect("update statement with one table alias should parse");

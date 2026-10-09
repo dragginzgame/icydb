@@ -57,6 +57,7 @@ use crate::{
                 STRUCTURAL_MUTATION_BATCH_STAGED_BYTES_POLICY,
             },
         },
+        sql::parser::SqlWriteValue,
         write_context::MutationMode,
     },
     error::InternalError,
@@ -863,9 +864,21 @@ impl<C: CanisterKind> DbSession<C> {
             )
         })?;
         let plan = require_resumable_update_plan(report)?;
+        // Durable jobs persist one fixed patch. Never admit expressions that
+        // could depend on already changed rows after interruption or retry.
+        if plan
+            .statement()
+            .assignments
+            .iter()
+            .any(|assignment| matches!(assignment.value, SqlWriteValue::Expression(_)))
+        {
+            return Err(QueryError::sql_write_boundary(
+                SqlWriteBoundaryCode::ResumableUpdateExpressionUnsupported,
+            ));
+        }
         let selector =
             self.sql_update_selector_query(catalog.accepted_schema_info(), plan.statement())?;
-        let patch = Self::sql_structural_patch(&descriptor, plan.statement())?;
+        let patch = Self::sql_update_fixed_patch(&descriptor, plan.statement())?;
         let fixed_patch = AcceptedFixedUpdatePatch::from_update_intent(
             identity.entity_path(),
             identity.entity_tag().value(),

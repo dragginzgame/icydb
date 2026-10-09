@@ -1514,6 +1514,15 @@ fn normalize_live_grouped_row(
         .zip(scenario.columns().iter().copied())
         .enumerate()
         .map(|(column, (value, kind))| {
+            // Grouped numeric outputs render SQL NULL as a token. Admit it
+            // only within this scenario's declared nullable numeric overlap;
+            // a text value spelled NULL keeps its ordinary text identity.
+            if scenario.nullable()
+                && value == "NULL"
+                && matches!(kind, SqliteReferenceColumnKind::Decimal | SqliteReferenceColumnKind::Integer)
+            {
+                return Ok(NormalizedCell::Null);
+            }
             let value = match kind {
                 SqliteReferenceColumnKind::Decimal => {
                     let value = value.parse::<Decimal>().map_err(|error| {
@@ -1572,6 +1581,52 @@ fn sql_canister_sqlite_normalization_preserves_exact_decimal_identity() {
     )
     .expect("exact decimal output should normalize without coercion");
     assert_eq!(actual, expected);
+}
+
+#[test]
+fn sql_canister_sqlite_normalization_preserves_declared_grouped_numeric_nulls() {
+    let scenario = *required_sqlite_reference_scenarios()
+        .iter()
+        .find(|scenario| scenario.id() == "sqlite.required.avg_distinct.grouped")
+        .unwrap();
+    assert_eq!(
+        normalize_live_grouped_row(scenario, 0, vec!["25".into(), "NULL".into(), "3".into()])
+            .unwrap(),
+        vec![
+            NormalizedCell::Int(25),
+            NormalizedCell::Null,
+            NormalizedCell::Decimal {
+                coefficient: 3,
+                scale: 0
+            }
+        ]
+    );
+    assert!(
+        normalize_live_grouped_row(
+            scenario,
+            0,
+            vec!["25".into(), "not-a-number".into(), "3".into()]
+        )
+        .is_err()
+    );
+    let nonnullable = *required_sqlite_reference_scenarios()
+        .iter()
+        .find(|scenario| {
+            !scenario.nullable()
+                && scenario
+                    .columns()
+                    .iter()
+                    .all(|kind| *kind == SqliteReferenceColumnKind::Integer)
+        })
+        .unwrap();
+    assert!(
+        normalize_live_grouped_row(
+            nonnullable,
+            0,
+            vec!["NULL".into(); nonnullable.columns().len()]
+        )
+        .is_err()
+    );
 }
 
 fn verify_live_row_shape(
@@ -5019,6 +5074,60 @@ fn sql_canister_update_endpoint_admits_primary_key_update_only() {
             .expect("post-delete indexed query should execute"),
     );
     assert_eq!(deleted.row_count, 0);
+}
+
+#[test]
+fn sql_canister_update_expressions_use_original_rows_and_reject_before_effects() {
+    let fixture = install_sql_canister_fixture();
+    reset_sql_fixtures(&fixture);
+    let alice = expect_projection(
+        query_sql(&fixture, "SELECT id FROM SqlTestUser WHERE name = 'alice'").unwrap(),
+    );
+    let id = first_projected_text(&alice);
+    let result = expect_projection(
+        update_sql(
+            &fixture,
+            &format!("UPDATE SqlTestUser SET rank = age, age = age + 1 WHERE id = '{id}' RETURNING age, rank"),
+        )
+        .unwrap(),
+    );
+    assert_eq!(result.rendered_rows(), string_rows(&[&["32", "31"]]));
+
+    let bounded = install_sql_bounded_canister_fixture();
+    reset_sql_fixtures(&bounded);
+    let before = expect_projection(
+        query_sql(&bounded, "SELECT id, age FROM SqlTestUser ORDER BY id").unwrap(),
+    )
+    .rendered_rows();
+    let result = expect_projection(update_sql(&bounded, "UPDATE SqlTestUser SET age = age + 1 WHERE age >= 0 ORDER BY id ASC LIMIT 2 RETURNING id, age").unwrap());
+    let expected = before
+        .iter()
+        .take(2)
+        .map(|row| {
+            vec![
+                row[0].clone(),
+                (row[1].parse::<u64>().unwrap() + 1).to_string(),
+            ]
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(result.rendered_rows(), expected);
+    let before = expect_projection(
+        query_sql(&bounded, "SELECT id, age FROM SqlTestUser ORDER BY id").unwrap(),
+    )
+    .rendered_rows();
+    let error = update_sql(
+        &bounded,
+        "UPDATE SqlTestUser SET age = age + 0.5 WHERE age >= 0 ORDER BY id ASC LIMIT 2",
+    )
+    .unwrap_err();
+    assert_eq!(error.code(), ErrorCode::SQL_WRITE_INVALID_FIELD_LITERAL);
+    assert_eq!(
+        expect_projection(
+            query_sql(&bounded, "SELECT id, age FROM SqlTestUser ORDER BY id").unwrap()
+        )
+        .rendered_rows(),
+        before
+    );
 }
 
 #[test]

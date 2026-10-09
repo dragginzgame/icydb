@@ -42,7 +42,10 @@ fn splitmix64_state_transition_has_fixed_golden_vector() {
 #[test]
 fn witness_sub_seed_is_stable_and_independent_of_schedule_order() {
     let witnesses = scheduled_select_witnesses().expect("schedule should derive");
-    let first = &witnesses[0];
+    let first = witnesses
+        .iter()
+        .find(|witness| witness.witness_id() == "tier_c.cache.cold_sql_fluent")
+        .expect("maintained golden witness");
     let sub_seed = derive_select_witness_sub_seed(
         SELECT_GENERATOR_VERSION,
         TIER_A_ROOT_SEEDS[0],
@@ -73,10 +76,10 @@ fn witness_sub_seed_is_stable_and_independent_of_schedule_order() {
 #[test]
 fn code_owned_schedule_exposes_exact_select_witnesses_and_hash() {
     let witnesses = scheduled_select_witnesses().expect("schedule should derive");
-    assert_eq!(witnesses.len(), 22);
+    assert_eq!(witnesses.len(), 27);
     assert_eq!(
         structural_witness_schedule_hash().expect("schedule hash should derive"),
-        "12c4c4456c0821c80019c959f7ba2b97cc3205fac6a9580af3885108c18b58ab",
+        "6a21606679a0069e15ccf31164f221b1d05c8daa91160c23b600a977f7c00344",
     );
     assert_eq!(
         witnesses
@@ -179,13 +182,13 @@ fn every_required_select_structure_generates_deterministically() {
             * witnesses.len()
             * usize::try_from(TIER_C_SELECT_REPETITIONS).expect("repetitions fit usize"),
     );
-    assert_eq!(signature_counts.len(), witnesses.len() - 2);
+    assert_eq!(signature_counts.len(), witnesses.len() - 3);
     assert_eq!(
         signature_counts
             .values()
             .filter(|count| **count == 32)
             .count(),
-        2,
+        3,
         "entry-path and empty/nonempty aggregate witnesses share their respective structures",
     );
     assert!(
@@ -196,7 +199,7 @@ fn every_required_select_structure_generates_deterministically() {
     assert_eq!(
         profile_counts,
         BTreeMap::from([
-            ("indexed_nullable_reference".to_string(), 192),
+            ("indexed_nullable_reference".to_string(), 272),
             ("reference_scalar".to_string(), 160),
         ]),
     );
@@ -210,6 +213,7 @@ fn every_required_select_structure_generates_deterministically() {
             "duplicate_rich".to_string(),
             "duplicate_rich_indexed".to_string(),
             "empty".to_string(),
+            "exact_average_stored_null_duplicate_rich".to_string(),
             "multiple_duplicate_rich_indexed_groups".to_string(),
             "multiple_groups".to_string(),
             "order_ties".to_string(),
@@ -361,12 +365,12 @@ fn generated_select_declarations_and_receipts_cover_the_catalog_exactly() {
             .expect("exact generated receipts should project");
     assert_eq!(
         distribution.generated_select_structural_signature_count(),
-        witnesses.len().saturating_sub(2),
+        witnesses.len().saturating_sub(3),
         "entry-path and empty/nonempty aggregate obligations share structures while retaining distinct execution obligations",
     );
     assert_eq!(
         distribution.generated_select_fixture_class_count("empty"),
-        u32::try_from(TIER_C_ROOT_SEEDS.len() * 2)
+        u32::try_from(TIER_C_ROOT_SEEDS.len() * 3)
             .expect("root count should fit u32")
             .saturating_mul(
                 u32::try_from(TIER_C_SELECT_REPETITIONS).expect("repetition count should fit u32"),

@@ -449,7 +449,7 @@ fn unordered_distinct_preserves_typed_state_storage_and_scan_limits() {
             assert!(matches!(
                 error.diagnostic().detail(),
                 Some(DiagnosticDetail::SqlWriteBoundary {
-                    boundary: SqlWriteBoundaryCode::ExactUpdateScanBudgetExceeded,
+                    boundary: SqlWriteBoundaryCode::WriteScanBudgetExceeded,
                 })
             ));
         }

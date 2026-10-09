@@ -71,7 +71,9 @@ impl<C: CanisterKind> DbSession<C> {
                     authority,
                     &selector,
                     bounds,
-                    None,
+                    execution_bounds
+                        .map(|_| super::sql_write_scan_budget())
+                        .transpose()?,
                     |row| {
                         let key =
                             DecodedDataStoreKey::try_from_structural_key_values(entity_tag, row)

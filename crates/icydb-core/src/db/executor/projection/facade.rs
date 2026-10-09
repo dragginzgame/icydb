@@ -587,7 +587,7 @@ fn sql_scan_budget_exceeded_error(
     scanned_keys: usize,
 ) -> InternalError {
     InternalError::query_sql_write_boundary_with_facts(
-        SqlWriteBoundaryCode::ExactUpdateScanBudgetExceeded,
+        SqlWriteBoundaryCode::WriteScanBudgetExceeded,
         vec![
             (DiagnosticFactTag::ActualCount, scanned_keys as u64),
             (

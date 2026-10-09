@@ -12,7 +12,7 @@ const SQLITE_REFERENCE_RESULT_FINGERPRINT_DOMAIN: &[u8] = b"icydb-sqlite-referen
 /// SqliteReferenceColumnKind
 ///
 /// Exact SQLite/IcyDB value family admitted by one reference-result column.
-/// The initial overlap deliberately excludes floating point values.
+/// SQLite REAL results are admitted only as bounded exact decimal integers/halves/quarters.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -21,7 +21,7 @@ pub enum SqliteReferenceColumnKind {
     Blob,
     /// Boolean values encoded by SQLite as zero or one integers.
     Boolean,
-    /// Exact decimal values represented by SQLite integer results at scale zero.
+    /// Exact decimal values represented by SQLite integers or bounded exact halves/quarters.
     Decimal,
     /// Signed 64-bit integers.
     Integer,

@@ -538,7 +538,10 @@ fn exact_update_policy_carries_assertion_and_execution_bounds() {
 
     assert_eq!(plan.policy().require_affected_at_most(), 3);
     assert_eq!(plan.policy().selection_limit(), 4);
-    assert_eq!(SqlExactUpdatePolicy::scan_budget(), 4_096);
+    assert_eq!(
+        crate::db::session::sql::write_policy::MAX_SQL_WRITE_SCANNED_KEYS,
+        4_096
+    );
     assert_eq!(plan.execution_bounds().max_staged_rows, Some(3));
     assert_eq!(plan.execution_bounds().returning.max_rows, Some(3));
 }

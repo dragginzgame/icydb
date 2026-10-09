@@ -166,14 +166,18 @@ of working versus committed sources and their release/preparation transactions.
 
 ## CI binary installers
 
-The actionlint, ShellCheck, gitleaks and sccache entry points delegate to
+The actionlint, ShellCheck, gitleaks, sccache and yq entry points delegate to
 `scripts/ci/install-ci-tool.sh`. Their existing version, SHA-256 and installation
 directory arguments are unchanged. The implementation shares host selection,
 HTTPS download, checksum admission, extraction, exact version admission and
 publication. Asset names and version-output formats remain explicit per tool.
 Staging lives on the destination filesystem; failures retain the candidate and
 leave the installed executable intact. Successful installation removes its own
-staging files. This does not merge repository-local host/IC bundle activation
+staging files. Publication uses Perl core's exact-path atomic rename: a directory
+introduced at the executable destination during setup is refused, and a late
+symlink is replaced without following its target. Perl must be available before
+setup starts; no tool is downloaded when this prerequisite is missing.
+This does not merge repository-local host/IC bundle activation
 or change any consumer's pins. Include the internal helper and checksum verifier
 in snapshots with any of these entry points.
 

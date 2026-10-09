@@ -1211,6 +1211,8 @@ pub(crate) enum SqlInsertSource {
 pub(crate) enum SqlWriteValue {
     Literal(Value),
     Default,
+    /// UPDATE-only scalar RHS, evaluated from the original selected row.
+    Expression(SqlExpr),
 }
 
 ///
@@ -1234,7 +1236,7 @@ pub(crate) struct SqlInsertStatement {
 ///
 /// SqlAssignment
 ///
-/// One parsed `UPDATE ... SET field = value-or-default` assignment.
+/// One parsed `UPDATE ... SET field = scalar-expression-or-default` assignment.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -20,7 +20,7 @@ use crate::{
                     projection_labels_from_accepted_write_descriptor,
                     sql_returning_statement_projection, validate_sql_materialized_returning_bounds,
                 },
-                write_policy::SqlWriteReturningBounds,
+                write_policy::{MAX_SQL_WRITE_SCANNED_KEYS, SqlWriteReturningBounds},
             },
             write::AcceptedStructuralMutationRow,
         },
@@ -33,13 +33,20 @@ use crate::{
 use authority::{
     accepted_write_field_slot, reject_explicit_sql_write_to_generated_field,
     reject_explicit_sql_write_to_managed_field, sql_write_input_for_accepted_field,
-    sql_write_patch_set_accepted_field, sql_write_patch_set_insert_default,
-    sql_write_patch_set_update_default,
+    sql_write_input_for_assignment_result, sql_write_patch_set_accepted_field,
+    sql_write_patch_set_insert_default, sql_write_patch_set_update_default,
 };
 use candidate::{
     SqlWriteCandidateBounds, SqlWriteMutationBatch, sql_exact_update_candidate_bounds,
     sql_write_candidate_bounds, sql_write_mutation_batch_capacity,
 };
+
+// Bounded and exact writes share the same authoritative-key ceiling. Candidate
+// collection must complete within it before any mutation is staged or published.
+fn sql_write_scan_budget() -> Result<StructuralProjectionScanBudget, QueryError> {
+    StructuralProjectionScanBudget::try_new(MAX_SQL_WRITE_SCANNED_KEYS)
+        .ok_or_else(QueryError::invariant)
+}
 
 pub(super) fn execute_compiled_sql_write<C>(
     session: &DbSession<C>,

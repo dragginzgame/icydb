@@ -69,6 +69,7 @@ case "$tool" in
         archive="$package.tar.gz"
         member="$package/sccache"; format=gzip; version_argument=--version ;;
 esac
+command -v perl >/dev/null || { echo 'Perl is required for atomic CI tool publication' >&2; exit 1; }
 mkdir -p "$install_dir"
 [[ ! -d "$install_dir/$tool" ]] || { echo 'tool destination is a directory' >&2; exit 1; }
 # Stage on the destination filesystem so successful publication is one rename.
@@ -111,5 +112,7 @@ esac
 [[ "$reported_version" == "$version" ]] || {
     printf 'installed %s version mismatch: expected %s, got %s\n' "$tool" "$version" "$version_output" >&2; exit 1;
 }
-mv "$candidate" "$install_dir/$tool"
+# rename(2) targets this exact entry: a late directory must never become a
+# container, and a late symlink must not redirect publication into its target.
+perl -e 'rename($ARGV[0], $ARGV[1]) or die "publish CI tool: $!\n"' "$candidate" "$install_dir/$tool"
 printf '%s\n' "$install_dir/$tool"

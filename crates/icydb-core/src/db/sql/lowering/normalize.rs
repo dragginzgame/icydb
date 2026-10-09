@@ -7,6 +7,7 @@ use crate::db::sql::{
     parser::{
         SqlAggregateCall, SqlAssignment, SqlDeleteStatement, SqlExpr, SqlOrderTerm, SqlProjection,
         SqlReturningProjection, SqlSelectItem, SqlSelectStatement, SqlUpdateStatement,
+        SqlWriteValue,
     },
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
@@ -410,6 +411,11 @@ fn normalize_assignments(
     for assignment in &mut assignments {
         assignment.field =
             normalize_identifier(std::mem::take(&mut assignment.field), entity_scope, work)?;
+        if let SqlWriteValue::Expression(expression) = &mut assignment.value {
+            let original =
+                std::mem::replace(expression, SqlExpr::Literal(crate::value::Value::Null));
+            *expression = normalize_sql_expr_to_scope(original, entity_scope, work)?;
+        }
     }
     Ok(assignments)
 }

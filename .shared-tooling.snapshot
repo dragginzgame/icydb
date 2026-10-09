@@ -1,7 +1,7 @@
 # Shared Tooling snapshot v1
 format	1
 source	https://github.com/dragginzgame/shared-tooling
-revision	06b2e22f6bd213f1a590eb2a8797aee34c42dd69
+revision	ee48bb37c98c771e77b92fd891f0757d8c1c8b99
 file	4c981184847462ab3c01cac087e28309f8e054253fd95c7bbe56f643877aa708	x	scripts/ci/verify-file-checksum.sh
 file	ba5c6b76d15bec4ac226f1ab0732d5087446152d64107993c52642a68d2ff464	x	scripts/ci/verify-shared-tooling-snapshot.sh
 file	8a6304b9096963fa5fe1881fa99ce1790b34d6ee0e0d0d0983f6d63da84817d2	x	scripts/ci/install-actionlint.sh
@@ -14,7 +14,7 @@ file	ee68649246bad21f0f28df4ea3809d8e2c7bcf1cd2a3d68e44684b855badc1c2	-	docs/pri
 file	27a04aeee753252b310fef363856edf83577337bfaea1e63a50017460eddde59	-	docs/principles/rust-code-hygiene.md
 file	457fd38e0073c91ba470b918d4facd9faac3c5200ebd38c97e9d6b76acdaea55	-	docs/principles/simplicity-and-maintainability.md
 file	70489e0c67d0d42d1237e0d06bd8f7e81816874a4d16365220197ebc838b0567	-	docs/consuming-snapshots.md
-file	068c33ce3216d1c6dfb2295eb3819d3d5a0d4725afeee115c369661b8f640c6e	-	docs/supported-hosts.md
+file	b036679899b70c1304373df13e78c637ddbba711b075fba2e7cec6c011a1254b	-	docs/supported-hosts.md
 file	b5a6e8fb723a861b722834675e27b4b16f3d296112622c1b40cdc8714f575404	-	rules/changelogs.md
 file	2a81dbef0bbf2045bf83a921cd5d4af49d400ffc4cafd35fad222750ac6b2d9f	-	docs/releases.md
 file	fc689ff5d636be1049a527f6cafa74a768005211dcbecb074b8b327d8e6bab04	x	scripts/ci/run-release.sh
@@ -43,7 +43,7 @@ file	82892e25292fe47c26035a0031aa4ad1996fcf181732163e75039bd657f2f84b	-	ci/tool-
 file	74134f6567746b2071ecfca28829b0ea4da69ed207b958b38fd181e722a3aea9	x	scripts/dev/install-host-tools.sh
 file	f41ba134d2838df094d373c70ba254f6bc2f1184914eee06119062708f2d6797	x	scripts/dev/install-ic-tools.sh
 file	ab2202f89a077373fffac29f57527b88ccc65998f5c85c60a32081edd8338150	x	scripts/ci/verify-evidence-checksums.sh
-file	f1add12a62a9be7a3113dccae86d3fcc4c7b13a69498e4d0b3ff9ba0965ea0ed	-	docs/verification-helpers.md
+file	8ea130d767dd83ea491f8321b34b6498538220a99b1685ccbec0cbbef0522b48	-	docs/verification-helpers.md
 file	a04ef3105e7851b83bb682120873e29a6c3c604183c275bc53051dd9e4b300a7	x	scripts/ci/check-documentation-links.pl
 file	5dd38585740657f98f655c15c4f617ca05dc4b6304e0925675a44376ec33309b	x	scripts/ci/check-release-commands.sh
 file	ff1ebbbb5058171553b49ce28d5812d2711ae2d658a792bcf8a92cbf537a1ef5	x	scripts/ci/check-crates-io-version.sh
@@ -51,7 +51,7 @@ file	236f9b2d7fe391a73d03cfe355c0d26fa73de8db1553c7e670f7b19aeb65d086	x	scripts/
 file	dd44fb01214ef771bc5be9759a6441dfa45f1249fd3d6eccfcefd0dea5391b75	x	scripts/ci/check-formatting-hooks.sh
 file	1063002468575e2f821cfec71524bde06a64634bf30455d64d2d9fed872969d6	-	docs/tag-maintenance.md
 file	f54db2c34eeac9ccde4ad32c101fd0b02116a1c985b69bfe52b24994efaff912	x	scripts/dev/delete-github-tags-up-to.pl
-file	885cb85d250ef80ced2df05d05c4187b2d05998a7526b6983fd037f3327bdf29	x	scripts/ci/install-ci-tool.sh
+file	e15dbf4612dddffa925e57e878db8bcbd7765c7b350ebbe41635e3df4d38bee5	x	scripts/ci/install-ci-tool.sh
 file	40f31a19d6115411ebffe7c26e3ed30b8af7eead10dd4830de8d5a9312291222	x	scripts/ci/read-cargo-workspace-version.sh
 file	a52db278800a9f02d85a6b8a780a9b1eed860c49d5442cef9db1f7f9d7ddee0a	x	scripts/ci/check-format-tools.sh
 file	431f4a40037fc341bec1d53416b440b3bcd4b6af5cd45210e390c82abb08b475	-	scripts/distribution/governance-files.txt

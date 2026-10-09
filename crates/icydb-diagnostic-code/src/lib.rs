@@ -770,9 +770,10 @@ pub enum SqlWriteBoundaryCode {
     ExactUpdateAssertionTooHigh,
     ExactUpdateAffectedRowsExceeded,
     ExactUpdateWindowUnsupported,
-    ExactUpdateScanBudgetExceeded,
+    WriteScanBudgetExceeded,
     ResumableUpdateWindowUnsupported,
     ResumableUpdateReturningUnsupported,
+    ResumableUpdateExpressionUnsupported,
     ResumableUpdateRequiresJournaledStore,
     ResumableUpdateAssignedFieldHasGlobalConstraint,
     ResumableUpdateScopeDependsOnAssignedField,
@@ -1093,7 +1094,7 @@ mod tests {
             .expect("public error-code registry is non-empty")
             .raw();
 
-        assert_eq!(last, 281);
+        assert_eq!(last, 282);
     }
 
     #[test]

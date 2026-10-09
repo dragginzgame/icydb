@@ -1599,6 +1599,12 @@ pub(crate) enum SelectExpression {
         distinct: bool,
         filter: Option<Box<SelectPredicate>>,
     },
+    /// Numeric AVG, sharing the maintained aggregate modifier/replay contract.
+    Avg {
+        argument: Option<Box<Self>>,
+        distinct: bool,
+        filter: Option<Box<SelectPredicate>>,
+    },
     Field {
         #[serde(with = "tagged_u32")]
         field_id: u32,
@@ -1645,8 +1651,15 @@ impl SelectExpression {
                 argument,
                 distinct,
                 filter,
+            }
+            | Self::Avg {
+                argument,
+                distinct,
+                filter,
             } => {
-                if (matches!(self, Self::Sum { .. }) || *distinct) && argument.is_none() {
+                if (matches!(self, Self::Sum { .. } | Self::Avg { .. }) || *distinct)
+                    && argument.is_none()
+                {
                     return Err(SqlGeneratorError::new(
                         SqlGeneratorErrorKind::InvalidCase,
                         "generated aggregate requires a scalar argument",
@@ -1670,7 +1683,7 @@ impl SelectExpression {
                         ));
                     }
                 }
-                if matches!(self, Self::Sum { .. }) {
+                if matches!(self, Self::Sum { .. } | Self::Avg { .. }) {
                     let kind = argument
                         .as_deref()
                         .map(|argument| argument.value_kind(snapshot))
@@ -1681,7 +1694,7 @@ impl SelectExpression {
                     ) {
                         return Err(SqlGeneratorError::new(
                             SqlGeneratorErrorKind::InvalidCase,
-                            "generated SUM requires a numeric argument",
+                            "generated numeric aggregate requires a numeric argument",
                         ));
                     }
                     Ok(SelectValueKind::Decimal)
@@ -1729,6 +1742,9 @@ impl SelectExpression {
             }
             | Self::Sum {
                 argument, filter, ..
+            }
+            | Self::Avg {
+                argument, filter, ..
             } => 1_u8.saturating_add(
                 argument
                     .as_deref()
@@ -1756,7 +1772,7 @@ impl SelectExpression {
 
     fn contains_aggregate(&self) -> bool {
         match self {
-            Self::Count { .. } | Self::Sum { .. } => true,
+            Self::Count { .. } | Self::Sum { .. } | Self::Avg { .. } => true,
             Self::Arithmetic { left, right, .. } => {
                 left.contains_aggregate() || right.contains_aggregate()
             }
@@ -1776,7 +1792,7 @@ impl SelectExpression {
 
     fn respects_group_scope(&self, group_by: &[Self], inside_aggregate: bool) -> bool {
         match self {
-            Self::Count { .. } | Self::Sum { .. } => !inside_aggregate,
+            Self::Count { .. } | Self::Sum { .. } | Self::Avg { .. } => !inside_aggregate,
             Self::Field { .. } => inside_aggregate || group_by.contains(self),
             Self::Literal { .. } => true,
             Self::Arithmetic { left, right, .. } => {
@@ -1848,6 +1864,11 @@ impl SelectExpression {
                 argument,
                 distinct,
                 filter,
+            }
+            | Self::Avg {
+                argument,
+                distinct,
+                filter,
             } => {
                 candidates.extend(self.shrink_aggregate_candidates(
                     argument.as_deref(),
@@ -1889,6 +1910,11 @@ impl SelectExpression {
         let mut candidates = Vec::new();
         let aggregate = |argument, distinct, filter| match self {
             Self::Sum { .. } => Self::Sum {
+                argument,
+                distinct,
+                filter,
+            },
+            Self::Avg { .. } => Self::Avg {
                 argument,
                 distinct,
                 filter,

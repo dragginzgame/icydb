@@ -29,8 +29,9 @@ use crate::db::{
     },
     schema::SchemaInfo,
     sql::parser::{
-        SqlDeleteStatement, SqlExpr, SqlOrderDirection, SqlOrderTerm, SqlReturningProjection,
-        SqlSelectStatement, SqlUpdateStatement,
+        SqlDeleteStatement, SqlExpr, SqlOrderDirection, SqlOrderTerm, SqlProjection,
+        SqlReturningProjection, SqlSelectItem, SqlSelectStatement, SqlUpdateStatement,
+        SqlWriteValue,
     },
 };
 use icydb_diagnostic_code::{QueryFieldRole, SqlFeatureCode, SqlWriteBoundaryCode};
@@ -718,8 +719,24 @@ pub(in crate::db) fn bind_sql_update_selector_query_structural_with_schema(
     }
 
     let base_query = lower_update_selector_shape(statement, schema.primary_key_names(), work)?;
-
-    bind_lowered_sql_base_query_structural_with_schema(base_query, consistency, schema, work)
+    let query =
+        bind_lowered_sql_base_query_structural_with_schema(base_query, consistency, schema, work)?;
+    // Project each computed RHS alongside the key from the same original row.
+    // The existing scalar binder/evaluator owns expression admission and math.
+    let mut items = schema
+        .primary_key_names()
+        .iter()
+        .cloned()
+        .map(SqlSelectItem::Field)
+        .collect::<Vec<_>>();
+    for assignment in &statement.assignments {
+        if let SqlWriteValue::Expression(expression) = &assignment.value {
+            items.push(SqlSelectItem::Expr(expression.clone()));
+        }
+    }
+    let projection = lower_scalar_projection_selection(SqlProjection::Items(items), &[], work)?;
+    validate_projection_sql_capabilities(schema, &projection)?;
+    Ok(query.projection_selection(projection.into_selection()))
 }
 
 pub(in crate::db::sql::lowering) fn lower_delete_shape(

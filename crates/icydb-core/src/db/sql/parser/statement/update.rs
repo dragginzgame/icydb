@@ -4,7 +4,10 @@
 //! Boundary: converts UPDATE tokens into the shared parsed statement model.
 
 use crate::db::{
-    sql::parser::{Parser, SqlAssignment, SqlUpdateStatement, SqlWriteValue},
+    sql::parser::{
+        Parser, SqlAssignment, SqlExpr, SqlUpdateStatement, SqlWriteValue,
+        projection::SqlExprParseSurface,
+    },
     sql_shared::{Keyword, SqlExpectedToken, SqlParseError, TokenKind},
 };
 
@@ -58,7 +61,10 @@ impl Parser {
             let value = if self.eat_keyword(Keyword::Default) {
                 SqlWriteValue::Default
             } else {
-                SqlWriteValue::Literal(self.parse_literal()?)
+                match self.parse_sql_expr(SqlExprParseSurface::AggregateInput, 0)? {
+                    SqlExpr::Literal(ref value) => SqlWriteValue::Literal(value.clone()),
+                    expression => SqlWriteValue::Expression(expression),
+                }
             };
             assignments.push(SqlAssignment { field, value });
 

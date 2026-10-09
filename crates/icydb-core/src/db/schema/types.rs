@@ -656,6 +656,40 @@ fn canonicalize_filter_nat(value: &Value, max: u64) -> Option<Value> {
     (value <= max).then_some(Value::Nat64(value))
 }
 
+/// Target-type an evaluated SQL assignment without widening literal admission.
+///
+/// Scalar arithmetic returns Decimal. Integral results may enter integer fields
+/// only after exact, checked conversion; the existing literal owner still checks
+/// narrow widths, relation keys and all other accepted field families.
+#[must_use]
+#[cfg(any(test, feature = "sql"))]
+pub(in crate::db) fn input_value_from_sql_assignment_result_for_persisted_kind(
+    kind: &AcceptedFieldKind,
+    value: &Value,
+) -> Option<InputValue> {
+    if let AcceptedFieldKind::Relation { key_kind, .. } = kind {
+        return input_value_from_sql_assignment_result_for_persisted_kind(key_kind, value);
+    }
+    if let Value::Decimal(decimal) = value {
+        let converted = match kind {
+            AcceptedFieldKind::Int8
+            | AcceptedFieldKind::Int16
+            | AcceptedFieldKind::Int32
+            | AcceptedFieldKind::Int64 => Some(Value::Int64(decimal.to_i64()?)),
+            AcceptedFieldKind::Nat8
+            | AcceptedFieldKind::Nat16
+            | AcceptedFieldKind::Nat32
+            | AcceptedFieldKind::Nat64 => Some(Value::Nat64(decimal.to_u64()?)),
+            _ => None,
+        };
+        if let Some(converted) = converted {
+            let normalized = canonicalize_strict_sql_literal_for_persisted_kind(kind, &converted)?;
+            return InputValue::try_from_runtime_non_enum(&normalized);
+        }
+    }
+    input_value_from_strict_sql_literal_for_persisted_kind(kind, value)
+}
+
 /// Target-type one strict SQL literal against accepted persisted metadata.
 ///
 /// Enum labels remain unresolved authored input until catalog admission. Other
@@ -880,6 +914,69 @@ mod tests {
         AcceptedFieldKind::Enum {
             type_id: crate::value::EnumTypeId::new(1).expect("test enum type ID should be valid"),
         }
+    }
+
+    #[test]
+    fn sql_assignment_results_require_exact_integer_conversion_and_accepted_width() {
+        for kind in [
+            AcceptedFieldKind::Int8,
+            AcceptedFieldKind::Int16,
+            AcceptedFieldKind::Int32,
+            AcceptedFieldKind::Int64,
+            AcceptedFieldKind::Nat8,
+            AcceptedFieldKind::Nat16,
+            AcceptedFieldKind::Nat32,
+            AcceptedFieldKind::Nat64,
+        ] {
+            let value = Value::Decimal(Decimal::new(120, 1));
+            assert!(
+                input_value_from_sql_assignment_result_for_persisted_kind(&kind, &value).is_some()
+            );
+            assert!(
+                input_value_from_strict_sql_literal_for_persisted_kind(&kind, &value).is_none()
+            );
+            assert!(
+                input_value_from_sql_assignment_result_for_persisted_kind(
+                    &kind,
+                    &Value::Decimal(Decimal::new(125, 1))
+                )
+                .is_none()
+            );
+        }
+        for (kind, invalid) in [
+            (AcceptedFieldKind::Int8, 128),
+            (AcceptedFieldKind::Nat8, 256),
+            (AcceptedFieldKind::Nat64, -1),
+        ] {
+            assert!(
+                input_value_from_sql_assignment_result_for_persisted_kind(
+                    &kind,
+                    &Value::Decimal(Decimal::new(invalid, 0))
+                )
+                .is_none()
+            );
+        }
+        let relation = AcceptedFieldKind::Relation {
+            target_path: "Target".into(),
+            target_entity_name: "Target".into(),
+            target_entity_tag: crate::types::EntityTag::new(1),
+            target_store_path: "Store".into(),
+            key_kind: Box::new(AcceptedFieldKind::Nat8),
+        };
+        assert_eq!(
+            input_value_from_sql_assignment_result_for_persisted_kind(
+                &relation,
+                &Value::Decimal(Decimal::new(12, 0))
+            ),
+            Some(InputValue::nat64(12))
+        );
+        assert!(
+            input_value_from_sql_assignment_result_for_persisted_kind(
+                &relation,
+                &Value::Decimal(Decimal::new(256, 0))
+            )
+            .is_none()
+        );
     }
 
     #[test]

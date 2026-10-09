@@ -111,6 +111,7 @@ impl<'a> SqlInput<'a> {
         match value {
             SqlWriteValue::Literal(value) => self.budget.value(value, depth),
             SqlWriteValue::Default => self.budget.node(depth),
+            SqlWriteValue::Expression(expression) => self.expr(expression, depth),
         }
     }
 

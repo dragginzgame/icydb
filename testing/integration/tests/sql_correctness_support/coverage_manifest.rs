@@ -838,6 +838,27 @@ const PROVIDERS: &[ProviderSpec] = &[
         [Parse, Lower, Execute, State]
     ),
     provider!(
+        "core.mutation.scalar_assignments",
+        "testing/integration/tests/sql_canister.rs",
+        "sql_canister_update_expressions_use_original_rows_and_reject_before_effects",
+        ContractAssertion,
+        [Parse, Lower, Execute, State]
+    ),
+    provider!(
+        "core.mutation.scan_ceiling",
+        "crates/icydb-core/src/db/session/tests/cardinality_tiebreak/sql_write_scan.rs",
+        "sql_write_scan_rejects_late_and_missing_matches_without_effects",
+        BoundaryAssertion,
+        [State, Boundary]
+    ),
+    provider!(
+        "core.mutation.resumable_scalar_rejection",
+        "crates/icydb-core/src/db/session/tests/cardinality_tiebreak/sql_update_expressions.rs",
+        "sql_update_expressions_reject_resumable_jobs_without_job_or_row_effects",
+        BoundaryAssertion,
+        [State, Boundary]
+    ),
+    provider!(
         "core.mutation.returning_star",
         "testing/integration/tests/sql_canister.rs",
         "sql_canister_update_endpoint_returns_primary_key_post_update_star_rows",
@@ -1654,7 +1675,12 @@ const MANIFEST: &[CoverageCell] = &[
         Statement,
         REQ_STATE,
         ELIGIBLE_STATE,
-        ["core.mutation.public_families"],
+        [
+            "core.mutation.public_families",
+            "core.mutation.scalar_assignments",
+            "core.mutation.scan_ceiling",
+            "core.mutation.resumable_scalar_rejection"
+        ],
         None
     ),
     cell!(
@@ -1665,7 +1691,10 @@ const MANIFEST: &[CoverageCell] = &[
         Statement,
         REQ_STATE,
         ELIGIBLE_STATE,
-        ["core.mutation.public_families"],
+        [
+            "core.mutation.public_families",
+            "core.mutation.scan_ceiling"
+        ],
         None
     ),
     cell!(

@@ -220,6 +220,11 @@ impl<C: CanisterKind> DbSession<C> {
                 SqlWriteValue::Default => {
                     sql_write_patch_set_insert_default(descriptor, patch, field)?
                 }
+                SqlWriteValue::Expression(_) => {
+                    return Err(QueryError::sql_write_boundary(
+                        SqlWriteBoundaryCode::InvalidFieldLiteral,
+                    ));
+                }
             };
         }
 

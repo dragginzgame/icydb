@@ -92,7 +92,14 @@ pre-marker failure changes no rows.
 
 Trusted prefix SQL `UPDATE` is also atomic for its selected batch, but its
 ordered `LIMIT` deliberately selects only one prefix. Prefix success makes no
-claim about matching rows beyond that window.
+claim about matching rows beyond that window. Prefix UPDATE and public bounded
+DELETE use the same 4,096 authoritative-key ceiling and one-key overflow probe
+as exact UPDATE. Selection refusal changes no rows.
+
+Single-call UPDATE evaluates every scalar assignment from the original row.
+All selected rows must pass expression evaluation and accepted target admission
+before the shared atomic write starts. Resumable jobs retain fixed patches and
+reject expression assignments before job creation.
 
 ---
 

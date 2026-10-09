@@ -15,7 +15,7 @@ use crate::{
         SelectComparisonOperator, SelectExpectedOutcome, SelectExpression, SelectFeature,
         SelectField, SelectFieldKind, SelectFunction, SelectIndex, SelectOrderDirection,
         SelectOrderTarget, SelectOrderTerm, SelectPredicate, SelectProjection, SelectProvider,
-        SelectQuery, SelectSchemaProfile, SelectSnapshot, SelectViolation,
+        SelectQuery, SelectSchemaProfile, SelectSnapshot, SelectValueKind, SelectViolation,
     },
     rng::{SELECT_GENERATOR_VERSION, SplitMix64, derive_select_witness_sub_seed},
     scheduled_select_witnesses,
@@ -465,6 +465,11 @@ fn generated_identity(
 enum SelectRecipe {
     ColdSqlFluent,
     GlobalEmptyFilter,
+    AvgDistinctAllNull,
+    AvgDistinctEmpty,
+    AvgDistinctGlobal,
+    AvgDistinctGrouped,
+    AvgDistinctNoMatch,
     SumDistinctAllNull,
     SumDistinctEmpty,
     SumDistinctGlobal,
@@ -492,6 +497,11 @@ impl SelectRecipe {
         match witness_id {
             "tier_c.cache.cold_sql_fluent" => Ok(Self::ColdSqlFluent),
             "tier_c.global.empty_filter" => Ok(Self::GlobalEmptyFilter),
+            "tier_c.avg_distinct.all_null" => Ok(Self::AvgDistinctAllNull),
+            "tier_c.avg_distinct.empty" => Ok(Self::AvgDistinctEmpty),
+            "tier_c.avg_distinct.global" => Ok(Self::AvgDistinctGlobal),
+            "tier_c.avg_distinct.grouped" => Ok(Self::AvgDistinctGrouped),
+            "tier_c.avg_distinct.no_match" => Ok(Self::AvgDistinctNoMatch),
             "tier_c.sum_distinct.all_null" => Ok(Self::SumDistinctAllNull),
             "tier_c.sum_distinct.empty" => Ok(Self::SumDistinctEmpty),
             "tier_c.sum_distinct.global" => Ok(Self::SumDistinctGlobal),
@@ -540,7 +550,12 @@ impl SelectRecipe {
 
     const fn profile(self) -> SelectSchemaProfile {
         match self {
-            Self::SumDistinctAllNull
+            Self::AvgDistinctAllNull
+            | Self::AvgDistinctEmpty
+            | Self::AvgDistinctGlobal
+            | Self::AvgDistinctGrouped
+            | Self::AvgDistinctNoMatch
+            | Self::SumDistinctAllNull
             | Self::SumDistinctEmpty
             | Self::SumDistinctGlobal
             | Self::SumDistinctGrouped
@@ -570,7 +585,11 @@ impl SelectRecipe {
     const fn fixture_class(self) -> &'static str {
         match self {
             Self::ColdSqlFluent | Self::GlobalNonemptyMultipleProjection => "small_duplicate_rich",
-            Self::GlobalEmptyFilter | Self::SumDistinctEmpty => "empty",
+            Self::GlobalEmptyFilter | Self::SumDistinctEmpty | Self::AvgDistinctEmpty => "empty",
+            Self::AvgDistinctAllNull
+            | Self::AvgDistinctGlobal
+            | Self::AvgDistinctGrouped
+            | Self::AvgDistinctNoMatch => "exact_average_stored_null_duplicate_rich",
             Self::SumDistinctAllNull
             | Self::SumDistinctGlobal
             | Self::SumDistinctGrouped
@@ -601,11 +620,17 @@ pub(crate) fn fixture_class_for_identity(witness_id: &str) -> &str {
     SelectRecipe::from_witness_id(witness_id).map_or("valid_base", SelectRecipe::fixture_class)
 }
 
+// These facts come from one closed witness class, not independent caller modes.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "closed fixture facts retain the existing constructor instead of adding policy enums"
+)]
 #[derive(Clone, Copy)]
 struct FixtureRecipe {
     row_count: u32,
     computed_null_values: bool,
     repeated_values: bool,
+    exact_average_values: bool,
     ordered_values: bool,
     text_domain: GeneratedTextDomain,
     variant: u64,
@@ -617,6 +642,7 @@ impl FixtureRecipe {
             "empty" => 0,
             "singleton" | "valid_base" => 1,
             "more_than_one_group_page" => 32,
+            "exact_average_stored_null_duplicate_rich" => 16,
             _ => 10,
         };
         if row_count > budgets.max_fixture_rows() {
@@ -647,6 +673,7 @@ impl FixtureRecipe {
             row_count,
             computed_null_values: fixture.contains("computed_null"),
             repeated_values,
+            exact_average_values: fixture.contains("exact_average"),
             ordered_values,
             text_domain,
             variant,
@@ -698,11 +725,16 @@ fn query_for_recipe(
             full_composition_query(snapshot)?
         }
         SelectRecipe::GlobalEmptyFilter => global_empty_filter_query(snapshot)?,
-        SelectRecipe::SumDistinctAllNull
+        SelectRecipe::AvgDistinctAllNull
+        | SelectRecipe::AvgDistinctEmpty
+        | SelectRecipe::AvgDistinctGlobal
+        | SelectRecipe::AvgDistinctGrouped
+        | SelectRecipe::AvgDistinctNoMatch
+        | SelectRecipe::SumDistinctAllNull
         | SelectRecipe::SumDistinctEmpty
         | SelectRecipe::SumDistinctGlobal
         | SelectRecipe::SumDistinctGrouped
-        | SelectRecipe::SumDistinctNoMatch => sum_distinct_query(snapshot, recipe)?,
+        | SelectRecipe::SumDistinctNoMatch => numeric_distinct_query(snapshot, recipe)?,
         SelectRecipe::GlobalNonemptyFilter => global_filter_query(snapshot)?,
         SelectRecipe::GlobalNonemptyMultipleProjection => {
             global_multiple_projection_query(snapshot)?
@@ -761,16 +793,32 @@ fn generate_fixture(
                 } else {
                     None
                 };
-            let value = generated_field_value(
-                field,
-                recipe.variant.wrapping_add(repetition),
-                row_index,
-                recipe.text_domain,
-                window_integer_ordinal,
-                recipe.computed_null_values,
-                recipe.repeated_values,
-                rng,
-            )?;
+            // A fixed 3:1 duplicate ratio keeps ordinary and distinct AVG
+            // different while every compared average is an exact integer/half/quarter.
+            let value = if recipe.exact_average_values && field.kind() == SelectFieldKind::Integer {
+                let shift =
+                    i64::try_from(recipe.variant.wrapping_add(repetition) % 17).unwrap_or(0);
+                if field.nullable() {
+                    match row_index % 8 {
+                        0..=2 => GeneratedValue::Integer(shift + 2),
+                        3 => GeneratedValue::Integer(shift + 3),
+                        _ => GeneratedValue::Null(SelectValueKind::Integer),
+                    }
+                } else {
+                    GeneratedValue::Integer(shift + 4)
+                }
+            } else {
+                generated_field_value(
+                    field,
+                    recipe.variant.wrapping_add(repetition),
+                    row_index,
+                    recipe.text_domain,
+                    window_integer_ordinal,
+                    recipe.computed_null_values,
+                    recipe.repeated_values,
+                    rng,
+                )?
+            };
             values.push(GeneratedFieldValue::new(field.id(), value));
         }
         rows.push(GeneratedFixtureRow::new(values));
@@ -898,17 +946,40 @@ enum GeneratedTextDomain {
 
 // Bounded integer inputs and addition keep SQLite SUM exact; its integer result
 // maps to IcyDB's decimal at scale zero, without floating-point tolerance.
-fn sum_distinct_query(
+fn numeric_distinct_query(
     snapshot: &SelectSnapshot,
     recipe: SelectRecipe,
 ) -> Result<SelectQuery, SqlGeneratorError> {
     let fields = required_fields(snapshot)?;
-    let sum = |argument, distinct, filter: Option<SelectPredicate>| SelectExpression::Sum {
-        argument: Some(Box::new(argument)),
-        distinct,
-        filter: filter.map(Box::new),
+    let average = matches!(
+        recipe,
+        SelectRecipe::AvgDistinctAllNull
+            | SelectRecipe::AvgDistinctEmpty
+            | SelectRecipe::AvgDistinctGlobal
+            | SelectRecipe::AvgDistinctGrouped
+            | SelectRecipe::AvgDistinctNoMatch
+    );
+    let aggregate = |argument, distinct, filter: Option<SelectPredicate>| {
+        let argument = Some(Box::new(argument));
+        let filter = filter.map(Box::new);
+        if average {
+            SelectExpression::Avg {
+                argument,
+                distinct,
+                filter,
+            }
+        } else {
+            SelectExpression::Sum {
+                argument,
+                distinct,
+                filter,
+            }
+        }
     };
-    let numeric = if matches!(recipe, SelectRecipe::SumDistinctAllNull) {
+    let numeric = if matches!(
+        recipe,
+        SelectRecipe::SumDistinctAllNull | SelectRecipe::AvgDistinctAllNull
+    ) {
         function(
             SelectFunction::NullIf,
             vec![field(fields.second_integer), field(fields.second_integer)],
@@ -916,7 +987,10 @@ fn sum_distinct_query(
     } else {
         field(fields.second_integer)
     };
-    let computed = if matches!(recipe, SelectRecipe::SumDistinctAllNull) {
+    let computed = if matches!(
+        recipe,
+        SelectRecipe::SumDistinctAllNull | SelectRecipe::AvgDistinctAllNull
+    ) {
         numeric.clone()
     } else {
         SelectExpression::Arithmetic {
@@ -937,13 +1011,29 @@ fn sum_distinct_query(
         SelectExpression::literal(GeneratedValue::Integer(i64::from(i32::MAX))),
     );
     let mut projections = vec![
-        projection(sum(numeric.clone(), true, None), Some("distinct_total")),
-        projection(sum(numeric.clone(), false, None), Some("ordinary_total")),
-        projection(sum(computed, true, None), Some("computed_total")),
-        projection(sum(numeric, true, Some(active)), Some("filtered_total")),
+        projection(
+            aggregate(numeric.clone(), true, None),
+            Some("distinct_total"),
+        ),
+        projection(
+            aggregate(numeric.clone(), false, None),
+            Some("ordinary_total"),
+        ),
+        projection(aggregate(computed, true, None), Some("computed_total")),
+        projection(
+            aggregate(numeric, true, Some(active)),
+            Some("filtered_total"),
+        ),
     ];
-    let predicate = matches!(recipe, SelectRecipe::SumDistinctNoMatch).then_some(no_match);
-    if matches!(recipe, SelectRecipe::SumDistinctGrouped) {
+    let predicate = matches!(
+        recipe,
+        SelectRecipe::SumDistinctNoMatch | SelectRecipe::AvgDistinctNoMatch
+    )
+    .then_some(no_match);
+    if matches!(
+        recipe,
+        SelectRecipe::SumDistinctGrouped | SelectRecipe::AvgDistinctGrouped
+    ) {
         let group = field(fields.boolean);
         projections.remove(1); // Keep the existing four-column generator ceiling.
         projections.insert(0, projection(group.clone(), Some("active_group")));
@@ -1509,6 +1599,11 @@ fn render_expression(
             argument,
             distinct,
             filter,
+        }
+        | SelectExpression::Avg {
+            argument,
+            distinct,
+            filter,
         } => {
             let argument = match argument {
                 Some(argument) => render_expression(snapshot, argument)?,
@@ -1519,10 +1614,10 @@ fn render_expression(
                 Some(filter) => format!(" FILTER (WHERE {})", render_predicate(snapshot, filter)?),
                 None => String::new(),
             };
-            let name = if matches!(expression, SelectExpression::Sum { .. }) {
-                "SUM"
-            } else {
-                "COUNT"
+            let name = match expression {
+                SelectExpression::Sum { .. } => "SUM",
+                SelectExpression::Avg { .. } => "AVG",
+                _ => "COUNT",
             };
             Ok(format!("{name}({distinct}{argument}){filter}"))
         }
@@ -1759,6 +1854,11 @@ fn collect_expression_features(
             filter,
         }
         | SelectExpression::Sum {
+            argument,
+            distinct,
+            filter,
+        }
+        | SelectExpression::Avg {
             argument,
             distinct,
             filter,

@@ -620,6 +620,17 @@ request-specific diagnostics. Update omission preserves the current value;
 `SET field = DEFAULT` applies the current accepted ordinary default or nullable
 `NULL`, and rejects required, generated, or managed fields.
 
+Single-call UPDATE also accepts bounded scalar RHS expressions, including field
+copies and arithmetic: `SET name = description` and `SET qty = qty + 1`.
+Every RHS reads its original row, so `SET a = b, b = a` swaps values. Qualified
+source fields use the current entity/alias scope. Existing scalar evaluation
+owns NULL propagation and checked arithmetic; accepted target contracts reject
+incompatible types, fractional integer results, overflow and forbidden fields.
+Selection and all row patches complete before the atomic write begins, so any
+failure leaves the whole selected batch unchanged. INSERT VALUES remains literal,
+NULL or direct DEFAULT only. Resumable jobs require fixed literal/DEFAULT
+assignments and reject every expression with E282 before creating a job.
+
 Mutation ownership lives on one accepted structural write lane:
 
 - `execute_trusted_structural_mutation(...)` for entity/field-name writes;
@@ -732,7 +743,13 @@ Current boundary:
 `execute_trusted_sql_prefix_update(...)` retains the maintained bounded
 policy: a positive limit no greater than 100, explicit canonical ascending
 primary-key order, and no offset. The limit selects only that intentional
-prefix and makes no complete-set claim. Generated `icydb_update` dispatch uses
+prefix and makes no complete-set claim. Prefix UPDATE and public bounded DELETE
+now share exact UPDATE's 4,096-key ceiling and authoritative primary-key
+traversal. A single additional key probes overflow: selecting the requested
+prefix or proving exhaustion within 4,096 keys succeeds; observing key 4,097
+rejects with E194 before any write, even with LIMIT 1 or no matching rows.
+E194 retains its numeric code and ActualCount/Limit facts; its Rust boundary
+name is now `WriteScanBudgetExceeded`. Generated `icydb_update` dispatch uses
 the same configured public policies and never calls the broad trusted mutation
 lane directly.
 

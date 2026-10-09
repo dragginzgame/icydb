@@ -545,6 +545,35 @@ fn sqlite_reference_value(
                 scale: 0,
             }
         }
+        // AVG's admitted fixtures produce only bounded exact integers/halves/quarters.
+        // This rejects general SQLite REAL rounding; there is no tolerance.
+        (SqliteReferenceColumnKind::Decimal, ValueRef::Real(value))
+            if value.is_finite()
+                && value.abs() <= f64::from(i32::MAX)
+                && (value * 4.0).fract() == 0.0 =>
+        {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "finite bounded integral quadrupled value was checked before this lossless cast"
+            )]
+            let quarters = (value * 4.0) as i128;
+            if quarters % 4 == 0 {
+                SqliteReferenceValue::Decimal {
+                    mantissa: quarters / 4,
+                    scale: 0,
+                }
+            } else if quarters % 2 == 0 {
+                SqliteReferenceValue::Decimal {
+                    mantissa: quarters / 2 * 5,
+                    scale: 1,
+                }
+            } else {
+                SqliteReferenceValue::Decimal {
+                    mantissa: quarters * 25,
+                    scale: 2,
+                }
+            }
+        }
         (SqliteReferenceColumnKind::Integer, ValueRef::Integer(value)) => {
             SqliteReferenceValue::Integer(value)
         }
@@ -640,4 +669,54 @@ pub(crate) fn execute_value_mapping_probe() -> Result<Vec<SqliteReferenceValue>,
     }
 
     Ok(values)
+}
+
+///
+/// TESTS
+///
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sqlite_average_real_overlap_is_exact_and_bounded() {
+        for (value, mantissa, scale) in [
+            (0.0, 0, 0),
+            (3.0, 3, 0),
+            (1.5, 15, 1),
+            (1.25, 125, 2),
+            (-0.5, -5, 1),
+        ] {
+            assert_eq!(
+                sqlite_reference_value(
+                    "AVG boundary",
+                    0,
+                    SqliteReferenceColumnKind::Decimal,
+                    ValueRef::Real(value)
+                )
+                .unwrap(),
+                SqliteReferenceValue::Decimal { mantissa, scale }
+            );
+        }
+        for value in [
+            1.0 / 3.0,
+            1.125,
+            f64::NAN,
+            f64::INFINITY,
+            f64::from(i32::MAX) + 1.0,
+        ] {
+            assert_eq!(
+                sqlite_reference_value(
+                    "AVG boundary",
+                    0,
+                    SqliteReferenceColumnKind::Decimal,
+                    ValueRef::Real(value)
+                )
+                .unwrap_err()
+                .kind(),
+                SqliteAdapterErrorKind::Result
+            );
+        }
+    }
 }

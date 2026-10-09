@@ -11,7 +11,8 @@ use crate::{
         executor::EntityAuthority,
         schema::{
             AcceptedFieldKind, AcceptedRowLayoutRuntimeContract, SchemaFieldWritePolicy,
-            SchemaInfo, ValidateError, input_value_from_strict_sql_literal_for_persisted_kind,
+            SchemaInfo, ValidateError, input_value_from_sql_assignment_result_for_persisted_kind,
+            input_value_from_strict_sql_literal_for_persisted_kind,
         },
         session::{
             AcceptedSchemaCatalogContext,
@@ -123,6 +124,21 @@ pub(super) fn sql_write_input_for_accepted_field(
 
 fn invalid_sql_write_field_literal() -> QueryError {
     QueryError::sql_write_boundary(SqlWriteBoundaryCode::InvalidFieldLiteral)
+}
+
+pub(super) fn sql_write_input_for_assignment_result(
+    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+    field_name: &str,
+    value: &Value,
+) -> Result<InputValue, QueryError> {
+    if matches!(value, Value::Null) {
+        return sql_write_input_for_accepted_field(descriptor, field_name, value);
+    }
+    let field = descriptor
+        .field_by_name(field_name)
+        .ok_or_else(|| unknown_sql_write_field(field_name))?;
+    input_value_from_sql_assignment_result_for_persisted_kind(field.kind(), value)
+        .ok_or_else(invalid_sql_write_field_literal)
 }
 
 fn sql_write_input_for_accepted_kind(

@@ -1,7 +1,7 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `06b2e22f6bd213f1a590eb2a8797aee34c42dd69`. Root
+at reviewed revision `ee48bb37c98c771e77b92fd891f0757d8c1c8b99`. Root
 [AGENTS.md](../../AGENTS.md) is the local overlay. The shared approved layout
 retains the 42 existing canister, schema and testing packages in their
 restored directories, in the single root workspace and lockfile; no new package
@@ -11,6 +11,49 @@ remain local; standard release commands follow the shared contract. A sibling ch
 these rules.
 
 ## Ownership and provenance
+
+The tooling follow-up, carried into the authorized 0.269 batch, adopts Shared 0.2.2
+`ee48bb37c98c771e77b92fd891f0757d8c1c8b99` through its canonical exporter,
+retaining the same eighty-three-file selection. CI tool installation now
+publishes to the exact executable path: a destination that becomes a directory
+cannot redirect publication into its child. Failed publication retains the
+candidate and existing destination
+([Shared #88](https://github.com/dragginzgame/shared-tooling/issues/88),
+[#309](https://github.com/dragginzgame/icydb/issues/309)). The shared owner
+fixture qualifies this boundary; IcyDB retains its existing caller fixtures
+without copying another installer test suite.
+
+The maintainer's selected graph converges on Host 0.9.2, Testkit 0.27.0,
+Memory 0.33.0, Metrics 0.3.1 and Timers 0.16.0. Testkit's duplicate Host 0.8
+generation is gone. Its startup error record is already consumed through
+Display, so no IcyDB error adapter is required
+([#307](https://github.com/dragginzgame/icydb/issues/307),
+[Testkit #30](https://github.com/dragginzgame/ic-testkit/issues/30)). Host and
+Memory retain the runtime APIs used here; Metrics and Timers agree on the
+Metrics 0.3 measurement owner. Sibling uncommitted release work is excluded.
+
+Focused Linux qualification passes canonical CI installer fixtures and existing
+consumer adapters on Bash 5/3.2, locked Testkit selection/refusal fixtures,
+all five wrapper cases, strict integration/CLI Clippy, artifact and optimizer
+checks, post-link retention, public Memory bootstrap boundaries and Metrics
+report rendering. Actual Testkit 0.27 setup/check passes, including admission
+with an empty PATH. IcyDB's actual startup adapter passes directly and through
+the managed Bash 3.2 wrapper. Testkit started/stopped both local servers; none
+remain running. Logs are under `target/packages-2681`. The maintainer's Cargo
+files are unchanged, with lock SHA-256
+`56f6c5a5ed4068d04273a4013ce7a7a9ffd88029cb51d848b8a77ccd6d5455c2`.
+
+[Published Testkit 0.27 CI](https://github.com/dragginzgame/ic-testkit/actions/runs/37923315911)
+passes Linux checks, MSRV, portable-host and concurrency jobs; its native macOS
+jobs remain queued at inspection.
+[Shared 0.2.2 CI](https://github.com/dragginzgame/shared-tooling/actions/runs/37918955655)
+and [published IcyDB 0.268.0 CI](https://github.com/dragginzgame/icydb/actions/runs/37923831876)
+remain queued. These are committed-source observations, not acceptance of this
+uncommitted follow-up. Native macOS and full workspace/release gates remain
+open or user-owned. Raw Wasm, IC cycles and instruction deltas are unmeasured.
+No functions, methods or types were removed; owner reuse adds no local engine.
+
+### Published 0.268.0 adoption
 
 The maintainer selected 0.268 on 2026-10-09 for the PocketIC ownership hard cut,
 carrying the unpublished 0.267.5 fixes. The

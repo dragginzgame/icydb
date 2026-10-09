@@ -5,6 +5,22 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.269.0]
+
+- **Potentially breaking:** bound public UPDATE/DELETE scans before writes;
+  admit scalar UPDATE assignments and independently qualify AVG DISTINCT
+  ([#217](https://github.com/dragginzgame/icydb/issues/217),
+  [#324](https://github.com/dragginzgame/icydb/issues/324),
+  [#330](https://github.com/dragginzgame/icydb/issues/330)). Callers of long scans
+  must handle E194; Rust diagnostic matches must use `WriteScanBudgetExceeded`.
+- Adopt Shared's exact-path CI tool publication repair and converge the selected
+  IC tooling packages on one Host generation
+  ([Shared #88](https://github.com/dragginzgame/shared-tooling/issues/88),
+  [#309](https://github.com/dragginzgame/icydb/issues/309),
+  [#307](https://github.com/dragginzgame/icydb/issues/307)).
+
+See [detailed notes](docs/changelog/0.269.md).
+
 ## [0.268.0] - 2026-10-09
 
 - **Breaking tooling change:** transfer PocketIC setup and offline admission to

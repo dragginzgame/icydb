@@ -238,11 +238,20 @@ fn tier_c_failure_artifact_replays_exact_minimized_failure() {
 
 #[test]
 fn sum_distinct_matches_sqlite_on_cold_and_warm_execution() {
+    assert_numeric_distinct_matches_sqlite("tier_c.sum_distinct.");
+}
+
+#[test]
+fn avg_distinct_matches_sqlite_on_cold_and_warm_execution() {
+    assert_numeric_distinct_matches_sqlite("tier_c.avg_distinct.");
+}
+
+fn assert_numeric_distinct_matches_sqlite(prefix: &str) {
     initialize();
     for witness in scheduled_select_witnesses()
-        .expect("SUM schedule should decode")
+        .expect("numeric schedule should decode")
         .into_iter()
-        .filter(|witness| witness.witness_id().starts_with("tier_c.sum_distinct."))
+        .filter(|witness| witness.witness_id().starts_with(prefix))
     {
         for root_seed in TIER_C_ROOT_SEEDS {
             for repetition in 0..TIER_C_SELECT_REPETITIONS {
@@ -252,7 +261,7 @@ fn sum_distinct_matches_sqlite_on_cold_and_warm_execution() {
                     repetition,
                     TIER_C_SELECT_BUDGETS,
                 )
-                .expect("SUM witness should generate");
+                .expect("numeric witness should generate");
                 for capacity in [0, 4 * 1024 * 1024] {
                     // Independent fixture cases are independent request entries;
                     // the shared cache survives these roots for warm-call proof.

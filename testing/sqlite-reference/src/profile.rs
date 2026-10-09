@@ -456,6 +456,57 @@ const REQUIRED_SQLITE_REFERENCE_SCENARIOS: &[SqliteReferenceScenario] = &[
         nullable: true,
     },
     SqliteReferenceScenario {
+        id: "sqlite.required.avg_distinct.global",
+        contract_features: &[
+            "projection.aggregate",
+            "select.aggregate_distinct_filter",
+            "select.global_aggregate",
+        ],
+        families: &[SqliteReferenceFamily::Aggregate],
+        sql_template: "SELECT AVG(DISTINCT age) FILTER (WHERE age >= 30) AS direct_total, AVG(DISTINCT CASE WHEN age < 40 THEN 0 ELSE 3 END) AS computed_total, AVG(DISTINCT NULLIF(CASE WHEN age < 40 THEN 31 ELSE 43 END, 31)) FILTER (WHERE age >= 30) AS filtered_total, AVG(DISTINCT NULLIF(age, age)) AS null_total, AVG(DISTINCT age) FILTER (WHERE age < 0) AS empty_filter_total FROM {entity}",
+        columns: SUM_COLUMNS,
+        row_order: SqliteReferenceRowOrder::Unordered,
+        predicate: SqliteReferencePredicateFamily::Compound,
+        window: SqliteReferenceWindow::Unordered,
+        nullable: true,
+    },
+    SqliteReferenceScenario {
+        id: "sqlite.required.avg_distinct.no_match",
+        contract_features: &[
+            "projection.aggregate",
+            "select.aggregate_distinct_filter",
+            "select.global_aggregate",
+        ],
+        families: &[SqliteReferenceFamily::Aggregate],
+        sql_template: "SELECT AVG(DISTINCT age) FILTER (WHERE age >= 30) AS direct_total, AVG(DISTINCT CASE WHEN age < 40 THEN 0 ELSE 3 END) AS computed_total, AVG(DISTINCT NULLIF(CASE WHEN age < 40 THEN 31 ELSE 43 END, 31)) FILTER (WHERE age >= 30) AS filtered_total, AVG(DISTINCT NULLIF(age, age)) AS null_total, AVG(DISTINCT age) FILTER (WHERE age < 0) AS empty_filter_total FROM {entity} WHERE age < 0",
+        columns: SUM_COLUMNS,
+        row_order: SqliteReferenceRowOrder::Unordered,
+        predicate: SqliteReferencePredicateFamily::Compound,
+        window: SqliteReferenceWindow::Unordered,
+        nullable: true,
+    },
+    SqliteReferenceScenario {
+        id: "sqlite.required.avg_distinct.grouped",
+        contract_features: &[
+            "projection.aggregate",
+            "select.aggregate_distinct_filter",
+            "select.grouped_aggregate",
+        ],
+        families: &[
+            SqliteReferenceFamily::Aggregate,
+            SqliteReferenceFamily::Grouped,
+        ],
+        sql_template: "SELECT rank, AVG(DISTINCT age) FILTER (WHERE age >= 30) AS direct_total, AVG(DISTINCT (age - age + rank - rank + 3)) AS computed_total FROM {entity} GROUP BY rank ORDER BY rank ASC LIMIT 10",
+        columns: GROUPED_SUM_COLUMNS,
+        row_order: SqliteReferenceRowOrder::Ordered,
+        predicate: SqliteReferencePredicateFamily::None,
+        window: SqliteReferenceWindow::OrderedLimit {
+            limit: 10,
+            offset: 0,
+        },
+        nullable: true,
+    },
+    SqliteReferenceScenario {
         id: "sqlite.required.grouped_aggregate",
         contract_features: &[
             "having.grouped_aggregate",
