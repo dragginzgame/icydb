@@ -684,14 +684,28 @@ fn classification_integrity_helpers_preserve_error_class() {
         ErrorClass::Unsupported,
         ErrorClass::InvariantViolation,
     ];
+    let origins = [
+        ErrorOrigin::Serialize,
+        ErrorOrigin::Store,
+        ErrorOrigin::Index,
+        ErrorOrigin::Identity,
+        ErrorOrigin::Query,
+        ErrorOrigin::Planner,
+        ErrorOrigin::Cursor,
+        ErrorOrigin::Recovery,
+        ErrorOrigin::Response,
+        ErrorOrigin::Executor,
+        ErrorOrigin::Interface,
+    ];
 
     for class in classes {
-        let base = InternalError::classified(class, ErrorOrigin::Query);
-        let reorigined = base.with_origin(ErrorOrigin::Store);
-        assert_eq!(
-            reorigined.class, class,
-            "class must be preserved across helper relabeling operations",
-        );
+        for origin in origins {
+            let base = InternalError::classified(class, ErrorOrigin::Query);
+            let reorigined = base.with_origin(origin);
+            assert_eq!(reorigined.class(), class);
+            assert_eq!(reorigined.origin(), origin);
+            assert_eq!(reorigined.diagnostic_code(), class.diagnostic_code(origin));
+        }
     }
 }
 
@@ -713,6 +727,107 @@ fn recovery_reorigining_preserves_safe_numeric_facts() {
             (icydb_diagnostic_code::DiagnosticFactTag::Limit, 512),
         ],
     );
+}
+
+#[test]
+fn reorigining_drops_incompatible_facts_without_reclassifying() {
+    use icydb_diagnostic_code::{DiagnosticCode, DiagnosticDecodeReason, DiagnosticFactTag};
+
+    // This runtime corruption schema admits a reason that the Store schema
+    // does not. Relabeling must preserve corruption even when facts are lost.
+    let corruption = InternalError::with_diagnostic_facts(
+        ErrorClass::Corruption,
+        ErrorOrigin::Recovery,
+        None,
+        vec![(
+            DiagnosticFactTag::DecodeReason,
+            DiagnosticDecodeReason::RecoveryMarkerChecksum.raw(),
+        )],
+    );
+    let unsupported = InternalError::index_component_exceeds_max_size_at(1, 2, 3, 513, 512);
+    let invariant = InternalError::index_key_field_count_exceeds_max(1, 2, 5, 4);
+    let cases = [
+        (
+            corruption,
+            ErrorOrigin::Store,
+            DiagnosticCode::StoreCorruption,
+        ),
+        (
+            unsupported,
+            ErrorOrigin::Cursor,
+            DiagnosticCode::QueryInvalidContinuationCursor,
+        ),
+        (
+            invariant,
+            ErrorOrigin::Store,
+            DiagnosticCode::StoreInvariantViolation,
+        ),
+    ];
+
+    for (base, origin, code) in cases {
+        let class = base.class();
+        assert!(!base.diagnostic_facts().is_empty());
+        let error = base.with_origin(origin);
+        assert_eq!(error.class(), class);
+        assert_eq!(error.origin(), origin);
+        assert_eq!(error.diagnostic_code(), code);
+        assert_eq!(error.diagnostic().origin(), origin.diagnostic_origin());
+        assert_eq!(error.diagnostic().detail(), None);
+        assert!(error.diagnostic_facts().is_empty());
+        assert!(
+            icydb_diagnostic_code::validate_known_diagnostic_fact_schema(
+                error.diagnostic().error_code(),
+                &error.diagnostic_facts(),
+            )
+            .is_ok()
+        );
+    }
+}
+
+#[test]
+fn recovery_reorigining_preserves_fact_schema_families() {
+    use icydb_diagnostic_code::DiagnosticBacklogResource;
+
+    let cases = [
+        InternalError::commit_component_length_invalid(513, 512),
+        InternalError::relation_target_entity_mismatch(1, 2),
+        InternalError::relation_target_primary_key_arity_mismatch(1, 2),
+        InternalError::query_stale_accepted_schema_revision(1, Some(2)),
+        InternalError::index_key_field_count_exceeds_max(1, 2, 5, 4),
+        InternalError::index_component_exceeds_max_size_at(1, 2, 3, 513, 512),
+        InternalError::convergence_backlog_pressure(DiagnosticBacklogResource::Batches, 64, 1, 64),
+        InternalError::persisted_row_slot_count_mismatch(1, 2, 3),
+    ];
+
+    for base in cases {
+        let class = base.class();
+        let code = base.diagnostic_code();
+        let detail = base.diagnostic().detail().copied();
+        let facts = base.diagnostic_facts();
+        assert!(!facts.is_empty());
+        let error = base.with_origin(ErrorOrigin::Recovery);
+        assert_eq!(error.class(), class);
+        assert_eq!(error.origin(), ErrorOrigin::Recovery);
+        let expected_code = detail.map_or_else(
+            || class.diagnostic_code(ErrorOrigin::Recovery),
+            icydb_diagnostic_code::DiagnosticDetail::diagnostic_code,
+        );
+        assert_eq!(error.diagnostic_code(), expected_code);
+        assert_eq!(error.diagnostic().detail().copied(), detail);
+        assert_eq!(error.diagnostic_facts(), facts);
+        assert!(
+            icydb_diagnostic_code::validate_known_diagnostic_fact_schema(
+                error.diagnostic().error_code(),
+                &error.diagnostic_facts(),
+            )
+            .is_ok()
+        );
+        // Store corruption is intentionally relabeled to the runtime code;
+        // leaf codes retain their identity across origins.
+        if detail.is_some() {
+            assert_eq!(error.diagnostic_code(), code);
+        }
+    }
 }
 
 #[test]

@@ -805,7 +805,8 @@ impl DataStore {
         )
     }
 
-    /// Sum of bytes used by all stored rows.
+    /// Independent physical byte baseline for storage-report tests.
+    #[cfg(test)]
     pub(in crate::db) fn memory_bytes(&self) -> u64 {
         // Report map footprint as key bytes + row bytes per entry.
         let mut bytes = 0u64;

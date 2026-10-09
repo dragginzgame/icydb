@@ -137,6 +137,11 @@ fn backing(value: &Value, pointers: &mut Vec<*const u8>) {
 fn mutation_output_moves_heap_backing_in_accepted_field_order() {
     let snapshot = snapshot(4096);
     let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&snapshot).unwrap();
+    let field_slots: Vec<_> = descriptor
+        .fields()
+        .iter()
+        .map(|field| usize::from(field.slot().get()))
+        .collect();
     let contract = contract(&descriptor);
     let payload = payload(1024);
     let row = row(&contract, &payload);
@@ -155,7 +160,7 @@ fn mutation_output_moves_heap_backing_in_accepted_field_order() {
         );
     }
 
-    let values = into_mutation_output_values(reader, &descriptor).unwrap();
+    let values = into_mutation_output_values(reader, &field_slots).unwrap();
     assert_eq!(
         values,
         vec![payload, Value::Nat64(7), Value::Text("label".into())]
@@ -172,6 +177,11 @@ fn mutation_output_moves_heap_backing_in_accepted_field_order() {
 fn mutation_output_materializes_cold_nullable_and_empty_fields() {
     let snapshot = snapshot(4096);
     let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&snapshot).unwrap();
+    let field_slots: Vec<_> = descriptor
+        .fields()
+        .iter()
+        .map(|field| usize::from(field.slot().get()))
+        .collect();
     let contract = contract(&descriptor);
     for payload in [payload(8), Value::List(Vec::new()), Value::Null] {
         let row = row(&contract, &payload);
@@ -179,7 +189,7 @@ fn mutation_output_materializes_cold_nullable_and_empty_fields() {
             StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(&row, &contract)
                 .unwrap();
         assert_eq!(
-            into_mutation_output_values(reader, &descriptor).unwrap(),
+            into_mutation_output_values(reader, &field_slots).unwrap(),
             vec![payload, Value::Nat64(7), Value::Text("label".into())]
         );
     }
@@ -192,6 +202,11 @@ fn mutation_output_preserves_eager_and_lazy_corruption_rejection() {
     let wide_descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&wide).unwrap();
     let narrow_descriptor =
         AcceptedRowLayoutRuntimeContract::from_accepted_schema(&narrow).unwrap();
+    let field_slots: Vec<_> = narrow_descriptor
+        .fields()
+        .iter()
+        .map(|field| usize::from(field.slot().get()))
+        .collect();
     let wide_contract = contract(&wide_descriptor);
     let narrow_contract = contract(&narrow_descriptor);
     let row = row(&wide_contract, &payload(9));
@@ -201,7 +216,7 @@ fn mutation_output_preserves_eager_and_lazy_corruption_rejection() {
             .expect("eager validation must reject the oversized nested blob");
     let reader =
         StructuralSlotReader::from_raw_row_with_borrowed_contract(&row, &narrow_contract).unwrap();
-    let lazy = into_mutation_output_values(reader, &narrow_descriptor).unwrap_err();
+    let lazy = into_mutation_output_values(reader, &field_slots).unwrap_err();
     assert_eq!(eager.class(), ErrorClass::Corruption);
     assert_eq!(lazy.class(), eager.class());
 }

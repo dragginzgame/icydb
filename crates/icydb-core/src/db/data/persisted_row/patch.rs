@@ -3,7 +3,7 @@ use crate::db::codec::{
     finalize_hash_sha256, new_hash_sha256_prefixed, write_hash_len_u32, write_hash_u32,
 };
 #[cfg(feature = "sql")]
-use crate::db::data::persisted_row::types::FieldSlot;
+use crate::db::{data::persisted_row::types::FieldSlot, schema::AcceptedRowDecodeContract};
 use crate::{
     db::schema::{FieldInsertGeneration, FieldWriteManagement},
     db::{
@@ -26,8 +26,8 @@ use crate::{
         },
         schema::{
             AcceptedFieldPersistenceContract, AcceptedIdentityAllocation,
-            AcceptedInsertOmissionPolicy, AcceptedRowDecodeContract,
-            CompiledAcceptedRowConstraints, accepted_row_constraint_write_error,
+            AcceptedInsertOmissionPolicy, CompiledAcceptedRowConstraints,
+            accepted_row_constraint_write_error,
             enum_catalog::{ValueAdmissionBudget, ValueAdmissionError},
         },
         write_context::AcceptedWriteContext,
@@ -367,25 +367,6 @@ pub(in crate::db) fn canonical_row_from_raw_row_with_structural_contract(
     canonical_row_from_structural_slot_reader_with_accepted_contract(&row_fields)
 }
 
-/// Build one canonical row from raw bytes using an accepted row-decode contract.
-///
-/// This is the accepted-schema boundary used by save paths that need to
-/// normalize current-format before-images into accepted dense row bytes before
-/// commit preflight. The data layer owns accepted row-contract projection so
-/// callers do not rebuild that plumbing locally.
-pub(in crate::db) fn canonical_row_from_raw_row_with_accepted_decode_contract(
-    entity_path: &str,
-    accepted_decode_contract: AcceptedRowDecodeContract,
-    raw_row: &RawRow,
-) -> Result<CanonicalRow, InternalError> {
-    let contract = StructuralRowContract::from_owned_accepted_decode_contract(
-        entity_path.to_string(),
-        accepted_decode_contract,
-    );
-
-    canonical_row_from_raw_row_with_structural_contract(raw_row, &contract)
-}
-
 // Rewrap one row already loaded from storage as a canonical write token.
 #[cfg(test)]
 pub(in crate::db) const fn canonical_row_from_stored_raw_row(raw_row: RawRow) -> CanonicalRow {
@@ -537,13 +518,8 @@ fn resolve_insert_active_slot(
 /// Authored inputs remain distinct from omission, while accepted generation,
 /// management, default, and nullable policies produce canonical protected
 /// values before any typed entity projection can observe the after-image.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the accepted insert boundary keeps schema authority, authored intent, write time, diagnostic identity, and optional Identity allocation explicit"
-)]
 pub(in crate::db) fn resolve_insert_structural_patch_with_accepted_contract(
-    entity_path: &str,
-    accepted_decode_contract: AcceptedRowDecodeContract,
+    contract: &StructuralRowContract,
     accepted_schema_fingerprint: CommitSchemaFingerprint,
     constraints: &CompiledAcceptedRowConstraints,
     patch: &AcceptedMutationIntentPatch,
@@ -556,10 +532,6 @@ pub(in crate::db) fn resolve_insert_structural_patch_with_accepted_contract(
         mutation_context.entity_tag(),
         Some(mutation_context),
         constraints,
-    );
-    let contract = StructuralRowContract::from_owned_accepted_decode_contract(
-        entity_path.to_string(),
-        accepted_decode_contract,
     );
     let mut payloads = vec![None; contract.field_count()];
     let mut provenance = vec![None; contract.field_count()];
@@ -578,7 +550,7 @@ pub(in crate::db) fn resolve_insert_structural_patch_with_accepted_contract(
     for slot in 0..contract.field_count() {
         let (payload, source) = resolve_insert_active_slot(
             constraint_context,
-            &contract,
+            contract,
             slot,
             intents[slot].take(),
             write_context,
@@ -608,16 +580,11 @@ pub(in crate::db) fn resolve_insert_structural_patch_with_accepted_contract(
 /// historical fills, while update-managed fields resolve from the operation's
 /// stable write context before typed materialization.
 #[expect(
-    clippy::too_many_arguments,
-    reason = "the accepted update boundary keeps schema authority, before-image, authored intent, write time, and diagnostic identity explicit"
-)]
-#[expect(
     clippy::too_many_lines,
     reason = "the phased resolver keeps provenance, no-op detection, and managed-time ownership in one accepted-contract boundary"
 )]
 pub(in crate::db) fn resolve_update_structural_patch_with_accepted_contract(
-    entity_path: &str,
-    accepted_decode_contract: AcceptedRowDecodeContract,
+    contract: &StructuralRowContract,
     accepted_schema_fingerprint: CommitSchemaFingerprint,
     constraints: &CompiledAcceptedRowConstraints,
     raw_row: &RawRow,
@@ -631,12 +598,8 @@ pub(in crate::db) fn resolve_update_structural_patch_with_accepted_contract(
         Some(mutation_context),
         constraints,
     );
-    let contract = StructuralRowContract::from_owned_accepted_decode_contract(
-        entity_path.to_string(),
-        accepted_decode_contract,
-    );
     let baseline =
-        StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(raw_row, &contract)?;
+        StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(raw_row, contract)?;
     let mut payloads = vec![None; contract.field_count()];
     let mut provenance = vec![None; contract.field_count()];
     let mut intents = vec![None; contract.field_count()];
@@ -695,7 +658,7 @@ pub(in crate::db) fn resolve_update_structural_patch_with_accepted_contract(
                     return Err(InternalError::executor_invariant());
                 }
                 let _ = crate::db::data::decode_runtime_value_from_row_contract(
-                    &contract,
+                    contract,
                     slot,
                     canonical_payload.as_slice(),
                 )?;
@@ -707,7 +670,7 @@ pub(in crate::db) fn resolve_update_structural_patch_with_accepted_contract(
                 AcceptedInsertPolicyRequest::ExplicitUpdateDefault,
             )) => {
                 let (resolved_payload, resolved_provenance) =
-                    resolve_explicit_update_default(&contract, slot)?;
+                    resolve_explicit_update_default(contract, slot)?;
                 *payload = Some(resolved_payload);
                 provenance[slot] = Some(resolved_provenance);
                 continue;
@@ -762,7 +725,7 @@ pub(in crate::db) fn resolve_update_structural_patch_with_accepted_contract(
     // preserved and block a write that would move managed time backward.
     if logical_changed && let Some(slot) = updated_at_slot {
         validate_managed_timestamp_progression(
-            &contract,
+            contract,
             &baseline,
             write_context.operation_timestamp(),
             mutation_context,
@@ -774,7 +737,7 @@ pub(in crate::db) fn resolve_update_structural_patch_with_accepted_contract(
         )?);
         provenance[slot] = Some(AcceptedFieldWriteProvenance::UpdateManaged);
     } else {
-        validate_existing_managed_timestamp_order(&contract, &baseline, mutation_context)?;
+        validate_existing_managed_timestamp_order(contract, &baseline, mutation_context)?;
     }
 
     let slot_payloads = payloads
@@ -795,13 +758,8 @@ pub(in crate::db) fn resolve_update_structural_patch_with_accepted_contract(
 /// Ordinary omitted fields use current insert policy, while `CreatedAt`
 /// remains immutable and `UpdatedAt` is refreshed only when the resulting
 /// logical candidate differs from the accepted before-image.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "the accepted replace boundary keeps schema authority, before-image, authored intent, write time, and diagnostic identity explicit"
-)]
 pub(in crate::db) fn resolve_existing_replace_structural_patch_with_accepted_contract(
-    entity_path: &str,
-    accepted_decode_contract: AcceptedRowDecodeContract,
+    contract: &StructuralRowContract,
     accepted_schema_fingerprint: CommitSchemaFingerprint,
     constraints: &CompiledAcceptedRowConstraints,
     raw_row: &RawRow,
@@ -810,8 +768,7 @@ pub(in crate::db) fn resolve_existing_replace_structural_patch_with_accepted_con
     mutation_context: MutationDiagnosticContext,
 ) -> Result<ResolvedAcceptedMutationRow, InternalError> {
     let inserted = resolve_insert_structural_patch_with_accepted_contract(
-        entity_path,
-        accepted_decode_contract.clone(),
+        contract,
         accepted_schema_fingerprint,
         constraints,
         patch,
@@ -820,15 +777,11 @@ pub(in crate::db) fn resolve_existing_replace_structural_patch_with_accepted_con
         None,
     )?;
     let (inserted, mut provenance) = inserted.into_parts();
-    let contract = StructuralRowContract::from_owned_accepted_decode_contract(
-        entity_path.to_string(),
-        accepted_decode_contract,
-    );
     let baseline =
-        StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(raw_row, &contract)?;
+        StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(raw_row, contract)?;
     let candidate = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
         inserted.as_raw_row(),
-        &contract,
+        contract,
     )?;
     let mut payloads = vec![None; contract.field_count()];
     let mut updated_at_slot = None;
@@ -879,7 +832,7 @@ pub(in crate::db) fn resolve_existing_replace_structural_patch_with_accepted_con
 
     if logical_changed && let Some(slot) = updated_at_slot {
         validate_managed_timestamp_progression(
-            &contract,
+            contract,
             &baseline,
             write_context.operation_timestamp(),
             mutation_context,
@@ -891,7 +844,7 @@ pub(in crate::db) fn resolve_existing_replace_structural_patch_with_accepted_con
         )?);
         provenance[slot] = Some(AcceptedFieldWriteProvenance::UpdateManaged);
     } else {
-        validate_existing_managed_timestamp_order(&contract, &baseline, mutation_context)?;
+        validate_existing_managed_timestamp_order(contract, &baseline, mutation_context)?;
     }
 
     let slot_payloads = payloads
@@ -1201,7 +1154,7 @@ mod tests {
         let layout = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted).unwrap();
         let contract = StructuralRowContract::from_accepted_decode_contract(
             accepted.entity_path(),
-            layout.row_decode_contract(catalog.clone()),
+            layout.row_decode_contract(catalog),
         );
         let input = |value: &Value| match value {
             Value::Int64(value) => InputValue::int64(*value),
@@ -1213,8 +1166,7 @@ mod tests {
             .set_authored(FieldSlot::from_validated_index(0), input(&initial));
         let write = AcceptedWriteContext::new(crate::types::Timestamp::from_millis(1));
         let row = resolve_insert_structural_patch_with_accepted_contract(
-            accepted.entity_path(),
-            layout.row_decode_contract(catalog.clone()),
+            &contract,
             fingerprint,
             &constraints,
             &patch,
@@ -1256,8 +1208,7 @@ mod tests {
                 });
             let value = value.unwrap_or_else(|| initial.clone());
             let result = resolve_update_structural_patch_with_accepted_contract(
-                accepted.entity_path(),
-                layout.row_decode_contract(catalog.clone()),
+                &contract,
                 fingerprint,
                 &constraints,
                 &row,
@@ -1355,9 +1306,12 @@ mod tests {
             crate::db::data::FieldSlot::from_validated_index(0),
             InputValue::null(),
         );
-        let Err(error) = resolve_insert_structural_patch_with_accepted_contract(
+        let contract = StructuralRowContract::from_accepted_decode_contract(
             accepted.entity_path(),
             row_layout.row_decode_contract(value_catalog),
+        );
+        let Err(error) = resolve_insert_structural_patch_with_accepted_contract(
+            &contract,
             fingerprint,
             &constraints,
             &patch,

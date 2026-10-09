@@ -29,7 +29,7 @@ while IFS= read -r -d '' path; do
   esac
 done < "$fixture/working-inputs"
 bash scripts/ci/check-formatting-hooks.sh "$ROOT" crates/icydb-diagnostic-code/src/lib.rs \
-  Cargo.toml "$fixture/unsorted.toml" make/tools.mk "${overlays[@]}"
+  Cargo.toml "$fixture/unsorted.toml" make/tools.mk make/release.mk make/rust-format.mk "${overlays[@]}"
 
 # A dependency-free disposable workspace runs IcyDB's same Makefile formatters
 # against derive ordering and filenames Cargo can select as explicit targets.
@@ -37,7 +37,7 @@ mkdir -p "$fixture/product/src" "$fixture/product/scripts/ci" "$fixture/product/
 export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TEMPLATE_DIR="$fixture/templates"
 cp "$ROOT/Makefile" "$ROOT/rust-toolchain.toml" "$fixture/product/"
 mkdir -p "$fixture/product/make"
-cp "$ROOT/make/tools.mk" "$fixture/product/make/"
+cp "$ROOT/make/tools.mk" "$ROOT/make/release.mk" "$ROOT/make/rust-format.mk" "$fixture/product/make/"
 cp "$ROOT/scripts/ci/actionlint-checksums.tsv" "$fixture/product/scripts/ci/"
 cp "$ROOT/scripts/ci/check-format-tools.sh" "$fixture/product/scripts/ci/"
 cp "$ROOT/scripts/ci/check-make-execution.sh" "$fixture/product/scripts/ci/"
@@ -46,6 +46,45 @@ cp "$ROOT/ci/tool-versions.env" "$fixture/product/ci/"
 cp "$ROOT/.githooks/pre-commit" "$fixture/product/.githooks/"
 cd "$fixture/product"
 git init --quiet
+# Qualify the local derive prerequisite and Cargo environment through the actual
+# Makefile, including parallel dispatch and refusal before shared formatters.
+cat > "$fixture/cargo" <<'CARGO'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$CARGO_HOME" == "$PWD/.cache/cargo/icydb" && "$CARGO_TARGET_DIR" == "$PWD/target/icydb" ]]
+[[ "$CARGO_NET_OFFLINE" == true && "$RUSTUP_AUTO_INSTALL" == 0 ]]
+case "$*" in
+  'sort --version') echo "cargo-sort $SHARED_TOOLING_CARGO_SORT_VERSION"; exit 0 ;;
+  'fmt --version') exit 0 ;;
+esac
+printf '%s\n' "$*" >> "$FORMAT_FIXTURE_EVENTS"
+[[ "$*" != "${FORMAT_FIXTURE_FAIL:-}" ]]
+CARGO
+chmod +x "$fixture/cargo"
+# The prepared fixture copy exports the reviewed tool identities.
+# shellcheck source=/dev/null
+source ci/tool-versions.env
+export FORMAT_FIXTURE_EVENTS="$fixture/format-events"
+make --no-print-directory > "$fixture/default-goal.log" 2>&1
+[[ ! -e "$FORMAT_FIXTURE_EVENTS" ]]
+for target in fmt fmt-check; do
+  if [[ "$target" == fmt ]]; then
+    derive='sort-derives'; sort='sort --workspace'; format='fmt --all'
+  else
+    derive='sort-derives --check'; sort='sort --workspace --check'; format='fmt --all -- --check'
+  fi
+  : > "$FORMAT_FIXTURE_EVENTS"
+  make --no-print-directory -j2 "$target" "FORMAT_CARGO=$fixture/cargo" > "$fixture/$target-dispatch.log" 2>&1
+  printf '%s\n' "$derive" "$sort" "$format" > "$fixture/expected-format"
+  cmp "$fixture/expected-format" "$FORMAT_FIXTURE_EVENTS"
+  : > "$FORMAT_FIXTURE_EVENTS"
+  if FORMAT_FIXTURE_FAIL="$derive" make --no-print-directory -j2 "$target" "FORMAT_CARGO=$fixture/cargo" \
+    > "$fixture/$target-derive-refusal.log" 2>&1; then
+    echo 'formatting accepted failed derive sorting' >&2; exit 1
+  fi
+  printf '%s\n' "$derive" > "$fixture/expected-format"
+  cmp "$fixture/expected-format" "$FORMAT_FIXTURE_EVENTS"
+done
 # Release TMPDIR can be inside IcyDB; keep this package its own workspace.
 cat > Cargo.toml <<'MANIFEST'
 [workspace]
@@ -71,7 +110,7 @@ make --no-print-directory fmt > "$fixture/product-baseline.log" 2>&1
 printf '#[derive(PartialEq, Clone, Eq, Copy)]\nstruct Flag;\n' > src/lib.rs
 printf 'fn main( ) { }\n' > 'src/staged [1].rs'
 printf 'fn main( ) { }\n' > "$newline_path"
-git add -- Makefile make/tools.mk rust-toolchain.toml Cargo.toml src/lib.rs 'src/staged [1].rs' "$newline_path" .githooks/pre-commit scripts/ci/actionlint-checksums.tsv scripts/ci/check-format-tools.sh scripts/ci/check-make-execution.sh ci/tool-versions.env
+git add -- Makefile make/tools.mk make/release.mk make/rust-format.mk rust-toolchain.toml Cargo.toml src/lib.rs 'src/staged [1].rs' "$newline_path" .githooks/pre-commit scripts/ci/actionlint-checksums.tsv scripts/ci/check-format-tools.sh scripts/ci/check-make-execution.sh ci/tool-versions.env
 printf 'fn unrelated( ) { }\n' > unselected.rs
 cp unselected.rs "$fixture/unselected-before"
 # Refusal precedes formatter dispatch and preserves selected bytes and index.

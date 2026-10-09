@@ -21,6 +21,11 @@ printf '[workspace]\n' > "$fixture/Cargo.toml"
 cat > "$fixture/bin/cargo" <<'CARGO'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ "$1" == test ]]; then
+  [[ "$RUST_TEST_THREADS" == 2 ]]
+  printf '%s\n' "$*" >> "$TEST_ROOT/native-test-requests"
+  exit "${TEST_CARGO_FAIL:-0}"
+fi
 [[ "$1" == metadata && "$*" == *'--locked --offline --format-version 1'* ]]
 [[ "$CARGO_HOME" == "$TEST_ROOT/.cache/cargo/icydb" ]]
 [[ "${TEST_METADATA_FAIL:-0}" == 0 ]] || exit 19
@@ -80,4 +85,19 @@ done
 make --silent probe POCKET_IC_BIN="$fixture/explicit-server"
 [[ "$(cat "$fixture/child-selection")" == "$fixture/explicit-server" ]]
 if rg -q '^setup$' "$fixture/server-requests"; then exit 1; fi
+
+# These selected CI bodies are native even though one belongs to the integration
+# package. Failed infrastructure must not prevent their Cargo invocation.
+: > "$fixture/server-requests"
+: > "$fixture/installation-requests"
+for target in _ci-workspace-tests _ci-tier-a-integration; do
+  env TEST_METADATA_FAIL=1 TEST_CLI_FAIL=1 TEST_SERVER_FAIL=1 \
+    make --silent "$target" > "$fixture/$target.log"
+done
+[[ ! -s "$fixture/server-requests" && ! -s "$fixture/installation-requests" ]]
+rg -q --fixed-strings -- '--workspace --all-targets --exclude icydb-testing-integration' "$fixture/native-test-requests"
+rg -q --fixed-strings -- '-p icydb-testing-integration --test sql_correctness' "$fixture/native-test-requests"
+if env TEST_CARGO_FAIL=17 make --silent _ci-tier-a-integration > "$fixture/native-failure.log" 2>&1; then
+  echo 'accepted failed native Cargo test' >&2; exit 1
+fi
 printf '[OK] Locked Testkit selection, offline refusals and caller overrides passed (substitute CLI)\n'

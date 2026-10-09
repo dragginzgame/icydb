@@ -106,6 +106,32 @@ These declarations belong to the selected source revision. Older files without
 them retain integrity checks but provide no dependency-completeness guarantee.
 Conditional features and consumer configuration still need adoption review.
 
+The optional `scripts/ci/test-installers.sh` fixture exercises all five CI
+installer wrappers: actionlint, gitleaks, ShellCheck, yq and sccache. Selecting
+that fixture requires all five wrappers, their shared `install-ci-tool.sh` engine
+and the checksum verifier, even if production CI uses only some of them. Add
+that complete set explicitly or omit the optional fixture and its callers;
+selecting an individual production installer does not require the whole suite.
+
+Reusable Cargo, formatter, evidence, registry, release-PR and tool-command tests
+also declare their required helpers. Review fixture dependencies when selecting
+tests, not only production entrypoints. The PR fixture requires the PR helper
+even though direct release delivery does not. Caller-owned pin files and optional
+production modes stay explicit inputs rather than unconditional companions.
+
+Run `test-snapshot-distribution.sh` from Shared Tooling for upstream exporter and
+governance qualification. Consumers should normally omit that integration fixture
+and its invocation, retaining actual snapshot verification and local adoption
+checks rather than importing its growing upstream test roster.
+
+The validation-runner fixture is different: `test-validation-target-runner.sh`
+invokes `scripts/ci/test-release-metadata.sh` in nested Make/release contexts.
+Consumers retaining this fixture own that metadata-test entrypoint. Keep an
+existing qualified adapter to the consumer's own release tests, as IC Backup
+does. Do not import Shared Tooling's release metadata adapter or root Makefile
+to satisfy it; without a local metadata-test adapter, run this integration check
+upstream and retain focused local validation-runner checks.
+
 The release runner requires `scripts/ci/next-release-version.sh`. The runner,
 validation logger and formatting hook also require
 `scripts/ci/check-make-execution.sh`. Include it when adding or refreshing any of
@@ -354,6 +380,24 @@ select consumer-owned pin exceptions; their defaults remain the checkout's
 `ci/tool-versions.env` and `ci/ic-tools.tsv`. Installations always target the
 consumer checkout. Include `make/tools.mk` in any isolated Makefile export,
 including the extra inputs to `check-release-commands.sh`.
+
+Two optional includes centralize further command wiring without owning product
+policy:
+
+- `make/release.mk` supplies the standard release entrypoints
+  and conflicting-goal rejection. Select its declared runner companions and
+  retain the consumer's delivery admission, cache preparation, metadata and
+  validation adapters. See the [release example](releases.md#makefile-example).
+- `make/rust-format.mk`, included after `make/tools.mk`,
+  supplies the simple root-workspace formatting commands. Select both includes,
+  `scripts/ci/check-format-tools.sh` and the reviewed pin file. Keep richer
+  workspace/frontend recipes local under the [formatting rules](../rules/git-hooks.md).
+
+Replace equivalent local recipes only after testing the actual caller and hook.
+These files must come from the recorded snapshot, never a live sibling include.
+The optional `test-make-format.sh` fixture declares its own companions; the
+complete `test-git-hooks.sh` fixture also requires the new formatting include.
+Explicitly extend a consumer's file selection before refreshing that fixture.
 
 `make cloc` reports the consumer's root Cargo workspace and requires its prepared
 Rust toolchain. Shared Tooling itself selects `CLOC_REPORT` and `CLOC_ROOT` before

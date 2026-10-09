@@ -9,13 +9,12 @@ $(error IcyDB requires execution with errors enforced; remove ignore-errors, dry
 endif
 
 .PHONY: help version tags package publish release-clean \
-        release-patch release-minor release-major \
         test test-unit test-integration-feedback test-durability test-documentation \
         test-canister-artifact-contract test-sql-canister-matrix \
         test-sql-tier-c-shard test-sql-tier-c-merge \
         test-sql-tier-c-replay \
         build-canister-local build-canister-production \
-        build check clippy fmt fmt-check validate validate-fast clean install install-dev update-dev install-gh install-hooks \
+        build check clippy validate validate-fast clean install install-dev update-dev install-gh install-hooks \
         fetch test-watch all ensure-clean security-check check-versioning \
         test-no-default-smoke \
         wasm-size-report wasm-audit-report \
@@ -36,6 +35,8 @@ endif
 ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 SHARED_TOOLING_ROOT := $(ROOT_DIR)
 include $(ROOT_DIR)/make/tools.mk
+include $(ROOT_DIR)/make/rust-format.mk
+include $(ROOT_DIR)/make/release.mk
 
 # Keep workspace cargo state repo-local so sibling repos compiling on the same
 # filesystem do not contend on a shared cargo home or target directory.
@@ -342,17 +343,18 @@ clippy:
 	$(CARGO_WORK_ENV) cargo clippy --locked -p canister_audit_one_entity_sql_query -p canister_test_sql_guard \
 		--all-targets --all-features -- -D warnings
 
-fmt:
-	$(CARGO_WORK_ENV) bash -eu -c 'source ci/tool-versions.env; exec bash scripts/ci/check-format-tools.sh "$$SHARED_TOOLING_CARGO_SORT_VERSION"'
-	$(CARGO_WORK_ENV) cargo sort --workspace
-	$(CARGO_WORK_ENV) cargo sort-derives
-	$(CARGO_WORK_ENV) cargo fmt --all
-
-fmt-check:
-	$(CARGO_WORK_ENV) bash -eu -c 'source ci/tool-versions.env; exec bash scripts/ci/check-format-tools.sh "$$SHARED_TOOLING_CARGO_SORT_VERSION"'
-	$(CARGO_WORK_ENV) cargo sort --workspace --check
-	$(CARGO_WORK_ENV) cargo sort-derives --check
-	$(CARGO_WORK_ENV) cargo fmt --all -- --check
+# Formatting keeps Cargo state local. Shared recipes own manifest sorting and
+# rustfmt; derive sorting is an IcyDB prerequisite so rustfmt runs last.
+fmt fmt-check format-tools-check _fmt-derives _fmt-derives-check: export CARGO_HOME := $(CARGO_WORK_HOME)
+fmt fmt-check format-tools-check _fmt-derives _fmt-derives-check: export CARGO_TARGET_DIR := $(CARGO_WORK_TARGET_DIR)
+fmt: _fmt-derives
+fmt-check: _fmt-derives-check
+.PHONY: _fmt-derives _fmt-derives-check
+_fmt-derives _fmt-derives-check: format-tools-check
+_fmt-derives:
+	env "$(FORMAT_CARGO)" sort-derives
+_fmt-derives-check:
+	env "$(FORMAT_CARGO)" sort-derives --check
 
 validate:
 	$(MAKE) --no-print-directory tools-check
@@ -535,7 +537,7 @@ _ci-workspace-integration-clippy:
 		--test sql_correctness --test sql_canister -- -D warnings
 
 _ci-workspace-tests:
-	$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
+	$(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
 		--workspace --all-targets --exclude icydb-testing-integration --verbose
 
 ci-sql-tier-a:
@@ -555,7 +557,7 @@ _ci-tier-a-mutation:
 		db::session::tests::mutation_reference --verbose
 
 _ci-tier-a-integration:
-	$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
+	$(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
 		-p icydb-testing-integration --test sql_correctness --verbose
 
 ci-sql-tier-b:
@@ -582,19 +584,9 @@ all: ensure-clean
 	$(MAKE) --no-print-directory validate
 	$(MAKE) --no-print-directory build
 
-# Shared Tooling owns the standard release order and Git effects.
-RELEASE_REMOTE ?= origin
-RELEASE_BRANCH ?= main
-ifneq ($(word 2,$(filter release-patch release-minor release-major release-resume,$(MAKECMDGOALS))),)
-$(error Select exactly one release target)
-endif
-.PHONY: release-resume release-version release-preflight release-prepare-version release-prepared-check release-files release-commit-check release-committed-check release-tagged-check release-push-check
-
-release-patch release-minor release-major:
-	+@bash scripts/ci/run-release.sh "$(@:release-%=%)" "$(RELEASE_REMOTE)" "$(RELEASE_BRANCH)"
-
-release-resume:
-	+@bash scripts/ci/run-release.sh resume "$(VERSION)" "$(RELEASE_REMOTE)" "$(RELEASE_BRANCH)"
+# IcyDB owns metadata preparation, validation and receipt checks. Shared
+# make/release.mk owns the standard entrypoints and conflicting-goal admission.
+.PHONY: release-version release-preflight release-prepare-version release-prepared-check release-files release-commit-check release-committed-check release-tagged-check release-push-check
 
 .PHONY: release-verify
 release-version:

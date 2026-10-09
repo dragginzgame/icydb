@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Shared companions: scripts/dev/gh-ci.sh
 set -euo pipefail
 ROOT="$0"
 [[ "$ROOT" == /* ]] || ROOT="$PWD/$ROOT"

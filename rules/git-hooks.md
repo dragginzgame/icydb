@@ -49,23 +49,31 @@ the independent, non-mutating formatting gate.
   not rely on a commit hook to repair its saved staged payload; retain the
   release runner's exact commit-tree check.
 
-For a single workspace, the minimum Make targets are:
+For a single root workspace, prefer the optional shared `make/rust-format.mk`:
 
 ```make
-.PHONY: fmt fmt-check
-fmt:
-	cargo sort --workspace
-	cargo fmt --all
-
-fmt-check:
-	cargo sort --workspace --check
-	cargo fmt --all -- --check
+include make/tools.mk
+include make/rust-format.mk
 ```
 
-Use the shared [formatter prerequisite check](../docs/verification-helpers.md#formatter-prerequisites)
-before both targets instead of duplicating version comparisons. It admits the
-consumer's exact cargo-sort pin and prepared rustfmt without installing tools.
-Consumer setup still owns installation and toolchain selection.
+It supplies `format-tools-check`, `fmt` and `fmt-check`, using the shared
+[formatter prerequisite check](../docs/verification-helpers.md#formatter-prerequisites)
+and the `HOST_TOOL_VERSIONS` pin file. Formatting uses prepared tools offline and
+disables automatic rustup installation. `FORMAT_CARGO` selects one executable
+name or path, not a command string; export `RUSTUP_TOOLCHAIN` to select a compiler.
+The include preserves the default goal and never activates hooks or installs
+tools. Keep setup explicit and retain stronger consumer admission checks.
+
+Keep local recipes for multiple independent workspaces, sort-derives, custom
+manifest ordering or frontend formatting. Those recipes still use the shared
+prerequisite checker; do not adopt the root-only include and accidentally drop
+existing coverage. Qualify the actual formatting hook after either adoption.
+
+When a recipe calls a tool available only through a Makefile-exported `PATH`,
+use `env tool ...` (for example, `env cargo sort --workspace`) or an explicit
+executable path. Apple's system Make can resolve a bare recipe command using
+its original process PATH, even though the recipe receives the updated PATH.
+Do not rely on an unrelated global installation to make the recipe work.
 
 For a separate `testing/` workspace, also run `cargo sort --workspace testing`
 before `cargo fmt --manifest-path testing/Cargo.toml --all`, with their `--check`
@@ -182,6 +190,8 @@ or deliberately disabled settings, or to disable an executable private hook in
 the default Git hooks directory. Reconcile existing hook obligations explicitly
 before changing their location. Setup never changes global Git configuration or
 silently chmods tracked files.
+Hook paths are compared literally, including trailing newlines. A failed Git
+configuration read must stop setup rather than count as an absent setting.
 
 Adding tracked hooks does not activate them in an existing clone. Verify the
 effective `git config --get core.hooksPath`, executable mode, snapshot integrity,

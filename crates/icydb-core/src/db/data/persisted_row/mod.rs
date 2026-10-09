@@ -36,7 +36,7 @@ pub(in crate::db) use contract::{
 #[cfg(test)]
 pub(in crate::db) use patch::canonical_row_from_stored_raw_row;
 pub(in crate::db) use patch::{
-    AcceptedFieldWriteProvenance, canonical_row_from_raw_row_with_accepted_decode_contract,
+    AcceptedFieldWriteProvenance, canonical_row_from_raw_row_with_structural_contract,
     canonical_row_from_structural_slot_reader_with_accepted_contract,
     resolve_existing_replace_structural_patch_with_accepted_contract,
     resolve_insert_structural_patch_with_accepted_contract,

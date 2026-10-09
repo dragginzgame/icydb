@@ -142,8 +142,8 @@ earlier evidence.
 
 ## Makefile example
 
-All three entry points delegate to the same vendored runner. Keep a harmless
-default target and reject multiple release selections before dispatch:
+Use the optional `make/release.mk` include to keep standard command
+routing and conflicting-goal admission at their shared owner:
 
 ```makefile
 .DEFAULT_GOAL := help
@@ -151,21 +151,36 @@ RELEASE_REMOTE ?= origin
 RELEASE_BRANCH ?= main
 export RELEASE_DELIVERY ?= direct
 
-.PHONY: help release-patch release-minor release-major release-resume
+include make/release.mk
+
+.PHONY: help
 
 help:
 	@echo "Maintainer releases: release-patch, release-minor, release-major"
 
-ifneq ($(word 2,$(filter release-patch release-minor release-major release-resume,$(MAKECMDGOALS))),)
-$(error Select exactly one release target)
-endif
-
-release-patch release-minor release-major:
-	+@bash scripts/ci/run-release.sh "$(@:release-%=%)" "$(RELEASE_REMOTE)" "$(RELEASE_BRANCH)"
-
-release-resume:
-	+@bash scripts/ci/run-release.sh resume "$(VERSION)" "$(RELEASE_REMOTE)" "$(RELEASE_BRANCH)"
 ```
+
+The include preserves the default goal and supplies `release-resume VERSION=X.Y.Z`.
+Set `SHARED_TOOLING_ROOT` before including it for a nested reviewed snapshot.
+Keep delivery admission and metadata adapters local. Attach existing admission
+prerequisites to the four entrypoints and export cache-preparation selections
+with target-specific variables; do not replace the shared recipes. For example:
+
+```makefile
+release-patch release-minor release-major release-resume: release-delivery-check
+release-patch release-minor release-major release-resume: export MY_RELEASE_CACHE_PREPARE := 1
+```
+
+Preserve any consumer post-run reconciliation when adopting; a prerequisites-only
+conversion does not reproduce an operation that previously followed the runner.
+The include does not select PR delivery, add validation or metadata adapters,
+publish packages, or clean artifacts. Keep those contracts explicit. Include
+`make/release.mk` in the extra inputs to `check-release-commands.sh` when testing
+an adopting Makefile with the runner at `scripts/ci/run-release.sh`. That smoke
+checker substitutes the root runner; nested snapshots need a caller fixture
+substituting their selected runner path, as the shared include tests do.
+Direct runner invocation remains supported for specialized
+entrypoints with independently qualified behavior.
 
 The runner owns ordering, version selection, Git effects, a directory lock and
 intent-before-effect plans in the repository's Git directory. The source SHA,

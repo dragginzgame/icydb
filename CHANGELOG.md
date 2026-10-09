@@ -5,6 +5,19 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.269.1]
+
+- Reduce CI server prerequisites, storage-report traversals and structural-write
+  contract reconstruction; preserve error classes during origin relabeling,
+  share release/format commands and refresh hook-path and snapshot admission fixes
+  ([#334](https://github.com/dragginzgame/icydb/issues/334),
+  [#263](https://github.com/dragginzgame/icydb/issues/263),
+  [#260](https://github.com/dragginzgame/icydb/issues/260),
+  [#288](https://github.com/dragginzgame/icydb/issues/288),
+  [#309](https://github.com/dragginzgame/icydb/issues/309)).
+
+See [detailed notes](docs/changelog/0.269.md).
+
 ## [0.269.0] - 2026-10-09
 
 - **Potentially breaking:** bound public UPDATE/DELETE scans before writes;

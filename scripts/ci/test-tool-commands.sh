@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Shared companions: make/tools.mk
 set -euo pipefail
 
 ROOT="$0"

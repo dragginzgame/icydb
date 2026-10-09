@@ -62,9 +62,12 @@ require(has("permissions") and (.permissions != null);
     select($steps[$index] | run_text | test("^\\s*bash scripts/ci/check-public-msrv\\.sh\\s*$")) |
     require(any($steps[0:$index][]; run_text | test("^\\s*make\\s+fetch\\s*$"));
       "public MSRV requires earlier locked cache preparation")),
-  (["core", "workspace", "tier-a", "tier-b"][] as $lane |
-    require(any(.jobs.rust.strategy.matrix.include[]?; .lane == $lane);
-      "CI is missing the \($lane) Rust validation lane")),
+  # Server setup is selected by lane; each lane must retain its matching body.
+  ([["core", "ci-core"], ["workspace", "ci-workspace"],
+    ["tier-a", "ci-sql-tier-a"], ["tier-b", "ci-sql-tier-b"]][] as $selection |
+    require(any(.jobs.rust.strategy.matrix.include[]?;
+      .lane == $selection[0] and .make_target == $selection[1]);
+      "CI must bind \($selection[0]) to \($selection[1])")),
   require(.jobs.rust.strategy["fail-fast"] == false;
     "parallel Rust validation must retain every lane after one fails"),
   require(.jobs.check | needs_are(["static", "rust", "macos_host"]);
@@ -76,14 +79,35 @@ require(has("permissions") and (.permissions != null);
   require(if .on | type == "object" then
     if .on.push | type == "object" then .on.push | has("tags") | not else true end
     else true end; "CI must not duplicate the release commit through a tag trigger"),
-  (["ci-core", "ci-workspace", "ci-sql-tier-a", "ci-sql-tier-b"][] as $target |
-    require(any(.jobs.rust.strategy.matrix.include[]?; .make_target == $target);
-      "CI is missing the shared \($target) validation authority")),
+  # Static wrapper fixtures use the locked CLI with substitute server bytes.
+  require(any(.jobs.static.steps[]?;
+    .if == null and (.["continue-on-error"] // false) == false
+    and (run_text | contains("bash scripts/ci/testkit-runner.sh\n"))
+    and (run_text | contains("bash scripts/ci/testkit-runner.sh --check")));
+    "static wrapper fixtures require explicit locked CLI preparation and admission"),
+  require(all(.jobs.static.steps[]?;
+    run_text | test("(^|\\s)(install-testkit|testkit-check|install-tools|tools-check)(\\s|$)") | not);
+    "static fixtures require the CLI without official server provisioning"),
+  # Real server setup belongs to the matrix lane that executes live canisters.
+  require(any(.jobs.rust.steps[]?;
+    .if == "matrix.lane == 'tier-b'" and (.["continue-on-error"] // false) == false
+    and (run_text | test("^\\s*make\\s+install-testkit\\s+testkit-check\\s*$")));
+    "Tier B requires explicit Testkit server setup and admission"),
+  require(all(.jobs.rust.steps[]?;
+    if run_text | test("(^|\\s)(install-testkit|testkit-check|install-tools|tools-check)(\\s|$)") then
+      .if == "matrix.lane == 'tier-b'" and (.["continue-on-error"] // false) == false
+    else true end);
+    "native Rust lanes must not provision or admit an official server"),
+  require(any(.jobs.macos_host.steps[]?;
+    .if == null and (.["continue-on-error"] // false) == false
+    and (run_text | test("^\\s*make\\s+install-dev\\s*$")));
+    "native host qualification requires explicit workstation and server setup"),
   # Prepare the selected locked graph before explicit tool setup and checking.
   # A cache action is optional reuse, never a substitute for explicit setup.
   (.jobs.rust.steps as $steps |
     range(0; ($steps | length)) as $index |
-    select($steps[$index] | run_text | test("\\bmake\\s+install-tools\\s+tools-check\\b")) |
+    select($steps[$index] | run_text |
+      test("\\bmake\\s+(install-host-tools\\s+host-tools-check|install-testkit\\s+testkit-check)\\b")) |
     require(any($steps[0:$index][];
       .if == null and (.["continue-on-error"] // false) == false
       and (run_text | test("^\\s*make\\s+fetch\\s*$")));

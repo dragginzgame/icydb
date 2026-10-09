@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Shared companions: scripts/dev/install-rust-tools.sh scripts/ci/verify-file-checksum.sh
 set -euo pipefail
 ROOT="$0"
 [[ "$ROOT" == /* ]] || ROOT="$PWD/$ROOT"

@@ -111,7 +111,13 @@ for target in _test-canister-libs test-integration-feedback \
   fi
 done
 
-if ! ci_job_runs rust | rg -q --fixed-strings 'make install-tools tools-check' ||
+for target in _ci-workspace-tests _ci-tier-a-integration; do
+  if make_target_recipe "$target" | rg -q --fixed-strings '$(IC_TESTKIT_ENV)'; then
+    fail "$target must run native tests without a server prerequisite"
+  fi
+done
+
+if ! make_target_recipe ci-sql-tier-b | rg -q --fixed-strings '$(POCKET_IC_RUNNER)' ||
    ! rg -q --fixed-strings 'scripts/ci/run-with-pocketic-server.sh' Makefile ||
    ! rg -q --fixed-strings 'PocketIcStartupConfig::from_env(' testing/integration/src/lib.rs; then
   fail "PocketIC workflows must install one locked binary and Tier B must use one governed server"

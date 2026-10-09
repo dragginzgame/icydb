@@ -97,6 +97,37 @@ reset
 mutate '.jobs.rust.steps |= map(select(.run != "make fetch")) | .jobs.static.steps += [{"run": "make fetch"}]'
 check fail cache-preparation-wrong-job
 reset
+mutate '.jobs.static.steps |= map(select(.name != "Prepare locked Testkit CLI for substitute-server fixtures"))'
+check fail missing-static-cli-preparation
+reset
+mutate '(.jobs.static.steps[] | select(.name == "Prepare locked Testkit CLI for substitute-server fixtures") | .run) |= sub("bash scripts/ci/testkit-runner.sh --check"; "true")'
+check fail missing-static-cli-admission
+reset
+mutate '.jobs.static.steps += [{"run": "make install-testkit testkit-check"}]'
+check fail static-official-server-prerequisite
+reset
+mutate '.jobs.rust.steps |= map(select(.name != "Prepare locked Testkit CLI and server for live tests"))'
+check fail missing-live-server-preparation
+reset
+mutate '(.jobs.rust.steps[] | select(.name == "Prepare locked Testkit CLI and server for live tests")) |= del(.if)'
+check fail unconditional-live-server-preparation
+reset
+mutate '(.jobs.rust.steps[] | select(.name == "Prepare locked Testkit CLI and server for live tests")).if = "matrix.lane == '\''tier-a'\''"'
+check fail server-preparation-wrong-lane
+reset
+mutate '(.jobs.rust.strategy.matrix.include[] | select(.lane == "tier-a")).make_target = "ci-sql-tier-b" | (.jobs.rust.strategy.matrix.include[] | select(.lane == "tier-b")).make_target = "ci-sql-tier-a"'
+check fail live-target-wrong-lane
+reset
+mutate '(.jobs.rust.steps[] | select(.name == "Prepare locked Testkit CLI and server for live tests")).continue-on-error = true'
+check fail ignored-server-preparation-failure
+reset
+mutate '.jobs.macos_host.steps |= map(select(.run != "make install-dev"))'
+check fail missing-native-server-preparation
+reset
+perl -pi -e 's/^\t\$\(WORKSPACE_TEST_ENV\) (.*cargo test)/\t\$\(IC_TESTKIT_ENV\) \$\(WORKSPACE_TEST_ENV\) $1/' "$fixture/Makefile"
+check fail native-test-server-prerequisite
+cp "$ROOT/Makefile" "$fixture/Makefile"
+reset
 # Comments cannot override the parsed value of an individual checkout input.
 perl -pi -e 'if (!$done && s/persist-credentials: false/persist-credentials: true # persist-credentials: false/) { $done=1 }' "$subject"
 check fail credentials-comment

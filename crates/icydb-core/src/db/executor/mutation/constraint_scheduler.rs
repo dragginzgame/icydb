@@ -12,10 +12,7 @@ use crate::{
             AcceptedFieldWriteProvenance, DecodedDataStoreKey, RawDataStoreKey, RawRow,
             StructuralRowContract, StructuralSlotReader,
         },
-        schema::{
-            AcceptedRowDecodeContract, CompiledAcceptedRowConstraints,
-            accepted_row_constraint_write_error,
-        },
+        schema::{CompiledAcceptedRowConstraints, accepted_row_constraint_write_error},
         write_context::MutationMode,
     },
     error::{AcceptedConstraintFactContext, InternalError, MutationDiagnosticContext},
@@ -28,12 +25,11 @@ use std::collections::{BTreeMap, BTreeSet};
     reason = "the accepted scheduler keeps identity, mode, provenance, row contract, fingerprint, and compiled constraints explicit"
 )]
 fn validate_row_local_after_image(
-    entity_path: &str,
+    contract: &StructuralRowContract,
     entity_tag: EntityTag,
     mode: MutationMode,
     row: &RawRow,
     provenance: &[Option<AcceptedFieldWriteProvenance>],
-    accepted_row_decode_contract: AcceptedRowDecodeContract,
     accepted_schema_fingerprint: CommitSchemaFingerprint,
     fingerprint_method: u8,
     constraints: &CompiledAcceptedRowConstraints,
@@ -60,12 +56,8 @@ fn validate_row_local_after_image(
     if constraints.is_empty() {
         return Ok(());
     }
-    let contract = StructuralRowContract::from_owned_accepted_decode_contract(
-        entity_path.to_string(),
-        accepted_row_decode_contract,
-    );
     let row_fields =
-        StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(row, &contract)?;
+        StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(row, contract)?;
     let values = row_fields.decode_selected_slot_values(constraints.required_slots())?;
     constraints
         .evaluate(accepted_schema_fingerprint, values.as_slice())
@@ -109,9 +101,8 @@ impl AcceptedMutationConstraintBatch {
 /// Exact accepted authority for one entity participating in a structural
 /// mutation batch.
 pub(in crate::db) struct AcceptedMutationConstraintContext<'a> {
-    pub(in crate::db) entity_path: &'a str,
     pub(in crate::db) entity_tag: EntityTag,
-    pub(in crate::db) row_decode_contract: AcceptedRowDecodeContract,
+    pub(in crate::db) row_contract: &'a StructuralRowContract,
     pub(in crate::db) schema_fingerprint: CommitSchemaFingerprint,
     pub(in crate::db) fingerprint_method: u8,
     pub(in crate::db) row_constraints: &'a CompiledAcceptedRowConstraints,
@@ -171,12 +162,11 @@ impl AcceptedMutationConstraintScheduler {
             batch_position,
         );
         validate_row_local_after_image(
-            context.entity_path,
+            context.row_contract,
             context.entity_tag,
             mode,
             row,
             provenance,
-            context.row_decode_contract,
             context.schema_fingerprint,
             context.fingerprint_method,
             context.row_constraints,
@@ -184,7 +174,7 @@ impl AcceptedMutationConstraintScheduler {
         )?;
 
         if let Some(row_op) = row_op {
-            if row_op.entity_path.as_ref() != context.entity_path
+            if row_op.entity_path.as_ref() != context.row_contract.entity_path()
                 || row_op.key != raw_key
                 || row_op.schema_fingerprint != context.schema_fingerprint
                 || row_op.after.as_deref() != Some(row.as_bytes())

@@ -59,6 +59,12 @@ group and cancel superseded review revisions. This retains more main-commit
 runs when native runners are busy; it does not add runner capacity. Inspect each
 selected commit's result before treating its snapshot as qualified.
 
+Use the [CI-health task](../tasks/ci-health.md#queued-native-jobs-and-repeated-validation)
+to diagnose persistent native queues and repeated branch/tag gates. Preserve
+each distinct source's required coverage while removing equivalent work;
+queue length alone does not justify dropping a supported architecture or
+cancelling release qualification.
+
 The portable job uses GitHub Actions' default job timeout, allowing long native
 builds to finish without a shorter regression-step deadline. Ordinary failures
 still run the evidence collector; reaching the platform job limit can prevent

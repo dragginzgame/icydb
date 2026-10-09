@@ -4,7 +4,9 @@ set -euo pipefail
 
 # Format the selected index payload, without exposing unrelated working edits.
 # Dependencies: Bash 3.2, Git, GNU Make and consumer-owned fmt prerequisites.
-root="$(git rev-parse --show-toplevel)"
+# Keep pathname newlines, removing only Git's record terminator.
+root="$(git rev-parse --show-toplevel && printf '.')"
+root="${root%$'\n.'}"
 cd "$root"
 snapshot="$(mktemp -d "${TMPDIR:-/tmp}/pre-commit-format.XXXXXX")"
 trap 'rm -rf -- "$snapshot"' EXIT

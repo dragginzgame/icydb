@@ -317,6 +317,10 @@ pub(in crate::db) fn storage_report<C: CanisterKind>(
     )
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "one report boundary collects deterministic store metadata and single-pass data/index rollups"
+)]
 fn build_storage_report<C: CanisterKind>(
     db: &Db<C>,
     mode: &StorageReportMode<'_>,
@@ -346,19 +350,15 @@ fn build_storage_report<C: CanisterKind>(
                 );
 
             store_handle.with_data(|store| {
-                data.push(DataStoreSnapshot::new(
-                    path.to_string(),
-                    storage_mode,
-                    capabilities,
-                    data_allocation.map(snapshot_allocation_identity),
-                    data_metadata,
-                    store.len(),
-                    store.memory_bytes(),
-                ));
-
                 let mut by_entity = EntityStatsByMode::new(mode);
+                let mut entries = 0u64;
+                let mut memory_bytes = 0u64;
 
                 let _: Result<(), Infallible> = store.visit_entries(|raw_key, raw_row| {
+                    // Physical totals include corrupt keys, unlike entity rollups.
+                    entries = entries.saturating_add(1);
+                    memory_bytes = memory_bytes
+                        .saturating_add(raw_key.as_bytes().len() as u64 + raw_row.len() as u64);
                     let Ok(dk) = DecodedDataStoreKey::try_from_raw(raw_key) else {
                         corrupted_keys = corrupted_keys.saturating_add(1);
                         return Ok(StoreVisit::Continue);
@@ -370,14 +370,28 @@ fn build_storage_report<C: CanisterKind>(
                     Ok(StoreVisit::Continue)
                 });
 
+                data.push(DataStoreSnapshot::new(
+                    path.to_string(),
+                    storage_mode,
+                    capabilities,
+                    data_allocation.map(snapshot_allocation_identity),
+                    data_metadata,
+                    entries,
+                    memory_bytes,
+                ));
                 by_entity.push_snapshots(path, db, mode, &mut entity_storage);
             });
 
             store_handle.with_index(|store| {
+                let mut entries = 0u64;
+                let mut memory_bytes = 0u64;
                 let mut user_entries = 0u64;
                 let mut system_entries = 0u64;
 
                 let _: Result<(), Infallible> = store.visit_entries(|key, value| {
+                    entries = entries.saturating_add(1);
+                    memory_bytes = memory_bytes
+                        .saturating_add(key.as_bytes().len() as u64 + value.len() as u64);
                     let Ok(decoded_key) = IndexKey::try_from_raw(key) else {
                         corrupted_entries = corrupted_entries.saturating_add(1);
                         return Ok(IndexStoreVisit::Continue);
@@ -402,10 +416,10 @@ fn build_storage_report<C: CanisterKind>(
                     index_allocation.map(snapshot_allocation_identity),
                     index_metadata,
                     IndexStoreSnapshotStats::new(
-                        store.len(),
+                        entries,
                         user_entries,
                         system_entries,
-                        store.memory_bytes(),
+                        memory_bytes,
                         store.state(),
                     ),
                 ));

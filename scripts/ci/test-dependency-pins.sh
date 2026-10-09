@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Shared companions: scripts/ci/check-dependency-pins.sh
 set -euo pipefail
 
 ROOT="$0"

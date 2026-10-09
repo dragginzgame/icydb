@@ -11,7 +11,7 @@ without `.md`; people and agents use the same definitions.
 | [cargo-machete](cargo-machete.md) | Which Cargo dependencies appear unused? | Every 3 days |
 | [msrv](msrv.md) | Does the advertised minimum really work, and can it be lower? | Every 3 days |
 | [rust-toolchain](rust-toolchain.md) | Are development compilers current with stable Rust? | Every 3 days |
-| [ci-health](ci-health.md) | Which current CI failures and issues need attention? | Every 3 days |
+| [ci-health](ci-health.md) | Which CI failures, persistent queues or repeated gates need attention? | Every 3 days |
 | [snapshot-drift](snapshot-drift.md) | Are shared snapshots intact and relevant fixes adopted? | Every 3 days |
 | [dependency-security](dependency-security.md) | Does the selected dependency graph have new advisories? | Every 3 days |
 | [code-audit](code-audit.md) | What concrete correctness or complexity problems exist in one selected area? | Rotate one audit per pass |

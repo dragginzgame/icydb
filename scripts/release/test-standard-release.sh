@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-bash "$root/scripts/ci/check-release-commands.sh" "$root" scripts/ci/actionlint-checksums.tsv make/tools.mk
+bash "$root/scripts/ci/check-release-commands.sh" "$root" scripts/ci/actionlint-checksums.tsv make/tools.mk make/release.mk make/rust-format.mk ci/tool-versions.env
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/standard-release-entry.XXXXXX")"
 # Surface inner Make diagnostics before removing disposable fixture inputs.
 trap '
@@ -25,6 +25,25 @@ if [[ -f "$root/tool-versions.env" ]]; then cp "$root/tool-versions.env" "$fixtu
 export EVENTS="$fixture/events"
 cd "$fixture"
 real_make="$(command -v make)"
+# The common owner qualifies explicit remote/branch overrides. Exercise the
+# consumer's default routing and runner failure through the actual includes too.
+for kind in patch minor major resume; do
+    for failure in 0 1; do
+        : > "$EVENTS"
+        status=0
+        (unset RELEASE_REMOTE RELEASE_BRANCH
+         PATH="$fixture/bin:$PATH" FAIL_RUNNER="$failure" "$real_make" --no-print-directory \
+             -f "$root/Makefile" "release-$kind" VERSION=0.269.1) \
+             > "$fixture/default-$kind-$failure.log" 2>&1 || status=$?
+        if [[ "$failure" == 0 ]]; then [[ "$status" == 0 ]]; else [[ "$status" != 0 ]]; fi
+        if [[ "$kind" == resume ]]; then
+            printf '%s resume 0.269.1 origin main\n' "$root/scripts/ci/run-release.sh" > "$fixture/expected"
+        else
+            printf '%s %s origin main\n' "$root/scripts/ci/run-release.sh" "$kind" > "$fixture/expected"
+        fi
+        cmp "$fixture/expected" "$EVENTS"
+    done
+done
 # The consumer parse boundary rejects unsafe outer Make modes even when an
 # invocation overrides MAKEFLAGS. The substitute runner must never be called.
 for flags in -i -n -q -t --ignore-errors --just-print --question --touch -in; do

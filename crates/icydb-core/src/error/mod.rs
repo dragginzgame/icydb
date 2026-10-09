@@ -493,18 +493,39 @@ impl InternalError {
 
     /// Rebuild this error with a new origin while preserving class taxonomy.
     ///
-    /// Numeric facts are origin-independent and remain safe after recovery
-    /// relabeling. Other origin-scoped detail payloads are dropped.
+    /// Numeric facts survive only when valid for the destination diagnostic
+    /// code. Incompatible facts and other origin-scoped details are dropped
+    /// without changing the error class.
     #[cold]
     #[inline(never)]
     pub(crate) fn with_origin(self, origin: ErrorOrigin) -> Self {
         match self.detail {
-            Some(ErrorDetail::DiagnosticFacts(detail)) => Self::with_diagnostic_facts(
-                self.class,
-                origin,
-                detail.diagnostic.detail().copied(),
-                detail.facts,
-            ),
+            Some(ErrorDetail::DiagnosticFacts(mut detail)) => {
+                let leaf = detail.diagnostic.detail().copied();
+                let code = leaf.map_or_else(
+                    || self.class.diagnostic_code(origin),
+                    diagnostic_code::DiagnosticDetail::diagnostic_code,
+                );
+                let diagnostic =
+                    diagnostic_code::Diagnostic::new(code, origin.diagnostic_origin(), leaf);
+                // Relabeling an existing error is not fresh construction:
+                // projection failure must not replace its semantic class.
+                if diagnostic_code::validate_known_diagnostic_fact_schema(
+                    diagnostic.error_code(),
+                    &detail.facts,
+                )
+                .is_err()
+                {
+                    return Self::classified(self.class, origin);
+                }
+                detail.diagnostic = diagnostic;
+
+                Self {
+                    class: self.class,
+                    origin,
+                    detail: Some(ErrorDetail::DiagnosticFacts(detail)),
+                }
+            }
             _ => Self::classified(self.class, origin),
         }
     }

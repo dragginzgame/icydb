@@ -80,10 +80,11 @@ jobs:
         run: |
           make install-rust-tools rust-tools-check
           echo "$GITHUB_WORKSPACE/.tools/rust/bin" >> "$GITHUB_PATH"
-      - name: Prepare locked Testkit CLI and server
+      - name: Prepare locked Testkit CLI for substitute-server fixtures
         run: |
           cargo fetch --locked
-          make install-testkit testkit-check
+          bash scripts/ci/testkit-runner.sh
+          bash scripts/ci/testkit-runner.sh --check
       - name: Run static validation with complete feedback
         run: make ci-static
 
@@ -143,9 +144,12 @@ jobs:
         run: make fetch
       - name: Install pinned local tools
         run: |
-          make install-tools tools-check
+          make install-host-tools host-tools-check install-ic-tools ic-tools-check install-rust-tools rust-tools-check
           printf '%s\n' "$GITHUB_WORKSPACE/.tools/host/bin" \
             "$GITHUB_WORKSPACE/.tools/ic/bin" "$GITHUB_WORKSPACE/.tools/rust/bin" >> "$GITHUB_PATH"
+      - name: Prepare locked Testkit CLI and server for live tests
+        if: matrix.lane == 'tier-b'
+        run: make install-testkit testkit-check
       - name: Run ${{ matrix.lane }} validation with complete feedback
         env:
           MAKE_TARGET: ${{ matrix.make_target }}

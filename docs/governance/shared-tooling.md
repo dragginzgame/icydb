@@ -1,7 +1,7 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `ee48bb37c98c771e77b92fd891f0757d8c1c8b99`. Root
+at reviewed revision `ce13a5314916891fd239d9b199b4a91b04775054`. Root
 [AGENTS.md](../../AGENTS.md) is the local overlay. The shared approved layout
 retains the 42 existing canister, schema and testing packages in their
 restored directories, in the single root workspace and lockfile; no new package
@@ -11,6 +11,68 @@ remain local; standard release commands follow the shared contract. A sibling ch
 these rules.
 
 ## Ownership and provenance
+
+### Compatible 0.269.1 follow-up
+
+The current snapshot adopts committed Shared 0.2.6
+`ce13a5314916891fd239d9b199b4a91b04775054` through its canonical exporter.
+The eighty-three existing selections remain, with only
+[the release include](../../make/release.mk) and
+[the formatting include](../../make/rust-format.mk) added. Hook-path repairs,
+export-companion admission and the Apple Make formatter-fixture correction
+come from committed source; newer dirty sibling changes are excluded
+([#309](https://github.com/dragginzgame/icydb/issues/309),
+[Shared #89](https://github.com/dragginzgame/shared-tooling/issues/89),
+[Shared #73](https://github.com/dragginzgame/shared-tooling/issues/73),
+[Shared #85](https://github.com/dragginzgame/shared-tooling/issues/85)).
+
+Shared Make owns patch/minor/major/resume routing, conflicting release-goal
+admission, manifest sorting and rustfmt. IcyDB retains its parse-time execution
+refusal, release adapters, receipt checks, preflight preparation, derive sorter
+and repo-local Cargo directories. Derive sorting is an explicit prerequisite
+of the shared formatting recipe, after tool admission; rustfmt remains last.
+The two internal derive targets project existing fmt/check operations rather
+than adding a new formatting policy or execution engine. Missing tools and
+failed derive sorting stop later formatting, including parallel Make. The
+existing release and hook fixtures carry the new includes; no separate CI
+suite or formatter wrapper is added
+([Shared #91](https://github.com/dragginzgame/shared-tooling/issues/91),
+[Shared #92](https://github.com/dragginzgame/shared-tooling/issues/92)).
+
+Focused release/format adoption checks pass on Linux Bash 5 and genuine Bash
+3.2. Release fixtures substitute Git/runner effects; formatting fixtures exercise
+real tool execution, derive ordering, dependency sorting, staged-file/index
+preservation, unusual selected paths, parallel dispatch and failed derive
+prerequisites. Canonical formatting-owner fixtures, snapshot integrity,
+selected shell/workflow checks and documentation references pass. Evidence:
+`target/shared-make-2691`. Native macOS and full workspace/release gates remain
+separate user-owned checks. No actual release or network lifecycle action ran.
+
+Static CI prepares and checks the locked Testkit CLI without downloading its
+official server. Its real CLI/substitute-server wrapper fixtures remain active.
+Rust matrix lanes retain shared host, IC and formatting tool admission; only
+Tier B prepares Testkit's real server. Native workspace and Tier A Make bodies
+no longer resolve a server before their native tests. Native macOS setup and
+live startup qualification remain required. The CI prerequisite change adds no
+installation mode, server selector or supervisor
+([#334](https://github.com/dragginzgame/icydb/issues/334)).
+
+Initial CI prerequisite qualification against Shared 0.2.5 passes workflow
+policy and its 51 fixture cases, native
+caller/refusal fixtures and the five real CLI/substitute-server wrapper cases
+on Bash 5 and genuine Bash 3.2. Actual locked Testkit 0.27.1 installation and
+offline CLI admission pass; one Host 0.9.3 generation and Timers 0.16.2 remain
+selected in the incoming lockfile. The official server bundle was not
+provisioned or launched. Consumer real formatting, canonical Shared hook
+fixtures, snapshot verification, workflow lint and selected ShellCheck pass.
+Evidence is retained in `target/ci-cleanup-2691`. Native macOS, full workspace
+and release gates remain user-owned qualification; raw Wasm, IC-cycle and
+instruction deltas are unmeasured. No function, method or type is removed.
+Initial CI prerequisite complexity: twenty-two files, approximately 225 net added lines, chiefly shared
+documentation and fixture coverage. Server prerequisites are simpler; the
+existing installer, CLI and policy owners remain authoritative.
+
+### Published 0.269.0 adoption
 
 The tooling follow-up, carried into the authorized 0.269 batch, adopts Shared 0.2.2
 `ee48bb37c98c771e77b92fd891f0757d8c1c8b99` through its canonical exporter,
@@ -371,7 +433,7 @@ versions, upstream files, network lifecycle or release effects were changed.
 Native consumer macOS execution and full workspace/release gates remain
 unperformed; Wasm bytes, IC cycles and instruction deltas are unmeasured.
 
-[The snapshot manifest](../../.shared-tooling.snapshot) records eighty-three exact
+[The snapshot manifest](../../.shared-tooling.snapshot) records eighty-five exact
 upstream files, including the baseline and all linked rules, shared principles,
 consumer/host guidance, formatting hook, shared audit methods, pinned host/IC/Rust
 setup and selected verification helpers and release fixtures. Every entry records SHA-256 and
@@ -479,8 +541,10 @@ and retains failed outputs. Successful invocation-owned scratch is removed
 ([Testkit #29](https://github.com/dragginzgame/ic-testkit/issues/29),
 [#307](https://github.com/dragginzgame/icydb/issues/307)).
 
-Run `make fetch install-testkit testkit-check` explicitly before the portable
-wrapper fixtures or Tier B. Cargo metadata selects the single locked Testkit
+Run `make fetch` and `bash scripts/ci/testkit-runner.sh` explicitly before the
+portable wrapper fixtures; their substitute server needs only the admitted CLI.
+For Tier B or other live tests, use `make install-testkit testkit-check` to
+prepare the real server as well. Cargo metadata selects the single locked Testkit
 version; Shared's selected Cargo installer prepares its published CLI with
 package/profile receipts under `.tools/rust`. Testkit prepares the server under
 `.tools/ic-testkit-server`. Prior `.tools/testkit` outputs remain retained.
@@ -500,7 +564,8 @@ The former AWK `brace_delta`, `cfg_test_item` and `reset_skip` functions are
 removed rather than extended into a Rust lexer
 ([#320](https://github.com/dragginzgame/icydb/issues/320)).
 
-The Rust CI lanes run the existing `make fetch` before `make tools-check`.
+The Rust CI lanes run the existing `make fetch` before their selected shared
+tool checks; Tier B additionally prepares and admits the Testkit server.
 Workstation install/update prepares the same locked cache before its offline
 checks, so native CI reuses that preparation for runner installation and library
 qualification. Cache restoration never replaces explicit preparation, and a

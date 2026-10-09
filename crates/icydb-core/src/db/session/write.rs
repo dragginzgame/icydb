@@ -19,7 +19,7 @@ use crate::{
         data::{
             AcceptedMutationIntentPatch, AcceptedPreKeyInsert, DecodedDataStoreKey, FieldSlot,
             RawRow, StructuralRowContract, StructuralSlotReader,
-            canonical_row_from_raw_row_with_accepted_decode_contract,
+            canonical_row_from_raw_row_with_structural_contract,
             resolve_existing_replace_structural_patch_with_accepted_contract,
             resolve_insert_structural_patch_with_accepted_contract,
             resolve_update_structural_patch_with_accepted_contract,
@@ -185,6 +185,7 @@ struct AcceptedStructuralMutationBatchItem {
 
 struct AcceptedStructuralMutationEntityState {
     entity_tag: crate::types::EntityTag,
+    output_field_slots: Vec<usize>,
     identity_field: Option<AcceptedIdentityInsertField>,
     identity_incarnation: Option<crate::db::integrity::DatabaseIncarnationId>,
     identity_cursor: Option<IdentityStatementCursor>,
@@ -520,10 +521,10 @@ fn lower_typed_mutation_intent(
 
 fn preserve_dynamic_replacement_identity(
     key: &DecodedDataStoreKey,
-    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+    contract: &StructuralRowContract,
     mut patch: AcceptedMutationIntentPatch,
 ) -> Result<AcceptedMutationIntentPatch, InternalError> {
-    let primary_key_slots = descriptor.primary_key_slot_indices();
+    let primary_key_slots = contract.primary_key_slot_indices();
     let runtime_key = key.primary_key_runtime_value();
     let components = match runtime_key {
         Value::List(values) if primary_key_slots.len() > 1 => values,
@@ -535,9 +536,9 @@ fn preserve_dynamic_replacement_identity(
     }
 
     for (slot, value) in primary_key_slots.iter().copied().zip(components) {
-        let _ = descriptor
-            .field_for_slot_index(slot)
-            .ok_or_else(InternalError::executor_invariant)?;
+        let _ = contract
+            .required_accepted_field_contract(slot)
+            .map_err(|_| InternalError::executor_invariant())?;
         let has_explicit_intent = patch
             .entries()
             .iter()
@@ -643,11 +644,11 @@ fn validated_existing_row(
 // Result columns follow accepted field order, not the physical slot layout.
 fn into_mutation_output_values(
     mut reader: StructuralSlotReader<'_>,
-    descriptor: &AcceptedRowLayoutRuntimeContract<'_>,
+    field_slots: &[usize],
 ) -> Result<Vec<Value>, InternalError> {
-    let mut values = Vec::with_capacity(descriptor.fields().len());
-    for field in descriptor.fields() {
-        values.push(reader.take_required_value(usize::from(field.slot().get()))?);
+    let mut values = Vec::with_capacity(field_slots.len());
+    for slot in field_slots {
+        values.push(reader.take_required_value(*slot)?);
     }
     Ok(values)
 }
@@ -1175,16 +1176,11 @@ impl<C: CanisterKind> DbSession<C> {
             {
                 return Err(InternalError::query_executor_invariant());
             }
-            let descriptor =
-                AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())?;
-            let row_decode_contract =
-                descriptor.row_decode_contract(catalog.value_catalog_handle().clone());
             let entity_path = identity.entity_path();
             let _metrics_span = EntityMetricsSpan::new(entity_path);
-            let row_contract = StructuralRowContract::from_accepted_decode_contract(
-                entity_path,
-                row_decode_contract.clone(),
-            );
+            // The captured root already owns current/historical decode authority.
+            // Repeated items borrow it rather than rebuilding or deep-cloning it.
+            let row_contract = catalog.inspection_plan().row_contract();
             let entity_state_index = entity_states
                 .iter()
                 .position(|state| state.entity_tag == identity.entity_tag());
@@ -1197,6 +1193,8 @@ impl<C: CanisterKind> DbSession<C> {
                         MAX_STRUCTURAL_MUTATION_BATCH_ENTITIES,
                     ));
                 }
+                let descriptor =
+                    AcceptedRowLayoutRuntimeContract::from_accepted_schema(catalog.snapshot())?;
                 let identity_field = accepted_identity_insert_field(&descriptor)?;
                 let identity_incarnation = identity_field
                     .as_ref()
@@ -1204,6 +1202,17 @@ impl<C: CanisterKind> DbSession<C> {
                     .transpose()?;
                 entity_states.push(AcceptedStructuralMutationEntityState {
                     entity_tag: identity.entity_tag(),
+                    // Field order belongs to this same immutable root. Retain only
+                    // the output projection, once per entity, when requested.
+                    output_field_slots: if capture_output_values {
+                        descriptor
+                            .fields()
+                            .iter()
+                            .map(|field| usize::from(field.slot().get()))
+                            .collect()
+                    } else {
+                        Vec::new()
+                    },
                     identity_field,
                     identity_incarnation,
                     identity_cursor: None,
@@ -1223,14 +1232,11 @@ impl<C: CanisterKind> DbSession<C> {
                 let AcceptedStructuralMutation::Delete { key } = mutation else {
                     return Err(InternalError::executor_invariant());
                 };
-                let before = validated_existing_row(store, &key, &row_contract)?
+                let before = validated_existing_row(store, &key, row_contract)?
                     .ok_or_else(|| InternalError::store_not_found(&key))?;
                 let raw_key = key.to_raw()?;
-                let canonical_before = canonical_row_from_raw_row_with_accepted_decode_contract(
-                    entity_path,
-                    row_decode_contract.clone(),
-                    &before,
-                )?;
+                let canonical_before =
+                    canonical_row_from_raw_row_with_structural_contract(&before, row_contract)?;
                 let admission = admit_structural_mutation_staged_charge(
                     &mut staged_bytes,
                     [
@@ -1266,10 +1272,13 @@ impl<C: CanisterKind> DbSession<C> {
                 )?;
                 let reader = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
                     canonical_before.as_raw_row(),
-                    &row_contract,
+                    row_contract,
                 )?;
                 let values = if capture_output_values {
-                    into_mutation_output_values(reader, &descriptor)?
+                    into_mutation_output_values(
+                        reader,
+                        &entity_states[entity_state_index].output_field_slots,
+                    )?
                 } else {
                     Vec::new()
                 };
@@ -1315,7 +1324,7 @@ impl<C: CanisterKind> DbSession<C> {
                     .ok_or_else(InternalError::executor_invariant)?;
                 keyed_patch = Some(preserve_dynamic_replacement_identity(
                     key,
-                    &descriptor,
+                    row_contract,
                     patch,
                 )?);
             }
@@ -1326,7 +1335,7 @@ impl<C: CanisterKind> DbSession<C> {
                 .ok_or_else(InternalError::executor_invariant)?;
             let before = match (expected_key.as_ref(), preloaded_before) {
                 (Some(_), Some(row)) => Some(row),
-                (Some(key), None) => validated_existing_row(store, key, &row_contract)?,
+                (Some(key), None) => validated_existing_row(store, key, row_contract)?,
                 (None, None) => None,
                 (None, Some(_)) => return Err(InternalError::executor_invariant()),
             };
@@ -1391,8 +1400,7 @@ impl<C: CanisterKind> DbSession<C> {
             let resolved = match (mode, before.as_ref()) {
                 (MutationMode::Insert | MutationMode::Replace, None) => {
                     resolve_insert_structural_patch_with_accepted_contract(
-                        entity_path,
-                        row_decode_contract.clone(),
+                        row_contract,
                         catalog.fingerprint(),
                         catalog.accepted_row_constraints(),
                         patch,
@@ -1403,8 +1411,7 @@ impl<C: CanisterKind> DbSession<C> {
                 }
                 (MutationMode::Update, Some(before)) => {
                     resolve_update_structural_patch_with_accepted_contract(
-                        entity_path,
-                        row_decode_contract.clone(),
+                        row_contract,
                         catalog.fingerprint(),
                         catalog.accepted_row_constraints(),
                         before,
@@ -1415,8 +1422,7 @@ impl<C: CanisterKind> DbSession<C> {
                 }
                 (MutationMode::Replace, Some(before)) => {
                     resolve_existing_replace_structural_patch_with_accepted_contract(
-                        entity_path,
-                        row_decode_contract.clone(),
+                        row_contract,
                         catalog.fingerprint(),
                         catalog.accepted_row_constraints(),
                         before,
@@ -1432,7 +1438,7 @@ impl<C: CanisterKind> DbSession<C> {
             let (after, provenance) = resolved.into_parts();
             let reader = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
                 after.as_raw_row(),
-                &row_contract,
+                row_contract,
             )?;
             let data_key = match expected_key {
                 Some(key) => {
@@ -1456,7 +1462,7 @@ impl<C: CanisterKind> DbSession<C> {
                 )?;
             }
             if matches!(mode, MutationMode::Insert)
-                && validated_existing_row(store, &data_key, &row_contract)?.is_some()
+                && validated_existing_row(store, &data_key, row_contract)?.is_some()
             {
                 return Err(insert_key_exists_after_generation(
                     identity_allocation.is_some(),
@@ -1466,11 +1472,7 @@ impl<C: CanisterKind> DbSession<C> {
             let canonical_before = before
                 .as_ref()
                 .map(|before| {
-                    canonical_row_from_raw_row_with_accepted_decode_contract(
-                        entity_path,
-                        row_decode_contract.clone(),
-                        before,
-                    )
+                    canonical_row_from_raw_row_with_structural_contract(before, row_contract)
                 })
                 .transpose()?;
             let logical_changed = canonical_before.as_ref().is_none_or(|before| {
@@ -1515,9 +1517,8 @@ impl<C: CanisterKind> DbSession<C> {
             });
             scheduler.schedule_save_after_image(
                 AcceptedMutationConstraintContext {
-                    entity_path,
                     entity_tag: identity.entity_tag(),
-                    row_decode_contract: row_decode_contract.clone(),
+                    row_contract,
                     schema_fingerprint: catalog.fingerprint(),
                     fingerprint_method: catalog.fingerprint_method_version(),
                     row_constraints: catalog.accepted_row_constraints(),
@@ -1530,7 +1531,10 @@ impl<C: CanisterKind> DbSession<C> {
                 batch_input_ordinal,
             )?;
             let values = if capture_output_values {
-                into_mutation_output_values(reader, &descriptor)?
+                into_mutation_output_values(
+                    reader,
+                    &entity_states[entity_state_index].output_field_slots,
+                )?
             } else {
                 Vec::new()
             };
@@ -4442,6 +4446,7 @@ mod identity_pre_key_tests {
     mod result_boundary_tests;
     #[cfg(feature = "sql")]
     mod schema_publication_tests;
+    mod storage_report_tests;
 
     use super::DynamicTypedEntityBinding;
     use super::{
