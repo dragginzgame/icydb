@@ -9,12 +9,17 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 - Reduce CI server prerequisites, storage-report traversals and structural-write
   contract reconstruction; preserve error classes during origin relabeling,
-  share release/format commands and refresh hook-path and snapshot admission fixes
+  share release/format commands, refresh hook-path and snapshot admission fixes,
+  adopt Host 0.10 with Testkit 0.28, and update CI Actions with their required
+  temporary-directory preparation
   ([#334](https://github.com/dragginzgame/icydb/issues/334),
   [#263](https://github.com/dragginzgame/icydb/issues/263),
   [#260](https://github.com/dragginzgame/icydb/issues/260),
   [#288](https://github.com/dragginzgame/icydb/issues/288),
-  [#309](https://github.com/dragginzgame/icydb/issues/309)).
+  [#309](https://github.com/dragginzgame/icydb/issues/309),
+  [#307](https://github.com/dragginzgame/icydb/issues/307),
+  [#10](https://github.com/dragginzgame/icydb/pull/10),
+  [#297](https://github.com/dragginzgame/icydb/pull/297)).
 
 See [detailed notes](docs/changelog/0.269.md).
 

@@ -1534,7 +1534,7 @@ fn stage_canister_artifact_paths(
     }
     let candid = canister_artifact::extract_canister_candid(&wasm)?;
     ic_host_fs::durable::write_bytes(&did, candid.as_bytes())
-        .map_err(|error| format!("publish staged Candid '{}': {error}", did.display()))?;
+        .map_err(|error| format!("publish staged Candid '{}': {error:?}", did.display()))?;
     Ok((wasm, Some(did)))
 }
 
@@ -1548,11 +1548,19 @@ fn publish_artifact_copy(input: &Path, output: &Path) -> Result<(), String> {
             input.display()
         ));
     }
-    ic_host_fs::durable::write_with(output, |sink| {
-        sink.set_permissions(metadata.permissions())?;
-        ic_host_artifacts::artifact::copy_reader(&mut source, sink, u64::MAX)
-            .map_err(std::io::Error::from)
-    })
-    .map_err(|error| format!("publish artifact '{}': {error}", output.display()))?;
+    ic_host_fs::durable::write_with(
+        output,
+        ic_host_fs::durable::WriteOptions {
+            mode: ic_host_fs::durable::PublicationMode::Replace,
+            permissions: 0o666,
+        },
+        |sink| {
+            sink.set_permissions(metadata.permissions())?;
+            ic_host_artifacts::artifact::copy_reader(&mut source, sink, u64::MAX)
+                .map_err(std::io::Error::from)
+        },
+    )
+    // String diagnostics retain the publication phase and separate cleanup cause.
+    .map_err(|error| format!("publish artifact '{}': {error:?}", output.display()))?;
     Ok(())
 }

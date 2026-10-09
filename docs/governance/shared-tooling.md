@@ -14,6 +14,26 @@ these rules.
 
 ### Compatible 0.269.1 follow-up
 
+The selected Host packages converge on published 0.10.0 with Testkit 0.28.0.
+IcyDB's artifact copier uses the consolidated streamed writer with explicit
+replace/0o666 staging options and still copies the source permissions before
+publication. Its Candid and artifact diagnostics retain the complete publication
+error, including cleanup failures. This is host-tooling adoption without an
+IcyDB public API or retained-format change
+([#307](https://github.com/dragginzgame/icydb/issues/307)). Host's uncommitted
+0.10.1 parent-sync repair is excluded. Explicit `make install-testkit` prepares
+the newly locked CLI; offline validation only checks the admitted installation.
+
+Focused Linux qualification passes strict integration-library/binary and CLI
+Clippy, twenty-four artifact/optimizer/post-link/CLI/report tests, selected shell
+and documentation checks, and offline tool admission. Setup and locked-Testkit
+caller fixtures pass with Bash 5/Make 4.3 and Bash 3.2/Make 3.81 after carrying
+the two previously omitted shared Make includes. One actual startup-adapter
+test passes through the managed Bash 3.2 wrapper; Testkit starts and stops its
+server. Evidence is retained under `target/host010-adoption`. Native macOS and
+full workspace/release gates remain user-owned. Raw Wasm, cycles and instructions
+are unmeasured; no function, method or type is removed.
+
 The current snapshot adopts committed Shared 0.2.6
 `ce13a5314916891fd239d9b199b4a91b04775054` through its canonical exporter.
 The eighty-three existing selections remain, with only
@@ -34,7 +54,7 @@ of the shared formatting recipe, after tool admission; rustfmt remains last.
 The two internal derive targets project existing fmt/check operations rather
 than adding a new formatting policy or execution engine. Missing tools and
 failed derive sorting stop later formatting, including parallel Make. The
-existing release and hook fixtures carry the new includes; no separate CI
+existing release, hook, setup and Testkit caller fixtures carry the new includes; no separate CI
 suite or formatter wrapper is added
 ([Shared #91](https://github.com/dragginzgame/shared-tooling/issues/91),
 [Shared #92](https://github.com/dragginzgame/shared-tooling/issues/92)).

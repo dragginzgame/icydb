@@ -13,7 +13,7 @@ finish() {
 trap finish EXIT
 mkdir -p "$fixture/scripts/ci" "$fixture/scripts/dev" "$fixture/make" "$fixture/bin" "$fixture/.tools/host/bin"
 cp "$ROOT/Makefile" "$fixture/"
-cp "$ROOT/make/tools.mk" "$fixture/make/"
+cp "$ROOT/make/tools.mk" "$ROOT/make/release.mk" "$ROOT/make/rust-format.mk" "$fixture/make/"
 cp "$ROOT/scripts/ci/testkit-runner.sh" "$fixture/scripts/ci/"
 cp "$ROOT/scripts/ci/actionlint-checksums.tsv" "$fixture/scripts/ci/"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$fixture/scripts/dev/install-host-tools.sh"

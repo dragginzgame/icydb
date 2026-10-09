@@ -1344,9 +1344,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-artifacts"
-version = "0.9.6"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "38f6956f7aa73ec640b1939f1942b072a72fccc3bc24f813f702c0f580c3e748"
+checksum = "a99e46f828ed6944bc398069ab557d1ccedf260a1974f4028418b4f4c9b66c04"
 dependencies = [
  "flate2",
  "sha2",
@@ -1356,9 +1356,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-fs"
-version = "0.9.6"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ffb49aef729c237467636eac6bfce9073eb78f27c8938858adc1f6c04734f36"
+checksum = "a8ad852553cd23ca1a509be2af9bc4d38a39663fe6af0aa6365250046f6f0b76"
 dependencies = [
  "ic-host-artifacts",
  "rustix",
@@ -1366,9 +1366,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-process"
-version = "0.9.6"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bf7670abc7de8674fd668e8023c81b3a3532b8d6c9515ff42e76eb53bd27eb38"
+checksum = "c84291f0ff8e233b1e6a8b72089cae85083fcfdc94903fedd8e58c4de5a3124a"
 dependencies = [
  "ic-host-artifacts",
  "ic-host-fs",
@@ -1378,9 +1378,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-tools"
-version = "0.9.6"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aaa9dbfa81f0c25454e64ef2f72a4b8d16a8d7cadd7478bfb7b2136d8c632279"
+checksum = "f2116ac49e1c94fc842241e380847f27dad27852d00b072f6e89dc417ef63589"
 dependencies = [
  "ic-host-artifacts",
  "ic-host-fs",
@@ -1402,9 +1402,9 @@ dependencies = [
 
 [[package]]
 name = "ic-memory"
-version = "0.33.3"
+version = "0.33.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc4210dd94e680fd1fafb421ccf54e0d897d8b243c53596f4a14f146a003a5a3"
+checksum = "a77c3c71ed5283f92ab627dc77d09f5178baf92cae37c118ef83e84740f04e60"
 dependencies = [
  "ciborium",
  "ctor",
@@ -1415,9 +1415,9 @@ dependencies = [
 
 [[package]]
 name = "ic-metrics"
-version = "0.3.4"
+version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e34003e0092eae233d9bb1bb47f7c22e8966eaeee6d2ebe57efe7012eb627351"
+checksum = "cdab4d805341b0c566f6bf6dea70d35a9b05ccb14319224f8acc5f992905e586"
 
 [[package]]
 name = "ic-stable-structures"
@@ -1430,9 +1430,9 @@ dependencies = [
 
 [[package]]
 name = "ic-testkit"
-version = "0.27.2"
+version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d5caa4c8cbcc23aea70627a05dcb50923ec88a167542bff1c856f5e72b5d4d75"
+checksum = "22804b86dc1e51548dca32d8bc41d91877ba9bd3fca646ebd1c0952b633a4366"
 dependencies = [
  "candid",
  "fs2",
@@ -1451,9 +1451,9 @@ dependencies = [
 
 [[package]]
 name = "ic-timers"
-version = "0.16.3"
+version = "0.16.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "40e42c4d0c42355fd7e64f58b9a2c0d2d996243689c19bb7adefab55e0202135"
+checksum = "eb7e9af982c10a167f45acfa1d53daf5f901b9963ed6d9d5335ba36450539a7b"
 dependencies = [
  "ic-cdk-timers",
  "ic-metrics",
