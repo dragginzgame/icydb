@@ -5,7 +5,7 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.269.0]
+## [0.269.0] - 2026-10-09
 
 - **Potentially breaking:** bound public UPDATE/DELETE scans before writes;
   admit scalar UPDATE assignments and independently qualify AVG DISTINCT
