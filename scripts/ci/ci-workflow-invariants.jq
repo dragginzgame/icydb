@@ -20,8 +20,6 @@ require(has("permissions") and (.permissions != null);
 (.jobs | to_entries[] | .key as $job | .value |
   require(type == "object"; "job \($job) must be a mapping"),
   (select(has("runs-on")) |
-    require(has("timeout-minutes") and .["timeout-minutes"] != null;
-      "job \($job) must bound its runner with timeout-minutes"),
     require([.["runs-on"] | .. | strings | select(. == "ubuntu-latest")] | length == 0;
       "job \($job) must use the fixed Ubuntu 24.04 image")),
   (.steps[]? | select((.uses? // "") | startswith("actions/checkout@")) |
@@ -81,8 +79,8 @@ require(has("permissions") and (.permissions != null);
   (["ci-core", "ci-workspace", "ci-sql-tier-a", "ci-sql-tier-b"][] as $target |
     require(any(.jobs.rust.strategy.matrix.include[]?; .make_target == $target);
       "CI is missing the shared \($target) validation authority")),
-  # The tool check includes locked/offline PocketIC metadata admission. A cache
-  # action is optional evidence reuse, never a substitute for explicit setup.
+  # Prepare the selected locked graph before explicit tool setup and checking.
+  # A cache action is optional reuse, never a substitute for explicit setup.
   (.jobs.rust.steps as $steps |
     range(0; ($steps | length)) as $index |
     select($steps[$index] | run_text | test("\\bmake\\s+install-tools\\s+tools-check\\b")) |

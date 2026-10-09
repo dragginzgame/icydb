@@ -48,6 +48,11 @@ snapshot's file instead of maintaining copied recipes or installer flags. Shared
 Tooling's own Makefile and CI use the same commands. Snapshot adoption brings
 command updates; explicit setup brings newly required executables.
 
+The installed `cloc` executable and local workspace `make cloc` are common setup.
+Fleet reports such as `make cloc-tooling` normally run in Shared Tooling; consumers
+need not vendor those reporters or run their regression suites. See the
+[optional fleet selection](consuming-snapshots.md#local-ic-tool-adoption).
+
 ## Diagnosing a missing command
 
 Installing tools in Shared Tooling does not install them in another checkout.
@@ -181,8 +186,10 @@ CARGO_NET_OFFLINE=true bash scripts/ci/qualify-cargo-install.sh "$PWD/.tools/car
 The offline command requires the registry packages and their locked dependencies
 to be prepared already. Explicit online qualification may omit
 `CARGO_NET_OFFLINE=true`; it installs only into the new evidence root and retains
-builds and logs on both success and failure. It never cleans or changes an
-existing installation. The fixture selects published `ic-blob-storage 0.15.1`'s
+builds and logs on both success and failure. Relative evidence paths resolve from
+the caller's working directory independently of `CDPATH`; existing roots are
+refused before tool probes. It never cleans or changes an existing installation.
+The fixture selects published `ic-blob-storage 0.15.1`'s
 `prepare_upload` example and the existing reviewed cargo-sort version. Those are
 assessment inputs, not defaults for consumer applications. Both use the debug
 profile; no product MSRV or Canic CLI selection is qualified by this fixture.
@@ -193,11 +200,14 @@ of the executable and receipts after an injected compiler failure. It records
 local executable digests and rejects changed bytes using the shared checksum
 owner. Those digests detect changes to an observed build; they are not publisher
 signatures, and a Cargo receipt alone does not authenticate executable bytes.
+For the selected `--debug` command, receipt admission accepts Cargo's `dev` and
+`debug` spellings and rejects release profiles; original receipts and toolchain
+identity remain in the evidence root.
 
 The manually triggered **Cargo installation qualification** workflow runs this
-assessment on Linux and both macOS architectures with separate finite budgets
-and failure evidence collection. It does not add registry builds to the default
-portable gate. Native results, consumer-specific versions and an actual shared
+assessment on Linux and both macOS architectures with GitHub Actions' default
+duration limits and failure evidence collection. It does not add registry builds
+to the default portable gate. Native results, consumer-specific versions and an actual shared
 installer's path/receipt/lock refusal still need qualification before extraction
 under [#65](https://github.com/dragginzgame/shared-tooling/issues/65). The current
 fixed Rust installer remains the supported setup contract.

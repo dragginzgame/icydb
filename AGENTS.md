@@ -2,7 +2,7 @@
 
 Apply the local [shared engineering baseline](DRAGGINZGAME.md), recorded in
 [the snapshot manifest](.shared-tooling.snapshot) at reviewed revision
-`4e274a2219c0b0cc3af68ec65658b373253518fb`. This file is IcyDB's local overlay.
+`3d33cd250fcae7dbe5cabe44b2abd6b2c91a1822`. This file is IcyDB's local overlay.
 The shared [approved layout](rules/rust-workspaces.md#approved-icydb-layout)
 retains existing packages under `crates/`, `canisters/`, `schema/` and `testing/`
 in the single root workspace and lockfile. Adoption does not authorize relocation
@@ -19,6 +19,11 @@ for provenance and consumer boundaries. Keep this file small; open detailed docs
   but must not become a separate feedback queue.
 - Do not edit Cargo workspace/package version numbers in `Cargo.toml` or `Cargo.lock`; the shared release workflow owns version bumps. If version churn is present, report it and leave it alone unless the user explicitly asks for release tooling.
 - Do not revert user or unrelated dirty-worktree changes; re-read affected files and continue.
+- IC Testkit is the sole PocketIC infrastructure owner: server selection,
+  provisioning, admission and lifecycle. IcyDB consumes Testkit; do not add
+  application-owned server pins, version parsers, installers or supervision.
+  The remaining published setup handoff is tracked in
+  [Testkit #38](https://github.com/dragginzgame/ic-testkit/issues/38).
 - Codex may start, stop, or restart local ICP and PocketIC networks when required
   by the requested development, validation, or measurement work. Avoid
   unrelated lifecycle churn and report any network lifecycle action taken.

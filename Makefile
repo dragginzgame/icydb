@@ -112,7 +112,6 @@ help:
 	@echo ""
 	@echo "Development:"
 	@echo "  cloc             Report workspace Rust runtime and test source counts"
-	@echo "  cloc-tooling     Inventory sibling tooling and shared snapshot reuse"
 	@echo "  test             Run all tests; prepare local PocketIC with install-tools first"
 	@echo "  test-integration-feedback TEST_TARGET=... TEST_NAME=..."
 	@echo "                  Run one exact integration test, then its complete binary"

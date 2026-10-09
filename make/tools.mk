@@ -48,6 +48,9 @@ cloc:
 	else bash "$(CLOC_REPORT)" "$(CLOC_ROOT)"; fi
 
 cloc-tooling:
+	@test -f "$(SHARED_TOOLING_ROOT)/scripts/dev/cloc-tooling.pl" || { \
+		printf '%s\n' 'Fleet tooling reports are optional: run make cloc-tooling in Shared Tooling, or explicitly adopt scripts/dev/cloc-tooling.pl in this snapshot.' >&2; \
+		exit 2; }
 	@perl "$(SHARED_TOOLING_ROOT)/scripts/dev/cloc-tooling.pl" "$(CLOC_PARENT)"
 
 .DEFAULT_GOAL := $(_shared_tooling_default_goal)

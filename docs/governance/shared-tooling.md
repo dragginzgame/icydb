@@ -1,7 +1,7 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `4e274a2219c0b0cc3af68ec65658b373253518fb`. Root
+at reviewed revision `3d33cd250fcae7dbe5cabe44b2abd6b2c91a1822`. Root
 [AGENTS.md](../../AGENTS.md) is the local overlay. The shared approved layout
 retains the 42 existing canister, schema and testing packages in their
 restored directories, in the single root workspace and lockfile; no new package
@@ -12,7 +12,101 @@ these rules.
 
 ## Ownership and provenance
 
-The current compatible 0.267.3 follow-up adopts Shared Tooling 0.1.30,
+The current 0.267.4 CI repair adopts committed Shared Tooling 0.1.34,
+`3d33cd250fcae7dbe5cabe44b2abd6b2c91a1822`, through the canonical exporter
+from a clean isolated checkout. The eighty-two-file selection adds only the
+shared ShellCheck entry point and keeps retired fleet/PocketIC helpers omitted.
+Static CI uses the existing reviewed ShellCheck 0.11.0 version/digest and shared
+installer instead of Ubuntu's 0.9 package. The source-bound
+[original static job](https://github.com/dragginzgame/icydb/actions/runs/37820158590/job/113458818709)
+reports SC2015 from a shared checker before its later invariants run; that is
+linter-selection drift, not a reason to patch the immutable checker or suppress
+its diagnostic. Native workstation ShellCheck retains its current consumer
+setup. Matching committed CI and complete macOS qualification remain
+[#309](https://github.com/dragginzgame/icydb/issues/309).
+
+The workflow's exact installer block passes a real authenticated download and
+version check, then the installed binary passes the maintained repository
+ShellCheck gate. Workflow policy and all forty-one fixtures, actionlint, snapshot
+and selected documentation checks pass. Evidence, including the original failure,
+is retained under `target/tooling-ci-2674`. No Rust source, dependency selection
+or runtime behavior changed; native macOS and full workspace/release gates were
+not run. Raw Wasm, IC-cycle and instruction deltas are unmeasured.
+
+The separate read-only sibling review covers Host 0.8.7
+(`8edce53c43bb872cd4aaa15659e37f0236adc203`), Timers 0.14.22
+(`3c288715a64952a418cb9649a9b9bee27be56e85`) and Metrics 0.2.17
+(`52be29e4bc2433b3d2912a0c09538be993dfb1b2`). Host adds bounded no-follow
+streaming hashing; current trusted report hashes use the existing following
+contract. Timers changes tooling/evidence without Rust runtime changes. Metrics
+adds checked histogram reporting and exact scaled ratios; current local
+measurement policy does not need either for this CI repair. Incoming lock
+selections for these releases are preserved at SHA-256
+`e7018854664cdb7e0c4890f8cd17eb7a363cf20ef56a23abb3e2564cb7d468fc`;
+this source review does not claim new native product qualification.
+
+The current compatible 0.267.4 follow-up adopts committed Shared Tooling 0.1.33,
+`ddd3e1c01ba8aab13a56277e05679e43a8a9d88a`, through its canonical exporter
+from a clean isolated checkout. Fleet reports are optional upstream; the local
+caller review finds no product, setup or CI use of the two selected reporters.
+Their files and manifest records are retired together, and Make help now lists
+only the local workspace report. This removes 398 vendored code lines across
+423 physical lines, rather than deleting independent implementations. Local
+`make cloc`, cloc installation, setup/check commands, checksum helpers and
+product/adapter coverage remain selected. The shared command fixture remains
+because it qualifies the maintained setup and local-report boundary, using
+disposable stubs for optional extensions. The shared catalog and maintenance
+tasks describe central fleet reports, which should run from Shared Tooling
+([#331](https://github.com/dragginzgame/icydb/issues/331),
+[Shared #83](https://github.com/dragginzgame/shared-tooling/issues/83)).
+The reduced snapshot contains eighty-one files. The exact-source
+[owner CI](https://github.com/dragginzgame/shared-tooling/actions/runs/37898351268)
+passes its Linux regression and lint/security jobs, while both native macOS
+jobs remain queued at review. Native qualification is therefore incomplete.
+Focused consumer checks pass the remaining snapshot, shared command fixtures
+on Linux Bash 5 and genuine Bash 3.2, actual offline `make tools-check`, actual
+local `make cloc`, selected ShellCheck and documentation links. The unselected
+fleet target returns the owner's explicit diagnostic without scanning siblings.
+Evidence remains under `target/shared-tooling-033`; the locked graph is unchanged
+from the 0.1.32 checks below. No installation, compilation, network lifecycle,
+full workspace or release gate was run for this selection-only cleanup. Native
+consumer macOS and raw Wasm/IC-cycle/instruction deltas remain unmeasured.
+
+The compatible 0.267.4 follow-up refreshes the same eighty-three-file selection
+from clean, committed Shared Tooling 0.1.32,
+`635a39a9dd5f8d021fa9c9196b591e00521a7e02`. IC tool reuse now compares validated
+records rather than comments or record order, while retaining installed receipt
+bytes, hashes and executable checks. No consumer pin parser or additional setup
+flow is introduced. The updated baseline keeps fleet reports with Shared Tooling;
+consumer CI need not duplicate sibling dashboards. Its
+[exact-source owner CI](https://github.com/dragginzgame/shared-tooling/actions/runs/37893234402)
+passes Linux and both native macOS hosts; consumer macOS qualification remains
+separate. IC Host 0.8.5 has no Rust API changes from 0.8.4 and adopts this same
+installer correction. The subsequently selected Host 0.8.6 adds caller-owned
+communication limits with an optional deadline while retaining output bounds,
+cancellation and cleanup. Its [exact-source CI](https://github.com/dragginzgame/ic-host-tooling/actions/runs/37896909262)
+passes; all four selected registry archives bind to source
+`9f3d9a83def91030056c78e44c9efaa489be7d12`. IcyDB's cached Cargo build remains
+with Testkit rather than adding a consumer process engine. Remaining captured
+ICP CLI calls need caller-owned bounds and cleanup policy before consolidation
+([#307](https://github.com/dragginzgame/icydb/issues/307)).
+PocketIC infrastructure ownership and its pending published setup/check handoff
+remain [Testkit #38](https://github.com/dragginzgame/ic-testkit/issues/38).
+
+Focused Linux checks pass for the eighty-three-file snapshot, real offline
+bundle reuse including reordered/commented pins, installer and workstation
+fixtures, workflow policy and documentation links. No tool installation was
+needed. Final integration Clippy, coverage-manifest checks and the required live
+SQL/SQLite profile pass with lockfile SHA-256
+`860504e542effd40cc0a382292cfff56b00b3888cc2e78a1ace8717988af66f7`
+(Host 0.8.6, Testkit 0.25.3, Memory 0.31.9, Metrics 0.2.16). Testkit started
+and tore down the invocation-owned PocketIC server for the live profile.
+Evidence is retained under `target/shared-tooling-032` and `target/issue-329`;
+earlier failed or differently selected checks retain their separate logs.
+Consumer macOS, full workspace and release gates remain skipped user-owned
+validation. Raw Wasm, IC-cycle and instruction deltas are unmeasured.
+
+The published 0.267.3 follow-up adopts Shared Tooling 0.1.30,
 `4e274a2219c0b0cc3af68ec65658b373253518fb`, through its exporter from an
 isolated clean checkout. Its reviewed PocketIC 16.1.0 pins replace 16.0.0
 for all three declared hosts. The retained migration failure log shows all
@@ -516,9 +610,10 @@ retain Twiggy, cargo-edit and cargo-watch. `make install-tools` explicitly
 installs host/IC/Rust toolsets; `make tools-check` checks them offline. Cargo
 owns registry integrity and receipts for the Rust set; its check validates
 successful version output, rather than binary digests.
-[The shared Make include](../../make/tools.mk) owns setup, offline verification,
-`make cloc` for this workspace and `make cloc-tooling` for a sibling tooling
-inventory. Make and CI select checkout-local executables; workstation setup
+[The shared Make include](../../make/tools.mk) owns setup, offline verification
+and `make cloc` for this workspace. Fleet tooling inventories run centrally
+from Shared Tooling; IcyDB omits those optional reporters. Make and CI select
+checkout-local executables; workstation setup
 uses the same targets and does not install a second system cloc. Interactive
 shells must add `.tools/host/bin`, `.tools/ic/bin` and `.tools/rust/bin` to PATH explicitly, as
 [the setup guide](../local-setup.md) describes. IcyDB adds raw optimizer
@@ -537,6 +632,20 @@ The selected Testkit startup restriction remains tracked by
 [Testkit #34](https://github.com/dragginzgame/ic-testkit/issues/34); shared default
 pin updates remain [Shared #76](https://github.com/dragginzgame/shared-tooling/issues/76).
 Ordinary validation never downloads missing executables.
+
+The maintainer's expanded ownership direction gives Testkit all PocketIC-specific
+infrastructure responsibility, including server release/asset selection,
+explicit provisioning, offline verification and lifecycle qualification.
+IcyDB selects its locked Testkit package and product test topology; Shared may
+supply generic mechanisms without maintaining a separate PocketIC policy.
+[Testkit #38](https://github.com/dragginzgame/ic-testkit/issues/38) owns the
+published setup/check handoff and coordinates retirement of Shared's server
+catalog with [Shared #76](https://github.com/dragginzgame/shared-tooling/issues/76).
+Reviewed Testkit 0.25.3 source exposes only the existing runner and still
+requires a caller-prepared binary or URL. The working setup above therefore
+remains pending that owner release; it is not the completed ownership end state.
+Do not patch immutable snapshot pins, create another consumer installer or
+silently enable download during tests to bridge the missing contract.
 
 ## Audit and verification ownership
 

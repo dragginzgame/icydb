@@ -236,12 +236,60 @@ fn tier_c_failure_artifact_replays_exact_minimized_failure() {
     }
 }
 
+#[test]
+fn sum_distinct_matches_sqlite_on_cold_and_warm_execution() {
+    initialize();
+    for witness in scheduled_select_witnesses()
+        .expect("SUM schedule should decode")
+        .into_iter()
+        .filter(|witness| witness.witness_id().starts_with("tier_c.sum_distinct."))
+    {
+        for root_seed in TIER_C_ROOT_SEEDS {
+            for repetition in 0..TIER_C_SELECT_REPETITIONS {
+                let case = generate_scheduled_select_case(
+                    &witness,
+                    *root_seed,
+                    repetition,
+                    TIER_C_SELECT_BUDGETS,
+                )
+                .expect("SUM witness should generate");
+                for capacity in [0, 4 * 1024 * 1024] {
+                    // Independent fixture cases are independent request entries;
+                    // the shared cache survives these roots for warm-call proof.
+                    let session = DbSession::<TestCanister>::new(
+                        &STORE_REGISTRY,
+                        &crate::db::RequestExecutionRoot::__new_runtime_root(),
+                    );
+                    replace_select_fixture(&session, &case);
+                    session.clear_shared_query_cache_for_tests(capacity);
+                    for _ in 0..2 {
+                        let observed = observe_select_case(
+                            &session,
+                            &case,
+                            witness.required_execution_facts(),
+                        );
+                        assert_eq!(observed.outcome(), &TierCScenarioOutcome::Passed);
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn execute_select_case(
     session: &DbSession<TestCanister>,
     case: &GeneratedSelectCase,
     required: RequiredExecutionFacts,
 ) -> TierCScenarioObservation {
     replace_select_fixture(session, case);
+    observe_select_case(session, case, required)
+}
+
+fn observe_select_case(
+    session: &DbSession<TestCanister>,
+    case: &GeneratedSelectCase,
+    required: RequiredExecutionFacts,
+) -> TierCScenarioObservation {
     if case.violation().is_some() {
         assert!(
             session
@@ -270,9 +318,10 @@ fn execute_select_case(
     let result = match executed {
         Ok(executed) => executed,
         Err(error) => panic!(
-            "Tier C accepted SELECT was rejected: scenario={} sql={:?} error={error:?}",
+            "Tier C accepted SELECT was rejected: scenario={} sql={:?} error={error:?} facts={:?}",
             case.identity().id(),
             case.rendered_sql(),
+            error.diagnostic_facts(),
         ),
     };
     let actual = sqlite_result_from_icydb(case, result);

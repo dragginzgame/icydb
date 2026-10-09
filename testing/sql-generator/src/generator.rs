@@ -465,6 +465,11 @@ fn generated_identity(
 enum SelectRecipe {
     ColdSqlFluent,
     GlobalEmptyFilter,
+    SumDistinctAllNull,
+    SumDistinctEmpty,
+    SumDistinctGlobal,
+    SumDistinctGrouped,
+    SumDistinctNoMatch,
     GlobalNonemptyFilter,
     GlobalNonemptyMultipleProjection,
     GroupedHashBounded,
@@ -487,6 +492,11 @@ impl SelectRecipe {
         match witness_id {
             "tier_c.cache.cold_sql_fluent" => Ok(Self::ColdSqlFluent),
             "tier_c.global.empty_filter" => Ok(Self::GlobalEmptyFilter),
+            "tier_c.sum_distinct.all_null" => Ok(Self::SumDistinctAllNull),
+            "tier_c.sum_distinct.empty" => Ok(Self::SumDistinctEmpty),
+            "tier_c.sum_distinct.global" => Ok(Self::SumDistinctGlobal),
+            "tier_c.sum_distinct.grouped" => Ok(Self::SumDistinctGrouped),
+            "tier_c.sum_distinct.no_match" => Ok(Self::SumDistinctNoMatch),
             "tier_c.global.nonempty_filter" => Ok(Self::GlobalNonemptyFilter),
             "tier_c.global.nonempty_multiple_projection" => {
                 Ok(Self::GlobalNonemptyMultipleProjection)
@@ -530,7 +540,12 @@ impl SelectRecipe {
 
     const fn profile(self) -> SelectSchemaProfile {
         match self {
-            Self::GroupedOrderedBounded
+            Self::SumDistinctAllNull
+            | Self::SumDistinctEmpty
+            | Self::SumDistinctGlobal
+            | Self::SumDistinctGrouped
+            | Self::SumDistinctNoMatch
+            | Self::GroupedOrderedBounded
             | Self::IndexedCompositePrefixNonCovering
             | Self::IndexedSecondaryRangeNonCovering
             | Self::IndexedSecondaryRangeDirect
@@ -555,7 +570,12 @@ impl SelectRecipe {
     const fn fixture_class(self) -> &'static str {
         match self {
             Self::ColdSqlFluent | Self::GlobalNonemptyMultipleProjection => "small_duplicate_rich",
-            Self::GlobalEmptyFilter => "empty",
+            Self::GlobalEmptyFilter | Self::SumDistinctEmpty => "empty",
+            Self::SumDistinctAllNull
+            | Self::SumDistinctGlobal
+            | Self::SumDistinctGrouped
+            | Self::SumDistinctNoMatch
+            | Self::NullStoredComparisonMembership => "stored_null_duplicate_rich",
             Self::GlobalNonemptyFilter => "duplicate_rich",
             Self::GroupedHashBounded => "multiple_groups",
             Self::GroupedOrderedBounded => "multiple_duplicate_rich_indexed_groups",
@@ -565,7 +585,6 @@ impl SelectRecipe {
             Self::NullComputedAggregate => "computed_null_and_nonnull",
             Self::NullComputedDistinct => "duplicate_computed_null",
             Self::NullComputedOrdering => "computed_null_order_ties",
-            Self::NullStoredComparisonMembership => "stored_null_duplicate_rich",
             Self::NullStoredOrdering => "stored_null_order_ties",
             Self::ScalarIndexedComputedDistinctWindow => "duplicate_computed_stored_null",
             Self::ScalarReferenceFullWindow => "order_ties_more_than_window",
@@ -679,6 +698,11 @@ fn query_for_recipe(
             full_composition_query(snapshot)?
         }
         SelectRecipe::GlobalEmptyFilter => global_empty_filter_query(snapshot)?,
+        SelectRecipe::SumDistinctAllNull
+        | SelectRecipe::SumDistinctEmpty
+        | SelectRecipe::SumDistinctGlobal
+        | SelectRecipe::SumDistinctGrouped
+        | SelectRecipe::SumDistinctNoMatch => sum_distinct_query(snapshot, recipe)?,
         SelectRecipe::GlobalNonemptyFilter => global_filter_query(snapshot)?,
         SelectRecipe::GlobalNonemptyMultipleProjection => {
             global_multiple_projection_query(snapshot)?
@@ -870,6 +894,70 @@ fn generated_field_value(
 enum GeneratedTextDomain {
     Ascii,
     Unicode,
+}
+
+// Bounded integer inputs and addition keep SQLite SUM exact; its integer result
+// maps to IcyDB's decimal at scale zero, without floating-point tolerance.
+fn sum_distinct_query(
+    snapshot: &SelectSnapshot,
+    recipe: SelectRecipe,
+) -> Result<SelectQuery, SqlGeneratorError> {
+    let fields = required_fields(snapshot)?;
+    let sum = |argument, distinct, filter: Option<SelectPredicate>| SelectExpression::Sum {
+        argument: Some(Box::new(argument)),
+        distinct,
+        filter: filter.map(Box::new),
+    };
+    let numeric = if matches!(recipe, SelectRecipe::SumDistinctAllNull) {
+        function(
+            SelectFunction::NullIf,
+            vec![field(fields.second_integer), field(fields.second_integer)],
+        )
+    } else {
+        field(fields.second_integer)
+    };
+    let computed = if matches!(recipe, SelectRecipe::SumDistinctAllNull) {
+        numeric.clone()
+    } else {
+        SelectExpression::Arithmetic {
+            operator: SelectArithmeticOperator::Add,
+            left: Box::new(numeric.clone()),
+            right: Box::new(field(fields.first_integer)),
+        }
+    };
+    // Stored text nulls vary across rows with the same numeric value: filtering
+    // after deduplication would lose an eligible duplicate in this fixture.
+    let active = SelectPredicate::IsNull {
+        expression: field(fields.nullable_text),
+        negated: true,
+    };
+    let no_match = comparison(
+        field(fields.first_integer),
+        SelectComparisonOperator::Greater,
+        SelectExpression::literal(GeneratedValue::Integer(i64::from(i32::MAX))),
+    );
+    let mut projections = vec![
+        projection(sum(numeric.clone(), true, None), Some("distinct_total")),
+        projection(sum(numeric.clone(), false, None), Some("ordinary_total")),
+        projection(sum(computed, true, None), Some("computed_total")),
+        projection(sum(numeric, true, Some(active)), Some("filtered_total")),
+    ];
+    let predicate = matches!(recipe, SelectRecipe::SumDistinctNoMatch).then_some(no_match);
+    if matches!(recipe, SelectRecipe::SumDistinctGrouped) {
+        let group = field(fields.boolean);
+        projections.remove(1); // Keep the existing four-column generator ceiling.
+        projections.insert(0, projection(group.clone(), Some("active_group")));
+        Ok(SelectQuery::grouped_aggregate(
+            projections,
+            predicate,
+            vec![group.clone()],
+            None,
+            vec![order_expression(group, SelectOrderDirection::Ascending)],
+            16,
+        ))
+    } else {
+        Ok(SelectQuery::global_aggregate(projections, predicate, None))
+    }
 }
 
 fn global_empty_filter_query(snapshot: &SelectSnapshot) -> Result<SelectQuery, SqlGeneratorError> {
@@ -1416,6 +1504,11 @@ fn render_expression(
             argument,
             distinct,
             filter,
+        }
+        | SelectExpression::Sum {
+            argument,
+            distinct,
+            filter,
         } => {
             let argument = match argument {
                 Some(argument) => render_expression(snapshot, argument)?,
@@ -1426,7 +1519,12 @@ fn render_expression(
                 Some(filter) => format!(" FILTER (WHERE {})", render_predicate(snapshot, filter)?),
                 None => String::new(),
             };
-            Ok(format!("COUNT({distinct}{argument}){filter}"))
+            let name = if matches!(expression, SelectExpression::Sum { .. }) {
+                "SUM"
+            } else {
+                "COUNT"
+            };
+            Ok(format!("{name}({distinct}{argument}){filter}"))
         }
         SelectExpression::Arithmetic {
             operator,
@@ -1656,6 +1754,11 @@ fn collect_expression_features(
             collect_expression_features(else_expression, features);
         }
         SelectExpression::Count {
+            argument,
+            distinct,
+            filter,
+        }
+        | SelectExpression::Sum {
             argument,
             distinct,
             filter,

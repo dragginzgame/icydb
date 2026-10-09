@@ -12,9 +12,10 @@ use crate::{
     required_sqlite_reference_scenarios,
 };
 use icydb_testing_sql_generator::{
-    TIER_C_MUTATION_BUDGETS, TIER_C_MUTATION_REPETITIONS, TIER_C_ROOT_SEEDS, TIER_C_SELECT_BUDGETS,
-    TIER_C_SELECT_REPETITIONS, generate_scheduled_mutation_sequence,
-    generate_scheduled_select_case, scheduled_mutation_witnesses, scheduled_select_witnesses,
+    GeneratedValue, SelectFieldKind, TIER_C_MUTATION_BUDGETS, TIER_C_MUTATION_REPETITIONS,
+    TIER_C_ROOT_SEEDS, TIER_C_SELECT_BUDGETS, TIER_C_SELECT_REPETITIONS,
+    generate_scheduled_mutation_sequence, generate_scheduled_select_case,
+    scheduled_mutation_witnesses, scheduled_select_witnesses,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -77,6 +78,83 @@ fn required_profile_executes_through_checked_adapter() {
         execute_sqlite_reference_scenario(*scenario)
             .unwrap_or_else(|error| panic!("scenario {:?} failed: {error}", scenario.id()));
     }
+}
+
+#[test]
+fn sum_distinct_witnesses_preserve_nulls_and_discriminate_duplicate_totals() {
+    let witnesses = scheduled_select_witnesses().expect("SUM schedule should derive");
+    let mut duplicate_total_differs = false;
+    let mut filter_crosses_duplicate = false;
+    for witness in witnesses
+        .iter()
+        .filter(|witness| witness.witness_id().starts_with("tier_c.sum_distinct."))
+    {
+        for root_seed in TIER_C_ROOT_SEEDS {
+            for repetition in 0..TIER_C_SELECT_REPETITIONS {
+                let case = generate_scheduled_select_case(
+                    witness,
+                    *root_seed,
+                    repetition,
+                    TIER_C_SELECT_BUDGETS,
+                )
+                .expect("SUM witness should generate");
+                let result =
+                    execute_generated_select_case(&case).expect("SUM should execute in SQLite");
+                match witness.witness_id() {
+                    "tier_c.sum_distinct.all_null"
+                    | "tier_c.sum_distinct.empty"
+                    | "tier_c.sum_distinct.no_match" => {
+                        assert_eq!(result.rows(), &[vec![SqliteReferenceValue::Null; 4]]);
+                    }
+                    "tier_c.sum_distinct.global" => {
+                        duplicate_total_differs |= result.rows()[0][0] != result.rows()[0][1];
+                        let numeric_id = case
+                            .snapshot()
+                            .fields()
+                            .iter()
+                            .find(|field| {
+                                field.nullable() && field.kind() == SelectFieldKind::Integer
+                            })
+                            .expect("SUM fixture must declare a nullable integer")
+                            .id();
+                        let text_id = case
+                            .snapshot()
+                            .fields()
+                            .iter()
+                            .find(|field| field.nullable() && field.kind() == SelectFieldKind::Text)
+                            .expect("FILTER fixture must declare nullable text")
+                            .id();
+                        let rows = case.fixture().rows();
+                        filter_crosses_duplicate |= rows.iter().any(|excluded| {
+                            excluded
+                                .value_by_field_id(text_id)
+                                .is_some_and(GeneratedValue::is_null)
+                                && rows.iter().any(|included| {
+                                    included
+                                        .value_by_field_id(text_id)
+                                        .is_some_and(|value| !value.is_null())
+                                        && included
+                                            .value_by_field_id(numeric_id)
+                                            .is_some_and(|value| !value.is_null())
+                                        && included.value_by_field_id(numeric_id)
+                                            == excluded.value_by_field_id(numeric_id)
+                                })
+                        });
+                    }
+                    "tier_c.sum_distinct.grouped" => assert!(result.rows().len() >= 2),
+                    _ => unreachable!("filtered SUM witness must be maintained"),
+                }
+            }
+        }
+    }
+    assert!(
+        duplicate_total_differs,
+        "oracle fixtures must distinguish SUM DISTINCT from ordinary SUM"
+    );
+    assert!(
+        filter_crosses_duplicate,
+        "FILTER must admit a duplicate whose peer is excluded"
+    );
 }
 
 #[test]

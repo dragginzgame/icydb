@@ -123,6 +123,11 @@ runner-image cleanup remains a separate, explicitly scoped consumer operation.
 
 ## PocketIC alignment and external binaries
 
+These helpers implement existing explicitly selected pairings; they do not own
+IC Testkit's compatibility policy. Coordinate their retirement with the
+[PocketIC ownership handoff](ic-tools.md#pocketic-ownership-handoff), after the
+published Testkit setup/check replacement is qualified.
+
 ```bash
 bash scripts/ci/check-pocketic-alignment.sh \
   --manifest testing/Cargo.toml --pins ci/ic-tools.tsv

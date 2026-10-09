@@ -40,11 +40,11 @@ case "$(uname -s):$(uname -m)" in
 esac
 
 validate_pins() {
-    awk -f "$ROOT/scripts/ci/ic-tool-pins.awk" "$1" || {
+    awk -v records=1 -f "$ROOT/scripts/ci/ic-tool-pins.awk" "$1" | LC_ALL=C sort || {
         echo 'invalid or incomplete IC tool pin matrix' >&2; return 1;
     }
 }
-validate_pins "$pins"
+selected_records="$(validate_pins "$pins")"
 
 version_check() {
     local executable="$1" tool="$2" version="$3" expected output
@@ -63,7 +63,8 @@ version_check() {
 verify_bundle() (
     set -e
     cd "$1" || exit 1
-    cmp -s "$pins" pins.tsv || exit 1
+    installed_records="$(validate_pins pins.tsv)" || exit 1
+    [[ "$selected_records" == "$installed_records" ]] || exit 1
     [[ "$(cat host)" == "$host" ]] || exit 1
     bash "$ROOT/scripts/ci/verify-evidence-checksums.sh" files.sha256 >&2 || exit 1
     while IFS=$'\t' read -r tool version selected_host digest; do
@@ -113,7 +114,7 @@ printf 'pid=%s\nconsumer=%s\n' "$$" "$consumer" > "$lock/owner"
 stage="$(mktemp -d "$tool_root/ic-set.XXXXXX")"
 mkdir "$stage/bin" "$stage/lib" "$stage/downloads"
 cp "$pins" "$stage/pins.tsv"
-validate_pins "$stage/pins.tsv"
+validate_pins "$stage/pins.tsv" >/dev/null
 printf '%s\n' "$host" > "$stage/host"
 while IFS=$'\t' read -r tool version selected_host digest; do
     [[ "$tool" != \#* && "$selected_host" == "$host" ]] || continue

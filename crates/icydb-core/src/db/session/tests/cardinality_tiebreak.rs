@@ -4,6 +4,7 @@ mod access_projection;
 mod aggregate_composition;
 mod branch_distinct;
 mod casefold_filters;
+mod catalogue_ranges;
 mod composite_primary_keys;
 mod cursor_entropy;
 mod historical_field_paths;

@@ -28,6 +28,18 @@ const TWO_INTEGER_COLUMNS: &[SqliteReferenceColumnKind] = &[
     SqliteReferenceColumnKind::Integer,
     SqliteReferenceColumnKind::Integer,
 ];
+const SUM_COLUMNS: &[SqliteReferenceColumnKind] = &[
+    SqliteReferenceColumnKind::Decimal,
+    SqliteReferenceColumnKind::Decimal,
+    SqliteReferenceColumnKind::Decimal,
+    SqliteReferenceColumnKind::Decimal,
+    SqliteReferenceColumnKind::Decimal,
+];
+const GROUPED_SUM_COLUMNS: &[SqliteReferenceColumnKind] = &[
+    SqliteReferenceColumnKind::Integer,
+    SqliteReferenceColumnKind::Decimal,
+    SqliteReferenceColumnKind::Decimal,
+];
 const VALUE_CASE_COLUMNS: &[SqliteReferenceColumnKind] = &[
     SqliteReferenceColumnKind::Text,
     SqliteReferenceColumnKind::Integer,
@@ -391,6 +403,57 @@ const REQUIRED_SQLITE_REFERENCE_SCENARIOS: &[SqliteReferenceScenario] = &[
         predicate: SqliteReferencePredicateFamily::Compound,
         window: SqliteReferenceWindow::Unordered,
         nullable: false,
+    },
+    SqliteReferenceScenario {
+        id: "sqlite.required.sum_distinct.global",
+        contract_features: &[
+            "projection.aggregate",
+            "select.aggregate_distinct_filter",
+            "select.global_aggregate",
+        ],
+        families: &[SqliteReferenceFamily::Aggregate],
+        sql_template: "SELECT SUM(DISTINCT age) AS direct_total, SUM(DISTINCT CASE WHEN age < 40 THEN 1 ELSE 2 END) AS computed_total, SUM(DISTINCT NULLIF(age, 31)) FILTER (WHERE age >= 30) AS filtered_total, SUM(DISTINCT NULLIF(age, age)) AS null_total, SUM(DISTINCT age) FILTER (WHERE age < 0) AS empty_filter_total FROM {entity}",
+        columns: SUM_COLUMNS,
+        row_order: SqliteReferenceRowOrder::Unordered,
+        predicate: SqliteReferencePredicateFamily::Compound,
+        window: SqliteReferenceWindow::Unordered,
+        nullable: true,
+    },
+    SqliteReferenceScenario {
+        id: "sqlite.required.sum_distinct.no_match",
+        contract_features: &[
+            "projection.aggregate",
+            "select.aggregate_distinct_filter",
+            "select.global_aggregate",
+        ],
+        families: &[SqliteReferenceFamily::Aggregate],
+        sql_template: "SELECT SUM(DISTINCT age) AS direct_total, SUM(DISTINCT CASE WHEN age < 40 THEN 1 ELSE 2 END) AS computed_total, SUM(DISTINCT NULLIF(age, 31)) FILTER (WHERE age >= 30) AS filtered_total, SUM(DISTINCT NULLIF(age, age)) AS null_total, SUM(DISTINCT age) FILTER (WHERE age < 0) AS empty_filter_total FROM {entity} WHERE age < 0",
+        columns: SUM_COLUMNS,
+        row_order: SqliteReferenceRowOrder::Unordered,
+        predicate: SqliteReferencePredicateFamily::Compound,
+        window: SqliteReferenceWindow::Unordered,
+        nullable: true,
+    },
+    SqliteReferenceScenario {
+        id: "sqlite.required.sum_distinct.grouped",
+        contract_features: &[
+            "projection.aggregate",
+            "select.aggregate_distinct_filter",
+            "select.grouped_aggregate",
+        ],
+        families: &[
+            SqliteReferenceFamily::Aggregate,
+            SqliteReferenceFamily::Grouped,
+        ],
+        sql_template: "SELECT rank, SUM(DISTINCT age) AS direct_total, SUM(DISTINCT (age - rank)) AS computed_total FROM {entity} GROUP BY rank ORDER BY rank ASC LIMIT 10",
+        columns: GROUPED_SUM_COLUMNS,
+        row_order: SqliteReferenceRowOrder::Ordered,
+        predicate: SqliteReferencePredicateFamily::None,
+        window: SqliteReferenceWindow::OrderedLimit {
+            limit: 10,
+            offset: 0,
+        },
+        nullable: true,
     },
     SqliteReferenceScenario {
         id: "sqlite.required.grouped_aggregate",

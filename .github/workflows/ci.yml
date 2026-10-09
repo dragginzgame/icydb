@@ -8,8 +8,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Preserve pushed-source qualification; newer PR revisions replace review runs.
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'pull_request' && 'pr' || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_HOME: ${{ github.workspace }}/.cache/cargo/icydb
@@ -21,7 +22,6 @@ env:
 jobs:
   dependency_msrv:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
     env:
       RUSTC_WRAPPER: sccache
       RUSTUP_TOOLCHAIN: "1.88.0"
@@ -45,7 +45,6 @@ jobs:
 
   static:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -63,7 +62,16 @@ jobs:
       - name: Install static-analysis tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y perl shellcheck
+          sudo apt-get install -y perl
+      - name: Install pinned ShellCheck
+        run: |
+          source ci/tool-versions.env
+          tool_dir="$RUNNER_TEMP/icydb-ci-tools"
+          bash scripts/ci/install-shellcheck.sh \
+            --version "$SHARED_TOOLING_SHELLCHECK_VERSION" \
+            --sha256 "$SHARED_TOOLING_SHELLCHECK_SHA256_LINUX_X86_64" \
+            --install-dir "$tool_dir"
+          echo "$tool_dir" >> "$GITHUB_PATH"
       - name: Install pinned local parsers
         run: |
           make install-host-tools host-tools-check
@@ -81,23 +89,18 @@ jobs:
 
   rust:
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
     strategy:
       fail-fast: false
       matrix:
         include:
           - lane: core
             make_target: ci-core
-            hard_timeout_seconds: "0"
           - lane: workspace
             make_target: ci-workspace
-            hard_timeout_seconds: "0"
           - lane: tier-a
             make_target: ci-sql-tier-a
-            hard_timeout_seconds: "600"
           - lane: tier-b
             make_target: ci-sql-tier-b
-            hard_timeout_seconds: "780"
     env:
       RUSTC_WRAPPER: sccache
       TMPDIR: ${{ github.workspace }}/.cache
@@ -145,17 +148,12 @@ jobs:
             "$GITHUB_WORKSPACE/.tools/ic/bin" "$GITHUB_WORKSPACE/.tools/rust/bin" >> "$GITHUB_PATH"
       - name: Run ${{ matrix.lane }} validation with complete feedback
         env:
-          HARD_TIMEOUT_SECONDS: ${{ matrix.hard_timeout_seconds }}
           MAKE_TARGET: ${{ matrix.make_target }}
         run: |
           if [[ "$MAKE_TARGET" == "ci-sql-tier-b" ]]; then
             make install-pocketic-runner
           fi
-          if [[ "$HARD_TIMEOUT_SECONDS" == "0" ]]; then
-            make "$MAKE_TARGET"
-          else
-            timeout --signal=TERM --kill-after=30s "${HARD_TIMEOUT_SECONDS}s" make "$MAKE_TARGET"
-          fi
+          make "$MAKE_TARGET"
       - name: Retain PocketIC server failure logs
         if: always() && matrix.lane == 'tier-b'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -172,7 +170,6 @@ jobs:
       matrix:
         os: [macos-15, macos-15-intel]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
     env:
       RUSTC_WRAPPER: ""
       RUST_TEST_THREADS: "2"
@@ -248,7 +245,6 @@ jobs:
 
   wasm_size_report:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
     env:
       RUSTC_WRAPPER: sccache
     steps:

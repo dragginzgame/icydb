@@ -37,7 +37,10 @@ error[E0252]: the name `__icydb_facade` is defined multiple times
 5 | icydb::endpoints! {}
   | -------------------- previous import of the module `__icydb_facade` here
 6 | icydb::endpoints! {}
-  | ^^^^^^^^^^^^^^^^^^^^ `__icydb_facade` reimported here
+  | ^^^^^^^^^^^^^^^^^^^^
+  | |
+  | `__icydb_facade` reimported here
+  | help: remove unnecessary import
   |
   = note: `__icydb_facade` must be defined only once in the type namespace of this module
   = note: this error originates in the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -210,6 +210,13 @@ macro_rules! interaction {
 
 const GROUPS: &[InteractionGroup] = &[
     InteractionGroup {
+        id: "sum_distinct",
+        axes: &[Axis {
+            name: "input",
+            members: &["all_null", "empty", "global", "grouped", "no_match"],
+        }],
+    },
+    InteractionGroup {
         id: "cache_entry_parity",
         axes: &[
             Axis {
@@ -511,6 +518,141 @@ const INTERACTIONS: &[InteractionObligation] = &[
         disposition = Inapplicable,
         reason = "A non-selectable accepted leaf cannot form a type-valid SELECT obligation.",
         requirement = None
+    ),
+    interaction!(
+        "interaction.sum_distinct.all_null",
+        group = "sum_distinct",
+        tuple = axes!("input" = "all_null"),
+        features = [
+            "projection.aggregate",
+            "select.aggregate_distinct_filter",
+            "select.global_aggregate"
+        ],
+        schema = ["indexed nullable reference numeric fields"],
+        fixtures = ["duplicate numeric inputs with stored nulls"],
+        evidence = "reference_oracle",
+        eligibility = "sqlite_reference",
+        routes = ["full scan numeric aggregation"],
+        disposition = GeneratedRequired,
+        reason = "SUM DISTINCT requires independent numeric, NULL and modifier evidence.",
+        requirement = Some(requirement!(
+            "required.sum_distinct.all_null",
+            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
+            fixtures = ["duplicate numeric inputs with stored nulls"],
+            evidence = "reference_oracle",
+            eligibility = "sqlite_reference",
+            provider = ProviderTarget::Generated("generated.select.indexed_nullable_reference"),
+            routes = ["full scan numeric aggregation"],
+            witness = "tier_c.sum_distinct.all_null"
+        ))
+    ),
+    interaction!(
+        "interaction.sum_distinct.empty",
+        group = "sum_distinct",
+        tuple = axes!("input" = "empty"),
+        features = [
+            "projection.aggregate",
+            "select.aggregate_distinct_filter",
+            "select.global_aggregate"
+        ],
+        schema = ["indexed nullable reference numeric fields"],
+        fixtures = ["empty input"],
+        evidence = "reference_oracle",
+        eligibility = "sqlite_reference",
+        routes = ["full scan numeric aggregation"],
+        disposition = GeneratedRequired,
+        reason = "SUM DISTINCT requires independent numeric, NULL and modifier evidence.",
+        requirement = Some(requirement!(
+            "required.sum_distinct.empty",
+            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
+            fixtures = ["empty input"],
+            evidence = "reference_oracle",
+            eligibility = "sqlite_reference",
+            provider = ProviderTarget::Generated("generated.select.indexed_nullable_reference"),
+            routes = ["full scan numeric aggregation"],
+            witness = "tier_c.sum_distinct.empty"
+        ))
+    ),
+    interaction!(
+        "interaction.sum_distinct.global",
+        group = "sum_distinct",
+        tuple = axes!("input" = "global"),
+        features = [
+            "projection.aggregate",
+            "select.aggregate_distinct_filter",
+            "select.global_aggregate"
+        ],
+        schema = ["indexed nullable reference numeric fields"],
+        fixtures = ["duplicate numeric inputs with stored nulls"],
+        evidence = "reference_oracle",
+        eligibility = "sqlite_reference",
+        routes = ["full scan numeric aggregation"],
+        disposition = GeneratedRequired,
+        reason = "SUM DISTINCT requires independent numeric, NULL and modifier evidence.",
+        requirement = Some(requirement!(
+            "required.sum_distinct.global",
+            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
+            fixtures = ["duplicate numeric inputs with stored nulls"],
+            evidence = "reference_oracle",
+            eligibility = "sqlite_reference",
+            provider = ProviderTarget::Generated("generated.select.indexed_nullable_reference"),
+            routes = ["full scan numeric aggregation"],
+            witness = "tier_c.sum_distinct.global"
+        ))
+    ),
+    interaction!(
+        "interaction.sum_distinct.grouped",
+        group = "sum_distinct",
+        tuple = axes!("input" = "grouped"),
+        features = [
+            "projection.aggregate",
+            "select.aggregate_distinct_filter",
+            "select.grouped_aggregate"
+        ],
+        schema = ["indexed nullable reference numeric fields"],
+        fixtures = ["duplicate numeric inputs with stored nulls"],
+        evidence = "reference_oracle",
+        eligibility = "sqlite_reference",
+        routes = ["full scan numeric aggregation"],
+        disposition = GeneratedRequired,
+        reason = "SUM DISTINCT requires independent numeric, NULL and modifier evidence.",
+        requirement = Some(requirement!(
+            "required.sum_distinct.grouped",
+            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
+            fixtures = ["duplicate numeric inputs with stored nulls"],
+            evidence = "reference_oracle",
+            eligibility = "sqlite_reference",
+            provider = ProviderTarget::Generated("generated.select.indexed_nullable_reference"),
+            routes = ["full scan numeric aggregation"],
+            witness = "tier_c.sum_distinct.grouped"
+        ))
+    ),
+    interaction!(
+        "interaction.sum_distinct.no_match",
+        group = "sum_distinct",
+        tuple = axes!("input" = "no_match"),
+        features = [
+            "projection.aggregate",
+            "select.aggregate_distinct_filter",
+            "select.global_aggregate"
+        ],
+        schema = ["indexed nullable reference numeric fields"],
+        fixtures = ["duplicate numeric inputs with stored nulls"],
+        evidence = "reference_oracle",
+        eligibility = "sqlite_reference",
+        routes = ["full scan numeric aggregation"],
+        disposition = GeneratedRequired,
+        reason = "SUM DISTINCT requires independent numeric, NULL and modifier evidence.",
+        requirement = Some(requirement!(
+            "required.sum_distinct.no_match",
+            required_execution_facts(ExecutionAccess::FullScan, ExecutionCovering::NonCovering),
+            fixtures = ["duplicate numeric inputs with stored nulls"],
+            evidence = "reference_oracle",
+            eligibility = "sqlite_reference",
+            provider = ProviderTarget::Generated("generated.select.indexed_nullable_reference"),
+            routes = ["full scan numeric aggregation"],
+            witness = "tier_c.sum_distinct.no_match"
+        ))
     ),
     interaction!(
         "interaction.global.empty_filter",
@@ -2311,11 +2453,11 @@ fn generated_select_schedule_closes_the_frozen_requirements_exactly() {
         .collect::<BTreeMap<_, _>>();
 
     assert_eq!(observed, expected);
-    assert_eq!(observed.len(), 17);
+    assert_eq!(observed.len(), 22);
     assert_eq!(
         structural_witness_schedule_hash()
             .expect("generator should expose the code-owned witness schedule hash"),
-        "787d66c237f92a2269ec0053fafee092dfe398952ac3fe1cbc726c8774beb246",
+        "12c4c4456c0821c80019c959f7ba2b97cc3205fac6a9580af3885108c18b58ab",
     );
 
     let manifest_features = MANIFEST.iter().map(|cell| cell.id).collect::<BTreeSet<_>>();

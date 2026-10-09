@@ -85,13 +85,22 @@ make --no-print-directory -C "$consumer" cloc \
 printf 'cloc-siblings.sh <%s>\n' "$fixture" > "$fixture/expected"
 cmp "$fixture/expected" "$TOOL_COMMAND_LOG"
 
-# The sibling tooling inventory is available through the same shared include.
 : > "$TOOL_COMMAND_LOG"
 make --no-print-directory -C "$consumer" cloc CLOC_MANIFEST=testing/Cargo.toml \
     > "$fixture/manifest.log" 2>&1
 printf 'cloc.sh <--manifest> <testing/Cargo.toml> <%s>\n' "$consumer" > "$fixture/expected"
 cmp "$fixture/expected" "$TOOL_COMMAND_LOG"
 
+# Ordinary setup/check/LOC commands above work without any fleet reporter.
+# An omitted optional report must explain its owner, without invoking a sibling.
+: > "$TOOL_COMMAND_LOG"
+if make --no-print-directory -C "$consumer" cloc-tooling > "$fixture/no-fleet.log" 2>&1; then
+    echo 'accepted unselected fleet report' >&2; exit 1
+fi
+grep -F 'Fleet tooling reports are optional: run make cloc-tooling in Shared Tooling' "$fixture/no-fleet.log"
+[[ ! -s "$TOOL_COMMAND_LOG" ]]
+
+# Explicitly selected fleet tooling remains available through the same include.
 cat > "$snapshot/scripts/dev/cloc-tooling.pl" <<'PERL'
 use strict;
 use warnings;

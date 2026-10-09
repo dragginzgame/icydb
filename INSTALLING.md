@@ -461,13 +461,15 @@ make install-tools
 make tools-check
 ```
 
-Make selects `.tools/ic/bin/pocket-ic` explicitly and disables test-process
-server downloads. IcyDB requires all three supported host pins to match the
-`pocket-ic` client selected in `Cargo.lock`. An intentional client upgrade must
-qualify and update its matching server pins before using the new selection.
-`POCKET_IC_BIN=/path/to/pocket-ic` remains an explicit caller selection for a
-trusted executable matching that client; it does not bypass the common toolset
-checks in validation.
+Make selects `.tools/ic/bin/pocket-ic` explicitly; test processes never download
+a server. Testkit owns client/server admission at startup. IcyDB does not compare
+the Rust client version with the server pin or implement another compatibility
+policy. `POCKET_IC_BIN=/path/to/pocket-ic` remains an explicit caller selection
+for a trusted executable admitted by Testkit; it does not bypass common toolset
+authentication in validation. The current shared installer remains in use until
+the coordinated [Testkit provisioning handoff](https://github.com/dragginzgame/ic-testkit/issues/38)
+and [Shared retirement](https://github.com/dragginzgame/shared-tooling/issues/76)
+are complete.
 
 CI installs and verifies tools before testing. `ci-sql-tier-b` owns one shared
 server for the complete lane and stops it on success, failure or termination.

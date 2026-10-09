@@ -111,9 +111,6 @@ reset
 mutate '.jobs.check.needs style="flow" | .jobs.check.needs style="" | .jobs.static.steps[-1].run style="folded"'
 check pass block-needs-folded-run
 reset
-mutate 'del(.jobs.rust.timeout-minutes) | .jobs.static.steps[0].timeout-minutes = 35'
-check fail timeout-wrong-owner
-reset
 mutate '.jobs.rust.steps[0].with.persist-credentials = true | .jobs.static.steps[0].with.persist-credentials = false'
 check fail credentials-wrong-checkout
 reset

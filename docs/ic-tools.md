@@ -67,6 +67,14 @@ Failed or interrupted attempts retain their candidate directory and leave the
 prior selected set intact; retries create a fresh candidate. Previous sets and
 downloads are not automatically deleted. Cleanup is an explicit local action.
 
+Reuse compares the complete validated tool/version/host/archive-checksum records
+across all supported hosts. Comments and row order do not change that selection
+or trigger downloads. The installed pins remain the exact installation input;
+neither the caller's pins nor installed receipts are rewritten during reuse.
+Every changed record requires explicit setup, and offline reuse still verifies
+the host, installed file hashes and executable versions. Changes to the caller's
+pin file during installation still prevent activation of that candidate.
+
 Setup and offline checks admit the literal `.tools/ic` link target. Malformed
 managed names, including trailing newlines, are refused before tool execution
 or downloads; the existing link and bundles remain intact.
@@ -84,6 +92,27 @@ hosts; product build, PocketIC compatibility and deployment qualification stay
 with their consumers.
 
 ## Consumer adoption
+
+### PocketIC ownership handoff
+
+IC Testkit is the intended owner of PocketIC-specific release selection, asset
+checksums, provisioning, offline admission and server lifecycle. Track its
+published setup/check contract in
+[Testkit #38](https://github.com/dragginzgame/ic-testkit/issues/38) and the Shared
+Tooling removal in [#76](https://github.com/dragginzgame/shared-tooling/issues/76).
+Shared Tooling can supply generic download/checksum/archive mechanics; application
+repositories should not acquire another independent PocketIC version policy.
+
+The currently supported installer still requires the complete six-tool matrix
+above. Preserve that functioning setup until the replacement is published and
+qualified on Linux and both macOS architectures. Adoption must trace callers of
+`make install-tools`, `make ic-tools-check`, the alignment/binary helpers and
+`.tools/ic/bin/pocket-ic`, as well as each consumer's selected snapshot and pins.
+Retiring the row and PocketIC-specific branches changes the setup contract and
+requires a separately coordinated release, with explicit Testkit setup, offline
+checks and product startup verified before removing the old route. Preserve
+existing bundles, receipts and failed-install evidence; tests must not silently
+download a replacement, and consumers must not patch their vendored snapshots.
 
 ### Identity storage and local resets
 

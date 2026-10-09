@@ -126,6 +126,62 @@ binds the complete order, query window, page envelope, database incarnation,
 and accepted schema authority. It is authenticated and opaque, but not
 encrypted.
 
+## Complete Catalogues
+
+For a database-owned catalogue ordered by a required `Nat16` field, use the
+complete type-domain range on an accepted, unfiltered index. This is an intended
+public indexed-access contract; it uses the existing public lane and does not
+require trusted authority. For example, Robot appearance options with a maximum
+of 64 rows use:
+
+```rust
+let page = db!()?
+    .query::<RobotAppearanceOption>()?
+    .filter(RobotAppearanceOption::CATALOG_ORDER.gte(0_u16))
+    .order_by(asc(RobotAppearanceOption::CATALOG_ORDER))
+    .limit(65)
+    .execute_live_page(continuation.as_deref())?;
+```
+
+The range includes zero through `u16::MAX`, so it includes unexpected rows that
+catalogue validation must reject. Do not restrict the range to the authored
+fixture orders. Accepted schema must make the field required, and the selected
+index must cover the complete table; a partial index or optional field needs a
+different completeness argument. EXPLAIN reports `IndexRange` without an exact
+numeric scan bound. The range does not promise at most 65 row/key visits:
+physical page envelopes and finite execution/request budgets own scanned work,
+and callers must propagate their typed failures.
+
+For complete-set validation, rebuild the same query and pass each opaque
+continuation back unchanged. Accumulate only successfully decoded pages. Reject
+as soon as the accumulated count exceeds 64, and accept only after exhaustion.
+An endpoint-owned finite page-step cap must reject an incomplete traversal rather
+than return a successful prefix. Larger catalogue caps use the same
+`maximum + 1` sentinel across multiple physical pages. A public paged endpoint can instead
+return each bounded page and its continuation, enforcing its response budget.
+
+`LIMIT 64` cannot detect a 65th row: the limit caps the complete logical
+traversal, and its terminal page has no continuation even if storage has more
+rows. `LIMIT 65`, with accumulated row-count validation, preserves the overflow
+sentinel even when byte/key page bounds force early continuations. A continuation
+alone does not prove row overflow. The bounded live-page contract also does not
+claim snapshot completeness across writes between endpoint calls; use the
+revision-strict exhaustive surface when that proof is required.
+
+Internal fixture reconciliation may use the same public range, including its
+empty-store read before seeding. Explicitly authorized maintenance may choose
+the existing trusted dynamic page surface, while keeping execution budgets,
+continuation handling and complete-set/overflow checks. Do not expose that
+trusted choice through a public catalogue endpoint.
+
+For catalogues ordered by a required `Text` key, the corresponding complete
+domain range is `KEY.gte("")` on its accepted, unfiltered index, ordered by that
+same key. It includes the empty string, embedded NULs and all Unicode values;
+it must not be replaced by a fixture-specific alphabet or upper bound. This
+uses the same public paging, budget and overflow contract as the natural-number
+case. Neither recipe applies to an unindexed primary-key range or proves that
+an optional/partially indexed field covers every table row.
+
 ## Bounded Grouped Pages
 
 Grouped typed and dynamic reads use the same engine-neutral lane as scalar

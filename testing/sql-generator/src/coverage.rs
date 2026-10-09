@@ -2178,8 +2178,10 @@ fn is_grouped_composition(query: &SelectQuery) -> bool {
         && query.has_predicate()
         && query.has_having()
         && query.projections().iter().any(|projection| {
-            matches!(projection.expression(), SelectExpression::Count { .. })
-                && projection.alias().is_some()
+            matches!(
+                projection.expression(),
+                SelectExpression::Count { .. } | SelectExpression::Sum { .. }
+            ) && projection.alias().is_some()
         })
         && query.order_term_count() > 0
         && query

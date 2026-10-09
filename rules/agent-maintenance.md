@@ -97,6 +97,11 @@ establish whether that failure is still current.
   tree, preserving unrelated edits. A detached patch is supporting evidence,
   not completion of an authorized local repair. Broad gates retain their existing
   authority. Stop at a new independent issue or release boundary.
+- Update issues when a finding, delivery or acceptance materially changes.
+  Summarize the change, relevant verification and next action; link retained
+  evidence instead of repeating unchanged test inventories, provenance or queue
+  status. Keep unrelated dependency updates with their own work. This narrows
+  reporting, not required evidence retention, recovery or native/release gates.
 - For a finding owned by another repository, search its issues first, then, when
   authorized for that destination, file or update the matching issue with the
   reviewed revision, affected owner, reproduction/evidence, concrete fix or patch

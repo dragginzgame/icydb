@@ -1593,6 +1593,12 @@ pub(crate) enum SelectExpression {
         distinct: bool,
         filter: Option<Box<SelectPredicate>>,
     },
+    /// Numeric SUM, sharing COUNT's modifier, scope and replay machinery.
+    Sum {
+        argument: Option<Box<Self>>,
+        distinct: bool,
+        filter: Option<Box<SelectPredicate>>,
+    },
     Field {
         #[serde(with = "tagged_u32")]
         field_id: u32,
@@ -1634,11 +1640,16 @@ impl SelectExpression {
                 argument,
                 distinct,
                 filter,
+            }
+            | Self::Sum {
+                argument,
+                distinct,
+                filter,
             } => {
-                if *distinct && argument.is_none() {
+                if (matches!(self, Self::Sum { .. }) || *distinct) && argument.is_none() {
                     return Err(SqlGeneratorError::new(
                         SqlGeneratorErrorKind::InvalidCase,
-                        "generated COUNT(DISTINCT *) is outside the maintained overlap",
+                        "generated aggregate requires a scalar argument",
                     ));
                 }
                 if let Some(argument) = argument {
@@ -1659,7 +1670,24 @@ impl SelectExpression {
                         ));
                     }
                 }
-                Ok(SelectValueKind::Integer)
+                if matches!(self, Self::Sum { .. }) {
+                    let kind = argument
+                        .as_deref()
+                        .map(|argument| argument.value_kind(snapshot))
+                        .transpose()?;
+                    if !matches!(
+                        kind,
+                        Some(SelectValueKind::Integer | SelectValueKind::Decimal)
+                    ) {
+                        return Err(SqlGeneratorError::new(
+                            SqlGeneratorErrorKind::InvalidCase,
+                            "generated SUM requires a numeric argument",
+                        ));
+                    }
+                    Ok(SelectValueKind::Decimal)
+                } else {
+                    Ok(SelectValueKind::Integer)
+                }
             }
             Self::Arithmetic { left, right, .. } => {
                 require_expression_kind(left, snapshot, SelectValueKind::Integer)?;
@@ -1698,6 +1726,9 @@ impl SelectExpression {
             Self::Field { .. } | Self::Literal { .. } => 1,
             Self::Count {
                 argument, filter, ..
+            }
+            | Self::Sum {
+                argument, filter, ..
             } => 1_u8.saturating_add(
                 argument
                     .as_deref()
@@ -1725,7 +1756,7 @@ impl SelectExpression {
 
     fn contains_aggregate(&self) -> bool {
         match self {
-            Self::Count { .. } => true,
+            Self::Count { .. } | Self::Sum { .. } => true,
             Self::Arithmetic { left, right, .. } => {
                 left.contains_aggregate() || right.contains_aggregate()
             }
@@ -1745,7 +1776,7 @@ impl SelectExpression {
 
     fn respects_group_scope(&self, group_by: &[Self], inside_aggregate: bool) -> bool {
         match self {
-            Self::Count { .. } => !inside_aggregate,
+            Self::Count { .. } | Self::Sum { .. } => !inside_aggregate,
             Self::Field { .. } => inside_aggregate || group_by.contains(self),
             Self::Literal { .. } => true,
             Self::Arithmetic { left, right, .. } => {
@@ -1812,37 +1843,17 @@ impl SelectExpression {
                 argument,
                 distinct,
                 filter,
+            }
+            | Self::Sum {
+                argument,
+                distinct,
+                filter,
             } => {
-                if let Some(argument) = argument {
-                    for candidate in argument.shrink_candidates() {
-                        candidates.push(Self::Count {
-                            argument: Some(Box::new(candidate)),
-                            distinct: *distinct,
-                            filter: filter.clone(),
-                        });
-                    }
-                    if *distinct {
-                        candidates.push(Self::Count {
-                            argument: argument.clone().into(),
-                            distinct: false,
-                            filter: filter.clone(),
-                        });
-                    }
-                }
-                if let Some(filter) = filter {
-                    candidates.push(Self::Count {
-                        argument: argument.clone(),
-                        distinct: *distinct,
-                        filter: None,
-                    });
-                    for candidate in filter.shrink_candidates() {
-                        candidates.push(Self::Count {
-                            argument: argument.clone(),
-                            distinct: *distinct,
-                            filter: Some(Box::new(candidate)),
-                        });
-                    }
-                }
+                candidates.extend(self.shrink_aggregate_candidates(
+                    argument.as_deref(),
+                    *distinct,
+                    filter.as_deref(),
+                ));
             }
             Self::Case {
                 condition,
@@ -1863,6 +1874,56 @@ impl SelectExpression {
                 candidates.extend(value.shrink_candidates().into_iter().map(Self::literal));
             }
             Self::Field { .. } => {}
+        }
+
+        candidates
+    }
+
+    fn shrink_aggregate_candidates(
+        &self,
+        argument: Option<&Self>,
+        distinct: bool,
+        filter: Option<&SelectPredicate>,
+    ) -> Vec<Self> {
+        // Preserve aggregate identity while shrinking its maintained modifiers.
+        let mut candidates = Vec::new();
+        let aggregate = |argument, distinct, filter| match self {
+            Self::Sum { .. } => Self::Sum {
+                argument,
+                distinct,
+                filter,
+            },
+            _ => Self::Count {
+                argument,
+                distinct,
+                filter,
+            },
+        };
+        if let Some(argument) = argument {
+            for candidate in argument.shrink_candidates() {
+                candidates.push(aggregate(
+                    Some(Box::new(candidate)),
+                    distinct,
+                    filter.cloned().map(Box::new),
+                ));
+            }
+            if distinct {
+                candidates.push(aggregate(
+                    Some(Box::new(argument.clone())),
+                    false,
+                    filter.cloned().map(Box::new),
+                ));
+            }
+        }
+        if let Some(filter) = filter {
+            candidates.push(aggregate(argument.cloned().map(Box::new), distinct, None));
+            for candidate in filter.shrink_candidates() {
+                candidates.push(aggregate(
+                    argument.cloned().map(Box::new),
+                    distinct,
+                    Some(Box::new(candidate)),
+                ));
+            }
         }
 
         candidates

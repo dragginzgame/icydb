@@ -30,6 +30,19 @@ constrain that scanned keyspace. A prefix or range endpoint remains an indexed
 access constraint; it does not prove a numeric row bound. EXPLAIN retains the
 physical index name and plan while reporting the logical `full_scan` class.
 
+A complete type-domain range is a supported explicit indexed-access contract,
+not an application admission override. For a required `Nat16` catalogue-order
+field covered by an accepted, unfiltered index, `catalog_order >= 0` includes
+every valid row, including order zero, unexpected high orders and the type
+maximum. It is admitted as `IndexRange`; it does not claim a numeric scan bound
+or selective cardinality. A required indexed `Text` key similarly uses
+`key >= ''`, including every valid text value. A filtered index, optional field
+or arbitrary fixture range cannot establish that complete-set contract. Physical page envelopes,
+finite execution budgets and the cumulative request budget still bound work;
+exhaustion remains a typed error, never a successful partial catalogue.
+See [complete catalogue traversal](../guides/read-intent.md#complete-catalogues)
+for the overflow and continuation obligations. Order alone still rejects.
+
 `DiagnosticExplain` observes planning but cannot execute rows.
 
 Trusted bypass surfaces are explicit method choices. They retain accepted

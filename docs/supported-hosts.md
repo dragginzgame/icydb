@@ -53,9 +53,16 @@ The table describes the intended CI contract. Passing qualification for a
 revision requires its matching workflow run; adding a matrix entry does not
 establish that the run passed.
 
-The portable job allows 35 minutes including native setup and evidence upload.
-Its regression step has a separate 20-minute limit, leaving time for the failure
-collector after an overlong suite. Lint/security retains its 10-minute limit.
+Push CI groups include the source commit so a later main push preserves both
+running and queued qualification of earlier commits. PR updates share their PR
+group and cancel superseded review revisions. This retains more main-commit
+runs when native runners are busy; it does not add runner capacity. Inspect each
+selected commit's result before treating its snapshot as qualified.
+
+The portable job uses GitHub Actions' default job timeout, allowing long native
+builds to finish without a shorter regression-step deadline. Ordinary failures
+still run the evidence collector; reaching the platform job limit can prevent
+collection. Lint/security retains its 10-minute limit.
 
 All three jobs also run real Prettier/Rust hook qualification and a native
 installer failure-artifact round trip, described below. These are separate
@@ -132,10 +139,10 @@ native execution qualifies that host.
 
 The separate manually triggered `cargo-install-qualification.yml` workflow
 qualifies Cargo's registry binary/example mechanics on the same three native
-hosts. It records the prepared Cargo/Rust compiler identity and uses a 30-minute
-assessment step within a 40-minute job, preserving time for failed-build evidence
-collection. It does not extend the default portable gate or establish a new
-consumer installer contract. See the
+hosts. It records the prepared Cargo/Rust compiler identity and retains failed-build
+evidence. The workflow leaves build duration to the GitHub Actions defaults.
+It does not extend the default portable gate or establish a new consumer installer
+contract. See the
 [assessment procedure](local-setup.md#cargo-installation-assessment) for its
 selected fixtures, offline prerequisites and outstanding extraction boundaries.
 

@@ -5,6 +5,20 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.267.4]
+
+- Correct endpoint MSRV compatibility, clarify complete catalogue reads,
+  improve CI/tooling guidance, and independently qualify SUM DISTINCT results
+  ([#328](https://github.com/dragginzgame/icydb/issues/328),
+  [#302](https://github.com/dragginzgame/icydb/issues/302),
+  [#329](https://github.com/dragginzgame/icydb/issues/329),
+  [#309](https://github.com/dragginzgame/icydb/issues/309),
+  [#253](https://github.com/dragginzgame/icydb/issues/253),
+  [#138](https://github.com/dragginzgame/icydb/issues/138),
+  [#331](https://github.com/dragginzgame/icydb/issues/331)).
+
+See [docs/changelog/0.267.md](docs/changelog/0.267.md).
+
 ## [0.267.3] - 2026-10-08
 
 - Correct public MSRV validation, preserve shared host cleanup evidence, and

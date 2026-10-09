@@ -132,7 +132,9 @@ still names only the last failed target. Move consumer readers to the combined
 path before removing a local aggregator; preserve target selection, storage-root
 selection and any product-owned presentation in the caller.
 
-Consumers running the tooling LOC regression vendor `scripts/ci/test-cloc-tooling.sh`,
+Fleet reports and their regression tests are optional consumer selections;
+normally run them centrally from Shared Tooling. Consumers intentionally running
+the tooling LOC regression vendor `scripts/ci/test-cloc-tooling.sh`,
 `scripts/dev/cloc-tooling.pl` and `scripts/ci/verify-file-checksum.sh`, in addition
 to their normal snapshot verifier. That test runs against adopted working-tree
 bytes before a consumer commit and does not need the distribution helper.
@@ -313,7 +315,7 @@ After the new files are committed and reviewed, add `ci/ic-tools.tsv`,
 `scripts/ci/verify-evidence-checksums.sh` and
 `scripts/ci/verify-file-checksum.sh` to the snapshot, with `docs/ic-tools.md`.
 Also include `make/tools.mk`, `scripts/dev/install-host-tools.sh`,
-`scripts/dev/cloc.sh`, `scripts/dev/cloc-tooling.pl`, `ci/tool-versions.env` and `docs/local-setup.md` for the
+`scripts/dev/cloc.sh`, `ci/tool-versions.env` and `docs/local-setup.md` for the
 common commands and pinned host setup. Adopt the complete
 [required tool inventory](local-setup.md#required-tool-inventory), including
 ripgrep and cloc pins, and add `/.tools/` to the consumer's ignore rules. Remove
@@ -325,7 +327,7 @@ include make/tools.mk
 ```
 
 That include supplies `install-tools`, `tools-check`, `install-host-tools`,
-`host-tools-check`, `install-ic-tools`, `ic-tools-check`, `cloc` and `cloc-tooling`, plus the
+`host-tools-check`, `install-ic-tools`, `ic-tools-check` and `cloc`, plus the
 checkout-local PATH. It preserves the consumer's default Make goal; including it
 does not trigger installation. Future changes to these recipes and tool
 selections arrive with the reviewed snapshot rather than another copied recipe.
@@ -352,9 +354,23 @@ including the extra inputs to `check-release-commands.sh`.
 Rust toolchain. Shared Tooling itself selects `CLOC_REPORT` and `CLOC_ROOT` before
 the include to summarize sibling workspaces; consumers normally use the defaults.
 Installing the raw cloc executable alone does not add these Make commands.
-`make cloc-tooling` scans sibling CI and tooling, including non-Rust repositories;
+The optional `make cloc-tooling` scans sibling CI and tooling, including non-Rust repositories;
 `CLOC_PARENT` selects its parent directory. It needs Git, cloc and core Perl
-modules, with no Cargo dependency or consumer command execution.
+modules, with no Cargo dependency or consumer command execution. Run it from
+Shared Tooling by default. A consumer that intentionally needs its own command
+can explicitly select `scripts/dev/cloc-tooling.pl`; existing selections continue
+to work. Without that file the target explains where to run or adopt the report,
+and never invokes another checkout implicitly.
+
+To retire unnecessary fleet copies, review their local callers first, then remove
+the report/test files and their snapshot records together with Make/CI/help
+references. Candidates are `cloc-tooling.pl`, `cloc-siblings.sh` and their
+dedicated tests; keep `cloc.sh` for the consumer's own workspace. Preserve
+checksum/verifier helpers used by other selected tools, local integration checks
+and historical evidence. Snapshot refresh never prunes files automatically.
+This is a consumer-owned selection change, not permission for another repository
+to edit its files. Fleet reports and their regression coverage remain maintained
+and tested in Shared Tooling.
 
 Review pins against existing qualified versions before activation. A local
 exception uses its own explicitly selected matrix outside the snapshot; remove

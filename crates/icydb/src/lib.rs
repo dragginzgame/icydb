@@ -653,7 +653,7 @@ macro_rules! endpoints {
             unused_imports,
             reason = "declared endpoint families determine whether the generated facade alias is referenced"
         )]
-        use $crate as __icydb_facade;
+        use $crate::{self as __icydb_facade};
 
         #[used]
         static __ICYDB_ENDPOINT_DECLARATIONS: () =
