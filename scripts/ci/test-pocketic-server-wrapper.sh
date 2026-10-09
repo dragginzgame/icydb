@@ -69,11 +69,17 @@ shopt -s nullglob
 for mode in startup child term int success; do
   state="$fixture/$mode"
   mkdir -p "$state/scratch"
+  invocation=(bash "$ROOT/scripts/ci/run-with-pocketic-server.sh" "$fixture/child-command")
+  if [[ "$mode" == success ]]; then
+    # Qualify Make's managed-lane handoff without executing the Tier B suites.
+    invocation=(make --silent --no-print-directory -C "$ROOT" ci-sql-tier-b
+      "POCKET_IC_BIN=$fixture/server" "VALIDATION_RUNNER=$fixture/child-command")
+  fi
   status=0
   TEST_STATE="$state" TEST_MODE="$mode" TMPDIR="$state/scratch" \
     POCKET_IC_BIN="$fixture/server" bash -c \
-    'printf "%s\n" "$$" > "$TEST_STATE/wrapper.pid"; exec bash "$@"' \
-    wrapper "$ROOT/scripts/ci/run-with-pocketic-server.sh" "$fixture/child-command" \
+    'printf "%s\n" "$$" > "$TEST_STATE/wrapper.pid"; exec "$@"' \
+    wrapper "${invocation[@]}" \
     > "$state/output" 2>&1 || status=$?
   case "$mode" in
     startup) [[ "$status" == 1 && ! -e "$state/child-called" ]] ;;

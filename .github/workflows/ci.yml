@@ -80,10 +80,10 @@ jobs:
         run: |
           make install-rust-tools rust-tools-check
           echo "$GITHUB_WORKSPACE/.tools/rust/bin" >> "$GITHUB_PATH"
-      - name: Install locked PocketIC runner
+      - name: Prepare locked Testkit CLI and server
         run: |
           cargo fetch --locked
-          make install-pocketic-runner
+          make install-testkit testkit-check
       - name: Run static validation with complete feedback
         run: make ci-static
 
@@ -150,9 +150,6 @@ jobs:
         env:
           MAKE_TARGET: ${{ matrix.make_target }}
         run: |
-          if [[ "$MAKE_TARGET" == "ci-sql-tier-b" ]]; then
-            make install-pocketic-runner
-          fi
           make "$MAKE_TARGET"
       - name: Retain PocketIC server failure logs
         if: always() && matrix.lane == 'tier-b'
@@ -189,9 +186,6 @@ jobs:
           printf '%s\n' "$CARGO_HOME/bin" "$HOME/.local/bin" \
             "$GITHUB_WORKSPACE/.tools/host/bin" "$GITHUB_WORKSPACE/.tools/ic/bin" \
             "$GITHUB_WORKSPACE/.tools/rust/bin" >> "$GITHUB_PATH"
-      - name: Install locked PocketIC runner
-        run: |
-          make install-pocketic-runner
       - name: Qualify portable automation with system Bash
         run: |
           export PATH="/bin:/usr/bin:/usr/sbin:/sbin:$PATH"
@@ -214,7 +208,8 @@ jobs:
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --bin icydb diagnostic::
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-integration --lib canister_artifact::tests
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-integration --lib wasm_optimizer::tests
-          export POCKET_IC_BIN="$GITHUB_WORKSPACE/.tools/ic/bin/pocket-ic"
+          POCKET_IC_BIN="$(make --silent testkit-check)"
+          export POCKET_IC_BIN
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-integration --lib pocketic_startup_tests:: -- --ignored
           bash scripts/ci/run-with-pocketic-server.sh bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-integration --lib pocketic_startup_tests:: -- --ignored
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-integration --lib canister_build_cache::tests::post_link_batch_reports_failure_and_finishes_later_artifact

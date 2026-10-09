@@ -206,11 +206,11 @@ impl CandidateRankingEvidence {
 const fn reason_priority(reason: AccessChoiceRankingReason) -> u8 {
     match reason {
         AccessChoiceRankingReason::ExactCardinalityTiebreak => 0,
-        AccessChoiceRankingReason::ExactMatchPreferred => 1,
-        AccessChoiceRankingReason::FilteredPredicatePreferred => 2,
-        AccessChoiceRankingReason::StrongerRangeBoundsPreferred => 3,
-        AccessChoiceRankingReason::ResidualBurdenPreferred => 4,
-        AccessChoiceRankingReason::OrderCompatiblePreferred => 5,
+        AccessChoiceRankingReason::OrderCompatiblePreferred => 1,
+        AccessChoiceRankingReason::ExactMatchPreferred => 2,
+        AccessChoiceRankingReason::FilteredPredicatePreferred => 3,
+        AccessChoiceRankingReason::StrongerRangeBoundsPreferred => 4,
+        AccessChoiceRankingReason::ResidualBurdenPreferred => 5,
         AccessChoiceRankingReason::LexicographicTiebreak => 6,
     }
 }
@@ -238,6 +238,19 @@ const fn ranked_preference_reason(
     chosen_score: CandidateScore,
     score: CandidateScore,
 ) -> AccessChoiceRankingReason {
+    if matches!(
+        family,
+        AccessChoiceFamily::Prefix
+            | AccessChoiceFamily::MultiLookup
+            | AccessChoiceFamily::BranchSet
+            | AccessChoiceFamily::Range
+    ) && chosen_score.order_compatible
+        && score.prefix_len == chosen_score.prefix_len
+        && !score.order_compatible
+    {
+        return AccessChoiceRankingReason::OrderCompatiblePreferred;
+    }
+
     if matches!(
         family,
         AccessChoiceFamily::Prefix
@@ -272,22 +285,6 @@ const fn ranked_preference_reason(
             && score.range_bound_count < chosen_score.range_bound_count)
     {
         return AccessChoiceRankingReason::StrongerRangeBoundsPreferred;
-    }
-
-    if matches!(
-        family,
-        AccessChoiceFamily::Prefix
-            | AccessChoiceFamily::MultiLookup
-            | AccessChoiceFamily::BranchSet
-            | AccessChoiceFamily::Range
-    ) && chosen_score.order_compatible
-        && (score.prefix_len == chosen_score.prefix_len
-            && score.exact == chosen_score.exact
-            && score.filtered == chosen_score.filtered
-            && score.range_bound_count == chosen_score.range_bound_count
-            && !score.order_compatible)
-    {
-        return AccessChoiceRankingReason::OrderCompatiblePreferred;
     }
 
     AccessChoiceRankingReason::LexicographicTiebreak

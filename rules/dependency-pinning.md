@@ -141,7 +141,8 @@ Cargo/Action checking is unchanged and npm files are not discovered implicitly.
 
 Document approved exceptions in the local overlay or its linked policy, including
 their qualification procedure. Machine-readable entries live in the optional
-`ci/dependency-pinning-exceptions.json`, a JSON array with these exact fields:
+`ci/dependency-pinning-exceptions.json`, containing exactly one JSON document:
+an array of entries with these exact fields:
 
 ```json
 [

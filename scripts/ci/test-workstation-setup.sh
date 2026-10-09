@@ -73,8 +73,8 @@ for host in Linux Darwin; do
       "cargo-watch:$ICYDB_CARGO_WATCH_VERSION"; do
       rg -F "${selection%:*} --version ${selection##*:} --locked" "$TEST_TRACE" >/dev/null
     done
-    printf '%s\n' "make --no-print-directory -C $FIXTURE install-tools" \
-      "make --no-print-directory -C $FIXTURE fetch" \
+    printf '%s\n' "make --no-print-directory -C $FIXTURE fetch" \
+      "make --no-print-directory -C $FIXTURE install-tools" \
       "make --no-print-directory -C $FIXTURE tools-check" \
       "make --no-print-directory -C $FIXTURE install-hooks" > "$FIXTURE/expected"
     rg '^make ' "$TEST_TRACE" > "$FIXTURE/actual"
@@ -110,6 +110,17 @@ printf '%s %s\n' "${0##*/}" "$*" >> "$TEST_TRACE"
 [[ "${TEST_INSTALL_FAIL:-0}" == 0 ]]
 INSTALL
 done
+cat > "$FIXTURE/scripts/ci/testkit-runner.sh" <<'RUNNER'
+#!/usr/bin/env bash
+printf 'testkit-runner.sh%s\n' "${1:+ $1}" >> "$TEST_TRACE"
+printf '%s\n' "$TEST_FIXTURE/bin/ic-testkit-server"
+RUNNER
+cat > "$FIXTURE/bin/ic-testkit-server" <<'TESTKIT'
+#!/usr/bin/env bash
+printf 'ic-testkit-server %s\n' "$*" >> "$TEST_TRACE"
+printf '%s\n' "$TEST_FIXTURE/admitted-server"
+TESTKIT
+chmod +x "$FIXTURE/bin/ic-testkit-server"
 cat > "$FIXTURE/scripts/ci/verify-wasm-optimizer.sh" <<'POLICY'
 #!/usr/bin/env bash
 printf '%s\n' "${0##*/}" >> "$TEST_POLICY_TRACE"
@@ -123,11 +134,16 @@ command make --no-print-directory -C "$FIXTURE" > "$FIXTURE/default-goal"
 command make --no-print-directory -C "$FIXTURE" install-tools > "$FIXTURE/dispatch"
 printf '%s\n' "install-rust-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env" \
   "install-host-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --with-ripgrep --with-cloc" \
+  "testkit-runner.sh" \
+  "ic-testkit-server setup --directory $FIXTURE/.tools/ic-testkit-server" \
+  "install-host-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --with-ripgrep --with-cloc" \
   "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv" > "$FIXTURE/expected"
 cmp "$FIXTURE/expected" "$TEST_TRACE"
 : > "$TEST_TRACE"
 command make --no-print-directory -C "$FIXTURE" tools-check > "$FIXTURE/offline"
 printf '%s\n' "install-rust-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --check" \
+  "testkit-runner.sh --check" \
+  "ic-testkit-server check --directory $FIXTURE/.tools/ic-testkit-server" \
   "install-host-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --with-ripgrep --with-cloc --check" \
   "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv --check" > "$FIXTURE/expected"
 cmp "$FIXTURE/expected" "$TEST_TRACE"

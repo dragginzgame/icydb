@@ -197,17 +197,19 @@ cmake curl git xz openssl@3 pkg-config perl shellcheck wabt cloc make
 Install the common checksum-verified host and IC executables explicitly:
 
 ```bash
-make install-tools
 make fetch
+make install-tools
 make tools-check
 ```
 
 This provisions pinned jq, Mike Farah yq and PCRE2-enabled ripgrep in
 `.tools/host/bin`, plus ICP CLI, ic-wasm,
-ic-admin, didc, Binaryen and PocketIC in `.tools/ic/bin`. The final command
-checks the selected sets offline, including IcyDB's admitted optimizer digest.
-Tool verification never installs missing tools. Testkit owns PocketIC
-client/server version admission at managed startup. See
+quill, didc and Binaryen in `.tools/ic/bin`. Shared's selected Cargo installer
+also prepares the locked Testkit CLI; Testkit provisions PocketIC under
+`.tools/ic-testkit-server`. The final command checks both owners' selected sets
+offline, including IcyDB's admitted optimizer digest. Tool verification never
+installs missing tools. Testkit owns server selection, authentication and
+client/server admission. See
 [shared setup](docs/local-setup.md) and [IC executable setup](docs/ic-tools.md)
 for archive pins, bootstrap packages and supported hosts. IcyDB retains the
 qualified Binaryen 132 optimization policy and its raw executable digests in
@@ -303,10 +305,11 @@ Run the generated live-canister SQL boundary separately with:
 make test-sql-canister-matrix
 ```
 
-Run the CI-equivalent required Tier B lane on Linux x86-64 with the exact
-PocketIC release pinned by `Cargo.lock`:
+Run the CI-equivalent required Tier B lane on Linux x86-64 with the server
+admitted by the locked Testkit package:
 
 ```bash
+make fetch
 make install-tools
 make ci-sql-tier-b
 ```
@@ -457,19 +460,18 @@ Some integration tests need the PocketIC server binary. Prepare the selected
 local tools before running those tests:
 
 ```bash
+make fetch
 make install-tools
 make tools-check
 ```
 
-Make selects `.tools/ic/bin/pocket-ic` explicitly; test processes never download
-a server. Testkit owns client/server admission at startup. IcyDB does not compare
-the Rust client version with the server pin or implement another compatibility
-policy. `POCKET_IC_BIN=/path/to/pocket-ic` remains an explicit caller selection
-for a trusted executable admitted by Testkit; it does not bypass common toolset
-authentication in validation. The current shared installer remains in use until
-the coordinated [Testkit provisioning handoff](https://github.com/dragginzgame/ic-testkit/issues/38)
-and [Shared retirement](https://github.com/dragginzgame/shared-tooling/issues/76)
-are complete.
+`make testkit-check` prints the absolute server path admitted by Testkit;
+Make's test lanes pass that path explicitly. Direct Cargo callers can export
+`POCKET_IC_BIN="$(make --silent testkit-check)"` after checking the command succeeds.
+`install-testkit` explicitly prepares the locked CLI/server; offline validation
+never downloads. `POCKET_IC_BIN=/path/to/pocket-ic` remains an explicit caller
+selection admitted by Testkit. IcyDB has no server pin catalog or compatibility
+policy. Old Shared bundles and receipts remain retained as evidence.
 
 CI installs and verifies tools before testing. `ci-sql-tier-b` owns one shared
 server for the complete lane and stops it on success, failure or termination.
@@ -516,9 +518,9 @@ cargo install cargo-sort-derives --version "$ICYDB_CARGO_SORT_DERIVES_VERSION" -
 
 ### `make test` cannot find the IC testkit runner
 
-Run `make install-tools` and `make tools-check` to prepare and verify the
+Run `make fetch install-tools tools-check` to prepare and verify the
 selected local server. Make passes that path explicitly; tests do not download
-missing executables. Confirm the server pins match the client in `Cargo.lock`.
+missing executables. Use `make testkit-check` to obtain Testkit's admitted path.
 
 ### Local SQL demo cannot find a canister
 

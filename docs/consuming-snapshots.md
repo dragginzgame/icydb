@@ -122,9 +122,9 @@ the runner alone does not adopt PR delivery. See the
 
 The IC installer now shares matrix admission through `scripts/ci/ic-tool-pins.awk`.
 Add that file explicitly before refreshing `scripts/dev/install-ic-tools.sh`;
-refresh never widens the selected file set automatically. The optional PocketIC
-alignment and binary checkers have their own
-[documented dependencies](verification-helpers.md#pocketic-alignment-and-external-binaries).
+refresh never widens the selected file set automatically. Adopting 0.2.0 also
+requires the [PocketIC ownership handoff](ic-tools.md#pocketic-ownership-handoff):
+remove retired helper selections and update consumer pins and callers together.
 
 Logger adoption can replace local batch concatenation with the runner's announced
 unique combined failure file and `latest-combined.log`. Its existing `latest.log`
@@ -341,6 +341,11 @@ The include provides `install-rust-tools` and `rust-tools-check`; Rust consumers
 attach these to their aggregate commands as shown in
 [Rust setup](local-setup.md#rust-development-tools). Retire their duplicate
 Cargo-tool install recipes and version constants after qualified adoption.
+Consumer-selected registry binaries/examples use this same installer and its
+`scripts/ci/verify-file-checksum.sh` companion, with prepared host tools and an
+explicit local selection; see [Cargo tool setup](local-setup.md#consumer-selected-cargo-tools).
+Retire synthetic Cargo resolvers only after qualifying the selected package and
+profile. Source-checkout builds and application executable overrides stay local.
 
 Defaults use scripts and pins at the checkout root. For a snapshot stored below
 that root, set `SHARED_TOOLING_ROOT` to its reviewed local directory before the

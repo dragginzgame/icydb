@@ -9,11 +9,11 @@ use crate::db::query::plan::access_choice::model::{
 // Independent policy table: precedence is not the enum's declaration order.
 fn expected_reason(reasons: &[Reason], residual: bool) -> Reason {
     [
+        Reason::OrderCompatiblePreferred,
         Reason::ExactMatchPreferred,
         Reason::FilteredPredicatePreferred,
         Reason::StrongerRangeBoundsPreferred,
         Reason::ResidualBurdenPreferred,
-        Reason::OrderCompatiblePreferred,
         Reason::LexicographicTiebreak,
     ]
     .into_iter()
@@ -47,7 +47,7 @@ fn streaming_reasons_preserve_family_precedence_prefix_and_residual_rules() {
             ),
             (chosen, Reason::LexicographicTiebreak),
             (
-                CandidateScore::new(2, false, false, 0, false),
+                CandidateScore::new(2, false, false, 0, true),
                 if exact_family {
                     Reason::ExactMatchPreferred
                 } else {
@@ -55,7 +55,7 @@ fn streaming_reasons_preserve_family_precedence_prefix_and_residual_rules() {
                 },
             ),
             (
-                CandidateScore::new(2, true, false, 0, false),
+                CandidateScore::new(2, true, false, 0, true),
                 if indexed {
                     Reason::FilteredPredicatePreferred
                 } else {
@@ -63,7 +63,7 @@ fn streaming_reasons_preserve_family_precedence_prefix_and_residual_rules() {
                 },
             ),
             (
-                CandidateScore::new(2, true, true, 1, false),
+                CandidateScore::new(2, true, true, 1, true),
                 if family == Family::Range {
                     Reason::StrongerRangeBoundsPreferred
                 } else {
@@ -72,6 +72,14 @@ fn streaming_reasons_preserve_family_precedence_prefix_and_residual_rules() {
             ),
             (
                 CandidateScore::new(2, true, true, 2, false),
+                if indexed {
+                    Reason::OrderCompatiblePreferred
+                } else {
+                    Reason::LexicographicTiebreak
+                },
+            ),
+            (
+                CandidateScore::new(2, false, false, 0, false),
                 if indexed {
                     Reason::OrderCompatiblePreferred
                 } else {

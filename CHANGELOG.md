@@ -5,6 +5,20 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.268.0]
+
+- **Breaking tooling change:** transfer PocketIC setup and offline admission to
+  Testkit, requiring explicit tool reinstallation; carry scoped top-1 and shared admission fixes
+  ([#327](https://github.com/dragginzgame/icydb/issues/327),
+  [Shared #76](https://github.com/dragginzgame/shared-tooling/issues/76),
+  [#332](https://github.com/dragginzgame/icydb/issues/332),
+  [#309](https://github.com/dragginzgame/icydb/issues/309),
+  [Shared #86](https://github.com/dragginzgame/shared-tooling/issues/86),
+  [Shared #85](https://github.com/dragginzgame/shared-tooling/issues/85),
+  [Shared #87](https://github.com/dragginzgame/shared-tooling/issues/87)).
+
+See [docs/changelog/0.268.md](docs/changelog/0.268.md).
+
 ## [0.267.4] - 2026-10-09
 
 - Correct endpoint MSRV compatibility, clarify complete catalogue reads,

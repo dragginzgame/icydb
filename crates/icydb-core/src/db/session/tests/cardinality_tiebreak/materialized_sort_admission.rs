@@ -119,25 +119,49 @@ fn public_sort_admission_rejects_secondary_materialization_on_cold_and_warm_plan
 }
 
 #[test]
-fn public_sort_admission_preserves_residual_filter_sort_facts() {
+fn public_sort_admission_preserves_residual_filters_on_ordered_and_materialized_routes() {
     let session = initialize();
     seed_rows(&session);
     let query = secondary_query(FilterExpr::and(vec![
         FieldRef::new("rare").eq(InputValue::text("group-a".into())),
         FieldRef::new("wide_fixed").eq(InputValue::text("all".into())),
     ]));
-    let facts = summary(&session, &query);
-    assert_eq!(
-        facts.selected_access(),
-        QueryAdmissionAccessKind::IndexPrefix
-    );
-    assert!(facts.materialization().materialized_sort());
-    assert_eq!(
-        QueryAdmissionPolicy::default_bounded_read()
-            .evaluate(facts)
-            .rejection(),
-        Some(QueryAdmissionRejection::SortRequiresMaterialization),
-    );
+    for _ in 0..2 {
+        let facts = summary(&session, &query);
+        assert_eq!(facts.selected_index(), Some("b_wide_branch_idx"));
+        assert!(!facts.materialization().materialized_sort());
+        let public = session.execute_public_live_page(&query, None).unwrap();
+        let trusted = session.execute_trusted_live_page(&query, None).unwrap();
+        assert_eq!(
+            public.rows,
+            vec![vec![OutputValue::nat64(0)], vec![OutputValue::nat64(2)]]
+        );
+        assert_eq!(public.rows, trusted.rows);
+        // The same residual predicate cannot make mixed-direction ordering
+        // streamable through these uniformly ordered indexes.
+        let unsupported = query.clone().order_by(desc("id"));
+        let facts = summary(&session, &unsupported);
+        assert_eq!(
+            facts.selected_access(),
+            QueryAdmissionAccessKind::IndexPrefix
+        );
+        assert!(facts.materialization().materialized_sort());
+        assert_eq!(
+            QueryAdmissionPolicy::default_bounded_read()
+                .evaluate(facts)
+                .rejection(),
+            Some(QueryAdmissionRejection::SortRequiresMaterialization),
+        );
+        let error = session
+            .execute_public_live_page(&unsupported, None)
+            .unwrap_err();
+        assert_eq!(
+            error.diagnostic().detail(),
+            Some(&DiagnosticDetail::QueryReadAdmission {
+                reason: QueryReadAdmissionCode::SortRequiresMaterialization,
+            })
+        );
+    }
 }
 
 #[test]

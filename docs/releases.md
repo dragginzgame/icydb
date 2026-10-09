@@ -206,6 +206,55 @@ Consumer Make targets provide these adapters:
 | `release-tagged-check` | Check or record exact tag-bound evidence for `RELEASE_COMMIT` without another Git effect. |
 | `release-push-check` | Check the selected `RELEASE_COMMIT`, tag, evidence and destination before dispatch/reconciliation. |
 
+### Dependency preparation before compiled adapters
+
+Standard release entry points include locked cache preparation; maintainers
+should not need a separate manual fetch after every selected dependency update.
+Document the affected workspace graphs and exact preparation commands in the
+consumer's release guide. An explicit request for that documented release
+includes this network preparation, but never dependency upgrades or lock repairs.
+Cargo's explicit offline environment/configuration settings remain authoritative.
+Ordinary validation and standalone adapter commands remain offline.
+Do not hard-code `--offline` onto the authorized preparation step or export an
+offline setting across both preparation and validation. `--locked` preserves
+the selected dependency graph while allowing missing inputs to be downloaded.
+The same separation applies to authorized deployment preparation. See the
+[Cargo network policy](../rules/cargo-dependencies.md#cargo-network-policy):
+an expressly requested dependency update may resolve online before qualification,
+whereas an ordinary release/deployment fetches its existing lockfile and does not
+upgrade dependencies. Offline local-version synchronization and test fixtures
+are separate from dependency updates that need new registry inputs.
+
+If an adapter must compile before it can read the version or run preflight,
+prepare its selected cache before compilation. Keep this within the runner's
+normal adapter dispatch: select unfinished intent first, and never add a fetch
+prerequisite that runs against possibly interrupted metadata before recovery
+selection. A consumer can pass an internal preparation selection from its
+release entry points to its launcher; do not infer permission from an adapter
+name or enable it globally for ordinary checks.
+Remove that internal selection before dispatching the compiled adapter so its
+validation children cannot inherit online preparation permission.
+
+For example, a Cargo launcher selected by an authorized release uses
+`cargo +TOOLCHAIN fetch --locked`, followed by `cargo run --locked --offline`.
+Its ordinary invocation uses `cargo +TOOLCHAIN fetch --locked --offline` before
+the same offline compilation. Retain Cargo's original diagnostics and status
+on failure, name the consumer's explicit fetch command, and stop before further
+release effects. Do not switch an explicitly offline caller online on failure.
+
+Interrupted manifest/lock writes may require a coherent scratch workspace for
+compilation. Prepare that same scratch graph with the copied selected lock;
+do not fetch against inconsistent tracked metadata or change its dependency
+selection. Later qualification remains offline and bound to the selected source,
+inputs and receipts. A locked fetch does not qualify the source or reconcile
+release effects.
+
+Qualify missing-cache preparation, explicit offline refusal and network failure
+before compilation, unchanged locks, and interrupted metadata recovery through
+the consumer's focused launcher fixture. Native support and adoption by other
+consumers remain separately evidenced. Shared Tooling owns this convention;
+consumer launchers own their workspace/toolchain and recovery inputs.
+
 ### Source admission diagnostics
 
 When refusing uncommitted source, report the staged, unstaged and untracked

@@ -23,8 +23,7 @@ Quill messages or performs deployment/publication effects.
 ## Selected set
 
 The reviewed default pins live only in [ci/ic-tools.tsv](../ci/ic-tools.tsv).
-Existing consumer versions are retained for the five previously used tools;
-Quill is added from its official release. Each row specifies executable, exact
+Each row specifies executable, exact
 version, native host and archive SHA-256. The digests were read from the official
 GitHub release asset metadata on 2026-10-06.
 
@@ -34,7 +33,6 @@ GitHub release asset metadata on 2026-10-06.
 | `icp` | 1.6.0 | [ICP CLI](https://github.com/dfinity/icp-cli/releases/tag/v1.6.0) |
 | `didc` | 0.6.2 | [Candid tools](https://github.com/dfinity/candid/releases/tag/didc-v0.6.2) |
 | `ic-wasm` | 0.11.1 | [ic-wasm](https://github.com/dfinity/ic-wasm/releases/tag/0.11.1) |
-| `pocket-ic` | 16.1.0 | [PocketIC](https://github.com/dfinity/pocketic/releases/tag/16.1.0) |
 | `wasm-opt` | 132 | [Binaryen](https://github.com/WebAssembly/binaryen/releases/tag/version_132) |
 
 The complete set has native assets for Linux x86-64, macOS Intel and macOS
@@ -52,7 +50,7 @@ sudo, package-manager bootstrap or shell-profile editing is involved.
 `ci/ic-tools.tsv`. `--consumer <checkout>` selects another explicit destination;
 `--pins <file>` selects a reviewed alternative matrix. Missing or duplicate rows,
 inconsistent per-host versions and malformed checksums fail before downloads.
-The installer and optional alignment checker share that admission through
+The installer enforces that admission through
 `scripts/ci/ic-tool-pins.awk`; include it in the reviewed snapshot.
 
 The installer checks each archive hash before extraction or execution, then
@@ -67,6 +65,8 @@ Failed or interrupted attempts retain their candidate directory and leave the
 prior selected set intact; retries create a fresh candidate. Previous sets and
 downloads are not automatically deleted. Cleanup is an explicit local action.
 
+Installation and verification consume every validated row, including a final row
+without a newline. The exact pin-file bytes remain retained as provenance.
 Reuse compares the complete validated tool/version/host/archive-checksum records
 across all supported hosts. Comments and row order do not change that selection
 or trigger downloads. The installed pins remain the exact installation input;
@@ -87,32 +87,60 @@ check can inspect the previous complete set during installation.
 The installed hash receipt detects accidental byte changes; it is not a signed
 attestation against an attacker who can rewrite the checkout and receipts.
 The reviewed archive hashes and snapshot provenance establish admitted inputs.
-Native CI verifies installation and version execution on the three declared
-hosts; product build, PocketIC compatibility and deployment qualification stay
-with their consumers.
+The native CI matrix exercises installation and version execution on the three
+declared hosts. Product build and deployment qualification stay with consumers;
+PocketIC compatibility and server admission belong to Testkit.
 
 ## Consumer adoption
 
 ### PocketIC ownership handoff
 
-IC Testkit is the intended owner of PocketIC-specific release selection, asset
-checksums, provisioning, offline admission and server lifecycle. Track its
-published setup/check contract in
-[Testkit #38](https://github.com/dragginzgame/ic-testkit/issues/38) and the Shared
-Tooling removal in [#76](https://github.com/dragginzgame/shared-tooling/issues/76).
-Shared Tooling can supply generic download/checksum/archive mechanics; application
-repositories should not acquire another independent PocketIC version policy.
+IC Testkit owns PocketIC-specific release selection, asset checksums, explicit
+provisioning, offline admission and server lifecycle. Its published 0.25.4 CLI
+setup/check and managed-launch contract passed all three native hosts in
+[owner CI](https://github.com/dragginzgame/ic-testkit/actions/runs/37901828971).
+Follow [Testkit #38](https://github.com/dragginzgame/ic-testkit/issues/38) and
+[Shared #76](https://github.com/dragginzgame/shared-tooling/issues/76) for
+owner qualification and consumer coordination. Consumers select a qualified
+Testkit package; they do not duplicate its server catalog or version policy.
 
-The currently supported installer still requires the complete six-tool matrix
-above. Preserve that functioning setup until the replacement is published and
-qualified on Linux and both macOS architectures. Adoption must trace callers of
-`make install-tools`, `make ic-tools-check`, the alignment/binary helpers and
-`.tools/ic/bin/pocket-ic`, as well as each consumer's selected snapshot and pins.
-Retiring the row and PocketIC-specific branches changes the setup contract and
-requires a separately coordinated release, with explicit Testkit setup, offline
-checks and product startup verified before removing the old route. Preserve
-existing bundles, receipts and failed-install evidence; tests must not silently
-download a replacement, and consumers must not patch their vendored snapshots.
+Shared 0.2.0 removes PocketIC from the required IC matrix and removes
+`check-pocketic-alignment.sh`, `check-pocketic-binary.sh` and their dedicated
+fixture. The shared Make targets retain their names and now prepare/check the
+five-tool bundle only. This is a breaking adoption boundary:
+
+1. Select a published, qualified Testkit CLI with setup/check support, using the
+   consumer's reviewed dependency and executable selection. Add explicit Testkit
+   setup to developer/CI preparation; offline validation uses its check command.
+2. Update Make/CI/test/release callers that select `.tools/ic/bin/pocket-ic` or
+   compare client and server versions. Obtain the admitted absolute server path
+   from Testkit, or use its managed run contract. Keep product test topology,
+   credentials, endpoints and evidence destinations with the consumer.
+3. Remove PocketIC rows from consumer-owned IC matrices and remove the retired
+   checkers/fixture from snapshot selections and callers. Refresh the installer,
+   matrix validator, guides and canonical pins together from a reviewed release.
+   Snapshot refresh does not prune retired selections automatically; do not patch
+   vendored implementations or introduce a second server installer.
+4. Run explicit `make install-ic-tools`, then `make ic-tools-check`. An old
+   six-tool bundle fails the new offline check; only explicit setup activates
+   a new five-tool bundle. Old bundles, pins, receipts and failed candidates
+   remain unchanged. No automatic cleanup or conversion occurs.
+5. Qualify consumer setup, offline check and actual product startup on Linux and
+   both supported macOS hosts before retiring its former route. Until adoption
+   is ready, the consumer keeps its existing complete reviewed snapshot.
+
+For an already prepared, consumer-selected `ic-testkit-server` executable:
+
+```bash
+ic-testkit-server setup --directory "$PWD/.tools/testkit-server"
+server="$(ic-testkit-server check --directory "$PWD/.tools/testkit-server")" || exit 1
+export POCKET_IC_BIN="$server"
+```
+
+Only setup downloads. Check prints the admitted executable path and works
+offline; tests and builds must not implicitly run setup. Do not select binaries
+by globbing caches. Existing retained bundles are evidence, not the active
+Testkit selection.
 
 ### Identity storage and local resets
 
@@ -133,21 +161,9 @@ installation does not move identity stores, create keys or change that selection
 
 Follow [snapshot adoption](consuming-snapshots.md#local-ic-tool-adoption). Use one
 authoritative pin matrix for this set; remove duplicate version/checksum selections
-from old setup files after their callers move. Product adapters may read that
-matrix for an explicitly qualified PocketIC client/server pairing. The shared
-[alignment and binary checks](verification-helpers.md#pocketic-alignment-and-external-binaries)
-cover exact version equality and external byte admission separately.
-Use the local bin path in Make/CI commands. The offline check already prints the
-verified absolute bin directory; obtain the server path without a cache glob:
-
-```bash
-verified_bin="$(bash scripts/dev/install-ic-tools.sh --consumer "$PWD" --pins ci/ic-tools.tsv --check)" || exit 1
-export POCKET_IC_BIN="$verified_bin/pocket-ic"
-```
-
-This verifies the complete selected bundle before printing its directory, with
-diagnostics on stderr. It does not install anything. Do not depend on the user's
-global PATH or glob crate download caches to select a server.
+from old setup files after their callers move. The offline IC check prints the
+verified absolute bin directory for these five tools. PocketIC callers follow
+the Testkit handoff above.
 
 Consumers can select an explicitly reviewed local matrix when an existing
 qualification requires different versions. Keep the common executable names

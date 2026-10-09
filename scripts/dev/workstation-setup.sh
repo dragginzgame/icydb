@@ -101,6 +101,8 @@ install_tooling() {
   rustup toolchain install --target wasm32-unknown-unknown
 
   install_actionlint
+  # The selected Testkit CLI derives its exact package from the locked graph.
+  make --no-print-directory -C "$ROOT" fetch
   make --no-print-directory -C "$ROOT" install-tools
 
   for tool in "${CARGO_WORKSTATION_TOOLS[@]}"; do
@@ -113,9 +115,6 @@ install_tooling() {
     fi
   done
 
-  # PocketIC admission resolves the selected workspace offline. Prepare that
-  # exact graph in Make's repository-local cache before checking the toolsets.
-  make --no-print-directory -C "$ROOT" fetch
   make --no-print-directory -C "$ROOT" tools-check
 }
 

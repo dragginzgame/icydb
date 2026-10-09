@@ -22,6 +22,15 @@ are admitted only when their exact scan bound matches the proven materialized
 row bound and the public returned-row and key-input policies also pass. An
 authored `LIMIT` alone does not establish any of those access proofs.
 
+For indexes matching the same constrained prefix, planning prefers an index
+that supplies the requested order before fully consumed keys and other
+structural tie breakers. Equality on `robot_id` and `location_id` can therefore
+use `(robot_id, location_id, serial_number)` for a public top-1 read ordered by
+`serial_number`, even when `(robot_id, location_id)` also exists. No extra
+serial-number range is required. Longer constrained prefixes retain priority;
+an order unsupported by the selected access still follows materialization
+admission above.
+
 An index range with no equality prefix and two unbounded endpoints is a whole
 index scan. The shared admission summary classifies it as `FullScan` and public
 live, exhaustive and grouped reads reject it before row execution, including

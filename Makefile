@@ -29,25 +29,28 @@ endif
         _ci-tier-a-sqlite _ci-tier-a-mutation _ci-tier-a-integration \
         _ci-tier-b-sql-canister _ci-tier-b-sql-perf \
         print-cargo-home print-cargo-target-dir check-dependency-pins \
-        _icydb-ic-tool-policy install-pocketic-runner
+        _icydb-ic-tool-policy install-testkit testkit-check
 
 # Resolve the repo root from this Makefile so scripts can query these values
 # via `make -C "$$ROOT"` and share a single source of truth.
 ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 SHARED_TOOLING_ROOT := $(ROOT_DIR)
 include $(ROOT_DIR)/make/tools.mk
-POCKET_IC_BIN ?= $(ROOT_DIR)/.tools/ic/bin/pocket-ic
 
 # Keep workspace cargo state repo-local so sibling repos compiling on the same
 # filesystem do not contend on a shared cargo home or target directory.
 CARGO_WORK_HOME := $(ROOT_DIR)/.cache/cargo/icydb
 CARGO_WORK_TARGET_DIR := $(ROOT_DIR)/target/icydb
 RELEASE_TMP_DIR := $(ROOT_DIR)/.cache/release-tmp
-install-tools: install-rust-tools
-tools-check: rust-tools-check
+install-tools: install-rust-tools install-testkit
+tools-check: rust-tools-check testkit-check
 CARGO_WORK_ENV := CARGO_HOME="$(CARGO_WORK_HOME)" CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
 CARGO_PUBLISH_ENV := CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
-IC_TESTKIT_ENV := TMPDIR="$(ROOT_DIR)/.cache" POCKET_IC_BIN="$(POCKET_IC_BIN)"
+TESTKIT_RUNNER := bash "$(ROOT_DIR)/scripts/ci/testkit-runner.sh"
+TESTKIT_SERVER_CHECK = runner="$$( $(TESTKIT_RUNNER) --check )" && "$$runner" check --directory "$(ROOT_DIR)/.tools/ic-testkit-server"
+# Refuse failed offline admission before invoking Cargo. Explicit server
+# overrides remain subject to Testkit's runtime admission, as before.
+IC_TESTKIT_ENV = server="$(POCKET_IC_BIN)"; if [ -z "$$server" ]; then server="$$( $(TESTKIT_SERVER_CHECK) )" || exit; fi; TMPDIR="$(ROOT_DIR)/.cache" POCKET_IC_BIN="$$server"
 # Workspace and integration lanes share a lower cap to limit concurrent
 # PocketIC test bodies; core-only lanes retain their wider bounded parallelism.
 CORE_TEST_ENV := RUST_TEST_THREADS=8
@@ -69,14 +72,12 @@ print-cargo-home:
 print-cargo-target-dir:
 	@printf '%s\n' "$(CARGO_WORK_TARGET_DIR)"
 
-# Explicit setup only: validation never installs the server runner. Cargo's
-# selected registry package owns supervision and raw-output file creation.
-install-pocketic-runner:
-	@metadata="$$( $(CARGO_WORK_ENV) cargo metadata --locked --offline --format-version 1)" || exit; \
-		version="$$(printf '%s\n' "$$metadata" | "$(ROOT_DIR)/.tools/host/bin/jq" -er \
-			'[.packages[] | select(.name == "ic-testkit") | .version] | unique | select(length == 1) | .[0]')" || exit; \
-		$(CARGO_WORK_ENV) cargo install ic-testkit --version "=$$version" --bin ic-testkit-server --locked \
-			--root "$(ROOT_DIR)/.tools/testkit" --target-dir "$(CARGO_WORK_TARGET_DIR)/testkit-runner"
+# Explicit setup only: validation never installs the CLI or server.
+install-testkit: install-host-tools
+	@runner="$$( $(TESTKIT_RUNNER) )" && "$$runner" setup --directory "$(ROOT_DIR)/.tools/ic-testkit-server"
+
+testkit-check:
+	@$(TESTKIT_SERVER_CHECK)
 
 # Check for clean git state
 ensure-clean:
@@ -92,7 +93,8 @@ help:
 	@echo "Setup / Installation:"
 	@echo "  install-tools    Install pinned repository-local host, IC and Rust tools"
 	@echo "  tools-check      Verify the selected local tools offline"
-	@echo "  install-pocketic-runner  Install the locked Testkit runner after make fetch"
+	@echo "  install-testkit  Prepare the locked Testkit CLI/server after make fetch"
+	@echo "  testkit-check    Verify Testkit offline and print its admitted server path"
 	@echo "  install          Install the local icydb CLI binary"
 	@echo "  install-dev      Install developer dependencies, GitHub CLI, actionlint, and the formatting hook"
 	@echo "  update-dev       Update developer tooling and hooks without changing dependencies"
@@ -425,6 +427,8 @@ check-portable-automation:
 	bash scripts/ci/test-workstation-setup.sh
 	bash scripts/ci/test-rust-tools.sh
 	bash scripts/ci/test-cargo-metadata-adoption.sh
+	bash scripts/ci/test-dependency-pins.sh
+	bash scripts/ci/test-testkit-tooling.sh
 	bash scripts/ci/test-pocketic-server-wrapper.sh
 	bash scripts/ci/test-ci-workflow-invariants.sh
 	$(CARGO_WORK_ENV) bash scripts/ci/test-invariant-scanners.sh
@@ -555,8 +559,7 @@ _ci-tier-a-integration:
 		-p icydb-testing-integration --test sql_correctness --verbose
 
 ci-sql-tier-b:
-	@test -n "$(POCKET_IC_BIN)" || { echo "POCKET_IC_BIN must name the exact PocketIC binary used by Tier B" >&2; exit 1; }
-	+$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) POCKET_IC_BIN="$(POCKET_IC_BIN)" \
+	+TMPDIR="$(ROOT_DIR)/.cache" POCKET_IC_BIN="$(POCKET_IC_BIN)" $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) \
 		$(POCKET_IC_RUNNER) $(VALIDATION_RUNNER) \
 		_ci-tier-b-sql-canister \
 		_ci-tier-b-sql-perf

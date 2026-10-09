@@ -4,12 +4,14 @@ set -euo pipefail
 # Testkit owns startup, readiness, process groups and reaping. IcyDB selects
 # the deadline and complete output paths, relays signals and retains failures.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-runner="$ROOT/.tools/testkit/bin/ic-testkit-server"
 [[ "$#" -gt 0 ]] || { echo 'usage: run-with-pocketic-server.sh <command> [args...]' >&2; exit 2; }
-[[ -n "${POCKET_IC_BIN:-}" && -x "$POCKET_IC_BIN" ]] || {
-  echo 'POCKET_IC_BIN must name the executable pinned PocketIC server' >&2; exit 1;
-}
-[[ -x "$runner" ]] || { echo 'run make install-pocketic-runner before validation' >&2; exit 1; }
+runner="$(bash "$ROOT/scripts/ci/testkit-runner.sh" --check)"
+selection=()
+if [[ -z "${POCKET_IC_BIN:-}" ]]; then
+  # Testkit distinguishes an absent override from a present empty variable.
+  unset POCKET_IC_BIN
+  selection=(--directory "$ROOT/.tools/ic-testkit-server")
+fi
 # This lane deliberately owns a fresh server, even if the invoking shell has a
 # borrowed URL. Testkit rejects caller-owned output files with a borrowed URL.
 unset IC_TESTKIT_POCKET_IC_URL
@@ -20,7 +22,7 @@ signal_status=0
 runner_pid=""
 trap 'signal_status=130; kill -INT "$runner_pid" 2>/dev/null || true' INT
 trap 'signal_status=143; kill -TERM "$runner_pid" 2>/dev/null || true' TERM
-"$runner" run --ttl 900 --startup-timeout 30 \
+"$runner" run ${selection[@]+"${selection[@]}"} --ttl 900 --startup-timeout 30 \
   --server-stdout "$scratch/stdout" --server-stderr "$scratch/stderr" -- "$@" &
 runner_pid="$!"
 # A signal may arrive between installing the traps and recording the child PID.

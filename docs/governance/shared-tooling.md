@@ -1,7 +1,7 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `3d33cd250fcae7dbe5cabe44b2abd6b2c91a1822`. Root
+at reviewed revision `06b2e22f6bd213f1a590eb2a8797aee34c42dd69`. Root
 [AGENTS.md](../../AGENTS.md) is the local overlay. The shared approved layout
 retains the 42 existing canister, schema and testing packages in their
 restored directories, in the single root workspace and lockfile; no new package
@@ -12,7 +12,115 @@ these rules.
 
 ## Ownership and provenance
 
-The current 0.267.4 CI repair adopts committed Shared Tooling 0.1.34,
+The maintainer selected 0.268 on 2026-10-09 for the PocketIC ownership hard cut,
+carrying the unpublished 0.267.5 fixes. The
+[line tracker](../design/0.268-testkit-tooling/0.268-status.md) groups the three
+independently reviewable outcomes. The canonical exporter refreshes the same
+eighty-three-file selection from clean committed Shared 0.2.1
+`06b2e22f6bd213f1a590eb2a8797aee34c42dd69`. The 0.2.0 hard cut retires PocketIC
+from the common bundle; 0.2.1 also fixes installation/offline admission of the
+last pin record without a final newline
+([Shared #87](https://github.com/dragginzgame/shared-tooling/issues/87)).
+The retired PocketIC helpers were already
+unselected here; no second server catalog, installer or compatibility policy
+replaces them ([#327](https://github.com/dragginzgame/icydb/issues/327),
+[Shared #76](https://github.com/dragginzgame/shared-tooling/issues/76)).
+
+`make fetch install-tools tools-check` prepares the locked Testkit CLI through
+the canonical selected Cargo installer, provisions its server explicitly and
+checks both owners offline. `install-testkit` replaces `install-pocketic-runner`;
+`testkit-check` prints the admitted server path. Make's ordinary test lanes refuse
+failed admission before invoking Cargo. The existing managed wrapper uses the
+same CLI, retaining signals, full failure logs and its single-server topology.
+External server overrides remain under Testkit's runtime admission. Workstation
+and CI preparation use these same targets. Tests never download.
+
+The local closeout removes Make's redundant server-path admission before the
+managed Tier B wrapper: Testkit now checks that selection once in its managed
+run contract. An empty override selects the prepared owner bundle. The wrapper
+still owns IcyDB's signal relay and failed-output retention. Consumer fixtures
+retain locked selection and caller refusal checks; shared-bundle preservation
+stays with the canonical Shared fixtures and actual retained-byte evidence.
+The existing five-case wrapper fixture also exercises Make's managed handoff.
+These fixtures pass on Bash 5/3.2, alongside workflow policy/all forty-one cases,
+selected ShellCheck and a real managed Make smoke check using a harmless child.
+Testkit started/stopped a local server for that smoke check; no product suite
+ran. Evidence is under `target/testkit-local-cleanup`. Incoming Host 0.9 manifest
+and lock selections are unchanged, with lock SHA-256
+`c78530c77c4aa9eaeb2aacb15aab1e73e707c776015813ee1b7bddc7571cf63b`.
+The uncached Host packages initially refused offline CLI selection; explicit
+locked fetch prepared them. This is tooling qualification, not Host 0.9 Rust API
+or native product qualification. No functions, methods or types were removed.
+
+Actual Linux five-tool installation/check and Testkit CLI/server setup/check
+pass. Testkit checks its prepared server with `PATH=/nonexistent`. The old
+six-tool bundle remains retained with unchanged receipt-covered files, pins and
+receipt. Canonical IC, consumer selection/refusal, workstation and five-case
+wrapper fixtures pass on Bash 5 and genuine Linux Bash 3.2; substitute fixture
+passes are separate from actual setup and product startup evidence. Logs remain
+under `target/shared-hardcut-020`.
+The actual IcyDB startup adapter also passes directly and through the maintained
+managed wrapper under Bash 3.2, exercising canister creation and cycle-balance
+updates. Local PocketIC servers were started for these focused checks; Testkit
+owns their shutdown. All forty-one workflow fixtures, workflow policy, actual
+`make tools-check`, selected ShellCheck, snapshot and local documentation checks
+pass. The initially uncached maintainer-updated Metrics selection refused offline
+metadata before installation; explicit `make fetch` prepared the current graph.
+Its lockfile remains byte-identical at SHA-256
+`0ad8773283bc1e2c5bc012ff6b757fe2374e9b19c5d404198fbe05aa1722ded7`.
+
+Native owner setup/check and actual launch
+were established by published Testkit 0.25.4 in
+[owner CI](https://github.com/dragginzgame/ic-testkit/actions/runs/37901828971).
+Selected published Testkit 0.25.5's CI remains queued at review, as does
+[Shared 0.2.1 CI](https://github.com/dragginzgame/shared-tooling/actions/runs/37918240103).
+The preceding [Shared 0.2.0 CI](https://github.com/dragginzgame/shared-tooling/actions/runs/37916384666)
+passes Linux and lint/security while both macOS jobs remain queued. Refreshed
+0.2.1 canonical IC fixtures pass Bash 5/3.2, including the final-record repair,
+and IcyDB's actual aggregate offline tool check passes with Bash 3.2.
+Matching IcyDB committed/native evidence remains open under #327/#309; Linux
+Bash 3.2 does not qualify macOS. Full workspace/release gates and raw
+Wasm/IC-cycle/instruction deltas remain unmeasured or user-owned.
+
+The earlier compatible batch, now carried into 0.268.0, adopted Shared Tooling 0.1.38,
+`926a20606591214ab29faa236b0b584e4857439e`, from a clean isolated checkout
+through the canonical exporter. Its eighty-three-file selection adds the
+canonical dependency fixture to the existing portable CI lane. The sibling
+checkout's dirty VERSION and retired fleet/PocketIC helpers are excluded.
+The old consumer checker reproduces the malformed-exception/trailing-array
+bypass; the refreshed checker refuses it and preserves the exception, manifest,
+lockfile and index. Shared remains the only exception checker and installer
+authority ([Shared #86](https://github.com/dragginzgame/shared-tooling/issues/86),
+[Shared #85](https://github.com/dragginzgame/shared-tooling/issues/85)).
+
+Focused Linux qualification passes dependency fixtures on Bash 5 and genuine
+Bash 3.2, actual consumer declaration/inheritance checks, selected ShellCheck,
+snapshot verification, and real staged formatting. Shared installer fixtures
+pass on both Bash versions with substitute Cargo; they do not qualify registry
+installation. Canonical hook fixtures also pass. Logs remain under
+`target/shared-tooling-038`. The exact-source
+[Shared CI](https://github.com/dragginzgame/shared-tooling/actions/runs/37912382208)
+passes Linux and lint/security; both native macOS jobs remain queued at review.
+Consumer committed/native evidence remains
+[#309](https://github.com/dragginzgame/icydb/issues/309).
+
+That earlier review covered published Host 0.8.10
+(`e944f114f7542d27ead5df8996d1b2df04e06c31`). Host 0.8.9/0.8.10 change
+release preparation and shared tooling without Rust library source changes
+from 0.8.8, so this adoption requires no new Host API calls. Host 0.8.9's
+full CI passes; exact-source
+[Host 0.8.10 CI](https://github.com/dragginzgame/ic-host-tooling/actions/runs/37915010103)
+passes Linux and MSRV while both macOS jobs remain queued. The maintainer's
+lock selections, Host artifacts/fs 0.8.10, process/tools 0.8.9 and Testkit
+0.25.5, remain byte-identical at SHA-256
+`a6a4db77c56f20ed02e7d4de60b9f052d9ccedf0153b31db2b0d5742774c8a80`.
+No Host runtime qualification, full workspace/release gate, installation or
+network lifecycle action is part of this tooling repair. Native consumer macOS
+and raw Wasm/IC-cycle/instruction deltas remain unmeasured. PocketIC's pending
+setup handoff remains with Testkit and
+[#327](https://github.com/dragginzgame/icydb/issues/327).
+
+Published 0.267.4 adopts committed Shared Tooling 0.1.34,
 `3d33cd250fcae7dbe5cabe44b2abd6b2c91a1822`, through the canonical exporter
 from a clean isolated checkout. The eighty-two-file selection adds only the
 shared ShellCheck entry point and keeps retired fleet/PocketIC helpers omitted.
@@ -24,6 +132,20 @@ linter-selection drift, not a reason to patch the immutable checker or suppress
 its diagnostic. Native workstation ShellCheck retains its current consumer
 setup. Matching committed CI and complete macOS qualification remain
 [#309](https://github.com/dragginzgame/icydb/issues/309).
+
+The earlier read-only review on 2026-10-09 covered Shared Tooling 0.1.37
+(`dc4fdf0f78928d75b69bbf43b37c690c53a04d1e`) and published Testkit 0.25.5
+(`311c39b9a7f9cc04fec050797c3324842e338328`). Shared's selected Cargo
+binary/example installer can replace the separate runner installation flow,
+retaining exact package/profile receipts, offline byte verification and failed
+attempts. Its latest hook correction also finds prepared formatters without a
+user PATH export. Shared 0.1.35's three-host CI passes; 0.1.36/0.1.37 and both
+Testkit 0.25.5 workflows remain queued at inspection. This is review, not a
+snapshot refresh or consumer/native runtime qualification. The maintainer's
+existing lock update selects Testkit 0.25.5 and is preserved; uncommitted
+Testkit 0.25.6 work is excluded. Adoption remains with
+[#309](https://github.com/dragginzgame/icydb/issues/309) and
+[#327](https://github.com/dragginzgame/icydb/issues/327).
 
 The workflow's exact installer block passes a real authenticated download and
 version check, then the installed binary passes the maintained repository
@@ -314,10 +436,12 @@ and retains failed outputs. Successful invocation-owned scratch is removed
 ([Testkit #29](https://github.com/dragginzgame/ic-testkit/issues/29),
 [#307](https://github.com/dragginzgame/icydb/issues/307)).
 
-Run `make fetch install-pocketic-runner` explicitly before the portable wrapper
-fixtures or Tier B. Cargo metadata selects the single locked Testkit version;
-Cargo installs its published `ic-testkit-server` into `.tools/testkit/bin`, with
-retained build outputs under `target/icydb/testkit-runner`. CI performs this
+Run `make fetch install-testkit testkit-check` explicitly before the portable
+wrapper fixtures or Tier B. Cargo metadata selects the single locked Testkit
+version; Shared's selected Cargo installer prepares its published CLI with
+package/profile receipts under `.tools/rust`. Testkit prepares the server under
+`.tools/ic-testkit-server`. Prior `.tools/testkit` outputs remain retained.
+CI performs this
 setup before validation. Ordinary validation never installs or downloads the
 runner. This handoff removes the second server supervisor; the only retained
 local policy is evidence custody and the existing 30-second startup/900-second
@@ -628,9 +752,9 @@ version parser. Shared installation still verifies the exact reviewed download,
 its receipt and executable identity; that authenticates the selected artifact,
 not protocol compatibility. The retained Shared reference guides describe the
 upstream helper catalog, including optional helpers no longer selected here.
-The selected Testkit startup restriction remains tracked by
-[Testkit #34](https://github.com/dragginzgame/ic-testkit/issues/34); shared default
-pin updates remain [Shared #76](https://github.com/dragginzgame/shared-tooling/issues/76).
+Testkit 0.25.4 publishes stable 16.x override admission under
+[Testkit #34](https://github.com/dragginzgame/ic-testkit/issues/34); coordinated
+provisioning retirement remains [Shared #76](https://github.com/dragginzgame/shared-tooling/issues/76).
 Ordinary validation never downloads missing executables.
 
 The maintainer's expanded ownership direction gives Testkit all PocketIC-specific
@@ -641,11 +765,18 @@ supply generic mechanisms without maintaining a separate PocketIC policy.
 [Testkit #38](https://github.com/dragginzgame/ic-testkit/issues/38) owns the
 published setup/check handoff and coordinates retirement of Shared's server
 catalog with [Shared #76](https://github.com/dragginzgame/shared-tooling/issues/76).
-Reviewed Testkit 0.25.3 source exposes only the existing runner and still
-requires a caller-prepared binary or URL. The working setup above therefore
-remains pending that owner release; it is not the completed ownership end state.
-Do not patch immutable snapshot pins, create another consumer installer or
-silently enable download during tests to bridge the missing contract.
+Testkit 0.25.4 publishes `ic-testkit-server setup|check [--directory DIRECTORY]`
+and lets unselected `run` use its prepared owner bundle. Published 0.25.5 adds
+`run --idle-ttl` and `PocketIcStartupConfig::with_server_idle_ttl`, separating
+operation-idle lifetime from the hard lifetime under
+[Testkit #37](https://github.com/dragginzgame/ic-testkit/issues/37).
+Published Testkit 0.25.4's three-host setup/check and real launch qualification
+now establishes the replacement prerequisite. The explicitly selected 0.268
+hard cut adopts Shared's committed five-tool retirement and Testkit's server
+path, as recorded above. Prior six-tool bundles/receipts remain retained but
+are no longer the active server route. Native IcyDB qualification and owner
+publication acceptance remain separate. Do not patch immutable snapshot pins,
+create another consumer installer or silently download during tests.
 
 ## Audit and verification ownership
 

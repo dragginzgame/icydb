@@ -58,6 +58,59 @@ fn assert_resource(error: crate::error::InternalError, resource: Resource) {
 }
 
 #[test]
+fn ordered_candidate_choice_precedes_exact_keys_across_lookup_and_range_families() {
+    use crate::db::query::plan::{
+        OrderDirection, OrderSpec, OrderTerm,
+        planner::plan_access_selection_with_order_and_semantic_indexes,
+    };
+
+    let schema = exact_metadata_schema(
+        &[("a_short", &["age"]), ("z_ordered", &["age", "rank"])],
+        &[],
+    );
+    let visible = VisibleIndexes::accepted_schema_visible(&schema).unwrap();
+    let indexes = visible.accepted_semantic_index_contracts();
+    let cases = [
+        Predicate::eq("age".into(), Value::Int64(1)),
+        Predicate::in_("age".into(), vec![Value::Int64(1), Value::Int64(2)]),
+        Predicate::gte("age".into(), Value::Int64(1)),
+    ];
+    for direction in [OrderDirection::Asc, OrderDirection::Desc] {
+        let order = OrderSpec {
+            fields: ["age", "rank", "id"]
+                .map(|name| OrderTerm::field(name, direction))
+                .to_vec(),
+        };
+        for (family, predicate) in cases.iter().enumerate() {
+            for ordered in [false, true] {
+                crate::db::query::preparation::with_preparation_work(|work| {
+                    let (access, _) = plan_access_selection_with_order_and_semantic_indexes(
+                        indexes,
+                        &schema,
+                        Some(predicate),
+                        ordered.then_some(&order),
+                        false,
+                        work,
+                    )
+                    .unwrap()
+                    .into_access_and_non_index_reason();
+                    assert_eq!(
+                        access.selected_index_contract().unwrap().name(),
+                        if ordered { "z_ordered" } else { "a_short" },
+                    );
+                    assert!(match family {
+                        0 => access.as_index_prefix_contract_path().is_some(),
+                        1 => access.as_index_multi_lookup_contract_path().is_some(),
+                        2 => access.as_index_range_path().is_some(),
+                        _ => unreachable!("bounded family table"),
+                    });
+                });
+            }
+        }
+    }
+}
+
+#[test]
 fn ordered_range_selection_admits_one_operand_slots_and_path() {
     use crate::db::query::plan::planner::{
         PlannerError, plan_access_selection_with_order_and_semantic_indexes,

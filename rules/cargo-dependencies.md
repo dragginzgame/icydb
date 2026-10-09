@@ -46,6 +46,46 @@ exact constraints, immutable Git revisions, lockfiles and external path inputs.
   automatic pre-commit formatting and independent CI/release checks; ordering
   must preserve the catalog and every inherited selection.
 
+## Cargo network policy
+
+- An authorized dependency update includes normal registry/Git access needed to
+  resolve and obtain the selected dependencies. Agents and helpers must not add
+  `--offline`, `--frozen` or `CARGO_NET_OFFLINE=true` to `cargo update` merely
+  because ordinary validation is offline. Do not require another permission
+  request for network access already inherent in that authorized operation;
+  actual execution-environment network restrictions still apply.
+- Scope the update to the requested packages/versions and affected workspaces.
+  Use `cargo update --package NAME --precise VERSION` when an exact version was
+  selected. Review its lockfile changes, including required transitive changes.
+  Network access does not authorize unrelated upgrades or a broad `cargo update`.
+- Release/deployment preparation for an already selected graph uses
+  `cargo fetch --locked` before dependent builds or checks. That preparation is
+  included in the authorized release/deployment workflow. A plain deployment
+  request does not authorize dependency upgrades; when updating dependencies is
+  expressly part of the request, finish that bounded update before qualifying
+  and freezing the deployment inputs.
+- Keep `--locked` on validation and artifact builds; it preserves dependency
+  selection without prohibiting downloads. Add `--offline` or `--frozen` only
+  where the workflow deliberately validates against an already prepared cache.
+  Scope offline environment settings to those commands, rather than exporting
+  them across a workflow that must also prepare dependencies.
+- Honour an explicit caller-selected offline mode, including Cargo environment
+  or configuration settings. If required inputs are unavailable, identify the
+  setting and missing input; do not silently unset it, retry online, or substitute
+  an older cached version. Agent-added flags are not a maintainer request to work
+  offline. Do not repeatedly retry the same cache-only resolution when registry
+  access is required.
+- Offline dependency-free fixtures and qualified local workspace-version
+  synchronization may stay offline when the external dependency graph is
+  unchanged and the required inputs are prepared. They do not establish the
+  policy for adopting newly published dependencies.
+
+Cargo documents that [offline updates](https://doc.rust-lang.org/cargo/commands/cargo-update.html)
+are limited by the local cache and can resolve differently from online updates.
+[Locked fetching](https://doc.rust-lang.org/cargo/commands/cargo-fetch.html)
+prepares the selected graph for subsequent offline commands. Use these distinct
+operations according to their purpose rather than applying one flag everywhere.
+
 ## Preparing authorized dependency changes
 
 - For an authorized version, source or feature change, trace every affected

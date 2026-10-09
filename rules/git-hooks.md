@@ -139,7 +139,12 @@ See the [Prettier CLI contract](https://prettier.io/docs/cli).
   the unstaged edits separately or finish staging that file, then retry.
 - Formatting runs in a temporary export of the exact index, using its source,
   manifests, configuration and Make targets. It does not use unstaged working
-  versions. It clears inherited Git repository/index variables for formatters,
+  versions. It preserves executable lookup through the original checkout's
+  prepared `.tools/host/bin`, `.tools/ic/bin` and `.tools/rust/bin`, in that order
+  before the inherited PATH; an interactive shell export is not required for
+  those tools. Prerequisite checks still enforce the selected versions, and
+  formatting never installs missing tools. It clears inherited Git
+  repository/index variables for formatters,
   while preserving the original commit index for its own checks and staging.
   It rejects inherited Make ignore-errors, dry-run, question, touch and version-only modes
   before dispatch, so a skipped or failed formatter cannot refresh the index.

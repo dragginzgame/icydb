@@ -65,15 +65,15 @@ if [[ -e "$exceptions" || -L "$exceptions" ]]; then
 else
     printf '[]\n' > "$temporary/exceptions.json"
 fi
-jq -e '
-  type == "array" and all(.[];
+jq -se '
+  length == 1 and (.[0] | type == "array" and all(.[];
     type == "object" and
     (keys == ["evidence", "file", "reason", "rule", "subject", "value"]) and
     all(.[]; type == "string" and length > 0) and
     (.rule == "cargo-exact" or .rule == "cargo-external-path" or .rule == "checkout-ref" or .rule == "npm-external-path") and
     (.file | startswith("/") or contains("..") | not) and
     (.evidence | startswith("/") or contains("..") | not)) and
-  (length == (unique_by([.file,.rule,.subject,.value]) | length))
+  (length == (unique_by([.file,.rule,.subject,.value]) | length)))
 ' "$temporary/exceptions.json" >/dev/null || fail 'malformed or duplicate pinning exception; see rules/dependency-pinning.md'
 jq -r '.[].evidence | split("#")[0]' "$temporary/exceptions.json" > "$temporary/evidence"
 while IFS= read -r evidence; do

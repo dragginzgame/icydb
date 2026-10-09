@@ -142,6 +142,11 @@ pub(in crate::db::query::plan) const fn access_candidate_score_outranks(
     if candidate.prefix_len != best.prefix_len {
         return candidate.prefix_len > best.prefix_len;
     }
+    // With the same constrained prefix, preserving requested order avoids
+    // materialization even when another index consumes its entire key.
+    if candidate.order_compatible != best.order_compatible {
+        return candidate.order_compatible;
+    }
     if exact_priority && candidate.exact != best.exact {
         return candidate.exact;
     }
@@ -151,10 +156,6 @@ pub(in crate::db::query::plan) const fn access_candidate_score_outranks(
     if candidate.range_bound_count != best.range_bound_count {
         return candidate.range_bound_count > best.range_bound_count;
     }
-    if candidate.order_compatible != best.order_compatible {
-        return candidate.order_compatible;
-    }
-
     false
 }
 
