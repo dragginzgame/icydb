@@ -5,7 +5,7 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.268.0]
+## [0.268.0] - 2026-10-09
 
 - **Breaking tooling change:** transfer PocketIC setup and offline admission to
   Testkit, requiring explicit tool reinstallation; carry scoped top-1 and shared admission fixes
