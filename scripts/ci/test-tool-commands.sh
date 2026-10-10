@@ -40,32 +40,37 @@ MAKE
 [[ "$(make --no-print-directory -C "$consumer")" == 'consumer help' ]]
 [[ ! -e "$TOOL_COMMAND_LOG" ]]
 
-make --no-print-directory -C "$consumer" install-tools > "$fixture/install.log" 2>&1
+make --no-print-directory -j4 -C "$consumer" install-tools > "$fixture/install.log" 2>&1
 cat > "$fixture/expected" <<EOF
-install-host-tools.sh <--consumer> <$consumer> <--versions> <$consumer/ci/tool-versions.env> <--with-ripgrep> <--with-cloc>
+install-host-tools.sh <--consumer> <$consumer> <--versions> <$consumer/ci/tool-versions.env>
 install-ic-tools.sh <--consumer> <$consumer> <--pins> <$consumer/ci/ic-tools.tsv>
+install-rust-tools.sh <--consumer> <$consumer> <--versions> <$consumer/ci/tool-versions.env>
 EOF
 cmp "$fixture/expected" "$TOOL_COMMAND_LOG"
 
 : > "$TOOL_COMMAND_LOG"
-make --no-print-directory -C "$consumer" tools-check \
+make --no-print-directory -j4 -C "$consumer" tools-check \
     HOST_TOOL_VERSIONS="$consumer/reviewed host pins.env" IC_TOOL_PINS="$consumer/reviewed IC pins.tsv" \
     > "$fixture/check.log" 2>&1
 cat > "$fixture/expected" <<EOF
-install-host-tools.sh <--consumer> <$consumer> <--versions> <$consumer/reviewed host pins.env> <--with-ripgrep> <--with-cloc> <--check>
+install-host-tools.sh <--consumer> <$consumer> <--versions> <$consumer/reviewed host pins.env> <--check>
 install-ic-tools.sh <--consumer> <$consumer> <--pins> <$consumer/reviewed IC pins.tsv> <--check>
+install-rust-tools.sh <--consumer> <$consumer> <--versions> <$consumer/reviewed host pins.env> <--check>
 EOF
 cmp "$fixture/expected" "$TOOL_COMMAND_LOG"
 
-# The aggregate stops before IC setup/checks when the host step fails.
+# Every common failure stops the ordered aggregate, including under parallel Make.
 for target in install-tools tools-check; do
+  count=0
+  for failed in install-host-tools.sh install-ic-tools.sh install-rust-tools.sh; do
+    count=$((count + 1))
     : > "$TOOL_COMMAND_LOG"
-    if TOOL_COMMAND_FAIL=install-host-tools.sh make --no-print-directory -C "$consumer" "$target" \
+    if TOOL_COMMAND_FAIL="$failed" make --no-print-directory -j4 -C "$consumer" "$target" \
         > "$fixture/$target-failed.log" 2>&1; then
-        echo "accepted failed host step: $target" >&2; exit 1
+        echo "accepted failed common step: $target ($failed)" >&2; exit 1
     fi
-    [[ "$(wc -l < "$TOOL_COMMAND_LOG" | tr -d ' ')" == 1 ]]
-    grep '^install-host-tools.sh ' "$TOOL_COMMAND_LOG" >/dev/null
+    [[ "$(wc -l < "$TOOL_COMMAND_LOG" | tr -d ' ')" == "$count" ]]
+  done
 done
 
 : > "$TOOL_COMMAND_LOG"
@@ -113,17 +118,41 @@ make --no-print-directory -C "$consumer" cloc-tooling CLOC_PARENT="$fixture" > "
 printf 'cloc-tooling.pl <%s>\n' "$fixture" > "$fixture/expected"
 cmp "$fixture/expected" "$TOOL_COMMAND_LOG"
 
-# Rust consumers can attach the explicit shared setup to their aggregate.
+# Product tools extend the ordered recipe rather than racing as prerequisites.
 cat >> "$consumer/Makefile" <<'MAKE'
-install-tools: install-rust-tools
-tools-check: rust-tools-check
+LOCAL_TOOL_INSTALL_TARGETS += install-product install-second
+LOCAL_TOOL_CHECK_TARGETS += check-product check-second
+.PHONY: install-product install-second check-product check-second
+install-product install-second check-product check-second:
+	@printf '%s\n' '$@' >> "$(TOOL_COMMAND_LOG)"
+	@test "$(TOOL_COMMAND_FAIL)" != '$@'
 MAKE
 : > "$TOOL_COMMAND_LOG"
-make --no-print-directory -C "$consumer" install-tools > "$fixture/rust-install.log" 2>&1
-[[ "$(head -1 "$TOOL_COMMAND_LOG")" == "install-rust-tools.sh <--consumer> <$consumer> <--versions> <$consumer/ci/tool-versions.env>" ]]
+make --no-print-directory -j4 -C "$consumer" install-tools > "$fixture/rust-install.log" 2>&1
+[[ "$(sed -n '3p' "$TOOL_COMMAND_LOG")" == "install-rust-tools.sh <--consumer> <$consumer> <--versions> <$consumer/ci/tool-versions.env>" ]]
+printf 'install-product\ninstall-second\n' > "$fixture/product-expected"
+tail -2 "$TOOL_COMMAND_LOG" > "$fixture/product-actual"
+cmp "$fixture/product-expected" "$fixture/product-actual"
 : > "$TOOL_COMMAND_LOG"
-make --no-print-directory -C "$consumer" tools-check RUST_TOOL_VERSIONS="$consumer/rust pins.env" > "$fixture/rust-check.log" 2>&1
-[[ "$(head -1 "$TOOL_COMMAND_LOG")" == "install-rust-tools.sh <--consumer> <$consumer> <--versions> <$consumer/rust pins.env> <--check>" ]]
+make --no-print-directory -j4 -C "$consumer" tools-check RUST_TOOL_VERSIONS="$consumer/rust pins.env" > "$fixture/rust-check.log" 2>&1
+[[ "$(sed -n '3p' "$TOOL_COMMAND_LOG")" == "install-rust-tools.sh <--consumer> <$consumer> <--versions> <$consumer/rust pins.env> <--check>" ]]
+printf 'check-product\ncheck-second\n' > "$fixture/product-expected"
+tail -2 "$TOOL_COMMAND_LOG" > "$fixture/product-actual"
+cmp "$fixture/product-expected" "$fixture/product-actual"
+for target in install-tools tools-check; do
+    phase=install; [[ "$target" != tools-check ]] || phase=check
+    for failed in install-rust-tools.sh "$phase-product" "$phase-second"; do
+        : > "$TOOL_COMMAND_LOG"
+        if TOOL_COMMAND_FAIL="$failed" make --no-print-directory -j4 -C "$consumer" "$target" \
+            > "$fixture/product-failure.log" 2>&1; then exit 1; fi
+        case "$failed" in
+            install-rust-tools.sh) expected_count=3 ;;
+            *-product) expected_count=4 ;;
+            *-second) expected_count=5 ;;
+        esac
+        [[ "$(wc -l < "$TOOL_COMMAND_LOG" | tr -d ' ')" == "$expected_count" ]]
+    done
+done
 # Keep later default-goal comparison on its current command record.
 cp "$TOOL_COMMAND_LOG" "$fixture/expected"
 

@@ -1,0 +1,87 @@
+name: Retain failed validation and installer evidence
+# Shared companions: scripts/ci/archive-evidence.sh scripts/ci/select-tool-evidence.sh
+description: One collection contract for ordinary failures and hosted retention qualification.
+inputs:
+  name:
+    description: Unique artifact name for this job and attempt.
+    required: true
+  temp-root:
+    description: Absolute root containing validation logs and portable-fixtures.
+    required: true
+  repository-root:
+    description: Absolute checkout root containing retained tool candidates.
+    required: true
+  compact-successful-tools:
+    description: Recheck complete active toolsets and retain their pins/check evidence instead of bulky payloads; failed and unselected sets stay full.
+    default: 'false'
+  host-versions:
+    description: Absolute caller-selected host pin file for compact checking; defaults to repository ci/tool-versions.env.
+  ic-pins:
+    description: Absolute caller-selected IC pin file for compact checking; defaults to repository ci/ic-tools.tsv.
+outputs:
+  artifact-id:
+    description: Uploaded artifact identity, used for the hosted round-trip check.
+    value: ${{ steps.upload.outputs.artifact-id }}
+runs:
+  using: composite
+  steps:
+    - id: archive
+      if: ${{ !cancelled() }}
+      shell: bash
+      env:
+        EVIDENCE_TEMP_ROOT: ${{ inputs.temp-root }}
+        EVIDENCE_REPOSITORY_ROOT: ${{ inputs.repository-root }}
+        EVIDENCE_ACTION_ROOT: ${{ github.action_path }}
+        EVIDENCE_COMPACT: ${{ inputs.compact-successful-tools }}
+        EVIDENCE_HOST_VERSIONS: ${{ inputs.host-versions }}
+        EVIDENCE_IC_PINS: ${{ inputs.ic-pins }}
+      run: |
+        temp_root="$EVIDENCE_TEMP_ROOT"
+        repository_root="$EVIDENCE_REPOSITORY_ROOT"
+        [[ "$temp_root" == /* ]] || temp_root="$PWD/$temp_root"
+        [[ "$repository_root" == /* ]] || repository_root="$PWD/$repository_root"
+        [[ -d "$temp_root" && -d "$repository_root" ]]
+        inputs=()
+        shopt -s nullglob
+        for path in "$temp_root/portable-regression.log" "$temp_root/portable-fixtures" \
+            "$temp_root"/tools-*.log "$temp_root"/host-tools-*.log "$temp_root"/ic-tools-*.log "$temp_root"/rust-tools-*.log \
+            "$temp_root"/formatting.*; do
+          if [[ -e "$path" || -L "$path" ]]; then inputs+=("$temp_root" "${path#"$temp_root/"}"); fi
+        done
+        # Rust compilation evidence is independent of host/IC compaction. Avoid
+        # redirected parents; archive a final build symlink without following it.
+        if [[ ! -L "$repository_root/.tools" && ! -L "$repository_root/.tools/rust" ]]; then
+          path="$repository_root/.tools/rust/build"
+          if [[ -e "$path" || -L "$path" ]]; then inputs+=("$repository_root" .tools/rust/build); fi
+        fi
+        case "${EVIDENCE_COMPACT:-false}" in
+          false) selection=(full) ;;
+          true) selection=(compact) ;;
+          *) echo 'compact-successful-tools must be true or false' >&2; exit 2 ;;
+        esac
+        diagnostics="$(mktemp -d "$temp_root/tool-evidence.XXXXXX")"
+        selection+=("$repository_root" "$diagnostics")
+        if [[ "${EVIDENCE_COMPACT:-false}" == true ]]; then
+          selection+=("${EVIDENCE_HOST_VERSIONS:-$repository_root/ci/tool-versions.env}"
+                      "${EVIDENCE_IC_PINS:-$repository_root/ci/ic-tools.tsv}")
+        fi
+        bash "$EVIDENCE_ACTION_ROOT/../../../scripts/ci/select-tool-evidence.sh" "${selection[@]}" > "$diagnostics/selections.nul"
+        while IFS= read -r -d '' selected_root && IFS= read -r -d '' selected_path; do
+          inputs+=("$selected_root" "$selected_path")
+        done < "$diagnostics/selections.nul"
+        if [[ -d "$diagnostics/host" || -d "$diagnostics/ic" ]]; then
+          inputs+=("$temp_root" "${diagnostics#"$temp_root/"}")
+        fi
+        if [[ ${#inputs[@]} != 0 ]]; then
+          archive="$(mktemp -d "$RUNNER_TEMP/shared-evidence.XXXXXX")/evidence.tar.gz"
+          bash "$EVIDENCE_ACTION_ROOT/../../../scripts/ci/archive-evidence.sh" "$archive" "${inputs[@]}"
+          printf 'path=%s\n' "$archive" >> "$GITHUB_OUTPUT"
+        fi
+    - id: upload
+      if: ${{ !cancelled() && steps.archive.outputs.path != '' }}
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      with:
+        name: ${{ inputs.name }}
+        path: ${{ steps.archive.outputs.path }}
+        retention-days: 14
+        if-no-files-found: error

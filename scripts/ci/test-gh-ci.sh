@@ -32,7 +32,19 @@ case "$1 $2" in
         done
         echo 'queued workflow evidence'
         ;;
-    'run view') exit "${GH_CI_TEST_VIEW_STATUS:-0}" ;;
+    'run view')
+        [[ ${GH_CI_TEST_VIEW_STATUS:-0} == 0 ]] || exit "$GH_CI_TEST_VIEW_STATUS"
+        case "$4" in
+            --log-failed)
+                printf '%s' "${GH_CI_TEST_LOG_TEXT-failed step details}"
+                printf '%s' "${GH_CI_TEST_LOG_ERROR-}" >&2
+                exit "${GH_CI_TEST_LOG_STATUS:-0}" ;;
+            --json)
+                [[ "$5" == status,conclusion && "$6" == --jq ]]
+                printf '%s\n' "${GH_CI_TEST_STATE-$'completed\tfailure'}"
+                exit "${GH_CI_TEST_STATE_STATUS:-0}" ;;
+        esac
+        ;;
     *) exit 91 ;;
 esac
 SCRIPT
@@ -40,7 +52,7 @@ chmod +x "$fixture/bin/"*
 export PATH="$fixture/bin:$PATH"
 run() {
     : > "$GH_CI_TEST_LOG"
-    bash "$ROOT/scripts/dev/gh-ci.sh" "$@" > "$fixture/output" 2>&1
+    TMPDIR="$fixture" bash "$ROOT/scripts/dev/gh-ci.sh" "$@" > "$fixture/output" 2>&1
 }
 refuse() {
     local expected="$1" status=0
@@ -70,7 +82,9 @@ run --all-workflows --branch main
 grep -Fx 'gh <run> <list> <--branch> <main> <--limit> <10>' "$GH_CI_TEST_LOG"
 run --run 17 --logs
 grep -Fx 'gh <run> <view> <17> <--log-failed>' "$GH_CI_TEST_LOG"
+grep -F 'failed step details' "$fixture/output"
 if grep -F 'gh <run> <list>' "$GH_CI_TEST_LOG"; then exit 1; fi
+if grep -F '<--json> <status,conclusion>' "$GH_CI_TEST_LOG"; then exit 1; fi
 
 refuse 2 --commit HEAD --run 42
 refuse 2 --all-workflows --workflow CI
@@ -93,4 +107,24 @@ GH_CI_TEST_ID='' refuse 1 --commit HEAD
 if grep -F 'gh <run> <view>' "$GH_CI_TEST_LOG"; then exit 1; fi
 GH_CI_TEST_VIEW_STATUS=6 refuse 6 --run 42 --logs
 if grep -F '<--log-failed>' "$GH_CI_TEST_LOG"; then exit 1; fi
+
+# Empty successful CLI output is not failed-step evidence. A genuinely successful
+# run has no failed-step logs; a failed, unfinished or unknown run needs an
+# explicit unavailable-evidence result rather than silent inspection success.
+GH_CI_TEST_LOG_TEXT='' refuse 1 --run 42 --logs
+grep -F 'failed-step logs unavailable' "$fixture/output"
+for conclusion in success neutral skipped; do
+    GH_CI_TEST_LOG_TEXT=$' \n\t' GH_CI_TEST_STATE=$'completed\t'"$conclusion" run --run 42 --logs
+    grep -F 'No failed-step logs' "$fixture/output"
+done
+for state in $'in_progress\t' $'queued\t' $'completed\tcancelled' malformed; do
+    GH_CI_TEST_LOG_TEXT='' GH_CI_TEST_STATE="$state" refuse 1 --run 42 --logs
+done
+GH_CI_TEST_LOG_TEXT='' GH_CI_TEST_STATE_STATUS=8 refuse 8 --run 42 --logs
+GH_CI_TEST_LOG_TEXT='partial failure log' GH_CI_TEST_LOG_ERROR='fetch interrupted' \
+    GH_CI_TEST_LOG_STATUS=9 refuse 9 --run 42 --logs
+grep -F 'partial failure log' "$fixture/output"
+retained="$(sed -n 's/^CI log observation retained: //p' "$fixture/output")"
+[[ -d "$retained" && "$(cat "$retained/failed.log")" == 'partial failure log' &&
+   "$(cat "$retained/errors.log")" == 'fetch interrupted' ]]
 echo 'CI inspection selection and failure tests passed'

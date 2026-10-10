@@ -66,6 +66,9 @@ Derive the version from the latest finalized release and the complete pending
 batch: compatible pre-1.0 work selects the next patch; breaking public API,
 semantics or output selects the next minor. Honour compatible maintainer overrides
 and report conflicting selections. Do not increment again for each landing slice.
+The next minor always increments the minor by one and resets patch to zero;
+reuse that pending line until released. Do not ask the user to name or confirm
+the number when they direct work to start on the next minor.
 
 When the pending candidate changes minor line, move only its unpublished notes
 and update the root detail link. Keep finalized notes in their original files.

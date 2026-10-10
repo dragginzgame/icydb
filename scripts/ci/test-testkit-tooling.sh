@@ -18,6 +18,8 @@ cp "$ROOT/scripts/ci/check-make-execution.sh" "$ROOT/scripts/ci/run-formatting.s
 cp "$ROOT/scripts/ci/testkit-runner.sh" "$fixture/scripts/ci/"
 cp "$ROOT/scripts/ci/actionlint-checksums.tsv" "$fixture/scripts/ci/"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$fixture/scripts/dev/install-host-tools.sh"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$fixture/scripts/dev/install-ic-tools.sh"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$fixture/scripts/ci/verify-wasm-optimizer.sh"
 printf '[workspace]\n' > "$fixture/Cargo.toml"
 cat > "$fixture/bin/cargo" <<'CARGO'
 #!/usr/bin/env bash

@@ -132,21 +132,20 @@ export TEST_POLICY_TRACE="$FIXTURE/policy-trace"
 : > "$TEST_TRACE"
 command make --no-print-directory -C "$FIXTURE" > "$FIXTURE/default-goal"
 [[ ! -s "$TEST_TRACE" ]]
-command make --no-print-directory -C "$FIXTURE" install-tools > "$FIXTURE/dispatch"
-printf '%s\n' "install-rust-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env" \
-  "install-host-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --with-ripgrep --with-cloc" \
+command make --no-print-directory -j4 -C "$FIXTURE" install-tools > "$FIXTURE/dispatch"
+printf '%s\n' "install-host-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env" \
+  "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv" \
+  "install-rust-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env" \
   "testkit-runner.sh" \
-  "ic-testkit-server setup --directory $FIXTURE/.tools/ic-testkit-server" \
-  "install-host-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --with-ripgrep --with-cloc" \
-  "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv" > "$FIXTURE/expected"
+  "ic-testkit-server setup --directory $FIXTURE/.tools/ic-testkit-server" > "$FIXTURE/expected"
 cmp "$FIXTURE/expected" "$TEST_TRACE"
 : > "$TEST_TRACE"
-command make --no-print-directory -C "$FIXTURE" tools-check > "$FIXTURE/offline"
-printf '%s\n' "install-rust-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --check" \
+command make --no-print-directory -j4 -C "$FIXTURE" tools-check > "$FIXTURE/offline"
+printf '%s\n' "install-host-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --check" \
+  "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv --check" \
+  "install-rust-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --check" \
   "testkit-runner.sh --check" \
-  "ic-testkit-server check --directory $FIXTURE/.tools/ic-testkit-server" \
-  "install-host-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --with-ripgrep --with-cloc --check" \
-  "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv --check" > "$FIXTURE/expected"
+  "ic-testkit-server check --directory $FIXTURE/.tools/ic-testkit-server" > "$FIXTURE/expected"
 cmp "$FIXTURE/expected" "$TEST_TRACE"
 printf '%s\n' verify-wasm-optimizer.sh > "$FIXTURE/policy-expected"
 cmp "$FIXTURE/policy-expected" "$TEST_POLICY_TRACE"

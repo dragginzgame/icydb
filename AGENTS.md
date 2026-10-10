@@ -2,7 +2,7 @@
 
 Apply the local [shared engineering baseline](DRAGGINZGAME.md), recorded in
 [the snapshot manifest](.shared-tooling.snapshot) at reviewed revision
-`5864f468d39f8f9d1bd26fca1afe0e20f25f1b5e`. This file is IcyDB's local overlay.
+`88a73139a0f083344c41a6f6f4b5c3a8aca7dc1d`. This file is IcyDB's local overlay.
 The shared [approved layout](rules/rust-workspaces.md#approved-icydb-layout)
 retains existing packages under `crates/`, `canisters/`, `schema/` and `testing/`
 in the single root workspace and lockfile. Adoption does not authorize relocation
@@ -182,8 +182,11 @@ for provenance and consumer boundaries. Keep this file small; open detailed docs
   read-only closeout audit in the current line. Report independent findings
   before extending scope; keep approved compatible corrections in that line.
 - Do not start a new minor-version line until the current minor has a reported
-  ready/complete closeout verdict and the user then explicitly names the target
-  minor and directs the agent to start it (for example, "start 0.212"). A
+  ready/complete closeout verdict and the user then directs the agent to start
+  the next minor (for example, "start the next minor"). Select its number
+  automatically under the shared numbering rules: increment the minor by one,
+  reset patch to zero, and reuse that pending line until released. Do not ask
+  the user to supply or confirm the number. A
   roadmap, existing next design, clean worktree, successful push, or question
   such as "what is next?" is not authorization to cross the minor boundary.
   Automatically selecting a pending changelog heading is documentation work,

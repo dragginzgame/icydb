@@ -365,7 +365,8 @@ After the new files are committed and reviewed, add `ci/ic-tools.tsv`,
 `scripts/ci/verify-evidence-checksums.sh` and
 `scripts/ci/verify-file-checksum.sh` to the snapshot, with `docs/ic-tools.md`.
 Also include `make/tools.mk`, `scripts/dev/install-host-tools.sh`,
-`scripts/dev/cloc.sh`, `ci/tool-versions.env` and `docs/local-setup.md` for the
+`scripts/dev/install-rust-tools.sh`, `scripts/dev/cloc.sh`, `ci/tool-versions.env`
+and `docs/local-setup.md` for the
 common commands and pinned host setup. Adopt the complete
 [required tool inventory](local-setup.md#required-tool-inventory), including
 ripgrep and cloc pins, and add `/.tools/` to the consumer's ignore rules. Remove
@@ -377,25 +378,53 @@ include make/tools.mk
 ```
 
 That include supplies `install-tools`, `tools-check`, `install-host-tools`,
-`host-tools-check`, `install-ic-tools`, `ic-tools-check` and `cloc`, plus the
+`host-tools-check`, `install-ic-tools`, `ic-tools-check`, `install-rust-tools`,
+`rust-tools-check` and `cloc`, plus the
 checkout-local PATH. It preserves the consumer's default Make goal; including it
 does not trigger installation. Future changes to these recipes and tool
 selections arrive with the reviewed snapshot rather than another copied recipe.
 Existing checkouts need an explicit snapshot refresh and installation to receive
 new files and executables; they never execute a mutable sibling checkout.
 
-For the shared Cargo-installed set, also vendor `scripts/dev/install-rust-tools.sh`
-and the three `SHARED_TOOLING_CARGO_SORT_VERSION`, `SHARED_TOOLING_CARGO_SORT_DERIVES_VERSION`
+For the required shared Cargo-installed set, include the three
+`SHARED_TOOLING_CARGO_SORT_VERSION`, `SHARED_TOOLING_CARGO_SORT_DERIVES_VERSION`
 and `SHARED_TOOLING_CANDID_EXTRACTOR_VERSION` pins in the selected versions file.
-The include provides `install-rust-tools` and `rust-tools-check`; Rust consumers
-attach these to their aggregate commands as shown in
-[Rust setup](local-setup.md#rust-development-tools). Retire their duplicate
+The aggregates always include Rust tools, even in non-Rust repositories;
+prepare a declared Rust/Cargo toolchain first as described in
+[Rust setup](local-setup.md#rust-development-tools). Retire duplicate
 Cargo-tool install recipes and version constants after qualified adoption.
 Consumer-selected registry binaries/examples use this same installer and its
 `scripts/ci/verify-file-checksum.sh` companion, with prepared host tools and an
 explicit local selection; see [Cargo tool setup](local-setup.md#consumer-selected-cargo-tools).
 Retire synthetic Cargo resolvers only after qualifying the selected package and
 profile. Source-checkout builds and application executable overrides stay local.
+
+### Complete toolset adoption in 0.3.0
+
+Refresh the host installer, `make/tools.mk`, Cargo installer/checksum companion,
+complete pin catalogs, baseline and setup guidance together from a reviewed
+committed revision. Include updated selected fixtures and evidence-collector
+companions when adopted; the selector calls the complete host check too.
+The current contract has no parser-only host mode or optional ripgrep/cloc flags.
+Remove `--with-ripgrep`/`--with-cloc` from direct callers, including custom CI and
+evidence checks. Retain historical documents as historical evidence.
+
+Every aggregate now includes the three Cargo tools after host and IC setup,
+including in non-Rust repositories. Remove redundant Rust aggregate prerequisites.
+Move additional product setup/check prerequisites into `LOCAL_TOOL_INSTALL_TARGETS`
+and `LOCAL_TOOL_CHECK_TARGETS` in matching order, as shown in
+[local setup](local-setup.md#required-tool-inventory). Keep existing owner targets,
+version/profile selections, overrides and admitted release-preflight boundaries.
+Do not make a product extension call the aggregate that invokes it. Ordinary
+offline checks must not invoke setup.
+
+Prepare the declared Rust toolchain first, then explicitly run `make install-tools`
+and `make tools-check` as separate commands. A complete matching host set can be
+reused; an incomplete set needs explicit setup. Preserve every earlier bundle,
+receipt and failed artifact. This cut changes the common roster and invocation
+contract, not the retained Cargo installation layout. Qualify setup reuse,
+missing-tool refusal, failure retention and product extensions under parallel
+Make on supported native hosts before claiming consumer adoption.
 
 Defaults use scripts and pins at the checkout root. For a snapshot stored below
 that root, set `SHARED_TOOLING_ROOT` to its reviewed local directory before the

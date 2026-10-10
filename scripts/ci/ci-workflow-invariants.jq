@@ -11,6 +11,15 @@ def needs_list:
 def needs_are($expected):
   (.needs | needs_list | sort | unique) == ($expected | sort | unique);
 def run_text: .run // "";
+# Native-only lanes select the complete common roster without Testkit's server
+# extension; live lanes must explicitly select the existing product owner.
+def admits_server_tools:
+  run_text as $run |
+  ($run | test("(^|\\s)(install-testkit|testkit-check)(\\s|$)")) or
+  (($run | test("\\binstall-tools\\b")) and
+    ($run | test("(?m)^[ \\t]*make[ \\t]+install-tools[ \\t]+LOCAL_TOOL_INSTALL_TARGETS=[ \\t]*(>|$)") | not)) or
+  (($run | test("\\btools-check\\b")) and
+    ($run | test("(?m)^[ \\t]*make[ \\t]+tools-check[ \\t]+LOCAL_TOOL_CHECK_TARGETS=[ \\t]*(>|$)") | not));
 
 # One object and an explicit permission owner are required in every workflow.
 require(type == "object" and (.jobs | type == "object") and (.jobs | length > 0);
@@ -86,15 +95,28 @@ require(has("permissions") and (.permissions != null);
     and (run_text | contains("bash scripts/ci/testkit-runner.sh --check")));
     "static wrapper fixtures require explicit locked CLI preparation and admission"),
   require(all(.jobs.static.steps[]?;
-    run_text | test("(^|\\s)(install-testkit|testkit-check|install-tools|tools-check)(\\s|$)") | not);
+    admits_server_tools | not);
     "static fixtures require the CLI without official server provisioning"),
+  (["static", "rust", "wasm_size_report"][] as $job |
+    require(any(.jobs[$job].steps[]?;
+      .if == null and (.["continue-on-error"] // false) == false
+      and (run_text | test("(?m)^[ \\t]*make[ \\t]+install-tools[ \\t]+LOCAL_TOOL_INSTALL_TARGETS=[ \\t]*(>|$)"))
+      and (run_text | test("(?m)^[ \\t]*make[ \\t]+tools-check[ \\t]+LOCAL_TOOL_CHECK_TARGETS=[ \\t]*(>|$)")));
+      "\($job) requires complete common setup and offline admission")),
+  (["static", "rust", "macos_host", "wasm_size_report"][] as $job |
+    require(any(.jobs[$job].steps[]?;
+      .if == "failure()" and .uses == "./.github/actions/retain-failure-evidence"
+      and .with["temp-root"] == "${{ runner.temp }}"
+      and .with["repository-root"] == "${{ github.workspace }}");
+      "\($job) requires shared tooling failure retention")),
   # Real server setup belongs to the matrix lane that executes live canisters.
   require(any(.jobs.rust.steps[]?;
     .if == "matrix.lane == 'tier-b'" and (.["continue-on-error"] // false) == false
-    and (run_text | test("^\\s*make\\s+install-testkit\\s+testkit-check\\s*$")));
+    and (run_text | test("(?m)^[ \\t]*make[ \\t]+install-testkit[ \\t]+>"))
+    and (run_text | test("(?m)^[ \\t]*make[ \\t]+testkit-check[ \\t]+>")));
     "Tier B requires explicit Testkit server setup and admission"),
   require(all(.jobs.rust.steps[]?;
-    if run_text | test("(^|\\s)(install-testkit|testkit-check|install-tools|tools-check)(\\s|$)") then
+    if admits_server_tools then
       .if == "matrix.lane == 'tier-b'" and (.["continue-on-error"] // false) == false
     else true end);
     "native Rust lanes must not provision or admit an official server"),
@@ -107,7 +129,7 @@ require(has("permissions") and (.permissions != null);
   (.jobs.rust.steps as $steps |
     range(0; ($steps | length)) as $index |
     select($steps[$index] | run_text |
-      test("\\bmake\\s+(install-host-tools\\s+host-tools-check|install-testkit\\s+testkit-check)\\b")) |
+      test("\\bmake\\s+(install-tools|install-testkit)\\b")) |
     require(any($steps[0:$index][];
       .if == null and (.["continue-on-error"] // false) == false
       and (run_text | test("^\\s*make\\s+fetch\\s*$")));

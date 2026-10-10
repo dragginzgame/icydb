@@ -8,16 +8,19 @@ make tools-check
 export PATH="$PWD/.tools/host/bin:$PWD/.tools/ic/bin:$PWD/.tools/rust/bin:$PATH"
 ```
 
-The Makefile uses those local paths automatically. Interactive shells need the
+Prepare the declared Rust/Cargo toolchain and native build prerequisites first,
+even when the repository has no Rust packages. The Makefile uses local tool
+paths automatically. Interactive shells need the
 export above; setup does not edit shell profiles. Installation downloads tools;
 checks are offline and never install missing dependencies. `install-tools` runs
-host setup followed by IC setup, stopping on failure. Each set activates
-independently: a later IC failure leaves the successfully installed host set.
+host, IC and Rust setup in that order, followed by declared product tools;
+`tools-check` checks the same sets in order. Each stops at the first failure.
+Sets activate independently: a later failure preserves earlier completed sets.
 
 ## Required tool inventory
 
 This is the common setup list for every repository adopting the
-[engineering baseline](../DRAGGINZGAME.md). The host and IC sets are required
+[engineering baseline](../DRAGGINZGAME.md). The host, IC and Cargo-tool sets are required
 regardless of whether a repository currently uses every executable. Consumers
 add their product prerequisites to local setup documentation; omissions or
 different support scopes require an explicitly approved exception.
@@ -27,12 +30,29 @@ different support scopes require an explicitly approved exception.
 | System bootstrap | Bash, Git, GNU Make, curl, CA certificates, tar, gzip, xz, Perl, a SHA-256 implementation and standard Unix utilities | Host package manager; see [bootstrap prerequisites](#bootstrap-prerequisites) |
 | Common host tools | `jq`, Mike Farah `yq`, `rg` with PCRE2, `cloc` | `make install-host-tools`; offline `make host-tools-check`; `.tools/host/bin` |
 | Common IC tools | `quill`, `icp`, `didc`, `ic-wasm`, `wasm-opt` | `make install-ic-tools`; offline `make ic-tools-check`; `.tools/ic/bin` |
-| Rust repositories | Declared Rust/Cargo toolchain, rustfmt, pinned Cargo tools and required compilation targets | Consumer toolchain setup, [Rust tool setup](#rust-development-tools) and the [formatter prerequisite check](verification-helpers.md#formatter-prerequisites) |
+| Common Cargo tools | `cargo-sort`, `cargo-sort-derives`, `candid-extractor` | `make install-rust-tools`; offline `make rust-tools-check`; `.tools/rust/bin`. All repositories prepare a declared Rust/Cargo toolchain and native build prerequisites first. |
+| Rust development | rustfmt and product compilation targets | Consumer toolchain setup and the [formatter prerequisite check](verification-helpers.md#formatter-prerequisites) |
 | Workflow-specific tools | ShellCheck, actionlint, Gitleaks, authenticated `gh`, Node/SDKs and other tools used by that repository | Explicit consumer setup; declare the tools required by each workflow |
 
-`make install-tools` and `make tools-check` cover both common local sets. Rust
-and workflow-specific setup stays explicit; those targets do not claim to
-prepare a product toolchain or authenticate GitHub. Versions and digests remain
+`make install-tools` and `make tools-check` cover all 12 common executables,
+regardless of the repository's implementation language or current use. They do
+not install a Rust toolchain or authenticate GitHub. Product and workflow-specific
+tools extend the aggregate through existing consumer-owned targets:
+
+```make
+LOCAL_TOOL_INSTALL_TARGETS += install-testkit
+LOCAL_TOOL_CHECK_TARGETS += testkit-check
+include make/tools.mk
+```
+
+These lists run sequentially after the common sets, including under parallel
+Make. Declare each required product setup/check pair; do not add prerequisites
+to `install-tools`/`tools-check`, override their recipes, or include an aggregate
+in its own extension list. Extensions must not call their enclosing aggregate.
+Select independently qualified CLI versions in their existing owner adapters.
+Rustfmt, compiler targets, credentials and other product prerequisites retain
+their documented setup; executable installation grants no deployment authority.
+Versions and digests remain
 owned by the reviewed pin files below, rather than another copied version list.
 dfx is excluded from the common IC set. See the host limits below before setup.
 Keep identity stores separate from resettable state as described in
@@ -106,21 +126,17 @@ Setup and offline checks admit the literal `.tools/host` link target. Malformed
 managed names, including trailing newlines, are refused before tool execution
 or downloads; the existing link and bundles remain intact.
 
-The shared Make include selects the installer's `--with-ripgrep` flag in both
-installation and offline checks. Consumers adopting it add `SHARED_TOOLING_RIPGREP_VERSION`
+Host installation and offline checks always include ripgrep. Consumers add `SHARED_TOOLING_RIPGREP_VERSION`
 and the four `SHARED_TOOLING_RIPGREP_SHA256_*` archive digests to their reviewed
-versions file, and pass the flag to both installation and offline verification.
+versions file.
 Offline checks authenticate the retained archive and compare its executable
 bytes with installed `rg` before running it. They require the exact version
 (allowing the official revision annotation) and a successful `--pcre2-version`.
 No Cargo installation, global PATH change or system-package replacement occurs.
 
-The same include selects `--with-cloc` for the standalone cloc payload in both
-installation and offline checks.
+Host installation and offline checks also always include the standalone cloc payload.
 Consumers adopting it add `SHARED_TOOLING_CLOC_VERSION` and the single
-`SHARED_TOOLING_CLOC_SHA256` pin to their reviewed versions file. The installer's
-narrower selections remain available to individual helper callers; they do not
-satisfy the complete repository setup contract. All selected payloads are authenticated
+`SHARED_TOOLING_CLOC_SHA256` pin to their reviewed versions file. All four payloads are authenticated
 before executing any version check; failed candidates retain the previous active
 set. cloc uses the bootstrap Perl interpreter and needs no Cargo build or system
 package installation. LOC reports select the prepared local host path themselves
@@ -145,15 +161,9 @@ under `.tools/rust/bin`, using their exact versions from
 `HOST_TOOL_VERSIONS`. Keep qualified version exceptions in that selected catalog,
 and remove duplicate consumer constants when adopting the shared pins.
 
-Rust consumers that need this set attach it to the common commands in their
-local Makefile, alongside the reviewed `make/tools.mk` include:
-
-```make
-install-tools: install-rust-tools
-tools-check: rust-tools-check
-```
-
-The common aggregate does not require a Rust toolchain in non-Rust repositories.
+The complete common aggregate includes this set in every repository, including
+non-Rust repositories. The narrow commands remain useful for explicit retries
+or diagnostics; they do not establish that the complete toolset is ready.
 Shared Make commands include `.tools/rust/bin` on PATH; interactive shells use
 the export at the top of this guide. The standard formatting hook and its
 adoption check preserve the original checkout's host, IC and Rust tool paths
@@ -299,19 +309,20 @@ manager updates; they are not claimed to be checksum-pinned shared binaries.
 Shared setup never invokes sudo or installs a package manager implicitly.
 The pinned local host set supplies ripgrep and cloc; neither is a bootstrap dependency.
 
-Rust repositories separately prepare their declared Rust toolchain, rustfmt and
-pinned cargo-sort. Shared Tooling's portable fixtures also require Cargo and
-the cargo-sort version in `ci/tool-versions.env`; prepare it explicitly:
+Every repository prepares its declared Rust/Cargo toolchain and native build
+prerequisites before the common tool setup. Rust development and Shared Tooling's
+portable fixtures also need rustfmt. After that bootstrap, use the common setup
+and select its paths before invoking scripts directly:
 
 ```bash
-source ci/tool-versions.env
-cargo install cargo-sort --version "$SHARED_TOOLING_CARGO_SORT_VERSION" --locked
-bash scripts/ci/check-format-tools.sh "$SHARED_TOOLING_CARGO_SORT_VERSION"
+make install-tools
+make tools-check
+export PATH="$PWD/.tools/host/bin:$PWD/.tools/ic/bin:$PWD/.tools/rust/bin:$PATH"
 ```
 
 Before starting portable fixtures, `test-portable-tools.sh` checks the required
 commands on PATH (including cloc, shasum, jq, Mike Farah yq and ripgrep) and reuses
-the offline formatter check above. Run this admission independently with
+the offline formatter prerequisite check. Run this admission independently with
 `bash scripts/ci/check-portable-prerequisites.sh`. It reports missing commands
 together and points back here; it never installs tools or replaces the individual
 fixtures' version, feature and behavior checks. Standard Unix utilities from the

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# GitHub expressions in jq mutation programs must remain literal.
+# shellcheck disable=SC2016
 set -euo pipefail
 
 # Actual parser/policies over copied inputs: no workflows or Git effects run.
@@ -105,6 +107,15 @@ check fail missing-static-cli-admission
 reset
 mutate '.jobs.static.steps += [{"run": "make install-testkit testkit-check"}]'
 check fail static-official-server-prerequisite
+reset
+mutate '(.jobs.static.steps[] | select(.name == "Install pinned local tools") | .run) |= sub("LOCAL_TOOL_INSTALL_TARGETS="; "")'
+check fail static-server-extension
+reset
+mutate '(.jobs.rust.steps[] | select(.name == "Install pinned local tools") | .run) |= sub("make tools-check LOCAL_TOOL_CHECK_TARGETS="; "true")'
+check fail incomplete-common-admission
+reset
+mutate '.jobs.rust.steps |= map(select(.uses != "./.github/actions/retain-failure-evidence"))'
+check fail missing-tooling-failure-retention
 reset
 mutate '.jobs.rust.steps |= map(select(.name != "Prepare locked Testkit CLI and server for live tests"))'
 check fail missing-live-server-preparation

@@ -72,14 +72,12 @@ jobs:
             --sha256 "$SHARED_TOOLING_SHELLCHECK_SHA256_LINUX_X86_64" \
             --install-dir "$tool_dir"
           echo "$tool_dir" >> "$GITHUB_PATH"
-      - name: Install pinned local parsers
+      - name: Install pinned local tools
         run: |
-          make install-host-tools host-tools-check
-          echo "$GITHUB_WORKSPACE/.tools/host/bin" >> "$GITHUB_PATH"
-      - name: Install pinned formatting tools
-        run: |
-          make install-rust-tools rust-tools-check
-          echo "$GITHUB_WORKSPACE/.tools/rust/bin" >> "$GITHUB_PATH"
+          make install-tools LOCAL_TOOL_INSTALL_TARGETS= > "$RUNNER_TEMP/tools-install.log" 2>&1
+          make tools-check LOCAL_TOOL_CHECK_TARGETS= > "$RUNNER_TEMP/tools-check.log" 2>&1
+          printf '%s\n' "$GITHUB_WORKSPACE/.tools/host/bin" \
+            "$GITHUB_WORKSPACE/.tools/ic/bin" "$GITHUB_WORKSPACE/.tools/rust/bin" >> "$GITHUB_PATH"
       - name: Prepare locked Testkit CLI for substitute-server fixtures
         run: |
           cargo fetch --locked
@@ -87,13 +85,14 @@ jobs:
           bash scripts/ci/testkit-runner.sh --check
       - name: Run static validation with complete feedback
         run: make ci-static
-      - name: Retain formatting failure logs
+      - name: Retain tooling failure evidence
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: ./.github/actions/retain-failure-evidence
         with:
-          name: formatting-static-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/formatting.*
-          if-no-files-found: ignore
+          name: tooling-static-${{ github.run_attempt }}
+          temp-root: ${{ runner.temp }}
+          repository-root: ${{ github.workspace }}
+          compact-successful-tools: 'true'
 
   rust:
     runs-on: ubuntu-24.04
@@ -153,17 +152,28 @@ jobs:
         run: make fetch
       - name: Install pinned local tools
         run: |
-          make install-host-tools host-tools-check install-ic-tools ic-tools-check install-rust-tools rust-tools-check
+          make install-tools LOCAL_TOOL_INSTALL_TARGETS= > "$RUNNER_TEMP/tools-install.log" 2>&1
+          make tools-check LOCAL_TOOL_CHECK_TARGETS= > "$RUNNER_TEMP/tools-check.log" 2>&1
           printf '%s\n' "$GITHUB_WORKSPACE/.tools/host/bin" \
             "$GITHUB_WORKSPACE/.tools/ic/bin" "$GITHUB_WORKSPACE/.tools/rust/bin" >> "$GITHUB_PATH"
       - name: Prepare locked Testkit CLI and server for live tests
         if: matrix.lane == 'tier-b'
-        run: make install-testkit testkit-check
+        run: |
+          make install-testkit > "$RUNNER_TEMP/tools-testkit-install.log" 2>&1
+          make testkit-check > "$RUNNER_TEMP/tools-testkit-check.log" 2>&1
       - name: Run ${{ matrix.lane }} validation with complete feedback
         env:
           MAKE_TARGET: ${{ matrix.make_target }}
         run: |
           make "$MAKE_TARGET"
+      - name: Retain tooling failure evidence
+        if: failure()
+        uses: ./.github/actions/retain-failure-evidence
+        with:
+          name: tooling-${{ matrix.lane }}-${{ github.run_attempt }}
+          temp-root: ${{ runner.temp }}
+          repository-root: ${{ github.workspace }}
+          compact-successful-tools: 'true'
       - name: Retain PocketIC server failure logs
         if: always() && matrix.lane == 'tier-b'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -232,13 +242,14 @@ jobs:
           make fmt-check
           icp --version
           ic-wasm --version
-      - name: Retain formatting failure logs
+      - name: Retain tooling failure evidence
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: ./.github/actions/retain-failure-evidence
         with:
-          name: formatting-${{ matrix.os }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/formatting.*
-          if-no-files-found: ignore
+          name: tooling-${{ matrix.os }}-${{ github.run_attempt }}
+          temp-root: ${{ runner.temp }}
+          repository-root: ${{ github.workspace }}
+          compact-successful-tools: 'true'
 
   # Preserve the existing required-check identity while the independent lanes
   # finish in parallel and report their own complete failure sets.
@@ -288,11 +299,20 @@ jobs:
             --no-default-features --features local-sql-query,test-admin-api,candid-export
       - name: Install pinned local tools
         run: |
-          make install-tools tools-check
+          make install-tools LOCAL_TOOL_INSTALL_TARGETS= > "$RUNNER_TEMP/tools-install.log" 2>&1
+          make tools-check LOCAL_TOOL_CHECK_TARGETS= > "$RUNNER_TEMP/tools-check.log" 2>&1
           printf '%s\n' "$GITHUB_WORKSPACE/.tools/host/bin" \
             "$GITHUB_WORKSPACE/.tools/ic/bin" "$GITHUB_WORKSPACE/.tools/rust/bin" >> "$GITHUB_PATH"
       - name: Report default-empty and request-future-scale wasm sizes
         run: bash scripts/ci/wasm-size-report.sh --profile wasm-release --canister default_empty --canister request_future_scale
+      - name: Retain tooling failure evidence
+        if: failure()
+        uses: ./.github/actions/retain-failure-evidence
+        with:
+          name: tooling-wasm-${{ github.run_attempt }}
+          temp-root: ${{ runner.temp }}
+          repository-root: ${{ github.workspace }}
+          compact-successful-tools: 'true'
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: wasm-size-report

@@ -1,7 +1,7 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `5864f468d39f8f9d1bd26fca1afe0e20f25f1b5e` (Shared 0.2.13). Root
+at reviewed revision `88a73139a0f083344c41a6f6f4b5c3a8aca7dc1d` (Shared 0.3.0). Root
 [AGENTS.md](../../AGENTS.md) is the local overlay. The shared approved layout
 retains the 42 existing canister, schema and testing packages in their
 restored directories, in the single root workspace and lockfile; no new package
@@ -23,12 +23,42 @@ component ranges; committed key identities, geometry and recovery records remain
 unchanged. Incoming Host 0.11 uses per-stream output limits and typed cleanup;
 The later incoming Testkit 0.29 selection consolidates its native helpers onto
 Host 0.11, removing the earlier split generation. The final graph has Testkit
-0.29.0, Timers 0.16.6 and stable structures 0.7.2, each with one identity. The
+0.29.0, Timers 0.16.7 and stable structures 0.7.2, each with one identity. The
 later incoming Memory 0.34.1 and Metrics 0.4.0 archives retain all 46 and seven
 Rust library files respectively from reviewed 0.34.0 and 0.3.7. Timers library
 sources are unchanged from 0.16.5.
 
-Canonical Shared 0.2.13 export and verification cover all 87 recorded selections.
+Canonical Shared 0.3.0 export covers 90 recorded selections at committed
+`88a73139a0f083344c41a6f6f4b5c3a8aca7dc1d`. This authorized extension of the
+pending 0.270 tooling slice follows
+[Shared #98](https://github.com/dragginzgame/shared-tooling/issues/98) and
+[IcyDB #302](https://github.com/dragginzgame/icydb/issues/302).
+Shared owns complete host → IC → Rust orchestration; IcyDB registers its existing
+Testkit targets through the ordered product lists. The redundant aggregate
+prerequisites and product target's duplicate host setup are removed. Complete
+pins, installers and setup guidance refresh together. Native-only CI clears
+only the product extension lists, retaining complete common setup and checking;
+live lanes retain Testkit server setup. The shared failure collector retains
+aggregate logs, failed candidates, Rust builds and formatting diagnostics.
+No new tool pin, PocketIC policy, compatibility path or persisted state is added.
+
+Focused consumer setup, selected-Testkit, release-preflight, saved-release
+recovery and 54-case workflow fixtures pass on Linux Bash 5 and genuine Bash
+3.2/Make 3.81. Canonical complete-host, parallel aggregate and actual failure
+collector fixtures pass on both profiles; snapshot integrity, selected
+ShellCheck, workflow lint and documentation links pass. Actual Linux setup
+reuses the common bundles and admits the incoming locked Testkit 0.30 selection;
+a separate offline check passes. The first setup's uncached locked dependency
+refusal is retained, followed by explicit locked fetch and successful setup.
+Cargo.toml/Cargo.lock hashes remain unchanged. No network lifecycle operation
+or release occurred. Evidence: `target/shared-030-adoption`. This tooling check
+does not establish runtime qualification for the incoming Testkit 0.30 graph.
+Native macOS and full workspace/release validation remain user-owned.
+
+The snapshot carries reviewed 0.2.13 path/tool admission repairs and 0.2.14's
+CI inspection repair: unavailable failed-step logs are reported and retained;
+empty logs do not establish a diagnosis for a failed run. The earlier focused
+CI inspection fixture profiles pass.
 The path comparison reproduces the old trimmed-root acceptance and verifies
 LF/CR and resolved-alias refusal with ordinary-path controls, without modifying
 fixtures. Snapshot and selected-Rust-tool fixtures pass on Linux Bash 5 and
@@ -42,8 +72,11 @@ Wasm installation and five Testkit-owned IC init/upgrade/recovery cases pass;
 the three logical-memory cases also pass with the incoming Testkit 0.29 selection.
 The later Memory 0.34.1/Metrics 0.4.0 graph passes strict Clippy, all 15 native
 admission cases and all three logical-memory IC cases. Timers 0.16.6 still
-requires Metrics 0.3, retaining a second 0.3.7 identity beside root 0.4.0.
-Five successful managed scopes stopped through Testkit. The initial sandbox
+requires Metrics 0.3, retaining a second 0.3.7 identity beside root 0.4.0;
+[Timers #37](https://github.com/dragginzgame/ic-timers/issues/37) owns alignment.
+Timers 0.16.7 retains all 15 library files from 0.16.6; the current graph passes
+strict Clippy and a focused startup trap/upgrade case. Six successful managed
+scopes stopped through Testkit. The initial sandbox
 loopback refusal and omitted metrics feature failure are retained as corrected
 qualification attempts. Evidence: `target/memory-034-audit`.
 
@@ -965,7 +998,10 @@ supported hosts. [Shared host selections](../../ci/tool-versions.env) select jq,
 yq, PCRE2-enabled ripgrep, cloc 2.10, cargo-sort 2.1.4, cargo-sort-derives 0.13.0
 and candid-extractor 0.1.6; [IcyDB utility selections](../../ci/icydb-tools.env)
 retain Twiggy, cargo-edit and cargo-watch. `make install-tools` explicitly
-installs host/IC/Rust toolsets; `make tools-check` checks them offline. Cargo
+installs complete host/IC/Rust toolsets followed by the locked Testkit selection;
+`make tools-check` checks the same roster offline. Product targets use the shared
+ordered extension lists, and setup/check are separate commands. Prepare the
+Rust toolchain and run `make fetch` first. Cargo
 owns registry integrity and receipts for the Rust set; its check validates
 successful version output, rather than binary digests.
 [The shared Make include](../../make/tools.mk) owns setup, offline verification

@@ -88,8 +88,12 @@ correction.
 A different minor may begin only after:
 
 1. the current minor has a reported ready/complete closeout verdict; and
-2. after that verdict, the user explicitly names the target minor and directs
-   the agent to start it, for example `start 0.212`.
+2. after that verdict, the user directs the agent to start the next minor,
+   for example `start the next minor`.
+
+Select the next sequential minor automatically under the shared numbering rules:
+increment the minor by one, reset patch to zero, and reuse the pending line until
+released. Do not ask the user to supply or confirm its number.
 
 Do not infer that authorization from a roadmap, an existing next design, an
 empty tracker, a clean worktree, a successful push, or status questions such
@@ -102,8 +106,8 @@ hit a number. Later evidence-backed extensions remain in the same explicitly
 authorized minor when that produces the clearest release history.
 
 A completed batch is handed back for review against its accepted scope. Agents
-must not invent release numbers; use an undated Draft when the version is
-undecided. The user selects the exact release and owns commits and publication.
+maintain one numbered, undated pending entry under the shared automatic numbering
+rules. The user directs implementation scope and owns commits and publication.
 Breaking public API or semantic changes require a minor release before 1.0.
 
 ---

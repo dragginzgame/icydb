@@ -26,6 +26,8 @@
 # via `make -C "$$ROOT"` and share a single source of truth.
 ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 SHARED_TOOLING_ROOT := $(ROOT_DIR)
+LOCAL_TOOL_INSTALL_TARGETS := install-testkit
+LOCAL_TOOL_CHECK_TARGETS := testkit-check
 include $(ROOT_DIR)/make/tools.mk
 include $(ROOT_DIR)/make/execution.mk
 include $(ROOT_DIR)/make/release.mk
@@ -35,8 +37,6 @@ include $(ROOT_DIR)/make/release.mk
 CARGO_WORK_HOME := $(ROOT_DIR)/.cache/cargo/icydb
 CARGO_WORK_TARGET_DIR := $(ROOT_DIR)/target/icydb
 RELEASE_TMP_DIR := $(ROOT_DIR)/.cache/release-tmp
-install-tools: install-rust-tools install-testkit
-tools-check: rust-tools-check testkit-check
 CARGO_WORK_ENV := CARGO_HOME="$(CARGO_WORK_HOME)" CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
 CARGO_PUBLISH_ENV := CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
 TESTKIT_RUNNER := bash "$(ROOT_DIR)/scripts/ci/testkit-runner.sh"
@@ -66,7 +66,7 @@ print-cargo-target-dir:
 	@printf '%s\n' "$(CARGO_WORK_TARGET_DIR)"
 
 # Explicit setup only: validation never installs the CLI or server.
-install-testkit: install-host-tools
+install-testkit:
 	@runner="$$( $(TESTKIT_RUNNER) )" && "$$runner" setup --directory "$(ROOT_DIR)/.tools/ic-testkit-server"
 
 testkit-check:
@@ -595,9 +595,9 @@ release-preflight:
 	@mkdir -p "$(RELEASE_TMP_DIR)"
 	@$(MAKE) --no-print-directory fetch
 	@if [ "$${CARGO_NET_OFFLINE:-false}" != true ]; then \
-		$(MAKE) --no-print-directory install-testkit; \
+		$(MAKE) --no-print-directory install-tools; \
 	fi
-	@CARGO_NET_OFFLINE=true $(MAKE) --no-print-directory testkit-check
+	@CARGO_NET_OFFLINE=true $(MAKE) --no-print-directory tools-check
 release-verify:
 	+TMPDIR="$(RELEASE_TMP_DIR)" CARGO_NET_OFFLINE=true $(MAKE) --no-print-directory validate
 release-prepare-version:

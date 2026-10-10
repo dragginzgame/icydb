@@ -233,7 +233,10 @@ struct TypeName;
   tracker is exhausted, perform a read-only closeout audit and report findings
   rather than opening the next line or immediately correcting the findings.
 - Start a different minor only after reporting a ready/complete closeout verdict
-  and then receiving an explicit user direction that names the target minor.
+  and then receiving an explicit user direction to start the next minor.
+  Select the next sequential minor automatically under the shared numbering
+  rules, resetting patch to zero and reusing the pending line until released.
+  Do not ask the user to supply or confirm its number.
 
 ## Wasm Measurement
 

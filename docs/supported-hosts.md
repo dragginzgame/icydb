@@ -90,6 +90,7 @@ required to run setup. Make targets and CI select this same local tool set.
 | `scripts/dev/cloc.sh` | Git, Cargo, `cloc`, `jq`, `awk`, `find`, `grep`, and `sort` |
 | `scripts/dev/cloc-siblings.sh` | Git and the same prepared tools as `cloc.sh`; read-only root workspace summaries |
 | `scripts/dev/cloc-tooling.pl` | Git, cloc, and core Perl modules including JSON::PP and Digest::SHA; no Cargo or consumer command execution |
+| `scripts/dev/github-siblings.sh` | Git, jq, awk, sort, Perl core POSIX functions, system IANA timezone data (Europe/Monaco), and an authenticated GitHub CLI |
 | `scripts/dev/gh-ci.sh` | Git and an authenticated GitHub CLI |
 | Local maintenance coordinator | Bash 3.2+, Git, prepared/authenticated Codex CLI with `exec --approve-for-me`, and a serial scheduler; the supplied user units require Linux systemd. Task tools remain optional consumer-qualified inputs; see [local scheduling](../tasks/local-schedule.md). The offline fixture substitutes Codex and starts no agent. |
 | `scripts/ci/run-validation-targets.sh` | GNU Make plus `awk`, `grep` or `rg`, `sed`, `tail`, and `tee` |
@@ -115,14 +116,22 @@ required to run setup. Make targets and CI select this same local tool set.
 | Local lockfile transformer | Perl core only; the caller separately validates the prepared graph with Cargo |
 | Explicit tag maintenance | Git and Perl core modules; atomic push support for remote deletion; see [tag maintenance](tag-maintenance.md) |
 
-Standard repository setup selects cloc with `--with-cloc`, using one authenticated
+Standard repository setup always includes cloc, using one authenticated
 standalone Perl payload across the supported hosts. Its host substitutions are
 covered by fixtures; native CI qualifies the real script on each declared host.
-Standard setup also selects ripgrep with `--with-ripgrep` in both installation
+Standard setup also always includes ripgrep in both installation
 and offline checks. Its archive verification also requires tar/gzip and
 cmp. The selected native binary must report PCRE2 support. All four Linux/macOS
 architecture mappings have substitute fixtures; only native execution qualifies
 the corresponding official binary. See [local setup](local-setup.md).
+
+The complete setup/check aggregates include the three pinned Cargo tools on
+every repository. A prepared Rust/Cargo toolchain and native build prerequisites
+are therefore required even for non-Rust consumers. The native regression jobs
+run the complete aggregate on Linux x86-64 and both macOS architectures; narrower
+CI jobs may prepare only their own declared prerequisites without claiming a
+complete developer installation. Linux ARM64 remains host-set-only because the
+IC set lacks a matching Quill asset.
 
 The hook regression fixture also requires `jq` and the `cargo-sort` version from
 `ci/tool-versions.env` (`2.1.4`). CI installs it before offline tests; local

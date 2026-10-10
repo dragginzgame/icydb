@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ### 🩹 Fixed
 
 - **Breaking:** adopt host-owned Memory 0.34 pools; repair SQL semantics,
-  diagnostic artifact publication, CI lifetimes and selected-tool preparation
+  diagnostic artifact publication, CI lifetimes and complete shared tool setup
   ([#333](https://github.com/dragginzgame/icydb/issues/333),
   [#337](https://github.com/dragginzgame/icydb/issues/337),
   [#307](https://github.com/dragginzgame/icydb/issues/307),

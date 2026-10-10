@@ -273,10 +273,15 @@ Consumer choices described in those guides remain subject to this baseline.
 - Provide [local developer setup](docs/local-setup.md) through explicit
   `make install-tools` and offline `make tools-check`, following the
   [required tool inventory](docs/local-setup.md#required-tool-inventory).
-  The host set includes pinned jq, Mike Farah yq, ripgrep with PCRE2 and cloc
-  under `.tools/host/bin`. Make/CI installation and check callers select the
-  complete set and their own checkout's local paths; document interactive shell
-  PATH setup, system bootstrap packages and product toolchains separately.
+  Every repository prepares the same common host, IC and Cargo-tool sets,
+  including tools it does not currently use. The host set includes pinned jq,
+  Mike Farah yq, ripgrep with PCRE2 and cloc under `.tools/host/bin`; the Cargo
+  set includes cargo-sort, cargo-sort-derives and candid-extractor under
+  `.tools/rust/bin`. Aggregates run host, IC and Rust steps in order, stopping on
+  failure. Consumer-specific setup/check targets extend the ordered lists in
+  `make/tools.mk`, not unordered aggregate prerequisites. Make/CI callers select
+  their own checkout's local paths; document interactive shell PATH setup,
+  prepared Rust toolchains and system bootstrap packages separately.
   Adopt `make/tools.mk` from the reviewed snapshot for these common commands
   and LOC reporting, replacing copied recipes; CI calls the same targets.
 - Provide the [common local IC executable setup](docs/ic-tools.md) through

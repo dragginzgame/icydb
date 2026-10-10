@@ -15,7 +15,8 @@ Options:
   --all-workflows     List runs across workflows, bounded by --limit.
   --run <id>          Inspect a specific workflow run id.
   --failed            Search historical failures, even if a later run passed.
-  --logs              Print failed-step logs after the run summary.
+  --logs              Print failed-step logs after the run summary. Report missing
+                      failure evidence and retain unsuccessful log observations.
   --list              List recent runs instead of opening one run.
   --limit <n>         Number of runs to list. Defaults to 10.
   -h, --help          Show this help.
@@ -189,5 +190,29 @@ fi
 gh run view "$run_id" --verbose
 
 if [ "$print_logs" -eq 1 ]; then
-    gh run view "$run_id" --log-failed
+    logs="$(mktemp -d "${TMPDIR:-/tmp}/gh-ci-logs.XXXXXX")"
+    trap 'status=$?; if [[ "$status" == 0 ]]; then rm -rf "$logs"; else printf "\nCI log observation retained: %s\n" "$logs" >&2; fi' EXIT
+    status=0
+    gh run view "$run_id" --log-failed > "$logs/failed.log" 2> "$logs/errors.log" || status=$?
+    cat "$logs/failed.log"
+    cat "$logs/errors.log" >&2
+    [[ "$status" == 0 ]] || exit "$status"
+    # A zero CLI status with empty output does not establish that failure logs
+    # were inspected. Only a completed non-failing run can lack them normally.
+    if ! LC_ALL=C grep -q '[^[:space:]]' "$logs/failed.log"; then
+        gh run view "$run_id" --json status,conclusion --jq '[.status,.conclusion] | @tsv' \
+            > "$logs/state.tsv" 2> "$logs/state-errors.log" || {
+                status=$?
+                cat "$logs/state-errors.log" >&2
+                exit "$status"
+            }
+        state="$(cat "$logs/state.tsv")"
+        case "$state" in
+            $'completed\tsuccess'|$'completed\tneutral'|$'completed\tskipped')
+                printf 'No failed-step logs for completed %s run %s.\n' "${state#*$'\t'}" "$run_id" >&2 ;;
+            *)
+                printf 'failed-step logs unavailable for run %s; inspect its job details before concluding the failure review.\n' "$run_id" >&2
+                exit 1 ;;
+        esac
+    fi
 fi

@@ -125,12 +125,12 @@ printf '#!%s\n' "$real_bash" > "$fixture/bin/make"
 cat >> "$fixture/bin/make" <<'MAKE'
 set -euo pipefail
 case "$*" in
-    '--no-print-directory install-testkit')
+    '--no-print-directory install-tools')
         printf 'selected Testkit setup\n' >> "$EVENTS"
         [[ "${FAIL_SETUP:-0}" == 0 ]] || exit 23
         touch "$SELECTED_READY"
         ;;
-    '--no-print-directory testkit-check')
+    '--no-print-directory tools-check')
         [[ "${CARGO_NET_OFFLINE:-false}" == true ]]
         printf 'selected Testkit check\n' >> "$EVENTS"
         [[ "${FAIL_CHECK:-0}" == 0 && -f "$SELECTED_READY" ]] || exit 29
