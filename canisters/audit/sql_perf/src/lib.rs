@@ -55,13 +55,17 @@ use icydb_testing_audit_sql_perf_fixtures::sql_perf::{
     PerfAuditStreamingRow, PerfAuditToken, PerfAuditUser,
 };
 
-// The host grants the pool; schema declarations name only permanent keys.
-icydb::ic_memory_range!(
-    authority = "icydb.sql_perf",
-    start = 100,
-    end = 254,
-    mode = Allowed
-);
+// The final host owns grants and exclusions; components request permanent keys.
+fn icydb_memory_pool()
+-> Result<icydb::db::MemoryAllocationPool, icydb::db::MemoryAllocationPoolError> {
+    icydb::db::MemoryAllocationPool::new(
+        vec![icydb::db::MemoryAuthority::new(
+            "icydb.sql_perf",
+            "icydb.sql_perf.",
+        )?],
+        vec![],
+    )
+}
 
 #[cfg(not(feature = "test-admin-api"))]
 icydb::start!();

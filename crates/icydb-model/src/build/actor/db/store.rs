@@ -742,6 +742,7 @@ fn store_wiring_tokens(
                         ::icydb::__macro::ensure_default_memory_manager(
                             #memory_authority,
                             #bucket_size_pages,
+                            crate::icydb_memory_pool,
                         )
                     })
                     .clone()
@@ -886,7 +887,7 @@ mod tests {
             );
             let rendered = compact_tokens(generate_store_wiring(&builder, quote!()));
             assert!(rendered.contains(&format!(
-                "ensure_default_memory_manager(\"icydb.test\",{pages}u16,)"
+                "ensure_default_memory_manager(\"icydb.test\",{pages}u16,crate::icydb_memory_pool,)"
             )));
             assert_eq!(
                 builder.schema_fragment_bytes,
@@ -1127,7 +1128,7 @@ mod tests {
         assert!(rendered.contains("Result<(),::icydb::db::DatabaseBootstrapError>"));
         assert!(
             rendered
-                .contains("::icydb::__macro::ensure_default_memory_manager(\"icydb.demo\",16u16,)")
+                .contains("::icydb::__macro::ensure_default_memory_manager(\"icydb.demo\",16u16,crate::icydb_memory_pool,)")
         );
         assert!(rendered.contains("ensure_memory_bootstrap()?"));
         assert!(rendered.contains("pubfnstartup_state()->::std::result::Result<"));

@@ -17,7 +17,7 @@ use ic_host_artifacts::{
 };
 use ic_host_fs::read::read_opened_file;
 use ic_host_process::tool::{
-    AdmittedTool, ExecutionContext, OutputLimits, VersionSpec, resolve_executable,
+    AdmittedTool, ExecutionContext, OutputLimit, OutputLimits, VersionSpec, resolve_executable,
 };
 use ic_host_tools::candid::{ExtractionError, extract};
 use icydb::{
@@ -440,9 +440,9 @@ pub(crate) fn extract_canister_candid(wasm_path: &Path) -> Result<String, String
         .find_map(|line| line.strip_prefix("export SHARED_TOOLING_CANDID_EXTRACTOR_VERSION="))
         .ok_or_else(|| "Candid extractor version is absent from the tool catalog".to_string())?;
     let limits = OutputLimits {
-        stdout_bytes: 1024 * 1024,
-        stderr_bytes: 1024 * 1024,
-        timeout: Duration::from_secs(600),
+        stdout: OutputLimit::Terminate(1024 * 1024),
+        stderr: OutputLimit::Terminate(1024 * 1024),
+        timeout: Some(Duration::from_secs(600)),
     };
     let tool = AdmittedTool::admit_version(
         &VersionSpec {

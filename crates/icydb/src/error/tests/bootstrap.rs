@@ -5,9 +5,9 @@ use crate::{
     db::{DatabaseBootstrapError, MemoryBootstrapAdmissionError},
 };
 use ic_memory::{
-    AllocationValidationError, BootstrapAdmissionError, MemoryManagerRangeAuthorityError,
-    RuntimeAdoptionError, RuntimeBootstrapError, RuntimeOpenError, RuntimePolicyError,
-    RuntimeStateError, StableKey, StaticMemoryDeclarationError,
+    AllocationValidationError, BootstrapAdmissionError, MemoryAllocationPoolError,
+    RuntimeAdoptionError, RuntimeBootstrapError, RuntimeOpenError, RuntimeStateError, StableKey,
+    StaticMemoryDeclarationError,
 };
 use icydb_diagnostic_code::{DiagnosticFactTag, ErrorCode};
 
@@ -15,26 +15,21 @@ fn public(cause: RuntimeBootstrapError<MemoryBootstrapAdmissionError>) -> Error 
     Error::from(DatabaseBootstrapError::from(cause))
 }
 
-fn grant() -> MemoryManagerRangeAuthorityError {
-    MemoryManagerRangeAuthorityError::UnclaimedId { id: 42 }
+fn grant() -> MemoryAllocationPoolError {
+    MemoryAllocationPoolError::ExcludedSlot { id: 42 }
 }
 
 fn historical() -> BootstrapAdmissionError {
-    BootstrapAdmissionError::Range {
-        stable_key: StableKey::parse("icydb.main.store.old.journal.v1").unwrap(),
-        authority: "icydb.main".into(),
-        source: grant(),
-    }
+    BootstrapAdmissionError::Pool(grant())
 }
 
 #[test]
 fn memory_bootstrap_grant_wrappers_preserve_bounded_slot_evidence() {
     for cause in [
-        RuntimeBootstrapError::Resolution(ic_memory::MemoryResolutionError::Range(grant())),
-        RuntimeBootstrapError::Registry(StaticMemoryDeclarationError::Range(grant())),
-        RuntimeBootstrapError::Validation(AllocationValidationError::Policy(
-            RuntimePolicyError::Range(grant()),
-        )),
+        RuntimeBootstrapError::Resolution(ic_memory::MemoryResolutionError::Pool(grant())),
+        RuntimeBootstrapError::Resolution(ic_memory::MemoryResolutionError::UnmanagedAllocation {
+            id: 42,
+        }),
     ] {
         let error = public(cause);
         assert_eq!(
@@ -89,9 +84,9 @@ fn memory_bootstrap_roles_and_invalid_declarations_keep_their_identity() {
             "icydb.main.invalid.v1".into(),
         )),
         RuntimeBootstrapError::Validation(AllocationValidationError::Policy(
-            RuntimePolicyError::Custom(MemoryBootstrapAdmissionError::InvalidDeclaration(
+            MemoryBootstrapAdmissionError::InvalidDeclaration(
                 "icydb.main.commit.control.v1".into(),
-            )),
+            ),
         )),
         RuntimeBootstrapError::Registry(StaticMemoryDeclarationError::DuplicateRequest {
             stable_key: StableKey::parse("icydb.main.commit.control.v1").unwrap(),

@@ -362,15 +362,22 @@ pub struct AppCanister;
 pub struct TransferStore;
 
 // In the canister root, not the schema crate:
-icydb::ic_memory_range!(authority = "icydb.app", start = 100, end = 254, mode = Allowed);
+fn icydb_memory_pool() -> Result<icydb::db::MemoryAllocationPool, icydb::db::MemoryAllocationPoolError> {
+    icydb::db::MemoryAllocationPool::new(
+        vec![icydb::db::MemoryAuthority::new("icydb.app", "icydb.app.")?],
+        vec![], // Explicitly exclude physical IDs held by unmanaged host users.
+    )
+}
 ```
 
-The host grants fresh logical placement explicitly with `mode = Allowed`.
-Omitting `mode` selects `Reserved`; that range does not supply slots for fresh
-logical allocations. An Allowed pool must still contain enough eligible free
-slots. IcyDB re-exports this upstream macro without changing its default.
+The required host `icydb_memory_pool` provider grants disjoint permanent key
+namespaces to their named owners in one shared physical pool. It is called only
+for IcyDB-owned cold bootstrap; a composed host that commits first is adopted
+without invoking it. Governance IDs are excluded automatically; add explicit
+physical exclusions for unmanaged host memory. All admitted owners share eligible
+free slots. Namespaces do not reserve an ID range.
 `ic-memory` persists the key-to-ID mapping. The schema does not assign physical
-IDs. Use disjoint host grants when composing databases
+IDs. Use disjoint namespace grants when composing databases
 or frameworks. A host that bootstraps first must call
 `icydb::db::prepare_memory_bootstrap` from its `RuntimeBootstrapPolicy`
 preparation hook. Standalone IcyDB bootstrap calls that same hook automatically.

@@ -67,9 +67,11 @@ icydb diagnostic E278 --fact expected_count=3
 ```
 
 [Startup readiness](startup-readiness.md#poll-typed-readiness) lists the six
-classifications and their correction boundaries. Omitting `mode` from
-`icydb::ic_memory_range!` selects Reserved; fresh logical allocations require an
-explicit Allowed grant and eligible free slots.
+classifications and their correction boundaries. Cold bootstrap requires an
+explicit host pool with matching owner/namespace grants and eligible free slots.
+Physical allocation reports project `pool_eligible: Option<bool>` from Memory;
+`None` means no committed host pool is available, not free space or permission.
+
 
 An E23 raised while compiling an accepted relation includes `entity_tag` and
 `relation_id`, identifying the source entity and its relation in the accepted

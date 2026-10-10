@@ -67,7 +67,7 @@ impl Error for MemoryBootstrapAdmissionError {
 /// A composed host calls this once from `RuntimeBootstrapPolicy::prepare_bootstrap`
 /// and propagates its error. Its policy identity must cover these admission semantics.
 /// This examines the whole sealed snapshot, so a host calls it once for all IcyDB
-/// namespaces, not once per database. It neither grants memory ranges nor opens memory.
+/// namespaces, not once per database. It neither grants namespaces nor opens memory.
 ///
 /// The original requests must contain all three controls for every historical
 /// namespace and all four roles for each current store. Only omitted journal
@@ -81,8 +81,7 @@ impl Error for MemoryBootstrapAdmissionError {
 ///
 /// # Errors
 ///
-/// Rejects unsupported IcyDB keys, non-logical or incorrectly authorized current
-/// declarations, incomplete role sets, omitted historical namespaces, and failed
+/// Rejects unsupported IcyDB keys, incorrectly authorized current declarations, incomplete role sets, omitted historical namespaces, and failed
 /// historical-journal selection. Propagate rejection to abort this bootstrap.
 pub fn prepare_memory_bootstrap(
     admission: &mut BootstrapAdmission<'_>,
@@ -90,14 +89,6 @@ pub fn prepare_memory_bootstrap(
     // Group only the original sealed requests. Another consumer's historical
     // selections must not manufacture current controls or a current store.
     let mut groups = BTreeMap::<(&str, Option<&str>), u8>::new();
-    for registration in admission.declarations().registered_declarations() {
-        let key = registration.declaration().stable_key();
-        if allocation_role(key)?.is_some() {
-            return Err(MemoryBootstrapAdmissionError::InvalidDeclaration(
-                key.as_str().to_owned(),
-            ));
-        }
-    }
     for request in admission.declarations().requests() {
         let Some(role) = allocation_role(request.stable_key())? else {
             continue;

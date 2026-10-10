@@ -191,12 +191,9 @@ impl AcceptedIndexPredicate {
                     values,
                 }
             }
-            Predicate::CompareFields(compare) => Self::CompareFields {
-                left: bind_field(compare.left_field(), fields)?,
-                op: compare.op(),
-                right: bind_field(compare.right_field(), fields)?,
-                coercion: compare.coercion().id(),
-            },
+            Predicate::CompareFields(compare) => {
+                Self::bind_compare_fields(compare, fields, catalog)?
+            }
             Predicate::IsNull { field } => Self::IsNull(bind_field(field, fields)?),
             Predicate::IsNotNull { field } => Self::IsNotNull(bind_field(field, fields)?),
             Predicate::IsMissing { .. }
@@ -206,6 +203,41 @@ impl AcceptedIndexPredicate {
             | Predicate::TextContainsCi { .. } => return Err(InternalError::store_unsupported()),
         };
         bound.canonicalize()
+    }
+
+    // Resolve frontend field names and ordering coercion before persisting the
+    // accepted tree. Reading retained trees never reinterprets their coercion.
+    #[cfg(any(test, feature = "sql"))]
+    fn bind_compare_fields(
+        compare: &CompareFieldsPredicate,
+        fields: &[PersistedFieldSnapshot],
+        catalog: &AcceptedValueCatalogHandle,
+    ) -> Result<Self, InternalError> {
+        let left = bind_field(compare.left_field(), fields)?;
+        let right = bind_field(compare.right_field(), fields)?;
+        let mut coercion = compare.coercion().id();
+        if compare.op().is_ordering_family()
+            && matches!(coercion, CoercionId::Strict | CoercionId::NumericWiden)
+        {
+            let resolve = |id| {
+                Ok::<_, InternalError>(crate::db::schema::query_field_kind_from_persisted_kind(
+                    field_kind(id, fields)?,
+                    catalog.composite_catalog(),
+                ))
+            };
+            coercion = crate::db::predicate::normalize_accepted_compare_fields_coercion(
+                compare.op(),
+                &resolve(left)?,
+                &resolve(right)?,
+                coercion,
+            );
+        }
+        Ok(Self::CompareFields {
+            left,
+            op: compare.op(),
+            right,
+            coercion,
+        })
     }
 
     #[cfg(test)]
@@ -383,15 +415,22 @@ impl AcceptedIndexPredicate {
                         // qualified field-to-field coercion contract.
                         let numeric = crate::db::schema::field_type_from_persisted_kind(&kind)
                             .supports_numeric_coercion();
+                        let coercion = if op.is_ordering_family() {
+                            let field_type =
+                                crate::db::schema::field_type_from_persisted_kind(&kind);
+                            field_type
+                                .field_ordering_coercion(&field_type)
+                                .ok_or_else(InternalError::store_unsupported)?
+                        } else if numeric {
+                            CoercionId::NumericWiden
+                        } else {
+                            CoercionId::Strict
+                        };
                         Self::CompareFields {
                             left,
                             op,
                             right,
-                            coercion: if numeric {
-                                CoercionId::NumericWiden
-                            } else {
-                                CoercionId::Strict
-                            },
+                            coercion,
                         }
                     }
                 }

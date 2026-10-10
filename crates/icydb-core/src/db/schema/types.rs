@@ -13,8 +13,12 @@ use crate::{
     db::{
         QueryError,
         codec::hex::decode_hex_bounded,
+        predicate::CoercionId,
         query::preparation::PreparationWork,
-        schema::{AcceptedFieldKind, AcceptedFieldKindCategory, classify_accepted_field_kind},
+        schema::{
+            AcceptedFieldKind, AcceptedFieldKindCategory, classify_accepted_field_kind,
+            field_kind_semantics::scalar_kind_is_sql_comparable,
+        },
     },
     types::{
         Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
@@ -79,6 +83,23 @@ pub(crate) enum FieldType {
 }
 
 impl FieldType {
+    /// Select the existing comparer for two SQL-comparable field operands.
+    /// Numeric pairs widen; other orderable pairs require the same scalar kind.
+    #[must_use]
+    pub(in crate::db) fn field_ordering_coercion(&self, right: &Self) -> Option<CoercionId> {
+        let (Self::Scalar(left), Self::Scalar(right)) = (self, right) else {
+            return None;
+        };
+        if left.supports_numeric_coercion() && right.supports_numeric_coercion() {
+            Some(CoercionId::NumericWiden)
+        } else if left == right && left.supports_ordering() && scalar_kind_is_sql_comparable(*left)
+        {
+            Some(CoercionId::Strict)
+        } else {
+            None
+        }
+    }
+
     #[must_use]
     pub(crate) const fn is_queryable(&self) -> bool {
         matches!(self, Self::Scalar(_) | Self::List(_) | Self::Set(_))

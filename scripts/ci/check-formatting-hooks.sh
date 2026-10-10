@@ -6,7 +6,10 @@ if [[ $# -lt 4 ]]; then
     echo 'usage: check-formatting-hooks.sh ROOT RUST_PATH MANIFEST_PATH {UNSORTED_MANIFEST|--no-dependency-tables} [OVERLAY_PATH ...]' >&2
     exit 2
 fi
-root="$(cd "$1" && pwd -P)"
+root="$1"
+[[ "$root" == /* ]] || root="$PWD/$root"
+root="$(cd -P "$root" && printf '%s/.' "$PWD")"
+root="${root%/.}"
 rust="$2"; manifest="$3"; unsorted="$4"
 shift 4
 perturb_manifest=true
@@ -21,7 +24,9 @@ for path in "$rust" "$manifest" Makefile README.md .githooks/pre-commit scripts/
         ''|/*|..|../*|*/../*|*/..|./*|*/./*|*/.|.git|.git/*) echo "invalid relative input: $path" >&2; exit 2 ;;
     esac
     [[ -f "$root/$path" && ! -L "$root/$path" ]] || exit 2
-    parent="$(cd "$(dirname "$root/$path")" && pwd -P)"
+    parent="$root/$path"
+    parent="$(cd -P "${parent%/*}" && printf '%s/.' "$PWD")"
+    parent="${parent%/.}"
     case "$parent/" in "$root/"*) ;; *) exit 2 ;; esac
 done
 [[ "$rust" == *.rs && "${manifest##*/}" == Cargo.toml ]] || exit 2
@@ -32,7 +37,8 @@ export CARGO_NET_OFFLINE=true RUSTUP_AUTO_INSTALL=0
 # Disposable adoption checkouts reuse the consumer's explicitly prepared tools.
 export PATH="$root/.tools/host/bin:$root/.tools/ic/bin:$root/.tools/rust/bin:$PATH"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/formatting-adoption.XXXXXX")"
-fixture="$(cd "$fixture" && pwd -P)"
+fixture="$(cd -P "$fixture" && printf '%s/.' "$PWD")"
+fixture="${fixture%/.}"
 finish() {
     local status=$?
     if [[ "$status" == 0 ]]; then rm -rf "$fixture";
@@ -41,11 +47,16 @@ finish() {
 trap finish EXIT
 mkdir "$fixture/templates"
 export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TEMPLATE_DIR="$fixture/templates"
-objects="$(git -C "$root" rev-parse --git-path objects)"
+objects="$(git -C "$root" rev-parse --git-path objects && printf '.')"
+objects="${objects%$'\n.'}"
 case "$objects" in /*) ;; *) objects="$root/$objects" ;; esac
 git init --quiet "$fixture/base"
 cd "$fixture/base"
-printf '%s\n' "$objects" > .git/objects/info/alternates
+# Git's line-delimited alternates file accepts C-quoted paths. A literal newline
+# in the source checkout must not split one object directory into two records.
+perl -e '$p = $ARGV[0]; $p =~ s/([\\"])/\\$1/g; $p =~ s/\n/\\n/g;
+    $p =~ s/\r/\\r/g; $p =~ s/\t/\\t/g; print "\"$p\"\n"' \
+    "$objects" > .git/objects/info/alternates
 git update-ref HEAD "$(git -C "$root" rev-parse HEAD)"
 git read-tree HEAD
 # The shared hook supports only regular tracked files. Reject before export.
@@ -55,7 +66,9 @@ if LC_ALL=C grep -Ev '^100(644|755) ' "$fixture/entries" > "$fixture/unsupported
 fi
 git checkout-index --all
 for path in "$rust" "$manifest" Makefile .githooks/pre-commit scripts/dev/install-git-hooks.sh scripts/ci/check-make-execution.sh "$@"; do
-    mkdir -p "$(dirname "$path")"
+    parent=.
+    [[ "$path" != */* ]] || parent="${path%/*}"
+    mkdir -p "$parent"
     cp -p "$root/$path" "$path"
     git --literal-pathspecs add -- "$path"
 done

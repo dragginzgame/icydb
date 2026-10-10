@@ -760,12 +760,9 @@ fn database_bootstrap_preserves_typed_cause_until_public_projection() {
 
 #[test]
 fn database_adoption_preserves_typed_cause_until_public_projection() {
-    let cause =
-        ic_memory::RuntimeAdoptionError::Open(ic_memory::RuntimeOpenError::MemoryIdMismatch {
-            stable_key: "icydb.main.commit.control.v1".into(),
-            committed_id: 100,
-            requested_id: 101,
-        });
+    let cause = ic_memory::RuntimeAdoptionError::DeclarationMetadataMismatch {
+        stable_key: "icydb.main.commit.control.v1".into(),
+    };
     let bootstrap = crate::db::DatabaseBootstrapError::from(cause.clone());
     assert!(
         matches!(&bootstrap, crate::db::DatabaseBootstrapError::Adoption(source)
@@ -781,17 +778,5 @@ fn database_adoption_preserves_typed_cause_until_public_projection() {
         facade.code(),
         icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_MEMORY_DECLARATION_SNAPSHOT_MISMATCH
     );
-    assert_eq!(
-        facade.core_facts().unwrap(),
-        vec![
-            (
-                icydb_diagnostic_code::DiagnosticFactTag::ExpectedMemoryId,
-                101
-            ),
-            (
-                icydb_diagnostic_code::DiagnosticFactTag::ActualMemoryId,
-                100
-            ),
-        ]
-    );
+    assert!(facade.core_facts().unwrap().is_empty());
 }

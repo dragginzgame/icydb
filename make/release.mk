@@ -1,7 +1,8 @@
 # Standard entrypoints only; consumer metadata, validation and delivery policy stay local.
-# Shared companions: scripts/ci/run-release.sh
+# Shared companions: scripts/ci/run-release.sh make/execution.mk
 _shared_release_default_goal := $(.DEFAULT_GOAL)
 SHARED_TOOLING_ROOT ?= $(CURDIR)
+include $(dir $(lastword $(MAKEFILE_LIST)))execution.mk
 RELEASE_REMOTE ?= origin
 RELEASE_BRANCH ?= main
 

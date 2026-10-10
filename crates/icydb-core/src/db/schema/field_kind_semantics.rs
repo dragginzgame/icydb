@@ -46,7 +46,7 @@ const fn scalar_kind_supports_arithmetic_numeric(kind: ScalarKind) -> bool {
 }
 
 /// Return true when SQL equality predicates may compare this kind.
-const fn scalar_kind_is_sql_comparable(kind: ScalarKind) -> bool {
+pub(in crate::db::schema) const fn scalar_kind_is_sql_comparable(kind: ScalarKind) -> bool {
     !matches!(kind, ScalarKind::Unit)
 }
 

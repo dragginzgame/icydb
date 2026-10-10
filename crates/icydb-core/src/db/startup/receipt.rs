@@ -27,7 +27,7 @@ use crate::{
 use icydb_schema::{ExpectedAcceptedHead, SchemaSubmissionKey};
 
 #[cfg(not(test))]
-use ic_memory::open_default_memory_manager_memory_by_key;
+use ic_memory::open_default_memory_manager_memory;
 
 pub(in crate::db) const MAX_STARTUP_FAILURE_RECEIPT_BYTES: usize = 2_048;
 const RECEIPT_MAGIC: &[u8; 8] = b"ICYSUP01";
@@ -624,9 +624,7 @@ mod tests {
             RestrictedMemory::new(backing.clone(), 0..2),
             MemoryManagerConfig::new(1).unwrap(),
         );
-        let memory = runtime
-            .open_memory("icydb.core_tests.slot_237.v1", 237)
-            .unwrap();
+        let memory = runtime.open_memory("icydb.core_tests.slot_237.v1").unwrap();
         let before = backing.borrow().clone();
         let summary = runtime.memory_allocation_summary().unwrap();
         let error = write_cell(&memory, &[]).unwrap_err();
@@ -800,6 +798,6 @@ mod tests {
 #[cfg(not(test))]
 pub(in crate::db) fn startup_memory<C: CanisterKind>()
 -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
-    open_default_memory_manager_memory_by_key(C::STARTUP_STABLE_KEY)
+    open_default_memory_manager_memory(C::STARTUP_STABLE_KEY)
         .map_err(|_| InternalError::store_internal())
 }

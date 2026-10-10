@@ -7,8 +7,12 @@ use crate::{
             plan::{
                 expr::{
                     BinaryOp, CaseWhenArm, Expr, FieldId, Function, UnaryOp,
-                    canonicalize::canonicalize_scalar_where_bool_expr_artifact,
-                    is_normalized_bool_expr, normalize_bool_expr,
+                    canonicalize::{
+                        canonicalize_grouped_having_bool_expr_artifact,
+                        canonicalize_scalar_where_bool_expr_artifact,
+                    },
+                    eval_builder_expr_for_value_preview, is_normalized_bool_expr,
+                    normalize_bool_expr,
                 },
                 render_scalar_filter_expr_plan_label,
             },
@@ -94,6 +98,93 @@ fn not(expr: Expr) -> Expr {
 
 fn field(index: usize) -> Expr {
     Expr::Field(FieldId::new(format!("field_{index:04}")))
+}
+
+#[test]
+fn issue_case_normalization_reaches_conditions_results_and_else() {
+    crate::db::query::preparation::with_preparation_work(|work| {
+        for op in [BinaryOp::And, BinaryOp::Or] {
+            let compound = binary(op, not(not(field(0))), field(1));
+            let nested = Expr::Case {
+                when_then_arms: vec![CaseWhenArm::new(compound.clone(), compound.clone())],
+                else_expr: Box::new(compound.clone()),
+            };
+            let input = Expr::Case {
+                when_then_arms: vec![
+                    CaseWhenArm::new(compound.clone(), nested.clone()),
+                    CaseWhenArm::new(not(not(field(2))), compound.clone()),
+                ],
+                else_expr: Box::new(nested),
+            };
+            let canonical = normalize_bool_expr(input.clone(), work).unwrap();
+            assert!(is_normalized_bool_expr(&canonical));
+            assert_ne!(canonical, input);
+            assert_eq!(
+                normalize_bool_expr(canonical.clone(), work).unwrap(),
+                canonical
+            );
+        }
+    });
+}
+
+#[test]
+fn issue_case_normalization_charges_children_before_budget_exhaustion() {
+    let input = Expr::Case {
+        when_then_arms: vec![CaseWhenArm::new(field(0), field(1))],
+        else_expr: Box::new(field(2)),
+    };
+    let run = |root: &RequestExecutionRoot| {
+        PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
+            normalize_bool_expr(input.clone(), work)
+        })
+    };
+    let exact = request_with_limit(Resource::PredicateExpressionSteps, 4);
+    assert_eq!(run(&exact).unwrap(), input);
+    assert_eq!(exact.observed(Resource::PredicateExpressionSteps), 4);
+    let short = request_with_limit(Resource::PredicateExpressionSteps, 3);
+    for _ in 0..2 {
+        let error = run(&short).unwrap_err();
+        assert!(error.diagnostic_facts().contains(&(
+            DiagnosticFactTag::BudgetResource,
+            Resource::PredicateExpressionSteps.raw(),
+        )));
+    }
+    assert_eq!(short.observed(Resource::PredicateExpressionSteps), 5);
+}
+
+#[test]
+fn issue_case_normalization_preserves_context_specific_null_results() {
+    crate::db::query::preparation::with_preparation_work(|work| {
+        for op in [BinaryOp::And, BinaryOp::Or] {
+            let input = Expr::Case {
+                when_then_arms: vec![CaseWhenArm::new(
+                    binary(op, field(0), Expr::Literal(Value::Null)),
+                    Expr::Literal(Value::Bool(true)),
+                )],
+                else_expr: Box::new(Expr::Literal(Value::Null)),
+            };
+            let scalar = canonicalize_scalar_where_bool_expr_artifact(input.clone(), work)
+                .unwrap()
+                .into_expr();
+            let grouped = canonicalize_grouped_having_bool_expr_artifact(input.clone(), work)
+                .unwrap()
+                .into_expr();
+            for value in [Value::Bool(true), Value::Bool(false), Value::Null] {
+                let evaluate =
+                    |expr| eval_builder_expr_for_value_preview(expr, "field_0000", &value).unwrap();
+                let expected = evaluate(&input);
+                assert_eq!(evaluate(&grouped), expected);
+                assert_eq!(
+                    evaluate(&scalar),
+                    if expected == Value::Null {
+                        Value::Bool(false)
+                    } else {
+                        expected
+                    }
+                );
+            }
+        }
+    });
 }
 
 // Distinct boolean branches prevent constant folding from hiding condition copies.

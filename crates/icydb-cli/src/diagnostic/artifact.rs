@@ -5,7 +5,7 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs::{File, OpenOptions},
+    fs::File,
     io::Write,
     path::Path,
 };
@@ -175,22 +175,61 @@ impl DiagnosticSchemaArtifact {
                 bytes.len()
             ));
         }
-        let mut output = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(path)
-            .map_err(|err| {
+        #[cfg(unix)]
+        {
+            use ic_host_fs::durable::{PublicationMode, WriteOptions, write_at_with};
+            use std::os::fd::AsFd as _;
+
+            // Keep directory-required spellings from becoming a different file target.
+            let raw_path = path.as_os_str().as_encoded_bytes();
+            if raw_path.ends_with(b"/") || raw_path.ends_with(b"/.") {
+                return Err(format!(
+                    "diagnostic artifact target requires a directory: '{}'",
+                    path.display()
+                ));
+            }
+
+            let name = path.file_name().ok_or_else(|| {
                 format!(
-                    "failed to create diagnostic artifact '{}': {err}",
+                    "diagnostic artifact path has no filename: '{}'",
                     path.display()
                 )
             })?;
-        output.write_all(bytes.as_slice()).map_err(|err| {
-            format!(
-                "failed to write diagnostic artifact '{}': {err}",
-                path.display()
+            let parent = path
+                .parent()
+                .filter(|parent| !parent.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new("."));
+            // Retain existing parent/symlink selection and missing-parent refusal.
+            // Publication stays relative to this descriptor; no parents are created.
+            let directory = File::open(parent).map_err(|err| {
+                format!(
+                    "failed to open diagnostic artifact parent '{}': {err}",
+                    parent.display()
+                )
+            })?;
+            write_at_with(
+                directory.as_fd(),
+                name,
+                WriteOptions {
+                    mode: PublicationMode::CreateNew,
+                    permissions: 0o666,
+                },
+                |file| file.write_all(&bytes),
             )
-        })
+            .map_err(|err| {
+                // Host's display preserves whether the complete output is visible.
+                // This terminal CLI error never authorizes overwrite or retry.
+                format!(
+                    "failed to publish diagnostic artifact '{}': {err}",
+                    path.display()
+                )
+            })
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = bytes;
+            Err("durable diagnostic artifact publication is unsupported on this host".to_string())
+        }
     }
 
     pub(crate) fn provenance_matches(&self, environment: &str, canister: &str) -> bool {
@@ -626,6 +665,78 @@ mod tests {
         assert!(artifact.write_new(path.as_path()).is_err());
 
         std::fs::remove_file(path).expect("test artifact should be removable");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn artifact_publication_preserves_parent_and_create_only_policy() {
+        use std::os::unix::fs::{PermissionsExt as _, symlink};
+        let root =
+            std::env::temp_dir().join(format!("icydb-artifact-publication-{}", std::process::id()));
+        std::fs::create_dir(&root).unwrap();
+        let artifact = DiagnosticSchemaArtifact::test_fixture();
+        assert!(
+            artifact
+                .write_new(&root.join("missing/output.json"))
+                .is_err()
+        );
+        assert!(!root.join("missing").exists());
+        let parent = root.join("parent");
+        std::fs::create_dir(&parent).unwrap();
+        let linked_parent = root.join("linked-parent");
+        symlink(&parent, &linked_parent).unwrap();
+        let target = linked_parent.join("output.json");
+        artifact.write_new(&target).unwrap();
+        let expected = serde_json::to_vec_pretty(&artifact).unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), expected);
+        assert_eq!(std::fs::read_dir(&parent).unwrap().count(), 1);
+        // Compare against ordinary creation under the current umask without
+        // changing process-global permissions during parallel tests.
+        let ordinary = parent.join("ordinary");
+        std::fs::write(&ordinary, b"preserved").unwrap();
+        assert_eq!(
+            std::fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+            std::fs::metadata(&ordinary).unwrap().permissions().mode() & 0o777
+        );
+        let link = parent.join("link.json");
+        symlink(&ordinary, &link).unwrap();
+        assert!(artifact.write_new(&link).is_err());
+        assert_eq!(std::fs::read(&ordinary).unwrap(), b"preserved");
+        assert!(
+            std::fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert!(artifact.write_new(&target).is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), expected);
+        assert_eq!(std::fs::read_dir(&parent).unwrap().count(), 3);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn artifact_publication_rejects_directory_required_targets() {
+        let root = std::env::temp_dir().join(format!(
+            "icydb-artifact-target-suffix-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let existing = root.join("existing");
+        std::fs::write(&existing, b"preserved").unwrap();
+        let artifact = DiagnosticSchemaArtifact::test_fixture();
+        for name in ["existing", "absent", "missing/child"] {
+            for suffix in ["/", "//", "/.", "/./.", "/.//"] {
+                let mut raw = root.join(name).into_os_string();
+                raw.push(suffix);
+                assert!(artifact.write_new(std::path::Path::new(&raw)).is_err());
+                assert_eq!(std::fs::read(&existing).unwrap(), b"preserved");
+                assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
+            }
+        }
+        artifact.write_new(&root.join("./ordinary")).unwrap();
+        assert_eq!(std::fs::read_dir(&root).unwrap().count(), 2);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

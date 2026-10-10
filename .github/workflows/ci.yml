@@ -87,6 +87,13 @@ jobs:
           bash scripts/ci/testkit-runner.sh --check
       - name: Run static validation with complete feedback
         run: make ci-static
+      - name: Retain formatting failure logs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: formatting-static-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/formatting.*
+          if-no-files-found: ignore
 
   rust:
     runs-on: ubuntu-24.04
@@ -225,6 +232,13 @@ jobs:
           make fmt-check
           icp --version
           ic-wasm --version
+      - name: Retain formatting failure logs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: formatting-${{ matrix.os }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/formatting.*
+          if-no-files-found: ignore
 
   # Preserve the existing required-check identity while the independent lanes
   # finish in parallel and report their own complete failure sets.

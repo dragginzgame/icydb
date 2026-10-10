@@ -216,7 +216,7 @@ fn validate_compare_fields_ordering(
     coercion: &CoercionSpec,
     op: CompareOp,
 ) -> Result<(), ValidateError> {
-    if !field_types_support_field_compare_ordering(left_type, right_type) {
+    if left_type.field_ordering_coercion(right_type).is_none() {
         return Err(ValidateError::invalid_operator(
             left_field,
             SchemaValidationOperator::compare_field(op, right_field),
@@ -376,14 +376,6 @@ fn ensure_text_literal(field: &str, value: &Value) -> Result<(), ValidateError> 
 fn field_types_support_field_compare_eq_ne(left: &FieldType, right: &FieldType) -> bool {
     field_types_are_both_numeric(left, right)
         || field_types_support_strict_field_compare_eq_ne(left, right)
-}
-
-const fn field_types_support_field_compare_ordering(left: &FieldType, right: &FieldType) -> bool {
-    field_types_are_both_numeric(left, right) || field_types_are_both_text(left, right)
-}
-
-const fn field_types_are_both_text(left: &FieldType, right: &FieldType) -> bool {
-    left.is_text() && right.is_text()
 }
 
 const fn field_types_are_both_numeric(left: &FieldType, right: &FieldType) -> bool {

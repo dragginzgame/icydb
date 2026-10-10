@@ -18,12 +18,20 @@ use runtime_api::{
     types::{Id, Ulid},
 };
 
-icydb::ic_memory_range!(
-    authority = "icydb.facade_only",
-    start = 10,
-    end = 99,
-    mode = Allowed
-);
+// The final host owns grants and exclusions; components request permanent keys.
+fn icydb_memory_pool()
+-> Result<icydb::db::MemoryAllocationPool, icydb::db::MemoryAllocationPoolError> {
+    #[allow(unused_mut)]
+    let mut grants = vec![icydb::db::MemoryAuthority::new(
+        "icydb.facade_only",
+        "icydb.facade_only.",
+    )?];
+    #[allow(unused_mut)]
+    let mut exclusions = vec![];
+    #[cfg(all(test, not(target_arch = "wasm32")))]
+    startup_admission::extend_pool(&mut grants, &mut exclusions)?;
+    icydb::db::MemoryAllocationPool::new(grants, exclusions)
+}
 
 icydb::start!();
 

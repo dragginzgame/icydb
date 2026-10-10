@@ -319,7 +319,8 @@ fn normalize_compare_fields_with_schema(
     })
 }
 
-const fn normalize_accepted_compare_fields_coercion(
+/// Resolve provisional frontend coercion through accepted operand kinds.
+pub(in crate::db) fn normalize_accepted_compare_fields_coercion(
     op: CompareOp,
     left_kind: &AcceptedFieldKind,
     right_kind: &AcceptedFieldKind,
@@ -334,10 +335,15 @@ const fn normalize_accepted_compare_fields_coercion(
             current
         }
     } else if op.is_ordering_family() {
-        if matches!(left_kind, AcceptedFieldKind::Text { .. })
-            && matches!(right_kind, AcceptedFieldKind::Text { .. })
+        let left = crate::db::schema::field_type_from_persisted_kind(left_kind);
+        let right = crate::db::schema::field_type_from_persisted_kind(right_kind);
+        // Text already canonicalizes to its strict ordering contract. Other
+        // kinds only resolve the maintained frontend's strict/widening choices;
+        // invalid explicit coercions remain available for typed rejection.
+        if matches!(current, CoercionId::Strict | CoercionId::NumericWiden)
+            || (left.is_text() && right.is_text())
         {
-            CoercionId::Strict
+            left.field_ordering_coercion(&right).unwrap_or(current)
         } else {
             current
         }

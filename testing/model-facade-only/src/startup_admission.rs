@@ -5,16 +5,32 @@ use runtime_api::{
     db::{StartupFailure, with_request_execution},
 };
 
-// Exercise the re-export's actual omitted-mode default; do not alter its expansion.
-icydb::ic_memory_range!(authority = "icydb.facade_probe", start = 200, end = 210);
-icydb::ic_memory_range!(
-    authority = "icydb.allowed_probe",
-    start = 220,
-    end = 230,
-    mode = Allowed
-);
-
 const CASE_ENV: &str = "ICYDB_FACADE_MEMORY_FAILURE_CASE";
+
+pub(super) fn extend_pool(
+    grants: &mut Vec<ic_memory::MemoryAuthority>,
+    exclusions: &mut Vec<ic_memory::MemoryManagerIdRange>,
+) -> Result<(), ic_memory::MemoryAllocationPoolError> {
+    let Ok(case) = std::env::var(CASE_ENV) else {
+        return Ok(());
+    };
+    if case != "missing_grant" {
+        let namespace = if case == "fresh_allowed" {
+            "allowed_probe"
+        } else {
+            "facade_probe"
+        };
+        let owner = format!("icydb.{namespace}");
+        grants.push(ic_memory::MemoryAuthority::new(
+            &owner,
+            format!("{owner}."),
+        )?);
+    }
+    if case == "excluded_pool" {
+        exclusions.push(ic_memory::MemoryManagerIdRange::new(10, 254).unwrap());
+    }
+    Ok(())
+}
 
 fn register_case(case: &str) {
     let namespace = match case {
@@ -61,7 +77,7 @@ fn generated_memory_admission_errors_match_startup_and_db() {
         }
         let failure = crate::startup_state().unwrap_err();
         let code = match case.as_str() {
-            "reserved_default" | "missing_grant" => {
+            "excluded_pool" | "missing_grant" => {
                 ErrorCode::RUNTIME_BOUNDARY_MEMORY_ALLOCATION_RESOLUTION_FAILED
             }
             "incomplete_roles" => ErrorCode::RUNTIME_BOUNDARY_MEMORY_ALLOCATION_ROLES_INCOMPLETE,
@@ -92,7 +108,7 @@ fn generated_memory_admission_errors_match_startup_and_db() {
         return;
     }
     for case in [
-        "reserved_default",
+        "excluded_pool",
         "missing_grant",
         "incomplete_roles",
         "invalid_declaration",

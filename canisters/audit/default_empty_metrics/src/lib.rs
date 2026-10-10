@@ -2,13 +2,17 @@
 //! Metrics-enabled default empty canister used for wasm-footprint auditing.
 //!
 
-// The host grants the pool; schema declarations name only permanent keys.
-icydb::ic_memory_range!(
-    authority = "icydb.default_empty",
-    start = 100,
-    end = 254,
-    mode = Allowed
-);
+// The final host owns grants and exclusions; components request permanent keys.
+fn icydb_memory_pool()
+-> Result<icydb::db::MemoryAllocationPool, icydb::db::MemoryAllocationPoolError> {
+    icydb::db::MemoryAllocationPool::new(
+        vec![icydb::db::MemoryAuthority::new(
+            "icydb.default_empty",
+            "icydb.default_empty.",
+        )?],
+        vec![],
+    )
+}
 
 icydb::start!();
 

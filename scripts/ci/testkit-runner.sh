@@ -13,5 +13,11 @@ export CARGO_HOME="$ROOT/.cache/cargo/icydb"
 metadata="$(cargo metadata --manifest-path "$ROOT/Cargo.toml" --locked --offline --format-version 1)"
 version="$(printf '%s\n' "$metadata" | jq -er \
   '[.packages[] | select(.name == "ic-testkit") | .version] | unique | select(length == 1) | .[0]')"
-exec bash "$ROOT/scripts/dev/install-rust-tools.sh" --consumer "$ROOT" \
-  --package ic-testkit --version "$version" --bin ic-testkit-server --profile release "$@"
+if bash "$ROOT/scripts/dev/install-rust-tools.sh" --consumer "$ROOT" \
+  --package ic-testkit --version "$version" --bin ic-testkit-server --profile release "$@"; then
+  exit 0
+else
+  status=$?
+  printf 'Prepare the locked Testkit selection with: make install-testkit\n' >&2
+  exit "$status"
+fi

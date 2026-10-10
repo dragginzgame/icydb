@@ -169,21 +169,6 @@ pub use guards::{
     ReadAuthorizationContext, ReadAuthorizationDecision, ReadAuthorizationGuard,
     ReadAuthorizationSurface,
 };
-/// Declare a host-owned stable-memory range before memory bootstrap.
-///
-/// Omitting `mode` selects `Reserved`. A Reserved range does not provide slots
-/// for fresh logical allocation requests. Explicitly select `Allowed` to grant
-/// fresh logical placements for the database's permanent namespace:
-///
-/// ```rust,ignore
-/// icydb::ic_memory_range!(
-///     authority = "icydb.app", start = 100, end = 254, mode = Allowed,
-/// );
-/// ```
-///
-/// This re-exports the upstream macro without changing its default or granting
-/// memory implicitly. An Allowed pool must also contain enough eligible free slots.
-pub use ic_memory::ic_memory_range;
 pub use icydb_diagnostic_code::ErrorCode;
 
 // Macro/runtime wiring surface used by generated code.
@@ -281,6 +266,12 @@ macro_rules! build_canister {
 }
 
 /// Include the generated private actor module emitted by [`build_canister!`].
+///
+/// The final host must define `icydb_memory_pool() ->
+/// Result<icydb::db::MemoryAllocationPool, icydb::db::MemoryAllocationPoolError>`.
+/// Cold bootstrap uses this explicit pool's namespace grants and physical
+/// exclusions. An already committed host is adopted without invoking the provider.
+/// Permanent component keys never choose IDs or grant their own namespace.
 ///
 /// The zero-argument form owns hidden install and post-upgrade lifecycle
 /// entries for canisters without application hooks. Applications that own

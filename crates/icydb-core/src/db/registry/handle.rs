@@ -389,6 +389,25 @@ impl StoreAllocationIdentity {
     }
 }
 
+/// Preserve the database's persisted key/ID agreement before a key-only open.
+/// The committed TLS capability is immutable between these observations; this
+/// checks retained application metadata without choosing or allocating an ID.
+pub(in crate::db) fn open_committed_memory(
+    stable_key: &str,
+    memory_id: u8,
+) -> Result<
+    ic_memory::RuntimeMemory<ic_memory::ic_stable_structures::DefaultMemoryImpl>,
+    InternalError,
+> {
+    let committed_id = ic_memory::default_memory_manager_memory_id(stable_key)
+        .map_err(|_| InternalError::store_internal())?;
+    if committed_id != memory_id {
+        return Err(InternalError::store_internal());
+    }
+    ic_memory::open_default_memory_manager_memory(stable_key)
+        .map_err(|_| InternalError::store_internal())
+}
+
 ///
 /// StoreAllocationIdentities
 ///

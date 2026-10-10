@@ -160,9 +160,17 @@ install_selected() (
     host="$(rustc -vV | sed -n 's/^host: //p')"
     [[ -n "$host" ]]
     if [[ -e "$destination" ]]; then
-        check_selected || { echo "Cargo tool selection changed: $destination" >&2; return 1; }
+        check_selected || {
+            printf 'invalid selected Cargo tool: package=%s version=%s target=%s:%s profile=%s destination=%s\n' \
+                "$package" "$selected_version" "$kind" "$target" "$profile" "$destination" >&2
+            return 1
+        }
     else
-        [[ "$check_only" == false ]] || { echo 'selected Cargo tool is not installed' >&2; return 1; }
+        [[ "$check_only" == false ]] || {
+            printf 'missing selected Cargo tool: package=%s version=%s target=%s:%s profile=%s destination=%s\n' \
+                "$package" "$selected_version" "$kind" "$target" "$profile" "$destination" >&2
+            return 1
+        }
         mkdir -p "$slot"
         mkdir "$lock" 2>/dev/null || { echo "Cargo tool installation locked: $lock" >&2; return 1; }
         # An interrupted owner leaves the lock for inspection; never reclaim it

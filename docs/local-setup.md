@@ -206,6 +206,15 @@ no invented `--version` probe runs for examples. Checks invoke rustc for the
 selected host but never Cargo or downloads. Digests detect local changes; they
 are not publisher signatures. The consumer still owns compiler compatibility.
 
+Missing or invalid selected-installation diagnostics identify the package, exact
+version, target kind/name, profile and destination. The caller supplies its own
+setup command; successful selection still prints only the executable path.
+Dependency updates that change the selected CLI must prepare and check it before
+preparation is complete. Authorized releases use the existing setup/check targets
+in [preflight](releases.md#selected-executable-tools-before-validation); fetching
+Cargo sources alone is insufficient. Complete gates and standalone qualification
+check tools offline before builds, without implicit installation.
+
 Setup compiles through the same locked Cargo installation command into a fresh
 attempt directory under `.tools/rust/build`, the existing CI evidence route.
 Only an admitted candidate is renamed into place. Failed

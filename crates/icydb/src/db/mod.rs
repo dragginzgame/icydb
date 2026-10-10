@@ -18,6 +18,7 @@ mod startup;
 pub use bootstrap::DatabaseBootstrapError;
 #[doc(hidden)]
 pub use bootstrap::ensure_default_memory_manager;
+pub use ic_memory::{MemoryAllocationPool, MemoryAllocationPoolError, MemoryAuthority};
 pub use icydb_core::db::{
     CompareProofAndAdvanceError, DynamicQuery, ExactBacklogMeasurement, ExhaustiveQueryPageOutput,
     GroupedQueryOutput, GroupedRow, LiveQueryPageOutput, MAX_MUTATION_JOB_CONTINUATION_BYTES,
@@ -26,16 +27,16 @@ pub use icydb_core::db::{
     MAX_MUTATION_JOB_STEP_KEYS_SCANNED, MAX_MUTATION_JOB_STEP_ROWS_UPDATED,
     MAX_READ_SET_PROOF_BYTES, MAX_READ_SET_PROOF_STORES, MAX_RESUMABLE_JOB_CONTINUATION_BYTES,
     MAX_RESUMABLE_JOB_IDEMPOTENCY_KEY_BYTES, MAX_RESUMABLE_JOB_RECEIPT_BYTES,
-    MAX_RESUMABLE_JOB_STATE_BYTES, MemoryAllocation, MemoryAllocationBinding,
-    MemoryAllocationRangeClaim, MemoryAllocations, MemoryExtent, MutationJobAdvanceReceipt,
-    MutationJobAdvanceRequest, MutationJobError, MutationJobId, MutationJobIdempotencyKey,
-    MutationJobPayloadKind, MutationJobPhase, MutationJobRestartReason, MutationJobState,
-    MutationJobStatus, MutationJobTargetFailureReason, ProgressJobFamily, ProgressJobInventory,
-    ProgressJobInventoryRecord, ProgressJobLifecycle, ReadSetRevisionError, ReadSetRevisionProof,
-    ReadSetStoreIdentity, ReadSetStoreRevision, ResumableJobAdvance, ResumableJobAdvanceReceipt,
-    ResumableJobAdvanceRequest, ResumableJobAdvanceStatus, ResumableJobError, ResumableJobId,
-    ResumableJobIdempotencyKey, ResumableJobState, ResumableJobStatus, RowProjectionOutput,
-    ScalarPageWork, TypedBindingContext,
+    MAX_RESUMABLE_JOB_STATE_BYTES, MemoryAllocation, MemoryAllocationBinding, MemoryAllocations,
+    MemoryExtent, MutationJobAdvanceReceipt, MutationJobAdvanceRequest, MutationJobError,
+    MutationJobId, MutationJobIdempotencyKey, MutationJobPayloadKind, MutationJobPhase,
+    MutationJobRestartReason, MutationJobState, MutationJobStatus, MutationJobTargetFailureReason,
+    ProgressJobFamily, ProgressJobInventory, ProgressJobInventoryRecord, ProgressJobLifecycle,
+    ReadSetRevisionError, ReadSetRevisionProof, ReadSetStoreIdentity, ReadSetStoreRevision,
+    ResumableJobAdvance, ResumableJobAdvanceReceipt, ResumableJobAdvanceRequest,
+    ResumableJobAdvanceStatus, ResumableJobError, ResumableJobId, ResumableJobIdempotencyKey,
+    ResumableJobState, ResumableJobStatus, RowProjectionOutput, ScalarPageWork,
+    TypedBindingContext,
 };
 #[cfg(feature = "migration")]
 pub use icydb_core::db::{

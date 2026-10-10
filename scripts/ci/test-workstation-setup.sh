@@ -101,7 +101,8 @@ bash "$FIXTURE/scripts/dev/workstation-setup.sh" update extra > "$FIXTURE/invali
 # Exercise actual Make dispatch with local script stubs, without installations.
 unset -f make
 cp "$ROOT/Makefile" "$FIXTURE/Makefile"
-cp "$ROOT/make/tools.mk" "$ROOT/make/release.mk" "$ROOT/make/rust-format.mk" "$FIXTURE/make/"
+cp "$ROOT/make/tools.mk" "$ROOT/make/release.mk" "$ROOT/make/rust-format.mk" "$ROOT/make/execution.mk" "$FIXTURE/make/"
+cp "$ROOT/scripts/ci/check-make-execution.sh" "$ROOT/scripts/ci/run-formatting.sh" "$FIXTURE/scripts/ci/"
 cp "$ROOT/scripts/ci/actionlint-checksums.tsv" "$FIXTURE/scripts/ci/"
 for tool in rust host ic; do
   cat > "$FIXTURE/scripts/dev/install-$tool-tools.sh" <<'INSTALL'

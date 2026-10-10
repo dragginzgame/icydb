@@ -1,7 +1,7 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `ce13a5314916891fd239d9b199b4a91b04775054`. Root
+at reviewed revision `5864f468d39f8f9d1bd26fca1afe0e20f25f1b5e` (Shared 0.2.13). Root
 [AGENTS.md](../../AGENTS.md) is the local overlay. The shared approved layout
 retains the 42 existing canister, schema and testing packages in their
 restored directories, in the single root workspace and lockfile; no new package
@@ -12,16 +12,88 @@ these rules.
 
 ## Ownership and provenance
 
-### Compatible 0.269.1 follow-up
+### Current 0.270 hard-cut qualification
 
-The selected Host packages converge on published 0.10.0 with Testkit 0.28.0.
+The maintainer authorized the Memory 0.34 hard cut and carrying the unpublished
+0.269.2 batch into 0.270. [The current tracker](../design/0.270-memory-pool/0.270-status.md)
+and [#338](https://github.com/dragginzgame/icydb/issues/338) own the bounded scope.
+Published Memory 0.34.0's archive and 46 Rust sources match revision
+`958080df899ebfa7bb9c2d4c93bb8664bd23575d`. One checked host pool replaces
+component ranges; committed key identities, geometry and recovery records remain
+unchanged. Incoming Host 0.11 uses per-stream output limits and typed cleanup;
+The later incoming Testkit 0.29 selection consolidates its native helpers onto
+Host 0.11, removing the earlier split generation. The final graph has Testkit
+0.29.0, Timers 0.16.6 and stable structures 0.7.2, each with one identity. The
+later incoming Memory 0.34.1 and Metrics 0.4.0 archives retain all 46 and seven
+Rust library files respectively from reviewed 0.34.0 and 0.3.7. Timers library
+sources are unchanged from 0.16.5.
+
+Canonical Shared 0.2.13 export and verification cover all 87 recorded selections.
+The path comparison reproduces the old trimmed-root acceptance and verifies
+LF/CR and resolved-alias refusal with ordinary-path controls, without modifying
+fixtures. Snapshot and selected-Rust-tool fixtures pass on Linux Bash 5 and
+genuine Bash 3.2/Make 3.81. Consumer release/setup fixtures qualify selected
+Testkit preparation, explicit offline behavior and parallel early refusal.
+Release fixtures substitute effectful commands; they perform no release.
+Saved-release recovery also passes with substitute Git effects on both profiles.
+Focused native bootstrap/admission, generated store/startup, allocation reporting,
+CLI and carried SQL regressions pass. Strict selected Clippy, renamed-facade
+Wasm installation and five Testkit-owned IC init/upgrade/recovery cases pass;
+the three logical-memory cases also pass with the incoming Testkit 0.29 selection.
+The later Memory 0.34.1/Metrics 0.4.0 graph passes strict Clippy, all 15 native
+admission cases and all three logical-memory IC cases. Timers 0.16.6 still
+requires Metrics 0.3, retaining a second 0.3.7 identity beside root 0.4.0.
+Five successful managed scopes stopped through Testkit. The initial sandbox
+loopback refusal and omitted metrics feature failure are retained as corrected
+qualification attempts. Evidence: `target/memory-034-audit`.
+
+The maintainer's explicit focused-check-only instruction is the scoped exception
+to the refreshed baseline's standing broad-validation authority. Full workspace
+and release gates remain user-owned. Linux Bash 3.2 does not qualify native
+macOS; declared native hosts remain required. MSRV 1.96 is not installed locally.
+External composed-host qualification remains at
+[Memory #44](https://github.com/dragginzgame/ic-memory/issues/44).
+Matched raw Wasm, IC-cycle and instruction deltas are unmeasured.
+
+### Carried 0.269.2 Host and Timers qualification
+
+The earlier incoming lock selected one published Host 0.10.2 generation, Timers 0.16.5
+and Testkit 0.28.1. All six registry archives match the selected checksums and
+their committed source (121 Rust source files). Timers' library sources are
+unchanged from 0.16.2; no timer adapter hard cut is needed. Host's pathname
+directory-suffix correction does not replace IcyDB's admission before splitting
+a descriptor-relative diagnostic target. Retain that existing parent and
+create-only policy ([#307](https://github.com/dragginzgame/icydb/issues/307)).
+
+Prepare the locked Testkit CLI through the shared installer, then admit it
+offline. The existing managed wrapper selects both operation-idle and hard
+lifetimes through Testkit's published CLI. This fixes pre-client compilation
+losing its server under the idle default; no heartbeat, installer, version
+checker or application supervisor is added
+([#340](https://github.com/dragginzgame/icydb/issues/340)). Native Tier C scenarios
+use independent existing request roots, retaining each mutation sequence's
+complete setup/write/readback flow and shared schema/cache authority
+([#341](https://github.com/dragginzgame/icydb/issues/341)).
+
+Focused qualification passes 22 CLI/artifact/optimizer tests, five real-CLI
+substitute-server wrapper cases on both Linux Bash/Make profiles, native shards
+4 and 0 with complete clean receipts, DISTINCT oracle and request-budget
+controls, selected strict core/CLI/integration Clippy and two timer/generated
+actor Wasm checks. Source/checksum and lock preservation evidence is retained
+under `target/host-timers-2692`. No live server/network is provisioned or started.
+Full workspace/release gates, live Tier B and native macOS remain user-owned;
+raw Wasm bytes, IC cycles and instructions are unmeasured.
+
+### Prior 0.269.1 Host qualification
+
+The earlier qualification selected published Host 0.10.0 with Testkit 0.28.0.
 IcyDB's artifact copier uses the consolidated streamed writer with explicit
 replace/0o666 staging options and still copies the source permissions before
 publication. Its Candid and artifact diagnostics retain the complete publication
 error, including cleanup failures. This is host-tooling adoption without an
 IcyDB public API or retained-format change
-([#307](https://github.com/dragginzgame/icydb/issues/307)). Host's uncommitted
-0.10.1 parent-sync repair is excluded. Explicit `make install-testkit` prepares
+([#307](https://github.com/dragginzgame/icydb/issues/307)). That qualification excluded
+Host's then-uncommitted 0.10.1 parent-sync repair. Explicit `make install-testkit` prepares
 the newly locked CLI; offline validation only checks the admitted installation.
 
 Focused Linux qualification passes strict integration-library/binary and CLI
@@ -34,7 +106,43 @@ server. Evidence is retained under `target/host010-adoption`. Native macOS and
 full workspace/release gates remain user-owned. Raw Wasm, cycles and instructions
 are unmeasured; no function, method or type is removed.
 
-The current snapshot adopts committed Shared 0.2.6
+### Carried 0.269.2 formatting follow-up
+
+The earlier snapshot adopted committed Shared 0.2.11
+`83efac446348dea024798a331d77933b24b429dc` through the canonical exporter.
+Its 87-file selection adds the shared execution include and formatting reporter;
+central sibling reports remain outside this consumer. Shared Make now owns
+parse-time execution admission, including cleared/replaced Make flags. IcyDB's
+supplementary flag parser is removed. Standard release routing remains shared.
+
+IcyDB's custom formatting recipe runs derive sorting, manifest sorting and
+rustfmt in that order, after canonical tool admission. Wrap the complete sequence
+once with the shared reporter rather than the simple-workspace formatting include.
+The two separate derive prerequisite targets are removed. Existing Cargo
+directories, offline operation, package roster and check flags are preserved.
+Successful formatting prints one line; a failed formatter stops the sequence
+and retains complete stdout/stderr in `RUNNER_TEMP/formatting.*` (or TMPDIR or
+/tmp locally). Static and native host CI upload those failed logs through the
+existing artifact action. Release, hook, setup and Testkit fixtures carry the
+new shared companions
+([#336](https://github.com/dragginzgame/icydb/issues/336),
+[Shared #30](https://github.com/dragginzgame/shared-tooling/issues/30),
+[Shared #92](https://github.com/dragginzgame/shared-tooling/issues/92)).
+
+Focused consumer checks pass on Linux Bash 5 and genuine Bash 3.2/GNU Make
+3.81: actual hooks and derive sorting, one-line success, exact failure status
+and complete retained stdout/stderr, formatter ordering, parallel dispatch,
+unsafe modes with cleared/replaced flags, and unrelated/index/lock preservation.
+Actual prepared check-only formatting, release/setup/Testkit substitute fixtures,
+the canonical formatter fixture, selected ShellCheck/workflow policy, snapshot
+integrity and local documentation links pass. Evidence: `target/issue-336`.
+Native macOS consumer qualification and full workspace/release gates remain
+user-owned; raw Wasm, cycles and instructions are unmeasured. No actual release,
+network lifecycle action or Cargo version change ran.
+
+### Published 0.269.1 snapshot evidence
+
+The previous snapshot adopted committed Shared 0.2.6
 `ce13a5314916891fd239d9b199b4a91b04775054` through its canonical exporter.
 The eighty-three existing selections remain, with only
 [the release include](../../make/release.mk) and
@@ -46,16 +154,14 @@ come from committed source; newer dirty sibling changes are excluded
 [Shared #73](https://github.com/dragginzgame/shared-tooling/issues/73),
 [Shared #85](https://github.com/dragginzgame/shared-tooling/issues/85)).
 
-Shared Make owns patch/minor/major/resume routing, conflicting release-goal
-admission, manifest sorting and rustfmt. IcyDB retains its parse-time execution
-refusal, release adapters, receipt checks, preflight preparation, derive sorter
-and repo-local Cargo directories. Derive sorting is an explicit prerequisite
-of the shared formatting recipe, after tool admission; rustfmt remains last.
-The two internal derive targets project existing fmt/check operations rather
-than adding a new formatting policy or execution engine. Missing tools and
-failed derive sorting stop later formatting, including parallel Make. The
-existing release, hook, setup and Testkit caller fixtures carry the new includes; no separate CI
-suite or formatter wrapper is added
+That adoption put patch/minor/major/resume routing, conflicting release-goal
+admission, manifest sorting and rustfmt under Shared Make. IcyDB retained its
+parse-time execution refusal, release adapters, receipt checks, preflight
+preparation, derive sorter and repo-local Cargo directories. Its derive
+prerequisites ran after tool admission and before the shared recipe, with
+rustfmt last. Missing tools and failed derive sorting stopped later formatting,
+including parallel Make. Existing release, hook, setup and Testkit fixtures
+carried those includes
 ([Shared #91](https://github.com/dragginzgame/shared-tooling/issues/91),
 [Shared #92](https://github.com/dragginzgame/shared-tooling/issues/92)).
 

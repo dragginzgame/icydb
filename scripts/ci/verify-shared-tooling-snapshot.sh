@@ -21,6 +21,21 @@ fail() {
     exit 1
 }
 
+# Check before command substitution can trim a pathname, and again after
+# resolving aliases. Absolute cd inputs avoid CDPATH lookup and output.
+resolve_directory() {
+    local path="$1" resolved
+    [[ "$path" == /* ]] || path="$PWD/$path"
+    [[ "$path" != *$'\n'* && "$path" != *$'\r'* ]] ||
+        fail "directory paths must not contain LF or CR characters"
+    resolved="$(cd -P "$path" 2>/dev/null && printf '%s/.' "$PWD")" ||
+        fail "directory does not exist: $path"
+    resolved="${resolved%/.}"
+    [[ "$resolved" != *$'\n'* && "$resolved" != *$'\r'* ]] ||
+        fail "resolved directory paths must not contain LF or CR characters"
+    printf '%s\n' "$resolved"
+}
+
 validate_relative_path() {
     local path="$1"
 
@@ -29,7 +44,7 @@ validate_relative_path() {
     *'/../'* | *'/./'* | *'//'*) fail "path is not canonical: $path" ;;
     esac
     case "$path" in
-    *$'\n'* | *$'\t'*) fail "path contains a forbidden control character" ;;
+    *$'\n'* | *$'\r'* | *$'\t'*) fail "path contains a forbidden control character" ;;
     esac
 }
 
@@ -57,13 +72,13 @@ while [[ $# -gt 0 ]]; do
 done
 
 validate_relative_path "$MANIFEST_PATH"
-CONSUMER_ROOT="$(cd "$CONSUMER_ROOT" 2>/dev/null && pwd -P)" ||
-    fail "consumer repository does not exist: $CONSUMER_ROOT"
+SCRIPT_DIR="$(resolve_directory "$SCRIPT_DIR")"
+CONSUMER_ROOT="$(resolve_directory "$CONSUMER_ROOT")"
 [[ "$CONSUMER_ROOT" != "/" ]] || fail "consumer repository may not be the filesystem root"
 
 manifest="$CONSUMER_ROOT/$MANIFEST_PATH"
 [[ -f "$manifest" && ! -L "$manifest" ]] || fail "manifest is missing or symlinked: $manifest"
-manifest_parent="$(cd "$(dirname "$manifest")" && pwd -P)"
+manifest_parent="$(resolve_directory "${manifest%/*}")"
 case "$manifest_parent/" in
 "$CONSUMER_ROOT/"*) ;;
 *) fail "manifest escapes the consumer repository: $MANIFEST_PATH" ;;
@@ -84,6 +99,9 @@ checksum_pattern='^([0-9a-f]{64}) [ *]-$'
 format_count=0
 source_count=0
 revision_count=0
+version_count=0
+snapshot_version=unrecorded
+snapshot_revision=''
 file_count=0
 declared_files=()
 checksum_tool_declared=false
@@ -91,6 +109,12 @@ snapshot_verifier_declared=false
 
 while IFS=$'\t' read -r record first second third extra || [[ -n "$record" ]]; do
     case "$record" in
+    '# version')
+        [[ "$first" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ && -z "$second" && -z "$third" && -z "$extra" ]] ||
+            fail "malformed version annotation"
+        version_count=$((version_count + 1))
+        snapshot_version="$first"
+        ;;
     '' | \#*) continue ;;
     format)
         [[ "$first" == "1" && -z "$second" && -z "$third" && -z "$extra" ]] ||
@@ -106,6 +130,7 @@ while IFS=$'\t' read -r record first second third extra || [[ -n "$record" ]]; d
         [[ "$first" =~ ^[0-9a-f]{40,64}$ && -z "$second" && -z "$third" && -z "$extra" ]] ||
             fail "malformed revision record"
         revision_count=$((revision_count + 1))
+        snapshot_revision="$first"
         ;;
     file)
         [[ "$first" =~ ^[0-9a-f]{64}$ && "$second" =~ ^(-|x)$ && -n "$third" && -z "$extra" ]] ||
@@ -126,7 +151,7 @@ while IFS=$'\t' read -r record first second third extra || [[ -n "$record" ]]; d
         else
             [[ ! -x "$target" ]] || fail "declared file gained executable mode: $third"
         fi
-        resolved_parent="$(cd "$(dirname "$target")" && pwd -P)"
+        resolved_parent="$(resolve_directory "${target%/*}")"
         case "$resolved_parent/" in
         "$CONSUMER_ROOT/"*) ;;
         *) fail "declared file escapes the consumer repository: $third" ;;
@@ -144,8 +169,9 @@ done <"$manifest"
 [[ "$format_count" -eq 1 ]] || fail "manifest must contain exactly one format record"
 [[ "$source_count" -eq 1 ]] || fail "manifest must contain exactly one source record"
 [[ "$revision_count" -eq 1 ]] || fail "manifest must contain exactly one revision record"
+[[ "$version_count" -le 1 ]] || fail "manifest has duplicate version annotations"
 [[ "$file_count" -gt 0 ]] || fail "manifest contains no files"
 [[ "$checksum_tool_declared" == "true" ]] || fail "manifest does not declare the checksum verifier"
 [[ "$snapshot_verifier_declared" == "true" ]] || fail "manifest does not declare the snapshot verifier"
 
-echo "shared-tooling snapshot verified: $file_count file(s)"
+echo "shared-tooling snapshot verified: $file_count file(s), version $snapshot_version ($snapshot_revision)"

@@ -3,11 +3,11 @@
 //! Does not own: marker encoding, marker persistence, or recovery orchestration.
 //! Boundary: commit::{recovery,store} -> commit::memory (one-way).
 
+#[cfg(not(test))]
+use crate::db::registry::open_committed_memory;
 use crate::error::InternalError;
 use ic_memory::RuntimeMemory;
 use ic_memory::ic_stable_structures::DefaultMemoryImpl;
-#[cfg(not(test))]
-use ic_memory::open_default_memory_manager_memory;
 use std::cell::Cell;
 #[cfg(test)]
 use std::cell::RefCell;
@@ -84,7 +84,7 @@ pub(in crate::db) fn commit_memory_handle(
 pub(in crate::db) fn commit_memory_handle(
     allocation: CommitMemoryAllocation,
 ) -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
-    open_default_memory_manager_memory(allocation.stable_key, allocation.memory_id)
+    open_committed_memory(allocation.stable_key, allocation.memory_id)
         .map_err(|_| InternalError::store_internal())
 }
 

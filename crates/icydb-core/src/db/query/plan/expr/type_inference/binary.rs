@@ -80,7 +80,17 @@ pub(super) fn infer_binary_expr_type(
             Ok(ExprType::Bool)
         }
         BinaryOp::Lt | BinaryOp::Lte | BinaryOp::Gt | BinaryOp::Gte => {
-            if !binary_order_comparable(&left_ty, &right_ty) {
+            // Reduced expression types erase nominal scalar identity. Direct
+            // fields retain accepted kinds, so use the same ordering authority
+            // as predicate admission rather than ordering arbitrary Opaque pairs.
+            let comparable = match (left, right) {
+                (Expr::Field(left), Expr::Field(right)) => schema
+                    .field(left.as_str())
+                    .zip(schema.field(right.as_str()))
+                    .is_some_and(|(left, right)| left.field_ordering_coercion(right).is_some()),
+                _ => binary_order_comparable(&left_ty, &right_ty),
+            };
+            if !comparable {
                 return Err(invalid_binary_operands(op, &left_ty, &right_ty).into());
             }
 

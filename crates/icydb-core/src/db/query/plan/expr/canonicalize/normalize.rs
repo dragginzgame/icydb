@@ -55,6 +55,19 @@ pub(in crate::db::query::plan::expr::canonicalize) fn normalize_bool_expr_impl(
         Expr::FunctionCall { function, args } => {
             normalize_bool_function_args(*function, args, work)?;
         }
+        Expr::Case {
+            when_then_arms,
+            else_expr,
+        } => {
+            // Structural normalization reaches every boolean CASE child before
+            // context-specific lowering applies first-match and NULL policy.
+            for arm in when_then_arms {
+                let [condition, result] = arm.children_mut();
+                *condition = normalize_bool_expr_impl(condition.take(), work)?;
+                *result = normalize_bool_expr_impl(result.take(), work)?;
+            }
+            **else_expr = normalize_bool_expr_impl(else_expr.take(), work)?;
+        }
         _ => {}
     }
 

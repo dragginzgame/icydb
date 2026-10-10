@@ -64,6 +64,7 @@ or section banners.
 Use `rustfmt` as the formatting authority and Clippy as a linting baseline.
 Consumers own exact commands, toolchain versions, lint configuration and
 qualification gates within the shared baseline. Focused checks run automatically
-during authorized development; broad gates require an explicit request or their
-configured CI pipeline. Wasm and host-specific constraints must preserve the
+during authorized development; the documented full validation suite runs before
+delivering the completed code change as ready. Release execution retains its
+separate authorization. Wasm and host-specific constraints must preserve the
 baseline's required macOS support and evidence rules.

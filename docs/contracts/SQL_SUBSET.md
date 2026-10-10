@@ -1037,6 +1037,13 @@ Field-bound range predicates are also supported on the plain-field lane:
 - `field BETWEEN lower_field AND upper_field`
 - `field NOT BETWEEN lower_field AND upper_field`
 
+Field-to-field ordering and each field-bound range comparison use numeric
+widening when both fields support numeric coercion. Otherwise, they require
+the same SQL-comparable scalar kind with ordering support and compare strictly.
+This includes text, date, duration, principal, subaccount, account, ulid, boolean,
+`U256`, `IntBig`, and `NatBig`. NULL operands retain SQL UNKNOWN semantics;
+collections and incompatible scalar pairs are rejected before execution.
+
 The residual-expression lane also admits supported scalar expressions as text
 predicate arguments, such as
 `STARTS_WITH(REPLACE(name, 'a', 'A'), TRIM('Al'))`. These shapes do not claim

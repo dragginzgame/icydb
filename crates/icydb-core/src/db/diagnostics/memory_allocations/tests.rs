@@ -85,7 +85,7 @@ fn bucket_trial(pages: u16) -> (MemoryAllocations, MemoryAllocations) {
     let runtime = test_memory_runtime(backing.clone(), MemoryManagerConfig::new(pages).unwrap());
     let open = |id| {
         runtime
-            .open_memory(&format!("icydb.core_tests.slot_{id}.v1"), id)
+            .open_memory(&format!("icydb.core_tests.slot_{id:03}.v1"))
             .unwrap()
     };
     let mut data = DataStore::init_journaled(open(100));

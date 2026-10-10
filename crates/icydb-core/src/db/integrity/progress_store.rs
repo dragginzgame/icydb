@@ -32,7 +32,7 @@ use ic_memory::ic_stable_structures::{
     BTreeMap as StableBTreeMap, DefaultMemoryImpl, Storable, storable::Bound,
 };
 #[cfg(not(test))]
-use ic_memory::open_default_memory_manager_memory_by_key;
+use ic_memory::open_default_memory_manager_memory;
 use serde::Deserialize;
 use sha2::Digest;
 use std::borrow::Cow;
@@ -1111,7 +1111,7 @@ fn progress_memory<C: CanisterKind>() -> Result<RuntimeMemory<DefaultMemoryImpl>
 #[cfg(not(test))]
 fn progress_memory<C: CanisterKind>() -> Result<RuntimeMemory<DefaultMemoryImpl>, IntegrityJobError>
 {
-    open_default_memory_manager_memory_by_key(C::INTEGRITY_PROGRESS_STABLE_KEY)
+    open_default_memory_manager_memory(C::INTEGRITY_PROGRESS_STABLE_KEY)
         .map_err(|_| IntegrityJobError::Internal)
 }
 

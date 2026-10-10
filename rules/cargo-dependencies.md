@@ -64,6 +64,10 @@ exact constraints, immutable Git revisions, lockfiles and external path inputs.
   request does not authorize dependency upgrades; when updating dependencies is
   expressly part of the request, finish that bounded update before qualifying
   and freezing the deployment inputs.
+  Fetching sources does not install executable tools. Prepare each required
+  consumer-selected CLI through its existing setup target, then run its offline
+  admission before dependent validation or builds. The documented preparation
+  includes those selected installations, never an unrelated tool upgrade.
 - Keep `--locked` on validation and artifact builds; it preserves dependency
   selection without prohibiting downloads. Add `--offline` or `--frozen` only
   where the workflow deliberately validates against an already prepared cache.
@@ -105,6 +109,13 @@ operations according to their purpose rather than applying one flag everywhere.
   report any unavailable evidence. Metadata checks establish graph consistency,
   not build, test or native-host qualification; a full gate is not required just
   to prepare a dependency change.
+- When that change selects a different executable CLI, run its existing explicit
+  setup target and offline check before declaring preparation complete. Preserve
+  independent consumer selections; a library update does not automatically
+  change a separately selected CLI. Keep the selected lockfiles, earlier tool
+  installations and server bytes intact. Recheck the selection after preparation;
+  changed inputs or invalid receipts stop the workflow rather than selecting a
+  fallback or repairing an existing immutable installation.
 - Keep ordinary release cache fetching locked. Reconcile manifest/lockfile
   mismatches during the authorized dependency change, before the pre-bump
   validation gate. Never silently unlock, upgrade or automatically repair

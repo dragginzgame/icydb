@@ -143,6 +143,12 @@ and offline regression coverage. Product-specific documentation, receipt and
 publication behavior remains with the consumers. See the
 [maintained contracts](verification-helpers.md) for scope and adoption.
 
+The metadata extension to that same registry helper consolidates Auth's exact
+checksum readback and Blob's package/version/checksum/yanked parsing, reviewed in
+[Shared #94](https://github.com/dragginzgame/shared-tooling/issues/94). Transport
+and JSON observation are shared; archive identity and publication decisions stay
+with those consumers. This does not claim their snapshots or callers are adopted.
+
 Portable digest generation extends the existing checksum verifier, informed by
 IcyDB's `wasm_report_sha256` in `scripts/ci/wasm-report-common.sh` at the same
 revision. Shared Tooling's IC receipt writer and snapshot refresh now use that

@@ -1,9 +1,8 @@
 use ic_memory::{
-    AllocationBinding, MemoryManagerRangeMode, MemoryRequest, RuntimeDiagnosticError,
-    RuntimeOpenError, SchemaMetadata, committed_allocations,
+    AllocationBinding, MemoryAllocationPool, MemoryAuthority, MemoryRequest,
+    RuntimeDiagnosticError, RuntimeOpenError, SchemaMetadata, committed_allocations,
     default_memory_manager_memory_allocations, open_default_memory_manager_memory,
-    open_default_memory_manager_memory_by_key, register_memory_request,
-    register_static_memory_manager_range,
+    register_memory_request,
 };
 use icydb::db::ensure_default_memory_manager;
 use icydb::traits::{CanisterKind, Path};
@@ -40,14 +39,6 @@ fn ensure_bootstraps_once_then_reuses_committed_allocations() {
         committed_allocations(),
         Err(RuntimeOpenError::NotBootstrapped)
     ));
-    register_static_memory_manager_range(
-        MEMORY_ID,
-        MEMORY_ID + 9,
-        AUTHORITY,
-        MemoryManagerRangeMode::Allowed,
-        None,
-    )
-    .expect("test authority range should register");
     for role in ["commit.control", "startup.control", "integrity.progress"] {
         register_memory_request(
             MemoryRequest::new(
@@ -60,35 +51,37 @@ fn ensure_bootstraps_once_then_reuses_committed_allocations() {
         .unwrap();
     }
 
-    ensure_default_memory_manager(AUTHORITY, 16).expect("cold ensure should bootstrap the runtime");
+    ensure_default_memory_manager(AUTHORITY, 16, || {
+        MemoryAllocationPool::new(
+            vec![MemoryAuthority::new(AUTHORITY, format!("{AUTHORITY}."))?],
+            vec![],
+        )
+    })
+    .expect("cold ensure should bootstrap the runtime");
     let generation = committed_allocations()
         .expect("cold ensure should publish committed allocations")
         .generation();
 
-    ensure_default_memory_manager(AUTHORITY, 16).expect("repeated ensure should adopt the runtime");
+    ensure_default_memory_manager(AUTHORITY, 16, || {
+        MemoryAllocationPool::new(
+            vec![MemoryAuthority::new(AUTHORITY, format!("{AUTHORITY}."))?],
+            vec![],
+        )
+    })
+    .expect("repeated ensure should adopt the runtime");
     assert_eq!(
         committed_allocations()
             .expect("repeated ensure should preserve committed allocations")
             .generation(),
         generation,
     );
-    open_default_memory_manager_memory_by_key(STABLE_KEY)
-        .expect("the ensured allocation should open");
-    // The committed runtime, not a consumer's parallel collision registry,
-    // rejects mismatched and undeclared opens without replacing authority.
+    open_default_memory_manager_memory(STABLE_KEY).expect("the ensured allocation should open");
+    // Unknown keys cannot open or replace committed authority.
     assert!(matches!(
-        open_default_memory_manager_memory(STABLE_KEY, MEMORY_ID + 1),
-        Err(RuntimeOpenError::MemoryIdMismatch { committed_id, requested_id, .. })
-            if committed_id == MEMORY_ID && requested_id == MEMORY_ID + 1
-    ));
-    assert!(matches!(
-        open_default_memory_manager_memory(
-            "icydb.ensure_default_memory_manager_test.unknown.v1",
-            MEMORY_ID
-        ),
+        open_default_memory_manager_memory("icydb.ensure_default_memory_manager_test.unknown.v1"),
         Err(RuntimeOpenError::StableKeyNotCommitted(_))
     ));
-    open_default_memory_manager_memory(STABLE_KEY, MEMORY_ID)
+    open_default_memory_manager_memory(STABLE_KEY)
         .expect("rejected opens must not change committed authority");
 
     // Control consumers use the same committed mapping, including host pools

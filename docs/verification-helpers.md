@@ -296,7 +296,7 @@ case "$status" in
 esac
 ```
 
-The Bash/curl helper accepts one crate name and one canonical stable `X.Y.Z`
+The default Bash/curl helper accepts one crate name and one canonical stable `X.Y.Z`
 version. Prerelease/build versions, leading-zero components, malformed names and
 extra arguments are rejected. Its exit contract is **0 present (HTTP 200),
 1 absent (HTTP 404), 2 unavailable or invalid**. Transport failure wins over any
@@ -312,6 +312,50 @@ It does not run Cargo, inspect dependencies, publish or clean artifacts.
 A present version does not prove that a new consumer can resolve every dependency.
 Post-publication waiting, time budgets and package ordering stay in the caller;
 an inconclusive result must stop that flow rather than trigger publication.
+
+### Retained exact metadata
+
+Consumers needing package identity and checksum facts can select the same helper's
+additive metadata mode:
+
+```sh
+status=0
+facts="$(bash scripts/ci/check-crates-io-version.sh \
+    --metadata "$logs/my-crate-observation-1" my-crate 0.1.2)" || status=$?
+case "$status" in
+    0) printf '%s\n' "$facts" ;; # Compare with the caller's selected payload.
+    1) echo 'Absent; apply the caller publication policy' ;;
+    *) echo 'Inconclusive; stop without publication' >&2; exit 2 ;;
+esac
+```
+
+`--metadata NEW-DIRECTORY` additionally requires prepared jq and curl 8.4.0+.
+The directory's parent must exist; an existing directory, file or symlink is
+rejected before a request, so a retry cannot overwrite or reuse earlier evidence.
+The helper creates it with private permissions and retains `request.url`,
+`curl-version.txt`, `response.json`, `http-status`, `curl-exit` and `curl.stderr`.
+JSON parsing also retains `metadata.stderr` and its output `metadata.json` when
+attempted. Keep the whole directory on success and failure; a file's presence
+alone is not evidence of a completed observation. Callers select a fresh path
+for every attempt and must check the exit status.
+
+The body limit is 1 MiB, enforced during transfer and checked again before JSON
+parsing. The curl floor is specific to metadata mode because
+[older curl cannot enforce this limit without a known response size](https://curl.se/docs/manpage.html#--max-filesize).
+Only HTTP 200 containing exactly one JSON object with the exact requested crate
+and version, a 64-character lowercase SHA-256 checksum and a boolean `yanked`
+field returns 0. Stdout then contains one JSON object with `crate`, `version`,
+`checksum` and `yanked`. Extra registry fields are ignored. HTTP 404 returns 1;
+transport, size, malformed/multiple JSON, identity, field-type, prerequisite and
+evidence-write failures return 2. Neither 404 nor an inconclusive read emits facts.
+
+A yanked version remains an observed version (`yanked: true`), not an absent one.
+The consumer decides whether to accept it. Auth keeps archive-hash comparison,
+durable upload intent and uncertain-upload reconciliation; Blob keeps archive/VCS
+authentication, package ordering and dependency dry-run checks. Valid registry
+metadata alone never authorizes skipping or dispatching an upload. Adoption is
+tracked in [Auth #12](https://github.com/dragginzgame/ic-auth/issues/12) and
+[Blob #45](https://github.com/dragginzgame/ic-blob-storage/issues/45).
 
 ## Snapshot adoption
 

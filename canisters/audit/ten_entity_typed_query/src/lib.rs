@@ -5,13 +5,17 @@
 use icydb::types::{Id, Ulid};
 use icydb_testing_audit_ten_simple_fixtures::ten_simple::TenSimpleEntity01;
 
-// The host grants the pool; schema declarations name only permanent keys.
-icydb::ic_memory_range!(
-    authority = "icydb.ten_simple",
-    start = 100,
-    end = 254,
-    mode = Allowed
-);
+// The final host owns grants and exclusions; components request permanent keys.
+fn icydb_memory_pool()
+-> Result<icydb::db::MemoryAllocationPool, icydb::db::MemoryAllocationPoolError> {
+    icydb::db::MemoryAllocationPool::new(
+        vec![icydb::db::MemoryAuthority::new(
+            "icydb.ten_simple",
+            "icydb.ten_simple.",
+        )?],
+        vec![],
+    )
+}
 
 icydb::start!();
 

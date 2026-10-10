@@ -6,9 +6,9 @@ use crate::{
     error::{Error, ErrorKind, ErrorOrigin, RuntimeErrorKind},
 };
 use ic_memory::{
-    AllocationValidationError, BootstrapAdmissionError, MemoryManagerRangeAuthorityError,
+    AllocationValidationError, BootstrapAdmissionError, MemoryAllocationPoolError,
     MemoryResolutionError, RuntimeAdoptionError, RuntimeBootstrapError, RuntimeConstructionError,
-    RuntimeOpenError, RuntimePolicyError, RuntimeStateError, StaticMemoryDeclarationError,
+    RuntimeOpenError, RuntimeStateError, StaticMemoryDeclarationError,
 };
 use icydb_diagnostic_code::{DiagnosticFactTag, RuntimeBoundaryCode};
 
@@ -43,14 +43,15 @@ fn cold_bootstrap_error(
                 (DiagnosticFactTag::Actual, u64::from(*persisted)),
             ],
         )),
-        RuntimeBootstrapError::DeclarationSnapshotMismatch => Some(boundary(
+        RuntimeBootstrapError::DeclarationSnapshotMismatch
+        | RuntimeBootstrapError::AllocationPoolMismatch => Some(boundary(
             RuntimeBoundaryCode::MemoryDeclarationSnapshotMismatch,
             vec![],
         )),
         RuntimeBootstrapError::AdmissionPolicy(cause)
-        | RuntimeBootstrapError::Validation(AllocationValidationError::Policy(
-            RuntimePolicyError::Custom(cause),
-        )) => admission_error(cause),
+        | RuntimeBootstrapError::Validation(AllocationValidationError::Policy(cause)) => {
+            admission_error(cause)
+        }
         // Poisoned historical selection is returned before the policy wrapper.
         RuntimeBootstrapError::Admission(cause) => historical_error(cause),
         RuntimeBootstrapError::Resolution(MemoryResolutionError::Exhausted { .. }) => {
@@ -59,13 +60,16 @@ fn cold_bootstrap_error(
                 vec![],
             ))
         }
-        RuntimeBootstrapError::Resolution(MemoryResolutionError::Range(cause))
-        | RuntimeBootstrapError::Validation(AllocationValidationError::Policy(
-            RuntimePolicyError::Range(cause),
-        )) => Some(boundary(
+        RuntimeBootstrapError::Resolution(MemoryResolutionError::Pool(cause)) => Some(boundary(
             RuntimeBoundaryCode::MemoryAllocationResolutionFailed,
-            memory_id_facts(cause),
+            pool_id_facts(cause),
         )),
+        RuntimeBootstrapError::Resolution(MemoryResolutionError::UnmanagedAllocation { id }) => {
+            Some(boundary(
+                RuntimeBoundaryCode::MemoryAllocationResolutionFailed,
+                vec![(DiagnosticFactTag::ActualMemoryId, u64::from(*id))],
+            ))
+        }
         RuntimeBootstrapError::Registry(cause)
         | RuntimeBootstrapError::Resolution(MemoryResolutionError::Registry(cause)) => {
             registry_error(cause)
@@ -98,7 +102,7 @@ fn admission_error(cause: &MemoryBootstrapAdmissionError) -> Option<Error> {
 
 fn historical_error(cause: &BootstrapAdmissionError) -> Option<Error> {
     let facts = match cause {
-        BootstrapAdmissionError::Range { source, .. } => memory_id_facts(source),
+        BootstrapAdmissionError::Pool(cause) => pool_id_facts(cause),
         BootstrapAdmissionError::Unknown(_)
         | BootstrapAdmissionError::Retired(_)
         | BootstrapAdmissionError::Duplicate(_)
@@ -114,10 +118,6 @@ fn historical_error(cause: &BootstrapAdmissionError) -> Option<Error> {
 
 fn registry_error(cause: &StaticMemoryDeclarationError) -> Option<Error> {
     match cause {
-        StaticMemoryDeclarationError::Range(cause) => Some(boundary(
-            RuntimeBoundaryCode::MemoryAllocationResolutionFailed,
-            memory_id_facts(cause),
-        )),
         StaticMemoryDeclarationError::Declaration(_)
         | StaticMemoryDeclarationError::TooManyDeclarations
         | StaticMemoryDeclarationError::DuplicateRequest { .. }
@@ -137,17 +137,6 @@ fn adoption_error(cause: &RuntimeAdoptionError) -> Option<Error> {
         | RuntimeAdoptionError::AuthorityMismatch { .. }
         | RuntimeAdoptionError::DeclarationMetadataMismatch { .. }
         | RuntimeAdoptionError::Open(RuntimeOpenError::StableKeyNotCommitted(_)) => vec![],
-        RuntimeAdoptionError::Open(RuntimeOpenError::MemoryIdMismatch {
-            committed_id,
-            requested_id,
-            ..
-        }) => vec![
-            (
-                DiagnosticFactTag::ExpectedMemoryId,
-                u64::from(*requested_id),
-            ),
-            (DiagnosticFactTag::ActualMemoryId, u64::from(*committed_id)),
-        ],
         _ => return None,
     };
     Some(boundary(
@@ -156,11 +145,9 @@ fn adoption_error(cause: &RuntimeAdoptionError) -> Option<Error> {
     ))
 }
 
-fn memory_id_facts(cause: &MemoryManagerRangeAuthorityError) -> Vec<(DiagnosticFactTag, u64)> {
+fn pool_id_facts(cause: &MemoryAllocationPoolError) -> Vec<(DiagnosticFactTag, u64)> {
     match cause {
-        MemoryManagerRangeAuthorityError::UnclaimedId { id }
-        | MemoryManagerRangeAuthorityError::AuthorityMismatch { id, .. }
-        | MemoryManagerRangeAuthorityError::ModeMismatch { id, .. } => {
+        MemoryAllocationPoolError::ExcludedSlot { id } => {
             vec![(DiagnosticFactTag::ActualMemoryId, u64::from(*id))]
         }
         _ => vec![],

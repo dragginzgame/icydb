@@ -123,11 +123,15 @@ Consumer choices described in those guides remain subject to this baseline.
 - Remove superseded paths completely when their obligations permit retirement.
   Name any remaining consumer or deployment blocker and the evidence needed to
   close it. Do not leave replacement and old implementation indefinitely active.
-- When cleaning up code, list every removed function, method and type in the final
-  user-facing output, including private symbols and those inside deleted files.
+- When cleaning up code, list every removed function, method and type only in the
+  final response to the maintainer in the Codex app, including private symbols
+  and those inside deleted files.
   Give exact names, their former file or module, why each was removed and its
   replacement when applicable. Distinguish deletions from moves or renames.
   Shared reasons may be grouped, but every removed name must still be listed.
+  Do not copy this inventory into repository files, changelogs, reports, commit
+  messages, PRs or issues. Continue documenting meaningful public API removals
+  and required consumer actions at their normal owners.
 - Complete changelog maintenance under the [common changelog rules](rules/changelogs.md)
   as part of the coherent batch, including automatically selecting and maintaining
   the numbered next release at the top. Do not wait for a separate notes request.
@@ -163,9 +167,15 @@ Consumer choices described in those guides remain subject to this baseline.
   in consumer overlays. Audit adoption adds no automatic broad gate or schedule;
   findings do not supply repair authority. Preserve historical reports locally.
 - Run the smallest relevant checks automatically during authorized development.
-  Broad workspace, full CI and release gates run only when explicitly requested
-  or in their configured CI pipeline. Local command lists must distinguish focused
-  checks from those complete gates; continuation and readiness do not authorize them.
+  Before delivering a completed code change as ready, run the repository's
+  documented full validation suite. This is standing validation authority within
+  the authorized repository; no separate request is needed. Local command lists
+  must distinguish focused development checks, the full delivery suite and release
+  commands. Reuse passing evidence for unchanged inputs; rerun affected checks
+  after further changes. Documentation-only changes need link, consistency and
+  diff checks, unless the repository documents additional relevant validation.
+  Inspection-only tasks do not authorize a full suite. Release execution,
+  publication and deployment retain their separate explicit authorization.
 - Check for active builds before compilation or source mutation. Do not change
   source under active validation or compete for its build lock. Use the owning
   repository's build directory; preserve unrelated artifacts.
@@ -178,8 +188,9 @@ Consumer choices described in those guides remain subject to this baseline.
   [Cargo network policy](rules/cargo-dependencies.md#cargo-network-policy);
   do not silently override a caller's explicit offline setting or select
   unrequested dependency versions.
-  A selected standard release includes its documented locked cache preparation
-  under the [release contract](docs/releases.md), including before compiled
+  A selected standard release includes its documented locked cache and selected
+  executable-tool preparation under the [release contract](docs/releases.md),
+  including required cache preparation before compiled
   adapter startup. Explicit offline settings remain authoritative; ordinary
   checks and standalone helper reads do not gain network permission.
 - Test maintained observable behavior, typed failures and genuine architectural
@@ -252,6 +263,13 @@ Consumer choices described in those guides remain subject to this baseline.
 
 ## Rust workspaces and portable tooling
 
+- Directory names for repositories, workspaces, tooling and operational inputs
+  must not contain line-feed (LF) or carriage-return (CR) characters, including
+  ancestor directories and resolved symlink destinations. Do not create or select
+  such directories for normal work. Reject invalid paths before trimming or
+  normalizing them; never silently select a different path. Deliberate negative
+  test fixtures may contain forbidden names. Preserve existing artifacts and
+  evidence with those names; this rule does not authorize renaming or deletion.
 - Provide [local developer setup](docs/local-setup.md) through explicit
   `make install-tools` and offline `make tools-check`, following the
   [required tool inventory](docs/local-setup.md#required-tool-inventory).

@@ -51,19 +51,28 @@ change.
 
 ## Cleanup reporting
 
-Build the final cleanup report from the actual diff, including declarations in
-deleted files. List every removed function, method and type, public or private,
+Build the deletion inventory from the actual diff, including declarations in
+deleted files. In the final response to the maintainer in the Codex app only,
+list every removed function, method and type, public or private,
 with its former file or module, removal reason and replacement when applicable.
 Use exact names so the maintainer can identify what disappeared and why; a
 summary such as "removed legacy helpers" or a symbol count is insufficient.
 Group entries with the same reason if useful, while enumerating every name.
 Label moves and renames explicitly so they do not imply behavior was deleted.
+Do not put this inventory in repository files, changelogs, audit reports, commit
+messages, PRs or issues. Their ordinary summaries still explain meaningful public
+API removals, changed behavior and required consumer actions.
 
 ## Validation
 
 Run the narrowest evidence that matches the changed risk automatically while
-developing. Broad workspace, full CI and release gates require an explicit request
-or their configured CI pipeline. Record what passed and what was not run.
+developing. Before delivering a completed code change as ready, run the owning
+repository's documented full validation suite under the baseline's standing
+authority. Reuse passing results for unchanged inputs; further changes require
+the affected checks again. Documentation-only changes need link, instruction
+consistency and diff checks. Inspection alone does not authorize a full suite,
+and release execution still requires its own explicit request. Record what
+passed and what was not run; a progress update is not a completed delivery.
 
 Tests protect maintained behavior and trust boundaries, not incidental
 implementation shape. Avoid repeating equivalent assertions through every

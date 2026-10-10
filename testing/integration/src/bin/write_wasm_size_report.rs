@@ -14,7 +14,7 @@ use std::{
 
 use ic_host_artifacts::wasm::{InspectionLimits, inspect};
 use ic_host_fs::read::hash_file;
-use ic_host_process::tool::{AdmittedTool, OutputLimits, capture_command};
+use ic_host_process::tool::{AdmittedTool, OutputLimit, OutputLimits, capture_command};
 use icydb_testing_integration::{
     CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
     CanisterWasmProfile, ResolvedCanisterBuildConfiguration,
@@ -38,9 +38,9 @@ const SIZE_REPORT_FORMAT_VERSION: u32 = 1;
 // These commands emit version/provenance or structural text, never Wasm bytes.
 // Match the existing optimizer capture envelope; this is an operational bound.
 const REPORT_OUTPUT_LIMITS: OutputLimits = OutputLimits {
-    stdout_bytes: 1024 * 1024,
-    stderr_bytes: 1024 * 1024,
-    timeout: Duration::from_secs(600),
+    stdout: OutputLimit::Terminate(1024 * 1024),
+    stderr: OutputLimit::Terminate(1024 * 1024),
+    timeout: Some(Duration::from_secs(600)),
 };
 
 const GENERATED_EXPORTS: &[&str] = &[

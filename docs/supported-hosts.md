@@ -100,6 +100,7 @@ required to run setup. Make targets and CI select this same local tool set.
 | Local IC tool setup | Bash 3.2+, `curl`, `tar`, xz/gzip, Perl, and a SHA-256 implementation; see [IC tools](ic-tools.md) |
 | Nonempty Cargo test helper | Cargo with normal libtest summaries, `awk`, and `tee` |
 | Exact release-tag checker | Git and the caller's selected exact commit/version |
+| Exact crates.io observation | Bash/curl for presence; metadata mode additionally requires jq and curl 8.4.0+ for bounded downloads |
 | `scripts/ci/run-sccache.sh` | An executable `sccache` binary |
 | Snapshot verification | A SHA-256 implementation |
 | Snapshot refresh | Git, a clean Shared Tooling checkout, and a SHA-256 implementation |
@@ -170,6 +171,8 @@ failed and interrupted setup, and atomic activation using substituted payloads;
 only the separate native installation step qualifies actual upstream binaries.
 Failure-artifact collection runs after native qualification and includes installer
 logs and retained host/IC candidate directories as well as portable fixtures.
+It also selects the compact formatting runner's `formatting.*` failure logs from
+the selected temporary root; CI callers use `RUNNER_TEMP` for those logs.
 It also selects available `rust-tools-*.log` files and `.tools/rust/build`,
 independently of compact host/IC retention. Rust build evidence is selected only
 through physical parent directories; a final build symlink is retained without
@@ -195,7 +198,14 @@ leave no completed manifest. All evidence is retained. CI observes the failed st
 requires that invocation's completion output (an old manifest cannot qualify it),
 uploads through the common collector, downloads the exact returned artifact ID,
 and extracts the archive to check its payload against the original checksum
-manifest. Separate checks cover a newline/colon filename's bytes and mode,
+manifest. Both full and compact evidence readbacks use the pinned download
+action's authenticated REST path, scoped to the current repository and run.
+Only the portable job grants `actions: read`; download digest mismatches fail
+before the independent payload checks. This transport selection follows
+[the Blob readback report](https://github.com/dragginzgame/shared-tooling/issues/93);
+its original internal lookup failure has no proven cause, and local checks do
+not establish hosted acceptance of the new path.
+Separate checks cover a newline/colon filename's bytes and mode,
 executable state and a symlink whose target stays outside the selection. Missing logs,
 hidden candidate files, failed uploads, early fixture failures and corrupted
 downloads fail the job. Source hashes, commit, host and run identity stay with

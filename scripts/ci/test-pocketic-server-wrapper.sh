@@ -23,14 +23,18 @@ if [[ "$#" == 1 && "$1" == --version ]]; then
   exit 0
 fi
 port_file=""
+idle_ttl=""
+hard_ttl=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --ttl|--hard-ttl) shift 2 ;;
+    --ttl) idle_ttl="$2"; shift 2 ;;
+    --hard-ttl) hard_ttl="$2"; shift 2 ;;
     --port-file) port_file="$2"; shift 2 ;;
     *) exit 99 ;;
   esac
 done
 [[ -n "$port_file" ]]
+[[ "$idle_ttl" == 900 && "$hard_ttl" == 900 ]]
 printf '%s\n' "$$" > "$TEST_STATE/server.pid"
 for ((line = 1; line <= 4096; line++)); do
   printf 'stdout-%s\n' "$line"

@@ -13,13 +13,17 @@ use icydb_testing_demo_rpg_fixtures::{
     schema::{Character, CharacterMentor, Grid},
 };
 
-// The host grants the pool; schema declarations name only permanent keys.
-icydb::ic_memory_range!(
-    authority = "icydb.demo_rpg",
-    start = 100,
-    end = 254,
-    mode = Allowed
-);
+// The final host owns grants and exclusions; components request permanent keys.
+fn icydb_memory_pool()
+-> Result<icydb::db::MemoryAllocationPool, icydb::db::MemoryAllocationPoolError> {
+    icydb::db::MemoryAllocationPool::new(
+        vec![icydb::db::MemoryAuthority::new(
+            "icydb.demo_rpg",
+            "icydb.demo_rpg.",
+        )?],
+        vec![],
+    )
+}
 
 icydb::start!();
 

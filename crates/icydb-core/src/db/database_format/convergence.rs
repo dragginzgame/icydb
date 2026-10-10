@@ -3,6 +3,8 @@
 //! Does not own: admission limits, online scheduling, or fold execution.
 //! Boundary: generated allocation proposals + persisted commit/tail controls -> current format.
 
+#[cfg(not(test))]
+use crate::db::registry::open_committed_memory;
 use crate::{
     db::{
         Db,
@@ -22,8 +24,6 @@ use crate::{
 };
 use ic_memory::RuntimeMemory;
 use ic_memory::ic_stable_structures::{DefaultMemoryImpl, Memory};
-#[cfg(not(test))]
-use ic_memory::open_default_memory_manager_memory;
 
 // Host grants select placement within the dependency's non-governance domain.
 const ALLOCATABLE_MEMORY_ID_MIN: u8 = ic_memory::MEMORY_MANAGER_GOVERNANCE_MAX_ID + 1;
@@ -409,8 +409,7 @@ fn store_memory_owned(
     memory_id: u8,
     stable_key: &str,
 ) -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
-    open_default_memory_manager_memory(stable_key, memory_id)
-        .map_err(|_| InternalError::store_internal())
+    open_committed_memory(stable_key, memory_id).map_err(|_| InternalError::store_internal())
 }
 
 #[cfg(test)]

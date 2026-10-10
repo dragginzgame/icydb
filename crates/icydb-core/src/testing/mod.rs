@@ -7,11 +7,10 @@ mod entity_tags;
 
 use ic_memory::ic_stable_structures::{DefaultMemoryImpl, Memory};
 use ic_memory::{
-    AllocationPolicy, MemoryManagerConfig, MemoryManagerSlot, MemoryRuntime, PolicyIdentity,
-    PolicyIdentityError, RuntimeBootstrapPolicy, RuntimeMemory, SealedDeclarationSnapshot,
-    StableKey, register_static_memory_manager_declaration, sealed_declaration_snapshot,
+    MemoryAllocationPool, MemoryAuthority, MemoryManagerConfig, MemoryRequest, MemoryRuntime,
+    RuntimeMemory, SchemaMetadata, SealedDeclarationSnapshot,
 };
-use std::{convert::Infallible, sync::OnceLock};
+use std::sync::OnceLock;
 
 pub(crate) use entity_tags::*;
 
@@ -43,7 +42,7 @@ pub(crate) fn test_memory_with_backing(
 ) -> RuntimeMemory<DefaultMemoryImpl> {
     let id = test_memory_id(id);
     test_memory_runtime(backing, MemoryManagerConfig::default())
-        .open_memory(&format!("icydb.core_tests.slot_{id}.v1"), id)
+        .open_memory(&format!("icydb.core_tests.slot_{id:03}.v1"))
         .expect("test memory should open")
 }
 
@@ -54,51 +53,27 @@ pub(crate) fn test_memory_runtime<M: Memory>(
 ) -> MemoryRuntime<M> {
     static DECLARATIONS: OnceLock<SealedDeclarationSnapshot> = OnceLock::new();
     let declarations = DECLARATIONS.get_or_init(|| {
-        // Seal one shared fixture layout before parallel tests create their
-        // independent runtimes. Only opened slots allocate store memory.
-        for id in 10..=254 {
-            register_static_memory_manager_declaration(
-                id,
-                "icydb.core-tests",
-                "TestMemory",
-                format!("icydb.core_tests.slot_{id}.v1"),
-            )
-            .expect("test allocation should register");
-        }
-        sealed_declaration_snapshot().expect("test declarations should seal")
+        let requests: Vec<_> = (10..=254)
+            .map(|id| {
+                MemoryRequest::new(
+                    "icydb.core-tests",
+                    &format!("icydb.core_tests.slot_{id:03}.v1"),
+                    SchemaMetadata::default(),
+                )
+                .expect("test request should validate")
+            })
+            .collect();
+        SealedDeclarationSnapshot::new(&requests).expect("test requests should seal")
     });
+    let pool = MemoryAllocationPool::new(
+        vec![MemoryAuthority::new("icydb.core-tests", "icydb.core_tests.").unwrap()],
+        vec![],
+    )
+    .unwrap();
     let mut runtime =
         MemoryRuntime::new_with_config(backing, config).expect("test runtime should initialize");
     runtime
-        .bootstrap(declarations, &TestMemoryPolicy)
+        .bootstrap(declarations, &pool, &ic_memory::GenericAllocationPolicy)
         .expect("test runtime should bootstrap");
     runtime
-}
-
-struct TestMemoryPolicy;
-
-impl AllocationPolicy for TestMemoryPolicy {
-    type Error = Infallible;
-
-    fn validate_key(&self, _: &StableKey) -> Result<(), Self::Error> {
-        Ok(())
-    }
-
-    fn validate_slot(&self, _: &StableKey, _: &MemoryManagerSlot) -> Result<(), Self::Error> {
-        Ok(())
-    }
-
-    fn validate_reserved_slot(
-        &self,
-        _: &StableKey,
-        _: &MemoryManagerSlot,
-    ) -> Result<(), Self::Error> {
-        Ok(())
-    }
-}
-
-impl RuntimeBootstrapPolicy for TestMemoryPolicy {
-    fn runtime_bootstrap_identity(&self) -> Result<PolicyIdentity, PolicyIdentityError> {
-        PolicyIdentity::new("icydb.core-tests", 1)
-    }
 }

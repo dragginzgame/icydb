@@ -9,7 +9,12 @@ owned APIs, canister identities, validation gates and deployment configuration.
 Every repository containing maintained Rust packages uses a virtual root,
 including repositories with only one package. The standard package locations
 are `crates/` and `apps/`, according to ownership, with explicit approved layout
-exceptions below. Repositories need only the trees they use:
+exceptions below. Repositories need only the trees they use.
+
+This is a deliberate fleet consistency convention: even a single library keeps
+both the root workspace `Cargo.toml` and its package `crates/<package-name>/Cargo.toml`.
+Retain the standard shape and the approved exceptions below; routine cleanup
+does not collapse the two manifests or require moving an approved layout:
 
 ```text
 Cargo.toml                 # Virtual workspace; no [package]
@@ -132,7 +137,9 @@ In the owning repository's authorized change:
 4. Run the owning focused locked metadata, formatting and path/packaging checks
    for every affected workspace with prepared tools and caches. Keep the existing
    Linux/macOS qualification obligations and local command authority. Adoption
-   does not add a broad gate or authorize publication, cleanup or version changes.
+   does not add a new gate or authorize publication, cleanup or version changes.
+   Code changes still complete the repository's existing full validation suite
+   before delivery under the baseline.
 5. Verify the adopted snapshot and update local instructions and documentation.
    Distinguish committed adoption from local preparation and native execution
    evidence from source inspection.

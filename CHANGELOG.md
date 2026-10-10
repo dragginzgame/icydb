@@ -5,6 +5,24 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.270.0]
+
+### 🩹 Fixed
+
+- **Breaking:** adopt host-owned Memory 0.34 pools; repair SQL semantics,
+  diagnostic artifact publication, CI lifetimes and selected-tool preparation
+  ([#333](https://github.com/dragginzgame/icydb/issues/333),
+  [#337](https://github.com/dragginzgame/icydb/issues/337),
+  [#307](https://github.com/dragginzgame/icydb/issues/307),
+  [#336](https://github.com/dragginzgame/icydb/issues/336),
+  [#340](https://github.com/dragginzgame/icydb/issues/340),
+  [#341](https://github.com/dragginzgame/icydb/issues/341),
+  [#338](https://github.com/dragginzgame/icydb/issues/338),
+  [#339](https://github.com/dragginzgame/icydb/issues/339),
+  [#327](https://github.com/dragginzgame/icydb/issues/327)).
+
+See [detailed notes](docs/changelog/0.270.md).
+
 ## [0.269.1] - 2026-10-09
 
 - Reduce CI server prerequisites, storage-report traversals and structural-write

@@ -6,19 +6,24 @@ mod schema;
 use ic_memory::{
     RuntimeMemory, committed_allocations,
     ic_stable_structures::{DefaultMemoryImpl, Memory},
-    open_default_memory_manager_memory_by_key,
+    open_default_memory_manager_memory,
 };
 use icydb::{
     db::{DatabaseStartupState, StartupFailure, TypedWriteAdapter as _, WriteCell},
     types::Id,
 };
 
-icydb::ic_memory_range!(
-    authority = "icydb.logical_fixture",
-    start = 100,
-    end = 140,
-    mode = Allowed
-);
+// The final host owns grants and exclusions; components request permanent keys.
+fn icydb_memory_pool()
+-> Result<icydb::db::MemoryAllocationPool, icydb::db::MemoryAllocationPoolError> {
+    icydb::db::MemoryAllocationPool::new(
+        vec![icydb::db::MemoryAuthority::new(
+            "icydb.logical_fixture",
+            "icydb.logical_fixture.",
+        )?],
+        vec![],
+    )
+}
 icydb::start! {
     init() => pause_delivery;
     post_upgrade() => pause_delivery;
@@ -114,7 +119,7 @@ const PAYLOAD_OFFSET: u64 = FRAME_OFFSET + FRAME_BYTES as u64;
 const MAX_FIXTURE_CONTROL_BYTES: usize = 64 * 1024;
 
 fn control() -> RuntimeMemory<DefaultMemoryImpl> {
-    open_default_memory_manager_memory_by_key(CONTROL_KEY).unwrap()
+    open_default_memory_manager_memory(CONTROL_KEY).unwrap()
 }
 
 #[ic_cdk::query]

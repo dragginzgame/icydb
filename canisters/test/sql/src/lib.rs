@@ -56,13 +56,17 @@ use icydb_testing_test_sql_fixtures::sql::{
     SqlTestEnrollmentUserPrincipalInsert,
 };
 
-// The host grants the pool; schema declarations name only permanent keys.
-icydb::ic_memory_range!(
-    authority = "icydb.test_sql",
-    start = 100,
-    end = 254,
-    mode = Allowed
-);
+// The final host owns grants and exclusions; components request permanent keys.
+fn icydb_memory_pool()
+-> Result<icydb::db::MemoryAllocationPool, icydb::db::MemoryAllocationPoolError> {
+    icydb::db::MemoryAllocationPool::new(
+        vec![icydb::db::MemoryAuthority::new(
+            "icydb.test_sql",
+            "icydb.test_sql.",
+        )?],
+        vec![],
+    )
+}
 
 icydb::start!();
 

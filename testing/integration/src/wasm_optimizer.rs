@@ -12,8 +12,8 @@ use std::{
 
 use ic_host_fs::durable::{NamedWriteError, write_named_with};
 use ic_host_process::tool::{
-    AdmittedTool, ExecutionContext, ExecutionEvidence, OutputLimits, ToolError, ToolSpec,
-    resolve_executable,
+    AdmittedTool, ExecutionContext, ExecutionEvidence, OutputLimit, OutputLimits, ToolError,
+    ToolSpec, resolve_executable,
 };
 
 /// Environment variable that may point at the pinned `wasm-opt` executable.
@@ -48,9 +48,9 @@ pub const WASM_OPT_OUTPUT_FEATURES: [&str; 5] = [
 // Binaryen diagnostics are captured, never the Wasm payload. Fixed resource
 // ceilings prevent unbounded output or a stuck child; this is not a performance gate.
 const OPTIMIZER_OUTPUT_LIMITS: OutputLimits = OutputLimits {
-    stdout_bytes: 1024 * 1024,
-    stderr_bytes: 1024 * 1024,
-    timeout: Duration::from_secs(600),
+    stdout: OutputLimit::Terminate(1024 * 1024),
+    stderr: OutputLimit::Terminate(1024 * 1024),
+    timeout: Some(Duration::from_secs(600)),
 };
 
 /// Resolve the admitted executable digest for the native host.
@@ -241,17 +241,11 @@ pub fn format_tool_failure(context: &str, error: &ToolError) -> String {
             String::from_utf8_lossy(&evidence.stderr).trim_end(),
         );
     }
-    if let Some(failure) = error.execution_error()
-        && (failure.term_error.is_some()
-            || failure.group_error.is_some()
-            || failure.kill_error.is_some()
-            || failure.wait_error.is_some())
+    if let Some(cleanup) = error
+        .execution_error()
+        .and_then(|failure| failure.cleanup.as_ref())
     {
-        let _ = write!(
-            message,
-            "\ncleanup: term={:?}, group={:?}, kill={:?}, wait={:?}",
-            failure.term_error, failure.group_error, failure.kill_error, failure.wait_error,
-        );
+        let _ = write!(message, "\ncleanup: {cleanup}");
     }
     message
 }
@@ -262,7 +256,10 @@ pub fn format_tool_failure(context: &str, error: &ToolError) -> String {
 
 #[cfg(test)]
 mod tests {
-    use ic_host_process::tool::{ExecutionError, ExecutionEvidence, ExecutionFailure, ToolError};
+    use ic_host_process::{
+        child::CleanupError,
+        tool::{ExecutionError, ExecutionEvidence, ExecutionFailure, ToolError},
+    };
     use std::io;
 
     use super::{
@@ -282,27 +279,29 @@ mod tests {
                     stderr: b"retained stderr\n".to_vec(),
                     ..ExecutionEvidence::default()
                 },
+                cleanup: None,
+            };
+            let mut cleanup = CleanupError {
+                status: None,
                 term_error: None,
                 group_error: None,
                 kill_error: None,
                 wait_error: None,
             };
-            let cleanup = io::Error::from(io::ErrorKind::PermissionDenied);
+            let cause = io::Error::from(io::ErrorKind::PermissionDenied);
             match field {
-                0 => failure.term_error = Some(cleanup),
-                1 => failure.group_error = Some(cleanup),
-                2 => failure.kill_error = Some(cleanup),
-                _ => failure.wait_error = Some(cleanup),
+                0 => cleanup.term_error = Some(cause),
+                1 => cleanup.group_error = Some(cause),
+                2 => cleanup.kill_error = Some(cause),
+                _ => cleanup.wait_error = Some(cause),
             }
+            failure.cleanup = Some(Box::new(cleanup));
             // Check the diagnostic projection, deriving error display from its
             // typed owner rather than freezing platform-dependent error prose.
             let expected = format!(
-                "fixture: {failure}\nstatus: {:?}\nstdout:\nretained stdout\nstderr:\nretained stderr\ncleanup: term={:?}, group={:?}, kill={:?}, wait={:?}",
+                "fixture: {failure}\nstatus: {:?}\nstdout:\nretained stdout\nstderr:\nretained stderr\ncleanup: {}",
                 failure.evidence.status,
-                failure.term_error,
-                failure.group_error,
-                failure.kill_error,
-                failure.wait_error,
+                failure.cleanup.as_ref().unwrap(),
             );
             assert_eq!(
                 format_tool_failure("fixture", &ToolError::Execution(Box::new(failure))),

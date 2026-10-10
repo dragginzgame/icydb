@@ -147,9 +147,9 @@ demonstrations; application endpoints must enforce their own authorization.
 
 Keep schema declarations in a module shared by the build script and canister.
 Declare a permanent database `memory_namespace` and journaled store `key`;
-grant the corresponding `icydb.<namespace>` memory pool in the canister host
-with `icydb::ic_memory_range!` and `mode = Allowed`. Omitting `mode` selects
-`Reserved`, which does not supply slots for fresh logical allocations. Persisted
+define the host `icydb_memory_pool` provider with a matching owner/namespace grant
+in one shared allocation pool. Components request permanent keys; the host owns
+physical exclusions and allocation authority. Existing persisted
 logical keys own allocation identity; Rust names and declaration order do not.
 
 [Schema authoring](docs/guides/schema-authoring.md) covers scalar/composite

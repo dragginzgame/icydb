@@ -12,8 +12,7 @@ use model::{
 };
 
 pub use memory_allocations::{
-    MemoryAllocation, MemoryAllocationBinding, MemoryAllocationRangeClaim, MemoryAllocations,
-    MemoryExtent,
+    MemoryAllocation, MemoryAllocationBinding, MemoryAllocations, MemoryExtent,
 };
 pub use model::{
     DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, SchemaStoreSnapshot, StorageReport,

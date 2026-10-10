@@ -12,6 +12,7 @@ mod tests;
 
 pub(in crate::db::registry) use error::StoreRegistryError;
 pub(crate) use handle::StoreHandle;
+pub(in crate::db) use handle::open_committed_memory;
 pub(in crate::db) use handle::{
     ExactPrefixCardinalityLifecycleStamp, ExactUserIndexPrefixEvidence,
 };

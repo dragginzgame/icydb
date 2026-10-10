@@ -48,6 +48,14 @@ the independent, non-mutating formatting gate.
   metadata must also be consistently formatted before staging. A release must
   not rely on a commit hook to repair its saved staged payload; retain the
   release runner's exact commit-tree check.
+- Keep routine formatting output concise across all repositories. `make fmt-check`
+  reports `Checking formatting... ok` on success; `make fmt` reports
+  `Formatting... ok`. Use the shared `scripts/ci/run-formatting.sh` wrapper to
+  capture formatter stdout/stderr. Failures produce a short failure line and a
+  second line pointing to the complete retained log; preserve the command's
+  failing exit status. Make may add its own error diagnostic. Do not hide
+  failures, discard diffs or remove workspace/derive/frontend checks to reduce
+  output. Retain failure logs in CI artifacts too.
 
 For a single root workspace, prefer the optional shared `make/rust-format.mk`:
 
@@ -63,11 +71,28 @@ disables automatic rustup installation. `FORMAT_CARGO` selects one executable
 name or path, not a command string; export `RUSTUP_TOOLCHAIN` to select a compiler.
 The include preserves the default goal and never activates hooks or installs
 tools. Keep setup explicit and retain stronger consumer admission checks.
+Its `run-formatting.sh` companion owns the compact output and retained logs;
+include it in snapshots and isolated hook/adoption fixture inputs.
+The adjacent `make/execution.mk` companion uses the existing execution probe to
+reject Make ignore-errors and non-executing modes before recipes run. Select its
+declared companion when exporting; a failing prerequisite alone cannot enforce
+failure propagation under ignore-errors mode.
+Admission checks both `MAKEFLAGS` and Make's retained `MFLAGS`, including when
+`MAKEFLAGS` is cleared or replaced. Do not assign `MFLAGS` on the command line or
+in a Makefile; the guard requires GNU Make's generated invocation flags.
 
 Keep local recipes for multiple independent workspaces, sort-derives, custom
 manifest ordering or frontend formatting. Those recipes still use the shared
 prerequisite checker; do not adopt the root-only include and accidentally drop
 existing coverage. Qualify the actual formatting hook after either adoption.
+Wrap the complete local formatter adapter once, for example
+`bash scripts/ci/run-formatting.sh --check bash scripts/dev/format-workspaces.sh --check`,
+where the consumer's existing adapter owns the actual commands. A fixed
+`bash -ec '...'` sequence works too; do not create another workspace registry or
+replace custom policy with the root-only include. The wrapper accepts one command
+and its literal arguments, runs it once, and preserves its exit status. Logs are
+created beneath `RUNNER_TEMP`, otherwise `TMPDIR` or `/tmp`; only its own successful
+temporary log is removed. The shared failure collector includes `formatting.*`.
 
 When a recipe calls a tool available only through a Makefile-exported `PATH`,
 use `env tool ...` (for example, `env cargo sort --workspace`) or an explicit
@@ -98,14 +123,12 @@ selected tracked lockfile, for example:
 PRETTIER_VERSION = $(shell jq -er '.packages["node_modules/prettier"].version' frontend/package-lock.json)
 
 fmt:
-	cargo sort --workspace
-	cargo fmt --all
-	PRETTIER_VERSION="$(PRETTIER_VERSION)" bash scripts/dev/format-frontend.sh --write frontend
+	@PRETTIER_VERSION="$(PRETTIER_VERSION)" bash scripts/ci/run-formatting.sh --write \
+		bash -ec 'cargo sort --workspace; cargo fmt --all; bash scripts/dev/format-frontend.sh --write frontend'
 
 fmt-check:
-	cargo sort --workspace --check
-	cargo fmt --all -- --check
-	PRETTIER_VERSION="$(PRETTIER_VERSION)" bash scripts/dev/format-frontend.sh --check frontend
+	@PRETTIER_VERSION="$(PRETTIER_VERSION)" bash scripts/ci/run-formatting.sh --check \
+		bash -ec 'cargo sort --workspace --check; cargo fmt --all -- --check; bash scripts/dev/format-frontend.sh --check frontend'
 ```
 
 Retain the Rust prerequisite checks and all actual workspace roots described

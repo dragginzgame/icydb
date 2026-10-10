@@ -22,7 +22,9 @@ signal_status=0
 runner_pid=""
 trap 'signal_status=130; kill -INT "$runner_pid" 2>/dev/null || true' INT
 trap 'signal_status=143; kill -TERM "$runner_pid" 2>/dev/null || true' TERM
-"$runner" run ${selection[@]+"${selection[@]}"} --ttl 900 --startup-timeout 30 \
+# Cold compilation is pre-client work. Select its idle allowance through Testkit
+# as well as the hard lifetime; Testkit retains all server lifecycle ownership.
+"$runner" run ${selection[@]+"${selection[@]}"} --ttl 900 --idle-ttl 900 --startup-timeout 30 \
   --server-stdout "$scratch/stdout" --server-stderr "$scratch/stderr" -- "$@" &
 runner_pid="$!"
 # A signal may arrive between installing the traps and recording the child PID.

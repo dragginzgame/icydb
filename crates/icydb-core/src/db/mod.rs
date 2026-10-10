@@ -71,8 +71,8 @@ pub use commit::{ExactBacklogMeasurement, install_startup_recovery_wakeup};
 pub use data::DataStore;
 pub use diagnostics::{
     DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, MemoryAllocation,
-    MemoryAllocationBinding, MemoryAllocationRangeClaim, MemoryAllocations, MemoryExtent,
-    SchemaStoreSnapshot, StorageReport, StoreSnapshotStorageMode,
+    MemoryAllocationBinding, MemoryAllocations, MemoryExtent, SchemaStoreSnapshot, StorageReport,
+    StoreSnapshotStorageMode,
 };
 #[doc(hidden)]
 pub use dynamic_write::{

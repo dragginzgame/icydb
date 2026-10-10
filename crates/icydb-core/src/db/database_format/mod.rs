@@ -6,6 +6,8 @@
 mod convergence;
 mod entropy;
 
+#[cfg(not(test))]
+use crate::db::registry::open_committed_memory;
 use crate::{
     db::{
         commit::{CommitMemoryAllocation, commit_memory_handle, current_commit_memory_allocation},
@@ -15,8 +17,6 @@ use crate::{
 };
 use ic_memory::RuntimeMemory;
 use ic_memory::ic_stable_structures::{DefaultMemoryImpl, Memory};
-#[cfg(not(test))]
-use ic_memory::open_default_memory_manager_memory;
 use std::cell::RefCell;
 
 #[cfg(all(test, feature = "sql"))]
@@ -478,7 +478,7 @@ pub(in crate::db) fn store_memory_handle(
 pub(in crate::db) fn store_memory_handle(
     allocation: StoreAllocationIdentity,
 ) -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
-    open_default_memory_manager_memory(allocation.stable_key(), allocation.memory_id())
+    open_committed_memory(allocation.stable_key(), allocation.memory_id())
         .map_err(|_| InternalError::store_internal())
 }
 
@@ -487,8 +487,7 @@ pub(in crate::db) fn open_registered_store_memory(
     memory_id: u8,
     stable_key: &str,
 ) -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
-    open_default_memory_manager_memory(stable_key, memory_id)
-        .map_err(|_| InternalError::store_internal())
+    open_committed_memory(stable_key, memory_id).map_err(|_| InternalError::store_internal())
 }
 
 ///

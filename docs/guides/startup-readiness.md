@@ -118,11 +118,11 @@ parameters. Match the typed leaf code, not its broad class or display text.
 
 | Code | Rejected boundary | Numeric evidence and correction |
 | --- | --- | --- |
-| E276 | Logical allocation resolution or host grant | Optional `ActualMemoryId`; check the authority and eligible free slots. Fresh allocations need an explicit Allowed pool. |
+| E276 | Logical allocation resolution or host grant | Optional `ActualMemoryId`; check the authority and eligible free slots. Fresh allocations need an explicit namespace grant. |
 | E277 | Historical IcyDB namespace removed | Restore the permanent namespace and its three controls. |
 | E278 | Incomplete allocation roles | `ExpectedCount` is 3 for database controls or 4 for a store; restore the complete role set. |
 | E279 | Invalid declarations | Check current role/key grammar, logical requests and namespace authority. |
-| E280 | Declaration snapshot or adoption requirements differ | Optional requested `ExpectedMemoryId` and committed `ActualMemoryId`; reconcile current declarations with established host authority. |
+| E280 | Declaration snapshot or adoption requirements differ | Reconcile current declarations, pool and policy with committed host authority. |
 | E281 | Historical journal allocation unavailable | Optional `ActualMemoryId`; restore its current host authority and resolve the rejected historical allocation lifecycle. |
 
 The declaration/admission owners still reject these failures before IcyDB opens
@@ -131,16 +131,24 @@ rejected declaration. Unknown upstream variants and unrelated runtime/registry
 internal faults retain E23, with runtime origin. No unbounded upstream error text,
 namespace, authority or stable-key strings enter the public error record.
 
-The host's macro default is Reserved. Use an explicit grant for fresh logical
-allocations, before startup seals the linked declaration snapshot:
+The host grants permanent namespaces and excludes unmanaged physical IDs in
+one checked allocation pool. Supply it before cold startup seals the linked
+declaration snapshot:
 
 ```rust,ignore
-icydb::ic_memory_range!(authority = "icydb.app", start = 100, end = 254, mode = Allowed);
+fn icydb_memory_pool() -> Result<icydb::db::MemoryAllocationPool, icydb::db::MemoryAllocationPoolError> {
+    icydb::db::MemoryAllocationPool::new(
+        vec![icydb::db::MemoryAuthority::new("icydb.app", "icydb.app.")?],
+        vec![], // Explicitly exclude physical IDs held by unmanaged host users.
+    )
+}
 ```
 
-A Reserved pool does not supply new placements; an Allowed pool must have enough
-eligible free slots. This does not change upstream range modes or the admission
-and recovery policy. See [compact diagnostics](diagnostics.md) for offline code
+The final host grants namespaces through one checked allocation pool. All owners
+share eligible free IDs; unmanaged physical memory requires explicit exclusions.
+The provider is not invoked when adopting an already committed host. Keep the
+same keys and bucket geometry during upgrades; existing assignments remain.
+See [compact diagnostics](diagnostics.md) for offline code
 and fact interpretation.
 
 A journaled store whose registered Rust path differs from its verified accepted

@@ -5,8 +5,8 @@ use std::borrow::Cow;
 use crate::{
     db::{
         predicate::{
-            CoercionId, CompareOp, ComparePredicate, Predicate, PredicateProgram,
-            parse_sql_predicate,
+            CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate,
+            PredicateProgram, parse_sql_predicate,
         },
         schema::{
             AcceptedCheckCompareOpV1, AcceptedCheckExprV1, AcceptedCheckValueExprV1,
@@ -15,8 +15,9 @@ use crate::{
             FieldStorageDecode, PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot,
             PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedSchemaSnapshot,
             SchemaFieldSlot, SchemaIndexId, SchemaInfo, SchemaInsertDefault, SchemaRowLayout,
-            SchemaVersion, check::bind_index_predicate_literal, decode_persisted_schema_snapshot,
-            empty_accepted_enum_catalog_for_tests, encode_persisted_schema_snapshot,
+            SchemaVersion, ValidateError, check::bind_index_predicate_literal,
+            decode_persisted_schema_snapshot, empty_accepted_enum_catalog_for_tests,
+            encode_persisted_schema_snapshot,
         },
     },
     types::{Decimal, Ulid},
@@ -29,6 +30,130 @@ fn catalog() -> AcceptedValueCatalogHandle {
         AcceptedCompositeCatalog::empty(),
         AcceptedSchemaRevision::INITIAL,
     )
+}
+
+#[test]
+fn issue_field_ordering_parsed_predicates_survive_codec_and_nulls() {
+    for (kind, low, high) in [
+        (
+            K::Text { max_len: None },
+            Value::Text("a".into()),
+            Value::Text("b".into()),
+        ),
+        (
+            K::Date,
+            Value::Date(crate::types::Date::EPOCH),
+            Value::Date(crate::types::Date::try_new(2026, 1, 1).unwrap()),
+        ),
+        (
+            K::Ulid,
+            Value::Ulid(Ulid::from_u128(1)),
+            Value::Ulid(Ulid::from_u128(2)),
+        ),
+        (
+            K::U256,
+            Value::U256(crate::types::U256::ONE),
+            Value::U256(crate::types::U256::MAX),
+        ),
+        (
+            K::Timestamp,
+            Value::Timestamp(crate::types::Timestamp::from_millis(-1)),
+            Value::Timestamp(crate::types::Timestamp::from_millis(1)),
+        ),
+    ] {
+        let base = snapshot(kind);
+        for (sql, expected) in [
+            ("left < right", true),
+            ("left <= right", true),
+            ("left > right", false),
+            ("left >= right", false),
+            ("right > left", true),
+            ("left BETWEEN left AND right", true),
+            ("left NOT BETWEEN left AND right", false),
+        ] {
+            let predicate = P::bind(&parse_sql_predicate(sql).unwrap(), &base, &catalog()).unwrap();
+            let stored = with_predicate(&base, predicate.clone());
+            let bytes = encode_persisted_schema_snapshot(&stored).unwrap();
+            let decoded = decode_persisted_schema_snapshot(&bytes).unwrap();
+            assert_eq!(decoded.indexes()[0].predicate(), Some(&predicate));
+            assert_eq!(encode_persisted_schema_snapshot(&decoded).unwrap(), bytes);
+            let accepted = AcceptedSchemaSnapshot::try_new(decoded.clone()).unwrap();
+            let schema = SchemaInfo::from_accepted_snapshot_and_catalog(&accepted, catalog());
+            predicate
+                .validate_semantics(decoded.fields(), &catalog(), &schema)
+                .unwrap();
+            let executable = predicate
+                .to_predicate(decoded.fields(), &catalog())
+                .unwrap();
+            let program = PredicateProgram::compile_with_schema_info(&schema, &executable);
+            assert!(!program.eval_with_slot_value_cow_reader(&mut |_| None));
+            assert!(!program.eval_with_slot_value_cow_reader(&mut |slot| {
+                (slot == 1).then_some(Cow::Borrowed(&low))
+            }));
+            for (left, right, result) in [
+                (&low, &high, expected),
+                (&Value::Null, &high, false),
+                (&low, &Value::Null, false),
+                (&Value::Null, &Value::Null, false),
+            ] {
+                assert_eq!(
+                    program.eval_with_slot_value_cow_reader(&mut |slot| match slot {
+                        1 => Some(Cow::Borrowed(left)),
+                        2 => Some(Cow::Borrowed(right)),
+                        _ => None,
+                    }),
+                    result,
+                    "{sql}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn issue_field_ordering_rejects_unsupported_pairs_and_coercions() {
+    for kind in [K::Blob { max_len: None }, K::List(Box::new(K::Date))] {
+        let base = snapshot(kind);
+        let accepted = AcceptedSchemaSnapshot::try_new(base).unwrap();
+        let schema = SchemaInfo::from_accepted_snapshot_and_catalog(&accepted, catalog());
+        let predicate = Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
+            "left",
+            CompareOp::Lt,
+            "right",
+            CoercionId::Strict,
+        ));
+        assert!(matches!(
+            crate::db::query::predicate::validate_predicate(&schema, &predicate),
+            Err(ValidateError::InvalidOperator { .. })
+        ));
+    }
+    let base = snapshot(K::Date);
+    let accepted = AcceptedSchemaSnapshot::try_new(base.clone()).unwrap();
+    let schema = SchemaInfo::from_accepted_snapshot_and_catalog(&accepted, catalog());
+    let mixed = Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
+        "left",
+        CompareOp::Lt,
+        "id",
+        CoercionId::Strict,
+    ));
+    assert!(matches!(
+        crate::db::query::predicate::validate_predicate(&schema, &mixed),
+        Err(ValidateError::InvalidOperator { .. })
+    ));
+    for coercion in [CoercionId::TextCasefold, CoercionId::CollectionElement] {
+        let predicate = Predicate::CompareFields(CompareFieldsPredicate::with_coercion(
+            "left",
+            CompareOp::Lt,
+            "right",
+            coercion,
+        ));
+        let bound = P::bind(&predicate, &base, &catalog()).unwrap();
+        let executable = bound.to_predicate(base.fields(), &catalog()).unwrap();
+        assert!(matches!(
+            crate::db::query::predicate::validate_predicate(&schema, &executable),
+            Err(ValidateError::InvalidCoercion { coercion: actual, .. }) if actual == coercion
+        ));
+    }
 }
 
 fn snapshot(kind: K) -> PersistedSchemaSnapshot {
@@ -360,35 +485,49 @@ fn generated_field_comparisons_keep_accepted_capabilities_after_codec() {
     ] {
         let base = snapshot(kind);
         let catalog = catalog();
-        let generated = P::from_check(
-            &AcceptedCheckExprV1::Compare {
-                left: AcceptedCheckValueExprV1::Field(FieldId::new(2)),
-                op: AcceptedCheckCompareOpV1::Eq,
-                right: AcceptedCheckValueExprV1::Field(FieldId::new(3)),
-            },
-            base.fields(),
-            catalog.composite_catalog(),
-        )
-        .unwrap();
-        let decoded = decode_persisted_schema_snapshot(
-            &encode_persisted_schema_snapshot(&with_predicate(&base, generated.clone())).unwrap(),
-        )
-        .unwrap();
-        let accepted = AcceptedSchemaSnapshot::try_new(decoded.clone()).unwrap();
+        for (op, expected) in [
+            (AcceptedCheckCompareOpV1::Eq, true),
+            (AcceptedCheckCompareOpV1::Lt, false),
+            (AcceptedCheckCompareOpV1::Lte, true),
+            (AcceptedCheckCompareOpV1::Gt, false),
+            (AcceptedCheckCompareOpV1::Gte, true),
+        ] {
+            let generated = P::from_check(
+                &AcceptedCheckExprV1::Compare {
+                    left: AcceptedCheckValueExprV1::Field(FieldId::new(2)),
+                    op,
+                    right: AcceptedCheckValueExprV1::Field(FieldId::new(3)),
+                },
+                base.fields(),
+                catalog.composite_catalog(),
+            )
+            .unwrap();
+            let decoded = decode_persisted_schema_snapshot(
+                &encode_persisted_schema_snapshot(&with_predicate(&base, generated.clone()))
+                    .unwrap(),
+            )
+            .unwrap();
+            let accepted = AcceptedSchemaSnapshot::try_new(decoded.clone()).unwrap();
+            let schema = SchemaInfo::from_accepted_snapshot_and_catalog(&accepted, catalog.clone());
+            generated
+                .validate_semantics(decoded.fields(), &catalog, &schema)
+                .unwrap();
+            let executable = decoded.indexes()[0]
+                .predicate()
+                .unwrap()
+                .to_predicate(decoded.fields(), &catalog)
+                .unwrap();
+            let program = PredicateProgram::compile_with_schema_info(&schema, &executable);
+            assert_eq!(
+                program.eval_with_slot_value_cow_reader(&mut |slot| {
+                    (slot == 1 || slot == 2).then_some(Cow::Borrowed(&value))
+                }),
+                expected
+            );
+            assert!(!program.eval_with_slot_value_cow_reader(&mut |_| None));
+        }
+        let accepted = AcceptedSchemaSnapshot::try_new(base.clone()).unwrap();
         let schema = SchemaInfo::from_accepted_snapshot_and_catalog(&accepted, catalog.clone());
-        generated
-            .validate_semantics(decoded.fields(), &catalog, &schema)
-            .unwrap();
-        let executable = decoded.indexes()[0]
-            .predicate()
-            .unwrap()
-            .to_predicate(decoded.fields(), &catalog)
-            .unwrap();
-        let program = PredicateProgram::compile_with_schema_info(&schema, &executable);
-        assert!(program.eval_with_slot_value_cow_reader(&mut |slot| {
-            (slot == 1 || slot == 2).then_some(Cow::Borrowed(&value))
-        }));
-        assert!(!program.eval_with_slot_value_cow_reader(&mut |_| None));
         for (op, right) in [(CompareOp::Contains, 3), (CompareOp::Eq, 1)] {
             let invalid = P::CompareFields {
                 left: FieldId::new(2),
@@ -398,7 +537,7 @@ fn generated_field_comparisons_keep_accepted_capabilities_after_codec() {
             };
             assert!(
                 invalid
-                    .validate_semantics(decoded.fields(), &catalog, &schema)
+                    .validate_semantics(base.fields(), &catalog, &schema)
                     .is_err()
             );
         }

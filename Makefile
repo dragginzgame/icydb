@@ -1,13 +1,5 @@
 .DEFAULT_GOAL := help
 
-# Reject execution modes while parsing: an outer `make -i` could otherwise
-# suppress a shared runner's refusal. MFLAGS retains invocation options even
-# when MAKEFLAGS is explicitly overridden; assignment words are not options.
-override icydb_make_execution_flags := $(filter-out --% %=%,$(firstword $(MAKEFLAGS)) $(firstword $(MFLAGS)))
-ifneq ($(strip $(foreach mode,i n t q,$(findstring $(mode),$(icydb_make_execution_flags)))),)
-$(error IcyDB requires execution with errors enforced; remove ignore-errors, dry-run, touch and question modes)
-endif
-
 .PHONY: help version tags package publish release-clean \
         test test-unit test-integration-feedback test-durability test-documentation \
         test-canister-artifact-contract test-sql-canister-matrix \
@@ -35,7 +27,7 @@ endif
 ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 SHARED_TOOLING_ROOT := $(ROOT_DIR)
 include $(ROOT_DIR)/make/tools.mk
-include $(ROOT_DIR)/make/rust-format.mk
+include $(ROOT_DIR)/make/execution.mk
 include $(ROOT_DIR)/make/release.mk
 
 # Keep workspace cargo state repo-local so sibling repos compiling on the same
@@ -343,18 +335,23 @@ clippy:
 	$(CARGO_WORK_ENV) cargo clippy --locked -p canister_audit_one_entity_sql_query -p canister_test_sql_guard \
 		--all-targets --all-features -- -D warnings
 
-# Formatting keeps Cargo state local. Shared recipes own manifest sorting and
-# rustfmt; derive sorting is an IcyDB prerequisite so rustfmt runs last.
-fmt fmt-check format-tools-check _fmt-derives _fmt-derives-check: export CARGO_HOME := $(CARGO_WORK_HOME)
-fmt fmt-check format-tools-check _fmt-derives _fmt-derives-check: export CARGO_TARGET_DIR := $(CARGO_WORK_TARGET_DIR)
-fmt: _fmt-derives
-fmt-check: _fmt-derives-check
-.PHONY: _fmt-derives _fmt-derives-check
-_fmt-derives _fmt-derives-check: format-tools-check
-_fmt-derives:
-	env "$(FORMAT_CARGO)" sort-derives
-_fmt-derives-check:
-	env "$(FORMAT_CARGO)" sort-derives --check
+# Formatting keeps Cargo state local. Wrap the complete derive policy once;
+# the shared simple-workspace include cannot express this sequence. Tool
+# admission still precedes all mutation.
+FORMAT_CARGO ?= cargo
+.PHONY: fmt fmt-check format-tools-check
+fmt fmt-check format-tools-check: export CARGO_HOME := $(CARGO_WORK_HOME)
+fmt fmt-check format-tools-check: export CARGO_TARGET_DIR := $(CARGO_WORK_TARGET_DIR)
+fmt fmt-check format-tools-check: export CARGO_NET_OFFLINE := true
+fmt fmt-check format-tools-check: export RUSTUP_AUTO_INSTALL := 0
+format-tools-check:
+	@. "$(HOST_TOOL_VERSIONS)" && bash "$(SHARED_TOOLING_ROOT)/scripts/ci/check-format-tools.sh" "$${SHARED_TOOLING_CARGO_SORT_VERSION:?}" "$(FORMAT_CARGO)"
+fmt: format-tools-check
+	@bash "$(SHARED_TOOLING_ROOT)/scripts/ci/run-formatting.sh" --write \
+		bash -ec '"$$1" sort-derives; "$$1" sort --workspace; "$$1" fmt --all' -- "$(FORMAT_CARGO)"
+fmt-check: format-tools-check
+	@bash "$(SHARED_TOOLING_ROOT)/scripts/ci/run-formatting.sh" --check \
+		bash -ec '"$$1" sort-derives --check; "$$1" sort --workspace --check; "$$1" fmt --all -- --check' -- "$(FORMAT_CARGO)"
 
 validate:
 	$(MAKE) --no-print-directory tools-check
@@ -597,6 +594,10 @@ release-preflight:
 	@bash scripts/ci/release-candidate-receipt.sh verify-tested-tree "$(RELEASE_SOURCE)"
 	@mkdir -p "$(RELEASE_TMP_DIR)"
 	@$(MAKE) --no-print-directory fetch
+	@if [ "$${CARGO_NET_OFFLINE:-false}" != true ]; then \
+		$(MAKE) --no-print-directory install-testkit; \
+	fi
+	@CARGO_NET_OFFLINE=true $(MAKE) --no-print-directory testkit-check
 release-verify:
 	+TMPDIR="$(RELEASE_TMP_DIR)" CARGO_NET_OFFLINE=true $(MAKE) --no-print-directory validate
 release-prepare-version:

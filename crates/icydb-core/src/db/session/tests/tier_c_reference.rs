@@ -99,7 +99,7 @@ fn tier_c_native_shard_emits_exact_receipt() {
     let shard_index = required_shard_index();
     let artifact_dir = required_artifact_dir();
     let declared = declared_scenarios();
-    let session = initialize();
+    initialize();
     let mut observations = Vec::new();
 
     for witness in scheduled_select_witnesses().expect("reviewed SELECT schedule should decode") {
@@ -118,6 +118,12 @@ fn tier_c_native_shard_emits_exact_receipt() {
                 {
                     continue;
                 }
+                // Independent scheduled scenarios are separate request entries;
+                // accepted stores and the shared query cache survive each root.
+                let session = DbSession::<TestCanister>::new(
+                    &STORE_REGISTRY,
+                    &crate::db::RequestExecutionRoot::__new_runtime_root(),
+                );
                 observations.push(execute_select_case(
                     &session,
                     &case,
@@ -144,6 +150,12 @@ fn tier_c_native_shard_emits_exact_receipt() {
                 {
                     continue;
                 }
+                // Keep setup, every mutation and readback within this one
+                // sequence's request without charging unrelated scenarios to it.
+                let session = DbSession::<TestCanister>::new(
+                    &STORE_REGISTRY,
+                    &crate::db::RequestExecutionRoot::__new_runtime_root(),
+                );
                 observations.push(execute_mutation_sequence(&session, &sequence));
             }
         }

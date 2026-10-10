@@ -13,7 +13,8 @@ finish() {
 trap finish EXIT
 mkdir -p "$fixture/scripts/ci" "$fixture/scripts/dev" "$fixture/make" "$fixture/bin" "$fixture/.tools/host/bin"
 cp "$ROOT/Makefile" "$fixture/"
-cp "$ROOT/make/tools.mk" "$ROOT/make/release.mk" "$ROOT/make/rust-format.mk" "$fixture/make/"
+cp "$ROOT/make/tools.mk" "$ROOT/make/release.mk" "$ROOT/make/rust-format.mk" "$ROOT/make/execution.mk" "$fixture/make/"
+cp "$ROOT/scripts/ci/check-make-execution.sh" "$ROOT/scripts/ci/run-formatting.sh" "$fixture/scripts/ci/"
 cp "$ROOT/scripts/ci/testkit-runner.sh" "$fixture/scripts/ci/"
 cp "$ROOT/scripts/ci/actionlint-checksums.tsv" "$fixture/scripts/ci/"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$fixture/scripts/dev/install-host-tools.sh"
@@ -29,14 +30,20 @@ fi
 [[ "$1" == metadata && "$*" == *'--locked --offline --format-version 1'* ]]
 [[ "$CARGO_HOME" == "$TEST_ROOT/.cache/cargo/icydb" ]]
 [[ "${TEST_METADATA_FAIL:-0}" == 0 ]] || exit 19
-printf '{"packages":[{"name":"ic-testkit","version":"0.25.5"}]}\n'
+printf '{"packages":[{"name":"ic-testkit","version":"%s"}]}\n' "${TEST_SELECTED_VERSION:-0.25.5}"
 CARGO
 cat > "$fixture/scripts/dev/install-rust-tools.sh" <<'INSTALLER'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "$TEST_ROOT/installation-requests"
-[[ "$*" == "--consumer $TEST_ROOT --package ic-testkit --version 0.25.5 --bin ic-testkit-server --profile release"* ]]
+if [[ "$*" == "--consumer $TEST_ROOT --versions "* && "$*" == *' --check' ]]; then exit 0; fi
+[[ "$*" == "--consumer $TEST_ROOT --package ic-testkit --version ${TEST_SELECTED_VERSION:-0.25.5} --bin ic-testkit-server --profile release"* ]]
 [[ "${TEST_CLI_FAIL:-0}" == 0 ]] || exit 23
+if [[ "${TEST_TRACK_SELECTION:-0}" == 1 ]]; then
+  receipt="$TEST_ROOT/installed-${TEST_SELECTED_VERSION:?}"
+  if [[ "$*" == *' --check' ]]; then [[ -f "$receipt" ]] || exit 23
+  else printf 'selected CLI\n' > "$receipt"; fi
+fi
 printf '%s\n' "$TEST_ROOT/bin/ic-testkit-server"
 INSTALLER
 cat > "$fixture/bin/ic-testkit-server" <<'TESTKIT'
@@ -100,4 +107,32 @@ rg -q --fixed-strings -- '-p icydb-testing-integration --test sql_correctness' "
 if env TEST_CARGO_FAIL=17 make --silent _ci-tier-a-integration > "$fixture/native-failure.log" 2>&1; then
   echo 'accepted failed native Cargo test' >&2; exit 1
 fi
+# An installed predecessor cannot satisfy a changed locked selection. Setup
+# prepares exactly the successor, preserves earlier bytes, then reuses it offline.
+printf 'retained predecessor\n' > "$fixture/installed-0.25.5"
+cp "$fixture/installed-0.25.5" "$fixture/previous-bytes"
+export TEST_TRACK_SELECTION=1 TEST_SELECTED_VERSION=0.28.1
+if make --silent testkit-check > "$fixture/changed-selection.log" 2>&1; then
+  echo 'accepted predecessor for changed locked selection' >&2; exit 1
+fi
+[[ ! -e "$fixture/installed-0.28.1" ]]
+make --silent install-testkit > "$fixture/changed-setup.log"
+[[ -f "$fixture/installed-0.28.1" ]]
+CARGO_NET_OFFLINE=true make --silent testkit-check > "$fixture/changed-check.log"
+cmp "$fixture/previous-bytes" "$fixture/installed-0.25.5"
+[[ "$(tail -n 1 "$fixture/installation-requests")" == *'--version 0.28.1 '* ]]
+unset TEST_TRACK_SELECTION TEST_SELECTED_VERSION
+
+# Standalone validation must admit tools before dispatching any dependent gate.
+# The dispatcher is a receipt-only substitute; no broad validation runs here.
+cat > "$fixture/dispatch.sh" <<'DISPATCH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$TEST_ROOT/validation-dispatch"
+DISPATCH
+: > "$fixture/server-requests"
+if env TEST_CLI_FAIL=1 make --silent -j4 validate \
+    "VALIDATION_RUNNER=bash $fixture/dispatch.sh" > "$fixture/parallel-refusal.log" 2>&1; then
+    echo 'accepted missing selected CLI in parallel validation' >&2; exit 1
+fi
+[[ ! -e "$fixture/validation-dispatch" && ! -s "$fixture/server-requests" ]]
 printf '[OK] Locked Testkit selection, offline refusals and caller overrides passed (substitute CLI)\n'

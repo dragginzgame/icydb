@@ -7,7 +7,10 @@ if [[ $# -lt 1 ]]; then
     echo 'usage: check-release-commands.sh ROOT [RELATIVE_MAKE_INPUT ...]' >&2
     exit 2
 fi
-root="$(cd "$1" && pwd -P)"
+root="$1"
+[[ "$root" == /* ]] || root="$PWD/$root"
+root="$(cd -P "$root" && printf '%s/.' "$PWD")"
+root="${root%/.}"
 shift
 [[ -f "$root/Makefile" ]] || { echo "missing Makefile: $root" >&2; exit 2; }
 for input in "$@"; do
@@ -20,6 +23,7 @@ done
 # Independent test checkout: never inherit parent release selections or identity.
 unset MAKEFLAGS MFLAGS MAKEOVERRIDES GNUMAKEFLAGS MAKEFILES
 unset VALIDATION_REPOSITORY_ROOT VALIDATION_RUNNER_SNAPSHOT_PATH
+unset SHARED_TOOLING_ROOT
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/release-commands.XXXXXX")"
 finish() {
     local status=$?
@@ -45,12 +49,16 @@ STUB
 chmod +x "$fixture/scripts/ci/run-release.sh"
 export RELEASE_COMMAND_EVENTS="$fixture/events"
 cd "$fixture"
+# This checker supports a root snapshot only. Override reviewed Makefile
+# defaults/assignments as well as the environment, so its include cannot route
+# to the original checkout. Consumer Make code remains reviewed executable input.
+fixture_make=(make --no-print-directory -f Makefile "SHARED_TOOLING_ROOT=$fixture")
 for kind in patch minor major resume; do
     for result in 0 17; do
         export RELEASE_COMMAND_RESULT="$result"
         : > "$RELEASE_COMMAND_EVENTS"
         status=0
-        make --no-print-directory -f Makefile "release-$kind" VERSION=0.1.1 \
+        "${fixture_make[@]}" "release-$kind" VERSION=0.1.1 \
             RELEASE_REMOTE=review RELEASE_BRANCH=release-review \
             > "$kind-$result.log" 2>&1 || status=$?
         if [[ "$result" == 0 ]]; then
@@ -71,7 +79,7 @@ for first in patch minor major resume; do
     for second in patch minor major resume; do
         [[ "$first" != "$second" ]] || continue
         : > "$RELEASE_COMMAND_EVENTS"
-        if make --no-print-directory -f Makefile "release-$first" "release-$second" \
+        if "${fixture_make[@]}" "release-$first" "release-$second" \
             VERSION=0.1.1 RELEASE_REMOTE=review RELEASE_BRANCH=release-review \
             > "conflict-$first-$second.log" 2>&1; then
             echo 'Makefile accepted conflicting release commands' >&2

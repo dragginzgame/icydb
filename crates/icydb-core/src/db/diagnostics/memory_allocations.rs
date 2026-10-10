@@ -127,15 +127,6 @@ pub enum MemoryAllocationBinding {
     Unknown,
 }
 
-/// Current range policy metadata, not proof of historical slot ownership.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-pub struct MemoryAllocationRangeClaim {
-    /// Declaring range authority.
-    pub authority: String,
-    /// True for reserved ranges; false for allowed application ranges.
-    pub reserved: bool,
-}
-
 /// Physical accounting for one usable manager slot.
 #[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct MemoryAllocation {
@@ -143,8 +134,8 @@ pub struct MemoryAllocation {
     pub memory_manager_id: u8,
     /// Current allocation binding, including explicit unknown ownership.
     pub binding: MemoryAllocationBinding,
-    /// Current range claim, if any.
-    pub range_claim: Option<MemoryAllocationRangeClaim>,
+    /// Whether this slot belongs to the current host pool; absent before bootstrap.
+    pub pool_eligible: Option<bool>,
     /// Addressable virtual extent, not payload occupancy.
     pub virtual_extent: MemoryExtent,
     /// Assigned bucket count.
@@ -170,13 +161,7 @@ impl From<ic_memory::MemoryAllocation> for MemoryAllocation {
                 }
                 ic_memory::AllocationBinding::Unknown => MemoryAllocationBinding::Unknown,
             },
-            range_claim: memory.range_claim.map(|claim| MemoryAllocationRangeClaim {
-                authority: claim.authority,
-                reserved: match claim.mode {
-                    ic_memory::MemoryManagerRangeMode::Reserved => true,
-                    ic_memory::MemoryManagerRangeMode::Allowed => false,
-                },
-            }),
+            pool_eligible: memory.pool_eligible,
             virtual_extent: memory.virtual_extent.into(),
             allocated_buckets: memory.allocated_buckets,
             allocated_bytes: memory.allocated_bytes,

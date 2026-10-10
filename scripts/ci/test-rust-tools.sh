@@ -193,12 +193,19 @@ chmod +x "$fixture/bin/rustc" "$fixture/bin/cargo"
 mkdir "$fixture/selected"
 selected_args=(--consumer "$fixture/selected" --package sample --version 1.2.3 --example prepare --profile debug)
 slot="$fixture/selected/.tools/rust/sample-1.2.3-example-prepare-debug"
-if bash "$installer" "${selected_args[@]}" --check > "$fixture/selected-absent.log" 2>&1; then exit 1; fi
-[[ ! -e "$fixture/selected/.tools" ]]
+cp "$RUST_TOOL_FIXTURE_LOG" "$fixture/before-selected"
+status=0
+bash "$installer" "${selected_args[@]}" --check > "$fixture/selected-absent.out" 2> "$fixture/selected-absent.log" || status=$?
+[[ "$status" == 1 && ! -s "$fixture/selected-absent.out" && ! -e "$fixture/selected/.tools" ]]
+for field in package=sample version=1.2.3 target=example:prepare profile=debug "destination=$slot/installed"; do
+    grep -F -- "$field" "$fixture/selected-absent.log" > /dev/null
+done
+cmp "$RUST_TOOL_FIXTURE_LOG" "$fixture/before-selected"
 SELECTED_DEBUG_PROFILE=dev bash "$installer" "${selected_args[@]}" > "$fixture/selected-path"
 [[ "$(cat "$fixture/selected-path")" == "$slot/installed/bin/prepare" ]]
 cp "$RUST_TOOL_FIXTURE_LOG" "$fixture/selected-installs"
-bash "$installer" "${selected_args[@]}" --check > "$fixture/selected-check"
+bash "$installer" "${selected_args[@]}" --check > "$fixture/selected-check" 2> "$fixture/selected-check.err"
+[[ ! -s "$fixture/selected-check.err" ]]
 bash "$installer" "${selected_args[@]}" > "$fixture/selected-repeat"
 cmp "$fixture/selected-path" "$fixture/selected-check"
 cmp "$RUST_TOOL_FIXTURE_LOG" "$fixture/selected-installs"
@@ -239,7 +246,12 @@ done
 for file in bin/prepare .crates2.json selection.json; do
     cp "$slot/installed/$file" "$fixture/before"
     printf '\nchanged\n' >> "$slot/installed/$file"
-    if bash "$installer" "${selected_args[@]}" > "$fixture/changed.log" 2>&1; then exit 1; fi
+    status=0
+    bash "$installer" "${selected_args[@]}" > "$fixture/changed.out" 2> "$fixture/changed.log" || status=$?
+    [[ "$status" == 1 && ! -s "$fixture/changed.out" ]]
+    for field in package=sample version=1.2.3 target=example:prepare profile=debug "destination=$slot/installed"; do
+        grep -F -- "$field" "$fixture/changed.log" > /dev/null
+    done
     cmp "$RUST_TOOL_FIXTURE_LOG" "$fixture/selected-installs"
     cp "$fixture/before" "$slot/installed/$file"
 done
@@ -288,6 +300,13 @@ done
 # Failed builds/admission of a new selection preserve the previous usable one.
 next_args=(--consumer "$fixture/selected" --package sample --version 1.2.4 --bin prepare --profile release)
 next_slot="$fixture/selected/.tools/rust/sample-1.2.4-bin-prepare-release"
+status=0
+bash "$installer" "${next_args[@]}" --check > "$fixture/next-absent.out" 2> "$fixture/next-absent.log" || status=$?
+[[ "$status" == 1 && ! -s "$fixture/next-absent.out" && ! -e "$next_slot" ]]
+for field in package=sample version=1.2.4 target=bin:prepare profile=release "destination=$next_slot/installed"; do
+    grep -F -- "$field" "$fixture/next-absent.log" > /dev/null
+done
+cmp "$RUST_TOOL_FIXTURE_LOG" "$fixture/selected-installs"
 failures=(build receipt receipt-stream binary-link receipt-link)
 for failure in "${failures[@]}"; do
     status=0

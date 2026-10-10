@@ -343,3 +343,48 @@ fn alias_store_registration_reusing_same_store_triplet_is_rejected() {
         "alias registration should report a compact store invariant",
     );
 }
+
+#[test]
+fn committed_key_open_refuses_drifted_ids_without_changing_storage() {
+    use ic_memory::ic_stable_structures::Memory;
+
+    // One default runtime on an isolated thread; ordinary store fixtures use
+    // their own explicit snapshots and do not seal this linked registry.
+    std::thread::spawn(|| {
+        const OWNER: &str = "icydb.core_identity";
+        const KEY: &str = "icydb.core_identity.control.v1";
+        ic_memory::register_memory_request(
+            ic_memory::MemoryRequest::new(OWNER, KEY, ic_memory::SchemaMetadata::default())
+                .unwrap(),
+        )
+        .unwrap();
+        let pool = ic_memory::MemoryAllocationPool::new(
+            vec![ic_memory::MemoryAuthority::new(OWNER, "icydb.core_identity.").unwrap()],
+            vec![],
+        )
+        .unwrap();
+        ic_memory::bootstrap_default_memory_manager(&pool).unwrap();
+        let id = ic_memory::default_memory_manager_memory_id(KEY).unwrap();
+        let memory = crate::db::registry::open_committed_memory(KEY, id).unwrap();
+        memory.grow(1).unwrap();
+        memory.write(0, b"retained");
+        let commitment = ic_memory::committed_allocations().unwrap();
+        let before = ic_memory::default_memory_manager_memory_allocations().unwrap();
+        assert!(crate::db::registry::open_committed_memory(KEY, id + 1).is_err());
+        assert!(
+            crate::db::registry::open_committed_memory("icydb.core_identity.absent.v1", id)
+                .is_err()
+        );
+        assert_eq!(ic_memory::committed_allocations().unwrap(), commitment);
+        assert_eq!(
+            ic_memory::default_memory_manager_memory_allocations().unwrap(),
+            before
+        );
+        let memory = crate::db::registry::open_committed_memory(KEY, id).unwrap();
+        let mut bytes = [0; 8];
+        memory.read(0, &mut bytes);
+        assert_eq!(&bytes, b"retained");
+    })
+    .join()
+    .unwrap();
+}
