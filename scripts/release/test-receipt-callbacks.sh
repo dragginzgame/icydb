@@ -12,10 +12,12 @@ export PATH="$root/.tools/host/bin:$PATH"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/release-receipt-callbacks.XXXXXX")"
 trap '
     status=$?
-    if [[ "$status" != 0 && -f "$fixture/output" ]]; then
-        cat "$fixture/output" >&2 || true
+    if [[ "$status" != 0 ]]; then
+        if [[ -f "$fixture/output" ]]; then cat "$fixture/output" >&2 || true; fi
+        printf "Receipt callback fixture retained: %s\n" "$fixture" >&2
+    else
+        rm -rf "$fixture"
     fi
-    rm -rf "$fixture"
     exit "$status"
 ' EXIT
 mkdir -p "$fixture/bin" "$fixture/scripts/ci" "$fixture/scripts/release" "$fixture/committed"
@@ -36,6 +38,10 @@ export RELEASE_RECEIPT_DIR="$fixture/receipts"
 printf '#!%s\n' "$REAL_BASH" > "$fixture/bin/bash"
 cat >> "$fixture/bin/bash" <<'BASH'
 set -euo pipefail
+# Shared's parse-time execution probe is real admission, not a release effect.
+if [[ "$1" == */scripts/ci/check-make-execution.sh ]]; then
+    exec "$REAL_BASH" "$@"
+fi
 printf '%s\n' "$*" >> "$EVENTS"
 if [[ "$*" == 'scripts/ci/release-candidate-receipt.sh verify-commit' ]]; then
     [[ "${FAIL_CANDIDATE:-0}" == 0 ]]
