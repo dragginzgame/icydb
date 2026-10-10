@@ -10,10 +10,7 @@ use crate::{
         query::intent::StructuralQuery,
         schema::AcceptedSchemaSnapshot,
         session::{
-            AcceptedSchemaCatalogContext,
-            query::{
-                StructuralProjectionContract, query_plan_requires_cardinality_lifecycle_recheck,
-            },
+            AcceptedSchemaCatalogContext, query::StructuralProjectionContract,
             sql::SqlCompiledCommandExecutionContext,
         },
     },
@@ -37,13 +34,6 @@ impl ResolvedSelectPreparedPlan {
         }
     }
 
-    const fn from_compiled_cache_hit(
-        prepared_plan: SharedPreparedExecutionPlan,
-        projection: StructuralProjectionContract,
-    ) -> Self {
-        Self::new(prepared_plan, projection)
-    }
-
     const fn from_shared_query_plan(
         prepared_plan: SharedPreparedExecutionPlan,
         projection: StructuralProjectionContract,
@@ -54,37 +44,6 @@ impl ResolvedSelectPreparedPlan {
     pub(super) fn into_parts(self) -> (SharedPreparedExecutionPlan, StructuralProjectionContract) {
         (self.prepared_plan, self.projection)
     }
-
-    const fn prepared_plan(&self) -> &SharedPreparedExecutionPlan {
-        &self.prepared_plan
-    }
-
-    const fn projection(&self) -> &StructuralProjectionContract {
-        &self.projection
-    }
-}
-
-fn cached_compiled_select_prepared_plan(
-    context: &SqlCompiledCommandExecutionContext,
-) -> Option<(SharedPreparedExecutionPlan, StructuralProjectionContract)> {
-    context
-        .command()
-        .cached_select_plan(context.compiled_schema_fingerprint())
-}
-
-fn cache_compiled_select_prepared_plan(
-    context: &SqlCompiledCommandExecutionContext,
-    prepared_plan: &SharedPreparedExecutionPlan,
-    projection: &StructuralProjectionContract,
-) {
-    if query_plan_requires_cardinality_lifecycle_recheck(prepared_plan) {
-        return;
-    }
-    context.command().set_cached_select_plan(
-        context.compiled_schema_fingerprint(),
-        prepared_plan.clone(),
-        projection.clone(),
-    );
 }
 
 impl<C: CanisterKind> DbSession<C> {
@@ -188,25 +147,11 @@ impl<C: CanisterKind> DbSession<C> {
         query: &StructuralQuery,
         context: &SqlCompiledCommandExecutionContext,
     ) -> Result<ResolvedSelectPreparedPlan, QueryError> {
-        if let Some((prepared_plan, projection)) = cached_compiled_select_prepared_plan(context) {
-            return Ok(ResolvedSelectPreparedPlan::from_compiled_cache_hit(
-                prepared_plan,
-                projection,
-            ));
-        }
-
         let authority = context.accepted_catalog().accepted_entity_authority();
-        let resolved = self.resolve_select_prepared_plan_for_authority_with_catalog(
+        self.resolve_select_prepared_plan_for_authority_with_catalog(
             query,
             authority,
             context.accepted_catalog(),
-        )?;
-        cache_compiled_select_prepared_plan(
-            context,
-            resolved.prepared_plan(),
-            resolved.projection(),
-        );
-
-        Ok(resolved)
+        )
     }
 }

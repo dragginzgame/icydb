@@ -1,21 +1,15 @@
 //! Generic-free compiled SQL command artifacts.
 //! Does not own: accepted-schema execution context handoff.
 
-use super::cache::{
-    SqlCompiledSchemaFingerprint, SqlGlobalAggregatePlanCacheEntry, SqlSelectPlanCacheEntry,
-};
 #[cfg(feature = "sql")]
 use crate::db::sql::lowering::LoweredSqlCommand;
 use crate::db::{
-    executor::SharedPreparedExecutionPlan,
     query::intent::StructuralQuery,
-    session::query::StructuralProjectionContract,
     sql::{
         lowering::SqlGlobalAggregateCommand,
         parser::{SqlDescribeMode, SqlInsertStatement, SqlReturningProjection, SqlUpdateStatement},
     },
 };
-use std::{rc::Rc, sync::OnceLock};
 
 ///
 /// CompiledSqlCommand
@@ -23,22 +17,20 @@ use std::{rc::Rc, sync::OnceLock};
 /// CompiledSqlCommand is the generic-free SQL compile artifact stored in the
 /// session SQL cache and later dispatched by the SQL execution boundary.
 /// It deliberately carries syntax-surface commands, not executor scratch state.
-/// Query and plan handles are session-local and share the same Rc ownership.
+/// Cached syntax owns its queries; execution clones cannot populate resident memo cells.
 ///
 
 #[derive(Clone, Debug)]
 pub(in crate::db) enum CompiledSqlCommand {
     Select {
-        query: Rc<StructuralQuery>,
-        plan_cache: Rc<OnceLock<Rc<SqlSelectPlanCacheEntry>>>,
+        query: Box<StructuralQuery>,
     },
     Delete {
-        query: Rc<StructuralQuery>,
+        query: Box<StructuralQuery>,
         returning: Option<SqlReturningProjection>,
     },
     GlobalAggregate {
-        command: Rc<SqlGlobalAggregateCommand>,
-        plan_cache: Rc<OnceLock<Rc<SqlGlobalAggregatePlanCacheEntry>>>,
+        command: Box<SqlGlobalAggregateCommand>,
     },
     #[cfg(feature = "sql")]
     Explain(Box<LoweredSqlCommand>),
@@ -75,7 +67,7 @@ pub(in crate::db) enum CompiledSqlCommand {
 #[derive(Clone, Debug)]
 pub(in crate::db) struct CompiledSqlInsertCommand {
     statement: SqlInsertStatement,
-    source_query: Option<Rc<StructuralQuery>>,
+    source_query: Option<Box<StructuralQuery>>,
 }
 
 impl CompiledSqlInsertCommand {
@@ -88,7 +80,7 @@ impl CompiledSqlInsertCommand {
     ) -> Self {
         Self {
             statement,
-            source_query: source_query.map(Rc::new),
+            source_query: source_query.map(Box::new),
         }
     }
 
@@ -110,72 +102,31 @@ impl CompiledSqlCommand {
     #[must_use]
     pub(in crate::db) fn select(query: StructuralQuery) -> Self {
         Self::Select {
-            query: Rc::new(query),
-            plan_cache: Rc::new(OnceLock::new()),
+            query: Box::new(query),
         }
     }
 
     #[must_use]
     pub(in crate::db) fn global_aggregate(command: SqlGlobalAggregateCommand) -> Self {
         Self::GlobalAggregate {
-            command: Rc::new(command),
-            plan_cache: Rc::new(OnceLock::new()),
-        }
-    }
-
-    #[must_use]
-    pub(in crate::db) fn cached_select_plan(
-        &self,
-        schema_fingerprint: SqlCompiledSchemaFingerprint,
-    ) -> Option<(SharedPreparedExecutionPlan, StructuralProjectionContract)> {
-        let Self::Select { plan_cache, .. } = self else {
-            return None;
-        };
-        let entry = plan_cache.get()?;
-        if !entry.schema_fingerprint.matches(schema_fingerprint) {
-            return None;
-        }
-
-        Some((entry.prepared_plan(), entry.projection()))
-    }
-
-    pub(in crate::db) fn set_cached_select_plan(
-        &self,
-        schema_fingerprint: SqlCompiledSchemaFingerprint,
-        prepared_plan: SharedPreparedExecutionPlan,
-        projection: StructuralProjectionContract,
-    ) {
-        if let Self::Select { plan_cache, .. } = self {
-            let _ = plan_cache.set(Rc::new(SqlSelectPlanCacheEntry::new(
-                schema_fingerprint,
-                prepared_plan,
-                projection,
-            )));
-        }
-    }
-
-    #[must_use]
-    pub(in crate::db) fn cached_global_aggregate_plan(
-        &self,
-        schema_fingerprint: SqlCompiledSchemaFingerprint,
-    ) -> Option<Rc<SqlGlobalAggregatePlanCacheEntry>> {
-        let Self::GlobalAggregate { plan_cache, .. } = self else {
-            return None;
-        };
-        let entry = plan_cache.get()?;
-        if !entry.schema_fingerprint.matches(schema_fingerprint) {
-            return None;
-        }
-
-        Some(Rc::clone(entry))
-    }
-
-    pub(in crate::db) fn set_cached_global_aggregate_plan(
-        &self,
-        entry: Rc<SqlGlobalAggregatePlanCacheEntry>,
-    ) {
-        if let Self::GlobalAggregate { plan_cache, .. } = self {
-            let _ = plan_cache.set(entry);
+            command: Box::new(command),
         }
     }
 }
+
+crate::retained::retained_fields!(CompiledSqlInsertCommand {
+    Self { statement, source_query } => [statement, source_query],
+});
+crate::retained::retained_fields!(CompiledSqlCommand {
+    Self::Select { query } => [query],
+    Self::Delete { query, returning } => [query, returning],
+    Self::GlobalAggregate { command } => [command],
+    #[cfg(feature = "sql")]
+    Self::Explain(command) => [command],
+    Self::Insert(command) => [command],
+    Self::Update(statement) => [statement],
+    Self::ShowEntities { entity, verbose: _ } => [entity],
+    Self::DescribeEntity { mode: _ } | Self::ShowConstraintsEntity | Self::ShowIndexesEntity
+        | Self::ShowColumnsEntity { mode: _ } | Self::ShowRelationsEntity | Self::ShowStores { verbose: _ }
+        | Self::ShowMemory => [],
+});

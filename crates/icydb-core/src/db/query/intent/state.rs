@@ -580,3 +580,28 @@ impl QueryIntent {
 
 #[cfg(test)]
 mod tests;
+
+crate::retained::retained_fields!(FilterSemanticAuthority {
+    Self::ExpressionBacked(expr) => [expr], Self::PredicateOnly => [],
+});
+crate::retained::retained_fields!(NormalizedFilter {
+    Self { semantic_authority, predicate_subset, predicate_coverage: _ } => [semantic_authority, predicate_subset],
+});
+crate::retained::retained_fields!(ScalarIntent {
+    Self { filter, order, distinct: _, projection_selection } => [filter, order, projection_selection],
+});
+crate::retained::retained_fields!(GroupedIntent {
+    Self { scalar, group, having_expr } => [scalar, group, having_expr],
+});
+crate::retained::retained_fields!(QueryShape {
+    Self::Scalar(scalar) => [scalar], Self::Grouped(grouped) => [grouped],
+});
+crate::retained::retained_fields!(LoadIntentState {
+    Self { spec: _, offset_requested: _, shape } => [shape],
+});
+crate::retained::retained_fields!(DeleteIntentState {
+    Self { spec: _, scalar, grouping_requested: _ } => [scalar],
+});
+crate::retained::retained_fields!(QueryIntent {
+    Self::Load(load) => [load], Self::Delete(delete) => [delete],
+});

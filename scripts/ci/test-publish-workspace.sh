@@ -6,15 +6,18 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 export PATH="$root/.tools/host/bin:$PATH"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/publish-workspace.XXXXXX")"
-trap '
-    status=$?
+fixture_complete=false
+finish() {
+    local status=$?
+    [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
     if [[ "$status" != 0 && -f "$fixture/output" ]]; then
         cat "$fixture/output" >&2 || true
     fi
     if [[ "$status" == 0 ]]; then rm -rf "$fixture"
     else echo "Publication fixture retained: $fixture" >&2; fi
     exit "$status"
-' EXIT
+}
+trap finish EXIT
 mkdir -p "$fixture/bin" "$fixture/scripts/ci" "$fixture/state" "$fixture/receipts"
 cp "$root/scripts/ci/publish-workspace.sh" \
     "$root/scripts/ci/verify-release-gate-receipt.sh" \
@@ -198,3 +201,4 @@ for crate in "${crates[@]}"; do
 done > "$fixture/expected"
 cmp "$fixture/expected" "$EVENTS"
 echo 'publication preflight, receipts, exact-version retries and order passed (command substitutes)'
+fixture_complete=true

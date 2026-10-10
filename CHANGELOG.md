@@ -5,6 +5,27 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.270.1]
+
+### 🩹 Fixed
+
+- Bound SQL compiled-command retention by bytes and keep prepared plans under
+  the shared weighted cache ([#103](https://github.com/dragginzgame/icydb/issues/103)).
+- Reject incomplete tooling fixtures, preserve parallel Cargo tool handoff, and
+  adopt Shared Tooling 0.3.7, Binaryen 133 and shared lockfile-based Testkit CLI selection
+  ([#342](https://github.com/dragginzgame/icydb/issues/342),
+  [#311](https://github.com/dragginzgame/icydb/issues/311),
+  [#327](https://github.com/dragginzgame/icydb/issues/327),
+  [#302](https://github.com/dragginzgame/icydb/issues/302)).
+- Correct schema-example navigation, directional NULL ordering, and scalar versus
+  grouped LIMIT documentation.
+
+See [detailed notes](docs/changelog/0.270.md).
+
+- Keep only the newest CI run per workflow and branch or PR, cancelling older
+  queued and running checks while retaining the existing host matrix and gates
+  ([Shared #108](https://github.com/dragginzgame/shared-tooling/issues/108)).
+
 ## [0.270.0] - 2026-10-10
 
 ### 🩹 Fixed

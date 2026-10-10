@@ -3,21 +3,25 @@ set -euo pipefail
 
 # Exercise capture/provenance decisions without Cargo, a replica, or Twiggy.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-# shellcheck source=scripts/ci/wasm-report-common.sh
-source "$ROOT/scripts/ci/wasm-report-common.sh"
 TEST_ROOT="$(mktemp -d)"
+fixture_complete=false
 cleanup() {
     local status=$?
+    [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
     if [[ "$status" -ne 0 ]]; then
         printf '[ERROR] Wasm audit capture checks failed at run %s\n' "${run:-0}" >&2
         if [[ -f "$TEST_ROOT/output" ]]; then
-            cat "$TEST_ROOT/output" >&2
+            # Diagnostic replay must not replace the original failure status.
+            cat "$TEST_ROOT/output" >&2 || true
         fi
     fi
-    find "$TEST_ROOT" -depth -delete
-    return "$status"
+    if [[ "$status" == 0 ]]; then find "$TEST_ROOT" -depth -delete
+    else echo "Wasm audit fixture retained: $TEST_ROOT" >&2; fi
+    exit "$status"
 }
 trap cleanup EXIT
+# shellcheck source=scripts/ci/wasm-report-common.sh
+source "$ROOT/scripts/ci/wasm-report-common.sh"
 FIXTURE="$TEST_ROOT/repository"
 ARTIFACTS="$FIXTURE/artifacts/wasm-size"
 mkdir -p "$FIXTURE/scripts/ci" "$FIXTURE/docs/reports/recurring" "$ARTIFACTS" "$TEST_ROOT/bin"
@@ -54,7 +58,7 @@ write_fixture() {
         tools: {ic_wasm_sha256: $digest, wasm_opt_sha256: $digest},
         pipeline: {
             build_profile: "production", candid_metadata: "enabled",
-            post_link_transform: "binaryen-132-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v1",
+            post_link_transform: "binaryen-133-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v1",
             final_deployable_stage: "binaryen_oz_wasm",
             path_remapping: "workspace=/w;cargo-registry=/c;rust-library=/r"
         },
@@ -108,6 +112,7 @@ baseline="$FIXTURE/docs/reports/recurring/2026/01/01/wasm-footprint/01"
 mkdir -p "${baseline%/*}"
 cp -R "$report_dir" "$baseline"
 run_subject --canister default_empty_metrics
+# shellcheck disable=SC2016 # Backticks are literal Markdown delimiters.
 grep -Fq 'comparability status: `comparable`' "$report_dir/report.md"
 
 # Completed reports and their evidence are immutable, even with --report-dir.
@@ -177,10 +182,12 @@ write_fixture default_empty
 change_report default_empty '.provenance.source_dirty = true'
 run_subject
 grep -Fq 'non-comparable (current artifacts were built from a dirty source tree)' "$report_dir/report.md"
+# shellcheck disable=SC2016 # Backticks are literal Markdown delimiters.
 grep -Fq 'source dirty: `true`' "$report_dir/report.md"
 
 assert_baseline() {
     local expected="$1" observed
+    # shellcheck disable=SC2016 # Match literal Markdown delimiters in sed.
     observed="$(sed -n 's/^- compared baseline report path: `\(.*\)`$/\1/p' "$report_dir/report.md")"
     test "$observed" = "$expected"
 }
@@ -246,3 +253,4 @@ assert_baseline 'N/A'
 run_canonical 2026-02-06 01
 assert_baseline 'docs/reports/recurring/2026/02/05/wasm-footprint/01/report.md'
 printf 'Wasm audit capture checks passed: %s cases\n' "$run"
+fixture_complete=true

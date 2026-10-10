@@ -9,8 +9,9 @@ ROOT="${ROOT%/.}"
 consumer="$ROOT"
 pins=""
 check=false
+preflight=false
 usage() {
-    echo 'usage: install-ic-tools.sh [--consumer <checkout>] [--pins <tsv>] [--check]' >&2
+    echo 'usage: install-ic-tools.sh [--consumer <checkout>] [--pins <tsv>] [--check | --preflight]' >&2
 }
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -19,10 +20,12 @@ while [[ $# -gt 0 ]]; do
             if [[ "$1" == --consumer ]]; then consumer="$2"; else pins="$2"; fi
             shift 2 ;;
         --check) check=true; shift ;;
+        --preflight) preflight=true; shift ;;
         -h|--help) usage; exit 0 ;;
         *) usage; exit 2 ;;
     esac
 done
+[[ "$check" == false || "$preflight" == false ]] || { usage; exit 2; }
 [[ "$consumer" == /* ]] || consumer="$PWD/$consumer"
 consumer="$(cd -P "$consumer" && printf '%s/.' "$PWD")"
 consumer="${consumer%/.}"
@@ -32,11 +35,12 @@ pins="${pins:-$consumer/ci/ic-tools.tsv}"
 pins_name="${pins##*/}"
 pins="$(cd -P "${pins%/*}" && printf '%s/.' "$PWD")"
 pins="${pins%/.}/$pins_name"
-case "$(uname -s):$(uname -m)" in
+platform="$(uname -s):$(uname -m)"
+case "$platform" in
     Linux:x86_64|Linux:amd64) host=linux-x86_64; target=x86_64-unknown-linux-gnu; os=linux; arch=x86_64 ;;
     Darwin:x86_64|Darwin:amd64) host=darwin-x86_64; target=x86_64-apple-darwin; os=macos; arch=x86_64 ;;
     Darwin:arm64|Darwin:aarch64) host=darwin-arm64; target=aarch64-apple-darwin; os=macos; arch=arm64 ;;
-    *) echo 'no complete pinned IC toolset for this host' >&2; exit 1 ;;
+    *) echo "no complete pinned IC toolset for this host: $platform; use a supported Linux x86-64 or macOS x86-64/ARM64 host" >&2; exit 1 ;;
 esac
 
 validate_pins() {
@@ -45,6 +49,8 @@ validate_pins() {
     }
 }
 selected_records="$(validate_pins "$pins")"
+# Platform and catalog admission only: no installed tools, downloads or writes.
+[[ "$preflight" == false ]] || exit 0
 
 version_check() {
     local executable="$1" tool="$2" version="$3" expected output

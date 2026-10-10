@@ -1,7 +1,9 @@
 # Include once from the consumer Makefile after any local path overrides.
+# Shared companions: make/execution.mk scripts/ci/check-make-execution.sh
 # SHARED_TOOLING_ROOT must name a reviewed local snapshot, never a sibling checkout.
 # Preserve the consumer's default goal, including when it is declared after us.
 _shared_tooling_default_goal := $(.DEFAULT_GOAL)
+include $(dir $(lastword $(MAKEFILE_LIST)))execution.mk
 
 SHARED_TOOLING_ROOT ?= $(CURDIR)
 HOST_TOOL_VERSIONS ?= $(CURDIR)/ci/tool-versions.env
@@ -20,6 +22,8 @@ export PATH := $(CURDIR)/.tools/host/bin:$(CURDIR)/.tools/ic/bin:$(CURDIR)/.tool
 .PHONY: install-rust-tools rust-tools-check
 
 install-tools:
+	bash "$(SHARED_TOOLING_ROOT)/scripts/dev/install-ic-tools.sh" --consumer "$(CURDIR)" --pins "$(IC_TOOL_PINS)" --preflight
+	+bash "$(SHARED_TOOLING_ROOT)/scripts/dev/install-rust-tools.sh" --consumer "$(CURDIR)" --versions "$(RUST_TOOL_VERSIONS)" --preflight
 	+$(MAKE) --no-print-directory install-host-tools
 	+$(MAKE) --no-print-directory install-ic-tools
 	+$(MAKE) --no-print-directory install-rust-tools
@@ -46,13 +50,13 @@ ic-tools-check:
 	bash "$(SHARED_TOOLING_ROOT)/scripts/dev/install-ic-tools.sh" --consumer "$(CURDIR)" --pins "$(IC_TOOL_PINS)" --check
 
 install-rust-tools:
-	bash "$(SHARED_TOOLING_ROOT)/scripts/dev/install-rust-tools.sh" --consumer "$(CURDIR)" --versions "$(RUST_TOOL_VERSIONS)"
+	+bash "$(SHARED_TOOLING_ROOT)/scripts/dev/install-rust-tools.sh" --consumer "$(CURDIR)" --versions "$(RUST_TOOL_VERSIONS)"
 
 rust-tools-check:
-	bash "$(SHARED_TOOLING_ROOT)/scripts/dev/install-rust-tools.sh" --consumer "$(CURDIR)" --versions "$(RUST_TOOL_VERSIONS)" --check
+	+bash "$(SHARED_TOOLING_ROOT)/scripts/dev/install-rust-tools.sh" --consumer "$(CURDIR)" --versions "$(RUST_TOOL_VERSIONS)" --check
 
 cloc:
-	@if [ -n "$(CLOC_MANIFEST)" ]; then \
+	+@if [ -n "$(CLOC_MANIFEST)" ]; then \
 		bash "$(SHARED_TOOLING_ROOT)/scripts/dev/cloc.sh" --manifest "$(CLOC_MANIFEST)" "$(CURDIR)"; \
 	else bash "$(CLOC_REPORT)" "$(CLOC_ROOT)"; fi
 

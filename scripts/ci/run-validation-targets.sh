@@ -7,6 +7,7 @@ usage() {
 }
 
 RUNNER_SOURCE="${BASH_SOURCE[0]}"
+runner_complete=false
 bash "$(dirname "$RUNNER_SOURCE")/check-make-execution.sh"
 if [[ -n "${VALIDATION_REPOSITORY_ROOT:-}" ]]; then
     REPOSITORY_ROOT="$VALIDATION_REPOSITORY_ROOT"
@@ -19,7 +20,16 @@ fi
 if [[ "${VALIDATION_RUNNER_SNAPSHOT_PATH:-}" != "$RUNNER_SOURCE" ]]; then
     RUNNER_SNAPSHOT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/validation-runner.XXXXXX")"
     RUNNER_SNAPSHOT="$RUNNER_SNAPSHOT_DIR/run-validation-targets.sh"
-    trap 'rm -rf "$RUNNER_SNAPSHOT_DIR"' EXIT
+    # shellcheck disable=SC2329 # Invoked by EXIT in this wrapper branch only.
+    cleanup_snapshot() {
+        local status=$?
+        # Bash 3.2 can enter EXIT with zero after a nounset error.
+        [[ "$runner_complete" == true || "$status" != 0 ]] || status=1
+        if [[ "$runner_complete" == true ]]; then rm -rf "$RUNNER_SNAPSHOT_DIR"
+        else printf 'Runner source retained at: %s\n' "$RUNNER_SNAPSHOT_DIR" >&2; fi
+        exit "$status"
+    }
+    trap cleanup_snapshot EXIT
     cp "$RUNNER_SOURCE" "$RUNNER_SNAPSHOT"
     cp "$(dirname "$RUNNER_SOURCE")/check-make-execution.sh" "$RUNNER_SNAPSHOT_DIR/"
     bash -n "$RUNNER_SNAPSHOT"
@@ -27,6 +37,7 @@ if [[ "${VALIDATION_RUNNER_SNAPSHOT_PATH:-}" != "$RUNNER_SOURCE" ]]; then
     VALIDATION_REPOSITORY_ROOT="$REPOSITORY_ROOT" \
         VALIDATION_RUNNER_SNAPSHOT_PATH="$RUNNER_SNAPSHOT" \
         bash "$RUNNER_SNAPSHOT" "$@" || snapshot_status=$?
+    runner_complete=true
     exit "$snapshot_status"
 fi
 
@@ -58,6 +69,15 @@ for target in "$@"; do
     esac
 done
 
+# Depth is metadata, never a shell arithmetic expression. Match the bounded
+# decimal convention used by the portable helpers so increment cannot overflow.
+RUNNER_DEPTH="${VALIDATION_RUNNER_DEPTH:-0}"
+[[ "$RUNNER_DEPTH" =~ ^(0|[1-9][0-9]{0,17})$ ]] || {
+    echo 'VALIDATION_RUNNER_DEPTH must be a canonical non-negative decimal integer of at most 18 digits' >&2
+    exit 2
+}
+export VALIDATION_RUNNER_DEPTH="$((RUNNER_DEPTH + 1))"
+
 retain_all_logs=false
 if [[ -n "${VALIDATION_LOG_DIR:-}" ]]; then
     # One directory per invocation, including nested invocations. Never replace a
@@ -74,11 +94,14 @@ fi
 preserve_temporary_logs=true
 retention_failed=false
 cleanup_logs() {
-    if [[ "$preserve_temporary_logs" == true ]]; then
+    local status=$?
+    [[ "$runner_complete" == true || "$status" != 0 ]] || status=1
+    if [[ "$runner_complete" != true || "$preserve_temporary_logs" == true ]]; then
         printf 'Validation logs retained at: %s\n' "$LOG_DIR" >&2
     else
         rm -rf "$LOG_DIR"
     fi
+    exit "$status"
 }
 trap cleanup_logs EXIT
 trap 'exit 130' INT
@@ -86,8 +109,6 @@ trap 'exit 143' TERM
 FAILURE_LOG_ROOT="${VALIDATION_FAILURE_LOG_DIR:-$REPOSITORY_ROOT/target/validation-failures}"
 FAILURE_RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 
-RUNNER_DEPTH="${VALIDATION_RUNNER_DEPTH:-0}"
-export VALIDATION_RUNNER_DEPTH="$((RUNNER_DEPTH + 1))"
 MAX_FAILURE_DETAIL_LINES=160
 FAILURE_PATTERN='---- .* stdout ----|^test .* \.\.\. FAILED$|failures:|test result: FAILED|error(\[[A-Z0-9]+\])?:([^:]|$)|target failed|make(\[[0-9]+\])?: \*\*\*'
 FAILURE_EVENT_PREFIX="${VALIDATION_FAILURE_EVENT_PREFIX:-}"
@@ -413,7 +434,9 @@ if [[ ${#failed_targets[@]} -ne 0 ]]; then
     fi
     echo >&2
     print_error_line summary "VALIDATION FAILED: ${failed_targets[*]}" >&2
+    runner_complete=true
     exit "$failure_status"
 fi
 
 echo "VALIDATION PASSED: all requested targets succeeded."
+runner_complete=true

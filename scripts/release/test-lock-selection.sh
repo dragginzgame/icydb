@@ -3,8 +3,10 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 export PATH="$root/.tools/host/bin:$PATH"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/icydb-lock-selection.XXXXXX")"
+fixture_complete=false
 finish() {
     local status=$?
+    [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
     if [[ "$status" == 0 ]]; then rm -rf "$fixture"
     else echo "Release lock fixture retained: $fixture" >&2; fi
     exit "$status"
@@ -70,3 +72,4 @@ for mutation in registry checksum; do
     cp "$fixture/accepted.lock" "$fixture/candidate/Cargo.lock"
 done
 echo 'release lock selection passed (Cargo identities and Git read stubs)'
+fixture_complete=true

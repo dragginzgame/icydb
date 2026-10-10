@@ -6,8 +6,16 @@ unset MAKEFLAGS MAKEOVERRIDES MFLAGS
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 FIXTURE="$(mktemp -d "${TMPDIR:-/tmp}/icydb-workstation.XXXXXX")"
 FIXTURE="$(cd "$FIXTURE" && pwd -P)"
-trap 'status=$?; if [[ "$status" == 0 ]]; then rm -rf "$FIXTURE";
-  else echo "Workstation fixture retained: $FIXTURE" >&2; fi; exit "$status"' EXIT
+# Bash 3.2 may report zero after nounset; completion must be explicit.
+fixture_complete=false
+finish() {
+  local status=$?
+  [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
+  if [[ "$status" == 0 ]]; then rm -rf "$FIXTURE"
+  else echo "Workstation fixture retained: $FIXTURE" >&2; fi
+  exit "$status"
+}
+trap finish EXIT
 mkdir -p "$FIXTURE/scripts/dev" "$FIXTURE/scripts/ci" "$FIXTURE/bin" "$FIXTURE/outside" "$FIXTURE/ci" "$FIXTURE/make"
 cp "$ROOT/ci/"{tool-versions.env,icydb-tools.env,ic-tools.tsv} "$FIXTURE/ci/"
 cp "$ROOT/scripts/dev/workstation-setup.sh" "$FIXTURE/scripts/dev/"
@@ -108,6 +116,7 @@ for tool in rust host ic; do
   cat > "$FIXTURE/scripts/dev/install-$tool-tools.sh" <<'INSTALL'
 #!/usr/bin/env bash
 printf '%s %s\n' "${0##*/}" "$*" >> "$TEST_TRACE"
+if [[ "${!#}" == --preflight ]]; then exit 0; fi
 [[ "${TEST_INSTALL_FAIL:-0}" == 0 ]]
 INSTALL
 done
@@ -133,7 +142,9 @@ export TEST_POLICY_TRACE="$FIXTURE/policy-trace"
 command make --no-print-directory -C "$FIXTURE" > "$FIXTURE/default-goal"
 [[ ! -s "$TEST_TRACE" ]]
 command make --no-print-directory -j4 -C "$FIXTURE" install-tools > "$FIXTURE/dispatch"
-printf '%s\n' "install-host-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env" \
+printf '%s\n' "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv --preflight" \
+  "install-rust-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --preflight" \
+  "install-host-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env" \
   "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv" \
   "install-rust-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env" \
   "testkit-runner.sh" \
@@ -159,7 +170,7 @@ status=0
 # Use an external environment command so Bash 3.2 captures the failed child,
 # rather than exiting at an assignment preceding the command builtin.
 env TEST_INSTALL_FAIL=1 make --no-print-directory -C "$FIXTURE" install-tools > "$FIXTURE/failed-dispatch" 2>&1 || status=$?
-[[ "$status" != 0 && "$(wc -l < "$TEST_TRACE")" -eq 1 ]]
+[[ "$status" != 0 && "$(wc -l < "$TEST_TRACE")" -eq 3 ]]
 
 # IcyDB's raw optimizer admission is independent of shared archive provisioning.
 # Check consumer ordering with a harmless executable; no real optimizer runs.
@@ -169,7 +180,7 @@ mkdir -p "$FIXTURE/.tools/ic/bin"
 cat > "$FIXTURE/.tools/ic/bin/wasm-opt" <<'OPTIMIZER'
 #!/usr/bin/env bash
 printf 'executed\n' >> "$TEST_TRACE"
-printf '%s\n' 'wasm-opt version 132 (version_132)'
+printf '%s\n' 'wasm-opt version 133 (version_133)'
 OPTIMIZER
 chmod +x "$FIXTURE/.tools/ic/bin/wasm-opt"
 digest="$(bash "$ROOT/scripts/ci/verify-file-checksum.sh" --print sha256 "$FIXTURE/.tools/ic/bin/wasm-opt")"
@@ -183,7 +194,7 @@ printf '\n# changed bytes\n' >> "$FIXTURE/.tools/ic/bin/wasm-opt"
 : > "$TEST_TRACE"
 if bash "$FIXTURE/scripts/ci/verify-wasm-optimizer.sh" > "$FIXTURE/optimizer-tampered" 2>&1; then exit 1; fi
 [[ ! -s "$TEST_TRACE" ]]
-perl -pi -e 's/version 132/version 133/' "$FIXTURE/.tools/ic/bin/wasm-opt"
+perl -pi -e 's/version 133/version 0/' "$FIXTURE/.tools/ic/bin/wasm-opt"
 digest="$(bash "$ROOT/scripts/ci/verify-file-checksum.sh" --print sha256 "$FIXTURE/.tools/ic/bin/wasm-opt")"
 for platform in linux_x86_64 darwin_x86_64 darwin_arm64; do
   printf '%s\t%s\n' "$platform" "$digest"
@@ -191,10 +202,11 @@ done > "$FIXTURE/scripts/ci/wasm-optimizer-checksums.tsv"
 : > "$TEST_TRACE"
 if bash "$FIXTURE/scripts/ci/verify-wasm-optimizer.sh" > "$FIXTURE/optimizer-version-refused" 2>&1; then exit 1; fi
 [[ "$(wc -l < "$TEST_TRACE")" -eq 1 ]]
-awk -F '\t' 'BEGIN { OFS="\t" } $1=="wasm-opt" { $2="133" } { print }' \
+awk -F '\t' 'BEGIN { OFS="\t" } $1=="wasm-opt" { $2="0" } { print }' \
   "$FIXTURE/ci/ic-tools.tsv" > "$FIXTURE/changed-optimizer.tsv"
 mv "$FIXTURE/changed-optimizer.tsv" "$FIXTURE/ci/ic-tools.tsv"
 : > "$TEST_TRACE"
 if bash "$FIXTURE/scripts/ci/verify-wasm-optimizer.sh" > "$FIXTURE/optimizer-selection-refused" 2>&1; then exit 1; fi
 [[ ! -s "$TEST_TRACE" ]]
 echo '[OK] workstation and Make local-tool orchestration verified (offline substitutes)'
+fixture_complete=true

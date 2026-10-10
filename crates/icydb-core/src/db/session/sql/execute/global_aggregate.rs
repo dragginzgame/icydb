@@ -10,8 +10,7 @@ use crate::{
         session::{
             AcceptedSchemaCatalogContext,
             sql::{
-                CompiledSqlCommand, SqlStatementResult,
-                projection::sql_projection_statement_result_from_value_rows,
+                SqlStatementResult, projection::sql_projection_statement_result_from_value_rows,
             },
         },
         sql::lowering::SqlGlobalAggregateCommand,
@@ -21,7 +20,7 @@ use crate::{
 
 use super::aggregate_plan::PreparedAggregatePlanResolution;
 use super::aggregate_request::PreparedAggregateRequestBundle;
-use super::exact_aggregate::{ExactOutcome, ExactTarget};
+use super::exact_aggregate::ExactTarget;
 
 impl<C: CanisterKind> DbSession<C> {
     fn execute_global_aggregate_with_prepared_plan(
@@ -55,17 +54,8 @@ impl<C: CanisterKind> DbSession<C> {
         exact_target: ExactTarget,
         resolve_prepared_plan: impl FnOnce() -> PreparedAggregatePlanResolution,
     ) -> Result<SqlStatementResult, QueryError> {
-        let exact_resolution = self.execute_exact_target(command, catalog, exact_target)?;
-        match exact_resolution {
-            ExactOutcome::Direct(result) => return Ok(result),
-            ExactOutcome::Prepared(prepared_plan) => {
-                return self.execute_global_aggregate_with_prepared_plan(
-                    command,
-                    catalog,
-                    prepared_plan,
-                );
-            }
-            ExactOutcome::Fallback => {}
+        if let Some(result) = self.execute_exact_target(command, catalog, exact_target)? {
+            return Ok(result);
         }
 
         let prepared_plan = resolve_prepared_plan()?;
@@ -73,19 +63,17 @@ impl<C: CanisterKind> DbSession<C> {
         self.execute_global_aggregate_with_prepared_plan(command, catalog, prepared_plan)
     }
 
-    // Execute one borrowed compiled global aggregate while reusing its
-    // compiled-command resident shared plan when the schema fingerprint still
-    // matches the accepted snapshot carried by this execution context.
+    // Resolve exact metadata against accepted authority; ordinary preparation
+    // is retained only by the shared weighted query-plan cache.
     pub(in crate::db::session::sql::execute) fn execute_global_aggregate_compiled_statement_ref_with_catalog(
         &self,
-        compiled: &CompiledSqlCommand,
         command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
     ) -> Result<SqlStatementResult, QueryError> {
-        let exact_target = self.resolve_compiled_exact_target(compiled, command, catalog)?;
+        let exact_target = self.resolve_compiled_exact_target(command, catalog)?;
 
         self.execute_global_aggregate_after_exact_target(command, catalog, exact_target, || {
-            self.resolve_compiled_global_aggregate_prepared_plan(compiled, command, catalog)
+            self.resolve_compiled_global_aggregate_prepared_plan(command, catalog)
         })
     }
 }

@@ -1,7 +1,7 @@
 //! Accepted-schema execution context for compiled SQL commands.
 //! Does not own: compiled command variant definitions or SQL execution dispatch.
 
-use super::{CompiledSqlCommand, SqlCompiledSchemaFingerprint};
+use super::CompiledSqlCommand;
 use crate::db::{
     schema::{AcceptedSchemaSnapshot, SchemaVersion},
     session::{AcceptedSchemaCatalogContext, sql::SqlCompiledCommandSurface},
@@ -66,10 +66,5 @@ impl SqlCompiledCommandExecutionContext {
     #[must_use]
     pub(in crate::db) fn schema_version(&self) -> SchemaVersion {
         self.catalog.schema_version()
-    }
-
-    #[must_use]
-    pub(in crate::db) fn compiled_schema_fingerprint(&self) -> SqlCompiledSchemaFingerprint {
-        SqlCompiledSchemaFingerprint::from_catalog(&self.catalog)
     }
 }

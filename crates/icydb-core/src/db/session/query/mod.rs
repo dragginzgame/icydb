@@ -14,8 +14,6 @@ mod projection;
 
 #[cfg(feature = "sql")]
 pub(in crate::db) use cache::QueryPlanCacheReuse;
-#[cfg(feature = "sql")]
-pub(in crate::db::session) use cache::query_plan_requires_cardinality_lifecycle_recheck;
 #[doc(hidden)]
 pub use exact_key::{
     MAX_TYPED_EXACT_KEY_BATCH_INPUT_BYTES, MAX_TYPED_EXACT_KEY_BATCH_ITEMS,

@@ -12,8 +12,13 @@ Prepare the declared Rust/Cargo toolchain and native build prerequisites first,
 even when the repository has no Rust packages. The Makefile uses local tool
 paths automatically. Interactive shells need the
 export above; setup does not edit shell profiles. Installation downloads tools;
-checks are offline and never install missing dependencies. `install-tools` runs
-host, IC and Rust setup in that order, followed by declared product tools;
+checks are offline and never install missing dependencies. Before downloads,
+`install-tools` uses the existing IC and Rust installers to admit the complete-set
+platform/pins and probe the consumer's selected `rustc` and `cargo`. These
+read-only `--preflight` calls create no tool/build directories and disable
+Rustup auto-installation; missing or unavailable toolchains require explicit
+bootstrap. This is not a compiler/linker qualification or a toolchain upgrade.
+Setup then runs host, IC and Rust installation in that order, followed by declared product tools;
 `tools-check` checks the same sets in order. Each stops at the first failure.
 Sets activate independently: a later failure preserves earlier completed sets.
 
@@ -68,6 +73,12 @@ snapshot's file instead of maintaining copied recipes or installer flags. Shared
 Tooling's own Makefile and CI use the same commands. Snapshot adoption brings
 command updates; explicit setup brings newly required executables.
 
+The include also selects `make/execution.mk` and its
+`scripts/ci/check-make-execution.sh` companion. It rejects dry-run, touch,
+question and ignore-errors modes before recipes execute. Cargo recipes retain
+Make's jobserver descriptors for parallel execution; this does not grant
+installation authority to an inspection command or change the setup order.
+
 The installed `cloc` executable and local workspace `make cloc` are common setup.
 Fleet reports such as `make cloc-tooling` normally run in Shared Tooling; consumers
 need not vendor those reporters or run their regression suites. See the
@@ -104,7 +115,10 @@ adoption needs the shared report script and the Make include shown in the
 
 `make install-host-tools` installs jq, **Mike Farah yq** (including its TOML
 parser), ripgrep with PCRE2, and cloc under `.tools/host/bin`. `make host-tools-check`
-verifies their bytes before executing version and feature checks. The reviewed selections
+verifies their bytes before executing version and feature checks. Failures report
+the exact tool, expected version, selected path, reason and repair command.
+Actual version/probe output is included only after all payloads authenticate;
+missing or unauthenticated executables are never run for diagnosis. The reviewed selections
 live in [ci/tool-versions.env](../ci/tool-versions.env):
 [jq 1.8.2](https://github.com/jqlang/jq/releases/tag/jq-1.8.2),
 [yq 4.47.2](https://github.com/mikefarah/yq/releases/tag/v4.47.2),
@@ -204,6 +218,26 @@ own package versions, profiles, compiler selection, explicit executable override
 and product qualification. Use `--bin NAME` for a published binary. This mode
 does not install the formatter bundle or read its versions catalog; `make
 install-rust-tools` continues to install that existing three-tool bundle.
+
+For a tool selected by a consumer lockfile, replace `--version` with `--lockfile`:
+
+```bash
+bash scripts/dev/install-rust-tools.sh --consumer "$PWD" \
+  --package ic-testkit --lockfile Cargo.lock --bin ic-testkit-server --profile release
+```
+
+Relative lockfile paths resolve beneath `--consumer`; absolute paths select an
+explicit independent graph. The prepared host yq/jq tools read TOML without Cargo
+resolution, downloads or lockfile writes. Exactly one package with the selected
+name must exist, with an exact stable version and the crates.io registry source.
+Missing, malformed, symlinked, ambiguous, local/Git/other-registry or prerelease
+selections refuse before installation. `--version` and `--lockfile` are mutually
+exclusive. Consumer-local `.tools/host/bin` takes precedence for the reader.
+The same arguments with `--check` admit the selected installation offline.
+Selection is read again before candidate activation and before returning a path;
+a changed selection fails and retains any build attempt. Retry against the new
+lock selection; prior installations remain intact. Consumers still own the
+selected graph, package, target/profile and Testkit's separate server setup/check.
 
 The command prints the admitted executable path under
 `.tools/rust/<package>-<version>-<kind>-<target>-<profile>/installed/bin/`.

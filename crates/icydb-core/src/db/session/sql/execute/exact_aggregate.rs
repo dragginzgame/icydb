@@ -7,7 +7,7 @@ use crate::{
     db::{
         DbSession, QueryError,
         executor::{
-            EntityAuthority, SharedPreparedExecutionPlan,
+            EntityAuthority, ExactCardinalityTarget, SharedPreparedExecutionPlan,
             exact_count_cardinality_prefixes_for_plan, execute_exact_cardinality_for_canister,
             execute_exact_indexed_numeric_aggregate_for_canister,
             user_index_prefix_cardinality_keys_from_plan,
@@ -19,9 +19,7 @@ use crate::{
             AcceptedSchemaCatalogContext,
             query::StructuralProjectionContract,
             sql::{
-                CompiledSqlCommand, SqlCompiledSchemaFingerprint, SqlGlobalAggregateCachedPlan,
-                SqlGlobalAggregatePlanCacheEntry, SqlStatementResult,
-                projection::sql_projection_statement_result_from_value_rows,
+                SqlStatementResult, projection::sql_projection_statement_result_from_value_rows,
             },
         },
         sql::lowering::SqlGlobalAggregateCommand,
@@ -34,17 +32,10 @@ use std::{ops::Bound, rc::Rc};
 
 pub(super) enum ExactTarget {
     Fallback,
-    PreparedPlan(Rc<SqlGlobalAggregatePlanCacheEntry>),
     ExactPlan {
         authority: EntityAuthority,
-        entry: Rc<SqlGlobalAggregatePlanCacheEntry>,
+        entry: Rc<SqlExactAggregatePlan>,
     },
-}
-
-pub(super) enum ExactOutcome {
-    Direct(SqlStatementResult),
-    Prepared(SharedPreparedExecutionPlan),
-    Fallback,
 }
 
 fn exact_aggregate_statement_result(
@@ -67,7 +58,7 @@ fn exact_aggregate_statement_result(
 impl ExactTarget {
     fn from_optional_entry(
         authority: EntityAuthority,
-        entry: Option<Rc<SqlGlobalAggregatePlanCacheEntry>>,
+        entry: Option<Rc<SqlExactAggregatePlan>>,
     ) -> Self {
         match entry {
             Some(entry) => Self::ExactPlan { authority, entry },
@@ -75,64 +66,38 @@ impl ExactTarget {
         }
     }
 
-    const fn exact_plan_entry(&self) -> Option<&Rc<SqlGlobalAggregatePlanCacheEntry>> {
+    const fn exact_plan_entry(&self) -> Option<&Rc<SqlExactAggregatePlan>> {
         match self {
             Self::ExactPlan { entry, .. } => Some(entry),
-            Self::Fallback | Self::PreparedPlan(_) => None,
+            Self::Fallback => None,
         }
     }
 }
 
-impl ExactOutcome {
-    fn from_direct_row(
-        catalog: &AcceptedSchemaCatalogContext,
-        projection: &ProjectionSpec,
-        row: Vec<Value>,
-    ) -> Result<Self, QueryError> {
-        let result = exact_aggregate_statement_result(catalog, projection, row)?;
-
-        Ok(Self::Direct(result))
-    }
-}
-
 fn direct_count_cardinality_plan_entry_from_prefix_keys(
-    catalog: &AcceptedSchemaCatalogContext,
     prefix_keys: Option<Vec<UserIndexPrefixCardinalityKey>>,
-) -> Option<Rc<SqlGlobalAggregatePlanCacheEntry>> {
+) -> Option<Rc<SqlExactAggregatePlan>> {
     let prefix_keys = prefix_keys?;
     if prefix_keys.is_empty() {
         return None;
     }
 
-    Some(Rc::new(SqlGlobalAggregatePlanCacheEntry::new(
-        SqlCompiledSchemaFingerprint::from_catalog(catalog),
-        SqlGlobalAggregateCachedPlan::exact_user_index_prefixes(Rc::from(prefix_keys)),
+    Some(Rc::new(SqlExactAggregatePlan::exact_user_index_prefixes(
+        Rc::from(prefix_keys),
     )))
 }
 
-fn direct_count_cardinality_entity_plan_entry(
-    catalog: &AcceptedSchemaCatalogContext,
-) -> Rc<SqlGlobalAggregatePlanCacheEntry> {
-    Rc::new(SqlGlobalAggregatePlanCacheEntry::new(
-        SqlCompiledSchemaFingerprint::from_catalog(catalog),
-        SqlGlobalAggregateCachedPlan::exact_entity_cardinality(),
-    ))
+fn direct_count_cardinality_entity_plan_entry() -> Rc<SqlExactAggregatePlan> {
+    Rc::new(SqlExactAggregatePlan::exact_entity_cardinality())
 }
 
-fn exact_first_component_plan_entry(
-    catalog: &AcceptedSchemaCatalogContext,
-    index_id: IndexId,
-    numeric: bool,
-) -> Rc<SqlGlobalAggregatePlanCacheEntry> {
+fn exact_first_component_plan_entry(index_id: IndexId, numeric: bool) -> Rc<SqlExactAggregatePlan> {
     let plan = if numeric {
-        SqlGlobalAggregateCachedPlan::ExactUserIndexFirstComponentNumeric(index_id)
+        SqlExactAggregatePlan::UserIndexFirstComponentNumeric(index_id)
     } else {
-        SqlGlobalAggregateCachedPlan::exact_user_index_first_component_distinct(index_id)
+        SqlExactAggregatePlan::exact_user_index_first_component_distinct(index_id)
     };
-    Rc::new(SqlGlobalAggregatePlanCacheEntry::new(
-        SqlCompiledSchemaFingerprint::from_catalog(catalog),
-        plan,
-    ))
+    Rc::new(plan)
 }
 
 fn direct_count_cardinality_prefix_keys_from_planned_query(
@@ -151,7 +116,7 @@ fn direct_count_cardinality_prefix_keys_from_planned_query(
 
 fn direct_count_cardinality_range_from_planned_query(
     prepared_plan: &SharedPreparedExecutionPlan,
-) -> Option<SqlGlobalAggregateCachedPlan> {
+) -> Option<SqlExactAggregatePlan> {
     let plan = prepared_plan.logical_plan();
     if plan.has_any_residual_filter().ok()? {
         return None;
@@ -190,13 +155,11 @@ fn direct_count_cardinality_range_from_planned_query(
     let lower = encoded_component_bound(semantic.lower(), lowered.lower(), index_id)?;
     let upper = encoded_component_bound(semantic.upper(), lowered.upper(), index_id)?;
 
-    Some(
-        SqlGlobalAggregateCachedPlan::ExactUserIndexFirstComponentRange {
-            index_id,
-            lower,
-            upper,
-        },
-    )
+    Some(SqlExactAggregatePlan::UserIndexFirstComponentRange {
+        index_id,
+        lower,
+        upper,
+    })
 }
 
 fn encoded_component_bound(
@@ -224,31 +187,6 @@ fn encoded_component_bound(
     })
 }
 
-fn exact_target_from_cached_entry(
-    catalog: &AcceptedSchemaCatalogContext,
-    entry: Rc<SqlGlobalAggregatePlanCacheEntry>,
-) -> ExactTarget {
-    if entry.prepared_plan().is_some() {
-        return ExactTarget::PreparedPlan(entry);
-    }
-    let authority = catalog.accepted_entity_authority();
-
-    ExactTarget::ExactPlan { authority, entry }
-}
-
-fn cached_compiled_global_aggregate_plan_entry(
-    compiled: &CompiledSqlCommand,
-    catalog: &AcceptedSchemaCatalogContext,
-) -> Option<Rc<SqlGlobalAggregatePlanCacheEntry>> {
-    compiled.cached_global_aggregate_plan(SqlCompiledSchemaFingerprint::from_catalog(catalog))
-}
-
-fn cache_compiled_exact_target(compiled: &CompiledSqlCommand, target: &ExactTarget) {
-    if let Some(entry) = target.exact_plan_entry() {
-        compiled.set_cached_global_aggregate_plan(Rc::clone(entry));
-    }
-}
-
 fn exact_metadata_candidate(command: &SqlGlobalAggregateCommand) -> bool {
     command
         .facts()
@@ -262,7 +200,7 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         command: &SqlGlobalAggregateCommand,
         authority: EntityAuthority,
-        entry: &SqlGlobalAggregatePlanCacheEntry,
+        entry: &SqlExactAggregatePlan,
     ) -> Result<Option<Vec<Value>>, QueryError> {
         if let Some(target) = entry.exact_cardinality_target() {
             let count = execute_exact_cardinality_for_canister(
@@ -297,24 +235,18 @@ impl<C: CanisterKind> DbSession<C> {
         command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
         target: ExactTarget,
-    ) -> Result<ExactOutcome, QueryError> {
+    ) -> Result<Option<SqlStatementResult>, QueryError> {
         match target {
-            ExactTarget::Fallback => Ok(ExactOutcome::Fallback),
-            ExactTarget::PreparedPlan(entry) => {
-                let Some(prepared_plan) = entry.prepared_plan() else {
-                    return Err(QueryError::invariant());
-                };
-
-                Ok(ExactOutcome::Prepared(prepared_plan))
-            }
+            ExactTarget::Fallback => Ok(None),
             ExactTarget::ExactPlan { authority, entry } => {
                 if let Some(row) =
                     self.execute_exact_global_aggregate(command, authority, &entry)?
                 {
-                    return ExactOutcome::from_direct_row(catalog, command.projection(), row);
+                    return exact_aggregate_statement_result(catalog, command.projection(), row)
+                        .map(Some);
                 }
 
-                Ok(ExactOutcome::Fallback)
+                Ok(None)
             }
         }
     }
@@ -323,7 +255,6 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         authority: &EntityAuthority,
         command: &SqlGlobalAggregateCommand,
-        catalog: &AcceptedSchemaCatalogContext,
     ) -> Result<ExactTarget, QueryError> {
         let schema_info = authority.accepted_schema_info();
         let exact_numeric = command.exact_indexed_numeric_target().is_some();
@@ -345,7 +276,7 @@ impl<C: CanisterKind> DbSession<C> {
                         index.ordinal(),
                         index.physical_generation(),
                     );
-                    exact_first_component_plan_entry(catalog, index_id, exact_numeric)
+                    exact_first_component_plan_entry(index_id, exact_numeric)
                 });
 
             return Ok(ExactTarget::from_optional_entry(authority.clone(), entry));
@@ -353,13 +284,12 @@ impl<C: CanisterKind> DbSession<C> {
         if command.query().direct_count_cardinality_entity_candidate() {
             return Ok(ExactTarget::from_optional_entry(
                 authority.clone(),
-                Some(direct_count_cardinality_entity_plan_entry(catalog)),
+                Some(direct_count_cardinality_entity_plan_entry()),
             ));
         }
         let visibility = self.query_plan_visibility_for_store_path(authority.store_path())?;
         let visible_indexes = Self::visible_indexes_for_accepted_schema(schema_info, visibility)?;
         let entry = direct_count_cardinality_plan_entry_from_prefix_keys(
-            catalog,
             self.exact_count_cardinality_prefix_keys_for_accepted_authority(
                 authority,
                 command.query(),
@@ -373,22 +303,13 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     fn exact_target_from_cached_shared_plan(
-        catalog: &AcceptedSchemaCatalogContext,
         authority: EntityAuthority,
         prepared_plan: &SharedPreparedExecutionPlan,
     ) -> ExactTarget {
         let entry = direct_count_cardinality_plan_entry_from_prefix_keys(
-            catalog,
             direct_count_cardinality_prefix_keys_from_planned_query(prepared_plan),
         )
-        .or_else(|| {
-            direct_count_cardinality_range_from_planned_query(prepared_plan).map(|plan| {
-                Rc::new(SqlGlobalAggregatePlanCacheEntry::new(
-                    SqlCompiledSchemaFingerprint::from_catalog(catalog),
-                    plan,
-                ))
-            })
-        });
+        .or_else(|| direct_count_cardinality_range_from_planned_query(prepared_plan).map(Rc::new));
 
         ExactTarget::from_optional_entry(authority, entry)
     }
@@ -399,7 +320,7 @@ impl<C: CanisterKind> DbSession<C> {
         catalog: &AcceptedSchemaCatalogContext,
         authority: EntityAuthority,
     ) -> Result<ExactTarget, QueryError> {
-        let shortcut = self.exact_shortcut_target_for_authority(&authority, command, catalog)?;
+        let shortcut = self.exact_shortcut_target_for_authority(&authority, command)?;
         if shortcut.exact_plan_entry().is_some() {
             return Ok(shortcut);
         }
@@ -412,7 +333,6 @@ impl<C: CanisterKind> DbSession<C> {
         )?;
 
         Ok(Self::exact_target_from_cached_shared_plan(
-            catalog,
             authority,
             &prepared_plan,
         ))
@@ -420,21 +340,81 @@ impl<C: CanisterKind> DbSession<C> {
 
     pub(super) fn resolve_compiled_exact_target(
         &self,
-        compiled: &CompiledSqlCommand,
         command: &SqlGlobalAggregateCommand,
         catalog: &AcceptedSchemaCatalogContext,
     ) -> Result<ExactTarget, QueryError> {
-        if let Some(entry) = cached_compiled_global_aggregate_plan_entry(compiled, catalog) {
-            return Ok(exact_target_from_cached_entry(catalog, entry));
-        }
         if !exact_metadata_candidate(command) {
             return Ok(ExactTarget::Fallback);
         }
 
         let target =
             self.exact_target_for_authority(command, catalog, catalog.accepted_entity_authority())?;
-        cache_compiled_exact_target(compiled, &target);
 
         Ok(target)
+    }
+}
+
+// Exact targets are request-local; only the shared weighted owner retains plans.
+#[derive(Clone, Debug)]
+pub(super) enum SqlExactAggregatePlan {
+    EntityCardinality,
+    UserIndexFirstComponentDistinct(IndexId),
+    UserIndexFirstComponentNumeric(IndexId),
+    UserIndexFirstComponentRange {
+        index_id: IndexId,
+        lower: Bound<Vec<u8>>,
+        upper: Bound<Vec<u8>>,
+    },
+    UserIndexPrefixes(Rc<[UserIndexPrefixCardinalityKey]>),
+}
+
+impl SqlExactAggregatePlan {
+    #[must_use]
+    const fn exact_entity_cardinality() -> Self {
+        Self::EntityCardinality
+    }
+
+    #[must_use]
+    const fn exact_user_index_prefixes(prefix_keys: Rc<[UserIndexPrefixCardinalityKey]>) -> Self {
+        Self::UserIndexPrefixes(prefix_keys)
+    }
+
+    #[must_use]
+    const fn exact_user_index_first_component_distinct(index_id: IndexId) -> Self {
+        Self::UserIndexFirstComponentDistinct(index_id)
+    }
+
+    #[must_use]
+    fn exact_cardinality_target(&self) -> Option<ExactCardinalityTarget<'_>> {
+        match self {
+            Self::EntityCardinality => Some(ExactCardinalityTarget::Entity),
+            Self::UserIndexFirstComponentDistinct(index_id) => Some(
+                ExactCardinalityTarget::UserIndexFirstComponentDistinct(*index_id),
+            ),
+            Self::UserIndexFirstComponentRange {
+                index_id,
+                lower,
+                upper,
+            } => Some(ExactCardinalityTarget::UserIndexFirstComponentRange {
+                index_id: *index_id,
+                lower,
+                upper,
+            }),
+            Self::UserIndexPrefixes(prefix_keys) => Some(
+                ExactCardinalityTarget::UserIndexPrefixes(prefix_keys.as_ref()),
+            ),
+            Self::UserIndexFirstComponentNumeric(_) => None,
+        }
+    }
+
+    #[must_use]
+    const fn exact_indexed_numeric_target(&self) -> Option<IndexId> {
+        match self {
+            Self::UserIndexFirstComponentNumeric(index_id) => Some(*index_id),
+            Self::EntityCardinality
+            | Self::UserIndexFirstComponentDistinct(_)
+            | Self::UserIndexFirstComponentRange { .. }
+            | Self::UserIndexPrefixes(_) => None,
+        }
     }
 }

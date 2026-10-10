@@ -157,7 +157,7 @@ validate_capture() {
         and (.provenance.rust_toolchain | nonempty)
         and .pipeline.build_profile == "production"
         and .pipeline.candid_metadata == "enabled"
-        and .pipeline.post_link_transform == "binaryen-132-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v1"
+        and .pipeline.post_link_transform == "binaryen-133-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v1"
         and .pipeline.final_deployable_stage == "binaryen_oz_wasm"
         and .pipeline.path_remapping == "workspace=/w;cargo-registry=/c;rust-library=/r"
         and (.tools.ic_wasm_sha256 | sha256)
@@ -314,6 +314,8 @@ write_summary_report() {
         pass_counts="PASS=4, PARTIAL=1, FAIL=0"
     fi
 
+    # Backticks in these printf formats are literal Markdown delimiters.
+    # shellcheck disable=SC2016
     {
         printf '# Recurring Audit - Wasm Footprint (%s)\n\n' "$audit_date"
         printf '## Report Preamble\n\n'

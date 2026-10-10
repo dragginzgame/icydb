@@ -8,9 +8,9 @@ permissions:
   contents: read
 
 concurrency:
-  # Preserve pushed-source qualification; newer PR revisions replace review runs.
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'pull_request' && 'pr' || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # A newer run replaces queued and running checks for this workflow and ref.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_HOME: ${{ github.workspace }}/.cache/cargo/icydb

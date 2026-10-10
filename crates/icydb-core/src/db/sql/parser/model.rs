@@ -1410,3 +1410,61 @@ pub(crate) struct SqlShowStoresStatement {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SqlShowMemoryStatement;
+
+// Exhaustive ownership patterns keep new cached syntax payloads accountable.
+crate::retained::retained_fields!(SqlExpr {
+    Self::Field(field) => [field],
+    Self::FieldPath { root, segments } => [root, segments],
+    Self::Aggregate(aggregate) => [aggregate],
+    Self::Literal(value) => [value],
+    Self::Param { index: _ } => [],
+    Self::Membership { expr, values, negated: _ } => [expr, values],
+    Self::NullTest { expr, negated: _ } => [expr],
+    Self::BooleanTest { expr, value: _, negated: _ } => [expr],
+    Self::Like { expr, pattern, negated: _, casefold: _ } => [expr, pattern],
+    Self::FunctionCall { function: _, args } => [args],
+    Self::Unary { op: _, expr } => [expr],
+    Self::Binary { op: _, left, right } => [left, right],
+    Self::Case { arms, else_expr } => [arms, else_expr],
+});
+crate::retained::retained_fields!(SqlCaseArm {
+    Self { condition, result } => [condition, result],
+});
+crate::retained::retained_fields!(SqlMembershipValue {
+    Self::Literal(value) => [value], Self::Param { index: _ } => [],
+});
+crate::retained::retained_fields!(SqlAggregateCall {
+    Self { kind: _, input, filter_expr, distinct: _ } => [input, filter_expr],
+});
+crate::retained::retained_fields!(SqlProjection {
+    Self::All => [], Self::Items(items) => [items],
+});
+crate::retained::retained_fields!(SqlSelectItem {
+    Self::Field(field) => [field], Self::Aggregate(aggregate) => [aggregate], Self::Expr(expr) => [expr],
+});
+crate::retained::retained_fields!(SqlOrderTerm {
+    Self { field, direction: _ } => [field],
+});
+crate::retained::retained_fields!(SqlSelectStatement {
+    Self { entity, table_alias, projection, projection_aliases, predicate, distinct: _, group_by, having, order_by, limit: _, offset: _ }
+        => [entity, table_alias, projection, projection_aliases, predicate, group_by, having, order_by],
+});
+crate::retained::retained_fields!(SqlReturningProjection {
+    Self::All => [], Self::Fields(fields) => [fields],
+});
+crate::retained::retained_fields!(SqlInsertSource {
+    Self::Values(values) => [values], Self::DefaultValues => [], Self::Select(select) => [select],
+});
+crate::retained::retained_fields!(SqlWriteValue {
+    Self::Literal(value) => [value], Self::Default => [], Self::Expression(expr) => [expr],
+});
+crate::retained::retained_fields!(SqlInsertStatement {
+    Self { entity, columns, source, returning } => [entity, columns, source, returning],
+});
+crate::retained::retained_fields!(SqlAssignment {
+    Self { field, value } => [field, value],
+});
+crate::retained::retained_fields!(SqlUpdateStatement {
+    Self { entity, table_alias, assignments, predicate, order_by, limit: _, offset: _, returning }
+        => [entity, table_alias, assignments, predicate, order_by, returning],
+});

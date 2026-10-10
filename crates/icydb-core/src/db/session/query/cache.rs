@@ -120,20 +120,6 @@ thread_local! {
         RefCell::new(HashMap::default());
 }
 
-// A compiled front-end artifact may retain an exact or policy-fallback plan,
-// but an unavailable-evidence plan must keep flowing through this shared cache
-// so the existing lifecycle-stamp check can observe a later Ready transition.
-#[cfg(feature = "sql")]
-pub(in crate::db::session) fn query_plan_requires_cardinality_lifecycle_recheck(
-    prepared_plan: &SharedPreparedExecutionPlan,
-) -> bool {
-    prepared_plan
-        .logical_plan()
-        .cardinality_tiebreak()
-        .unavailable_stamp()
-        .is_some()
-}
-
 impl<C: CanisterKind> DbSession<C> {
     #[cfg(test)]
     pub(in crate::db::session) fn shared_query_cache_usage_for_tests(&self) -> (usize, usize) {

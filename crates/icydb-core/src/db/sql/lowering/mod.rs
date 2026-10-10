@@ -437,3 +437,17 @@ mod tests {
         assert!(unknown.diagnostic_facts().is_empty());
     }
 }
+
+#[cfg(feature = "sql")]
+crate::retained::retained_fields!(LoweredSqlCommand {
+    Self(command) => [command],
+});
+#[cfg(feature = "sql")]
+crate::retained::retained_fields!(LoweredSqlCommandInner {
+    Self::Explain { mode: _, verbose: _, query } => [query],
+    Self::ExplainGlobalAggregate { mode: _, command } => [command],
+});
+#[cfg(feature = "sql")]
+crate::retained::retained_fields!(LoweredSqlQuery {
+    Self::Select(select) => [select], Self::Delete(delete) => [delete],
+});

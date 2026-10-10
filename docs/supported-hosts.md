@@ -41,6 +41,13 @@ their package-specific matrices within this required support policy.
 ## Portable script baseline
 
 The portable scripts target Bash 3.2 or newer and standard Unix userland.
+Mandatory `[[ ... ]]` assertions must explicitly fail with `|| exit 1`,
+`|| return 1` or a diagnostic failure handler: Bash 3.2 does not apply `set -e`
+to a standalone conditional comparison. Keep intentional status-returning
+predicates and branch conditions distinct. A fixture's completion flag protects
+against premature exits, but cannot detect a failed assertion that continued
+through normal completion and cleanup.
+
 Repository CI exercises the offline regression set on:
 
 | Host | Scope |
@@ -53,17 +60,31 @@ The table describes the intended CI contract. Passing qualification for a
 revision requires its matching workflow run; adding a matrix entry does not
 establish that the run passed.
 
-Push CI groups include the source commit so a later main push preserves both
-running and queued qualification of earlier commits. PR updates share their PR
-group and cancel superseded review revisions. This retains more main-commit
-runs when native runners are busy; it does not add runner capacity. Inspect each
-selected commit's result before treating its snapshot as qualified.
+Routine CI keeps only the newest run for each workflow and branch or PR ref.
+Use workflow-level concurrency so a newer run cancels both queued and running
+checks of an older revision, including its native matrix:
+
+```yaml
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+```
+
+Keep source SHA and run ID out of this group; they prevent revisions from
+superseding each other. Different workflows, branches and PRs remain independent.
+Omit `queue: max`: retaining every pending revision defeats this policy, and
+GitHub disallows combining it with `cancel-in-progress: true`.
+Cancellation is asynchronous and does not certify the interrupted revision.
+Inspect the exact selected commit's result before claiming native qualification;
+a newer commit's success does not qualify an older release. Consumers must update
+their owned workflows when adopting this guidance; snapshot refresh alone does
+not change their concurrency settings.
 
 Use the [CI-health task](../tasks/ci-health.md#queued-native-jobs-and-repeated-validation)
-to diagnose persistent native queues and repeated branch/tag gates. Preserve
-each distinct source's required coverage while removing equivalent work;
-queue length alone does not justify dropping a supported architecture or
-cancelling release qualification.
+to diagnose persistent native queues and repeated branch/tag gates. Keep all
+required hosts and checks on the retained run. Release, publication and deployment
+operations with separate effect/recovery obligations keep explicit concurrency
+identities and their own cancellation authorization.
 
 The portable job uses GitHub Actions' default job timeout, allowing long native
 builds to finish without a shorter regression-step deadline. Ordinary failures
@@ -178,6 +199,13 @@ The IC toolset additionally provisions and checks native executables on all
 three CI hosts above. Offline fixtures exercise digest/version refusals, retained
 failed and interrupted setup, and atomic activation using substituted payloads;
 only the separate native installation step qualifies actual upstream binaries.
+After preparing the pinned Node runtime, the native jobs also run
+`scripts/ci/qualify-wasm-opt.sh` against that installed IC set. Its retained
+Wasm inputs/outputs exercise `-O3`, `-Os` and `-Oz` through Node's WebAssembly
+engine, including integer branches and an IC-style reply import. Evidence lives
+under `portable-fixtures/wasm-opt` for ordinary failure collection. This small
+smoke does not qualify consumer canister builds or deployment; those remain
+with the product owner.
 Failure-artifact collection runs after native qualification and includes installer
 logs and retained host/IC candidate directories as well as portable fixtures.
 It also selects the compact formatting runner's `formatting.*` failure logs from

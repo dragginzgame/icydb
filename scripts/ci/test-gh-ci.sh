@@ -6,7 +6,16 @@ ROOT="$0"
 ROOT="$(cd -P "${ROOT%/*}/../.." && printf '%s/.' "$PWD")"
 ROOT="${ROOT%/.}"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/gh-ci-test.XXXXXX")"
-trap 'if [[ $? == 0 ]]; then rm -rf "$fixture"; else echo "CI inspection fixtures retained: $fixture" >&2; fi' EXIT
+# Bash 3.2 can enter EXIT with status zero after nounset; require completion too.
+fixture_complete=false
+finish() {
+    local status=$?
+    [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
+    if [[ "$status" == 0 ]]; then rm -rf "$fixture"
+    else echo "CI inspection fixtures retained: $fixture" >&2; fi
+    exit "$status"
+}
+trap finish EXIT
 mkdir "$fixture/bin"
 export GH_CI_TEST_LOG="$fixture/calls"
 export GH_CI_TEST_SHA=0123456789012345678901234567890123456789
@@ -40,7 +49,7 @@ case "$1 $2" in
                 printf '%s' "${GH_CI_TEST_LOG_ERROR-}" >&2
                 exit "${GH_CI_TEST_LOG_STATUS:-0}" ;;
             --json)
-                [[ "$5" == status,conclusion && "$6" == --jq ]]
+                [[ "$5" == status,conclusion && "$6" == --jq ]] || exit 1
                 printf '%s\n' "${GH_CI_TEST_STATE-$'completed\tfailure'}"
                 exit "${GH_CI_TEST_STATE_STATUS:-0}" ;;
         esac
@@ -92,7 +101,7 @@ refuse 2 --all-workflows --run 42
 refuse 2 --all-workflows --logs
 refuse 2 --limit 0
 refuse 2 --commit
-[[ ! -s "$GH_CI_TEST_LOG" ]]
+[[ ! -s "$GH_CI_TEST_LOG" ]] || exit 1
 
 # Partial output on failed observations must never dispatch run inspection.
 GH_CI_TEST_GIT_STATUS=9 refuse 1 --commit HEAD --all-workflows
@@ -126,5 +135,6 @@ GH_CI_TEST_LOG_TEXT='partial failure log' GH_CI_TEST_LOG_ERROR='fetch interrupte
 grep -F 'partial failure log' "$fixture/output"
 retained="$(sed -n 's/^CI log observation retained: //p' "$fixture/output")"
 [[ -d "$retained" && "$(cat "$retained/failed.log")" == 'partial failure log' &&
-   "$(cat "$retained/errors.log")" == 'fetch interrupted' ]]
+   "$(cat "$retained/errors.log")" == 'fetch interrupted' ]] || exit 1
 echo 'CI inspection selection and failure tests passed'
+fixture_complete=true

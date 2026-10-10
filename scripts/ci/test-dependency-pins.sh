@@ -7,7 +7,16 @@ ROOT="$0"
 ROOT="$(cd -P "${ROOT%/*}/../.." && printf '%s/.' "$PWD")"
 ROOT="${ROOT%/.}"
 FIXTURE="$(mktemp -d "${TMPDIR:-/tmp}/dependency-pins-test.XXXXXX")"
-trap 'if [[ $? == 0 ]]; then rm -rf "$FIXTURE"; else printf "Failed dependency-pins fixture retained: %s\n" "$FIXTURE" >&2; fi' EXIT
+# Bash 3.2 can enter EXIT with status zero after nounset; require completion too.
+fixture_complete=false
+finish() {
+    local status=$?
+    [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
+    if [[ "$status" == 0 ]]; then rm -rf "$FIXTURE"
+    else printf "Failed dependency-pins fixture retained: %s\n" "$FIXTURE" >&2; fi
+    exit "$status"
+}
+trap finish EXIT
 FIXTURE="$(cd "$FIXTURE" && pwd -P)"
 consumer="$FIXTURE/consumer"
 mkdir -p "$consumer/.github/workflows" "$consumer/src" "$consumer/ci" "$FIXTURE/sibling"
@@ -174,3 +183,4 @@ reject 'cannot parse'
 cp "$FIXTURE/base.yml" "$consumer/.github/workflows/ci.yml"
 check || { cat "$FIXTURE/output" >&2; exit 1; }
 echo 'dependency pinning tests passed'
+fixture_complete=true

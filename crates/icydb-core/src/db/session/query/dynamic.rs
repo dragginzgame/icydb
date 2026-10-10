@@ -703,6 +703,10 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Execute one revision-tolerant bounded scalar page.
+    ///
+    /// [`DynamicQuery::limit`] caps rows across all resumed pages. Reaching
+    /// it ends continuation even when matching rows remain; each page is
+    /// independently bounded by its read envelope.
     pub fn execute_public_live_page(
         &self,
         request: &DynamicQuery,
@@ -751,6 +755,9 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Execute one ordinary entity-name-driven bounded grouped read.
+    ///
+    /// [`DynamicQuery::limit`] bounds groups per page. Following the returned
+    /// grouped cursor can yield more groups in total than that limit.
     pub fn execute_public_dynamic_grouped_query(
         &self,
         request: &DynamicQuery,
@@ -791,6 +798,8 @@ impl<C: CanisterKind> DbSession<C> {
     ///
     /// This bypasses ordinary public admission but retains accepted-schema
     /// planning, explicit grouped limits, cursor validation, and execution.
+    /// [`DynamicQuery::limit`] bounds each grouped page, including resumed
+    /// pages, rather than the total traversal.
     pub fn execute_trusted_dynamic_grouped_query(
         &self,
         request: &DynamicQuery,
@@ -809,6 +818,8 @@ impl<C: CanisterKind> DbSession<C> {
     ///
     /// Trusted execution bypasses public admission but retains the same
     /// physical and aggregate request budgets as every other read lane.
+    /// [`DynamicQuery::limit`] remains a total across resumed scalar pages;
+    /// reaching it ends continuation even when matching rows remain.
     pub fn execute_trusted_live_page(
         &self,
         request: &DynamicQuery,

@@ -361,6 +361,12 @@ Consumer choices described in those guides remain subject to this baseline.
   alone do not prove macOS behavior. Align evidence with
   [the host guidance](docs/supported-hosts.md) and the consumer's matrix; report
   outstanding qualification without weakening the support requirement.
+- Routine CI keeps only the newest run per workflow and branch/PR ref. Use a
+  stable workflow/ref concurrency group with `cancel-in-progress: true`, without
+  source SHA or run ID, so newer revisions cancel queued and running older checks.
+  Preserve all required hosts on the retained run. Cancelled checks do not qualify
+  their source; release, publication and deployment workflows retain separate
+  effect/recovery obligations. See [the CI policy](docs/supported-hosts.md).
 
 ## Feedback and handoff
 

@@ -1,17 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-bash "$root/scripts/ci/check-release-commands.sh" "$root" scripts/ci/actionlint-checksums.tsv make/tools.mk make/release.mk make/rust-format.mk make/execution.mk scripts/ci/check-make-execution.sh scripts/ci/run-formatting.sh ci/tool-versions.env
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/standard-release-entry.XXXXXX")"
 # Surface inner Make diagnostics before removing disposable fixture inputs.
-trap '
-    status=$?
-    if [[ "$status" != 0 && -f "$fixture/output" ]]; then
-        cat "$fixture/output" >&2 || true
+# Preserve incomplete evidence even when Bash 3.2 reports a zero exit status.
+fixture_complete=false
+finish() {
+    local status=$?
+    [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
+    if [[ "$status" != 0 ]]; then
+        if [[ -f "$fixture/output" ]]; then cat "$fixture/output" >&2 || true; fi
+        printf "Standard release fixture retained: %s\n" "$fixture" >&2
+    else
+        rm -rf "$fixture"
     fi
-    rm -rf "$fixture"
     exit "$status"
-' EXIT
+}
+trap finish EXIT
+bash "$root/scripts/ci/check-release-commands.sh" "$root" scripts/ci/actionlint-checksums.tsv make/tools.mk make/release.mk make/rust-format.mk make/execution.mk scripts/ci/check-make-execution.sh scripts/ci/run-formatting.sh ci/tool-versions.env
 mkdir -p "$fixture/bin"
 real_bash="$(command -v bash)"
 export RELEASE_FIXTURE_BASH="$real_bash"
@@ -192,3 +198,4 @@ for ready in prepared missing; do
     if [[ "$ready" == prepared ]]; then [[ "$status" == 0 ]]; else [[ "$status" != 0 ]]; fi
 done
 printf '[OK] Shared release routing, admission and selected-tool preparation ordering passed\n'
+fixture_complete=true

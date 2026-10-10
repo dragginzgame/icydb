@@ -6,9 +6,14 @@ SUBJECT="$ROOT_DIR/scripts/ci/release-candidate-receipt.sh"
 TEST_ROOT="$(mktemp -d)"
 FIXTURE="$TEST_ROOT/repository"
 RECEIPTS="$TEST_ROOT/receipts"
+fixture_complete=false
 
 cleanup() {
-    find "$TEST_ROOT" -depth -delete
+    local status=$?
+    [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
+    if [[ "$status" == 0 ]]; then find "$TEST_ROOT" -depth -delete
+    else echo "Release candidate receipt fixture retained: $TEST_ROOT" >&2; fi
+    exit "$status"
 }
 trap cleanup EXIT
 
@@ -142,3 +147,4 @@ expect_failure run_subject record patch "$(git -C "$FIXTURE" rev-parse HEAD)"
 grep -Fq 'version = "0.223.8"' "$FIXTURE/Cargo.toml"
 
 echo "release candidate receipt behavior passed"
+fixture_complete=true

@@ -5,14 +5,17 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/icydb-pocketic-wrapper.XXXXXX")"
 control_pid=""
+fixture_complete=false
 finish() {
   local status=$?
+  [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
   if [[ -n "$control_pid" ]]; then
     kill "$control_pid" 2>/dev/null || true
     wait "$control_pid" 2>/dev/null || true
   fi
   if [[ "$status" == 0 ]]; then rm -rf "$fixture"
   else echo "PocketIC wrapper fixture failure retained: $fixture" >&2; fi
+  exit "$status"
 }
 trap finish EXIT
 cat > "$fixture/server" <<'SERVER'
@@ -114,3 +117,4 @@ for mode in startup child term int success; do
   count=$((count + 1))
 done
 printf '[OK] PocketIC wrapper fixtures passed: %s cases (no network)\n' "$count"
+fixture_complete=true

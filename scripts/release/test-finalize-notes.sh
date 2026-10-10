@@ -3,7 +3,15 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/icydb-numbered-notes.XXXXXX")"
-trap 'rm -rf "$fixture"' EXIT
+fixture_complete=false
+finish() {
+    local status=$?
+    [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
+    if [[ "$status" == 0 ]]; then rm -rf "$fixture"
+    else echo "Release-note fixture retained: $fixture" >&2; fi
+    exit "$status"
+}
+trap finish EXIT
 mkdir -p "$fixture/scripts/ci" "$fixture/scripts/release" "$fixture/docs/changelog"
 cp "$root/scripts/ci/finalize-release-changelog.awk" "$fixture/scripts/ci/"
 cp "$root/scripts/release/finalize-notes.sh" "$fixture/scripts/release/"
@@ -57,3 +65,4 @@ for conflict in root detail; do
     cmp "$fixture/detail-before" docs/changelog/0.265.md
 done
 echo 'numbered release-note finalization and preservation passed (isolated files)'
+fixture_complete=true

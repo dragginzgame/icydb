@@ -40,7 +40,7 @@ runs:
         repository_root="$EVIDENCE_REPOSITORY_ROOT"
         [[ "$temp_root" == /* ]] || temp_root="$PWD/$temp_root"
         [[ "$repository_root" == /* ]] || repository_root="$PWD/$repository_root"
-        [[ -d "$temp_root" && -d "$repository_root" ]]
+        [[ -d "$temp_root" && -d "$repository_root" ]] || exit 1
         inputs=()
         shopt -s nullglob
         for path in "$temp_root/portable-regression.log" "$temp_root/portable-fixtures" \

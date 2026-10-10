@@ -72,7 +72,7 @@ require_text \
     'release packaging must consume the verified canonical post-link artifact.'
 require_text \
     testing/integration/src/wasm_optimizer.rs \
-    'binaryen-132-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v1' \
+    'binaryen-133-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v1' \
     'the post-link pipeline identity must remain explicit.'
 require_text \
     testing/integration/src/wasm_optimizer.rs \
@@ -84,7 +84,7 @@ require_text \
     'tool installation must delegate to the reviewed shared Make include.'
 require_text \
     ci/ic-tools.tsv \
-    $'wasm-opt\t132\t' \
+    $'wasm-opt\t133\t' \
     'the IC toolset must retain the qualified optimizer release.'
 require_text \
     scripts/dev/workstation-setup.sh \

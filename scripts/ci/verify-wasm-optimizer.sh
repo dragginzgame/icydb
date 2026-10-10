@@ -11,8 +11,8 @@ esac
 WASM_OPT_SHA256="$(awk -v platform="$platform" '$1 == platform {print $2}' "$ROOT/scripts/ci/wasm-optimizer-checksums.tsv")"
 [[ "$WASM_OPT_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo 'invalid optimizer digest' >&2; exit 1; }
 # This identity is IcyDB's frozen optimization policy, not a second tool selection.
-WASM_OPT_VERSION='wasm-opt version 132 (version_132)'
-awk -F '\t' '$1 == "wasm-opt" { n++; if ($2 != "132") bad=1 } END { if (n != 3 || bad) exit 1 }' "$ROOT/ci/ic-tools.tsv" || {
+WASM_OPT_VERSION='wasm-opt version 133 (version_133)'
+awk -F '\t' '$1 == "wasm-opt" { n++; if ($2 != "133") bad=1 } END { if (n != 3 || bad) exit 1 }' "$ROOT/ci/ic-tools.tsv" || {
     echo 'IC tool pins do not match the qualified IcyDB optimizer' >&2; exit 1;
 }
 wasm_opt_bin="${ICYDB_WASM_OPT_BIN:-$ROOT/.tools/ic/bin/wasm-opt}"

@@ -8,10 +8,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 export PATH="$ROOT/.tools/host/bin:$PATH"
 export YQ="${YQ:-$ROOT/.tools/host/bin/yq}"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/icydb-workflow-policy.XXXXXX")"
+fixture_complete=false
 finish() {
   local status=$?
+  [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
   if [[ "$status" == 0 ]]; then rm -rf "$fixture"
   else echo "Workflow fixture failure retained: $fixture" >&2; fi
+  exit "$status"
 }
 trap finish EXIT
 mkdir -p "$fixture/.github/workflows" "$fixture/scripts/ci" "$fixture/testing/integration/src"
@@ -26,14 +29,21 @@ reset() { cp "$ROOT/.github/workflows/ci.yml" "$subject"; }
 check() {
   local expected="$1" name="$2" status=0
   bash "$fixture/scripts/ci/check-ci-workflow-invariants.sh" > "$fixture/$name.log" 2>&1 || status=$?
-  if [[ "$expected" == pass ]]; then [[ "$status" == 0 ]]
-  else [[ "$status" != 0 ]]; fi
+  # Bash 3.2 can continue after a failed assertion in an if branch. A policy
+  # mismatch must terminate explicitly before it can count as a completed case.
+  if [[ "$expected" == pass && "$status" != 0 || "$expected" != pass && "$status" == 0 ]]; then
+    printf 'Workflow case %s expected %s, observed status %s\n' "$name" "$expected" "$status" >&2
+    exit 1
+  fi
   count=$((count + 1))
 }
 mutate() { "$YQ" -i "$1" "$subject"; }
 
 reset
 check pass baseline
+status=0
+( check fail unexpected-baseline-acceptance ) > "$fixture/assertion-control.log" 2>&1 || status=$?
+[[ "$status" == 1 ]]
 reset
 mutate 'del(.jobs.dependency_msrv.env.RUSTUP_TOOLCHAIN)'
 check fail missing-msrv-selection
@@ -135,7 +145,7 @@ reset
 mutate '.jobs.macos_host.steps |= map(select(.run != "make install-dev"))'
 check fail missing-native-server-preparation
 reset
-perl -pi -e 's/^\t\$\(WORKSPACE_TEST_ENV\) (.*cargo test)/\t\$\(IC_TESTKIT_ENV\) \$\(WORKSPACE_TEST_ENV\) $1/' "$fixture/Makefile"
+perl -pi -e 's/^(\t\+)\$\(WORKSPACE_TEST_ENV\) (.*cargo test)/$1\$(IC_TESTKIT_ENV) \$(WORKSPACE_TEST_ENV) $2/' "$fixture/Makefile"
 check fail native-test-server-prerequisite
 cp "$ROOT/Makefile" "$fixture/Makefile"
 reset
@@ -198,3 +208,4 @@ reset
 mv "$subject" "$fixture/hidden.yml"
 check fail missing-discovery
 printf '[OK] workflow policy fixtures passed: %s cases\n' "$count"
+fixture_complete=true

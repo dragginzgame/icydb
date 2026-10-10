@@ -3,7 +3,15 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 scratch="$(mktemp -d)"
-trap 'find "$scratch" -depth -delete' EXIT
+fixture_complete=false
+finish() {
+  local status=$?
+  [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
+  if [[ "$status" == 0 ]]; then find "$scratch" -depth -delete
+  else echo "Read-admission fixture retained: $scratch" >&2; fi
+  exit "$status"
+}
+trap finish EXIT
 cd "$ROOT"
 
 # Use maintained sources in an isolated fixture: never mutate the worktree.
@@ -53,3 +61,4 @@ sed -i 's/pub enum QueryReadAdmissionCode {/pub enum FixtureDiagnostic {/' "$scr
 expect_failure "missing diagnostic inventory"
 
 echo "[OK] Read-admission invariant fixtures verified."
+fixture_complete=true

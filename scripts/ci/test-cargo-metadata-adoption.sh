@@ -8,10 +8,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 export PATH="$ROOT/.tools/host/bin:$PATH"
 YQ="${YQ:-$ROOT/.tools/host/bin/yq}"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/icydb-cargo-adoption.XXXXXX")"
+fixture_complete=false
 finish() {
   local status=$?
+  [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
   if [[ "$status" == 0 ]]; then rm -rf "$fixture"
   else echo "Cargo adoption fixture retained: $fixture" >&2; fi
+  exit "$status"
 }
 trap finish EXIT
 mkdir "$fixture/repo"
@@ -57,3 +60,4 @@ if check; then echo 'independent member version admitted' >&2; exit 1; fi
 cp "$fixture/member.toml" crates/icydb-diagnostic-code/Cargo.toml
 check || { cat "$fixture/check.log" >&2; exit 1; }
 echo 'IcyDB Cargo inheritance gate and retained graph policies passed'
+fixture_complete=true

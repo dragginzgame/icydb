@@ -231,6 +231,18 @@ accepted-schema operand semantics before boolean simplification and substitutes
 into an execution-owned AST; the retained dispatch remains reusable. Bound calls
 bypass the concrete SQL-command cache while retaining eligible shared-plan reuse.
 
+#### SQL cache retention
+
+The compiled-command cache admits at most 1,024 entries and 4 MiB of accounted
+retained payload per store registry. Accounting includes both key references,
+compiled syntax and decoded literals; shared allocations are charged
+conservatively. Commands larger than this cache budget execute without
+retention; eviction is FIFO. Executing a cached command does not grow its resident syntax. Prepared
+plans and their lazy execution residents belong to the separate shared query-plan
+cache, with its own 4 MiB payload ceiling. These ceilings exclude allocator and
+entry-count-bounded container bookkeeping. Ordinary query calls discard new
+heap cache writes; replicated execution can retain them between messages.
+
 ### `EXPLAIN`
 
 Supported shapes:

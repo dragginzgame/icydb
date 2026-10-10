@@ -13,6 +13,7 @@ tasks/rust-toolchain.md
 tasks/ci-health.md
 tasks/snapshot-drift.md
 tasks/dependency-security.md
+tasks/readme-freshness.md
 tasks/code-audit.md
 tasks/tooling-duplication.md
 tasks/maintenance-prompt.md

@@ -876,3 +876,14 @@ mod tests {
         assert_eq!(order_by[1].direct_field_name(), Some("local_id"));
     }
 }
+
+crate::retained::retained_fields!(LoweredSqlFilter {
+    Self { visible_expr, predicate_subset } => [visible_expr, predicate_subset],
+});
+crate::retained::retained_fields!(LoweredSelectShape {
+    Self { projection_selection, grouped_aggregates, group_by_fields, distinct: _, having, filter, order_by, limit: _, offset: _ }
+        => [projection_selection, grouped_aggregates, group_by_fields, having, filter, order_by],
+});
+crate::retained::retained_fields!(LoweredBaseQueryShape {
+    Self { filter, order_by, limit: _, offset: _ } => [filter, order_by],
+});

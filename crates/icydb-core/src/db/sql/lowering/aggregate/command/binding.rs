@@ -433,3 +433,7 @@ pub(in crate::db::sql::lowering::aggregate) fn bind_lowered_sql_global_aggregate
 ) -> Result<SqlGlobalAggregateCommand, SqlLoweringError> {
     lowered.into_command_with_schema(consistency, schema, work)
 }
+
+crate::retained::retained_fields!(SqlGlobalAggregateCommand {
+    Self { query, strategies, projection, having, facts: _ } => [query, strategies, projection, having],
+});

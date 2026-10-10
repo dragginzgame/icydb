@@ -39,10 +39,13 @@ export PATH="$root/.tools/host/bin:$root/.tools/ic/bin:$root/.tools/rust/bin:$PA
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/formatting-adoption.XXXXXX")"
 fixture="$(cd -P "$fixture" && printf '%s/.' "$PWD")"
 fixture="${fixture%/.}"
+fixture_complete=false
 finish() {
     local status=$?
+    [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
     if [[ "$status" == 0 ]]; then rm -rf "$fixture";
     else echo "Formatting adoption evidence retained: $fixture" >&2; fi
+    exit "$status"
 }
 trap finish EXIT
 mkdir "$fixture/templates"
@@ -144,3 +147,4 @@ if bash scripts/dev/install-git-hooks.sh > .git/conflict.log 2>&1; then exit 1; 
 [[ "$(git config --local --get core.hooksPath)" == existing-hooks ]] || exit 1
 echo 'Consumer formatting, preservation and hook installation checks passed'
 if [[ "$perturb_manifest" == true ]]; then echo 'Dependency sorting perturbation passed'; fi
+fixture_complete=true

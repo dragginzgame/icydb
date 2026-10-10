@@ -102,10 +102,6 @@ impl<K, V> BoundedCache<K, V>
 where
     K: Clone + Eq + Hash,
 {
-    pub(in crate::db::session) fn new(max_entries: usize) -> Self {
-        Self::new_weighted(max_entries, usize::MAX)
-    }
-
     pub(in crate::db::session) fn new_weighted(
         max_entries: usize,
         max_retained_weight: usize,
@@ -121,10 +117,6 @@ where
 
     pub(in crate::db::session) fn get(&self, key: &K) -> Option<&V> {
         self.entries.get(key).map(|entry| &entry.value)
-    }
-
-    pub(in crate::db::session) fn insert(&mut self, key: K, value: V) {
-        self.insert_weighted(key, value, 0);
     }
 
     /// Borrow the admitted entry's accounting handle, never a previous entry's.
@@ -210,15 +202,6 @@ where
     }
 }
 
-impl<K, V> Default for BoundedCache<K, V>
-where
-    K: Clone + Eq + Hash,
-{
-    fn default() -> Self {
-        Self::new(1024)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::BoundedCache;
@@ -265,11 +248,11 @@ mod tests {
 
     #[test]
     fn bounded_cache_evicts_oldest_inserted_key() {
-        let mut cache = BoundedCache::new(2);
+        let mut cache = BoundedCache::new_weighted(2, 10);
 
-        cache.insert("a", 1);
-        cache.insert("b", 2);
-        cache.insert("c", 3);
+        cache.insert_weighted("a", 1, 1);
+        cache.insert_weighted("b", 2, 1);
+        cache.insert_weighted("c", 3, 1);
 
         assert!(cache.get(&"a").is_none());
         assert_eq!(cache.get(&"b"), Some(&2));

@@ -161,7 +161,13 @@ where
         self
     }
 
-    /// Bound the maximum number of returned rows.
+    /// Bound scalar traversal totals or the number of groups in one grouped page.
+    ///
+    /// Scalar continuation carries the number of rows already emitted: this
+    /// limit applies across all resumed pages, and reaching it ends traversal
+    /// even when more matching rows exist. It is not the scalar page size.
+    /// Grouped execution applies the limit to each page; following its cursor
+    /// can return more groups in total than this limit.
     #[must_use]
     pub fn limit(mut self, limit: u32) -> Self {
         self.request = self.request.limit(limit);
@@ -237,6 +243,9 @@ where
     ///
     /// Pass the prior page's opaque continuation to resume. A non-null
     /// continuation means traversal has not yet been proven exhausted.
+    /// [`Self::limit`] caps rows across resumed pages. Reaching that cap returns
+    /// no continuation even if more matching rows exist; admission controls
+    /// the size of each individual page.
     pub fn execute_live_page(
         self,
         continuation: Option<&str>,
@@ -317,6 +326,8 @@ where
     /// accepted schema, shared query planner, and grouped executor remain the
     /// sole runtime authorities; `E` supplies only the source-bound entity
     /// binding used to reject stale adapters.
+    /// [`Self::limit`] bounds this page's groups, rather than the total across
+    /// grouped continuation. A returned next cursor may identify more groups.
     pub fn execute_grouped(self) -> Result<GroupedQueryOutput, TypedOperationError> {
         self.session
             .execute_public_typed_dynamic_grouped_query(&self.binding, &self.request)?

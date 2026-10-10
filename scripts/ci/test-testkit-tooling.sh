@@ -5,10 +5,13 @@ set -euo pipefail
 # Cargo receipts; Testkit owns server authentication and lifecycle fixtures.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/icydb-testkit-tools.XXXXXX")"
+fixture_complete=false
 finish() {
   local status=$?
+  [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
   if [[ "$status" == 0 ]]; then rm -rf "$fixture"
   else echo "Testkit tooling fixture retained: $fixture" >&2; fi
+  exit "$status"
 }
 trap finish EXIT
 mkdir -p "$fixture/scripts/ci" "$fixture/scripts/dev" "$fixture/make" "$fixture/bin" "$fixture/.tools/host/bin"
@@ -21,25 +24,36 @@ printf '#!/usr/bin/env bash\nexit 0\n' > "$fixture/scripts/dev/install-host-tool
 printf '#!/usr/bin/env bash\nexit 0\n' > "$fixture/scripts/dev/install-ic-tools.sh"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$fixture/scripts/ci/verify-wasm-optimizer.sh"
 printf '[workspace]\n' > "$fixture/Cargo.toml"
+printf 'version = 4\n' > "$fixture/Cargo.lock"
 cat > "$fixture/bin/cargo" <<'CARGO'
 #!/usr/bin/env bash
 set -euo pipefail
+if [[ "${TEST_REQUIRE_JOBSERVER:-0}" == 1 ]]; then
+  [[ "${MAKEFLAGS:-}" =~ --jobserver-(auth|fds)=([0-9]+),([0-9]+) ]]
+  reader="${BASH_REMATCH[2]}"; writer="${BASH_REMATCH[3]}"
+  : <&"$reader"
+  : >&"$writer"
+fi
 if [[ "$1" == test ]]; then
   [[ "$RUST_TEST_THREADS" == 2 ]]
   printf '%s\n' "$*" >> "$TEST_ROOT/native-test-requests"
   exit "${TEST_CARGO_FAIL:-0}"
 fi
-[[ "$1" == metadata && "$*" == *'--locked --offline --format-version 1'* ]]
-[[ "$CARGO_HOME" == "$TEST_ROOT/.cache/cargo/icydb" ]]
-[[ "${TEST_METADATA_FAIL:-0}" == 0 ]] || exit 19
-printf '{"packages":[{"name":"ic-testkit","version":"%s"}]}\n' "${TEST_SELECTED_VERSION:-0.25.5}"
+exit 99
 CARGO
 cat > "$fixture/scripts/dev/install-rust-tools.sh" <<'INSTALLER'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "$TEST_ROOT/installation-requests"
-if [[ "$*" == "--consumer $TEST_ROOT --versions "* && "$*" == *' --check' ]]; then exit 0; fi
-[[ "$*" == "--consumer $TEST_ROOT --package ic-testkit --version ${TEST_SELECTED_VERSION:-0.25.5} --bin ic-testkit-server --profile release"* ]]
+if [[ "$*" == "--consumer $TEST_ROOT --versions "* ]]; then exit 0; fi
+[[ "$*" == "--consumer $TEST_ROOT --package ic-testkit --lockfile $TEST_ROOT/Cargo.lock --bin ic-testkit-server --profile release"* ]]
+[[ "${TEST_SELECTION_FAIL:-0}" == 0 ]] || exit 19
+if [[ "${TEST_REQUIRE_JOBSERVER:-0}" == 1 ]]; then
+  [[ "${MAKEFLAGS:-}" =~ --jobserver-(auth|fds)=([0-9]+),([0-9]+) ]]
+  reader="${BASH_REMATCH[2]}"; writer="${BASH_REMATCH[3]}"
+  : <&"$reader"
+  : >&"$writer"
+fi
 [[ "${TEST_CLI_FAIL:-0}" == 0 ]] || exit 23
 if [[ "${TEST_TRACK_SELECTION:-0}" == 1 ]]; then
   receipt="$TEST_ROOT/installed-${TEST_SELECTED_VERSION:?}"
@@ -84,7 +98,7 @@ make --silent probe
 [[ "$(cat "$fixture/server-requests")" == $'check\ncheck' ]]
 
 # Every offline refusal must stop before the caller command, without setup.
-for failure in TEST_METADATA_FAIL TEST_CLI_FAIL TEST_SERVER_FAIL; do
+for failure in TEST_SELECTION_FAIL TEST_CLI_FAIL TEST_SERVER_FAIL; do
   rm -f "$fixture/child-selection"
   if env "$failure=1" make --silent probe > "$fixture/$failure.log" 2>&1; then
     echo "accepted failed admission: $failure" >&2; exit 1
@@ -100,7 +114,7 @@ if rg -q '^setup$' "$fixture/server-requests"; then exit 1; fi
 : > "$fixture/server-requests"
 : > "$fixture/installation-requests"
 for target in _ci-workspace-tests _ci-tier-a-integration; do
-  env TEST_METADATA_FAIL=1 TEST_CLI_FAIL=1 TEST_SERVER_FAIL=1 \
+  env TEST_SELECTION_FAIL=1 TEST_CLI_FAIL=1 TEST_SERVER_FAIL=1 \
     make --silent "$target" > "$fixture/$target.log"
 done
 [[ ! -s "$fixture/server-requests" && ! -s "$fixture/installation-requests" ]]
@@ -122,7 +136,7 @@ make --silent install-testkit > "$fixture/changed-setup.log"
 [[ -f "$fixture/installed-0.28.1" ]]
 CARGO_NET_OFFLINE=true make --silent testkit-check > "$fixture/changed-check.log"
 cmp "$fixture/previous-bytes" "$fixture/installed-0.25.5"
-[[ "$(tail -n 1 "$fixture/installation-requests")" == *'--version 0.28.1 '* ]]
+[[ "$(tail -n 1 "$fixture/installation-requests")" == *"--lockfile $fixture/Cargo.lock "* ]]
 unset TEST_TRACK_SELECTION TEST_SELECTED_VERSION
 
 # Standalone validation must admit tools before dispatching any dependent gate.
@@ -137,4 +151,7 @@ if env TEST_CLI_FAIL=1 make --silent -j4 validate \
     echo 'accepted missing selected CLI in parallel validation' >&2; exit 1
 fi
 [[ ! -e "$fixture/validation-dispatch" && ! -s "$fixture/server-requests" ]]
+TEST_REQUIRE_JOBSERVER=1 make --silent -j4 install-testkit > "$fixture/parallel-setup.log"
+TEST_REQUIRE_JOBSERVER=1 make --silent -j4 testkit-check > "$fixture/parallel-check.log"
 printf '[OK] Locked Testkit selection, offline refusals and caller overrides passed (substitute CLI)\n'
+fixture_complete=true

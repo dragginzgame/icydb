@@ -418,3 +418,7 @@ mod tests {
         ));
     }
 }
+
+crate::retained::retained_fields!(LoweredSqlProjectionSelection {
+    Self { selection, expr_analyses } => [selection, expr_analyses],
+});

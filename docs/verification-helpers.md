@@ -560,6 +560,9 @@ Checks cover selected Rust refresh and manifest sorting, idempotence, partial
 Rust/manifest staging, malformed Rust formatter failure, preservation of selected
 lockfiles and unrelated edits, and installer alias/conflict handling. Failed
 exports and logs are retained; successful helper-owned scratch is removed.
+Success also requires the checker to reach its final completion point. Premature
+exits, including Bash 3.2 expansion failures that report zero, return failure and
+retain evidence; existing nonzero statuses are preserved.
 Consumer-specific formatter stages and runtime obligations still need their local
 tests. Shared Tooling exercises this helper against its real nested Cargo fixture;
 that does not qualify a consumer's formatter or establish native macOS adoption.

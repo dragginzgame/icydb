@@ -36,10 +36,11 @@ while IFS= read -r -d '' entry; do
     esac
 done < "$snapshot/entries"
 
-index_tree="$(git write-tree)"
+index_tree="$(git write-tree)" || exit $?
 mkdir "$snapshot/worktree"
 git checkout-index --all --prefix="$snapshot/worktree/"
-[[ "$(git write-tree)" == "$index_tree" ]] || { echo 'pre-commit: index changed during snapshot creation; retry.' >&2; exit 1; }
+observed_tree="$(git write-tree)" || exit $?
+[[ "$observed_tree" == "$index_tree" ]] || { echo 'pre-commit: index changed during snapshot creation; retry.' >&2; exit 1; }
 git_variables="$(git rev-parse --local-env-vars)"
 (
     # Commit hooks can inherit a temporary GIT_INDEX_FILE. Keep that index for
@@ -55,7 +56,8 @@ git_variables="$(git rev-parse --local-env-vars)"
     make --no-print-directory -C "$snapshot/worktree" fmt
 ) || exit $?
 
-[[ "$(git write-tree)" == "$index_tree" ]] || { echo 'pre-commit: index changed during formatting; retry.' >&2; exit 1; }
+observed_tree="$(git write-tree)" || exit $?
+[[ "$observed_tree" == "$index_tree" ]] || { echo 'pre-commit: index changed during formatting; retry.' >&2; exit 1; }
 for path in "${selected[@]}"; do
     git --literal-pathspecs diff --quiet --no-ext-diff -- "$path" || { echo 'pre-commit: selected working files changed during formatting; retry.' >&2; exit 1; }
     [[ -f "$snapshot/worktree/$path" && ! -L "$snapshot/worktree/$path" ]] || { echo 'pre-commit: formatter removed or replaced a selected file; review its fmt target.' >&2; exit 1; }

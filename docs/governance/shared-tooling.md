@@ -1,7 +1,7 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `88a73139a0f083344c41a6f6f4b5c3a8aca7dc1d` (Shared 0.3.0). Root
+at reviewed revision `34e5ad7aac3599306c9572bb547f2239d09df1a3` (Shared 0.3.7). Root
 [AGENTS.md](../../AGENTS.md) is the local overlay. The shared approved layout
 retains the 42 existing canister, schema and testing packages in their
 restored directories, in the single root workspace and lockfile; no new package
@@ -11,6 +11,222 @@ remain local; standard release commands follow the shared contract. A sibling ch
 these rules.
 
 ## Ownership and provenance
+
+### Current 0.270.1 tooling qualification
+
+The initial Shared 0.3.7 adoption selected committed
+`34e5ad7aac3599306c9572bb547f2239d09df1a3`. Its 90-file export includes strict
+Git-observation failure handling, portable assertion repairs and the canonical
+lockfile-selected Cargo installer. The local Testkit runner delegates package,
+source and version admission through `--lockfile`; it no longer resolves Cargo
+metadata or parses a version independently. Testkit retains server ownership.
+The maintainer's incoming lockfile already selects Host 0.12.6; its Rust sources
+are unchanged from 0.12.5. No dependency or package versions are changed here.
+
+At that adoption, `ci/ic-tools.tsv` temporarily remained the sole consumer-owned
+archive matrix outside the snapshot, as permitted by Shared's IC adoption
+contract. Binaryen 132 stayed paired with the then-qualified executable digests
+and post-link policy. This admitted current canonical setup without inventing a second
+installer, a second matrix or a compatibility route. Earlier qualification
+records below retain their original source identities.
+
+Focused qualification is retained in `target/cleanup-2701-shared037`: canonical
+selected-Cargo fixtures and actual consumer setup, Testkit, formatting/hook,
+adapter and workflow-policy fixtures pass on Linux Bash 5 and Bash 3.2/Make 3.81.
+Completion/retention controls pass 126 cases per profile. The initially missing
+Testkit 0.33 CLI slot refuses with its selected identity and setup handoff;
+explicit CLI preparation and separate offline admission then pass on both
+profiles. Complete offline tool admission also passes. All 66 published Host
+0.12.6 Rust files match their reviewed owner; twelve focused artifact/optimizer
+tests and strict integration-library Clippy pass. Snapshot, workflow lint,
+selected ShellCheck, documentation and diff checks pass. Cargo input hashes are
+unchanged. No real server, network lifecycle or release effect was invoked.
+This is native tooling qualification, not Binaryen 133 product or native macOS
+qualification; full repository/release gates remain user-owned.
+
+The maintainer subsequently authorized Binaryen 133. The canonical exporter
+restores `ci/ic-tools.tsv` to the same reviewed Shared 0.3.7 snapshot, now with
+91 selected files. All three official release archives match the shared pins;
+their extracted executable digests replace the consumer admission table.
+The only current pipeline is Binaryen 133 with the existing ordered flags and
+feature policy. Its identity changes with the optimizer, so retained post-link
+cache entries cannot satisfy the new recipe. Setup uses the shared installer;
+previous bundles and failed artifacts remain retained. No fallback, second
+installer or new persisted format is added. Run `make install-ic-tools` before
+offline checks. Product/native qualification remains tracked by
+[#302](https://github.com/dragginzgame/icydb/issues/302); evidence is retained in
+`target/binaryen-133-adoption`. Linux setup, offline admission and download-disabled
+reuse pass on Bash 5 and Bash 3.2/Make 3.81; the previous bundle's byte manifest
+still verifies. Twelve artifact/optimizer helper tests, the focused canister
+post-link test, strict library/test/report Clippy, report/admission fixtures,
+ShellCheck, snapshot, documentation and diff checks pass. The production SQL
+fixture also builds and passes actual artifact/report admission with the maintained
+feature set. Testkit owns the two local canister-test lifecycles; no deployment
+or release occurs. The incoming Host 0.12.7 lockfile is preserved.
+
+The same compiler-emitted SQL fixture has SHA-256
+`7d312a6a5c62cf3b0a8403209de5b5fb796dd643b0fdb9152175407ca0ae6e2a`.
+Its 132/133 local-profile outputs are 4,478,088/4,477,627 raw bytes (delta -461).
+Measured ordered-query instructions are 2,932,746/2,932,656 (delta -90);
+schema exact-reentry instructions are 45,005,758/44,938,916 (delta -66,842).
+Both variants preserve query results through initialization and upgrade; the
+133 transform is deterministic. These are matched fixture measurements, not a
+fleet-wide performance claim. Cycles remain unmeasured. Native macOS execution,
+the full artifact matrix and repository/release gates remain unqualified.
+
+The maintainer requested continued error cleanup after 0.270.0 went live.
+Canonical Shared 0.3.3 `d63f0cfaba8ab2961d6012064adbf051c1898bc1` refreshes
+91 selected files from an immutable clean clone, including the README task
+required by the maintenance catalog. The committed production validation runner
+now rejects malformed inherited nesting depth before log creation or dispatch
+and requires explicit completion before success. Shared remains the sole depth
+admission owner; the IcyDB adapter selects its repository and log root. Sibling
+uncommitted changes remain excluded. The pending compatible batch changes no Cargo package
+versions, tool pins, server policy or runtime storage contract.
+
+The actual released Testkit fixture reproduces a nounset error returning zero
+under Bash 3.2. Seventeen maintained consumer tooling/release fixture owners now
+require explicit completion and retain incomplete evidence; the new fault
+injection regression also protects itself. That boolean is transient validation
+state at the existing fixture owner, not a production mode or persisted format.
+Exit status alone is the simpler alternative and is disproved by the retained
+reproduction. The maintained failure matrix has 119 cases per shell profile,
+including Cargo adoption, Shared adapters, release locks, pin preparation,
+publication, release notes, invariant scanners, read admission and Wasm reports.
+Remaining independent fixture families stay with
+[#342](https://github.com/dragginzgame/icydb/issues/342).
+
+IcyDB-owned formatter, selected Testkit setup/check, native core/workspace/
+Tier A CI, local unit/durability/integration tests, build/report, development,
+documentation, feature, managed Tier B and native Tier C recipes preserve Cargo's
+jobserver descriptors through recursive
+recipe marking. Actual parallel recipe
+probes exercise live readable/writable descriptors; the disposable formatter
+control without that marking fails. The existing canonical execution guard
+continues to reject unsafe Make modes. Other direct Cargo recipe families and
+native consumer qualification remain with
+[#311](https://github.com/dragginzgame/icydb/issues/311).
+
+Consumer setup, Testkit, workflow, formatting/hook, release-adapter and receipt
+fixtures pass on Linux Bash 5 and genuine Bash 3.2/Make 3.81. Focused native
+integration compilation passes with the incoming Host 0.12.2, Memory 0.35.1,
+Metrics 0.5.1, Timers 0.17.1 and Testkit 0.32.0 graph. The maintainer then
+selected Memory 0.35.2 during wrapper qualification. The initial uncached-crate
+refusals occurred before server launch; explicit locked fetch prepares that graph
+without changing its selection. Both input captures and attempts are retained.
+The later native adapter check and both real-CLI/substitute-server wrapper
+profiles pass with Memory 0.35.2. Each wrapper profile completes five cases;
+completion qualification passes 48 cases per profile. Actual parallel Linux
+setup and separate offline checks pass, including offline admission under
+Bash 3.2/Make 3.81. Canonical host/retention and selected Rust-tool fixtures,
+consumer saved-release recovery, selected ShellCheck, actionlint, snapshot and
+documentation checks pass. No real network was started; wrapper substitutes
+own harmless sleeping processes and qualify their cleanup. Latest captured
+manifest/lock hashes remain unchanged by final checks.
+This is native adapter/tooling qualification, not IC init/upgrade or native macOS
+qualification. Earlier evidence: `target/cleanup-2701`.
+Committed Shared 0.3.3's canonical validation-runner fixture and the actual IcyDB
+adapter pass on both shell profiles, including malformed-depth refusal before
+dispatch and repository/log selection from another working directory. Normal
+Cargo-adoption, release-lock and pin-preparation fixtures pass alongside all
+72 completion/retention cases per profile. The initial metadata attempts omitted
+Cargo from the qualification PATH and refused discovery; both retained fixtures
+precede successful checks with the prepared toolchain. The new evidence is in
+`target/cleanup-2701-shared033`. Its captured Cargo inputs remain unchanged.
+
+The subsequent maintainer-requested review checks committed Shared 0.3.4
+`169d77b8440568c5200eede971625126181f7bb2` and Host 0.12.3
+`aec863191b3c96ef879e59af701cbe1451595f25`. Shared's changed common selection is
+Binaryen 133; IcyDB still admits the qualified 132 executable bytes and pipeline.
+Keep the current 0.3.3 snapshot until actual post-link/bundle/startup qualification
+can update the matrix and product policy together. The new shared synthetic
+smoke does not establish that product evidence or native macOS acceptance.
+No second matrix, compatibility path or local installer is added; the existing
+adoption boundary remains with
+[#302](https://github.com/dragginzgame/icydb/issues/302).
+
+Published Host 0.12.3 matches all 66 Rust sources in the reviewed sibling; those
+sources are unchanged from 0.12.2. Existing IcyDB artifact publication and process
+admission already consume the Host owners. The incoming graph has Host 0.12.3,
+Memory 0.35.2, Metrics 0.5.2, Timers 0.17.2 and Testkit 0.32.1. Initial offline
+compilation refused the uncached Timers selection before compiling; explicit
+locked fetch prepares the graph without changing it. Focused native integration
+compilation, four optimizer checks and eight artifact checks then pass.
+
+Five more fixture owners now protect completion and retained evidence. A new
+diagnostic-reader failure control reproduces report cleanup replacing the original
+status 23 with status 7; best-effort replay now preserves the original status
+and retained fixture. All 119
+actual-handler cases, normal publication/finalization/read-admission fixtures,
+59 real scanner cases and 32 Wasm-report cases pass on both shell profiles.
+Selected ShellCheck annotations identify literal child-shell programs and
+Markdown delimiters. This is native/tooling qualification, including the current
+132 optimizer, not a 133 canister or new Testkit lifecycle qualification.
+Evidence: `target/cleanup-2701-host0123`. Captured Cargo inputs remain unchanged;
+no real network was started, release performed or sibling files edited.
+The subsequent native CI handoff repair qualifies all twelve Cargo calls across
+the actual core, workspace and Tier A entrypoints using harmless Cargo
+substitutes. The pre-fix actual Makefile control fails on advertised but closed
+descriptors and remains retained. Recursive marking repairs that transport;
+the canonical shared Make admission remains the only execution-mode owner.
+Both shell profiles pass descriptor, cache-root, libtest-concurrency, failure/log
+retention and four unsafe-mode controls. This executes no product CI gate or
+workspace compilation. Completion qualification still passes 119 cases per
+profile; workflow policy, selected ShellCheck, documentation, snapshot and diff
+checks pass. Evidence: `target/cleanup-2701-native-jobserver`. Cargo.toml stayed
+unchanged, but the maintainer's lockfile updates arrived during these checks:
+Host 0.12.4, Memory 0.35.3, Metrics 0.5.3 and Testkit 0.32.2. Preserve those
+selections and both input captures. Transport fixtures substitute Cargo and do
+not qualify that new runtime graph; other direct Cargo families stay with #311.
+The next local test-family repair marks eleven Cargo recipes and exercises
+thirteen handoffs through unit, no-default smoke, durability, feedback and SQL
+matrix entrypoints. Together with native CI, the existing fixture qualifies
+25 handoffs per shell profile without running product tests. Six server-using
+calls preserve the caller's explicit path and consumer temp root; Testkit retains
+runtime admission and lifecycle authority. Failed offline admission and missing
+feedback selection refuse before Cargo. Both profiles also qualify nested local
+failure retention and unsafe-mode refusal, with the same 119-case completion
+matrix and workflow-policy controls. Selected ShellCheck, snapshot, documentation
+and diff checks pass. Evidence: `target/cleanup-2701-local-jobserver`. Cargo inputs
+remain unchanged in this repair. This is transport qualification, not dependency
+compilation, server admission or runtime lifecycle qualification.
+The next repair marks 30 build/report, development, documentation, feature,
+Tier C and managed Tier B recipes. The existing actual-Make fixture now qualifies
+53 successful Cargo handoffs plus two controlled report-builder failures per
+profile, without compiling or running product gates. It preserves builder
+profiles/canister selections, inherited cache roots and bounded test concurrency.
+The real report shell chain reaches Cargo with live descriptors; controlled
+builder failure returns through Make and preserves existing artifact bytes.
+Tier C clears stale receipts, requires newly emitted receipts and preserves the
+exact replay selection and single-thread option. Empty shard/replay selections
+refuse before Cargo. Tier B substitutes only the existing managed-server wrapper
+boundary; its actual outer Make and nested validation dispatch remain in use.
+Unsafe-mode controls cover the newly qualified outer entrypoint families.
+The first Tier B fixture attempt lacked the temp directory normally created by
+setup; canonical nested Make admission correctly refused it. Preparing that
+fixture prerequisite allows both profiles to pass. Earlier incorrect multiline
+recipe marking attempts are retained separately from corrected passing checks.
+No production temp-directory policy changed.
+
+The remaining local release-candidate receipt handler now requires explicit
+completion and retains failed evidence. Its pre-fix Bash 3.2 nounset control
+returns zero; the corrected actual-handler matrix passes 126 cases per profile.
+That injection stops immediately after trap installation, before Git effects.
+The normal receipt fixture creates Git commits and remains unrun under the
+maintainer's no-commit rule. Existing completed-success cleanup and genuine
+nonzero status preservation are qualified by the actual-handler controls.
+The workflow fixture's native-server mutation no longer matched recursive
+recipes. Updating it exposes a further Bash 3.2 false-success boundary: a failed
+assertion inside the helper's conditional branch can continue and count the case.
+The helper now explicitly exits on a policy mismatch; a current-baseline
+unexpected-acceptance control proves rejection before the normal mutation matrix.
+All 54 workflow cases and that assertion control pass on both profiles.
+Focused ShellCheck, workflow policy, snapshot, documentation and diff checks
+pass. Evidence: `target/cleanup-2701-build-jobserver`. Cargo input fingerprints
+remain unchanged. Remaining indirect Cargo/release metadata recipe families,
+delivered-source and native macOS acceptance stay with #311/#342.
+Full workspace/release gates and native macOS remain user-owned. Wasm, cycle
+and instruction deltas are unmeasured for this tooling-only batch.
 
 ### Current 0.270 hard-cut qualification
 
@@ -992,8 +1208,8 @@ Cargo paths or Git dependencies. CI, release validation and artifact-producing
 Cargo commands use `--locked`. Authorized future dependency changes must prepare
 and cheaply verify every affected independent graph if one is introduced.
 
-[The common pin matrix](../../ci/ic-tools.tsv) selects Quill 0.5.4, ICP CLI 1.6.0,
-ic-wasm 0.11.1, didc 0.6.2, Binaryen 132 and PocketIC 16.1.0 for all three
+[The shared pin matrix](../../ci/ic-tools.tsv) selects Quill 0.5.4, ICP CLI 1.6.0,
+ic-wasm 0.11.1, didc 0.6.2 and Binaryen 133 for all three
 supported hosts. [Shared host selections](../../ci/tool-versions.env) select jq,
 yq, PCRE2-enabled ripgrep, cloc 2.10, cargo-sort 2.1.4, cargo-sort-derives 0.13.0
 and candid-extractor 0.1.6; [IcyDB utility selections](../../ci/icydb-tools.env)
@@ -1003,7 +1219,8 @@ installs complete host/IC/Rust toolsets followed by the locked Testkit selection
 ordered extension lists, and setup/check are separate commands. Prepare the
 Rust toolchain and run `make fetch` first. Cargo
 owns registry integrity and receipts for the Rust set; its check validates
-successful version output, rather than binary digests.
+successful version output for the common set; selected Cargo executables also
+require their exact installation receipts and local byte digests.
 [The shared Make include](../../make/tools.mk) owns setup, offline verification
 and `make cloc` for this workspace. Fleet tooling inventories run centrally
 from Shared Tooling; IcyDB omits those optional reporters. Make and CI select
@@ -1014,17 +1231,15 @@ shells must add `.tools/host/bin`, `.tools/ic/bin` and `.tools/rust/bin` to PATH
 admission to `ic-tools-check`; the shared include retains bundle verification. No second npm/Cargo ICP or ic-wasm
 installation is selected ([#302](https://github.com/dragginzgame/icydb/issues/302)).
 
-IcyDB retains raw optimizer executable admission and the Binaryen 132 pipeline
+IcyDB retains raw optimizer executable admission and the Binaryen 133 pipeline
 identity. Shared archive pins are provisioning metadata, not optimizer admission.
-Testkit alone owns PocketIC client/server version admission. IcyDB does not
-compare the Rust package version with the server pin or add an external-binary
-version parser. Shared installation still verifies the exact reviewed download,
-its receipt and executable identity; that authenticates the selected artifact,
-not protocol compatibility. The retained Shared reference guides describe the
+Testkit alone owns PocketIC selection, provisioning, client/server admission and
+lifecycle. IcyDB delegates locked Testkit CLI selection to Shared, then uses
+Testkit's separate server setup/check commands. It does not maintain a server
+pin, package/server version comparison or external-binary version parser.
+Shared installation verifies the reviewed common IC downloads, receipts and
+executable identities. The retained Shared reference guides describe the
 upstream helper catalog, including optional helpers no longer selected here.
-Testkit 0.25.4 publishes stable 16.x override admission under
-[Testkit #34](https://github.com/dragginzgame/ic-testkit/issues/34); coordinated
-provisioning retirement remains [Shared #76](https://github.com/dragginzgame/shared-tooling/issues/76).
 Ordinary validation never downloads missing executables.
 
 The maintainer's expanded ownership direction gives Testkit all PocketIC-specific
@@ -1115,7 +1330,7 @@ has passed. Deployment workflows outside these selections remain unqualified
 on macOS until native evidence exists.
 
 Setup selects Homebrew prerequisites on macOS and apt prerequisites on Linux.
-Binaryen 132 has admitted archive and executable digests for both macOS
+Binaryen 133 has admitted archive and executable digests for both macOS
 architectures and Linux x86-64. Shared installation consumes [one archive pin matrix](../../ci/ic-tools.tsv);
 shell admission and Rust artifact checks consume the separate qualified raw
 [executable digest table](../../scripts/ci/wasm-optimizer-checksums.tsv). The macOS

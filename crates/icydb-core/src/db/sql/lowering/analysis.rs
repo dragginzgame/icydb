@@ -251,3 +251,13 @@ pub(in crate::db::sql::lowering) fn analyze_lowered_expr(expr: &Expr) -> Lowered
 
     analysis
 }
+
+crate::retained::retained_fields!(AnalyzedLoweredExpr {
+    Self { expr, analysis } => [expr, analysis],
+});
+crate::retained::retained_fields!(LoweredExprSourceRef {
+    Self::Direct(field) => [field], Self::Path(path) => [path],
+});
+crate::retained::retained_fields!(LoweredExprAnalysis {
+    Self { aggregate_refs, source_refs, first_unknown_field } => [aggregate_refs, source_refs, first_unknown_field],
+});

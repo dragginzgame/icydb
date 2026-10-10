@@ -19,10 +19,10 @@ use ic_host_process::tool::{
 /// Environment variable that may point at the pinned `wasm-opt` executable.
 pub const WASM_OPT_BIN_ENV: &str = "ICYDB_WASM_OPT_BIN";
 /// Exact Binaryen CLI version accepted by the deployable-Wasm pipeline.
-pub const WASM_OPT_VERSION: &str = "wasm-opt version 132 (version_132)";
+pub const WASM_OPT_VERSION: &str = "wasm-opt version 133 (version_133)";
 /// Stable identity of the only deployable post-link pipeline.
 pub const POST_LINK_PIPELINE_IDENTITY: &str =
-    "binaryen-132-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v1";
+    "binaryen-133-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v1";
 /// Exact ordered optimizer arguments after the compiler-emitted input path.
 pub const WASM_OPT_FLAGS: [&str; 5] = [
     "-Oz",
@@ -31,7 +31,7 @@ pub const WASM_OPT_FLAGS: [&str; 5] = [
     "--enable-nontrapping-float-to-int",
     "--one-caller-inline-max-function-size=0",
 ];
-/// Exact effective feature set reported for canonical Binaryen 132 output.
+/// Exact effective feature set reported for canonical Binaryen 133 output.
 ///
 /// Binaryen reports the explicit proposal flags together with features it
 /// detects in the input module. `bulk-memory-opt` covers the emitted
@@ -312,7 +312,7 @@ mod tests {
 
     #[test]
     fn post_link_optimizer_contract_is_exact_and_available() {
-        assert_eq!(WASM_OPT_VERSION, "wasm-opt version 132 (version_132)");
+        assert_eq!(WASM_OPT_VERSION, "wasm-opt version 133 (version_133)");
         assert_eq!(wasm_opt_sha256().unwrap().len(), 64);
         assert_eq!(
             WASM_OPT_FLAGS,
@@ -336,7 +336,7 @@ mod tests {
         );
         assert_eq!(
             POST_LINK_PIPELINE_IDENTITY,
-            "binaryen-132-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v1"
+            "binaryen-133-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v1"
         );
         let optimizer = pinned_wasm_optimizer().expect("pinned optimizer should admit");
         assert_eq!(

@@ -454,3 +454,8 @@ Self::Exists{input_expr,distinct} => [input_expr,distinct],
 Self::First{input_expr,distinct} => [input_expr,distinct],
 Self::Last{input_expr,distinct} => [input_expr,distinct],
 });
+
+#[cfg(any(feature = "sql", test))]
+crate::retained::retained_fields!(AggregateSemanticKey {
+    Self { identity, filter_expr } => [identity, filter_expr],
+});

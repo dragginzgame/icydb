@@ -260,3 +260,7 @@ fn validate_field_target_sql_aggregate_capabilities(
 
     Ok(())
 }
+
+crate::retained::retained_fields!(PreparedSqlScalarAggregateStrategy {
+    Self { semantics, filter_expr } => [semantics, filter_expr],
+});

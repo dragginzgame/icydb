@@ -91,7 +91,7 @@ ic-host-process = "0.12"
 ic-host-tools = { version = "0.12", default-features = false }
 ic-memory = "0.35"
 ic-metrics = "0.5"
-ic-testkit = "0.31"
+ic-testkit = "0.33"
 ic-timers = "0.17"
 icrc-ledger-types = "0.2.0"
 icydb = { path = "crates/icydb", version = "=0.270.0", default-features = false }

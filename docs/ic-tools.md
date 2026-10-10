@@ -25,7 +25,8 @@ Quill messages or performs deployment/publication effects.
 The reviewed default pins live only in [ci/ic-tools.tsv](../ci/ic-tools.tsv).
 Each row specifies executable, exact
 version, native host and archive SHA-256. The digests were read from the official
-GitHub release asset metadata on 2026-10-06.
+GitHub release asset metadata on 2026-10-06; the Binaryen 133 archive digests
+were checked against downloaded bytes for all three host mappings on 2026-10-10.
 
 | Executable | Default version | Official release |
 | --- | --- | --- |
@@ -33,7 +34,7 @@ GitHub release asset metadata on 2026-10-06.
 | `icp` | 1.6.0 | [ICP CLI](https://github.com/dfinity/icp-cli/releases/tag/v1.6.0) |
 | `didc` | 0.6.2 | [Candid tools](https://github.com/dfinity/candid/releases/tag/didc-v0.6.2) |
 | `ic-wasm` | 0.11.1 | [ic-wasm](https://github.com/dfinity/ic-wasm/releases/tag/0.11.1) |
-| `wasm-opt` | 132 | [Binaryen](https://github.com/WebAssembly/binaryen/releases/tag/version_132) |
+| `wasm-opt` | 133 | [Binaryen](https://github.com/WebAssembly/binaryen/releases/tag/version_133) |
 
 The complete set has native assets for Linux x86-64, macOS Intel and macOS
 Apple Silicon. Unsupported hosts fail before downloading; Linux ARM64 is not
@@ -87,8 +88,15 @@ check can inspect the previous complete set during installation.
 The installed hash receipt detects accidental byte changes; it is not a signed
 attestation against an attacker who can rewrite the checkout and receipts.
 The reviewed archive hashes and snapshot provenance establish admitted inputs.
-The native CI matrix exercises installation and version execution on the three
-declared hosts. Product build and deployment qualification stay with consumers;
+The native CI matrix exercises installation, version execution and a Wasm
+optimization/execution smoke on the three declared hosts. With the common IC
+set and the pinned frontend Node runtime already prepared, run
+`bash scripts/ci/qualify-wasm-opt.sh /absolute/path/to/new-evidence-directory`
+for the same offline smoke. It retains inputs and outputs and checks `-O3`,
+`-Os` and `-Oz` behavior against an unoptimized module using Node's WebAssembly
+engine. It exercises branches, integer boundaries and an IC-style reply import;
+it is not a real canister deployment or product acceptance test.
+Product build and deployment qualification stay with consumers;
 PocketIC compatibility and server admission belong to Testkit.
 
 ## Consumer adoption
@@ -158,6 +166,16 @@ export that changes identity selection in sibling repositories. Common tool
 installation does not move identity stores, create keys or change that selection.
 
 ### Snapshot and pin selection
+
+Binaryen 133 changes optimization at `-O3` and `-Os` and above; see its
+[upstream changes](https://github.com/WebAssembly/binaryen/blob/version_133/CHANGELOG.md).
+Adopting its pins requires explicit `make install-ic-tools` before offline
+checks, with previous installations and failed candidates retained. Qualify
+actual consumer Wasm bundles and startup on the supported native hosts before
+switching a product's optimizer selection. In particular, IcyDB's separate
+post-link optimizer byte checks remain consumer-owned: a common pin update
+does not qualify or replace that policy. A consumer with outstanding product
+qualification may keep its reviewed local matrix outside the shared snapshot.
 
 Follow [snapshot adoption](consuming-snapshots.md#local-ic-tool-adoption). Use one
 authoritative pin matrix for this set; remove duplicate version/checksum selections

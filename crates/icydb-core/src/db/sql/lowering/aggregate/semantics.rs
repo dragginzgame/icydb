@@ -146,3 +146,11 @@ impl PreparedAggregateSemantics {
         }
     }
 }
+
+crate::retained::retained_fields!(PreparedAggregateTarget {
+    Self::Rows => [], Self::Field(field) => [field], Self::Expr(expr) => [expr],
+});
+crate::retained::retained_fields!(PreparedAggregateSemantics {
+    Self::Count { target, distinct: _ } | Self::Sum { target, distinct: _ } | Self::Avg { target, distinct: _ }
+        | Self::Min { target } | Self::Max { target } => [target],
+});

@@ -57,32 +57,72 @@ rg_member="ripgrep-$SHARED_TOOLING_RIPGREP_VERSION-$rg_target/rg"
 rg_digest_key="SHARED_TOOLING_RIPGREP_SHA256_$host"
 jq_digest_key="SHARED_TOOLING_JQ_SHA256_$host"
 yq_digest_key="SHARED_TOOLING_YQ_SHA256_$host"
+tool_failure() {
+    local tool="$1" path="$2" reason="$3" actual="${4-not-probed}" version_key
+    case "$tool" in
+        jq) version_key=SHARED_TOOLING_JQ_VERSION ;;
+        yq) version_key=SHARED_TOOLING_YQ_VERSION ;;
+        rg) version_key=SHARED_TOOLING_RIPGREP_VERSION ;;
+        cloc) version_key=SHARED_TOOLING_CLOC_VERSION ;;
+    esac
+    printf 'host tool check failed: tool=%s expected=%s path=%s reason=%s actual=%q\nRun make install-host-tools in %s, then make host-tools-check\n' \
+        "$tool" "${!version_key}" "$path" "$reason" "$actual" "$consumer" >&2
+}
 verify() {
-    local directory="$1" output
-    [[ -d "$directory" && ! -L "$directory" ]] || return 1
+    local directory="$1" output tool digest_key expected status
+    [[ -d "$directory" && ! -L "$directory" ]] || {
+        tool_failure jq "$directory/bin/jq" missing-or-invalid-bundle; return 1;
+    }
     for tool in jq yq rg cloc; do
-        [[ -f "$directory/bin/$tool" && ! -L "$directory/bin/$tool" && -x "$directory/bin/$tool" ]] || return 1
+        [[ -f "$directory/bin/$tool" && ! -L "$directory/bin/$tool" && -x "$directory/bin/$tool" ]] || {
+            tool_failure "$tool" "$directory/bin/$tool" missing-or-invalid-executable; return 1;
+        }
     done
     # Authenticate every selected payload before executing any of the tools.
-    bash "$ROOT/scripts/ci/verify-file-checksum.sh" sha256 "${!jq_digest_key}" "$directory/bin/jq" >&2 || return 1
-    bash "$ROOT/scripts/ci/verify-file-checksum.sh" sha256 "${!yq_digest_key}" "$directory/bin/yq" >&2 || return 1
-    bash "$ROOT/scripts/ci/verify-file-checksum.sh" sha256 "$SHARED_TOOLING_CLOC_SHA256" "$directory/bin/cloc" >&2 || return 1
-    [[ -f "$directory/ripgrep.tar.gz" && ! -L "$directory/ripgrep.tar.gz" ]] || return 1
-    bash "$ROOT/scripts/ci/verify-file-checksum.sh" sha256 "${!rg_digest_key}" "$directory/ripgrep.tar.gz" >&2 || return 1
+    for tool in jq yq cloc; do
+        case "$tool" in
+            jq) digest_key="$jq_digest_key" ;;
+            yq) digest_key="$yq_digest_key" ;;
+            cloc) digest_key=SHARED_TOOLING_CLOC_SHA256 ;;
+        esac
+        bash "$ROOT/scripts/ci/verify-file-checksum.sh" sha256 "${!digest_key}" "$directory/bin/$tool" >&2 || {
+            tool_failure "$tool" "$directory/bin/$tool" authentication-failed; return 1;
+        }
+    done
+    [[ -f "$directory/ripgrep.tar.gz" && ! -L "$directory/ripgrep.tar.gz" ]] || {
+        tool_failure rg "$directory/bin/rg" missing-or-invalid-archive; return 1;
+    }
+    bash "$ROOT/scripts/ci/verify-file-checksum.sh" sha256 "${!rg_digest_key}" "$directory/ripgrep.tar.gz" >&2 || {
+        tool_failure rg "$directory/bin/rg" archive-authentication-failed; return 1;
+    }
     # Compare with the authenticated archive before executing installed bytes.
-    tar -xOzf "$directory/ripgrep.tar.gz" "$rg_member" | cmp -s - "$directory/bin/rg" || return 1
-    output="$("$directory/bin/jq" --version)" || return 1
-    [[ "$output" == "jq-$SHARED_TOOLING_JQ_VERSION" ]] || return 1
-    output="$("$directory/bin/yq" --version)" || return 1
-    [[ "$output" == "yq (https://github.com/mikefarah/yq/) version v$SHARED_TOOLING_YQ_VERSION" ]] || return 1
-    output="$("$directory/bin/cloc" --version)" || return 1
-    [[ "$output" == "$SHARED_TOOLING_CLOC_VERSION" ]] || return 1
-    output="$("$directory/bin/rg" --version)" || return 1
-    case "${output%%$'\n'*}" in
-        "ripgrep $SHARED_TOOLING_RIPGREP_VERSION"|"ripgrep $SHARED_TOOLING_RIPGREP_VERSION (rev "*")") ;;
-        *) echo 'ripgrep version mismatch' >&2; return 1 ;;
-    esac
-    "$directory/bin/rg" --pcre2-version >&2 || return 1
+    tar -xOzf "$directory/ripgrep.tar.gz" "$rg_member" | cmp -s - "$directory/bin/rg" || {
+        tool_failure rg "$directory/bin/rg" payload-mismatch; return 1;
+    }
+    for tool in jq yq cloc rg; do
+        case "$tool" in
+            jq) expected="jq-$SHARED_TOOLING_JQ_VERSION" ;;
+            yq) expected="yq (https://github.com/mikefarah/yq/) version v$SHARED_TOOLING_YQ_VERSION" ;;
+            cloc) expected="$SHARED_TOOLING_CLOC_VERSION" ;;
+            rg) expected="ripgrep $SHARED_TOOLING_RIPGREP_VERSION" ;;
+        esac
+        if output="$("$directory/bin/$tool" --version)"; then :; else
+            status=$?
+            tool_failure "$tool" "$directory/bin/$tool" "version-probe-failed(exit=$status)" "$output"; return 1;
+        fi
+        if [[ "$tool" == rg ]]; then
+            case "${output%%$'\n'*}" in
+                "$expected"|"$expected (rev "*")") continue ;;
+            esac
+        elif [[ "$output" == "$expected" ]]; then continue; fi
+        tool_failure "$tool" "$directory/bin/$tool" version-mismatch "$output"; return 1
+    done
+    if output="$("$directory/bin/rg" --pcre2-version)"; then
+        printf '%s\n' "$output" >&2
+    else
+        status=$?
+        tool_failure rg "$directory/bin/rg" "PCRE2-probe-failed(exit=$status)" "$output"; return 1
+    fi
 }
 tool_root="$consumer/.tools"
 active="$tool_root/host"
@@ -96,8 +136,10 @@ if [[ -L "$active" ]]; then
     selection="${selection%/.}"
     [[ "$selection" =~ ^host-set\.[[:alnum:]]+$ ]] || { echo 'unmanaged host-tool selection' >&2; exit 1; }
     if verify "$tool_root/$selection"; then printf '%s\n' "$active/bin"; exit 0; fi
+elif [[ "$check" == true ]]; then
+    tool_failure jq "$active/bin/jq" missing-bundle
 fi
-[[ "$check" == false ]] || { echo 'host tools missing or changed; run make install-host-tools' >&2; exit 1; }
+[[ "$check" == false ]] || exit 1
 for command in curl perl tar; do command -v "$command" >/dev/null; done
 mkdir -p "$tool_root"
 lock="$tool_root/.host-tools.lock"

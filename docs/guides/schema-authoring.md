@@ -457,5 +457,5 @@ model-only convenience, and tests; the runtime never reconstructs accepted
 schema from them.
 
 For a complete starting declaration, see the
-[workspace schema example](../../README.md#minimal-schema). For applying an
-intentional schema change, see [Schema Migrations](schema-migrations.md).
+[compiled workspace schema example](../../README.md#start-from-a-compiled-example).
+For applying an intentional schema change, see [Schema Migrations](schema-migrations.md).

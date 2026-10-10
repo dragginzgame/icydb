@@ -6,10 +6,13 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/icydb-formatting.XXXXXX")"
 fixture="$(cd "$fixture" && pwd -P)"
+fixture_complete=false
 finish() {
   local status=$?
+  [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
   if [[ "$status" == 0 ]]; then rm -rf "$fixture"
   else echo "IcyDB formatting evidence retained: $fixture" >&2; fi
+  exit "$status"
 }
 trap finish EXIT
 export PATH="$ROOT/.tools/host/bin:$ROOT/.tools/rust/bin:$PATH"
@@ -54,6 +57,12 @@ cat > "$fixture/cargo" <<'CARGO'
 set -euo pipefail
 [[ "$CARGO_HOME" == "$PWD/.cache/cargo/icydb" && "$CARGO_TARGET_DIR" == "$PWD/target/icydb" ]]
 [[ "$CARGO_NET_OFFLINE" == true && "$RUSTUP_AUTO_INSTALL" == 0 ]]
+if [[ "${FORMAT_REQUIRE_JOBSERVER:-0}" == 1 ]]; then
+  [[ "${MAKEFLAGS:-}" =~ --jobserver-(auth|fds)=([0-9]+),([0-9]+) ]]
+  reader="${BASH_REMATCH[2]}"; writer="${BASH_REMATCH[3]}"
+  : <&"$reader"
+  : >&"$writer"
+fi
 case "$*" in
   'sort --version') echo "cargo-sort $SHARED_TOOLING_CARGO_SORT_VERSION"; exit 0 ;;
   'fmt --version') exit 0 ;;
@@ -80,7 +89,7 @@ for target in fmt fmt-check; do
     label='Checking formatting'
   fi
   : > "$FORMAT_FIXTURE_EVENTS"
-  make --no-print-directory -j2 "$target" "FORMAT_CARGO=$fixture/cargo" > "$fixture/$target-dispatch.log" 2>&1
+  FORMAT_REQUIRE_JOBSERVER=1 make --no-print-directory -j2 "$target" "FORMAT_CARGO=$fixture/cargo" > "$fixture/$target-dispatch.log" 2>&1
   printf '%s\n' "$derive" "$sort" "$format" > "$fixture/expected-format"
   cmp "$fixture/expected-format" "$FORMAT_FIXTURE_EVENTS"
   printf '%s... ok\n' "$label" > "$fixture/expected-output"
@@ -158,3 +167,4 @@ rg -Fx '#[derive(Clone, Copy, Eq, PartialEq)]' src/lib.rs >/dev/null
 rg -Fx 'fn main() {}' 'src/staged [1].rs' "$newline_path" >/dev/null
 cmp "$fixture/unselected-before" unselected.rs
 echo 'IcyDB real formatting, derive sorting and unusual selected paths passed'
+fixture_complete=true

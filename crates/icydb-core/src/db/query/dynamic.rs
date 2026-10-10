@@ -95,7 +95,13 @@ impl DynamicQuery {
         self
     }
 
-    /// Limit the number of returned rows.
+    /// Bound scalar traversal totals or the number of groups in one grouped page.
+    ///
+    /// Scalar resumed pages subtract previously emitted rows from this limit;
+    /// reaching it ends traversal even when more matching rows exist. The
+    /// public read envelope independently bounds each scalar page.
+    /// Grouped continuation reapplies this limit on each page, so following
+    /// its cursor can return more groups in total than the limit.
     #[must_use]
     pub const fn limit(mut self, limit: u32) -> Self {
         self.limit = Some(limit);

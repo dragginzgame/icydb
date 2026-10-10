@@ -67,10 +67,10 @@ print-cargo-target-dir:
 
 # Explicit setup only: validation never installs the CLI or server.
 install-testkit:
-	@runner="$$( $(TESTKIT_RUNNER) )" && "$$runner" setup --directory "$(ROOT_DIR)/.tools/ic-testkit-server"
+	+@runner="$$( $(TESTKIT_RUNNER) )" && "$$runner" setup --directory "$(ROOT_DIR)/.tools/ic-testkit-server"
 
 testkit-check:
-	@$(TESTKIT_SERVER_CHECK)
+	+@$(TESTKIT_SERVER_CHECK)
 
 # Check for clean git state
 ensure-clean:
@@ -219,16 +219,16 @@ test-unit:
 		_test-canister-libs
 
 _test-icydb-no-default:
-	$(CARGO_WORK_ENV) cargo test --locked --no-fail-fast -p icydb --no-default-features
+	+$(CARGO_WORK_ENV) cargo test --locked --no-fail-fast -p icydb --no-default-features
 
 _test-core-no-default:
-	$(CORE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast -p icydb-core --no-default-features
+	+$(CORE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast -p icydb-core --no-default-features
 
 _test-workspace:
-	$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast --workspace --all-targets --exclude canister_demo_rpg --exclude canister_test_sql --exclude canister_test_sql_bounded
+	+$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast --workspace --all-targets --exclude canister_demo_rpg --exclude canister_test_sql --exclude canister_test_sql_bounded
 
 _test-canister-libs:
-	$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast -p canister_test_sql -p canister_test_sql_bounded --lib
+	+$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast -p canister_test_sql -p canister_test_sql_bounded --lib
 
 test-no-default-smoke:
 	+$(VALIDATION_RUNNER) _test-icydb-no-default _test-core-no-default
@@ -236,9 +236,9 @@ test-no-default-smoke:
 test-integration-feedback:
 	@test -n "$(TEST_TARGET)" || { echo "TEST_TARGET must name one icydb-testing-integration test binary" >&2; exit 1; }
 	@test -n "$(TEST_NAME)" || { echo "TEST_NAME must name one exact test in $(TEST_TARGET)" >&2; exit 1; }
-	$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked -p icydb-testing-integration \
+	+$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked -p icydb-testing-integration \
 		--test "$(TEST_TARGET)" "$(TEST_NAME)" -- --exact --nocapture
-	$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
+	+$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
 		-p icydb-testing-integration --test "$(TEST_TARGET)"
 
 test-durability:
@@ -248,32 +248,32 @@ test-durability:
 		_test-durability-integration
 
 _test-durability-core-commit:
-	$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib 'db::commit::'
+	+$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib 'db::commit::'
 
 _test-durability-core-mutation-job:
-	$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib 'db::mutation_job::'
+	+$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib 'db::mutation_job::'
 
 _test-durability-integration:
-	$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
+	+$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
 		-p icydb-testing-integration \
 		--test convergence_candidate \
 		--test durable_mutation_job_scale \
 		--test recovery_closeout
 
 test-canister-artifact-contract:
-	$(CARGO_WORK_ENV) cargo test --locked -p icydb-testing-integration \
+	+$(CARGO_WORK_ENV) cargo test --locked -p icydb-testing-integration \
 		--test canister_artifact_contract \
 		production_and_local_source_declarations_match_the_frozen_endpoint_policy \
 		-- --ignored --exact --nocapture
 
 test-sql-canister-matrix:
-	$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast -p icydb-testing-integration --test sql_canister -- --nocapture
+	+$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast -p icydb-testing-integration --test sql_canister -- --nocapture
 
 test-sql-tier-c-shard:
 	@test -n "$(TIER_C_SHARD)" || { echo "TIER_C_SHARD must be an index from 0 through 7" >&2; exit 1; }
 	@mkdir -p "$(TIER_C_ARTIFACT_DIR)"
 	@rm -f "$(TIER_C_ARTIFACT_DIR)/tier-c-shard-$(TIER_C_SHARD).json"
-	ICYDB_SQL_TIER_C_SHARD_INDEX="$(TIER_C_SHARD)" \
+	+ICYDB_SQL_TIER_C_SHARD_INDEX="$(TIER_C_SHARD)" \
 	ICYDB_SQL_TIER_C_ARTIFACT_DIR="$(TIER_C_ARTIFACT_DIR)" \
 	$(CARGO_WORK_ENV) \
 	cargo test --locked -p icydb-core --lib --features sql \
@@ -283,7 +283,7 @@ test-sql-tier-c-shard:
 
 test-sql-tier-c-merge:
 	@rm -f "$(TIER_C_ARTIFACT_DIR)/tier-c-merged.json"
-	ICYDB_SQL_TIER_C_ARTIFACT_DIR="$(TIER_C_ARTIFACT_DIR)" \
+	+ICYDB_SQL_TIER_C_ARTIFACT_DIR="$(TIER_C_ARTIFACT_DIR)" \
 	$(CARGO_WORK_ENV) \
 	cargo test --locked -p icydb-core --lib --features sql \
 		db::session::tests::tier_c_reference::tier_c_native_receipts_merge_exactly_and_require_clean_evidence \
@@ -292,7 +292,7 @@ test-sql-tier-c-merge:
 
 test-sql-tier-c-replay:
 	@test -n "$(TIER_C_FAILURE_ARTIFACT)" || { echo "TIER_C_FAILURE_ARTIFACT must name one failure.<blake3>.json artifact" >&2; exit 1; }
-	ICYDB_SQL_TIER_C_FAILURE_ARTIFACT="$(TIER_C_FAILURE_ARTIFACT)" \
+	+ICYDB_SQL_TIER_C_FAILURE_ARTIFACT="$(TIER_C_FAILURE_ARTIFACT)" \
 	$(CARGO_WORK_ENV) \
 	cargo test --locked -p icydb-core --lib --features sql \
 		db::session::tests::tier_c_reference::tier_c_failure_artifact_replays_exact_minimized_failure \
@@ -300,39 +300,39 @@ test-sql-tier-c-replay:
 
 build-canister-local:
 	@test -n "$(CANISTER)" || { echo "CANISTER must name one maintained canister" >&2; exit 1; }
-	$(CARGO_WORK_ENV) cargo run --locked -p icydb-testing-integration \
+	+$(CARGO_WORK_ENV) cargo run --locked -p icydb-testing-integration \
 		--bin build_fixture_canister -- "$(CANISTER)" --build-profile local \
 		--profile debug --candid-export on
 
 build-canister-production:
 	@test -n "$(CANISTER)" || { echo "CANISTER must name one maintained canister" >&2; exit 1; }
-	$(CARGO_WORK_ENV) cargo run --locked -p icydb-testing-integration \
+	+$(CARGO_WORK_ENV) cargo run --locked -p icydb-testing-integration \
 		--bin build_fixture_canister -- "$(CANISTER)" --build-profile production \
 		--profile wasm-release --candid-export on
 
 wasm-size-report:
-	$(CARGO_WORK_ENV) bash scripts/ci/wasm-size-report.sh $(SIZE_REPORT_ARGS)
+	+$(CARGO_WORK_ENV) bash scripts/ci/wasm-size-report.sh $(SIZE_REPORT_ARGS)
 
 wasm-audit-report:
-	$(CARGO_WORK_ENV) bash scripts/ci/wasm-audit-report.sh $(AUDIT_REPORT_ARGS)
+	+$(CARGO_WORK_ENV) bash scripts/ci/wasm-audit-report.sh $(AUDIT_REPORT_ARGS)
 
 #
 # Development commands
 #
 
 fetch:
-	$(CARGO_WORK_ENV) cargo fetch --locked
+	+$(CARGO_WORK_ENV) cargo fetch --locked
 
 build:
-	$(CARGO_WORK_ENV) cargo build --locked --release --workspace
+	+$(CARGO_WORK_ENV) cargo build --locked --release --workspace
 
 check:
-	$(CARGO_WORK_ENV) cargo check --locked --workspace
+	+$(CARGO_WORK_ENV) cargo check --locked --workspace
 
 clippy:
-	$(CARGO_WORK_ENV) cargo clippy --locked --workspace --all-targets -- -D warnings
-	$(CARGO_WORK_ENV) cargo clippy --locked -p icydb-core --no-default-features --features sql -- -D warnings
-	$(CARGO_WORK_ENV) cargo clippy --locked -p canister_audit_one_entity_sql_query -p canister_test_sql_guard \
+	+$(CARGO_WORK_ENV) cargo clippy --locked --workspace --all-targets -- -D warnings
+	+$(CARGO_WORK_ENV) cargo clippy --locked -p icydb-core --no-default-features --features sql -- -D warnings
+	+$(CARGO_WORK_ENV) cargo clippy --locked -p canister_audit_one_entity_sql_query -p canister_test_sql_guard \
 		--all-targets --all-features -- -D warnings
 
 # Formatting keeps Cargo state local. Wrap the complete derive policy once;
@@ -345,12 +345,12 @@ fmt fmt-check format-tools-check: export CARGO_TARGET_DIR := $(CARGO_WORK_TARGET
 fmt fmt-check format-tools-check: export CARGO_NET_OFFLINE := true
 fmt fmt-check format-tools-check: export RUSTUP_AUTO_INSTALL := 0
 format-tools-check:
-	@. "$(HOST_TOOL_VERSIONS)" && bash "$(SHARED_TOOLING_ROOT)/scripts/ci/check-format-tools.sh" "$${SHARED_TOOLING_CARGO_SORT_VERSION:?}" "$(FORMAT_CARGO)"
+	+@. "$(HOST_TOOL_VERSIONS)" && bash "$(SHARED_TOOLING_ROOT)/scripts/ci/check-format-tools.sh" "$${SHARED_TOOLING_CARGO_SORT_VERSION:?}" "$(FORMAT_CARGO)"
 fmt: format-tools-check
-	@bash "$(SHARED_TOOLING_ROOT)/scripts/ci/run-formatting.sh" --write \
+	+@bash "$(SHARED_TOOLING_ROOT)/scripts/ci/run-formatting.sh" --write \
 		bash -ec '"$$1" sort-derives; "$$1" sort --workspace; "$$1" fmt --all' -- "$(FORMAT_CARGO)"
 fmt-check: format-tools-check
-	@bash "$(SHARED_TOOLING_ROOT)/scripts/ci/run-formatting.sh" --check \
+	+@bash "$(SHARED_TOOLING_ROOT)/scripts/ci/run-formatting.sh" --check \
 		bash -ec '"$$1" sort-derives --check; "$$1" sort --workspace --check; "$$1" fmt --all -- --check' -- "$(FORMAT_CARGO)"
 
 validate:
@@ -382,7 +382,7 @@ validate-fast:
 		check
 
 clean:
-	$(CARGO_WORK_ENV) cargo clean
+	+$(CARGO_WORK_ENV) cargo clean
 
 
 # Security and versioning checks
@@ -404,14 +404,14 @@ check-versioning: security-check
 test-documentation:
 	perl scripts/ci/test-documentation.pl
 	perl scripts/ci/check-documentation.pl
-	$(CARGO_WORK_ENV) cargo test --locked -p icydb-schema --lib documentation_
-	$(CARGO_WORK_ENV) cargo test --locked -p icydb-model-macros --lib documentation_
-	$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib --all-features documentation_
-	$(CARGO_WORK_ENV) cargo test --locked -p icydb-testing-model-facade-only --lib tests::
-	$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib --all-features db::startup::receipt::tests::
-	$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib --all-features db::schema::migration_record::tests::
-	$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib --all-features db::schema::control_store::tests::
-	$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib --all-features db::schema::identity_state::tests::
+	+$(CARGO_WORK_ENV) cargo test --locked -p icydb-schema --lib documentation_
+	+$(CARGO_WORK_ENV) cargo test --locked -p icydb-model-macros --lib documentation_
+	+$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib --all-features documentation_
+	+$(CARGO_WORK_ENV) cargo test --locked -p icydb-testing-model-facade-only --lib tests::
+	+$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib --all-features db::startup::receipt::tests::
+	+$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib --all-features db::schema::migration_record::tests::
+	+$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib --all-features db::schema::control_store::tests::
+	+$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib --all-features db::schema::identity_state::tests::
 
 check-dependency-pins:
 	$(CARGO_WORK_ENV) YQ="$(YQ)" bash scripts/ci/check-dependency-pins.sh --cargo-inheritance
@@ -434,6 +434,7 @@ check-portable-automation:
 	bash scripts/ci/check-ci-workflow-invariants.sh
 	bash scripts/release/test-standard-release.sh
 	bash scripts/release/test-receipt-callbacks.sh
+	bash scripts/ci/test-tooling-fixture-completion.sh
 	bash scripts/release/test-pin-exceptions.sh
 	bash scripts/ci/test-publish-workspace.sh
 	bash scripts/ci/test-release-runner.sh
@@ -463,11 +464,11 @@ check-invariants:
 	bash scripts/ci/check-memory-id-invariants.sh
 
 check-feature-matrix:
-	$(CARGO_WORK_ENV) cargo check --locked -p icydb --no-default-features
-	$(CARGO_WORK_ENV) cargo check --locked -p icydb-core --no-default-features
-	$(CARGO_WORK_ENV) cargo check --locked -p icydb --no-default-features --features sql
-	$(CARGO_WORK_ENV) cargo check --locked -p icydb-core --no-default-features --features sql
-	$(CARGO_WORK_ENV) cargo check --locked --workspace --no-default-features
+	+$(CARGO_WORK_ENV) cargo check --locked -p icydb --no-default-features
+	+$(CARGO_WORK_ENV) cargo check --locked -p icydb-core --no-default-features
+	+$(CARGO_WORK_ENV) cargo check --locked -p icydb --no-default-features --features sql
+	+$(CARGO_WORK_ENV) cargo check --locked -p icydb-core --no-default-features --features sql
+	+$(CARGO_WORK_ENV) cargo check --locked --workspace --no-default-features
 
 lint-workflows:
 	@if [ ! -x "$(ACTIONLINT_BIN)" ]; then \
@@ -493,6 +494,8 @@ ci-static:
 _ci-format:
 	$(MAKE) --no-print-directory fmt-check
 
+# Recursive Cargo recipes preserve Make's advertised jobserver descriptors.
+# The shared execution admission above rejects skipped or ignored execution.
 ci-core:
 	+$(VALIDATION_RUNNER) \
 		_ci-core-no-default-check \
@@ -501,21 +504,21 @@ ci-core:
 		_ci-core-no-default-test
 
 _ci-core-no-default-check:
-	$(CARGO_WORK_ENV) cargo check --locked -p icydb -p icydb-core --no-default-features
-	$(CARGO_WORK_ENV) cargo check --locked --workspace --no-default-features
+	+$(CARGO_WORK_ENV) cargo check --locked -p icydb -p icydb-core --no-default-features
+	+$(CARGO_WORK_ENV) cargo check --locked --workspace --no-default-features
 
 _ci-core-no-default-test:
-	$(CORE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
+	+$(CORE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
 		-p icydb -p icydb-core --no-default-features
 
 _ci-core-sql-check:
-	$(CARGO_WORK_ENV) cargo check --locked \
+	+$(CARGO_WORK_ENV) cargo check --locked \
 		-p icydb -p icydb-core --no-default-features --features sql
 
 _ci-core-sql-clippy:
-	$(CARGO_WORK_ENV) cargo clippy --locked \
+	+$(CARGO_WORK_ENV) cargo clippy --locked \
 		-p icydb-core --no-default-features --features sql -- -D warnings
-	$(CARGO_WORK_ENV) cargo clippy --locked \
+	+$(CARGO_WORK_ENV) cargo clippy --locked \
 		-p canister_audit_one_entity_sql_query -p canister_test_sql_guard \
 		--all-targets --all-features -- -D warnings
 
@@ -526,15 +529,15 @@ ci-workspace:
 		_ci-workspace-tests
 
 _ci-workspace-clippy:
-	$(CARGO_WORK_ENV) cargo clippy --locked --workspace --all-targets \
+	+$(CARGO_WORK_ENV) cargo clippy --locked --workspace --all-targets \
 		--exclude icydb-testing-integration -- -D warnings
 
 _ci-workspace-integration-clippy:
-	$(CARGO_WORK_ENV) cargo clippy --locked -p icydb-testing-integration \
+	+$(CARGO_WORK_ENV) cargo clippy --locked -p icydb-testing-integration \
 		--test sql_correctness --test sql_canister -- -D warnings
 
 _ci-workspace-tests:
-	$(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
+	+$(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
 		--workspace --all-targets --exclude icydb-testing-integration --verbose
 
 ci-sql-tier-a:
@@ -544,17 +547,17 @@ ci-sql-tier-a:
 		_ci-tier-a-integration
 
 _ci-tier-a-sqlite:
-	$(CARGO_WORK_ENV) cargo test --locked -p icydb-core \
+	+$(CARGO_WORK_ENV) cargo test --locked -p icydb-core \
 		--no-default-features --features sql \
 		db::session::tests::sqlite_reference --verbose
 
 _ci-tier-a-mutation:
-	$(CARGO_WORK_ENV) cargo test --locked -p icydb-core \
+	+$(CARGO_WORK_ENV) cargo test --locked -p icydb-core \
 		--no-default-features --features sql \
 		db::session::tests::mutation_reference --verbose
 
 _ci-tier-a-integration:
-	$(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
+	+$(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
 		-p icydb-testing-integration --test sql_correctness --verbose
 
 ci-sql-tier-b:
@@ -564,16 +567,16 @@ ci-sql-tier-b:
 		_ci-tier-b-sql-perf
 
 _ci-tier-b-sql-canister:
-	cargo test --locked --no-fail-fast \
+	+cargo test --locked --no-fail-fast \
 		-p icydb-testing-integration --test sql_canister --verbose
 
 _ci-tier-b-sql-perf:
-	cargo test --locked --no-fail-fast \
+	+cargo test --locked --no-fail-fast \
 		-p icydb-testing-integration --test sql_perf_audit --verbose -- --nocapture
 
 # Run tests in watch mode
 test-watch:
-	$(CARGO_WORK_ENV) cargo watch -x "test --locked"
+	+$(CARGO_WORK_ENV) cargo watch -x "test --locked"
 
 # Build and test everything through explicit, sequential workflow steps while
 # preserving the reusable Cargo build cache. `make clean` remains manual.

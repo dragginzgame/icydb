@@ -118,6 +118,10 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Execute one revision-tolerant bounded dynamic page.
+    ///
+    /// [`crate::db::DynamicQuery::limit`] caps rows across all resumed scalar
+    /// pages, rather than sizing each page. Reaching the cap ends continuation
+    /// even when matching rows remain.
     pub fn execute_live_page(
         &self,
         request: &crate::db::DynamicQuery,
@@ -294,6 +298,9 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Execute one ordinary entity-name-driven bounded grouped read.
+    ///
+    /// [`crate::db::DynamicQuery::limit`] bounds groups per page. Following the
+    /// returned grouped cursor can yield more groups in total than that limit.
     pub fn execute_public_dynamic_grouped_query(
         &self,
         request: &crate::db::DynamicQuery,
@@ -304,6 +311,9 @@ impl<C: CanisterKind> DbSession<C> {
     }
 
     /// Execute one trusted entity-name-driven grouped read.
+    ///
+    /// [`crate::db::DynamicQuery::limit`] bounds groups per page, including
+    /// resumed grouped pages, rather than the total traversal.
     pub fn execute_trusted_dynamic_grouped_query(
         &self,
         request: &crate::db::DynamicQuery,

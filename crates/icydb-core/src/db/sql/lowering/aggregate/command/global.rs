@@ -189,3 +189,7 @@ pub(in crate::db::sql::lowering) fn lower_global_aggregate_select_shape(
 ) -> Result<LoweredSqlGlobalAggregateCommand, SqlLoweringError> {
     LoweredSqlGlobalAggregateCommand::from_select_statement(statement, work)
 }
+
+crate::retained::retained_fields!(LoweredSqlGlobalAggregateCommand {
+    Self { query, terminals, projection, having, authored_order_by: _ } => [query, terminals, projection, having],
+});

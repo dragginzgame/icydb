@@ -7,8 +7,10 @@ unset MAKEFLAGS MAKEOVERRIDES MFLAGS
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 export PATH="$ROOT/.tools/host/bin:$PATH"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/icydb-release-pins.XXXXXX")"
+fixture_complete=false
 finish() {
   local status=$?
+  [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
   if [[ "$status" == 0 ]]; then
     rm -rf "$fixture"
   else
@@ -169,3 +171,4 @@ for input in "$fixture/retained"/*; do
 done
 [[ "$retained" == 1 ]]
 echo 'release pin exceptions follow preparation and admission; oracle, reasons and external lock selections preserved'
+fixture_complete=true

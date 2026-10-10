@@ -3,13 +3,16 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/icydb-invariant-scanners.XXXXXX")"
+fixture_complete=false
 cleanup() {
   local status=$?
+  [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
   if [[ "$status" -eq 0 ]]; then
     rm -rf "$scratch"
   else
     echo "Invariant scanner fixture retained at: $scratch" >&2
   fi
+  exit "$status"
 }
 trap cleanup EXIT
 mkdir -p "$scratch/scripts/ci"
@@ -63,6 +66,7 @@ check missing-input 2 search forbidden "$scratch/missing.rs"
 check invalid-regex 2 search '[' "$scratch/source.rs"
 # A failing first search must not be hidden by a later successful search in a
 # grouped pipeline, even when Bash disables errexit in command substitution.
+# shellcheck disable=SC2016 # Positional parameters expand in the child shell.
 check grouped-failure 2 bash -c 'set -euo pipefail; source "$1"; hits="$({ run_rg x "$2"; run_rg absent "$3"; } | strip_comment_only)"' \
   fixture "$common" "$scratch/missing.rs" "$scratch/source.rs"
 
@@ -200,3 +204,4 @@ for root in "${roots[@]}"; do
   mv "$scratch/absent-root" "$scratch/$root"
 done
 printf '[OK] Invariant scanner fixtures passed (%s cases).\n' "$cases"
+fixture_complete=true

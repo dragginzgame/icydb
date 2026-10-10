@@ -440,3 +440,7 @@ impl QueryModel {
         prepare_query_model_scalar_planning_state_with_schema_info(self, schema_info, work)
     }
 }
+
+crate::retained::retained_fields!(QueryModel {
+    Self { intent, consistency: _ } => [intent],
+});

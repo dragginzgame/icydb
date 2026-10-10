@@ -39,6 +39,12 @@ pub(in crate::db) struct SharedPreparedExecutionPlan {
 }
 
 impl SharedPreparedExecutionPlan {
+    #[cfg(test)]
+    pub(in crate::db) fn resident_lifetime_for_tests(&self) -> impl Fn() -> bool + use<> {
+        let residents = Rc::downgrade(&self.core.residents);
+        move || residents.strong_count() != 0
+    }
+
     pub(in crate::db) fn cache_retention_available(&self) -> bool {
         self.core.cache_retention_available()
     }

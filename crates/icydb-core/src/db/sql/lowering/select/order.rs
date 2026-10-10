@@ -132,3 +132,7 @@ mod tests {
         });
     }
 }
+
+crate::retained::retained_fields!(LoweredSqlOrderTerm {
+    Self { expr, analysis, direction: _ } => [expr, analysis],
+});

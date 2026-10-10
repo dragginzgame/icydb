@@ -106,7 +106,6 @@ impl<C: CanisterKind> DbSession<C> {
             }
             CompiledSqlCommand::GlobalAggregate { command, .. } => self
                 .execute_global_aggregate_compiled_statement_ref_with_catalog(
-                    context.command(),
                     command,
                     context.accepted_catalog(),
                 ),
@@ -155,10 +154,9 @@ impl<C: CanisterKind> DbSession<C> {
         }
 
         match compiled {
-            CompiledSqlCommand::GlobalAggregate { command, .. } => self
-                .execute_global_aggregate_compiled_statement_ref_with_catalog(
-                    compiled, command, catalog,
-                ),
+            CompiledSqlCommand::GlobalAggregate { command, .. } => {
+                self.execute_global_aggregate_compiled_statement_ref_with_catalog(command, catalog)
+            }
             _ => Err(QueryError::execute(
                 InternalError::query_executor_invariant(),
             )),

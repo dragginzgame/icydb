@@ -299,3 +299,7 @@ impl StructuralQuery {
         self.intent.filter_predicate_fully_covers_expression()
     }
 }
+
+crate::retained::retained_fields!(StructuralQuery {
+    Self { intent, structural_cache_key } => [intent, structural_cache_key],
+});

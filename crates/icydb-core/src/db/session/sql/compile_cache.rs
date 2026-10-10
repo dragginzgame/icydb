@@ -12,7 +12,7 @@ use crate::{
             sql::{
                 CompiledSqlCommand, SqlCompiledCommandCacheContext, SqlCompiledCommandCacheKey,
                 SqlCompiledCommandExecutionContext, SqlCompiledCommandSurface,
-                sql_statement_entity_name_from_statement,
+                cache::compiled_command_retained_bytes, sql_statement_entity_name_from_statement,
             },
         },
         sql::{lowering::validate_sql_bindings, parser::SqlStatement},
@@ -128,9 +128,14 @@ impl<C: CanisterKind> DbSession<C> {
 
         let compiled = self.compile_sql_statement(parsed, surface, schema, &[])?;
 
-        self.with_sql_compiled_command_cache(|cache| {
-            cache.insert(cache_key, compiled.clone());
-        });
+        // Queries are owned by the clone, so execution-local memoization cannot
+        // grow the resident command after its retained-byte admission.
+        let resident = compiled.clone();
+        if let Some(bytes) = compiled_command_retained_bytes(&cache_key, &resident) {
+            self.with_sql_compiled_command_cache(|cache| {
+                cache.insert_weighted(cache_key, resident, bytes);
+            });
+        }
 
         Ok(compiled)
     }

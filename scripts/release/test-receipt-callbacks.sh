@@ -10,8 +10,11 @@ unset MAKEFLAGS MAKEOVERRIDES MFLAGS RELEASE_COMMIT
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 export PATH="$root/.tools/host/bin:$PATH"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/release-receipt-callbacks.XXXXXX")"
-trap '
-    status=$?
+# Preserve incomplete evidence even when Bash 3.2 reports a zero exit status.
+fixture_complete=false
+finish() {
+    local status=$?
+    [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
     if [[ "$status" != 0 ]]; then
         if [[ -f "$fixture/output" ]]; then cat "$fixture/output" >&2 || true; fi
         printf "Receipt callback fixture retained: %s\n" "$fixture" >&2
@@ -19,7 +22,8 @@ trap '
         rm -rf "$fixture"
     fi
     exit "$status"
-' EXIT
+}
+trap finish EXIT
 mkdir -p "$fixture/bin" "$fixture/scripts/ci" "$fixture/scripts/release" "$fixture/committed"
 cp "$root/scripts/ci/record-release-gate-receipt.sh" \
     "$root/scripts/ci/verify-release-gate-receipt.sh" "$fixture/scripts/ci/"
@@ -138,3 +142,4 @@ for failure in FAIL_CANDIDATE FAIL_HEAD; do
     cmp "$fixture/expected" "$EVENTS"
 done
 echo 'release receipt Make callbacks passed (real receipt scripts; no Git effects)'
+fixture_complete=true

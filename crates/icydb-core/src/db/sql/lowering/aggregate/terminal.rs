@@ -130,3 +130,10 @@ impl LoweredSqlGlobalAggregateTerminal {
         Err(SqlLoweringError::unsupported_global_aggregate_projection())
     }
 }
+
+crate::retained::retained_fields!(LoweredAggregateInput {
+    Self::Rows => [], Self::Field(field) => [field], Self::Expr(expr) => [expr],
+});
+crate::retained::retained_fields!(LoweredSqlGlobalAggregateTerminal {
+    Self { semantic_key, input, filter_expr } => [semantic_key, input, filter_expr],
+});
