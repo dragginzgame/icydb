@@ -1460,12 +1460,6 @@ dependencies = [
 
 [[package]]
 name = "ic-metrics"
-version = "0.3.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c2d679bec5d4473761ddca27d77cbbfc5aae277a3a9634f90f63bbcc7b8bcb2"
-
-[[package]]
-name = "ic-metrics"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04d79403a81e4fa0bc2a7434c181995c57246b85aa647a84838e712183013b1d"
@@ -1502,12 +1496,12 @@ dependencies = [
 
 [[package]]
 name = "ic-timers"
-version = "0.16.7"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16a21f9dd6d611c3f9643dc6e1531e6a97f300dd72571666e5c71ee2cb87e801"
+checksum = "1757d41cdab559d127ead9efb22ba5ce8376cf907fd53e6d808ae78b41f0457b"
 dependencies = [
  "ic-cdk-timers",
- "ic-metrics 0.3.7",
+ "ic-metrics",
  "ic0",
  "thiserror 2.0.18",
 ]
@@ -1692,7 +1686,7 @@ dependencies = [
  "ic-host-artifacts 0.12.0",
  "ic-host-fs 0.12.0",
  "ic-host-tools 0.12.0",
- "ic-metrics 0.5.0",
+ "ic-metrics",
  "icydb",
  "icydb-schema",
  "rustyline",
@@ -1709,7 +1703,7 @@ dependencies = [
  "getrandom 0.4.3",
  "ic-cdk",
  "ic-memory",
- "ic-metrics 0.5.0",
+ "ic-metrics",
  "icydb-diagnostic-code",
  "icydb-schema",
  "icydb-testing-sql-generator",

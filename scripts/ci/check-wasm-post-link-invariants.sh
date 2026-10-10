@@ -90,10 +90,8 @@ require_text \
     scripts/dev/workstation-setup.sh \
     'install-tools' \
     'workstation setup must prepare the common local toolset.'
-require_text \
-    .github/workflows/ci.yml \
-    'make install-tools tools-check' \
-    'CI must explicitly provision and check the common local toolset.'
+# check-ci-workflow-invariants.sh owns parsed CI tool setup/check admission;
+# check-invariants runs that gate before this post-link contract checker.
 
 if [[ "$failures" -ne 0 ]]; then
     echo "[FAIL] Wasm post-link invariants failed." >&2
