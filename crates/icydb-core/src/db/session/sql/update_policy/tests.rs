@@ -10,8 +10,8 @@ const PRIMARY_KEY: &[&str] = &["id"];
 fn update_policy_preparation_shares_request_scope_for_exact_and_resumable_admission() {
     use crate::db::{
         RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         query::preparation::PreparationWork,
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         session::sql::sql_statement_dispatch,
     };
     use icydb_diagnostic_code::{

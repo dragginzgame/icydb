@@ -1,4 +1,4 @@
-//! Module: schema::sql_ddl::field_metadata
+//! Module: schema::publication::field_metadata
 //! Responsibility: SQL DDL field metadata candidate construction and publication.
 //! Does not own: SQL syntax binding or physical nonempty-row migration.
 //! Boundary: applies bound field changes through accepted-schema transitions.
@@ -20,7 +20,7 @@ use crate::{
                 derive_dense_field_removal_candidate, derive_sql_ddl_field_default_persisted_after,
                 derive_sql_ddl_field_rename_persisted_after,
             },
-            sql_ddl::candidate_with_snapshot,
+            publication::candidate_with_snapshot,
         },
     },
     error::InternalError,
@@ -36,7 +36,7 @@ use super::{
 /// Execute one SQL DDL field drop after proving no physical row requires the
 /// dense-layout rewrite. Nonempty rewrites belong to the explicit migration
 /// protocol and reject before publication.
-pub(in crate::db) fn execute_admin_sql_ddl_field_drop(
+pub(in crate::db) fn execute_schema_field_drop(
     store: StoreHandle,
     entity_tag: EntityTag,
     accepted_before: &AcceptedSchemaSnapshot,
@@ -91,7 +91,7 @@ fn validate_sql_ddl_field_drop_metadata_change(
 }
 
 /// Execute one metadata-only SQL DDL field-default publication.
-pub(in crate::db) fn execute_admin_sql_ddl_field_default_change(
+pub(in crate::db) fn execute_schema_field_default_change(
     store: StoreHandle,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
@@ -103,7 +103,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_default_change(
         &accepted_before_identity,
         derivation,
     );
-    execute_admin_sql_ddl_checked_field_metadata_publication(
+    execute_schema_checked_field_metadata_publication(
         envelope,
         derivation.admission().field_default_target(),
         validate_sql_ddl_field_default_metadata_change,
@@ -145,7 +145,7 @@ fn validate_sql_ddl_field_default_metadata_change(
 
 /// Result of one SQL DDL field-nullability lifecycle operation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db) enum SqlDdlFieldNullabilityOutcome {
+pub(in crate::db) enum SchemaFieldNullabilityOutcome {
     /// A direct metadata publication or activation abort completed.
     Published,
     /// A new-write gate was published for bounded historical validation.
@@ -153,14 +153,14 @@ pub(in crate::db) enum SqlDdlFieldNullabilityOutcome {
 }
 
 /// Execute one SQL DDL field-nullability lifecycle operation.
-pub(in crate::db) fn execute_admin_sql_ddl_field_nullability_change(
+pub(in crate::db) fn execute_schema_field_nullability_change(
     store: StoreHandle,
     entity_tag: EntityTag,
     entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
     derivation: &SchemaDdlAcceptedSnapshotDerivation,
-) -> Result<SqlDdlFieldNullabilityOutcome, InternalError> {
+) -> Result<SchemaFieldNullabilityOutcome, InternalError> {
     let envelope = SqlDdlPublicationEnvelope::new(
         store,
         accepted_before,
@@ -190,7 +190,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_nullability_change(
 
     envelope.publish()?;
 
-    Ok(SqlDdlFieldNullabilityOutcome::Published)
+    Ok(SchemaFieldNullabilityOutcome::Published)
 }
 
 fn publish_sql_ddl_not_null_activation(
@@ -201,7 +201,7 @@ fn publish_sql_ddl_not_null_activation(
     accepted_before_identity: AcceptedCatalogIdentity,
     next_schema_version: crate::db::schema::SchemaVersion,
     target: &SchemaFieldNullabilityTarget,
-) -> Result<SqlDdlFieldNullabilityOutcome, InternalError> {
+) -> Result<SchemaFieldNullabilityOutcome, InternalError> {
     let (current_revision, current_fingerprint, current) = current_sql_ddl_bundle(
         store,
         entity_tag,
@@ -250,14 +250,14 @@ fn publish_sql_ddl_not_null_activation(
         current_revision,
         &candidate,
     )?;
-    Ok(SqlDdlFieldNullabilityOutcome::ActivationPublished { constraint_id })
+    Ok(SchemaFieldNullabilityOutcome::ActivationPublished { constraint_id })
 }
 
 #[expect(
     clippy::too_many_arguments,
     reason = "the abort boundary keeps accepted identity and exact activation state explicit"
 )]
-pub(in crate::db) fn execute_admin_sql_ddl_not_null_activation_abort(
+pub(in crate::db) fn execute_schema_not_null_activation_abort(
     store: StoreHandle,
     entity_tag: EntityTag,
     entity_path: &str,
@@ -342,7 +342,7 @@ fn validate_sql_ddl_field_nullability_metadata_change(
 }
 
 /// Execute one metadata-only SQL DDL field-rename publication.
-pub(in crate::db) fn execute_admin_sql_ddl_field_rename(
+pub(in crate::db) fn execute_schema_field_rename(
     store: StoreHandle,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
@@ -354,7 +354,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_rename(
         &accepted_before_identity,
         derivation,
     );
-    execute_admin_sql_ddl_checked_field_metadata_publication(
+    execute_schema_checked_field_metadata_publication(
         envelope,
         derivation.admission().field_rename_target(),
         validate_sql_ddl_field_rename_metadata_change,
@@ -384,7 +384,7 @@ fn validate_sql_ddl_field_rename_metadata_change(
     Ok(())
 }
 
-fn execute_admin_sql_ddl_checked_field_metadata_publication<T>(
+fn execute_schema_checked_field_metadata_publication<T>(
     envelope: SqlDdlPublicationEnvelope<'_>,
     target: Option<&T>,
     validate: impl FnOnce(

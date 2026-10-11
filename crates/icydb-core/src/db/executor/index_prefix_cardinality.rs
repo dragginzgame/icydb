@@ -7,11 +7,12 @@ use crate::{
     db::{
         access::{AccessPath, IndexShapeDetails, LoweredIndexPrefixSpec},
         data::DataStore,
-        executor::{budget::ExecutionConstructionBudget, route::IndexPrefixChildExpansionHint},
+        executor::route::IndexPrefixChildExpansionHint,
         index::{IndexId, IndexKey, IndexKeyKind, UserIndexPrefixCardinalityKey},
         integrity::DatabaseIncarnationId,
         query::plan::AccessPlannedQuery,
         registry::StoreHandle,
+        resource::budget::ExecutionConstructionBudget,
         schema::cardinality_generation::CardinalityAcceptedRootIdentity,
     },
     error::InternalError,

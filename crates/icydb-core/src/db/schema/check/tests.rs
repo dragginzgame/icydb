@@ -4,7 +4,10 @@ mod boolean_truth;
 #[cfg(feature = "sql")]
 use crate::db::{
     schema::AcceptedEnumCatalog,
-    sql::parser::{SqlDdlStatement, SqlStatement, parse_sql},
+    sql::{
+        ddl::bind_sql_check_expr,
+        parser::{SqlDdlStatement, SqlStatement, parse_sql},
+    },
 };
 
 use super::*;
@@ -15,7 +18,7 @@ use crate::{
     db::{
         commit::CommitSchemaFingerprint,
         data::AcceptedFieldWriteProvenance,
-        executor::budget::MaintenanceConstructionBudget,
+        resource::budget::MaintenanceConstructionBudget,
         schema::{
             AcceptedCompositeCatalog, AcceptedConstraintCatalog, AcceptedConstraintKind,
             AcceptedNamedTypeIdentity, AcceptedRuleOperation, AcceptedRuleTarget,
@@ -1994,8 +1997,8 @@ fn unique_activation_predicate_fixture(sql: &str) -> PersistedSchemaSnapshot {
 fn unique_activation_dependencies_use_current_cumulative_construction_authority() {
     use crate::db::{
         QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         query::preparation::PreparationWork,
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     };
     use icydb_diagnostic_code::{
         DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,

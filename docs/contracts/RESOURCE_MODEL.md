@@ -129,9 +129,9 @@ caps also apply and can reject before either count cap is reached.
 | --- | --- | --- |
 | Input admission | Authored query components, including effective SQL parameter copies; not planner-produced work | [input](../../crates/icydb-core/src/db/query/admission/input.rs) |
 | Public admission | Selected-plan row, access, key-input and grouped-policy proofs | [policy](../../crates/icydb-core/src/db/query/admission/policy.rs) |
-| Request root | Monotonic preparation and attached execution charges across nested calls and async polls | [request](../../crates/icydb-core/src/db/session/request.rs) |
-| Read execution | One prepared execution's physical work, attached to its request scope | [execution budget](../../crates/icydb-core/src/db/executor/budget.rs) |
-| Mutation advancement | Separate fixed engine-owned profile and explicit pre-publication instruction checks | [execution budget](../../crates/icydb-core/src/db/executor/budget.rs) |
+| Request root | Monotonic preparation and attached execution charges across nested calls and async polls | [request](../../crates/icydb-core/src/db/resource/request.rs) |
+| Read execution | One prepared execution's physical work, attached to its request scope | [execution budget](../../crates/icydb-core/src/db/resource/budget.rs) |
+| Mutation advancement | Separate fixed engine-owned profile and explicit pre-publication instruction checks | [execution budget](../../crates/icydb-core/src/db/resource/budget.rs) |
 | Grouped state | Live group memory plus cumulative group/DISTINCT work | [grouped accounting](../../crates/icydb-core/src/db/executor/aggregate/contracts/grouped/context.rs) |
 
 Named resources include query/planning work, key and row visits, stored/decoded/
@@ -139,6 +139,13 @@ materialized bytes, expression/value steps, sort work and scratch, group/DISTINC
 state, cursor work, temporary bytes, result rows/bytes and instruction units.
 Current internal profile values and failure reserves live in the linked owners;
 they are not a second public tuning API.
+
+The internal resource owner also supplies bounded container/value construction
+and retained cache-weight accounting. Query expression copying and executor
+plan/row attribution adapt those primitives without owning another budget.
+Preparation borrows the same request handle; failures retain charges and
+instruction checkpoints. Moving ownership does not alter limits or cache
+eviction and weak-retention behavior.
 
 Generated endpoints establish a request root automatically. Manual entries use
 the [request scope](../guides/public-facade-api.md#request-entry). Re-entering a

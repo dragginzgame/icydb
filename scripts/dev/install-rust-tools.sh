@@ -182,67 +182,78 @@ check_selected() {
 
 install_selected() (
     stage=''
-    cargo_source || exit $?
-    tool_store_init rust "$inputs"
-    tool_root="$install_root"
-    active="$install_root/selected-$store_id"
-    lock="$install_root/.selected-$store_id.lock"
-    [[ ! -e "$lock" && ! -L "$lock" ]] || { echo "Cargo tool installation locked: $lock" >&2; exit 1; }
-    if [[ -L "$active" ]]; then
-        reference="$(perl -e 'print readlink(shift),"/."' "$active")"; reference="${reference%/.}"
-        [[ "$reference" =~ ^rust-set\.[[:alnum:]]+$ ]] || { echo 'invalid Cargo tool reference' >&2; exit 1; }
-        if destination="$(tool_store_resolve "$install_root/$reference" "$store_slot")" &&
-            tool_store_unlocked && check_selected; then
-            check_locked_selection
-            printf '%s/bin/%s\n' "$active" "$target"
-            exit 0
-        fi
-    elif [[ -e "$active" ]]; then
-        echo "unmanaged Cargo tool selection: $active" >&2; exit 1
-    fi
-    [[ "$check_only" == false ]] || { echo "missing or invalid shared Cargo tool: $package $selected_version ($kind:$target, $profile); run explicit setup" >&2; exit 1; }
-    mkdir -p "$install_root"
-    mkdir "$lock" || exit 1
+    store_lock=''
+    lock_owned=false
+    # Common setup captures this function in a conditional substitution, where
+    # Bash disables errexit. Propagate every fallible step explicitly, including
+    # preparation before the checkout lock is acquired.
     # shellcheck disable=SC2329 # Invoked by the EXIT trap below.
     finish_selected() {
-        local status=$?
-        rm -f "$lock/selected"
-        rmdir "$lock"
-        tool_store_release
+        local status=$? cleanup_status=0
+        trap - EXIT
+        if [[ "$lock_owned" == true ]]; then
+            rm -f "$lock/selected" || cleanup_status=$?
+            rmdir "$lock" || cleanup_status=$?
+        fi
+        tool_store_release || cleanup_status=$?
+        [[ "$status" != 0 ]] || status=$cleanup_status
         if [[ "$status" != 0 && -n "$stage" ]]; then printf 'Cargo tool attempt retained: %s\n' "$stage" >&2; fi
         exit "$status"
     }
     trap finish_selected EXIT
     trap 'exit 130' INT
     trap 'exit 143' TERM
-    tool_store_acquire
+    cargo_source || exit $?
+    tool_store_init rust "$inputs" || exit $?
+    tool_root="$install_root"
+    active="$install_root/selected-$store_id"
+    lock="$install_root/.selected-$store_id.lock"
+    [[ ! -e "$lock" && ! -L "$lock" ]] || { echo "Cargo tool installation locked: $lock" >&2; exit 1; }
+    if [[ -L "$active" ]]; then
+        reference="$(perl -e 'my $p=readlink(shift); defined $p or exit 1; print "$p/."' "$active")" || exit $?
+        reference="${reference%/.}"
+        [[ "$reference" =~ ^rust-set\.[[:alnum:]]+$ ]] || { echo 'invalid Cargo tool reference' >&2; exit 1; }
+        if destination="$(tool_store_resolve "$install_root/$reference" "$store_slot")" &&
+            tool_store_unlocked && check_selected; then
+            check_locked_selection || exit $?
+            printf '%s/bin/%s\n' "$active" "$target" || exit $?
+            exit 0
+        fi
+    elif [[ -e "$active" ]]; then
+        echo "unmanaged Cargo tool selection: $active" >&2; exit 1
+    fi
+    [[ "$check_only" == false ]] || { echo "missing or invalid shared Cargo tool: $package $selected_version ($kind:$target, $profile); run explicit setup" >&2; exit 1; }
+    mkdir -p "$install_root" || exit $?
+    mkdir "$lock" || exit $?
+    lock_owned=true
+    tool_store_acquire || exit $?
     if destination="$(tool_store_cached)" && check_selected; then
-        tool_store_reference "$destination"
+        tool_store_reference "$destination" || exit $?
     else
-        tool_store_new
-        printf '%s\n' "$inputs" > "$stage/inputs.json"
-        printf '%s\n' "$packaged_lock" > "$stage/Cargo.lock"
-        printf '%s\n' "$native_identity" > "$stage/native-environment.txt"
-        cp "$source_archive" "$stage/source.crate"
+        tool_store_new || exit $?
+        printf '%s\n' "$inputs" > "$stage/inputs.json" || exit $?
+        printf '%s\n' "$packaged_lock" > "$stage/Cargo.lock" || exit $?
+        printf '%s\n' "$native_identity" > "$stage/native-environment.txt" || exit $?
+        cp "$source_archive" "$stage/source.crate" || exit $?
         options=(); [[ "$profile" != debug ]] || options=(--debug)
         cargo_build "$stage" ${options[@]+"${options[@]}"} > "$stage/install.log" 2>&1 || {
             status=$?; cat "$stage/install.log" >&2 || :; exit "$status";
         }
-        check_install_paths
-        selected_paths "$stage"
-        selected_receipt "$stage"
+        check_install_paths || exit $?
+        selected_paths "$stage" || exit $?
+        selected_receipt "$stage" || exit $?
         # Refuse a changed source/compiler/native environment before publication.
         expected_build="$build_identity"
-        cargo_build_init
-        cargo_cache_check
+        cargo_build_init || exit $?
+        cargo_cache_check || exit $?
         [[ "$expected_build" == "$build_identity" ]] || { echo 'Cargo tool build environment changed' >&2; exit 1; }
-        bash "$ROOT/scripts/ci/verify-file-checksum.sh" sha256 "$(jq -r .source_sha256 <<< "$inputs")" "$source_archive"
-        selected_identity "$stage" > "$stage/selection.json"
+        bash "$ROOT/scripts/ci/verify-file-checksum.sh" sha256 "$(jq -r .source_sha256 <<< "$inputs")" "$source_archive" || exit $?
+        selected_identity "$stage" > "$stage/selection.json" || exit $?
         destination="$stage"
-        check_selected
+        check_selected || exit $?
     fi
-    check_locked_selection
-    tool_store_activate "$destination"
+    check_locked_selection || exit $?
+    tool_store_activate "$destination" || exit $?
     printf '%s/bin/%s\n' "$active" "$target"
 )
 
@@ -277,8 +288,8 @@ install_common() (
     common_lock="$install_root/common.lock"
     [[ ! -e "$common_lock" && ! -L "$common_lock" ]] || { echo 'Common Rust tool installation locked' >&2; exit 1; }
     if [[ "$check_only" == false ]]; then
-        mkdir -p "$install_root"
-        mkdir "$common_lock"
+        mkdir -p "$install_root" || exit $?
+        mkdir "$common_lock" || exit $?
         trap 'rm -f "$common_lock/selected"; rmdir "$common_lock"' EXIT
         trap 'exit 130' INT
         trap 'exit 143' TERM
@@ -292,16 +303,16 @@ install_common() (
     done
     if ! check_common_links; then
         [[ "$check_only" == false ]] || { echo 'missing or mismatched common Rust tool set; run make install-rust-tools' >&2; exit 1; }
-        common_paths
-        bundle="$(mktemp -d "$install_root/common-set.XXXXXX")"
-        mkdir "$bundle/bin"
+        common_paths || exit $?
+        bundle="$(mktemp -d "$install_root/common-set.XXXXXX")" || exit $?
+        mkdir "$bundle/bin" || exit $?
         for index in "${!tool_names[@]}"; do
-            ln -s "../../${common_selections[$index]#"$install_root/"}" "$bundle/bin/${tool_names[$index]}"
+            ln -s "../../${common_selections[$index]#"$install_root/"}" "$bundle/bin/${tool_names[$index]}" || exit $?
         done
-        ln -s "${bundle##*/}" "$common_lock/selected"
-        common_paths
-        perl -e 'rename($ARGV[0], $ARGV[1]) or die "activate common Rust tools: $!\n"' "$common_lock/selected" "$install_root/common"
-        check_common_links
+        ln -s "${bundle##*/}" "$common_lock/selected" || exit $?
+        common_paths || exit $?
+        perl -e 'rename($ARGV[0], $ARGV[1]) or die "activate common Rust tools: $!\n"' "$common_lock/selected" "$install_root/common" || exit $?
+        check_common_links || exit $?
     fi
     printf '%s\n' "$install_root/common/bin"
 )

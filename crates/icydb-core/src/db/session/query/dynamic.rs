@@ -17,8 +17,8 @@ use crate::{
         },
         data::{DecodedDataStoreKey, RawDataStoreKey},
         executor::{
-            PageWorkEnvelope, ScalarContinuationContext, StructuralProjectionRequest,
-            execute_structural_projection_page,
+            AcceptedSchemaCatalogContext, PageWorkEnvelope, ScalarContinuationContext,
+            StructuralProjectionRequest, execute_structural_projection_page,
         },
         query::{
             admission::{
@@ -33,7 +33,6 @@ use crate::{
             },
             preparation::PreparationWork,
         },
-        session::AcceptedSchemaCatalogContext,
     },
     traits::CanisterKind,
 };

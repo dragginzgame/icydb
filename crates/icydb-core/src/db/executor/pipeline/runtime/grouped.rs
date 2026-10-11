@@ -12,9 +12,6 @@ use crate::{
                 AggregateFieldValueError, FieldSlot,
                 extract_non_null_aggregate_field_value_with_slot_reader,
             },
-            budget::{
-                charge_current_execution_budget, charge_decoded_row, charge_materialized_data_row,
-            },
             pipeline::contracts::ResolvedExecutionKeyStream,
             projection::{
                 eval_effective_runtime_filter_program_with_value_cow_reader,
@@ -29,6 +26,9 @@ use crate::{
             expr::{CompiledExprValueReader, ProjectionEvalError},
         },
         registry::StoreHandle,
+        resource::budget::{
+            charge_current_execution_budget, charge_decoded_row, charge_materialized_data_row,
+        },
     },
     error::InternalError,
     value::Value,

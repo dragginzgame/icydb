@@ -41,8 +41,7 @@ use crate::{
             PersistedSchemaSnapshot, SchemaVersion, accepted_schema_cache_fingerprint,
             accepted_schema_cache_fingerprint_for_persisted_snapshot,
             accepted_schema_cache_fingerprint_method_version, decode_constraint_validation_job,
-            decode_persisted_schema_snapshot, encode_constraint_validation_job,
-            encode_persisted_schema_snapshot,
+            encode_constraint_validation_job, encode_persisted_schema_snapshot,
             enum_catalog::{
                 AcceptedSchemaAuthority, AcceptedSchemaPublicationError, AcceptedSchemaRevision,
                 AcceptedSchemaRevisionBundle, AcceptedSchemaRootSelection,
@@ -50,7 +49,6 @@ use crate::{
                 decode_verified_accepted_schema_revision_bundle,
                 prepare_accepted_schema_root_publication, select_current_accepted_schema_root,
             },
-            schema_snapshot_integrity_detail,
         },
     },
     error::InternalError,
@@ -66,14 +64,11 @@ use std::borrow::Cow;
 use std::cell::Cell;
 use std::cell::{OnceCell, Ref, RefCell};
 use std::collections::{BTreeMap as StdBTreeMap, BTreeSet};
-#[cfg(test)]
-use std::convert::Infallible;
 use std::ops::Bound as RangeBound;
 use std::rc::Rc;
 
 const SCHEMA_KEY_BYTES_USIZE: usize = 16;
 const SCHEMA_KEY_BYTES: u32 = 16;
-const SCHEMA_KEY_NAMESPACE_ENTITY_SNAPSHOT: u8 = 0;
 const SCHEMA_KEY_NAMESPACE_ACCEPTED_BUNDLE: u8 = 1;
 const SCHEMA_KEY_NAMESPACE_ACCEPTED_ROOT: u8 = 2;
 const SCHEMA_KEY_NAMESPACE_CONSTRAINT_VALIDATION_JOB: u8 = 3;
@@ -89,9 +84,6 @@ const ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_LIST: u8 = 29;
 const ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_SET: u8 = 30;
 const ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_MAP: u8 = 31;
 const ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_COMPOSITE: u8 = 32;
-const RAW_SCHEMA_SNAPSHOT_MAGIC: &[u8; 8] = b"ICYDBCAT";
-const RAW_SCHEMA_SNAPSHOT_VALUE_VERSION: u8 = 1;
-const RAW_SCHEMA_SNAPSHOT_HEADER_BYTES: usize = 25;
 
 #[cfg(test)]
 thread_local! {
@@ -111,26 +103,14 @@ fn accepted_schema_bundle_cache_miss_count_for_tests() -> u64 {
 ///
 /// RawSchemaKey
 ///
-/// Stable key for one persisted schema snapshot entry.
-/// It combines the entity tag and schema version so reconciliation can load
-/// concrete versions without depending on generated entity names.
+/// Stable key for one accepted catalog or schema/control record.
+/// Each maintained namespace owns its identity fields independently.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct RawSchemaKey([u8; SCHEMA_KEY_BYTES_USIZE]);
 
 impl RawSchemaKey {
-    /// Build the raw persisted key for one entity schema version.
-    #[must_use]
-    fn from_entity_version(entity: EntityTag, version: SchemaVersion) -> Self {
-        let mut out = [0u8; SCHEMA_KEY_BYTES_USIZE];
-        out[0] = SCHEMA_KEY_NAMESPACE_ENTITY_SNAPSHOT;
-        out[4..12].copy_from_slice(&entity.value().to_be_bytes());
-        out[12..].copy_from_slice(&version.get().to_be_bytes());
-
-        Self(out)
-    }
-
     fn from_accepted_bundle(bundle_key: super::enum_catalog::AcceptedSchemaBundleKey) -> Self {
         let mut out = [0u8; SCHEMA_KEY_BYTES_USIZE];
         out[0] = SCHEMA_KEY_NAMESPACE_ACCEPTED_BUNDLE;
@@ -183,34 +163,16 @@ impl RawSchemaKey {
         u32::from_be_bytes(bytes)
     }
 
-    const fn all_entity_range_bounds() -> (RangeBound<Self>, RangeBound<Self>) {
-        let mut end = [u8::MAX; SCHEMA_KEY_BYTES_USIZE];
-        end[0] = SCHEMA_KEY_NAMESPACE_ENTITY_SNAPSHOT;
-        (
-            RangeBound::Included(Self([0; SCHEMA_KEY_BYTES_USIZE])),
-            RangeBound::Included(Self(end)),
-        )
-    }
-
     // Publication owns catalog namespaces only. Identity transitions and the
     // paged cardinality lifecycle own the remaining records in this allocation.
     const fn all_catalog_range_bounds() -> (RangeBound<Self>, RangeBound<Self>) {
+        let mut start = [0u8; SCHEMA_KEY_BYTES_USIZE];
+        start[0] = SCHEMA_KEY_NAMESPACE_ACCEPTED_BUNDLE;
         let mut end = [u8::MAX; SCHEMA_KEY_BYTES_USIZE];
         end[0] = SCHEMA_KEY_NAMESPACE_CONSTRAINT_VALIDATION_JOB;
         (
-            RangeBound::Included(Self([0; SCHEMA_KEY_BYTES_USIZE])),
+            RangeBound::Included(Self(start)),
             RangeBound::Included(Self(end)),
-        )
-    }
-
-    #[cfg(test)]
-    fn entity_range_bounds(entity: EntityTag) -> (RangeBound<Self>, RangeBound<Self>) {
-        (
-            RangeBound::Included(Self::from_entity_version(entity, SchemaVersion::initial())),
-            RangeBound::Included(Self::from_entity_version(
-                entity,
-                SchemaVersion::new(u32::MAX),
-            )),
         )
     }
 
@@ -234,11 +196,6 @@ impl RawSchemaKey {
             RangeBound::Included(Self(start)),
             RangeBound::Included(Self(end)),
         )
-    }
-
-    #[cfg(test)]
-    const fn is_entity_snapshot(self) -> bool {
-        self.0[0] == SCHEMA_KEY_NAMESPACE_ENTITY_SNAPSHOT
     }
 
     const fn is_accepted_root(self) -> bool {
@@ -340,85 +297,24 @@ impl Storable for RawSchemaKey {
     };
 }
 
-///
-/// RawSchemaSnapshot
-///
-/// Raw persisted value in the schema metadata store.
-///
-/// Entity snapshots carry this wrapper's identity header. Accepted catalog
-/// bundles and root slots are already-versioned control records and remain
-/// opaque here. Key-specific readers decide which representation is required.
-///
-
+/// Opaque value in the schema allocation. The key-specific bounded codec owns
+/// each accepted bundle, root, Identity, validation-job or cardinality payload.
 #[derive(Clone, Debug, Eq, PartialEq)]
-struct RawSchemaSnapshot {
+struct RawSchemaValue {
     payload: Vec<u8>,
-    accepted_schema_fingerprint: Option<CommitSchemaFingerprint>,
 }
 
-impl RawSchemaSnapshot {
-    /// Encode one typed persisted-schema snapshot into a raw store payload.
-    fn from_persisted_snapshot(snapshot: &PersistedSchemaSnapshot) -> Result<Self, InternalError> {
-        validate_typed_schema_snapshot_for_store(snapshot)?;
-
-        let accepted_schema_fingerprint =
-            accepted_schema_cache_fingerprint_for_persisted_snapshot(snapshot)?;
-        let payload = encode_persisted_schema_snapshot(snapshot)?;
-
-        Ok(Self {
-            payload,
-            accepted_schema_fingerprint: Some(accepted_schema_fingerprint),
-        })
-    }
-
-    /// Store one already-versioned accepted-catalog control record.
+impl RawSchemaValue {
+    /// Store one already-versioned schema/control record.
     #[must_use]
     const fn from_encoded_control_record(payload: Vec<u8>) -> Self {
-        Self {
-            payload,
-            accepted_schema_fingerprint: None,
-        }
+        Self { payload }
     }
 
-    /// Build a framed entity snapshot around deliberately untrusted payload
-    /// bytes so decode-boundary tests can exercise current-format corruption.
-    #[cfg(test)]
-    #[must_use]
-    const fn from_unchecked_persisted_snapshot_payload(payload: Vec<u8>) -> Self {
-        Self {
-            payload,
-            accepted_schema_fingerprint: Some([0; size_of::<CommitSchemaFingerprint>()]),
-        }
-    }
-
-    /// Borrow the encoded schema snapshot payload.
     #[must_use]
     const fn as_bytes(&self) -> &[u8] {
         self.payload.as_slice()
     }
-
-    /// Return the accepted schema identity fingerprint stored beside the raw
-    /// payload, without decoding the persisted snapshot.
-    fn accepted_schema_fingerprint(&self) -> Result<CommitSchemaFingerprint, InternalError> {
-        self.accepted_schema_fingerprint
-            .ok_or_else(InternalError::store_corruption)
-    }
-
-    /// Decode this raw store payload into a typed persisted-schema snapshot.
-    fn decode_persisted_snapshot(&self) -> Result<PersistedSchemaSnapshot, InternalError> {
-        // The identity header is the outer format gate. Do not pass a
-        // headerless value or a control record into the schema payload codec.
-        let _fingerprint = self.accepted_schema_fingerprint()?;
-        decode_persisted_schema_snapshot(self.as_bytes())
-    }
-}
-
-#[cfg(test)]
-pub(in crate::db::schema) fn validate_raw_schema_snapshot_bytes_for_tests(
-    bytes: Vec<u8>,
-) -> Result<(), InternalError> {
-    let raw = <RawSchemaSnapshot as Storable>::from_bytes(Cow::Owned(bytes));
-    raw.decode_persisted_snapshot().map(drop)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -579,86 +475,26 @@ impl AcceptedCatalogSnapshotSelection {
     }
 }
 
-impl Storable for RawSchemaSnapshot {
+impl Storable for RawSchemaValue {
     fn to_bytes(&self) -> Cow<'_, [u8]> {
-        let Some(fingerprint) = self.accepted_schema_fingerprint else {
-            return Cow::Borrowed(self.as_bytes());
-        };
-
-        let mut bytes = Vec::with_capacity(RAW_SCHEMA_SNAPSHOT_HEADER_BYTES + self.payload.len());
-        bytes.extend_from_slice(RAW_SCHEMA_SNAPSHOT_MAGIC);
-        bytes.push(RAW_SCHEMA_SNAPSHOT_VALUE_VERSION);
-        bytes.extend_from_slice(&fingerprint);
-        bytes.extend_from_slice(self.as_bytes());
-
-        Cow::Owned(bytes)
+        Cow::Borrowed(self.as_bytes())
     }
 
     fn from_bytes(bytes: Cow<'_, [u8]>) -> Self {
-        let bytes = bytes.into_owned();
-        if bytes.len() >= RAW_SCHEMA_SNAPSHOT_HEADER_BYTES
-            && &bytes[..RAW_SCHEMA_SNAPSHOT_MAGIC.len()] == RAW_SCHEMA_SNAPSHOT_MAGIC
-            && bytes[RAW_SCHEMA_SNAPSHOT_MAGIC.len()] == RAW_SCHEMA_SNAPSHOT_VALUE_VERSION
-        {
-            let fingerprint_start = RAW_SCHEMA_SNAPSHOT_MAGIC.len() + size_of::<u8>();
-            let fingerprint_end = fingerprint_start + size_of::<CommitSchemaFingerprint>();
-            let mut fingerprint = [0_u8; size_of::<CommitSchemaFingerprint>()];
-            fingerprint.copy_from_slice(&bytes[fingerprint_start..fingerprint_end]);
-
-            return Self {
-                payload: bytes[fingerprint_end..].to_vec(),
-                accepted_schema_fingerprint: Some(fingerprint),
-            };
-        }
-
-        Self {
-            payload: bytes,
-            accepted_schema_fingerprint: None,
-        }
+        Self::from_encoded_control_record(bytes.into_owned())
     }
 
     fn into_bytes(self) -> Vec<u8> {
-        let Some(fingerprint) = self.accepted_schema_fingerprint else {
-            return self.payload;
-        };
-
-        let mut bytes = Vec::with_capacity(RAW_SCHEMA_SNAPSHOT_HEADER_BYTES + self.payload.len());
-        bytes.extend_from_slice(RAW_SCHEMA_SNAPSHOT_MAGIC);
-        bytes.push(RAW_SCHEMA_SNAPSHOT_VALUE_VERSION);
-        bytes.extend_from_slice(&fingerprint);
-        bytes.extend_from_slice(&self.payload);
-
-        bytes
+        self.payload
     }
 
     const BOUND: StorableBound = StorableBound::Unbounded;
 }
 
-// Validate typed schema snapshots before they are encoded into the raw schema
-// metadata store. This catches caller-side invariant violations separately from
-// raw persisted-byte corruption handled by the codec decode boundary.
-fn validate_typed_schema_snapshot_for_store(
-    snapshot: &PersistedSchemaSnapshot,
-) -> Result<(), InternalError> {
-    if schema_snapshot_integrity_detail(
-        snapshot.version(),
-        snapshot.primary_key_field_ids(),
-        snapshot.row_layout(),
-        snapshot.fields(),
-    )
-    .is_some()
-    {
-        return Err(InternalError::store_invariant());
-    }
-
-    Ok(())
-}
-
 ///
 /// SchemaStoreCatalogMetadata
 ///
-/// Accepted schema-store catalog metadata derived from latest persisted
-/// snapshots. This is diagnostic allocation metadata, not allocation identity.
+/// Accepted schema-store catalog metadata derived from the selected bundle. This is diagnostic allocation metadata, not allocation identity.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -698,7 +534,7 @@ impl SchemaStoreCatalogMetadata {
         self.schema_fingerprint_method_version
     }
 
-    /// Return the deterministic catalog fingerprint for latest accepted
+    /// Return the deterministic catalog fingerprint for selected accepted
     /// snapshots.
     #[must_use]
     pub(in crate::db) const fn schema_fingerprint(self) -> CommitSchemaFingerprint {
@@ -715,8 +551,7 @@ impl SchemaStoreCatalogMetadata {
 ///
 /// SchemaStoreAllocationMetadata
 ///
-/// Role-specific allocation metadata derived from latest accepted schema-store
-/// snapshots. These fingerprints describe the accepted contract that owns each
+/// Role-specific allocation metadata derived from the selected accepted bundle. These fingerprints describe the accepted contract that owns each
 /// allocation role; they are diagnostics, not allocation identity.
 ///
 
@@ -818,11 +653,10 @@ struct AcceptedSchemaBundleCache {
 }
 
 enum SchemaStoreBackend {
-    Heap(StdBTreeMap<RawSchemaKey, RawSchemaSnapshot>),
+    Heap(StdBTreeMap<RawSchemaKey, RawSchemaValue>),
     Journaled {
-        canonical:
-            StableBTreeMap<RawSchemaKey, RawSchemaSnapshot, RuntimeMemory<DefaultMemoryImpl>>,
-        live: StdBTreeMap<RawSchemaKey, RawSchemaSnapshot>,
+        canonical: StableBTreeMap<RawSchemaKey, RawSchemaValue, RuntimeMemory<DefaultMemoryImpl>>,
+        live: StdBTreeMap<RawSchemaKey, RawSchemaValue>,
         tombstones: BTreeSet<RawSchemaKey>,
         positions: PositionedOverlayMetadata<RawSchemaKey>,
     },
@@ -852,19 +686,11 @@ enum IdentityStateStorageView {
     Canonical,
 }
 
-/// Fully validated entity-snapshot bytes and identity, prepared before apply.
-/// Fields stay private so consumers cannot bypass the store's encoder.
-pub(in crate::db) struct PreparedSchemaSnapshot {
-    key: RawSchemaKey,
-    snapshot: RawSchemaSnapshot,
-}
-
 /// Candidate and canonical payloads retained from preflight until atomic fold.
 /// Not a reusable plan: preparation and application belong to one batch callback.
 pub(in crate::db) struct PreparedAcceptedSchemaFold {
     candidate: CandidateSchemaRevision,
     expected_revision: AcceptedSchemaRevision,
-    snapshots: Vec<PreparedSchemaSnapshot>,
     identity_updates: Vec<(RawSchemaKey, Vec<u8>)>,
     identity_removals: Vec<RawSchemaKey>,
     retained: BTreeSet<RawSchemaKey>,
@@ -886,7 +712,7 @@ pub(in crate::db) struct PreparedSchemaPositionRetirement {
 pub(in crate::db) struct PreparedCardinalityCountWrites {
     slot: CardinalityCountSlot,
     generation: CardinalityGenerationId,
-    entries: Vec<(RawSchemaKey, RawSchemaSnapshot)>,
+    entries: Vec<(RawSchemaKey, RawSchemaValue)>,
     new_count_keys: u64,
 }
 
@@ -899,14 +725,14 @@ impl PreparedCardinalityCountWrites {
 
 /// Fully preflighted atomic count-and-cursor publication for one build page.
 pub(in crate::db) struct PreparedCardinalityBuildPage {
-    count_entries: Vec<(RawSchemaKey, RawSchemaSnapshot)>,
-    cursor: (RawSchemaKey, RawSchemaSnapshot),
+    count_entries: Vec<(RawSchemaKey, RawSchemaValue)>,
+    cursor: (RawSchemaKey, RawSchemaValue),
 }
 
 /// Fully preflighted exact count and Ready-watermark transition for one fold.
 pub(in crate::db) struct PreparedCardinalityMaintenance {
-    count_entries: Vec<(RawSchemaKey, Option<RawSchemaSnapshot>)>,
-    header: (RawSchemaKey, RawSchemaSnapshot),
+    count_entries: Vec<(RawSchemaKey, Option<RawSchemaValue>)>,
+    header: (RawSchemaKey, RawSchemaValue),
 }
 
 #[derive(Clone, Copy)]
@@ -1032,7 +858,7 @@ impl SchemaStore {
 
     fn decode_cardinality_header_cached(
         &self,
-        raw: &RawSchemaSnapshot,
+        raw: &RawSchemaValue,
     ) -> Result<CardinalityGenerationHeader, InternalError> {
         if let Some((_, header)) = self
             .cardinality_header_cache
@@ -1101,7 +927,7 @@ impl SchemaStore {
             current.slot().alternate(),
             source,
         );
-        let encoded = RawSchemaSnapshot::from_encoded_control_record(next.encode());
+        let encoded = RawSchemaValue::from_encoded_control_record(next.encode());
         let SchemaStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
             return Err(InternalError::store_invariant());
         };
@@ -1124,7 +950,7 @@ impl SchemaStore {
             CardinalityCountSlot::A,
             candidate.source(),
         );
-        let encoded = RawSchemaSnapshot::from_encoded_control_record(ready.encode());
+        let encoded = RawSchemaValue::from_encoded_control_record(ready.encode());
         let SchemaStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
             return Err(InternalError::store_invariant());
         };
@@ -1153,7 +979,7 @@ impl SchemaStore {
             building.slot(),
             building.source(),
         );
-        let encoded = RawSchemaSnapshot::from_encoded_control_record(ready.encode());
+        let encoded = RawSchemaValue::from_encoded_control_record(ready.encode());
         let SchemaStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
             return Err(InternalError::store_invariant());
         };
@@ -1203,7 +1029,7 @@ impl SchemaStore {
         if !has_more {
             canonical.insert(
                 RawSchemaKey::from_cardinality_build_cursor(),
-                RawSchemaSnapshot::from_encoded_control_record(encoded_cursor),
+                RawSchemaValue::from_encoded_control_record(encoded_cursor),
             );
         }
         Ok(has_more)
@@ -1254,7 +1080,7 @@ impl SchemaStore {
             let record = CardinalityCountRecord::new(generation, *digest, count)?;
             entries.push((
                 key,
-                RawSchemaSnapshot::from_encoded_control_record(record.encode().to_vec()),
+                RawSchemaValue::from_encoded_control_record(record.encode().to_vec()),
             ));
         }
         Ok(PreparedCardinalityCountWrites {
@@ -1288,7 +1114,7 @@ impl SchemaStore {
             count_entries: counts.entries,
             cursor: (
                 RawSchemaKey::from_cardinality_build_cursor(),
-                RawSchemaSnapshot::from_encoded_control_record(encoded_cursor),
+                RawSchemaValue::from_encoded_control_record(encoded_cursor),
             ),
         })
     }
@@ -1377,7 +1203,7 @@ impl SchemaStore {
             let value = if count == 0 {
                 None
             } else {
-                Some(RawSchemaSnapshot::from_encoded_control_record(
+                Some(RawSchemaValue::from_encoded_control_record(
                     CardinalityCountRecord::new(current.generation(), *digest, count)?
                         .encode()
                         .to_vec(),
@@ -1389,7 +1215,7 @@ impl SchemaStore {
             count_entries,
             header: (
                 RawSchemaKey::from_cardinality_generation_header(),
-                RawSchemaSnapshot::from_encoded_control_record(next.encode()),
+                RawSchemaValue::from_encoded_control_record(next.encode()),
             ),
         })
     }
@@ -1476,7 +1302,7 @@ impl SchemaStore {
     ) -> Result<IdentityStatementCursor, InternalError> {
         let key = RawSchemaKey::from_identity_state(entity_tag, field_id);
         let raw = self
-            .get_raw_snapshot(&key)
+            .get_raw_value(&key)
             .ok_or_else(InternalError::identity_state_corruption)?;
         let state = decode_identity_state(raw.as_bytes())?;
         let owner = state.owner();
@@ -1501,7 +1327,7 @@ impl SchemaStore {
     ) -> Result<u128, InternalError> {
         let key = RawSchemaKey::from_identity_state(entity_tag, field_id);
         let raw = self
-            .get_raw_snapshot(&key)
+            .get_raw_value(&key)
             .ok_or_else(InternalError::identity_state_corruption)?;
         let state = decode_identity_state(raw.as_bytes())?;
         let owner = state.owner();
@@ -1629,7 +1455,7 @@ impl SchemaStore {
     ) -> Result<IdentityState, InternalError> {
         let key = RawSchemaKey::from_identity_state(owner.entity_tag(), owner.field_id());
         let raw = match view {
-            IdentityStateStorageView::Effective => self.get_raw_snapshot(&key),
+            IdentityStateStorageView::Effective => self.get_raw_value(&key),
             IdentityStateStorageView::Canonical => self.get_canonical_raw_value(&key)?,
         }
         .ok_or_else(InternalError::identity_state_corruption)?;
@@ -1656,10 +1482,7 @@ impl SchemaStore {
         let bytes = encode_identity_state(&advanced)?;
         match target {
             IdentityStateWriteTarget::Materialized => {
-                self.insert_raw_snapshot(
-                    key,
-                    RawSchemaSnapshot::from_encoded_control_record(bytes),
-                );
+                self.insert_raw_value(key, RawSchemaValue::from_encoded_control_record(bytes));
             }
             IdentityStateWriteTarget::Canonical => {
                 self.insert_canonical_raw_value(key, bytes)?;
@@ -1677,23 +1500,22 @@ impl SchemaStore {
     ) -> Result<IdentityStateInventory, InternalError> {
         let bounds = RawSchemaKey::all_identity_state_range_bounds();
         let mut inventory = StdBTreeMap::new();
-        let mut collect = |key: &RawSchemaKey,
-                           raw: &RawSchemaSnapshot|
-         -> Result<SchemaStoreVisit, InternalError> {
-            if inventory.len() >= MAX_IDENTITY_STATE_RECORDS_PER_DATABASE {
-                return Err(InternalError::identity_state_corruption());
-            }
-            let state = decode_identity_state(raw.as_bytes())?;
-            let state_key = (key.entity_tag(), FieldId::new(key.version()));
-            if !key.is_identity_state()
-                || state.owner().entity_tag() != state_key.0
-                || state.owner().field_id() != state_key.1
-                || inventory.insert(state_key, state).is_some()
-            {
-                return Err(InternalError::identity_state_corruption());
-            }
-            Ok(SchemaStoreVisit::Continue)
-        };
+        let mut collect =
+            |key: &RawSchemaKey, raw: &RawSchemaValue| -> Result<SchemaStoreVisit, InternalError> {
+                if inventory.len() >= MAX_IDENTITY_STATE_RECORDS_PER_DATABASE {
+                    return Err(InternalError::identity_state_corruption());
+                }
+                let state = decode_identity_state(raw.as_bytes())?;
+                let state_key = (key.entity_tag(), FieldId::new(key.version()));
+                if !key.is_identity_state()
+                    || state.owner().entity_tag() != state_key.0
+                    || state.owner().field_id() != state_key.1
+                    || inventory.insert(state_key, state).is_some()
+                {
+                    return Err(InternalError::identity_state_corruption());
+                }
+                Ok(SchemaStoreVisit::Continue)
+            };
 
         match (&self.backend, view) {
             (SchemaStoreBackend::Heap(map), IdentityStateStorageView::Effective) => {
@@ -1709,7 +1531,7 @@ impl SchemaStore {
                     ..
                 },
                 IdentityStateStorageView::Effective,
-            ) => Self::visit_journaled_raw_snapshot_range(
+            ) => Self::visit_journaled_raw_value_range(
                 canonical,
                 live,
                 tombstones,
@@ -1756,10 +1578,7 @@ impl SchemaStore {
                     self.insert_durable_raw_value(key, bytes);
                 }
                 IdentityStateWriteTarget::Materialized => {
-                    self.insert_raw_snapshot(
-                        key,
-                        RawSchemaSnapshot::from_encoded_control_record(bytes),
-                    );
+                    self.insert_raw_value(key, RawSchemaValue::from_encoded_control_record(bytes));
                 }
                 IdentityStateWriteTarget::Canonical => {
                     self.insert_canonical_raw_value(key, bytes)?;
@@ -1898,10 +1717,10 @@ impl SchemaStore {
                 .cloned()
                 .or_else(|| canonical_second.clone())
         };
-        let effective_first = effective_first.map(RawSchemaSnapshot::into_bytes);
-        let effective_second = effective_second.map(RawSchemaSnapshot::into_bytes);
-        let canonical_first = canonical_first.map(RawSchemaSnapshot::into_bytes);
-        let canonical_second = canonical_second.map(RawSchemaSnapshot::into_bytes);
+        let effective_first = effective_first.map(RawSchemaValue::into_bytes);
+        let effective_second = effective_second.map(RawSchemaValue::into_bytes);
+        let canonical_first = canonical_first.map(RawSchemaValue::into_bytes);
+        let canonical_second = canonical_second.map(RawSchemaValue::into_bytes);
         Ok((
             select_current_accepted_schema_root([
                 effective_first.as_deref(),
@@ -1914,37 +1733,6 @@ impl SchemaStore {
         ))
     }
 
-    /// Insert or replace one typed persisted schema snapshot.
-    pub(in crate::db) fn insert_persisted_snapshot(
-        &mut self,
-        entity: EntityTag,
-        snapshot: &PersistedSchemaSnapshot,
-    ) -> Result<(), InternalError> {
-        let prepared = Self::prepare_persisted_snapshot(entity, snapshot)?;
-        self.apply_prepared_persisted_snapshot(prepared);
-
-        Ok(())
-    }
-
-    /// Finish snapshot validation, fingerprinting and encoding before mutation.
-    pub(in crate::db) fn prepare_persisted_snapshot(
-        entity: EntityTag,
-        snapshot: &PersistedSchemaSnapshot,
-    ) -> Result<PreparedSchemaSnapshot, InternalError> {
-        Ok(PreparedSchemaSnapshot {
-            key: RawSchemaKey::from_entity_version(entity, snapshot.version()),
-            snapshot: RawSchemaSnapshot::from_persisted_snapshot(snapshot)?,
-        })
-    }
-
-    /// Publish prepared bytes without repeating semantic construction.
-    pub(in crate::db) fn apply_prepared_persisted_snapshot(
-        &mut self,
-        prepared: PreparedSchemaSnapshot,
-    ) {
-        let _ = self.insert_raw_snapshot(prepared.key, prepared.snapshot);
-    }
-
     /// Load one schema-owned constraint validation job.
     pub(in crate::db) fn constraint_validation_job(
         &self,
@@ -1952,7 +1740,7 @@ impl SchemaStore {
         constraint_id: ConstraintId,
     ) -> Result<Option<ConstraintValidationJob>, InternalError> {
         let key = RawSchemaKey::from_constraint_validation_job(entity, constraint_id);
-        self.get_raw_snapshot(&key)
+        self.get_raw_value(&key)
             .map(|raw| decode_constraint_validation_job(raw.as_bytes()))
             .transpose()
     }
@@ -1965,8 +1753,7 @@ impl SchemaStore {
         let key =
             RawSchemaKey::from_constraint_validation_job(job.entity_tag(), job.constraint_id());
         let bytes = encode_constraint_validation_job(job)?;
-        let _ =
-            self.insert_raw_snapshot(key, RawSchemaSnapshot::from_encoded_control_record(bytes));
+        let _ = self.insert_raw_value(key, RawSchemaValue::from_encoded_control_record(bytes));
         Ok(())
     }
 
@@ -2006,7 +1793,7 @@ impl SchemaStore {
         let key =
             RawSchemaKey::from_constraint_validation_job(job.entity_tag(), job.constraint_id());
         let bytes = encode_constraint_validation_job(job)?;
-        canonical.insert(key, RawSchemaSnapshot::from_encoded_control_record(bytes));
+        canonical.insert(key, RawSchemaValue::from_encoded_control_record(bytes));
         Ok(())
     }
 
@@ -2189,9 +1976,9 @@ impl SchemaStore {
     fn publish_positioned_journal_entry(
         &mut self,
         key: RawSchemaKey,
-        snapshot: Option<RawSchemaSnapshot>,
+        snapshot: Option<RawSchemaValue>,
         position: JournalOverlayPosition,
-    ) -> Result<Option<RawSchemaSnapshot>, InternalError> {
+    ) -> Result<Option<RawSchemaValue>, InternalError> {
         let SchemaStoreBackend::Journaled { positions, .. } = &self.backend else {
             return Err(InternalError::store_invariant());
         };
@@ -2220,42 +2007,6 @@ impl SchemaStore {
         }
         positions.publish_preflighted(key, position);
         Ok(previous)
-    }
-
-    /// Seed a test's canonical snapshot through the maintained prepared handoff.
-    #[cfg(test)]
-    pub(in crate::db) fn fold_persisted_snapshot(
-        &mut self,
-        entity: EntityTag,
-        snapshot: &PersistedSchemaSnapshot,
-    ) -> Result<(), InternalError> {
-        let prepared = self.prepare_fold_persisted_snapshot(entity, snapshot)?;
-        self.apply_prepared_fold_persisted_snapshot(prepared)
-    }
-
-    /// Apply only the encoded snapshot prepared for this journaled store.
-    pub(in crate::db) fn apply_prepared_fold_persisted_snapshot(
-        &mut self,
-        prepared: PreparedSchemaSnapshot,
-    ) -> Result<(), InternalError> {
-        let SchemaStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
-            return Err(InternalError::store_invariant());
-        };
-        canonical.insert(prepared.key, prepared.snapshot);
-
-        Ok(())
-    }
-
-    /// Prepare one canonical fold, retaining encoded bytes without changing storage.
-    pub(in crate::db) fn prepare_fold_persisted_snapshot(
-        &self,
-        entity: EntityTag,
-        snapshot: &PersistedSchemaSnapshot,
-    ) -> Result<PreparedSchemaSnapshot, InternalError> {
-        if !matches!(self.backend, SchemaStoreBackend::Journaled { .. }) {
-            return Err(InternalError::store_invariant());
-        }
-        Self::prepare_persisted_snapshot(entity, snapshot)
     }
 
     /// Return the current accepted store root selected from its two checksummed slots.
@@ -2787,7 +2538,7 @@ impl SchemaStore {
             return Ok(replacement.cloned());
         }
         let raw = match view {
-            IdentityStateStorageView::Effective => self.get_raw_snapshot(&key),
+            IdentityStateStorageView::Effective => self.get_raw_value(&key),
             IdentityStateStorageView::Canonical => self.get_canonical_raw_value(&key)?,
         };
         raw.map(|raw| decode_constraint_validation_job(raw.as_bytes()))
@@ -2867,11 +2618,10 @@ impl SchemaStore {
         )
         .map_err(map_schema_publication_error)?;
 
-        self.insert_durable_candidate_snapshots(candidate)?;
         let bundle_key = RawSchemaKey::from_accepted_bundle(candidate.root().bundle_key());
         self.insert_durable_raw_value(bundle_key, candidate.encoded_bundle().to_vec());
         let persisted_bundle = self
-            .get_raw_snapshot(&bundle_key)
+            .get_raw_value(&bundle_key)
             .ok_or_else(InternalError::store_corruption)?;
         let _verified = decode_verified_accepted_schema_revision_bundle(
             candidate.root(),
@@ -2952,7 +2702,6 @@ impl SchemaStore {
             return Err(InternalError::store_corruption());
         }
 
-        self.insert_durable_candidate_snapshots(candidate)?;
         let bundle_key = RawSchemaKey::from_accepted_bundle(candidate.root().bundle_key());
         self.insert_durable_raw_value(bundle_key, candidate.encoded_bundle().to_vec());
         for state in checkpoint_identity_states.values() {
@@ -3046,13 +2795,6 @@ impl SchemaStore {
                 ))
             })
             .collect::<Result<Vec<_>, InternalError>>()?;
-        let snapshots = candidate
-            .bundle()
-            .entity_snapshots()
-            .iter()
-            .map(|(entity, snapshot)| Self::prepare_persisted_snapshot(*entity, snapshot))
-            .collect::<Result<Vec<_>, _>>()?;
-
         let first = self.canonical_root_slot_bytes(0)?;
         let second = self.canonical_root_slot_bytes(1)?;
         let root_slot = if candidate_is_current {
@@ -3072,7 +2814,6 @@ impl SchemaStore {
         Ok(PreparedAcceptedSchemaFold {
             candidate,
             expected_revision,
-            snapshots,
             identity_updates,
             identity_removals,
             retained,
@@ -3130,16 +2871,13 @@ impl SchemaStore {
         )
         .map_err(map_schema_publication_error)?;
 
-        for (entity_tag, snapshot) in candidate.bundle().entity_snapshots() {
-            self.insert_persisted_snapshot(*entity_tag, snapshot)?;
-        }
         let bundle_key = RawSchemaKey::from_accepted_bundle(candidate.root().bundle_key());
-        self.insert_raw_snapshot(
+        self.insert_raw_value(
             bundle_key,
-            RawSchemaSnapshot::from_encoded_control_record(candidate.encoded_bundle().to_vec()),
+            RawSchemaValue::from_encoded_control_record(candidate.encoded_bundle().to_vec()),
         );
         let persisted_bundle = self
-            .get_raw_snapshot(&bundle_key)
+            .get_raw_value(&bundle_key)
             .ok_or_else(InternalError::store_corruption)?;
         let _verified = decode_verified_accepted_schema_revision_bundle(
             candidate.root(),
@@ -3159,9 +2897,9 @@ impl SchemaStore {
         )
         .map_err(map_schema_publication_error)?;
         let root_key = RawSchemaKey::from_accepted_root_slot(publication.target_slot())?;
-        self.insert_raw_snapshot(
+        self.insert_raw_value(
             root_key,
-            RawSchemaSnapshot::from_encoded_control_record(publication.encoded_root().to_vec()),
+            RawSchemaValue::from_encoded_control_record(publication.encoded_root().to_vec()),
         );
 
         if !self.current_root_matches_candidate(candidate)? {
@@ -3182,7 +2920,6 @@ impl SchemaStore {
         let PreparedAcceptedSchemaFold {
             candidate,
             expected_revision,
-            snapshots,
             identity_updates,
             identity_removals,
             retained,
@@ -3216,9 +2953,6 @@ impl SchemaStore {
             return Err(InternalError::store_invariant());
         }
 
-        for snapshot in snapshots {
-            self.apply_prepared_fold_persisted_snapshot(snapshot)?;
-        }
         let bundle_key = RawSchemaKey::from_accepted_bundle(candidate.root().bundle_key());
         self.insert_canonical_raw_value(bundle_key, candidate.encoded_bundle().to_vec())?;
         let persisted_bundle = self
@@ -3258,29 +2992,6 @@ impl SchemaStore {
         }
         self.retain_canonical_candidate_entries(&retained)?;
         Ok(())
-    }
-
-    /// Load and decode one typed persisted schema snapshot.
-    pub(in crate::db) fn get_persisted_snapshot(
-        &self,
-        entity: EntityTag,
-        version: SchemaVersion,
-    ) -> Result<Option<PersistedSchemaSnapshot>, InternalError> {
-        let key = RawSchemaKey::from_entity_version(entity, version);
-        self.get_raw_snapshot(&key)
-            .map(|snapshot| snapshot.decode_persisted_snapshot())
-            .transpose()
-    }
-
-    #[cfg(test)]
-    fn latest_staged_persisted_snapshot(
-        &self,
-        entity: EntityTag,
-    ) -> Result<Option<PersistedSchemaSnapshot>, InternalError> {
-        self.latest_raw_snapshots_by_entity()
-            .remove(&entity)
-            .map(|(_, snapshot)| snapshot.decode_persisted_snapshot())
-            .transpose()
     }
 
     /// Load one entity snapshot from the immutable bundle selected by the
@@ -3397,11 +3108,11 @@ impl SchemaStore {
         .map(Some)
     }
 
-    /// Derive accepted catalog metadata from latest persisted schema snapshots.
+    /// Derive accepted catalog metadata from the selected accepted bundle.
     ///
     /// This function intentionally reads only the persisted schema store. It
     /// does not reconstruct metadata from generated models when the store has
-    /// no accepted snapshots.
+    /// no accepted bundle.
     #[cfg(test)]
     pub(in crate::db) fn catalog_metadata(
         &self,
@@ -3411,36 +3122,38 @@ impl SchemaStore {
             .map(SchemaStoreAllocationMetadata::schema))
     }
 
-    /// Derive role-specific allocation metadata from latest persisted schema
-    /// snapshots.
+    /// Derive role-specific allocation metadata from the selected accepted bundle.
     ///
     /// This function intentionally reads only accepted schema-store payloads.
     /// It never reconstructs metadata from generated models when the store has
-    /// no accepted snapshots.
+    /// no accepted bundle.
     pub(in crate::db) fn allocation_metadata(
         &self,
     ) -> Result<Option<SchemaStoreAllocationMetadata>, InternalError> {
-        let latest_by_entity = self.latest_raw_snapshots_by_entity();
-        if latest_by_entity.is_empty() {
+        let Some(bundle) = self.current_accepted_schema_bundle_ref()? else {
+            return Ok(None);
+        };
+        let snapshots = bundle.entity_snapshots();
+        if snapshots.is_empty() {
             return Ok(None);
         }
 
         Ok(Some(SchemaStoreAllocationMetadata::new(
-            derive_data_allocation_metadata(&latest_by_entity)?,
-            derive_index_allocation_metadata(&latest_by_entity)?,
-            derive_schema_catalog_metadata(&latest_by_entity)?,
+            derive_data_allocation_metadata(snapshots)?,
+            derive_index_allocation_metadata(snapshots)?,
+            derive_schema_catalog_metadata(snapshots)?,
         )))
     }
 
-    /// Insert or replace one raw schema snapshot.
-    fn insert_raw_snapshot(
+    /// Insert or replace one opaque schema/control value.
+    fn insert_raw_value(
         &mut self,
         key: RawSchemaKey,
-        snapshot: RawSchemaSnapshot,
-    ) -> Option<RawSchemaSnapshot> {
+        snapshot: RawSchemaValue,
+    ) -> Option<RawSchemaValue> {
         self.invalidate_accepted_bundle_cache_for_key(key);
         let previous_journaled = if matches!(self.backend, SchemaStoreBackend::Journaled { .. }) {
-            self.get_raw_snapshot_for_backend(&key)
+            self.get_raw_value_for_backend(&key)
         } else {
             None
         };
@@ -3456,27 +3169,25 @@ impl SchemaStore {
         }
     }
 
-    /// Load one raw schema snapshot by key.
+    /// Load one opaque schema/control value by key.
     #[must_use]
-    fn get_raw_snapshot(&self, key: &RawSchemaKey) -> Option<RawSchemaSnapshot> {
+    fn get_raw_value(&self, key: &RawSchemaKey) -> Option<RawSchemaValue> {
         match &self.backend {
             SchemaStoreBackend::Heap(map) => map.get(key).cloned(),
-            SchemaStoreBackend::Journaled { .. } => self.get_raw_snapshot_for_backend(key),
+            SchemaStoreBackend::Journaled { .. } => self.get_raw_value_for_backend(key),
         }
     }
 
     fn accepted_root_slot_bytes(&self, slot: usize) -> Result<Option<Vec<u8>>, InternalError> {
         let key = RawSchemaKey::from_accepted_root_slot(slot)?;
-        Ok(self
-            .get_raw_snapshot(&key)
-            .map(RawSchemaSnapshot::into_bytes))
+        Ok(self.get_raw_value(&key).map(RawSchemaValue::into_bytes))
     }
 
     fn canonical_root_slot_bytes(&self, slot: usize) -> Result<Option<Vec<u8>>, InternalError> {
         let key = RawSchemaKey::from_accepted_root_slot(slot)?;
         Ok(self
             .get_canonical_raw_value(&key)?
-            .map(RawSchemaSnapshot::into_bytes))
+            .map(RawSchemaValue::into_bytes))
     }
 
     fn current_root_matches_candidate(
@@ -3491,7 +3202,7 @@ impl SchemaStore {
         }
         let key = RawSchemaKey::from_accepted_bundle(candidate.root().bundle_key());
         let bundle = self
-            .get_raw_snapshot(&key)
+            .get_raw_value(&key)
             .ok_or_else(InternalError::store_corruption)?;
         let _verified =
             decode_verified_accepted_schema_revision_bundle(candidate.root(), bundle.as_bytes())?;
@@ -3524,7 +3235,7 @@ impl SchemaStore {
     fn get_canonical_raw_value(
         &self,
         key: &RawSchemaKey,
-    ) -> Result<Option<RawSchemaSnapshot>, InternalError> {
+    ) -> Result<Option<RawSchemaValue>, InternalError> {
         match &self.backend {
             SchemaStoreBackend::Journaled { canonical, .. } => Ok(canonical.get(key)),
             SchemaStoreBackend::Heap(_) => Err(InternalError::store_invariant()),
@@ -3540,7 +3251,7 @@ impl SchemaStore {
         let SchemaStoreBackend::Journaled { canonical, .. } = &mut self.backend else {
             return Err(InternalError::store_invariant());
         };
-        canonical.insert(key, RawSchemaSnapshot::from_encoded_control_record(bytes));
+        canonical.insert(key, RawSchemaValue::from_encoded_control_record(bytes));
         Ok(())
     }
 
@@ -3549,7 +3260,7 @@ impl SchemaStore {
     // carry the same values through the journal before calling this primitive.
     fn insert_durable_raw_value(&mut self, key: RawSchemaKey, bytes: Vec<u8>) {
         self.invalidate_accepted_bundle_cache_for_key(key);
-        let value = RawSchemaSnapshot::from_encoded_control_record(bytes);
+        let value = RawSchemaValue::from_encoded_control_record(bytes);
         match &mut self.backend {
             SchemaStoreBackend::Heap(map) => {
                 map.insert(key, value);
@@ -3573,44 +3284,11 @@ impl SchemaStore {
         }
     }
 
-    fn insert_durable_candidate_snapshots(
-        &mut self,
-        candidate: &CandidateSchemaRevision,
-    ) -> Result<(), InternalError> {
-        for (entity_tag, snapshot) in candidate.bundle().entity_snapshots() {
-            let key = RawSchemaKey::from_entity_version(*entity_tag, snapshot.version());
-            let value = RawSchemaSnapshot::from_persisted_snapshot(snapshot)?;
-            match &mut self.backend {
-                SchemaStoreBackend::Heap(map) => {
-                    map.insert(key, value);
-                }
-                SchemaStoreBackend::Journaled {
-                    canonical,
-                    live,
-                    tombstones,
-                    ..
-                } => {
-                    live.remove(&key);
-                    tombstones.remove(&key);
-                    canonical.insert(key, value);
-                }
-            }
-        }
-        Ok(())
-    }
-
     fn candidate_entry_keys(
         candidate: &CandidateSchemaRevision,
         root_slot: usize,
     ) -> Result<BTreeSet<RawSchemaKey>, InternalError> {
-        let mut keys = candidate
-            .bundle()
-            .entity_snapshots()
-            .iter()
-            .map(|(entity_tag, snapshot)| {
-                RawSchemaKey::from_entity_version(*entity_tag, snapshot.version())
-            })
-            .collect::<BTreeSet<_>>();
+        let mut keys = BTreeSet::new();
         keys.insert(RawSchemaKey::from_accepted_bundle(
             candidate.root().bundle_key(),
         ));
@@ -3714,37 +3392,6 @@ impl SchemaStore {
         let mut keys = BTreeSet::new();
         for record in batch.records() {
             match record {
-                JournalRecord::SchemaPut {
-                    schema_snapshot_bytes,
-                    ..
-                } => {
-                    let snapshot = decode_persisted_schema_snapshot(schema_snapshot_bytes)?;
-                    let entity_tag = match view {
-                        IdentityStateStorageView::Effective => self
-                            .current_accepted_schema_bundle_ref()?
-                            .ok_or_else(InternalError::store_corruption)?
-                            .entity_snapshots()
-                            .iter()
-                            .find_map(|(entity_tag, accepted)| {
-                                (accepted.entity_path() == snapshot.entity_path())
-                                    .then_some(*entity_tag)
-                            }),
-                        IdentityStateStorageView::Canonical => self
-                            .current_canonical_accepted_schema_bundle()?
-                            .ok_or_else(InternalError::store_corruption)?
-                            .entity_snapshots()
-                            .iter()
-                            .find_map(|(entity_tag, accepted)| {
-                                (accepted.entity_path() == snapshot.entity_path())
-                                    .then_some(*entity_tag)
-                            }),
-                    }
-                    .ok_or_else(InternalError::store_corruption)?;
-                    keys.insert(RawSchemaKey::from_entity_version(
-                        entity_tag,
-                        snapshot.version(),
-                    ));
-                }
                 JournalRecord::AcceptedSchemaPublish {
                     expected_revision,
                     schema_bundle_bytes,
@@ -3838,7 +3485,7 @@ impl SchemaStore {
 
     // Use the same bounded catalog range for heap storage and live overlays.
     fn retain_heap_catalog_entries(
-        map: &mut StdBTreeMap<RawSchemaKey, RawSchemaSnapshot>,
+        map: &mut StdBTreeMap<RawSchemaKey, RawSchemaValue>,
         keep: &BTreeSet<RawSchemaKey>,
     ) {
         let stale = map
@@ -3899,81 +3546,6 @@ impl SchemaStore {
         Ok(())
     }
 
-    /// Return whether one schema snapshot key is present.
-    #[must_use]
-    #[cfg(test)]
-    fn contains_raw_snapshot(&self, key: &RawSchemaKey) -> bool {
-        match &self.backend {
-            SchemaStoreBackend::Heap(map) => map.contains_key(key),
-            SchemaStoreBackend::Journaled { .. } => {
-                self.get_raw_snapshot_for_backend(key).is_some()
-            }
-        }
-    }
-
-    /// Return the number of schema snapshot entries in this store.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn len(&self) -> u64 {
-        match &self.backend {
-            SchemaStoreBackend::Heap(map) => u64::try_from(map.len()).unwrap_or(u64::MAX),
-            SchemaStoreBackend::Journaled { .. } => {
-                let mut count = 0_u64;
-                let _: Result<(), Infallible> = self.visit_raw_snapshots(|_key, _snapshot| {
-                    count = count.saturating_add(1);
-                    Ok(SchemaStoreVisit::Continue)
-                });
-                count
-            }
-        }
-    }
-
-    /// Return whether this schema store currently has no persisted snapshots.
-    #[must_use]
-    #[cfg(test)]
-    pub(in crate::db) fn is_empty(&self) -> bool {
-        match &self.backend {
-            SchemaStoreBackend::Heap(map) => map.is_empty(),
-            SchemaStoreBackend::Journaled { .. } => {
-                let mut empty = true;
-                let _: Result<(), Infallible> = self.visit_raw_snapshots(|_key, _snapshot| {
-                    empty = false;
-                    Ok(SchemaStoreVisit::Stop)
-                });
-                empty
-            }
-        }
-    }
-
-    /// Clear all schema metadata entries from the store.
-    #[cfg(test)]
-    pub(in crate::db) fn clear(&mut self) {
-        self.accepted_bundle_cache.get_mut().take();
-        match &mut self.backend {
-            SchemaStoreBackend::Heap(map) => map.clear(),
-            SchemaStoreBackend::Journaled {
-                canonical,
-                live,
-                tombstones,
-                ..
-            } => {
-                live.clear();
-                tombstones.clear();
-                let keys = canonical
-                    .iter()
-                    .map(|entry| *entry.key())
-                    .collect::<Vec<_>>();
-                for key in keys {
-                    if key.is_entity_snapshot() {
-                        tombstones.insert(key);
-                    } else {
-                        canonical.remove(&key);
-                    }
-                }
-            }
-        }
-    }
-
     fn current_accepted_schema_bundle_ref(
         &self,
     ) -> Result<Option<Ref<'_, AcceptedSchemaRevisionBundle>>, InternalError> {
@@ -4022,7 +3594,7 @@ impl SchemaStore {
         if !cache_matches {
             let key = RawSchemaKey::from_accepted_bundle(selection.root().bundle_key());
             let raw = self
-                .get_raw_snapshot(&key)
+                .get_raw_value(&key)
                 .ok_or_else(InternalError::store_corruption)?;
             let bundle =
                 decode_verified_accepted_schema_revision_bundle(selection.root(), raw.as_bytes())?;
@@ -4119,68 +3691,10 @@ impl SchemaStore {
             .map(|cached| Rc::clone(&cached.cardinality_domain)))
     }
 
-    fn latest_raw_snapshots_by_entity(
-        &self,
-    ) -> StdBTreeMap<EntityTag, (SchemaVersion, RawSchemaSnapshot)> {
-        let mut latest_by_entity =
-            StdBTreeMap::<EntityTag, (SchemaVersion, RawSchemaSnapshot)>::new();
-
-        let _: Result<(), std::convert::Infallible> = self.visit_raw_snapshots(|key, snapshot| {
-            let version = SchemaVersion::new(key.version());
-            match latest_by_entity.get_mut(&key.entity_tag()) {
-                Some((latest_version, latest_snapshot)) if version > *latest_version => {
-                    *latest_version = version;
-                    *latest_snapshot = snapshot.clone();
-                }
-                None => {
-                    latest_by_entity.insert(key.entity_tag(), (version, snapshot.clone()));
-                }
-                Some(_) => {}
-            }
-            Ok(SchemaStoreVisit::Continue)
-        });
-
-        latest_by_entity
-    }
-
-    /// Visit raw schema snapshots in canonical store order without exposing
-    /// the backing stable-map iterator.
-    fn visit_raw_snapshots<E>(
-        &self,
-        visitor: impl FnMut(&RawSchemaKey, &RawSchemaSnapshot) -> Result<SchemaStoreVisit, E>,
-    ) -> Result<(), E> {
-        let bounds = RawSchemaKey::all_entity_range_bounds();
-        match &self.backend {
-            SchemaStoreBackend::Heap(map) => {
-                let mut visitor = visitor;
-                for (key, snapshot) in map.range((bounds.0, bounds.1)) {
-                    if visitor(key, snapshot)?.should_stop() {
-                        break;
-                    }
-                }
-            }
-            SchemaStoreBackend::Journaled {
-                canonical,
-                live,
-                tombstones,
-                ..
-            } => Self::visit_journaled_raw_snapshot_range(
-                canonical,
-                live,
-                tombstones,
-                bounds,
-                Direction::Asc,
-                visitor,
-            )?,
-        }
-
-        Ok(())
-    }
-
     fn visit_constraint_validation_jobs_in_view<E>(
         &self,
         view: IdentityStateStorageView,
-        visitor: impl FnMut(&RawSchemaKey, &RawSchemaSnapshot) -> Result<SchemaStoreVisit, E>,
+        visitor: impl FnMut(&RawSchemaKey, &RawSchemaValue) -> Result<SchemaStoreVisit, E>,
     ) -> Result<(), E> {
         let bounds = RawSchemaKey::all_constraint_validation_job_range_bounds();
         match (&self.backend, view) {
@@ -4200,7 +3714,7 @@ impl SchemaStore {
                     ..
                 },
                 IdentityStateStorageView::Effective,
-            ) => Self::visit_journaled_raw_snapshot_range(
+            ) => Self::visit_journaled_raw_value_range(
                 canonical,
                 live,
                 tombstones,
@@ -4245,7 +3759,7 @@ impl SchemaStore {
         Ok(())
     }
 
-    fn get_raw_snapshot_for_backend(&self, key: &RawSchemaKey) -> Option<RawSchemaSnapshot> {
+    fn get_raw_value_for_backend(&self, key: &RawSchemaKey) -> Option<RawSchemaValue> {
         let SchemaStoreBackend::Journaled {
             canonical,
             live,
@@ -4262,17 +3776,13 @@ impl SchemaStore {
         live.get(key).cloned().or_else(|| canonical.get(key))
     }
 
-    fn visit_journaled_raw_snapshot_range<E>(
-        canonical: &StableBTreeMap<
-            RawSchemaKey,
-            RawSchemaSnapshot,
-            RuntimeMemory<DefaultMemoryImpl>,
-        >,
-        live: &StdBTreeMap<RawSchemaKey, RawSchemaSnapshot>,
+    fn visit_journaled_raw_value_range<E>(
+        canonical: &StableBTreeMap<RawSchemaKey, RawSchemaValue, RuntimeMemory<DefaultMemoryImpl>>,
+        live: &StdBTreeMap<RawSchemaKey, RawSchemaValue>,
         tombstones: &BTreeSet<RawSchemaKey>,
         bounds: (RangeBound<RawSchemaKey>, RangeBound<RawSchemaKey>),
         direction: Direction,
-        mut visitor: impl FnMut(&RawSchemaKey, &RawSchemaSnapshot) -> Result<SchemaStoreVisit, E>,
+        mut visitor: impl FnMut(&RawSchemaKey, &RawSchemaValue) -> Result<SchemaStoreVisit, E>,
     ) -> Result<(), E> {
         match direction {
             Direction::Asc => {
@@ -4331,14 +3841,13 @@ fn map_schema_publication_error(error: AcceptedSchemaPublicationError) -> Intern
 }
 
 fn derive_data_allocation_metadata(
-    latest_by_entity: &StdBTreeMap<EntityTag, (SchemaVersion, RawSchemaSnapshot)>,
+    snapshots: &StdBTreeMap<EntityTag, PersistedSchemaSnapshot>,
 ) -> Result<SchemaStoreCatalogMetadata, InternalError> {
     let mut max_version = SchemaVersion::initial();
     let mut hasher = new_hash_sha256();
     write_hash_tag_u8(&mut hasher, SCHEMA_STORE_DATA_ALLOCATION_FINGERPRINT_DOMAIN);
 
-    for (entity, (_, snapshot)) in latest_by_entity {
-        let persisted = snapshot.decode_persisted_snapshot()?;
+    for (entity, persisted) in snapshots {
         if persisted.version() > max_version {
             max_version = persisted.version();
         }
@@ -4371,12 +3880,12 @@ fn derive_data_allocation_metadata(
         max_version,
         SCHEMA_STORE_FINGERPRINT_METHOD_VERSION,
         hasher,
-        latest_by_entity.len(),
+        snapshots.len(),
     ))
 }
 
 fn derive_index_allocation_metadata(
-    latest_by_entity: &StdBTreeMap<EntityTag, (SchemaVersion, RawSchemaSnapshot)>,
+    snapshots: &StdBTreeMap<EntityTag, PersistedSchemaSnapshot>,
 ) -> Result<SchemaStoreCatalogMetadata, InternalError> {
     let mut max_version = SchemaVersion::initial();
     let mut hasher = new_hash_sha256();
@@ -4385,8 +3894,7 @@ fn derive_index_allocation_metadata(
         SCHEMA_STORE_INDEX_ALLOCATION_FINGERPRINT_DOMAIN,
     );
 
-    for (entity, (_, snapshot)) in latest_by_entity {
-        let persisted = snapshot.decode_persisted_snapshot()?;
+    for (entity, persisted) in snapshots {
         if persisted.version() > max_version {
             max_version = persisted.version();
         }
@@ -4417,34 +3925,34 @@ fn derive_index_allocation_metadata(
         max_version,
         SCHEMA_STORE_FINGERPRINT_METHOD_VERSION,
         hasher,
-        latest_by_entity.len(),
+        snapshots.len(),
     ))
 }
 
 fn derive_schema_catalog_metadata(
-    latest_by_entity: &StdBTreeMap<EntityTag, (SchemaVersion, RawSchemaSnapshot)>,
+    snapshots: &StdBTreeMap<EntityTag, PersistedSchemaSnapshot>,
 ) -> Result<SchemaStoreCatalogMetadata, InternalError> {
     let mut max_version = SchemaVersion::initial();
     let mut hasher = new_hash_sha256();
     write_hash_tag_u8(&mut hasher, SCHEMA_STORE_CATALOG_FINGERPRINT_DOMAIN);
 
-    for (entity, (version, snapshot)) in latest_by_entity {
-        let persisted = snapshot.decode_persisted_snapshot()?;
+    for (entity, persisted) in snapshots {
         if persisted.version() > max_version {
             max_version = persisted.version();
         }
 
         write_hash_u64(&mut hasher, entity.value());
-        write_hash_u32(&mut hasher, version.get());
-        write_hash_len_u32(&mut hasher, snapshot.as_bytes().len());
-        hasher.update(snapshot.as_bytes());
+        let encoded = encode_persisted_schema_snapshot(persisted)?;
+        write_hash_u32(&mut hasher, persisted.version().get());
+        write_hash_len_u32(&mut hasher, encoded.len());
+        hasher.update(encoded);
     }
 
     Ok(finalize_schema_metadata(
         max_version,
         SCHEMA_STORE_FINGERPRINT_METHOD_VERSION,
         hasher,
-        latest_by_entity.len(),
+        snapshots.len(),
     ))
 }
 

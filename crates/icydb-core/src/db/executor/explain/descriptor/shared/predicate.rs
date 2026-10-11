@@ -367,13 +367,13 @@ mod tests {
     use super::explain_predicate_for_plan;
     use crate::db::{
         Predicate, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         executor::explain::descriptor::shared::PredicateStageObservability,
         predicate::MissingRowPolicy,
         query::{
             plan::{AccessPlannedQuery, LogicalPlan, ResidualFilterShape},
             preparation::PreparationWork,
         },
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     };
     use crate::value::Value;
     use icydb_diagnostic_code::{

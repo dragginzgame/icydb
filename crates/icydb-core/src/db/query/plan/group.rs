@@ -68,7 +68,7 @@ impl GroupedAggregateExecutionSpec {
     fn compile_attached_scalar_expr(
         schema_info: &SchemaInfo,
         expr: &Expr,
-        budget: &dyn crate::db::query::construction::ConstructionBudget,
+        budget: &dyn crate::db::resource::construction::ConstructionBudget,
     ) -> Result<CompiledExpr, InternalError> {
         let scalar = compile_scalar_projection_expr_with_schema(schema_info, expr, budget)?
             .ok_or_else(InternalError::planner_executor_invariant)?;
@@ -115,7 +115,7 @@ impl GroupedAggregateExecutionSpec {
     pub(in crate::db) fn resolve_with_schema_info(
         &mut self,
         schema_info: &SchemaInfo,
-        budget: &dyn crate::db::query::construction::ConstructionBudget,
+        budget: &dyn crate::db::resource::construction::ConstructionBudget,
     ) -> Result<(), InternalError> {
         budget.charge(Resource::PredicateExpressionSteps, 1)?;
         let compiled_input_expr = self
@@ -517,7 +517,7 @@ pub(in crate::db) fn grouped_executor_handoff(
 pub(in crate::db) fn grouped_aggregate_execution_specs(
     schema_info: &SchemaInfo,
     mut aggregate_specs: Vec<GroupedAggregateExecutionSpec>,
-    budget: &dyn crate::db::query::construction::ConstructionBudget,
+    budget: &dyn crate::db::resource::construction::ConstructionBudget,
 ) -> Result<Vec<GroupedAggregateExecutionSpec>, InternalError> {
     // The caller transfers its unpublished list. Reuse its backing instead of
     // cloning syntax into a second list; no partial list escapes on failure.

@@ -6,7 +6,7 @@ use super::*;
 fn case_admission_exhaustion_is_not_cached_and_warm_commands_skip_the_walk() {
     use crate::db::{
         RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     };
     use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag};
 

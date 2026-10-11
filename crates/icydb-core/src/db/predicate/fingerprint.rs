@@ -17,7 +17,7 @@ use crate::{
             },
             normalize,
         },
-        query::construction::ConstructionBudget,
+        resource::construction::ConstructionBudget,
     },
     error::InternalError,
 };

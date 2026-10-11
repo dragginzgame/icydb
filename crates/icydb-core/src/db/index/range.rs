@@ -13,7 +13,7 @@ use crate::{
             EncodedValue, IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey,
             admit_query_index_component,
         },
-        query::construction::ConstructionBudget,
+        resource::construction::ConstructionBudget,
     },
     error::InternalError,
     value::Value,

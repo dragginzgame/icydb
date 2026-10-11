@@ -4,7 +4,7 @@
 //! Boundary: accepted schema + authoritative rows + current index view -> staged raw replacement.
 
 #[cfg(any(test, feature = "sql"))]
-use crate::db::query::construction::ConstructionBudget;
+use crate::db::resource::construction::ConstructionBudget;
 #[cfg(any(test, feature = "sql"))]
 use crate::db::{
     commit::CommitSchemaFingerprint,
@@ -255,7 +255,7 @@ impl StagedUserIndexDomainReplacement {
 
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db) struct StagedUserIndexDomainReplacementBuilder {
-    construction: crate::db::executor::budget::MaintenanceConstructionBudget,
+    construction: crate::db::resource::budget::MaintenanceConstructionBudget,
     store_path: &'static str,
     entity_tag: EntityTag,
     accepted_before_identity: AcceptedCatalogIdentity,
@@ -279,7 +279,7 @@ impl StagedUserIndexDomainReplacementBuilder {
         accepted_before_row_contract: Option<&StructuralRowContract>,
         accepted_after_row_contract: Option<&StructuralRowContract>,
         index_store: &IndexStore,
-        construction: crate::db::executor::budget::MaintenanceConstructionBudget,
+        construction: crate::db::resource::budget::MaintenanceConstructionBudget,
     ) -> Result<Self, StagedUserIndexDomainError> {
         let entity_tag = accepted_before_identity.entity_tag();
         // Setup is part of the same zero-write operation as row derivation.
@@ -799,7 +799,7 @@ impl PreparedUserIndexProjection {
         slots: &dyn CanonicalSlotReader,
         entries: &mut Vec<StagedUserIndexDomainEntry>,
         budget: &mut StagedUserIndexDomainBudget,
-        work: &dyn crate::db::query::construction::ConstructionBudget,
+        work: &dyn crate::db::resource::construction::ConstructionBudget,
     ) -> Result<(), StagedUserIndexDomainError> {
         for index in &self.indexes {
             budget.consume_projection_work()?;

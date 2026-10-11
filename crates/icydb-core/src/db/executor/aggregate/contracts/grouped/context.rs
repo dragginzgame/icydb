@@ -3,15 +3,17 @@
 //! Does not own: grouped reducer payloads or aggregate route planning.
 //! Boundary: enforces grouped resource limits for grouped execution operators.
 
-use crate::db::executor::{
-    aggregate::contracts::{
-        GroupBudgetResourceCode, error::GroupError, state::GroupedTerminalAggregateState,
+use crate::db::{
+    executor::{
+        aggregate::contracts::{
+            GroupBudgetResourceCode, error::GroupError, state::GroupedTerminalAggregateState,
+        },
+        group::{
+            GroupKey, GroupKeySet, retained_hash_entry_backing_bytes,
+            retained_vec_element_backing_bytes,
+        },
     },
-    budget::{charge_current_execution_budget, runtime_value_work},
-    group::{
-        GroupKey, GroupKeySet, retained_hash_entry_backing_bytes,
-        retained_vec_element_backing_bytes,
-    },
+    resource::budget::{charge_current_execution_budget, runtime_value_work},
 };
 use crate::error::InternalError;
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
@@ -706,10 +708,12 @@ fn saturating_u64_from_usize(value: usize) -> u64 {
 mod tests {
     use super::{ExecutionConfig, ExecutionContext};
     use crate::{
-        db::executor::{
-            aggregate::contracts::{GroupBudgetResourceCode, error::GroupError},
-            budget::runtime_value_work,
-            group::{GroupKey, GroupKeySet, retained_hash_entry_backing_bytes},
+        db::{
+            executor::{
+                aggregate::contracts::{GroupBudgetResourceCode, error::GroupError},
+                group::{GroupKey, GroupKeySet, retained_hash_entry_backing_bytes},
+            },
+            resource::budget::runtime_value_work,
         },
         value::Value,
     };

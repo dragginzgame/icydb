@@ -4,7 +4,6 @@ use super::evaluate_multi_lookup_candidate_from_contract;
 use crate::{
     db::{
         QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::{
             plan::{
@@ -14,6 +13,7 @@ use crate::{
             },
             preparation::PreparationWork,
         },
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     },
     value::Value,
 };

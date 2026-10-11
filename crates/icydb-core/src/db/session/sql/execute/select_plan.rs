@@ -6,13 +6,10 @@
 use crate::{
     db::{
         DbSession, QueryError,
-        executor::{EntityAuthority, SharedPreparedExecutionPlan},
+        executor::{AcceptedSchemaCatalogContext, EntityAuthority, SharedPreparedExecutionPlan},
         query::intent::StructuralQuery,
         schema::AcceptedSchemaSnapshot,
-        session::{
-            AcceptedSchemaCatalogContext, query::StructuralProjectionContract,
-            sql::SqlCompiledCommandExecutionContext,
-        },
+        session::{query::StructuralProjectionContract, sql::SqlCompiledCommandExecutionContext},
     },
     traits::CanisterKind,
 };

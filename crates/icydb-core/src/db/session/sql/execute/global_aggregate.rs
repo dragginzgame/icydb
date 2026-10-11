@@ -6,12 +6,12 @@
 use crate::{
     db::{
         DbSession, QueryError,
-        executor::{SharedPreparedExecutionPlan, execute_structural_aggregate_rows_for_canister},
-        session::{
-            AcceptedSchemaCatalogContext,
-            sql::{
-                SqlStatementResult, projection::sql_projection_statement_result_from_value_rows,
-            },
+        executor::{
+            AcceptedSchemaCatalogContext, SharedPreparedExecutionPlan,
+            execute_structural_aggregate_rows_for_canister,
+        },
+        session::sql::{
+            SqlStatementResult, projection::sql_projection_statement_result_from_value_rows,
         },
         sql::lowering::SqlGlobalAggregateCommand,
     },

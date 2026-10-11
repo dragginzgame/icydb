@@ -838,8 +838,8 @@ mod tests {
     #[test]
     fn inspection_resource_failures_keep_their_typed_terminal_and_wire_code() {
         use crate::db::{
-            executor::budget::MaintenanceConstructionBudget,
-            query::construction::ConstructionBudget,
+            resource::budget::MaintenanceConstructionBudget,
+            resource::construction::ConstructionBudget,
         };
         let work = MaintenanceConstructionBudget::with_limit_for_tests(Resource::TemporaryBytes, 0);
         for error in [

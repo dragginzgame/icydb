@@ -5,7 +5,6 @@ use crate::{
     db::{
         QueryError, RequestExecutionRoot,
         codec::{finalize_hash_sha256, new_hash_sha256},
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         predicate::{
             CoercionId, CompareFieldsPredicate, CompareOp, ComparePredicate, Predicate,
             encoding::{
@@ -14,6 +13,7 @@ use crate::{
             },
         },
         query::preparation::PreparationWork,
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     },
     types::{
         Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,

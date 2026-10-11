@@ -15,7 +15,6 @@ use crate::{
     db::{
         access::{AccessPath, AccessPlan, SemanticIndexAccessContract},
         predicate::{CompareOp, ComparePredicate, Predicate},
-        query::construction::ConstructionBudget,
         query::plan::{
             OrderSpec, PlannedNonIndexAccessReason,
             key_item_match::lower_lookup_value_for_key_item,
@@ -27,6 +26,7 @@ use crate::{
                 selected_index_contract_satisfies_secondary_order,
             },
         },
+        resource::construction::ConstructionBudget,
         schema::SchemaInfo,
     },
     error::InternalError,

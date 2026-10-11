@@ -6,7 +6,6 @@ mod tests;
 use crate::db::{
     codec::write_hash_u64,
     query::{
-        construction::ConstructionBudget,
         fingerprint::{
             aggregate_hash::hash_group_aggregate_structural_fingerprint,
             hash_sections::{
@@ -25,6 +24,7 @@ use crate::db::{
             grouped_plan_strategy,
         },
     },
+    resource::construction::ConstructionBudget,
 };
 use crate::error::InternalError;
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;

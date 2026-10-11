@@ -4,12 +4,12 @@ use super::index_multi_lookup_for_in;
 use crate::{
     db::{
         QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         predicate::{CoercionId, CompareOp, ComparePredicate},
         query::{
             plan::{VisibleIndexes, planner::prefix_test_schema},
             preparation::PreparationWork,
         },
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     },
     value::{Value, lower_text_construction_allowance},
 };

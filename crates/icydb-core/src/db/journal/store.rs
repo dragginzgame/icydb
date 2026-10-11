@@ -2406,11 +2406,13 @@ mod convergence_control_tests {
     use super::*;
     use crate::{
         db::{
+            codec::MAX_ROW_BYTES,
+            data::DecodedDataStoreKey,
             journal::{
                 DatabaseCommitSequence, JournalBatch, encode_journal_batch,
                 journal_batch_encoded_len, journal_record_payload_len,
             },
-            schema::MAX_SCHEMA_SNAPSHOT_BYTES,
+            key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
         },
         error::{ErrorClass, ErrorOrigin},
         testing::test_memory,
@@ -2511,16 +2513,25 @@ mod convergence_control_tests {
 
     #[test]
     fn exact_maximum_encoded_batch_append_is_counted_without_approximation() {
-        let mut records = (0..31)
-            .map(|ordinal| {
-                JournalRecord::schema_put(
-                    format!("test::MaximumStore{ordinal}"),
-                    vec![0xA5; MAX_SCHEMA_SNAPSHOT_BYTES as usize],
-                )
-                .unwrap()
-            })
+        let record = |ordinal, payload_len| {
+            let key = DecodedDataStoreKey::new_primary_key_value(
+                EntityTag::new(1),
+                &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(ordinal)),
+            )
+            .to_raw()
+            .unwrap();
+            JournalRecord::row_put(
+                "test::MaximumEntity",
+                key,
+                vec![0xA5; payload_len],
+                [0xC1; 16],
+            )
+            .unwrap()
+        };
+        let mut records = (1..4)
+            .map(|ordinal| record(ordinal, MAX_ROW_BYTES as usize))
             .collect::<Vec<_>>();
-        let final_empty = JournalRecord::schema_put("test::MaximumStoreFinal", Vec::new()).unwrap();
+        let final_empty = record(4, 0);
         let used = JOURNAL_BATCH_FIXED_HEADER_BYTES
             + records
                 .iter()
@@ -2529,12 +2540,9 @@ mod convergence_control_tests {
         let final_payload_len = (MAX_JOURNAL_BATCH_BYTES as usize)
             .checked_sub(used)
             .and_then(|remaining| remaining.checked_sub(journal_record_payload_len(&final_empty)))
-            .expect("maximum envelope should retain one final schema payload");
-        assert!(final_payload_len <= MAX_SCHEMA_SNAPSHOT_BYTES as usize);
-        records.push(
-            JournalRecord::schema_put("test::MaximumStoreFinal", vec![0x5A; final_payload_len])
-                .unwrap(),
-        );
+            .expect("maximum envelope should retain one final row payload");
+        assert!(final_payload_len <= MAX_ROW_BYTES as usize);
+        records.push(record(4, final_payload_len));
         let batch = JournalBatch::new_with_database_commit_sequence(
             [0xC1; 16],
             [0xC2; 16],
@@ -2553,7 +2561,10 @@ mod convergence_control_tests {
         store.append_batch(&batch).unwrap();
         let control = store.current_tail_control().unwrap();
         assert_eq!(control.batch_count(), 1);
-        assert_eq!(control.record_count(), 32);
+        assert_eq!(
+            control.record_count(),
+            u64::try_from(batch.records().len()).unwrap()
+        );
         assert_eq!(
             control.encoded_batch_bytes(),
             u64::from(MAX_JOURNAL_BATCH_BYTES),

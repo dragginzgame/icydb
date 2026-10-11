@@ -4,12 +4,12 @@ use crate::{
     db::{
         QueryError, RequestExecutionRoot,
         access::{AccessPath, AccessPlan, SemanticIndexRangeSpec},
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         predicate::MissingRowPolicy,
         query::{
             plan::{AccessPlannedQuery, VisibleIndexes, exact_metadata_schema},
             preparation::{PreparationWork, with_preparation_work},
         },
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     },
     retained::RetainedBytes,
     value::Value,

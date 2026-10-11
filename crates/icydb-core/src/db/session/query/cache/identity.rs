@@ -7,7 +7,7 @@
 use crate::db::{
     QueryError,
     commit::CommitSchemaFingerprint,
-    executor::EntityAuthority,
+    executor::{AcceptedSchemaCatalogContext, EntityAuthority},
     query::{
         intent::{StructuralQuery, StructuralQueryCacheKey},
         plan::PreparedQueryParameterContract,
@@ -17,7 +17,6 @@ use crate::db::{
         AcceptedSchemaRevision, AcceptedSchemaRuntimeRootIdentity, AcceptedSchemaSnapshot,
         SchemaVersion,
     },
-    session::AcceptedSchemaCatalogContext,
 };
 use std::rc::Rc;
 

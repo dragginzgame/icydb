@@ -1,7 +1,7 @@
 use crate::{
-    db::query::{
-        construction::ConstructionBudget,
-        plan::{AggregateKind, AggregateShape, expr::Expr},
+    db::{
+        query::plan::{AggregateKind, AggregateShape, expr::Expr},
+        resource::construction::ConstructionBudget,
     },
     error::InternalError,
 };

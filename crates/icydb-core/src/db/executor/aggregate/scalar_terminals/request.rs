@@ -11,10 +11,10 @@ use crate::{
                     StructuralAggregateTerminal, resolve_structural_aggregate_terminal,
                 },
             },
-            budget::ExecutionConstructionBudget,
             projection::{compile_grouped_projection_expr, compile_grouped_projection_plan},
         },
         query::plan::expr::GroupedCompilationError,
+        resource::budget::ExecutionConstructionBudget,
         schema::SchemaInfo,
     },
     error::InternalError,
@@ -135,13 +135,13 @@ mod tests {
     use crate::{
         db::{
             QueryError,
-            executor::budget::{
-                HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
-                with_query_execution_budget_for_tests,
-            },
             query::plan::{
                 exact_metadata_schema,
                 expr::{Expr, FieldId, ProjectionField, ProjectionSpec},
+            },
+            resource::budget::{
+                HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
+                with_query_execution_budget_for_tests,
             },
         },
         error::InternalError,

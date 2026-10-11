@@ -7,7 +7,6 @@ use crate::{
             AccessPlan, LoweredAccessError, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             SemanticIndexAccessContract, SemanticIndexRangeSpec, lower_access_with_schema_info,
         },
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         index::{
             EncodedValue, IndexId, IndexKey, TextPrefixBoundMode,
             build_index_component_range_with_encoded_prefix,
@@ -17,6 +16,7 @@ use crate::{
             plan::CardinalityTiebreakCandidate,
             preparation::{PreparationWork, with_preparation_work},
         },
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         session::tests::cardinality_tiebreak::ranking_candidates_for_tests,
     },
     value::Value,

@@ -79,10 +79,6 @@ fn assert_entity_revision(store: &JournalTailStore, entity_tag: EntityTag, expec
     );
 }
 
-fn schema_put_record(fill: u8) -> JournalRecord {
-    JournalRecord::schema_put("test::Store", vec![fill; 8]).expect("schema put record should build")
-}
-
 fn accepted_schema_publish_record() -> JournalRecord {
     let candidate =
         empty_accepted_schema_candidate_for_tests("test::Store", AcceptedSchemaRevision::new(2));
@@ -160,7 +156,12 @@ fn batch(sequence: u64) -> JournalBatch {
         vec![
             row_put_record(sequence),
             row_delete_record(sequence + 100),
-            schema_put_record(sequence_byte),
+            JournalRecord::constraint_validation_job_delete(
+                "test::Store",
+                EntityTag::new(1),
+                ConstraintId::new(7).unwrap(),
+            )
+            .unwrap(),
         ],
     )
     .expect("journal batch should build")
@@ -185,7 +186,7 @@ fn multi_chunk_batch(sequence: u64) -> JournalBatch {
 }
 
 #[test]
-fn journal_batch_codec_round_trips_logical_row_and_schema_records() {
+fn journal_batch_codec_round_trips_logical_row_and_control_records() {
     let batch = batch(1);
     let encoded = encode_journal_batch(&batch).expect("journal batch should encode");
     let decoded = decode_journal_batch(&encoded).expect("journal batch should decode");
@@ -202,7 +203,6 @@ fn every_journal_record_family_has_an_explicit_online_overlay_decision() {
     let records = vec![
         (row_put_record(1), OnlineOverlayDecision::DataPositive),
         (row_delete_record(2), OnlineOverlayDecision::DataTombstone),
-        (schema_put_record(3), OnlineOverlayDecision::SchemaPositive),
         (
             accepted_schema_publish_record(),
             OnlineOverlayDecision::SchemaPositive,
@@ -273,7 +273,7 @@ fn every_journal_record_family_has_an_explicit_online_overlay_decision() {
         ),
     ];
 
-    assert_eq!(records.len(), 12);
+    assert_eq!(records.len(), 11);
     for (record, expected) in records {
         assert_eq!(classify_journal_overlay(&record), expected);
     }

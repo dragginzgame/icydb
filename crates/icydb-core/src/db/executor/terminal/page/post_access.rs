@@ -3,11 +3,12 @@ use crate::{
         cursor::CursorBoundary,
         data::DataRow,
         executor::{
-            ExecutionKernel, PendingOrderRows, budget::charge_current_execution_budget,
-            compare_orderable_row_with_boundary, pipeline::contracts::CursorEmissionMode,
-            route::access_order_satisfied_by_route_mode, terminal::page::KernelRow,
+            ExecutionKernel, PendingOrderRows, compare_orderable_row_with_boundary,
+            pipeline::contracts::CursorEmissionMode, route::access_order_satisfied_by_route_mode,
+            terminal::page::KernelRow,
         },
         query::plan::{AccessPlannedQuery, ResolvedOrder},
+        resource::budget::charge_current_execution_budget,
     },
     error::InternalError,
 };

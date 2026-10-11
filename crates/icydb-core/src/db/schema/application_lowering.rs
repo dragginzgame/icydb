@@ -4295,7 +4295,7 @@ mod tests {
             &accepted_schema,
             &value_catalog,
             [0xA3; 16],
-            &crate::db::executor::budget::MaintenanceConstructionBudget::new(),
+            &crate::db::resource::budget::MaintenanceConstructionBudget::new(),
         )
         .expect("N4 should compile the accepted targeted rule");
         program
@@ -4578,7 +4578,7 @@ mod tests {
             &accepted_schema,
             &value_catalog,
             [0xA4; 16],
-            &crate::db::executor::budget::MaintenanceConstructionBudget::new(),
+            &crate::db::resource::budget::MaintenanceConstructionBudget::new(),
         )
         .expect("old accepted rule and candidate write gate should compile together");
         let target_field = match staged

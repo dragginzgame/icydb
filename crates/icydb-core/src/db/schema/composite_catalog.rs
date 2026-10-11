@@ -246,7 +246,7 @@ impl AcceptedCompositeCatalog {
     /// Records, tuples, missing definitions, and recursive wrapper-only
     /// cycles have no scalar/collection operand contract and return `None`.
     #[must_use]
-    pub(in crate::db::schema) fn resolve_newtype_value_kind<'a>(
+    pub(in crate::db) fn resolve_newtype_value_kind<'a>(
         &'a self,
         kind: &'a AcceptedFieldKind,
     ) -> Option<&'a AcceptedFieldKind> {

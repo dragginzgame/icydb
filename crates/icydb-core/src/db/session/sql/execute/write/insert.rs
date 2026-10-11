@@ -9,20 +9,19 @@ use crate::{
     db::{
         DbSession, QueryError,
         data::AcceptedMutationIntentPatch,
+        executor::{
+            AcceptedSchemaCatalogContext, mutation::structural::AcceptedStructuralMutationTarget,
+        },
         query::intent::StructuralQuery,
         schema::{
             AcceptedRowLayoutRuntimeContract, AcceptedRowLayoutRuntimeField,
             SchemaFieldWritePolicy, accepted_insert_field_is_omittable,
         },
-        session::{
-            AcceptedSchemaCatalogContext, AcceptedStructuralMutationTarget,
-            sql::{
-                SqlStatementResult,
-                write_policy::{
-                    DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT,
-                    DEFAULT_PUBLIC_WRITE_RETURNING_RESPONSE_BYTES, SqlWriteExecutionBounds,
-                    SqlWriteReturningBounds,
-                },
+        session::sql::{
+            SqlStatementResult,
+            write_policy::{
+                DEFAULT_PUBLIC_BOUNDED_WRITE_LIMIT, DEFAULT_PUBLIC_WRITE_RETURNING_RESPONSE_BYTES,
+                SqlWriteExecutionBounds, SqlWriteReturningBounds,
             },
         },
         sql::parser::{SqlInsertSource, SqlInsertStatement, SqlProjection, SqlWriteValue},

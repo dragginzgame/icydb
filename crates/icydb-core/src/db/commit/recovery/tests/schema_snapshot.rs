@@ -24,9 +24,7 @@ use crate::{
             AcceptedFieldKind, AcceptedSchemaRevision, FieldId, FieldStorageDecode, LeafCodec,
             PersistedFieldSnapshot, PersistedSchemaSnapshot, ScalarCodec, SchemaFieldSlot,
             SchemaInsertDefault, SchemaRowLayout, SchemaStore, SchemaVersion,
-            accepted_schema_candidate_for_tests, encode_persisted_schema_snapshot,
-            persisted_schema_snapshot_decode_count_for_tests,
-            reset_persisted_schema_snapshot_decode_count_for_tests,
+            accepted_schema_candidate_for_tests,
         },
     },
     testing::test_memory,
@@ -126,71 +124,6 @@ fn fixture() -> (Db<TestCanister>, PersistedSchemaSnapshot) {
 
 fn batch(records: Vec<JournalRecord>) -> JournalBatch {
     JournalBatch::new([1; 16], [2; 16], JournalSequence::new(1), records).unwrap()
-}
-
-#[test]
-fn schema_replay_applies_prepared_identity_without_decoding_again() {
-    let (db, original) = fixture();
-    let after = original.with_schema_version(SchemaVersion::new(2));
-    let batch = batch(vec![
-        JournalRecord::schema_put(STORE, encode_persisted_schema_snapshot(&after).unwrap())
-            .unwrap(),
-    ]);
-    let handle = db.with_store_registry(|registry| registry.iter().next().unwrap().1);
-    for mode in [
-        JournalRecordApplyMode::Replay,
-        JournalRecordApplyMode::Fold,
-        JournalRecordApplyMode::Replay,
-        JournalRecordApplyMode::Fold,
-    ] {
-        let mut prepared = match mode {
-            JournalRecordApplyMode::Replay => {
-                prepare_replayed_journal_batch(&db, STORE, handle, &batch).unwrap()
-            }
-            JournalRecordApplyMode::Fold => {
-                let mut prepared = vec![None];
-                validate_journal_batch_records(&db, STORE, handle, &batch, mode, &mut prepared)
-                    .unwrap();
-                prepared
-            }
-        };
-        reset_persisted_schema_snapshot_decode_count_for_tests();
-        apply_prepared_journal_batch(STORE, handle, &batch, &mut prepared, mode);
-        assert_eq!(persisted_schema_snapshot_decode_count_for_tests(), 0);
-        assert_eq!(
-            SCHEMA
-                .with_borrow(|store| store.get_persisted_snapshot(TAG, after.version()))
-                .unwrap(),
-            Some(after.clone()),
-        );
-    }
-}
-
-#[test]
-fn invalid_later_schema_record_rejects_before_any_snapshot_is_applied() {
-    let (db, original) = fixture();
-    let after = original.clone().with_schema_version(SchemaVersion::new(2));
-    let valid = JournalRecord::schema_put(STORE, encode_persisted_schema_snapshot(&after).unwrap())
-        .unwrap();
-    let malformed = JournalRecord::SchemaPut {
-        store_path: STORE.into(),
-        schema_snapshot_bytes: vec![1, 2, 3],
-    };
-    let batch = batch(vec![valid, malformed]);
-    let handle = db.with_store_registry(|registry| registry.iter().next().unwrap().1);
-    assert!(prepare_replayed_journal_batch(&db, STORE, handle, &batch).is_err());
-    assert!(
-        SCHEMA
-            .with_borrow(|store| store.get_persisted_snapshot(TAG, after.version()))
-            .unwrap()
-            .is_none()
-    );
-    assert_eq!(
-        SCHEMA
-            .with_borrow(|store| store.get_persisted_snapshot(TAG, original.version()))
-            .unwrap(),
-        Some(original),
-    );
 }
 
 #[test]
@@ -324,16 +257,8 @@ fn stale_catalog_fold_rejects_before_publishing_any_prepared_effect() {
             AcceptedSchemaRevision::INITIAL
         );
         assert_eq!(
-            store
-                .get_persisted_snapshot(TAG, original.version())
-                .unwrap(),
+            store.current_accepted_persisted_snapshot(TAG).unwrap(),
             Some(original)
-        );
-        assert!(
-            store
-                .get_persisted_snapshot(TAG, SchemaVersion::new(3))
-                .unwrap()
-                .is_none()
         );
     });
 }

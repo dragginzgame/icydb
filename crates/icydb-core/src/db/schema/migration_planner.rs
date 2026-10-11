@@ -1757,8 +1757,8 @@ mod tests {
         use super::SchemaMigrationPlanningError;
         use crate::{
             db::{
-                executor::budget::MaintenanceConstructionBudget,
-                query::construction::ConstructionBudget,
+                resource::budget::MaintenanceConstructionBudget,
+                resource::construction::ConstructionBudget,
             },
             error::InternalError,
         };

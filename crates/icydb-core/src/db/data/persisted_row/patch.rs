@@ -1148,7 +1148,7 @@ mod tests {
             &accepted,
             &catalog,
             fingerprint,
-            &crate::db::executor::budget::MaintenanceConstructionBudget::new(),
+            &crate::db::resource::budget::MaintenanceConstructionBudget::new(),
         )
         .unwrap();
         let layout = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted).unwrap();
@@ -1297,7 +1297,7 @@ mod tests {
             &accepted,
             &value_catalog,
             fingerprint,
-            &crate::db::executor::budget::MaintenanceConstructionBudget::new(),
+            &crate::db::resource::budget::MaintenanceConstructionBudget::new(),
         )
         .expect("accepted not-null program should compile");
         let row_layout = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&accepted)

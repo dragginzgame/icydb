@@ -49,12 +49,12 @@ mod migration_transform;
 #[cfg(feature = "migration")]
 mod migration_validation;
 mod mutation;
+#[cfg(feature = "sql")]
+mod publication;
 mod runtime;
 mod runtime_root;
 mod snapshot;
 mod source_binding;
-#[cfg(feature = "sql")]
-mod sql_ddl;
 mod storage;
 mod store;
 #[cfg(any(test, feature = "sql"))]
@@ -137,19 +137,17 @@ pub(in crate::db) use check::{
     render_accepted_check_expr_sql,
 };
 #[cfg(feature = "sql")]
-pub(in crate::db) use check::{AcceptedCheckExprV1Error, bind_sql_check_expr};
+pub(in crate::db) use check::{
+    AcceptedCheckExprV1Error, CheckExprV1Input, CheckValueExprV1Input, bind_check_expr_v1,
+};
 pub(in crate::db::schema) use check::{
     bind_source_check_expr, bind_source_rule_literal, source_literal_input,
     validate_accepted_check_literals,
 };
+#[cfg(test)]
+pub(in crate::db) use codec::encode_unchecked_persisted_schema_snapshot_for_tests;
 pub(in crate::db) use codec::{
     MAX_SCHEMA_SNAPSHOT_BYTES, decode_persisted_schema_snapshot, encode_persisted_schema_snapshot,
-};
-#[cfg(test)]
-pub(in crate::db) use codec::{
-    encode_unchecked_persisted_schema_snapshot_for_tests,
-    persisted_schema_snapshot_decode_count_for_tests,
-    reset_persisted_schema_snapshot_decode_count_for_tests,
 };
 pub(in crate::db) use composite_catalog::AcceptedCompositeCatalog;
 #[cfg(test)]
@@ -249,7 +247,6 @@ pub(in crate::db) use info::{
 pub(in crate::db) use inspection_plan::{AcceptedIdentityInspection, AcceptedInspectionPlan};
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use integrity::NullableUniqueIndexContractError;
-pub(in crate::db::schema) use integrity::schema_snapshot_integrity_detail;
 #[cfg(feature = "sql")]
 pub(in crate::db) use integrity::validate_index_semantic_contract;
 pub(in crate::db) use integrity::{
@@ -364,6 +361,17 @@ pub(in crate::db::schema) use mutation::{
     derive_relation_removal_candidate, prove_empty_user_index_domain,
 };
 #[cfg(feature = "sql")]
+pub(in crate::db) use publication::{
+    SchemaAddCheckRequest, SchemaDropConstraintRequest, SchemaFieldNullabilityOutcome,
+    execute_schema_check_addition, execute_schema_check_drop,
+    execute_schema_expression_index_addition, execute_schema_field_addition,
+    execute_schema_field_default_change, execute_schema_field_drop,
+    execute_schema_field_nullability_change, execute_schema_field_path_index_addition,
+    execute_schema_field_rename, execute_schema_not_null_activation_abort,
+    execute_schema_secondary_index_drop, execute_schema_unique_index_activation,
+    execute_schema_unique_index_activation_abort,
+};
+#[cfg(feature = "sql")]
 pub(in crate::db) use runtime::accepted_insert_field_is_omittable;
 pub(in crate::db) use runtime::{
     AcceptedFieldDecodeContract, AcceptedFieldPersistenceContract, AcceptedInsertOmissionPolicy,
@@ -393,17 +401,6 @@ pub(in crate::db) use source_binding::{AcceptedSourceBindingCatalog, AcceptedTyp
 pub(in crate::db::schema) use source_binding::{
     decode_accepted_source_bindings, encode_accepted_source_bindings,
 };
-#[cfg(feature = "sql")]
-pub(in crate::db) use sql_ddl::{
-    SqlDdlFieldNullabilityOutcome, execute_admin_sql_ddl_check_addition,
-    execute_admin_sql_ddl_check_drop, execute_admin_sql_ddl_expression_index_addition,
-    execute_admin_sql_ddl_field_addition, execute_admin_sql_ddl_field_default_change,
-    execute_admin_sql_ddl_field_drop, execute_admin_sql_ddl_field_nullability_change,
-    execute_admin_sql_ddl_field_path_index_addition, execute_admin_sql_ddl_field_rename,
-    execute_admin_sql_ddl_not_null_activation_abort, execute_admin_sql_ddl_secondary_index_drop,
-    execute_admin_sql_ddl_unique_index_activation,
-    execute_admin_sql_ddl_unique_index_activation_abort,
-};
 pub(in crate::db) use storage::{
     CompositeCodec, FieldInsertGeneration, FieldStorageDecode, FieldWriteManagement, LeafCodec,
     ScalarCodec,
@@ -412,8 +409,7 @@ pub use store::SchemaStore;
 pub(in crate::db) use store::{
     AcceptedCatalogIdentity, AcceptedCatalogSnapshotSelection, PreparedAcceptedSchemaFold,
     PreparedCardinalityMaintenance, PreparedSchemaPositionPublication,
-    PreparedSchemaPositionRetirement, PreparedSchemaSnapshot, SchemaStoreAllocationMetadata,
-    SchemaStoreCatalogMetadata,
+    PreparedSchemaPositionRetirement, SchemaStoreAllocationMetadata, SchemaStoreCatalogMetadata,
 };
 
 #[cfg(test)]
@@ -520,13 +516,6 @@ pub(in crate::db) fn build_record_newtype_composite_catalog_for_tests(
     )
     .map_err(|_| crate::error::InternalError::store_invariant())?;
     Ok((catalog, record_type, newtype_type, member_id))
-}
-
-#[cfg(test)]
-pub(in crate::db) fn validate_raw_schema_snapshot_format_for_tests(
-    bytes: Vec<u8>,
-) -> Result<(), crate::error::InternalError> {
-    store::validate_raw_schema_snapshot_bytes_for_tests(bytes)
 }
 
 #[cfg(test)]

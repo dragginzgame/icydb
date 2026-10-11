@@ -2,7 +2,7 @@
 //! Owns admission only: canonical encoding and map comparison stay with their writers.
 
 use crate::{
-    db::{predicate::CoercionId, query::construction::ConstructionBudget},
+    db::{predicate::CoercionId, resource::construction::ConstructionBudget},
     error::InternalError,
     value::{Value, fingerprint_value, lower_text_construction_allowance},
 };

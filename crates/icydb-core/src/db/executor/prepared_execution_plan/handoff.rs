@@ -51,7 +51,7 @@ impl PreparedScalarRuntimeHandoff {
             residents.continuation_identity,
             Arc::clone(&residents.index_prefix_specs),
             Arc::clone(&residents.index_range_specs),
-            &crate::db::executor::budget::ExecutionConstructionBudget,
+            &crate::db::resource::budget::ExecutionConstructionBudget,
         )?;
 
         Ok(Self {

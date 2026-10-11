@@ -17,7 +17,7 @@ use crate::db::key_taxonomy::PrimaryKeyComponent;
 use crate::db::numeric::compare_numeric_or_strict_order;
 use crate::{
     db::{
-        index::key::ordered::semantics::OrderedEncode, query::construction::ConstructionBudget,
+        index::key::ordered::semantics::OrderedEncode, resource::construction::ConstructionBudget,
         schema::UNIT_ENUM_EQUALITY_KEY_BYTES,
     },
     error::InternalError,

@@ -16,14 +16,13 @@ use crate::{
         executor::{
             AccessScanContinuationInput, ContinuationMode, LoweredIndexPrefixSpec,
             LoweredIndexRangeSpec, LoweredKey, RouteContinuationPlan,
-            budget::ExecutionConstructionBudget, planning::route::LoadOrderRouteMode,
-            route::access_order_satisfied_by_route_mode,
+            planning::route::LoadOrderRouteMode, route::access_order_satisfied_by_route_mode,
         },
         index::IndexKey,
-        query::{
-            construction::ConstructionBudget,
-            plan::{AccessPlannedQuery, ContinuationPolicy, DeterministicSecondaryIndexOrderMatch},
+        query::plan::{
+            AccessPlannedQuery, ContinuationPolicy, DeterministicSecondaryIndexOrderMatch,
         },
+        resource::{budget::ExecutionConstructionBudget, construction::ConstructionBudget},
         schema::SchemaInfo,
     },
     error::InternalError,

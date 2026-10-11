@@ -8,7 +8,7 @@ use crate::{
     db::{
         DbSession, MissingRowPolicy, QueryError, QueryPlanCacheReuse,
         executor::{
-            EntityAuthority, SharedPreparedExecutionPlan,
+            AcceptedSchemaCatalogContext, EntityAuthority, SharedPreparedExecutionPlan,
             assemble_load_execution_node_descriptor_from_route_facts,
             explain::assemble_scalar_aggregate_execution_descriptor_with_projection,
             freeze_load_execution_route_facts_for_authority,
@@ -21,10 +21,7 @@ use crate::{
             plan::AccessPlannedQuery,
         },
         schema::SchemaInfo,
-        session::{
-            AcceptedSchemaCatalogContext,
-            sql::projection::annotate_sql_projection_debug_on_execution_descriptor,
-        },
+        session::sql::projection::annotate_sql_projection_debug_on_execution_descriptor,
         sql::{
             lowering::{
                 LoweredSqlCommand, PreparedSqlScalarAggregateStrategy, SqlGlobalAggregateCommand,

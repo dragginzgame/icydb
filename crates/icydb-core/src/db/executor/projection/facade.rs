@@ -10,13 +10,11 @@ use crate::{
         executor::{
             PageWorkEnvelope, ProductionScalarOutputWork, SharedPreparedExecutionPlan,
             SharedPreparedProjectionRuntimeHandoff, StructuralCursorPage,
-            budget::ExecutionConstructionBudget,
-            budget::{
-                charge_runtime_value_rows, prepared_read_execution_context,
-                with_read_execution_budget,
+            budget::prepared_read_execution_context,
+            pipeline::{
+                execute_initial_scalar_retained_slot_page_from_runtime_handoff_for_canister,
+                execute_resumed_scalar_retained_slot_page_from_runtime_handoff_for_canister,
             },
-            pipeline::execute_initial_scalar_retained_slot_page_from_runtime_handoff_for_canister,
-            pipeline::execute_resumed_scalar_retained_slot_page_from_runtime_handoff_for_canister,
             planning::preparation::compile_strict_index_program_for_plan,
             projection::{
                 DistinctProjectionRuntime, MaterializedProjectionRows,
@@ -27,6 +25,9 @@ use crate::{
             },
             terminal::RetainedSlotRow,
             with_production_scalar_page_work,
+        },
+        resource::budget::{
+            ExecutionConstructionBudget, charge_runtime_value_rows, with_read_execution_budget,
         },
     },
     error::InternalError,

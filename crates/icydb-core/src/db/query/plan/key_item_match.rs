@@ -13,7 +13,7 @@ use crate::{
             CoercionId, IndexCompileTargetKind, admit_index_compare_literal_for_kind,
             lower_index_compare_literal_for_kind,
         },
-        query::construction::ConstructionBudget,
+        resource::construction::ConstructionBudget,
     },
     error::InternalError,
     value::Value,

@@ -11,8 +11,8 @@ use crate::{
     db::{
         DbSession, QueryError,
         executor::{
-            EntityAuthority, SharedPreparedExecutionPlan,
-            budget::{HardExecutionContext, direct_read_execution_context},
+            AcceptedSchemaCatalogContext, EntityAuthority, SharedPreparedExecutionPlan,
+            budget::direct_read_execution_context,
         },
         predicate::predicate_fingerprint_normalized,
         query::{
@@ -20,8 +20,11 @@ use crate::{
             plan::{CardinalityTiebreakRoutePin, PreparedQueryParameterContract, VisibleIndexes},
             preparation::PreparationWork,
         },
+        resource::{
+            bounded_cache::{BoundedCache, CacheEntryWeight},
+            budget::HardExecutionContext,
+        },
         schema::{AcceptedSchemaSnapshot, SchemaInfo},
-        session::{AcceptedSchemaCatalogContext, CacheEntryWeight, bounded_cache::BoundedCache},
     },
     error::InternalError,
     retained::RetainedBytes,

@@ -120,6 +120,27 @@ load_plan() {
     # Early plans have no reusable validation: repeat preflight and the full gate.
     case "$phase" in preflight|validate) phase=preflight ;; esac
 }
+restart_committed_preparation() {
+    local current_source current_version untracked archive
+    # Preparation owns local metadata only. A clean descendant commit captures
+    # its current disposition; no runner staging/commit/delivery was dispatched.
+    current_source="$(git rev-parse --verify HEAD)"
+    [[ "$current_source" != "$source" ]] || return 0
+    [[ -z "$index_tree" && ! -e "$plan.files" && ! -L "$plan.files" ]] || fail 'saved preparation has staging evidence; reconcile its exact release'
+    git merge-base --is-ancestor "$source" "$current_source" || fail 'saved preparation source is not an ancestor of current HEAD'
+    git diff --cached --quiet HEAD -- || fail 'commit or restore staged changes before restarting preparation'
+    git diff --quiet HEAD -- || fail 'commit or restore worktree changes before restarting preparation'
+    untracked="$(git ls-files --others --exclude-standard)" || fail 'cannot inventory source before restarting preparation'
+    [[ -z "$untracked" ]] || fail 'commit or remove untracked source before restarting preparation'
+    current_version="$("$make_bin" --no-print-directory -s release-version)"
+    [[ "$current_version" == "$previous" || "$current_version" == "$candidate" ]] || fail 'committed metadata differs from the saved preparation versions'
+    assert_destination
+    archive="$(mktemp -d "$state_root/$candidate.attempt.XXXXXX")"
+    mv "$plan" "$archive/$candidate.plan"
+    printf 'Restarting from committed metadata %s at %s; retained preparation: %s\n' \
+        "$current_version" "$current_source" "$archive/$candidate.plan"
+    plan=""
+}
 select_release() {
     plan=""
     release_commit=""
@@ -150,6 +171,11 @@ select_release() {
     fi
     if [[ -n "$plan" ]]; then
         load_plan
+        if [[ "$mode" != resume && "$delivery" == direct && "$phase" == prepare ]]; then
+            restart_committed_preparation
+        fi
+    fi
+    if [[ -n "$plan" ]]; then
         if [[ "$mode" != resume && "$kind" != "$mode" ]]; then
             case "$phase" in
                 commit|tag|push)
@@ -204,7 +230,18 @@ save_phase() {
         "$source" "$remote" "$branch" "$remote_identity" "$index_tree" "$phase" > "$temporary_plan"
     mv "$temporary_plan" "$plan"
 }
-assert_source() { [[ "$(git rev-parse HEAD)" == "$source" ]] || fail 'validated source commit changed'; }
+assert_source() {
+    local current_source
+    current_source="$(git rev-parse HEAD)" || fail 'cannot inspect current release source'
+    [[ "$current_source" == "$source" ]] && return 0
+    printf 'Release source conflict:\n  plan: %s\n  phase: %s\n  version: %s -> %s\n  saved source: %s\n  current source: %s\n' \
+        "$plan" "$phase" "$previous" "$candidate" "$source" "$current_source" >&2
+    if [[ "$phase" == prepare ]]; then
+        echo 'Use the normal release target from a clean descendant commit to restart direct preparation with fresh validation.' >&2
+        echo 'Keep the plan and evidence; see docs/releases.md#source-changes-after-saved-preparation-intent.' >&2
+    fi
+    fail 'validated source commit changed; saved validation cannot qualify the current source'
+}
 assert_release_commit() {
     # The first direct descendant must be the exact staged release. Later fixes
     # may be committed without changing its identity or repeating its commit.

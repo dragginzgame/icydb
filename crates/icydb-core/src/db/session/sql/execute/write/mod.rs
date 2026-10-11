@@ -8,21 +8,22 @@ use crate::{
     db::{
         DbSession, QueryError,
         data::AcceptedMutationIntentPatch,
-        executor::{EntityAuthority, StructuralProjectionScanBudget},
+        executor::{
+            AcceptedSchemaCatalogContext, EntityAuthority, StructuralProjectionScanBudget,
+            mutation::structural::{
+                AcceptedStructuralMutation, AcceptedStructuralMutationRow,
+                AcceptedStructuralMutationTarget,
+            },
+        },
         query::intent::StructuralQuery,
         schema::{AcceptedRowLayoutRuntimeContract, AcceptedSchemaSnapshot},
-        session::{
-            AcceptedSchemaCatalogContext, AcceptedStructuralMutation,
-            AcceptedStructuralMutationTarget,
-            sql::{
-                CompiledSqlCommand, SqlCompiledCommandSurface, SqlStatementResult,
-                execute::write_returning::{
-                    projection_labels_from_accepted_write_descriptor,
-                    sql_returning_statement_projection, validate_sql_materialized_returning_bounds,
-                },
-                write_policy::{MAX_SQL_WRITE_SCANNED_KEYS, SqlWriteReturningBounds},
+        session::sql::{
+            CompiledSqlCommand, SqlCompiledCommandSurface, SqlStatementResult,
+            execute::write_returning::{
+                projection_labels_from_accepted_write_descriptor,
+                sql_returning_statement_projection, validate_sql_materialized_returning_bounds,
             },
-            write::AcceptedStructuralMutationRow,
+            write_policy::{MAX_SQL_WRITE_SCANNED_KEYS, SqlWriteReturningBounds},
         },
         sql::parser::SqlReturningProjection,
         write_context::{AcceptedWriteContext, MutationMode},

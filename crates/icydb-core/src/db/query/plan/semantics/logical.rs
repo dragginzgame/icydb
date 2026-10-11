@@ -187,7 +187,7 @@ impl AccessPlannedQuery {
     /// Prepare pre-finalization shape explicitly; inspection uses frozen facts.
     pub(in crate::db) fn prepare_residual_filter_shape(
         &self,
-        budget: &dyn crate::db::query::construction::ConstructionBudget,
+        budget: &dyn crate::db::resource::construction::ConstructionBudget,
     ) -> Result<ResidualFilterShape, InternalError> {
         if self.has_static_execution_planning_contract() {
             return self.residual_filter_shape();
@@ -319,7 +319,7 @@ impl AccessPlannedQuery {
     pub(in crate::db) fn execution_shape_signature(
         &self,
         entity_path: &str,
-        budget: &dyn crate::db::query::construction::ConstructionBudget,
+        budget: &dyn crate::db::resource::construction::ConstructionBudget,
     ) -> Result<ExecutionShapeSignature, InternalError> {
         Ok(ExecutionShapeSignature::new(
             self.continuation_signature(entity_path, budget)?,
@@ -631,7 +631,7 @@ fn compile_effective_runtime_filter_program(
 fn derive_execution_preparation_predicate(
     access: &AccessPlan<Value>,
     query_predicate: Option<Predicate>,
-    budget: &dyn crate::db::query::construction::ConstructionBudget,
+    budget: &dyn crate::db::resource::construction::ConstructionBudget,
 ) -> Result<Option<Predicate>, InternalError> {
     let Some(query_predicate) = query_predicate else {
         return Ok(None);
@@ -651,7 +651,7 @@ fn derive_residual_filter_predicate(
     scalar: &ScalarPlan,
     access: &AccessPlan<Value>,
     query_predicate: Option<Predicate>,
-    budget: &dyn crate::db::query::construction::ConstructionBudget,
+    budget: &dyn crate::db::resource::construction::ConstructionBudget,
 ) -> Result<Option<Predicate>, InternalError> {
     let filtered = derive_execution_preparation_predicate(access, query_predicate, budget)?;
     Ok(derive_residual_filter_predicate_from_preparation(scalar, access, filtered, budget)?.0)
@@ -661,7 +661,7 @@ fn derive_residual_filter_predicate_from_preparation(
     scalar: &ScalarPlan,
     access: &AccessPlan<Value>,
     execution_preparation_predicate: Option<Predicate>,
-    budget: &dyn crate::db::query::construction::ConstructionBudget,
+    budget: &dyn crate::db::resource::construction::ConstructionBudget,
 ) -> Result<(Option<Predicate>, bool), InternalError> {
     let Some(execution_preparation_predicate) = execution_preparation_predicate else {
         return Ok((None, false));
@@ -737,7 +737,7 @@ pub(in crate::db::query) fn residual_filter_facts_for_access(
     scalar: &ScalarPlan,
     access: &AccessPlan<Value>,
     query_predicate: Option<Predicate>,
-    budget: &dyn crate::db::query::construction::ConstructionBudget,
+    budget: &dyn crate::db::resource::construction::ConstructionBudget,
 ) -> Result<(ResidualFilterShape, Option<Predicate>), InternalError> {
     let predicate = derive_residual_filter_predicate(scalar, access, query_predicate, budget)?;
     // Preserve the pre-finalization shape policy: a fully predicate-represented

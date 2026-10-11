@@ -4,20 +4,18 @@ use crate::{
     db::{
         DbSession, MissingRowPolicy, QueryError,
         data::{AcceptedMutationIntentPatch, DecodedDataStoreKey},
+        executor::AcceptedSchemaCatalogContext,
         query::intent::StructuralQuery,
         schema::SchemaInfo,
-        session::{
-            AcceptedSchemaCatalogContext,
-            sql::{
-                SqlDeleteExposurePolicy, SqlDeletePolicyContext, SqlPublicBoundedDeletePlan,
-                SqlPublicPrimaryKeyDeletePlan, SqlStatementDispatch, SqlStatementResult,
-                SqlValidatedDeletePlan, classify_sql_delete_statement_policy,
-                execute::write_returning::{
-                    projection_labels_from_accepted_write_descriptor,
-                    sql_returning_statement_projection, validate_sql_materialized_returning_bounds,
-                },
-                write_policy::SqlWriteExecutionBounds,
+        session::sql::{
+            SqlDeleteExposurePolicy, SqlDeletePolicyContext, SqlPublicBoundedDeletePlan,
+            SqlPublicPrimaryKeyDeletePlan, SqlStatementDispatch, SqlStatementResult,
+            SqlValidatedDeletePlan, classify_sql_delete_statement_policy,
+            execute::write_returning::{
+                projection_labels_from_accepted_write_descriptor,
+                sql_returning_statement_projection, validate_sql_materialized_returning_bounds,
             },
+            write_policy::SqlWriteExecutionBounds,
         },
         sql::{
             lowering::bind_sql_delete_statement_structural_with_schema,

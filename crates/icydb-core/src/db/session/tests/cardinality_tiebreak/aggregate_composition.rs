@@ -58,7 +58,7 @@ fn nullable_global_distinct_skips_only_distinct_state_charges() {
     use super::{DynamicQuery, ENTITY_NAME, FieldRef, InputValue, new_request_session};
     use crate::db::{
         RequestExecutionRoot, count_by,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     };
     use icydb_diagnostic_code::{
         DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag, ErrorCode,

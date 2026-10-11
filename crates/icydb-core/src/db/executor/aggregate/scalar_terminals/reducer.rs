@@ -3,25 +3,27 @@
 //! Boundary: owns row-loop execution over pre-classified reducer paths.
 
 use crate::{
-    db::executor::{
-        aggregate::{
-            scalar_terminals::{
-                expr_cache::ScalarTerminalExprCache,
-                terminal::{
-                    InternedPreparedScalarAggregateTerminal, InternedScalarAggregateInput,
-                    PreparedScalarAggregateTerminalSet, ScalarAggregateTerminalKind,
+    db::{
+        executor::{
+            aggregate::{
+                scalar_terminals::{
+                    expr_cache::ScalarTerminalExprCache,
+                    terminal::{
+                        InternedPreparedScalarAggregateTerminal, InternedScalarAggregateInput,
+                        PreparedScalarAggregateTerminalSet, ScalarAggregateTerminalKind,
+                    },
                 },
+                value_reducer::ValueReducerState,
             },
-            value_reducer::ValueReducerState,
+            group::{
+                StableHash, StableHashBuildHasher, StableHashMap,
+                retained_hash_entry_backing_bytes, retained_vec_element_backing_bytes,
+                stable_hash_value, try_reserve_hash_entry, try_reserve_vec_elements,
+            },
+            projection::ProjectionEvalError,
+            terminal::KernelRow,
         },
-        budget::{charge_current_execution_budget, runtime_value_work},
-        group::{
-            StableHash, StableHashBuildHasher, StableHashMap, retained_hash_entry_backing_bytes,
-            retained_vec_element_backing_bytes, stable_hash_value, try_reserve_hash_entry,
-            try_reserve_vec_elements,
-        },
-        projection::ProjectionEvalError,
-        terminal::KernelRow,
+        resource::budget::{charge_current_execution_budget, runtime_value_work},
     },
     error::InternalError,
     value::Value,
@@ -478,13 +480,11 @@ mod tests {
     use crate::{
         db::{
             QueryError,
-            executor::{
-                budget::{
-                    HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
-                    charge_current_execution_budget, runtime_value_work,
-                    with_query_execution_budget_for_tests,
-                },
-                group::stable_hash_value,
+            executor::group::stable_hash_value,
+            resource::budget::{
+                HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
+                charge_current_execution_budget, runtime_value_work,
+                with_query_execution_budget_for_tests,
             },
         },
         value::Value,

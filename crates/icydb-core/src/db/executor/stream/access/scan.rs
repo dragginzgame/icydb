@@ -11,10 +11,6 @@ use crate::{
         direction::Direction,
         executor::{
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec, LoweredKey,
-            budget::{
-                ExecutionConstructionBudget, charge_current_execution_budget,
-                charge_current_execution_budget_pair,
-            },
             lowered_index_prefix_exact_cardinalities,
         },
         index::{
@@ -27,6 +23,10 @@ use crate::{
             resume_prefix_bounds_for_continuation,
         },
         registry::StoreHandle,
+        resource::budget::{
+            ExecutionConstructionBudget, charge_current_execution_budget,
+            charge_current_execution_budget_pair,
+        },
     },
     error::InternalError,
     types::EntityTag,
@@ -1126,13 +1126,13 @@ mod tests {
         db::{
             QueryError, QueryExecutionError,
             data::{DataStore, RawRow},
-            executor::budget::{
-                HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
-                with_query_execution_budget_for_tests,
-            },
             index::{IndexEntryValue, IndexId, IndexStore},
             key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
             registry::{StoreAllocationIdentities, StoreRuntimeStorageCapabilities},
+            resource::budget::{
+                HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
+                with_query_execution_budget_for_tests,
+            },
             schema::SchemaStore,
             test_support::index::nat64_index_key,
         },

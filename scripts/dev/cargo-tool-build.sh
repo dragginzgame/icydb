@@ -106,11 +106,10 @@ cargo_cache_check() {
 cargo_source() {
     local archives=() checksum lock_digest
     if [[ "$check_only" == false ]]; then
-        tool_store_init rust source-preparation
-        tool_store_acquire || return 1
-        if [[ ! -e "$cargo_cache" && ! -L "$cargo_cache" ]]; then (umask 077; mkdir "$cargo_cache") || return 1; fi
-        tool_store_release
-        store_lock=''
+        tool_store_init rust source-preparation || return $?
+        tool_store_acquire || return $?
+        if [[ ! -e "$cargo_cache" && ! -L "$cargo_cache" ]]; then (umask 077; mkdir "$cargo_cache") || return $?; fi
+        tool_store_release || return $?
     fi
     cargo_cache_check || return 1
     shopt -s nullglob

@@ -9,11 +9,11 @@ use crate::{
         DbSession, DynamicTypedEntityBinding, ExactKeyBatchProjectionOutput, PrimaryKeyValue,
         QueryError,
         data::{DecodedDataStoreKey, RawDataStoreKey, RawRow, StructuralSlotReader},
-        executor::budget::{
+        registry::StoreHandle,
+        resource::budget::{
             HardExecutionBudget, HardExecutionBudgetTracker, HardExecutionContext,
             HardExecutionFailureHeadroom,
         },
-        registry::StoreHandle,
         schema::output_value_from_runtime,
     },
     error::InternalError,
@@ -126,7 +126,7 @@ fn validate_exact_key_count(count: usize) -> Result<(), InternalError> {
 }
 
 fn project_distinct_row(
-    catalog: &super::super::AcceptedSchemaCatalogContext,
+    catalog: &crate::db::executor::AcceptedSchemaCatalogContext,
     data_key: &DecodedDataStoreKey,
     raw_row: &crate::db::data::RawRow,
     slots: &[usize],

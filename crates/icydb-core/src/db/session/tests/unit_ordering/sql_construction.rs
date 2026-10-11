@@ -3,7 +3,7 @@
 use super::*;
 use crate::db::{
     RequestExecutionRoot,
-    executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+    resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
 };
 use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag};
 

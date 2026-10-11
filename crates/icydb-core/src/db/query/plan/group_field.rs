@@ -682,8 +682,8 @@ mod tests {
     fn rejected_group_key_insertion_preserves_the_existing_tuple() {
         use crate::db::{
             RequestExecutionRoot,
-            executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
             query::preparation::PreparationWork,
+            resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         };
         use icydb_diagnostic_code::{
             DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane,

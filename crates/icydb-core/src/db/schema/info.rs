@@ -1174,11 +1174,11 @@ mod tests {
     fn inference_nested_rejection_labels_use_current_preparation_budget() {
         use crate::db::{
             QueryError, RequestExecutionRoot,
-            executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
             query::{
                 plan::expr::{Expr, FieldPath, infer_expr_type},
                 preparation::PreparationWork,
             },
+            resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         };
         use icydb_diagnostic_code::{
             DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
@@ -1892,8 +1892,8 @@ mod tests {
     fn filter_enum_label_copies_use_the_current_request_budget() {
         use crate::db::{
             RequestExecutionRoot,
-            executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
             query::preparation::PreparationWork,
+            resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         };
         use icydb_diagnostic_code::{
             DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane,
@@ -1943,8 +1943,8 @@ mod tests {
     fn retained_group_path_construction_admits_exact_work_and_copy_limits() {
         use crate::db::{
             RequestExecutionRoot,
-            executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
             query::{plan::GroupField, preparation::PreparationWork},
+            resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         };
         use icydb_diagnostic_code::{
             DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane,

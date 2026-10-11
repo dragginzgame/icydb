@@ -2,15 +2,15 @@ use crate::{
     db::{
         data::{DataRow, DecodedDataStoreKey, RawRow},
         executor::{
-            budget::{
-                charge_current_execution_budget, charge_decoded_row, charge_materialized_data_row,
-            },
             projection::eval_effective_runtime_filter_program_with_slot_reader,
             terminal::{RowDecoder, RowLayout},
         },
         predicate::MissingRowPolicy,
         query::plan::EffectiveRuntimeFilterProgram,
         registry::StoreHandle,
+        resource::budget::{
+            charge_current_execution_budget, charge_decoded_row, charge_materialized_data_row,
+        },
     },
     error::InternalError,
 };

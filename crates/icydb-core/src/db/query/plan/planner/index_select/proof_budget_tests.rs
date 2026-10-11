@@ -11,10 +11,10 @@ use crate::{
         QueryError, RequestExecutionRoot,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
         query::{
-            construction::ConstructionBudget,
             plan::{AccessPlannedQuery, LogicalPlan, VisibleIndexes, exact_metadata_schema},
             preparation::PreparationWork,
         },
+        resource::construction::ConstructionBudget,
         test_support::request_with_limit,
     },
     error::InternalError,

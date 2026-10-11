@@ -4,6 +4,7 @@
 //! Boundary: translates parser-owned DDL syntax into catalog-native requests.
 
 mod admission;
+mod check;
 mod constraint;
 mod field;
 mod index;
@@ -25,8 +26,8 @@ use index::{bind_create_index_statement, bind_drop_index_statement};
 use report::ddl_preparation_report;
 
 pub(in crate::db) use admission::BoundSqlDdlSchemaVersionContract;
+pub(in crate::db) use check::bind_sql_check_expr;
 pub(in crate::db) use constraint::{
-    BoundSqlAddCheckConstraintRequest, BoundSqlDropConstraintRequest,
     BoundSqlValidateConstraintRequest, BoundSqlValidationConstraintKind,
 };
 pub(in crate::db) use field::{
@@ -43,7 +44,8 @@ pub use report::{
 use crate::db::{
     schema::{
         AcceptedCheckExprV1Error, AcceptedSchemaSnapshot, NullableUniqueIndexContractError,
-        SchemaDdlAcceptedSnapshotDerivation, SchemaDdlMutationAdmissionError, SchemaInfo,
+        SchemaAddCheckRequest, SchemaDdlAcceptedSnapshotDerivation,
+        SchemaDdlMutationAdmissionError, SchemaDropConstraintRequest, SchemaInfo,
         derive_sql_ddl_expression_index_accepted_after,
         derive_sql_ddl_field_addition_accepted_after, derive_sql_ddl_field_default_accepted_after,
         derive_sql_ddl_field_drop_accepted_after, derive_sql_ddl_field_nullability_accepted_after,
@@ -131,11 +133,11 @@ impl BoundSqlDdlRequest {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum BoundSqlDdlStatement {
     AddColumn(BoundSqlAddColumnRequest),
-    AddCheckConstraint(BoundSqlAddCheckConstraintRequest),
+    AddCheckConstraint(SchemaAddCheckRequest),
     AlterColumnDefault(BoundSqlAlterColumnDefaultRequest),
     AlterColumnNullability(BoundSqlAlterColumnNullabilityRequest),
     DropColumn(BoundSqlDropColumnRequest),
-    DropConstraint(BoundSqlDropConstraintRequest),
+    DropConstraint(SchemaDropConstraintRequest),
     RenameColumn(BoundSqlRenameColumnRequest),
     CreateIndex(BoundSqlCreateIndexRequest),
     DropIndex(BoundSqlDropIndexRequest),

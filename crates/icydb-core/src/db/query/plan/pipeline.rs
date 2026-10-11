@@ -938,9 +938,9 @@ mod tests {
         use crate::{
             db::{
                 RequestExecutionRoot,
-                executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
                 predicate::Predicate,
                 query::preparation::PreparationWork,
+                resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
             },
             value::Value,
         };
@@ -1078,9 +1078,9 @@ mod tests {
         use crate::db::{
             QueryError, RequestExecutionRoot,
             access::SemanticIndexAccessContract,
-            executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
             predicate::Predicate,
             query::{plan::planner::eligible_sorted_index_contracts, preparation::PreparationWork},
+            resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         };
         use icydb_diagnostic_code::{
             DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
@@ -1169,7 +1169,6 @@ mod tests {
             db::{
                 QueryError, RequestExecutionRoot,
                 access::AccessPlan,
-                executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
                 predicate::{CoercionId, CompareOp, ComparePredicate, MissingRowPolicy, Predicate},
                 query::{
                     plan::{
@@ -1181,6 +1180,7 @@ mod tests {
                     },
                     preparation::PreparationWork,
                 },
+                resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
             },
             value::Value,
         };

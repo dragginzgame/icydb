@@ -21,13 +21,11 @@ use crate::{
                     compile_structural_scalar_aggregate_terminal,
                 },
             },
-            budget::{
-                charge_runtime_value_rows, prepared_read_execution_context,
-                with_read_execution_budget,
-            },
+            budget::prepared_read_execution_context,
             pipeline::entrypoints::execute_prepared_scalar_aggregate_kernel_row_sink_for_canister,
             projection::{GroupedRowView, ProjectionEvalError, evaluate_grouped_having_expr},
         },
+        resource::budget::{charge_runtime_value_rows, with_read_execution_budget},
     },
     error::InternalError,
     metrics::EntityMetricsSpan,
@@ -77,7 +75,7 @@ where
             compile_structural_scalar_aggregate_terminal(
                 request.schema_info(),
                 terminal,
-                &crate::db::executor::budget::ExecutionConstructionBudget,
+                &crate::db::resource::budget::ExecutionConstructionBudget,
             )
         })
         .collect::<Result<Vec<_>, _>>()?;

@@ -1,9 +1,9 @@
+use crate::db::resource::construction::ConstructionBudget;
 use crate::{
     db::{
         QueryError, RequestExecutionRoot,
         numeric::compare_numeric_or_strict_order,
         query::{
-            construction::ConstructionBudget,
             plan::planner::range::bounds::compare_range_bound_values, preparation::PreparationWork,
         },
         test_support::request_with_limit,

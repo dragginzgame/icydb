@@ -1,12 +1,12 @@
 //! Copy admitted expression operands without normalization or a sizing walk.
 
 use crate::{
-    db::query::{
-        construction::ConstructionBudget,
-        plan::{
+    db::{
+        query::plan::{
             OrderSpec, OrderTerm,
             expr::{CaseWhenArm, Expr, FieldId, FieldPath},
         },
+        resource::construction::ConstructionBudget,
     },
     error::InternalError,
 };

@@ -7,13 +7,14 @@
 use crate::db::sql::parser::SqlDescribeMode;
 use crate::db::{
     SqlDescribeOutput, SqlShowColumnsOutput, SqlShowRelationsOutput,
+    executor::AcceptedSchemaCatalogContext,
     schema::{
         describe_compact_columns_with_persisted_schema,
         describe_entity_constraints_with_persisted_schema,
         describe_entity_fields_with_persisted_schema,
         describe_entity_relations_with_persisted_schema,
     },
-    session::{AcceptedSchemaCatalogContext, sql::CompiledSqlCommand},
+    session::sql::CompiledSqlCommand,
 };
 use crate::{
     db::{DbSession, EntityCatalogDescription, QueryError, session::sql::SqlStatementResult},

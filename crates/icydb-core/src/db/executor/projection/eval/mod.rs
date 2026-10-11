@@ -12,7 +12,7 @@ mod residual_filters_tests;
 mod scalar;
 
 use crate::{
-    db::{data::CanonicalSlotReader, executor::budget::charge_current_execution_budget},
+    db::{data::CanonicalSlotReader, resource::budget::charge_current_execution_budget},
     error::InternalError,
     value::Value,
 };

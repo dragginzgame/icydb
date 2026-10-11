@@ -1,7 +1,7 @@
 //! Compiled SQL schema fingerprint identity.
 //! Does not own: compiled command variants or execution context handoff.
 
-use crate::db::{commit::CommitSchemaFingerprint, session::AcceptedSchemaCatalogContext};
+use crate::db::{commit::CommitSchemaFingerprint, executor::AcceptedSchemaCatalogContext};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(in crate::db) struct SqlCompiledSchemaFingerprint {

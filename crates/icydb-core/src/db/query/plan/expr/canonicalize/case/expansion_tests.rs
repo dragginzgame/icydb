@@ -7,7 +7,6 @@ use super::{
 use crate::{
     db::{
         RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         query::{
             plan::expr::{
                 BinaryOp, CaseWhenArm, Expr, FieldPath, Function, UnaryOp,
@@ -15,6 +14,7 @@ use crate::{
             },
             preparation::{PreparationWork, with_preparation_work},
         },
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     },
     retained::RetainedBytes,
     value::{Value, ValueEnum},

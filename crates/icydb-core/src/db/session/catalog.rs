@@ -234,7 +234,7 @@ impl<C: CanisterKind> DbSession<C> {
     /// Assemble one complete description from captured accepted authority and live metadata.
     pub(in crate::db::session) fn describe_accepted_catalog(
         &self,
-        catalog: &crate::db::session::AcceptedSchemaCatalogContext,
+        catalog: &crate::db::executor::AcceptedSchemaCatalogContext,
     ) -> Result<EntitySchemaDescription, InternalError> {
         let validation_jobs = self.constraint_validation_jobs_for_accepted_catalog(catalog)?;
         let identity = self.identity_description_for_accepted_catalog(catalog)?;
@@ -255,7 +255,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     fn identity_description_for_accepted_catalog(
         &self,
-        catalog: &crate::db::session::AcceptedSchemaCatalogContext,
+        catalog: &crate::db::executor::AcceptedSchemaCatalogContext,
     ) -> Result<Option<EntityIdentityDescription>, InternalError> {
         let Some(identity) = catalog.inspection_plan().identity_inspection() else {
             return Ok(None);
@@ -276,7 +276,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     pub(in crate::db::session) fn constraint_validation_jobs_for_accepted_catalog(
         &self,
-        catalog: &crate::db::session::AcceptedSchemaCatalogContext,
+        catalog: &crate::db::executor::AcceptedSchemaCatalogContext,
     ) -> Result<Vec<ConstraintValidationJob>, InternalError> {
         let identity = catalog.inspection_plan().identity();
         let store = self.db.recovered_store(identity.store_path())?;

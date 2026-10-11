@@ -1,7 +1,7 @@
 use crate::db::{
     QueryError, RequestExecutionRoot,
-    executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     query::{plan::expr::FieldPath, preparation::PreparationWork},
+    resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     sql::lowering::analysis::{LoweredExprAnalysis, LoweredExprSourceRef},
 };
 use icydb_diagnostic_code::{

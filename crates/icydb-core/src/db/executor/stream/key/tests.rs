@@ -3,16 +3,14 @@ use crate::{
         QueryError,
         data::{DecodedDataStoreKey, PrimaryKeyComponent},
         direction::Direction,
-        executor::{
-            budget::{
-                HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
-                with_query_execution_budget_for_tests,
-            },
-            stream::key::{
-                BudgetedOrderedKeyStream, IntersectOrderedKeyStream, KeyOrderComparator,
-                MergeOrderedKeyStream, OrderedKeyStream, OrderedKeyStreamBox, VecOrderedKeyStream,
-                ordered_key_stream_from_materialized_keys,
-            },
+        executor::stream::key::{
+            BudgetedOrderedKeyStream, IntersectOrderedKeyStream, KeyOrderComparator,
+            MergeOrderedKeyStream, OrderedKeyStream, OrderedKeyStreamBox, VecOrderedKeyStream,
+            ordered_key_stream_from_materialized_keys,
+        },
+        resource::budget::{
+            HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
+            with_query_execution_budget_for_tests,
         },
     },
     error::{ErrorClass, ErrorOrigin, InternalError},

@@ -11,7 +11,6 @@ use crate::{
     db::{
         data::DataRow,
         executor::{
-            budget::charge_current_execution_budget,
             projection::{
                 eval::{
                     ProjectionEvalError, eval_compiled_expr_with_required_slot_reader_cow,
@@ -27,6 +26,7 @@ use crate::{
             },
             terminal::{RetainedSlotRow, RowLayout},
         },
+        resource::budget::charge_current_execution_budget,
     },
     error::InternalError,
     value::Value,

@@ -3,11 +3,11 @@
 use super::newtype_query_schema;
 use crate::db::{
     RequestExecutionRoot,
-    executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     query::{
         plan::expr::{Alias, Expr, ProjectionField, ProjectionSpec},
         preparation::PreparationWork,
     },
+    resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane, DiagnosticFactTag,

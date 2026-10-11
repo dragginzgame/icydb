@@ -940,8 +940,8 @@ mod tests {
     fn nested_filter_value_lowering_charges_before_descent_and_retains_failed_work() {
         use crate::db::{
             RequestExecutionRoot,
-            executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
             query::preparation::PreparationWork,
+            resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         };
         use icydb_diagnostic_code::{
             DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane,
@@ -1053,8 +1053,8 @@ mod tests {
     fn typed_filter_constructors_charge_names_and_introduced_storage() {
         use crate::db::{
             RequestExecutionRoot,
-            executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
             query::preparation::PreparationWork,
+            resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         };
         use icydb_diagnostic_code::{
             DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane,

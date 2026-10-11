@@ -7,7 +7,6 @@ use crate::{
     db::{
         cursor::CursorBoundary,
         executor::{
-            budget::{charge_current_execution_budget, runtime_value_work},
             group::{
                 GroupKey, StableHash, retained_hash_entry_backing_bytes,
                 retained_vec_element_backing_bytes, stable_hash_from_digest,
@@ -16,6 +15,7 @@ use crate::{
             projection::materialize::{plan::PreparedProjectionContract, row_view::RowView},
         },
         query::plan::ResolvedOrder,
+        resource::budget::{charge_current_execution_budget, runtime_value_work},
     },
     error::InternalError,
     value::{Value, ValueHashWriter},
@@ -547,7 +547,7 @@ mod tests {
     use crate::db::{
         QueryError,
         cursor::CursorBoundarySlot,
-        executor::budget::{
+        resource::budget::{
             HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
             with_query_execution_budget_for_tests,
         },

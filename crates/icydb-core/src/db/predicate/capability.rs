@@ -6,7 +6,7 @@ use crate::{
     db::{
         index::{derive_index_expression_value, index_expression_supports_text_casefold_lookup},
         predicate::{CoercionId, CompareOp, ExecutableComparePredicate, ExecutablePredicate},
-        query::construction::ConstructionBudget,
+        resource::construction::ConstructionBudget,
         schema::{PersistedIndexExpressionOp, SchemaInfo},
     },
     error::InternalError,

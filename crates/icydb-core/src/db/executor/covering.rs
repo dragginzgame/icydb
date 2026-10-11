@@ -14,10 +14,8 @@ use crate::{
             IndexComponentRow, IndexComponentRows, IndexComponentValues, IndexScan,
             KeyOrderComparator, PrefixSetExecutionShape, PrefixSetMergeSafety,
             active_lowered_index_prefix_specs, apply_index_scan_chunk_progress,
-            branch_stream_chunk_entries,
-            budget::{ExecutionConstructionBudget, charge_current_execution_budget},
-            index_predicate_rejects_prefix_components, index_stream_chunk_entries_for_remaining,
-            index_stream_output_limit_for_chunk,
+            branch_stream_chunk_entries, index_predicate_rejects_prefix_components,
+            index_stream_chunk_entries_for_remaining, index_stream_output_limit_for_chunk,
             route::IndexPrefixChildExpansionBudget,
         },
         index::{
@@ -27,10 +25,10 @@ use crate::{
         predicate::MissingRowPolicy,
         query::plan::{CoveringExistingRowMode, CoveringProjectionOrder},
         registry::StoreHandle,
+        resource::budget::{ExecutionConstructionBudget, charge_current_execution_budget},
     },
     error::InternalError,
-    types::EntityTag,
-    types::Ulid,
+    types::{EntityTag, Ulid},
     value::{Value, ValueTag},
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;

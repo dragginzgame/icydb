@@ -13,7 +13,7 @@ use crate::{
         executor::{
             EntityAuthority, ExecutionPreparation, ExecutionRoutePlan, GroupedPaginationWindow,
             ScalarContinuationContext,
-            budget::{ExecutionConstructionBudget, read_shape_fingerprint_prefix},
+            budget::read_shape_fingerprint_prefix,
             pipeline::{
                 contracts::{CursorEmissionMode, ProjectionMaterializationMode},
                 runtime::{
@@ -21,12 +21,14 @@ use crate::{
                     compile_retained_slot_layout_for_mode,
                 },
             },
-            planning::preparation::slot_map_for_model_plan,
-            planning::route::{RoutePlanRequest, build_execution_route_plan},
+            planning::{
+                preparation::slot_map_for_model_plan,
+                route::{RoutePlanRequest, build_execution_route_plan},
+            },
             projection::{PreparedProjectionContract, prepare_projection_contract_from_plan},
             terminal::RetainedSlotLayout,
         },
-        query::construction::ConstructionBudget,
+        resource::{budget::ExecutionConstructionBudget, construction::ConstructionBudget},
     },
     error::InternalError,
     retained::{Retained, RetainedBytes},
@@ -64,7 +66,7 @@ pub enum ExecutionFamily {
 ///
 
 pub(in crate::db::executor::prepared_execution_plan) struct PreparedExecutionPlanResidents {
-    cache_retention: RefCell<Weak<crate::db::session::CacheEntryWeight>>,
+    cache_retention: RefCell<Weak<crate::db::resource::bounded_cache::CacheEntryWeight>>,
     pub(in crate::db::executor::prepared_execution_plan) plan: Rc<AccessPlannedQuery>,
     pub(in crate::db::executor::prepared_execution_plan) execution_shape_fingerprint_prefix: u64,
     pub(in crate::db::executor::prepared_execution_plan) continuation_identity:
@@ -208,7 +210,7 @@ impl PreparedExecutionPlanCore {
 
     pub(in crate::db::executor::prepared_execution_plan) fn attach_cache_retention(
         &self,
-        entry: &Rc<crate::db::session::CacheEntryWeight>,
+        entry: &Rc<crate::db::resource::bounded_cache::CacheEntryWeight>,
     ) {
         *self.residents.cache_retention.borrow_mut() = Rc::downgrade(entry);
     }
@@ -500,7 +502,7 @@ impl PreparedExecutionPlanCore {
 // Keep the reservation boundary independent from which preparation product is
 // being built. A declined attachment leaves the caller's owned result usable.
 fn retain_lazy<T: Retained + Clone>(
-    accounting: &Weak<crate::db::session::CacheEntryWeight>,
+    accounting: &Weak<crate::db::resource::bounded_cache::CacheEntryWeight>,
     cell: &OnceLock<T>,
     value: &T,
 ) {
@@ -526,7 +528,6 @@ mod retention_tests {
     use crate::db::{
         QueryError, RequestExecutionRoot,
         cursor::CursorPlanError,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         index::{IndexCompilePolicy, compile_index_program},
         predicate::{
             CoercionId, CoercionSpec, CompareOp, ExecutableComparePredicate, ExecutablePredicate,
@@ -536,7 +537,8 @@ mod retention_tests {
             plan::AccessPlannedQuery,
             preparation::{PreparationWork, with_preparation_work},
         },
-        session::CacheEntryWeight,
+        resource::bounded_cache::CacheEntryWeight,
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     };
     use crate::value::Value;
     use icydb_diagnostic_code::{
@@ -733,7 +735,7 @@ mod retention_tests {
         prepare: impl FnOnce() -> Result<T, crate::error::InternalError>,
         limit: u64,
     ) -> Result<T, QueryError> {
-        use crate::db::executor::budget::{
+        use crate::db::resource::budget::{
             HardExecutionContext, with_query_execution_budget_for_tests,
         };
         use icydb_diagnostic_code::DiagnosticExecutionBudgetScope;

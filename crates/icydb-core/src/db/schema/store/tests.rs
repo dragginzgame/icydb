@@ -4,7 +4,7 @@ mod identity_remap;
 use super::{
     ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_BOOL, ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_LIST,
     ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_SET, AcceptedStoreCatalogScope, IdentityStateStorageView,
-    RawSchemaKey, RawSchemaSnapshot, SCHEMA_STORE_FINGERPRINT_METHOD_VERSION, SchemaStore,
+    RawSchemaKey, RawSchemaValue, SCHEMA_STORE_FINGERPRINT_METHOD_VERSION, SchemaStore,
     SchemaStoreBackend, SchemaStoreVisit, accepted_schema_bundle_cache_miss_count_for_tests,
     hash_accepted_field_kind, reset_accepted_schema_bundle_cache_miss_count_for_tests,
 };
@@ -24,9 +24,9 @@ use crate::{
         registry::{StoreAllocationIdentities, StoreAllocationIdentity},
         schema::{
             AcceptedCheckExprV1, AcceptedCompositeCatalog, AcceptedFieldKind,
-            AcceptedSchemaRevision, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
-            CandidateSchemaRevision, ConstraintActivationState, ConstraintOrigin,
-            ConstraintValidationJob, FieldId, FieldInsertGeneration, PersistedFieldSnapshot,
+            AcceptedSchemaRevision, AcceptedValueCatalogHandle, CandidateSchemaRevision,
+            ConstraintActivationState, ConstraintId, ConstraintOrigin, ConstraintValidationJob,
+            FieldId, FieldInsertGeneration, PersistedFieldSnapshot,
             PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
             PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
             SchemaFieldWritePolicy, SchemaIndexId, SchemaInsertDefault, SchemaRowLayout,
@@ -38,8 +38,8 @@ use crate::{
                 CardinalitySourceIdentity,
             },
             composite_catalog::CompositeTypeId,
-            empty_accepted_schema_candidate_for_tests,
-            encode_unchecked_persisted_schema_snapshot_for_tests,
+            decode_persisted_schema_snapshot, empty_accepted_schema_candidate_for_tests,
+            encode_persisted_schema_snapshot, encode_unchecked_persisted_schema_snapshot_for_tests,
             enum_catalog::{AcceptedSchemaFingerprint, AcceptedSchemaRevisionBundle},
         },
     },
@@ -49,8 +49,7 @@ use crate::{
 };
 
 use ic_memory::ic_stable_structures::{Storable, storable::Bound};
-use std::borrow::Cow;
-use std::convert::Infallible;
+use std::{borrow::Cow, convert::Infallible};
 
 fn overlay_position(sequence: u64) -> JournalOverlayPosition {
     JournalOverlayPosition::new(
@@ -362,30 +361,26 @@ fn schema_store_requires_exact_job_closure_for_validating_activation() {
 }
 
 #[test]
-fn raw_schema_key_round_trips_entity_and_version() {
-    let key = RawSchemaKey::from_entity_version(EntityTag::new(0x0102_0304_0506_0708), {
-        SchemaVersion::initial()
-    });
-    let encoded = key.to_bytes().into_owned();
-    let decoded = RawSchemaKey::from_bytes(Cow::Owned(encoded));
-
+fn raw_schema_key_round_trips_identity_owner() {
+    let key =
+        RawSchemaKey::from_identity_state(EntityTag::new(0x0102_0304_0506_0708), FieldId::new(1));
+    let decoded = RawSchemaKey::from_bytes(Cow::Owned(key.to_bytes().into_owned()));
     assert_eq!(
         key.to_bytes().as_ref(),
         &[
-            0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x00, 0x00,
+            0x04, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x00, 0x00,
             0x00, 0x01,
-        ],
-        "schema-store entity key namespace and big-endian layout are persisted format",
+        ]
     );
     assert_eq!(decoded.entity_tag(), EntityTag::new(0x0102_0304_0506_0708));
-    assert_eq!(decoded.version(), SchemaVersion::initial().get());
+    assert_eq!(decoded.version(), 1);
 }
 
 #[test]
 fn raw_schema_control_record_round_trips_opaque_bytes() {
-    let snapshot = RawSchemaSnapshot::from_encoded_control_record(b"ICYDBAEB\x01\x02\x03".to_vec());
+    let snapshot = RawSchemaValue::from_encoded_control_record(b"ICYDBAEB\x01\x02\x03".to_vec());
     let encoded = snapshot.to_bytes().into_owned();
-    let decoded = <RawSchemaSnapshot as Storable>::from_bytes(Cow::Owned(encoded));
+    let decoded = <RawSchemaValue as Storable>::from_bytes(Cow::Owned(encoded));
 
     assert_eq!(decoded.as_bytes(), b"ICYDBAEB\x01\x02\x03");
     assert_eq!(decoded.into_bytes(), b"ICYDBAEB\x01\x02\x03");
@@ -732,343 +727,8 @@ fn cardinality_slot_clear_is_bounded_and_installs_the_cursor_only_when_empty() {
 }
 
 #[test]
-fn raw_schema_snapshot_storable_bound_does_not_amplify_stable_btree_nodes() {
-    assert_eq!(RawSchemaSnapshot::BOUND, Bound::Unbounded);
-}
-
-#[test]
-fn raw_schema_snapshot_round_trips_identity_header_for_typed_snapshot() {
-    let snapshot = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "Header");
-    let accepted = AcceptedSchemaSnapshot::try_new(snapshot.clone())
-        .expect("typed schema snapshot should be accepted");
-    let expected_fingerprint = accepted_schema_cache_fingerprint(&accepted)
-        .expect("accepted schema fingerprint should derive");
-    let raw = RawSchemaSnapshot::from_persisted_snapshot(&snapshot)
-        .expect("typed schema snapshot should encode");
-    let encoded = raw.to_bytes().into_owned();
-    let decoded = <RawSchemaSnapshot as Storable>::from_bytes(Cow::Owned(encoded));
-    let owned_encoded = <RawSchemaSnapshot as Storable>::into_bytes(raw.clone());
-    let owned_decoded = <RawSchemaSnapshot as Storable>::from_bytes(Cow::Owned(owned_encoded));
-
-    assert_eq!(decoded.as_bytes(), raw.as_bytes());
-    assert_eq!(
-        decoded
-            .accepted_schema_fingerprint()
-            .expect("identity header should decode"),
-        expected_fingerprint
-    );
-    assert_eq!(
-        owned_decoded
-            .accepted_schema_fingerprint()
-            .expect("owned identity header should decode"),
-        expected_fingerprint
-    );
-}
-
-#[test]
-fn schema_store_persists_raw_snapshots_by_entity_version_key() {
-    let mut store = SchemaStore::init_journaled(test_memory(251));
-    let key = RawSchemaKey::from_entity_version(EntityTag::new(17), SchemaVersion::initial());
-
-    assert!(store.is_empty());
-    assert!(!store.contains_raw_snapshot(&key));
-
-    store.insert_raw_snapshot(
-        key,
-        RawSchemaSnapshot::from_unchecked_persisted_snapshot_payload(vec![9, 4, 6]),
-    );
-
-    assert_eq!(store.len(), 1);
-    assert!(store.contains_raw_snapshot(&key));
-    assert_eq!(
-        store
-            .get_raw_snapshot(&key)
-            .expect("schema snapshot should be present")
-            .as_bytes(),
-        &[9, 4, 6],
-    );
-
-    store.clear();
-    assert!(store.is_empty());
-}
-
-#[test]
-fn schema_store_loads_latest_snapshot_for_entity() {
-    let mut store = SchemaStore::init_journaled(test_memory(252));
-    let initial = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "Initial");
-    let newer = persisted_schema_snapshot_for_test(SchemaVersion::new(2), "Newer");
-    let other_entity = persisted_schema_snapshot_for_test(SchemaVersion::new(3), "Other");
-
-    store
-        .insert_persisted_snapshot(EntityTag::new(41), &initial)
-        .expect("initial schema snapshot should encode");
-    store
-        .insert_persisted_snapshot(EntityTag::new(42), &other_entity)
-        .expect("other entity schema snapshot should encode");
-    store
-        .insert_persisted_snapshot(EntityTag::new(41), &newer)
-        .expect("newer schema snapshot should encode");
-
-    let latest = store
-        .latest_staged_persisted_snapshot(EntityTag::new(41))
-        .expect("latest schema snapshot should decode")
-        .expect("schema snapshot should exist");
-
-    assert_eq!(latest.version(), SchemaVersion::new(2));
-    assert_eq!(latest.entity_name(), "Newer");
-}
-
-#[test]
-fn schema_store_visit_raw_snapshots_preserves_key_order() {
-    let mut store = SchemaStore::init_journaled(test_memory(235));
-    store.insert_raw_snapshot(
-        RawSchemaKey::from_entity_version(EntityTag::new(3), SchemaVersion::new(2)),
-        RawSchemaSnapshot::from_unchecked_persisted_snapshot_payload(vec![32]),
-    );
-    store.insert_raw_snapshot(
-        RawSchemaKey::from_entity_version(EntityTag::new(1), SchemaVersion::new(3)),
-        RawSchemaSnapshot::from_unchecked_persisted_snapshot_payload(vec![13]),
-    );
-    store.insert_raw_snapshot(
-        RawSchemaKey::from_entity_version(EntityTag::new(1), SchemaVersion::new(1)),
-        RawSchemaSnapshot::from_unchecked_persisted_snapshot_payload(vec![11]),
-    );
-
-    let mut visited = Vec::new();
-    let _: Result<(), Infallible> = store.visit_raw_snapshots(|key, snapshot| {
-        visited.push((
-            key.entity_tag().value(),
-            key.version(),
-            snapshot.as_bytes()[0],
-        ));
-        Ok(SchemaStoreVisit::Continue)
-    });
-
-    assert_eq!(visited, vec![(1, 1, 11), (1, 3, 13), (3, 2, 32)]);
-}
-
-#[test]
-fn schema_store_visit_raw_snapshots_can_stop_without_error() {
-    let mut store = SchemaStore::init_journaled(test_memory(234));
-    store.insert_raw_snapshot(
-        RawSchemaKey::from_entity_version(EntityTag::new(2), SchemaVersion::new(1)),
-        RawSchemaSnapshot::from_unchecked_persisted_snapshot_payload(vec![21]),
-    );
-    store.insert_raw_snapshot(
-        RawSchemaKey::from_entity_version(EntityTag::new(2), SchemaVersion::new(2)),
-        RawSchemaSnapshot::from_unchecked_persisted_snapshot_payload(vec![22]),
-    );
-
-    let mut visited = Vec::new();
-    let _: Result<(), Infallible> = store.visit_raw_snapshots(|key, _| {
-        visited.push(key.version());
-        Ok(SchemaStoreVisit::Stop)
-    });
-
-    assert_eq!(visited, vec![1]);
-}
-
-#[test]
-fn heap_schema_store_preserves_order_latest_snapshot_and_early_stop() {
-    let mut store = SchemaStore::init_heap();
-    let initial = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "Initial");
-    let newer = persisted_schema_snapshot_for_test(SchemaVersion::new(2), "Newer");
-    let other_entity = persisted_schema_snapshot_for_test(SchemaVersion::new(3), "Other");
-
-    store
-        .insert_persisted_snapshot(EntityTag::new(41), &initial)
-        .expect("initial heap schema snapshot should encode");
-    store
-        .insert_persisted_snapshot(EntityTag::new(42), &other_entity)
-        .expect("other heap schema snapshot should encode");
-    store
-        .insert_persisted_snapshot(EntityTag::new(41), &newer)
-        .expect("newer heap schema snapshot should encode");
-
-    let latest = store
-        .latest_staged_persisted_snapshot(EntityTag::new(41))
-        .expect("latest heap schema snapshot should decode")
-        .expect("heap schema snapshot should exist");
-    assert_eq!(latest.version(), SchemaVersion::new(2));
-    assert_eq!(latest.entity_name(), "Newer");
-
-    let mut visited = Vec::new();
-    let _: Result<(), Infallible> = store.visit_raw_snapshots(|key, snapshot| {
-        visited.push((
-            key.entity_tag().value(),
-            key.version(),
-            snapshot.as_bytes().len(),
-        ));
-        Ok(if visited.len() == 2 {
-            SchemaStoreVisit::Stop
-        } else {
-            SchemaStoreVisit::Continue
-        })
-    });
-    assert_eq!(
-        visited
-            .iter()
-            .map(|(entity, version, _)| (*entity, *version))
-            .collect::<Vec<_>>(),
-        vec![(41, 1), (41, 2)]
-    );
-}
-
-#[test]
-fn journaled_schema_store_streams_overlay_latest_snapshot_and_early_stop() {
-    let mut store = SchemaStore::init_journaled(test_memory(233));
-    let canonical_initial = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "Initial");
-    let canonical_replaced = persisted_schema_snapshot_for_test(SchemaVersion::new(2), "Canonical");
-    let live_replacement = persisted_schema_snapshot_for_test(SchemaVersion::new(2), "Live");
-    let live_newer = persisted_schema_snapshot_for_test(SchemaVersion::new(3), "LiveNewer");
-    let other_entity = persisted_schema_snapshot_for_test(SchemaVersion::new(2), "Other");
-
-    store
-        .fold_persisted_snapshot(EntityTag::new(61), &canonical_initial)
-        .expect("initial canonical schema snapshot should encode");
-    store
-        .fold_persisted_snapshot(EntityTag::new(61), &canonical_replaced)
-        .expect("canonical schema snapshot should encode");
-    store
-        .fold_persisted_snapshot(EntityTag::new(62), &other_entity)
-        .expect("other canonical schema snapshot should encode");
-    store
-        .insert_persisted_snapshot(EntityTag::new(61), &live_replacement)
-        .expect("live replacement schema snapshot should encode");
-    store
-        .insert_persisted_snapshot(EntityTag::new(61), &live_newer)
-        .expect("live newer schema snapshot should encode");
-
-    let latest = store
-        .latest_staged_persisted_snapshot(EntityTag::new(61))
-        .expect("latest journaled schema snapshot should decode")
-        .expect("journaled schema snapshot should exist");
-    assert_eq!(latest.version(), SchemaVersion::new(3));
-    assert_eq!(latest.entity_name(), "LiveNewer");
-    assert_eq!(store.len(), 4);
-
-    let mut visited = Vec::new();
-    let _: Result<(), Infallible> = store.visit_raw_snapshots(|key, snapshot| {
-        let decoded = snapshot
-            .decode_persisted_snapshot()
-            .expect("visited schema snapshot should decode");
-        visited.push((
-            key.entity_tag().value(),
-            key.version(),
-            decoded.entity_name().to_string(),
-        ));
-        Ok(if visited.len() == 3 {
-            SchemaStoreVisit::Stop
-        } else {
-            SchemaStoreVisit::Continue
-        })
-    });
-    assert_eq!(
-        visited,
-        vec![
-            (61, 1, "Initial".to_string()),
-            (61, 2, "Live".to_string()),
-            (61, 3, "LiveNewer".to_string()),
-        ],
-    );
-
-    store.clear();
-    assert!(store.is_empty());
-    assert!(
-        store
-            .latest_staged_persisted_snapshot(EntityTag::new(61))
-            .expect("cleared journaled latest snapshot lookup should decode")
-            .is_none(),
-    );
-}
-
-#[test]
-fn prepared_schema_snapshots_preserve_bytes_identity_and_storage_view() {
-    let entity = EntityTag::new(61);
-    let snapshot = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "Prepared");
-    let expected = RawSchemaSnapshot::from_persisted_snapshot(&snapshot).unwrap();
-    let key = RawSchemaKey::from_entity_version(entity, snapshot.version());
-    let mut heap = SchemaStore::init_heap();
-    let mut journaled = SchemaStore::init_journaled(test_memory(233));
-
-    let prepared = SchemaStore::prepare_persisted_snapshot(entity, &snapshot).unwrap();
-    let payload = prepared.snapshot.payload.as_ptr();
-    assert!(heap.get_raw_snapshot(&key).is_none());
-    heap.apply_prepared_persisted_snapshot(prepared);
-    let SchemaStoreBackend::Heap(map) = &heap.backend else {
-        unreachable!()
-    };
-    assert_eq!(map.get(&key).unwrap().payload.as_ptr(), payload);
-    assert_eq!(heap.get_raw_snapshot(&key), Some(expected.clone()));
-
-    assert!(
-        heap.prepare_fold_persisted_snapshot(entity, &snapshot)
-            .is_err()
-    );
-    let folded = journaled
-        .prepare_fold_persisted_snapshot(entity, &snapshot)
-        .unwrap();
-    assert!(journaled.get_canonical_raw_value(&key).unwrap().is_none());
-    journaled
-        .apply_prepared_fold_persisted_snapshot(folded)
-        .unwrap();
-    assert_eq!(
-        journaled.get_canonical_raw_value(&key).unwrap(),
-        Some(expected.clone())
-    );
-    let replayed = SchemaStore::prepare_persisted_snapshot(entity, &snapshot).unwrap();
-    journaled.apply_prepared_persisted_snapshot(replayed);
-    assert_eq!(journaled.get_raw_snapshot(&key), Some(expected));
-
-    let invalid = snapshot.with_schema_version(SchemaVersion::new(0));
-    assert!(SchemaStore::prepare_persisted_snapshot(entity, &invalid).is_err());
-    assert!(
-        journaled
-            .prepare_fold_persisted_snapshot(entity, &invalid)
-            .is_err()
-    );
-    assert!(journaled.get_raw_snapshot(&key).is_some());
-}
-
-#[test]
-fn journaled_schema_store_latest_snapshot_reads_each_overlay_source() {
-    let entity = EntityTag::new(71);
-
-    let mut canonical_only = SchemaStore::init_journaled(test_memory(231));
-    let canonical = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "CanonicalOnly");
-    canonical_only
-        .fold_persisted_snapshot(entity, &canonical)
-        .expect("canonical-only schema snapshot should encode");
-    assert_latest_schema(
-        &canonical_only,
-        entity,
-        SchemaVersion::initial(),
-        "CanonicalOnly",
-    );
-
-    let mut live_only = SchemaStore::init_journaled(test_memory(230));
-    let live = persisted_schema_snapshot_for_test(SchemaVersion::new(2), "LiveOnly");
-    live_only
-        .insert_persisted_snapshot(entity, &live)
-        .expect("live-only schema snapshot should encode");
-    assert_latest_schema(&live_only, entity, SchemaVersion::new(2), "LiveOnly");
-
-    let mut live_override = SchemaStore::init_journaled(test_memory(229));
-    let canonical_duplicate =
-        persisted_schema_snapshot_for_test(SchemaVersion::new(3), "CanonicalDuplicate");
-    let live_duplicate = persisted_schema_snapshot_for_test(SchemaVersion::new(3), "LiveDuplicate");
-    live_override
-        .fold_persisted_snapshot(entity, &canonical_duplicate)
-        .expect("canonical duplicate schema snapshot should encode");
-    live_override
-        .insert_persisted_snapshot(entity, &live_duplicate)
-        .expect("live duplicate schema snapshot should encode");
-    assert_latest_schema(
-        &live_override,
-        entity,
-        SchemaVersion::new(3),
-        "LiveDuplicate",
-    );
+fn raw_schema_value_storable_bound_does_not_amplify_stable_btree_nodes() {
+    assert_eq!(RawSchemaValue::BOUND, Bound::Unbounded);
 }
 
 #[test]
@@ -1105,15 +765,13 @@ fn prepared_catalog_fold_retains_payloads_and_identity_without_early_writes() {
         )
         .unwrap();
     assert_eq!(prepared.candidate.encoded_bundle().as_ptr(), bundle_pointer);
-    assert_eq!(prepared.snapshots.len(), 1);
     assert_eq!(prepared.identity_updates.len(), 1);
-    let snapshot = &prepared.snapshots[0];
-    let snapshot_key = snapshot.key;
-    let snapshot_bytes = snapshot.snapshot.to_bytes().into_owned();
+    let bundle_key = RawSchemaKey::from_accepted_bundle(prepared.candidate.root().bundle_key());
+    let bundle_bytes = prepared.candidate.encoded_bundle().to_vec();
     let (identity_key, identity_bytes) = prepared.identity_updates[0].clone();
     assert!(
         store
-            .get_canonical_raw_value(&snapshot_key)
+            .get_canonical_raw_value(&bundle_key)
             .unwrap()
             .is_none()
     );
@@ -1135,12 +793,12 @@ fn prepared_catalog_fold_retains_payloads_and_identity_without_early_writes() {
     store.apply_prepared_accepted_schema_fold(prepared).unwrap();
     assert_eq!(
         store
-            .get_canonical_raw_value(&snapshot_key)
+            .get_canonical_raw_value(&bundle_key)
             .unwrap()
             .unwrap()
             .to_bytes()
             .as_ref(),
-        snapshot_bytes.as_slice()
+        bundle_bytes.as_slice()
     );
     assert_eq!(
         store
@@ -1159,7 +817,7 @@ fn prepared_catalog_fold_retains_payloads_and_identity_without_early_writes() {
             .root(),
         expected_root
     );
-    assert_eq!(reopened.canonical_len_for_tests(), 4);
+    assert_eq!(reopened.canonical_len_for_tests(), 3);
     assert_eq!(
         reopened
             .identity_state_inventory(IdentityStateStorageView::Canonical)
@@ -1199,7 +857,7 @@ fn prepared_catalog_fold_rechecks_root_before_writing_payloads() {
             candidate,
         )
         .unwrap();
-    let snapshot_key = prepared.snapshots[0].key;
+    let bundle_key = RawSchemaKey::from_accepted_bundle(prepared.candidate.root().bundle_key());
     let identity_key = prepared.identity_updates[0].0;
     let competing = empty_accepted_schema_candidate_for_tests(
         "test::PreparedCatalog",
@@ -1213,11 +871,13 @@ fn prepared_catalog_fold_rechecks_root_before_writing_payloads() {
         )
         .unwrap();
     assert!(store.apply_prepared_accepted_schema_fold(prepared).is_err());
-    assert!(
+    assert_eq!(
         store
-            .get_canonical_raw_value(&snapshot_key)
+            .get_canonical_raw_value(&bundle_key)
             .unwrap()
-            .is_none()
+            .unwrap()
+            .as_bytes(),
+        competing.encoded_bundle()
     );
     assert!(
         store
@@ -1351,7 +1011,7 @@ fn identity_publication_creates_explicit_zero_state_and_missing_state_is_corrupt
     let key = RawSchemaKey::from_identity_state(entity_tag, field_id);
     let state = decode_identity_state(
         store
-            .get_raw_snapshot(&key)
+            .get_raw_value(&key)
             .expect("published identity must have explicit state")
             .as_bytes(),
     )
@@ -1607,7 +1267,7 @@ fn identity_removal_retires_state_and_reuse_is_rejected() {
     let key = RawSchemaKey::from_identity_state(entity_tag, field_id);
     let retired = decode_identity_state(
         store
-            .get_raw_snapshot(&key)
+            .get_raw_value(&key)
             .expect("retired identity state must be retained")
             .as_bytes(),
     )
@@ -1894,11 +1554,10 @@ fn accepted_catalog_selection_shares_verified_snapshot() {
     );
 
     let snapshot = first.snapshot();
-    let persisted = snapshot.persisted_snapshot();
-    let raw = RawSchemaSnapshot::from_persisted_snapshot(persisted).unwrap();
+
     assert_eq!(
         first.identity().accepted_schema_fingerprint(),
-        raw.accepted_schema_fingerprint().unwrap(),
+        accepted_schema_cache_fingerprint(&snapshot).unwrap(),
     );
     let row = crate::db::data::AcceptedStructuralRowAuthority::from_catalog_selection(
         snapshot.entity_path(),
@@ -1916,7 +1575,10 @@ fn accepted_catalog_selection_shares_verified_snapshot() {
 
     // A schema-version-only change preserves the normalized entity fingerprint,
     // but must still select a new immutable root and leave the old owner intact.
-    let updated = persisted.clone().with_schema_version(SchemaVersion::new(2));
+    let updated = snapshot
+        .persisted_snapshot()
+        .clone()
+        .with_schema_version(SchemaVersion::new(2));
     let next = CandidateSchemaRevision::new(
         AcceptedSchemaRevisionBundle::new(
             AcceptedSchemaRevision::new(2),
@@ -2065,114 +1727,8 @@ fn selected_bundle_borrow_rejects_foreign_and_replaced_authority() {
 }
 
 #[test]
-fn journaled_schema_store_descending_range_orders_live_between_canonical_versions() {
-    let mut store = SchemaStore::init_journaled(test_memory(228));
-    let entity = EntityTag::new(72);
-    let lower_entity = EntityTag::new(71);
-    let higher_entity = EntityTag::new(73);
-    let canonical_initial =
-        persisted_schema_snapshot_for_test(SchemaVersion::initial(), "CanonicalV1");
-    let canonical_duplicate =
-        persisted_schema_snapshot_for_test(SchemaVersion::new(2), "CanonicalV2");
-    let live_duplicate = persisted_schema_snapshot_for_test(SchemaVersion::new(2), "LiveV2");
-    let canonical_latest = persisted_schema_snapshot_for_test(SchemaVersion::new(3), "CanonicalV3");
-    let unrelated_lower =
-        persisted_schema_snapshot_for_test(SchemaVersion::new(9), "UnrelatedLower");
-
-    store
-        .fold_persisted_snapshot(entity, &canonical_initial)
-        .expect("canonical v1 schema snapshot should encode");
-    store
-        .fold_persisted_snapshot(entity, &canonical_duplicate)
-        .expect("canonical v2 schema snapshot should encode");
-    store
-        .fold_persisted_snapshot(entity, &canonical_latest)
-        .expect("canonical v3 schema snapshot should encode");
-    store
-        .fold_persisted_snapshot(lower_entity, &unrelated_lower)
-        .expect("lower unrelated schema snapshot should encode");
-    store
-        .insert_persisted_snapshot(entity, &live_duplicate)
-        .expect("live v2 schema snapshot should encode");
-    store.insert_raw_snapshot(
-        RawSchemaKey::from_entity_version(higher_entity, SchemaVersion::new(1)),
-        RawSchemaSnapshot::from_unchecked_persisted_snapshot_payload(vec![0xff]),
-    );
-
-    let visited = visit_journaled_schema_range(&store, entity, Direction::Desc, usize::MAX);
-    assert_eq!(
-        visited,
-        vec![
-            (3, "CanonicalV3".to_string()),
-            (2, "LiveV2".to_string()),
-            (1, "CanonicalV1".to_string()),
-        ],
-    );
-
-    let early_stop = visit_journaled_schema_range(&store, entity, Direction::Desc, 1);
-    assert_eq!(early_stop, vec![(3, "CanonicalV3".to_string())]);
-}
-
-#[test]
-fn journaled_schema_store_latest_snapshot_skips_tombstoned_latest_version() {
-    let entity = EntityTag::new(74);
-
-    let mut canonical_latest_tombstoned = SchemaStore::init_journaled(test_memory(227));
-    let canonical_initial =
-        persisted_schema_snapshot_for_test(SchemaVersion::initial(), "CanonicalV1");
-    let canonical_latest = persisted_schema_snapshot_for_test(SchemaVersion::new(2), "CanonicalV2");
-    canonical_latest_tombstoned
-        .fold_persisted_snapshot(entity, &canonical_initial)
-        .expect("canonical v1 schema snapshot should encode");
-    canonical_latest_tombstoned
-        .fold_persisted_snapshot(entity, &canonical_latest)
-        .expect("canonical v2 schema snapshot should encode");
-    tombstone_journaled_raw_snapshot(
-        &mut canonical_latest_tombstoned,
-        entity,
-        SchemaVersion::new(2),
-    );
-
-    assert_latest_schema(
-        &canonical_latest_tombstoned,
-        entity,
-        SchemaVersion::initial(),
-        "CanonicalV1",
-    );
-    assert!(
-        canonical_latest_tombstoned
-            .get_persisted_snapshot(entity, SchemaVersion::new(2))
-            .expect("tombstoned canonical snapshot lookup should not decode")
-            .is_none(),
-    );
-
-    let mut live_latest_tombstoned = SchemaStore::init_journaled(test_memory(226));
-    let live_latest = persisted_schema_snapshot_for_test(SchemaVersion::new(2), "LiveV2");
-    live_latest_tombstoned
-        .fold_persisted_snapshot(entity, &canonical_initial)
-        .expect("canonical v1 schema snapshot should encode");
-    live_latest_tombstoned
-        .insert_persisted_snapshot(entity, &live_latest)
-        .expect("live v2 schema snapshot should encode");
-    tombstone_journaled_raw_snapshot(&mut live_latest_tombstoned, entity, SchemaVersion::new(2));
-
-    assert_latest_schema(
-        &live_latest_tombstoned,
-        entity,
-        SchemaVersion::initial(),
-        "CanonicalV1",
-    );
-    assert!(
-        live_latest_tombstoned
-            .get_persisted_snapshot(entity, SchemaVersion::new(2))
-            .expect("tombstoned live snapshot lookup should not decode")
-            .is_none(),
-    );
-}
-
-#[test]
-fn schema_store_catalog_metadata_is_absent_without_accepted_snapshots() {
-    let store = SchemaStore::init_journaled(test_memory(241));
+fn schema_store_catalog_metadata_is_absent_without_accepted_entities() {
+    let mut store = SchemaStore::init_journaled(test_memory(241));
 
     assert_eq!(
         store
@@ -2180,29 +1736,36 @@ fn schema_store_catalog_metadata_is_absent_without_accepted_snapshots() {
             .expect("empty schema catalog metadata should derive"),
         None
     );
+    publish_metadata_candidate(&mut store, AcceptedSchemaRevision::NONE, []);
+    assert_eq!(store.catalog_metadata().unwrap(), None);
 }
 
 #[test]
-fn schema_store_catalog_metadata_uses_latest_persisted_snapshots() {
-    let mut store = SchemaStore::init_journaled(test_memory(240));
-    let initial = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "Initial");
-    let newer = persisted_schema_snapshot_for_test(SchemaVersion::new(2), "Newer");
-    let other = persisted_schema_snapshot_for_test(SchemaVersion::new(3), "Other");
+fn schema_store_catalog_metadata_tracks_selected_bundle_and_cold_reopen() {
+    let memory = test_memory(240);
+    let mut store = SchemaStore::init_journaled(memory.clone());
+    let initial = metadata_schema_snapshot_for_test(SchemaVersion::initial(), "Initial");
+    let newer = metadata_schema_snapshot_for_test(SchemaVersion::new(2), "Newer");
+    let other = metadata_schema_snapshot_for_test(SchemaVersion::new(3), "Other");
 
-    store
-        .insert_persisted_snapshot(EntityTag::new(81), &initial)
-        .expect("initial schema snapshot should encode");
+    publish_metadata_candidate(
+        &mut store,
+        AcceptedSchemaRevision::NONE,
+        [(EntityTag::new(81), initial)],
+    );
     let initial_metadata = store
         .catalog_metadata()
         .expect("initial schema catalog metadata should derive")
         .expect("initial schema catalog metadata should be present");
 
-    store
-        .insert_persisted_snapshot(EntityTag::new(81), &newer)
-        .expect("newer schema snapshot should encode");
-    store
-        .insert_persisted_snapshot(EntityTag::new(82), &other)
-        .expect("other schema snapshot should encode");
+    publish_metadata_candidate(
+        &mut store,
+        AcceptedSchemaRevision::INITIAL,
+        [
+            (EntityTag::new(81), newer),
+            (EntityTag::new(82), other.clone()),
+        ],
+    );
     let updated_metadata = store
         .catalog_metadata()
         .expect("updated schema catalog metadata should derive")
@@ -2225,26 +1788,53 @@ fn schema_store_catalog_metadata_uses_latest_persisted_snapshots() {
         updated_metadata.schema_fingerprint(),
         "catalog fingerprint must change when latest accepted schema catalog changes"
     );
+    assert_eq!(
+        SchemaStore::init_journaled(memory.clone())
+            .catalog_metadata()
+            .unwrap(),
+        Some(updated_metadata)
+    );
+    publish_metadata_candidate(
+        &mut store,
+        AcceptedSchemaRevision::new(2),
+        [(EntityTag::new(82), other)],
+    );
+    let reduced = store.catalog_metadata().unwrap().unwrap();
+    assert_eq!(reduced.entity_count(), 1);
+    assert_eq!(reduced.schema_version(), SchemaVersion::new(3));
+    assert_ne!(
+        reduced.schema_fingerprint(),
+        updated_metadata.schema_fingerprint()
+    );
+    assert_eq!(
+        SchemaStore::init_journaled(memory)
+            .catalog_metadata()
+            .unwrap(),
+        Some(reduced)
+    );
 }
 
 #[test]
 fn schema_store_catalog_metadata_is_independent_of_insertion_order() {
-    let first = persisted_schema_snapshot_for_test(SchemaVersion::new(2), "First");
-    let second = persisted_schema_snapshot_for_test(SchemaVersion::new(3), "Second");
+    let first = metadata_schema_snapshot_for_test(SchemaVersion::new(2), "First");
+    let second = metadata_schema_snapshot_for_test(SchemaVersion::new(3), "Second");
 
     let mut left = SchemaStore::init_journaled(test_memory(239));
-    left.insert_persisted_snapshot(EntityTag::new(91), &first)
-        .expect("first schema snapshot should encode");
-    left.insert_persisted_snapshot(EntityTag::new(92), &second)
-        .expect("second schema snapshot should encode");
+    publish_metadata_candidate(
+        &mut left,
+        AcceptedSchemaRevision::NONE,
+        [
+            (EntityTag::new(91), first.clone()),
+            (EntityTag::new(92), second.clone()),
+        ],
+    );
 
     let mut right = SchemaStore::init_journaled(test_memory(238));
-    right
-        .insert_persisted_snapshot(EntityTag::new(92), &second)
-        .expect("second schema snapshot should encode");
-    right
-        .insert_persisted_snapshot(EntityTag::new(91), &first)
-        .expect("first schema snapshot should encode");
+    publish_metadata_candidate(
+        &mut right,
+        AcceptedSchemaRevision::NONE,
+        [(EntityTag::new(92), second), (EntityTag::new(91), first)],
+    );
 
     let left_metadata = left
         .catalog_metadata()
@@ -2258,8 +1848,7 @@ fn schema_store_catalog_metadata_is_independent_of_insertion_order() {
 
 #[test]
 fn schema_store_allocation_metadata_uses_role_specific_fingerprints() {
-    let without_index =
-        persisted_schema_snapshot_for_test(SchemaVersion::initial(), "RoleSpecific");
+    let without_index = metadata_schema_snapshot_for_test(SchemaVersion::initial(), "RoleSpecific");
     let with_index = persisted_schema_snapshot_with_index_for_test(
         SchemaVersion::initial(),
         "RoleSpecific",
@@ -2267,17 +1856,22 @@ fn schema_store_allocation_metadata_uses_role_specific_fingerprints() {
     );
 
     let mut base = SchemaStore::init_journaled(test_memory(237));
-    base.insert_persisted_snapshot(EntityTag::new(93), &without_index)
-        .expect("base schema snapshot should encode");
+    publish_metadata_candidate(
+        &mut base,
+        AcceptedSchemaRevision::NONE,
+        [(EntityTag::new(93), without_index)],
+    );
     let base_metadata = base
         .allocation_metadata()
         .expect("base allocation metadata should derive")
         .expect("base allocation metadata should be present");
 
     let mut indexed = SchemaStore::init_journaled(test_memory(236));
-    indexed
-        .insert_persisted_snapshot(EntityTag::new(93), &with_index)
-        .expect("indexed schema snapshot should encode");
+    publish_metadata_candidate(
+        &mut indexed,
+        AcceptedSchemaRevision::NONE,
+        [(EntityTag::new(93), with_index)],
+    );
     let indexed_metadata = indexed
         .allocation_metadata()
         .expect("indexed allocation metadata should derive")
@@ -2325,24 +1919,21 @@ fn schema_store_allocation_metadata_uses_role_specific_fingerprints() {
 }
 
 #[test]
-fn schema_store_rejects_typed_snapshot_with_zero_schema_version() {
-    let mut store = SchemaStore::init_journaled(test_memory(254));
+fn persisted_schema_codec_rejects_typed_snapshot_with_zero_schema_version() {
     let invalid = persisted_schema_snapshot_for_test(SchemaVersion::new(0), "ZeroSchemaVersion");
 
-    let err = store
-        .insert_persisted_snapshot(EntityTag::new(44), &invalid)
-        .expect_err("schema store should reject non-positive schema versions");
+    let err = encode_persisted_schema_snapshot(&invalid)
+        .expect_err("schema codec should reject non-positive schema versions");
 
     assert_eq!(
         err.diagnostic_code(),
         icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
-        "schema store should hard-cut non-positive persisted schema versions"
+        "schema codec should hard-cut non-positive persisted schema versions"
     );
 }
 
 #[test]
-fn schema_store_rejects_typed_snapshot_with_divergent_field_slots() {
-    let mut store = SchemaStore::init_journaled(test_memory(232));
+fn persisted_schema_codec_rejects_typed_snapshot_with_divergent_field_slots() {
     let base = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "InvalidSlots");
     let invalid = PersistedSchemaSnapshot::new(
         base.version(),
@@ -2356,20 +1947,18 @@ fn schema_store_rejects_typed_snapshot_with_divergent_field_slots() {
         base.fields().to_vec(),
     );
 
-    let err = store
-        .insert_persisted_snapshot(EntityTag::new(44), &invalid)
-        .expect_err("schema store should reject divergent field/layout slots");
+    let err = encode_persisted_schema_snapshot(&invalid)
+        .expect_err("schema codec should reject divergent field/layout slots");
 
     assert_eq!(
         err.diagnostic_code(),
         icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
-        "schema store should report the duplicated slot divergence"
+        "schema codec should report the duplicated slot divergence"
     );
 }
 
 #[test]
-fn schema_store_rejects_typed_snapshot_with_duplicate_row_layout_slot() {
-    let mut store = SchemaStore::init_journaled(test_memory(246));
+fn persisted_schema_codec_rejects_typed_snapshot_with_duplicate_row_layout_slot() {
     let base = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "DuplicateLayoutSlot");
     let invalid = PersistedSchemaSnapshot::new(
         base.version(),
@@ -2383,20 +1972,18 @@ fn schema_store_rejects_typed_snapshot_with_duplicate_row_layout_slot() {
         base.fields().to_vec(),
     );
 
-    let err = store
-        .insert_persisted_snapshot(EntityTag::new(49), &invalid)
-        .expect_err("schema store should reject duplicate row-layout slots");
+    let err = encode_persisted_schema_snapshot(&invalid)
+        .expect_err("schema codec should reject duplicate row-layout slots");
 
     assert_eq!(
         err.diagnostic_code(),
         icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
-        "schema store should report the row-layout slot ambiguity"
+        "schema codec should report the row-layout slot ambiguity"
     );
 }
 
 #[test]
-fn schema_store_rejects_typed_snapshot_with_missing_primary_key_field() {
-    let mut store = SchemaStore::init_journaled(test_memory(248));
+fn persisted_schema_codec_rejects_typed_snapshot_with_missing_primary_key_field() {
     let base = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "MissingPk");
     let invalid = PersistedSchemaSnapshot::new(
         base.version(),
@@ -2407,45 +1994,18 @@ fn schema_store_rejects_typed_snapshot_with_missing_primary_key_field() {
         base.fields().to_vec(),
     );
 
-    let err = store
-        .insert_persisted_snapshot(EntityTag::new(47), &invalid)
-        .expect_err("schema store should reject snapshots without the primary-key field");
+    let err = encode_persisted_schema_snapshot(&invalid)
+        .expect_err("schema codec should reject snapshots without the primary-key field");
 
     assert_eq!(
         err.diagnostic_code(),
         icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
-        "schema store should report the missing primary-key field"
+        "schema codec should report the missing primary-key field"
     );
 }
 
 #[test]
-fn schema_store_does_not_fallback_when_latest_snapshot_is_corrupt() {
-    let mut store = SchemaStore::init_journaled(test_memory(249));
-    let initial = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "Initial");
-    let corrupt_key = RawSchemaKey::from_entity_version(EntityTag::new(45), SchemaVersion::new(3));
-
-    store
-        .insert_persisted_snapshot(EntityTag::new(45), &initial)
-        .expect("initial schema snapshot should encode");
-    store.insert_raw_snapshot(
-        corrupt_key,
-        RawSchemaSnapshot::from_encoded_control_record(vec![0xff, 0x00]),
-    );
-
-    let err = store
-        .latest_staged_persisted_snapshot(EntityTag::new(45))
-        .expect_err("latest corrupt schema snapshot must fail closed");
-
-    assert_eq!(
-        err.diagnostic_code(),
-        icydb_diagnostic_code::DiagnosticCode::StoreCorruption,
-        "latest-version lookup should report the corrupt newest snapshot"
-    );
-}
-
-#[test]
-fn schema_store_rejects_raw_snapshot_with_divergent_field_slots() {
-    let mut store = SchemaStore::init_journaled(test_memory(250));
+fn persisted_schema_codec_rejects_raw_snapshot_with_divergent_field_slots() {
     let base = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "RawInvalidSlots");
     let invalid = PersistedSchemaSnapshot::new(
         base.version(),
@@ -2460,15 +2020,7 @@ fn schema_store_rejects_raw_snapshot_with_divergent_field_slots() {
     );
     let raw = encode_unchecked_persisted_schema_snapshot_for_tests(&invalid)
         .expect("invalid raw schema snapshot should encode for decode-boundary coverage");
-    let key = RawSchemaKey::from_entity_version(EntityTag::new(46), invalid.version());
-
-    store.insert_raw_snapshot(
-        key,
-        RawSchemaSnapshot::from_unchecked_persisted_snapshot_payload(raw),
-    );
-
-    let err = store
-        .latest_staged_persisted_snapshot(EntityTag::new(46))
+    let err = decode_persisted_schema_snapshot(&raw)
         .expect_err("raw decode should reject divergent field/layout slots");
 
     assert_eq!(
@@ -2479,8 +2031,7 @@ fn schema_store_rejects_raw_snapshot_with_divergent_field_slots() {
 }
 
 #[test]
-fn schema_store_rejects_raw_snapshot_with_missing_primary_key_field() {
-    let mut store = SchemaStore::init_journaled(test_memory(247));
+fn persisted_schema_codec_rejects_raw_snapshot_with_missing_primary_key_field() {
     let base = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "RawMissingPk");
     let invalid = PersistedSchemaSnapshot::new(
         base.version(),
@@ -2492,15 +2043,7 @@ fn schema_store_rejects_raw_snapshot_with_missing_primary_key_field() {
     );
     let raw = encode_unchecked_persisted_schema_snapshot_for_tests(&invalid)
         .expect("invalid raw schema snapshot should encode for decode-boundary coverage");
-    let key = RawSchemaKey::from_entity_version(EntityTag::new(48), invalid.version());
-
-    store.insert_raw_snapshot(
-        key,
-        RawSchemaSnapshot::from_unchecked_persisted_snapshot_payload(raw),
-    );
-
-    let err = store
-        .latest_staged_persisted_snapshot(EntityTag::new(48))
+    let err = decode_persisted_schema_snapshot(&raw)
         .expect_err("raw decode should reject snapshots without the primary-key field");
 
     assert_eq!(
@@ -2511,8 +2054,7 @@ fn schema_store_rejects_raw_snapshot_with_missing_primary_key_field() {
 }
 
 #[test]
-fn schema_store_rejects_raw_snapshot_with_duplicate_field_name() {
-    let mut store = SchemaStore::init_journaled(test_memory(245));
+fn persisted_schema_codec_rejects_raw_snapshot_with_duplicate_field_name() {
     let base = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "DuplicateFieldName");
     let mut fields = base.fields().to_vec();
     let duplicate = PersistedFieldSnapshot::new_initial(
@@ -2537,15 +2079,7 @@ fn schema_store_rejects_raw_snapshot_with_duplicate_field_name() {
     );
     let raw = encode_unchecked_persisted_schema_snapshot_for_tests(&invalid)
         .expect("invalid raw schema snapshot should encode for decode-boundary coverage");
-    let key = RawSchemaKey::from_entity_version(EntityTag::new(50), invalid.version());
-
-    store.insert_raw_snapshot(
-        key,
-        RawSchemaSnapshot::from_unchecked_persisted_snapshot_payload(raw),
-    );
-
-    let err = store
-        .latest_staged_persisted_snapshot(EntityTag::new(50))
+    let err = decode_persisted_schema_snapshot(&raw)
         .expect_err("raw decode should reject duplicate field names");
 
     assert_eq!(
@@ -2556,8 +2090,7 @@ fn schema_store_rejects_raw_snapshot_with_duplicate_field_name() {
 }
 
 #[test]
-fn schema_store_rejects_typed_snapshot_with_empty_nested_leaf_path() {
-    let mut store = SchemaStore::init_journaled(test_memory(244));
+fn persisted_schema_codec_rejects_typed_snapshot_with_empty_nested_leaf_path() {
     let base = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "EmptyNestedLeaf");
     let mut fields = base.fields().to_vec();
     let invalid_field = PersistedFieldSnapshot::new_initial(
@@ -2585,20 +2118,18 @@ fn schema_store_rejects_typed_snapshot_with_empty_nested_leaf_path() {
         fields,
     );
 
-    let err = store
-        .insert_persisted_snapshot(EntityTag::new(51), &invalid)
-        .expect_err("schema store should reject empty nested leaf paths");
+    let err = encode_persisted_schema_snapshot(&invalid)
+        .expect_err("schema codec should reject empty nested leaf paths");
 
     assert_eq!(
         err.diagnostic_code(),
         icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
-        "schema store should report the empty nested leaf path"
+        "schema codec should report the empty nested leaf path"
     );
 }
 
 #[test]
-fn schema_store_rejects_raw_snapshot_with_duplicate_nested_leaf_path() {
-    let mut store = SchemaStore::init_journaled(test_memory(243));
+fn persisted_schema_codec_rejects_raw_snapshot_with_duplicate_nested_leaf_path() {
     let base = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "DuplicateNestedLeaf");
     let mut fields = base.fields().to_vec();
     let duplicate_leaves = vec![
@@ -2635,15 +2166,7 @@ fn schema_store_rejects_raw_snapshot_with_duplicate_nested_leaf_path() {
     );
     let raw = encode_unchecked_persisted_schema_snapshot_for_tests(&invalid)
         .expect("invalid raw schema snapshot should encode for decode-boundary coverage");
-    let key = RawSchemaKey::from_entity_version(EntityTag::new(52), invalid.version());
-
-    store.insert_raw_snapshot(
-        key,
-        RawSchemaSnapshot::from_unchecked_persisted_snapshot_payload(raw),
-    );
-
-    let err = store
-        .latest_staged_persisted_snapshot(EntityTag::new(52))
+    let err = decode_persisted_schema_snapshot(&raw)
         .expect_err("raw decode should reject duplicate nested leaf paths");
 
     assert_eq!(
@@ -2654,22 +2177,12 @@ fn schema_store_rejects_raw_snapshot_with_duplicate_nested_leaf_path() {
 }
 
 #[test]
-fn raw_schema_snapshot_encodes_and_decodes_typed_snapshot() {
-    let snapshot = persisted_schema_snapshot_for_test(SchemaVersion::initial(), "Encoded");
-
-    let raw = RawSchemaSnapshot::from_persisted_snapshot(&snapshot)
-        .expect("schema snapshot should encode");
-    let decoded = raw
-        .decode_persisted_snapshot()
-        .expect("schema snapshot should decode");
-
-    assert_eq!(decoded, snapshot);
-}
-
-#[test]
 fn positioned_schema_overlay_preserves_reinsert_until_exact_retirement() {
-    let key = RawSchemaKey::from_entity_version(EntityTag::new(229), SchemaVersion::initial());
-    let snapshot = |value| RawSchemaSnapshot::from_encoded_control_record(vec![value]);
+    let key = RawSchemaKey::from_constraint_validation_job(
+        EntityTag::new(229),
+        ConstraintId::new(1).unwrap(),
+    );
+    let snapshot = |value| RawSchemaValue::from_encoded_control_record(vec![value]);
     let mut store = SchemaStore::init_journaled(test_memory(232));
     let SchemaStoreBackend::Journaled { canonical, .. } = &mut store.backend else {
         panic!("positioned schema test requires a journaled store");
@@ -2696,7 +2209,7 @@ fn positioned_schema_overlay_preserves_reinsert_until_exact_retirement() {
     store.apply_prepared_journal_batch_retirement(prepared);
     assert_eq!(
         store
-            .get_raw_snapshot_for_backend(&key)
+            .get_raw_value_for_backend(&key)
             .expect("later schema value must remain visible")
             .as_bytes(),
         [33],
@@ -2716,7 +2229,7 @@ fn positioned_schema_overlay_preserves_reinsert_until_exact_retirement() {
     store.apply_prepared_journal_batch_retirement(prepared);
     assert_eq!(
         store
-            .get_raw_snapshot_for_backend(&key)
+            .get_raw_value_for_backend(&key)
             .expect("canonical schema value should remain visible")
             .as_bytes(),
         [33],
@@ -2726,15 +2239,17 @@ fn positioned_schema_overlay_preserves_reinsert_until_exact_retirement() {
 #[test]
 fn positioned_schema_retirement_ignores_canonical_only_keys_but_requires_overlay_provenance() {
     let position = overlay_position(1);
-    let positioned_key =
-        RawSchemaKey::from_entity_version(EntityTag::new(230), SchemaVersion::initial());
+    let positioned_key = RawSchemaKey::from_constraint_validation_job(
+        EntityTag::new(230),
+        ConstraintId::new(1).unwrap(),
+    );
     let canonical_only_key = RawSchemaKey::from_cardinality_count(
         CardinalityCountSlot::A,
         CardinalityCountDigest::for_entity(EntityTag::new(230)),
     );
     let positioned_without_overlay_key =
         RawSchemaKey::from_accepted_root_slot(0).expect("root slot should encode");
-    let snapshot = |value| RawSchemaSnapshot::from_encoded_control_record(vec![value]);
+    let snapshot = |value| RawSchemaValue::from_encoded_control_record(vec![value]);
     let mut store = SchemaStore::init_journaled(test_memory(231));
 
     let SchemaStoreBackend::Journaled {
@@ -2777,8 +2292,10 @@ fn positioned_schema_retirement_ignores_canonical_only_keys_but_requires_overlay
     assert!(!positions.is_positioned(&positioned_key));
     assert!(!positions.is_positioned(&positioned_without_overlay_key));
 
-    let missing_position_key =
-        RawSchemaKey::from_entity_version(EntityTag::new(231), SchemaVersion::initial());
+    let missing_position_key = RawSchemaKey::from_constraint_validation_job(
+        EntityTag::new(231),
+        ConstraintId::new(1).unwrap(),
+    );
     live.insert(missing_position_key, snapshot(33));
     let Err(error) = store.prepare_positioned_key_retirements([missing_position_key], position)
     else {
@@ -2786,76 +2303,6 @@ fn positioned_schema_retirement_ignores_canonical_only_keys_but_requires_overlay
     };
     assert_eq!(error.class(), ErrorClass::InvariantViolation);
     assert_eq!(error.origin(), ErrorOrigin::Store);
-}
-
-// Build one typed schema snapshot used by schema-store tests. The exact
-// field contracts are intentionally rich enough to cover nested metadata,
-// scalar codecs, and structural payloads through the raw store.
-fn assert_latest_schema(
-    store: &SchemaStore,
-    entity: EntityTag,
-    version: SchemaVersion,
-    entity_name: &str,
-) {
-    let latest = store
-        .latest_staged_persisted_snapshot(entity)
-        .expect("latest schema snapshot should decode")
-        .expect("latest schema snapshot should exist");
-
-    assert_eq!(latest.version(), version);
-    assert_eq!(latest.entity_name(), entity_name);
-}
-
-fn tombstone_journaled_raw_snapshot(
-    store: &mut SchemaStore,
-    entity: EntityTag,
-    version: SchemaVersion,
-) {
-    let key = RawSchemaKey::from_entity_version(entity, version);
-    let SchemaStoreBackend::Journaled { tombstones, .. } = &mut store.backend else {
-        panic!("schema tombstone test helper requires a journaled store");
-    };
-
-    tombstones.insert(key);
-}
-
-fn visit_journaled_schema_range(
-    store: &SchemaStore,
-    entity: EntityTag,
-    direction: Direction,
-    stop_after: usize,
-) -> Vec<(u32, String)> {
-    let SchemaStoreBackend::Journaled {
-        canonical,
-        live,
-        tombstones,
-        ..
-    } = &store.backend
-    else {
-        panic!("schema range test helper requires a journaled store");
-    };
-
-    let mut visited = Vec::new();
-    let _: Result<(), Infallible> = SchemaStore::visit_journaled_raw_snapshot_range(
-        canonical,
-        live,
-        tombstones,
-        RawSchemaKey::entity_range_bounds(entity),
-        direction,
-        |key, snapshot| {
-            let decoded = snapshot
-                .decode_persisted_snapshot()
-                .expect("visited schema snapshot should decode");
-            visited.push((key.version(), decoded.entity_name().to_string()));
-            Ok(if visited.len() >= stop_after {
-                SchemaStoreVisit::Stop
-            } else {
-                SchemaStoreVisit::Continue
-            })
-        },
-    );
-
-    visited
 }
 
 fn identity_candidate_for_test(
@@ -2917,7 +2364,7 @@ fn persisted_schema_snapshot_with_index_for_test(
     entity_name: &str,
     index_name: &str,
 ) -> PersistedSchemaSnapshot {
-    let base = persisted_schema_snapshot_for_test(version, entity_name);
+    let base = metadata_schema_snapshot_for_test(version, entity_name);
 
     PersistedSchemaSnapshot::new_with_indexes(
         base.version(),
@@ -2976,4 +2423,106 @@ fn persisted_schema_fields_for_test() -> Vec<PersistedFieldSnapshot> {
             LeafCodec::Structural,
         ),
     ]
+}
+
+// Use the same accepted publication authority as production storage reporting.
+fn publish_metadata_candidate(
+    store: &mut SchemaStore,
+    expected_revision: AcceptedSchemaRevision,
+    snapshots: impl IntoIterator<Item = (EntityTag, PersistedSchemaSnapshot)>,
+) {
+    let candidate = accepted_schema_candidate_for_tests(
+        "RoleSpecificStore",
+        expected_revision.checked_next().unwrap(),
+        snapshots.into_iter().collect(),
+    );
+    store
+        .publish_accepted_schema_candidate(
+            test_database_incarnation(),
+            expected_revision,
+            &candidate,
+        )
+        .unwrap();
+}
+
+#[test]
+fn schema_control_range_merges_ordered_live_values_and_tombstones() {
+    let entity = EntityTag::new(3);
+    let key =
+        |id| RawSchemaKey::from_constraint_validation_job(entity, ConstraintId::new(id).unwrap());
+    let value = |byte| RawSchemaValue::from_encoded_control_record(vec![byte]);
+    let mut store = SchemaStore::init_journaled(test_memory(234));
+    let SchemaStoreBackend::Journaled {
+        canonical,
+        live,
+        tombstones,
+        ..
+    } = &mut store.backend
+    else {
+        unreachable!()
+    };
+    canonical.insert(key(1), value(11));
+    canonical.insert(key(2), value(22));
+    canonical.insert(key(3), value(33));
+    tombstones.insert(key(1));
+    live.insert(key(2), value(44));
+    live.insert(key(4), value(55));
+    for direction in [Direction::Asc, Direction::Desc] {
+        let mut visited = Vec::new();
+        SchemaStore::visit_journaled_raw_value_range(
+            canonical,
+            live,
+            tombstones,
+            RawSchemaKey::all_constraint_validation_job_range_bounds(),
+            direction,
+            |key, value| {
+                visited.push((key.version(), value.as_bytes()[0]));
+                Ok::<_, Infallible>(if visited.len() == 2 {
+                    SchemaStoreVisit::Stop
+                } else {
+                    SchemaStoreVisit::Continue
+                })
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            visited,
+            match direction {
+                Direction::Asc => vec![(2, 44), (3, 33)],
+                Direction::Desc => vec![(4, 55), (3, 33)],
+            }
+        );
+    }
+}
+
+// Metadata fixtures use a complete scalar catalog, admitted by bundle closure.
+fn metadata_schema_snapshot_for_test(
+    version: SchemaVersion,
+    entity_name: &str,
+) -> PersistedSchemaSnapshot {
+    let base = persisted_schema_snapshot_for_test(version, entity_name);
+    PersistedSchemaSnapshot::new(
+        version,
+        base.entity_path().to_string(),
+        base.entity_name().to_string(),
+        FieldId::new(1),
+        SchemaRowLayout::initial(vec![(FieldId::new(1), SchemaFieldSlot::new(0))]),
+        base.fields()[..1].to_vec(),
+    )
+}
+
+#[test]
+fn allocation_metadata_reports_selected_authority_corruption() {
+    let (_, _, mut store) = catalog_selection_fixture();
+    assert!(store.allocation_metadata().unwrap().is_some());
+    let selection = store.current_accepted_schema_root().unwrap().unwrap();
+    store.insert_durable_raw_value(
+        RawSchemaKey::from_accepted_root_slot(selection.slot()).unwrap(),
+        vec![0xff],
+    );
+    let error = store
+        .allocation_metadata()
+        .expect_err("corrupt selected root must reject metadata derivation");
+    assert_eq!(error.class(), ErrorClass::Corruption);
+    assert_eq!(error.origin(), ErrorOrigin::Store);
 }

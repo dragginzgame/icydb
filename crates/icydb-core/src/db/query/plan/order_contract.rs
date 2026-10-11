@@ -12,9 +12,9 @@ use crate::{
         direction::Direction,
         query::{
             builder::scalar_projection::write_scalar_projection_expr_plan_label,
-            construction::ConstructionBudget,
             plan::{OrderDirection, OrderSpec},
         },
+        resource::construction::ConstructionBudget,
         schema::SchemaInfo,
     },
     error::InternalError,

@@ -11,7 +11,8 @@ use crate::{
             lower_exact_user_index_prefix_cardinality_keys_for_prefix_access,
         },
         executor::{
-            EntityAuthority, ExactCardinalityTarget, execute_exact_cardinality_for_canister,
+            AcceptedSchemaCatalogContext, EntityAuthority, ExactCardinalityTarget,
+            execute_exact_cardinality_for_canister,
         },
         index::UserIndexPrefixCardinalityKey,
         query::{
@@ -22,7 +23,6 @@ use crate::{
             preparation::PreparationWork,
         },
         schema::SchemaInfo,
-        session::AcceptedSchemaCatalogContext,
     },
     traits::CanisterKind,
 };

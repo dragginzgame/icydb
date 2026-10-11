@@ -7,7 +7,7 @@ use crate::{
     db::{
         DbSession, ExhaustiveReadError, ReadSetRevisionError, ReadSetRevisionProof,
         ReadSetStoreIdentity, ReadSetStoreRevision, StoreHandle, StoreRuntimeStorageMode,
-        commit::database_incarnation_id, executor::budget::HardExecutionContext,
+        commit::database_incarnation_id, resource::budget::HardExecutionContext,
     },
     traits::CanisterKind,
 };

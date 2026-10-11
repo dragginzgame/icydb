@@ -345,7 +345,7 @@ fn primary_ordered_index_merge_rejects_oversized_page_unit() {
 // Page size is two in this maintained session harness. A three-row budget
 // admits the page plus lookahead, but cannot admit rereading a consumed prefix.
 pub(super) fn bounded_secondary_request(rows: u64) -> RequestExecutionRoot {
-    use crate::db::executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom};
+    use crate::db::resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom};
     RequestExecutionRoot::new_for_tests(
         HardExecutionBudget::uniform_for_tests(
             16_000_000,

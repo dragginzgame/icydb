@@ -192,16 +192,17 @@ mod tests {
                 encode_journal_batch,
             },
             registry::StoreAllocationIdentity,
+            resource::request::RequestExecutionRoot,
             schema::{
-                SchemaApplicationRecord, SchemaApplicationRecordOp, SchemaChangeOutcome,
-                SchemaChangeReceipt, SchemaStore, apply_schema_application_record_op,
-                corrupt_schema_control_header_for_tests, generated_schema_authority,
-                load_schema_application_record_read_only,
+                ConstraintId, SchemaApplicationRecord, SchemaApplicationRecordOp,
+                SchemaChangeOutcome, SchemaChangeReceipt, SchemaStore,
+                apply_schema_application_record_op, corrupt_schema_control_header_for_tests,
+                generated_schema_authority, load_schema_application_record_read_only,
             },
-            session::RequestExecutionRoot,
         },
         testing::test_memory,
         traits::Path,
+        types::EntityTag,
     };
     use ic_memory::ic_stable_structures::Memory;
     use icydb_diagnostic_code::{ErrorCode, ErrorOrigin as DiagnosticOrigin};
@@ -705,8 +706,12 @@ mod tests {
         ensure_database_format_admitted(&format_database)
             .expect("current journal registry should initialize before corruption injection");
 
-        let record = JournalRecord::schema_put(JOURNAL_RECOVERY_FAILURE_STORE_PATH, vec![0xff; 8])
-            .expect("syntactically bounded schema record should build");
+        let record = JournalRecord::constraint_validation_job_delete(
+            JOURNAL_RECOVERY_FAILURE_STORE_PATH,
+            EntityTag::new(1),
+            ConstraintId::new(1).unwrap(),
+        )
+        .expect("syntactically bounded control record should build");
         let batch = JournalBatch::new(
             [0x22; 16],
             [0x28; 16],
@@ -755,9 +760,12 @@ mod tests {
         );
         assert_eq!(drive(), GeneratedStartupDriverStep::Terminal);
 
-        let changed_record =
-            JournalRecord::schema_put(JOURNAL_RECOVERY_FAILURE_STORE_PATH, vec![0xfe; 8])
-                .expect("changed semantic-corruption record should build");
+        let changed_record = JournalRecord::constraint_validation_job_delete(
+            JOURNAL_RECOVERY_FAILURE_STORE_PATH,
+            EntityTag::new(2),
+            ConstraintId::new(1).unwrap(),
+        )
+        .expect("changed semantic-corruption record should build");
         let changed_batch = JournalBatch::new(
             [0x23; 16],
             [0x29; 16],

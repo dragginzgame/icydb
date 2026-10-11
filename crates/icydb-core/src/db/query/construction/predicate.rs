@@ -3,7 +3,7 @@
 
 use crate::db::{
     predicate::{CompareFieldsPredicate, ComparePredicate, Predicate},
-    query::construction::ConstructionBudget,
+    resource::construction::ConstructionBudget,
 };
 use crate::error::InternalError;
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;

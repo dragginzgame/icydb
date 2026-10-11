@@ -16,12 +16,12 @@ use crate::{
         predicate::{Predicate, hash_predicate as hash_model_predicate},
         query::{
             builder::scalar_projection::write_scalar_projection_expr_plan_label,
-            construction::ConstructionBudget,
             fingerprint::projection_hash::{
                 admission::admit_expr_hash, hash_scalar_filter_expr_structural_fingerprint,
             },
             plan::{OrderDirection, OrderSpec, QueryMode, expr::Expr},
         },
+        resource::construction::ConstructionBudget,
     },
     error::InternalError,
     value::{Value, fingerprint_value},

@@ -30,6 +30,50 @@ FIELD_PROJECTION_RUNTIME_FILES=(
 
 status=0
 
+# Resource primitives are shared by lower layers. Keep policy/counters free of
+# semantic frontend types; consumers own their plan, expression and row adapters.
+resource_frontend_edges="$(
+  run_rg '(executor|query|session|sql)::' "$DB_ROOT/resource" | strip_comment_only
+)"
+if [[ -n "$resource_frontend_edges" ]]; then
+  echo "[ERROR] Resource accounting must not depend on semantic frontend owners." >&2
+  echo "$resource_frontend_edges" >&2
+  status=1
+fi
+
+# Schema owns accepted semantics and publication; SQL owns syntax lowering.
+schema_frontend_edges="$(
+  run_rg '(sql|parser)::' "$DB_ROOT/schema/check/bind.rs" \
+    "$DB_ROOT/schema/publication.rs" "$DB_ROOT/schema/publication" | strip_comment_only
+)"
+if [[ -n "$schema_frontend_edges" ]]; then
+  echo "[ERROR] Schema check binding and publication must consume catalog-native contracts." >&2
+  echo "$schema_frontend_edges" >&2
+  status=1
+fi
+
+mutation_frontend_edges="$(
+  run_rg '(session|sql)::' "$DB_ROOT/executor/mutation/structural.rs" \
+    "$DB_ROOT/executor/mutation/job.rs" "$DB_ROOT/executor/authority/catalog.rs" | strip_comment_only
+)"
+if [[ -n "$mutation_frontend_edges" ]]; then
+  echo "[ERROR] Compiled authority and structural mutation execution must not depend on frontends." >&2
+  echo "$mutation_frontend_edges" >&2
+  status=1
+fi
+
+# Frontends adapt their own failure types; query taxonomy and logical EXPLAIN
+# must not acquire SQL parser or executor shell dependencies.
+query_adapter_edges="$(
+  run_rg '(sql|executor)::' "$DB_ROOT/query/intent/errors" \
+    "$DB_ROOT/query/explain/plan.rs" | strip_comment_only
+)"
+if [[ -n "$query_adapter_edges" ]]; then
+  echo "[ERROR] Query error and logical EXPLAIN owners must not depend on frontend/executor adapters." >&2
+  echo "$query_adapter_edges" >&2
+  status=1
+fi
+
 # -----------------------------------------------------------------------------
 # Strict semantic authority checks (fail on violation).
 # -----------------------------------------------------------------------------

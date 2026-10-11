@@ -23,12 +23,10 @@ use crate::error::InternalError;
 use crate::{
     db::{
         DbSession, QueryError,
-        session::{
-            AcceptedSchemaCatalogContext,
-            sql::{
-                CompiledSqlCommand, SqlCompiledCommandExecutionContext, SqlCompiledCommandSurface,
-                SqlStatementResult,
-            },
+        executor::AcceptedSchemaCatalogContext,
+        session::sql::{
+            CompiledSqlCommand, SqlCompiledCommandExecutionContext, SqlCompiledCommandSurface,
+            SqlStatementResult,
         },
     },
     traits::CanisterKind,

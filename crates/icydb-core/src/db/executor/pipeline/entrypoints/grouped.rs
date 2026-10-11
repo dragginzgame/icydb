@@ -16,14 +16,16 @@ use crate::{
                 build_grouped_stream_with_runtime, execute_group_fold_stage,
                 try_execute_grouped_count_metadata,
             },
-            budget::{
-                charge_current_execution_budget, charge_runtime_grouped_rows,
-                prepared_read_execution_context, runtime_value_work, with_read_execution_budget,
+            budget::{charge_runtime_grouped_rows, prepared_read_execution_context},
+            pipeline::{
+                contracts::{ExecutionRuntimeAdapter, GroupedCursorPage, GroupedRouteStage},
+                grouped_runtime::resolve_grouped_route_for_plan,
+                runtime::{GroupedStreamStage, StructuralGroupedRowRuntime},
             },
-            pipeline::contracts::{ExecutionRuntimeAdapter, GroupedCursorPage, GroupedRouteStage},
-            pipeline::grouped_runtime::resolve_grouped_route_for_plan,
-            pipeline::runtime::{GroupedStreamStage, StructuralGroupedRowRuntime},
             stream::access::TraversalRuntime,
+        },
+        resource::budget::{
+            charge_current_execution_budget, runtime_value_work, with_read_execution_budget,
         },
         schema::cardinality_generation::CardinalityAcceptedRootIdentity,
     },
@@ -300,7 +302,7 @@ mod tests {
             QueryError,
             cursor::{ContinuationSignature, GroupedContinuationToken, encode_cursor},
             direction::Direction,
-            executor::budget::{
+            resource::budget::{
                 HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
                 with_query_execution_budget_for_tests,
             },

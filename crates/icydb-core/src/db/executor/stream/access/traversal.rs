@@ -9,7 +9,6 @@ use crate::{
         executor::{
             ExecutableAccessNode, ExecutableAccessPlan, ExecutionPathPayload, IndexScan,
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-            budget::charge_current_execution_budget,
             lowered_index_prefix_exact_cardinalities_for_admitted_root,
             pipeline::contracts::{AccessScanContinuationInput, AccessStreamBindings},
             route::IndexPrefixChildExpansionHint,
@@ -30,6 +29,7 @@ use crate::{
         },
         index::predicate::IndexPredicateExecution,
         integrity::DatabaseIncarnationId,
+        resource::budget::charge_current_execution_budget,
         schema::cardinality_generation::CardinalityAcceptedRootIdentity,
     },
     error::InternalError,

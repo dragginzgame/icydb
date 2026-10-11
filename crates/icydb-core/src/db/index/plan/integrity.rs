@@ -16,7 +16,7 @@ use crate::{
         },
         key_taxonomy::PrimaryKeyValue,
         predicate::PredicateProgram,
-        query::construction::ConstructionBudget,
+        resource::construction::ConstructionBudget,
         schema::{
             AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, PersistedIndexKeySnapshot,
             SchemaExpressionIndexInfo, SchemaIndexId, SchemaIndexInfo,

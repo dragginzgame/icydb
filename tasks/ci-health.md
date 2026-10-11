@@ -13,6 +13,9 @@ Review existing issues, discussions and linked PRs for those findings. Check
 active ownership before proposing new work. Close an issue only when its actual
 completion criteria and consumer adoption are supported by current evidence.
 An upstream fix alone does not prove downstream adoption.
+Apply the maintenance procedure's delivery reconciliation: close verified
+consumer issues and report their exact source/check evidence to linked Shared
+trackers. Leave unmet native checks and explicit fleet obligations open.
 
 Return failing job, tested SHA, run URL, concrete error and smallest next action,
 plus a short ordered list of actionable issues. An unchanged known failure needs

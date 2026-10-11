@@ -12,7 +12,7 @@ use crate::{
         index::next_text_prefix,
         numeric::compare_numeric_or_strict_order,
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
-        query::construction::ConstructionBudget,
+        resource::construction::ConstructionBudget,
         schema::{FieldType, SchemaInfo, literal_matches_type},
     },
     error::InternalError,

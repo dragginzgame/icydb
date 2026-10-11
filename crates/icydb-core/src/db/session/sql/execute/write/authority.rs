@@ -8,16 +8,13 @@ use crate::{
     db::{
         DbSession, QueryError,
         data::{AcceptedMutationIntentPatch, FieldSlot},
-        executor::EntityAuthority,
+        executor::{AcceptedSchemaCatalogContext, EntityAuthority},
         schema::{
             AcceptedFieldKind, AcceptedRowLayoutRuntimeContract, SchemaFieldWritePolicy,
             SchemaInfo, ValidateError, input_value_from_sql_assignment_result_for_persisted_kind,
             input_value_from_strict_sql_literal_for_persisted_kind,
         },
-        session::{
-            AcceptedSchemaCatalogContext,
-            sql::execute::write_returning::validate_sql_returning_projection_fields,
-        },
+        session::sql::execute::write_returning::validate_sql_returning_projection_fields,
         sql::parser::SqlReturningProjection,
     },
     traits::CanisterKind,

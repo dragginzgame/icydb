@@ -3,7 +3,7 @@
 use std::fmt::{self, Write};
 
 use crate::{
-    db::query::construction::ConstructionBudget, error::InternalError,
+    db::resource::construction::ConstructionBudget, error::InternalError,
     value::decimal::ValueFormatWriter,
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;

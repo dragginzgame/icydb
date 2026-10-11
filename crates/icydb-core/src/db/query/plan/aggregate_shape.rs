@@ -4,12 +4,12 @@
 //! Boundary: builder and logical-plan wrappers choose their own equality over this raw shape.
 
 use crate::{
-    db::query::{
-        construction::ConstructionBudget,
-        plan::{
+    db::{
+        query::plan::{
             expr::{Expr, FieldId, canonicalize_aggregate_input_expr},
             model::AggregateKind,
         },
+        resource::construction::ConstructionBudget,
     },
     error::InternalError,
 };

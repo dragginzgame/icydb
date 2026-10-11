@@ -4,7 +4,6 @@ use crate::{
     db::{
         access::{SemanticIndexAccessContract, SemanticIndexKeyItemRef},
         predicate::{CoercionId, CompareOp, Predicate},
-        query::construction::ConstructionBudget,
         query::plan::{
             access_choice::model::{AccessChoiceRejectedReason, RangeFieldConstraint},
             field_key_contract_supports_operator,
@@ -14,6 +13,7 @@ use crate::{
             },
             planner::index_literal_matches_schema,
         },
+        resource::construction::ConstructionBudget,
         schema::SchemaInfo,
     },
     error::InternalError,

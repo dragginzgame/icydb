@@ -11,10 +11,10 @@ use crate::{
     db::{
         executor::{
             AccessStreamExecutionPolicy, ExecutionRoutePlan,
-            budget::ExecutionConstructionBudget,
             pipeline::{contracts::ResolvedExecutionKeyStream, runtime::ExecutionAttemptKernel},
         },
         index::{IndexCompilePolicy, predicate::IndexPredicateExecution},
+        resource::budget::ExecutionConstructionBudget,
     },
     error::InternalError,
 };

@@ -4,7 +4,6 @@ use super::*;
 use crate::{
     db::{
         RequestExecutionRoot, count, count_by,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         query::{
             builder::AggregateExpr,
             plan::{
@@ -13,6 +12,7 @@ use crate::{
             },
             preparation::with_preparation_work,
         },
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     },
     types::Decimal,
     value::Value,

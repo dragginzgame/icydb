@@ -2,12 +2,12 @@
 //! Does not change encoding semantics or persisted-intent admission policy.
 
 use crate::{
-    db::query::{
-        construction::ConstructionBudget,
-        plan::{
+    db::{
+        query::plan::{
             AggregateSemanticKeyRef,
             expr::{Expr, ProjectionSpec},
         },
+        resource::construction::ConstructionBudget,
     },
     error::InternalError,
 };

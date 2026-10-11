@@ -1,4 +1,4 @@
-//! Module: schema::sql_ddl::constraint
+//! Module: schema::publication::constraint
 //! Responsibility: SQL DDL constraint candidate construction and publication.
 //! Does not own: SQL syntax binding or catalog persistence mechanics.
 //! Boundary: applies bound constraint requests through accepted-schema transitions.
@@ -8,29 +8,88 @@ use crate::{
         commit::publish_accepted_schema_candidate,
         registry::StoreHandle,
         schema::{
-            AcceptedCatalogIdentity, AcceptedSchemaRevision, AcceptedSchemaRevisionBundle,
-            AcceptedSchemaSnapshot, ConstraintOrigin, SchemaVersion,
-            sql_ddl::{candidate_with_snapshot, publish_sql_ddl_constraint_removal},
+            AcceptedCatalogIdentity, AcceptedCheckExprV1, AcceptedSchemaRevision,
+            AcceptedSchemaRevisionBundle, AcceptedSchemaSnapshot, ConstraintId, ConstraintOrigin,
+            PersistedIndexSnapshot, SchemaVersion,
+            publication::{candidate_with_snapshot, publish_sql_ddl_constraint_removal},
             validate_unpublished_check_candidate_exact,
-        },
-        sql::ddl::{
-            BoundSqlAddCheckConstraintRequest, BoundSqlCreateIndexRequest,
-            BoundSqlDropConstraintRequest, BoundSqlDropIndexRequest,
         },
     },
     error::InternalError,
     types::EntityTag,
 };
 
+/// Accepted-catalog-bound `ADD CONSTRAINT ... CHECK` request.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct SchemaAddCheckRequest {
+    pub(in crate::db) entity_name: String,
+    pub(in crate::db) constraint_name: String,
+    pub(in crate::db) expression: AcceptedCheckExprV1,
+    pub(in crate::db) not_valid: bool,
+}
+
+impl SchemaAddCheckRequest {
+    #[must_use]
+    pub(in crate::db) const fn entity_name(&self) -> &str {
+        self.entity_name.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn constraint_name(&self) -> &str {
+        self.constraint_name.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn expression(&self) -> &AcceptedCheckExprV1 {
+        &self.expression
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn not_valid(&self) -> bool {
+        self.not_valid
+    }
+}
+
+/// Accepted-catalog-bound check removal request.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(in crate::db) struct SchemaDropConstraintRequest {
+    pub(in crate::db) entity_name: String,
+    pub(in crate::db) constraint_name: String,
+    pub(in crate::db) constraint_id: ConstraintId,
+    pub(in crate::db) activation: bool,
+}
+
+impl SchemaDropConstraintRequest {
+    #[must_use]
+    pub(in crate::db) const fn entity_name(&self) -> &str {
+        self.entity_name.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn constraint_name(&self) -> &str {
+        self.constraint_name.as_str()
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn constraint_id(&self) -> ConstraintId {
+        self.constraint_id
+    }
+
+    #[must_use]
+    pub(in crate::db) const fn is_activation(&self) -> bool {
+        self.activation
+    }
+}
+
 /// Publish one SQL-DDL check as either a write-gated activation or an exactly
 /// validated accepted constraint.
-pub(in crate::db) fn execute_admin_sql_ddl_check_addition(
+pub(in crate::db) fn execute_schema_check_addition(
     store: StoreHandle,
     entity_tag: EntityTag,
     entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
-    request: &BoundSqlAddCheckConstraintRequest,
+    request: &SchemaAddCheckRequest,
     next_schema_version: SchemaVersion,
 ) -> Result<(usize, crate::db::schema::ConstraintId), InternalError> {
     let (current_revision, current_fingerprint, current) = current_sql_ddl_bundle(
@@ -107,16 +166,16 @@ pub(in crate::db) fn execute_admin_sql_ddl_check_addition(
 }
 
 /// Reserve one SQL-DDL unique index as a planner-invisible activation.
-pub(in crate::db) fn execute_admin_sql_ddl_unique_index_activation(
+pub(in crate::db) fn execute_schema_unique_index_activation(
     store: StoreHandle,
     entity_tag: EntityTag,
     entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
-    request: &BoundSqlCreateIndexRequest,
+    candidate_index: &PersistedIndexSnapshot,
     next_schema_version: SchemaVersion,
 ) -> Result<crate::db::schema::ConstraintId, InternalError> {
-    if !request.candidate_index().unique() {
+    if !candidate_index.unique() {
         return Err(InternalError::store_invariant());
     }
     let (current_revision, current_fingerprint, current) = current_sql_ddl_bundle(
@@ -134,9 +193,9 @@ pub(in crate::db) fn execute_admin_sql_ddl_unique_index_activation(
         .entity_snapshots()
         .get(&entity_tag)
         .ok_or_else(InternalError::store_corruption)?;
-    let candidate = request.candidate_index().clone_with_schema_identity(
-        request.candidate_index().schema_id(),
-        request.candidate_index().ordinal(),
+    let candidate = candidate_index.clone_with_schema_identity(
+        candidate_index.schema_id(),
+        candidate_index.ordinal(),
         activation_epoch,
     );
     let after = before
@@ -148,7 +207,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_unique_index_activation(
         .constraint_catalog()
         .activations()
         .iter()
-        .find(|activation| activation.name() == request.candidate_index().name())
+        .find(|activation| activation.name() == candidate_index.name())
         .map(crate::db::schema::ConstraintActivationSnapshot::id)
         .ok_or_else(InternalError::store_invariant)?;
     let candidate = candidate_with_snapshot(&current, entity_tag, &after)?;
@@ -162,18 +221,16 @@ pub(in crate::db) fn execute_admin_sql_ddl_unique_index_activation(
 }
 
 /// Abort one SQL-DDL unique-index activation and remove its isolated owner.
-pub(in crate::db) fn execute_admin_sql_ddl_unique_index_activation_abort(
+pub(in crate::db) fn execute_schema_unique_index_activation_abort(
     store: StoreHandle,
     entity_tag: EntityTag,
     entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
-    request: &BoundSqlDropIndexRequest,
+    removal: (ConstraintId, &PersistedIndexSnapshot),
     next_schema_version: SchemaVersion,
 ) -> Result<(), InternalError> {
-    let constraint_id = request
-        .pending_activation_id()
-        .ok_or_else(InternalError::store_invariant)?;
+    let (constraint_id, dropped_index) = removal;
     let (current_revision, _current_fingerprint, current) = current_sql_ddl_bundle(
         store,
         entity_tag,
@@ -185,7 +242,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_unique_index_activation_abort(
         .entity_snapshots()
         .get(&entity_tag)
         .ok_or_else(InternalError::store_corruption)?;
-    if !before.candidate_indexes().contains(request.dropped_index()) {
+    if !before.candidate_indexes().contains(dropped_index) {
         return Err(InternalError::schema_ddl_publication_race_lost());
     }
     let activation_state = before
@@ -210,13 +267,13 @@ pub(in crate::db) fn execute_admin_sql_ddl_unique_index_activation_abort(
 
 /// Drop or abort one SQL-DDL-owned check through the same marker-owned schema
 /// publication boundary as activation progress.
-pub(in crate::db) fn execute_admin_sql_ddl_check_drop(
+pub(in crate::db) fn execute_schema_check_drop(
     store: StoreHandle,
     entity_tag: EntityTag,
     entity_path: &str,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
-    request: &BoundSqlDropConstraintRequest,
+    request: &SchemaDropConstraintRequest,
     next_schema_version: SchemaVersion,
 ) -> Result<(), InternalError> {
     let (current_revision, _current_fingerprint, current) = current_sql_ddl_bundle(

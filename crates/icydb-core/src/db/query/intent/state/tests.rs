@@ -8,7 +8,7 @@ use crate::{
 fn rejected_filter_extraction_preserves_existing_intent() {
     use crate::db::{
         RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     };
     use icydb_diagnostic_code::{
         DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane, DiagnosticFactTag,

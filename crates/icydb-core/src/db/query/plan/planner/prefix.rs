@@ -17,7 +17,6 @@ use crate::{
             SemanticIndexKeyItemRef,
         },
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
-        query::construction::ConstructionBudget,
         query::plan::{
             OrderDirection, OrderSpec,
             key_item_match::{
@@ -31,6 +30,7 @@ use crate::{
                 index_literal_matches_schema,
             },
         },
+        resource::construction::ConstructionBudget,
         schema::SchemaInfo,
     },
     error::InternalError,

@@ -5,8 +5,9 @@
 
 use crate::{
     db::{
-        DbSession, QueryError, executor::SharedPreparedExecutionPlan,
-        session::AcceptedSchemaCatalogContext, sql::lowering::SqlGlobalAggregateCommand,
+        DbSession, QueryError,
+        executor::{AcceptedSchemaCatalogContext, SharedPreparedExecutionPlan},
+        sql::lowering::SqlGlobalAggregateCommand,
     },
     traits::CanisterKind,
 };

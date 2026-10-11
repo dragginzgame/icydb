@@ -2,9 +2,9 @@
 //! Canonical meaning and structural equality stay with the semantic-key owner.
 
 use crate::{
-    db::query::{
-        construction::ConstructionBudget,
-        plan::{AggregateSemanticKeyRef, expr::Expr},
+    db::{
+        query::plan::{AggregateSemanticKeyRef, expr::Expr},
+        resource::construction::ConstructionBudget,
     },
     error::InternalError,
 };

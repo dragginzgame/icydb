@@ -267,7 +267,10 @@ Consumer choices described in those guides remain subject to this baseline.
   Squash/rebase merges require fresh complete validation of the exact merged
   commit with the unchanged prepared tree. Late evidence checks use
   `RELEASE_COMMIT`, which may precede HEAD. Select unfinished intent before
-  computing another increment; stop for identity, payload, destination or concurrency conflicts.
+  computing another increment. A newer clean descendant commit can supersede
+  direct preparation before staging: archive its local-metadata-only intent,
+  select the requested increment from current metadata, and repeat preflight and
+  complete validation. Stop for identity, payload, destination or concurrency conflicts.
   Do not force-push, overwrite tags, silently bump again or add implicit package
   publication, deployment or post-release cleanup.
 

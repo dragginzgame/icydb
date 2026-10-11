@@ -5,8 +5,8 @@
 
 use crate::{
     db::{
-        data::DecodedDataStoreKey,
-        executor::{budget::charge_current_execution_budget, stream::key::KeyOrderComparator},
+        data::DecodedDataStoreKey, executor::stream::key::KeyOrderComparator,
+        resource::budget::charge_current_execution_budget,
     },
     error::InternalError,
 };

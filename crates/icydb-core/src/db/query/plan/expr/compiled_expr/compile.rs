@@ -10,7 +10,6 @@ use crate::{
         QueryError,
         query::{
             builder::AggregateExpr,
-            construction::ConstructionBudget,
             plan::{
                 AggregateSemanticKeyRef, GroupedAggregateExecutionSpec,
                 expr::{
@@ -19,6 +18,7 @@ use crate::{
                 },
             },
         },
+        resource::construction::ConstructionBudget,
         schema::SchemaInfo,
     },
     error::InternalError,

@@ -5,6 +5,9 @@
 
 pub(super) mod commit_window;
 mod constraint_scheduler;
+#[cfg(feature = "sql")]
+pub(in crate::db) mod job;
+pub(in crate::db) mod structural;
 
 pub(in crate::db) use commit_window::{
     MAX_MUTATION_PROGRESS_BATCH_ROWS_AT_MAX_INDEX_FANOUT,

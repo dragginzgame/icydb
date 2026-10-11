@@ -5,7 +5,6 @@ use crate::db::query::preparation::with_preparation_work;
 use crate::{
     db::{
         RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         predicate::{MissingRowPolicy, Predicate},
         query::{
             admission::input::MAX_QUERY_INPUT_DEPTH,
@@ -16,6 +15,7 @@ use crate::{
                 expr::{BinaryOp, CaseWhenArm, Expr, FieldPath},
             },
         },
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         schema::AcceptedFieldKind,
     },
     value::Value,

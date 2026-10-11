@@ -5,7 +5,6 @@ use crate::{
     db::{
         access::AccessPlan,
         query::{
-            construction::ConstructionBudget,
             fingerprint::hash_sections::{
                 ACCESS_TAG_BY_KEY, ACCESS_TAG_BY_KEYS, ACCESS_TAG_FULL_SCAN,
                 ACCESS_TAG_INDEX_BRANCH_SET, ACCESS_TAG_INDEX_MULTI_LOOKUP,
@@ -15,6 +14,7 @@ use crate::{
             },
             plan::{AccessPlanProjection, project_access_plan},
         },
+        resource::construction::ConstructionBudget,
     },
     error::InternalError,
     value::Value,

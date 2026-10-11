@@ -587,8 +587,8 @@ fn parse_sql_predicate_keeps_source_admission_independent_of_flat_output() {
 #[test]
 fn parse_sql_predicate_flat_or_has_the_membership_canonical_identity() {
     use crate::db::{
-        executor::budget::MaintenanceConstructionBudget,
         predicate::{normalize, predicate_fingerprint_normalized},
+        resource::budget::MaintenanceConstructionBudget,
     };
 
     let disjunction = normalize(

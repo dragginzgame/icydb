@@ -1,7 +1,7 @@
 //! Maintenance counters are explicit, cumulative, and fail closed before handoff.
 
 use super::*;
-use crate::db::query::construction::ConstructionBudget;
+use crate::db::resource::construction::ConstructionBudget;
 use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag};
 use std::convert::identity;
 

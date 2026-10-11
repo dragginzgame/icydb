@@ -9,9 +9,7 @@ use crate::{
         direction::Direction,
         executor::{
             AccessWindow, EntityAuthority, IndexComponentRows, PrefixSetMergeSafety,
-            apply_offset_limit_window,
-            budget::charge_current_execution_budget,
-            expand_index_prefix_family_with_exact_child_prefixes,
+            apply_offset_limit_window, expand_index_prefix_family_with_exact_child_prefixes,
             lowered_index_prefix_exact_cardinalities,
             lowered_index_prefix_family_has_ready_generation,
             projection::covering::contracts::{
@@ -26,6 +24,7 @@ use crate::{
         },
         index::predicate::IndexPredicateExecution,
         registry::StoreHandle,
+        resource::budget::charge_current_execution_budget,
         schema::cardinality_generation::CardinalityAcceptedRootIdentity,
     },
     error::InternalError,

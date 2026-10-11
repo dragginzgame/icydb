@@ -162,7 +162,6 @@ pub(in crate::db) const fn classify_journal_overlay(
     match record {
         JournalRecord::RowPut { .. } => OnlineOverlayDecision::DataPositive,
         JournalRecord::RowDelete { .. } => OnlineOverlayDecision::DataTombstone,
-        JournalRecord::SchemaPut { .. } => OnlineOverlayDecision::SchemaPositive,
         JournalRecord::AcceptedSchemaPublish { .. } => OnlineOverlayDecision::SchemaPositive,
         JournalRecord::AcceptedSchemaIndexDelete { .. } => OnlineOverlayDecision::IndexTombstone,
         JournalRecord::AcceptedSchemaIndexPut { .. } => OnlineOverlayDecision::IndexPositive,

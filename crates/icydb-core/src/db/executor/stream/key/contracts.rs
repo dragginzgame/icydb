@@ -6,17 +6,15 @@
 use crate::{
     db::{
         data::{DecodedDataStoreKey, RawRow, StoreVisit},
-        executor::{
-            budget::charge_current_execution_budget,
-            stream::{
-                FlatMergeSiblingSet,
-                access::{IndexRangeKeyStream, PrimaryRangeKeyStream},
-                key::{
-                    ConcatOrderedKeyStream, DistinctOrderedKeyStream, FlatMergeOrderedKeyStream,
-                    IntersectOrderedKeyStream, KeyOrderComparator, MergeOrderedKeyStream,
-                },
+        executor::stream::{
+            FlatMergeSiblingSet,
+            access::{IndexRangeKeyStream, PrimaryRangeKeyStream},
+            key::{
+                ConcatOrderedKeyStream, DistinctOrderedKeyStream, FlatMergeOrderedKeyStream,
+                IntersectOrderedKeyStream, KeyOrderComparator, MergeOrderedKeyStream,
             },
         },
+        resource::budget::charge_current_execution_budget,
     },
     error::InternalError,
 };

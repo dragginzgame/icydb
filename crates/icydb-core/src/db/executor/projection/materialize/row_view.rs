@@ -3,7 +3,7 @@
 //! Does not own: projection evaluation, DISTINCT key storage, or DTO shaping.
 //! Boundary: owns projected values retained by DISTINCT or final output.
 
-use crate::{db::executor::budget::runtime_value_work, value::Value};
+use crate::{db::resource::budget::runtime_value_work, value::Value};
 
 ///
 /// RowView

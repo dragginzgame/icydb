@@ -66,6 +66,28 @@ entity's snapshot or job. Readiness does not bypass SQL validation or promotion.
 IcyDB has no non-strict entity or table mode. There is no trusted row-write
 bypass that disables accepted-schema validation.
 
+Session and SQL frontends lower structural intents into the sole
+[structural mutation coordinator](../../crates/icydb-core/src/db/executor/mutation/structural.rs).
+It borrows compiled accepted catalog authority and owns identity allocation,
+after-image resolution, exact staged-byte admission, constraint scheduling and
+atomic commit. Frontend callbacks prepare results or durable progress before
+publication; they do not introduce a separate mutation executor.
+
+Durable mutation jobs use the existing
+[executor mutation-job engine](../../crates/icydb-core/src/db/executor/mutation/job.rs)
+for accepted fixed-patch eligibility, checkpoint encoding, bounded Forward/Verify
+scans and atomic progress. SQL owns syntax and policy preparation only. Session
+owns job admission, exact replay and current runtime-root/cache lookup; the engine
+requests that authority at the existing validation point. It calls the same
+structural coordinator directly. Job limits, policy identity, timestamps and
+current retained intent/continuation bytes are unchanged by this ownership move.
+
+SQL CHECK syntax lowers to the existing schema-owned check input and binder,
+also used by generated source checks. Catalog publication consumes accepted
+expressions, snapshots and constraint identities rather than SQL parser or
+request objects. SQL provenance remains the maintained constraint lifecycle
+fact; it is not a second semantic authority.
+
 Mutation field diagnostics (`E185` missing required field, `E221` explicit
 database-owned field) carry the accepted-schema fingerprint method and both
 64-bit fingerprint halves, entity tag, field ID and mutation operation.

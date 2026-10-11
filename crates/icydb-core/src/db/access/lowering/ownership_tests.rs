@@ -9,11 +9,11 @@ use crate::{
             SemanticIndexAccessContract, SemanticIndexKeyItem,
             path::SemanticIndexAccessContractInner,
         },
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         index::{
             EncodedValue, IndexId, IndexKeyKind, build_index_prefix_bounds_for_encoded_components,
         },
         query::preparation::{PreparationWork, with_preparation_work},
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     },
     retained::RetainedBytes,
     types::EntityTag,

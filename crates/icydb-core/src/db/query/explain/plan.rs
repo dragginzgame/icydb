@@ -13,7 +13,6 @@ use crate::{
     db::QueryError,
     db::{
         access::AccessPlan,
-        executor::SharedPreparedExecutionPlan,
         predicate::{CoercionSpec, CompareOp, MissingRowPolicy},
         query::{
             builder::scalar_projection::write_scalar_projection_expr_plan_label,
@@ -824,23 +823,11 @@ pub enum ExplainDeleteLimit {
     Window { limit: Option<u32>, offset: u32 },
 }
 
-impl SharedPreparedExecutionPlan {
-    /// Project a finalized shared plan without rebuilding its execution facts.
-    /// The session must establish current authority and cache validity before
-    /// calling; this operation owns diagnostic construction only.
-    pub(in crate::db) fn explain(
-        &self,
-        work: &PreparationWork<'_>,
-    ) -> Result<ExplainPlan, QueryError> {
-        self.logical_plan().project_explain(work)
-    }
-}
-
 impl AccessPlannedQuery {
     /// Produce a stable, deterministic explanation of this logical plan.
     /// Diagnostic construction consumes the caller's existing request budget;
     /// it never mutates the borrowed plan or resets that budget on cache hits.
-    pub(in crate::db::query) fn project_explain(
+    pub(in crate::db) fn project_explain(
         &self,
         work: &PreparationWork<'_>,
     ) -> Result<ExplainPlan, QueryError> {

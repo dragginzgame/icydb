@@ -5,11 +5,11 @@ use crate::db::query::preparation::with_preparation_work as with_work;
 use crate::db::{
     RequestExecutionRoot,
     access::{AccessPlan, SemanticIndexAccessContract, SemanticIndexRangeSpec},
-    executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     query::{
         explain::{ExplainAccessPath, explain_access_plan},
         preparation::PreparationWork,
     },
+    resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
 };
 use crate::value::Value;
 use icydb_diagnostic_code::{

@@ -339,6 +339,12 @@ GitHub destinations require explicit authorization. Remove broader local issue
 permissions when adopting this rule, and refresh scheduled prompts that repeat
 them. Reporting an issue neither applies the upstream fix nor verifies consumer
 adoption; broad validation authority stays unchanged.
+After delivering the adoption, apply that rule's issue reconciliation: record
+the exact consumer commit, Shared revision and required validation evidence in
+the consumer's owning issue, close it when its criteria are met, and update the
+linked Shared tracker. Consumers still awaiting required CI remain open. This is
+part of the agent's adoption/maintenance pass, not a GitHub auto-close-on-push
+workflow or authorization to dispatch CI or start a schedule.
 
 Consumers using the maintenance rule's exact-commit CI inspection command also
 refresh `scripts/dev/gh-ci.sh` from that reviewed revision. It remains a read-only

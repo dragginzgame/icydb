@@ -9,7 +9,7 @@ use super::{
     prepare_accepted_schema_root_publication, select_current_accepted_schema_root,
 };
 use crate::{
-    db::{database_format::crc32c, executor::budget::MaintenanceConstructionBudget},
+    db::{database_format::crc32c, resource::budget::MaintenanceConstructionBudget},
     error::{ErrorClass, InternalError},
 };
 use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag};

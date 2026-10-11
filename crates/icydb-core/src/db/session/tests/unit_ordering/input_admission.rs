@@ -6,11 +6,11 @@ use icydb_diagnostic_code::QueryReadAdmissionCode;
 fn grouped_key_clause_reserves_final_representation_before_resolution() {
     use crate::db::{
         RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         query::{
             plan::{FieldSlot, GroupField, resolve_group_fields_with_schema},
             preparation::PreparationWork,
         },
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     };
     use icydb_diagnostic_code::{
         DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane,
@@ -73,8 +73,8 @@ fn grouped_key_clause_reserves_final_representation_before_resolution() {
 fn grouped_clause_backing_rejects_before_cold_warm_and_trusted_execution() {
     use crate::db::{
         RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         query::plan::{FieldSlot, GroupAggregateSpec},
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     };
     use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
@@ -174,11 +174,11 @@ fn grouped_clause_materialization_preserves_duplicate_keys_and_aggregate_order()
 fn scalar_clause_backing_rejects_before_execution_and_cache_reuse() {
     use crate::db::{
         RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         query::{
             expr::OrderTerm,
             plan::{OrderTerm as PlannedOrderTerm, expr::FieldId},
         },
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     };
     use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
@@ -258,8 +258,8 @@ fn scalar_clause_backing_rejects_before_execution_and_cache_reuse() {
 fn typed_order_and_aggregate_copy_exhaustion_precedes_cold_and_warm_execution() {
     use crate::db::{
         RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         query::{builder::sum, expr::OrderTerm},
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     };
     use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
@@ -355,7 +355,7 @@ fn typed_order_and_aggregate_copy_exhaustion_precedes_cold_and_warm_execution() 
 fn typed_scalar_conversion_exhaustion_precedes_cold_and_warm_execution() {
     use crate::db::{
         RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     };
     use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
@@ -408,7 +408,7 @@ fn typed_scalar_conversion_exhaustion_precedes_cold_and_warm_execution() {
 fn typed_field_copy_exhaustion_precedes_cold_and_warm_execution() {
     use crate::db::{
         RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     };
     use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
@@ -459,7 +459,7 @@ fn typed_field_copy_exhaustion_precedes_cold_and_warm_execution() {
 fn canonical_ordering_exhaustion_precedes_cold_and_warm_typed_execution() {
     use crate::db::{
         RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     };
     use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
@@ -510,7 +510,7 @@ fn canonical_ordering_exhaustion_precedes_cold_and_warm_typed_execution() {
 fn sql_canonical_exhaustion_is_not_an_aggregate_lane_miss_or_cached_command() {
     use crate::db::{
         RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     };
     use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
@@ -555,7 +555,7 @@ fn sql_canonical_exhaustion_is_not_an_aggregate_lane_miss_or_cached_command() {
 fn warm_sql_command_skips_canonical_sorting_but_a_new_binding_must_prepare() {
     use crate::db::{
         RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     };
     use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
@@ -603,7 +603,7 @@ fn warm_sql_command_skips_canonical_sorting_but_a_new_binding_must_prepare() {
 fn typed_preparation_exhaustion_is_cumulative_before_cold_and_warm_execution() {
     use crate::db::{
         RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     };
     use icydb_diagnostic_code::{
         DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionBudgetScope,

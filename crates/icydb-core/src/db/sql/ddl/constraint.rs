@@ -1,11 +1,12 @@
 use super::{
     BoundSqlDdlNoOpRequest, BoundSqlDdlRequest, BoundSqlDdlSchemaVersionContract,
     BoundSqlDdlStatement, SqlDdlBindError, SqlDdlMutationKind, bind_required_sql_ddl_entity,
+    bind_sql_check_expr,
 };
 use crate::db::{
     schema::{
-        AcceptedCheckExprV1, AcceptedConstraintKind, AcceptedSchemaSnapshot,
-        ConstraintActivationKind, ConstraintId, ConstraintOrigin, SchemaInfo, bind_sql_check_expr,
+        AcceptedConstraintKind, AcceptedSchemaSnapshot, ConstraintActivationKind, ConstraintId,
+        ConstraintOrigin, SchemaAddCheckRequest, SchemaDropConstraintRequest, SchemaInfo,
         validate_constraint_name,
     },
     sql::parser::{
@@ -13,68 +14,6 @@ use crate::db::{
         SqlAlterTableValidateConstraintStatement,
     },
 };
-
-/// Accepted-catalog-bound `ADD CONSTRAINT ... CHECK` request.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct BoundSqlAddCheckConstraintRequest {
-    entity_name: String,
-    constraint_name: String,
-    expression: AcceptedCheckExprV1,
-    not_valid: bool,
-}
-
-impl BoundSqlAddCheckConstraintRequest {
-    #[must_use]
-    pub(in crate::db) const fn entity_name(&self) -> &str {
-        self.entity_name.as_str()
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn constraint_name(&self) -> &str {
-        self.constraint_name.as_str()
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn expression(&self) -> &AcceptedCheckExprV1 {
-        &self.expression
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn not_valid(&self) -> bool {
-        self.not_valid
-    }
-}
-
-/// Accepted-catalog-bound SQL-DDL check removal request.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) struct BoundSqlDropConstraintRequest {
-    entity_name: String,
-    constraint_name: String,
-    constraint_id: ConstraintId,
-    activation: bool,
-}
-
-impl BoundSqlDropConstraintRequest {
-    #[must_use]
-    pub(in crate::db) const fn entity_name(&self) -> &str {
-        self.entity_name.as_str()
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn constraint_name(&self) -> &str {
-        self.constraint_name.as_str()
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn constraint_id(&self) -> ConstraintId {
-        self.constraint_id
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn is_activation(&self) -> bool {
-        self.activation
-    }
-}
 
 /// Accepted-catalog-bound bounded check-validation request.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -168,7 +107,7 @@ pub(super) fn bind_alter_table_add_check_constraint_statement(
     .map_err(SqlDdlBindError::InvalidCheckExpression)?;
 
     Ok(BoundSqlDdlRequest {
-        statement: BoundSqlDdlStatement::AddCheckConstraint(BoundSqlAddCheckConstraintRequest {
+        statement: BoundSqlDdlStatement::AddCheckConstraint(SchemaAddCheckRequest {
             entity_name: entity_name.to_string(),
             constraint_name: statement.constraint_name.clone(),
             expression,
@@ -326,7 +265,7 @@ fn bound_drop(
     activation: bool,
 ) -> BoundSqlDdlRequest {
     BoundSqlDdlRequest {
-        statement: BoundSqlDdlStatement::DropConstraint(BoundSqlDropConstraintRequest {
+        statement: BoundSqlDdlStatement::DropConstraint(SchemaDropConstraintRequest {
             entity_name: entity_name.to_string(),
             constraint_name,
             constraint_id,

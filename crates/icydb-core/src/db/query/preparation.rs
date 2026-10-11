@@ -6,8 +6,8 @@ mod text;
 
 use crate::{
     db::{
-        QueryError, executor::budget::HardExecutionContext,
-        query::construction::ConstructionBudget, session::RequestExecutionScope,
+        QueryError, resource::budget::HardExecutionContext,
+        resource::construction::ConstructionBudget, resource::request::RequestExecutionScope,
     },
     error::InternalError,
     value::Value,

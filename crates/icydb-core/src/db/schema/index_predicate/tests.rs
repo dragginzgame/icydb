@@ -545,6 +545,70 @@ fn generated_field_comparisons_keep_accepted_capabilities_after_codec() {
 }
 
 #[test]
+fn catalog_candidates_share_generated_and_parsed_predicate_type_admission() {
+    use crate::{
+        db::schema::{AcceptedSchemaRevisionBundle, CandidateSchemaRevision},
+        error::ErrorClass,
+        types::EntityTag,
+    };
+    use std::collections::BTreeMap;
+
+    for kind in [K::Nat64, K::Date, K::U256] {
+        let base = snapshot(kind);
+        let catalog = catalog();
+        let candidate = |predicate| {
+            let snapshot = with_predicate(&base, predicate);
+            // This is the shared catalog admission used before publication,
+            // including metadata whose field IDs are structurally well formed.
+            AcceptedSchemaRevisionBundle::new(
+                AcceptedSchemaRevision::INITIAL,
+                "tests::Filtered::Store",
+                catalog.enum_catalog().clone(),
+                catalog.composite_catalog().clone(),
+                BTreeMap::from([(EntityTag::new(17), snapshot)]),
+            )
+            .and_then(CandidateSchemaRevision::new)
+        };
+        let generated = P::from_check(
+            &AcceptedCheckExprV1::Compare {
+                left: AcceptedCheckValueExprV1::Field(FieldId::new(2)),
+                op: AcceptedCheckCompareOpV1::Gte,
+                right: AcceptedCheckValueExprV1::Field(FieldId::new(3)),
+            },
+            base.fields(),
+            catalog.composite_catalog(),
+        )
+        .unwrap();
+        let parsed = P::bind(
+            &parse_sql_predicate("left >= right").unwrap(),
+            &base,
+            &catalog,
+        )
+        .unwrap();
+        for predicate in [generated, parsed] {
+            candidate(predicate).expect("same-kind ordering is catalog-admitted");
+        }
+
+        // A retained or manually supplied predicate must not bypass type
+        // admission merely because both field IDs resolve in the snapshot.
+        let generated_mismatch = P::CompareFields {
+            left: FieldId::new(2),
+            op: CompareOp::Eq,
+            right: FieldId::new(1),
+            coercion: CoercionId::Strict,
+        };
+        let parsed_mismatch =
+            P::bind(&parse_sql_predicate("left = id").unwrap(), &base, &catalog).unwrap();
+        for predicate in [generated_mismatch, parsed_mismatch] {
+            assert_eq!(
+                candidate(predicate).unwrap_err().class(),
+                ErrorClass::InvariantViolation
+            );
+        }
+    }
+}
+
+#[test]
 fn accepted_predicate_validation_retains_literal_admission_bounds() {
     let base = snapshot(K::Text { max_len: Some(3) });
     let catalog = catalog();

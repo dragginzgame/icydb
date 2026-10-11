@@ -74,7 +74,7 @@ fn grouped_identity_projection_fast_path_preserves_rows() {
 fn grouped_non_identity_projection_reorders_aggregate_outputs() {
     use crate::db::{
         QueryError,
-        executor::budget::{
+        resource::budget::{
             HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
             with_query_execution_budget_for_tests,
         },

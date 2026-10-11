@@ -9,7 +9,6 @@ use crate::{
     db::{
         access::{SemanticIndexAccessContract, SemanticIndexKeyItemRef},
         predicate::{CoercionId, CompareOp, ComparePredicate, Predicate},
-        query::construction::ConstructionBudget,
         query::plan::{
             access_choice::model::{
                 AccessChoiceRejectedReason, CandidateEvaluation, CandidateScore,
@@ -23,6 +22,7 @@ use crate::{
                 index_literal_matches_schema,
             },
         },
+        resource::construction::ConstructionBudget,
         schema::SchemaInfo,
     },
     error::InternalError,

@@ -1,4 +1,4 @@
-//! Module: schema::sql_ddl
+//! Module: schema::publication
 //! Responsibility: catalog-native SQL DDL publication orchestration.
 //! Does not own: SQL parsing or accepted schema transition policy.
 //! Boundary: publishes validated DDL candidates through schema mutation contracts.
@@ -26,14 +26,14 @@ use crate::{
 use user_index_domain::stage_sql_ddl_user_index_domain_replacement;
 
 pub(in crate::db) use constraint::{
-    execute_admin_sql_ddl_check_addition, execute_admin_sql_ddl_check_drop,
-    execute_admin_sql_ddl_unique_index_activation,
-    execute_admin_sql_ddl_unique_index_activation_abort,
+    SchemaAddCheckRequest, SchemaDropConstraintRequest, execute_schema_check_addition,
+    execute_schema_check_drop, execute_schema_unique_index_activation,
+    execute_schema_unique_index_activation_abort,
 };
 pub(in crate::db) use field_metadata::{
-    SqlDdlFieldNullabilityOutcome, execute_admin_sql_ddl_field_default_change,
-    execute_admin_sql_ddl_field_drop, execute_admin_sql_ddl_field_nullability_change,
-    execute_admin_sql_ddl_field_rename, execute_admin_sql_ddl_not_null_activation_abort,
+    SchemaFieldNullabilityOutcome, execute_schema_field_default_change, execute_schema_field_drop,
+    execute_schema_field_nullability_change, execute_schema_field_rename,
+    execute_schema_not_null_activation_abort,
 };
 
 // Publish one SQL-DDL constraint removal and retire its validation job exactly
@@ -185,7 +185,7 @@ fn validate_publishable_transition_plan(plan: &SchemaTransitionPlan) -> Result<(
     }
 }
 
-pub(in crate::db) fn execute_admin_sql_ddl_field_path_index_addition(
+pub(in crate::db) fn execute_schema_field_path_index_addition(
     store: StoreHandle,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
@@ -210,7 +210,7 @@ pub(in crate::db) fn execute_admin_sql_ddl_field_path_index_addition(
 
 /// Execute one supported SQL DDL expression index addition through the schema
 /// mutation staging and publication boundary.
-pub(in crate::db) fn execute_admin_sql_ddl_expression_index_addition(
+pub(in crate::db) fn execute_schema_expression_index_addition(
     store: StoreHandle,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,
@@ -268,7 +268,7 @@ fn staged_added_entry_count(
 }
 
 /// Execute one metadata-only SQL DDL additive-field publication.
-pub(in crate::db) fn execute_admin_sql_ddl_field_addition(
+pub(in crate::db) fn execute_schema_field_addition(
     store: StoreHandle,
     entity_tag: EntityTag,
     accepted_before: &AcceptedSchemaSnapshot,
@@ -393,7 +393,7 @@ fn require_sql_ddl_transition_plan(
 
 /// Execute one supported SQL DDL secondary-index drop through marker-first
 /// complete-domain replacement.
-pub(in crate::db) fn execute_admin_sql_ddl_secondary_index_drop(
+pub(in crate::db) fn execute_schema_secondary_index_drop(
     store: StoreHandle,
     accepted_before: &AcceptedSchemaSnapshot,
     accepted_before_identity: AcceptedCatalogIdentity,

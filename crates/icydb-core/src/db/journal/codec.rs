@@ -14,8 +14,7 @@ use crate::{
         schema::{
             AcceptedSchemaRevision, CandidateSchemaRevision, ConstraintId, ConstraintValidationJob,
             FieldId, IdentityRangeAdvance, IdentityStateOwner, MAX_CONSTRAINT_VALIDATION_JOB_BYTES,
-            MAX_SCHEMA_SNAPSHOT_BYTES, decode_constraint_validation_job,
-            encode_constraint_validation_job,
+            decode_constraint_validation_job, encode_constraint_validation_job,
         },
     },
     error::InternalError,
@@ -48,7 +47,6 @@ pub(in crate::db) const JOURNAL_BATCH_FIXED_HEADER_BYTES: usize =
 const JOURNAL_SCHEMA_FINGERPRINT_BYTES: usize = 16;
 const JOURNAL_RECORD_ROW_PUT: u8 = 1;
 const JOURNAL_RECORD_ROW_DELETE: u8 = 2;
-const JOURNAL_RECORD_SCHEMA_PUT: u8 = 3;
 const JOURNAL_RECORD_ACCEPTED_SCHEMA_PUBLISH: u8 = 4;
 const JOURNAL_RECORD_CONSTRAINT_VALIDATION_JOB_PUT: u8 = 5;
 const JOURNAL_RECORD_CONSTRAINT_VALIDATION_JOB_DELETE: u8 = 6;
@@ -153,11 +151,6 @@ pub(in crate::db) enum JournalRecord {
         entity_path: String,
         primary_key: RawDataStoreKey,
         schema_fingerprint: CommitSchemaFingerprint,
-    },
-    /// Persisted schema snapshot update for one store.
-    SchemaPut {
-        store_path: String,
-        schema_snapshot_bytes: Vec<u8>,
     },
     /// Atomic accepted-schema bundle and root publication for one store.
     AcceptedSchemaPublish {
@@ -335,19 +328,6 @@ impl JournalRecord {
             plan_digest,
         };
         validate_journal_record(&record)?;
-        Ok(record)
-    }
-
-    pub(in crate::db) fn schema_put(
-        store_path: impl Into<String>,
-        schema_snapshot_bytes: Vec<u8>,
-    ) -> Result<Self, InternalError> {
-        let record = Self::SchemaPut {
-            store_path: store_path.into(),
-            schema_snapshot_bytes,
-        };
-        validate_journal_record(&record)?;
-
         Ok(record)
     }
 
@@ -866,14 +846,6 @@ fn write_journal_record(out: &mut Vec<u8>, record: &JournalRecord) -> Result<(),
             write_len_prefixed_bytes(out, primary_key.as_bytes())?;
             out.extend_from_slice(schema_fingerprint);
         }
-        JournalRecord::SchemaPut {
-            store_path,
-            schema_snapshot_bytes,
-        } => {
-            out.push(JOURNAL_RECORD_SCHEMA_PUT);
-            write_len_prefixed_bytes(out, store_path.as_bytes())?;
-            write_len_prefixed_bytes(out, schema_snapshot_bytes)?;
-        }
         JournalRecord::AcceptedSchemaPublish {
             store_path,
             expected_revision,
@@ -1025,15 +997,6 @@ fn read_journal_record(reader: &mut ByteReader<'_>) -> Result<JournalRecord, Int
                 .map_err(primitive_decode_error)?;
 
             JournalRecord::row_delete(entity_path, primary_key, schema_fingerprint)
-        }
-        JOURNAL_RECORD_SCHEMA_PUT => {
-            let store_path = read_utf8_path(reader)?;
-            let schema_snapshot_bytes = reader
-                .read_len_prefixed_bytes_le()
-                .map_err(primitive_decode_error)?
-                .to_vec();
-
-            JournalRecord::schema_put(store_path, schema_snapshot_bytes)
         }
         JOURNAL_RECORD_ACCEPTED_SCHEMA_PUBLISH => {
             let store_path = read_utf8_path(reader)?;
@@ -1255,12 +1218,6 @@ pub(in crate::db) fn journal_record_payload_len(record: &JournalRecord) -> usize
             primary_key,
             ..
         } => journal_row_delete_record_payload_len(entity_path.len(), primary_key.as_bytes().len()),
-        JournalRecord::SchemaPut {
-            store_path,
-            schema_snapshot_bytes,
-        } => 1usize
-            .saturating_add(size_of::<u32>() + store_path.len())
-            .saturating_add(size_of::<u32>() + schema_snapshot_bytes.len()),
         JournalRecord::AcceptedSchemaPublish {
             store_path,
             schema_bundle_bytes,
@@ -1377,8 +1334,7 @@ fn validate_row_record_targets(batch: &JournalBatch) -> Result<(), InternalError
                     return Err(journal_batch_corruption());
                 }
             }
-            JournalRecord::SchemaPut { .. }
-            | JournalRecord::AcceptedSchemaPublish { .. }
+            JournalRecord::AcceptedSchemaPublish { .. }
             | JournalRecord::AcceptedSchemaIndexDelete { .. }
             | JournalRecord::AcceptedSchemaIndexPut { .. }
             | JournalRecord::ConstraintValidationJobPut { .. }
@@ -1425,7 +1381,6 @@ fn validate_schema_migration_record_targets(batch: &JournalBatch) -> Result<(), 
             }
             JournalRecord::RowPut { .. }
             | JournalRecord::RowDelete { .. }
-            | JournalRecord::SchemaPut { .. }
             | JournalRecord::AcceptedSchemaPublish { .. }
             | JournalRecord::AcceptedSchemaIndexDelete { .. }
             | JournalRecord::AcceptedSchemaIndexPut { .. }
@@ -1465,7 +1420,6 @@ fn validate_accepted_schema_publication_family(batch: &JournalBatch) -> Result<(
             | JournalRecord::ConstraintValidationJobDelete { .. } => {}
             JournalRecord::RowPut { .. }
             | JournalRecord::RowDelete { .. }
-            | JournalRecord::SchemaPut { .. }
             | JournalRecord::ConstraintValidationIndexPut { .. }
             | JournalRecord::IdentityRangeAdvance { .. }
                 if has_publication =>
@@ -1474,7 +1428,6 @@ fn validate_accepted_schema_publication_family(batch: &JournalBatch) -> Result<(
             }
             JournalRecord::RowPut { .. }
             | JournalRecord::RowDelete { .. }
-            | JournalRecord::SchemaPut { .. }
             | JournalRecord::ConstraintValidationIndexPut { .. }
             | JournalRecord::IdentityRangeAdvance { .. } => {}
             #[cfg(any(test, feature = "migration"))]
@@ -1581,7 +1534,6 @@ fn validate_constraint_validation_job_transition(
             }
             JournalRecord::RowPut { .. }
             | JournalRecord::RowDelete { .. }
-            | JournalRecord::SchemaPut { .. }
             | JournalRecord::AcceptedSchemaPublish { .. }
             | JournalRecord::AcceptedSchemaIndexDelete { .. }
             | JournalRecord::AcceptedSchemaIndexPut { .. }
@@ -1699,8 +1651,7 @@ fn validate_identity_range_row_sets(batch: &JournalBatch) -> Result<(), Internal
                         return Err(journal_batch_corruption());
                     }
                 }
-                JournalRecord::SchemaPut { .. }
-                | JournalRecord::AcceptedSchemaPublish { .. }
+                JournalRecord::AcceptedSchemaPublish { .. }
                 | JournalRecord::AcceptedSchemaIndexDelete { .. }
                 | JournalRecord::AcceptedSchemaIndexPut { .. }
                 | JournalRecord::ConstraintValidationJobPut { .. }
@@ -1742,15 +1693,6 @@ fn validate_journal_record(record: &JournalRecord) -> Result<(), InternalError> 
         } => {
             validate_path(entity_path)?;
             validate_primary_key_shape(primary_key)?;
-        }
-        JournalRecord::SchemaPut {
-            store_path,
-            schema_snapshot_bytes,
-        } => {
-            validate_path(store_path)?;
-            if schema_snapshot_bytes.len() > MAX_SCHEMA_SNAPSHOT_BYTES as usize {
-                return Err(journal_batch_corruption());
-            }
         }
         JournalRecord::AcceptedSchemaPublish {
             store_path,

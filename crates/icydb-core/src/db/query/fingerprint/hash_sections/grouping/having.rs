@@ -1,23 +1,25 @@
 #[cfg(test)]
 mod tests;
 
-use crate::db::query::{
-    builder::AggregateExpr,
-    construction::ConstructionBudget,
-    fingerprint::hash_sections::{
-        GROUP_HAVING_ABSENT_TAG, GROUP_HAVING_AND_TAG, GROUP_HAVING_COMPARE_TAG,
-        GROUP_HAVING_PRESENT_TAG, GROUP_HAVING_VALUE_AGGREGATE_INDEX_TAG,
-        GROUP_HAVING_VALUE_BINARY_TAG, GROUP_HAVING_VALUE_CASE_ARM_TAG,
-        GROUP_HAVING_VALUE_CASE_TAG, GROUP_HAVING_VALUE_EXPR_TAG,
-        GROUP_HAVING_VALUE_FIELD_PATH_TAG, GROUP_HAVING_VALUE_FUNCTION_TAG,
-        GROUP_HAVING_VALUE_GROUP_FIELD_TAG, GROUP_HAVING_VALUE_LITERAL_TAG,
-        GROUP_HAVING_VALUE_UNARY_TAG, grouping::hash_field_path, write_expr_label, write_str,
-        write_tag, write_u32,
+use crate::db::{
+    query::{
+        builder::AggregateExpr,
+        fingerprint::hash_sections::{
+            GROUP_HAVING_ABSENT_TAG, GROUP_HAVING_AND_TAG, GROUP_HAVING_COMPARE_TAG,
+            GROUP_HAVING_PRESENT_TAG, GROUP_HAVING_VALUE_AGGREGATE_INDEX_TAG,
+            GROUP_HAVING_VALUE_BINARY_TAG, GROUP_HAVING_VALUE_CASE_ARM_TAG,
+            GROUP_HAVING_VALUE_CASE_TAG, GROUP_HAVING_VALUE_EXPR_TAG,
+            GROUP_HAVING_VALUE_FIELD_PATH_TAG, GROUP_HAVING_VALUE_FUNCTION_TAG,
+            GROUP_HAVING_VALUE_GROUP_FIELD_TAG, GROUP_HAVING_VALUE_LITERAL_TAG,
+            GROUP_HAVING_VALUE_UNARY_TAG, grouping::hash_field_path, write_expr_label, write_str,
+            write_tag, write_u32,
+        },
+        plan::{
+            AggregateIdentity, AggregateSemanticKeyRef, GroupAggregateSpec, GroupFieldSet,
+            expr::{BinaryOp, CaseWhenArm, Expr, UnaryOp},
+        },
     },
-    plan::{
-        AggregateIdentity, AggregateSemanticKeyRef, GroupAggregateSpec, GroupFieldSet,
-        expr::{BinaryOp, CaseWhenArm, Expr, UnaryOp},
-    },
+    resource::construction::ConstructionBudget,
 };
 use crate::error::InternalError;
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;

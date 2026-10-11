@@ -7,13 +7,11 @@
 use crate::{
     db::{
         DbSession, QueryError, SqlStatementDispatch,
-        session::{
-            AcceptedSchemaCatalogContext,
-            sql::{
-                CompiledSqlCommand, SqlCompiledCommandCacheContext, SqlCompiledCommandCacheKey,
-                SqlCompiledCommandExecutionContext, SqlCompiledCommandSurface,
-                cache::compiled_command_retained_bytes, sql_statement_entity_name_from_statement,
-            },
+        executor::AcceptedSchemaCatalogContext,
+        session::sql::{
+            CompiledSqlCommand, SqlCompiledCommandCacheContext, SqlCompiledCommandCacheKey,
+            SqlCompiledCommandExecutionContext, SqlCompiledCommandSurface,
+            cache::compiled_command_retained_bytes, sql_statement_entity_name_from_statement,
         },
         sql::{lowering::validate_sql_bindings, parser::SqlStatement},
     },

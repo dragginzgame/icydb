@@ -19,8 +19,8 @@ use crate::{
     db::{
         access::{AccessPlan, SemanticIndexAccessContract, normalize_access_plan_value},
         predicate::Predicate,
-        query::construction::ConstructionBudget,
         query::plan::{OrderSpec, PlanError, PlannedNonIndexAccessReason},
+        resource::construction::ConstructionBudget,
         schema::SchemaInfo,
     },
     error::InternalError,

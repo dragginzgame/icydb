@@ -453,7 +453,6 @@ mod tests {
     fn grouped_strategy_charges_index_prefix_comparisons_before_order_proof() {
         use crate::db::{
             RequestExecutionRoot,
-            executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
             predicate::MissingRowPolicy,
             query::{
                 builder::aggregate::count,
@@ -464,6 +463,7 @@ mod tests {
                 },
                 preparation::PreparationWork,
             },
+            resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
             schema::AcceptedFieldKind,
         };
         use icydb_diagnostic_code::{

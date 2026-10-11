@@ -12,7 +12,7 @@ use std::{
 
 use ic_host_fs::durable::{NamedWriteError, write_named_with};
 use ic_host_process::tool::{
-    AdmittedTool, ExecutionContext, ExecutionEvidence, OutputLimit, OutputLimits, ToolError,
+    AdmittedTool, CompletedExecution, ExecutionContext, OutputLimit, OutputLimits, ToolError,
     ToolSpec, resolve_executable,
 };
 
@@ -132,13 +132,14 @@ pub fn admit_wasm_optimizer(requested: &Path, current_dir: &Path) -> Result<Admi
 ///
 /// The shared handle checks executable identity before execution. Transform and
 /// report callers supply their arguments and working directory; failure evidence
-/// retains the operation context, captured streams and cleanup errors.
+/// retains the operation context, captured streams and cleanup errors. Only a
+/// successful exit permits callers to parse output or publish an artifact.
 pub fn run_wasm_optimizer(
     optimizer: &AdmittedTool,
     arguments: &[OsString],
     current_dir: &Path,
     operation: &str,
-) -> Result<ExecutionEvidence, String> {
+) -> Result<CompletedExecution, String> {
     let environment = env::vars_os().collect::<Vec<_>>();
     optimizer
         .run(
@@ -149,6 +150,7 @@ pub fn run_wasm_optimizer(
             },
             OPTIMIZER_OUTPUT_LIMITS,
         )
+        .and_then(CompletedExecution::require_success)
         .map_err(|error| format_tool_failure(operation, &error))
 }
 
@@ -368,7 +370,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn successful_producer_must_write_a_wasm_header_before_publication() {
+    fn producer_requires_successful_exit_and_wasm_header_before_publication() {
         use ic_host_process::tool::{AdmittedTool, ExecutionContext, VersionSpec};
         use std::{ffi::OsString, os::unix::fs::PermissionsExt};
 
@@ -384,6 +386,7 @@ mod tests {
             ":",
             "printf 'short' > \"$output\"",
             "printf 'not-wasm' > \"$output\"",
+            "printf '\\000asm\\001\\000\\000\\000' > \"$output\"; printf 'producer failure' >&2; exit 7",
         ]
         .into_iter()
         .enumerate()

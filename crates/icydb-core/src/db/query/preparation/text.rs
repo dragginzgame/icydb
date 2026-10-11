@@ -1,13 +1,12 @@
 //! Query-error adaptation for the shared construction text sink.
 
+use crate::db::resource::construction::ConstructionBudget;
+
 #[cfg(test)]
 mod tests;
 
 use crate::{
-    db::{
-        QueryError,
-        query::{construction::ConstructionBudget, preparation::PreparationWork},
-    },
+    db::{QueryError, query::preparation::PreparationWork},
     value::decimal::ValueFormatWriter,
 };
 use std::fmt;

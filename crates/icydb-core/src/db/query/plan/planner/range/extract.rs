@@ -6,7 +6,6 @@ use crate::{
         },
         index::{TextPrefixBoundMode, admit_text_prefix_bounds, starts_with_component_bounds},
         predicate::{CoercionId, CompareOp, Predicate, canonical_cmp},
-        query::construction::ConstructionBudget,
         query::plan::{
             OrderSpec, field_key_contract_supports_operator,
             key_item_match::{
@@ -24,6 +23,7 @@ use crate::{
                 range_bound_count,
             },
         },
+        resource::construction::ConstructionBudget,
         schema::{SchemaInfo, literal_matches_type},
     },
     error::InternalError,

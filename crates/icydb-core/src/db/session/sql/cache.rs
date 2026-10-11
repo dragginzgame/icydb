@@ -3,15 +3,14 @@
 //! Does not own: SQL parsing, lowering, execution, or result shaping.
 //! Boundary: keeps syntax-bound SQL cache state separate from shared query-plan cache state.
 
+use crate::db::resource::bounded_cache::{BoundedCache, CacheEntryWeight};
+
 use crate::{
     db::{
         DbSession,
+        executor::AcceptedSchemaCatalogContext,
         schema::{AcceptedSchemaRevision, AcceptedSchemaRuntimeRootIdentity, SchemaVersion},
-        session::{
-            AcceptedSchemaCatalogContext,
-            bounded_cache::{BoundedCache, CacheEntryWeight},
-            sql::compiled::{CompiledSqlCommand, SqlCompiledSchemaFingerprint},
-        },
+        session::sql::compiled::{CompiledSqlCommand, SqlCompiledSchemaFingerprint},
     },
     retained::RetainedBytes,
     traits::CanisterKind,

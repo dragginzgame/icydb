@@ -367,7 +367,7 @@ impl ResolvedStructuralAggregateTerminal<'_> {
     fn into_prepared(
         self,
         schema: &SchemaInfo,
-        budget: &dyn crate::db::query::construction::ConstructionBudget,
+        budget: &dyn crate::db::resource::construction::ConstructionBudget,
     ) -> Result<PreparedScalarAggregateTerminal, InternalError> {
         let input = self.input.into_prepared(schema, budget)?;
         let filter = self
@@ -420,7 +420,7 @@ impl ResolvedStructuralAggregateInput<'_> {
     fn into_prepared(
         self,
         schema: &SchemaInfo,
-        budget: &dyn crate::db::query::construction::ConstructionBudget,
+        budget: &dyn crate::db::resource::construction::ConstructionBudget,
     ) -> Result<ScalarAggregateInput, InternalError> {
         match self {
             Self::Rows => Ok(ScalarAggregateInput::Rows),
@@ -469,7 +469,7 @@ pub(super) const fn resolve_structural_aggregate_terminal(
 pub(super) fn compile_structural_scalar_aggregate_terminal(
     schema: &SchemaInfo,
     terminal: &StructuralAggregateTerminal,
-    budget: &dyn crate::db::query::construction::ConstructionBudget,
+    budget: &dyn crate::db::resource::construction::ConstructionBudget,
 ) -> Result<PreparedScalarAggregateTerminal, InternalError> {
     resolve_structural_aggregate_terminal(terminal).into_prepared(schema, budget)
 }
@@ -493,7 +493,7 @@ impl StructuralAggregateTerminalKind {
 fn compile_structural_aggregate_expr(
     schema: &SchemaInfo,
     expr: &Expr,
-    budget: &dyn crate::db::query::construction::ConstructionBudget,
+    budget: &dyn crate::db::resource::construction::ConstructionBudget,
 ) -> Result<CompiledExpr, InternalError> {
     // The scalar compiler owns field/root admission as well as construction.
     // Unsupported shapes and unknown fields share this payload-free boundary.

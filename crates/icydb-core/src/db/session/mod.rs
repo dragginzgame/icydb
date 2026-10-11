@@ -4,13 +4,11 @@
 //! Boundary: converts fluent/query intent calls into executor operations and response DTOs.
 
 mod accepted_schema;
-mod bounded_cache;
 mod catalog;
 mod integrity;
 mod mutation_job;
 mod query;
 mod read_set;
-mod request;
 mod response;
 mod resumable_job;
 #[cfg(feature = "sql")]
@@ -26,8 +24,7 @@ use crate::{
 };
 use std::thread::LocalKey;
 
-pub(in crate::db) use accepted_schema::AcceptedSchemaCatalogContext;
-pub(in crate::db) use bounded_cache::CacheEntryWeight;
+use crate::db::resource::request::{RequestBudgetSnapshot, RequestExecutionRoot};
 #[cfg(feature = "sql")]
 pub(in crate::db) use query::QueryPlanCacheReuse;
 #[doc(hidden)]
@@ -35,8 +32,6 @@ pub use query::{
     MAX_TYPED_EXACT_KEY_BATCH_INPUT_BYTES, MAX_TYPED_EXACT_KEY_BATCH_ITEMS,
     MAX_TYPED_EXACT_KEY_BATCH_RESULT_BYTES, MAX_TYPED_EXACT_KEY_BATCH_STORED_BYTES,
 };
-pub(in crate::db) use request::RequestExecutionScope;
-pub use request::{RequestBudgetSnapshot, RequestExecutionRoot};
 pub(in crate::db) use response::finalize_structural_grouped_projection_result;
 pub(in crate::db) use response::grouped_cursor_from_bytes;
 #[cfg(feature = "sql")]
@@ -46,10 +41,6 @@ pub use sql::{
     SqlDdlPreparationReport, SqlIntegrityError, SqlStatementDispatch, SqlStatementResult,
     SqlStatementShellSurface, SqlStatementSurface, sql_statement_dispatch,
     sql_statement_shell_surface, sql_statement_surface,
-};
-#[cfg(feature = "sql")]
-pub(in crate::db::session) use write::{
-    AcceptedStructuralMutation, AcceptedStructuralMutationTarget,
 };
 
 ///
@@ -118,7 +109,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[doc(hidden)]
     #[must_use]
     pub fn __new_from_current_request(store: &'static LocalKey<StoreRegistry>) -> Option<Self> {
-        request::current_request_scope().map(|scope| Self {
+        crate::db::resource::request::current_request_scope().map(|scope| Self {
             db: Db::new(store, scope),
             #[cfg(feature = "sql")]
             sql_returning_response_len: sql::encoded_returning_response_len,

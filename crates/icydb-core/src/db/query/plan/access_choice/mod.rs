@@ -21,7 +21,6 @@ use crate::{
     db::{
         access::{AccessPlan, SemanticIndexAccessContract},
         predicate::Predicate,
-        query::construction::ConstructionBudget,
         query::plan::{
             AccessPlannedQuery, CardinalityTiebreakCandidate, CardinalityTiebreakFamily,
             ResidualFilterShape,
@@ -36,6 +35,7 @@ use crate::{
             plan_access_selection_with_order_and_semantic_indexes,
             residual_filter_facts_for_access,
         },
+        resource::construction::ConstructionBudget,
         schema::SchemaInfo,
     },
     error::InternalError,

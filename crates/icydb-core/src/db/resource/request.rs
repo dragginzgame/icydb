@@ -1,4 +1,4 @@
-//! Module: db::session::request
+//! Module: db::resource::request
 //! Responsibility: one monotonic aggregate execution scope per request entry.
 //! Does not own: caller authorization, per-execution limits, or physical charging sites.
 //! Boundary: request roots issue shared scope handles that every derived session retains.
@@ -8,7 +8,7 @@ use std::{
     rc::Rc,
 };
 
-use crate::db::executor::budget::{
+use crate::db::resource::budget::{
     ExecutionBudgetExceeded, HardExecutionBudget, HardExecutionContext,
     HardExecutionFailureHeadroom, resource_index,
 };

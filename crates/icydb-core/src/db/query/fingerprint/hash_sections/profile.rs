@@ -1,19 +1,21 @@
 //! Continuation identity over the planner's canonical inputs.
 //! Diagnostic DTOs are not identity sources.
 
-use crate::db::query::{
-    construction::ConstructionBudget,
-    fingerprint::hash_sections::{
-        CONTINUATION_SECTION_ACCESS_TAG, CONTINUATION_SECTION_DISTINCT_TAG,
-        CONTINUATION_SECTION_ENTITY_PATH_TAG, CONTINUATION_SECTION_GROUPING_SHAPE_TAG,
-        CONTINUATION_SECTION_MODE_TAG, CONTINUATION_SECTION_ORDER_TAG,
-        CONTINUATION_SECTION_PREDICATE_TAG, CONTINUATION_SECTION_PROJECTION_SPEC_TAG,
-        access::hash_access_plan,
-        grouping::{hash_grouping_shape, hash_projection_spec},
-        hash_distinct, hash_mode, hash_order_spec, hash_scalar_semantic_filter, write_str,
-        write_tag,
+use crate::db::{
+    query::{
+        fingerprint::hash_sections::{
+            CONTINUATION_SECTION_ACCESS_TAG, CONTINUATION_SECTION_DISTINCT_TAG,
+            CONTINUATION_SECTION_ENTITY_PATH_TAG, CONTINUATION_SECTION_GROUPING_SHAPE_TAG,
+            CONTINUATION_SECTION_MODE_TAG, CONTINUATION_SECTION_ORDER_TAG,
+            CONTINUATION_SECTION_PREDICATE_TAG, CONTINUATION_SECTION_PROJECTION_SPEC_TAG,
+            access::hash_access_plan,
+            grouping::{hash_grouping_shape, hash_projection_spec},
+            hash_distinct, hash_mode, hash_order_spec, hash_scalar_semantic_filter, write_str,
+            write_tag,
+        },
+        plan::{AccessPlannedQuery, expr::ProjectionSpec},
     },
-    plan::{AccessPlannedQuery, expr::ProjectionSpec},
+    resource::construction::ConstructionBudget,
 };
 use crate::error::InternalError;
 use sha2::Sha256;

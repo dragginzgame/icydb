@@ -21,9 +21,7 @@ use crate::{
 
 #[cfg(any(test, feature = "sql"))]
 pub(in crate::db::schema) use bind::bind_index_predicate_literal;
-#[cfg(feature = "sql")]
-pub(in crate::db) use bind::bind_sql_check_expr;
-#[cfg(test)]
+#[cfg(any(test, feature = "sql"))]
 pub(in crate::db) use bind::{CheckExprV1Input, CheckValueExprV1Input, bind_check_expr_v1};
 pub(in crate::db::schema) use bind::{
     bind_source_check_expr, bind_source_rule_literal, source_literal_input,

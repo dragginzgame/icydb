@@ -3,6 +3,8 @@
 //! Does not own: grouped accumulation or aggregate-route derivation.
 //! Boundary: consumes finalized group bundles and emits runtime grouped result pages.
 
+use crate::db::resource::construction::ConstructionBudget;
+
 use crate::{
     db::{
         cursor::GroupedContinuationToken,
@@ -24,10 +26,6 @@ use crate::{
                     grouped_output::project_grouped_values_from_compiled_projection,
                 },
             },
-            budget::{
-                ExecutionConstructionBudget, charge_grouped_top_k_candidate, charge_sort_work,
-                runtime_value_work,
-            },
             group::GroupKey,
             pipeline::contracts::GroupedRouteStage,
             projection::{
@@ -36,7 +34,11 @@ use crate::{
             },
         },
         numeric::canonical_value_compare,
-        query::{construction::ConstructionBudget, plan::expr::GroupedCompilationError},
+        query::plan::expr::GroupedCompilationError,
+        resource::budget::{
+            ExecutionConstructionBudget, charge_grouped_top_k_candidate, charge_sort_work,
+            runtime_value_work,
+        },
     },
     error::InternalError,
     value::Value,
@@ -806,15 +808,13 @@ mod tests {
         use crate::db::{
             QueryError,
             direction::Direction,
-            executor::{
-                budget::{
-                    HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
-                    with_query_execution_budget_for_tests,
-                },
-                pipeline::contracts::GroupedRouteStage,
-            },
+            executor::pipeline::contracts::GroupedRouteStage,
             query::plan::{
                 GroupedExecutionRoute, LogicalPlan, OrderDirection, OrderSpec, OrderTerm,
+            },
+            resource::budget::{
+                HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
+                with_query_execution_budget_for_tests,
             },
         };
         use icydb_diagnostic_code::{

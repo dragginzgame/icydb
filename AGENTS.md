@@ -1,8 +1,7 @@
 # IcyDB Agent Rules
 
 Apply the local [shared engineering baseline](DRAGGINZGAME.md), recorded in
-[the snapshot manifest](.shared-tooling.snapshot) at reviewed revision
-`75180980a0c4e4252d8a915aaecfaefd92bf9a4e`. This file is IcyDB's local overlay.
+[the snapshot manifest](.shared-tooling.snapshot). This file is IcyDB's local overlay.
 The shared [approved layout](rules/rust-workspaces.md#approved-icydb-layout)
 retains existing packages under `crates/`, `canisters/`, `schema/` and `testing/`
 in the single root workspace and lockfile. Adoption does not authorize relocation
@@ -13,7 +12,6 @@ for provenance and consumer boundaries. Keep this file small; open detailed docs
 ## Hard Rules
 
 - Do not add Python to committed files; Codex may use local Python for one-off analysis/audit extraction when it does not become project code.
-- Do not run `git commit` or `git push`.
 - Use GitHub issues exclusively for upstream feedback and follow-up tracking.
   Check issue bodies and comments; local notes may summarize linked evidence
   but must not become a separate feedback queue.
@@ -27,7 +25,10 @@ for provenance and consumer boundaries. Keep this file small; open detailed docs
 - Codex may start, stop, or restart local ICP and PocketIC networks when required
   by the requested development, validation, or measurement work. Avoid
   unrelated lifecycle churn and report any network lifecycle action taken.
-- Run focused checks during development. Full repository/workspace tests, broad
+- Retain the local validation exception, documented in the
+  [operating manual](docs/governance/agent-operating-manual.md#workflow), to keep
+  broad gates explicitly selected. Run focused checks during development.
+  Full repository/workspace tests, broad
   checks and release gates require an explicit request or configured CI.
   Continuation and readiness do not authorize those gates; report them as
   skipped user-owned validation when they were not requested.
@@ -52,31 +53,12 @@ for provenance and consumer boundaries. Keep this file small; open detailed docs
   slice, worktree handoff, or diff. Call those units `landing slices` or
   `tracker items`; only use another meaning when the user explicitly names it.
 
-## Pre-1.0 Hard Cuts
+## Pre-1.0 hard cuts
 
-- Before `1.0.0`, removed or renamed surfaces are hard-cut. Do not add aliases,
-  shims, compatibility wrappers, legacy fallback paths, dual dispatch,
-  backwards-compatibility layers, or legacy feature support unless the user
-  explicitly asks.
-- Repository-owned models are unversioned or use version `1` before `1.0.0`.
-  Do not add V2+, parallel formats, hidden versions or predecessor decoders.
-- Breaking public API or semantic changes require a minor release before `1.0.0`;
-  select the pending changelog version under the shared automatic numbering rules.
-- Never reuse a frozen wire/storage discriminator for an incompatible layout.
-  Trace producers, consumers and retained installations before a hard cut.
-  Coordinate regeneration/reinstall/reset and explicit retirement of the old
-  contract; retain one current encoder/decoder after those obligations are met.
-- A hard cut does not permit discarding the only record of effects, assets or
-  liabilities. Preserve same-contract interruption recovery and backup/restore;
-  do not add a compatibility reader or migration engine to avoid resolving a
-  transition's prerequisites.
-- Before `1.0.0`, do not add, keep, or maintain anti-resurrection tests for
-  removed legacy behavior, old aliases, retired feature spellings, or deleted
-  compatibility paths. Delete tests whose only purpose is proving the old path
-  stays gone; keep or add tests for the maintained current surface instead.
-- When deleting stale code, remove the old path completely and update active
-  docs, examples, diagnostics, and fixtures to the current surface instead of
-  preserving compatibility breadcrumbs.
+Follow the [shared hard-cut contract](DRAGGINZGAME.md#pre-10-contracts), including
+retained-data obligations and same-contract recovery. Remove superseded paths
+and update active docs, diagnostics and fixtures; test the maintained surface
+rather than prohibiting retired names.
 
 ## IcyDB Architecture Rules
 
@@ -172,7 +154,11 @@ for provenance and consumer boundaries. Keep this file small; open detailed docs
 
 ## Push / Commit Boundaries
 
-- Do not run `git commit` or `git push`; the user owns commits and pushes.
+- Follow the shared [contribution rules](rules/contributions.md). Ordinary work
+  leaves staging, commits and pushes to the user. An explicitly requested PR
+  includes its scoped branch, commits, branch push and PR; merging, integration
+  pushes and release effects retain separate authority. A PR is not permission
+  to change package versions or run the maintainer-owned release workflow.
 - If the user asks "push?", report whether the current slice is ready to push and summarize validation.
 - A statement that a release is live/pushed records the completed boundary.
   Continued work resumes the accepted coherent scope in that line, uses the

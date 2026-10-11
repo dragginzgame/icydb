@@ -7,7 +7,7 @@ const STORE_PATH: &str = "test::mutation::entity";
 
 #[test]
 fn complete_domain_setup_admits_both_projections_before_returning_a_builder() {
-    use crate::db::executor::budget::MaintenanceConstructionBudget;
+    use crate::db::resource::budget::MaintenanceConstructionBudget;
     use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag};
 
     let snapshot = snapshot_with_indexes(
@@ -73,7 +73,7 @@ fn complete_domain_setup_admits_both_projections_before_returning_a_builder() {
 
 #[test]
 fn complete_domain_setup_keeps_source_exhaustion_distinct_from_predicate_rejection() {
-    use crate::db::executor::budget::MaintenanceConstructionBudget;
+    use crate::db::resource::budget::MaintenanceConstructionBudget;
     use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag};
 
     let before = base_snapshot();
@@ -136,7 +136,7 @@ fn complete_domain_setup_keeps_source_exhaustion_distinct_from_predicate_rejecti
 
 #[test]
 fn complete_domain_construction_exhaustion_prevents_partial_finish_or_store_writes() {
-    use crate::db::executor::budget::MaintenanceConstructionBudget;
+    use crate::db::resource::budget::MaintenanceConstructionBudget;
     use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag};
 
     let before = base_snapshot();
@@ -846,7 +846,7 @@ fn stage_domain<'a>(
         row_contract,
         row_contract,
         store,
-        crate::db::executor::budget::MaintenanceConstructionBudget::new(),
+        crate::db::resource::budget::MaintenanceConstructionBudget::new(),
     )?;
     for row in rows {
         builder.observe_row(&row)?;

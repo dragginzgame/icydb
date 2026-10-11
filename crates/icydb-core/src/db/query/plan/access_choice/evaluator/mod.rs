@@ -11,7 +11,6 @@ use crate::{
     db::{
         access::SemanticIndexAccessContract,
         predicate::Predicate,
-        query::construction::ConstructionBudget,
         query::plan::{
             access_choice::model::{
                 AccessChoiceFamily, AccessChoiceRejectedReason, CandidateEvaluation,
@@ -21,6 +20,7 @@ use crate::{
                 access_candidate_score_from_index_contract, index_stream_is_complete_for_query,
             },
         },
+        resource::construction::ConstructionBudget,
         schema::SchemaInfo,
     },
     error::InternalError,

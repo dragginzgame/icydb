@@ -21,7 +21,6 @@ use crate::{
             decode_persisted_schema_snapshot, empty_accepted_schema_candidate_for_tests,
             validate_accepted_enum_catalog_format_for_tests,
             validate_accepted_schema_bundle_format_for_tests,
-            validate_raw_schema_snapshot_format_for_tests,
         },
     },
     types::EntityTag,
@@ -97,15 +96,6 @@ fn database_boot_record(
     let checksum_offset = DATABASE_BOOT_RECORD_BYTES - size_of::<u32>();
     let checksum = crc32c(&bytes[..checksum_offset]);
     bytes[checksum_offset..].copy_from_slice(&checksum.to_be_bytes());
-    bytes
-}
-
-fn raw_schema_snapshot_envelope(version: u8, payload: &[u8]) -> Vec<u8> {
-    let mut bytes = Vec::with_capacity(25 + payload.len());
-    bytes.extend_from_slice(b"ICYDBCAT");
-    bytes.push(version);
-    bytes.extend_from_slice(&[0; 16]);
-    bytes.extend_from_slice(payload);
     bytes
 }
 
@@ -268,29 +258,6 @@ fn persisted_schema_snapshot_malformed_corpus_fails_closed() {
 
     for (label, bytes) in cases {
         assert_err(label, decode_persisted_schema_snapshot(&bytes));
-    }
-}
-
-#[test]
-fn raw_schema_snapshot_envelope_malformed_corpus_fails_closed() {
-    let cases = [
-        ("empty raw schema snapshot", Vec::new()),
-        (
-            "headerless raw schema snapshot",
-            vec![0x44, 0x49, 0x44, 0x4c],
-        ),
-        (
-            "future raw schema version",
-            raw_schema_snapshot_envelope(2, &[0x44, 0x49, 0x44, 0x4c]),
-        ),
-        (
-            "current raw schema with corrupt payload",
-            raw_schema_snapshot_envelope(1, &[0xDE, 0xAD, 0xBE, 0xEF]),
-        ),
-    ];
-
-    for (label, bytes) in cases {
-        assert_err(label, validate_raw_schema_snapshot_format_for_tests(bytes));
     }
 }
 

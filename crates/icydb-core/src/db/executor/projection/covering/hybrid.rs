@@ -2,23 +2,24 @@ use crate::{
     db::{
         Db,
         data::{DataStore, DecodedDataStoreKey},
-        executor::projection::covering::{
-            PreparedCoveringProjectionRuntime,
-            contracts::{
-                AccessPlannedQuery, CoveringExistingRowMode, CoveringHybridReadExecutionPlan,
-                CoveringReadField, CoveringReadFieldSource,
-            },
-            shared::{
-                CoveringIndexScanRequest, PreparedCoveringIndexScan, apply_covering_page_window,
-                covering_residual_filter_supported, decode_hybrid_covering_components,
-                resolve_index_backed_covering_scan,
-            },
-        },
         executor::{
-            EntityAuthority, IndexComponentRows, budget::charge_current_execution_budget,
+            EntityAuthority, IndexComponentRows,
+            projection::covering::{
+                PreparedCoveringProjectionRuntime,
+                contracts::{
+                    AccessPlannedQuery, CoveringExistingRowMode, CoveringHybridReadExecutionPlan,
+                    CoveringReadField, CoveringReadFieldSource,
+                },
+                shared::{
+                    CoveringIndexScanRequest, PreparedCoveringIndexScan,
+                    apply_covering_page_window, covering_residual_filter_supported,
+                    decode_hybrid_covering_components, resolve_index_backed_covering_scan,
+                },
+            },
             terminal::RowLayout,
         },
         predicate::MissingRowPolicy,
+        resource::budget::charge_current_execution_budget,
     },
     error::InternalError,
     traits::CanisterKind,

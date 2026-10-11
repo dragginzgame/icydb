@@ -6,12 +6,12 @@
 use crate::{
     db::{
         DbSession, QueryError,
+        executor::AcceptedSchemaCatalogContext,
         integrity::{
             IntegrityCheckRequest, IntegrityCheckResult, IntegrityDeepError,
             IntegrityEntityIdentity, IntegrityJobError, IntegrityJobId, IntegrityJobOwner,
             IntegritySubmissionKey,
         },
-        session::AcceptedSchemaCatalogContext,
         sql::{SqlIntegrityStatement, parse_integrity_sql},
     },
     traits::CanisterKind,

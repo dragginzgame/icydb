@@ -8,29 +8,25 @@
 use crate::{
     db::{
         DbSession, QueryError,
+        executor::AcceptedSchemaCatalogContext,
         registry::StoreHandle,
         schema::{
             AcceptedCatalogIdentity, AcceptedSchemaSnapshot, ConstraintValidationProgress,
-            SchemaDdlAcceptedSnapshotDerivation, SqlDdlFieldNullabilityOutcome,
+            SchemaDdlAcceptedSnapshotDerivation, SchemaFieldNullabilityOutcome,
             advance_check_constraint_activation, advance_not_null_constraint_activation,
             advance_unique_constraint_activation, constraint_validation_finding_output,
-            ensure_schema_migration_ready_for_schema_changes, execute_admin_sql_ddl_check_addition,
-            execute_admin_sql_ddl_check_drop, execute_admin_sql_ddl_expression_index_addition,
-            execute_admin_sql_ddl_field_addition, execute_admin_sql_ddl_field_default_change,
-            execute_admin_sql_ddl_field_drop, execute_admin_sql_ddl_field_nullability_change,
-            execute_admin_sql_ddl_field_path_index_addition, execute_admin_sql_ddl_field_rename,
-            execute_admin_sql_ddl_not_null_activation_abort,
-            execute_admin_sql_ddl_secondary_index_drop,
-            execute_admin_sql_ddl_unique_index_activation,
-            execute_admin_sql_ddl_unique_index_activation_abort,
+            ensure_schema_migration_ready_for_schema_changes, execute_schema_check_addition,
+            execute_schema_check_drop, execute_schema_expression_index_addition,
+            execute_schema_field_addition, execute_schema_field_default_change,
+            execute_schema_field_drop, execute_schema_field_nullability_change,
+            execute_schema_field_path_index_addition, execute_schema_field_rename,
+            execute_schema_not_null_activation_abort, execute_schema_secondary_index_drop,
+            execute_schema_unique_index_activation, execute_schema_unique_index_activation_abort,
         },
-        session::{
-            AcceptedSchemaCatalogContext,
-            sql::{
-                SqlConstraintValidationPage, SqlConstraintValidationRevisionStatus,
-                SqlConstraintValidationState, SqlDdlExecutionStatus, SqlStatementDispatch,
-                SqlStatementResult, sql_statement_dispatch,
-            },
+        session::sql::{
+            SqlConstraintValidationPage, SqlConstraintValidationRevisionStatus,
+            SqlConstraintValidationState, SqlDdlExecutionStatus, SqlStatementDispatch,
+            SqlStatementResult, sql_statement_dispatch,
         },
         sql::ddl::{
             BoundSqlCreateIndexRequest, BoundSqlDdlStatement, BoundSqlValidationConstraintKind,
@@ -306,14 +302,14 @@ impl<C: CanisterKind> DbSession<C> {
         store: StoreHandle,
         accepted_before: &AcceptedSchemaCatalogContext,
         prepared: &PreparedSqlDdlCommand,
-        add: &crate::db::sql::ddl::BoundSqlAddCheckConstraintRequest,
+        add: &crate::db::schema::SchemaAddCheckRequest,
     ) -> Result<SqlStatementResult, QueryError> {
         let next_schema_version = prepared
             .bound()
             .schema_version_contract()
             .next_schema_version()
             .ok_or_else(QueryError::unsupported_query)?;
-        let (rows_scanned, _constraint_id) = execute_admin_sql_ddl_check_addition(
+        let (rows_scanned, _constraint_id) = execute_schema_check_addition(
             store,
             accepted_before.identity().entity_tag(),
             accepted_before.identity().entity_path(),
@@ -349,13 +345,13 @@ impl<C: CanisterKind> DbSession<C> {
             .schema_version_contract()
             .next_schema_version()
             .ok_or_else(QueryError::unsupported_query)?;
-        execute_admin_sql_ddl_unique_index_activation(
+        execute_schema_unique_index_activation(
             store,
             accepted_before.identity().entity_tag(),
             accepted_before.identity().entity_path(),
             accepted_before.snapshot(),
             accepted_before.identity(),
-            create,
+            create.candidate_index(),
             next_schema_version,
         )
         .map_err(QueryError::from_sql_ddl_execution_error)?;
@@ -380,13 +376,18 @@ impl<C: CanisterKind> DbSession<C> {
             .schema_version_contract()
             .next_schema_version()
             .ok_or_else(QueryError::unsupported_query)?;
-        execute_admin_sql_ddl_unique_index_activation_abort(
+        execute_schema_unique_index_activation_abort(
             store,
             accepted_before.identity().entity_tag(),
             accepted_before.identity().entity_path(),
             accepted_before.snapshot(),
             accepted_before.identity(),
-            drop,
+            (
+                drop.pending_activation_id()
+                    .ok_or_else(InternalError::store_invariant)
+                    .map_err(QueryError::from_sql_ddl_execution_error)?,
+                drop.dropped_index(),
+            ),
             next_schema_version,
         )
         .map_err(QueryError::from_sql_ddl_execution_error)?;
@@ -404,14 +405,14 @@ impl<C: CanisterKind> DbSession<C> {
         store: StoreHandle,
         accepted_before: &AcceptedSchemaCatalogContext,
         prepared: &PreparedSqlDdlCommand,
-        drop: &crate::db::sql::ddl::BoundSqlDropConstraintRequest,
+        drop: &crate::db::schema::SchemaDropConstraintRequest,
     ) -> Result<SqlStatementResult, QueryError> {
         let next_schema_version = prepared
             .bound()
             .schema_version_contract()
             .next_schema_version()
             .ok_or_else(QueryError::unsupported_query)?;
-        execute_admin_sql_ddl_check_drop(
+        execute_schema_check_drop(
             store,
             accepted_before.identity().entity_tag(),
             accepted_before.identity().entity_path(),
@@ -500,7 +501,7 @@ impl<C: CanisterKind> DbSession<C> {
                 .schema_version_contract()
                 .next_schema_version()
                 .ok_or_else(QueryError::unsupported_query)?;
-            execute_admin_sql_ddl_not_null_activation_abort(
+            execute_schema_not_null_activation_abort(
                 store,
                 accepted_before.identity().entity_tag(),
                 accepted_before.identity().entity_path(),
@@ -516,7 +517,7 @@ impl<C: CanisterKind> DbSession<C> {
             let derivation = prepared
                 .derivation()
                 .ok_or_else(QueryError::unsupported_query)?;
-            match execute_admin_sql_ddl_field_nullability_change(
+            match execute_schema_field_nullability_change(
                 store,
                 accepted_before.identity().entity_tag(),
                 accepted_before.identity().entity_path(),
@@ -526,8 +527,8 @@ impl<C: CanisterKind> DbSession<C> {
             )
             .map_err(QueryError::from_sql_ddl_execution_error)?
             {
-                SqlDdlFieldNullabilityOutcome::Published => SqlDdlExecutionStatus::Published,
-                SqlDdlFieldNullabilityOutcome::ActivationPublished { .. } => {
+                SchemaFieldNullabilityOutcome::Published => SqlDdlExecutionStatus::Published,
+                SchemaFieldNullabilityOutcome::ActivationPublished { .. } => {
                     SqlDdlExecutionStatus::ActivationPublished
                 }
             }
@@ -547,7 +548,7 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<(usize, usize), QueryError> {
         let metrics = match prepared.bound().statement() {
             BoundSqlDdlStatement::AddColumn(_) => {
-                execute_admin_sql_ddl_field_addition(
+                execute_schema_field_addition(
                     store,
                     accepted_before_identity.entity_tag(),
                     accepted_before,
@@ -559,7 +560,7 @@ impl<C: CanisterKind> DbSession<C> {
                 (0, 0)
             }
             BoundSqlDdlStatement::AlterColumnDefault(_) => {
-                execute_admin_sql_ddl_field_default_change(
+                execute_schema_field_default_change(
                     store,
                     accepted_before,
                     accepted_before_identity,
@@ -570,7 +571,7 @@ impl<C: CanisterKind> DbSession<C> {
                 (0, 0)
             }
             BoundSqlDdlStatement::DropColumn(_) => {
-                let rows_scanned = execute_admin_sql_ddl_field_drop(
+                let rows_scanned = execute_schema_field_drop(
                     store,
                     accepted_before_identity.entity_tag(),
                     accepted_before,
@@ -582,7 +583,7 @@ impl<C: CanisterKind> DbSession<C> {
                 (rows_scanned, 0)
             }
             BoundSqlDdlStatement::RenameColumn(_) => {
-                execute_admin_sql_ddl_field_rename(
+                execute_schema_field_rename(
                     store,
                     accepted_before,
                     accepted_before_identity,
@@ -603,7 +604,7 @@ impl<C: CanisterKind> DbSession<C> {
                 if drop.pending_activation_id().is_some() {
                     return Err(QueryError::unsupported_query());
                 }
-                execute_admin_sql_ddl_secondary_index_drop(
+                execute_schema_secondary_index_drop(
                     store,
                     accepted_before,
                     accepted_before_identity,
@@ -636,9 +637,9 @@ impl<C: CanisterKind> DbSession<C> {
             return Err(QueryError::unsupported_query());
         }
         let execute = if create.candidate_index().key().is_field_path_only() {
-            execute_admin_sql_ddl_field_path_index_addition
+            execute_schema_field_path_index_addition
         } else {
-            execute_admin_sql_ddl_expression_index_addition
+            execute_schema_expression_index_addition
         };
 
         execute(store, accepted_before, accepted_before_identity, derivation)

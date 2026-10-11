@@ -11,7 +11,7 @@ use crate::{
         commit::CommitSchemaFingerprint,
         data::{AcceptedFieldWriteProvenance, decode_validated_check_literal_payload},
         predicate::normalize,
-        query::construction::ConstructionBudget,
+        resource::construction::ConstructionBudget,
         schema::{
             AcceptedCompositeCatalog, AcceptedConstraintKind, AcceptedEnumCatalog,
             AcceptedFieldDecodeContract, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,

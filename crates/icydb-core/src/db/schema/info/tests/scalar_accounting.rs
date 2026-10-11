@@ -2,7 +2,6 @@ use super::newtype_query_schema;
 use crate::{
     db::{
         QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         query::{
             plan::expr::{
                 BinaryOp, CaseWhenArm, CompiledExpr, CompiledExprCaseArm, Expr, FieldId, FieldPath,
@@ -10,6 +9,7 @@ use crate::{
             },
             preparation::PreparationWork,
         },
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         test_support::request_with_limit,
     },
     value::Value,
@@ -181,7 +181,7 @@ fn scalar_discarded_case_payloads_are_charged_before_specialization() {
 
 #[test]
 fn scalar_runtime_compilation_requires_and_charges_active_execution() {
-    use crate::db::executor::budget::{
+    use crate::db::resource::budget::{
         ExecutionConstructionBudget, HardExecutionContext, with_query_execution_budget_for_tests,
     };
     use icydb_diagnostic_code::DiagnosticExecutionBudgetScope;

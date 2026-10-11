@@ -3,8 +3,8 @@
 use super::{materialized_sort_admission::summary, scalar_page_limits, *};
 use crate::db::{
     RequestExecutionRoot, desc,
-    executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     query::admission::{QueryAdmissionAccessKind, QueryBoundKind},
+    resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
 };
 use icydb_diagnostic_code::{
     DiagnosticDetail, DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag,

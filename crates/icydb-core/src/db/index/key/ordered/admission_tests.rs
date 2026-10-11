@@ -4,8 +4,8 @@ use super::{admit_query_index_component, component_capacity, encode_canonical_in
 use crate::{
     db::{
         QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         query::preparation::PreparationWork,
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     },
     types::{
         Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,

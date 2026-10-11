@@ -1,8 +1,8 @@
 use super::ConstructionBudget;
 use crate::db::{
     QueryError, RequestExecutionRoot,
-    executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     query::preparation::PreparationWork,
+    resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
@@ -87,12 +87,12 @@ fn text_reservation_charges_growth_before_mutation() {
 #[test]
 fn scalar_formatting_uses_existing_execution_authority_and_preserves_scratch_failure() {
     use crate::db::{
-        executor::budget::{
-            ExecutionConstructionBudget, HardExecutionContext,
-            with_query_execution_budget_for_tests,
-        },
         query::{
             builder::scalar_projection::write_scalar_projection_expr_plan_label, plan::expr::Expr,
+        },
+        resource::budget::{
+            ExecutionConstructionBudget, HardExecutionContext,
+            with_query_execution_budget_for_tests,
         },
     };
     use crate::value::Value;

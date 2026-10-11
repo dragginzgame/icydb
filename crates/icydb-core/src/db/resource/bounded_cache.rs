@@ -1,4 +1,4 @@
-//! Module: db::session::bounded_cache
+//! Module: db::resource::bounded_cache
 //! Responsibility: small bounded in-heap cache container for canister-lifetime session caches.
 //! Does not own: cache key semantics or artifact compilation.
 //! Boundary: keeps global session caches from growing without limit.
@@ -18,7 +18,7 @@ use std::{
 /// exceed the configured entry or retained-weight budget.
 ///
 
-pub(in crate::db::session) struct BoundedCache<K, V> {
+pub(in crate::db) struct BoundedCache<K, V> {
     entries: HashMap<K, BoundedCacheEntry<V>>,
     insertion_order: VecDeque<K>,
     max_entries: usize,
@@ -102,10 +102,7 @@ impl<K, V> BoundedCache<K, V>
 where
     K: Clone + Eq + Hash,
 {
-    pub(in crate::db::session) fn new_weighted(
-        max_entries: usize,
-        max_retained_weight: usize,
-    ) -> Self {
+    pub(in crate::db) fn new_weighted(max_entries: usize, max_retained_weight: usize) -> Self {
         Self {
             entries: HashMap::new(),
             insertion_order: VecDeque::new(),
@@ -115,13 +112,13 @@ where
         }
     }
 
-    pub(in crate::db::session) fn get(&self, key: &K) -> Option<&V> {
+    pub(in crate::db) fn get(&self, key: &K) -> Option<&V> {
         self.entries.get(key).map(|entry| &entry.value)
     }
 
     /// Borrow the admitted entry's accounting handle, never a previous entry's.
     /// Rejected insertions leave existing values, charges and FIFO order intact.
-    pub(in crate::db::session) fn insert_weighted(
+    pub(in crate::db) fn insert_weighted(
         &mut self,
         key: K,
         value: V,
@@ -155,22 +152,22 @@ where
     }
 
     #[cfg(test)]
-    pub(in crate::db::session) fn is_empty(&self) -> bool {
+    pub(in crate::db) fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
     #[cfg(test)]
-    pub(in crate::db::session) fn len(&self) -> usize {
+    pub(in crate::db) fn len(&self) -> usize {
         self.entries.len()
     }
 
     #[cfg(test)]
-    pub(in crate::db::session) fn retained_weight(&self) -> usize {
+    pub(in crate::db) fn retained_weight(&self) -> usize {
         self.retained_weight.get()
     }
 
     #[cfg(test)]
-    pub(in crate::db::session) fn retained_entries(&self) -> impl Iterator<Item = (&K, &V, usize)> {
+    pub(in crate::db) fn retained_entries(&self) -> impl Iterator<Item = (&K, &V, usize)> {
         self.entries
             .iter()
             .map(|(key, entry)| (key, &entry.value, entry.weight.bytes.get().unwrap_or(0)))

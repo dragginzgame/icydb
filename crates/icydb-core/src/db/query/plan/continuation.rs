@@ -424,7 +424,7 @@ impl AccessPlannedQuery {
         &self,
         entity_path: &str,
         accepted_identity: Option<AcceptedContinuationIdentity>,
-        budget: &dyn crate::db::query::construction::ConstructionBudget,
+        budget: &dyn crate::db::resource::construction::ConstructionBudget,
     ) -> Result<Option<PlannedContinuationContract>, InternalError> {
         if !self.scalar_plan().mode.is_load() {
             return Ok(None);

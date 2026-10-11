@@ -160,7 +160,7 @@ pub(in crate::db::schema) fn rewrite_migration_page<C: CanisterKind>(
     before_progress: &PersistedSchemaMigrationProgress,
     plan_digest: icydb_schema::SchemaMigrationPlanDigest,
 ) -> Result<MigrationRewritePage, InternalError> {
-    crate::db::executor::budget::MaintenanceConstructionBudget::new().run(
+    crate::db::resource::budget::MaintenanceConstructionBudget::new().run(
         |work| {
             #[cfg(not(test))]
             let mut remaining_rows = MAX_MIGRATION_REWRITE_ROWS_PER_PAGE;
@@ -266,7 +266,7 @@ fn rewrite_entity_page(
     effect_budget: usize,
     journal_byte_budget: usize,
     plan_digest: icydb_schema::SchemaMigrationPlanDigest,
-    work: &dyn crate::db::query::construction::ConstructionBudget,
+    work: &dyn crate::db::resource::construction::ConstructionBudget,
 ) -> Result<EntityRewritePage, InternalError> {
     let before_selection = store
         .with_schema(|schema| {
@@ -416,7 +416,7 @@ pub(in crate::db::schema) fn prepare_candidate_row_rewrite(
     decoded: &DecodedDataStoreKey,
     candidate: &RawRow,
     plan_digest: icydb_schema::SchemaMigrationPlanDigest,
-    work: &dyn crate::db::query::construction::ConstructionBudget,
+    work: &dyn crate::db::resource::construction::ConstructionBudget,
 ) -> Result<PreparedMigrationRewriteRow, InternalError> {
     let row_bytes = candidate.len();
     let candidate_bytes = candidate.as_bytes().to_vec();
@@ -723,7 +723,7 @@ pub(in crate::db::schema) fn final_validate_migration_page<C: CanisterKind>(
     planned: &PlannedSchemaMigration,
     before_progress: &PersistedSchemaMigrationProgress,
 ) -> Result<MigrationFinalValidationPage, InternalError> {
-    crate::db::executor::budget::MaintenanceConstructionBudget::new().run(
+    crate::db::resource::budget::MaintenanceConstructionBudget::new().run(
         |work| {
             let mut remaining_rows = MAX_MIGRATION_FINAL_VALIDATION_ROWS_PER_PAGE;
             let mut remaining_bytes = MAX_MIGRATION_FINAL_VALIDATION_BYTES_PER_PAGE;
@@ -788,7 +788,7 @@ fn final_validate_entity_page(
     checkpoint: Option<&PersistedSchemaMigrationRowCursor>,
     row_budget: usize,
     byte_budget: usize,
-    work: &dyn crate::db::query::construction::ConstructionBudget,
+    work: &dyn crate::db::resource::construction::ConstructionBudget,
 ) -> Result<FinalEntityPage, InternalError> {
     let range = RawDataStoreKeyRange::entity_prefix(program.entity());
     let lower = match checkpoint {
@@ -905,7 +905,7 @@ pub(in crate::db::schema) fn prepare_candidate_entity<C: CanisterKind>(
     db: &Db<C>,
     program: &CompiledMigrationEntityProgram,
     candidate: &crate::db::schema::CandidateSchemaRevision,
-    work: &dyn crate::db::query::construction::ConstructionBudget,
+    work: &dyn crate::db::resource::construction::ConstructionBudget,
 ) -> Result<PreparedCandidateEntity, InternalError> {
     let candidate_selection = AcceptedCatalogSnapshotSelection::from_candidate(
         candidate,
@@ -1009,7 +1009,7 @@ pub(in crate::db::schema) fn migration_derived_domain_count<C: CanisterKind>(
     planned: &PlannedSchemaMigration,
 ) -> Result<u32, InternalError> {
     // All entity projections belong to this zero-write preparation operation.
-    crate::db::executor::budget::MaintenanceConstructionBudget::new().run(
+    crate::db::resource::budget::MaintenanceConstructionBudget::new().run(
         |work| {
             let mut count = 0_u32;
             for program in planned.programs() {
@@ -1147,7 +1147,7 @@ fn migration_derived_domains<C: CanisterKind>(
     planned: &PlannedSchemaMigration,
 ) -> Result<Vec<MigrationDerivedDomain>, InternalError> {
     // Admission finishes before the caller starts mutating derived domains.
-    crate::db::executor::budget::MaintenanceConstructionBudget::new().run(
+    crate::db::resource::budget::MaintenanceConstructionBudget::new().run(
         |work| {
             let mut domains = Vec::new();
             for program in planned.programs() {

@@ -17,6 +17,42 @@ finish() {
 trap finish EXIT
 export SHARED_TOOLING_STORE="$fixture/store"
 mkdir -p "$fixture/compiler/bin" "$fixture/assets" "$fixture/a" "$fixture/b"
+# Always exercise BSD-style padded counts, including on Linux.
+mkdir "$fixture/commands"
+printf '#!%s\nreal_wc=%q\n' "$BASH" "$(command -v wc)" > "$fixture/commands/wc"
+cat >> "$fixture/commands/wc" <<'STUB'
+if [[ "$*" == -l ]]; then
+    count="$("$real_wc" "$@")" || exit $?
+    printf '%8d\n' "$count"
+else exec "$real_wc" "$@"; fi
+STUB
+for tool in ln perl; do
+    printf '#!%s\nfixture=%q\nreal_tool=%q\n' "$BASH" "$fixture" "$(command -v "$tool")" > "$fixture/commands/$tool"
+done
+cat >> "$fixture/commands/ln" <<'STUB'
+destination="${!#}"
+# A regressed installer must never get as far as attempting a root write.
+[[ "$destination" != /selected ]] || { echo 'blocked root activation' >&2; exit 79; }
+if [[ -f "$fixture/fail-reference" && "$destination" == */rust-set.* ]]; then
+    echo 'injected reference failure' >&2; exit 77
+fi
+exec "$real_tool" "$@"
+STUB
+cat >> "$fixture/commands/perl" <<'STUB'
+if [[ "$1" == -e && "$2" == *'rename('* ]]; then
+    destination="${!#}"
+    for boundary in store local common; do
+        [[ -f "$fixture/fail-$boundary-activation" ]] || continue
+        case "$boundary:$destination" in
+            store:*/current|local:*/rust/selected-*|common:*/rust/common)
+                echo "injected $boundary activation failure" >&2; exit 78 ;;
+        esac
+    done
+fi
+exec "$real_tool" "$@"
+STUB
+chmod +x "$fixture/commands/"*
+export PATH="$fixture/commands:$PATH"
 printf 'fixture rustc\n' > "$fixture/compiler-version"
 printf '#!%s\n' "$BASH" > "$fixture/compiler/bin/rustc"
 printf 'fixture=%q\n' "$fixture" >> "$fixture/compiler/bin/rustc"
@@ -79,6 +115,7 @@ compiler="$("$RUSTC" -vV)"
     --arg version "=$version" --arg target "$target" --arg profile "$profile" --arg compiler "$compiler" \
     '{installs:{($identity):{version_req:$version,bins:[$target],profile:$profile,target:"fixture-host",rustc:$compiler}}}' > "$destination/.crates2.json"
 printf 'Cargo receipt\n' > "$destination/.crates.toml"
+if [[ -f "$fixture/fail-receipt" ]]; then printf '{"installs":{}}\n' > "$destination/.crates2.json"; fi
 STUB
 chmod +x "$fixture/compiler/bin/"*
 export PATH="$fixture/compiler/bin:$PATH"
@@ -110,24 +147,45 @@ refuse common --check
 mkdir -p "$consumer/.tools/rust/previous/installed/build"
 printf 'old local evidence\n' > "$consumer/.tools/rust/previous/installed/build/payload"
 RUSTFLAGS=invalid RUSTC_WRAPPER=/missing UNMODELLED_SECRET=must-not-propagate common
-[[ "$(wc -l < "$fixture/builds")" == 3 ]] || exit 1
+[[ "$(wc -l < "$fixture/builds")" -eq 3 ]] || exit 1
 common --check
 first_binary="$(perl -MCwd=abs_path -e 'print abs_path(shift)' "$consumer/.tools/rust/common/bin/cargo-sort")"
 printf 'old local evidence\n' | cmp - "$consumer/.tools/rust/previous/installed/build/payload"
+# Conditional common setup must preserve a foreign lock and every selection,
+# with no build/reference/activation attempt and no successful-path output.
+held_slot="${first_binary%/set.*/bin/*}"
+mkdir "$held_slot/install.lock"
+printf 'foreign owner\n' > "$held_slot/install.lock/owner"
+cp "$held_slot/install.lock/owner" "$fixture/foreign-owner"
+old_common="$(readlink "$consumer/.tools/rust/common")"
+old_current="$(readlink "$held_slot/current")"
+find "$consumer/.tools/rust" "$held_slot" -print | sort > "$fixture/before-held"
+status=0
+common > "$fixture/held.out" 2> "$fixture/held.err" || status=$?
+[[ "$status" -ne 0 && ! -s "$fixture/held.out" ]] || { echo 'common setup concealed a held shared lock' >&2; exit 1; }
+grep -F "tool store installation locked: $held_slot/install.lock" "$fixture/held.err" >/dev/null
+if grep -F 'blocked root activation' "$fixture/held.err"; then exit 1; fi
+cmp "$held_slot/install.lock/owner" "$fixture/foreign-owner"
+[[ "$(readlink "$consumer/.tools/rust/common")" == "$old_common" && "$(readlink "$held_slot/current")" == "$old_current" ]] || exit 1
+[[ "$(wc -l < "$fixture/builds")" -eq 3 ]] || exit 1
+find "$consumer/.tools/rust" "$held_slot" -print | sort > "$fixture/after-held"
+cmp "$fixture/before-held" "$fixture/after-held"
+rm "$held_slot/install.lock/owner"
+rmdir "$held_slot/install.lock"
 consumer="$fixture/b"
 touch "$fixture/no-info"
 CARGO_NET_OFFLINE=true common
-[[ "$(wc -l < "$fixture/builds")" == 3 && "$(perl -MCwd=abs_path -e 'print abs_path(shift)' "$consumer/.tools/rust/common/bin/cargo-sort")" == "$first_binary" ]] || exit 1
+[[ "$(wc -l < "$fixture/builds")" -eq 3 && "$(perl -MCwd=abs_path -e 'print abs_path(shift)' "$consumer/.tools/rust/common/bin/cargo-sort")" == "$first_binary" ]] || exit 1
 [[ -z "$(find "$consumer/.tools" -type f)" ]] || exit 1
 common --check
 # New compiler identity selects new payloads; the first checkout stays pinned.
 printf 'fixture rustc changed\n' > "$fixture/compiler-version"
 refuse common --check
 common
-[[ "$(wc -l < "$fixture/builds")" == 6 && "$(perl -MCwd=abs_path -e 'print abs_path(shift)' "$fixture/a/.tools/rust/common/bin/cargo-sort")" == "$first_binary" ]] || exit 1
+[[ "$(wc -l < "$fixture/builds")" -eq 6 && "$(perl -MCwd=abs_path -e 'print abs_path(shift)' "$fixture/a/.tools/rust/common/bin/cargo-sort")" == "$first_binary" ]] || exit 1
 printf 'fixture rustc\n' > "$fixture/compiler-version"
 common
-[[ "$(wc -l < "$fixture/builds")" == 6 ]] || exit 1
+[[ "$(wc -l < "$fixture/builds")" -eq 6 ]] || exit 1
 rm "$fixture/no-info"
 # Selected product executables are verified without executing them.
 selected_args=(--consumer "$consumer" --package sample --version 1.2.3 --example prepare --profile debug)
@@ -192,6 +250,20 @@ refuse common
 [[ "$(readlink "$consumer/.tools/rust/common")" == "$before" ]] || exit 1
 grep -F 'Cargo tool attempt retained:' "$fixture/refused.log"
 rm "$fixture/fail-cargo-sort"
+# Admission, reference and each publication boundary must stop common setup.
+# Earlier common tools remain selected; failed candidates/evidence are retained.
+for failure in receipt reference store-activation local-activation common-activation; do
+    touch "$fixture/fail-$failure"
+    status=0
+    common > "$fixture/$failure.out" 2> "$fixture/$failure.err" || status=$?
+    [[ "$status" -ne 0 && ! -s "$fixture/$failure.out" ]] || { echo "concealed $failure failure" >&2; exit 1; }
+    case "$failure" in reference) [[ "$status" -eq 77 ]] ;; *activation) [[ "$status" -eq 78 ]] ;; receipt) [[ "$status" -eq 1 ]] ;; esac
+    [[ "$(readlink "$consumer/.tools/rust/common")" == "$before" ]] || exit 1
+    [[ "$(perl -MCwd=abs_path -e 'print abs_path(shift)' "$fixture/a/.tools/rust/common/bin/cargo-sort")" == "$first_binary" ]] || exit 1
+    [[ ! -e "$consumer/.tools/rust/common.lock" ]] || exit 1
+    [[ -z "$(find "$SHARED_TOOLING_STORE" -name install.lock)" ]] || exit 1
+    rm "$fixture/fail-$failure"
+done
 common
 [[ "$(readlink "$consumer/.tools/rust/common")" != "$before" ]] || exit 1
 # The real selector/archiver includes only this consumer's referenced generations.

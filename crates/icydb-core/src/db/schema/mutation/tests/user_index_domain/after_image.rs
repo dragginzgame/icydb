@@ -191,7 +191,7 @@ fn malformed_accepted_predicates_reject_query_mutation_and_inspection_plans() {
                 &accepted,
                 contract.accepted_value_catalog_handle().clone(),
                 &contract,
-                &crate::db::executor::budget::MaintenanceConstructionBudget::new(),
+                &crate::db::resource::budget::MaintenanceConstructionBudget::new(),
             )
             .unwrap_err(),
         ] {
@@ -207,9 +207,9 @@ fn malformed_accepted_predicates_reject_query_mutation_and_inspection_plans() {
 fn index_inspection_construction_uses_cumulative_caller_admission() {
     use crate::db::{
         QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         index::AcceptedIndexInspectionPlan,
         query::preparation::PreparationWork,
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     };
     use icydb_diagnostic_code::DiagnosticExecutionLane as Lane;
 
@@ -311,7 +311,7 @@ fn index_inspection_construction_uses_cumulative_caller_admission() {
 #[test]
 fn index_inspection_source_admission_precedes_parsing() {
     use crate::db::{
-        executor::budget::MaintenanceConstructionBudget, index::AcceptedIndexInspectionPlan,
+        index::AcceptedIndexInspectionPlan, resource::budget::MaintenanceConstructionBudget,
     };
 
     let snapshot = snapshot_with_indexes(

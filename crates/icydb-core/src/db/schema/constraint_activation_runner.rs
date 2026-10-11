@@ -1365,10 +1365,10 @@ fn scan_unique_validation_page(
     dependency_fields: &[crate::db::schema::FieldId],
     mode: UniqueValidationMode,
 ) -> Result<UniqueValidationPageScan, InternalError> {
-    use crate::db::query::construction::ConstructionBudget;
+    use crate::db::resource::construction::ConstructionBudget;
     use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
-    crate::db::executor::budget::MaintenanceConstructionBudget::new().run(
+    crate::db::resource::budget::MaintenanceConstructionBudget::new().run(
         |work| {
             let range = RawDataStoreKeyRange::entity_prefix(entity_tag);
             let lower = checkpoint.cloned().map_or_else(

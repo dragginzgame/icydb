@@ -5,7 +5,7 @@
 use super::*;
 use crate::db::{
     MissingRowPolicy, QueryPlanCacheReuse, RequestExecutionRoot,
-    executor::budget::{HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom},
+    executor::AcceptedSchemaCatalogContext,
     index::IndexId,
     predicate::Predicate,
     query::{
@@ -13,7 +13,7 @@ use crate::db::{
         plan::{CardinalityTiebreakFamily, CardinalityTiebreakRoutePin, OrderSpec},
         preparation::PreparationWork,
     },
-    session::AcceptedSchemaCatalogContext,
+    resource::budget::{HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom},
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionBudgetScope,

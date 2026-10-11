@@ -1,7 +1,7 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `75180980a0c4e4252d8a915aaecfaefd92bf9a4e` (Shared 0.6.0). Root
+at reviewed revision `4fd979d13c32adb3cb2f51f213ebfc4f98339b3d` (Shared 0.6.3). Root
 [AGENTS.md](../../AGENTS.md) is the local overlay. The shared approved layout
 retains the 42 existing canister, schema and testing packages in their
 restored directories, in the single root workspace and lockfile; no new package
@@ -12,7 +12,43 @@ these rules.
 
 ## Ownership and provenance
 
-### Current 0.270.3 tooling qualification
+### Current 0.270.4 tooling qualification
+
+The canonical exporter adopts committed Shared 0.6.3
+`4fd979d13c32adb3cb2f51f213ebfc4f98339b3d` from an isolated clean checkout,
+retaining the 93-file selection. Dirty sibling documentation is excluded.
+The upstream Cargo setup propagation correction resolves the earlier local
+blocker; real Linux common-tool, locked Testkit and host/IC setup pass through
+the canonical owners, followed by complete offline admission. Setup reuses
+admitted shared payloads; no consumer installer, fallback or store is added
+([#302](https://github.com/dragginzgame/icydb/issues/302),
+[Shared #120](https://github.com/dragginzgame/shared-tooling/issues/120)).
+
+Shared Cargo and release-runner fixtures plus consumer common-Make, Testkit,
+validation-adapter, standard-release and receipt fixtures pass on Linux
+Bash 5/Make 4.3 and genuine Bash 3.2.57/Make 3.81. Release, build and download
+effects are substituted in private fixtures. These qualify failure propagation
+and fresh-validation recovery, not live delivery or native macOS
+([#299](https://github.com/dragginzgame/icydb/issues/299),
+[Shared #126](https://github.com/dragginzgame/shared-tooling/issues/126)).
+
+The incoming direct Host 0.14.0 selection uses required command-completion
+status. Both success-only consumer boundaries explicitly use Host's
+`require_success` before Wasm publication or report parsing. Four optimizer,
+ten report and eight artifact tests pass; the nonzero-exit optimizer and report
+controls fail before the policy repair. Testkit 0.33.8 still selects Host 0.13.5
+transitively; no dependency override removes its owner's selection
+([#307](https://github.com/dragginzgame/icydb/issues/307),
+[Host #66](https://github.com/dragginzgame/ic-host-tooling/issues/66)).
+
+Evidence: `target/shared-063-host014`. The first restricted-network Cargo
+failure is retained; explicit locked network preparation qualifies the same
+unchanged lockfile. User Cargo/governance inputs and the real Git index remain
+unchanged. No ICP/PocketIC network is started, stopped or restarted. Native
+macOS, full repository/release gates and IC/raw-Wasm measurements remain
+unrun; this compatible uncommitted draft is not delivered acceptance.
+
+### Published 0.270.3 Shared 0.6.0 qualification
 
 Adopt committed Shared 0.6.0 revision
 `75180980a0c4e4252d8a915aaecfaefd92bf9a4e` from an isolated clean checkout.
@@ -39,8 +75,8 @@ required by the hard cut. A separate guarded isolated common-setup probe
 reproduces Shared #120 on both shells: a held shared lock and refused activation
 are concealed by a success return. The test guard blocks the attempted root
 activation path; the prior common selection and foreign lock remain unchanged.
-Explicit common/selected setup remains unqualified until that canonical
-propagation defect is corrected. Evidence: `target/shared-060-adoption`.
+At that handoff, explicit common/selected setup was unqualified until the
+canonical propagation defect was corrected. Evidence: `target/shared-060-adoption`.
 No live store lock is removed, no old installation is copied or used as a
 fallback, and no PocketIC network is started. Library APIs, runtime/storage
 formats, dependency pins and optimizer selection are unchanged; this remains

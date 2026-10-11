@@ -8,7 +8,7 @@ pub(in crate::db) mod source_guard;
 
 use crate::db::{
     RequestExecutionRoot,
-    executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+    resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
 

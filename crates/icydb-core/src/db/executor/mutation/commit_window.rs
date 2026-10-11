@@ -15,7 +15,6 @@ use crate::{
         },
         data::{DecodedDataStoreKey, RawDataStoreKey, RawRow},
         direction::Direction,
-        executor::budget::finish_current_execution_instruction_watermark,
         index::{
             IndexEntryValue, IndexStore, RawIndexStoreKey, StructuralIndexEntryReader,
             StructuralPrimaryRowReader, key_within_envelope,
@@ -26,6 +25,7 @@ use crate::{
         positioned_overlay::JournalOverlayPosition,
         registry::{StoreHandle, StoreRecoveryCapability, StoreSchemaMetadataCapability},
         relation::RelationCommitBudget,
+        resource::budget::finish_current_execution_instruction_watermark,
         schema::{
             IdentityAdvanceId, IdentityRangeAdvance, PreparedSchemaPositionPublication,
             SchemaStore, apply_live_identity_range_checkpoint,

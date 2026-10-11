@@ -353,7 +353,36 @@ audit:
 	+@tool="$$( $(AUDIT_TOOL) --check )" && "$$tool" audit
 ```
 
-Use the equivalent package/binary selection for cargo-machete. Repeated setup
+Use the equivalent package/binary selection for cargo-machete, but its standalone
+invocation differs from Audit. With `MACHETE_VERSION` selected by the consumer:
+
+```make
+MACHETE_TOOL = bash "$(SHARED_TOOLING_ROOT)/scripts/dev/install-rust-tools.sh" --consumer "$(CURDIR)" --package cargo-machete --version "$(MACHETE_VERSION)" --bin cargo-machete --profile release
+LOCAL_TOOL_INSTALL_TARGETS += install-machete-tool
+LOCAL_TOOL_CHECK_TARGETS += machete-tool-check
+
+.PHONY: install-machete-tool machete-tool-check machete
+install-machete-tool:
+	+@$(MACHETE_TOOL) > /dev/null
+machete-tool-check:
+	+@$(MACHETE_TOOL) --check > /dev/null
+machete:
+	+@tool="$$( $(MACHETE_TOOL) --check )" && unset CARGO && "$$tool" --with-metadata
+```
+
+Audit needs `"$$tool" audit`; standalone Machete 0.9.2 needs
+`"$$tool" --with-metadata`, with no extra `machete` argument. That version uses
+inherited `CARGO` (when `CARGO_PKG_NAME` is absent) to select Cargo-subcommand
+parsing. Unset `CARGO` only in the Machete recipe's shell before the standalone
+call; application builds retain their environment. Keep the selected executable
+as the final command so its failure status propagates, including on Bash 3.2.
+
+Qualify the consumer's real dependency-check target as well as setup/check reuse.
+Use separate Audit and Machete argument fixtures, including inherited `CARGO`,
+failed admission with path-shaped stdout, and tool failure status/evidence
+retention. An installer pass alone does not establish correct CLI invocation.
+
+Repeated setup
 verifies and returns the existing path without Cargo installation or force advice;
 checks never build or download. Only the returned path is suppressed above;
 failure diagnostics and status remain visible. The `+` prefix preserves Make's

@@ -16,7 +16,7 @@ use crate::{
             key::{IndexId, IndexKey, IndexKeyEncodeError, IndexKeyKind, OrderedValueEncodeError},
         },
         key_taxonomy::PrimaryKeyValue,
-        query::construction::ConstructionBudget,
+        resource::construction::ConstructionBudget,
         schema::{
             AcceptedFieldKind, AcceptedValueAdmissionContract, PersistedIndexExpressionOp,
             SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo,

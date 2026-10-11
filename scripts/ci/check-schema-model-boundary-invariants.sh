@@ -178,7 +178,7 @@ done
 # SQL DDL callers share the candidate builder in the parent module.
 if ! rg -q --fixed-strings \
   '.with_sql_ddl_entity_transition(' \
-  crates/icydb-core/src/db/schema/sql_ddl.rs
+  crates/icydb-core/src/db/schema/publication.rs
 then
   echo "[ERROR] the shared SQL DDL candidate builder must evolve immutable source bindings with structural owners" >&2
   status=1

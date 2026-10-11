@@ -17,10 +17,10 @@ use crate::{
             PredicateProgram, classify_predicate_capabilities,
             classify_predicate_capabilities_for_targets,
         },
-        query::construction::ConstructionBudget,
         query::plan::{
             AccessPlannedQuery, EffectiveRuntimeFilterProgram, covering_strict_predicate_compatible,
         },
+        resource::construction::ConstructionBudget,
     },
     error::InternalError,
 };

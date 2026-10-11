@@ -52,15 +52,15 @@ use crate::{
         schema::{
             AcceptedSchemaRevision, CandidateSchemaRevision, ConstraintId, IdentityAdvanceId,
             PreparedAcceptedSchemaFold, PreparedCardinalityMaintenance,
-            PreparedSchemaPositionRetirement, PreparedSchemaSnapshot, SchemaStore,
+            PreparedSchemaPositionRetirement, SchemaStore,
             accepted_schema_cache_fingerprint_for_persisted_snapshot,
             apply_live_identity_range_checkpoint, apply_live_schema_checkpoint,
             apply_schema_application_record_op,
             cardinality_build::CardinalityBuildAuthority,
             cardinality_generation::{CardinalityCountDigest, CardinalityGenerationState},
-            decode_constraint_validation_job, decode_persisted_schema_snapshot,
-            load_live_schema_checkpoint, verify_live_identity_range_checkpoint,
-            verify_live_schema_checkpoint, verify_schema_application_record_op,
+            decode_constraint_validation_job, load_live_schema_checkpoint,
+            verify_live_identity_range_checkpoint, verify_live_schema_checkpoint,
+            verify_schema_application_record_op,
         },
     },
     error::{ErrorOrigin, InternalError},
@@ -1105,7 +1105,6 @@ const fn cardinality_batch_invalidates_source(record: &JournalRecord) -> bool {
         | JournalRecord::SchemaMigrationIndexPut { .. } => true,
         JournalRecord::RowPut { .. }
         | JournalRecord::RowDelete { .. }
-        | JournalRecord::SchemaPut { .. }
         | JournalRecord::ConstraintValidationJobPut { .. }
         | JournalRecord::ConstraintValidationJobDelete { .. }
         | JournalRecord::ConstraintValidationIndexPut { .. }
@@ -1281,8 +1280,7 @@ fn prepare_online_batch_retirement(
                     key.clone(),
                 );
             }
-            JournalRecord::SchemaPut { .. }
-            | JournalRecord::AcceptedSchemaPublish { .. }
+            JournalRecord::AcceptedSchemaPublish { .. }
             | JournalRecord::ConstraintValidationJobPut { .. }
             | JournalRecord::ConstraintValidationJobDelete { .. }
             | JournalRecord::IdentityRangeAdvance { .. } => {}
@@ -1376,7 +1374,6 @@ enum JournalRecordApplyMode {
 // before the first batch effect. Other control records retain their validator.
 enum PreparedJournalOp {
     Row(PreparedRowCommitOp),
-    Schema(PreparedSchemaSnapshot),
     AcceptedSchemaReplay {
         expected_revision: AcceptedSchemaRevision,
         candidate: Box<CandidateSchemaRevision>,
@@ -1388,9 +1385,7 @@ impl PreparedJournalOp {
     const fn row(&self) -> Option<&PreparedRowCommitOp> {
         match self {
             Self::Row(row) => Some(row),
-            Self::Schema(_) | Self::AcceptedSchemaReplay { .. } | Self::AcceptedSchemaFold(_) => {
-                None
-            }
+            Self::AcceptedSchemaReplay { .. } | Self::AcceptedSchemaFold(_) => None,
         }
     }
 }
@@ -1449,17 +1444,6 @@ fn apply_prepared_journal_batch(
                 }
                 JournalRecordApplyMode::Fold => row.fold_recovered(),
             },
-            Some(PreparedJournalOp::Schema(snapshot)) => {
-                expected_handle.with_schema_mut(|store| match mode {
-                    JournalRecordApplyMode::Replay => {
-                        store.apply_prepared_persisted_snapshot(snapshot);
-                        Ok(())
-                    }
-                    JournalRecordApplyMode::Fold => {
-                        store.apply_prepared_fold_persisted_snapshot(snapshot)
-                    }
-                })
-            }
             Some(PreparedJournalOp::AcceptedSchemaReplay {
                 expected_revision,
                 candidate,
@@ -1529,7 +1513,6 @@ fn apply_journal_record(
         // Rows and schema publications must arrive through their prepared slots.
         JournalRecord::RowPut { .. }
         | JournalRecord::RowDelete { .. }
-        | JournalRecord::SchemaPut { .. }
         | JournalRecord::AcceptedSchemaPublish { .. } => Err(InternalError::store_invariant()),
         JournalRecord::AcceptedSchemaIndexDelete { keys, .. } => {
             apply_recovered_accepted_schema_index_chunk(expected_handle, keys, false, mode)
@@ -1693,7 +1676,7 @@ fn validate_journal_batch_records<C: CanisterKind>(
         validate_journal_batch_envelope(db, expected_store_path, expected_handle, batch, mode)?;
 
     for (record_ordinal, record) in batch.records().iter().enumerate() {
-        let schema = validate_journal_batch_record(
+        validate_journal_batch_record(
             db,
             expected_store_path,
             expected_handle,
@@ -1703,15 +1686,6 @@ fn validate_journal_batch_records<C: CanisterKind>(
             record,
             mode,
         )?;
-        if let Some(schema) = schema {
-            let slot = prepared
-                .get_mut(record_ordinal)
-                .ok_or_else(InternalError::store_invariant)?;
-            if slot.is_some() {
-                return Err(InternalError::store_invariant());
-            }
-            *slot = Some(PreparedJournalOp::Schema(schema));
-        }
     }
 
     // Every sibling record has now validated against the borrowed candidate.
@@ -1792,43 +1766,11 @@ fn validate_journal_batch_record<C: CanisterKind>(
     record_ordinal: usize,
     record: &JournalRecord,
     mode: JournalRecordApplyMode,
-) -> Result<Option<PreparedSchemaSnapshot>, InternalError> {
+) -> Result<(), InternalError> {
     match record {
         // Both entrypoints validate all row transitions before this record pass.
         // Keep batch-level uniqueness and accepted authority at that shared owner.
         JournalRecord::RowPut { .. } | JournalRecord::RowDelete { .. } => {}
-        JournalRecord::SchemaPut {
-            store_path,
-            schema_snapshot_bytes,
-        } => {
-            if store_path != expected_store_path {
-                return Err(InternalError::store_corruption());
-            }
-            let snapshot = decode_persisted_schema_snapshot(schema_snapshot_bytes)?;
-            let runtime_entity = match mode {
-                JournalRecordApplyMode::Replay => {
-                    db.accepted_runtime_entity_for_path(snapshot.entity_path())?
-                }
-                JournalRecordApplyMode::Fold => {
-                    crate::db::runtime_entity_catalog::canonical_runtime_entity_for_path(
-                        db,
-                        snapshot.entity_path(),
-                    )?
-                }
-            };
-            if runtime_entity.store_path() != expected_store_path {
-                return Err(InternalError::store_corruption());
-            }
-            let prepared = match mode {
-                JournalRecordApplyMode::Replay => {
-                    SchemaStore::prepare_persisted_snapshot(runtime_entity.entity_tag(), &snapshot)?
-                }
-                JournalRecordApplyMode::Fold => expected_handle.with_schema(|store| {
-                    store.prepare_fold_persisted_snapshot(runtime_entity.entity_tag(), &snapshot)
-                })?,
-            };
-            return Ok(Some(prepared));
-        }
         // The envelope owns candidate validation; the batch retains it after
         // validating sibling records against that same candidate.
         JournalRecord::AcceptedSchemaPublish { .. } => {}
@@ -1983,7 +1925,7 @@ fn validate_journal_batch_record<C: CanisterKind>(
             }
         }
     }
-    Ok(None)
+    Ok(())
 }
 
 #[expect(
@@ -2074,14 +2016,11 @@ fn journal_batch_schema_candidate(
                 }
                 candidate = Some(decoded);
             }
-            JournalRecord::RowDelete { .. } | JournalRecord::SchemaPut { .. }
-                if candidate.is_some() =>
-            {
+            JournalRecord::RowDelete { .. } if candidate.is_some() => {
                 return Err(InternalError::store_corruption());
             }
             JournalRecord::RowPut { .. }
             | JournalRecord::RowDelete { .. }
-            | JournalRecord::SchemaPut { .. }
             | JournalRecord::AcceptedSchemaIndexDelete { .. }
             | JournalRecord::AcceptedSchemaIndexPut { .. }
             | JournalRecord::ConstraintValidationJobPut { .. }
@@ -2295,8 +2234,7 @@ fn journal_record_store_handle<C: CanisterKind>(
                 .map_err(|_| InternalError::store_corruption())?;
             journal_entity_store_handle(db, key.entity_tag())
         }
-        JournalRecord::SchemaPut { store_path, .. }
-        | JournalRecord::AcceptedSchemaPublish { store_path, .. }
+        JournalRecord::AcceptedSchemaPublish { store_path, .. }
         | JournalRecord::AcceptedSchemaIndexDelete { store_path, .. }
         | JournalRecord::AcceptedSchemaIndexPut { store_path, .. }
         | JournalRecord::ConstraintValidationJobPut { store_path, .. }
@@ -2491,11 +2429,6 @@ enum RecoveredEffectIdentity {
         entity_path: String,
         primary_key: Vec<u8>,
     },
-    Schema {
-        store_path: String,
-        entity_tag: u64,
-        schema_version: u32,
-    },
     AcceptedSchema {
         store_path: String,
     },
@@ -2633,10 +2566,6 @@ fn verify_recovered_record<C: CanisterKind>(
             primary_key,
             ..
         } => verify_recovered_row_delete(db, entity_path, primary_key, verified)?,
-        JournalRecord::SchemaPut {
-            store_path,
-            schema_snapshot_bytes,
-        } => verify_recovered_schema_put(db, store_path, schema_snapshot_bytes, verified)?,
         JournalRecord::AcceptedSchemaPublish {
             store_path,
             schema_bundle_bytes,
@@ -2853,37 +2782,6 @@ fn verify_recovered_row_delete<C: CanisterKind>(
     let runtime_entity = recovery_accepted_runtime_entity_for_path(db, entity_path)?;
     let (_, handle) = registry_store_handle_for_path(db, runtime_entity.store_path())?;
     if handle.with_data(|store| store.contains(primary_key)) {
-        return Err(InternalError::recovery_effect_verification_failed());
-    }
-
-    Ok(())
-}
-
-fn verify_recovered_schema_put<C: CanisterKind>(
-    db: &Db<C>,
-    store_path: &str,
-    schema_snapshot_bytes: &[u8],
-    verified: &mut BTreeSet<RecoveredEffectIdentity>,
-) -> Result<(), InternalError> {
-    let snapshot = decode_persisted_schema_snapshot(schema_snapshot_bytes)?;
-    let runtime_entity = db.accepted_runtime_entity_for_path(snapshot.entity_path())?;
-    if runtime_entity.store_path() != store_path {
-        return Err(InternalError::recovery_effect_verification_failed());
-    }
-    let identity = RecoveredEffectIdentity::Schema {
-        store_path: store_path.to_string(),
-        entity_tag: runtime_entity.entity_tag().value(),
-        schema_version: snapshot.version().get(),
-    };
-    if !verified.insert(identity) {
-        return Ok(());
-    }
-
-    let (_, handle) = registry_store_handle_for_path(db, store_path)?;
-    let persisted = handle.with_schema(|store| {
-        store.get_persisted_snapshot(runtime_entity.entity_tag(), snapshot.version())
-    })?;
-    if persisted.as_ref() != Some(&snapshot) {
         return Err(InternalError::recovery_effect_verification_failed());
     }
 

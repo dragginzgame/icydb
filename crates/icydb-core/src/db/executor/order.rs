@@ -7,13 +7,10 @@ use crate::{
     db::{
         cursor::{CursorBoundary, CursorBoundarySlot, apply_order_direction},
         data::{CanonicalSlotReader, DataRow},
-        executor::{
-            budget::{charge_current_execution_budget, charge_sort_work, runtime_value_work},
-            projection::eval_compiled_expr_with_value_reader,
-            terminal::RowLayout,
-        },
+        executor::{projection::eval_compiled_expr_with_value_reader, terminal::RowLayout},
         numeric::canonical_value_compare,
         query::plan::{OrderDirection, ResolvedOrder, ResolvedOrderValueSource},
+        resource::budget::{charge_current_execution_budget, charge_sort_work, runtime_value_work},
     },
     error::InternalError,
     value::Value,
@@ -1024,11 +1021,11 @@ mod tests {
     fn bounded_strategies_preserve_budget_charges_and_cache_each_candidate_once() {
         use super::*;
         use crate::db::{
-            executor::budget::{
+            query::plan::{ResolvedOrderField, expr::CompiledExpr},
+            resource::budget::{
                 HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
                 current_execution_budget_usage, with_execution_budget_for_tests,
             },
-            query::plan::{ResolvedOrderField, expr::CompiledExpr},
         };
         use icydb_diagnostic_code::{DiagnosticExecutionBudgetScope, DiagnosticExecutionLane};
         use std::{cell::Cell, rc::Rc};

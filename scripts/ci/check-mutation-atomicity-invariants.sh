@@ -11,6 +11,8 @@ GUARDED_PATHS=(
   "crates/icydb-core/src/db/commit"
   "crates/icydb-core/src/db/executor/mutation"
   "crates/icydb-core/src/db/schema/mutation"
+  "crates/icydb-core/src/db/schema/publication.rs"
+  "crates/icydb-core/src/db/schema/publication"
   "crates/icydb-core/src/db/schema/store"
   "crates/icydb-core/src/db/session/write.rs"
   "crates/icydb-core/src/db/session/integrity.rs"

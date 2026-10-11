@@ -5,6 +5,25 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.271.0]
+
+- **Breaking:** retire duplicate schema snapshots and use the accepted bundle
+  for storage metadata. Recreate affected databases before using this release;
+  retained images are not supported by this cut
+  ([#214](https://github.com/dragginzgame/icydb/issues/214)).
+- Converge internal schema, resource and mutation ownership, and adopt updated
+  shared tooling and Host command handling
+  ([#238](https://github.com/dragginzgame/icydb/issues/238),
+  [#237](https://github.com/dragginzgame/icydb/issues/237),
+  [#236](https://github.com/dragginzgame/icydb/issues/236),
+  [#348](https://github.com/dragginzgame/icydb/issues/348),
+  [#349](https://github.com/dragginzgame/icydb/issues/349),
+  [#302](https://github.com/dragginzgame/icydb/issues/302),
+  [#299](https://github.com/dragginzgame/icydb/issues/299),
+  [#307](https://github.com/dragginzgame/icydb/issues/307)).
+
+See [detailed notes](docs/changelog/0.271.md).
+
 ## [0.270.3] - 2026-10-11
 
 - Adopt Shared 0.6.0, fix SQL/value admission and Tier C receipts, and clarify API contracts

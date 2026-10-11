@@ -21,7 +21,7 @@ use crate::{
             classify_predicate_capabilities_for_targets, lower_index_compare_literal_for_kind,
             lower_index_starts_with_prefix_for_target,
         },
-        query::construction::ConstructionBudget,
+        resource::construction::ConstructionBudget,
     },
     error::InternalError,
     value::Value,

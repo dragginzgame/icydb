@@ -7,6 +7,7 @@ use crate::{
     db::{
         DbSession, QuickIntegrityResult,
         commit::database_incarnation_id,
+        executor::{AcceptedInspectionPlanLoadError, AcceptedSchemaCatalogContext},
         integrity::{
             IntegrityCheckRequest, IntegrityCheckResult, IntegrityDeepError,
             IntegrityEntityIdentity, IntegrityJobError, IntegrityJobId, IntegrityJobOwner,
@@ -17,7 +18,6 @@ use crate::{
         },
         runtime_entity_catalog::AcceptedRuntimeEntity,
         schema::AcceptedInspectionPlan,
-        session::{AcceptedSchemaCatalogContext, accepted_schema::AcceptedInspectionPlanLoadError},
     },
     traits::CanisterKind,
 };

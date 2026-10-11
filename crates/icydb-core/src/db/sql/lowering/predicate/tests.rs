@@ -32,8 +32,8 @@ fn parse_where_expr(sql: &str) -> crate::db::sql::parser::SqlExpr {
 fn required_sql_predicate_propagates_extraction_exhaustion() {
     use crate::db::{
         QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         query::preparation::PreparationWork,
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         sql::lowering::select::LoweredSqlFilter,
     };
     use icydb_diagnostic_code::{

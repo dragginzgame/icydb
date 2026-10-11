@@ -17,6 +17,7 @@ pub(crate) mod predicate;
 pub(crate) mod query;
 mod read_set;
 pub(crate) mod registry;
+pub(in crate::db) mod resource;
 pub(crate) mod response;
 mod resumable_job;
 pub(crate) mod runtime_entity_catalog;
@@ -150,6 +151,7 @@ pub use registry::{
     StoreRelationSourceCapability, StoreRelationTargetCapability, StoreRuntimeStorageCapabilities,
     StoreRuntimeStorageMode, StoreSchemaMetadataCapability,
 };
+pub use resource::request::{RequestBudgetSnapshot, RequestExecutionRoot};
 #[doc(hidden)]
 pub use response::ExactKeyBatchProjectionOutput;
 pub use response::{
@@ -184,9 +186,9 @@ pub use schema::{
     SchemaMigrationFindingKind, SchemaMigrationPhase, SchemaMigrationReceipt,
     SchemaMigrationStatusPage, SchemaMigrationStatusRequest,
 };
+pub use session::DbSession;
 #[cfg(feature = "sql")]
 pub(in crate::db) use session::QueryPlanCacheReuse;
-pub use session::{DbSession, RequestBudgetSnapshot, RequestExecutionRoot};
 #[doc(hidden)]
 pub use session::{
     MAX_TYPED_EXACT_KEY_BATCH_INPUT_BYTES, MAX_TYPED_EXACT_KEY_BATCH_ITEMS,
@@ -221,7 +223,7 @@ pub use write_context::MutationMode;
 
 pub(crate) struct Db<C: CanisterKind> {
     store: &'static LocalKey<StoreRegistry>,
-    request_scope: session::RequestExecutionScope,
+    request_scope: resource::request::RequestExecutionScope,
     _marker: PhantomData<C>,
 }
 
@@ -230,7 +232,7 @@ impl<C: CanisterKind> Db<C> {
     #[must_use]
     pub(in crate::db) const fn new(
         store: &'static LocalKey<StoreRegistry>,
-        request_scope: session::RequestExecutionScope,
+        request_scope: resource::request::RequestExecutionScope,
     ) -> Self {
         Self {
             store,
@@ -239,7 +241,9 @@ impl<C: CanisterKind> Db<C> {
         }
     }
 
-    pub(in crate::db) const fn request_execution_scope(&self) -> &session::RequestExecutionScope {
+    pub(in crate::db) const fn request_execution_scope(
+        &self,
+    ) -> &resource::request::RequestExecutionScope {
         &self.request_scope
     }
 

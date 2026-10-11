@@ -9,17 +9,14 @@ use crate::{
         commit::cursor_authentication_key,
         cursor::{ValidatedGroupedCursor, decode_optional_grouped_cursor_token},
         executor::{
-            ExecutionFamily, SharedPreparedExecutionPlan, StructuralGroupedProjectionResult,
-            execute_shared_grouped_plan_for_canister,
+            AcceptedSchemaCatalogContext, ExecutionFamily, SharedPreparedExecutionPlan,
+            StructuralGroupedProjectionResult, execute_shared_grouped_plan_for_canister,
         },
         query::{
             admission::{QueryAdmissionPolicy, QueryAdmissionSummary},
             intent::StructuralQuery,
         },
-        session::{
-            AcceptedSchemaCatalogContext, finalize_structural_grouped_projection_result,
-            grouped_cursor_from_bytes,
-        },
+        session::{finalize_structural_grouped_projection_result, grouped_cursor_from_bytes},
     },
     traits::CanisterKind,
 };

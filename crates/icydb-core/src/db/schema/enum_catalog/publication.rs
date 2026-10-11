@@ -20,8 +20,8 @@ use crate::{
         codec::{finalize_hash_sha256, new_hash_sha256},
         data::validate_default_payload_for_accepted_field_contract,
         database_format::crc32c,
-        executor::budget::MaintenanceConstructionBudget,
-        query::construction::ConstructionBudget,
+        resource::budget::MaintenanceConstructionBudget,
+        resource::construction::ConstructionBudget,
         schema::{
             AcceptedFieldDecodeContract, AcceptedFieldKind, AcceptedSchemaSnapshot,
             AcceptedSourceBindingCatalog, AcceptedTypedAdapterNames, MAX_ACCEPTED_RECURSIVE_DEPTH,

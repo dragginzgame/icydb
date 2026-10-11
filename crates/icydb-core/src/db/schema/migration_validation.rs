@@ -8,7 +8,7 @@
 use std::{collections::BTreeMap, ops::Bound};
 
 use crate::db::{
-    executor::budget::MaintenanceConstructionBudget, query::construction::ConstructionBudget,
+    resource::budget::MaintenanceConstructionBudget, resource::construction::ConstructionBudget,
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 use icydb_diagnostic_code::SchemaMigrationCode;

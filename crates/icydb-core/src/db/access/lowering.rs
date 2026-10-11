@@ -16,7 +16,7 @@ use crate::{
             build_index_prefix_bounds_for_encoded_components,
             encode_accepted_index_literal_component, raw_keys_for_component_prefix_with_kind,
         },
-        query::construction::ConstructionBudget,
+        resource::construction::ConstructionBudget,
         schema::SchemaInfo,
     },
     error::InternalError,

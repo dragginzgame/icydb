@@ -1,5 +1,5 @@
 use crate::{
-    db::executor::{OrderReadableRow, budget::runtime_value_work},
+    db::{executor::OrderReadableRow, resource::budget::runtime_value_work},
     value::Value,
 };
 use std::{borrow::Cow, rc::Rc};

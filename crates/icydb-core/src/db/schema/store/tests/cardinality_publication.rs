@@ -58,7 +58,7 @@ fn seed_cardinality(
 
 fn assert_cardinality_preserved(store: &SchemaStore, entries: &[(RawSchemaKey, Vec<u8>)]) {
     for (key, bytes) in entries {
-        assert_eq!(store.get_raw_snapshot(key).unwrap().as_bytes(), bytes);
+        assert_eq!(store.get_raw_value(key).unwrap().as_bytes(), bytes);
     }
 }
 

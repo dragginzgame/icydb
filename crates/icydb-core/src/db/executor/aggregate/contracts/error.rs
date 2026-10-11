@@ -3,7 +3,7 @@
 //! Does not own: planner-owned logical aggregate validation semantics.
 //! Boundary: typed runtime failures shared by aggregate execution contracts.
 
-use crate::{db::executor::budget::current_execution_budget_exceeded, error::InternalError};
+use crate::{db::resource::budget::current_execution_budget_exceeded, error::InternalError};
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
 
 ///
@@ -115,7 +115,7 @@ mod tests {
     use super::{GroupBudgetResourceCode, GroupError};
     use crate::db::{
         QueryError,
-        executor::budget::{
+        resource::budget::{
             HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
             with_query_execution_budget_for_tests,
         },

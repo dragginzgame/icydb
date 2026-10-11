@@ -5,12 +5,14 @@
 //! Boundary: shared query-shape hashing surface used by execution identity and
 //! cursor token checks.
 
+use crate::db::resource::construction::ConstructionBudget;
+
 use crate::db::{
     cursor::ContinuationSignature,
     query::fingerprint::{
         finalize_sha256_digest, hash_sections, new_continuation_signature_hasher,
     },
-    query::{construction::ConstructionBudget, plan::AccessPlannedQuery},
+    query::plan::AccessPlannedQuery,
 };
 
 use crate::error::InternalError;
@@ -95,8 +97,8 @@ mod tests {
     fn predicate_continuation_admission_is_cumulative_and_retryable() {
         use crate::db::{
             QueryError, RequestExecutionRoot,
-            executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
             query::preparation::PreparationWork,
+            resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         };
         use icydb_diagnostic_code::{
             DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
@@ -166,8 +168,8 @@ mod tests {
     fn expression_owned_and_absent_filters_skip_predicate_copy_admission() {
         use crate::db::{
             QueryError, RequestExecutionRoot,
-            executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
             query::{plan::expr::Expr, preparation::PreparationWork},
+            resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         };
         use icydb_diagnostic_code::{
             DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,

@@ -1,8 +1,9 @@
+use crate::db::resource::construction::ConstructionBudget;
 use crate::{
     db::{
         numeric::compare_numeric_or_strict_order,
         predicate::{CompareOp, canonical_cmp},
-        query::{construction::ConstructionBudget, plan::planner::range::RangeConstraint},
+        query::plan::planner::range::RangeConstraint,
     },
     error::InternalError,
     value::Value,

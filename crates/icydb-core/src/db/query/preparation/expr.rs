@@ -6,10 +6,10 @@ mod tests;
 use crate::db::{
     QueryError,
     query::{
-        construction::ConstructionBudget,
         plan::{OrderSpec, expr::Expr},
         preparation::PreparationWork,
     },
+    resource::construction::ConstructionBudget,
 };
 
 impl PreparationWork<'_> {

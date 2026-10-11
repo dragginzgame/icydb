@@ -10,18 +10,18 @@ use crate::{
     db::{
         DbSession, MissingRowPolicy, QueryError,
         data::{AcceptedMutationIntentPatch, DecodedDataStoreKey},
+        executor::{
+            AcceptedSchemaCatalogContext, mutation::structural::AcceptedStructuralMutationTarget,
+        },
         query::intent::StructuralQuery,
         schema::AcceptedRowLayoutRuntimeContract,
-        session::{
-            AcceptedSchemaCatalogContext, AcceptedStructuralMutationTarget,
-            sql::{
-                SqlExactUpdatePolicy, SqlExactUpdatePolicyRejection, SqlPublicBoundedUpdatePlan,
-                SqlPublicPrimaryKeyUpdatePlan, SqlStatementDispatch, SqlStatementResult,
-                SqlTrustedExactUpdatePlan, SqlUpdateExposurePolicy, SqlUpdatePolicyRejection,
-                SqlUpdatePolicyResult, SqlValidatedUpdatePlan,
-                classify_sql_update_policy_for_entity, sql_statement_dispatch,
-                with_accepted_sql_update_policy_context, write_policy::SqlWriteExecutionBounds,
-            },
+        session::sql::{
+            SqlExactUpdatePolicy, SqlExactUpdatePolicyRejection, SqlPublicBoundedUpdatePlan,
+            SqlPublicPrimaryKeyUpdatePlan, SqlStatementDispatch, SqlStatementResult,
+            SqlTrustedExactUpdatePlan, SqlUpdateExposurePolicy, SqlUpdatePolicyRejection,
+            SqlUpdatePolicyResult, SqlValidatedUpdatePlan, classify_sql_update_policy_for_entity,
+            sql_statement_dispatch, with_accepted_sql_update_policy_context,
+            write_policy::SqlWriteExecutionBounds,
         },
         sql::{
             lowering::bind_sql_update_selector_query_structural_with_schema,

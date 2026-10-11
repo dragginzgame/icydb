@@ -160,7 +160,6 @@ fn grouped_case_compiles_all_branches_before_folding_and_evaluates_only_selected
 fn grouped_compilation_preserves_exact_cumulative_resource_failures() {
     use crate::db::{
         QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         query::{
             plan::{
                 GroupFieldSet,
@@ -168,6 +167,7 @@ fn grouped_compilation_preserves_exact_cumulative_resource_failures() {
             },
             preparation::PreparationWork,
         },
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     };
     use icydb_diagnostic_code::{
         DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,

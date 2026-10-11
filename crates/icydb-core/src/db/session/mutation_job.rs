@@ -6,8 +6,8 @@
 use crate::{
     db::{
         DbSession, MutationJobError, MutationJobId, MutationJobState, ProgressJobInventory,
-        executor::budget::{ExecutionBudgetExceeded, HardExecutionContext},
         integrity::with_mutation_progress_store,
+        resource::budget::{ExecutionBudgetExceeded, HardExecutionContext},
     },
     traits::CanisterKind,
 };
@@ -17,11 +17,13 @@ use icydb_diagnostic_code::{
 
 #[cfg(feature = "sql")]
 use crate::db::{
-    MutationJobAdvanceReceipt, MutationJobAdvanceRequest, MutationJobPhase,
-    executor::budget::with_mutation_execution_budget,
+    MutationJobAdvanceReceipt, MutationJobAdvanceRequest,
+    executor::mutation::job::{
+        advance_mutation_job, validate_current_initial_mutation_job_continuation,
+    },
     integrity::InsertMutationJobResult,
     mutation_job::{CanonicalMutationIntent, MutationJobRecord},
-    session::sql::validate_current_initial_mutation_job_continuation,
+    resource::budget::with_mutation_execution_budget,
 };
 
 #[cfg(feature = "sql")]
@@ -112,9 +114,10 @@ impl<C: CanisterKind> DbSession<C> {
         );
         with_mutation_execution_budget(
             context,
-            || match retained.state().phase {
-                MutationJobPhase::Forward => self.advance_mutation_job_forward(&retained, request),
-                MutationJobPhase::Verify => self.advance_mutation_job_verify(&retained, request),
+            || {
+                advance_mutation_job(&self.db, &retained, request, |entity_source| {
+                    self.find_accepted_schema_catalog_context_for_entity_source_key(entity_source)
+                })
             },
             mutation_job_execution_internal_error,
         )
@@ -247,8 +250,8 @@ mod tests {
     use crate::{
         db::{
             data::{AcceptedFixedUpdatePatch, FieldSlot},
-            executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
             query::plan::expr::{BinaryOp, Expr, FieldId},
+            resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         },
         types::Timestamp,
         value::Value,

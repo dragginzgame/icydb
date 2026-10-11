@@ -74,8 +74,9 @@ tool_store_acquire() {
 
 tool_store_release() {
     if [[ -n "${store_lock:-}" ]]; then
-        rm -f "$store_lock/owner" "$store_lock/selected"
-        rmdir "$store_lock"
+        rm -f "$store_lock/owner" "$store_lock/selected" || return $?
+        rmdir "$store_lock" || return $?
+        store_lock=''
     fi
 }
 
@@ -100,25 +101,29 @@ tool_store_cached() {
 # can select only this checkout's evidence, without scanning the entire store.
 tool_store_reference() {
     local bundle="$1" reference
-    reference="$(mktemp -d "$tool_root/$store_kind-set.XXXXXX")" || return 1
-    rmdir "$reference" || return 1
-    ln -s "$bundle" "$reference" || return 1
+    reference="$(mktemp -d "$tool_root/$store_kind-set.XXXXXX")" || return $?
+    rmdir "$reference" || return $?
+    ln -s "$bundle" "$reference" || return $?
     store_reference="${reference##*/}"
 }
 
 tool_store_new() {
-    stage="$(mktemp -d "$store_slot/set.XXXXXX")" || return 1
+    stage="$(mktemp -d "$store_slot/set.XXXXXX")" || return $?
     tool_store_reference "$stage"
 }
 
 tool_store_activate() {
     local bundle="$1"
+    [[ -n "${store_lock:-}" && "$store_lock" == "$store_slot/install.lock" &&
+       -d "$store_lock" && ! -L "$store_lock" && -d "$lock" && ! -L "$lock" ]] || {
+        echo 'tool activation requires acquired store and checkout locks' >&2; return 1;
+    }
     # The store's current pointer is a reuse hint; consumers point directly at
     # immutable generations, so updating the hint never upgrades another repo.
     [[ ! -e "$store_slot/current" || -L "$store_slot/current" ]] || { echo 'unmanaged tool store selection' >&2; return 1; }
     [[ ! -e "$active" || -L "$active" ]] || { echo 'unmanaged local tool selection' >&2; return 1; }
-    ln -s "${bundle##*/}" "$store_lock/selected" || return 1
-    perl -e 'rename($ARGV[0],$ARGV[1]) or die "select tool store bundle: $!\n"' "$store_lock/selected" "$store_slot/current" || return 1
-    ln -s "$store_reference" "$lock/selected" || return 1
+    ln -s "${bundle##*/}" "$store_lock/selected" || return $?
+    perl -e 'rename($ARGV[0],$ARGV[1]) or die "select tool store bundle: $!\n"' "$store_lock/selected" "$store_slot/current" || return $?
+    ln -s "$store_reference" "$lock/selected" || return $?
     perl -e 'rename($ARGV[0],$ARGV[1]) or die "activate tool bundle: $!\n"' "$lock/selected" "$active"
 }

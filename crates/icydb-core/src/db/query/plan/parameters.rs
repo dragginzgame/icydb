@@ -4,16 +4,15 @@
 //! Boundary: turns one validated normalized predicate into a reusable slot topology and
 //! binds each execution to its own canonical values.
 
+use crate::db::resource::construction::ConstructionBudget;
+
 #[cfg(test)]
 mod admission_tests;
 
 use crate::{
     db::{
         predicate::{CoercionId, CompareOp, Predicate},
-        query::{
-            construction::ConstructionBudget,
-            plan::primary_key_input_resource::estimate_value_payload_bytes,
-        },
+        query::plan::primary_key_input_resource::estimate_value_payload_bytes,
     },
     error::InternalError,
     value::Value,

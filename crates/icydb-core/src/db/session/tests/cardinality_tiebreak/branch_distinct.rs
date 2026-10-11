@@ -3,7 +3,7 @@
 use super::*;
 use crate::db::{
     RequestExecutionRoot, desc,
-    executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
+    resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
 };
 use crate::types::Decimal;
 use icydb_diagnostic_code::{

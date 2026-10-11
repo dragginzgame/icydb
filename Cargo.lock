@@ -209,7 +209,7 @@ dependencies = [
  "proc-macro-crate",
  "proc-macro2",
  "quote",
- "syn 3.0.7",
+ "syn 3.0.8",
 ]
 
 [[package]]
@@ -531,9 +531,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.7.0"
+version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50a649af8a827553c29fb0cb4bd4a6f1a0dd695bd3232b9bc98bd9c8a3ffbb8b"
+checksum = "6651c9ed80effdc7db0ff72512157f901af5e3549e341e24b1dd4887d836d838"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -620,7 +620,7 @@ dependencies = [
  "heck",
  "proc-macro2",
  "quote",
- "syn 3.0.7",
+ "syn 3.0.8",
 ]
 
 [[package]]
@@ -805,7 +805,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "strsim",
- "syn 3.0.7",
+ "syn 3.0.8",
 ]
 
 [[package]]
@@ -827,7 +827,7 @@ checksum = "2ac7135c3ef02b2f7833bbeb1be5ba7f966dcde8a87c6b87f65a778d71a02785"
 dependencies = [
  "darling_core 0.24.1",
  "quote",
- "syn 3.0.7",
+ "syn 3.0.8",
 ]
 
 [[package]]
@@ -881,7 +881,7 @@ checksum = "c6232dd377dcc64799954cbd3a9bb882e9cdc1308ccd87b1c098f1fb2eaf82a8"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.7",
+ "syn 3.0.8",
 ]
 
 [[package]]
@@ -1051,7 +1051,7 @@ checksum = "9fb9654ba8355388abeb8dcb4fc62f511300867002afc858860463bdd9fe0c44"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.7",
+ "syn 3.0.8",
 ]
 
 [[package]]
@@ -1366,9 +1366,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-artifacts"
-version = "0.13.4"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b064d9265304be9f4377128372c4c4bf6dd5903d95dd60a23575462d2f893c4"
+checksum = "fe9f4f3b54951520a67e8f99f120baf4cc9d6c37e3a848e20ce9f4d029ba3307"
 dependencies = [
  "flate2",
  "sha2",
@@ -1378,9 +1378,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-fs"
-version = "0.13.4"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "952bf86810c02a1874062e8db11f8e8e5ccf55a775e74f8095141bc6a488430e"
+checksum = "59ab765de7d6d9f4d5eaecac6e4c74e1350af4dda7d7cd3d0c7d6a4d89f08672"
 dependencies = [
  "ic-host-artifacts",
  "rustix",
@@ -1388,9 +1388,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-process"
-version = "0.13.4"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a14284ccd5024344f409285689a48a38464fed07a780f7c135f9d22ea6f03a8e"
+checksum = "e984c32037da3fefff009a8fdddc80a29838d055cc7bc1a98d4b7434fb817670"
 dependencies = [
  "ic-host-artifacts",
  "ic-host-fs",
@@ -1400,9 +1400,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-tools"
-version = "0.13.4"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c49f0322a4296233b415401cddd0c0e019db3bc43bf22f28bfe50124efa6bee4"
+checksum = "18991ec7594c75be4e562b7d774fea581260f37420aaa82a2699e5c105321791"
 dependencies = [
  "ic-host-artifacts",
  "ic-host-fs",
@@ -1424,9 +1424,9 @@ dependencies = [
 
 [[package]]
 name = "ic-memory"
-version = "0.35.9"
+version = "0.35.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2232bd47abaf8946c7ee89cff699006a77a9648544c31d4dfea015593cf9a390"
+checksum = "ffd6bbe246e4cd49b563645980d911e9591b4463d1de5123545375a1eeabd010"
 dependencies = [
  "ciborium",
  "ctor",
@@ -1437,9 +1437,9 @@ dependencies = [
 
 [[package]]
 name = "ic-metrics"
-version = "0.6.4"
+version = "0.6.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d9ec32a3dc0bad6bc936befac7ade5bad7bba2720d0aa429e53a95e2c14ceb2"
+checksum = "65fdc32ce3d16e57750b9b8324a203ec3d7ead289b6ebbdf18cfd955d602229e"
 
 [[package]]
 name = "ic-stable-structures"
@@ -1452,9 +1452,9 @@ dependencies = [
 
 [[package]]
 name = "ic-testkit"
-version = "0.33.7"
+version = "0.34.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54b942dd89e09fe524467040c4d1725b169a18835cd5955fc75d96cbe6a52a2b"
+checksum = "c7a1daea41a0b39c4004a9a9d02de4350e0eb08050bc37d7ec9dbee47a046111"
 dependencies = [
  "candid",
  "fs2",
@@ -1473,9 +1473,9 @@ dependencies = [
 
 [[package]]
 name = "ic-timers"
-version = "0.17.10"
+version = "0.17.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "64022e39c35a1bbdd95a566c2cf51341d6e81c140320b6f775cca2d3bc343379"
+checksum = "ba3b7e09f514412b2e1c8c26f0b2a41a14641384a8764def6354e70b1e78ace4"
 dependencies = [
  "ic-cdk-timers",
  "ic-metrics",
@@ -1692,7 +1692,7 @@ dependencies = [
  "serde",
  "serde_bytes",
  "sha2",
- "syn 3.0.7",
+ "syn 3.0.8",
  "thiserror 2.0.18",
  "trybuild",
  "ulid",
@@ -1722,7 +1722,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "syn 3.0.7",
+ "syn 3.0.8",
  "thiserror 2.0.18",
  "trybuild",
 ]
@@ -1739,7 +1739,7 @@ dependencies = [
  "quote",
  "remain",
  "serde",
- "syn 3.0.7",
+ "syn 3.0.8",
 ]
 
 [[package]]
@@ -1854,7 +1854,7 @@ dependencies = [
  "proc-macro2",
  "serde",
  "serde_json",
- "syn 3.0.7",
+ "syn 3.0.8",
 ]
 
 [[package]]
@@ -2613,7 +2613,7 @@ checksum = "2b297d1baead74bf76361e49ed016060bd829633361b68500d2e7ea3e66ab6a4"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.7",
+ "syn 3.0.8",
 ]
 
 [[package]]
@@ -2956,7 +2956,7 @@ checksum = "e7a5d71263a5a7d47b41f6b3f06ba276f10cc18b0931f1799f710578e2309348"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.7",
+ "syn 3.0.8",
 ]
 
 [[package]]
@@ -2972,9 +2972,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.152"
+version = "1.0.154"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1741ab7a6cc54a03a89b5d563ed60075c277d9e3cfa73ad0c1f23f23974703c6"
+checksum = "e7e9cc8b1b85264074fbcc02a88680c4096b1e47df8f739dceb03bf482f04bd6"
 dependencies = [
  "itoa",
  "memchr",
@@ -2991,7 +2991,7 @@ checksum = "8d3b1629de253c70a0508c3899572da79ca359fdab27c7920ff00406df418906"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.7",
+ "syn 3.0.8",
 ]
 
 [[package]]
@@ -3187,9 +3187,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "3.0.7"
+version = "3.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d62a2e0561533f2ca2561d0cf27fd9fedb640a1bf2616ff5d5c80d99017faadc"
+checksum = "01016da373cd8f7ef12624f796309f5c31ba8d646dd08856c02cd741d823c622"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3213,7 +3213,7 @@ checksum = "901704edd0dfe137f1987838ee4f259e4e063c31371bdb423f7ae38ec6f77f02"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.7",
+ "syn 3.0.8",
 ]
 
 [[package]]
@@ -3374,7 +3374,7 @@ checksum = "78773a2a397f451582ce068015985c33193cf6dea8b74d2a639fe457b2f07b0e"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.7",
+ "syn 3.0.8",
 ]
 
 [[package]]
@@ -3782,7 +3782,7 @@ dependencies = [
  "bumpalo",
  "proc-macro2",
  "quote",
- "syn 3.0.7",
+ "syn 3.0.8",
  "wasm-bindgen-shared",
 ]
 
@@ -4006,7 +4006,7 @@ checksum = "ec8ebde2db3681e8c9980cc27822030e68752690ddfa9473e739aeb4dbde6d71"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.7",
+ "syn 3.0.8",
  "synstructure",
 ]
 
@@ -4047,7 +4047,7 @@ checksum = "f75b4683f6c7f45248d4d64056a24298c6281e0993356d7d1b4a1a962ef10d4a"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.7",
+ "syn 3.0.8",
  "synstructure",
 ]
 
@@ -4087,7 +4087,7 @@ checksum = "34df6fc39dbd26ddc9c10e6a2984476e13acce22e64e4487636ef494369225da"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.7",
+ "syn 3.0.8",
 ]
 
 [[package]]

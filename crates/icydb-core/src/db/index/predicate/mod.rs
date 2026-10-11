@@ -7,7 +7,7 @@ pub(crate) mod compile;
 use crate::{
     db::{
         index::{EncodedValue, IndexKey, admit_query_index_component},
-        query::construction::ConstructionBudget,
+        resource::construction::ConstructionBudget,
     },
     error::InternalError,
     value::Value,

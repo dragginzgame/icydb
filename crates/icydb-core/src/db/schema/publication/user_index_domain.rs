@@ -1,4 +1,4 @@
-//! Module: db::schema::sql_ddl::user_index_domain
+//! Module: db::schema::publication::user_index_domain
 //! Responsibility: stage one SQL-DDL-owned accepted user-index domain.
 //! Does not own: index derivation, physical apply, or accepted publication.
 //! Boundary: accepted catalog plus stored rows to one zero-write staged domain.
@@ -9,8 +9,8 @@ use crate::{
             AcceptedStructuralRowAuthority, DecodedDataStoreKey, StoreVisit, StructuralRowContract,
             StructuralSlotReader,
         },
-        executor::budget::MaintenanceConstructionBudget,
         registry::StoreHandle,
+        resource::budget::MaintenanceConstructionBudget,
         schema::{
             AcceptedCatalogIdentity, AcceptedSchemaSnapshot, PersistedSchemaSnapshot,
             SchemaUserIndexDomainRow, StagedUserIndexDomainError, StagedUserIndexDomainReplacement,

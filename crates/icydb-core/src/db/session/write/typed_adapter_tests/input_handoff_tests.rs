@@ -5,10 +5,9 @@ use crate::{
     db::{
         data::AcceptedMutationFieldWriteIntent,
         dynamic_write::{DynamicMutation, DynamicStructuralPatch, DynamicTypedStructuralPatch},
+        executor::mutation::structural::AcceptedStructuralMutation,
         schema::AcceptedRowLayoutRuntimeContract,
-        session::write::{
-            AcceptedStructuralMutation, lower_dynamic_mutation_intent, lower_typed_mutation_intent,
-        },
+        session::write::{lower_dynamic_mutation_intent, lower_typed_mutation_intent},
     },
     value::{OutputValue, PublicValue},
 };

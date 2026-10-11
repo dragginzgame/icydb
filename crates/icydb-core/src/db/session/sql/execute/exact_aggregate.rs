@@ -7,8 +7,9 @@ use crate::{
     db::{
         DbSession, QueryError,
         executor::{
-            EntityAuthority, ExactCardinalityTarget, SharedPreparedExecutionPlan,
-            exact_count_cardinality_prefixes_for_plan, execute_exact_cardinality_for_canister,
+            AcceptedSchemaCatalogContext, EntityAuthority, ExactCardinalityTarget,
+            SharedPreparedExecutionPlan, exact_count_cardinality_prefixes_for_plan,
+            execute_exact_cardinality_for_canister,
             execute_exact_indexed_numeric_aggregate_for_canister,
             user_index_prefix_cardinality_keys_from_plan,
         },
@@ -16,7 +17,6 @@ use crate::{
         query::plan::{exact_first_component_metadata_index, expr::ProjectionSpec},
         schema::AcceptedFieldKind,
         session::{
-            AcceptedSchemaCatalogContext,
             query::StructuralProjectionContract,
             sql::{
                 SqlStatementResult, projection::sql_projection_statement_result_from_value_rows,

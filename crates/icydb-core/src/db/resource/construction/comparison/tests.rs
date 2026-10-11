@@ -1,9 +1,10 @@
 //! The shared comparison extent is cumulative and does not copy operands.
 
+use crate::db::resource::construction::ConstructionBudget;
+
 use crate::{
     db::{
-        QueryError, RequestExecutionRoot,
-        query::{construction::ConstructionBudget, preparation::PreparationWork},
+        QueryError, RequestExecutionRoot, query::preparation::PreparationWork,
         test_support::request_with_limit,
     },
     types::{IntBig, NatBig},

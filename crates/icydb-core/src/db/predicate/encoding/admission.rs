@@ -4,7 +4,7 @@
 use crate::{
     db::{
         predicate::{CoercionId, CompareOp, Predicate},
-        query::construction::{ConstructionBudget, ENCODING_NODE_BYTES, encoded_value_capacity},
+        resource::construction::{ConstructionBudget, ENCODING_NODE_BYTES, encoded_value_capacity},
     },
     error::InternalError,
     value::Value,

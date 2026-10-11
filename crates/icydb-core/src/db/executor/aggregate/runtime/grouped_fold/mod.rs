@@ -22,9 +22,7 @@ use crate::{
                     generic::execute_generic_grouped_fold_stage,
                 },
             },
-            budget::ExecutionConstructionBudget,
-            group::grouped_budget_observability,
-            group::grouped_execution_context_from_planner_config,
+            group::{grouped_budget_observability, grouped_execution_context_from_planner_config},
             pipeline::{
                 contracts::{
                     ExecutionInputs, ExecutionRuntimeAdapter, GroupedCursorPage, GroupedRouteStage,
@@ -39,6 +37,7 @@ use crate::{
         },
         index::IndexCompilePolicy,
         query::plan::expr::GroupedCompilationError,
+        resource::budget::ExecutionConstructionBudget,
     },
     error::InternalError,
 };

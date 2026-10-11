@@ -1,7 +1,6 @@
 use crate::{
     db::{
         QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         query::{
             builder::scalar_projection::{
                 render_scalar_projection_expr_plan_label, write_scalar_projection_expr_plan_label,
@@ -9,6 +8,7 @@ use crate::{
             plan::expr::Expr,
             preparation::PreparationWork,
         },
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     },
     value::{Value, ValueEnum},
 };

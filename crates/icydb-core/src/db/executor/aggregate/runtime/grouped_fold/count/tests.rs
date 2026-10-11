@@ -223,13 +223,10 @@ fn grouped_count_window_charges_sort_work() {
     use crate::db::{
         QueryError,
         direction::Direction,
-        executor::{
-            budget::{
-                HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
-                with_query_execution_budget_for_tests,
-            },
-            group::GroupKey,
-            pipeline::contracts::GroupedRouteStage,
+        executor::{group::GroupKey, pipeline::contracts::GroupedRouteStage},
+        resource::budget::{
+            HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
+            with_query_execution_budget_for_tests,
         },
     };
     use icydb_diagnostic_code::{

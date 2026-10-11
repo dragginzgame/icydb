@@ -6,7 +6,7 @@ mod contracts;
 
 use crate::{
     db::{
-        executor::budget::ExecutionConstructionBudget, query::plan::expr::GroupedCompilationError,
+        query::plan::expr::GroupedCompilationError, resource::budget::ExecutionConstructionBudget,
     },
     error::InternalError,
     value::Value,

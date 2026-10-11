@@ -6,12 +6,12 @@
 use crate::{
     db::{
         codec::MAX_ROW_BYTES,
-        executor::budget::{
+        index::IndexKey,
+        resource::budget::{
             ExecutionBudgetUsage, RUNTIME_VALUE_NODE_OVERHEAD_BYTES,
             charge_current_execution_budget, current_execution_budget_usage, resource_index,
             runtime_value_work,
         },
-        index::IndexKey,
     },
     error::InternalError,
     value::Value,
@@ -710,7 +710,7 @@ mod tests {
     use super::*;
     use crate::db::{
         QueryError,
-        executor::budget::{
+        resource::budget::{
             HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
             read_hard_budget_limit_for_tests, with_query_execution_budget_for_tests,
         },

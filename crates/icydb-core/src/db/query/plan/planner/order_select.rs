@@ -7,13 +7,11 @@ use crate::{
     db::{
         access::{AccessPlan, SemanticIndexAccessContract, SemanticIndexRangeSpec},
         predicate::Predicate,
-        query::{
-            construction::ConstructionBudget,
-            plan::{
-                OrderSpec, order_contract::CandidateOrderContract,
-                planner::index_stream_is_complete_for_query,
-            },
+        query::plan::{
+            OrderSpec, order_contract::CandidateOrderContract,
+            planner::index_stream_is_complete_for_query,
         },
+        resource::construction::ConstructionBudget,
         schema::SchemaInfo,
     },
     error::InternalError,

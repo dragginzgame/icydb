@@ -4,7 +4,7 @@
 #[cfg(test)]
 mod tests;
 
-use crate::{db::query::construction::ConstructionBudget, error::InternalError, value::Value};
+use crate::{db::resource::construction::ConstructionBudget, error::InternalError, value::Value};
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 use std::borrow::Borrow;
 

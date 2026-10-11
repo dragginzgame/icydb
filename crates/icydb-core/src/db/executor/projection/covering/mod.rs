@@ -19,14 +19,14 @@ use crate::{
         cursor::IndexScanContinuationInput,
         executor::{
             EntityAuthority, IndexScan, LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
-            budget::ExecutionConstructionBudget, decode_single_covering_projection_pairs,
-            projection::MaterializedProjectionRows,
+            decode_single_covering_projection_pairs, projection::MaterializedProjectionRows,
         },
         index::{
             IndexKey, admit_index_prefix_bounds, envelope_is_empty,
             predicate::IndexPredicateExecution, raw_keys_for_component_prefix_with_kind,
         },
         predicate::MissingRowPolicy,
+        resource::budget::ExecutionConstructionBudget,
     },
     error::InternalError,
     traits::CanisterKind,

@@ -12,7 +12,7 @@ pub(in crate::db) mod explain;
 mod group;
 mod index_prefix_cardinality;
 mod kernel;
-mod mutation;
+pub(in crate::db) mod mutation;
 mod order;
 mod pipeline;
 pub(super) mod planning;
@@ -42,7 +42,10 @@ pub(in crate::db) use aggregate::{
     execute_exact_indexed_numeric_aggregate_for_canister,
     execute_structural_aggregate_rows_for_canister,
 };
-pub(in crate::db) use authority::EntityAuthority;
+pub(in crate::db) use authority::{
+    AcceptedInspectionPlanLoadError, AcceptedSchemaCatalogContext, AcceptedSchemaRuntimeRoot,
+    EntityAuthority,
+};
 pub(in crate::db::executor) use covering::resolve_covering_projection_components_from_lowered_specs;
 pub(in crate::db::executor) use covering::{
     covering_projection_scan_direction, decode_single_covering_projection_pairs,

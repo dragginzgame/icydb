@@ -6,15 +6,12 @@ use crate::{
         QueryError, RequestExecutionRoot,
         codec::{decode_row_payload_bytes, serialize_row_payload},
         data::{DecodedDataStoreKey, RawRow, encode_canonical_value_storage_bytes},
-        executor::{
-            StructuralProjectionRequest,
-            budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
-            execute_structural_projection_rows,
-        },
+        executor::{StructuralProjectionRequest, execute_structural_projection_rows},
         query::{
             admission::{QueryAdmissionPolicy, QueryAdmissionSummary},
             preparation::with_preparation_work,
         },
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         schema::{
             AcceptedSourceBindingCatalog, LeafCodec, PersistedFieldOrigin,
             PersistedNestedLeafSnapshot, RowLayoutVersion, SchemaFieldWritePolicy,

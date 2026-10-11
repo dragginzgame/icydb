@@ -9,8 +9,8 @@ use crate::{
         ResumableJobAdvance, ResumableJobAdvanceReceipt, ResumableJobAdvanceRequest,
         ResumableJobError, ResumableJobId, ResumableJobRecord, ResumableJobState,
         ResumableJobStatus,
-        executor::budget::{ExecutionBudgetExceeded, HardExecutionContext},
         integrity::with_resumable_progress_store,
+        resource::budget::{ExecutionBudgetExceeded, HardExecutionContext},
     },
     traits::CanisterKind,
 };

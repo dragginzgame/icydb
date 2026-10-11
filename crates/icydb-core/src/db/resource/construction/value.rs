@@ -1,7 +1,7 @@
 //! Copy admitted values without a separate sizing walk or semantic conversion.
 
 use crate::{
-    db::query::construction::ConstructionBudget,
+    db::resource::construction::ConstructionBudget,
     error::InternalError,
     value::{CanonicalEnumBody, Value, ValueEnum},
 };

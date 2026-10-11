@@ -4,6 +4,7 @@
 //! Boundary: parses SQL text into deterministic statement AST used by planner-facing layers.
 
 pub(in crate::db) mod ddl;
+mod errors;
 pub(crate) mod identifier;
 pub(in crate::db) mod input;
 pub(crate) mod lowering;

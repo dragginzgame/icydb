@@ -7,7 +7,7 @@
 use crate::{
     db::{
         predicate::{CoercionId, CompareOp, ComparePredicate},
-        query::construction::ConstructionBudget,
+        resource::construction::ConstructionBudget,
     },
     error::InternalError,
     value::{Value, canonicalize_value_set},

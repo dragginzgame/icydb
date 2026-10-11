@@ -12,7 +12,6 @@ use crate::{
         predicate::MissingRowPolicy,
         query::{
             builder::aggregate::AggregateExpr,
-            construction::ConstructionBudget,
             intent::{model::QueryModel, state::GroupedIntent},
             plan::{
                 AggregateSemanticKeyRef, OrderDirection, OrderSpec, PreparedQueryParameterContract,
@@ -21,6 +20,7 @@ use crate::{
             },
             preparation::PreparationWork,
         },
+        resource::construction::ConstructionBudget,
     },
     value::Value,
 };
@@ -543,11 +543,11 @@ mod tests {
     use super::{AggregateCacheKey, OrderTermCacheKey, ProjectionCacheKey};
     use crate::db::{
         QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         query::{
             plan::expr::{BinaryOp, CaseWhenArm, FieldPath, Function, UnaryOp},
             preparation::{PreparationWork, with_preparation_work},
         },
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     };
     use icydb_diagnostic_code::{
         DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane, DiagnosticFactTag,

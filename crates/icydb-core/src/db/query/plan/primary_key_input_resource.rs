@@ -3,8 +3,10 @@
 //! Does not own: read-admission policy, key-access selection, or execution.
 //! Boundary: estimates pre-execution key-list work for exact-key admission.
 
+use crate::db::resource::construction::ConstructionBudget;
+
 use crate::{
-    db::query::{construction::ConstructionBudget, plan::PrimaryKeyInputResourceSummary},
+    db::query::plan::PrimaryKeyInputResourceSummary,
     error::InternalError,
     types::AccountStorageCodec,
     value::{Value, ValueEnum},
@@ -100,8 +102,8 @@ mod tests {
     use crate::{
         db::{
             QueryError, RequestExecutionRoot,
-            executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
             query::preparation::PreparationWork,
+            resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         },
         types::{IntBig, NatBig},
         value::{Value, ValueEnum},

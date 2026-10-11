@@ -7,10 +7,12 @@
 mod tests;
 
 use crate::{
-    db::query::{
-        construction::ConstructionBudget,
-        fingerprint::hash_sections::{write_expr_label, write_str, write_tag},
-        plan::GroupAggregateSpec,
+    db::{
+        query::{
+            fingerprint::hash_sections::{write_expr_label, write_str, write_tag},
+            plan::GroupAggregateSpec,
+        },
+        resource::construction::ConstructionBudget,
     },
     error::InternalError,
 };

@@ -9,9 +9,9 @@ use crate::{
     MAX_INDEX_FIELDS,
     db::{
         QueryError, RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         index::{EncodedValue, IndexId, IndexKeyKind, RawIndexStoreKey},
         query::preparation::PreparationWork,
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     },
     types::EntityTag,
     value::Value,

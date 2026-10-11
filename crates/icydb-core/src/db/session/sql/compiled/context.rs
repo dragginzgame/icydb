@@ -3,8 +3,9 @@
 
 use super::CompiledSqlCommand;
 use crate::db::{
+    executor::AcceptedSchemaCatalogContext,
     schema::{AcceptedSchemaSnapshot, SchemaVersion},
-    session::{AcceptedSchemaCatalogContext, sql::SqlCompiledCommandSurface},
+    session::sql::SqlCompiledCommandSurface,
 };
 
 ///

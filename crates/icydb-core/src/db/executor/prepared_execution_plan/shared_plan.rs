@@ -6,6 +6,7 @@ use crate::db::executor::{
 };
 use crate::{
     db::{
+        QueryError,
         commit::CommitSchemaFingerprint,
         cursor::{CursorPlanError, TokenWireError, ValidatedGroupedCursor},
         executor::{
@@ -15,7 +16,8 @@ use crate::{
                 build_prepared_execution_plan_core_with_schema_fingerprint,
             },
         },
-        query::construction::ConstructionBudget,
+        query::{explain::ExplainPlan, preparation::PreparationWork},
+        resource::construction::ConstructionBudget,
         schema::{enum_catalog::ValueAdmissionBudget, literal_matches_type},
     },
     error::InternalError,
@@ -39,6 +41,16 @@ pub(in crate::db) struct SharedPreparedExecutionPlan {
 }
 
 impl SharedPreparedExecutionPlan {
+    /// Project a finalized shared plan without rebuilding its execution facts.
+    /// The session must establish current authority and cache validity before
+    /// calling; this operation owns diagnostic construction only.
+    pub(in crate::db) fn explain(
+        &self,
+        work: &PreparationWork<'_>,
+    ) -> Result<ExplainPlan, QueryError> {
+        self.logical_plan().project_explain(work)
+    }
+
     #[cfg(test)]
     pub(in crate::db) fn resident_lifetime_for_tests(&self) -> impl Fn() -> bool + use<> {
         let residents = Rc::downgrade(&self.core.residents);
@@ -51,7 +63,7 @@ impl SharedPreparedExecutionPlan {
 
     pub(in crate::db) fn attach_cache_retention(
         &self,
-        entry: &Rc<crate::db::session::CacheEntryWeight>,
+        entry: &Rc<crate::db::resource::bounded_cache::CacheEntryWeight>,
     ) {
         self.core.attach_cache_retention(entry);
     }

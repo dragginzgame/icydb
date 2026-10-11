@@ -12,9 +12,9 @@ use crate::{
             write_hash_u64,
         },
         data::StructuralRowContract,
-        executor::budget::MaintenanceConstructionBudget,
         index::AcceptedIndexInspectionPlan,
         relation::{RelationConstraintProjection, ReverseRelationSourceInfo},
+        resource::budget::MaintenanceConstructionBudget,
         schema::{
             AcceptedCatalogIdentity, AcceptedFieldKind, AcceptedRowLayoutRuntimeContract,
             AcceptedSchemaFingerprint, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,

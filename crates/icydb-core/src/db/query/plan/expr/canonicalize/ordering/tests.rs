@@ -2,12 +2,12 @@ use super::*;
 use crate::{
     db::{
         RequestExecutionRoot,
-        executor::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         query::{
             builder::scalar_projection::render_scalar_projection_expr_plan_label,
             plan::expr::{BinaryOp, FieldId},
             preparation::with_preparation_work,
         },
+        resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     },
     value::Value,
 };

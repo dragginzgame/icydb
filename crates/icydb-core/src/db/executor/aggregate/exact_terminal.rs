@@ -7,15 +7,10 @@ use crate::{
     db::{
         Db,
         data::DataStore,
-        executor::{
-            EntityAuthority,
-            budget::{
-                charge_current_execution_budget, direct_read_execution_context,
-                with_read_execution_budget,
-            },
-        },
+        executor::{EntityAuthority, budget::direct_read_execution_context},
         index::{IndexId, IndexKeyKind, UserIndexPrefixCardinalityKey},
         registry::StoreHandle,
+        resource::budget::{charge_current_execution_budget, with_read_execution_budget},
     },
     error::InternalError,
     metrics::EntityMetricsSpan,
@@ -31,16 +26,14 @@ const EXACT_NUMERIC_AGGREGATE_SHAPE_DOMAIN: u64 = 0x6963_7964_622d_6e75;
 
 #[cfg(feature = "sql")]
 use crate::db::{
-    executor::{
-        aggregate::scalar_terminals::scalar_distinct_conservative_unit_work,
-        budget::{
-            charge_runtime_value_rows, current_execution_remaining_budget_units,
-            try_charge_current_execution_budget_bundle,
-        },
-    },
+    executor::aggregate::scalar_terminals::scalar_distinct_conservative_unit_work,
     index::{IndexState, IndexStore},
     numeric::{NumericEvalError, average_decimal_terms_checked},
     query::plan::AggregateKind,
+    resource::budget::{
+        charge_runtime_value_rows, current_execution_remaining_budget_units,
+        try_charge_current_execution_budget_bundle,
+    },
 };
 #[cfg(feature = "sql")]
 use crate::{types::Decimal, value::Value};

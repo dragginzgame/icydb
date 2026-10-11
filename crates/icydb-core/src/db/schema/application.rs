@@ -5042,8 +5042,8 @@ mod tests {
     #[test]
     fn migration_preparation_failure_retains_original_budget_diagnostic() {
         use crate::db::{
-            executor::budget::MaintenanceConstructionBudget,
-            query::construction::ConstructionBudget,
+            resource::budget::MaintenanceConstructionBudget,
+            resource::construction::ConstructionBudget,
             schema::migration_planner::SchemaMigrationPlanningError,
         };
         use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;

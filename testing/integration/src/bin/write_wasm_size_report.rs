@@ -14,7 +14,9 @@ use std::{
 
 use ic_host_artifacts::wasm::{InspectionLimits, inspect};
 use ic_host_fs::read::hash_file;
-use ic_host_process::tool::{AdmittedTool, OutputLimit, OutputLimits, capture_command};
+use ic_host_process::tool::{
+    AdmittedTool, CompletedExecution, OutputLimit, OutputLimits, capture_command,
+};
 use icydb_testing_integration::{
     CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
     CanisterWasmProfile, ResolvedCanisterBuildConfiguration,
@@ -462,6 +464,7 @@ fn command_text(current_dir: &Path, program: &Path, args: &[&str]) -> Result<Str
         Command::new(program).current_dir(current_dir).args(args),
         REPORT_OUTPUT_LIMITS,
     )
+    .and_then(CompletedExecution::require_success)
     .map_err(|error| format_tool_failure(&format!("run {}", program.display()), &error))?;
     String::from_utf8(output.stdout)
         .map(|text| text.trim().to_string())
