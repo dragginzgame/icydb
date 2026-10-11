@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ### 🩹 Fixed
 
 - Adopt Shared 0.3.11 and updated IC libraries; simplify CLI errors and repair
-  CI handoff, artifacts, index scans and schema admission
+  CI fixture isolation and handoff, artifacts, index scans and schema admission
   ([#258](https://github.com/dragginzgame/icydb/issues/258),
   [#128](https://github.com/dragginzgame/icydb/issues/128),
   [#168](https://github.com/dragginzgame/icydb/issues/168),

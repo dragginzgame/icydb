@@ -6,6 +6,8 @@ unset MAKEFLAGS MFLAGS MAKEOVERRIDES GNUMAKEFLAGS MAKEFILES
 # Select fixture thread defaults independently of CI's ambient libtest cap.
 # Explicit inherited-cap forwarding is qualified below through actual Make.
 unset RUST_TEST_THREADS
+# Isolated runner calls must not append to their caller's CI report.
+unset GITHUB_STEP_SUMMARY
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 FIXTURE="$(mktemp -d "${TMPDIR:-/tmp}/icydb-shared-adapters.XXXXXX")"
 fixture_complete=false
@@ -83,6 +85,7 @@ status=0
 (
   cd "$FIXTURE/bin"
   ICYDB_VALIDATION_FAILURE_LOG_DIR="$FIXTURE/logs" \
+    VALIDATION_RUNNER_DEPTH=0 \
     GITHUB_STEP_SUMMARY="$FIXTURE/adapter-summary.md" \
     bash "$FIXTURE/scripts/ci/run-icydb-validation-targets.sh" --fail-fast pass fail-one fail-two
 ) > "$FIXTURE/output" 2>&1 || status=$?
@@ -97,10 +100,13 @@ if rg -F second-complete-payload "$FIXTURE/output" > /dev/null; then exit 1; fi
 
 status=0
 ICYDB_VALIDATION_FAILURE_LOG_DIR="$FIXTURE/nested-logs" \
+  VALIDATION_RUNNER_DEPTH=0 GITHUB_STEP_SUMMARY="$FIXTURE/nested-summary.md" \
   bash "$FIXTURE/scripts/ci/run-icydb-validation-targets.sh" nested \
   > "$FIXTURE/nested-output" 2>&1 || status=$?
 [[ "$status" -eq 2 ]]
 rg -F first-complete-payload "$FIXTURE/nested-logs/latest-combined.log" > /dev/null
+# The outer fixture runner writes one report; its nested runner writes none.
+[[ "$(grep -c '^### Validation summary$' "$FIXTURE/nested-summary.md")" == 1 ]]
 
 # Legitimate selections and the live jobserver survive nested adapter dispatch.
 ICYDB_VALIDATION_FAILURE_LOG_DIR="$FIXTURE/parallel-logs" \
