@@ -33,7 +33,7 @@ fn rewrite_affine_compare_binary(op: BinaryOp, left: Expr, right: Expr) -> Expr 
         };
     };
 
-    if let Some((field, value)) = rewrite_affine_field_compare(&left, &right) {
+    if let Some((field, value)) = rewrite_affine_field_compare(compare_op, &left, &right) {
         return Expr::Binary {
             op,
             left: Box::new(field),
@@ -41,7 +41,7 @@ fn rewrite_affine_compare_binary(op: BinaryOp, left: Expr, right: Expr) -> Expr 
         };
     }
 
-    if let Some((field, value)) = rewrite_affine_field_compare(&right, &left)
+    if let Some((field, value)) = rewrite_affine_field_compare(compare_op, &right, &left)
         && let Some(flipped_op) = flip_compare_binary_op(compare_op)
     {
         return Expr::Binary {
@@ -63,7 +63,11 @@ fn rewrite_affine_compare_binary(op: BinaryOp, left: Expr, right: Expr) -> Expr 
 // - literal + field
 // - field - literal
 // and move the offset onto the literal side.
-fn rewrite_affine_field_compare(affine_side: &Expr, literal_side: &Expr) -> Option<(Expr, Value)> {
+fn rewrite_affine_field_compare(
+    op: BinaryOp,
+    affine_side: &Expr,
+    literal_side: &Expr,
+) -> Option<(Expr, Value)> {
     let Expr::Literal(target) = literal_side else {
         return None;
     };
@@ -85,7 +89,21 @@ fn rewrite_affine_field_compare(affine_side: &Expr, literal_side: &Expr) -> Opti
         }
     };
 
-    Some((field.clone(), Value::Decimal(rewritten)))
+    // Keep parser integer literals in their widening family when the checked
+    // result fits. A Decimal wrapper would turn Eq/Ne into strict comparison
+    // and reject small integers, floats and time scalars at predicate admission.
+    // Ordering, fractional and wide results keep their current representation.
+    let value = if matches!(op, BinaryOp::Eq | BinaryOp::Ne)
+        && matches!((target, offset), (Value::Int64(_), Value::Int64(_)))
+    {
+        rewritten
+            .to_i64()
+            .map_or(Value::Decimal(rewritten), Value::Int64)
+    } else {
+        Value::Decimal(rewritten)
+    };
+
+    Some((field.clone(), value))
 }
 
 // Extract the direct field plus/minus literal offset pattern admitted by this

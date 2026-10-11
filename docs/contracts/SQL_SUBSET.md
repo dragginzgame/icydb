@@ -449,9 +449,7 @@ Supported shapes:
 - `CREATE UNIQUE INDEX name ON entity (field_path)`
 - `CREATE UNIQUE INDEX name ON entity (LOWER(field_path))`
 - `DROP INDEX name ON entity`
-- `DROP INDEX name`
 - `DROP INDEX IF EXISTS name ON entity`
-- `DROP INDEX IF EXISTS name`
 - `ALTER TABLE entity ADD COLUMN field type`
 - `ALTER TABLE entity ADD COLUMN field type DEFAULT value`
 - `ALTER TABLE entity ALTER COLUMN field SET DEFAULT value`
@@ -535,8 +533,9 @@ must be removed there, then reconciled through the normal accepted-schema
 publication path.
 `DROP INDEX IF EXISTS` no-ops only when the target index is absent. Existing
 generated/model-owned and otherwise unsupported indexes still reject.
-Typed SQL DDL may omit `ON entity` for `DROP INDEX`. Generated canister DDL
-requires `ON entity` so dispatch does not guess a target from canister shape.
+Both direct administrative SQL DDL and generated canister DDL require
+`ON entity` for `DROP INDEX`, including `IF EXISTS`, so dispatch can select the
+entity's accepted catalog. `IF EXISTS` does not make the entity optional.
 
 `ALTER TABLE ... ADD COLUMN ...` publishes DDL-owned accepted fields for
 supported scalar column types. Nullable no-default additions materialize older
@@ -1019,6 +1018,14 @@ Supported `WHERE` predicate forms are:
 - `STARTS_WITH(field, 'prefix')`
 - searched `CASE`, when it returns values that stay on the admitted boolean
   filtering lane
+
+Grouped `WHERE` and UPDATE filters also admit narrow affine numeric comparisons:
+one direct field plus or minus a numeric literal, compared with another literal.
+Addition may put the offset before the field, and the comparison may be reversed.
+For equality and inequality, when both literals are signed integers and the
+rewritten value fits `Int64`, the comparison retains numeric widening instead
+of becoming strict Decimal equality. Ordering, fractional and wider rewrites
+retain their existing Decimal admission.
 
 Narrow casefolded predicate forms are also supported:
 

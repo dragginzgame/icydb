@@ -2,7 +2,8 @@
 
 use super::*;
 use crate::types::{
-    Account, Date, Duration, IntBig, NatBig, Principal, Subaccount, Timestamp, U256, Ulid,
+    Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
+    Timestamp, U256, Ulid,
 };
 
 fn nullable_scalar_field(
@@ -58,6 +59,244 @@ fn seed_scalar_pairs(
             .unwrap();
     }
     session
+}
+
+#[test]
+fn sql_affine_integer_literals_match_scalar_grouped_and_update_routes() {
+    let mut cases = Vec::new();
+    for kind in [
+        AcceptedFieldKind::Int8,
+        AcceptedFieldKind::Int16,
+        AcceptedFieldKind::Int32,
+        AcceptedFieldKind::Int64,
+    ] {
+        cases.push((kind, InputValue::int64(2), InputValue::int64(3)));
+    }
+    for kind in [
+        AcceptedFieldKind::Nat8,
+        AcceptedFieldKind::Nat16,
+        AcceptedFieldKind::Nat32,
+        AcceptedFieldKind::Nat64,
+    ] {
+        cases.push((kind, InputValue::nat64(2), InputValue::nat64(3)));
+    }
+    cases.extend([
+        (
+            AcceptedFieldKind::Int128,
+            InputValue::int128(2),
+            InputValue::int128(3),
+        ),
+        (
+            AcceptedFieldKind::Nat128,
+            InputValue::nat128(2),
+            InputValue::nat128(3),
+        ),
+        (
+            AcceptedFieldKind::Float32,
+            InputValue::float32(Float32::try_new(2.0).unwrap()),
+            InputValue::float32(Float32::try_new(3.0).unwrap()),
+        ),
+        (
+            AcceptedFieldKind::Float64,
+            InputValue::float64(Float64::try_new(2.0).unwrap()),
+            InputValue::float64(Float64::try_new(3.0).unwrap()),
+        ),
+        (
+            AcceptedFieldKind::Decimal { scale: 0 },
+            InputValue::decimal(Decimal::new(2, 0)),
+            InputValue::decimal(Decimal::new(3, 0)),
+        ),
+        (
+            AcceptedFieldKind::Timestamp,
+            InputValue::timestamp(Timestamp::from_millis(2)),
+            InputValue::timestamp(Timestamp::from_millis(3)),
+        ),
+        (
+            AcceptedFieldKind::Duration,
+            InputValue::duration(Duration::from_millis(2)),
+            InputValue::duration(Duration::from_millis(3)),
+        ),
+    ]);
+    for (kind, first, second) in cases {
+        // Each accepted schema owns fresh thread-local storage and runtime state.
+        std::thread::spawn(move || {
+            let session = seed_scalar_pairs(kind, first, second);
+            for (condition, ids) in [
+                ("left_value + 1 = 3", vec![1, 2, 5]),
+                ("1 + left_value = 3", vec![1, 2, 5]),
+                ("3 = left_value + 1", vec![1, 2, 5]),
+                ("left_value - 1 = 1", vec![1, 2, 5]),
+                ("1 = left_value - 1", vec![1, 2, 5]),
+                ("left_value + 1 <> 3", vec![3]),
+                ("NOT left_value + 1 = 3", vec![3]),
+                ("left_value + 1 < 4", vec![1, 2, 5]),
+                ("4 > 1 + left_value", vec![1, 2, 5]),
+                ("left_value + 1 <= 4", vec![1, 2, 3, 5]),
+                ("left_value + 1 > 3", vec![3]),
+                ("left_value + 1 >= 4", vec![3]),
+            ] {
+                assert_affine_route_rows(&session, condition, &ids);
+            }
+        })
+        .join()
+        .expect("affine comparison case should pass");
+    }
+}
+
+#[test]
+fn sql_affine_integer_boundary_and_decimal_controls_preserve_rows() {
+    for (kind, first, second, condition) in [
+        (
+            AcceptedFieldKind::Int32,
+            InputValue::int64(-2),
+            InputValue::int64(-3),
+            "left_value + 3 = 1",
+        ),
+        (
+            AcceptedFieldKind::Int128,
+            InputValue::int128(i128::from(i64::MAX) + 2),
+            InputValue::int128(i128::from(i64::MAX) + 3),
+            "left_value - 2 = 9223372036854775807",
+        ),
+        (
+            AcceptedFieldKind::Decimal { scale: 2 },
+            InputValue::decimal(Decimal::new(225, 2)),
+            InputValue::decimal(Decimal::new(325, 2)),
+            "left_value + 0.5 = 2.75",
+        ),
+    ] {
+        std::thread::spawn(move || {
+            let session = seed_scalar_pairs(kind, first, second);
+            assert_affine_route_rows(&session, condition, &[1, 2, 5]);
+        })
+        .join()
+        .expect("affine boundary case should pass");
+    }
+}
+
+fn assert_affine_route_rows(session: &DbSession<TestCanister>, condition: &str, ids: &[u64]) {
+    let expected = ids
+        .iter()
+        .map(|id| vec![OutputValue::nat64(*id)])
+        .collect::<Vec<_>>();
+    for _ in 0..2 {
+        assert_eq!(
+            projection_rows(
+                session,
+                &format!("SELECT id FROM PlannerRow WHERE {condition} ORDER BY id")
+            ),
+            expected,
+            "scalar: {condition}"
+        );
+        let SqlStatementResult::Grouped { rows, .. } = session
+            .execute_trusted_sql_query(&format!(
+                "SELECT id, COUNT(*) FROM PlannerRow WHERE {condition} GROUP BY id ORDER BY id"
+            ))
+            .unwrap()
+        else {
+            panic!("expected grouped rows");
+        };
+        assert_eq!(
+            rows.iter()
+                .map(|row| row
+                    .group_key()
+                    .iter()
+                    .chain(row.aggregate_values())
+                    .cloned()
+                    .collect::<Vec<_>>())
+                .collect::<Vec<_>>(),
+            ids.iter()
+                .map(|id| vec![OutputValue::nat64(*id), OutputValue::nat64(1)])
+                .collect::<Vec<_>>(),
+            "grouped: {condition}"
+        );
+    }
+    let read_rows = "SELECT id, left_value, right_value FROM PlannerRow ORDER BY id";
+    let before = projection_rows(session, read_rows);
+    let result = session
+        .execute_trusted_sql_exact_update(
+            &format!(
+                "UPDATE PlannerRow SET right_value = left_value WHERE {condition} RETURNING id"
+            ),
+            6,
+        )
+        .unwrap();
+    let SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("expected update RETURNING rows");
+    };
+    assert_eq!(rows, expected, "update: {condition}");
+    let result = session
+        .execute_trusted_sql_prefix_update(&format!(
+            "UPDATE PlannerRow SET right_value = left_value WHERE {condition} ORDER BY id ASC LIMIT 100 RETURNING id"
+        ))
+        .unwrap();
+    let SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("expected bounded update RETURNING rows");
+    };
+    assert_eq!(rows, expected, "bounded update: {condition}");
+    let expected_rows = before
+        .into_iter()
+        .map(|mut row| {
+            let crate::value::PublicValue::Nat64(id) = row[0].as_public() else {
+                panic!("expected numeric primary key");
+            };
+            if ids.contains(id) {
+                row[2] = row[1].clone();
+            }
+            row
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(projection_rows(session, read_rows), expected_rows);
+}
+
+#[test]
+fn sql_affine_non_numeric_fields_reject_before_writes() {
+    let session = seed_scalar_pairs(
+        AcceptedFieldKind::Text { max_len: None },
+        InputValue::text("a".into()),
+        InputValue::text("b".into()),
+    );
+    let read = "SELECT id, left_value, right_value FROM PlannerRow ORDER BY id";
+    let before = projection_rows(&session, read);
+    for (sql, code) in [
+        (
+            "SELECT id FROM PlannerRow WHERE left_value + 1 = 3",
+            icydb_diagnostic_code::ErrorCode::QUERY_PROJECTION_BINARY_OPERANDS_INCOMPATIBLE,
+        ),
+        (
+            "SELECT id, COUNT(*) FROM PlannerRow WHERE left_value + 1 = 3 GROUP BY id",
+            icydb_diagnostic_code::ErrorCode::QUERY_PLAN,
+        ),
+    ] {
+        assert_eq!(
+            session
+                .execute_trusted_sql_query(sql)
+                .unwrap_err()
+                .diagnostic()
+                .error_code(),
+            code,
+        );
+    }
+    let errors = [
+        session
+            .execute_trusted_sql_exact_update(
+                "UPDATE PlannerRow SET right_value = left_value WHERE left_value + 1 = 3",
+                6,
+            )
+            .unwrap_err(),
+        session
+            .execute_trusted_sql_prefix_update(
+                "UPDATE PlannerRow SET right_value = left_value WHERE left_value + 1 = 3 ORDER BY id ASC LIMIT 100",
+            )
+            .unwrap_err(),
+    ];
+    for error in errors {
+        assert_eq!(
+            error.diagnostic().error_code(),
+            icydb_diagnostic_code::ErrorCode::QUERY_PLAN,
+        );
+    }
+    assert_eq!(projection_rows(&session, read), before);
 }
 
 #[test]
