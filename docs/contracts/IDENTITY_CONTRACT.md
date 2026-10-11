@@ -80,12 +80,16 @@ No layer may assume trust from `Id<E>` type alone.
 
 ## 6. Identity Projection Semantics
 
-Identity projection is a one-way, mechanical derivation from canonical key bytes.
+Identity projection is an unkeyed SHA-256 digest of the fixed projection
+protocol tag followed by canonical key bytes. It contains no entity identity
+or secret. Equal canonical key bytes produce equal projections across entities;
+public or enumerable source keys can be recovered by projecting candidates and
+matching their outputs.
 
 Projection exists for:
 - external system compatibility
 - deterministic mapping
-- correlation avoidance
+- a stable public identifier representation
 
 Projection does not provide:
 - secrecy

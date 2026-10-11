@@ -94,7 +94,7 @@ impl PublicValue {
                     .map(Self::try_into_runtime_non_enum)
                     .collect::<Option<Vec<_>>>()?,
             ),
-            Self::Map(entries) => Value::Map(
+            Self::Map(entries) => Value::from_map(
                 entries
                     .into_iter()
                     .map(|(key, value)| {
@@ -104,7 +104,8 @@ impl PublicValue {
                         ))
                     })
                     .collect::<Option<Vec<_>>>()?,
-            ),
+            )
+            .ok()?,
             Self::Null => Value::Null,
             Self::Principal(value) => Value::Principal(value),
             Self::Subaccount(value) => Value::Subaccount(value),

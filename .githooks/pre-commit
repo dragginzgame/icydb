@@ -49,7 +49,7 @@ git_variables="$(git rev-parse --local-env-vars)"
     export GIT_CEILING_DIRECTORIES="$snapshot/worktree"
     # Reuse prepared executables from this checkout; formatter inputs and
     # configuration remain in the index export, which has no installed tools.
-    export PATH="$root/.tools/host/bin:$root/.tools/ic/bin:$root/.tools/rust/bin:$PATH"
+    export PATH="$root/.tools/host/bin:$root/.tools/ic/bin:$root/.tools/rust/common/bin:$PATH"
     # Optional adapters consume this NUL-delimited selection against the exported
     # worktree. They must never discover or format the original checkout.
     export SHARED_TOOLING_FORMAT_FILES="$snapshot/selected"

@@ -16,7 +16,7 @@ CLOC_REPORT ?= $(SHARED_TOOLING_ROOT)/scripts/dev/cloc.sh
 CLOC_ROOT ?= $(CURDIR)
 CLOC_MANIFEST ?=
 CLOC_PARENT ?= $(CURDIR)/..
-export PATH := $(CURDIR)/.tools/host/bin:$(CURDIR)/.tools/ic/bin:$(CURDIR)/.tools/rust/bin:$(PATH)
+export PATH := $(CURDIR)/.tools/host/bin:$(CURDIR)/.tools/ic/bin:$(CURDIR)/.tools/rust/common/bin:$(PATH)
 
 .PHONY: install-tools tools-check install-host-tools host-tools-check install-ic-tools ic-tools-check cloc cloc-tooling
 .PHONY: install-rust-tools rust-tools-check

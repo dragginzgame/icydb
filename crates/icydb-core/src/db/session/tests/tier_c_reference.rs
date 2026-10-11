@@ -199,12 +199,15 @@ fn tier_c_native_receipts_merge_exactly_and_require_clean_evidence() {
         merged.observed_scenario_count(),
         u32::try_from(declared.len()).expect("Tier C scenario count should fit u32"),
     );
-    write_artifact(
-        artifact_dir.join(MERGED_FILE),
-        merged
-            .to_canonical_json(&declared_refs)
-            .expect("merged Tier C receipt should encode canonically"),
+    let encoded = merged
+        .to_canonical_json(&declared_refs)
+        .expect("merged Tier C receipt should encode canonically");
+    assert_eq!(
+        TierCMergedReport::from_canonical_json(&encoded, &declared_refs)
+            .expect("merged Tier C receipt should decode canonically"),
+        merged,
     );
+    write_artifact(artifact_dir.join(MERGED_FILE), encoded);
 }
 
 #[test]

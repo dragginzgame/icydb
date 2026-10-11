@@ -51,6 +51,40 @@ this contract; the [release contract](../docs/releases.md) owns release executio
   Breaking public API or semantic changes require a minor release before 1.0.
   Report a conflicting selected patch target rather than silently renumbering it.
 
+## Classify the released package's own impact
+
+- Classify the actual contract delivered to that package's consumers. An upstream
+  version number, a dependency's breaking release or the words "hard cut" do not
+  automatically propagate a breaking bump to downstream packages. Inspect the
+  complete pending batch and identify what an existing consumer must change.
+- For a library, contributor-only CI, formatting, Git hooks, snapshot refreshes,
+  development tool installation and local PATH changes are compatible when the
+  published library contract is unchanged. Reinstalling contributor tools is not
+  a library consumer migration. Before 1.0, select patch notes for such work;
+  publication can wait for the next normal release rather than being required
+  solely by the tooling update. Document setup actions under development/tooling
+  notes without labelling the library release as breaking.
+- Public APIs and exposed dependency types, runtime semantics, supported consumer
+  build requirements, product CLI/output, protocols and stored formats still need
+  compatibility assessment. For example, changing a dependency used in public
+  signatures can break callers even when local source signatures look unchanged.
+  A contributor toolchain change is distinct from raising the library's supported
+  consumer MSRV or adding a required dependency to its published build.
+- For a tooling product such as Shared Tooling, its supported installation paths
+  and commands are the delivered interface. A change can therefore require a
+  Shared Tooling minor release while its adoption needs only a consumer library
+  patch. Product CLI users and deployment operators remain consumers of their
+  respective published contracts; this is not a blanket tooling exemption.
+- A workspace with one coordinated version keeps that versioning scheme. Select
+  the increment from the combined consumer impact of its released packages; do
+  not split versions or manufacture breaking changes in sibling repositories to
+  mirror an upstream bump.
+- Correct an unpublished pending heading and matching detail notes if the only
+  reason for a minor bump was internal tooling adoption. Check the entire batch
+  for independent breaking changes first. Preserve published versions, tags and
+  history, and any already-started release's reconciliation obligations. This
+  clarification authorizes no manifest/version edit or release execution.
+
 ## Automatic next-version selection
 
 - Keep one numbered, undated pending release at the top of `CHANGELOG.md`, using
@@ -66,11 +100,13 @@ this contract; the [release contract](../docs/releases.md) owns release executio
   the base and compatibility impact are clear.
 - Before 1.0, choose the next patch for compatible fixes, additions and internal
   cleanup. Choose the next minor, resetting patch to zero, if any pending change
-  breaks public API, observable semantics, CLI/output or wire/storage contracts.
-  This includes a breaking hard cut, removal, or required consumer regeneration,
-  reinstall or reset. An internal hard cut with no consumer contract change does
-  not by itself require a minor release. Moving to 1.0 remains an explicit
-  maintainer decision, rather than an automatic response to a pre-1.0 hard cut.
+  breaks that package's public API, observable semantics, product CLI/output or
+  wire/storage contracts. This includes a breaking hard cut, removal, or required
+  product-consumer regeneration, reinstall or reset, assessed at the package's
+  own boundary above. Contributor-only tooling reinstalls and internal hard cuts
+  with no such consumer impact do not require a minor release. Moving to 1.0
+  remains an explicit maintainer decision, rather than an automatic response to
+  a pre-1.0 hard cut.
 - From 1.0 onward, apply SemVer: compatible fixes use patch, compatible public
   additions use minor, and incompatible public changes use major. Honour an
   explicit maintainer-selected version when it satisfies the compatibility
@@ -88,6 +124,12 @@ this contract; the [release contract](../docs/releases.md) owns release executio
   not change manifests, lockfiles or release defaults, or authorize commits,
   tags, pushes, publication or deployment. Commit and PR authority follows the
   [contribution rules](contributions.md).
+  Requests such as "work on 0.4", "prepare 0.4" or "0.4 changelog" select the
+  work and notes only. Leave `VERSION`, the repository's own Cargo/npm package
+  versions and corresponding release metadata to the user's release flow unless
+  the user expressly delegates that exact edit or release operation. Do not
+  stage notes, create commits or tags, or run a release target merely to finish
+  ordinary changelog preparation.
 
 For a latest finalized release of `0.14.7`:
 
@@ -95,6 +137,7 @@ For a latest finalized release of `0.14.7`:
 | --- | --- |
 | Compatible fix or addition | `## [0.14.8]` |
 | More compatible work before releasing that patch | Keep `## [0.14.8]` |
+| Adopt a breaking Shared Tooling release; library consumer contract unchanged | Keep `## [0.14.8]`; describe contributor setup actions |
 | Breaking hard cut, including one added to that pending patch | `## [0.15.0]`, carrying the complete pending batch |
 | Compatible work added to that pending minor | Keep `## [0.15.0]` |
 

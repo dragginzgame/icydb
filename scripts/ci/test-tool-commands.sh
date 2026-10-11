@@ -223,6 +223,7 @@ cmp "$fixture/expected" "$TOOL_COMMAND_LOG"
 # Host setup remains a recording stub: refusal must happen before it is called.
 mkdir -p "$snapshot/scripts/ci" "$consumer/ci" "$fixture/bin"
 cp "$ROOT/scripts/dev/install-ic-tools.sh" "$ROOT/scripts/dev/install-rust-tools.sh" "$snapshot/scripts/dev/"
+cp "$ROOT/scripts/dev/tool-store.sh" "$ROOT/scripts/dev/cargo-tool-build.sh" "$snapshot/scripts/dev/"
 cp "$ROOT/scripts/ci/ic-tool-pins.awk" "$ROOT/scripts/ci/verify-file-checksum.sh" "$snapshot/scripts/ci/"
 cp "$ROOT/ci/ic-tools.tsv" "$ROOT/ci/tool-versions.env" "$consumer/ci/"
 cat > "$fixture/bin/uname" <<'SCRIPT'

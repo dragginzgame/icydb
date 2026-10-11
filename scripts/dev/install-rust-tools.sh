@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/verify-file-checksum.sh
+# Shared companions: scripts/ci/verify-file-checksum.sh scripts/dev/tool-store.sh scripts/dev/cargo-tool-build.sh
 set -euo pipefail
 
 ROOT="$0"
@@ -43,6 +43,7 @@ done
 [[ "$consumer" == /* ]] || consumer="$PWD/$consumer"
 consumer="$(cd -P "$consumer" && printf '%s/.' "$PWD")"
 consumer="${consumer%/.}"
+export PATH="$consumer/.tools/host/bin:$PATH"
 
 read_locked_version() (
     [[ -f "$lockfile" && ! -L "$lockfile" ]] || {
@@ -50,7 +51,6 @@ read_locked_version() (
         return 2
     }
     # Reuse explicitly prepared host tools; never resolve/build a Cargo graph.
-    export PATH="$consumer/.tools/host/bin:$PATH"
     yq -p toml -o json -I 0 '.' "$lockfile" | jq -ers --arg package "$package" '
         if length != 1 then error("expected one lock document") else .[0] end
         | [.package[] | select(.name == $package)]
@@ -103,46 +103,33 @@ for version in "${tool_versions[@]}"; do
 done
 install_root="$consumer/.tools/rust"
 export RUSTUP_AUTO_INSTALL=0
+# shellcheck source=scripts/dev/tool-store.sh
+source "$ROOT/scripts/dev/tool-store.sh"
+# shellcheck source=scripts/dev/cargo-tool-build.sh
+source "$ROOT/scripts/dev/cargo-tool-build.sh"
 
 check_install_paths() {
     local path
-    local files=("$install_root/.crates.toml" "$install_root/.crates2.json")
     # Admit the whole fixed route before any tool probe or Cargo dispatch. Do
     # not follow even dangling links, or inspect unrelated host/IC bundle links.
-    for path in "$consumer/.tools" "$install_root" "$install_root/bin" "$install_root/build"; do
+    for path in "$consumer/.tools" "$install_root" "$install_root/build"; do
         if [[ -L "$path" || ( -e "$path" && ! -d "$path" ) ]]; then
             printf 'Rust tool directory must be a physical directory: %s\n' "$path" >&2
-            return 1
-        fi
-    done
-    # Cargo writes its receipts here too; executable/receipt symlinks must not
-    # redirect a later install after apparently valid version probes.
-    for path in "${tool_names[@]}"; do files+=("$install_root/bin/$path"); done
-    for path in "${files[@]}"; do
-        if [[ -L "$path" || ( -e "$path" && ! -f "$path" ) ]]; then
-            printf 'Rust tool executable or receipt must be a regular file: %s\n' "$path" >&2
             return 1
         fi
     done
 }
 
 check_tool() {
-    local tool="$1" version="$2" actual
+    local executable="$1" tool="$2" version="$3" actual
     local arguments=(--version)
     [[ "$tool" != cargo-sort-derives ]] || arguments=(sort-derives --version)
-    [[ -x "$install_root/bin/$tool" ]] &&
-        actual="$("$install_root/bin/$tool" "${arguments[@]}")" &&
+    [[ -x "$executable" ]] &&
+        actual="$("$executable" "${arguments[@]}")" &&
         [[ "$actual" == "$tool $version" ]]
 }
 
-# Both entry points use Cargo's locked registry installer. Selected targets add
-# explicit target/profile arguments; the established formatter bundle is intact.
-install_cargo_tool() {
-    local package_name="$1" version="$2" destination="$3"; shift 3
-    cargo install "$package_name" --version "=$version" --locked \
-        --root "$destination" --target-dir "$destination/build" "$@"
-}
-
+# Shared-store entries carry exact source, compiler and standard build inputs.
 selected_paths() {
     local directory="$1" path
     for path in "$directory" "$directory/bin" "$directory/build"; do
@@ -151,7 +138,8 @@ selected_paths() {
         }
     done
     for path in "$directory/bin/$target" "$directory/.crates.toml" \
-        "$directory/.crates2.json" "$directory/selection.json"; do
+        "$directory/.crates2.json" "$directory/selection.json" "$directory/inputs.json" \
+        "$directory/source.crate" "$directory/Cargo.lock" "$directory/native-environment.txt"; do
         [[ ! -L "$path" && ( ! -e "$path" || -f "$path" ) ]] || {
             printf 'Cargo tool file must be regular: %s\n' "$path" >&2; return 1;
         }
@@ -160,12 +148,13 @@ selected_paths() {
 
 selected_receipt() {
     jq -se --arg identity "$package $selected_version (registry+https://github.com/rust-lang/crates.io-index)" \
-        --arg version "=$selected_version" --arg target "$target" --arg profile "$profile" --arg host "$host" '
+        --arg version "=$selected_version" --arg target "$target" --arg profile "$profile" --arg host "$host" \
+        --arg compiler "$compiler_version" '
         length == 1 and (.[0] | (.installs | keys) == [$identity] and
         (.installs[$identity] | .version_req == $version and .bins == [$target] and
           (if $profile == "debug" then (.profile == "dev" or .profile == "debug")
            else .profile == "release" end) and .target == $host and
-          (.rustc | type == "string" and length > 0)))
+          (.rustc | rtrimstr("\n")) == $compiler))
     ' "$1/.crates2.json" > /dev/null
 }
 
@@ -173,95 +162,155 @@ selected_identity() {
     local directory="$1" binary_digest receipt_digest
     binary_digest="$(bash "$ROOT/scripts/ci/verify-file-checksum.sh" --print sha256 "$directory/bin/$target")" || return 1
     receipt_digest="$(bash "$ROOT/scripts/ci/verify-file-checksum.sh" --print sha256 "$directory/.crates2.json")" || return 1
-    jq -n --arg package "$package" --arg version "$selected_version" --arg kind "$kind" \
-        --arg target "$target" --arg profile "$profile" --arg host "$host" \
-        --arg binary_sha256 "$binary_digest" --arg receipt_sha256 "$receipt_digest" \
-        '{package:$package,version:$version,kind:$kind,target:$target,profile:$profile,
-          host:$host,binary_sha256:$binary_sha256,receipt_sha256:$receipt_sha256}'
+    jq -cnS --argjson inputs "$inputs" --arg binary_sha256 "$binary_digest" --arg receipt_sha256 "$receipt_digest" \
+        '{inputs:$inputs,binary_sha256:$binary_sha256,receipt_sha256:$receipt_sha256}'
 }
 
 check_selected() {
     selected_paths "$destination" || return 1
     [[ -x "$destination/bin/$target" ]] || return 1
+    jq -se --argjson expected "$inputs" 'length == 1 and .[0] == $expected' "$destination/inputs.json" > /dev/null || return 1
+    bash "$ROOT/scripts/ci/verify-file-checksum.sh" sha256 "$(jq -r .source_sha256 <<< "$inputs")" "$destination/source.crate" >&2 || return 1
+    bash "$ROOT/scripts/ci/verify-file-checksum.sh" sha256 "$(jq -r .lock_sha256 <<< "$inputs")" "$destination/Cargo.lock" >&2 || return 1
+    bash "$ROOT/scripts/ci/verify-file-checksum.sh" sha256 "$(jq -r .build.native <<< "$inputs")" "$destination/native-environment.txt" >&2 || return 1
     selected_receipt "$destination" || return 1
     local expected
     expected="$(selected_identity "$destination")" || return 1
-    jq -se --argjson expected "$expected" 'length == 1 and .[0] == $expected' "$destination/selection.json" > /dev/null
+    jq -se --argjson expected "$expected" 'length == 1 and .[0] == $expected' "$destination/selection.json" > /dev/null || return 1
+    [[ "$selected" == true ]] || check_tool "$destination/bin/$target" "$target" "$selected_version"
 }
 
 install_selected() (
     stage=''
-    # Versioned selections preserve earlier usable installations. No candidate
-    # is visible at the admitted destination before receipt and byte admission.
-    slot="$install_root/$package-$selected_version-$kind-$target-$profile"
-    destination="$slot/installed"
-    lock="$slot/install.lock"
-    selected_paths "$slot"
-    selected_paths "$destination"
-    [[ ! -e "$lock" && ! -L "$lock" ]] || { echo "Cargo tool installation locked: $lock" >&2; return 1; }
-    host="$(rustc -vV | sed -n 's/^host: //p')"
-    [[ -n "$host" ]] || return 1
-    if [[ -e "$destination" ]]; then
-        check_selected || {
-            printf 'invalid selected Cargo tool: package=%s version=%s target=%s:%s profile=%s destination=%s\n' \
-                "$package" "$selected_version" "$kind" "$target" "$profile" "$destination" >&2
-            return 1
-        }
+    cargo_source || exit $?
+    tool_store_init rust "$inputs"
+    tool_root="$install_root"
+    active="$install_root/selected-$store_id"
+    lock="$install_root/.selected-$store_id.lock"
+    [[ ! -e "$lock" && ! -L "$lock" ]] || { echo "Cargo tool installation locked: $lock" >&2; exit 1; }
+    if [[ -L "$active" ]]; then
+        reference="$(perl -e 'print readlink(shift),"/."' "$active")"; reference="${reference%/.}"
+        [[ "$reference" =~ ^rust-set\.[[:alnum:]]+$ ]] || { echo 'invalid Cargo tool reference' >&2; exit 1; }
+        if destination="$(tool_store_resolve "$install_root/$reference" "$store_slot")" &&
+            tool_store_unlocked && check_selected; then
+            check_locked_selection
+            printf '%s/bin/%s\n' "$active" "$target"
+            exit 0
+        fi
+    elif [[ -e "$active" ]]; then
+        echo "unmanaged Cargo tool selection: $active" >&2; exit 1
+    fi
+    [[ "$check_only" == false ]] || { echo "missing or invalid shared Cargo tool: $package $selected_version ($kind:$target, $profile); run explicit setup" >&2; exit 1; }
+    mkdir -p "$install_root"
+    mkdir "$lock" || exit 1
+    # shellcheck disable=SC2329 # Invoked by the EXIT trap below.
+    finish_selected() {
+        local status=$?
+        rm -f "$lock/selected"
+        rmdir "$lock"
+        tool_store_release
+        if [[ "$status" != 0 && -n "$stage" ]]; then printf 'Cargo tool attempt retained: %s\n' "$stage" >&2; fi
+        exit "$status"
+    }
+    trap finish_selected EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    tool_store_acquire
+    if destination="$(tool_store_cached)" && check_selected; then
+        tool_store_reference "$destination"
     else
-        [[ "$check_only" == false ]] || {
-            printf 'missing selected Cargo tool: package=%s version=%s target=%s:%s profile=%s destination=%s\n' \
-                "$package" "$selected_version" "$kind" "$target" "$profile" "$destination" >&2
-            return 1
+        tool_store_new
+        printf '%s\n' "$inputs" > "$stage/inputs.json"
+        printf '%s\n' "$packaged_lock" > "$stage/Cargo.lock"
+        printf '%s\n' "$native_identity" > "$stage/native-environment.txt"
+        cp "$source_archive" "$stage/source.crate"
+        options=(); [[ "$profile" != debug ]] || options=(--debug)
+        cargo_build "$stage" ${options[@]+"${options[@]}"} > "$stage/install.log" 2>&1 || {
+            status=$?; cat "$stage/install.log" >&2 || :; exit "$status";
         }
-        mkdir -p "$slot"
-        mkdir "$lock" 2>/dev/null || { echo "Cargo tool installation locked: $lock" >&2; return 1; }
-        # An interrupted owner leaves the lock for inspection; never reclaim it
-        # from a PID guess. Ordinary failure removes only this empty owned lock.
-        trap 'rmdir "$lock"; if [[ -n "$stage" ]]; then printf "Cargo tool attempt retained: %s\n" "$stage" >&2; fi' EXIT
+        check_install_paths
+        selected_paths "$stage"
+        selected_receipt "$stage"
+        # Refuse a changed source/compiler/native environment before publication.
+        expected_build="$build_identity"
+        cargo_build_init
+        cargo_cache_check
+        [[ "$expected_build" == "$build_identity" ]] || { echo 'Cargo tool build environment changed' >&2; exit 1; }
+        bash "$ROOT/scripts/ci/verify-file-checksum.sh" sha256 "$(jq -r .source_sha256 <<< "$inputs")" "$source_archive"
+        selected_identity "$stage" > "$stage/selection.json"
+        destination="$stage"
+        check_selected
+    fi
+    check_locked_selection
+    tool_store_activate "$destination"
+    printf '%s/bin/%s\n' "$active" "$target"
+)
+
+common_paths() {
+    check_install_paths || return 1
+    local active="$install_root/common" name path
+    if [[ -L "$active" ]]; then
+        name="$(readlink "$active" && printf '.')" || return 1
+        name="${name%.}"; name="${name%$'\n'}"
+        [[ "$name" =~ ^common-set\.[[:alnum:]]+$ ]] || return 1
+        for path in "$install_root/$name" "$install_root/$name/bin"; do
+            [[ -d "$path" && ! -L "$path" ]] || return 1
+        done
+    else
+        [[ ! -e "$active" ]] || return 1
+    fi
+}
+
+check_common_links() {
+    common_paths || return 1
+    [[ -L "$install_root/common" ]] || return 1
+    local index link expected
+    for index in "${!tool_names[@]}"; do
+        link="$install_root/common/bin/${tool_names[$index]}"
+        expected="../../${common_selections[$index]#"$install_root/"}"
+        [[ -L "$link" && "$(readlink "$link" && printf '.')" == "$expected"$'\n.' ]] || return 1
+    done
+}
+
+install_common() (
+    common_paths || { echo 'invalid common Rust tool PATH selection' >&2; exit 1; }
+    common_lock="$install_root/common.lock"
+    [[ ! -e "$common_lock" && ! -L "$common_lock" ]] || { echo 'Common Rust tool installation locked' >&2; exit 1; }
+    if [[ "$check_only" == false ]]; then
+        mkdir -p "$install_root"
+        mkdir "$common_lock"
+        trap 'rm -f "$common_lock/selected"; rmdir "$common_lock"' EXIT
         trap 'exit 130' INT
         trap 'exit 143' TERM
-        selected_paths "$slot"
-        selected_paths "$destination"
-        if [[ -e "$destination" ]]; then
-            check_selected
-        else
-            # Keep failed candidates under the established CI evidence route.
-            mkdir -p "$install_root/build"
-            stage="$(mktemp -d "$install_root/build/cargo-attempt.XXXXXX")"
-            selection=("--$kind" "$target" --registry crates-io)
-            [[ "$profile" != debug ]] || selection+=(--debug)
-            install_cargo_tool "$package" "$selected_version" "$stage" "${selection[@]}" > "$stage/install.log" 2>&1 || {
-                status=$?
-                cat "$stage/install.log" >&2 || :
-                return "$status"
-            }
-            # Cargo is an external effect boundary. Admit the whole route again
-            # before reading candidate receipts or activating its executable.
-            check_install_paths
-            selected_paths "$slot"
-            selected_paths "$stage"
-            [[ -x "$stage/bin/$target" ]] || return 1
-            selected_receipt "$stage"
-            [[ ! -e "$stage/selection.json" ]] || { echo 'unexpected candidate selection receipt' >&2; return 1; }
-            selected_identity "$stage" > "$stage/selection.json"
-            selected_paths "$destination"
-            [[ ! -e "$destination" ]] || { echo 'Cargo tool destination appeared during install' >&2; return 1; }
-            check_locked_selection || return $?
-            perl -e 'rename($ARGV[0], $ARGV[1]) or die "activate Cargo tool: $!\n"' "$stage" "$destination"
-            stage=''
-            check_selected
-        fi
-        rmdir "$lock"
-        trap - EXIT INT TERM
     fi
-    check_locked_selection || return $?
-    printf '%s\n' "$destination/bin/$target"
+    common_selections=()
+    for index in "${!tool_names[@]}"; do
+        package="${tool_names[$index]}"; target="$package"
+        selected_version="${tool_versions[$index]}"; kind=bin; profile=release
+        installed="$(install_selected)" || exit $?
+        common_selections+=("$installed")
+    done
+    if ! check_common_links; then
+        [[ "$check_only" == false ]] || { echo 'missing or mismatched common Rust tool set; run make install-rust-tools' >&2; exit 1; }
+        common_paths
+        bundle="$(mktemp -d "$install_root/common-set.XXXXXX")"
+        mkdir "$bundle/bin"
+        for index in "${!tool_names[@]}"; do
+            ln -s "../../${common_selections[$index]#"$install_root/"}" "$bundle/bin/${tool_names[$index]}"
+        done
+        ln -s "${bundle##*/}" "$common_lock/selected"
+        common_paths
+        perl -e 'rename($ARGV[0], $ARGV[1]) or die "activate common Rust tools: $!\n"' "$common_lock/selected" "$install_root/common"
+        check_common_links
+    fi
+    printf '%s\n' "$install_root/common/bin"
 )
+
 
 check_install_paths
 # Catalogs and lockfile paths above retain their documented caller/consumer
-# resolution. All probes and Cargo effects now share the consumer's cwd, so
-# Rustup and Cargo discover the same local configuration as preflight.
+# resolution. Select the consumer's prepared compiler before entering the
+# standard tool-build environment; application Cargo configuration stays local.
 cd "$consumer"
 if [[ "$preflight" == true ]]; then
     # Rustup selects by working directory. Probe the consumer's toolchain without
@@ -282,24 +331,9 @@ if [[ "$preflight" == true ]]; then
     done
     exit 0
 fi
+cargo_build_init
 if [[ "$selected" == true ]]; then
     install_selected
     exit 0
 fi
-for index in "${!tool_names[@]}"; do
-    tool="${tool_names[$index]}"
-    version="${tool_versions[$index]}"
-    if check_tool "$tool" "$version"; then continue; fi
-    if [[ "$check_only" == true ]]; then
-        echo "missing or mismatched $tool $version; run make install-rust-tools" >&2
-        exit 1
-    fi
-    # Cargo owns registry integrity, install locking and receipts. Keep build
-    # output in the selected checkout, including after a failed installation.
-    install_cargo_tool "$tool" "$version" "$install_root"
-    check_install_paths
-    check_tool "$tool" "$version" || {
-        echo "installed $tool failed its version check" >&2; exit 1;
-    }
-done
-printf '%s\n' "$install_root/bin"
+install_common

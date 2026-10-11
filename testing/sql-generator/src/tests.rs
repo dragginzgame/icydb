@@ -360,6 +360,14 @@ fn generated_select_declarations_and_receipts_cover_the_catalog_exactly() {
             .as_str(),
     );
     assert!(merged.is_clean());
+    let encoded = merged
+        .to_canonical_json(&declared)
+        .expect("complete SELECT catalog receipt should fit the aggregate bound");
+    assert_eq!(
+        TierCMergedReport::from_canonical_json(&encoded, &declared)
+            .expect("complete SELECT catalog receipt should round trip"),
+        merged,
+    );
     let distribution =
         TierCCoverageDistributionReport::try_from_clean_evidence(&declarations, &merged)
             .expect("exact generated receipts should project");
@@ -480,6 +488,14 @@ fn generated_mutation_declarations_and_receipts_cover_the_catalog_exactly() {
     assert!(merged.is_clean());
     assert_eq!(merged.expected_rejection_count(), 48);
     assert_eq!(merged.passed_scenario_count(), 192);
+    let encoded = merged
+        .to_canonical_json(&declared)
+        .expect("complete mutation catalog receipt should fit the aggregate bound");
+    assert_eq!(
+        TierCMergedReport::from_canonical_json(&encoded, &declared)
+            .expect("complete mutation catalog receipt should round trip"),
+        merged,
+    );
     let distribution =
         TierCCoverageDistributionReport::try_from_clean_evidence(&declarations, &merged)
             .expect("exact mutation receipts should project");

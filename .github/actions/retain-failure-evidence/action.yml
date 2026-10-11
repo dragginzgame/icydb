@@ -19,6 +19,9 @@ inputs:
   ic-pins:
     description: Absolute caller-selected IC pin file for compact checking; defaults to repository ci/ic-tools.tsv.
 outputs:
+  collection-complete:
+    description: Whether shared tool evidence selection completed without an admission failure.
+    value: ${{ steps.archive.outputs.collection-complete }}
   artifact-id:
     description: Uploaded artifact identity, used for the hosted round-trip check.
     value: ${{ steps.upload.outputs.artifact-id }}
@@ -48,12 +51,6 @@ runs:
             "$temp_root"/formatting.*; do
           if [[ -e "$path" || -L "$path" ]]; then inputs+=("$temp_root" "${path#"$temp_root/"}"); fi
         done
-        # Rust compilation evidence is independent of host/IC compaction. Avoid
-        # redirected parents; archive a final build symlink without following it.
-        if [[ ! -L "$repository_root/.tools" && ! -L "$repository_root/.tools/rust" ]]; then
-          path="$repository_root/.tools/rust/build"
-          if [[ -e "$path" || -L "$path" ]]; then inputs+=("$repository_root" .tools/rust/build); fi
-        fi
         case "${EVIDENCE_COMPACT:-false}" in
           false) selection=(full) ;;
           true) selection=(compact) ;;
@@ -65,11 +62,21 @@ runs:
           selection+=("${EVIDENCE_HOST_VERSIONS:-$repository_root/ci/tool-versions.env}"
                       "${EVIDENCE_IC_PINS:-$repository_root/ci/ic-tools.tsv}")
         fi
-        bash "$EVIDENCE_ACTION_ROOT/../../../scripts/ci/select-tool-evidence.sh" "${selection[@]}" > "$diagnostics/selections.nul"
+        selector_status=0
+        bash "$EVIDENCE_ACTION_ROOT/../../../scripts/ci/select-tool-evidence.sh" "${selection[@]}" \
+          > "$diagnostics/selections.nul" 2> "$diagnostics/selection.log" || selector_status=$?
+        printf '%s\n' "$selector_status" > "$diagnostics/selection-status"
+        complete=true
+        if [[ "$selector_status" != 0 ]]; then
+          complete=false
+          cat "$diagnostics/selection.log" >&2
+          echo 'Shared evidence collection incomplete; uploading admitted local evidence and diagnostics.' >&2
+        fi
+        printf 'collection-complete=%s\n' "$complete" >> "$GITHUB_OUTPUT"
         while IFS= read -r -d '' selected_root && IFS= read -r -d '' selected_path; do
           inputs+=("$selected_root" "$selected_path")
         done < "$diagnostics/selections.nul"
-        if [[ -d "$diagnostics/host" || -d "$diagnostics/ic" ]]; then
+        if [[ "$complete" == false || -d "$diagnostics/host" || -d "$diagnostics/ic" ]]; then
           inputs+=("$temp_root" "${diagnostics#"$temp_root/"}")
         fi
         if [[ ${#inputs[@]} != 0 ]]; then
@@ -85,3 +92,9 @@ runs:
         path: ${{ steps.archive.outputs.path }}
         retention-days: 14
         if-no-files-found: error
+    - id: completeness
+      if: ${{ !cancelled() && steps.archive.outputs.collection-complete == 'false' }}
+      shell: bash
+      run: |
+        echo 'Evidence collection was incomplete; see the retained selection diagnostics.' >&2
+        exit 1

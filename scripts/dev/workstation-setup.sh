@@ -24,7 +24,7 @@ source "$ROOT/ci/tool-versions.env"
 # shellcheck source=/dev/null
 source "$ROOT/ci/icydb-tools.env"
 ACTIONLINT_INSTALL_DIR="${ACTIONLINT_INSTALL_DIR:-$HOME/.local/bin}"
-export PATH="$ROOT/.tools/host/bin:$ROOT/.tools/ic/bin:$ROOT/.tools/rust/bin:${CARGO_HOME:-$HOME/.cargo}/bin:$HOME/.cargo/bin:$HOME/.local/bin:$ACTIONLINT_INSTALL_DIR:$PATH"
+export PATH="$ROOT/.tools/host/bin:$ROOT/.tools/ic/bin:$ROOT/.tools/rust/common/bin:${CARGO_HOME:-$HOME/.cargo}/bin:$HOME/.cargo/bin:$HOME/.local/bin:$ACTIONLINT_INSTALL_DIR:$PATH"
 cd "$ROOT"
 
 DEV_SYSTEM_PACKAGES=(

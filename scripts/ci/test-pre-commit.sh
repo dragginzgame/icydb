@@ -15,7 +15,7 @@ finish() {
   exit "$status"
 }
 trap finish EXIT
-export PATH="$ROOT/.tools/host/bin:$ROOT/.tools/rust/bin:$PATH"
+export PATH="$ROOT/.tools/host/bin:$ROOT/.tools/rust/common/bin:$PATH"
 export CARGO_NET_OFFLINE=true RUSTUP_AUTO_INSTALL=0
 cd "$ROOT"
 

@@ -73,8 +73,8 @@ pub use icydb_core::types::{ParseU256Error, U256};
 pub use icydb_model as model;
 pub use icydb_model_macros::{request_execution, test};
 
-// core modules
-#[doc(hidden)]
+/// Scalar values and entity-bound identities for application inputs and outputs.
+#[doc(inline)]
 pub use icydb_core::types;
 
 pub mod value {
@@ -624,6 +624,15 @@ macro_rules! __icydb_require_migration_capability {
 }
 
 /// Declare the complete fixed IcyDB endpoint surface exported by this canister.
+///
+/// SQL uses `icydb_sql_query(introspection = false)` or `introspection = true`
+/// and exports the Candid method `icydb_query`. An optional
+/// `authorization = guard(path)` argument must follow `introspection`; the guard
+/// has the [`ReadAuthorizationGuard`] signature. SQL declarations require `sql`.
+///
+/// Fixture reset/load declarations require both the consuming canister's
+/// `test-admin-api` feature and IcyDB's `sql` feature. Gate those declarations
+/// with `#[cfg(feature = "test-admin-api")]` when production omits fixtures.
 #[macro_export]
 #[expect(
     clippy::crate_in_macro_def,

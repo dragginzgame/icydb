@@ -77,7 +77,7 @@ jobs:
           make install-tools LOCAL_TOOL_INSTALL_TARGETS= > "$RUNNER_TEMP/tools-install.log" 2>&1
           make tools-check LOCAL_TOOL_CHECK_TARGETS= > "$RUNNER_TEMP/tools-check.log" 2>&1
           printf '%s\n' "$GITHUB_WORKSPACE/.tools/host/bin" \
-            "$GITHUB_WORKSPACE/.tools/ic/bin" "$GITHUB_WORKSPACE/.tools/rust/bin" >> "$GITHUB_PATH"
+            "$GITHUB_WORKSPACE/.tools/ic/bin" "$GITHUB_WORKSPACE/.tools/rust/common/bin" >> "$GITHUB_PATH"
       - name: Prepare locked Testkit CLI for substitute-server fixtures
         run: |
           cargo fetch --locked
@@ -155,7 +155,7 @@ jobs:
           make install-tools LOCAL_TOOL_INSTALL_TARGETS= > "$RUNNER_TEMP/tools-install.log" 2>&1
           make tools-check LOCAL_TOOL_CHECK_TARGETS= > "$RUNNER_TEMP/tools-check.log" 2>&1
           printf '%s\n' "$GITHUB_WORKSPACE/.tools/host/bin" \
-            "$GITHUB_WORKSPACE/.tools/ic/bin" "$GITHUB_WORKSPACE/.tools/rust/bin" >> "$GITHUB_PATH"
+            "$GITHUB_WORKSPACE/.tools/ic/bin" "$GITHUB_WORKSPACE/.tools/rust/common/bin" >> "$GITHUB_PATH"
       - name: Prepare locked Testkit CLI and server for live tests
         if: matrix.lane == 'tier-b'
         run: |
@@ -208,7 +208,7 @@ jobs:
         run: |
           printf '%s\n' "$CARGO_HOME/bin" "$HOME/.local/bin" \
             "$GITHUB_WORKSPACE/.tools/host/bin" "$GITHUB_WORKSPACE/.tools/ic/bin" \
-            "$GITHUB_WORKSPACE/.tools/rust/bin" >> "$GITHUB_PATH"
+            "$GITHUB_WORKSPACE/.tools/rust/common/bin" >> "$GITHUB_PATH"
       - name: Qualify portable automation with system Bash
         run: |
           export PATH="/bin:/usr/bin:/usr/sbin:/sbin:$PATH"
@@ -302,7 +302,7 @@ jobs:
           make install-tools LOCAL_TOOL_INSTALL_TARGETS= > "$RUNNER_TEMP/tools-install.log" 2>&1
           make tools-check LOCAL_TOOL_CHECK_TARGETS= > "$RUNNER_TEMP/tools-check.log" 2>&1
           printf '%s\n' "$GITHUB_WORKSPACE/.tools/host/bin" \
-            "$GITHUB_WORKSPACE/.tools/ic/bin" "$GITHUB_WORKSPACE/.tools/rust/bin" >> "$GITHUB_PATH"
+            "$GITHUB_WORKSPACE/.tools/ic/bin" "$GITHUB_WORKSPACE/.tools/rust/common/bin" >> "$GITHUB_PATH"
       - name: Report default-empty and request-future-scale wasm sizes
         run: bash scripts/ci/wasm-size-report.sh --profile wasm-release --canister default_empty --canister request_future_scale
       - name: Retain tooling failure evidence

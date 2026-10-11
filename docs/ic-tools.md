@@ -58,8 +58,10 @@ The installer checks each archive hash before extraction or execution, then
 checks the exact version token. It retains Binaryen's runtime library beside
 `bin/`, including the library required by native macOS `wasm-opt`.
 
-A complete candidate is built under `.tools/ic-set.<unique>/`. Installed file
-hashes, host, selected pins and downloaded inputs remain there. Only after all
+A complete candidate is built in the [shared per-user store](local-setup.md#shared-executable-storage),
+with a lightweight `.tools/ic-set.<unique>` reference in the initiating checkout.
+Installed file hashes, host, selected pins and downloaded inputs remain in the
+shared bundle. Only after all
 tools pass does an atomic symlink replacement select `.tools/ic`. Existing
 global tools and shell profiles are untouched. Valid repeated setup is offline.
 Failed or interrupted attempts retain their candidate directory and leave the
@@ -73,17 +75,22 @@ across all supported hosts. Comments and row order do not change that selection
 or trigger downloads. The installed pins remain the exact installation input;
 neither the caller's pins nor installed receipts are rewritten during reuse.
 Every changed record requires explicit setup, and offline reuse still verifies
-the host, installed file hashes and executable versions. Changes to the caller's
+the host, installed file hashes, pinned archives, extracted executable/library
+bytes and executable versions. A changed binary and edited local receipt cannot
+authorize reuse. Changes to the caller's
 pin file during installation still prevent activation of that candidate.
 
 Setup and offline checks admit the literal `.tools/ic` link target. Malformed
 managed names, including trailing newlines, are refused before tool execution
 or downloads; the existing link and bundles remain intact.
 
-A directory lock prevents competing installers. After an abrupt kill, inspect
+A shared selection lock and a checkout lock prevent competing installers. After an abrupt kill, inspect
 `.tools/.ic-tools.lock/owner` and confirm the process has stopped before removing
-that exact stale lock. Never steal an active installation lock. The offline
-check can inspect the previous complete set during installation.
+that exact stale lock; the store slot also records `install.lock/owner`.
+Never steal an active installation lock. A checkout activation lock alone does
+not prevent checking its previous complete set. A held shared-slot lock does:
+offline checks refuse with the exact lock path until its owner finishes, even
+when the checkout already references a verified generation in that slot.
 
 The installed hash receipt detects accidental byte changes; it is not a signed
 attestation against an attacker who can rewrite the checkout and receipts.

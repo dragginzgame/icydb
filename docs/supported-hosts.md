@@ -118,7 +118,7 @@ required to run setup. Make targets and CI select this same local tool set.
 | Archive installer scripts | `curl`, `tar`, a SHA-256 implementation, and the archive codec used by the selected tool |
 | CI binary installer entry points | The archive prerequisites above and Perl core for exact-path atomic publication |
 | Evidence archiver | Bash 3.2+, tar and gzip; explicit existing roots and relative selections |
-| `scripts/dev/install-rust-tools.sh` | Prepared Rust/Cargo toolchain and native compilation prerequisites for explicit registry installation; offline `--check` only runs the selected local executables |
+| `scripts/dev/install-rust-tools.sh` | Prepared Rust/Cargo toolchain, jq/yq and native compilation prerequisites; standard shared build environment, Cargo/source/receipt/byte checks offline, with common-tool version probes only |
 | Local IC tool setup | Bash 3.2+, `curl`, `tar`, xz/gzip, Perl, and a SHA-256 implementation; see [IC tools](ic-tools.md) |
 | Nonempty Cargo test helper | Cargo with normal libtest summaries, `awk`, and `tee` |
 | Exact release-tag checker | Git and the caller's selected exact commit/version |
@@ -206,14 +206,18 @@ engine, including integer branches and an IC-style reply import. Evidence lives
 under `portable-fixtures/wasm-opt` for ordinary failure collection. This small
 smoke does not qualify consumer canister builds or deployment; those remain
 with the product owner.
+Each native job also selects host/IC and common Cargo tools in a second disposable
+checkout with downloads disabled and verifies identical physical installations.
+The portable fixtures cover different selections, corrupt payloads,
+store locks and offline refusal using isolated stores.
 Failure-artifact collection runs after native qualification and includes installer
 logs and retained host/IC candidate directories as well as portable fixtures.
 It also selects the compact formatting runner's `formatting.*` failure logs from
 the selected temporary root; CI callers use `RUNNER_TEMP` for those logs.
-It also selects available `rust-tools-*.log` files and `.tools/rust/build`,
-independently of compact host/IC retention. Rust build evidence is selected only
-through physical parent directories; a final build symlink is retained without
-following it. Consumers capture setup and offline-check output with `tee` under
+It also selects available `rust-tools-*.log` files, the physical `.tools/rust`
+tree and its admitted shared generations, independently of compact host/IC
+retention. Local links are retained without implicit traversal; shared payloads
+are selected explicitly. Consumers capture setup and offline-check output with `tee` under
 the selected temporary root while preserving pipeline failure status.
 The local composite action `.github/actions/retain-failure-evidence/action.yml`
 owns that path selection and uploads one `evidence.tar.gz` created by the shared

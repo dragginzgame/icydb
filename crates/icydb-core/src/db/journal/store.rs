@@ -386,8 +386,9 @@ impl FoldWatermark {
 ///
 /// Stable journal-tail storage keyed by monotonic `journal_sequence`.
 /// Values above sequence `0` are complete encoded `JournalBatch` envelopes.
-/// Sequence `0` is reserved for the fold-watermark control entry, so real
-/// journal batches start at sequence `1`.
+/// Sequence `0` holds the watermark, mutation/access revisions, convergence
+/// control, and entity-revision control and packed chunks. Real journal batches
+/// start at sequence `1`; the entity-revision authority checks exact chunk coverage.
 ///
 pub struct JournalTailStore {
     map: StableBTreeMap<JournalTailKey, RawJournalChunk, RuntimeMemory<DefaultMemoryImpl>>,

@@ -195,10 +195,11 @@ rejected.
 
 ## Rejected generated fields
 
-`E221` means a mutation supplied a database-owned field, such as a generated
-ID. Keep that rejection: omit the generated field and use the value returned
-by the successful insert instead. The error includes the accepted-schema
-fingerprint, entity tag, field ID, mutation operation and, for row-specific
+`E221` means a mutation authored a database-owned field, such as a generated
+ID, or requested its `Default` during an update or replacement. For inserts,
+omit that field or send `Default` to select accepted policy, then use the
+returned generated value. The error includes the accepted-schema fingerprint,
+entity tag, field ID, mutation operation and, for row-specific
 failures, batch position. `E185` (missing required field) and `E220` (managed
 timestamp regression) carry the same schema identity.
 

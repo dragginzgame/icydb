@@ -5,6 +5,26 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.270.3]
+
+- Adopt Shared 0.6.0, fix value/write admission and Tier C receipts, and clarify API contracts
+  ([#343](https://github.com/dragginzgame/icydb/issues/343),
+  [#250](https://github.com/dragginzgame/icydb/issues/250),
+  [#254](https://github.com/dragginzgame/icydb/issues/254),
+  [#274](https://github.com/dragginzgame/icydb/issues/274),
+  [#249](https://github.com/dragginzgame/icydb/issues/249),
+  [#247](https://github.com/dragginzgame/icydb/issues/247),
+  [#235](https://github.com/dragginzgame/icydb/issues/235),
+  [#224](https://github.com/dragginzgame/icydb/issues/224),
+  [#225](https://github.com/dragginzgame/icydb/issues/225),
+  [#163](https://github.com/dragginzgame/icydb/issues/163),
+  [#233](https://github.com/dragginzgame/icydb/issues/233),
+  [#302](https://github.com/dragginzgame/icydb/issues/302),
+  [Shared #120](https://github.com/dragginzgame/shared-tooling/issues/120),
+  [Shared #121](https://github.com/dragginzgame/shared-tooling/issues/121)).
+
+See [detailed notes](docs/changelog/0.270.md).
+
 ## [0.270.2] - 2026-10-11
 
 ### 🩹 Fixed

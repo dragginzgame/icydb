@@ -1,7 +1,7 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `db143ae9ae140eb66826c413360723d23c078f66` (Shared 0.3.11). Root
+at reviewed revision `75180980a0c4e4252d8a915aaecfaefd92bf9a4e` (Shared 0.6.0). Root
 [AGENTS.md](../../AGENTS.md) is the local overlay. The shared approved layout
 retains the 42 existing canister, schema and testing packages in their
 restored directories, in the single root workspace and lockfile; no new package
@@ -11,6 +11,83 @@ remain local; standard release commands follow the shared contract. A sibling ch
 these rules.
 
 ## Ownership and provenance
+
+### Current 0.270.3 tooling qualification
+
+Adopt committed Shared 0.6.0 revision
+`75180980a0c4e4252d8a915aaecfaefd92bf9a4e` from an isolated clean checkout.
+Canonical preview/export adds `scripts/dev/cargo-tool-build.sh` and verifies
+93 selected files. Cargo tools now use the shared store with exact standard
+build identities; the common PATH remains `.tools/rust/common/bin`, and the
+existing Testkit adapter already consumes the returned selected path. No
+consumer installer, slot parser or build environment is added. Failure
+collection's canonical selector now owns local Rust and shared references,
+retaining safe local evidence with explicit incompleteness on store refusal
+([#302](https://github.com/dragginzgame/icydb/issues/302),
+[Shared #120](https://github.com/dragginzgame/shared-tooling/issues/120),
+[Shared #121](https://github.com/dragginzgame/shared-tooling/issues/121)).
+
+Sixteen focused fixture invocations pass on Linux Bash 5/Make 4.3 and genuine
+Bash 3.2.57/Make 3.81: shared Cargo, Make commands, host/IC store and collector
+fixtures, plus consumer Testkit, workstation, validation adapters and workflow
+admission. These substitute downloads/builds and do not qualify native macOS.
+Snapshot, selected ShellCheck, workflow lint, documentation links and formatting
+checks pass.
+
+Actual offline common-tool admission refuses the old local selections, as
+required by the hard cut. A separate guarded isolated common-setup probe
+reproduces Shared #120 on both shells: a held shared lock and refused activation
+are concealed by a success return. The test guard blocks the attempted root
+activation path; the prior common selection and foreign lock remain unchanged.
+Explicit common/selected setup remains unqualified until that canonical
+propagation defect is corrected. Evidence: `target/shared-060-adoption`.
+No live store lock is removed, no old installation is copied or used as a
+fallback, and no PocketIC network is started. Library APIs, runtime/storage
+formats, dependency pins and optimizer selection are unchanged; this remains
+compatible tooling work in the pending patch.
+
+### Earlier 0.270.3 Shared 0.5.0 qualification
+
+Adopt committed Shared 0.5.0 revision
+`a306180ce534227fcb98b882fba9a526d5d747e0` from an isolated clean checkout.
+Canonical preview identifies the new `scripts/dev/tool-store.sh` companion;
+the completed refresh records 92 selected files. Shared's host/IC installers
+and evidence collector own per-user bundle storage and checkout references.
+Each repository retains its pin selection; previous physical installations
+are preserved. Common Cargo slots remain local and project their complete set
+through `.tools/rust/common/bin`. CI, workstation, formatting and admission
+callers use that current path. No IcyDB cache, installer or link manager is added
+([#302](https://github.com/dragginzgame/icydb/issues/302),
+[Shared #120](https://github.com/dragginzgame/shared-tooling/issues/120)).
+
+The host/IC storage and evidence fixtures, common/selected Cargo fixture, shared
+Make-command fixture and consumer workstation, workflow-admission, Testkit and
+adapter fixtures pass on Linux Bash 5/Make 4.3 and genuine Bash 3.2.57/Make 3.81.
+Downloads and Cargo installation are substituted inside isolated fixture stores.
+The real formatting/hook fixture also passes on both shell/Make selections,
+preserving inputs and staging only in disposable repositories.
+
+Actual Linux host/IC setup and offline checks pass through the canonical
+per-user store, including IcyDB's unchanged Binaryen 133 raw-byte admission.
+Canonical installation prepares the three common Cargo slots; offline checks
+pass from the checkout and an outside working directory. The incoming lockfile's
+Testkit 0.33.4 CLI is prepared through the same selected installer, and Testkit
+admits its existing server installation. The complete `tools-check` passes
+offline. No local network is started, stopped or restarted. All 27 fingerprinted
+prior local bundle/formatter files, Cargo inputs and the real Git index remain
+unchanged. Full evidence selection admits exactly the two shared generations
+referenced by this checkout, alongside its retained local evidence; compact
+selection verifies both active bundles. An initial selector probe refused a
+nonexistent diagnostics directory; the corrected explicit directory passes.
+Snapshot, selected ShellCheck, actionlint, workflow policy, documentation links,
+formatting and whitespace checks pass. Evidence: `target/shared-050-adoption`.
+
+Contributor setup changes are compatible for IcyDB's unchanged library API,
+runtime/storage contracts and supported consumer build requirements, so the
+pending notes remain 0.270.3. No Cargo version or dependency selection change
+is part of this adoption. PocketIC remains exclusively Testkit-owned. Full
+repository/release gates, live IC behavior and native macOS qualification remain
+separate; the exact Shared source's native hosted acceptance is pending.
 
 ### Current 0.270.2 tooling qualification
 
@@ -1349,7 +1426,7 @@ and `make cloc` for this workspace. Fleet tooling inventories run centrally
 from Shared Tooling; IcyDB omits those optional reporters. Make and CI select
 checkout-local executables; workstation setup
 uses the same targets and does not install a second system cloc. Interactive
-shells must add `.tools/host/bin`, `.tools/ic/bin` and `.tools/rust/bin` to PATH explicitly, as
+shells must add `.tools/host/bin`, `.tools/ic/bin` and `.tools/rust/common/bin` to PATH explicitly, as
 [the setup guide](../local-setup.md) describes. IcyDB adds raw optimizer
 admission to `ic-tools-check`; the shared include retains bundle verification. No second npm/Cargo ICP or ic-wasm
 installation is selected ([#302](https://github.com/dragginzgame/icydb/issues/302)).

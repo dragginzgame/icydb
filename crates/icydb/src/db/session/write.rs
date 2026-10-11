@@ -389,9 +389,20 @@ impl TypedEntityBinding {
 
     /// Take one bound field, leaving NULL in the consumed row's scratch slot.
     ///
-    /// Generated decoders request each field once and discard the row afterward.
-    /// Binding and field checks run before changing the slot.
-    #[doc(hidden)]
+    /// Generated and handwritten [`TypedRowAdapter`] decoders use the field's
+    /// source key, rather than its current accepted display name. Request each
+    /// field once and discard the row afterward: taking it again returns NULL.
+    /// Binding and field checks run before changing the slot, so a rejected
+    /// extraction leaves the row unchanged.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TypedAdapterError::StaleBinding`] if the row has a different
+    /// binding, or [`TypedAdapterError::EntityMismatch`] if it names a different
+    /// entity. Returns [`TypedAdapterError::FieldUnavailable`] if the source key
+    /// is not bound, [`TypedAdapterError::RowFieldUnavailable`] if the field is
+    /// outside the row's projection, or [`TypedAdapterError::RowShapeMismatch`]
+    /// if the projected slot is missing from the row.
     pub fn take_row_value(
         &self,
         field_source_key: &str,

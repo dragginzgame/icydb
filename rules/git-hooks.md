@@ -210,7 +210,7 @@ See the [Prettier CLI contract](https://prettier.io/docs/cli).
 - Formatting runs in a temporary export of the exact index, using its source,
   manifests, configuration and Make targets. It does not use unstaged working
   versions. It preserves executable lookup through the original checkout's
-  prepared `.tools/host/bin`, `.tools/ic/bin` and `.tools/rust/bin`, in that order
+  prepared `.tools/host/bin`, `.tools/ic/bin` and `.tools/rust/common/bin`, in that order
   before the inherited PATH; an interactive shell export is not required for
   those tools. Prerequisite checks still enforce the selected versions, and
   formatting never installs missing tools. It clears inherited Git

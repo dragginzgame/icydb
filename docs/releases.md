@@ -9,6 +9,13 @@ a publishable package, must provide these Make targets:
 | `make release-minor` | Increment minor; reset patch | `0.2.0` |
 | `make release-major` | Increment major; reset minor and patch | `1.0.0` |
 
+These are user-operated commands. Preparing code or notes for a named release
+does not authorize an agent to invoke them, their recovery target or mutating
+adapters, or to perform their staging, commit, version or tag effects manually.
+Follow the [user-owned Git and release boundary](../rules/contributions.md#user-owned-git-and-release-flow)
+and any approved local maintainer-only restriction. Only an express delegation
+of execution permits an agent to run a release within that policy.
+
 The names, version arithmetic and recovery contract are shared across repositories.
 Each repository supplies its canonical version source, metadata file set,
 validation gate, branch, remote and explicit delivery policy. Direct delivery is
@@ -76,6 +83,10 @@ The proposal does not bump package metadata or execute a release. Select the
 matching release kind when invoking the explicitly authorized command; its computed
 candidate must agree with the pending heading and the complete batch's
 compatibility impact before finalization.
+Assess that impact at the released package's own boundary under the
+[package-impact rules](../rules/changelogs.md#classify-the-released-packages-own-impact).
+An upstream tooling hard cut does not by itself select `release-minor` for a
+consumer library; compatible internal tooling adoption uses patch notes.
 
 ## Artifact retention and exact push scope
 
@@ -532,14 +543,19 @@ not a deletion target. Existing adoption work is tracked in
 
 ### Authorized release effects
 
-The maintainer may invoke a one-shot command or explicitly ask an agent to run
-the selected release for the identified repository and destination. That request
+The maintainer owns execution. Where local policy permits delegation, they may
+explicitly ask an agent to run the selected release for the identified repository
+and destination. Naming a version, preparing a release, completing validation or
+asking for push readiness is not that delegation. An explicit execution request
 covers the documented complete gate, version preparation, release commit, tag
 and selected delivery effects. Direct delivery includes the atomic branch/tag
 push; PR delivery includes its branch/PR, fresh validation after an independently
 authorized merge, and exact tag push. Permission to fix code, create a commit, open a PR,
 push a topic branch or change a version alone is not permission to run this flow.
-Agents may use separate read-only or preparation phases within existing scope.
+Agents may inspect release state and prepare source, dependencies and changelog
+notes within existing scope. Mutating version preparation, staging and saved
+release recovery require their own explicit execution authority; calling a
+helper directly does not bypass the boundary.
 
 Ordinary contributions follow the [PR rules](../rules/contributions.md). The
 runner defaults to direct delivery and supports explicit PR delivery under

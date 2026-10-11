@@ -162,10 +162,13 @@ for grouped execution.
 
 ## Generated SQL Query Surface
 
-Generated `icydb_query` remains controller-gated when its declaration omits an
-authorization choice. A declaration may instead specify
-`authorization = guard(path)`. Guarded mode rejects anonymous callers and
-invokes the exact synchronous function once over caller plus `Sql`, before
+The `icydb_sql_query` declaration exports `icydb_query` and requires an explicit
+`introspection = true` or `introspection = false` literal. It remains
+controller-gated when it omits an authorization choice. A declaration may
+place `authorization = guard(path)` after `introspection`; see the complete
+[endpoint declaration example](../../INSTALLING.md#explicit-endpoint-declarations).
+Guarded mode rejects anonymous callers and invokes the exact synchronous
+function once over caller plus `Sql`, before
 request-root construction, startup admission, parsing, or dispatch. `Allow`
 continues into the generated plain-result trusted SQL dispatcher;
 `Deny` returns the typed SQL policy diagnostic. Guard authority replaces

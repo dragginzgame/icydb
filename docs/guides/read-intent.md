@@ -223,8 +223,11 @@ lane. `execute_trusted_sql_query` has the same authorization posture.
 
 ## Generated SQL Boundary
 
-Generated `icydb_query` is controller-gated by default. A declaration may
-instead use `authorization = guard(path)` to replace controller authority for
+The `icydb_sql_query` declaration exports `icydb_query`, which is controller-gated
+by default. Its required `introspection` boolean precedes an optional
+`authorization = guard(path)` argument; see the complete
+[endpoint declaration example](../../INSTALLING.md#explicit-endpoint-declarations).
+The guard replaces controller authority for
 the complete admitted SQL read lane. Guarded mode rejects anonymous callers
 before application code and does not add a controller fallback. It remains a
 trusted SQL surface rather than a narrow public-read template; hand-written

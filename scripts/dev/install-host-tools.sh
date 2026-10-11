@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/verify-file-checksum.sh
+# Shared companions: scripts/ci/verify-file-checksum.sh scripts/dev/tool-store.sh
 set -euo pipefail
 
 # Explicit local provisioning of the complete common host-tool set.
@@ -57,6 +57,9 @@ rg_member="ripgrep-$SHARED_TOOLING_RIPGREP_VERSION-$rg_target/rg"
 rg_digest_key="SHARED_TOOLING_RIPGREP_SHA256_$host"
 jq_digest_key="SHARED_TOOLING_JQ_SHA256_$host"
 yq_digest_key="SHARED_TOOLING_YQ_SHA256_$host"
+# shellcheck source=scripts/dev/tool-store.sh
+source "$ROOT/scripts/dev/tool-store.sh"
+tool_store_init host "$host $SHARED_TOOLING_JQ_VERSION ${!jq_digest_key} $SHARED_TOOLING_YQ_VERSION ${!yq_digest_key} $SHARED_TOOLING_RIPGREP_VERSION ${!rg_digest_key} $SHARED_TOOLING_CLOC_VERSION $SHARED_TOOLING_CLOC_SHA256"
 tool_failure() {
     local tool="$1" path="$2" reason="$3" actual="${4-not-probed}" version_key
     case "$tool" in
@@ -70,7 +73,7 @@ tool_failure() {
 }
 verify() {
     local directory="$1" output tool digest_key expected status
-    [[ -d "$directory" && ! -L "$directory" ]] || {
+    [[ -d "$directory" && ! -L "$directory" && ! -L "$directory/bin" ]] || {
         tool_failure jq "$directory/bin/jq" missing-or-invalid-bundle; return 1;
     }
     for tool in jq yq rg cloc; do
@@ -135,7 +138,10 @@ if [[ -L "$active" ]]; then
     selection="$(perl -e 'my $s=readlink($ARGV[0]); defined($s) or exit 1; print $s,"/."' "$active")"
     selection="${selection%/.}"
     [[ "$selection" =~ ^host-set\.[[:alnum:]]+$ ]] || { echo 'unmanaged host-tool selection' >&2; exit 1; }
-    if verify "$tool_root/$selection"; then printf '%s\n' "$active/bin"; exit 0; fi
+    if bundle="$(tool_store_resolve "$tool_root/$selection" "$store_slot")" &&
+        tool_store_unlocked && verify "$bundle"; then
+        printf '%s\n' "$active/bin"; exit 0
+    fi
 elif [[ "$check" == true ]]; then
     tool_failure jq "$active/bin/jq" missing-bundle
 fi
@@ -149,13 +155,21 @@ finish() {
     local status=$?
     rm -f "$lock/selected" "$lock/owner"
     rmdir "$lock"
+    tool_store_release
     if [[ "$status" != 0 && -n "$stage" ]]; then echo "Failed host tool installation retained: $stage" >&2; fi
 }
 trap finish EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 printf 'pid=%s\nconsumer=%s\n' "$$" "$consumer" > "$lock/owner"
-stage="$(mktemp -d "$tool_root/host-set.XXXXXX")"
+tool_store_acquire
+if bundle="$(tool_store_cached)" && verify "$bundle"; then
+    tool_store_reference "$bundle"
+    tool_store_activate "$bundle"
+    printf '%s\n' "$active/bin"
+    exit 0
+fi
+tool_store_new
 mkdir "$stage/bin"
 for tool in jq yq; do
     case "$tool" in
@@ -177,6 +191,5 @@ bash "$ROOT/scripts/ci/verify-file-checksum.sh" sha256 "${!rg_digest_key}" "$sta
 tar -xOzf "$stage/ripgrep.tar.gz" "$rg_member" > "$stage/bin/rg"
 chmod 0755 "$stage/bin/rg"
 verify "$stage"
-ln -s "${stage##*/}" "$lock/selected"
-perl -e 'rename($ARGV[0], $ARGV[1]) or die "activate host tools: $!\n"' "$lock/selected" "$active"
+tool_store_activate "$stage"
 printf '%s\n' "$active/bin"

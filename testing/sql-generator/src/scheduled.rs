@@ -26,8 +26,12 @@ pub const TIER_C_EVIDENCE_FORMAT_VERSION: u32 = 1;
 pub const TIER_C_SQL_COVERAGE_MANIFEST_REVISION: &str =
     "1edb909200f942c101d42c7b42a362d7a4df1e392bb6375a9ce8e7ec14ed941c";
 
-/// Largest Tier C shard or merged artifact admitted before JSON decoding.
+/// Largest individual Tier C shard, failure or coverage-distribution artifact.
 pub const TIER_C_EVIDENCE_MAX_ARTIFACT_BYTES: usize = 1_048_576;
+
+// A merged receipt retains all eight shards. The complete maintained roster
+// exceeds 1 MiB; 2 MiB admits that roster while keeping aggregate input bounded.
+const TIER_C_MERGED_MAX_ARTIFACT_BYTES: usize = 2_097_152;
 
 /// Domain separator for the complete Tier C correctness scenario-set identity.
 const TIER_C_SCENARIO_SET_DOMAIN: &[u8] = b"icydb-sql-tier-c-scenarios/v1";
@@ -289,7 +293,7 @@ impl TierCShardReport {
     ) -> Result<Vec<u8>, TierCEvidenceError> {
         self.validate(declared_scenario_ids)?;
         let bytes = canonical_json_bytes(self).map_err(TierCEvidenceError::Serialization)?;
-        validate_artifact_size(bytes.len())?;
+        validate_artifact_size(bytes.len(), TIER_C_EVIDENCE_MAX_ARTIFACT_BYTES)?;
 
         Ok(bytes)
     }
@@ -304,7 +308,7 @@ impl TierCShardReport {
         bytes: &[u8],
         declared_scenario_ids: &[&str],
     ) -> Result<Self, TierCEvidenceError> {
-        validate_artifact_size(bytes.len())?;
+        validate_artifact_size(bytes.len(), TIER_C_EVIDENCE_MAX_ARTIFACT_BYTES)?;
         let report = serde_json::from_slice::<Self>(bytes)
             .map_err(|source| TierCEvidenceError::Decode { source })?;
         report.validate(declared_scenario_ids)?;
@@ -341,6 +345,7 @@ impl TierCShardReport {
 ///
 /// Complete Tier C evidence produced only after all eight shard reports validate.
 /// A complete report may remain red when it contains failed scenario outcomes.
+/// Canonical merged artifacts are bounded to 2 MiB on both encoding and decoding.
 ///
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -537,7 +542,7 @@ impl TierCMergedReport {
     ) -> Result<Vec<u8>, TierCEvidenceError> {
         self.validate(declared_scenario_ids)?;
         let bytes = canonical_json_bytes(self).map_err(TierCEvidenceError::Serialization)?;
-        validate_artifact_size(bytes.len())?;
+        validate_artifact_size(bytes.len(), TIER_C_MERGED_MAX_ARTIFACT_BYTES)?;
 
         Ok(bytes)
     }
@@ -552,7 +557,7 @@ impl TierCMergedReport {
         bytes: &[u8],
         declared_scenario_ids: &[&str],
     ) -> Result<Self, TierCEvidenceError> {
-        validate_artifact_size(bytes.len())?;
+        validate_artifact_size(bytes.len(), TIER_C_MERGED_MAX_ARTIFACT_BYTES)?;
         let report = serde_json::from_slice::<Self>(bytes)
             .map_err(|source| TierCEvidenceError::Decode { source })?;
         report.validate(declared_scenario_ids)?;
@@ -1093,11 +1098,14 @@ fn current_root_seed_ids() -> Vec<String> {
         .collect()
 }
 
-const fn validate_artifact_size(byte_count: usize) -> Result<(), TierCEvidenceError> {
-    if byte_count > TIER_C_EVIDENCE_MAX_ARTIFACT_BYTES {
+const fn validate_artifact_size(
+    byte_count: usize,
+    maximum_bytes: usize,
+) -> Result<(), TierCEvidenceError> {
+    if byte_count > maximum_bytes {
         return Err(TierCEvidenceError::ArtifactTooLarge {
             observed_bytes: byte_count,
-            maximum_bytes: TIER_C_EVIDENCE_MAX_ARTIFACT_BYTES,
+            maximum_bytes,
         });
     }
 
@@ -1110,6 +1118,8 @@ const fn validate_artifact_size(byte_count: usize) -> Result<(), TierCEvidenceEr
 
 #[cfg(test)]
 mod tests {
+    use super::TIER_C_MERGED_MAX_ARTIFACT_BYTES;
+
     use crate::{
         ExecutionAccess, ExecutionCovering, ObservedExecutionFacts, SQL_SCHEDULED_SHARD_COUNT,
         TIER_C_ROOT_SEEDS, TIER_C_SELECT_BUDGETS, TierCEvidenceError, TierCMergedReport,
@@ -1319,6 +1329,38 @@ mod tests {
         assert!(matches!(
             TierCMergedReport::try_merge(&declared, reports),
             Err(TierCEvidenceError::DuplicateShardReport(0))
+        ));
+    }
+
+    #[test]
+    fn merged_artifacts_reject_oversized_encoding_and_input() {
+        let scenario_ids = (0..32)
+            .map(|index| format!("scenario.{index}.{}", "x".repeat(65_536)))
+            .collect::<Vec<_>>();
+        let declared = scenario_ids.iter().map(String::as_str).collect::<Vec<_>>();
+        let merged = TierCMergedReport::try_merge(
+            &declared,
+            reports_for(&declared, |_| TierCScenarioOutcome::Passed),
+        )
+        .expect("complete synthetic evidence should merge before byte admission");
+        assert!(matches!(
+            merged.to_canonical_json(&declared),
+            Err(TierCEvidenceError::ArtifactTooLarge { observed_bytes, maximum_bytes })
+                if observed_bytes > TIER_C_MERGED_MAX_ARTIFACT_BYTES
+                    && maximum_bytes == TIER_C_MERGED_MAX_ARTIFACT_BYTES
+        ));
+
+        let mut input = vec![b' '; TIER_C_MERGED_MAX_ARTIFACT_BYTES];
+        assert!(matches!(
+            TierCMergedReport::from_canonical_json(&input, &declared),
+            Err(TierCEvidenceError::Decode { .. })
+        ));
+        input.push(b' ');
+        assert!(matches!(
+            TierCMergedReport::from_canonical_json(&input, &declared),
+            Err(TierCEvidenceError::ArtifactTooLarge { observed_bytes, maximum_bytes })
+                if observed_bytes == TIER_C_MERGED_MAX_ARTIFACT_BYTES + 1
+                    && maximum_bytes == TIER_C_MERGED_MAX_ARTIFACT_BYTES
         ));
     }
 

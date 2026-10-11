@@ -351,7 +351,10 @@ fn lower_resolved_write_cell(
     mode: MutationMode,
     mutation_context: MutationDiagnosticContext,
 ) -> Result<AcceptedMutationIntentPatch, InternalError> {
-    if !matches!(cell, DynamicWriteCell::Omitted)
+    // Insert DEFAULT requests select accepted database policy rather than
+    // authoring a value. Keyed writes retain their existing ownership rules.
+    if (matches!(cell, DynamicWriteCell::Null | DynamicWriteCell::Value(_))
+        || (matches!(cell, DynamicWriteCell::Default) && !matches!(mode, MutationMode::Insert)))
         && (field.write_policy().insert_generation().is_some()
             || field.write_policy().write_management().is_some())
     {
@@ -7322,6 +7325,152 @@ mod identity_pre_key_tests {
         );
     }
 
+    fn database_owned_default_snapshot() -> crate::db::schema::AcceptedSchemaSnapshot {
+        use crate::db::schema::{AcceptedSchemaSnapshot, FieldWriteManagement};
+
+        let policies = [
+            (
+                "id",
+                AcceptedFieldKind::Nat64,
+                Some(FieldInsertGeneration::Identity),
+                None,
+            ),
+            (
+                "generated",
+                AcceptedFieldKind::Ulid,
+                Some(FieldInsertGeneration::Ulid),
+                None,
+            ),
+            (
+                "created_at",
+                AcceptedFieldKind::Timestamp,
+                None,
+                Some(FieldWriteManagement::CreatedAt),
+            ),
+            (
+                "updated_at",
+                AcceptedFieldKind::Timestamp,
+                None,
+                Some(FieldWriteManagement::UpdatedAt),
+            ),
+            ("payload", AcceptedFieldKind::Nat64, None, None),
+        ];
+        let fields: Vec<_> = policies
+            .into_iter()
+            .enumerate()
+            .map(|(index, (name, kind, generation, management))| {
+                let codec = kind.leaf_codec_for_storage(FieldStorageDecode::ByKind);
+                PersistedFieldSnapshot::new_initial_with_write_policy(
+                    FieldId::new(u32::try_from(index).unwrap() + 1),
+                    name.to_string(),
+                    SchemaFieldSlot::new(u16::try_from(index).unwrap()),
+                    kind,
+                    Vec::new(),
+                    false,
+                    SchemaInsertDefault::None,
+                    SchemaFieldWritePolicy::from_model_policies(generation, management),
+                    FieldStorageDecode::ByKind,
+                    codec,
+                )
+            })
+            .collect();
+        AcceptedSchemaSnapshot::try_new(PersistedSchemaSnapshot::new(
+            SchemaVersion::initial(),
+            ENTITY_SOURCE.to_string(),
+            ENTITY_NAME.to_string(),
+            FieldId::new(1),
+            SchemaRowLayout::initial(
+                fields
+                    .iter()
+                    .map(|field| (field.id(), field.slot()))
+                    .collect(),
+            ),
+            fields,
+        ))
+        .expect("owned-field schema should admit")
+    }
+
+    #[test]
+    fn structural_cells_preserve_default_intent_and_database_ownership() {
+        use super::{AcceptedMutationIntentPatch, FieldSlot, lower_resolved_write_cell};
+        use crate::{
+            db::schema::AcceptedRowLayoutRuntimeContract, error::MutationDiagnosticContext,
+        };
+
+        let snapshot = database_owned_default_snapshot();
+        let descriptor = AcceptedRowLayoutRuntimeContract::from_accepted_schema(&snapshot).unwrap();
+        for index in 0..5 {
+            let field = descriptor.field_for_slot_index(index).unwrap();
+            let slot = FieldSlot::from_validated_index(index);
+            let authored = match index {
+                1 => InputValue::ulid(crate::types::Ulid::from_u128(7)),
+                2 | 3 => InputValue::timestamp(Timestamp::from_millis(7)),
+                _ => InputValue::nat64(7),
+            };
+            for mode in [
+                MutationMode::Insert,
+                MutationMode::Replace,
+                MutationMode::Update,
+            ] {
+                let context = MutationDiagnosticContext::new(
+                    crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
+                    [7; 16],
+                    ENTITY_TAG.value(),
+                    mode.diagnostic_operation(),
+                    3,
+                );
+                for cell in [
+                    DynamicWriteCell::Omitted,
+                    DynamicWriteCell::Default,
+                    DynamicWriteCell::Null,
+                    DynamicWriteCell::Value(authored.clone()),
+                ] {
+                    let expected = match &cell {
+                        DynamicWriteCell::Omitted => Some(AcceptedMutationIntentPatch::new()),
+                        DynamicWriteCell::Default
+                            if matches!(mode, MutationMode::Insert)
+                                || (index == 4 && matches!(mode, MutationMode::Replace)) =>
+                        {
+                            Some(
+                                AcceptedMutationIntentPatch::new()
+                                    .set_explicit_insert_default(slot),
+                            )
+                        }
+                        DynamicWriteCell::Default if index == 4 => Some(
+                            AcceptedMutationIntentPatch::new().set_explicit_update_default(slot),
+                        ),
+                        DynamicWriteCell::Null if index == 4 => Some(
+                            AcceptedMutationIntentPatch::new()
+                                .set_authored(slot, InputValue::null()),
+                        ),
+                        DynamicWriteCell::Value(value) if index == 4 => Some(
+                            AcceptedMutationIntentPatch::new().set_authored(slot, value.clone()),
+                        ),
+                        _ => None,
+                    };
+                    let result = lower_resolved_write_cell(
+                        AcceptedMutationIntentPatch::new(),
+                        field,
+                        cell,
+                        mode,
+                        context,
+                    );
+                    if let Some(expected) = expected {
+                        assert_eq!(result.unwrap(), expected);
+                    } else {
+                        let error = result.unwrap_err();
+                        let expected = InternalError::mutation_database_owned_field_explicit(
+                            context,
+                            field.field_id().get(),
+                        );
+                        assert_eq!(error.diagnostic(), expected.diagnostic());
+                        assert_eq!(error.diagnostic_facts(), expected.diagnostic_facts());
+                    }
+                }
+            }
+        }
+    }
+
     #[expect(
         clippy::too_many_lines,
         reason = "one lifecycle proves shared materialization and every maintained frontend against the same zero-state owner"
@@ -7400,6 +7549,21 @@ mod identity_pre_key_tests {
             .expect("dynamic omission should commit through shared Identity generation");
         assert_eq!(dynamic.affected_rows, 1);
 
+        let dynamic_default = session
+            .execute_trusted_dynamic_mutation(&DynamicMutation::Insert {
+                entity: ENTITY_NAME.to_string(),
+                patch: DynamicStructuralPatch::new(vec![
+                    ("id".to_string(), DynamicWriteCell::Default),
+                    (
+                        "payload".to_string(),
+                        DynamicWriteCell::Value(InputValue::nat64(45)),
+                    ),
+                ]),
+            })
+            .expect("dynamic DEFAULT should use accepted Identity generation");
+        assert_eq!(dynamic_default.affected_rows, 1);
+        assert_eq!(dynamic_default.rows, vec![expected_dynamic_row(5, 45)]);
+
         for (request, operation) in [
             (
                 DynamicMutation::Insert {
@@ -7470,6 +7634,23 @@ mod identity_pre_key_tests {
                 .affected_rows,
             1,
         );
+        let typed_default_patch = binding
+            .bind_write_ordinals(vec![
+                (0, DynamicWriteCell::Default),
+                (1, DynamicWriteCell::Value(InputValue::nat64(55))),
+            ])
+            .expect("typed DEFAULT intent should lower");
+        let typed_default = session
+            .execute_trusted_typed_mutation(
+                &binding,
+                DynamicTypedMutation::Insert {
+                    patch: typed_default_patch,
+                },
+            )
+            .expect("typed DEFAULT should use accepted Identity generation")
+            .expect("typed insert should return one mutation result");
+        assert_eq!(typed_default.affected_rows, 1);
+        assert_eq!(typed_default.rows, vec![expected_dynamic_row(7, 55)]);
         let explicit_typed_patch = binding
             .bind_write_ordinals(vec![
                 (0, DynamicWriteCell::Value(InputValue::nat64(51))),
@@ -7545,7 +7726,7 @@ mod identity_pre_key_tests {
             ));
         }
 
-        let expected_committed = if cfg!(feature = "sql") { 7 } else { 5 };
+        let expected_committed = if cfg!(feature = "sql") { 9 } else { 7 };
         assert_eq!(
             DATA_STORE.with(|store| store.borrow().len()),
             expected_committed

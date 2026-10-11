@@ -183,15 +183,26 @@ There is no `trusted_write_unchecked` equivalent to the trusted read bypass.
 The word `trusted` on a SQL mutation API describes caller-owned authorization
 and exposure policy; it does not weaken schema admission.
 
+Structural insert `Default` cells request accepted policy,
+including generation and management for database-owned fields. Authored `Null`
+or `Value` cells on those fields remain rejected, as does `Default` in an
+update or replacement. Keyed replacement preserves its selected identity and
+cannot allocate an Identity value for a missing row.
+
 Database-managed `CreatedAt` and `UpdatedAt` fields are accepted write policy,
 not generated callbacks. One operation timestamp is captured before accepted
 after-image resolution. Insert assigns both fields that timestamp; a logical
 update or replacement preserves `CreatedAt` and advances `UpdatedAt`; a
 semantic no-op preserves both. Atomic batches and the independently committed
-items within each batch reuse the request timestamp. Resumable updates store
-the timestamp in their continuation before the first row commit and reuse it
-on every retry or resume. A timestamp earlier than a retained `UpdatedAt`
-rejects rather than moving time backward or clamping one row.
+items within each batch reuse the request timestamp. Resumable updates retain
+a frozen statement timestamp in their intent and continuation. Each non-replay
+Forward advance captures one current managed-write timestamp, shared by every
+row committed in that page. Exact replay returns the retained receipt without
+re-executing or restamping rows; a failed pre-commit attempt may use a later
+timestamp on retry. A managed-write timestamp earlier than a retained
+`UpdatedAt` rejects rather than moving time backward or clamping one row;
+resumable jobs enter `RestartRequired(ManagedTimestampRegression)` without
+target-row effects.
 
 ## Schema Mutation And Backfill Rules
 

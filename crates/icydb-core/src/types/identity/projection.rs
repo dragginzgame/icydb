@@ -1,12 +1,14 @@
 //! Module: types::identity::projection
-//! Defines the deterministic one-way public identity projection derived from
+//! Defines the deterministic public identity projection derived from
 //! canonical entity key bytes.
 
-//! One-way identity projection for external systems.
+//! Deterministic identity projection for external systems.
 //!
 //! ## Purpose
-//! This module defines a **one-way, non-reversible identity projection**
-//! for deterministic external identifier mapping.
+//! This module maps canonical key bytes to a public, unkeyed SHA-256 digest.
+//! Candidate keys can be matched by projecting them, so enumerable or public
+//! key domains do not become secret. Equal canonical key bytes produce equal
+//! projections across entities: the protocol tag does not include entity identity.
 //!
 //! It is **not** a storage abstraction and does **not** establish trust.
 //! Projection is a mechanical derivation from canonical key bytes. It provides:
@@ -50,21 +52,24 @@ const PROJECTION_DOMAIN_TAG: &[u8] = b"icydb:identity-projection:v1";
 //
 // ProjectedIdentity
 //
-// Stable, opaque output of one-way identity projection.
+// Stable output of deterministic identity projection.
 //
 // ## Guarantees
 // - Deterministic
-// - Non-reversible
-// - Safe to expose externally
+// - Equal canonical key bytes produce equal projections across entities
 //
 // ## Non-goals
 // - Does NOT provide secrecy, authentication, or authorization
 // - Does NOT imply ownership
 // - Does NOT preserve ordering
-// - Does NOT permit identity reconstruction
+// - Guessable source keys can be recovered by projecting candidates
 // - Does NOT imply entity existence
 //
 
+/// Public SHA-256 projection of the protocol tag and canonical key bytes.
+///
+/// This unkeyed mapping preserves cross-entity correlation for equal key bytes.
+/// Enumerable source keys can be matched by projecting candidates.
 #[repr(transparent)]
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ProjectedIdentity([u8; 32]);
@@ -101,10 +106,12 @@ where
     E: EntityKey,
     E::Key: EntityKeyBytes,
 {
-    /// Derive a deterministic, one-way external identifier from canonical key bytes.
+    /// Derive a deterministic external identifier from canonical key bytes.
     ///
     /// This method is a mechanical mapping only. It does not verify authorization, ownership,
     /// or entity existence.
+    /// The unkeyed digest includes the protocol tag and key bytes, with no entity
+    /// identity. Guessable keys can be matched by projecting candidate values.
     ///
     /// # Errors
     ///

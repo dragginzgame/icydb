@@ -16,9 +16,22 @@ canister uses session/library SQL APIs or generated SQL endpoints:
 Add `features = ["sql"]` to the runtime dependency when needed. The other
 optional features are `metrics` and `migration`.
 
-Runtime-enabled crates normally author models through `icydb::model`, which
-re-exports the model declaration surface. Schema-only tooling that deliberately
-omits the runtime may depend on `icydb-model` directly.
+Choose one direct IcyDB package for the consumer's needs:
+
+| Consumer | Package | Import surface |
+| --- | --- | --- |
+| Database-owning canister | `icydb` | `icydb::model::prelude::*` for declarations; facade runtime/types/build APIs |
+| Lightweight model or shared-contract crate | `icydb-model` | `icydb_model::prelude::*`; schema scalars such as `icydb_model::schema::Ulid` |
+| Scalar/proposal-only tooling without model macros | `icydb-schema` | Schema proposal vocabulary and scalars such as `icydb_schema::Ulid` |
+
+The model and schema routes omit the database engine, memory and timer runtime
+from their normal dependency graphs. They are optional narrower choices, not
+extra packages ordinary canisters need to add. Re-exports preserve the original
+types, so a model consumer does not need a second direct schema dependency.
+`icydb` with `default-features = false` still includes the database runtime.
+The maintained [facade-only example](testing/model-facade-only/) and
+[model-only example](testing/model-schema-only/) exercise the two authoring
+routes, including renamed Cargo dependencies and generated macro resolution.
 Use the same release tag for every IcyDB package.
 
 The public runtime `icydb` crate path supports Rust `1.88.0` and newer.
@@ -47,16 +60,24 @@ icydb::endpoints! {
     icydb_sql_query(introspection = true);
     icydb_ddl;
     icydb_update(admission = primary_key_only);
-    icydb_metrics(authorization = public);
+    icydb_metrics(authorization = controller);
     icydb_metrics_reset;
     icydb_schema(authorization = controller);
 }
 ```
 
+The metrics example restricts reads to controllers. Choosing
+`icydb_metrics(authorization = public)` admits all callers, including anonymous
+principals, and exposes the reported entity paths, execution hit counts and
+instruction totals and maxima, along with journal debt and lifecycle metrics.
+Use it only when the application intends to publish that information.
+
 One declaration creates exactly one fixed method. A declaration whose required
 Cargo capability is absent fails compilation; compiling a capability without a
 declaration exports nothing. Use canister-owned Cargo features for local/test
-declarations and omit those features from production builds.
+declarations and omit those features from production builds. Fixture declarations
+specifically require a canister feature named `test-admin-api` and `icydb/sql`;
+use the feature wiring below.
 
 For example, keep development capabilities and their declarations behind the
 same canister-owned features:
@@ -91,12 +112,26 @@ code enabled only by those features, such as SQL introspection, is present in
 that Wasm. No IcyDB TOML file or target environment variable participates in
 endpoint selection.
 
-Readonly SQL is controller-gated by default. An explicit
-`authorization = guard(path)` declaration replaces controller authority with
-one synchronous application decision; anonymous callers still reject. Do not
-expose unrestricted SQL to arbitrary callers. Caller-facing reads should use ordinary typed
-execution so the default bounded read-admission gate applies after the endpoint
-has performed caller authorization. See
+Readonly SQL is controller-gated by default. Its declaration keyword is
+`icydb_sql_query`; the exported Candid method is `icydb_query`. Declare the
+required `introspection = true` or `introspection = false` literal first,
+followed by the optional application guard in this order:
+
+```rust
+icydb::endpoints! {
+    icydb_sql_query(
+        introspection = false,
+        authorization = guard(sql_read_guard),
+    );
+}
+```
+
+The guard must have the `icydb::ReadAuthorizationGuard` function signature.
+Omit `authorization` for controller authority. An application guard replaces
+controller authority with one synchronous decision; anonymous callers still
+reject. Do not expose unrestricted SQL to arbitrary callers. Caller-facing reads
+should use ordinary typed execution so the default bounded read-admission gate
+applies after the endpoint has performed caller authorization. See
 [docs/contracts/READ_ADMISSION.md](docs/contracts/READ_ADMISSION.md).
 Hand-written public read endpoint guidance is in
 [docs/guides/read-intent.md](docs/guides/read-intent.md).
@@ -110,6 +145,9 @@ Current generated endpoint surfaces:
 - `icydb_update` with declared `primary_key_only` or `bounded_deterministic`
   admission; both policies are controller-gated and narrower than the
   session/library mutation surface
+- `icydb_integrity` for controller-gated integrity maintenance; requires `icydb/sql`
+- `icydb_schema_migrate` and `icydb_schema_migration` for controller-gated
+  migration submission and status; require `icydb/migration`
 - `icydb_fixtures_reset` and `icydb_fixtures_load` for local fixture flows
 - `icydb_snapshot` for storage inventory and stable allocation metadata
 - `icydb_schema` for accepted schema descriptions
@@ -202,17 +240,32 @@ make install-tools
 make tools-check
 ```
 
-This provisions pinned jq, Mike Farah yq and PCRE2-enabled ripgrep in
-`.tools/host/bin`, plus ICP CLI, ic-wasm,
-quill, didc and Binaryen in `.tools/ic/bin`. Shared's selected Cargo installer
-also prepares the locked Testkit CLI; Testkit provisions PocketIC under
+This selects pinned jq, Mike Farah yq, PCRE2-enabled ripgrep and cloc through
+`.tools/host/bin`, plus ICP CLI, ic-wasm, quill, didc and Binaryen through
+`.tools/ic/bin`. Shared Tooling stores the verified host and IC bundles once per
+user; matching checkouts reuse them while retaining their own pinned selections.
+The default store is `${XDG_DATA_HOME:-$HOME/.local/share}/shared-tooling/tools`.
+An explicit `SHARED_TOOLING_STORE` must use the same absolute directory for
+installation, offline checks and failure-evidence collection. Previous local
+bundles remain retained; rerun setup to select the shared bundles.
+
+Cargo executables now use shared slots selected by their exact compiler,
+native environment, package and packaged-lock identities. The common set stays
+exposed through `.tools/rust/common/bin`; selected adapters use the installer's
+returned path. Rerun `make install-rust-tools` and `make install-testkit`, then
+their offline checks, to select these shared installations. Previous local
+installations and failed build evidence remain retained. Tool builds use
+Shared's standard environment rather than application flags or wrappers; see
+[the build contract](docs/local-setup.md#standard-cargo-tool-build-environment).
+Shared's selected Cargo installer prepares the locked Testkit CLI; Testkit
+provisions PocketIC under
 `.tools/ic-testkit-server`. The final command checks both owners' selected sets
 offline, including IcyDB's admitted optimizer digest. Tool verification never
 installs missing tools. Testkit owns server selection, authentication and
 client/server admission. See
 [shared setup](docs/local-setup.md) and [IC executable setup](docs/ic-tools.md)
 for archive pins, bootstrap packages and supported hosts. IcyDB retains the
-qualified Binaryen 132 optimization policy and its raw executable digests in
+qualified Binaryen 133 optimization policy and its raw executable digests in
 [the admission table](scripts/ci/wasm-optimizer-checksums.tsv).
 
 Both `make install-dev` and `make update-dev` use the shared `make install-gh`
@@ -276,10 +329,11 @@ and receipt checks use the shared offline Cargo/yq/jq reader.
 ### ICP And Canister Tools
 
 Local ICP workflows require the selected ICP SDK CLI. Make and CI prepend
-`.tools/host/bin` and `.tools/ic/bin` to `PATH`. For direct shell commands, use:
+`.tools/host/bin`, `.tools/ic/bin` and `.tools/rust/common/bin` to `PATH`.
+For direct shell commands, use:
 
 ```bash
-export PATH="$PWD/.tools/host/bin:$PWD/.tools/ic/bin:$PATH"
+export PATH="$PWD/.tools/host/bin:$PWD/.tools/ic/bin:$PWD/.tools/rust/common/bin:$PATH"
 ```
 
 Run this from the repository root after `make install-tools`. The shared

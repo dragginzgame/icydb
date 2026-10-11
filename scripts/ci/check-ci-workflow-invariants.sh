@@ -130,7 +130,7 @@ if [[ "$tier_b_perf_target_refs" -lt 3 ]] ||
 fi
 
 for job in static rust macos_host wasm_size_report; do
-  if ! ci_job_runs "$job" | rg -q --fixed-strings '.tools/rust/bin'; then
+  if ! ci_job_runs "$job" | rg -q --fixed-strings '.tools/rust/common/bin'; then
     fail "$job must expose the shared Rust tool directory to later CI steps"
   fi
 done

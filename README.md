@@ -117,8 +117,11 @@ Optional features are `sql` for session SQL and generated SQL endpoints,
 explicit schema-migration operations. Features compile capabilities; public
 endpoints require explicit source declarations.
 
-Runtime-enabled crates author schemas through `icydb::model`. Standalone
-schema-only tooling may depend on `icydb-model` instead. The public dependency
+Runtime-enabled crates use `icydb` alone and author schemas through
+`icydb::model`. Lightweight model/contract consumers may use `icydb-model`
+alone, including its schema scalar re-exports; scalar/proposal-only tooling
+may use `icydb-schema` alone. See the [dependency choices](INSTALLING.md)
+for these supported narrower routes. The public dependency
 path supports Rust `1.88.0`; workspace development uses pinned Rust `1.99.0`,
 with a `1.96.0` declared floor for other workspace packages.
 

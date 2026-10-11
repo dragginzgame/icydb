@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/dev/install-host-tools.sh scripts/dev/install-ic-tools.sh
+# Shared companions: scripts/dev/install-host-tools.sh scripts/dev/install-ic-tools.sh scripts/dev/tool-store.sh
 set -euo pipefail
 
 # Emit NUL-separated ROOT/PATH pairs for the neutral evidence archiver.
@@ -24,14 +24,27 @@ selection() {
     perl -e 'my $s=readlink($ARGV[0]); defined($s) or exit 1; print $s,"/."' "$1"
 }
 shopt -s nullglob
-for kind in host ic; do
+# shellcheck source=scripts/dev/tool-store.sh
+source "$ROOT/scripts/dev/tool-store.sh"
+emitted=()
+status=0
+if [[ ! -L "$repository/.tools" && ! -L "$repository/.tools/rust" && -d "$repository/.tools/rust" ]]; then
+    printf '%s\0%s\0' "$repository" .tools/rust
+fi
+for kind in host ic rust; do
+    store_available=true
+    if ! tool_store_init "$kind" evidence ||
+        { [[ -e "$store_root" || -L "$store_root" ]] && ! tool_store_directory "$store_root"; }; then
+        store_available=false
+        status=1
+        echo 'Shared tool evidence incomplete: store admission failed; retaining local evidence without following references.' >&2
+    fi
     compact=""
     active="$repository/.tools/$kind"
-    if [[ "$mode" == compact && ! -L "$repository/.tools" && -L "$active" ]]; then
+    if [[ "$kind" != rust && "$store_available" == true && "$mode" == compact && ! -L "$repository/.tools" && -L "$active" ]]; then
         selected="$(selection "$active")" || selected=""
         selected="${selected%/.}"
-        if [[ "$selected" =~ ^$kind-set\.[[:alnum:]]+$ && -d "$repository/.tools/$selected" && ! -L "$repository/.tools/$selected" ]]; then
-            bundle="$repository/.tools/$selected"
+        if [[ "$selected" =~ ^$kind-set\.[[:alnum:]]+$ ]] && bundle="$(tool_store_resolve "$repository/.tools/$selected")"; then
             pins="$4"; [[ "$kind" != ic ]] || pins="$5"
             if [[ -f "$pins" && ! -L "$pins" ]]; then
                 detail="$diagnostics/$kind"
@@ -46,7 +59,8 @@ for kind in host ic; do
                 fi
                 if "${checker[@]}" > "$detail/check.log" 2>&1 &&
                     [[ -n "$before" && ! -L "$repository/.tools" && -d "$bundle" && ! -L "$bundle" && "$(identity "$bundle")" == "$before" &&
-                       "$(selection "$active")" == "$selected/." ]] && cmp -s "$pins" "$detail/caller-pins"; then
+                       "$(selection "$active")" == "$selected/." &&
+                       "$(tool_store_resolve "$repository/.tools/$selected")" == "$bundle" ]] && cmp -s "$pins" "$detail/caller-pins"; then
                     if [[ "$kind" == host || ( -f "$bundle/pins.tsv" && ! -L "$bundle/pins.tsv" &&
                           -f "$bundle/host" && ! -L "$bundle/host" &&
                           -f "$bundle/files.sha256" && ! -L "$bundle/files.sha256" ) ]]; then
@@ -61,8 +75,28 @@ for kind in host ic; do
             fi
         fi
     fi
-    for bundle in "$repository/.tools/$kind-set."*; do
+    # Never enumerate through a redirected checkout root.
+    [[ ! -L "$repository/.tools" ]] || continue
+    references=("$repository/.tools/$kind-set."*)
+    if [[ "$kind" == rust ]]; then
+        [[ ! -L "$repository/.tools/rust" ]] || continue
+        references=("$repository/.tools/rust/rust-set."*)
+    fi
+    for bundle in ${references[@]+"${references[@]}"}; do
         [[ "${bundle##*/}" != "$compact" ]] || continue
-        printf '%s\0%s\0' "$repository" ".tools/${bundle##*/}"
+        if [[ "$kind" != rust ]]; then printf '%s\0%s\0' "$repository" ".tools/${bundle##*/}"; fi
+        # Preserve the local reference itself plus its admitted physical bundle.
+        # Unknown links stay links in the archive; never traverse them.
+        if [[ "$store_available" == true ]] && physical="$(tool_store_resolve "$bundle")"; then
+            duplicate=false
+            for prior in ${emitted[@]+"${emitted[@]}"}; do
+                [[ "$prior" != "$physical" ]] || duplicate=true
+            done
+            if [[ "$duplicate" == false ]]; then
+                printf '%s\0%s\0' "$store_root" "${physical#"$store_root/"}"
+                emitted+=("$physical")
+            fi
+        fi
     done
 done
+exit "$status"

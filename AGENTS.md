@@ -2,7 +2,7 @@
 
 Apply the local [shared engineering baseline](DRAGGINZGAME.md), recorded in
 [the snapshot manifest](.shared-tooling.snapshot) at reviewed revision
-`db143ae9ae140eb66826c413360723d23c078f66`. This file is IcyDB's local overlay.
+`75180980a0c4e4252d8a915aaecfaefd92bf9a4e`. This file is IcyDB's local overlay.
 The shared [approved layout](rules/rust-workspaces.md#approved-icydb-layout)
 retains existing packages under `crates/`, `canisters/`, `schema/` and `testing/`
 in the single root workspace and lockfile. Adoption does not authorize relocation

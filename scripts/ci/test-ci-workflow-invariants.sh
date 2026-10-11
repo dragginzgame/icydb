@@ -82,10 +82,10 @@ perl -pi -e 's/\$\(MAKE\) --no-print-directory check-portable-automation/\$\(MAK
 check fail missing-static-portable-gate
 cp "$ROOT/Makefile" "$fixture/Makefile"
 reset
-mutate '(.jobs.static.steps[] | select(has("run")) | .run) |= sub("/\\.tools/rust/bin"; "/missing/bin")'
+mutate '(.jobs.static.steps[] | select(has("run")) | .run) |= sub("/\\.tools/rust/common/bin"; "/missing/bin")'
 check fail missing-static-rust-tool-path
 reset
-mutate '(.jobs.macos_host.steps[] | select(has("run")) | .run) |= sub("/\\.tools/rust/bin"; "/missing/bin")'
+mutate '(.jobs.macos_host.steps[] | select(has("run")) | .run) |= sub("/\\.tools/rust/common/bin"; "/missing/bin")'
 check fail missing-native-rust-tool-path
 reset
 mutate '.env.RUSTC_WRAPPER = "sccache"'

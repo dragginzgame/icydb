@@ -35,7 +35,7 @@ unset VALIDATION_REPOSITORY_ROOT VALIDATION_RUNNER_SNAPSHOT_PATH
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE
 export CARGO_NET_OFFLINE=true RUSTUP_AUTO_INSTALL=0
 # Disposable adoption checkouts reuse the consumer's explicitly prepared tools.
-export PATH="$root/.tools/host/bin:$root/.tools/ic/bin:$root/.tools/rust/bin:$PATH"
+export PATH="$root/.tools/host/bin:$root/.tools/ic/bin:$root/.tools/rust/common/bin:$PATH"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/formatting-adoption.XXXXXX")"
 fixture="$(cd -P "$fixture" && printf '%s/.' "$PWD")"
 fixture="${fixture%/.}"
@@ -48,6 +48,9 @@ finish() {
     exit "$status"
 }
 trap finish EXIT
+# Hooks and formatters change directories inside the disposable checkout.
+# Keep their temporary files under the caller's selected physical parent.
+export TMPDIR="${fixture%/*}"
 mkdir "$fixture/templates"
 export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TEMPLATE_DIR="$fixture/templates"
 objects="$(git -C "$root" rev-parse --git-path objects && printf '.')"

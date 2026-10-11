@@ -56,11 +56,22 @@ Consumer choices described in those guides remain subject to this baseline.
   Prefer owning-repository issues for sibling findings. Explicit scoped
   authorization is an exception to this read-only default, and remains valid
   through the necessary implementation and qualification of that change.
+- Staging, commits and release execution are user-owned by default. During
+  ordinary implementation, leave the real checkout's index, package/application
+  release versions and Git refs alone. Do not run `git add .`, `git add -A`,
+  `git commit`, version-bump helpers, `git tag`, pushes, `make release-*` or
+  mutating release adapters to finish a coding task. This includes release
+  recovery and indirect calls from scripts or Make targets. "Keep going",
+  "prepare the release", "work on 0.4" and "ready to push?" authorize no such
+  effects. Prepare source, numbered changelog notes and validation, then hand
+  them to the user. Explicit delegation follows the contribution rules below;
+  a maintainer-only local release boundary must not be bypassed by inference.
 - Follow the [contribution rules](rules/contributions.md): ordinary contributions
   from people and agents use branches and pull requests. Agents may create
   scoped commits when asked to commit or deliver a PR. A PR request includes the
   branch, commits, branch push and PR creation/update needed to deliver it;
   do not require the maintainer to commit first or approve each substep again.
+  This scoped PR exception does not authorize release versions or tags.
 - A PR request does not authorize merging, pushing directly to `main`, `master`
   or another integration/release branch, or rewriting shared history. Those
   effects require explicit authorization. Preserve branch protections and
@@ -148,6 +159,14 @@ Consumer choices described in those guides remain subject to this baseline.
   a hard cut does not make an incompatible patch acceptable. Select the pending
   changelog version automatically under the common rules; changing package
   versions or executing a release remains an explicitly authorized consumer action.
+- Classify compatibility at the released package's own consumer boundary. An
+  upstream minor/hard cut does not automatically require downstream minor bumps.
+  Contributor-only CI, hooks, formatting, tool installation and local PATH changes
+  are compatible for a library whose published API, behavior and supported build
+  requirements remain unchanged. Shared Tooling's commands are its product
+  interface; adopting their changes does not turn them into a library API break.
+  Apply the [package-impact rules](rules/changelogs.md#classify-the-released-packages-own-impact),
+  including exposed dependency types and coordinated workspace versions.
 - Never reuse a wire/storage discriminator for an incompatible layout or interpret
   retained bytes under a new layout merely because both contracts use V1.
   A hard cut identifies the frozen format,
@@ -223,8 +242,9 @@ Consumer choices described in those guides remain subject to this baseline.
   default; PR delivery prepares a review branch and validates the admitted merged
   commit afresh before tagging. Never select another policy to bypass a rejected
   push or branch protection.
-- These one-shot commands require an explicit request to run the selected release
-  for the selected repository and destination. That request authorizes the
+- These one-shot commands are user-operated by default. An agent needs explicit
+  delegation to run the selected release for the selected repository and
+  destination. That request authorizes the
   documented gate, version preparation and selected delivery effects. Direct
   delivery includes the release commit, tag and atomic branch/tag push; PR
   delivery includes the release branch/PR and, after separately authorized merge,
@@ -277,13 +297,26 @@ Consumer choices described in those guides remain subject to this baseline.
   including tools it does not currently use. The host set includes pinned jq,
   Mike Farah yq, ripgrep with PCRE2 and cloc under `.tools/host/bin`; the Cargo
   set includes cargo-sort, cargo-sort-derives and candid-extractor under
-  `.tools/rust/bin`. Aggregates run host, IC and Rust steps in order, stopping on
+  `.tools/rust/common/bin`. Common and selected Cargo tools share versioned-slot
+  receipt and byte admission; common PATH activation requires the complete set.
+  Aggregates run host, IC and Rust steps in order, stopping on
   failure. Consumer-specific setup/check targets extend the ordered lists in
   `make/tools.mk`, not unordered aggregate prerequisites. Make/CI callers select
   their own checkout's local paths; document interactive shell PATH setup,
   prepared Rust toolchains and system bootstrap packages separately.
   Adopt `make/tools.mk` from the reviewed snapshot for these common commands
   and LOC reporting, replacing copied recipes; CI calls the same targets.
+- Shared Tooling owns common executable storage as well as installation commands.
+  Host, IC and Cargo installers share verified bundles per user across checkouts
+  while retaining each repository's pinned selection. Cargo tools use the standard
+  tool-build environment and exact build identities; application compiler flags
+  and wrappers remain repository-owned and do not configure these tool builds. Consumers
+  must not create independent stores or new bespoke `.tools` installers. Follow
+  the [shared storage adoption boundary](docs/local-setup.md#shared-executable-storage)
+  through reviewed canonical tooling; `.tools/host` and `.tools/ic` select shared
+  bundles without storing new executable copies in the checkout. This does not
+  authorize deleting
+  existing installations or replacing them with a mutable sibling PATH.
 - Provide the [common local IC executable setup](docs/ic-tools.md) through
   `make install-ic-tools` and offline `make ic-tools-check`. Keep the common tool
   names available under the checkout's `.tools/ic/bin`, with one reviewed pin

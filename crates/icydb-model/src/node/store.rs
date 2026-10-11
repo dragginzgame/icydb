@@ -377,6 +377,11 @@ impl Store {
         }
     }
 
+    /// Build the data-memory allocation descriptor for journaled storage.
+    ///
+    /// # Panics
+    ///
+    /// Panics when this store uses heap storage.
     #[must_use]
     pub fn stable_data_allocation(&self, memory_namespace: &str) -> StableMemoryAllocation {
         self.stable_allocation(memory_namespace, StoreMemoryRole::Data)
@@ -384,6 +389,10 @@ impl Store {
 
     /// Build the data-memory allocation descriptor with accepted row-layout
     /// schema metadata attached for diagnostics.
+    ///
+    /// # Panics
+    ///
+    /// Panics when this store uses heap storage.
     #[must_use]
     pub fn stable_data_allocation_with_schema_metadata(
         &self,
@@ -397,6 +406,11 @@ impl Store {
         )
     }
 
+    /// Build the index-memory allocation descriptor for journaled storage.
+    ///
+    /// # Panics
+    ///
+    /// Panics when this store uses heap storage.
     #[must_use]
     pub fn stable_index_allocation(&self, memory_namespace: &str) -> StableMemoryAllocation {
         self.stable_allocation(memory_namespace, StoreMemoryRole::Index)
@@ -404,6 +418,10 @@ impl Store {
 
     /// Build the index-memory allocation descriptor with accepted index-catalog
     /// schema metadata attached for diagnostics.
+    ///
+    /// # Panics
+    ///
+    /// Panics when this store uses heap storage.
     #[must_use]
     pub fn stable_index_allocation_with_schema_metadata(
         &self,
@@ -417,12 +435,21 @@ impl Store {
         )
     }
 
+    /// Build the schema-memory allocation descriptor for journaled storage.
+    ///
+    /// # Panics
+    ///
+    /// Panics when this store uses heap storage.
     #[must_use]
     pub fn stable_schema_allocation(&self, memory_namespace: &str) -> StableMemoryAllocation {
         self.stable_allocation(memory_namespace, StoreMemoryRole::Schema)
     }
 
     /// Build the journal-tail allocation descriptor for journaled stores.
+    ///
+    /// # Panics
+    ///
+    /// Panics when this store uses heap storage.
     #[must_use]
     pub fn journal_allocation(&self, memory_namespace: &str) -> StableMemoryAllocation {
         StableMemoryAllocation::without_schema_metadata(stable_store_memory_key(
@@ -434,6 +461,10 @@ impl Store {
 
     /// Build the schema-memory allocation descriptor with accepted catalog
     /// schema metadata attached for diagnostics.
+    ///
+    /// # Panics
+    ///
+    /// Panics when this store uses heap storage.
     #[must_use]
     pub fn stable_schema_allocation_with_schema_metadata(
         &self,
@@ -447,6 +478,14 @@ impl Store {
         )
     }
 
+    /// Build an allocation descriptor for one role in journaled storage.
+    ///
+    /// Use [`Self::is_journaled_storage`] or [`Self::journaled_memory_config`]
+    /// to check the storage mode before requesting a stable allocation.
+    ///
+    /// # Panics
+    ///
+    /// Panics when this store uses heap storage.
     #[must_use]
     pub fn stable_allocation(
         &self,
