@@ -259,10 +259,13 @@ install_selected() (
 )
 
 check_install_paths
+# Catalogs and lockfile paths above retain their documented caller/consumer
+# resolution. All probes and Cargo effects now share the consumer's cwd, so
+# Rustup and Cargo discover the same local configuration as preflight.
+cd "$consumer"
 if [[ "$preflight" == true ]]; then
     # Rustup selects by working directory. Probe the consumer's toolchain without
     # auto-installing one or touching existing tools, receipts or build output.
-    cd "$consumer"
     for prerequisite in rustc cargo; do
         executable="$(command -v "$prerequisite")" || {
             printf 'missing Rust setup prerequisite: tool=%s; prepare the declared Rust/Cargo toolchain and select it on PATH, then rerun make install-tools\n' "$prerequisite" >&2

@@ -133,7 +133,9 @@ In the owning repository's authorized change:
 3. Preserve package names, versions, APIs, features, publication policy, canister
    identities and selected dependencies. Review packaging contents and
    `CARGO_MANIFEST_DIR`-relative inputs; a successful directory move alone does
-   not establish equivalent behavior.
+   not establish equivalent behavior. For coordinated packages still sharing
+   their released versions, follow the
+   [archive qualification guidance](cargo-dependencies.md#qualifying-coordinated-package-archives-before-a-version-bump).
 4. Run the owning focused locked metadata, formatting and path/packaging checks
    for every affected workspace with prepared tools and caches. Keep the existing
    Linux/macOS qualification obligations and local command authority. Adoption

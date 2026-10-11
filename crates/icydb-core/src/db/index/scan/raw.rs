@@ -228,6 +228,8 @@ impl IndexStore {
     /// The direct route is available only while one physical backing owns the
     /// complete visible index. A mixed journal overlay returns `false` so the
     /// executor can retain its ordinary bounded child-stream path.
+    /// Empty child envelopes are skipped; an entirely empty merge performs no
+    /// structural admission, decoding or visitation.
     #[expect(
         clippy::too_many_lines,
         reason = "the explicit backing/direction matrix keeps each iterator borrowed and allocation-free"
@@ -246,7 +248,12 @@ impl IndexStore {
         Decode: FnMut(&RawIndexStoreKey) -> Result<K, InternalError>,
         Visit: FnMut(K, &RawIndexStoreKey, &IndexEntryValue) -> Result<bool, InternalError>,
     {
-        if bounds.is_empty() {
+        // Share single-range emptiness semantics before creating backend iterators.
+        let active_bounds = bounds
+            .iter()
+            .filter(|(lower, upper)| !envelope_is_empty(lower, upper));
+        let range_count = active_bounds.clone().count();
+        if range_count == 0 {
             return Ok(true);
         }
 
@@ -260,16 +267,15 @@ impl IndexStore {
                     .ok_or_else(InternalError::executor_invariant)
             })?;
         let contract = MergedRangeContract {
-            range_count: bounds.len(),
+            range_count,
             retained_bound_bytes: retained_range_bound_bytes,
             direction,
         };
 
         match (&self.backend, direction) {
             (IndexStoreBackend::Heap(map), Direction::Asc) => {
-                let ranges = bounds
-                    .iter()
-                    .map(|(lower, upper)| map.range((lower.as_ref(), upper.as_ref())));
+                let ranges =
+                    active_bounds.map(|(lower, upper)| map.range((lower.as_ref(), upper.as_ref())));
                 visit_merged_ranges(
                     ranges,
                     contract,
@@ -281,8 +287,7 @@ impl IndexStore {
                 )?;
             }
             (IndexStoreBackend::Heap(map), Direction::Desc) => {
-                let ranges = bounds
-                    .iter()
+                let ranges = active_bounds
                     .map(|(lower, upper)| map.range((lower.as_ref(), upper.as_ref())).rev());
                 visit_merged_ranges(
                     ranges,
@@ -303,7 +308,7 @@ impl IndexStore {
                 },
                 Direction::Asc,
             ) if canonical.is_empty() => {
-                let ranges = bounds.iter().map(|(lower, upper)| {
+                let ranges = active_bounds.map(|(lower, upper)| {
                     live.range((lower.as_ref(), upper.as_ref()))
                         .filter(|(key, _value)| !tombstones.contains(*key))
                 });
@@ -326,7 +331,7 @@ impl IndexStore {
                 },
                 Direction::Desc,
             ) if canonical.is_empty() => {
-                let ranges = bounds.iter().map(|(lower, upper)| {
+                let ranges = active_bounds.map(|(lower, upper)| {
                     live.range((lower.as_ref(), upper.as_ref()))
                         .rev()
                         .filter(|(key, _value)| !tombstones.contains(*key))
@@ -350,8 +355,7 @@ impl IndexStore {
                 },
                 Direction::Asc,
             ) if live.is_empty() && tombstones.is_empty() => {
-                let ranges = bounds
-                    .iter()
+                let ranges = active_bounds
                     .map(|(lower, upper)| canonical.range((lower.as_ref(), upper.as_ref())));
                 visit_merged_ranges(
                     ranges,
@@ -372,8 +376,7 @@ impl IndexStore {
                 },
                 Direction::Desc,
             ) if live.is_empty() && tombstones.is_empty() => {
-                let ranges = bounds
-                    .iter()
+                let ranges = active_bounds
                     .map(|(lower, upper)| canonical.range((lower.as_ref(), upper.as_ref())).rev());
                 visit_merged_ranges(
                     ranges,

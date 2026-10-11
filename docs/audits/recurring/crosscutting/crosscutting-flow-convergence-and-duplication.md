@@ -2,16 +2,16 @@
 
 Apply [the shared method](../../../../audits/flow-convergence-and-duplication.md).
 
-IcyDB adopts Shared Tooling `d957d1f8801885c5b69e4a9ef900155f5f2a8a9d` through
+Use the reviewed Shared Tooling revision recorded in
 [the snapshot](../../../../.shared-tooling.snapshot). Apply the shared method
-and [local audit governance](../../README.md) together. This changes method
-identity; earlier reports remain historical and affected comparisons are
+and [local audit governance](../../README.md) together. Shared-method adoption
+changed method identity; earlier reports remain historical and affected comparisons are
 `N/A (method change)`. No audit supplies implementation or broad-gate authority.
 
 ## Identity and scope
 
 - Report scope: `flow-convergence-and-duplication`.
-- Method: shared revision above plus `ICYDB-FCD-2`; record both identities.
+- Method: shared snapshot revision plus `ICYDB-FCD-2`; record both identities.
 - Reports: `docs/reports/recurring/YYYY/MM/DD/flow-convergence-and-duplication/<run>/report.md`.
 - Trigger: affected owners at minor-line closeout, or changes to frontends,
   prepared plans, generated boundaries, diagnostics, replay or public adapters.

@@ -288,6 +288,10 @@ fn merged_ranges_preserve_logical_order_direction_and_early_stop() {
         let bounds = [
             (Bound::Excluded(raw_key(9)), Bound::Included(raw_key(12))),
             (Bound::Included(raw_key(20)), Bound::Unbounded),
+            (Bound::Excluded(raw_key(12)), Bound::Included(raw_key(12))),
+            (Bound::Included(raw_key(20)), Bound::Excluded(raw_key(20))),
+            (Bound::Excluded(raw_key(10)), Bound::Excluded(raw_key(10))),
+            (Bound::Included(raw_key(22)), Bound::Included(raw_key(9))),
         ];
         let decode_order = |key: &RawIndexStoreKey| {
             let raw = key.as_bytes()[0];
@@ -331,6 +335,73 @@ fn merged_ranges_preserve_logical_order_direction_and_early_stop() {
                 .expect("merged DESC ranges should execute"),
         );
         assert_eq!(desc, vec![6, 5, 4, 3, 2, 1]);
+    }
+}
+
+#[test]
+fn merged_ranges_skip_empty_envelopes_before_admission_or_reads() {
+    for (mut store, canonical, mixed) in [
+        (IndexStore::init_heap(), false, false),
+        (IndexStore::init_journaled(test_memory(98)), false, false),
+        (IndexStore::init_journaled(test_memory(99)), true, false),
+        (IndexStore::init_journaled(test_memory(100)), true, true),
+    ] {
+        for value in 1..=3 {
+            seed_entry(&mut store, raw_key(value), canonical);
+        }
+        if mixed {
+            store.insert(raw_key(4), IndexEntryValue::presence());
+            store.remove(&raw_key(2));
+        }
+        let lower = Bound::Included(raw_key(1));
+        let upper = Bound::Included(raw_key(3));
+        let empty = [
+            resume_bounds_for_continuation(Direction::Asc, Some(&raw_key(3)), &lower, &upper)
+                .unwrap(),
+            resume_bounds_for_continuation(Direction::Desc, Some(&raw_key(1)), &lower, &upper)
+                .unwrap(),
+            (Bound::Excluded(raw_key(2)), Bound::Excluded(raw_key(2))),
+            (upper, lower),
+        ];
+        for direction in [Direction::Asc, Direction::Desc] {
+            for bounds in [empty.as_slice(), &empty[..1], &[]] {
+                assert!(
+                    store
+                        .visit_raw_entries_in_merged_ranges(
+                            bounds,
+                            direction,
+                            |_| Err(crate::error::InternalError::executor_internal()),
+                            |_| Err::<u8, _>(crate::error::InternalError::index_corruption()),
+                            |_, _, _| Err(crate::error::InternalError::executor_internal()),
+                        )
+                        .expect("empty envelopes must skip admission, decoding and visiting")
+                );
+                let mut reference = Vec::new();
+                for (lower, upper) in bounds {
+                    store
+                        .visit_raw_entries_in_range((lower, upper), direction, |key, _| {
+                            reference.push(key.clone());
+                            Ok(false)
+                        })
+                        .unwrap();
+                }
+                assert!(reference.is_empty());
+            }
+            if mixed {
+                // Nonempty mixed backings still require the ordinary overlay path.
+                assert!(
+                    !store
+                        .visit_raw_entries_in_merged_ranges(
+                            &[(Bound::Unbounded, Bound::Unbounded)],
+                            direction,
+                            |_| Err(crate::error::InternalError::executor_internal()),
+                            |_| Err::<u8, _>(crate::error::InternalError::index_corruption()),
+                            |_, _, _| Err(crate::error::InternalError::executor_internal()),
+                        )
+                        .unwrap()
+                );
+            }
+        }
     }
 }
 

@@ -34,6 +34,11 @@ finish() {
     fi
 }
 trap finish EXIT
+[[ "$fixture" == /* ]] || fixture="$PWD/$fixture"
+fixture="$(cd -P "$fixture" && printf '%s/.' "$PWD")"
+fixture="${fixture%/.}"
+# Make's nested admission probe runs after cd; retain the same physical temp parent.
+export TMPDIR="${fixture%/*}"
 cp "$root/Makefile" "$fixture/Makefile"
 for input in "$@"; do
     mkdir -p "$fixture/$(dirname "$input")"

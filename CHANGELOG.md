@@ -5,6 +5,27 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.270.2]
+
+### 🩹 Fixed
+
+- Adopt Shared 0.3.11 and updated IC libraries; simplify CLI errors and repair
+  CI handoff, artifacts, index scans and schema admission
+  ([#258](https://github.com/dragginzgame/icydb/issues/258),
+  [#128](https://github.com/dragginzgame/icydb/issues/128),
+  [#168](https://github.com/dragginzgame/icydb/issues/168),
+  [#131](https://github.com/dragginzgame/icydb/issues/131),
+  [#311](https://github.com/dragginzgame/icydb/issues/311),
+  [#137](https://github.com/dragginzgame/icydb/issues/137),
+  [#135](https://github.com/dragginzgame/icydb/issues/135),
+  [#302](https://github.com/dragginzgame/icydb/issues/302),
+  [Shared #101](https://github.com/dragginzgame/shared-tooling/issues/101),
+  [Shared #110](https://github.com/dragginzgame/shared-tooling/issues/110),
+  [Shared #112](https://github.com/dragginzgame/shared-tooling/issues/112),
+  [Shared #114](https://github.com/dragginzgame/shared-tooling/issues/114)).
+
+See [detailed notes](docs/changelog/0.270.md).
+
 ## [0.270.1] - 2026-10-10
 
 ### 🩹 Fixed

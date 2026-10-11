@@ -39,6 +39,8 @@ export HEAD_COMMIT=1111111111111111111111111111111111111111
 export OTHER_COMMIT=2222222222222222222222222222222222222222
 export EVENTS="$fixture/events"
 export RELEASE_RECEIPT_DIR="$fixture/receipts"
+export EXPECTED_CARGO_HOME="$root/.cache/cargo/icydb"
+export EXPECTED_CARGO_TARGET="$root/target/icydb"
 printf '#!%s\n' "$REAL_BASH" > "$fixture/bin/bash"
 cat >> "$fixture/bin/bash" <<'BASH'
 set -euo pipefail
@@ -75,7 +77,17 @@ case "$*" in
     *) echo "Unexpected Git command: $*" >&2; exit 99 ;;
 esac
 GIT
-chmod +x "$fixture/bin/bash" "$fixture/bin/git"
+printf '#!%s\n' "$REAL_BASH" > "$fixture/bin/cargo"
+cat >> "$fixture/bin/cargo" <<'CARGO'
+set -euo pipefail
+[[ "${MAKEFLAGS:-}" =~ --jobserver-(auth|fds)=([0-9]+),([0-9]+) ]]
+reader="${BASH_REMATCH[2]}"; writer="${BASH_REMATCH[3]}"
+: <&"$reader"
+: >&"$writer"
+[[ "$CARGO_HOME" == "$EXPECTED_CARGO_HOME" && "$CARGO_TARGET_DIR" == "$EXPECTED_CARGO_TARGET" ]]
+[[ "$1" == locate-project && "${FAIL_CARGO:-0}" == 0 ]]
+CARGO
+chmod +x "$fixture/bin/bash" "$fixture/bin/git" "$fixture/bin/cargo"
 export FIXTURE_CARGO="$fixture/Cargo.toml"
 export FIXTURE_COMMITTED="$fixture/committed"
 export PATH="$fixture/bin:$PATH"
@@ -84,7 +96,7 @@ cd "$fixture"
 run_callback() {
     local expected="$1" target="$2" status=0
     : > "$EVENTS"
-    "$real_make" --no-print-directory -f "$root/Makefile" "$target" \
+    "$real_make" --no-print-directory -j2 -f "$root/Makefile" "$target" \
         > "$fixture/output" 2>&1 || status=$?
     if [[ "$expected" == pass ]]; then
         [[ "$status" == 0 ]]
@@ -97,6 +109,8 @@ run_callback() {
 run_callback pass release-tagged-check
 [[ "$(cat "$RELEASE_RECEIPT_DIR/v0.1.1.commit")" == "$HEAD_COMMIT" ]]
 FAIL_ARCHIVE_READ=1 run_callback fail release-tagged-check
+[[ "$(cat "$RELEASE_RECEIPT_DIR/v0.1.1.commit")" == "$HEAD_COMMIT" ]]
+FAIL_CARGO=1 run_callback fail release-tagged-check
 [[ "$(cat "$RELEASE_RECEIPT_DIR/v0.1.1.commit")" == "$HEAD_COMMIT" ]]
 # Newer working metadata cannot replace the selected committed version.
 printf '[workspace.package]\nversion = "0.9.0"\n' > "$fixture/Cargo.toml"

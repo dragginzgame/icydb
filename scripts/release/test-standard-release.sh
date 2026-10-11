@@ -17,7 +17,20 @@ finish() {
     exit "$status"
 }
 trap finish EXIT
-bash "$root/scripts/ci/check-release-commands.sh" "$root" scripts/ci/actionlint-checksums.tsv make/tools.mk make/release.mk make/rust-format.mk make/execution.mk scripts/ci/check-make-execution.sh scripts/ci/run-formatting.sh ci/tool-versions.env
+[[ "$fixture" == /* ]] || fixture="$PWD/$fixture"
+fixture="$(cd -P "$fixture" && printf '%s/.' "$PWD")"
+fixture="${fixture%/.}"
+export TMPDIR="${fixture%/*}"
+release_inputs=(scripts/ci/actionlint-checksums.tsv make/tools.mk make/release.mk make/rust-format.mk make/execution.mk scripts/ci/check-make-execution.sh scripts/ci/run-formatting.sh ci/tool-versions.env)
+bash "$root/scripts/ci/check-release-commands.sh" "$root" "${release_inputs[@]}"
+# Exercise this consumer's actual Make adapters after the checker changes cwd.
+mkdir "$fixture/relative-temp"
+ln -s "$fixture/relative-temp" "$fixture/temp-alias"
+for selected_tmp in relative-temp temp-alias; do
+    (cd "$fixture"; TMPDIR="$selected_tmp" bash "$root/scripts/ci/check-release-commands.sh" \
+        "$root" "${release_inputs[@]}") > "$fixture/$selected_tmp.log" 2>&1
+    [[ -z "$(ls -A "$fixture/relative-temp")" ]] || exit 1
+done
 mkdir -p "$fixture/bin"
 real_bash="$(command -v bash)"
 export RELEASE_FIXTURE_BASH="$real_bash"
@@ -26,6 +39,13 @@ cat >> "$fixture/bin/bash" <<'STUB'
 set -euo pipefail
 if [[ "$1" == */scripts/ci/check-make-execution.sh ]]; then
     exec "$RELEASE_FIXTURE_BASH" "$@"
+fi
+if [[ "$1" == scripts/ci/release-candidate-receipt.sh ]]; then
+    [[ "${MAKEFLAGS:-}" =~ --jobserver-(auth|fds)=([0-9]+),([0-9]+) ]]
+    reader="${BASH_REMATCH[2]}"; writer="${BASH_REMATCH[3]}"
+    : <&"$reader"
+    : >&"$writer"
+    [[ "$CARGO_HOME" == "$EXPECTED_CARGO_HOME" ]]
 fi
 printf '%s\n' "$*" >> "$EVENTS"
 [[ "${FAIL_RUNNER:-0}" == 0 ]]
@@ -111,6 +131,10 @@ export EXPECTED_CARGO_HOME="$root/.cache/cargo/icydb"
 printf '#!%s\n' "$real_bash" > "$fixture/bin/cargo"
 cat >> "$fixture/bin/cargo" <<'CARGO'
 set -euo pipefail
+[[ "${MAKEFLAGS:-}" =~ --jobserver-(auth|fds)=([0-9]+),([0-9]+) ]]
+reader="${BASH_REMATCH[2]}"; writer="${BASH_REMATCH[3]}"
+: <&"$reader"
+: >&"$writer"
 [[ "$CARGO_HOME" == "$EXPECTED_CARGO_HOME" ]]
 printf 'cargo %s\n' "$*" >> "$EVENTS"
 case "$*" in

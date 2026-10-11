@@ -26,9 +26,21 @@ SHARED_TOOLING_CANDID_EXTRACTOR_VERSION=99.3.0
 ENV
 export RUST_TOOL_FIXTURE_LOG="$fixture/install.log"
 export RUST_TOOL_FIXTURE_PROBES="$fixture/probes.log"
+cat > "$fixture/bin/rustc" <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$PWD" == "$RUST_TOOL_EXPECTED_CWD" && "$RUSTUP_TOOLCHAIN" == fixture-override ]] || exit 71
+[[ "$1" == --version && "$RUSTUP_AUTO_INSTALL" == 0 ]] || exit 1
+echo 'fixture rustc'
+SCRIPT
 cat > "$fixture/bin/cargo" <<'SCRIPT'
 #!/usr/bin/env bash
 set -euo pipefail
+[[ "$PWD" == "${RUST_TOOL_EXPECTED_CWD:-$PWD}" ]] || exit 71
+if [[ "$1" == --version ]]; then
+    [[ "$RUSTUP_TOOLCHAIN" == fixture-override && "$RUSTUP_AUTO_INSTALL" == 0 ]] || exit 1
+    echo 'fixture cargo'; exit 0
+fi
 [[ $# == 9 && "$1" == install && "$3" == --version && "$4" == =99.* && "$5" == --locked && "$6" == --root && "$8" == --target-dir && "$9" == "$7/build" ]] || exit 1
 [[ "$RUSTUP_AUTO_INSTALL" == 0 ]] || exit 1
 printf '%s\n' "$2 $4" >> "$RUST_TOOL_FIXTURE_LOG"
@@ -39,6 +51,7 @@ cat > "$7/bin/$2" <<TOOL
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\\n' '$2' >> "\$RUST_TOOL_FIXTURE_PROBES"
+[[ "\$PWD" == "\${RUST_TOOL_EXPECTED_CWD:-\$PWD}" ]] || exit 71
 if [[ "$2" == cargo-sort-derives ]]; then
     [[ \$# == 2 && \$1 == sort-derives && \$2 == --version ]] || exit 1
 else
@@ -53,13 +66,24 @@ if [[ "${RUST_TOOL_INSTALL_LINK:-}" == "$2" ]]; then
     ln -s "../linked-$2" "$7/bin/$2"
 fi
 SCRIPT
-chmod +x "$fixture/bin/cargo"
+chmod +x "$fixture/bin/cargo" "$fixture/bin/rustc"
 export PATH="$fixture/bin:$PATH"
 installer="$ROOT/scripts/dev/install-rust-tools.sh"
 args=(--consumer "$consumer" --versions "$fixture/versions.env")
 if bash "$installer" "${args[@]}" --check > "$fixture/absent.log" 2>&1; then exit 1; fi
 [[ ! -e "$RUST_TOOL_FIXTURE_LOG" && ! -e "$consumer/.tools" ]] || exit 1
-bash "$installer" "${args[@]}" > "$fixture/install-path"
+# Preflight, installation and offline probes share the consumer context even
+# with a caller-relative catalog, a relative consumer and a toolchain override.
+(
+    cd "$fixture"
+    export RUST_TOOL_EXPECTED_CWD="$consumer" RUSTUP_TOOLCHAIN=fixture-override
+    relative_args=(--consumer "${consumer##*/}" --versions versions.env)
+    bash "$installer" "${relative_args[@]}" --preflight
+    [[ ! -e "$consumer/.tools" && ! -e "$RUST_TOOL_FIXTURE_LOG" ]] || exit 1
+    bash "$installer" "${relative_args[@]}" > "$fixture/install-path"
+    bash "$installer" "${relative_args[@]}" --check > "$fixture/context-check"
+)
+cmp "$fixture/install-path" "$fixture/context-check"
 [[ "$(cat "$fixture/install-path")" == "$consumer/.tools/rust/bin" ]] || exit 1
 [[ "$(wc -l < "$RUST_TOOL_FIXTURE_LOG" | tr -d ' ')" == 3 ]] || exit 1
 cp "$RUST_TOOL_FIXTURE_LOG" "$fixture/expected-log"
@@ -157,12 +181,16 @@ echo 'Pinned Rust tool setup, offline checks and failure retention passed (subst
 # Selected targets need Cargo provenance and local byte identity, not --version.
 cat > "$fixture/bin/rustc" <<'RUSTC'
 #!/usr/bin/env bash
+[[ "$PWD" == "${RUST_TOOL_EXPECTED_CWD:-$PWD}" ]] || exit 71
+[[ "${RUSTUP_TOOLCHAIN:-}" == "${RUST_TOOL_EXPECTED_TOOLCHAIN:-${RUSTUP_TOOLCHAIN:-}}" ]] || exit 71
 [[ "${SELECTED_HOST_EMPTY:-}" != yes ]] || exit 0
 printf 'host: fixture-host\n'
 RUSTC
 cat > "$fixture/bin/cargo" <<'CARGO'
 #!/usr/bin/env bash
 set -euo pipefail
+[[ "$PWD" == "${RUST_TOOL_EXPECTED_CWD:-$PWD}" ]] || exit 71
+[[ "${RUSTUP_TOOLCHAIN:-}" == "${RUST_TOOL_EXPECTED_TOOLCHAIN:-${RUSTUP_TOOLCHAIN:-}}" ]] || exit 71
 [[ $# == 13 || $# == 14 ]] || exit 1
 [[ "$1" == install && "$3" == --version && "$5" == --locked && "$6" == --root && "$8" == --target-dir ]] || exit 1
 [[ "$9" == "$7/build" && "${12}" == --registry && "${13}" == crates-io ]] || exit 1
@@ -217,10 +245,14 @@ status=0
 SELECTED_HOST_EMPTY=yes bash "$installer" "${selected_args[@]}" > "$fixture/empty-host.log" 2>&1 || status=$?
 [[ "$status" != 0 && ! -e "$fixture/selected/.tools" ]] || exit 1
 cmp "$RUST_TOOL_FIXTURE_LOG" "$fixture/before-selected"
-SELECTED_DEBUG_PROFILE=dev bash "$installer" "${selected_args[@]}" > "$fixture/selected-path"
+RUST_TOOL_EXPECTED_CWD="$fixture/selected" RUST_TOOL_EXPECTED_TOOLCHAIN=fixture-override \
+    RUSTUP_TOOLCHAIN=fixture-override SELECTED_DEBUG_PROFILE=dev \
+    bash "$installer" "${selected_args[@]}" > "$fixture/selected-path"
 [[ "$(cat "$fixture/selected-path")" == "$slot/installed/bin/prepare" ]] || exit 1
 cp "$RUST_TOOL_FIXTURE_LOG" "$fixture/selected-installs"
-bash "$installer" "${selected_args[@]}" --check > "$fixture/selected-check" 2> "$fixture/selected-check.err"
+RUST_TOOL_EXPECTED_CWD="$fixture/selected" RUST_TOOL_EXPECTED_TOOLCHAIN=fixture-override \
+    RUSTUP_TOOLCHAIN=fixture-override bash "$installer" "${selected_args[@]}" --check \
+    > "$fixture/selected-check" 2> "$fixture/selected-check.err"
 [[ ! -s "$fixture/selected-check.err" ]] || exit 1
 bash "$installer" "${selected_args[@]}" > "$fixture/selected-repeat"
 cmp "$fixture/selected-path" "$fixture/selected-check"
@@ -394,7 +426,7 @@ cp "$RUST_TOOL_FIXTURE_LOG" "$fixture/locked-before"
 if bash "$installer" "${locked_args[@]}" --check > "$fixture/locked-missing.log" 2>&1; then exit 1; fi
 cmp "$RUST_TOOL_FIXTURE_LOG" "$fixture/locked-before"
 [[ ! -e "$locked_consumer/.tools" ]] || exit 1
-bash "$installer" "${locked_args[@]}" > "$fixture/locked-path"
+RUST_TOOL_EXPECTED_CWD="$locked_consumer" bash "$installer" "${locked_args[@]}" > "$fixture/locked-path"
 locked_slot="$locked_consumer/.tools/rust/sample-2.0.0-bin-prepare-release/installed"
 [[ "$(cat "$fixture/locked-path")" == "$locked_slot/bin/prepare" ]] || exit 1
 cp "$locked_slot/selection.json" "$fixture/locked-receipt"

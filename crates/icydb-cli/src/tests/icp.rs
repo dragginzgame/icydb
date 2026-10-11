@@ -172,7 +172,7 @@ fn install_upgrade_command_preserves_stable_memory() {
     let command = install_upgrade_command(
         "demo",
         "demo_rpg",
-        Path::new(".icp/local/canisters/demo_rpg/demo_rpg.wasm").to_path_buf(),
+        Some(Path::new("selected artifact.wasm")),
     );
     let args = command
         .get_args()
@@ -189,7 +189,7 @@ fn install_upgrade_command_preserves_stable_memory() {
             "--mode",
             "upgrade",
             "--wasm",
-            ".icp/local/canisters/demo_rpg/demo_rpg.wasm",
+            "selected artifact.wasm",
             "--environment",
             "demo",
         ],

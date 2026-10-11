@@ -3,10 +3,7 @@
 //! Does not own: generic canister calls, process execution semantics, or project discovery.
 //! Boundary: exposes CLI command handlers and test-covered fixture call construction through icp.
 
-use std::{
-    path::{Path, PathBuf},
-    process::Command,
-};
+use std::{path::Path, process::Command};
 
 mod fixtures;
 
@@ -101,14 +98,14 @@ pub(super) fn upgrade_canister(
     canister: &str,
     wasm: Option<&Path>,
 ) -> Result<(), String> {
-    let wasm_path = wasm.map_or_else(|| default_canister_wasm_path(canister), Path::to_path_buf);
-
     eprintln!(
         "[icydb] building canister '{canister}' for stable-memory-preserving upgrade in environment '{environment}'"
     );
     run_external_command(build_command(environment, canister), "icp build")?;
 
-    if !wasm_path.is_file() {
+    if let Some(wasm_path) = wasm
+        && !wasm_path.is_file()
+    {
         return Err(format!(
             "expected wasm not found after build: {}",
             wasm_path.display()
@@ -117,7 +114,7 @@ pub(super) fn upgrade_canister(
 
     eprintln!("[icydb] upgrading canister '{canister}' without demo data reset");
     run_external_command(
-        install_upgrade_command(environment, canister, wasm_path),
+        install_upgrade_command(environment, canister, wasm),
         "icp canister install --mode upgrade",
     )
 }
@@ -125,7 +122,7 @@ pub(super) fn upgrade_canister(
 pub(super) fn install_upgrade_command(
     environment: &str,
     canister: &str,
-    wasm_path: PathBuf,
+    wasm: Option<&Path>,
 ) -> Command {
     let mut command = Command::new("icp");
     command
@@ -133,9 +130,12 @@ pub(super) fn install_upgrade_command(
         .arg("install")
         .arg(canister)
         .arg("--mode")
-        .arg("upgrade")
-        .arg("--wasm")
-        .arg(wasm_path);
+        .arg("upgrade");
+    // ICP owns project/environment discovery and selects its own build output.
+    // Only an explicit caller override supplies an artifact path.
+    if let Some(wasm) = wasm {
+        command.arg("--wasm").arg(wasm);
+    }
     append_environment_args(&mut command, environment);
 
     command
@@ -189,8 +189,4 @@ pub(super) fn parse_canister_cycles(status: &str) -> Option<u128> {
 
 fn append_environment_args(command: &mut Command, environment: &str) {
     command.arg("--environment").arg(environment);
-}
-
-fn default_canister_wasm_path(canister: &str) -> PathBuf {
-    PathBuf::from(format!(".icp/local/canisters/{canister}/{canister}.wasm"))
 }

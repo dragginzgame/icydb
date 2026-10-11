@@ -158,15 +158,15 @@ help:
 
 # Install the developer CLI as `icydb` into cargo's normal bin directory.
 install:
-	cargo install --path "$(ROOT_DIR)/crates/icydb-cli" --bin icydb --locked --force
+	+cargo install --path "$(ROOT_DIR)/crates/icydb-cli" --bin icydb --locked --force
 
 # Install local developer prerequisites, tools, and the formatting hook.
 install-dev:
-	ACTIONLINT_INSTALL_DIR="$(ACTIONLINT_INSTALL_DIR)" scripts/dev/workstation-setup.sh install
+	+ACTIONLINT_INSTALL_DIR="$(ACTIONLINT_INSTALL_DIR)" scripts/dev/workstation-setup.sh install
 
 # Update user-local Rust/Cargo/actionlint/ICP developer tooling and the hook.
 update-dev:
-	ACTIONLINT_INSTALL_DIR="$(ACTIONLINT_INSTALL_DIR)" scripts/dev/workstation-setup.sh update
+	+ACTIONLINT_INSTALL_DIR="$(ACTIONLINT_INSTALL_DIR)" scripts/dev/workstation-setup.sh update
 
 # Keep one idempotent GitHub CLI installer for workstation setup and CI jobs.
 install-gh:
@@ -190,7 +190,7 @@ _icydb-ic-tool-policy:
 #
 
 version:
-	@$(CARGO_WORK_ENV) YQ="$(YQ)" bash scripts/ci/read-cargo-workspace-version.sh --stable "$(CURDIR)/Cargo.toml"
+	+@$(CARGO_WORK_ENV) YQ="$(YQ)" bash scripts/ci/read-cargo-workspace-version.sh --stable "$(CURDIR)/Cargo.toml"
 
 tags:
 	@git tag --sort=-version:refname | head -10
@@ -199,10 +199,10 @@ release-clean:
 	@bash scripts/ci/cleanup-release-workspace.sh
 
 package: ensure-clean
-	$(CARGO_WORK_ENV) cargo package --locked
+	+$(CARGO_WORK_ENV) cargo package --locked
 
 publish:
-	$(CARGO_PUBLISH_ENV) scripts/ci/publish-workspace.sh
+	+$(CARGO_PUBLISH_ENV) scripts/ci/publish-workspace.sh
 
 #
 # Tests
@@ -394,7 +394,7 @@ security-check:
 	@echo "This target is informational only; no local script runs."
 
 check-versioning: security-check
-	@$(CARGO_WORK_ENV) cargo set-version --help >/dev/null
+	+@$(CARGO_WORK_ENV) cargo set-version --help >/dev/null
 	@$(MAKE) --no-print-directory version >/dev/null
 	@$(MAKE) --no-print-directory help >/dev/null
 	@echo "Versioning tooling checks passed."
@@ -414,7 +414,7 @@ test-documentation:
 	+$(CARGO_WORK_ENV) cargo test --locked -p icydb-core --lib --all-features db::schema::identity_state::tests::
 
 check-dependency-pins:
-	$(CARGO_WORK_ENV) YQ="$(YQ)" bash scripts/ci/check-dependency-pins.sh --cargo-inheritance
+	+$(CARGO_WORK_ENV) YQ="$(YQ)" bash scripts/ci/check-dependency-pins.sh --cargo-inheritance
 
 # The static gate and native host qualification execute this same portable
 # fixture selection. Host-specific setup, lint and Cargo gates stay with callers.
@@ -430,7 +430,7 @@ check-portable-automation:
 	bash scripts/ci/test-testkit-tooling.sh
 	bash scripts/ci/test-pocketic-server-wrapper.sh
 	bash scripts/ci/test-ci-workflow-invariants.sh
-	$(CARGO_WORK_ENV) bash scripts/ci/test-invariant-scanners.sh
+	+$(CARGO_WORK_ENV) bash scripts/ci/test-invariant-scanners.sh
 	bash scripts/ci/check-ci-workflow-invariants.sh
 	bash scripts/release/test-standard-release.sh
 	bash scripts/release/test-receipt-callbacks.sh
@@ -447,14 +447,14 @@ check-invariants:
 	+$(MAKE) --no-print-directory check-portable-automation
 	bash scripts/release/test-finalize-notes.sh
 	bash scripts/ci/check-deployment-inventory-invariants.sh
-	bash scripts/ci/check-dependency-graph-invariants.sh
-	$(CARGO_WORK_ENV) bash scripts/ci/check-executor-no-production-panics.sh
+	+$(CARGO_WORK_ENV) bash scripts/ci/check-dependency-graph-invariants.sh
+	+$(CARGO_WORK_ENV) bash scripts/ci/check-executor-no-production-panics.sh
 	bash scripts/ci/check-generated-endpoint-invariants.sh
 	bash scripts/ci/check-index-range-spec-invariants.sh
 	bash scripts/ci/check-layer-authority-invariants.sh
 	bash scripts/ci/check-mutation-atomicity-invariants.sh
 	bash scripts/ci/check-release-cleanup-invariants.sh
-	bash scripts/ci/test-release-candidate-receipt.sh
+	+$(CARGO_WORK_ENV) bash scripts/ci/test-release-candidate-receipt.sh
 	bash scripts/ci/check-persisted-format-invariants.sh
 	bash scripts/ci/check-read-admission-invariants.sh
 	bash scripts/ci/test-read-admission-invariants.sh
@@ -587,14 +587,18 @@ all: ensure-clean
 # IcyDB owns metadata preparation, validation and receipt checks. Shared
 # make/release.mk owns the standard entrypoints and conflicting-goal admission.
 .PHONY: release-version release-preflight release-prepare-version release-prepared-check release-files release-commit-check release-committed-check release-tagged-check release-push-check
+# Cargo metadata/receipt children share the selected repository cache and live
+# jobserver even when the callback reaches Cargo through multiple shell owners.
+release-preflight release-prepare-version release-prepared-check release-commit-check release-committed-check release-tagged-check release-push-check: export CARGO_HOME := $(CARGO_WORK_HOME)
+release-preflight release-prepare-version release-prepared-check release-commit-check release-committed-check release-tagged-check release-push-check: export CARGO_TARGET_DIR := $(CARGO_WORK_TARGET_DIR)
 
 .PHONY: release-verify
 release-version:
-	@$(CARGO_WORK_ENV) YQ="$(YQ)" bash scripts/ci/read-cargo-workspace-version.sh --stable "$(CURDIR)/Cargo.toml"
+	+@$(CARGO_WORK_ENV) YQ="$(YQ)" bash scripts/ci/read-cargo-workspace-version.sh --stable "$(CURDIR)/Cargo.toml"
 release-preflight:
 	@awk -v version="$(RELEASE_VERSION)" -v date="$(RELEASE_DATE)" \
 		-f scripts/ci/finalize-release-changelog.awk CHANGELOG.md >/dev/null
-	@bash scripts/ci/release-candidate-receipt.sh verify-tested-tree "$(RELEASE_SOURCE)"
+	+@bash scripts/ci/release-candidate-receipt.sh verify-tested-tree "$(RELEASE_SOURCE)"
 	@mkdir -p "$(RELEASE_TMP_DIR)"
 	@$(MAKE) --no-print-directory fetch
 	@if [ "$${CARGO_NET_OFFLINE:-false}" != true ]; then \
@@ -604,20 +608,20 @@ release-preflight:
 release-verify:
 	+TMPDIR="$(RELEASE_TMP_DIR)" CARGO_NET_OFFLINE=true $(MAKE) --no-print-directory validate
 release-prepare-version:
-	@TMPDIR="$(RELEASE_TMP_DIR)" $(CARGO_WORK_ENV) bash scripts/release/prepare.sh
+	+@TMPDIR="$(RELEASE_TMP_DIR)" bash scripts/release/prepare.sh
 release-prepared-check:
-	@bash scripts/release/check-metadata.sh
+	+@bash scripts/release/check-metadata.sh
 release-files:
 	@bash scripts/release/files.sh
 release-commit-check:
-	@bash scripts/release/check-metadata.sh
-	@bash scripts/ci/release-candidate-receipt.sh verify-staged
+	+@bash scripts/release/check-metadata.sh
+	+@bash scripts/ci/release-candidate-receipt.sh verify-staged
 release-committed-check:
-	@bash scripts/ci/release-candidate-receipt.sh verify-commit
+	+@bash scripts/ci/release-candidate-receipt.sh verify-commit
 release-tagged-check:
-	@bash scripts/ci/record-release-gate-receipt.sh
+	+@bash scripts/ci/record-release-gate-receipt.sh
 release-push-check:
-	@bash scripts/ci/release-candidate-receipt.sh verify-commit
+	+@bash scripts/ci/release-candidate-receipt.sh verify-commit
 	@release_commit="$(RELEASE_COMMIT)"; \
 		if [ -z "$$release_commit" ]; then release_commit="$$(git rev-parse --verify HEAD)" || exit; fi; \
 		bash scripts/ci/verify-release-gate-receipt.sh "$$release_commit"

@@ -108,6 +108,45 @@ hand-written sort or rewrite dependency declarations to enforce ordering.
 
 ## Selected files and working edits
 
+### Derive macros and dollar-prefixed paths
+
+`cargo-sort-derives` 0.13.0 can remove `$crate` and other dollar-prefixed macro
+tokens when rewriting `derive` or `cfg_attr` attributes. Installing the common
+toolset does not qualify unprotected macro rewriting. For affected definitions,
+use the formatter's existing range markers around the complete macro:
+
+```rust
+// sort-derives-disable-start
+macro_rules! declare {
+    ($name:ident) => {
+        #[derive($crate::exports::Clone)]
+        pub struct $name;
+    };
+}
+// sort-derives-disable-end
+```
+
+Keep sorting enabled elsewhere and keep the same markers in `fmt` and
+`fmt-check` inputs. Qualify exported macros from a consuming crate after the
+real hook formats and refreshes staged source. Shared Tooling's native
+`test-frontend-formatting.sh` fixture covers protected direct and conditional
+derives, surrounding ordinary sorting, staged bytes and downstream compilation.
+This qualifies the scoped workaround, not unprotected rewriting.
+
+Before selecting a replacement formatter pin, require the unprotected example
+below to preserve both `$crate` paths, and qualify direct and conditional derives
+through the real hook and downstream compilation before removing markers:
+
+```bash
+printf '%s\n' '#[derive($crate::exports::Debug, $crate::exports::Clone)]' |
+  cargo sort-derives --stdin
+```
+
+The upstream repair must use literal regex replacement text for both attribute
+forms. Track its qualification in
+[#113](https://github.com/dragginzgame/shared-tooling/issues/113); do not upgrade
+the pin solely because a newer version exists.
+
 ### Mixed Rust and frontend reference
 
 Vendor `scripts/dev/format-frontend.sh` with the hook for a frontend using

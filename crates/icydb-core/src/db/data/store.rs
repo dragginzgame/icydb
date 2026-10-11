@@ -578,7 +578,22 @@ impl DataStore {
         }
     }
 
-    /// Return the number of stored rows without exposing the backing map.
+    /// Return whether the effective row domain is empty without reading payloads.
+    ///
+    /// Stop at the first visible key. Journal tombstones may hide canonical
+    /// keys, so physical canonical emptiness alone is not sufficient.
+    #[must_use]
+    pub(in crate::db) fn is_empty(&self) -> bool {
+        let mut empty = true;
+        let _: Result<(), Infallible> = self.visit_key_range(.., |_key| {
+            empty = false;
+            Ok(StoreVisit::Stop)
+        });
+        empty
+    }
+
+    /// Return an exact row count for tests without exposing the backing map.
+    #[cfg(test)]
     #[must_use]
     pub(in crate::db) fn len(&self) -> u64 {
         match &self.backend {

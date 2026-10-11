@@ -18,6 +18,68 @@ use crate::{
 };
 use icydb_schema::SchemaRemoval;
 
+#[test]
+fn initial_schema_application_rejects_visible_rows_without_publishing_a_head() {
+    let db = Db::<AbortCanister>::new(
+        &ABORT_REGISTRY,
+        RequestExecutionRoot::__new_runtime_root().scope(),
+    );
+    drive_startup_recovery_to_completion(&db);
+    let target = schema_application_target(&db).unwrap();
+    assert_eq!(target.accepted_head(), &ExpectedAcceptedHead::Empty);
+    let (proposal, _, _) = generated_check_proposal(
+        target.accepted_head().clone(),
+        "presence-first-application",
+        false,
+        target.database_identity(),
+        target.stores()[0].identity(),
+    );
+    let store = db.store_handle(ABORT_STORE_PATH).unwrap();
+    let key = DecodedDataStoreKey::new(
+        EntityTag::new(1),
+        &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(1)),
+    )
+    .to_raw()
+    .unwrap();
+    // Raw presence is enough to reject; row decoding is not an admission step.
+    let row = RawRow::try_new(vec![0xff]).unwrap();
+    for canonical in [false, true] {
+        store.with_data_mut(|data| {
+            if canonical {
+                data.fold_recovered_journal_put(key.clone(), row.clone())
+                    .unwrap();
+                data.reset_journaled_live_projection().unwrap();
+            } else {
+                data.insert_raw_for_test(key.clone(), row.clone());
+            }
+        });
+        let error = apply_schema(&db, &proposal).unwrap_err();
+        assert_eq!(error.class(), ErrorClass::Unsupported);
+        assert_eq!(error.origin(), ErrorOrigin::Store);
+        assert_eq!(
+            error.diagnostic_code(),
+            InternalError::store_unsupported().diagnostic_code()
+        );
+        assert_eq!(
+            schema_application_target(&db).unwrap().accepted_head(),
+            &ExpectedAcceptedHead::Empty
+        );
+        assert!(
+            store.with_schema(|schema| {
+                schema.current_accepted_schema_bundle().unwrap().is_none()
+            })
+        );
+        assert_eq!(store.with_data(|data| data.get(&key)), Some(row.clone()));
+        store.with_data_mut(|data| data.remove(&key));
+        assert!(store.with_data(DataStore::is_empty));
+    }
+    // A hidden canonical predecessor is effectively empty, as before.
+    apply_schema(&db, &proposal).unwrap();
+    assert!(
+        store.with_schema(|schema| { schema.current_accepted_schema_bundle().unwrap().is_some() })
+    );
+}
+
 fn initialize() -> (Db<AbortCanister>, EntitySourceKey, TargetStoreIdentity) {
     let db = Db::<AbortCanister>::new(
         &ABORT_REGISTRY,

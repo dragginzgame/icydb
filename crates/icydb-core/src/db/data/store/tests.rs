@@ -112,6 +112,63 @@ fn seed_heap_store(entries: &[(u64, u64, u8)]) -> DataStore {
 }
 
 #[test]
+fn data_store_emptiness_tracks_visible_keys_across_backings_and_repeated_effects() {
+    let memory = test_memory(226);
+    let mut canonical = DataStore::init_journaled(memory.clone());
+    assert!(canonical.is_empty());
+    for id in 1..=2 {
+        canonical
+            .fold_recovered_journal_put(raw_key(1, id), raw_row(11))
+            .unwrap();
+    }
+    drop(canonical);
+    // Reopen without optional cardinality evidence; keys remain the authority.
+    let canonical = DataStore::init_journaled(memory);
+    assert_eq!(canonical.exact_entity_count(EntityTag::new(1)), None);
+
+    let mut mixed = DataStore::init_journaled(test_memory(227));
+    mixed
+        .fold_recovered_journal_put(raw_key(1, 1), raw_row(11))
+        .unwrap();
+    mixed.insert_raw_for_test(raw_key(1, 1), raw_row(22));
+    mixed.insert_raw_for_test(raw_key(1, 2), raw_row(12));
+
+    let mut heap = DataStore::init_heap();
+    let mut live = DataStore::init_journaled(test_memory(228));
+    assert!(heap.is_empty());
+    assert!(live.is_empty());
+    for store in [&mut heap, &mut live] {
+        store.insert_raw_for_test(raw_key(1, 1), raw_row(11));
+        store.insert_raw_for_test(raw_key(1, 2), raw_row(12));
+    }
+    for mut store in [heap, live, canonical, mixed] {
+        assert!(!store.is_empty());
+        assert_eq!(store.len(), 2);
+        // The key visitor underlying emptiness must honor a first-key stop.
+        let mut first = Vec::new();
+        let _: Result<(), Infallible> = store.visit_key_range(.., |key| {
+            first.push(key.clone());
+            Ok(StoreVisit::Stop)
+        });
+        assert_eq!(first, [raw_key(1, 1)]);
+
+        store.remove(&raw_key(1, 1));
+        assert!(!store.is_empty());
+        store.remove(&raw_key(1, 2));
+        assert!(store.is_empty());
+        assert_eq!(store.len(), 0);
+        assert!(collect_keys(&store).is_empty());
+
+        store.insert_raw_for_test(raw_key(1, 2), raw_row(22));
+        store.insert_raw_for_test(raw_key(1, 2), raw_row(33));
+        assert!(!store.is_empty());
+        assert_eq!(store.len(), 1);
+        store.remove(&raw_key(1, 2));
+        assert!(store.is_empty());
+    }
+}
+
+#[test]
 fn data_store_read_borrows_heap_and_live_rows_but_owns_stable_rows() {
     let heap = seed_heap_store(&[(1, 1, 11)]);
     assert!(matches!(

@@ -2,16 +2,16 @@
 
 Apply [the shared method](../../../../audits/module-surface-hardening.md).
 
-IcyDB adopts Shared Tooling `d957d1f8801885c5b69e4a9ef900155f5f2a8a9d` through
+Use the reviewed Shared Tooling revision recorded in
 [the snapshot](../../../../.shared-tooling.snapshot). Apply the shared method
-and [local audit governance](../../README.md) together. This changes method
-identity; earlier reports remain historical and affected comparisons are
+and [local audit governance](../../README.md) together. Shared-method adoption
+changed method identity; earlier reports remain historical and affected comparisons are
 `N/A (method change)`. No audit supplies implementation or broad-gate authority.
 
 ## Identity and scope
 
 - Report scope: `module-surface-hardening`.
-- Method: shared revision above plus `ICYDB-MSH-4`; record both identities.
+- Method: shared snapshot revision plus `ICYDB-MSH-4`; record both identities.
 - Reports: the requested recurring, release-closeout or investigation location
   in [local governance](../../README.md#report-locations).
 - Start with the named module in `icydb-core`; include facade, model/macros,

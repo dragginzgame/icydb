@@ -2323,7 +2323,7 @@ fn preflight_initial_application(
             .iter()
             .find(|authority| authority.path == candidate.store_path())
             .ok_or_else(InternalError::store_invariant)?;
-        if authority.handle.with_data(DataStore::len) != 0
+        if !authority.handle.with_data(DataStore::is_empty)
             || authority.handle.index_state() != IndexState::Ready
             || !authority.handle.with_index(IndexStore::is_empty)
         {

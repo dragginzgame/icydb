@@ -1,7 +1,7 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `34e5ad7aac3599306c9572bb547f2239d09df1a3` (Shared 0.3.7). Root
+at reviewed revision `db143ae9ae140eb66826c413360723d23c078f66` (Shared 0.3.11). Root
 [AGENTS.md](../../AGENTS.md) is the local overlay. The shared approved layout
 retains the 42 existing canister, schema and testing packages in their
 restored directories, in the single root workspace and lockfile; no new package
@@ -11,6 +11,129 @@ remain local; standard release commands follow the shared contract. A sibling ch
 these rules.
 
 ## Ownership and provenance
+
+### Current 0.270.2 tooling qualification
+
+The draft now adopts committed Shared 0.3.11 revision
+`db143ae9ae140eb66826c413360723d23c078f66`. Canonical refresh from an isolated
+clean checkout records the corrected producer version; all 91 selected payload
+digests and modes are unchanged. The stronger upstream diagnostic-summary
+fixture separates neighboring diagnostic families and passes on Linux Bash 5/
+Make 4.3 and genuine Bash 3.2.57/Make 3.81. Prior payload qualification remains
+applicable. Snapshot verification, source references and selected documentation
+checks pass; Cargo inputs remain unchanged. Evidence is retained under
+`target/cleanup-2702-shared0311`. This is a source-metadata correction, not new
+runtime or native macOS qualification
+([#302](https://github.com/dragginzgame/icydb/issues/302),
+[Shared #114](https://github.com/dragginzgame/shared-tooling/issues/114)).
+
+The earlier draft advanced to reviewed shared revision
+`37af29b2f8fb4532744b600c5f85ce716a8b57cf`. Its commit is labelled `0.3.10`,
+but its committed `VERSION` contains `0.3.9`; that canonical export accurately
+records the annotation and exact revision. It excluded the then-uncommitted
+Shared 0.3.11 fixture work. The existing 91-file selection includes anchored physical
+temporary paths in the release-command checker and the derive sorter's scoped
+macro-protection guidance. Formatter pins and unaffected IcyDB macros are
+unchanged ([#302](https://github.com/dragginzgame/icydb/issues/302),
+[Shared #112](https://github.com/dragginzgame/shared-tooling/issues/112),
+[Shared #113](https://github.com/dragginzgame/shared-tooling/issues/113)).
+
+The existing consumer release fixture also anchors its own root and qualifies
+the actual Make adapters with relative and aliased temporary parents. Focused
+shared host/command fixtures, consumer release/formatting fixtures and the
+shared macro-protection hook/downstream compilation fixture pass on Linux
+Bash 5/Make 4.3 and genuine Bash 3.2.57/Make 3.81. Downloads and release effects
+are substituted; formatter tools are explicitly prepared, and the real hook
+preserves staged/working inputs. Original relative-path failure evidence is
+retained at `target/cleanup-2702-shared0310` with the passing logs. Snapshot,
+selected ShellCheck and documentation checks pass; Cargo inputs remain
+unchanged. Native macOS and full repository/release gates remain unrun. There
+are no real installation, network lifecycle, commit, push or release effects.
+
+The earlier draft adopted reviewed Shared 0.3.9 revision
+`1ed2ca523186641e0e0cdf77e3cb10814c22a430` through the canonical exporter from
+an immutable clean checkout. The existing 91-file selection is retained. Rust
+tool preflight, installation and offline checks share the consumer directory;
+Testkit CLI selection continues to delegate to that owner. Live and retained
+validation diagnostics use the shared runner's single predicate. No consumer
+wrapper, installer, classifier or infrastructure policy is added
+([#302](https://github.com/dragginzgame/icydb/issues/302),
+[Shared #101](https://github.com/dragginzgame/shared-tooling/issues/101),
+[Shared #110](https://github.com/dragginzgame/shared-tooling/issues/110)).
+
+The canonical Rust-tool fixture, consumer workstation/Testkit/adapter fixtures
+and upstream validation-runner fixture pass on Linux Bash 5/Make 4.3 and genuine
+Bash 3.2.57/Make 3.81. The adapter also proves early fatal diagnostics survive a
+long ordinary tail into its retained error log and GitHub summary. Real offline
+Rust/Testkit CLI checks pass from outside the repository; complete offline tool
+admission, selected ShellCheck, snapshot and documentation checks pass. Cargo
+inputs remain unchanged. Evidence is retained at `target/cleanup-2702-shared039`.
+No network lifecycle, installation, commit, push or release occurred. This
+qualifies the tooling adoption, not new runtime dependencies, native macOS or
+full repository/release gates; those broader qualifications remain separate.
+
+After the reported 0.270.1 publication, continued #311 qualification reproduces
+closed jobserver descriptors at the actual `version` recipe under parallel Make.
+Metadata and release receipt callbacks now retain descriptors and consistently
+inherit the existing repository-local Cargo home and target directory. Shared
+Make-mode admission remains authoritative; no wrapper or flag parser is added.
+
+The existing adapter fixture follows real version/pin admission, formatting,
+note finalization and preparation rollback, substituting Cargo, version mutation
+and candidate receipt effects. Early failures stop before later calls;
+metadata-stage failure restores the original notes after finalization. The
+existing receipt fixture follows real committed-source/tag receipt checks with
+Git observations and Cargo substituted, preserves exact selected commit identity
+and retains existing receipts when Cargo admission fails. No Git commit/tag/push,
+version bump, publication or server lifecycle occurs.
+
+Linux Bash 5/GNU Make 4.3 and genuine Bash 3.2.57/GNU Make 3.81 pass the adapter,
+standard-release and receipt fixtures. Evidence is retained at
+`target/cleanup-2702-metadata-jobserver`; the pre-repair descriptor failure is
+`/tmp/icydb-shared-adapters.Tf5T54/native/version.log`. Failed harness setup
+attempts remain separately retained. These substitute checks do not qualify the
+incoming Host 0.12.8/Memory 0.35.4 lockfile, native macOS or delivered source;
+full product/release gates remain user-owned. Other installation/publication and
+compiled invariant handoffs remain separate #311 follow-up families.
+
+The next focused #311 batch repairs nine installation/package/publication and
+compiled-invariant recipes. Actual CLI/workstation and package/publication Make
+probes substitute tools and Git observations, checking live descriptors and
+existing caller/workspace Cargo path ownership. Controlled Cargo failures
+qualify the scanner build, dependency-graph admission and runtime scanner through
+their actual aggregate Make targets; unrelated gates are substituted and no
+commit-producing receipt body executes. The receipt fixture's recipe also
+retains descriptors, while its normal commit-producing body remains user-owned.
+
+Published 0.270.1 [CI 38069259302](https://github.com/dragginzgame/icydb/actions/runs/38069259302)
+passes product/core/workspace, MSRV, Tier A/B and Wasm-size lanes, but both native
+macOS portable jobs fail at the adapter fixture's assumed unset thread cap.
+`RUST_TEST_THREADS=2` reproduces the same trace mismatch locally. The fixture
+now selects its own baseline and separately verifies inherited cap forwarding
+versus explicit core/workspace lane caps; production test policy is unchanged.
+
+The three extended fixtures and 126-case completion matrix pass on Linux
+Bash 5/Make 4.3 and genuine Bash 3.2.57/Make 3.81, including CI's thread setting.
+All 18 IcyDB-owned shell fixture handlers are covered by the existing completion
+matrix; canonical shared fixtures retain upstream ownership. Native macOS and
+delivered pending-source acceptance remain open. Initial setup failures remain
+separate from passing qualification, including a recipe-shell substitution
+failure refused by sandboxed sudo without installation and a missing substitute
+for snapshot verification. Evidence: `target/cleanup-2702-final-handoffs`.
+
+The incoming locked Host 0.12.8/Memory 0.35.4/Timers 0.17.5 graph needed an
+explicit fetch after offline admission refused uncached Memory. Its integration
+library passes 25 tests and selected strict library/test Clippy passes. Manifest
+and lockfile hashes remain unchanged. This native qualification does not by
+itself qualify IC memory/timer lifecycle behavior or a full repository gate.
+
+The same locked graph also passes all three logical-memory init/upgrade/recovery
+tests and the timer trap/upgrade/re-registration regression using the server
+admitted by Testkit's offline check. Testkit owns the four local instance
+lifecycles; no PocketIC process remains afterwards. Instruction-exhaustion and
+timer-coalescing tests are outside this selected check. Raw Wasm/cycle/instruction
+deltas remain unmeasured; full workspace/release gates and current native macOS
+remain unrun locally.
 
 ### Current 0.270.1 tooling qualification
 
@@ -1265,9 +1388,8 @@ create another consumer installer or silently download during tests.
 
 ## Audit and verification ownership
 
-Shared Tooling 0.1.11 is adopted from committed revision
-`46c02774a8335cb3949d6f04284c4f53375353c1`. The
-[shared methods](../../audits/README.md) own generic audit procedure;
+The reviewed revision in [the snapshot](../../.shared-tooling.snapshot) supplies
+the [shared methods](../../audits/README.md), which own generic audit procedure;
 [IcyDB's catalog](../audits/README.md) selects scopes, report paths, test evidence
 and product overlays:
 
@@ -1316,8 +1438,8 @@ tooling. Bash 3.2 is the portable syntax target. The current evidence is:
 | Host target | Qualification |
 | --- | --- |
 | Ubuntu 24.04, x86-64 | Existing CI lanes; the focused checks below pass locally on Linux. |
-| macOS 15, ARM64 | Required CI lane configured with `macos-15`; native execution pending. |
-| macOS 15, x86-64 | Required CI lane configured with `macos-15-intel`; native execution pending. |
+| macOS 15, ARM64 | [Delivered 0.270.0 native job passed](https://github.com/dragginzgame/icydb/actions/runs/38051762924/job/114212158255); later source remains separately qualified. |
+| macOS 15, x86-64 | [Delivered 0.270.0 native job passed](https://github.com/dragginzgame/icydb/actions/runs/38051762924/job/114212158341); later source remains separately qualified. |
 
 [CI](../../.github/workflows/ci.yml) now gates its central check on both native
 macOS lanes as well as Ubuntu. The macOS lanes run real workstation installation,
@@ -1325,8 +1447,14 @@ system Bash snapshot/adapter/setup/report fixtures, focused library and CLI
 checks, integrity and optimizer tests, a production canister build, formatting
 and native ICP tool version checks. GitHub documents the runner architectures in
 [its hosted-runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
-This closes the missing CI configuration; it does not claim an unexecuted lane
-has passed. Deployment workflows outside these selections remain unqualified
+Delivered source `2a30a7c64ac146023a80696b5fe5458b71db0938` (0.270.0)
+passes every configured lane in [run 38051762924](https://github.com/dragginzgame/icydb/actions/runs/38051762924),
+including both native macOS jobs, public Rust 1.88 native/Wasm consumers,
+workspace regressions and live Tier B. The host logs qualify its Shared 0.3.0
+snapshot and Binaryen 132; this does not qualify later Shared 0.3.7/Binaryen 133
+adoption or the current dirty 0.270.2 recipes. Existing local evidence and earlier
+pending-host observations above retain their original source identities.
+Deployment workflows outside these selections remain unqualified
 on macOS until native evidence exists.
 
 Setup selects Homebrew prerequisites on macOS and apt prerequisites on Linux.

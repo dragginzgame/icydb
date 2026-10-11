@@ -204,6 +204,8 @@ fn cli_args_preserve_trailing_sql_convenience_form() {
         "sql",
         "--canister",
         "test_sql",
+        "-e",
+        "local",
         "SELECT",
         "name",
         "FROM",
@@ -230,6 +232,8 @@ fn cli_args_accept_explicit_sql_option() {
         "demo_rpg",
         "--history-file",
         ".cache/custom_history",
+        "-e",
+        "local",
         "--sql",
         "SELECT name FROM character;",
     ])
@@ -298,7 +302,7 @@ fn cli_args_reject_canister_flag_on_target_commands() {
 
 #[test]
 fn cli_args_group_metrics_under_top_level_keyword() {
-    let args = CliArgs::try_parse_from(["icydb", "metrics", "demo_rpg"])
+    let args = CliArgs::try_parse_from(["icydb", "metrics", "demo_rpg", "-e", "local"])
         .expect("metrics command should parse");
     let CliCommand::Metrics(args) = args.into_command() else {
         panic!("expected metrics command");
@@ -418,7 +422,7 @@ fn cli_args_group_canister_list_under_canister_keyword() {
 
 #[test]
 fn cli_args_group_canister_status_under_canister_keyword() {
-    let args = CliArgs::try_parse_from(["icydb", "canister", "status", "demo"])
+    let args = CliArgs::try_parse_from(["icydb", "canister", "status", "demo", "-e", "local"])
         .expect("canister status should parse");
     let CliCommand::Canister(CanisterCommand::Status(target)) = args.into_command() else {
         panic!("expected canister status command");

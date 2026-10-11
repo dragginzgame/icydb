@@ -189,6 +189,9 @@ are not interchangeable, and any identity mismatch withholds names.
 The JSON artifact is a tooling format, not database state. It cannot authorize
 a write, apply a schema, recover data, or replace accepted schema authority.
 Only the current pre-1.0 artifact shape is accepted.
+Field, index, relation and constraint labels resolve by numeric ID regardless of
+JSON list order. IDs must remain unique within each list; duplicate IDs are
+rejected.
 
 ## Rejected generated fields
 

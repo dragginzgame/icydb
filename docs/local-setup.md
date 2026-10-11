@@ -39,6 +39,11 @@ different support scopes require an explicitly approved exception.
 | Rust development | rustfmt and product compilation targets | Consumer toolchain setup and the [formatter prerequisite check](verification-helpers.md#formatter-prerequisites) |
 | Workflow-specific tools | ShellCheck, actionlint, Gitleaks, authenticated `gh`, Node/SDKs and other tools used by that repository | Explicit consumer setup; declare the tools required by each workflow |
 
+Use the derive sorter's documented
+[macro protection](../rules/git-hooks.md#derive-macros-and-dollar-prefixed-paths)
+for affected definitions.
+Tool availability and version checks do not establish semantic preservation.
+
 `make install-tools` and `make tools-check` cover all 12 common executables,
 regardless of the repository's implementation language or current use. They do
 not install a Rust toolchain or authenticate GitHub. Product and workflow-specific
@@ -171,6 +176,11 @@ prerequisites, use `make install-rust-tools` and offline `make rust-tools-check`
 The shared helper installs cargo-sort, cargo-sort-derives and candid-extractor
 under `.tools/rust/bin`, using their exact versions from
 [ci/tool-versions.env](../ci/tool-versions.env) and Cargo's `--locked` installation.
+Preflight, installed-tool probes and Cargo installation all run from the selected
+consumer directory, including when the helper is invoked from elsewhere. Explicit
+toolchain environment overrides remain authoritative. A relative `--versions`
+catalog is read from the caller's directory before entering the consumer;
+relative `--lockfile` paths retain their consumer-relative meaning.
 `RUST_TOOL_VERSIONS` selects a reviewed alternative catalog; it defaults to
 `HOST_TOOL_VERSIONS`. Keep qualified version exceptions in that selected catalog,
 and remove duplicate consumer constants when adopting the shared pins.

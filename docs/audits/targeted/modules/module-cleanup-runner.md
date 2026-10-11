@@ -1,10 +1,9 @@
 # IcyDB authorized module cleanup overlay
 
 Apply [the shared procedure](../../../../audits/module-cleanup.md) and
-[IcyDB module obligations](module-surface-hardening.md). Shared Tooling
-`d957d1f8801885c5b69e4a9ef900155f5f2a8a9d` is recorded in
-[the snapshot](../../../../.shared-tooling.snapshot); local procedure identity
-is `ICYDB-MSH-CLEANUP-4`. The procedure implements a named finding rather than
+[IcyDB module obligations](module-surface-hardening.md). Use the reviewed revision
+recorded in [the snapshot](../../../../.shared-tooling.snapshot); local procedure
+identity is `ICYDB-MSH-CLEANUP-4`. The procedure implements a named finding rather than
 creating another audit. Existing bounded implementation authority carries forward.
 
 Use the named module, current source/dirty state, owning finding, consumer

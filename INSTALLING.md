@@ -378,7 +378,7 @@ SQL text. Target-style commands such as `snapshot`, `schema show`,
 `metrics`, and `canister refresh` take the canister as a
 required positional argument.
 
-All canister-targeting commands default the ICP environment to `demo`, or use
+All canister-targeting commands default the ICP environment to `local`, or use
 `ICP_ENVIRONMENT` when it is set:
 
 ```bash
@@ -408,6 +408,11 @@ icydb schema show demo_rpg
 icydb metrics demo_rpg
 icydb metrics demo_rpg --reset
 ```
+
+`canister upgrade` builds the selected canister, then installs ICP's build
+output in upgrade mode. ICP resolves the project and selected environment,
+including when called from a project subdirectory. Use `--wasm PATH` to select
+an explicit artifact after the build; a missing override fails before install.
 
 ### Git Formatting Hook
 

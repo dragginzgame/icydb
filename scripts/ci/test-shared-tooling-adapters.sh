@@ -3,6 +3,9 @@ set -euo pipefail
 
 # These isolated Make calls select their own flags and recursive context.
 unset MAKEFLAGS MFLAGS MAKEOVERRIDES GNUMAKEFLAGS MAKEFILES
+# Select fixture thread defaults independently of CI's ambient libtest cap.
+# Explicit inherited-cap forwarding is qualified below through actual Make.
+unset RUST_TEST_THREADS
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 FIXTURE="$(mktemp -d "${TMPDIR:-/tmp}/icydb-shared-adapters.XXXXXX")"
 fixture_complete=false
@@ -28,6 +31,8 @@ pass:
 fail-one:
 	@echo first-complete-payload
 	@echo 'error: first-diagnostic'
+	@echo 'fatal: adapter-early-fatal'
+	@i=0; while [ $$i -lt 200 ]; do echo ordinary-tail; i=$$((i + 1)); done
 	@exit 7
 fail-two:
 	@echo second-complete-payload
@@ -78,12 +83,16 @@ status=0
 (
   cd "$FIXTURE/bin"
   ICYDB_VALIDATION_FAILURE_LOG_DIR="$FIXTURE/logs" \
+    GITHUB_STEP_SUMMARY="$FIXTURE/adapter-summary.md" \
     bash "$FIXTURE/scripts/ci/run-icydb-validation-targets.sh" --fail-fast pass fail-one fail-two
 ) > "$FIXTURE/output" 2>&1 || status=$?
 # Make reports a failed recipe as status 2; preserve that through both owners.
 [[ "$status" -eq 2 ]]
 [[ -f "$FIXTURE/executed" ]]
 rg -F first-complete-payload "$FIXTURE/logs/latest-combined.log" > /dev/null
+grep -Fx '[ERR:fail-one] fatal: adapter-early-fatal' "$FIXTURE/output" > /dev/null
+grep -Fx '[ERR:fail-one] fatal: adapter-early-fatal' "$FIXTURE/logs/latest-errors.log" > /dev/null
+grep -Fx '[ERR:fail-one] fatal: adapter-early-fatal' "$FIXTURE/adapter-summary.md" > /dev/null
 if rg -F second-complete-payload "$FIXTURE/output" > /dev/null; then exit 1; fi
 
 status=0
@@ -125,19 +134,24 @@ set -euo pipefail
 reader="${BASH_REMATCH[2]}"; writer="${BASH_REMATCH[3]}"
 : <&"$reader"
 : >&"$writer"
-[[ "$CARGO_HOME" == "$CI_CARGO_ROOT/.cache/cargo/icydb" ]]
-[[ "$CARGO_TARGET_DIR" == "$CI_CARGO_ROOT/target/icydb" ]]
+[[ "$CARGO_HOME" == "${CI_CARGO_EXPECTED_HOME:-$CI_CARGO_ROOT/.cache/cargo/icydb}" ]]
+[[ "$CARGO_TARGET_DIR" == "${CI_CARGO_EXPECTED_TARGET:-$CI_CARGO_ROOT/target/icydb}" ]]
 printf '%s %s\n' "$1" "${RUST_TEST_THREADS:-default}" >> "$CI_CARGO_TRACE"
 printf '%s\n' "$*" >> "$CI_CARGO_ARGUMENT_TRACE"
 if [[ "${TMPDIR:-}" == "$CI_CARGO_ROOT/.cache" ]]; then
   [[ "${POCKET_IC_BIN:-}" == "$CI_CARGO_ROOT/testkit-selected-server" ]]
   printf '%s %s\n' "$1" "${RUST_TEST_THREADS:-default}" >> "$CI_CARGO_SERVER_TRACE"
 fi
-if [[ "${CI_CARGO_FAIL:-0}" == 1 ]]; then
+if [[ "${CI_CARGO_FAIL:-0}" == 1 &&
+      ( -z "${CI_CARGO_FAIL_COMMAND:-}" || "$1" == "$CI_CARGO_FAIL_COMMAND" ) ]]; then
   echo native-cargo-retained-payload
   echo 'error: native-cargo-failure' >&2
   exit 23
 fi
+case "$1 ${2:-}" in
+  'locate-project --workspace') printf '%s\n' "$CI_CARGO_ROOT/Cargo.toml" ;;
+  'sort --version') printf 'cargo-sort 2.1.4\n' ;;
+esac
 if [[ -n "${ICYDB_SQL_TIER_C_ARTIFACT_DIR:-}" ]]; then
   [[ "$ICYDB_SQL_TIER_C_ARTIFACT_DIR" == "$CI_CARGO_ROOT/tier-c" ]]
   receipt="$ICYDB_SQL_TIER_C_ARTIFACT_DIR/tier-c-merged.json"
@@ -163,6 +177,13 @@ printf '%s\n' 'check default' 'check default' 'check default' \
   'clippy default' 'clippy default' 'test 8' \
   'clippy default' 'clippy default' 'test 2' \
   'test default' 'test default' 'test 2' > "$native/expected-trace"
+cmp "$native/expected-trace" "$CI_CARGO_TRACE"
+
+: > "$CI_CARGO_TRACE"
+PATH="$native/bin:$PATH" RUST_TEST_THREADS=3 \
+  make --no-print-directory -C "$native" -j2 ci-core > "$native/inherited-threads.log" 2>&1
+printf '%s\n' 'check 3' 'check 3' 'check 3' 'clippy 3' 'clippy 3' 'test 8' \
+  > "$native/expected-trace"
 cmp "$native/expected-trace" "$CI_CARGO_TRACE"
 
 # The explicit caller selection is only a path forwarded to substitute Cargo;
@@ -307,10 +328,105 @@ printf '%s\n' 'test 2' 'test 2' > "$native/expected-trace"
 cmp "$native/expected-trace" "$CI_CARGO_TRACE"
 cmp "$native/expected-trace" "$CI_CARGO_SERVER_TRACE"
 
+# Metadata and release callbacks must retain the same transport as compilers.
+# Keep real version/pin admission, formatting and preparation control flow;
+# substitute only version mutation and candidate receipt effects.
+mkdir -p "$native/scripts/release" "$native/ci" "$native/docs/changelog" "$native/.tools/host/bin"
+cp "$ROOT/ci/tool-versions.env" "$native/ci/"
+cp "$ROOT/.tools/host/bin/yq" "$native/.tools/host/bin/"
+for script in read-cargo-workspace-version.sh check-dependency-pins.sh dependency-pins.jq \
+  check-format-tools.sh run-formatting.sh finalize-release-changelog.awk; do
+  cp "$ROOT/scripts/ci/$script" "$native/scripts/ci/"
+done
+cp "$ROOT/scripts/release/"{prepare.sh,files.sh,check-metadata.sh,finalize-notes.sh} "$native/scripts/release/"
+printf '[workspace.package]\nversion = "0.1.1"\n' > "$native/Cargo.toml"
+printf 'version = 4\n' > "$native/Cargo.lock"
+printf '.cache/\n' > "$native/.gitignore"
+printf '## [0.1.1] - 2026-10-10\n' > "$native/CHANGELOG.md"
+cp "$native/CHANGELOG.md" "$native/docs/changelog/0.1.md"
+printf '[]\n' > "$native/ci/dependency-pinning-exceptions.json"
+printf '#!/usr/bin/env bash\nset -euo pipefail\ncargo set-version --help\n' > "$native/scripts/ci/bump-version.sh"
+# The receipt substitute expands the selected working directory in its child.
+# shellcheck disable=SC2016
+printf '#!/usr/bin/env bash\nset -euo pipefail\ncargo locate-project --workspace --message-format plain --manifest-path "$PWD/Cargo.toml"\n' \
+  > "$native/scripts/ci/release-candidate-receipt.sh"
+cp "$native/scripts/ci/release-candidate-receipt.sh" "$native/scripts/ci/record-release-gate-receipt.sh"
+# Git inventory is real, with no commits; the receipt command above models only
+# its Cargo transport, while the dedicated receipt fixture owns its semantics.
+git -C "$native" init --quiet
+git -C "$native" add Cargo.toml Cargo.lock
+mkdir -p "$native/.cache/release-tmp"
+: > "$CI_CARGO_TRACE"
+for lane in version release-version check-versioning check-dependency-pins \
+  release-prepared-check release-commit-check release-committed-check release-tagged-check \
+  release-prepare-version; do
+  if [[ "$lane" == release-prepare-version ]]; then
+    printf '## [0.1.1]\n' > "$native/CHANGELOG.md"
+  else
+    printf '## [0.1.1] - 2026-10-10\n' > "$native/CHANGELOG.md"
+  fi
+  cp "$native/CHANGELOG.md" "$native/docs/changelog/0.1.md"
+  PATH="$native/bin:$PATH" make --no-print-directory -C "$native" -j2 "$lane" \
+    RELEASE_VERSION=0.1.1 RELEASE_PREVIOUS=0.1.0 RELEASE_KIND=patch RELEASE_DATE=2026-10-10 \
+    RELEASE_SOURCE=1111111111111111111111111111111111111111 \
+    > "$native/$lane.log" 2>&1
+done
+printf '%s\n' 'locate-project default' 'locate-project default' \
+  'set-version default' 'locate-project default' 'locate-project default' \
+  'locate-project default' 'metadata default' 'locate-project default' \
+  'locate-project default' 'metadata default' 'locate-project default' \
+  'locate-project default' 'locate-project default' 'locate-project default' \
+  'set-version default' 'sort default' 'fmt default' 'sort-derives default' \
+  'sort default' 'fmt default' 'locate-project default' 'metadata default' \
+  'locate-project default' 'locate-project default' > "$native/expected-trace"
+cmp "$native/expected-trace" "$CI_CARGO_TRACE"
+for failure in early metadata; do
+for lane in release-prepared-check release-commit-check release-prepare-version; do
+  if [[ "$lane" == release-prepare-version ]]; then
+    printf '## [0.1.1]\n' > "$native/CHANGELOG.md"
+  else
+    printf '## [0.1.1] - 2026-10-10\n' > "$native/CHANGELOG.md"
+  fi
+  cp "$native/CHANGELOG.md" "$native/docs/changelog/0.1.md"
+  cp "$native/CHANGELOG.md" "$native/notes-before"
+  : > "$CI_CARGO_TRACE"
+  status=0
+  fail_command=''
+  if [[ "$failure" == metadata ]]; then fail_command=metadata; fi
+  PATH="$native/bin:$PATH" CI_CARGO_FAIL=1 CI_CARGO_FAIL_COMMAND="$fail_command" \
+    make --no-print-directory -C "$native" -j2 "$lane" \
+    RELEASE_VERSION=0.1.1 RELEASE_PREVIOUS=0.1.0 RELEASE_KIND=patch RELEASE_DATE=2026-10-10 \
+    > "$native/failure-$failure-$lane.log" 2>&1 || status=$?
+  [[ "$status" == 2 ]]
+  if [[ "$failure" == early ]]; then
+    [[ "$(wc -l < "$CI_CARGO_TRACE")" == 1 ]]
+  else
+    [[ "$(tail -n 1 "$CI_CARGO_TRACE")" == 'metadata default' ]]
+  fi
+  rg -F native-cargo-failure "$native/failure-$failure-$lane.log" >/dev/null
+  cmp "$native/notes-before" "$native/CHANGELOG.md"
+  cmp "$native/docs/changelog/0.1.md" "$native/CHANGELOG.md"
+done
+done
+
+# CLI installation must keep the user's selected Cargo paths while preserving
+# the same parallel descriptors. The substitute never installs a binary.
+: > "$CI_CARGO_TRACE"
+PATH="$native/bin:$PATH" CARGO_HOME="$native/caller-home" \
+  CARGO_TARGET_DIR="$native/caller-target" CI_CARGO_EXPECTED_HOME="$native/caller-home" \
+  CI_CARGO_EXPECTED_TARGET="$native/caller-target" \
+  make --no-print-directory -C "$native" -j2 install > "$native/install.log" 2>&1
+printf '%s\n' 'install default' > "$native/expected-trace"
+cmp "$native/expected-trace" "$CI_CARGO_TRACE"
+
 for mode in -n -t -q -i; do
   for lane in ci-core test build-canister-local wasm-size-report wasm-audit-report \
     fetch build check clippy test-documentation check-feature-matrix clean test-watch \
-    test-sql-tier-c-shard test-sql-tier-c-merge test-sql-tier-c-replay ci-sql-tier-b; do
+    test-sql-tier-c-shard test-sql-tier-c-merge test-sql-tier-c-replay ci-sql-tier-b \
+    version release-version check-versioning check-dependency-pins \
+    release-prepared-check release-commit-check release-committed-check release-tagged-check \
+    release-prepare-version install install-dev update-dev package publish \
+    check-portable-automation check-invariants; do
     : > "$CI_CARGO_TRACE"
     status=0
     PATH="$native/bin:$PATH" make --no-print-directory -C "$native" -j2 "$mode" "$lane" \
@@ -381,5 +497,45 @@ for host in Linux:x86_64:linux_amd64 Linux:aarch64:linux_arm64 \
     "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_${platform}.tar.gz" ]]
 done
 
+# Exercise compiled invariant transport through the actual aggregate recipes.
+# Other fixtures/static checks are substitutes; selected Cargo failures stop
+# before any product gate or commit-producing receipt body can execute.
+for script in "$ROOT/scripts/ci/"{check-,test-}*.sh "$ROOT/scripts/release/test-"*.sh \
+  "$ROOT/scripts/ci/verify-shared-tooling-snapshot.sh"; do
+  relative="${script#"$ROOT/"}"
+  mkdir -p "$native/${relative%/*}"
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$native/$relative"
+done
+mkdir -p "$native/scripts/dev"
+for script in scripts/dev/delete-github-tags-up-to.pl \
+  scripts/ci/test-documentation.pl scripts/ci/check-documentation.pl; do
+  printf 'exit 0;\n' > "$native/$script"
+done
+for script in check-make-execution.sh invariant-common.sh check-dependency-graph-invariants.sh \
+  check-executor-no-production-panics.sh test-invariant-scanners.sh; do
+  cp "$ROOT/scripts/ci/$script" "$native/scripts/ci/"
+done
+cp "$ROOT/"{Cargo.toml,Cargo.lock} "$native/"
+for owner in executor commit journal startup; do
+  mkdir -p "$native/crates/icydb-core/src/db/$owner"
+  printf 'fn production() {}\n' > "$native/crates/icydb-core/src/db/$owner/probe.rs"
+done
+for command in build locate-project run; do
+  : > "$CI_CARGO_TRACE"
+  status=0
+  lane=check-invariants
+  if [[ "$command" == build ]]; then lane=check-portable-automation; fi
+  PATH="$native/bin:$PATH" CI_CARGO_FAIL=1 CI_CARGO_FAIL_COMMAND="$command" \
+    make --no-print-directory -C "$native" -j2 "$lane" \
+    > "$native/compiled-$command.log" 2>&1 || status=$?
+  [[ "$status" == 2 ]]
+  rg -F native-cargo-failure "$native/compiled-$command.log" >/dev/null
+  if [[ "$command" == run ]]; then
+    printf '%s\n' 'locate-project default' 'run default' > "$native/expected-trace"
+  else printf '%s default\n' "$command" > "$native/expected-trace"; fi
+  cmp "$native/expected-trace" "$CI_CARGO_TRACE"
+  # Later probes select graph/runtime checks without running scanner semantics.
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$native/scripts/ci/test-invariant-scanners.sh"
+done
 echo "shared-tooling adapter regressions passed"
 fixture_complete=true

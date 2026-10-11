@@ -35,8 +35,8 @@ pub(crate) enum CanisterCommand {
 /// UpgradeArgs
 ///
 /// UpgradeArgs carries the local canister upgrade inputs. The optional wasm
-/// override supports advanced flows while the default path preserves the
-/// previous local SQL helper upgrade behavior.
+/// override supports advanced flows; by default ICP selects the build output
+/// for the selected project and environment.
 ///
 
 #[derive(Args, Debug)]
@@ -44,7 +44,7 @@ pub(crate) struct UpgradeArgs {
     #[command(flatten)]
     target: CanisterTarget,
 
-    /// Wasm path to install after build.
+    /// Wasm path to install after build; defaults to ICP's build output.
     #[arg(long, value_name = "PATH", value_hint = ValueHint::FilePath)]
     wasm: Option<PathBuf>,
 }

@@ -1,4 +1,4 @@
-//! Exercise SQL and migration status and streams through the actual CLI process.
+//! Exercise SQL, migration and upgrade outcomes through the actual CLI process.
 //! A local ICP fixture supplies current Candid responses without a live network.
 
 #![cfg(unix)]
@@ -58,6 +58,21 @@ impl IcpFixture {
             r#"#!/bin/sh
 printf '%s\n' "$@" >> "$ICP_FIXTURE_LOG"
 case "$1:$2" in
+  build:fixture)
+    [ "${ICP_FIXTURE_UPGRADE_FAILURE-}" != build ] || exit 1
+    printf '%s\n' 'fresh build' > "$ICP_FIXTURE_BUILD_OUTPUT"
+    ;;
+  canister:install)
+    [ "${ICP_FIXTURE_UPGRADE_FAILURE-}" != install ] || exit 1
+    artifact=$ICP_FIXTURE_BUILD_OUTPUT
+    shift 2
+    while [ "$#" -gt 0 ]; do
+      if [ "$1" = --wasm ]; then shift; artifact=$1; fi
+      shift
+    done
+    read -r contents < "$artifact" || exit 1
+    printf '%s\n' "$contents" > "$ICP_FIXTURE_DIRECTORY/installed"
+    ;;
   canister:status) printf '%s\n' 'aaaaa-aa' ;;
   canister:call)
     if [ "$ICP_FIXTURE_TRANSPORT_FAILURE" = 1 ] ||
@@ -114,6 +129,24 @@ esac
         command
     }
 
+    fn upgrade_command(&self, environment: &str, nested: bool) -> Command {
+        let build_output = self.directory.join("build-output.wasm");
+        let working_directory = if nested {
+            self.directory.join("nested")
+        } else {
+            self.directory.clone()
+        };
+        fs::create_dir_all(&working_directory).unwrap();
+        let mut command = self.command("");
+        command
+            .current_dir(working_directory)
+            .env("ICP_FIXTURE_BUILD_OUTPUT", build_output)
+            .env_remove("ICP_FIXTURE_UPGRADE_FAILURE")
+            .args(["canister", "upgrade", "fixture", "-e", environment]);
+
+        command
+    }
+
     fn migration_command(&self, status: &str, replies: &[String], operation: &str) -> Command {
         fs::write(self.directory.join("status"), status).unwrap();
         for (index, reply) in replies.iter().enumerate() {
@@ -159,7 +192,14 @@ esac
 
 impl Drop for IcpFixture {
     fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.directory);
+        if std::thread::panicking() {
+            eprintln!(
+                "CLI fixture evidence retained at {}",
+                self.directory.display()
+            );
+        } else {
+            let _ = fs::remove_dir_all(&self.directory);
+        }
     }
 }
 
@@ -190,6 +230,119 @@ fn assert_failure(output: Output) {
         !output.stderr.is_empty(),
         "failed SQL must report a diagnostic"
     );
+}
+
+#[test]
+fn environment_selection_uses_default_then_inherited_value_then_explicit_flag() {
+    for arguments in [
+        vec!["canister", "status", "fixture"],
+        vec!["sql", "-c", "fixture", "--sql", "SELECT id FROM Character"],
+    ] {
+        for (inherited, explicit, expected) in [
+            (None, false, "local"),
+            (Some("staging"), false, "staging"),
+            (Some("staging"), true, "local"),
+        ] {
+            let fixture = IcpFixture::new();
+            let mut command = fixture.command(&success_response());
+            // Environment changes belong to the child, never the parallel test process.
+            command.env_remove("ICP_ENVIRONMENT").args(&arguments);
+            if let Some(inherited) = inherited {
+                command.env("ICP_ENVIRONMENT", inherited);
+            }
+            if explicit {
+                command.args(["-e", "local"]);
+            }
+            let output = command.output().unwrap();
+            assert_eq!(output.status.code(), Some(0), "{output:?}");
+            let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
+            let arguments = calls.lines().collect::<Vec<_>>();
+            let environments = arguments
+                .windows(2)
+                .filter(|pair| pair[0] == "--environment")
+                .map(|pair| pair[1])
+                .collect::<Vec<_>>();
+            assert!(!environments.is_empty());
+            assert!(
+                environments
+                    .iter()
+                    .all(|environment| *environment == expected)
+            );
+        }
+    }
+}
+
+#[test]
+fn upgrade_installs_icp_build_output_for_selected_environment_and_working_directory() {
+    for environment in ["local", "staging"] {
+        for nested in [false, true] {
+            let fixture = IcpFixture::new();
+            let mut command = fixture.upgrade_command(environment, nested);
+            let stale = command
+                .get_current_dir()
+                .unwrap()
+                .join(".icp/local/canisters/fixture/fixture.wasm");
+            fs::create_dir_all(stale.parent().unwrap()).unwrap();
+            fs::write(stale, "stale build\n").unwrap();
+            let output = command.output().unwrap();
+            assert_eq!(output.status.code(), Some(0), "{output:?}");
+            assert_eq!(
+                fs::read_to_string(fixture.directory.join("installed")).unwrap(),
+                "fresh build\n"
+            );
+            let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
+            assert_eq!(
+                calls,
+                format!(
+                    "build\nfixture\n--environment\n{environment}\ncanister\ninstall\nfixture\n--mode\nupgrade\n--environment\n{environment}\n"
+                )
+            );
+        }
+    }
+}
+
+#[test]
+fn upgrade_preserves_explicit_wasm_override() {
+    let fixture = IcpFixture::new();
+    let artifact = fixture.directory.join("selected artifact.wasm");
+    fs::write(&artifact, "explicit artifact\n").unwrap();
+    let output = fixture
+        .upgrade_command("staging", true)
+        .arg("--wasm")
+        .arg(&artifact)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    assert_eq!(
+        fs::read_to_string(fixture.directory.join("installed")).unwrap(),
+        "explicit artifact\n"
+    );
+    let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
+    assert!(
+        calls
+            .lines()
+            .any(|argument| argument == artifact.to_str().unwrap())
+    );
+}
+
+#[test]
+fn upgrade_stops_after_failed_build_missing_override_or_failed_install() {
+    for failure in ["build", "missing", "install"] {
+        let fixture = IcpFixture::new();
+        let mut command = fixture.upgrade_command("staging", true);
+        if failure == "missing" {
+            command.arg("--wasm").arg("missing.wasm");
+        } else {
+            command.env("ICP_FIXTURE_UPGRADE_FAILURE", failure);
+        }
+        assert_failure(command.output().unwrap());
+        assert!(!fixture.directory.join("installed").exists());
+        let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
+        assert_eq!(
+            calls.lines().any(|argument| argument == "install"),
+            failure == "install"
+        );
+    }
 }
 
 #[test]

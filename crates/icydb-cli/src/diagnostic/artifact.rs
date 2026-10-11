@@ -38,6 +38,7 @@ enum DiagnosticArtifactOwner {
     },
 }
 
+/// Identity lists are bounded and unique; their JSON order carries no authority.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 struct DiagnosticArtifactEntity {
@@ -407,9 +408,8 @@ impl DiagnosticArtifactEntity {
 
     fn constraint(&self, id: u32) -> Option<&DiagnosticArtifactConstraint> {
         self.constraints
-            .binary_search_by_key(&id, |constraint| constraint.id)
-            .ok()
-            .map(|index| &self.constraints[index])
+            .iter()
+            .find(|constraint| constraint.id == id)
     }
 
     fn validate(&self) -> Result<(), String> {
@@ -520,9 +520,9 @@ fn identities(names: BTreeMap<u32, String>) -> Vec<DiagnosticArtifactIdentity> {
 
 fn identity_name(identities: &[DiagnosticArtifactIdentity], id: u32) -> Option<&str> {
     identities
-        .binary_search_by_key(&id, |identity| identity.id)
-        .ok()
-        .map(|index| identities[index].name.as_str())
+        .iter()
+        .find(|identity| identity.id == id)
+        .map(|identity| identity.name.as_str())
 }
 
 fn insert_exact_name(
@@ -613,6 +613,110 @@ mod tests {
         assert!(artifact.resolve(1, [8; 16], 42, Some(3)).is_none());
         assert!(artifact.resolve(1, [7; 16], 43, Some(3)).is_none());
         assert!(artifact.resolve(1, [7; 16], 42, Some(4)).is_none());
+    }
+
+    fn ordered_identity_fixture(order: [u32; 3]) -> DiagnosticSchemaArtifact {
+        let mut artifact = DiagnosticSchemaArtifact::test_fixture();
+        let entity = &mut artifact.entities[0];
+        for (label, identities) in [
+            ("field", &mut entity.fields),
+            ("index", &mut entity.indexes),
+            ("relation", &mut entity.relations),
+        ] {
+            *identities = order
+                .map(|id| DiagnosticArtifactIdentity {
+                    id,
+                    name: format!("{label}_{id}"),
+                })
+                .into();
+        }
+        entity.constraints = order
+            .map(|id| DiagnosticArtifactConstraint {
+                id,
+                name: format!("constraint_{id}"),
+                kind: "unique".to_string(),
+                field_ids: vec![id],
+                index_id: Some(id),
+                relation_id: Some(id),
+            })
+            .into();
+        artifact
+    }
+
+    #[test]
+    fn artifact_labels_resolve_independently_of_json_list_order() {
+        let path = std::env::temp_dir().join(format!(
+            "icydb-artifact-list-order-{}.json",
+            std::process::id()
+        ));
+        for order in [
+            [3, 5, 7],
+            [3, 7, 5],
+            [5, 3, 7],
+            [5, 7, 3],
+            [7, 3, 5],
+            [7, 5, 3],
+        ] {
+            let deployment = ordered_identity_fixture(order);
+            let source = deployment
+                .clone()
+                .bind_to_source("schema/account.rs")
+                .unwrap();
+            for artifact in [deployment, source] {
+                std::fs::write(&path, serde_json::to_vec(&artifact).unwrap()).unwrap();
+                let decoded = match &artifact.provenance {
+                    DiagnosticArtifactOwner::Deployment { .. } => {
+                        DiagnosticSchemaArtifact::read_deployment(&path)
+                    }
+                    DiagnosticArtifactOwner::Source { .. } => {
+                        DiagnosticSchemaArtifact::read_source_metadata(&path)
+                    }
+                }
+                .unwrap();
+                assert_eq!(decoded, artifact);
+                let resolved = decoded.resolve(1, [7; 16], 42, None).unwrap();
+                for id in [3, 5, 7] {
+                    assert_eq!(
+                        resolved.field_name(id),
+                        Some(format!("field_{id}").as_str())
+                    );
+                    assert_eq!(
+                        resolved.index_name(id),
+                        Some(format!("index_{id}").as_str())
+                    );
+                    assert_eq!(
+                        resolved.relation_name(id),
+                        Some(format!("relation_{id}").as_str())
+                    );
+                    let constraint = decoded.resolve(1, [7; 16], 42, Some(id)).unwrap();
+                    assert_eq!(
+                        constraint.constraint_name(),
+                        Some(format!("constraint_{id}").as_str())
+                    );
+                    assert_eq!(constraint.constraint_kind(), Some("unique"));
+                }
+                for id in [0, 4, 8] {
+                    assert_eq!(resolved.field_name(id), None);
+                    assert_eq!(resolved.index_name(id), None);
+                    assert_eq!(resolved.relation_name(id), None);
+                    assert!(decoded.resolve(1, [7; 16], 42, Some(id)).is_none());
+                }
+                assert!(decoded.resolve(2, [7; 16], 42, Some(3)).is_none());
+                assert!(decoded.resolve(1, [8; 16], 42, Some(3)).is_none());
+                assert!(decoded.resolve(1, [7; 16], 43, Some(3)).is_none());
+            }
+        }
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn duplicate_artifact_ids_are_rejected_in_every_identity_list() {
+        for list in ["fields", "indexes", "relations", "constraints"] {
+            let mut json = serde_json::to_value(ordered_identity_fixture([7, 3, 5])).unwrap();
+            json["entities"][0][list][2]["id"] = serde_json::json!(3);
+            let artifact: DiagnosticSchemaArtifact = serde_json::from_value(json).unwrap();
+            assert!(artifact.validate().is_err(), "{list}");
+        }
     }
 
     #[test]

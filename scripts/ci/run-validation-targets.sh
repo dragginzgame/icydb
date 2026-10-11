@@ -110,7 +110,9 @@ FAILURE_LOG_ROOT="${VALIDATION_FAILURE_LOG_DIR:-$REPOSITORY_ROOT/target/validati
 FAILURE_RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 
 MAX_FAILURE_DETAIL_LINES=160
-FAILURE_PATTERN='---- .* stdout ----|^test .* \.\.\. FAILED$|failures:|test result: FAILED|error(\[[A-Z0-9]+\])?:([^:]|$)|target failed|make(\[[0-9]+\])?: \*\*\*'
+# One diagnostic predicate drives live highlighting and retained selection.
+# Rust paths such as error::tests are names, not diagnostics.
+DIAGNOSTIC_PATTERN='error:([^:]|$)|error\[|rustc-LLVM ERROR|test result: FAILED|^test .* \.\.\. FAILED$|fatal:|FAILED:|Target failed:|No such file or directory|❌|🚨|make(\[[^]]*\])?:.*\*\*\*'
 FAILURE_EVENT_PREFIX="${VALIDATION_FAILURE_EVENT_PREFIX:-}"
 if [[ -n "$FAILURE_EVENT_PREFIX" ]]; then
     if [[ "$FAILURE_EVENT_PREFIX" == *$'\n'* || "$FAILURE_EVENT_PREFIX" == *$'\r'* ]]; then
@@ -119,8 +121,10 @@ if [[ -n "$FAILURE_EVENT_PREFIX" ]]; then
     fi
     # The consumer supplies a literal line prefix, never a regular expression.
     escaped_prefix="$(printf '%s' "$FAILURE_EVENT_PREFIX" | sed 's/[][\\.^$*+?{}()|]/\\&/g')"
-    FAILURE_PATTERN="^$escaped_prefix|$FAILURE_PATTERN"
+    DIAGNOSTIC_PATTERN="^$escaped_prefix|$DIAGNOSTIC_PATTERN"
 fi
+# These headings add context without classifying their lines as errors.
+FAILURE_PATTERN="$DIAGNOSTIC_PATTERN|---- .* stdout ----|failures:|target failed"
 
 failed_targets=()
 failure_status=0
@@ -153,21 +157,7 @@ print_retained_error_line() {
 }
 
 is_live_failure_line() {
-    local line="$1"
-
-    if [[ -n "$FAILURE_EVENT_PREFIX" && "$line" == "$FAILURE_EVENT_PREFIX"* ]]; then
-        return 0
-    fi
-
-    case "$line" in
-        # Rust paths such as error::tests are names, not diagnostics.
-        *"error:"[!:]* | *"error:" | *"error["* | *"rustc-LLVM ERROR"* | \
-            *"test result: FAILED"* | test\ *" ... FAILED" | *"fatal:"* | \
-            *"FAILED:"* | *"Target failed:"* | *"No such file or directory"* | \
-            *"❌"* | *"🚨"* | \
-            *make:*"***"* | *make\[*"***"*) return 0 ;;
-        *) return 1 ;;
-    esac
+    [[ "$1" =~ $DIAGNOSTIC_PATTERN ]]
 }
 
 annotate_live_output() {

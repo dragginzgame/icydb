@@ -105,9 +105,9 @@ pub(crate) mod test_support {
     pub(crate) fn install_upgrade_command(
         environment: &str,
         canister: &str,
-        wasm_path: std::path::PathBuf,
+        wasm: Option<&std::path::Path>,
     ) -> Command {
-        commands::install_upgrade_command(environment, canister, wasm_path)
+        commands::install_upgrade_command(environment, canister, wasm)
     }
 
     pub(crate) fn status_command(environment: &str, canister: &str) -> Command {

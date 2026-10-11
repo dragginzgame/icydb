@@ -42,7 +42,10 @@ The default `RELEASE_DELIVERY=direct` workflow is:
 2. **Validate.** Run the repository's documented complete release gate against
    the selected source and dependencies. Patch, minor and major use the same
    gate. Stop before version mutation if validation fails; retain failure logs
-   and build artifacts.
+   and build artifacts. Coordinated Rust crates with unchanged versions may use
+   [local archive qualification](../rules/cargo-dependencies.md#qualifying-coordinated-package-archives-before-a-version-bump)
+   when registry verification selects an older published dependency. This does
+   not move version preparation earlier or replace publication admission.
 3. **Prepare.** Apply the selected increment to the canonical version and all
    directly owned metadata and lockfile entries, without dependency upgrades.
    Finalize the one current changelog draft as `## [X.Y.Z] - YYYY-MM-DD`, using

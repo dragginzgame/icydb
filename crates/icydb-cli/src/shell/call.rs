@@ -1,7 +1,7 @@
 //! Module: shell canister calls.
-//! Responsibility: build shell SQL Candid arguments, run ICP calls, and decorate known recovery errors.
+//! Responsibility: build shell SQL Candid arguments, run ICP calls, and preserve failure context.
 //! Does not own: SQL routing, response decoding, or final shell rendering.
-//! Boundary: exposes shell-call wire helpers to the shell runner and recovery hint tests.
+//! Boundary: exposes shell-call wire helpers to the shell runner.
 
 use crate::icp::{call_query_hex, call_update_hex};
 
@@ -75,37 +75,5 @@ fn sql_call_error_mapper<'a>(
     canister: &'a str,
     method: &'a str,
 ) -> impl FnOnce(&str) -> String + 'a {
-    move |stderr| {
-        let error = sql_call_error(call_kind, environment, canister, method, stderr);
-
-        sql_error_with_recovery_hint(error.as_str(), environment, canister)
-    }
-}
-
-pub(super) fn sql_error_with_recovery_hint(
-    error: &str,
-    environment: &str,
-    canister: &str,
-) -> String {
-    if !looks_like_stale_sql_surface(error) {
-        return error.to_string();
-    }
-
-    format!("{error}\n\n{}", sql_recovery_hint(environment, canister))
-}
-
-fn looks_like_stale_sql_surface(error: &str) -> bool {
-    stale_startup_index_rebuild(error)
-}
-
-fn stale_startup_index_rebuild(error: &str) -> bool {
-    error.contains("startup index rebuild failed")
-        && error.contains("store '")
-        && error.contains("' not found")
-}
-
-fn sql_recovery_hint(environment: &str, canister: &str) -> String {
-    format!(
-        "This looks like stale wasm or stable-memory schema state for '{canister}' in environment '{environment}'. Verify that target first with `icydb canister status {canister} --environment {environment}`. Do not refresh unless this explicitly selected environment is disposable; otherwise repair it or use `icydb canister upgrade {canister} --environment {environment}` intentionally."
-    )
+    move |stderr| sql_call_error(call_kind, environment, canister, method, stderr)
 }

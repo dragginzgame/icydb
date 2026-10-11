@@ -39,7 +39,16 @@ uname() {
   esac
 }
 rustup() { trace "rustup $* in $PWD"; }
-cargo() { trace "cargo $* in $PWD"; }
+cargo() {
+  if [[ "${TEST_JOBSERVER_PROBE:-0}" == 1 ]]; then
+    [[ "${MAKEFLAGS:-}" =~ --jobserver-(auth|fds)=([0-9]+),([0-9]+) ]]
+    local reader="${BASH_REMATCH[2]}" writer="${BASH_REMATCH[3]}"
+    : <&"$reader"
+    : >&"$writer"
+  fi
+  trace "cargo $* in $PWD"
+  [[ "${TEST_CARGO_FAIL:-0}" == 0 ]]
+}
 # Invoked by the child workstation script through the exported function.
 # shellcheck disable=SC2317,SC2329
 make() {
@@ -87,6 +96,36 @@ for host in Linux Darwin; do
       "make --no-print-directory -C $FIXTURE install-hooks" > "$FIXTURE/expected"
     rg '^make ' "$TEST_TRACE" > "$FIXTURE/actual"
     cmp "$FIXTURE/expected" "$FIXTURE/actual"
+  done
+done
+# Real outer Make recipes must preserve the descriptors through workstation
+# orchestration. All installers, Cargo and nested Make effects are substitutes.
+# Select Bash for these probes so the exported substitutes survive recipe shells.
+cp "$ROOT/Makefile" "$FIXTURE/"
+cp "$ROOT/make/"*.mk "$FIXTURE/make/"
+cp "$ROOT/scripts/ci/"{check-make-execution.sh,actionlint-checksums.tsv} "$FIXTURE/scripts/ci/"
+workstation_make="$(type -P make)"
+for lane in install-dev update-dev; do
+  : > "$TEST_TRACE"
+  TEST_JOBSERVER_PROBE=1 "$workstation_make" --no-print-directory -C "$FIXTURE" -j2 "$lane" "SHELL=$BASH" \
+    > "$FIXTURE/$lane.log" 2>&1
+  [[ "$(rg -c '^cargo install ' "$TEST_TRACE")" == 3 ]]
+  rg -F "make --no-print-directory -C $FIXTURE install-hooks" "$TEST_TRACE" >/dev/null
+  cmp "$FIXTURE/Cargo.lock" "$FIXTURE/lock.before"
+  : > "$TEST_TRACE"
+  status=0
+  TEST_JOBSERVER_PROBE=1 TEST_CARGO_FAIL=1 "$workstation_make" --no-print-directory \
+    -C "$FIXTURE" -j2 "$lane" "SHELL=$BASH" > "$FIXTURE/$lane-failure.log" 2>&1 || status=$?
+  [[ "$status" == 2 && "$(rg -c '^cargo install ' "$TEST_TRACE")" == 1 ]]
+  if rg -e 'make .* (tools-check|install-hooks)$' "$TEST_TRACE" >/dev/null; then exit 1; fi
+done
+for mode in -n -t -q -i; do
+  for lane in install-dev update-dev; do
+    : > "$TEST_TRACE"
+    status=0
+    "$workstation_make" --no-print-directory -C "$FIXTURE" -j2 "$mode" "$lane" \
+      > "$FIXTURE/$lane-$mode.log" 2>&1 || status=$?
+    [[ "$status" == 2 && ! -s "$TEST_TRACE" ]]
   done
 done
 # A failed locked fetch stops before offline admission and hook activation.

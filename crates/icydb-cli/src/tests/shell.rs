@@ -3,14 +3,10 @@
 //! Does not own: top-level clap parsing or ICP process command construction.
 //! Boundary: test-only assertions over shell helpers and decoded SQL payload text.
 
-use crate::{
-    cli::DEFAULT_ENVIRONMENT,
-    shell::test_support::{
-        SqlShellCallKind, candid_escape_string, drain_complete_shell_statements,
-        finalize_successful_command_output, interactive_start_message, is_shell_exit_command,
-        is_shell_help_command, render_sql_response, shell_help_text, sql_error_with_recovery_hint,
-        sql_shell_call_kind,
-    },
+use crate::shell::test_support::{
+    SqlShellCallKind, candid_escape_string, drain_complete_shell_statements,
+    finalize_successful_command_output, interactive_start_message, is_shell_exit_command,
+    is_shell_help_command, render_sql_response, shell_help_text, sql_shell_call_kind,
 };
 use candid::{Decode, Encode};
 use icydb::{
@@ -166,36 +162,6 @@ fn interactive_start_message_names_target_and_exit_controls() {
     assert!(message.contains("'test:demo_rpg'"));
     assert!(message.contains("terminate statements with ';'"));
     assert!(message.contains("\\q, exit, or Ctrl-D"));
-}
-
-#[test]
-fn sql_recovery_hint_preserves_authoritative_deployed_method_absence() {
-    let error = "Canister has no query method 'icydb_query'.";
-
-    assert_eq!(
-        sql_error_with_recovery_hint(error, DEFAULT_ENVIRONMENT, "demo_rpg"),
-        error,
-    );
-}
-
-#[test]
-fn sql_recovery_hint_leaves_unrelated_errors_unchanged() {
-    let error = "SQL DDL execution is not supported in this release";
-
-    assert_eq!(
-        sql_error_with_recovery_hint(error, DEFAULT_ENVIRONMENT, "demo_rpg"),
-        error,
-    );
-}
-
-#[test]
-fn sql_recovery_hint_requires_environment_verification_before_disposable_refresh() {
-    let error = "startup index rebuild failed: store 'token' not found";
-    let rendered = sql_error_with_recovery_hint(error, "local", "sample-feed");
-
-    assert!(rendered.contains("canister status sample-feed --environment local"));
-    assert!(rendered.contains("Do not refresh unless"));
-    assert!(!rendered.contains("run `icydb canister refresh"));
 }
 
 #[test]

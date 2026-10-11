@@ -2,16 +2,16 @@
 
 Apply [the shared method](../../../../audits/complexity-and-technical-debt.md).
 
-IcyDB adopts Shared Tooling `d957d1f8801885c5b69e4a9ef900155f5f2a8a9d` through
+Use the reviewed Shared Tooling revision recorded in
 [the snapshot](../../../../.shared-tooling.snapshot). Apply the shared method
-and [local audit governance](../../README.md) together. This changes method
-identity; earlier reports remain historical and affected comparisons are
+and [local audit governance](../../README.md) together. Shared-method adoption
+changed method identity; earlier reports remain historical and affected comparisons are
 `N/A (method change)`. No audit supplies implementation or broad-gate authority.
 
 ## Identity and scope
 
 - Report scope: `complexity-and-technical-debt`.
-- Method: shared revision above plus `ICYDB-CTD-2`; record both identities.
+- Method: shared snapshot revision plus `ICYDB-CTD-2`; record both identities.
 - Reports: `docs/reports/recurring/YYYY/MM/DD/complexity-and-technical-debt/<run>/report.md`.
 - Trigger: affected owners at minor-line closeout, new public/configuration axes,
   persisted state, routes, cursor/protocol formats or widely consumed variants,

@@ -31,6 +31,7 @@ for crate in "${crates[@]}"; do
         > "$fixture/crates/$crate/Cargo.toml"
 done
 export EVENTS="$fixture/events" FIXTURE_STATE="$fixture/state"
+export PUBLISH_TEST_ROOT="$root"
 export RELEASE_RECEIPT_DIR="$fixture/receipts"
 export HEAD_COMMIT=1111111111111111111111111111111111111111
 real_bash="$(command -v bash)"
@@ -79,9 +80,22 @@ esac
 CURL
 cat >> "$fixture/bin/cargo" <<'CARGO'
 set -euo pipefail
+if [[ "${PUBLISH_REQUIRE_JOBSERVER:-0}" == 1 ]]; then
+    [[ "${MAKEFLAGS:-}" =~ --jobserver-(auth|fds)=([0-9]+),([0-9]+) ]]
+    reader="${BASH_REMATCH[2]}"; writer="${BASH_REMATCH[3]}"
+    : <&"$reader"
+    : >&"$writer"
+    [[ "$CARGO_HOME" == "$PUBLISH_EXPECTED_HOME" ]]
+    [[ "$CARGO_TARGET_DIR" == "$PUBLISH_TEST_ROOT/target/icydb" ]]
+fi
 if [[ "$1" == locate-project ]]; then
     [[ "${FAIL_VERSION_READ:-0}" == 0 ]] || exit 7
     printf '%s\n' "$PWD/Cargo.toml"
+    exit 0
+fi
+if [[ "$1" == package ]]; then
+    [[ "$*" == 'package --locked' ]]
+    printf 'cargo %s\n' "$*" >> "$EVENTS"
     exit 0
 fi
 [[ "$1" == publish && "$2" == -p && "$4" == --locked && "$5" == --registry && "$6" == crates-io ]]
@@ -194,11 +208,28 @@ cmp "$fixture/expected" "$EVENTS"
 cd "$fixture"
 env PUBLISH_DRY_RUN=1 PUBLISH_VALIDATE_ONLY=0 PUBLISH_FROM= PUBLISH_VERIFY=auto \
     PUBLISH_POLL_SECS=10 PUBLISH_TIMEOUT_SECS=300 REGISTRY_MODE=absent \
-    make --no-print-directory -f "$root/Makefile" publish > "$fixture/output" 2>&1
+    CARGO_HOME="$fixture/caller-cargo" PUBLISH_EXPECTED_HOME="$fixture/caller-cargo" \
+    PUBLISH_REQUIRE_JOBSERVER=1 \
+    make --no-print-directory -j2 -f "$root/Makefile" publish > "$fixture/output" 2>&1
 for crate in "${crates[@]}"; do
     printf 'lookup %s 0.265.0\ncargo publish -p %s --locked --registry crates-io --dry-run --no-verify\n' \
         "$crate" "$crate"
 done > "$fixture/expected"
 cmp "$fixture/expected" "$EVENTS"
+: > "$EVENTS"
+env PUBLISH_REQUIRE_JOBSERVER=1 PUBLISH_EXPECTED_HOME="$root/.cache/cargo/icydb" \
+    CARGO_HOME="$fixture/caller-cargo" \
+    make --no-print-directory -j2 -f "$root/Makefile" package > "$fixture/package-output" 2>&1
+printf 'cargo package --locked\n' > "$fixture/expected"
+cmp "$fixture/expected" "$EVENTS"
+for mode in -n -t -q -i; do
+    for lane in package publish; do
+        : > "$EVENTS"
+        status=0
+        make --no-print-directory -j2 "$mode" -f "$root/Makefile" "$lane" \
+            > "$fixture/$lane-$mode.log" 2>&1 || status=$?
+        [[ "$status" == 2 && ! -s "$EVENTS" ]]
+    done
+done
 echo 'publication preflight, receipts, exact-version retries and order passed (command substitutes)'
 fixture_complete=true
