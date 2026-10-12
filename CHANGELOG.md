@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ## [0.272.0]
 
 - **Breaking:** expose tracked metrics quality and producer-admitted means;
-  adopt Shared Tooling 0.9.4, delegate artifact inspection to Host 0.15,
+  adopt current upstream crates, Shared Tooling 0.9.4 and Host artifact inspection,
   and repair CI, CLI, read and storage bounds
   ([#354](https://github.com/dragginzgame/icydb/issues/354),
   [#116](https://github.com/dragginzgame/icydb/issues/116),
@@ -22,7 +22,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   [#132](https://github.com/dragginzgame/icydb/issues/132),
   [#126](https://github.com/dragginzgame/icydb/issues/126),
   [#123](https://github.com/dragginzgame/icydb/issues/123),
-  [#118](https://github.com/dragginzgame/icydb/issues/118)).
+  [#118](https://github.com/dragginzgame/icydb/issues/118),
+  [IC Build #1](https://github.com/dragginzgame/ic-build/issues/1)).
 
 See [detailed notes](docs/changelog/0.272.md).
 

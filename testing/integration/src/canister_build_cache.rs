@@ -16,7 +16,7 @@ use std::{
     time::Duration,
 };
 
-use ic_testkit::artifacts::{
+use ic_build::artifacts::{
     ArtifactCacheOutcome, ArtifactCachePreparation, ArtifactCachePrunePolicy, ArtifactCacheRecord,
     ArtifactCacheSpec, LabeledArtifactCacheSpec, LabeledWasmBuildSpec,
     SharedIncrementalTargetMaintenanceConfig, SharedIncrementalTargetMaintenanceFailureMode,
@@ -442,7 +442,7 @@ mod tests {
         cargo_wasm_batch_specs, relevant_prefixed_environment,
         shared_incremental_target_maintenance_config, wasm_build_progress_config,
     };
-    use ic_testkit::artifacts::{ArtifactCachePrunePolicy, prune_artifact_cache};
+    use ic_build::artifacts::{ArtifactCachePrunePolicy, prune_artifact_cache};
 
     fn fixture_root(label: &str) -> PathBuf {
         let unique = SystemTime::now()

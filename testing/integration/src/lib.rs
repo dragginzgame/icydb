@@ -33,8 +33,8 @@ use std::{
 };
 
 use candid::CandidType;
+use ic_build::artifacts::{ArtifactCacheRecord, LabeledWasmBuildSpec, WasmBuildRecord};
 use ic_testkit::{
-    artifacts::{ArtifactCacheRecord, LabeledWasmBuildSpec, WasmBuildRecord},
     pic::{InstallSpec, PocketIcBuilderExt, PocketIcStartupConfig, StandaloneCanisterFixture},
     pocket_ic::{PocketIc, PocketIcBuilder},
 };

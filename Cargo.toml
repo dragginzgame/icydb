@@ -84,6 +84,7 @@ derive_more = { version = "2.0", default-features = false, features = [
 ] }
 ethnum = { version = "1.5.3", default-features = false }
 getrandom = "0.4"
+ic-build = "0.1"
 ic-cdk = "0.20.3"
 ic-host-artifacts = { version = "0.15", default-features = false }
 ic-host-fs = "0.15"
