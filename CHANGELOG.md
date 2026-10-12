@@ -5,7 +5,7 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.272.0]
+## [0.272.0] - 2026-10-12
 
 - **Breaking:** expose tracked metrics quality and producer-admitted means;
   adopt current upstream crates, Shared Tooling 0.9.4 and Host artifact inspection,
