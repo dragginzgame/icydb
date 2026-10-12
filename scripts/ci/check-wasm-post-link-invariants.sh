@@ -80,7 +80,7 @@ require_text \
     'the post-link pipeline must prevent unbounded one-caller inlining.'
 require_text \
     Makefile \
-    "include \$(ROOT_DIR)/make/tools.mk" \
+    "include \$(ROOT_DIR)/make/consumer.mk" \
     'tool installation must delegate to the reviewed shared Make include.'
 require_text \
     ci/ic-tools.tsv \

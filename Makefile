@@ -25,12 +25,13 @@
 # Resolve the repo root from this Makefile so scripts can query these values
 # via `make -C "$$ROOT"` and share a single source of truth.
 ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
-SHARED_TOOLING_ROOT := $(ROOT_DIR)
+override SHARED_TOOLING_ROOT := $(ROOT_DIR)
 LOCAL_TOOL_INSTALL_TARGETS := install-testkit
 LOCAL_TOOL_CHECK_TARGETS := testkit-check
-include $(ROOT_DIR)/make/tools.mk
-include $(ROOT_DIR)/make/execution.mk
-include $(ROOT_DIR)/make/release.mk
+# IcyDB owns derive ordering; shared targets own admission and formatter output.
+FORMAT_WRITE_COMMAND = bash -ec '"$$1" sort-derives; "$$1" sort --workspace; "$$1" fmt --all' -- "$(FORMAT_CARGO)"
+FORMAT_CHECK_COMMAND = bash -ec '"$$1" sort-derives --check; "$$1" sort --workspace --check; "$$1" fmt --all -- --check' -- "$(FORMAT_CARGO)"
+include $(ROOT_DIR)/make/consumer.mk
 
 # Keep workspace cargo state repo-local so sibling repos compiling on the same
 # filesystem do not contend on a shared cargo home or target directory.
@@ -48,7 +49,7 @@ IC_TESTKIT_ENV = server="$(POCKET_IC_BIN)"; if [ -z "$$server" ]; then server="$
 # PocketIC test bodies; core-only lanes retain their wider bounded parallelism.
 CORE_TEST_ENV := RUST_TEST_THREADS=8
 WORKSPACE_TEST_ENV := RUST_TEST_THREADS=2
-VALIDATION_RUNNER := bash "$(ROOT_DIR)/scripts/ci/run-icydb-validation-targets.sh"
+VALIDATION_RUNNER := bash "$(ROOT_DIR)/scripts/ci/run-icydb-validation-targets.sh" --input Cargo.toml --input Cargo.lock --input rust-toolchain.toml
 POCKET_IC_RUNNER := bash "$(ROOT_DIR)/scripts/ci/run-with-pocketic-server.sh"
 ACTIONLINT_VERSION := $(shell awk '$$1 == "version" {print $$2}' "$(ROOT_DIR)/scripts/ci/actionlint-checksums.tsv")
 ACTIONLINT_INSTALL_DIR ?= $(HOME)/.local/bin
@@ -86,6 +87,7 @@ help:
 	@echo "Setup / Installation:"
 	@echo "  install-tools    Install pinned repository-local host, IC and Rust tools"
 	@echo "  tools-check      Verify the selected local tools offline"
+	@echo "  shared-tooling-check Verify the reviewed shared snapshot offline"
 	@echo "  install-testkit  Prepare the locked Testkit CLI/server after make fetch"
 	@echo "  testkit-check    Verify Testkit offline and print its admitted server path"
 	@echo "  install          Install the local icydb CLI binary"
@@ -171,11 +173,6 @@ update-dev:
 # Keep one idempotent GitHub CLI installer for workstation setup and CI jobs.
 install-gh:
 	bash scripts/ci/install-gh.sh
-
-# Keep hook installation explicit and refuse to replace an unrelated local
-# hook authority. Git resolves the relative path from this repository.
-install-hooks:
-	bash scripts/dev/install-git-hooks.sh
 
 # Provisioning and offline bundle verification belong to the shared include.
 # IcyDB additionally admits its raw optimizer executable. Testkit owns PocketIC
@@ -335,23 +332,9 @@ clippy:
 	+$(CARGO_WORK_ENV) cargo clippy --locked -p canister_audit_one_entity_sql_query -p canister_test_sql_guard \
 		--all-targets --all-features -- -D warnings
 
-# Formatting keeps Cargo state local. Wrap the complete derive policy once;
-# the shared simple-workspace include cannot express this sequence. Tool
-# admission still precedes all mutation.
-FORMAT_CARGO ?= cargo
-.PHONY: fmt fmt-check format-tools-check
+# Preserve repository-local Cargo state through the shared formatting targets.
 fmt fmt-check format-tools-check: export CARGO_HOME := $(CARGO_WORK_HOME)
 fmt fmt-check format-tools-check: export CARGO_TARGET_DIR := $(CARGO_WORK_TARGET_DIR)
-fmt fmt-check format-tools-check: export CARGO_NET_OFFLINE := true
-fmt fmt-check format-tools-check: export RUSTUP_AUTO_INSTALL := 0
-format-tools-check:
-	+@. "$(HOST_TOOL_VERSIONS)" && bash "$(SHARED_TOOLING_ROOT)/scripts/ci/check-format-tools.sh" "$${SHARED_TOOLING_CARGO_SORT_VERSION:?}" "$(FORMAT_CARGO)"
-fmt: format-tools-check
-	+@bash "$(SHARED_TOOLING_ROOT)/scripts/ci/run-formatting.sh" --write \
-		bash -ec '"$$1" sort-derives; "$$1" sort --workspace; "$$1" fmt --all' -- "$(FORMAT_CARGO)"
-fmt-check: format-tools-check
-	+@bash "$(SHARED_TOOLING_ROOT)/scripts/ci/run-formatting.sh" --check \
-		bash -ec '"$$1" sort-derives --check; "$$1" sort --workspace --check; "$$1" fmt --all -- --check' -- "$(FORMAT_CARGO)"
 
 validate:
 	$(MAKE) --no-print-directory tools-check
@@ -418,9 +401,8 @@ check-dependency-pins:
 
 # The static gate and native host qualification execute this same portable
 # fixture selection. Host-specific setup, lint and Cargo gates stay with callers.
-check-portable-automation:
+check-portable-automation: shared-tooling-check
 	bash scripts/release/test-lock-selection.sh
-	bash scripts/ci/verify-shared-tooling-snapshot.sh
 	bash scripts/ci/test-gh-ci.sh
 	bash scripts/ci/test-shared-tooling-adapters.sh
 	bash scripts/ci/test-workstation-setup.sh

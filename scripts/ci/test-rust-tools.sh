@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/dev/install-rust-tools.sh scripts/dev/cargo-tool-build.sh scripts/dev/tool-store.sh scripts/ci/select-tool-evidence.sh scripts/ci/archive-evidence.sh
+# Shared companions: scripts/dev/install-rust-tools.sh scripts/dev/cargo-tool-build.sh scripts/dev/tool-store.sh scripts/ci/select-tool-evidence.sh scripts/ci/archive-evidence.sh .githooks/pre-commit
 set -euo pipefail
 ROOT="${BASH_SOURCE[0]}"
 [[ "$ROOT" == /* ]] || ROOT="$PWD/$ROOT"
@@ -16,6 +16,8 @@ finish() {
 }
 trap finish EXIT
 export SHARED_TOOLING_STORE="$fixture/store"
+mkdir "$fixture/templates"
+export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TEMPLATE_DIR="$fixture/templates"
 mkdir -p "$fixture/compiler/bin" "$fixture/assets" "$fixture/a" "$fixture/b"
 # Always exercise BSD-style padded counts, including on Linux.
 mkdir "$fixture/commands"
@@ -58,7 +60,9 @@ printf '#!%s\n' "$BASH" > "$fixture/compiler/bin/rustc"
 printf 'fixture=%q\n' "$fixture" >> "$fixture/compiler/bin/rustc"
 cat >> "$fixture/compiler/bin/rustc" <<'STUB'
 case "$*" in
-    '--print sysroot') echo "$fixture/compiler" ;;
+    '--print sysroot')
+        [[ ! -f rust-toolchain.toml ]] || { echo 'unprepared staged compiler' >&2; exit 77; }
+        echo "$fixture/compiler" ;;
     *) cat "$fixture/compiler-version"; echo 'host: fixture-host' ;;
 esac
 STUB
@@ -138,6 +142,7 @@ refuse() {
     if "$@" > "$fixture/refused.log" 2>&1; then echo 'unexpected Cargo tool admission' >&2; exit 1; fi
 }
 common() { bash "$installer" --consumer "$consumer" --versions "$fixture/versions" "$@"; }
+hook() (cd "$consumer" && bash .githooks/pre-commit)
 consumer="$fixture/a"
 common --preflight
 [[ ! -e "$SHARED_TOOLING_STORE" && ! -e "$consumer/.tools" ]] || exit 1
@@ -150,6 +155,72 @@ RUSTFLAGS=invalid RUSTC_WRAPPER=/missing UNMODELLED_SECRET=must-not-propagate co
 [[ "$(wc -l < "$fixture/builds")" -eq 3 ]] || exit 1
 common --check
 first_binary="$(perl -MCwd=abs_path -e 'print abs_path(shift)' "$consumer/.tools/rust/common/bin/cargo-sort")"
+# A real staged hook uses these receipts without installing into its export.
+# Cargo/compiler binaries above are substitutes; receipt admission and Git are real.
+mkdir -p "$consumer/scripts/ci" "$consumer/scripts/dev" "$consumer/.githooks"
+cp "$ROOT/.githooks/pre-commit" "$consumer/.githooks/"
+for file in check-make-execution verify-file-checksum; do
+    cp "$ROOT/scripts/ci/$file.sh" "$consumer/scripts/ci/"
+done
+for file in install-rust-tools cargo-tool-build tool-store; do
+    cp "$ROOT/scripts/dev/$file.sh" "$consumer/scripts/dev/"
+done
+cp "$fixture/versions" "$consumer/pins"
+printf '.tools/\n' > "$consumer/.gitignore"
+printf 'original\n' > "$consumer/README.md"
+printf 'formatted\n' > "$consumer/selected.rs"
+cat > "$consumer/Makefile" <<'MAKE'
+fmt:
+	@bash scripts/dev/install-rust-tools.sh --consumer "$(CURDIR)" --versions pins --check > /dev/null
+	@test ! -e .tools
+	@printf 'formatted\n' > selected.rs
+MAKE
+git init -q "$consumer"
+git -C "$consumer" add .gitignore .githooks scripts pins README.md selected.rs Makefile
+git -C "$consumer" -c user.name=Fixture -c user.email=fixture@example.invalid \
+    -c core.hooksPath=/dev/null commit -qm fixture
+printf 'working-only README\n' > "$consumer/README.md"
+printf 'retained evidence\n' > "$consumer/untracked-evidence"
+printf 'unformatted\n' > "$consumer/selected.rs"
+git -C "$consumer" add selected.rs
+# Unstaged catalog changes cannot select the tools used on the staged source.
+printf 'exit 99\n' > "$consumer/pins"
+(cd "$consumer" && bash .githooks/pre-commit) > "$fixture/hook.log" 2>&1
+[[ "$(git -C "$consumer" show :selected.rs)" == formatted ]]
+[[ "$(cat "$consumer/pins")" == 'exit 99' && "$(cat "$consumer/README.md")" == 'working-only README' ]]
+cp "$fixture/versions" "$consumer/pins"
+printf 'unformatted\n' > "$consumer/selected.rs"
+git -C "$consumer" add selected.rs
+hook_tree="$(git -C "$consumer" write-tree)"
+receipt="${first_binary%/bin/*}/selection.json"
+cp "$receipt" "$fixture/receipt.saved"
+printf '{}\n' > "$receipt"
+refuse hook
+cp "$fixture/receipt.saved" "$receipt"
+[[ "$(git -C "$consumer" write-tree)" == "$hook_tree" && "$(cat "$consumer/selected.rs")" == unformatted ]]
+# Changed staged pins and compiler context require fresh explicit preparation.
+printf 'SHARED_TOOLING_CARGO_SORT_VERSION=99.9.0\n' >> "$consumer/pins"
+git -C "$consumer" add pins
+refuse hook
+cp "$fixture/versions" "$consumer/pins"
+git -C "$consumer" add pins
+printf 'changed compiler\n' > "$fixture/compiler-version"
+refuse hook
+printf 'fixture rustc\n' > "$fixture/compiler-version"
+[[ "$(git -C "$consumer" write-tree)" == "$hook_tree" && "$(cat "$consumer/untracked-evidence")" == 'retained evidence' ]]
+printf 'unprepared staged compiler\n' > "$consumer/rust-toolchain.toml"
+git -C "$consumer" add rust-toolchain.toml
+refuse hook
+grep -F 'unprepared staged compiler' "$fixture/refused.log" >/dev/null
+git -C "$consumer" rm -qf rust-toolchain.toml
+[[ "$(wc -l < "$fixture/builds")" -eq 3 ]]
+mkdir "$fixture/export"
+SHARED_TOOLING_FORMAT_WORKTREE="$fixture/export" SHARED_TOOLING_FORMAT_TOOLS_FROM="$consumer" \
+    refuse bash "$installer" --consumer "$fixture/export" --versions "$fixture/versions"
+[[ ! -e "$fixture/export/.tools" ]]
+# An unrelated consumer never borrows a parent hook's selection context.
+SHARED_TOOLING_FORMAT_WORKTREE="$fixture/export" SHARED_TOOLING_FORMAT_TOOLS_FROM="$consumer" \
+    refuse bash "$installer" --consumer "$fixture/b" --versions "$fixture/versions" --check
 printf 'old local evidence\n' | cmp - "$consumer/.tools/rust/previous/installed/build/payload"
 # Conditional common setup must preserve a foreign lock and every selection,
 # with no build/reference/activation attempt and no successful-path output.

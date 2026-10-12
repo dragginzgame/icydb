@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   Candid `nat`; regenerate report bindings and use the matching CLI
   ([#350](https://github.com/dragginzgame/icydb/issues/350)).
 - Converge internal schema, resource and mutation ownership, repair production-panic
-  validation, and adopt updated shared tooling, Host command handling and atomic
+  validation, and adopt Shared 0.6.5's common Make flow, Host command handling and atomic
   initial timer registration
   ([#238](https://github.com/dragginzgame/icydb/issues/238),
   [#237](https://github.com/dragginzgame/icydb/issues/237),

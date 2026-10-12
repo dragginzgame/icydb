@@ -21,7 +21,7 @@ trap finish EXIT
 fixture="$(cd -P "$fixture" && printf '%s/.' "$PWD")"
 fixture="${fixture%/.}"
 export TMPDIR="${fixture%/*}"
-release_inputs=(scripts/ci/actionlint-checksums.tsv make/tools.mk make/release.mk make/rust-format.mk make/execution.mk scripts/ci/check-make-execution.sh scripts/ci/run-formatting.sh ci/tool-versions.env)
+release_inputs=(scripts/ci/actionlint-checksums.tsv make/consumer.mk make/tools.mk make/release.mk make/rust-format.mk make/execution.mk scripts/ci/check-make-execution.sh scripts/ci/run-formatting.sh ci/tool-versions.env)
 bash "$root/scripts/ci/check-release-commands.sh" "$root" "${release_inputs[@]}"
 # Exercise this consumer's actual Make adapters after the checker changes cwd.
 mkdir "$fixture/relative-temp"

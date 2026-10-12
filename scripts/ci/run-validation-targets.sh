@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/check-make-execution.sh
+# Shared companions: scripts/ci/check-make-execution.sh scripts/ci/verify-file-checksum.sh
 set -euo pipefail
 
 usage() {
-    echo "usage: run-validation-targets.sh [--fail-fast] <make-target>..." >&2
+    echo "usage: run-validation-targets.sh [--fail-fast] [--input FILE]... <make-target>..." >&2
 }
 
 RUNNER_SOURCE="${BASH_SOURCE[0]}"
@@ -17,6 +17,8 @@ else
     REPOSITORY_ROOT="$(cd -P "${REPOSITORY_ROOT%/*}/../.." && printf '%s/.' "$PWD")"
     REPOSITORY_ROOT="${REPOSITORY_ROOT%/.}"
 fi
+REPOSITORY_ROOT="$(cd -P "$REPOSITORY_ROOT" && printf '%s/.' "$PWD")"
+REPOSITORY_ROOT="${REPOSITORY_ROOT%/.}"
 if [[ "${VALIDATION_RUNNER_SNAPSHOT_PATH:-}" != "$RUNNER_SOURCE" ]]; then
     RUNNER_SNAPSHOT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/validation-runner.XXXXXX")"
     RUNNER_SNAPSHOT="$RUNNER_SNAPSHOT_DIR/run-validation-targets.sh"
@@ -32,6 +34,7 @@ if [[ "${VALIDATION_RUNNER_SNAPSHOT_PATH:-}" != "$RUNNER_SOURCE" ]]; then
     trap cleanup_snapshot EXIT
     cp "$RUNNER_SOURCE" "$RUNNER_SNAPSHOT"
     cp "$(dirname "$RUNNER_SOURCE")/check-make-execution.sh" "$RUNNER_SNAPSHOT_DIR/"
+    cp "$(dirname "$RUNNER_SOURCE")/verify-file-checksum.sh" "$RUNNER_SNAPSHOT_DIR/"
     bash -n "$RUNNER_SNAPSHOT"
     snapshot_status=0
     VALIDATION_REPOSITORY_ROOT="$REPOSITORY_ROOT" \
@@ -47,10 +50,16 @@ fi
 unset VALIDATION_REPOSITORY_ROOT VALIDATION_RUNNER_SNAPSHOT_PATH
 
 FAIL_FAST=false
-if [[ "${1:-}" == "--fail-fast" ]]; then
-    FAIL_FAST=true
-    shift
-fi
+input_paths=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --fail-fast) FAIL_FAST=true; shift ;;
+        --input)
+            [[ $# -ge 2 && -n "$2" ]] || { usage; exit 2; }
+            input_paths+=("$2"); shift 2 ;;
+        *) break ;;
+    esac
+done
 
 if [[ $# -eq 0 ]]; then
     usage
@@ -108,6 +117,86 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 FAILURE_LOG_ROOT="${VALIDATION_FAILURE_LOG_DIR:-$REPOSITORY_ROOT/target/validation-failures}"
 FAILURE_RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+
+# A checkpoint belongs to one physical checkout. Nested gates there keep the
+# original hashes; unrelated disposable checkouts must establish their own.
+input_baseline=''
+if [[ "${VALIDATION_INPUT_ROOT:-}" == "$REPOSITORY_ROOT" ]]; then
+    input_baseline="${VALIDATION_INPUT_BASELINE:-}"
+    [[ -f "$input_baseline" && ! -L "$input_baseline" ]] || {
+        echo 'error: missing inherited validation input checkpoint' >&2; exit 1;
+    }
+fi
+unset VALIDATION_INPUT_ROOT VALIDATION_INPUT_BASELINE
+
+input_checkpoint() {
+    perl -MJSON::PP - "$REPOSITORY_ROOT" "$input_baseline" "$1" "${RUNNER_SOURCE%/*}/verify-file-checksum.sh" \
+        ${input_paths[@]+"${input_paths[@]}"} <<'PERL'
+use strict;
+use warnings;
+my ($root, $baseline, $output, $checksum, @paths) = @ARGV;
+my $json = JSON::PP->new->canonical;
+my $expected = {};
+if (length $baseline) {
+    open my $in, '<', $baseline or die "error: read checkpoint $baseline: $!\n";
+    local $/;
+    $expected = $json->decode(<$in>);
+    close $in or die "error: close checkpoint: $!\n";
+}
+my %observed;
+my $failed = 0;
+for my $path (sort keys %{{map { $_ => 1 } (keys %$expected, @paths)}}) {
+    die "error: checkpoint inputs must be relative file paths: $path\n"
+        if $path =~ m{^/|[\x00\r\n]|(?:^|/)\.{1,2}(?:/|$)|//|/$};
+    my $hash;
+    eval {
+        my $route = $root;
+        for my $part (split m{/}, $path) {
+            $route .= "/$part";
+            die "symlink in input route" if -l $route;
+        }
+        die "not a regular readable file" unless -f $route && -r $route;
+        open my $in, '-|', 'bash', $checksum, '--print', 'sha256', $route or die "checksum: $!";
+        local $/;
+        $hash = <$in>;
+        close $in or die "checksum observation failed";
+        $hash =~ s/\n\z//;
+        die "invalid checksum" unless $hash =~ /\A[0-9a-f]{64}\z/;
+    };
+    if ($@) {
+        $observed{$path} = {error => "$@"};
+        print STDERR "error: cannot observe validation input $path: $@\n";
+        $failed = 1;
+    } else {
+        $observed{$path} = $hash;
+        if (exists $expected->{$path} && $expected->{$path} ne $hash) {
+            print STDERR "error: validation input changed: $path ($expected->{$path} -> $hash)\n";
+            $failed = 1;
+        }
+    }
+}
+open my $out, '>', $output or die "error: write input evidence $output: $!\n";
+print {$out} $json->encode(\%observed), "\n" or die "error: write input evidence: $!\n";
+close $out or die "error: close input evidence: $!\n";
+if ($failed) {
+    print STDERR "Restart preparation and the full gate against the current inputs; prior validation cannot be reused.\n";
+    exit 1;
+}
+PERL
+}
+
+if [[ -n "$input_baseline" || ${#input_paths[@]} -gt 0 ]]; then
+    input_checkpoint "$LOG_DIR/inputs.json" 2> "$LOG_DIR/inputs-error.log" || {
+        cat "$LOG_DIR/inputs-error.log" >&2; exit 1;
+    }
+    input_baseline="$LOG_DIR/inputs.json"
+    export VALIDATION_INPUT_ROOT="$REPOSITORY_ROOT" VALIDATION_INPUT_BASELINE="$input_baseline"
+fi
+input_drift=false
+check_inputs() {
+    [[ -n "$input_baseline" ]] || return 0
+    input_checkpoint "$LOG_DIR/$1-inputs.json"
+}
 
 MAX_FAILURE_DETAIL_LINES=160
 # One diagnostic predicate drives live highlighting and retained selection.
@@ -310,23 +399,36 @@ for target in "$@"; do
         printf '\n==> %s\n' "$target"
     fi
 
-    if make --no-print-directory -C "$REPOSITORY_ROOT" -- "$target" 2>&1 |
-        tee "$log" |
+    # Run no subsequent target once prepared inputs drift, even in diagnostic
+    # (non-fail-fast) mode. Preserve a target's original failure if both fail.
+    target_status=0
+    if check_inputs "${#targets[@]}-before" > "$log" 2>&1; then
+        if make --no-print-directory -C "$REPOSITORY_ROOT" -- "$target" 2>&1 |
+        tee -a "$log" |
         annotate_live_output "$target"; then
-        result="PASS"
-        retained_log=""
-    else
-        # Capture the pipeline before diagnostics overwrite PIPESTATUS. Preserve
-        # Make's status; if only logging failed, preserve that nonzero status.
-        pipeline_status=("${PIPESTATUS[@]}")
-        if [[ "$failure_status" == 0 ]]; then
+            :
+        else
+            pipeline_status=("${PIPESTATUS[@]}")
             for component_status in "${pipeline_status[@]}"; do
                 if [[ "$component_status" != 0 ]]; then
-                    failure_status="$component_status"
+                    target_status="$component_status"
                     break
                 fi
             done
         fi
+        if ! check_inputs "${#targets[@]}-after" >> "$log" 2>&1; then
+            input_drift=true
+            [[ "$target_status" != 0 ]] || target_status=1
+        fi
+    else
+        input_drift=true
+        target_status=1
+    fi
+    if [[ "$target_status" == 0 ]]; then
+        result="PASS"
+        retained_log=""
+    else
+        [[ "$failure_status" != 0 ]] || failure_status="$target_status"
         failed_targets+=("$target")
         result="FAIL"
         retained_log="$(persist_failure_log "$log" "$target" "${#targets[@]}")"
@@ -357,12 +459,13 @@ for target in "$@"; do
         printf '::endgroup::\n'
     fi
 
-    if [[ "$result" == "FAIL" && "$FAIL_FAST" == "true" ]]; then
+    if [[ "$input_drift" == true || ( "$result" == "FAIL" && "$FAIL_FAST" == "true" ) ]]; then
         break
     fi
 done
 
 if [[ "$retention_failed" == false && "$retain_all_logs" == false ]]; then preserve_temporary_logs=false; fi
+if [[ -n "$input_baseline" && ${#failed_targets[@]} -gt 0 ]]; then preserve_temporary_logs=true; fi
 
 printf '\nValidation summary:\n'
 for index in "${!targets[@]}"; do

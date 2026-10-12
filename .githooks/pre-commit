@@ -9,6 +9,8 @@ root="$(git rev-parse --show-toplevel && printf '.')"
 root="${root%$'\n.'}"
 cd "$root"
 snapshot="$(mktemp -d "${TMPDIR:-/tmp}/pre-commit-format.XXXXXX")"
+snapshot="$(cd -P "$snapshot" && printf '%s/.' "$PWD")"
+snapshot="${snapshot%/.}"
 trap 'rm -rf -- "$snapshot"' EXIT
 
 git diff --cached --name-only -z --diff-filter=ACMR > "$snapshot/selected"
@@ -53,6 +55,11 @@ git_variables="$(git rev-parse --local-env-vars)"
     # Optional adapters consume this NUL-delimited selection against the exported
     # worktree. They must never discover or format the original checkout.
     export SHARED_TOOLING_FORMAT_FILES="$snapshot/selected"
+    # Receipt admission uses the prepared selections, but resolves pins and the
+    # compiler from this export. Scope the context to this exact worktree so a
+    # nested fixture cannot accidentally borrow its parent's tool selection.
+    export SHARED_TOOLING_FORMAT_WORKTREE="$snapshot/worktree"
+    export SHARED_TOOLING_FORMAT_TOOLS_FROM="$root"
     make --no-print-directory -C "$snapshot/worktree" fmt
 ) || exit $?
 

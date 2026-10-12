@@ -57,11 +57,11 @@ the independent, non-mutating formatting gate.
   failures, discard diffs or remove workspace/derive/frontend checks to reduce
   output. Retain failure logs in CI artifacts too.
 
-For a single root workspace, prefer the optional shared `make/rust-format.mk`:
+Use the [consumer Make entrypoint](../docs/make-interface.md), which includes
+the shared `make/rust-format.mk`:
 
 ```make
-include make/tools.mk
-include make/rust-format.mk
+include make/consumer.mk
 ```
 
 It supplies `format-tools-check`, `fmt` and `fmt-check`, using the shared
@@ -81,15 +81,14 @@ Admission checks both `MAKEFLAGS` and Make's retained `MFLAGS`, including when
 `MAKEFLAGS` is cleared or replaced. Do not assign `MFLAGS` on the command line or
 in a Makefile; the guard requires GNU Make's generated invocation flags.
 
-Keep local recipes for multiple independent workspaces, sort-derives, custom
-manifest ordering or frontend formatting. Those recipes still use the shared
-prerequisite checker; do not adopt the root-only include and accidentally drop
-existing coverage. Qualify the actual formatting hook after either adoption.
-Wrap the complete local formatter adapter once, for example
-`bash scripts/ci/run-formatting.sh --check bash scripts/dev/format-workspaces.sh --check`,
-where the consumer's existing adapter owns the actual commands. A fixed
-`bash -ec '...'` sequence works too; do not create another workspace registry or
-replace custom policy with the root-only include. The wrapper accepts one command
+Keep local adapters for multiple independent workspaces, sort-derives, custom
+manifest ordering or frontend formatting. Set both `FORMAT_WRITE_COMMAND` and
+`FORMAT_CHECK_COMMAND` to their complete sequences before the include; add any
+extra prerequisite checks to `format-tools-check`. Do not accidentally replace
+existing coverage with the root-workspace defaults. Qualify the actual formatting
+hook after adoption. The shared targets wrap each complete adapter once; a fixed
+`bash -ec '...'` sequence works too. Do not create another workspace registry.
+The wrapper accepts one command
 and its literal arguments, runs it once, and preserves its exit status. Logs are
 created beneath `RUNNER_TEMP`, otherwise `TMPDIR` or `/tmp`; only its own successful
 temporary log is removed. The shared failure collector includes `formatting.*`.
@@ -160,14 +159,10 @@ selected tracked lockfile, for example:
 
 ```make
 PRETTIER_VERSION = $(shell jq -er '.packages["node_modules/prettier"].version' frontend/package-lock.json)
-
-fmt:
-	@PRETTIER_VERSION="$(PRETTIER_VERSION)" bash scripts/ci/run-formatting.sh --write \
-		bash -ec 'cargo sort --workspace; cargo fmt --all; bash scripts/dev/format-frontend.sh --write frontend'
-
-fmt-check:
-	@PRETTIER_VERSION="$(PRETTIER_VERSION)" bash scripts/ci/run-formatting.sh --check \
-		bash -ec 'cargo sort --workspace --check; cargo fmt --all -- --check; bash scripts/dev/format-frontend.sh --check frontend'
+FORMAT_WRITE_COMMAND = bash -ec 'cargo sort --workspace; cargo fmt --all; bash scripts/dev/format-frontend.sh --write frontend'
+FORMAT_CHECK_COMMAND = bash -ec 'cargo sort --workspace --check; cargo fmt --all -- --check; bash scripts/dev/format-frontend.sh --check frontend'
+include make/consumer.mk
+fmt fmt-check: export PRETTIER_VERSION := $(PRETTIER_VERSION)
 ```
 
 Retain the Rust prerequisite checks and all actual workspace roots described
@@ -218,6 +213,15 @@ See the [Prettier CLI contract](https://prettier.io/docs/cli).
   while preserving the original commit index for its own checks and staging.
   It rejects inherited Make ignore-errors, dry-run, question, touch and version-only modes
   before dispatch, so a skipped or failed formatter cannot refresh the index.
+- Receipt checks using `install-rust-tools.sh --consumer "$(CURDIR)" --check`
+  can inspect the original checkout's prepared Rust selections from the index
+  export. The hook supplies `SHARED_TOOLING_FORMAT_WORKTREE` and
+  `SHARED_TOOLING_FORMAT_TOOLS_FROM` as an internal, exact-worktree context.
+  Catalog/lock selection and compiler resolution still use the export and its
+  inherited declared environment. Mismatched or corrupt receipts refuse; setup
+  in the export refuses. Keep stronger consumer prerequisites intact. An
+  unrelated nested checkout cannot borrow these selections. This context grants
+  no formatter permission to inspect or edit original source files.
 - After successful formatting, the hook checks that the index and selected
   working files have not changed, copies formatting back to those selected files
   and refreshes only that selection. Unselected tracked files, untracked files
@@ -237,13 +241,10 @@ See the [Prettier CLI contract](https://prettier.io/docs/cli).
 
 ## Installation and adoption
 
-Expose one setup command in every Rust consumer:
-
-```make
-.PHONY: install-hooks
-install-hooks:
-	bash scripts/dev/install-git-hooks.sh
-```
+The consumer Make entrypoint supplies `install-hooks` for Rust consumers through
+`scripts/dev/install-git-hooks.sh --consumer <checkout>`. Keep the tracked hook
+and its root-layout companions in the consumer, even when the installer itself
+is in a nested snapshot. A focused include can still call that documented helper.
 
 Run `make install-hooks` once per clone and call it from the documented developer
 setup/update flow. It sets only repository-local `core.hooksPath=.githooks`.

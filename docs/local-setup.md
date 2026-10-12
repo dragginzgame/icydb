@@ -52,7 +52,7 @@ tools extend the aggregate through existing consumer-owned targets:
 ```make
 LOCAL_TOOL_INSTALL_TARGETS += install-testkit
 LOCAL_TOOL_CHECK_TARGETS += testkit-check
-include make/tools.mk
+include make/consumer.mk
 ```
 
 These lists run sequentially after the common sets, including under parallel
@@ -73,8 +73,9 @@ Make and CI must select their own checkout's local tool paths. CI exports them
 for subsequent steps explicitly; Make's export does not change the calling
 terminal. Follow the [consumer adoption example](consuming-snapshots.md#local-ic-tool-adoption)
 for the complete installation/check selections, including ripgrep and cloc.
-Those commands are owned by `make/tools.mk`: consumers include the reviewed
-snapshot's file instead of maintaining copied recipes or installer flags. Shared
+Those commands are owned by `make/tools.mk`, selected through the
+[consumer Make entrypoint](make-interface.md). Consumers include that reviewed
+snapshot instead of maintaining copied recipes or installer flags. Shared
 Tooling's own Makefile and CI use the same commands. Snapshot adoption brings
 command updates; explicit setup brings newly required executables.
 

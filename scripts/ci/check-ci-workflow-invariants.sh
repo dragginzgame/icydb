@@ -21,7 +21,7 @@ ci_job_runs() {
 make_target_recipe() {
   local target="$1"
   awk -v target="$target" '
-    $0 == target ":" {
+    $0 ~ ("^" target ":[[:space:]]*") {
       in_target = 1
       next
     }
@@ -139,8 +139,7 @@ done
 # execution and log retention instead of freezing the runner's diagnostic prose.
 if [[ ! -x scripts/ci/run-icydb-validation-targets.sh ]] ||
    ! rg -q 'VALIDATION_RUNNER := .*run-icydb-validation-targets.sh' Makefile ||
-   ! make_target_recipe check-portable-automation | rg -q --fixed-strings \
-     'bash scripts/ci/verify-shared-tooling-snapshot.sh' ||
+   ! rg -q '^check-portable-automation: shared-tooling-check$' Makefile ||
    ! make_target_recipe check-portable-automation | rg -q --fixed-strings \
      'bash scripts/ci/test-shared-tooling-adapters.sh' ||
    ! rg -q '^validate-fast:$' Makefile ||

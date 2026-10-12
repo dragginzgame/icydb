@@ -6,6 +6,15 @@ root="${BASH_SOURCE[0]}"
 [[ "$root" == /* ]] || root="$PWD/$root"
 root="$(cd -P "${root%/*}/../.." && printf '%s/.' "$PWD")"
 root="${root%/.}"
+if [[ $# != 0 ]]; then
+    [[ $# == 2 && "$1" == --consumer ]] || {
+        echo 'usage: install-git-hooks.sh [--consumer <repository>]' >&2; exit 2;
+    }
+    root="$2"
+    [[ "$root" == /* ]] || root="$PWD/$root"
+fi
+root="$(cd -P "$root" && printf '%s/.' "$PWD")"
+root="${root%/.}"
 cd "$root"
 # Preserve literal trailing newlines; remove only Git's record terminator.
 repository_root="$(git rev-parse --show-toplevel && printf '.')"

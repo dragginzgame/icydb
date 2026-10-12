@@ -157,8 +157,8 @@ earlier evidence.
 
 ## Makefile example
 
-Use the optional `make/release.mk` include to keep standard command
-routing and conflicting-goal admission at their shared owner:
+Use the [consumer Make entrypoint](make-interface.md) to keep standard command
+routing and conflicting-goal admission at their shared owner (`make/release.mk`):
 
 ```makefile
 .DEFAULT_GOAL := help
@@ -166,7 +166,7 @@ RELEASE_REMOTE ?= origin
 RELEASE_BRANCH ?= main
 export RELEASE_DELIVERY ?= direct
 
-include make/release.mk
+include make/consumer.mk
 
 .PHONY: help
 
@@ -175,6 +175,7 @@ help:
 
 ```
 
+Non-Rust repositories set `SHARED_TOOLING_RUST := 0` before the include.
 The include preserves the default goal and supplies `release-resume VERSION=X.Y.Z`.
 Its adjacent `make/execution.mk` companion rejects Make ignore-errors and
 non-executing modes before recipes run, using the existing execution probe.

@@ -1,7 +1,7 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `4fd979d13c32adb3cb2f51f213ebfc4f98339b3d` (Shared 0.6.3). Root
+at reviewed revision `42f2091768b5f71c98a684d3dab563f408ca2dd9` (Shared 0.6.5). Root
 [AGENTS.md](../../AGENTS.md) is the local overlay. The shared approved layout
 retains the 42 existing canister, schema and testing packages in their
 restored directories, in the single root workspace and lockfile; no new package
@@ -11,6 +11,44 @@ remain local; standard release commands follow the shared contract. A sibling ch
 these rules.
 
 ## Ownership and provenance
+
+### Current 0.271 Shared 0.6.5 adoption
+
+The canonical exporter advances the reviewed 95-file snapshot from Shared 0.6.3
+to committed 0.6.5, including the common Make entrypoint and its interface guide.
+The entrypoint owns common setup, offline checks, formatting admission/output,
+hook installation and release routing. IcyDB supplies its complete derive-sort,
+Cargo-sort and rustfmt commands as paired formatter inputs and retains local
+Cargo paths, optimizer admission and the ordered Testkit extension. The portable
+gate depends on `shared-tooling-check`; duplicate consumer recipes are removed
+([#302](https://github.com/dragginzgame/icydb/issues/302),
+[Shared #130](https://github.com/dragginzgame/shared-tooling/issues/130)).
+
+Consumer validation declares Cargo.toml, Cargo.lock and rust-toolchain.toml as
+prepared inputs to the shared runner. Checkpoints compare those bytes between
+targets, stop later stages on drift or unreadable input and retain original
+failure status and evidence. A multi-command target finishes before its next
+checkpoint; this is not an editor lock or continuous source monitor
+([Shared #129](https://github.com/dragginzgame/shared-tooling/issues/129)).
+
+Shared's staged-hook context admits already prepared receipts against exported
+pins/compiler without installing tools or changing unrelated index contents.
+Current fixture exports include the common entrypoint and preserve real product
+recipes, substituting command effects in disposable checkouts. Existing common
+tool identities/pins are unchanged; no application API, persistence, timer or
+PocketIC infrastructure owner is added. Evidence is retained in
+`target/shared-065-adoption`; native macOS, full gates and IC/raw-Wasm measurements
+remain separate qualifications.
+
+Ten focused selections pass on both Linux Bash 5/Make 4.3 and Bash 3.2.57/Make
+3.81, including real formatter/hook preservation, input checkpoints, ordered
+tool/Testkit admission and substituted release routing/receipts. Root formatting,
+scoped lint, documentation and affected policy checks pass. Explicit setup
+prepares the incoming lockfile's Testkit 0.34.1 CLI through Shared and admits the
+existing server through Testkit; complete offline `tools-check` then passes.
+No network lifecycle or release action occurs. Incoming Cargo files, toolchain,
+agent overlay and real index are preserved; subsequent dirty sibling changes are
+excluded from the recorded revision.
 
 ### Current 0.270.4 tooling qualification
 

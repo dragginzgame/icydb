@@ -307,8 +307,11 @@ Consumer choices described in those guides remain subject to this baseline.
   `make/tools.mk`, not unordered aggregate prerequisites. Make/CI callers select
   their own checkout's local paths; document interactive shell PATH setup,
   prepared Rust toolchains and system bootstrap packages separately.
-  Adopt `make/tools.mk` from the reviewed snapshot for these common commands
-  and LOC reporting, replacing copied recipes; CI calls the same targets.
+  Adopt the [consumer Make interface](docs/make-interface.md) from the reviewed
+  snapshot for common commands and LOC reporting, replacing copied recipes;
+  CI calls the same targets. Keep product inputs and adapters local. Use paired
+  formatter command inputs for extra workspaces/frontends instead of replacing
+  the shared recipes; preserve all existing checks during adoption.
 - Shared Tooling owns common executable storage as well as installation commands.
   Host, IC and Cargo installers share verified bundles per user across checkouts
   while retaining each repository's pinned selection. Cargo tools use the standard

@@ -287,6 +287,23 @@ Vendor it with its linked guides so the complete rule set remains readable
 offline. Keep the consumer's `AGENTS.md` as its entry point and local overlay;
 do not copy Shared Tooling's `AGENTS.md` over it.
 
+Keep the local entry point organised around four things: the adopted baseline,
+local safeguards and approved exceptions, development/delivery commands, and
+links to detailed guidance selected by the task. The snapshot manifest owns its
+revision; avoid repeating that identity or a history of past adoptions throughout
+the overlay. An explicit revision-bound policy reference still needs its exact
+revision when no local policy snapshot exists.
+
+Reference common contribution, changelog, dependency and setup rules instead of
+maintaining parallel copies. Keep critical effect/recovery restrictions visible.
+Move lengthy product contracts to their existing documentation owner, or a linked
+local document when no suitable owner exists, and say when contributors must read
+them. Moving a requirement does not make it optional. Preserve unique constraints
+and historical evidence; remove only demonstrated duplication or obsolete policy.
+Do not impose a line quota or erase approved layout, validation, release or asset
+exceptions merely to make overlays look identical. Check local entry points and
+their linked governance for contradictory authority before declaring alignment.
+
 For a new governance snapshot, use the canonical
 [governance file list](../scripts/distribution/governance-files.txt), including
 linked guides and required helpers. Add selected tools explicitly to the command:
@@ -558,37 +575,26 @@ remains separate from upstream source acceptance.
 
 Defaults use scripts and pins at the checkout root. For a snapshot stored below
 that root, set `SHARED_TOOLING_ROOT` to its reviewed local directory before the
-include, and include its `make/tools.mk`. `HOST_TOOL_VERSIONS` and `IC_TOOL_PINS`
+include, and include its `make/consumer.mk`. `HOST_TOOL_VERSIONS` and `IC_TOOL_PINS`
 select consumer-owned pin exceptions; their defaults remain the checkout's
 `ci/tool-versions.env` and `ci/ic-tools.tsv`. Command selections target the
 consumer checkout; host/IC payloads use the [shared per-user store](local-setup.md#shared-executable-storage).
-Include `make/tools.mk` in any isolated Makefile export,
-including the extra inputs to `check-release-commands.sh`.
+The [consumer Make interface](make-interface.md) selects the setup, release and
+Rust formatting modules and supplies hook installation and snapshot checking.
+Select its declared companion closure, keeping product admission, metadata,
+validation and custom formatter adapters local. Non-Rust consumers explicitly
+set `SHARED_TOOLING_RUST := 0`. Existing focused module includes remain supported;
+do not include them again alongside `consumer.mk`.
 
-Two optional includes centralize further command wiring without owning product
-policy:
-
-- `make/release.mk` supplies the standard release entrypoints
-  and conflicting-goal rejection. Select its declared runner companions and
-  retain the consumer's delivery admission, cache preparation, metadata and
-  validation adapters. See the [release example](releases.md#makefile-example).
-- `make/rust-format.mk`, included after `make/tools.mk`,
-  supplies the simple root-workspace formatting commands. Select both includes,
-  `scripts/ci/check-format-tools.sh`, `scripts/ci/run-formatting.sh` and the
-  reviewed pin file. The wrapper reports one success line and retains failure
-  diagnostics behind a two-line summary. Include it in isolated hook fixtures.
-  Refresh the failure collector to retain `formatting.*` logs in CI. Keep richer
-  workspace/frontend recipes local under the [formatting rules](../rules/git-hooks.md).
-
-Both includes require the adjacent `make/execution.mk` and its execution-probe
-companion. Export these explicitly so unsupported Make modes cannot turn a
-failed command into success.
-
-Replace equivalent local recipes only after testing the actual caller and hook.
-These files must come from the recorded snapshot, never a live sibling include.
-The optional `test-make-format.sh` fixture declares its own companions; the
-complete `test-git-hooks.sh` fixture also requires the new formatting include.
-Explicitly extend a consumer's file selection before refreshing that fixture.
+Export every parsed include in isolated Make/hook fixtures, including the extra
+inputs to `check-release-commands.sh`. Keep `make/execution.mk` and its probe so
+unsupported Make modes cannot turn failures into success. The complete
+`test-git-hooks.sh` fixture now exercises `make/consumer.mk`; extend its selection
+explicitly before refreshing. `test-make-consumer.sh` tests common routing with
+substitute format/release commands; native consumer qualification remains separate.
+Refresh the failure collector to retain `formatting.*` logs in CI. Replace local
+recipes only after testing their actual callers and hook, following the
+[adoption checklist](make-interface.md#adoption).
 
 `make cloc` reports the consumer's root Cargo workspace and requires its prepared
 Rust toolchain. Shared Tooling itself selects `CLOC_REPORT` and `CLOC_ROOT` before

@@ -126,6 +126,9 @@ mkdir -p "$native/make" "$native/scripts/ci" "$native/bin"
 cp "$ROOT/Makefile" "$native/"
 cp "$ROOT/make/"*.mk "$native/make/"
 cp "$ROOT/scripts/ci/actionlint-checksums.tsv" "$native/scripts/ci/"
+cp "$ROOT/rust-toolchain.toml" "$native/"
+printf '[workspace]\n' > "$native/Cargo.toml"
+printf 'version = 4\n' > "$native/Cargo.lock"
 for script in check-make-execution.sh run-validation-targets.sh run-icydb-validation-targets.sh \
   wasm-size-report.sh wasm-audit-report.sh wasm-report-common.sh verify-file-checksum.sh; do
   cp "$ROOT/scripts/ci/$script" "$native/scripts/ci/"
@@ -144,6 +147,9 @@ reader="${BASH_REMATCH[2]}"; writer="${BASH_REMATCH[3]}"
 [[ "$CARGO_TARGET_DIR" == "${CI_CARGO_EXPECTED_TARGET:-$CI_CARGO_ROOT/target/icydb}" ]]
 printf '%s %s\n' "$1" "${RUST_TEST_THREADS:-default}" >> "$CI_CARGO_TRACE"
 printf '%s\n' "$*" >> "$CI_CARGO_ARGUMENT_TRACE"
+if [[ "${CI_CARGO_MUTATE_LOCK:-0}" == 1 && "$1" == check ]]; then
+  printf '# changed dependency selection\n' >> "$CI_CARGO_ROOT/Cargo.lock"
+fi
 if [[ "${TMPDIR:-}" == "$CI_CARGO_ROOT/.cache" ]]; then
   [[ "${POCKET_IC_BIN:-}" == "$CI_CARGO_ROOT/testkit-selected-server" ]]
   printf '%s %s\n' "$1" "${RUST_TEST_THREADS:-default}" >> "$CI_CARGO_SERVER_TRACE"
@@ -184,6 +190,26 @@ printf '%s\n' 'check default' 'check default' 'check default' \
   'clippy default' 'clippy default' 'test 2' \
   'test default' 'test default' 'test 2' > "$native/expected-trace"
 cmp "$native/expected-trace" "$CI_CARGO_TRACE"
+
+# The real consumer declares prepared dependency/compiler inputs. A successful
+# first target that changes the lockfile must not dispatch the remaining matrix.
+cp "$native/Cargo.lock" "$native/lock-before"
+: > "$CI_CARGO_TRACE"
+status=0
+PATH="$native/bin:$PATH" CI_CARGO_MUTATE_LOCK=1 \
+  make --no-print-directory -C "$native" -j2 ci-core \
+  > "$native/changed-input.log" 2>&1 || status=$?
+[[ "$status" == 2 ]]
+printf '%s\n' 'check default' 'check default' > "$native/expected-trace"
+cmp "$native/expected-trace" "$CI_CARGO_TRACE"
+cp "$native/lock-before" "$native/Cargo.lock"
+: > "$CI_CARGO_TRACE"
+rm "$native/Cargo.lock"
+status=0
+PATH="$native/bin:$PATH" make --no-print-directory -C "$native" -j2 ci-core \
+  > "$native/missing-input.log" 2>&1 || status=$?
+[[ "$status" == 2 && ! -s "$CI_CARGO_TRACE" ]]
+cp "$native/lock-before" "$native/Cargo.lock"
 
 : > "$CI_CARGO_TRACE"
 PATH="$native/bin:$PATH" RUST_TEST_THREADS=3 \

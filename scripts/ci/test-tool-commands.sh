@@ -213,6 +213,32 @@ done
 # Keep later default-goal comparison on its current command record.
 cp "$TOOL_COMMAND_LOG" "$fixture/expected"
 
+# A fixture-owned gate composes actual shared recipes and script substitutes;
+# it never appends a second recipe for a shared or production-owned target.
+cat >> "$consumer/Makefile" <<'MAKE'
+.PHONY: fixture-qualify fixture-ci
+fixture-qualify:
+	+@$(MAKE) --no-print-directory install-tools
+	+@$(MAKE) --no-print-directory fixture-ci
+fixture-ci:
+	+@$(MAKE) --no-print-directory tools-check
+	@echo gate >> "$(TOOL_COMMAND_LOG)"
+	@test "$(TOOL_COMMAND_FAIL)" != gate
+MAKE
+for failed in '' install-product check-product gate; do
+    : > "$TOOL_COMMAND_LOG"
+    status=0
+    TOOL_COMMAND_FAIL="$failed" make --no-print-directory -j4 -C "$consumer" fixture-qualify \
+        > "$fixture/qualification.log" 2>&1 || status=$?
+    if [[ -z "$failed" ]]; then
+        [[ "$status" == 0 && "$(tail -1 "$TOOL_COMMAND_LOG")" == gate ]]
+    else
+        [[ "$status" != 0 && "$(tail -1 "$TOOL_COMMAND_LOG")" == "$failed" ]]
+    fi
+    if grep -E 'overriding recipe|ignoring old recipe' "$fixture/qualification.log"; then exit 1; fi
+done
+cp "$TOOL_COMMAND_LOG" "$fixture/expected"
+
 # An explicitly selected default goal remains unchanged too.
 printf '.DEFAULT_GOAL := help\n' > "$fixture/prefixed.mk"
 cat "$consumer/Makefile" >> "$fixture/prefixed.mk"

@@ -114,7 +114,7 @@ required to run setup. Make targets and CI select this same local tool set.
 | `scripts/dev/github-siblings.sh` | Git, jq, awk, sort, Perl core POSIX functions, system IANA timezone data (Europe/Paris), and an authenticated GitHub CLI |
 | `scripts/dev/gh-ci.sh` | Git and an authenticated GitHub CLI |
 | Local maintenance coordinator | Bash 3.2+, Git, prepared/authenticated Codex CLI with `exec --approve-for-me`, and a serial scheduler; the supplied user units require Linux systemd. Task tools remain optional consumer-qualified inputs; see [local scheduling](../tasks/local-schedule.md). The offline fixture substitutes Codex and starts no agent. |
-| `scripts/ci/run-validation-targets.sh` | GNU Make plus `awk`, `grep` or `rg`, `sed`, `tail`, and `tee` |
+| `scripts/ci/run-validation-targets.sh` | GNU Make plus `awk`, `grep` or `rg`, `sed`, `tail`, and `tee`; opted-in input checkpoints also use core Perl JSON::PP and the shared SHA-256 helper |
 | Archive installer scripts | `curl`, `tar`, a SHA-256 implementation, and the archive codec used by the selected tool |
 | CI binary installer entry points | The archive prerequisites above and Perl core for exact-path atomic publication |
 | Evidence archiver | Bash 3.2+, tar and gzip; explicit existing roots and relative selections |

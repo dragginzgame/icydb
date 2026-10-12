@@ -43,6 +43,15 @@ done
 [[ "$consumer" == /* ]] || consumer="$PWD/$consumer"
 consumer="$(cd -P "$consumer" && printf '%s/.' "$PWD")"
 consumer="${consumer%/.}"
+selection_consumer="$consumer"
+if [[ "$consumer" == "${SHARED_TOOLING_FORMAT_WORKTREE:-}" ]]; then
+    [[ "$check_only" == true && -n "${SHARED_TOOLING_FORMAT_TOOLS_FROM:-}" ]] || {
+        echo 'format exports only admit prepared Rust tools with --check; run explicit setup in the checkout' >&2
+        exit 2
+    }
+    selection_consumer="$(cd -P "$SHARED_TOOLING_FORMAT_TOOLS_FROM" && printf '%s/.' "$PWD")"
+    selection_consumer="${selection_consumer%/.}"
+fi
 export PATH="$consumer/.tools/host/bin:$PATH"
 
 read_locked_version() (
@@ -101,7 +110,7 @@ for version in "${tool_versions[@]}"; do
         echo 'Rust tools require exact stable versions' >&2; exit 2;
     }
 done
-install_root="$consumer/.tools/rust"
+install_root="$selection_consumer/.tools/rust"
 export RUSTUP_AUTO_INSTALL=0
 # shellcheck source=scripts/dev/tool-store.sh
 source "$ROOT/scripts/dev/tool-store.sh"
@@ -112,7 +121,7 @@ check_install_paths() {
     local path
     # Admit the whole fixed route before any tool probe or Cargo dispatch. Do
     # not follow even dangling links, or inspect unrelated host/IC bundle links.
-    for path in "$consumer/.tools" "$install_root" "$install_root/build"; do
+    for path in "$selection_consumer/.tools" "$install_root" "$install_root/build"; do
         if [[ -L "$path" || ( -e "$path" && ! -d "$path" ) ]]; then
             printf 'Rust tool directory must be a physical directory: %s\n' "$path" >&2
             return 1
