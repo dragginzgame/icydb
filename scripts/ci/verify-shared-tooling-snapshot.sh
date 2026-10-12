@@ -104,36 +104,46 @@ snapshot_version=unrecorded
 snapshot_revision=''
 file_count=0
 declared_files=()
+entrypoints=()
 checksum_tool_declared=false
 snapshot_verifier_declared=false
 
-while IFS=$'\t' read -r record first second third extra || [[ -n "$record" ]]; do
+while IFS= read -r manifest_line || [[ -n "$manifest_line" ]]; do
+    IFS=$'\t' read -r record first second third extra <<< "$manifest_line"
     case "$record" in
+    '# entrypoint')
+        [[ -n "$first" && "$manifest_line" == $'# entrypoint\t'"$first" ]] || fail "malformed entrypoint annotation"
+        validate_relative_path "$first"
+        for existing in ${entrypoints[@]+"${entrypoints[@]}"}; do
+            [[ "$existing" != "$first" ]] || fail "duplicate entrypoint: $first"
+        done
+        entrypoints+=("$first")
+        ;;
     '# version')
-        [[ "$first" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ && -z "$second" && -z "$third" && -z "$extra" ]] ||
+        [[ "$first" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ && "$manifest_line" == "$record"$'\t'"$first" ]] ||
             fail "malformed version annotation"
         version_count=$((version_count + 1))
         snapshot_version="$first"
         ;;
     '' | \#*) continue ;;
     format)
-        [[ "$first" == "1" && -z "$second" && -z "$third" && -z "$extra" ]] ||
+        [[ "$first" == "1" && "$manifest_line" == "$record"$'\t'"$first" ]] ||
             fail "unsupported or malformed format record"
         format_count=$((format_count + 1))
         ;;
     source)
-        [[ -n "$first" && -z "$second" && -z "$third" && -z "$extra" ]] ||
+        [[ -n "$first" && "$manifest_line" == "$record"$'\t'"$first" ]] ||
             fail "malformed source record"
         source_count=$((source_count + 1))
         ;;
     revision)
-        [[ "$first" =~ ^[0-9a-f]{40,64}$ && -z "$second" && -z "$third" && -z "$extra" ]] ||
+        [[ "$first" =~ ^[0-9a-f]{40,64}$ && "$manifest_line" == "$record"$'\t'"$first" ]] ||
             fail "malformed revision record"
         revision_count=$((revision_count + 1))
         snapshot_revision="$first"
         ;;
     file)
-        [[ "$first" =~ ^[0-9a-f]{64}$ && "$second" =~ ^(-|x)$ && -n "$third" && -z "$extra" ]] ||
+        [[ "$first" =~ ^[0-9a-f]{64}$ && "$second" =~ ^(-|x)$ && -n "$third" && -z "$extra" && "$manifest_line" == "$record"$'\t'"$first"$'\t'"$second"$'\t'"$third" ]] ||
             fail "malformed file record"
         validate_relative_path "$third"
         # Bash 3.2 treats an empty array expansion as unset under nounset.
@@ -173,5 +183,10 @@ done <"$manifest"
 [[ "$file_count" -gt 0 ]] || fail "manifest contains no files"
 [[ "$checksum_tool_declared" == "true" ]] || fail "manifest does not declare the checksum verifier"
 [[ "$snapshot_verifier_declared" == "true" ]] || fail "manifest does not declare the snapshot verifier"
+for entrypoint in ${entrypoints[@]+"${entrypoints[@]}"}; do
+    selected=false
+    for path in "${declared_files[@]}"; do [[ "$path" != "$entrypoint" ]] || selected=true; done
+    [[ "$selected" == true ]] || fail "entrypoint is not a declared payload: $entrypoint"
+done
 
 echo "shared-tooling snapshot verified: $file_count file(s), version $snapshot_version ($snapshot_revision)"

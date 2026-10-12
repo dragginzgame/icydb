@@ -72,7 +72,7 @@ fn report_lifecycle(metrics: &SchemaLifecycleMetrics, label: &str) {
 }
 
 fn snapshot(fixture: &StandaloneCanisterFixture, label: &str) -> (u64, u64) {
-    let result: Result<(bool, u64, u64, u64, u64, u64), Error> = fixture
+    let result: Result<(bool, u64, u128, u128, u64, u64), Error> = fixture
         .query_candid("entity_creation_startup_snapshot", ())
         .expect("startup snapshot should decode");
     let (ready, samples, work, scheduler, started, completed) =

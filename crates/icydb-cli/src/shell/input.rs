@@ -145,12 +145,14 @@ fn clear_shell_input_state(pending_sql: &mut VecDeque<String>, partial_statement
 }
 
 fn shell_input_at_eof(partial_statement: &mut String) -> ShellInput {
-    if partial_statement_is_empty(partial_statement) {
-        println!();
-        return ShellInput::Exit;
+    // Only semicolon-terminated shell input is submitted. EOF is the advertised
+    // exit control and must never turn an unfinished buffer into a canister call.
+    if !partial_statement_is_empty(partial_statement) {
+        eprintln!("[icydb sql] discarded unterminated statement");
     }
-
-    ShellInput::Sql(std::mem::take(partial_statement))
+    partial_statement.clear();
+    println!();
+    ShellInput::Exit
 }
 
 fn top_level_shell_input(line: &str) -> ShellTopLevelInput {
@@ -309,22 +311,17 @@ mod tests {
     }
 
     #[test]
-    fn eof_preserves_sql_text_for_the_parser() {
+    fn eof_exits_and_discards_unfinished_input() {
         for sql in [
+            "",
+            " \t",
             "  UPDATE character SET bio = 'last  ' WHERE id = 7  ",
             "UPDATE character SET bio = 'unfinished   \n  ",
         ] {
             let mut partial = sql.to_string();
-            let ShellInput::Sql(actual) = shell_input_at_eof(&mut partial) else {
-                panic!("EOF should deliver the pending SQL");
-            };
-            assert_eq!(actual, sql);
+            assert!(matches!(shell_input_at_eof(&mut partial), ShellInput::Exit));
             assert!(partial.is_empty());
         }
-        assert!(matches!(
-            shell_input_at_eof(&mut String::from(" \t")),
-            ShellInput::Exit
-        ));
     }
 
     #[test]

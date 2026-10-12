@@ -254,8 +254,18 @@ install_selected() (
         # Refuse a changed source/compiler/native environment before publication.
         expected_build="$build_identity"
         cargo_build_init || exit $?
+        if [[ "$expected_build" != "$build_identity" ]]; then
+            # Retain the exact observation used to refuse activation. Do not
+            # sample again: compiler/native state may already have changed.
+            printf '%s\n' "$build_identity" > "$stage/build-identity.observed.json" || exit 1
+            printf '%s\n' "$native_identity" > "$stage/native-environment.observed.txt" || exit 1
+            changed_fields="$(jq -nr --argjson expected "$expected_build" --argjson observed "$build_identity" \
+                '[$expected | keys[] as $key | select(.[$key] != $observed[$key]) | $key] | join(", ")')" || exit 1
+            printf 'Cargo tool build environment changed: %s\n' "$changed_fields" >&2
+            printf 'Compare inputs.json (.build) and native-environment.txt with build-identity.observed.json and native-environment.observed.txt in %s\n' "$stage" >&2
+            exit 1
+        fi
         cargo_cache_check || exit $?
-        [[ "$expected_build" == "$build_identity" ]] || { echo 'Cargo tool build environment changed' >&2; exit 1; }
         bash "$ROOT/scripts/ci/verify-file-checksum.sh" sha256 "$(jq -r .source_sha256 <<< "$inputs")" "$source_archive" || exit $?
         selected_identity "$stage" > "$stage/selection.json" || exit $?
         destination="$stage"

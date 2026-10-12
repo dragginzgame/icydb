@@ -67,7 +67,7 @@ Do NOT discuss:
 The index layer must be:
 
 * Deterministic
-* Lexicographically ordered
+* Ordered by decoded key fields
 * Namespace-isolated
 * Idempotent under replay
 * Coupled 1:1 with row mutations
@@ -87,10 +87,11 @@ Categories:
 
 ### A. Ordering Invariants
 
-* Raw key ordering is lexicographic
-* Component ordering is stable
-* Prefix encoding preserves sort order
-* No implicit logical ordering layer
+* Valid keys compare by kind, index id, component count, encoded component
+  byte slices, then primary-key bytes
+* Tuple-frame length prefixes do not define valid-key order
+* Each component encoder preserves its value family's semantic order
+* Prefix encoding preserves comparator order
 
 ### B. Namespace Invariants
 
@@ -168,11 +169,15 @@ Produce:
 
 Verify:
 
-* Byte ordering corresponds to logical component ordering
-* Prefix encoding does not break sort order
+* Valid-key comparator order follows kind, index id, component count,
+  component byte slices, then primary-key bytes
+* Every value family's encoded component order agrees with its semantic order;
+  prove this independently of tuple-frame byte ordering
+* Prefix encoding does not break comparator order
 * Float handling is canonical
-* Signed types preserve lexicographic ordering
-* Composite keys compare component-wise lexicographically
+* Signed types preserve order in their component encoding
+* Composite keys compare component-wise before primary-key tie-breaking
+* Malformed-key fallback ordering is examined separately from valid keys
 
 Explicitly test reasoning for:
 
@@ -183,7 +188,7 @@ Explicitly test reasoning for:
 
 Produce:
 
-| Case | Lexicographically Stable? | Why | Risk |
+| Case | Comparator And Semantic Order Agree? | Why | Risk |
 
 ---
 

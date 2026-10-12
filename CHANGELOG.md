@@ -14,9 +14,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - **Breaking:** widen instruction totals in metrics reports to Rust `u128` and
   Candid `nat`; regenerate report bindings and use the matching CLI
   ([#350](https://github.com/dragginzgame/icydb/issues/350)).
-- Converge internal schema, resource and mutation ownership, repair production-panic
-  and SQL coverage validation, and adopt Shared 0.6.5's common Make flow,
-  Host command handling and atomic initial timer registration
+- Converge internal schema, resource and mutation ownership, repair production-panic,
+  SQL coverage, migration fixture validation, shell EOF and refresh probe handling,
+  clarify CLI refresh and exact-read contracts,
+  and adopt Shared 0.8.1's snapshot and Make flow, Host command handling and atomic initial timer registration
   ([#238](https://github.com/dragginzgame/icydb/issues/238),
   [#237](https://github.com/dragginzgame/icydb/issues/237),
   [#236](https://github.com/dragginzgame/icydb/issues/236),
@@ -24,7 +25,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   [#349](https://github.com/dragginzgame/icydb/issues/349),
   [#302](https://github.com/dragginzgame/icydb/issues/302),
   [#299](https://github.com/dragginzgame/icydb/issues/299),
-  [#307](https://github.com/dragginzgame/icydb/issues/307)).
+  [#307](https://github.com/dragginzgame/icydb/issues/307),
+  [#130](https://github.com/dragginzgame/icydb/issues/130),
+  [#193](https://github.com/dragginzgame/icydb/issues/193),
+  [#47](https://github.com/dragginzgame/icydb/issues/47),
+  [#127](https://github.com/dragginzgame/icydb/issues/127)).
 
 See [detailed notes](docs/changelog/0.271.md).
 

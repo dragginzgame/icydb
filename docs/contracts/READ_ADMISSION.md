@@ -108,6 +108,8 @@ resource exhaustion as an operational error rather than an authority verdict.
 | `execute_exhaustive_page` | `PublicRead` | Bounded scalar execution plus pre/post comparison of the canonical participating-store proof. |
 | `DbSession::query::<E>()?.execute_grouped()` | `PublicRead` | Generated binding selects accepted entity identity; the engine-neutral grouped result remains structural. |
 | `execute_public_dynamic_grouped_query` | `PublicRead` | Grouped dynamic execution requires explicit limits and exposes an opaque continuation cursor. |
+| Typed `Query::execute_exact_count()` and `DbSession::execute_exact_count(&request)` | `PublicRead` | Metadata-only whole-entity or strict accepted-index equality/bounded-`IN` proof; unsupported shapes and unavailable metadata fail closed without a row scan. |
+| Typed `DbSession::get::<E>(key)` and `get_many::<E>(keys)` | `PublicRead` | Accepted binding plus bounded exact-key batch; caller-position, input/stored/result-byte limits and a dedicated hard budget charge the current request scope. |
 | `execute_trusted_live_page` | trusted bypass | Explicit maintenance/admin dynamic page. |
 | `advance_trusted_live_page` | trusted bypass | The same adapter-oriented bounded step over the explicitly authorized trusted lane. |
 | `execute_trusted_exhaustive_page` | trusted bypass | Authorized maintenance page with the same revision-strict proof contract. |
@@ -120,6 +122,16 @@ resource exhaustion as an operational error rather than an authority verdict.
 Public scalar and grouped callers may provide only the opaque cursor issued by
 the preceding page of the same accepted plan. They cannot provide offsets or
 admission-policy controls.
+
+Exact counts and typed exact-key lookups have their own admission contracts;
+they do not evaluate the general page `QueryAdmissionPolicy`. Exact counts
+accept a bare entity count or one strict equality or bounded `IN` predicate on
+the leading field of an accepted unfiltered field-path index. All indexed
+components must be present for matching rows, and current exact-cardinality
+metadata must be available. Typed exact-key batches charge caller positions
+before deduplication, preserve duplicates and missing positions, and load each
+distinct stored row at most once. These library limits do not admit an
+endpoint's final encoded response; the endpoint still owns that boundary.
 
 ## Which API should I use?
 

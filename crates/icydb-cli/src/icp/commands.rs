@@ -79,14 +79,15 @@ fn reinstall_for_refresh(environment: &str, canister: &str) -> Result<(), String
         "[icydb] reinstalling canister '{canister}' when already installed in environment '{environment}'"
     );
     let mut command = deploy_command(environment, canister);
-    if canister_is_installed(environment, canister).unwrap_or(false) {
+    // A failed probe cannot authorize deployment under the uninstalled path.
+    if canister_is_installed(environment, canister)? {
         command.arg("--mode").arg("reinstall").arg("--yes");
     }
 
     run_external_command(command, "icp deploy reinstall")
 }
 
-/// Refresh a local canister and load deterministic fixtures when the endpoint exists.
+/// Deploy or reinstall the canister, then load fixtures or report a failed fixture call.
 pub(super) fn refresh_canister(environment: &str, canister: &str) -> Result<(), String> {
     reinstall_for_refresh(environment, canister)?;
     fixtures::load_after_refresh(environment, canister)

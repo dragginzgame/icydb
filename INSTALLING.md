@@ -441,9 +441,11 @@ cargo run -q -p icydb-cli -- canister list --environment test
 ```
 
 `icydb sql` only queries the current canister state. It does not create or load
-demo data automatically. Use `canister refresh` for the destructive local reset
-flow for the selected ICP canister; it clears that canister's stable memory,
-then calls `icydb_fixtures_load` and skips loading when the method is absent.
+demo data automatically. Use `canister refresh` for the destructive reset flow
+in the selected ICP environment. It deploys or reinstalls the canister, then
+calls `icydb_fixtures_load`. If the installation probe reports an error,
+refresh stops before deployment. A missing fixture endpoint or failed load makes
+refresh fail after deployment; a reinstall has already cleared stable memory.
 
 ## CLI Command Shapes
 
@@ -462,6 +464,11 @@ icydb schema show demo_rpg
 icydb metrics demo_rpg
 icydb metrics demo_rpg --reset
 ```
+
+In the SQL shell, finish each statement with `;`. Ctrl-D or EOF exits and
+discards unfinished input, including when stdin is piped. Complete statements
+already submitted still run. One-shot `--sql` and trailing SQL accept a statement
+without a final semicolon.
 
 `canister upgrade` builds the selected canister, then installs ICP's build
 output in upgrade mode. ICP resolves the project and selected environment,

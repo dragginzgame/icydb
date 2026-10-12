@@ -4,6 +4,31 @@ CI and release behavior must not depend on a sibling checkout, a moving Git
 branch, or network availability. Consumers vendor a reviewed file set and
 record its exact Shared Tooling source revision.
 
+## Entrypoint selection in 0.7.0
+
+Select the commands and documents the consumer uses with `--entrypoint`; the
+exporter derives their transitive shared companions from the selected commit.
+The checksum and snapshot verifiers are always included. There is no separate
+bundle registry or dependency download during refresh.
+
+This replaces the `--file` / `--add-file` CLI and manually completed file roster.
+On first adoption, pass the complete intended entrypoint set with the new
+exporter, including locally used helpers, tests and governance documents. Existing
+payload records remain ownership evidence; they are never guessed to be roots.
+Review `--preview` before applying. As of 0.8.0, omitted previous payloads are
+removed automatically after unchanged-source proof; see the retirement rules below.
+Consumers can keep every existing payload by explicitly selecting all of them,
+then narrow roots in a later reviewed adoption.
+
+The same v1 manifest retains exact payload hashes, modes, source and revision.
+`# entrypoint` annotations record selection intent separately from generated
+`file` records. Integrity-only readers can still inspect historical manifests;
+refresh without recorded entrypoints requires explicit selection. Never hand-edit
+payload records to remove ownership evidence, or use an older exporter after
+adopting entrypoint selection. The current verifier validates any recorded roots
+against the payload roster; byte integrity does not prove that local callers were
+all selected or that runtime/host qualification passed.
+
 Directory paths must not contain LF or CR characters. Snapshot refresh and
 verification reject them in both supplied and resolved physical paths, including
 ancestor directories and symlink destinations. They never trim a forbidden name
@@ -40,10 +65,7 @@ Run the refresh helper from a clean Shared Tooling checkout:
 ```bash
 /path/to/shared-tooling/scripts/distribution/refresh-consumer.sh \
   --consumer /path/to/consumer \
-  --file scripts/ci/verify-file-checksum.sh \
-  --file scripts/ci/verify-shared-tooling-snapshot.sh \
-  --file scripts/ci/check-make-execution.sh \
-  --file scripts/ci/run-validation-targets.sh
+  --entrypoint make/consumer.mk
 ```
 
 The helper validates every source path, exports regular files and their
@@ -53,6 +75,9 @@ uncommitted files cannot enter the snapshot, and concurrent working-tree edits
 cannot change the exported bytes. The manifest
 records format version `1`, source remote, source commit, and the SHA-256 digest
 and executable state of every vendored file.
+Records use exact tab-separated fields: extra, empty or trailing fields are
+malformed. Refresh, verification and the tooling inventory reject them; literal
+spaces within a valid relative filename remain significant and supported.
 
 Refresh also writes a `# version<TAB>X.Y.Z` annotation from `VERSION` at that
 exact source commit. The committed file must contain a canonical stable version;
@@ -83,21 +108,23 @@ to overwrite consumer edits, deletions, or unrelated untracked/ignored files.
 Unrelated dirty paths remain allowed. A destination already matching the selected
 source bytes and executable state is safe to retry, including after an interrupted refresh. Only
 declare paths owned by the shared snapshot; the consumer's `AGENTS.md` remains local.
-The manifest is reviewed configuration: an intentional file-set edit is read as
-input and replaced with the resulting manifest, rather than rejected as dirty work.
+The manifest may contain an uncommitted prior export. Preserve its ownership
+records and change selection through the entrypoint options; refresh publishes
+the resulting manifest after reconciling its payloads.
 
 ## Refresh
 
-After the initial snapshot, omit `--file`. The existing manifest owns the file
-set:
+After adoption, omit selection options to reuse the recorded entrypoints. Their
+companion closure is resolved again from the new selected revision:
 
 ```bash
 /path/to/shared-tooling/scripts/distribution/refresh-consumer.sh \
   --consumer /path/to/consumer
 ```
 
-Review the resulting consumer diff normally. Refresh never deletes a file and
-does not commit, stage, or push changes.
+Review the resulting consumer diff normally. Refresh automatically deletes
+unchanged obsolete payloads under the retirement rules below. It does not commit,
+stage, push, install tools, publish, deploy or clean build/evidence artifacts.
 
 A previous export need not be committed before refreshing it again. An unchanged
 file may advance when its bytes and executable mode match both the previous
@@ -128,25 +155,26 @@ an atomic replacement of the whole file set. If interrupted, stop consumer
 validation, inspect the partial diff, and refresh again from the same reviewed
 source revision. Verify the completed snapshot before resuming validation.
 
-To extend an existing selection, repeat `--add-file` for each reviewed addition:
+To extend an existing selection, repeat `--add-entrypoint` for each reviewed root:
 
 ```bash
 /path/to/shared-tooling/scripts/distribution/refresh-consumer.sh \
   --consumer /path/to/consumer \
-  --add-file scripts/ci/archive-evidence.sh
+  --add-entrypoint scripts/ci/archive-evidence.sh
 ```
 
 An already selected addition is harmless. Use the same `--manifest` for a custom
 location. Existing source, provenance and destination checks still apply, and
 all additions are admitted before any destination is replaced. Ordinary refresh
-preserves the selection. Removing records remains an explicit reviewed manifest
-edit; refresh never deletes the corresponding consumer files.
+preserves the roots. Pass a complete replacement `--entrypoint` set to narrow or
+replace them; supplying roots is a replacement, not an addition.
 
 Selected committed files can declare unconditional shared dependencies on their
 second line as `# Shared companions: relative/path another/path`. Refresh checks
 those declarations in the exported blobs, including companions' own declarations,
-and refuses an incomplete selection with the missing path before replacing files.
-Add the named companions explicitly; refresh never silently expands the selection.
+and includes their complete closure. Missing source payloads refuse before any
+consumer replacement. Review additions in preview; no inspected code is executed
+to discover dependencies.
 These declarations belong to the selected source revision. Older files without
 them retain integrity checks but provide no dependency-completeness guarantee.
 Conditional features and consumer configuration still need adoption review.
@@ -165,25 +193,53 @@ The preview uses external temporary scratch and the same clean, committed source
 and destination admission checks as refresh. A `TMPDIR` inside either checkout
 (including through an alias) is rejected before creating scratch files.
 It prints source version/revision,
-the manifest path, and tab-separated `ADD`, `UPDATE` or `KEEP` rows for every
-proposed file. The second column distinguishes already `selected` paths from
-`required` additions. Companion discovery follows the committed declarations
-transitively, including cycles, and reports every missing companion in one pass.
+the manifest path, and tab-separated `ADD`, `UPDATE`, `KEEP` or `REMOVE` rows.
+The second column distinguishes `selected` roots from `required` companions.
+Removal rows use `obsolete` for unchanged prior payloads outside the new selection.
+Companion discovery follows committed declarations
+transitively, including cycles, and reports the complete payload in one pass.
 Changes include executable-mode differences. Local conflicts still refuse.
 
-Exit 0 means the selected files are complete; exit 2 with a preview means the
-listed required paths must be added explicitly (`--file` for an initial selection,
-`--add-file` for an existing one). Other admission failures return nonzero without
-a completed preview. Review those additions, then rerun without `--preview`.
+Exit 0 means the proposed refresh is admitted, including any listed removals.
+Admission failures return nonzero without a completed preview. Review the entire
+diff, then rerun without `--preview` and with the same entrypoint selection.
 This is an observation, not saved authorization or validation: apply rechecks
-the actual source and consumer. Neither command silently extends the selection.
+the actual source and consumer.
+
+### Retiring obsolete payloads
+
+As of 0.8.0, refresh retires unchanged obsolete payloads automatically; the
+`--retire-file` option is removed. Update refresh commands to omit it. When a
+selected root no longer needs a companion, or roots are deliberately replaced,
+preview lists previous payloads outside the new closure. Applying removes those
+files without a separate approval step. Files still required by any root remain;
+files absent from the prior ownership roster are never retirement candidates.
+Before removing anything, refresh verifies the prior manifest's digest and mode
+against its available committed source, then checks actual consumer bytes, mode,
+index and path identity. Local edits, staged changes, redirected paths and forged
+ownership records refuse; a clean consumer Git status alone is insufficient.
+
+Before refreshing, check local callers and other snapshot manifests.
+The exporter derives ownership only from the selected manifest; it does not scan
+other bundles or infer consumer-owned dependencies. Keep a still-used file as an
+entrypoint, or coordinate its callers and other bundles before removing it.
+
+Only those exact files are removed. Parent directories, unowned files, installed
+tool generations, logs, build artifacts and other repositories are not swept.
+The manifest is published last. If interrupted, retain the old manifest, inspect
+the partial diff and rerun against the same source with the same selections.
+Already absent owned retirements and already installed exact payloads are safe
+to reconcile. Concurrent editors are not locked out: stop other modifications
+and validation during refresh, and verify before resuming. Repeating a completed
+refresh is harmless: removed paths are no longer in its ownership roster.
+No retirement journal or cleanup daemon is added.
 
 The optional `scripts/ci/test-installers.sh` fixture exercises all five CI
 installer wrappers: actionlint, gitleaks, ShellCheck, yq and sccache. Selecting
 that fixture requires all five wrappers, their shared `install-ci-tool.sh` engine
-and the checksum verifier, even if production CI uses only some of them. Add
-that complete set explicitly or omit the optional fixture and its callers;
-selecting an individual production installer does not require the whole suite.
+and the checksum verifier, even if production CI uses only some of them. The
+exporter includes that closure; omit the optional fixture and its callers if unwanted.
+Selecting an individual production installer does not require the whole suite.
 
 Reusable Cargo, formatter, evidence, registry, release-PR and tool-command tests
 also declare their required helpers. Review fixture dependencies when selecting
@@ -197,7 +253,7 @@ and its invocation, retaining actual snapshot verification and local adoption
 checks rather than importing its growing upstream test roster.
 If a consumer retains it, the optional companion-pair catalog checks only
 entrypoints present in that checkout; omitted fleet reporters do not become
-dependencies. Present entries still undergo required-companion refusal checks.
+dependencies. Present entries still undergo derived-companion checks.
 The remaining exporter, focused-fixture and governance integration inputs must
 be available. Shared Tooling runs the complete catalog; a reduced consumer run
 reports omissions and does not qualify the omitted upstream cases.
@@ -312,7 +368,7 @@ linked guides and required helpers. Add selected tools explicitly to the command
 shared_tooling=/path/to/shared-tooling
 files=()
 while IFS= read -r file; do
-  files+=(--file "$file")
+  files+=(--entrypoint "$file")
 done < "$shared_tooling/scripts/distribution/governance-files.txt"
 bash "$shared_tooling/scripts/distribution/refresh-consumer.sh" \
   --consumer /path/to/consumer "${files[@]}"
@@ -323,7 +379,7 @@ the isolated consumer. The source checkout's link check alone cannot establish
 that exported documentation is complete. Keep the list current when adding guides.
 It is an initial selection, not hidden inheritance or automatic manifest widening.
 
-For an existing snapshot, add missing paths with the reviewed `--add-file`
+For an existing snapshot with recorded roots, add paths with `--add-entrypoint`
 procedure above, including all shared rule files. Include
 `docs/releases.md`, the release runner and its version/changelog helpers when
 adopting the release command contract. The local `AGENTS.md` must direct contributors to
@@ -615,12 +671,14 @@ integrity, with separate identities for multiple bundles. Missing versions remai
 hashes and modes match, not that provenance or consumer behavior was qualified.
 The JSON output retains full revisions and each manifest's drifted paths.
 
-To retire unnecessary fleet copies, review their local callers first, then remove
-the report/test files and their snapshot records together with Make/CI/help
-references. Candidates are `cloc-tooling.pl`, `cloc-siblings.sh` and their
+To retire unnecessary fleet copies, review their local callers first, update
+Make/CI/help references, then select the remaining entrypoints and refresh through
+the exporter. Preserve ownership records until
+that refresh completes. Candidates are `cloc-tooling.pl`, `cloc-siblings.sh` and their
 dedicated tests; keep `cloc.sh` for the consumer's own workspace. Preserve
 checksum/verifier helpers used by other selected tools, local integration checks
-and historical evidence. Snapshot refresh never prunes files automatically.
+and historical evidence. Automatic retirement is limited to verified unchanged
+payloads outside the selected closure.
 This is a consumer-owned selection change, not permission for another repository
 to edit its files. Fleet reports and their regression coverage remain maintained
 and tested in Shared Tooling.

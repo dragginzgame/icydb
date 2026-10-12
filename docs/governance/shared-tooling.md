@@ -1,7 +1,7 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `42f2091768b5f71c98a684d3dab563f408ca2dd9` (Shared 0.6.5). Root
+at reviewed revision `c97f9f9c7b7c706fffdcfc5925cf58759b58093f` (Shared 0.8.1). Root
 [AGENTS.md](../../AGENTS.md) is the local overlay. The shared approved layout
 retains the 42 existing canister, schema and testing packages in their
 restored directories, in the single root workspace and lockfile; no new package
@@ -12,7 +12,65 @@ these rules.
 
 ## Ownership and provenance
 
-### Current 0.271 Shared 0.6.5 adoption
+### Current 0.271 Shared 0.8.1 adoption
+
+Canonical refresh from an isolated clean checkout of committed Shared 0.8.1
+updates five payloads and the source manifest. The 89 entrypoints, 95-file
+closure and selected executable versions are unchanged; no payload is retired.
+Snapshot readers reject extra, empty or trailing fields without trimming literal
+filename spaces. Cargo-tool installation retains the exact rejected build
+identity and native observation alongside the originals, names changed fields
+and refuses activation without retrying or replacing the previous selection
+([#302](https://github.com/dragginzgame/icydb/issues/302),
+[Shared #133](https://github.com/dragginzgame/shared-tooling/issues/133),
+[Shared #134](https://github.com/dragginzgame/shared-tooling/issues/134)).
+
+Six focused fixture invocations pass on Linux Bash 5/Make 4.3 and genuine
+Bash 3.2.57/Make 3.81: shared record-reader consistency, Cargo-tool failure
+evidence and real consumer hooks. Snapshot integrity, repeat preview with only
+KEEP, actual offline Rust-tool admission, formatting, selected ShellCheck and
+documentation checks pass. Initial record-fixture attempts omitted the prepared
+host-tool PATH; corrected runs use IcyDB's selected tools. Evidence is retained
+in `.cache/shared-081-adoption`. Existing pins, Cargo and pending fixture edits
+are preserved; full repository/release gates, native macOS and matched IC/raw-Wasm
+measurements remain unrun. No installation or network lifecycle action occurs.
+
+### Earlier 0.271 Shared 0.8.0 adoption
+
+The canonical exporter records explicit entrypoints and derives their shared
+companion closure from committed Shared 0.8.0. IcyDB retains all 95 existing
+payloads: local commands, fixture exports, CI's directory-level evidence-action
+references and maintained governance navigation require their current owners.
+Future refreshes reuse the recorded roots; select directly used helpers with
+`--add-entrypoint`, or replace the complete selection with `--entrypoint`.
+Preview reports exact additions, updates and unchanged owned retirements;
+do not edit generated payload records or use the removed file-selection and
+retirement options
+([#302](https://github.com/dragginzgame/icydb/issues/302),
+[Shared #131](https://github.com/dragginzgame/shared-tooling/issues/131)).
+
+Shared now selects `cargo-sort-derives` 0.14.1, which preserves literal `$crate`
+paths in direct and conditional derives. Explicit shared setup prepares the
+selected formatter; current macro semantics require qualification beyond the
+version check. Library MSRV, Cargo dependencies, IC tool pins and PocketIC
+ownership remain unchanged. The snapshot was exported while the sibling source
+was clean; later uncommitted sibling changes are excluded and qualification uses
+an isolated checkout of the recorded revision.
+
+Snapshot verification, root formatting and ten focused fixture invocations pass
+on Linux Bash 5/Make 4.3 and genuine Bash 3.2.57/Make 3.81. The fixtures qualify
+entrypoint adoption, automatic retirement and interruption/refusal boundaries,
+current Rust-tool receipts, real consumer hooks and validation adapters. A
+separate direct/conditional exported-macro probe preserves `$crate`, compiles
+from another crate and remains stable on repeat sorting. Repeat preview reports
+only KEEP. Selected ShellCheck, documentation and affected CI/post-link policies
+pass. Evidence is retained in `.cache/shared-080-adoption`; the local `target/`
+directory was cleared during adoption, so earlier setup/preview logs are no
+longer retained. Native macOS and full repository/release gates remain unrun;
+matched IC/raw-Wasm deltas are unmeasured. No network lifecycle or release action
+occurs, and incoming Cargo, timer fixture, toolchain and agent inputs are preserved.
+
+### Earlier 0.271 Shared 0.6.5 adoption
 
 The canonical exporter advances the reviewed 95-file snapshot from Shared 0.6.3
 to committed 0.6.5, including the common Make entrypoint and its interface guide.

@@ -125,9 +125,10 @@ recipe warnings rather than filtering them from every invocation.
 
 ## Adoption
 
-1. Refresh the [recorded snapshot](consuming-snapshots.md), explicitly selecting
-   `make/consumer.mk` and its declared companion closure. The distribution preview
-   reports missing companions; it never edits a live sibling implicitly.
+1. Refresh the [recorded snapshot](consuming-snapshots.md), selecting
+   `make/consumer.mk` as an entrypoint. The exporter derives its companion closure;
+   preview reports all additions, updates and automatic retirements. Include other
+   locally used commands and governance roots; this entrypoint is not their inventory.
 2. Replace the separate shared includes and equivalent local hook/snapshot-check
    recipes. Retain stronger prerequisites, target environment and extra snapshot
    checks. `SHARED_TOOLING_MANIFEST` names one manifest; additional bundles remain

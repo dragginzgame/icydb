@@ -26,7 +26,7 @@ fn lifecycle_ready() -> Result<bool, icydb::Error> {
 
 /// Observe readiness and cumulative work/scheduler instructions since upgrade.
 #[query]
-fn entity_creation_startup_snapshot() -> Result<(bool, u64, u64, u64, u64, u64), icydb::Error> {
+fn entity_creation_startup_snapshot() -> Result<(bool, u64, u128, u128, u64, u64), icydb::Error> {
     let identity = ic_timers::TimerIdentity::try_new("icydb", "startup", "recovery")
         .map_err(|_| typed_fixture_invariant_error())?;
     let snapshot = ic_timers::timer_snapshot(&identity)

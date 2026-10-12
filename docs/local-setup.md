@@ -39,9 +39,10 @@ different support scopes require an explicitly approved exception.
 | Rust development | rustfmt and product compilation targets | Consumer toolchain setup and the [formatter prerequisite check](verification-helpers.md#formatter-prerequisites) |
 | Workflow-specific tools | ShellCheck, actionlint, Gitleaks, authenticated `gh`, Node/SDKs and other tools used by that repository | Explicit consumer setup; declare the tools required by each workflow |
 
-Use the derive sorter's documented
-[macro protection](../rules/git-hooks.md#derive-macros-and-dollar-prefixed-paths)
-for affected definitions.
+Follow the derive sorter's documented
+[macro qualification and pin adoption](../rules/git-hooks.md#derive-macros-and-dollar-prefixed-paths)
+before removing corruption-workaround markers. The selected 0.14.1 formatter
+requires Rust 1.88 or newer to build; consumer library MSRVs stay independently owned.
 Tool availability and version checks do not establish semantic preservation.
 
 `make install-tools` and `make tools-check` cover all 12 common executables,
@@ -247,6 +248,11 @@ while formatting isolated index inputs. The helper never prepares or upgrades a
 toolchain implicitly. Installation may fetch registry dependencies and compile;
 failed candidates, completed build output and install logs remain in shared
 `rust-<identity>/set.*` generations, referenced from the originating checkout.
+If build identity changes during installation, activation refuses and reports the
+changed field names. The retained attempt contains the original `.build` identity
+in `inputs.json` and `native-environment.txt`, alongside the exact new observation
+in `build-identity.observed.json` and `native-environment.observed.txt`. These files
+are included by the normal evidence collector; no automatic rebuild is attempted.
 Both common tools and consumer-selected tools use the same locked installer,
 Cargo receipt and observed byte-digest admission described below. Common tools
 add a successful exact-version probe after byte admission. Shared host tools

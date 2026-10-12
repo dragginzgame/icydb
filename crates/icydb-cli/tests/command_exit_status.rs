@@ -73,7 +73,14 @@ case "$1:$2" in
     read -r contents < "$artifact" || exit 1
     printf '%s\n' "$contents" > "$ICP_FIXTURE_DIRECTORY/installed"
     ;;
-  canister:status) printf '%s\n' 'aaaaa-aa' ;;
+  canister:status)
+    case "${ICP_FIXTURE_REFRESH_CASE-}" in
+      status-failure) printf '%s\n' 'connection refused' >&2; exit 1 ;;
+      absent) printf '%s\n' 'canister not installed' >&2; exit 1 ;;
+      *) printf '%s\n' 'aaaaa-aa' ;;
+    esac
+    ;;
+  deploy:fixture) [ "${ICP_FIXTURE_REFRESH_CASE-}" != deploy-failure ] || exit 1 ;;
   canister:call)
     if [ "$ICP_FIXTURE_TRANSPORT_FAILURE" = 1 ] ||
        { [ "$ICP_FIXTURE_TRANSPORT_FAILURE" = update ] && [ "$4" = icydb_schema_migrate ]; }; then
@@ -81,6 +88,10 @@ case "$1:$2" in
       exit 1
     fi
     case "$4" in
+      icydb_fixtures_load)
+        [ "${ICP_FIXTURE_REFRESH_CASE-}" != fixture-failure ] || exit 1
+        printf '%s\n' "$ICP_FIXTURE_RESPONSE"
+        ;;
       icydb_schema_migration) read -r reply < "$ICP_FIXTURE_DIRECTORY/status"; printf '%s\n' "$reply" ;;
       icydb_schema_migrate)
         step=0
@@ -117,6 +128,7 @@ esac
             .env("ICP_FIXTURE_DIRECTORY", &self.directory)
             .env("ICP_FIXTURE_RESPONSE", response)
             .env("ICP_FIXTURE_SUCCESS", success_response())
+            .env_remove("ICP_FIXTURE_REFRESH_CASE")
             .env_remove("ICP_FIXTURE_TRANSPORT_FAILURE");
 
         command
@@ -230,6 +242,42 @@ fn assert_failure(output: Output) {
         !output.stderr.is_empty(),
         "failed SQL must report a diagnostic"
     );
+}
+
+#[test]
+fn refresh_preserves_probe_admission_and_stops_after_failed_stages() {
+    for (case, exit, deployed, reinstalled, fixtures_called) in [
+        ("status-failure", 1, false, false, false),
+        ("installed", 0, true, true, true),
+        ("absent", 0, true, false, true),
+        ("deploy-failure", 1, true, true, false),
+        ("fixture-failure", 1, true, true, true),
+    ] {
+        let fixture = IcpFixture::new();
+        let output = fixture
+            .command(&success_response())
+            .env("ICP_FIXTURE_REFRESH_CASE", case)
+            .args(["canister", "refresh", "fixture", "-e", "fixture"])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(exit), "{case}");
+        let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
+        let arguments = calls.lines().collect::<Vec<_>>();
+        assert_eq!(arguments.contains(&"deploy"), deployed, "{case}");
+        assert_eq!(arguments.contains(&"reinstall"), reinstalled, "{case}");
+        assert_eq!(arguments.contains(&"--yes"), reinstalled, "{case}");
+        assert_eq!(
+            arguments.contains(&"icydb_fixtures_load"),
+            fixtures_called,
+            "{case}"
+        );
+        assert!(
+            arguments
+                .windows(2)
+                .filter(|pair| pair[0] == "--environment")
+                .all(|pair| pair[1] == "fixture")
+        );
+    }
 }
 
 #[test]
@@ -437,6 +485,61 @@ fn one_shot_sql_transport_and_invalid_candid_fail_for_every_call_lane() {
             }
             assert_failure(command.args(["--sql", sql]).output().unwrap());
             fixture.assert_call(method, query);
+        }
+    }
+}
+
+#[test]
+fn interactive_sql_eof_discards_unterminated_statements() {
+    for (input, completed_queries) in [
+        ("", 0),
+        ("  \n\t\n", 0),
+        ("SELECT name FROM Character\n", 0),
+        ("DROP INDEX name_idx ON Character\n", 0),
+        ("UPDATE Character SET name = 'Ada' WHERE id = 1\n", 0),
+        ("UPDATE Character SET name = 'unfinished\n  ", 0),
+        ("SELECT id FROM Character;\n", 1),
+        (
+            "SELECT id FROM Character;\nDROP INDEX name_idx ON Character\n",
+            1,
+        ),
+        (
+            "SELECT id FROM Character; SELECT id FROM Character;\nUPDATE Character SET name = 'unfinished\n",
+            2,
+        ),
+    ] {
+        let fixture = IcpFixture::new();
+        let mut child = fixture
+            .sql_command(&success_response())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(input.as_bytes())
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert_eq!(output.status.code(), Some(0), "{input:?}");
+        let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
+        assert_eq!(
+            calls.lines().filter(|line| *line == "icydb_query").count(),
+            completed_queries,
+            "{input:?}",
+        );
+        assert!(
+            !calls
+                .lines()
+                .any(|line| matches!(line, "icydb_ddl" | "icydb_update"))
+        );
+        let history =
+            fs::read_to_string(fixture.directory.join(".cache/sql_history")).unwrap_or_default();
+        assert!(!history.contains("DROP INDEX") && !history.contains("UPDATE"));
+        if completed_queries == 0 {
+            assert!(history.is_empty());
         }
     }
 }

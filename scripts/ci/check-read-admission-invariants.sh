@@ -15,6 +15,7 @@ DOC="docs/contracts/READ_ADMISSION.md"
 ADMISSION="crates/icydb-core/src/db/query/admission.rs"
 DIAGNOSTICS="crates/icydb-diagnostic-code/src/lib.rs"
 TYPED_QUERY="crates/icydb/src/db/query/typed.rs"
+TYPED_SESSION="crates/icydb/src/db/session/mod.rs"
 PREPARED_QUERY="crates/icydb/src/db/session/prepared_query.rs"
 GENERATED_SQL="crates/icydb-model/src/build/actor/db/sql.rs"
 GENERATED_ENDPOINT="crates/icydb-model/src/build/actor/endpoint.rs"
@@ -84,6 +85,24 @@ require_literal \
   "$PREPARED_QUERY" \
   "accepted binding supplied to prepared live-page public admission" \
   'self.binding.inner(),'
+# Exact terminals use separate bounded contracts. Keep their facade handoffs
+# bound to the public owners; compiled behavioral tests qualify those owners.
+require_literal \
+  "$TYPED_QUERY" \
+  "typed exact-count public handoff" \
+  '.execute_public_typed_exact_count(&self.binding, &self.request)'
+require_literal \
+  "$TYPED_SESSION" \
+  "dynamic exact-count public handoff" \
+  '.execute_public_exact_count(request)'
+require_literal \
+  "$TYPED_SESSION" \
+  "accepted binding supplied to exact-count public admission" \
+  '.execute_public_exact_count_for_typed_binding(binding.inner(), request)'
+require_literal \
+  "$PREPARED_QUERY" \
+  "accepted binding supplied to exact-key public admission" \
+  '.execute_public_exact_key_batch_for_typed_binding(binding.inner(), keys)'
 require_literal \
   "$GENERATED_ENDPOINT" \
   "generated query controller gate" \

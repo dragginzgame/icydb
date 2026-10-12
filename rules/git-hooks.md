@@ -109,42 +109,32 @@ hand-written sort or rewrite dependency declarations to enforce ordering.
 
 ### Derive macros and dollar-prefixed paths
 
-`cargo-sort-derives` 0.13.0 can remove `$crate` and other dollar-prefixed macro
-tokens when rewriting `derive` or `cfg_attr` attributes. Installing the common
-toolset does not qualify unprotected macro rewriting. For affected definitions,
-use the formatter's existing range markers around the complete macro:
+The selected `cargo-sort-derives` 0.14.1 uses literal replacements for `derive`
+and `cfg_attr`, fixing the `$crate` corruption in 0.13.0 and 0.14.0. Its build
+requires Rust 1.88 or newer; this is the formatter's compiler requirement, not a
+change to a consumer library's MSRV. Consumer pins remain explicit inputs.
 
-```rust
-// sort-derives-disable-start
-macro_rules! declare {
-    ($name:ident) => {
-        #[derive($crate::exports::Clone)]
-        pub struct $name;
-    };
-}
-// sort-derives-disable-end
-```
+Shared Tooling's `test-frontend-formatting.sh` fixture sorts unprotected direct
+and conditional macro derives through the real hook, compares the refreshed
+staged bytes, compiles both exported macros from a separate crate and checks
+ordinary sorting and repeat-run stability. Run that qualification on supported
+native hosts; version probes alone do not establish semantic preservation.
 
-Keep sorting enabled elsewhere and keep the same markers in `fmt` and
-`fmt-check` inputs. Qualify exported macros from a consuming crate after the
-real hook formats and refreshes staged source. Shared Tooling's native
-`test-frontend-formatting.sh` fixture covers protected direct and conditional
-derives, surrounding ordinary sorting, staged bytes and downstream compilation.
-This qualifies the scoped workaround, not unprotected rewriting.
-
-Before selecting a replacement formatter pin, require the unprotected example
-below to preserve both `$crate` paths, and qualify direct and conditional derives
-through the real hook and downstream compilation before removing markers:
+Consumers adopting this pin explicitly prepare/check the new selected tools,
+then qualify their own macros before removing corruption-workaround range
+markers. Keep markers on consumers still using an affected formatter; retain
+unrelated intentional sorting exclusions. This example must preserve both
+literal `$crate` paths:
 
 ```bash
 printf '%s\n' '#[derive($crate::exports::Debug, $crate::exports::Clone)]' |
   cargo sort-derives --stdin
 ```
 
-The upstream repair must use literal regex replacement text for both attribute
-forms. Track its qualification in
-[#113](https://github.com/dragginzgame/shared-tooling/issues/113); do not upgrade
-the pin solely because a newer version exists.
+The [upstream fix](https://github.com/lusingander/cargo-sort-derives/pull/28)
+and [shared qualification](https://github.com/dragginzgame/shared-tooling/issues/113)
+record the repair and remaining consumer/native acceptance. Do not infer
+consumer adoption from the shared pin alone.
 
 ### Mixed Rust and frontend reference
 
