@@ -176,7 +176,7 @@ jobs:
           compact-successful-tools: 'true'
       - name: Retain PocketIC server failure logs
         if: always() && matrix.lane == 'tier-b'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: pocketic-server-logs-${{ github.run_attempt }}
           path: |
@@ -313,7 +313,7 @@ jobs:
           temp-root: ${{ runner.temp }}
           repository-root: ${{ github.workspace }}
           compact-successful-tools: 'true'
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: wasm-size-report
           path: artifacts/wasm-size/*
@@ -336,7 +336,7 @@ jobs:
           mkdir -p artifacts
           cp release-input/default_empty.wasm-release.final-deployable.wasm artifacts/default_empty.wasm
           cp release-input/default_empty.wasm-release.did artifacts/default_empty.did
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: wasm-artifacts
           path: |
