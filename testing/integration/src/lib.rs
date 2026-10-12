@@ -63,13 +63,13 @@ pub struct StartupWatchdogPerfSnapshot {
     /// Scheduler callbacks observed by the timer runtime.
     pub scheduler_samples: u64,
     /// Total instructions consumed by scheduler callbacks.
-    pub scheduler_total_instructions: u64,
+    pub scheduler_total_instructions: u128,
     /// Maximum instructions consumed by one scheduler callback.
     pub scheduler_maximum_instructions: Option<u64>,
     /// IcyDB work callbacks observed inside scheduler callbacks.
     pub work_samples: u64,
     /// Total instructions consumed by IcyDB work callbacks.
-    pub work_total_instructions: u64,
+    pub work_total_instructions: u128,
     /// Instructions consumed by the latest IcyDB work callback.
     pub work_latest_instructions: Option<u64>,
     /// Maximum instructions consumed by one IcyDB work callback.

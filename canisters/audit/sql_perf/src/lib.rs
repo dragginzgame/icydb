@@ -173,10 +173,10 @@ struct AcceptedSchemaReadInstructionResult {
 #[cfg(feature = "test-admin-api")]
 struct StartupWatchdogPerfSnapshot {
     scheduler_samples: u64,
-    scheduler_total_instructions: u64,
+    scheduler_total_instructions: u128,
     scheduler_maximum_instructions: Option<u64>,
     work_samples: u64,
-    work_total_instructions: u64,
+    work_total_instructions: u128,
     work_latest_instructions: Option<u64>,
     work_maximum_instructions: Option<u64>,
     work_started: u64,

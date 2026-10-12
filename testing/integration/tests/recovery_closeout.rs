@@ -85,7 +85,7 @@ struct StartupObservationPerfResult {
 struct ConvergenceWatchdogObservation {
     work_samples: u64,
     elapsed_nanos: u64,
-    total_instructions: u64,
+    total_instructions: u128,
     maximum_instructions: u64,
     stable_memory_before: u64,
     stable_memory_after: u64,

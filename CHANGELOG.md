@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   Candid `nat`; regenerate report bindings and use the matching CLI
   ([#350](https://github.com/dragginzgame/icydb/issues/350)).
 - Converge internal schema, resource and mutation ownership, repair production-panic,
-  SQL coverage, migration fixture validation, shell EOF and refresh probe handling,
+  SQL coverage, migration and audit fixture validation, shell EOF and refresh probe handling,
   clarify CLI refresh and exact-read contracts,
   and adopt Shared 0.8.1's snapshot and Make flow, Host command handling and atomic initial timer registration
   ([#238](https://github.com/dragginzgame/icydb/issues/238),
