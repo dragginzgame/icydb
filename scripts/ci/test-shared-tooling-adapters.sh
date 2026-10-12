@@ -130,7 +130,8 @@ cp "$ROOT/rust-toolchain.toml" "$native/"
 printf '[workspace]\n' > "$native/Cargo.toml"
 printf 'version = 4\n' > "$native/Cargo.lock"
 for script in check-make-execution.sh run-validation-targets.sh run-icydb-validation-targets.sh \
-  wasm-size-report.sh wasm-audit-report.sh wasm-report-common.sh verify-file-checksum.sh; do
+  run-nonempty-cargo-test.sh wasm-size-report.sh wasm-audit-report.sh \
+  wasm-report-common.sh verify-file-checksum.sh; do
   cp "$ROOT/scripts/ci/$script" "$native/scripts/ci/"
 done
 export CI_CARGO_ROOT="$native" CI_CARGO_TRACE="$native/cargo-trace"
@@ -163,6 +164,9 @@ fi
 case "$1 ${2:-}" in
   'locate-project --workspace') printf '%s\n' "$CI_CARGO_ROOT/Cargo.toml" ;;
   'sort --version') printf 'cargo-sort 2.1.4\n' ;;
+  # Qualify Make dispatch through the real nonempty-test helper. Product test
+  # execution and oracle comparisons are checked separately, without substitutes.
+  'test '*) printf 'test result: ok. 1 passed; 0 failed; 0 ignored\n' ;;
 esac
 if [[ -n "${ICYDB_SQL_TIER_C_ARTIFACT_DIR:-}" ]]; then
   [[ "$ICYDB_SQL_TIER_C_ARTIFACT_DIR" == "$CI_CARGO_ROOT/tier-c" ]]

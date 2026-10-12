@@ -9,16 +9,14 @@ use serde_json::Value;
 
 mod manifest;
 
-use crate::icp::process::{canister_id, output_stderr, unreachable_network_hint};
+use crate::icp::process::{canister_id, output_stderr};
 
 /// Fail with IcyDB-specific setup guidance when icp-cli has no local canister id.
 pub(super) fn require_created_canister(environment: &str, canister: &str) -> Result<(), String> {
     match canister_id(environment, canister) {
         Ok(Some(_)) => Ok(()),
         Ok(None) => Err(missing_canister_message(environment, canister)),
-        Err(err) => Err(unreachable_network_hint(err.as_str())
-            .map(str::to_string)
-            .unwrap_or(err)),
+        Err(err) => Err(err),
     }
 }
 
@@ -52,7 +50,7 @@ fn icp_canister_list_output(environment: &str) -> Result<Output, String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
-        .map_err(|err| err.to_string())
+        .map_err(|err| format!("failed to run icp canister list: {err}"))
 }
 
 fn parse_icp_canister_list(output: &[u8]) -> Result<Vec<String>, String> {

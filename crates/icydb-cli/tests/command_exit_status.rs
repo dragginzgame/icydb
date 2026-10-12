@@ -1,4 +1,4 @@
-//! Exercise SQL, migration and upgrade outcomes through the actual CLI process.
+//! Exercise SQL, canister and migration outcomes through the actual CLI process.
 //! A local ICP fixture supplies current Candid responses without a live network.
 
 #![cfg(unix)]
@@ -73,11 +73,24 @@ case "$1:$2" in
     read -r contents < "$artifact" || exit 1
     printf '%s\n' "$contents" > "$ICP_FIXTURE_DIRECTORY/installed"
     ;;
+  canister:list) printf '%s\n' '{"canisters":["fixture"]}' ;;
   canister:status)
+    if [ -n "${ICP_FIXTURE_STATUS_ERROR-}" ]; then
+      printf '%s\n' "$ICP_FIXTURE_STATUS_ERROR" >&2
+      exit 7
+    fi
     case "${ICP_FIXTURE_REFRESH_CASE-}" in
       status-failure) printf '%s\n' 'connection refused' >&2; exit 1 ;;
-      absent) printf '%s\n' 'canister not installed' >&2; exit 1 ;;
-      *) printf '%s\n' 'aaaaa-aa' ;;
+      uninstalled) printf '%s\n' '{"module_hash":null}' ;;
+      invalid-status) printf '%s\n' '{"status":"running"}' ;;
+      invalid-json) printf '%s\n' '{' ;;
+      invalid-module-hash) printf '%s\n' '{"module_hash":42}' ;;
+      *)
+        case "$4" in
+          --json) printf '%s\n' '{"module_hash":"0x0123"}' ;;
+          *) printf '%s\n' 'aaaaa-aa' ;;
+        esac
+        ;;
     esac
     ;;
   deploy:fixture) [ "${ICP_FIXTURE_REFRESH_CASE-}" != deploy-failure ] || exit 1 ;;
@@ -128,6 +141,7 @@ esac
             .env("ICP_FIXTURE_DIRECTORY", &self.directory)
             .env("ICP_FIXTURE_RESPONSE", response)
             .env("ICP_FIXTURE_SUCCESS", success_response())
+            .env_remove("ICP_FIXTURE_STATUS_ERROR")
             .env_remove("ICP_FIXTURE_REFRESH_CASE")
             .env_remove("ICP_FIXTURE_TRANSPORT_FAILURE");
 
@@ -245,11 +259,71 @@ fn assert_failure(output: Output) {
 }
 
 #[test]
+fn failed_canister_probes_preserve_diagnostics_and_stop_before_effects() {
+    // These are opaque child payloads, never inputs to a stderr classifier.
+    for diagnostic in [
+        "replica rejected the caller: controller permission required",
+        "fixture configuration failure",
+        "connection refused by fixture transport",
+    ] {
+        for environment in ["local", "ic", "fixture"] {
+            for arguments in [
+                vec!["sql", "-c", "fixture", "--sql", "SELECT id FROM Character"],
+                vec!["canister", "list"],
+                vec!["canister", "refresh", "fixture"],
+            ] {
+                let fixture = IcpFixture::new();
+                let output = fixture
+                    .command(&success_response())
+                    .env("ICP_FIXTURE_STATUS_ERROR", diagnostic)
+                    .args(arguments)
+                    .args(["-e", environment])
+                    .output()
+                    .unwrap();
+                assert_eq!(output.status.code(), Some(1));
+                let stderr = String::from_utf8(output.stderr).unwrap();
+                assert!(stderr.contains(diagnostic), "child diagnostic must survive");
+                let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
+                let arguments = calls.lines().collect::<Vec<_>>();
+                assert!(!arguments.contains(&"deploy"));
+                assert!(!arguments.contains(&"call"));
+                assert!(
+                    arguments
+                        .windows(2)
+                        .any(|pair| pair == ["--environment", environment])
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn missing_icp_executable_reports_command_context() {
+    for arguments in [
+        vec!["sql", "-c", "fixture", "--sql", "SELECT id FROM Character"],
+        vec!["canister", "refresh", "fixture"],
+    ] {
+        let fixture = IcpFixture::new();
+        fs::remove_file(fixture.directory.join("icp")).unwrap();
+        let output = fixture.command("").args(arguments).output().unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(
+            stderr.contains("icp"),
+            "diagnostic must identify the missing executable"
+        );
+    }
+}
+
+#[test]
 fn refresh_preserves_probe_admission_and_stops_after_failed_stages() {
     for (case, exit, deployed, reinstalled, fixtures_called) in [
         ("status-failure", 1, false, false, false),
         ("installed", 0, true, true, true),
-        ("absent", 0, true, false, true),
+        ("uninstalled", 0, true, false, true),
+        ("invalid-status", 1, false, false, false),
+        ("invalid-json", 1, false, false, false),
+        ("invalid-module-hash", 1, false, false, false),
         ("deploy-failure", 1, true, true, false),
         ("fixture-failure", 1, true, true, true),
     ] {
@@ -540,6 +614,62 @@ fn interactive_sql_eof_discards_unterminated_statements() {
         assert!(!history.contains("DROP INDEX") && !history.contains("UPDATE"));
         if completed_queries == 0 {
             assert!(history.is_empty());
+        } else {
+            assert!(history.contains("SELECT id FROM Character;"));
+        }
+    }
+}
+
+#[test]
+fn interactive_sql_history_failures_do_not_block_completed_statements() {
+    for case in ["parent_file", "history_directory", "invalid_utf8"] {
+        let fixture = IcpFixture::new();
+        let history = fixture.directory.join(".cache/sql_history");
+        match case {
+            "parent_file" => fs::write(fixture.directory.join(".cache"), b"untouched").unwrap(),
+            "history_directory" => fs::create_dir_all(&history).unwrap(),
+            "invalid_utf8" => {
+                fs::create_dir_all(history.parent().unwrap()).unwrap();
+                fs::write(&history, [0xff]).unwrap();
+            }
+            _ => unreachable!(),
+        }
+
+        let mut child = fixture
+            .sql_command(&success_response())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(b"SELECT id FROM Character;\nSELECT id FROM Character;\n")
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "history case {case}: {:?}",
+            String::from_utf8_lossy(&output.stderr),
+        );
+        let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
+        assert_eq!(
+            calls.lines().filter(|line| *line == "icydb_query").count(),
+            2
+        );
+        assert!(String::from_utf8_lossy(&output.stderr).contains(".cache/sql_history"));
+        if case == "parent_file" {
+            assert_eq!(
+                fs::read(fixture.directory.join(".cache")).unwrap(),
+                b"untouched"
+            );
+        } else if case == "history_directory" {
+            assert!(history.is_dir());
+        } else {
+            assert_eq!(fs::read(&history).unwrap(), [0xff]);
         }
     }
 }

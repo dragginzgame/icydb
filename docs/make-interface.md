@@ -14,6 +14,9 @@ sets `SHARED_TOOLING_RUST := 0` before the include; it still prepares the comple
 common toolset, but does not expose Rust formatting or hook installation.
 The include preserves the consumer's default goal, even when declared later.
 Parsing it never installs tools, activates hooks or starts a release.
+Selecting `make/consumer.mk` as a snapshot entrypoint includes the common
+installers and default LOC helper through their declared dependencies. Pin
+catalogs remain consumer-owned; optional fleet reports require explicit selection.
 
 | Commands | Shared owner | Consumer inputs |
 | --- | --- | --- |

@@ -837,6 +837,20 @@ expect_failure resume 0.1.1 origin main
 expect_failure patch origin main
 [[ ! -e events ]] || exit 1
 
+# Malformed saved source identities cannot be archived as restartable early
+# intent and silently replaced by the current source before validation.
+for width in 39 41 63 65; do
+    new_fixture "source-width-$width"
+    early_plan patch validate
+    identity="$(printf "%0${width}d" 1)"
+    awk -v identity="$identity" 'NR==6 {$0=identity} {print}' .release-state/0.1.1.plan > changed-plan
+    mv changed-plan .release-state/0.1.1.plan
+    cp .release-state/0.1.1.plan saved-plan
+    expect_failure patch origin main
+    cmp saved-plan .release-state/0.1.1.plan
+    [[ ! -e events && ! -e tag && ! -e .release-state/lock ]] || exit 1
+done
+
 new_fixture concurrent-reconciliation
 export FIXTURE_FAIL_TARGET=release-prepared-check
 expect_failure patch origin main

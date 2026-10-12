@@ -2006,7 +2006,7 @@ fn no_interaction_reason(feature_id: &str) -> Option<&'static str> {
 }
 
 const EXPECTED_MANIFEST_FEATURE_COUNT: usize = 106;
-const EXPECTED_DETERMINISTIC_PROVIDER_COUNT: usize = 101;
+const EXPECTED_DETERMINISTIC_PROVIDER_COUNT: usize = 100;
 
 #[derive(Debug, Serialize)]
 struct GroupProjection {

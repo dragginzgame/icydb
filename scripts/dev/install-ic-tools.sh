@@ -27,8 +27,10 @@ while [[ $# -gt 0 ]]; do
 done
 [[ "$check" == false || "$preflight" == false ]] || { usage; exit 2; }
 [[ "$consumer" == /* ]] || consumer="$PWD/$consumer"
+case "$consumer" in *$'\n'*|*$'\r'*) echo 'consumer path contains CR/LF' >&2; exit 1 ;; esac
 consumer="$(cd -P "$consumer" && printf '%s/.' "$PWD")"
 consumer="${consumer%/.}"
+case "$consumer" in *$'\n'*|*$'\r'*) echo 'resolved consumer path contains CR/LF' >&2; exit 1 ;; esac
 pins="${pins:-$consumer/ci/ic-tools.tsv}"
 [[ -f "$pins" ]] || { echo "missing IC tool pins: $pins" >&2; exit 1; }
 [[ "$pins" == /* ]] || pins="$PWD/$pins"
@@ -162,30 +164,11 @@ if [[ -L "$active" ]]; then
 fi
 [[ "$check" == false ]] || { echo 'IC tools missing, changed or selected with different pins; run make install-ic-tools' >&2; exit 1; }
 for command in curl tar gzip perl; do command -v "$command" >/dev/null; done
-mkdir -p "$tool_root"
-lock="$tool_root/.ic-tools.lock"
-mkdir "$lock" 2>/dev/null || { echo "IC tool installation already locked: $lock" >&2; exit 1; }
-stage=""
-link="$lock/selected"
-finish() {
-    local status=$?
-    rm -f "$link" "$lock/owner"
-    rmdir "$lock"
-    tool_store_release
-    if [[ "$status" != 0 && -n "$stage" ]]; then echo "Failed tool installation retained: $stage" >&2; fi
-}
-trap finish EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
-printf 'pid=%s\nconsumer=%s\n' "$$" "$consumer" > "$lock/owner"
-tool_store_acquire
-if bundle="$(tool_store_cached)" && verify_bundle "$bundle"; then
-    tool_store_reference "$bundle"
-    tool_store_activate "$bundle"
+tool_store_prepare_install verify_bundle
+if [[ -z "$stage" ]]; then
     printf '%s\n' "$active/bin"
     exit 0
 fi
-tool_store_new
 mkdir "$stage/bin" "$stage/lib" "$stage/downloads"
 cp "$pins" "$stage/pins.tsv"
 validate_pins "$stage/pins.tsv" >/dev/null
@@ -197,9 +180,7 @@ while IFS=$'\t' read -r tool version selected_host digest || [[ -n "$tool" ]]; d
     ic_asset
     archive="$scratch/$asset"
     echo "Installing $tool $version ($host)" >&2
-    curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL \
-        --connect-timeout 15 --max-time 300 -o "$archive" \
-        "https://github.com/$repo/releases/download/$tag/$asset"
+    tool_store_download "https://github.com/$repo/releases/download/$tag/$asset" "$archive"
     bash "$ROOT/scripts/ci/verify-file-checksum.sh" sha256 "$digest" "$archive"
     case "$format" in
         raw) cp "$archive" "$stage/bin/$tool" ;;

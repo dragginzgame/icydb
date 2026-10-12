@@ -5,6 +5,27 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.272.0]
+
+- **Breaking:** expose tracked metrics quality and producer-admitted means;
+  adopt Shared Tooling 0.9.4, delegate artifact inspection to Host 0.15,
+  and repair CI, CLI, read and storage bounds
+  ([#354](https://github.com/dragginzgame/icydb/issues/354),
+  [#116](https://github.com/dragginzgame/icydb/issues/116),
+  [#155](https://github.com/dragginzgame/icydb/issues/155),
+  [#307](https://github.com/dragginzgame/icydb/issues/307),
+  [#41](https://github.com/dragginzgame/icydb/issues/41),
+  [#48](https://github.com/dragginzgame/icydb/issues/48),
+  [#139](https://github.com/dragginzgame/icydb/issues/139),
+  [#172](https://github.com/dragginzgame/icydb/issues/172),
+  [#302](https://github.com/dragginzgame/icydb/issues/302),
+  [#132](https://github.com/dragginzgame/icydb/issues/132),
+  [#126](https://github.com/dragginzgame/icydb/issues/126),
+  [#123](https://github.com/dragginzgame/icydb/issues/123),
+  [#118](https://github.com/dragginzgame/icydb/issues/118)).
+
+See [detailed notes](docs/changelog/0.272.md).
+
 ## [0.271.0] - 2026-10-12
 
 - **Breaking:** retire duplicate schema snapshots and use the accepted bundle

@@ -1,5 +1,5 @@
 # Include once from the consumer Makefile after any local path overrides.
-# Shared companions: make/execution.mk scripts/ci/check-make-execution.sh
+# Shared companions: make/execution.mk scripts/ci/check-make-execution.sh scripts/dev/install-host-tools.sh scripts/dev/install-ic-tools.sh scripts/dev/install-rust-tools.sh scripts/dev/cloc.sh
 # SHARED_TOOLING_ROOT must name a reviewed local snapshot, never a sibling checkout.
 # Preserve the consumer's default goal, including when it is declared after us.
 _shared_tooling_default_goal := $(.DEFAULT_GOAL)

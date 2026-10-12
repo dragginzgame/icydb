@@ -32,27 +32,31 @@ use ic_cdk::update;
 use icydb::types::{Blob, Timestamp, Ulid};
 #[cfg(feature = "sql")]
 use icydb::value::OutputValue;
+#[cfg(feature = "test-admin-api")]
+use icydb::{Error, db::ProgressJobInventory, db::query::FilterExpr};
 #[cfg(feature = "sql")]
 use icydb::{
-    Error, ErrorCode, ErrorOrigin,
+    ErrorCode, ErrorOrigin,
     db::{
         DynamicQuery, EntitySchemaDescription, ExhaustiveQueryPageOutput, ExhaustiveReadError,
         IntegrityCheckError, IntegrityCheckResult, IntegrityJobOwner, LiveQueryPageOutput,
         MutationJobAdvanceReceipt, MutationJobAdvanceRequest, MutationJobError, MutationJobId,
         MutationJobIdempotencyKey, MutationJobPhase, MutationJobState, MutationJobStatus,
-        ProgressJobInventory, ReadSetRevisionError, ReadSetRevisionProof, SqlIntegrityError,
-        StructuralMutation, StructuralPatch, WriteCell,
-        query::{FieldRef, FilterExpr, asc},
+        ReadSetRevisionError, ReadSetRevisionProof, SqlIntegrityError, StructuralMutation,
+        StructuralPatch, WriteCell,
+        query::{FieldRef, asc},
         sql::SqlQueryResult,
     },
     value::InputValue,
 };
+#[cfg(feature = "test-admin-api")]
+use icydb_testing_audit_sql_perf_fixtures::sql_perf::PerfAuditCardinalityTie;
 #[cfg(feature = "sql")]
 use icydb_testing_audit_sql_perf_fixtures::sql_perf::{
-    PerfAuditAccount, PerfAuditBlob, PerfAuditCardinalityTie, PerfAuditHeapUser,
-    PerfAuditJournaledUser, PerfAuditMutationScoringState, PerfAuditMutationToken,
-    PerfAuditRelationSource, PerfAuditRelationTarget, PerfAuditStreamingCompoundRow,
-    PerfAuditStreamingRow, PerfAuditToken, PerfAuditUser,
+    PerfAuditAccount, PerfAuditBlob, PerfAuditHeapUser, PerfAuditJournaledUser,
+    PerfAuditMutationScoringState, PerfAuditMutationToken, PerfAuditRelationSource,
+    PerfAuditRelationTarget, PerfAuditStreamingCompoundRow, PerfAuditStreamingRow, PerfAuditToken,
+    PerfAuditUser,
 };
 
 // The final host owns grants and exclusions; components request permanent keys.
@@ -343,10 +347,11 @@ fn schedule_application_startup_poll() {
         if registration.is_none() {
             let Ok(created) = ic_timers::register_once(
                 application_startup_timer_identity(),
-                ic_timers::DeclarationLifetime::Retained,
-                Some(ic_timers::TimerSchedule::After(
-                    std::time::Duration::from_secs(1),
-                )),
+                ic_timers::TimerStart::Retained {
+                    initial: Some(ic_timers::TimerSchedule::After(
+                        std::time::Duration::from_secs(1),
+                    )),
+                },
                 |_context| async { application_startup_poll_result() },
             ) else {
                 ic_cdk::trap("application startup timer registration failed");

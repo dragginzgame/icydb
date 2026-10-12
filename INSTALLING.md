@@ -345,11 +345,13 @@ it cannot change its parent shell's environment.
 ### SQL Evidence Commands
 
 Run the compact native generated and bundled-SQLite comparisons without the
-live canister boundary with:
+live canister boundary with the same nonempty selections used by CI. Each
+scheduled obligation gets one root seed and repetition; full repeated receipt
+shards remain Tier C-owned:
 
 ```bash
-cargo test --locked -p icydb-core --no-default-features --features sql db::session::tests::sqlite_reference
-cargo test --locked -p icydb-core --no-default-features --features sql db::session::tests::mutation_reference
+make _ci-tier-a-sqlite
+make _ci-tier-a-mutation
 cargo test --locked -p icydb-testing-integration --test sql_correctness
 ```
 
@@ -443,8 +445,11 @@ cargo run -q -p icydb-cli -- canister list --environment test
 `icydb sql` only queries the current canister state. It does not create or load
 demo data automatically. Use `canister refresh` for the destructive reset flow
 in the selected ICP environment. It deploys or reinstalls the canister, then
-calls `icydb_fixtures_load`. If the installation probe reports an error,
-refresh stops before deployment. A missing fixture endpoint or failed load makes
+calls `icydb_fixtures_load`. A successful ICP JSON status reports installed
+Wasm through `module_hash`; `null` selects ordinary deployment for a created,
+empty canister. Failed or malformed installation probes stop before deployment
+and preserve the ICP diagnostic. Create a new canister with `icydb canister deploy`
+before using refresh. A missing fixture endpoint or failed load makes
 refresh fail after deployment; a reinstall has already cleared stable memory.
 
 ## CLI Command Shapes
@@ -469,6 +474,10 @@ In the SQL shell, finish each statement with `;`. Ctrl-D or EOF exits and
 discards unfinished input, including when stdin is piped. Complete statements
 already submitted still run. One-shot `--sql` and trailing SQL accept a statement
 without a final semicolon.
+
+History load and save failures report warnings with the selected history path
+and keep the shell running. Completed statements enter history after execution,
+including statements that return SQL errors; unfinished input is discarded.
 
 `canister upgrade` builds the selected canister, then installs ICP's build
 output in upgrade mode. ICP resolves the project and selected environment,

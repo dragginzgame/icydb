@@ -564,6 +564,7 @@ impl KeyAccessRuntime {
 
         let mut active_specs =
             active_lowered_index_prefix_specs(Some(self.store), request.index_prefix_specs, None);
+        charge_prefix_family_construction(active_specs.as_slice())?;
         sort_lowered_index_prefix_specs_by_raw_lower_key(&mut active_specs)?;
         if matches!(request.continuation.direction(), Direction::Desc) {
             active_specs.reverse();
@@ -579,7 +580,10 @@ impl KeyAccessRuntime {
             PrefixSetExecutionShape::Single(spec) => self.index_prefix_stream(request, spec, 1),
             PrefixSetExecutionShape::OrderedConcat(active_specs) => {
                 let branch_count = active_specs.len();
-                let mut streams = Vec::with_capacity(branch_count);
+                let mut streams = Vec::new();
+                streams
+                    .try_reserve_exact(branch_count)
+                    .map_err(|_| InternalError::executor_internal())?;
                 for spec in active_specs {
                     streams.push(self.index_prefix_stream(request, spec, branch_count)?);
                 }
@@ -751,7 +755,27 @@ fn primary_key_suffix_resume_anchor_for_prefix(
 fn sort_lowered_index_prefix_specs_by_raw_lower_key(
     specs: &mut Vec<&LoweredIndexPrefixSpec>,
 ) -> Result<(), InternalError> {
-    let mut keyed_specs = Vec::with_capacity(specs.len());
+    // Sorting owns an additional descriptor vector and lower-key copies beyond
+    // the stream family's admitted bounds. Charge them before allocating or
+    // draining the borrowed specifications.
+    let mut sort_bytes = specs
+        .len()
+        .checked_mul(size_of::<(RawIndexStoreKey, &LoweredIndexPrefixSpec)>())
+        .ok_or_else(InternalError::executor_invariant)?;
+    for spec in specs.iter() {
+        let (lower, _) = spec.raw_bounds(&ExecutionConstructionBudget)?;
+        sort_bytes = sort_bytes
+            .checked_add(RawIndexStoreKey::bound_backing_bytes(lower))
+            .ok_or_else(InternalError::executor_invariant)?;
+    }
+    charge_current_execution_budget(
+        DiagnosticExecutionBudgetResource::TemporaryBytes,
+        u64::try_from(sort_bytes).unwrap_or(u64::MAX),
+    )?;
+    let mut keyed_specs = Vec::new();
+    keyed_specs
+        .try_reserve_exact(specs.len())
+        .map_err(|_| InternalError::executor_internal())?;
     for spec in specs.drain(..) {
         let (lower, _upper) = spec.raw_bounds(&ExecutionConstructionBudget)?;
         let Bound::Included(raw_key) = lower else {

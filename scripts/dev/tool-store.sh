@@ -3,6 +3,14 @@
 # shellcheck disable=SC2154 # Caller owns consumer, tool_root, lock and active.
 # Sourced by installers and evidence selection. No effects until a function is called.
 
+# Only explicit host/IC asset setup retries, inside curl's transient classifier.
+# The retry window limits new attempts; an in-flight attempt keeps its own cap.
+tool_store_download() {
+    curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL \
+        --connect-timeout 15 --max-time 300 \
+        --retry 3 --retry-delay 2 --retry-max-time 60 -o "$2" "$1"
+}
+
 # Resolve the configured root without creating it. Existing ancestor aliases
 # (notably macOS /var) are allowed; the managed root itself may not be a link.
 tool_store_root() {
@@ -110,6 +118,46 @@ tool_store_reference() {
 tool_store_new() {
     stage="$(mktemp -d "$store_slot/set.XXXXXX")" || return $?
     tool_store_reference "$stage"
+}
+
+# Host/IC setup owns this whole process. Register cleanup only after acquiring
+# the checkout lock; failure must never remove another installer's lock.
+tool_store_prepare_install() {
+    local verifier="$1" bundle
+    mkdir -p "$tool_root" || return $?
+    lock="$tool_root/.$store_kind-tools.lock"
+    mkdir "$lock" 2>/dev/null || {
+        echo "$store_kind tool installation already locked: $lock" >&2; return 1;
+    }
+    stage=''
+    trap 'tool_store_finish_install "$?"' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    printf 'pid=%s\nconsumer=%s\n' "$$" "$consumer" > "$lock/owner" || return $?
+    tool_store_acquire || return $?
+    if bundle="$(tool_store_cached)" && "$verifier" "$bundle"; then
+        tool_store_reference "$bundle" || return $?
+        tool_store_activate "$bundle" || return $?
+    else
+        tool_store_new || return $?
+    fi
+    # An empty stage means the verified cached bundle is already active. A new
+    # stage stays unselected until the caller's download/verification succeeds.
+}
+
+tool_store_finish_install() {
+    local status="$1" cleanup_status=0
+    trap - EXIT
+    rm -f "$lock/selected" "$lock/owner" || cleanup_status=$?
+    rmdir "$lock" || cleanup_status=$?
+    # Attempt both releases even if checkout cleanup failed. Preserve an earlier
+    # installation failure; a cleanup-only failure must still fail the command.
+    tool_store_release || cleanup_status=$?
+    [[ "$status" != 0 ]] || status=$cleanup_status
+    if [[ "$status" != 0 && -n "$stage" ]]; then
+        echo "Failed $store_kind tool installation retained: $stage" >&2
+    fi
+    exit "$status"
 }
 
 tool_store_activate() {

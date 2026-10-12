@@ -9,7 +9,7 @@ export PATH="$ROOT/.tools/host/bin:$PATH"
 
 usage() {
     cat <<'EOF'
-Usage: cloc.sh [--manifest PATH] [repository]
+Usage: cloc.sh [--json] [--manifest PATH] [repository]
        cloc.sh --check-tools
 
 Report Rust runtime/test lines and test-function totals for each Cargo
@@ -18,6 +18,7 @@ workspace member. The repository defaults to the current working directory.
 configuration and target directory apply. The default is the Git root workspace.
 Prepared host tools beside this script's checkout take precedence over PATH.
 --check-tools checks prerequisites without inspecting a workspace or installing.
+--json emits one complete document with crate rows and totals on success.
 EOF
 }
 
@@ -34,11 +35,16 @@ check_tools() {
 }
 
 selected_manifest=''
-if [[ "${1:-}" == --manifest ]]; then
-    [[ $# -ge 2 && -n "$2" ]] || { usage >&2; exit 2; }
-    selected_manifest="$2"
-    shift 2
-fi
+json=false
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --json) json=true; shift ;;
+        --manifest)
+            [[ $# -ge 2 && -n "$2" && -z "$selected_manifest" ]] || { usage >&2; exit 2; }
+            selected_manifest="$2"; shift 2 ;;
+        *) break ;;
+    esac
+done
 [[ $# -le 1 ]] || { usage >&2; exit 2; }
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
@@ -159,15 +165,29 @@ print_divider() {
         "----------"
 }
 
-printf "%-*s %12s %12s %10s %9s %10s\n" \
-    "${crate_column_width}" \
-    "crate" \
-    "runtime_loc" \
-    "test_loc" \
-    "test_%" \
-    "test_fns" \
-    "inline_fns"
-print_divider
+if [[ "$json" == false ]]; then
+    printf "%-*s %12s %12s %10s %9s %10s\n" \
+        "${crate_column_width}" \
+        "crate" \
+        "runtime_loc" \
+        "test_loc" \
+        "test_%" \
+        "test_fns" \
+        "inline_fns"
+    print_divider
+fi
+
+# Both projections use the same counted rows, including the final totals.
+print_counts() {
+    if [[ "$json" == true ]]; then
+        jq -cn --arg crate "$1" --argjson runtime_loc "$2" --argjson test_loc "$3" \
+            --argjson test_pct "$4" --argjson test_fns "$5" --argjson inline_fns "$6" \
+            '{crate:$crate,runtime_loc:$runtime_loc,test_loc:$test_loc,test_pct:$test_pct,
+              test_fns:$test_fns,inline_fns:$inline_fns}' >> "$FILE_LIST_DIR/rows.jsonl"
+    else
+        printf '%-*s %12d %12d %9s%% %9d %10d\n' "$crate_column_width" "$@"
+    fi
+}
 
 # Use the same file lists for LOC and test-attribute counts.
 count_test_fns() {
@@ -243,8 +263,7 @@ for crate_row in "${crates[@]}"; do
         test_pct="0.0"
     fi
 
-    printf "%-*s %12d %12d %9s%% %9d %10d\n" \
-        "${crate_column_width}" \
+    print_counts \
         "${crate_name}" \
         "${runtime_loc}" \
         "${test_loc}" \
@@ -265,12 +284,15 @@ else
     total_test_pct="0.0"
 fi
 
-print_divider
-printf "%-*s %12d %12d %9s%% %9d %10d\n" \
-    "${crate_column_width}" \
+if [[ "$json" == false ]]; then print_divider; fi
+print_counts \
     "TOTAL" \
     "${total_runtime_loc}" \
     "${total_test_loc}" \
     "${total_test_pct}" \
     "${total_test_fns}" \
     "${total_inline_test_fns}"
+if [[ "$json" == true ]]; then
+    jq -s --arg manifest "$manifest_path" \
+        '{manifest:$manifest,crates:.[0:-1],totals:(.[-1] | del(.crate))}' "$FILE_LIST_DIR/rows.jsonl"
+fi

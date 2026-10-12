@@ -29,7 +29,7 @@ format-tools-check fmt fmt-check: export CARGO_NET_OFFLINE := true
 format-tools-check fmt fmt-check: export RUSTUP_AUTO_INSTALL := 0
 
 format-tools-check:
-	+@. "$(HOST_TOOL_VERSIONS)" && bash "$(SHARED_TOOLING_ROOT)/scripts/ci/check-format-tools.sh" "$${SHARED_TOOLING_CARGO_SORT_VERSION:?}" "$(FORMAT_CARGO)"
+	+@. "$(RUST_TOOL_VERSIONS)" && bash "$(SHARED_TOOLING_ROOT)/scripts/ci/check-format-tools.sh" "$${SHARED_TOOLING_CARGO_SORT_VERSION:?}" "$(FORMAT_CARGO)"
 
 fmt: format-tools-check
 	+@bash "$(SHARED_TOOLING_ROOT)/scripts/ci/run-formatting.sh" --write \

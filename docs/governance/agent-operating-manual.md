@@ -161,7 +161,7 @@ struct TypeName;
 - Use Rust test harness.
 - Unit tests live near code when they stay within the owning module boundary.
 - Cross-module behavior suites belong under the owning subsystem `tests/` directory.
-- Macro-driven entity/index tests belong in `testing/macro-tests`; do not add ad-hoc `DummyEntity` types in `icydb-core` tests.
+- Macro/model expansion tests belong with the model crates and `testing/model-*` adapters; generated behavior fixtures live in `schema/test/fixtures`. Canister E2E tests belong in `testing/integration`. Follow [TESTING.md](../../TESTING.md); do not add ad-hoc generated `DummyEntity` types to accepted-schema planner tests.
 - Every inline unit test module must be preceded by:
 
 ```rust

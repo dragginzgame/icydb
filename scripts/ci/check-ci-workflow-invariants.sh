@@ -34,6 +34,62 @@ make_target_recipe() {
   ' Makefile
 }
 
+# Qualify the semantic Cargo selection credited by the SQL provider registry.
+# Reject filters/skip/ignored controls rather than accepting a target name alone.
+# This intentionally admits the maintained unfiltered recipes, without executing
+# Make, Cargo, or interpolating its environment-variable adapters.
+ci_provider_test_selection() {
+  local target="$1" package="$2" binary="$3" recipe word value index=0
+  local cargo_test=false workspace=false all_targets=false excluded=false
+  local selected_package=false selected_binary=false locked=false libtest=false
+  local words=()
+  recipe="$(make_target_recipe "$target" | awk '/^\t/ { print }')"
+  recipe="${recipe//$'\\\n'/ }"
+  [[ "$recipe" =~ [^[:space:]] ]] || return 1
+  read -r -a words <<< "$recipe"
+  while [[ "$index" -lt "${#words[@]}" ]]; do
+    word="${words[$index]}"; index=$((index + 1))
+    if [[ "$cargo_test" == false ]]; then
+      # Match literal Make adapters without executing their contents.
+      # shellcheck disable=SC2016
+      case "$word" in
+        '$(CARGO_WORK_ENV)'|'+$(CARGO_WORK_ENV)'|'$(WORKSPACE_TEST_ENV)'|'+$(WORKSPACE_TEST_ENV)') continue ;;
+        cargo|+cargo) ;;
+        *) return 1 ;;
+      esac
+      [[ "$index" -lt "${#words[@]}" && "${words[$index]}" == test ]] || return 1
+      index=$((index + 1)); cargo_test=true; continue
+    fi
+    if [[ "$libtest" == true ]]; then
+      [[ "$word" == --nocapture ]] || return 1
+      continue
+    fi
+    case "$word" in
+      --locked) locked=true ;;
+      --verbose|-v|--no-fail-fast) ;;
+      --workspace) workspace=true ;;
+      --all-targets) all_targets=true ;;
+      --) libtest=true ;;
+      --exclude|-p|--package|--test)
+        [[ "$index" -lt "${#words[@]}" ]] || return 1
+        value="${words[$index]}"; index=$((index + 1))
+        case "$word" in
+          --exclude) [[ "$package" == workspace && "$value" == icydb-testing-integration ]] || return 1; excluded=true ;;
+          -p|--package) [[ "$package" != workspace && "$value" == "$package" ]] || return 1; selected_package=true ;;
+          --test) [[ "$package" != workspace && "$value" == "$binary" ]] || return 1; selected_binary=true ;;
+        esac
+        ;;
+      *) return 1 ;;
+    esac
+  done
+  [[ "$cargo_test" == true && "$locked" == true ]] || return 1
+  if [[ "$package" == workspace ]]; then
+    [[ "$workspace" == true && "$all_targets" == true && "$excluded" == true ]]
+  else
+    [[ "$workspace" == false && "$all_targets" == false && "$selected_package" == true && "$selected_binary" == true ]]
+  fi
+}
+
 shopt -s nullglob
 workflow_files=(.github/workflows/*.yml .github/workflows/*.yaml)
 if [[ -z "${workflow_files[*]:-}" ]]; then
@@ -108,6 +164,29 @@ for target in _test-canister-libs test-integration-feedback \
   if ! make_target_recipe "$target" |
     rg -q --fixed-strings '$(WORKSPACE_TEST_ENV)'; then
     fail "$target must share the bounded workspace/integration test concurrency"
+  fi
+done
+
+for route in 'ci-workspace _ci-workspace-tests' \
+  'ci-sql-tier-b _ci-tier-b-sql-canister' 'ci-sql-tier-b _ci-tier-b-sql-perf'; do
+  read -r parent child <<< "$route"
+  if ! make_target_recipe "$parent" | awk '/^\t/ { print }' |
+    rg -q "(^|[[:space:]])$child([[:space:]]|$)"; then
+    fail "$parent must execute its credited provider selection $child"
+  fi
+done
+
+if ! ci_provider_test_selection _ci-workspace-tests workspace '' ||
+   ! ci_provider_test_selection _ci-tier-b-sql-canister icydb-testing-integration sql_canister ||
+   ! ci_provider_test_selection _ci-tier-b-sql-perf icydb-testing-integration sql_perf_audit; then
+  fail "SQL coverage providers require unfiltered workspace and Tier B Cargo test selections"
+fi
+
+# Native oracle samples must reject an empty libtest match rather than making
+# their compile step stand in for a comparison. Reuse the common executed-test guard.
+for target in _ci-tier-a-sqlite _ci-tier-a-mutation; do
+  if ! make_target_recipe "$target" | rg -q --fixed-strings 'bash scripts/ci/run-nonempty-cargo-test.sh'; then
+    fail "$target must require a nonempty native oracle execution"
   fi
 done
 

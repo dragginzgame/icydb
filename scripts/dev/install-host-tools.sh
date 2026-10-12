@@ -23,8 +23,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 [[ "$consumer" == /* ]] || consumer="$PWD/$consumer"
+case "$consumer" in *$'\n'*|*$'\r'*) echo 'consumer path contains CR/LF' >&2; exit 1 ;; esac
 consumer="$(cd -P "$consumer" && printf '%s/.' "$PWD")"
 consumer="${consumer%/.}"
+case "$consumer" in *$'\n'*|*$'\r'*) echo 'resolved consumer path contains CR/LF' >&2; exit 1 ;; esac
 versions="${versions:-$consumer/ci/tool-versions.env}"
 # This reviewed shell file is code, just like the consumer's Makefile.
 # shellcheck disable=SC1090
@@ -121,7 +123,7 @@ verify() {
         tool_failure "$tool" "$directory/bin/$tool" version-mismatch "$output"; return 1
     done
     if output="$("$directory/bin/rg" --pcre2-version)"; then
-        printf '%s\n' "$output" >&2
+        :
     else
         status=$?
         tool_failure rg "$directory/bin/rg" "PCRE2-probe-failed(exit=$status)" "$output"; return 1
@@ -147,46 +149,25 @@ elif [[ "$check" == true ]]; then
 fi
 [[ "$check" == false ]] || exit 1
 for command in curl perl tar; do command -v "$command" >/dev/null; done
-mkdir -p "$tool_root"
-lock="$tool_root/.host-tools.lock"
-mkdir "$lock" 2>/dev/null || { echo "host tool installation already locked: $lock" >&2; exit 1; }
-stage=""
-finish() {
-    local status=$?
-    rm -f "$lock/selected" "$lock/owner"
-    rmdir "$lock"
-    tool_store_release
-    if [[ "$status" != 0 && -n "$stage" ]]; then echo "Failed host tool installation retained: $stage" >&2; fi
-}
-trap finish EXIT
-trap 'exit 130' INT
-trap 'exit 143' TERM
-printf 'pid=%s\nconsumer=%s\n' "$$" "$consumer" > "$lock/owner"
-tool_store_acquire
-if bundle="$(tool_store_cached)" && verify "$bundle"; then
-    tool_store_reference "$bundle"
-    tool_store_activate "$bundle"
+tool_store_prepare_install verify
+if [[ -z "$stage" ]]; then
     printf '%s\n' "$active/bin"
     exit 0
 fi
-tool_store_new
 mkdir "$stage/bin"
 for tool in jq yq; do
     case "$tool" in
         jq) url="https://github.com/jqlang/jq/releases/download/jq-$SHARED_TOOLING_JQ_VERSION/jq-$jq_platform" ;;
         yq) url="https://github.com/mikefarah/yq/releases/download/v$SHARED_TOOLING_YQ_VERSION/yq_$yq_platform" ;;
     esac
-    curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL \
-        --connect-timeout 15 --max-time 300 -o "$stage/bin/$tool" "$url"
+    tool_store_download "$url" "$stage/bin/$tool"
     chmod 0755 "$stage/bin/$tool"
 done
-curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL \
-    --connect-timeout 15 --max-time 300 -o "$stage/bin/cloc" \
-    "https://github.com/AlDanial/cloc/releases/download/v$SHARED_TOOLING_CLOC_VERSION/cloc-$SHARED_TOOLING_CLOC_VERSION.pl"
+tool_store_download \
+    "https://github.com/AlDanial/cloc/releases/download/v$SHARED_TOOLING_CLOC_VERSION/cloc-$SHARED_TOOLING_CLOC_VERSION.pl" "$stage/bin/cloc"
 chmod 0755 "$stage/bin/cloc"
-curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL \
-    --connect-timeout 15 --max-time 300 -o "$stage/ripgrep.tar.gz" \
-    "https://github.com/BurntSushi/ripgrep/releases/download/$SHARED_TOOLING_RIPGREP_VERSION/ripgrep-$SHARED_TOOLING_RIPGREP_VERSION-$rg_target.tar.gz"
+tool_store_download \
+    "https://github.com/BurntSushi/ripgrep/releases/download/$SHARED_TOOLING_RIPGREP_VERSION/ripgrep-$SHARED_TOOLING_RIPGREP_VERSION-$rg_target.tar.gz" "$stage/ripgrep.tar.gz"
 bash "$ROOT/scripts/ci/verify-file-checksum.sh" sha256 "${!rg_digest_key}" "$stage/ripgrep.tar.gz"
 tar -xOzf "$stage/ripgrep.tar.gz" "$rg_member" > "$stage/bin/rg"
 chmod 0755 "$stage/bin/rg"

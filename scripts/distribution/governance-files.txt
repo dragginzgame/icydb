@@ -10,6 +10,7 @@ tasks/README.md
 tasks/cargo-machete.md
 tasks/msrv.md
 tasks/rust-toolchain.md
+tasks/cargo-tool-versions.md
 tasks/ci-health.md
 tasks/snapshot-drift.md
 tasks/dependency-security.md

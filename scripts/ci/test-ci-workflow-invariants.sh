@@ -180,6 +180,36 @@ check fail dependent-wasm-evidence
 reset
 mutate '.jobs.release.needs = ["wasm_size_report", "check"]'
 check fail release-prerequisite
+# Current providers are credited only by these unfiltered selections. Mutate
+# actual Make inputs: target existence or a similarly named command is insufficient.
+for selection in \
+  'empty-native-oracle-admitted|bash scripts/ci/run-nonempty-cargo-test.sh|cargo test' \
+  'absent-workspace-target|^_ci-workspace-tests:$|_unselected-tests:' \
+  'echoed-only-provider|cargo test --locked --no-fail-fast|echo cargo test --locked --no-fail-fast' \
+  'missing-cargo-provider|cargo test --locked --no-fail-fast|:' \
+  'unrouted-workspace-provider|^[[:space:]]*_ci-workspace-tests$|_ci-workspace-clippy' \
+  'unrouted-tier-b-provider|^[[:space:]]*_ci-tier-b-sql-perf$|_ci-tier-b-sql-canister' \
+  'excluded-provider|--workspace --all-targets --exclude icydb-testing-integration --verbose|--workspace --all-targets --exclude icydb-core --exclude icydb-testing-integration --verbose' \
+  'filtered-workspace|--workspace --all-targets --exclude icydb-testing-integration --verbose|--workspace --all-targets --exclude icydb-testing-integration provider_filter --verbose' \
+  'missing-tier-b-provider|--test sql_canister --verbose|--test recovery_closeout --verbose' \
+  'ignored-tier-b-provider|--test sql_canister --verbose|--test sql_canister --verbose -- --ignored' \
+  'skipped-tier-b-provider|--test sql_perf_audit --verbose -- --nocapture|--test sql_perf_audit --verbose -- --skip required_provider' \
+  'compiled-only-provider|cargo test --locked --no-fail-fast|cargo check --locked'; do
+  reset
+  cp "$ROOT/Makefile" "$fixture/Makefile"
+  IFS='|' read -r name before after <<< "$selection"
+  sed "s|$before|$after|" "$fixture/Makefile" > "$fixture/mutated.make"
+  mv "$fixture/mutated.make" "$fixture/Makefile"
+  check fail "$name"
+done
+cp "$ROOT/Makefile" "$fixture/Makefile"
+reset
+# Verbosity and ordinary libtest display controls do not change execution coverage.
+sed 's/--test sql_canister --verbose/--test sql_canister -- --nocapture/' "$fixture/Makefile" > "$fixture/mutated.make"
+mv "$fixture/mutated.make" "$fixture/Makefile"
+check pass unfiltered-display-control
+cp "$ROOT/Makefile" "$fixture/Makefile"
+
 reset
 mutate '.jobs.rust.strategy.fail-fast = true'
 check fail matrix-fail-fast

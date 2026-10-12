@@ -34,8 +34,8 @@ use icydb_testing_sql_generator::{
     scheduled_sql_scenario_shard,
 };
 use icydb_testing_sqlite_reference::{
-    SqliteReferenceResult, SqliteReferenceRowOrder, SqliteReferenceValue,
-    execute_generated_select_case,
+    MutationSqliteEvidence, SqliteReferenceResult, SqliteReferenceRowOrder, SqliteReferenceValue,
+    execute_generated_mutation_sequence, execute_generated_select_case,
 };
 use std::{
     cell::RefCell,
@@ -249,6 +249,76 @@ fn tier_c_failure_artifact_replays_exact_minimized_failure() {
             );
         }
     }
+}
+
+// PR-time coverage reuses the scheduled corpus and both reference owners, with
+// one root/repetition per obligation. Full repeated shards remain Tier C-owned.
+#[test]
+fn tier_a_native_sqlite_reference() {
+    initialize();
+    let witnesses = scheduled_select_witnesses().expect("SELECT schedule should decode");
+    assert!(!witnesses.is_empty());
+    let mut compared = 0;
+    for witness in witnesses {
+        let case = generate_scheduled_select_case(
+            &witness,
+            TIER_C_ROOT_SEEDS[0],
+            0,
+            TIER_C_SELECT_BUDGETS,
+        )
+        .expect("scheduled SELECT should generate");
+        let session = DbSession::<TestCanister>::new(
+            &STORE_REGISTRY,
+            &crate::db::RequestExecutionRoot::__new_runtime_root(),
+        );
+        let result = execute_select_case(&session, &case, witness.required_execution_facts());
+        assert!(matches!(
+            result.outcome(),
+            TierCScenarioOutcome::Passed | TierCScenarioOutcome::ExpectedRejection
+        ));
+        if result.outcome() == &TierCScenarioOutcome::Passed {
+            compared += 1;
+        }
+    }
+    assert!(
+        compared > 0,
+        "the PR-time lane must execute actual SQLite comparisons"
+    );
+}
+
+#[test]
+fn tier_a_native_mutation_reference() {
+    initialize();
+    let witnesses = scheduled_mutation_witnesses().expect("mutation schedule should decode");
+    assert!(!witnesses.is_empty());
+    let mut compared = 0;
+    for witness in witnesses {
+        let sequence = generate_scheduled_mutation_sequence(
+            &witness,
+            TIER_C_ROOT_SEEDS[0],
+            0,
+            TIER_C_MUTATION_BUDGETS,
+        )
+        .expect("scheduled mutation should generate");
+        let evidence =
+            execute_generated_mutation_sequence(&sequence).expect("SQLite overlap should execute");
+        assert_eq!(evidence.len(), sequence.steps().len());
+        for (actual, step) in evidence.iter().zip(sequence.steps()) {
+            if let MutationSqliteEvidence::Compared(actual) = actual {
+                assert_eq!(actual, step.expected());
+                compared += 1;
+            }
+        }
+        let session = DbSession::<TestCanister>::new(
+            &STORE_REGISTRY,
+            &crate::db::RequestExecutionRoot::__new_runtime_root(),
+        );
+        execute_mutation_sequence(&session, &sequence);
+    }
+    assert!(
+        compared > 0,
+        "the PR-time lane must execute actual SQLite comparisons"
+    );
 }
 
 #[test]

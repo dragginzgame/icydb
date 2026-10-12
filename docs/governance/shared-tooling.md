@@ -1,7 +1,7 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `c97f9f9c7b7c706fffdcfc5925cf58759b58093f` (Shared 0.8.1). Root
+at reviewed revision `4532b66c1b43bab331978523ee97d29fe11a2f50` (Shared 0.9.4). Root
 [AGENTS.md](../../AGENTS.md) is the local overlay. The shared approved layout
 retains the 42 existing canister, schema and testing packages in their
 restored directories, in the single root workspace and lockfile; no new package
@@ -12,7 +12,107 @@ these rules.
 
 ## Ownership and provenance
 
-### Current 0.271 Shared 0.8.1 adoption
+### Current 0.272.0 Shared 0.9.4 adoption
+
+Canonical preview and refresh from isolated committed Shared 0.9.4 update eleven
+payloads, preserving ninety roots, the 96-file closure and executable pins.
+Host/IC setup uses one bounded transient download retry owner. Permanent errors,
+checksum failures and exhausted retries preserve failed candidates and prior
+selections. Host, IC and Rust installers reject supplied and resolved CR/LF
+consumer paths before configuration or setup. Evidence verification rejects NUL
+bytes before hashing and parses the captured manifest. Snapshots and release
+recovery require complete 40- or 64-character Git identities
+([#302](https://github.com/dragginzgame/icydb/issues/302),
+[Shared #133](https://github.com/dragginzgame/shared-tooling/issues/133),
+[Shared #138](https://github.com/dragginzgame/shared-tooling/issues/138)).
+
+Eighteen focused fixture invocations pass on Linux Bash 5 and genuine Bash
+3.2.57: checksum, path admission, host/IC store, real-curl loopback retry,
+distribution, release recovery/PR substitutes and consumer adapters. The adapter
+fixture now copies the pending Tier A nonempty-test helper and supplies a test
+result from its Cargo substitute; the initial missing-helper failure is retained
+separately. ShellCheck passes with sourced companions followed. Snapshot
+integrity on both shells, KEEP-only repeat preview, actual offline host/IC
+admission, documentation and diff checks pass. Qualification evidence is retained
+in `.cache/shared-094-adoption`; executable pins and incoming Cargo/toolchain
+inputs are preserved. The sibling's uncommitted 0.9.5 artifact-discovery work is
+excluded. Native macOS, full repository/release gates and IC/raw-Wasm
+measurements remain unrun; no local IC network lifecycle or release action occurs.
+
+### Earlier pending 0.271.1 Shared 0.9.1 adoption
+
+Canonical refresh from isolated committed Shared 0.9.1 updates four payloads:
+local setup documentation, the two host/IC installers and their shared store.
+Ninety roots and the 96-file closure remain unchanged. Installation lifecycle is
+shared rather than duplicated: checkout and store locking, cache verification,
+activation and cleanup retain one owner. Cleanup attempts both lock releases,
+preserves the original installation error and makes a cleanup-only failure fail
+([#302](https://github.com/dragginzgame/icydb/issues/302)).
+
+Host and IC fixtures pass on Linux with Bash 5 and genuine Bash 3.2.57, including
+cleanup-only failures, original-error preservation and shared-lock release.
+Snapshot distribution, integrity, KEEP-only repeat preview and selected ShellCheck
+pass. Actual offline host/IC admission succeeds without installation or pin changes.
+The store-test companion is sourced by those fixture owners; an initial direct
+invocation was invalid and remains recorded separately. Evidence is retained in
+`.cache/shared-091-adoption`. Shared's subsequent dirty checksum work is excluded.
+Native macOS, full repository/release gates and IC/raw-Wasm measurements remain
+unrun; no network lifecycle or release action occurs.
+
+### Earlier pending 0.271.1 Shared 0.9.0 adoption
+
+Canonical refresh from an isolated clean checkout of committed Shared 0.9.0
+updates the verifier and its consumer documentation, preserving ninety explicit
+roots and the 96-file closure. The verifier's `--read-manifest` mode is now the
+common syntax reader used by snapshot refresh and upstream fleet reports. It
+emits no records on malformed input, rejects NUL bytes and parses the same
+captured input it validates. Syntax reading does not establish payload integrity
+or ownership; ordinary verification retains those checks
+([#302](https://github.com/dragginzgame/icydb/issues/302),
+[Shared #133](https://github.com/dragginzgame/shared-tooling/issues/133)).
+
+Snapshot-distribution and IcyDB adapter fixtures pass on Linux Bash 5 and
+genuine Bash 3.2.57 (Make 3.81 for the legacy adapter run). Local snapshot
+integrity on both shells, KEEP-only repeat preview and selected ShellCheck pass.
+Evidence is retained in `.cache/shared-090-adoption`. Executable pins and Cargo
+selections are preserved; the sibling's dirty 0.9.1 work is excluded. Native
+macOS, full repository/release gates and IC/raw-Wasm measurements remain unrun.
+
+### Earlier pending 0.271.1 Shared 0.8.4 adoption
+
+Canonical preview and refresh from an isolated clean checkout of committed
+Shared 0.8.4 update eleven payloads and add the Cargo-tool freshness task guide
+required by the maintained task navigation. Ninety explicit roots retain a
+96-file closure, with no retirement or selected executable version change.
+Script companions are derived; governance documents and optional functionality
+remain explicit consumer selections. The freshness command and fleet aggregation
+remain with their Shared Tooling owner
+([#302](https://github.com/dragginzgame/icydb/issues/302)).
+
+The common Make closure includes its installers and default LOC helper. Snapshot
+copying uses a temporary file beside each destination and an atomic rename after
+rechecking ownership, edits and index state. IcyDB ignores interrupted payload
+scratch at every depth; the manifest still publishes last and retries use the
+same exact source. Formatting admission follows the selected Rust catalog.
+Cargo-tool installation refuses redirected observation leaves before writing
+diagnostics, and the LOC helper offers `--json` without parsing display tables
+([Shared #131](https://github.com/dragginzgame/shared-tooling/issues/131),
+[Shared #135](https://github.com/dragginzgame/shared-tooling/issues/135),
+[Shared #136](https://github.com/dragginzgame/shared-tooling/issues/136)).
+
+Twelve focused fixture invocations pass on Linux Bash 5/Make 4.3 and genuine
+Bash 3.2.57/Make 3.81: snapshot distribution/interruption, split-catalog Make
+formatting, Cargo-tool evidence refusal, host-tool admission, JSON LOC and real
+consumer hooks. Actual offline Rust-tool admission and root formatting pass.
+IcyDB's complete JSON LOC report matches its human-readable crate rows and
+totals. Snapshot, KEEP-only repeat preview, selected ShellCheck, documentation,
+scratch-ignore and diff checks pass. Evidence is retained in
+`.cache/shared-084-adoption`; incoming Cargo, toolchain, agent and pin files are
+preserved. No tool installation, network lifecycle or release action occurs.
+Full repository/release gates, native macOS and matched IC/raw-Wasm measurements
+remain unrun. This compatible adoption is recorded in the pending 0.271.1 notes.
+
+### Published 0.271.0 Shared 0.8.1 adoption
 
 Canonical refresh from an isolated clean checkout of committed Shared 0.8.1
 updates five payloads and the source manifest. The 89 entrypoints, 95-file

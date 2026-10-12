@@ -122,8 +122,8 @@ pub(crate) mod test_support {
         commands::parse_canister_cycles(status)
     }
 
-    pub(crate) fn canister_status_check_command(environment: &str, canister: &str) -> Command {
-        process::canister_status_command(environment, canister, CanisterStatusOutput::Discard)
+    pub(crate) fn canister_status_json_command(environment: &str, canister: &str) -> Command {
+        process::canister_status_command(environment, canister, CanisterStatusOutput::Json)
     }
 
     pub(crate) fn canister_status_id_command(environment: &str, canister: &str) -> Command {
@@ -139,9 +139,5 @@ pub(crate) mod test_support {
         environment: &str,
     ) -> Option<&'a str> {
         project::parse_manifest_environment_network(contents, environment)
-    }
-
-    pub(crate) fn unreachable_network_hint(message: &str) -> Option<&'static str> {
-        process::unreachable_network_hint(message)
     }
 }

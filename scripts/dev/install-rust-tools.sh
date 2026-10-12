@@ -41,8 +41,10 @@ while [[ $# -gt 0 ]]; do
 done
 [[ "$check_only" == false || "$preflight" == false ]] || { usage; exit 2; }
 [[ "$consumer" == /* ]] || consumer="$PWD/$consumer"
+case "$consumer" in *$'\n'*|*$'\r'*) echo 'consumer path contains CR/LF' >&2; exit 1 ;; esac
 consumer="$(cd -P "$consumer" && printf '%s/.' "$PWD")"
 consumer="${consumer%/.}"
+case "$consumer" in *$'\n'*|*$'\r'*) echo 'resolved consumer path contains CR/LF' >&2; exit 1 ;; esac
 selection_consumer="$consumer"
 if [[ "$consumer" == "${SHARED_TOOLING_FORMAT_WORKTREE:-}" ]]; then
     [[ "$check_only" == true && -n "${SHARED_TOOLING_FORMAT_TOOLS_FROM:-}" ]] || {
@@ -148,7 +150,8 @@ selected_paths() {
     done
     for path in "$directory/bin/$target" "$directory/.crates.toml" \
         "$directory/.crates2.json" "$directory/selection.json" "$directory/inputs.json" \
-        "$directory/source.crate" "$directory/Cargo.lock" "$directory/native-environment.txt"; do
+        "$directory/source.crate" "$directory/Cargo.lock" "$directory/native-environment.txt" \
+        "$directory/build-identity.observed.json" "$directory/native-environment.observed.txt"; do
         [[ ! -L "$path" && ( ! -e "$path" || -f "$path" ) ]] || {
             printf 'Cargo tool file must be regular: %s\n' "$path" >&2; return 1;
         }
@@ -240,6 +243,7 @@ install_selected() (
         tool_store_reference "$destination" || exit $?
     else
         tool_store_new || exit $?
+        selected_paths "$stage" || exit $?
         printf '%s\n' "$inputs" > "$stage/inputs.json" || exit $?
         printf '%s\n' "$packaged_lock" > "$stage/Cargo.lock" || exit $?
         printf '%s\n' "$native_identity" > "$stage/native-environment.txt" || exit $?
