@@ -154,16 +154,11 @@ fn schedule_deferred_database_work() {
     let Ok(registration) = ic_timers::register_once(
         application_timer_identity(),
         ic_timers::DeclarationLifetime::Retained,
+        Some(ic_timers::TimerSchedule::After(APPLICATION_STARTUP_RETRY)),
         |_context| async { run_deferred_database_work() },
     ) else {
         ic_cdk::trap("lifecycle composition timer registration failed");
     };
-    if registration
-        .ensure_scheduled(ic_timers::TimerSchedule::After(APPLICATION_STARTUP_RETRY))
-        .is_err()
-    {
-        ic_cdk::trap("lifecycle composition timer scheduling failed");
-    }
     DEFERRED_REGISTRATION.with(|slot| {
         let Ok(mut retained) = slot.try_borrow_mut() else {
             ic_cdk::trap("lifecycle composition timer state is already mutably borrowed");

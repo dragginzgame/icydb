@@ -1442,6 +1442,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "65fdc32ce3d16e57750b9b8324a203ec3d7ead289b6ebbdf18cfd955d602229e"
 
 [[package]]
+name = "ic-metrics"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d526f945450ce67a517b36673d215809ce6e089e7809c4192db23600fe75d4ca"
+
+[[package]]
 name = "ic-stable-structures"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1478,7 +1484,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "440a2da0ee9421f1322bb473598822b356e184543b75be75a3ea297b210a75a4"
 dependencies = [
  "ic-cdk-timers",
- "ic-metrics",
+ "ic-metrics 0.6.6",
  "ic0",
  "thiserror 2.0.18",
 ]
@@ -1663,7 +1669,7 @@ dependencies = [
  "ic-host-artifacts",
  "ic-host-fs",
  "ic-host-tools",
- "ic-metrics",
+ "ic-metrics 0.7.0",
  "icydb",
  "icydb-schema",
  "rustyline",
@@ -1680,7 +1686,7 @@ dependencies = [
  "getrandom 0.4.3",
  "ic-cdk",
  "ic-memory",
- "ic-metrics",
+ "ic-metrics 0.7.0",
  "icydb-diagnostic-code",
  "icydb-schema",
  "icydb-testing-sql-generator",

@@ -87,14 +87,24 @@ mod tests {
     use super::entity_row;
     use icydb::metrics::EntityMetrics;
 
-    fn decoded_entity(hits: u64, total: u64) -> EntityMetrics {
-        serde_json::from_value(serde_json::json!({
-            "path": "app.Entity",
-            "hits": hits,
-            "instructions_total": total,
-            "instructions_max": total,
-        }))
-        .expect("decode report entity")
+    fn decoded_entity(hits: u64, total: u128) -> EntityMetrics {
+        // Exercise the endpoint's wide Candid field without JSON's narrower
+        // default number representation becoming a test-only truncation boundary.
+        #[derive(candid::CandidType)]
+        struct ReportEntity {
+            path: &'static str,
+            hits: u64,
+            instructions_total: u128,
+            instructions_max: u64,
+        }
+        let encoded = candid::encode_one(ReportEntity {
+            path: "app.Entity",
+            hits,
+            instructions_total: total,
+            instructions_max: u64::try_from(total).unwrap_or(u64::MAX),
+        })
+        .expect("encode report entity");
+        candid::decode_one(&encoded).expect("decode report entity")
     }
 
     #[test]
@@ -113,12 +123,27 @@ mod tests {
 
     #[test]
     fn metrics_average_rejects_inconsistent_or_saturated_report_fields() {
-        for (hits, total) in [(0, 1), (1, u64::MAX), (u64::MAX, 0), (u64::MAX, u64::MAX)] {
+        for (hits, total) in [(0, 1), (1, u128::MAX), (u64::MAX, 0), (u64::MAX, u128::MAX)] {
             assert_eq!(entity_row(&decoded_entity(hits, total))[3], "unavailable");
         }
         assert_eq!(
-            entity_row(&decoded_entity(1, u64::MAX - 1))[3],
-            (u64::MAX - 1).to_string()
+            entity_row(&decoded_entity(1, u128::from(u64::MAX)))[3],
+            u64::MAX.to_string()
+        );
+    }
+
+    #[test]
+    fn metrics_average_preserves_totals_above_the_individual_sample_limit() {
+        let total = u128::from(u64::MAX) * 2;
+        assert_eq!(
+            entity_row(&decoded_entity(2, total)),
+            [
+                "app.Entity".to_string(),
+                "2".to_string(),
+                total.to_string(),
+                u64::MAX.to_string(),
+                u64::MAX.to_string(),
+            ]
         );
     }
 }

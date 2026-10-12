@@ -11,9 +11,9 @@ use candid::CandidType;
 use ic_cdk::{query, update};
 use ic_timers::{
     AfterCompletionDecision, AfterCompletionRegistration, AfterCompletionRunResult,
-    DeclarationLifetime, TimerCadence, TimerCompletion, TimerIdentity, WatchdogDecision,
-    WatchdogRegistration, WatchdogRunResult, initialize_runtime, register_after_completion,
-    register_watchdog, timer_snapshot,
+    DeclarationLifetime, TimerCadence, TimerCompletion, TimerIdentity, TimerSchedule,
+    WatchdogDecision, WatchdogRegistration, WatchdogRunResult, initialize_runtime,
+    register_after_completion, register_watchdog, timer_snapshot,
 };
 use std::{
     cell::{Cell, RefCell},
@@ -93,6 +93,7 @@ fn startup_timer_probe_start() -> bool {
         watchdog_identity(),
         cadence,
         DeclarationLifetime::Retained,
+        Some(TimerSchedule::After(WATCHDOG_INTERVAL)),
         |_context| {
             let now = ic_cdk::api::time();
             let should_trap = TRAP_AT.with(|trap_at| {
@@ -117,15 +118,13 @@ fn startup_timer_probe_start() -> bool {
     ) else {
         ic_cdk::trap("startup watchdog registration failed");
     };
-    if watchdog.ensure_scheduled().is_err() {
-        ic_cdk::trap("startup watchdog scheduling failed");
-    }
     WATCHDOG_TIMER.with_borrow_mut(|slot| *slot = Some(watchdog));
 
     let Ok(application) = register_after_completion(
         application_identity(),
         cadence,
         DeclarationLifetime::Retained,
+        Some(TimerSchedule::After(WATCHDOG_INTERVAL)),
         |_context| async {
             record_callback(
                 &APPLICATION_CALLBACKS,
@@ -140,9 +139,6 @@ fn startup_timer_probe_start() -> bool {
     ) else {
         ic_cdk::trap("application timer registration failed");
     };
-    if application.ensure_scheduled().is_err() {
-        ic_cdk::trap("application timer scheduling failed");
-    }
     APPLICATION_TIMER.with_borrow_mut(|slot| *slot = Some(application));
     true
 }

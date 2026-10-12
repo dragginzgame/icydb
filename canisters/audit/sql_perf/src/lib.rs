@@ -344,11 +344,15 @@ fn schedule_application_startup_poll() {
             let Ok(created) = ic_timers::register_once(
                 application_startup_timer_identity(),
                 ic_timers::DeclarationLifetime::Retained,
+                Some(ic_timers::TimerSchedule::After(
+                    std::time::Duration::from_secs(1),
+                )),
                 |_context| async { application_startup_poll_result() },
             ) else {
                 ic_cdk::trap("application startup timer registration failed");
             };
             *registration = Some(created);
+            return;
         }
         let Some(registration) = registration.as_ref() else {
             ic_cdk::trap("application startup timer registration is absent");

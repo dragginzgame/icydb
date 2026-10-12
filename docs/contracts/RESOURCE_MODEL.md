@@ -410,6 +410,14 @@ their saturating total local instructions, and the largest local instruction
 delta. Report collection must not alter planner, routing, storage, or execution
 semantics.
 
+Entity, schema-owner and journal-fold instruction totals use `u128` and Candid
+`nat`. Individual observations, sample counts and maxima remain `u64`/`nat64`.
+An exact counted window can retain every admitted observation without narrowing
+its accumulated total. Counts and totals still saturate independently at their
+own caps; unavailable raw-field means remain distinct from measured zero.
+These reports are heap-only and clear on reset/upgrade; they introduce no durable
+metrics format. Consumers must regenerate report bindings for the wide totals.
+
 IC query calls do not retain heap mutations, so entity metrics deliberately do
 no recording in query execution. Canic remains the authority for endpoint-level
 query and update cost. The entity report does not duplicate route, cache,

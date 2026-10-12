@@ -15,7 +15,7 @@ use std::{cell::RefCell, collections::BTreeMap};
 #[derive(CandidType, Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct InstructionMetrics {
     samples: u64,
-    instructions_total: u64,
+    instructions_total: u128,
     instructions_max: u64,
 }
 
@@ -26,9 +26,9 @@ impl InstructionMetrics {
         self.samples
     }
 
-    /// Saturating sum of observed local instructions.
+    /// Wide saturating sum of observed local instructions, encoded as Candid `nat`.
     #[must_use]
-    pub const fn instructions_total(&self) -> u64 {
+    pub const fn instructions_total(&self) -> u128 {
         self.instructions_total
     }
 
@@ -133,7 +133,7 @@ impl ConvergenceMetrics {
 #[derive(Clone, Debug, Default)]
 struct EntityCounter {
     hits: u64,
-    instructions_total: u64,
+    instructions_total: u128,
     instructions_max: u64,
 }
 
@@ -167,7 +167,7 @@ thread_local! {
 pub struct EntityMetrics {
     path: String,
     hits: u64,
-    instructions_total: u64,
+    instructions_total: u128,
     instructions_max: u64,
 }
 
@@ -184,9 +184,9 @@ impl EntityMetrics {
         self.hits
     }
 
-    /// Saturating sum of local instructions attributed to the entity.
+    /// Wide saturating sum of local instructions, encoded as Candid `nat`.
     #[must_use]
-    pub const fn instructions_total(&self) -> u64 {
+    pub const fn instructions_total(&self) -> u128 {
         self.instructions_total
     }
 
@@ -434,7 +434,7 @@ mod tests {
             .find(|entry| entry.path() == "entity::a")
             .expect("observed entity");
         assert_eq!(a.hits(), 3);
-        assert_eq!(a.instructions_total(), u64::MAX);
+        assert_eq!(a.instructions_total(), u128::from(u64::MAX) + 1);
         assert_eq!(a.instructions_max(), u64::MAX);
         let b = report
             .entities()
@@ -492,7 +492,10 @@ mod tests {
         let report = metrics_snapshot(crate::db::ExactBacklogMeasurement::EMPTY);
         let lifecycle = report.schema_lifecycle();
         assert_eq!(lifecycle.lowering().samples(), 2);
-        assert_eq!(lifecycle.lowering().instructions_total(), u64::MAX);
+        assert_eq!(
+            lifecycle.lowering().instructions_total(),
+            u128::from(u64::MAX) + 1
+        );
         assert_eq!(lifecycle.lowering().instructions_max(), u64::MAX);
         assert_eq!(lifecycle.publication().instructions_total(), 12);
         assert_eq!(lifecycle.runtime_compilation().instructions_total(), 23);
@@ -639,8 +642,22 @@ mod tests {
     #[test]
     fn report_round_trips_current_candid_shape() {
         metrics_reset_all();
-        record_entity_execution("entity", 12);
+        for _ in 0..2 {
+            record_entity_execution("entity", u64::MAX);
+            record_owner_execution(&ExecutionMetricsPhase::Lowering, u64::MAX);
+            record_owner_execution(&ExecutionMetricsPhase::JournalFold, u64::MAX);
+        }
         let report = metrics_snapshot(crate::db::ExactBacklogMeasurement::EMPTY);
+        let total = u128::from(u64::MAX) * 2;
+        assert_eq!(report.entities()[0].instructions_total(), total);
+        assert_eq!(
+            report.schema_lifecycle().lowering().instructions_total(),
+            total
+        );
+        assert_eq!(
+            report.convergence().journal_fold().instructions_total(),
+            total
+        );
         let encoded = candid::encode_one(&report).expect("encode current report");
         let decoded: MetricsReport = candid::decode_one(&encoded).expect("decode current report");
         assert_eq!(decoded, report);
