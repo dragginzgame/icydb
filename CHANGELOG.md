@@ -5,7 +5,7 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.271.0]
+## [0.271.0] - 2026-10-12
 
 - **Breaking:** retire duplicate schema snapshots and use the accepted bundle
   for storage metadata. Recreate affected databases before using this release;
