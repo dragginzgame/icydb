@@ -64,18 +64,14 @@ const RESUMABLE_UPDATE_TARGET_IDENTITY_DOMAIN: &[u8] = b"icydb.resumable-update-
 const MUTATION_JOB_OPERATION_ID_DOMAIN: &[u8] = b"icydb.mutation-job.operation-id.v1";
 macro_rules! resumable_policy_bound {
     ($runtime:ident, $identity:ident, $value:expr) => {
-        const $runtime: usize = $value;
-        const $identity: u32 = bounded_usize_policy_identity($runtime);
+        const $identity: u32 = $value;
+        const $runtime: usize = $identity as usize;
     };
 }
 
-const fn bounded_usize_policy_identity(value: usize) -> u32 {
-    // Wasm32 values already fit; wider hosts must reject policy truncation.
-    #[cfg(target_pointer_width = "64")]
-    assert!(value <= 0xffff_ffff_usize);
-    let bytes = value.to_le_bytes();
-    u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
-}
+// Policy identities own their u32 bounds. The coordinator's usize row bound
+// must also fit at compile time before it enters the checkpoint policy identity.
+const _: () = assert!(MAX_MUTATION_PROGRESS_BATCH_ROWS_AT_MAX_INDEX_FANOUT <= u32::MAX as usize);
 
 resumable_policy_bound!(
     MAX_RESUMABLE_UPDATE_CONTINUATION_BYTES,
@@ -90,7 +86,10 @@ resumable_policy_bound!(
 resumable_policy_bound!(
     MAX_RESUMABLE_UPDATE_FORWARD_ROWS,
     RESUMABLE_UPDATE_FORWARD_ROWS_POLICY,
-    MAX_MUTATION_PROGRESS_BATCH_ROWS_AT_MAX_INDEX_FANOUT
+    {
+        let [a, b, c, d, ..] = MAX_MUTATION_PROGRESS_BATCH_ROWS_AT_MAX_INDEX_FANOUT.to_le_bytes();
+        u32::from_le_bytes([a, b, c, d])
+    }
 );
 resumable_policy_bound!(
     MAX_RESUMABLE_UPDATE_FORWARD_SCAN_BYTES,

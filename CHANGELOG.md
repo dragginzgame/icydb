@@ -11,8 +11,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   for storage metadata. Recreate affected databases before using this release;
   retained images are not supported by this cut
   ([#214](https://github.com/dragginzgame/icydb/issues/214)).
-- Converge internal schema, resource and mutation ownership, and adopt updated
-  shared tooling and Host command handling
+- Converge internal schema, resource and mutation ownership, repair production-panic
+  validation, and adopt updated shared tooling and Host command handling
   ([#238](https://github.com/dragginzgame/icydb/issues/238),
   [#237](https://github.com/dragginzgame/icydb/issues/237),
   [#236](https://github.com/dragginzgame/icydb/issues/236),
