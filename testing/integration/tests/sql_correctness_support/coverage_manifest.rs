@@ -895,7 +895,7 @@ const PROVIDERS: &[ProviderSpec] = &[
     ),
     provider!(
         "core.mutation.trusted_resumable_update_state",
-        "crates/icydb-core/src/db/session/write.rs",
+        "crates/icydb-core/src/db/session/write/identity_pre_key_tests.rs",
         "mutation_execution_budget_exhaustion_terminalizes_forward_and_verify",
         ContractAssertion,
         [Execute, State]
