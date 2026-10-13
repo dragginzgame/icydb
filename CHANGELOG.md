@@ -5,6 +5,17 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.273.0]
+
+- **Breaking:** adopt Memory 0.36 explicit component declarations and host
+  composition; adopt Host 0.16 and Shared Tooling 0.9.13, carrying portable CI,
+  IC Build and Wasm-report
+  improvements ([#355](https://github.com/dragginzgame/icydb/issues/355),
+  [#302](https://github.com/dragginzgame/icydb/issues/302),
+  [#307](https://github.com/dragginzgame/icydb/issues/307)).
+
+See [detailed notes](docs/changelog/0.273.md).
+
 ## [0.272.0] - 2026-10-12
 
 - **Breaking:** expose tracked metrics quality and producer-admitted means;

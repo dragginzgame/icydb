@@ -1,6 +1,7 @@
 DRAGGINZGAME.md
 rules/contributions.md
 rules/changelogs.md
+rules/change-reporting.md
 rules/cargo-dependencies.md
 rules/rust-workspaces.md
 rules/dependency-pinning.md

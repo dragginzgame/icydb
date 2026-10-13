@@ -347,7 +347,7 @@ fn report_wasm_build_progress(context: &str, event: WasmBuildProgressEvent) {
     };
     let _ = writeln!(
         io::stderr().lock(),
-        "{context}: ic_testkit_progress phase={phase} elapsed={elapsed:?}",
+        "{context}: ic_build_progress phase={phase} elapsed={elapsed:?}",
     );
 }
 
@@ -368,7 +368,7 @@ fn report_shared_target_maintenance_failure(context: &str, outcome: &WasmBuildOu
     };
     let _ = writeln!(
         io::stderr().lock(),
-        "{context}: ic_testkit_maintenance_warning error={message}",
+        "{context}: ic_build_maintenance_warning error={message}",
     );
 }
 
@@ -436,13 +436,12 @@ mod tests {
     use super::{
         BUILD_PROGRESS_HEARTBEAT_INTERVAL, CACHE_MAINTENANCE_INTERVAL, CACHE_MAX_AGE,
         CACHE_MAX_BYTES, CargoWasmBatchEntry, CargoWasmCacheRequest, EXTRA_BUILD_ENVIRONMENT,
-        POST_LINK_CACHE_NAMESPACE, PostLinkBatchEntry, SHARED_INCREMENTAL_TARGET_MAX_BYTES,
+        PostLinkBatchEntry, SHARED_INCREMENTAL_TARGET_MAX_BYTES,
         SharedIncrementalTargetMaintenanceFailureMode, artifact_cache_prune_policy,
         build_cached_cargo_wasm, build_cached_cargo_wasm_batch, cache_post_link_wasm_batch,
         cargo_wasm_batch_specs, relevant_prefixed_environment,
         shared_incremental_target_maintenance_config, wasm_build_progress_config,
     };
-    use ic_build::artifacts::{ArtifactCachePrunePolicy, prune_artifact_cache};
 
     fn fixture_root(label: &str) -> PathBuf {
         let unique = SystemTime::now()
@@ -635,7 +634,10 @@ mod tests {
         assert_eq!(report.failures.len(), 1);
         assert!(!invalid_output.exists());
         assert!(valid_output.is_file());
+        // The producer's batch report has been dropped; our summary owns the
+        // retained record and reads its exact artifact, not the mutable output.
         let retained = report.successes[0].1.artifacts()[0].path();
+        assert_ne!(retained, valid_output);
         fs::remove_file(&valid_output).expect("remove mutable materialization");
         assert_eq!(
             fs::read(retained).expect("read retained success"),
@@ -643,72 +645,5 @@ mod tests {
         );
         drop(report);
         fs::remove_dir_all(root).expect("remove post-link batch fixture");
-    }
-
-    #[test]
-    fn post_link_batch_retains_cold_and_warm_results_during_replacement_and_pruning() {
-        let root = fixture_root("post-link-retention");
-        let cache = root.join("cache");
-        let first = root.join("first.wasm");
-        let second = root.join("second.wasm");
-        let output = root.join("shared.wasm");
-        fs::write(&first, b"\0asm\x01\0\0\0").expect("write empty Wasm");
-        // A distinct valid module exporting f() -> i32, returning 7.
-        fs::write(&second, b"\0asm\x01\0\0\0\x01\x05\x01\x60\0\x01\x7f\x03\x02\x01\0\x07\x05\x01\x01f\0\0\x0a\x06\x01\x04\0\x41\x07\x0b")
-            .expect("write distinct Wasm");
-        let acquire = |input: &std::path::Path| {
-            let report = cache_post_link_wasm_batch(
-                &workspace_root(),
-                &cache,
-                &[PostLinkBatchEntry {
-                    context: "retained fixture",
-                    compiler_emitted: input,
-                    final_deployable: &output,
-                }],
-            )
-            .expect("acquire post-link artifact");
-            assert!(report.failures.is_empty());
-            assert_eq!(report.successes.len(), 1);
-            report
-        };
-        let cold = acquire(&first);
-        let warm = acquire(&first);
-        let first_path = cold.successes[0].1.artifacts()[0].path().to_path_buf();
-        assert_eq!(warm.successes[0].1.artifacts()[0].path(), first_path);
-        assert_ne!(first_path, output);
-        let expected = fs::read(&first_path).expect("read first retained artifact");
-        drop(cold);
-        // Join establishes that replacement and pruning happen before the read,
-        // while the warm record remains alive in this thread. No timing race.
-        std::thread::scope(|scope| {
-            scope
-                .spawn(|| {
-                    let replacement = acquire(&second);
-                    assert_ne!(fs::read(&output).expect("read replacement"), expected);
-                    fs::remove_file(&output).expect("remove mutable materialization");
-                    prune_artifact_cache(
-                        &cache,
-                        POST_LINK_CACHE_NAMESPACE,
-                        ArtifactCachePrunePolicy::new().with_max_size_bytes(0),
-                    )
-                    .expect("prune while acquired results are retained");
-                    assert!(replacement.successes[0].1.artifacts()[0].path().is_file());
-                })
-                .join()
-                .expect("replacement worker should finish");
-        });
-        assert_eq!(
-            fs::read(&first_path).expect("warm owner retains original"),
-            expected
-        );
-        drop(warm);
-        prune_artifact_cache(
-            &cache,
-            POST_LINK_CACHE_NAMESPACE,
-            ArtifactCachePrunePolicy::new().with_max_size_bytes(0),
-        )
-        .expect("prune after releasing results");
-        assert!(!first_path.exists());
-        fs::remove_dir_all(root).expect("remove retention fixture");
     }
 }

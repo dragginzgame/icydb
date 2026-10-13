@@ -378,7 +378,14 @@ physical exclusions for unmanaged host memory. All admitted owners share eligibl
 free slots. Namespaces do not reserve an ID range.
 `ic-memory` persists the key-to-ID mapping. The schema does not assign physical
 IDs. Use disjoint namespace grants when composing databases
-or frameworks. A host that bootstraps first must call
+or frameworks. `icydb::start!` exposes `icydb_memory_requests() -> Result<Vec<MemoryRequest>,
+MemoryDeclarationError>` at the application root. It describes every permanent
+control and journaled store role before any lazy store opens; heap stores add no
+stable requests. A composed host combines this list with its other components,
+then passes `SealedDeclarationSnapshot::new(requests)` explicitly to Memory
+bootstrap. Store initialization only opens committed keys.
+
+A host that bootstraps first must call
 `icydb::db::prepare_memory_bootstrap` from its `RuntimeBootstrapPolicy`
 preparation hook. Standalone IcyDB bootstrap calls that same hook automatically.
 

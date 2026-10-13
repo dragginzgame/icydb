@@ -29,7 +29,7 @@ fn icydb_memory_pool()
     #[allow(unused_mut)]
     let mut exclusions = vec![];
     #[cfg(all(test, not(target_arch = "wasm32")))]
-    startup_admission::extend_pool(&mut grants, &mut exclusions)?;
+    startup_admission::extend_pool(&mut grants, &mut exclusions);
     icydb::db::MemoryAllocationPool::new(grants, exclusions)
 }
 

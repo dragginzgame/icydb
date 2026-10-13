@@ -69,13 +69,26 @@ tool_store_resolve() {
     printf '%s\n' "$target"
 }
 
+# mkdir remains the atomic acquisition. Keep its diagnostic/status verbatim;
+# an observed path is not proof of a live owner or permission to remove it.
+tool_store_lock_directory() {
+    local status
+    if mkdir "$1"; then return 0; else status=$?; fi
+    if [[ -e "$1" || -L "$1" ]]; then
+        printf 'tool installation lock path already exists: %s\n' "$1" >&2
+    else
+        printf 'unable to acquire tool installation lock: %s\n' "$1" >&2
+    fi
+    return "$status"
+}
+
 tool_store_acquire() {
     [[ ! -L "$store_root" && ! -L "$store_slot" ]] || { echo 'redirected tool store' >&2; return 1; }
     if [[ -e "$store_root" ]]; then tool_store_directory "$store_root" || return 1; fi
     if [[ -e "$store_slot" ]]; then tool_store_directory "$store_slot" || return 1; fi
-    (umask 077; mkdir -p "$store_slot") || return 1
+    (umask 077; mkdir -p "$store_slot") || return $?
     tool_store_directory "$store_root" && tool_store_directory "$store_slot" || return 1
-    mkdir "$store_slot/install.lock" 2>/dev/null || { echo "tool store installation locked: $store_slot/install.lock" >&2; return 1; }
+    tool_store_lock_directory "$store_slot/install.lock" || return $?
     store_lock="$store_slot/install.lock"
     printf 'pid=%s\nconsumer=%s\n' "$$" "$consumer" > "$store_lock/owner"
 }
@@ -126,9 +139,7 @@ tool_store_prepare_install() {
     local verifier="$1" bundle
     mkdir -p "$tool_root" || return $?
     lock="$tool_root/.$store_kind-tools.lock"
-    mkdir "$lock" 2>/dev/null || {
-        echo "$store_kind tool installation already locked: $lock" >&2; return 1;
-    }
+    tool_store_lock_directory "$lock" || return $?
     stage=''
     trap 'tool_store_finish_install "$?"' EXIT
     trap 'exit 130' INT

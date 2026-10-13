@@ -51,8 +51,11 @@ rather than assuming all Rust packages live in `crates/`.
    for this run. If source changes during inspection, qualify the limitation.
 2. Inspect commands and prerequisites before execution. Prefer existing focused
    targets when their effects match this task. Use prepared tools and locked
-   dependencies; missing tools, credentials or caches are `BLOCKED`, not an
-   implicit installation, fetch, upgrade or a clean result.
+   dependencies. When focused validation is authorized, prepare missing Cargo
+   sources under the [locked fetch policy](../rules/cargo-dependencies.md#cargo-network-policy).
+   Inspection-only passes retain their no-fetch boundary. Missing tools,
+   credentials or inputs that cannot be prepared within the selected authority
+   are `BLOCKED`, not an implicit installation, upgrade or a clean result.
 3. Central passes keep sibling files unchanged. Source scans and GitHub reads
    can run centrally; compilation and other checks that write in a sibling need
    an invocation explicitly authorizing those validation artifacts there. Use

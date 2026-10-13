@@ -1,8 +1,8 @@
 # Shared Tooling snapshot v1
-# version	0.9.4
+# version	0.9.13
 format	1
 source	https://github.com/dragginzgame/shared-tooling
-revision	4532b66c1b43bab331978523ee97d29fe11a2f50
+revision	35cad65677ff989b5fb24a88d947fda37d2366e8
 # entrypoint	scripts/ci/verify-file-checksum.sh
 # entrypoint	scripts/ci/verify-shared-tooling-snapshot.sh
 # entrypoint	scripts/ci/install-actionlint.sh
@@ -93,41 +93,42 @@ revision	4532b66c1b43bab331978523ee97d29fe11a2f50
 # entrypoint	scripts/ci/check-release-source.sh
 # entrypoint	.github/actions/retain-failure-evidence/action.yml
 # entrypoint	tasks/cargo-tool-versions.md
+# entrypoint	rules/change-reporting.md
 file	4c981184847462ab3c01cac087e28309f8e054253fd95c7bbe56f643877aa708	x	scripts/ci/verify-file-checksum.sh
 file	a4682503812f210b951aede536cdd65642bfe266b02ab532853a1aeff64f9742	x	scripts/ci/verify-shared-tooling-snapshot.sh
 file	8a6304b9096963fa5fe1881fa99ce1790b34d6ee0e0d0d0983f6d63da84817d2	x	scripts/ci/install-actionlint.sh
 file	e7647e72465b1caf790d8312fc276dda0efc2a8f7dacf1c0ff519ee5b7f1640a	x	scripts/ci/run-validation-targets.sh
 file	c88ce973083ebdc2ccb717b12d79fbe4213ae126ada671a8015cccc846f435c6	x	scripts/dev/cloc.sh
-file	9e69a457466c76b77d1b4acede62717a3d3599acfa4aa8c75ea0cb95780633db	-	DRAGGINZGAME.md
+file	8a88c254170ccb34ee05e32e38cd23d86e2d358c5343b3f2edda947c3643d3d1	-	DRAGGINZGAME.md
 file	59f6cb0b47fcfa698396776bbb391737292ebf34457ad7c65803fe7b36961499	-	docs/principles/README.md
 file	9315c9faffa4f36cfab496342535bf49d728ddd2111e8e127cbc44b3fac89ce7	-	docs/principles/decision-artifact-discipline.md
-file	2b3961ce271d95c2b8d93dcd92cfee42481aa9cb3d5d4eae0d867f2b52fa69fb	-	docs/principles/reviewable-changes.md
+file	c5e5f1018e4747ee4ffe5183a4f1d35545a3bf148fced3ab2c77db4c789b5975	-	docs/principles/reviewable-changes.md
 file	90eb28392912af63593a3773eff903c5ef77ebab2b9199e3c720be25a3fcbbbf	-	docs/principles/rust-code-hygiene.md
 file	457fd38e0073c91ba470b918d4facd9faac3c5200ebd38c97e9d6b76acdaea55	-	docs/principles/simplicity-and-maintainability.md
 file	f10fc5d18faa3bab686edd8b95e1a11ddacba115ae84fe7f85d8ae27b059a131	-	docs/consuming-snapshots.md
-file	1ba74fc4246888827393a599049283d55f0da0f6b0042821441fcef1a7d3a56b	-	docs/supported-hosts.md
+file	223f3b252780fba4598ac1ce94c4c73b97bc97dc9896c1dfb6111718f6bfe73f	-	docs/supported-hosts.md
 file	e7c1c56549860efff6a579913a1632eb19868d5e2e5e5e1ed2ba3ea7171db881	-	rules/changelogs.md
-file	5cad3c26f7d668e508a1bac00e8be039452f367989972d5c5b8934307a4188ae	-	docs/releases.md
+file	ce5412f47866c286b5e769ea15ec004ec174ef59229cdcef1c09137f4f05ece8	-	docs/releases.md
 file	43703e79b998184c498dd871572f6b1a5b9a3dff6ea36367e69d1b85d5aa54b7	x	scripts/ci/run-release.sh
 file	37e028e2d9fee271ffdc06d06fc15d7a148ec524def3d9ed2afcd9910c0ec642	x	scripts/ci/next-release-version.sh
 file	e7f4c82566858b89b50c5c2f929097bdde85345a2c0c1bf553bb1170cc4f5960	-	scripts/ci/finalize-release-changelog.awk
 file	6b6056813ebe0ec725c790a3c6026f75a11feb5c266e38119a76a29cf1771983	x	scripts/ci/test-release-runner.sh
-file	bb2c1617f9171f96363f2fc6bb3955d34d8dce305c6b43961fbe08a7536d24f7	-	rules/cargo-dependencies.md
+file	afd13ae708e684244edb5262f42e106900c076b3cac4def8bd741bfade3c602a	-	rules/cargo-dependencies.md
 file	ca7e614695b971a7f8c189bf8d394a1c52cd56ce17bb7bd4e2fdc638eac0b5bc	-	rules/git-hooks.md
 file	d70f32239de9ea0d2d2a3a0eebd2fa862746807cd797f512f95b2e46fc5faa67	x	.githooks/pre-commit
-file	e30f568f7c49d9ac1ce1efb87b02beb02006b65e72cc0c7ea7d4dd936f92733f	-	rules/agent-maintenance.md
+file	0e674b078da1f5cb8af920cb976a7890ce13f4ef841a6c95218a553617e27b39	-	rules/agent-maintenance.md
 file	4692d760ea97861b52c183bb69e24c929d9baf7c292795c61d65ea3166368787	-	rules/dependency-pinning.md
 file	de68acd7ba25355c73fa3e9a32cbde5525debf081862c1f1a52eccb4a66c48de	x	scripts/ci/check-dependency-pins.sh
 file	3d56ca1b0c5952b9534ece61b6754ca39e6ec1980d929f09de3dbd967a0c4977	-	scripts/ci/dependency-pins.jq
-file	faa9a62257ecdfd6532ac2225b3fd053012dfe9c35b8bc2ddc95288d8626a518	-	audits/README.md
+file	0818fe8f557e478dc35861b2d5a198ab8cef6693c38bfeb7e3ef6713f264d540	-	audits/README.md
 file	518d890bf485bef06c316b4cf26ac6bf357ed52bcce995e8d9b1232a103d0ea3	-	audits/code-hygiene.md
 file	35fd87d36a09ed0971841abf28535d43470c713a82581c2251b924da1ab8f484	-	audits/flow-convergence-and-duplication.md
 file	ffdca09602c44c8aff8fc2a17588b20eb6a56e2e71fb6d42ad75087fdd65819b	-	audits/complexity-and-technical-debt.md
 file	1b64cf2ba0393ab329ec29eb05a696d47ef5933f5ab9bff6e1fe4a7e7b294075	-	audits/module-surface-hardening.md
-file	b33ecebfb524f9af496c0f4f4b24650b97833e20f1fca56eedb8604a0660e109	-	audits/module-cleanup.md
+file	652218ac8dd91bcc35a8dbfd4305d41f540f76973b7a80038e31c322af11aa9f	-	audits/module-cleanup.md
 file	15315edad497b9b165671c3f57e9f56e6ba1d206bbc635eb0ff51afaa8456bb3	-	docs/provenance.md
 file	922d482affa0a2538e3fca2a3eb07b266c7e07aabf96a71d8b8e987d97ff216a	-	docs/ic-tools.md
-file	347901dc444808c8fcf0448bf9021cc0da3f5bce0eb460260f33dcbb8d54f69c	-	docs/local-setup.md
+file	6a6544f471a448777066f3043e47776bf63ad4ddad2bccb10062cafdd4e0cfa0	-	docs/local-setup.md
 file	7c1b2849ffce4e4b28fabe5eba2f7608b38dd08dc1478c25505ebd50c4e5d8a2	-	ci/tool-versions.env
 file	301e4afa6fc418918d84b6f92b83d8c1b463331ce4865e88e5763ff850082c1d	x	scripts/dev/install-host-tools.sh
 file	426d785a3813d08e91ce3e7d1be60b4cb1b9e603049b9e40849e86d2d8642f39	x	scripts/dev/install-ic-tools.sh
@@ -142,8 +143,8 @@ file	f54db2c34eeac9ccde4ad32c101fd0b02116a1c985b69bfe52b24994efaff912	x	scripts/
 file	e15dbf4612dddffa925e57e878db8bcbd7765c7b350ebbe41635e3df4d38bee5	x	scripts/ci/install-ci-tool.sh
 file	40f31a19d6115411ebffe7c26e3ed30b8af7eead10dd4830de8d5a9312291222	x	scripts/ci/read-cargo-workspace-version.sh
 file	a52db278800a9f02d85a6b8a780a9b1eed860c49d5442cef9db1f7f9d7ddee0a	x	scripts/ci/check-format-tools.sh
-file	f23be73b6ba57902502a09d6d36e178f2be7ff2588ebe6a5b2624a19ad683ba6	-	scripts/distribution/governance-files.txt
-file	6864ec72f2c5a9c912cf0aaa35704cfb72da367a52862e82588c1ba7eeba4369	x	scripts/ci/test-gh-ci.sh
+file	995dcc3987abe2f8e00444aeb1cc0a05eac6d0f4d8497330950c9cd6d8f8a3e1	-	scripts/distribution/governance-files.txt
+file	e99c301003f01d67f63fd88c4d327f4a7ff3089efcef42a419284b94b5f5409e	x	scripts/ci/test-gh-ci.sh
 file	4e7e0a3a93bf4f922a292619dad7deee9c78c24a4bd2812040dd564271862039	x	scripts/ci/run-nonempty-cargo-test.sh
 file	44d81399d40869f2494db425447705abf0b06b155c32defa939baeb115f1ed7c	-	rules/rust-workspaces.md
 file	9e32385247296ce95d2b15b1290c64e6b6dff15716c1c139f21ab5e5128f4be3	x	scripts/ci/check-make-execution.sh
@@ -151,9 +152,9 @@ file	6f8fcf904d038e1a6ae6e5ce4c812762ba05d937c775aacc1601f131ffc2032c	-	make/too
 file	b5728821f160fef73745ce12d68c652ebc8e58b33c66a5a8ef5aa24816acc710	x	scripts/ci/test-tool-commands.sh
 file	94a934651d5cb0c6f77fa429df277856dbda4c1a7441b2b8563e678c416258f6	-	audits/ic-canister-applications.md
 file	8135ff6e3bc11be17afd3b9c43eb70864037c8e0bbdda7b8aa931f502daf515d	x	scripts/dev/install-rust-tools.sh
-file	1720dcb88c80e7e8b67392e6b42f137a48d18f808de30add3469ec2eea4daff5	x	scripts/ci/test-rust-tools.sh
+file	8278e7decd36eafd33b1aaedaec0a933e283ffdd73fd389fe3213773b0cf1b8c	x	scripts/ci/test-rust-tools.sh
 file	8d32526932bdaf88a6c78ccc2358fb92a49bd89b7631572766deea51923d8f58	-	rules/contributions.md
-file	98aeae603f663bc79e6fc025621d472f5abec5a13a24075457cda2d8cae8fe5d	-	tasks/README.md
+file	40268196f193f767ca0ecabecde1d81554eba0a77681bd71f292a5f55716f8bb	-	tasks/README.md
 file	eb2419a5762a3cb02f25811d93becb6b18ca520df0bc3448ea35dfa187a034b4	-	tasks/cargo-machete.md
 file	b20211ec1c39ef262c8ab266b207db43c44cd1474acde18297586590c7885810	-	tasks/msrv.md
 file	ed8d04d20a6e5bd77aece468a5f44f7d9e1c8a52411431d24e052e20c39038f3	-	tasks/rust-toolchain.md
@@ -174,18 +175,20 @@ file	cebc0fa4ee9944550350a492a3bc1084e28820e2c915e20351c336d87ce0359f	-	make/exe
 file	4ff0a961d5fb8639edf798d64bbe3abc0fcd83c6f703d7a6875c6f5174e76201	x	scripts/ci/run-formatting.sh
 file	227ce86878264ff60aa24a70bb20140b8ef3c8332be640186e96f93805ed1062	-	tasks/readme-freshness.md
 file	05da2ac2b805c7cf9597d4af75983efc1268d619a0fb1e42c7f6d3fdb481880b	-	ci/ic-tools.tsv
-file	07e333d082e734d367167299c48410cab6ca24bc37f545e1300ecfbf93767bbd	-	scripts/dev/tool-store.sh
-file	2d49252710ac5edf62cc9c3196147f544c5e2df9a0c4d2402e599452d2655eb6	-	scripts/dev/cargo-tool-build.sh
+file	78af8b88228a1bf9616001c8458e0b6b43ec734b86a2c7bbdf8b4b014fb1a083	-	scripts/dev/tool-store.sh
+file	b936baeb21374c8718c4f35b00cd3ee09350f2315f4367559cf922ef42f68292	-	scripts/dev/cargo-tool-build.sh
 file	c385168599f833bbcd390eaf5ba2aa7507e5a9f05df0ec7264907c3a0de02289	-	make/consumer.mk
 file	68b77e120fe6ca0bac3bfa0499c27bd280471129c3dd66afa02715ccff9a21e3	-	docs/make-interface.md
 file	dfccb5fa0194b343d140512c892a31eac902cb1a489e641feae3c18e1cf70a1c	-	scripts/dev/run-maintenance.sh
-file	338b9de481659f34e3c90f302427047e4a24a80e6f8adc11d9c156c7c5cffa9e	-	scripts/ci/release-pr.sh
+file	ec8948910a221713a967d62b7ae42775929cad5ead4de111cb1cacdb1dedcb56	-	scripts/ci/release-pr.sh
 file	a3af7084956384262842be33100f91a22fdd82b0f91b6091a00e90f8726f67fe	x	scripts/ci/check-release-source.sh
 file	820c46f7fbbf3d4790f8bbce5b646c6506a3c4750ebab9525360fbc75c115b01	-	.github/actions/retain-failure-evidence/action.yml
 file	a9ed416a02f737d420723642935de94ffdd53cf92f75bb06ab4b0bc1c68430dc	-	tasks/cargo-tool-versions.md
+file	7abc7480e1092046849328168a5d29822d44dfc6ffff1ad60d388c4099c159e8	-	rules/change-reporting.md
 file	ebf236f1db579744a13bc995ec1c58c2ee87e34caed23088a6d9b75e638dd27f	x	scripts/ci/verify-evidence-checksums.sh
 file	775da89f655a3781059f433f80470ee6db9675e08942a805c111614183322fe1	-	scripts/ci/ic-tool-pins.awk
-file	24130b81f25fe6f60d2074cb8b932dc7874e2f7088933fc87095f3a9e00c5df3	x	scripts/dev/gh-ci.sh
+file	faa4fc5c39810099265b91e18604b9334217e4eaae141e1128864bd62828c8f1	x	scripts/dev/gh-ci.sh
+file	7ab130f8222b69e2ea4c4e083d6286f93a2472ec396d953d0b116330e0e76607	x	scripts/ci/cargo-tool-cache-key.sh
 file	50875aa80c211f8f5fded06bf75c7a9fc1fc99aac7590480de9be17d4753bf7f	x	scripts/ci/select-tool-evidence.sh
 file	5be336cb3e8045b2d2d536542a94944b376ee812b03f786a90b9d962ab697f13	x	scripts/ci/archive-evidence.sh
 file	0f86b831af02072f89b74477c73e378fd451f81116def1271a0c0a4552e278bb	x	scripts/dev/install-git-hooks.sh

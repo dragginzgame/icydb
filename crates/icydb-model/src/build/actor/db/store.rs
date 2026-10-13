@@ -19,6 +19,7 @@ use quote::{format_ident, quote};
 struct StoreRegistryTokens {
     memory_authority: String,
     journal_defs: TokenStream,
+    stable_keys: Vec<String>,
     data_defs: TokenStream,
     index_defs: TokenStream,
     schema_defs: TokenStream,
@@ -389,16 +390,31 @@ fn store_registry_tokens(
     let mut schema_defs = quote!();
     let mut journal_defs = quote!();
     let mut store_inits = quote!();
+    let mut stable_keys = Vec::new();
 
     for (store_ordinal, (store_path, store)) in builder.get_stores().into_iter().enumerate() {
         let (journal_def, data_def, index_def, schema_def, store_init) =
-            store_registry_entry_tokens(
-                store_ordinal,
-                &store_path,
-                &store,
-                memory_namespace,
-                memory_authority,
-            );
+            store_registry_entry_tokens(store_ordinal, &store_path, &store, memory_namespace);
+        if matches!(store.storage(), StoreStorage::Journaled(_)) {
+            stable_keys.extend([
+                store
+                    .stable_data_allocation(memory_namespace)
+                    .stable_key()
+                    .to_owned(),
+                store
+                    .stable_index_allocation(memory_namespace)
+                    .stable_key()
+                    .to_owned(),
+                store
+                    .stable_schema_allocation(memory_namespace)
+                    .stable_key()
+                    .to_owned(),
+                store
+                    .journal_allocation(memory_namespace)
+                    .stable_key()
+                    .to_owned(),
+            ]);
+        }
         journal_defs.extend(journal_def);
         data_defs.extend(data_def);
         index_defs.extend(index_def);
@@ -408,6 +424,7 @@ fn store_registry_tokens(
 
     StoreRegistryTokens {
         memory_authority: memory_authority.to_owned(),
+        stable_keys,
         journal_defs,
         data_defs,
         index_defs,
@@ -422,7 +439,6 @@ fn store_registry_entry_tokens(
     store_path: &str,
     store: &Store,
     memory_namespace: &str,
-    memory_authority: &str,
 ) -> (
     TokenStream,
     TokenStream,
@@ -439,7 +455,6 @@ fn store_registry_entry_tokens(
             store_path,
             store,
             memory_namespace,
-            memory_authority,
         ),
     }
 }
@@ -452,7 +467,6 @@ fn stable_store_cell_tokens(
     cell_ident: &Ident,
     store_ty: TokenStream,
     stable_key: &str,
-    memory_authority: &str,
 ) -> TokenStream {
     quote! {
         thread_local! {
@@ -460,10 +474,7 @@ fn stable_store_cell_tokens(
                 #store_ty
             > = ::std::cell::RefCell::new(
                 #store_ty::init(
-                    ::icydb::__macro::ic_memory_key!(
-                        authority = #memory_authority,
-                        key = #stable_key,
-                    )
+                    ::icydb::__macro::open_default_memory_manager_memory(#stable_key)
                     .expect(concat!(
                         "ic-memory committed allocation unavailable: ",
                         #stable_key
@@ -478,7 +489,6 @@ fn journaled_store_cell_tokens(
     cell_ident: &Ident,
     store_ty: TokenStream,
     stable_key: &str,
-    memory_authority: &str,
 ) -> TokenStream {
     quote! {
         thread_local! {
@@ -486,10 +496,7 @@ fn journaled_store_cell_tokens(
                 #store_ty
             > = ::std::cell::RefCell::new(
                 #store_ty::init_journaled(
-                    ::icydb::__macro::ic_memory_key!(
-                        authority = #memory_authority,
-                        key = #stable_key,
-                    )
+                    ::icydb::__macro::open_default_memory_manager_memory(#stable_key)
                     .expect(concat!(
                         "ic-memory committed allocation unavailable: ",
                         #stable_key
@@ -565,7 +572,6 @@ fn journaled_store_registry_entry_tokens(
     store_path: &str,
     store: &Store,
     memory_namespace: &str,
-    memory_authority: &str,
 ) -> (
     TokenStream,
     TokenStream,
@@ -590,25 +596,21 @@ fn journaled_store_registry_entry_tokens(
         &journal_cell_ident,
         quote!(::icydb::__macro::JournalTailStore),
         journal_stable_key,
-        memory_authority,
     );
     let data_def = journaled_store_cell_tokens(
         &data_cell_ident,
         quote!(::icydb::__macro::DataStore),
         data_stable_key,
-        memory_authority,
     );
     let index_def = journaled_store_cell_tokens(
         &index_cell_ident,
         quote!(::icydb::__macro::IndexStore),
         index_stable_key,
-        memory_authority,
     );
     let schema_def = journaled_store_cell_tokens(
         &schema_cell_ident,
         quote!(::icydb::__macro::SchemaStore),
         schema_stable_key,
-        memory_authority,
     );
     let store_init = quote! {
         reg.register_journaled_store(
@@ -652,6 +654,7 @@ fn store_wiring_tokens(
 ) -> TokenStream {
     let StoreRegistryTokens {
         memory_authority,
+        stable_keys,
         journal_defs,
         data_defs,
         index_defs,
@@ -695,20 +698,19 @@ fn store_wiring_tokens(
                 #integrity_progress_stable_key;
         }
 
-        ::icydb::__macro::ic_memory_declaration!(
-            authority = #memory_authority,
-            key = #commit_stable_key,
-        );
-
-        ::icydb::__macro::ic_memory_declaration!(
-            authority = #memory_authority,
-            key = #integrity_progress_stable_key,
-        );
-
-        ::icydb::__macro::ic_memory_declaration!(
-            authority = #memory_authority,
-            key = #startup_stable_key,
-        );
+        /// Complete database memory requirements for host composition, without opening stores.
+        pub fn icydb_memory_requests() -> ::std::result::Result<
+            ::std::vec::Vec<::icydb::db::MemoryRequest>,
+            ::icydb::db::MemoryDeclarationError,
+        > {
+            [#commit_stable_key, #integrity_progress_stable_key, #startup_stable_key,
+                #(#stable_keys),*]
+                .into_iter()
+                .map(|key| ::icydb::db::MemoryRequest::new(
+                    #memory_authority, key, ::icydb::db::SchemaMetadata::default(),
+                ))
+                .collect()
+        }
 
         #journal_defs
         thread_local! {
@@ -739,8 +741,13 @@ fn store_wiring_tokens(
             MEMORY_BOOTSTRAP.with(|bootstrap| {
                 bootstrap
                     .get_or_init(|| {
+                        // Construct and validate once at the existing bootstrap owner.
+                        let requirements = icydb_memory_requests()
+                            .and_then(::icydb::db::SealedDeclarationSnapshot::new)
+                            .map_err(::icydb::db::DatabaseBootstrapError::from)?;
                         ::icydb::__macro::ensure_default_memory_manager(
                             #memory_authority,
+                            &requirements,
                             #bucket_size_pages,
                             crate::icydb_memory_pool,
                         )
@@ -887,7 +894,7 @@ mod tests {
             );
             let rendered = compact_tokens(generate_store_wiring(&builder, quote!()));
             assert!(rendered.contains(&format!(
-                "ensure_default_memory_manager(\"icydb.test\",{pages}u16,crate::icydb_memory_pool,)"
+                "ensure_default_memory_manager(\"icydb.test\",&requirements,{pages}u16,crate::icydb_memory_pool,)"
             )));
             assert_eq!(
                 builder.schema_fragment_bytes,
@@ -1009,13 +1016,7 @@ mod tests {
     fn heap_store_wiring_uses_heap_initializers_and_absent_allocation_identity() {
         let store = heap_store();
         let (journal_def, data_def, index_def, schema_def, store_init) =
-            store_registry_entry_tokens(
-                0,
-                "demo::schema::ScratchStore",
-                &store,
-                "demo",
-                "icydb.demo",
-            );
+            store_registry_entry_tokens(0, "demo::schema::ScratchStore", &store, "demo");
         let rendered = quote! {
             #journal_def
             #data_def
@@ -1033,7 +1034,12 @@ mod tests {
         assert!(rendered.contains("__ICYDB_STORE_0_DATA"));
         assert!(rendered.contains("__ICYDB_STORE_0_INDEX"));
         assert!(rendered.contains("__ICYDB_STORE_0_SCHEMA"));
-        assert_eq!(rendered.matches("ic_memory_key").count(), 0);
+        assert_eq!(
+            rendered
+                .matches("open_default_memory_manager_memory")
+                .count(),
+            0
+        );
         assert_eq!(
             rendered
                 .matches("StoreAllocationIdentity :: from_committed_key")
@@ -1047,13 +1053,7 @@ mod tests {
     fn journaled_store_wiring_declares_journal_memory_and_registers_four_role_allocation() {
         let store = journaled_store();
         let (journal_def, data_def, index_def, schema_def, store_init) =
-            store_registry_entry_tokens(
-                0,
-                "demo::schema::JournaledStore",
-                &store,
-                "demo",
-                "icydb.demo",
-            );
+            store_registry_entry_tokens(0, "demo::schema::JournaledStore", &store, "demo");
         let rendered = quote! {
             #journal_def
             #data_def
@@ -1063,14 +1063,18 @@ mod tests {
         }
         .to_string();
 
-        assert_eq!(rendered.matches("ic_memory_key").count(), 4);
+        assert_eq!(
+            rendered
+                .matches("open_default_memory_manager_memory")
+                .count(),
+            4
+        );
         assert_eq!(
             rendered
                 .matches("ic-memory committed allocation unavailable:")
                 .count(),
             4
         );
-        assert_eq!(rendered.matches("authority = \"icydb.demo\"").count(), 4);
         assert_eq!(
             rendered
                 .matches("StoreAllocationIdentity :: from_committed_key")
@@ -1092,17 +1096,11 @@ mod tests {
     fn store_registry_wiring_preserves_startup_admission() {
         let mut store_inits = quote!();
         store_inits.extend(
-            store_registry_entry_tokens(
-                0,
-                "demo::schema::ScratchStore",
-                &heap_store(),
-                "demo",
-                "icydb.demo",
-            )
-            .4,
+            store_registry_entry_tokens(0, "demo::schema::ScratchStore", &heap_store(), "demo").4,
         );
         let registry = StoreRegistryTokens {
             memory_authority: "icydb.demo".to_owned(),
+            stable_keys: Vec::new(),
             journal_defs: quote!(),
             data_defs: quote!(),
             index_defs: quote!(),
@@ -1122,13 +1120,13 @@ mod tests {
             },
         ));
 
-        assert_eq!(rendered.matches("authority=\"icydb.demo\"").count(), 3);
-        assert!(rendered.contains("key=\"icydb.demo.startup.control.v1\""));
-        assert!(rendered.contains("key=\"icydb.demo.integrity.progress.v1\""));
+        assert!(rendered.contains("pubfnicydb_memory_requests()"));
+        assert!(rendered.contains("\"icydb.demo.startup.control.v1\""));
+        assert!(rendered.contains("\"icydb.demo.integrity.progress.v1\""));
         assert!(rendered.contains("Result<(),::icydb::db::DatabaseBootstrapError>"));
         assert!(
             rendered
-                .contains("::icydb::__macro::ensure_default_memory_manager(\"icydb.demo\",16u16,crate::icydb_memory_pool,)")
+                .contains("::icydb::__macro::ensure_default_memory_manager(\"icydb.demo\",&requirements,16u16,crate::icydb_memory_pool,)")
         );
         assert!(rendered.contains("ensure_memory_bootstrap()?"));
         assert!(rendered.contains("pubfnstartup_state()->::std::result::Result<"));
@@ -1169,12 +1167,6 @@ mod tests {
             "pubfndb_with_request_root(request_root:&::icydb::db::RequestExecutionRoot,)"
         ));
         assert!(rendered.contains("request_root.__ensure_compatible_with_current()?"));
-        assert_eq!(
-            rendered
-                .matches("::icydb::db::DatabaseBootstrapError")
-                .count(),
-            3,
-        );
         assert!(!rendered.contains("panic!("));
     }
 }

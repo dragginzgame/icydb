@@ -43,8 +43,10 @@ ci_provider_test_selection() {
   local cargo_test=false workspace=false all_targets=false excluded=false
   local selected_package=false selected_binary=false locked=false libtest=false
   local words=()
-  recipe="$(make_target_recipe "$target" | awk '/^\t/ { print }')"
-  recipe="${recipe//$'\\\n'/ }"
+  # Join Make continuations before shell tokenization, including on Bash 3.2.
+  recipe="$(make_target_recipe "$target" | awk '/^\t/ {
+    if (sub(/\\$/, "")) { printf "%s ", $0 } else { print }
+  }')"
   [[ "$recipe" =~ [^[:space:]] ]] || return 1
   read -r -a words <<< "$recipe"
   while [[ "$index" -lt "${#words[@]}" ]]; do

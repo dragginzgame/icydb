@@ -63,7 +63,7 @@ pub(crate) fn test_memory_runtime<M: Memory>(
                 .expect("test request should validate")
             })
             .collect();
-        SealedDeclarationSnapshot::new(&requests).expect("test requests should seal")
+        SealedDeclarationSnapshot::new(requests).expect("test requests should seal")
     });
     let pool = MemoryAllocationPool::new(
         vec![MemoryAuthority::new("icydb.core-tests", "icydb.core_tests.").unwrap()],

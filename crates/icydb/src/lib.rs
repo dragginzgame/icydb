@@ -180,7 +180,7 @@ pub mod __macro {
         execute_generated_storage_report,
     };
     pub use crate::guards::{authorize_schema_read, authorize_sql_read};
-    pub use ic_memory::{ic_memory_declaration, ic_memory_key};
+    pub use ic_memory::open_default_memory_manager_memory;
     #[cfg(feature = "sql")]
     pub use icydb_core::db::sql_statement_dispatch;
     pub use icydb_core::db::{
@@ -272,6 +272,11 @@ macro_rules! build_canister {
 /// Cold bootstrap uses this explicit pool's namespace grants and physical
 /// exclusions. An already committed host is adopted without invoking the provider.
 /// Permanent component keys never choose IDs or grant their own namespace.
+/// The generated public `icydb_memory_requests()` factory returns all database
+/// requests without opening stores. A composed host combines those requests with
+/// other components and passes a checked [`db::SealedDeclarationSnapshot`] to
+/// Memory bootstrap, invoking [`db::prepare_memory_bootstrap`] in its policy.
+/// IcyDB then verifies its requirements against that committed host once.
 ///
 /// The zero-argument form owns hidden install and post-upgrade lifecycle
 /// entries for canisters without application hooks. Applications that own
@@ -502,6 +507,7 @@ macro_rules! __icydb_start_actor {
             reason = "minimal downstream canisters may use only a subset of generated actor conveniences"
         )]
         use __icydb_generated::{db, db_with_request_root, startup_state};
+        pub use __icydb_generated::icydb_memory_requests;
     };
 }
 

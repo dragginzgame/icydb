@@ -24,10 +24,9 @@ Apply the [common authority and evidence contract](README.md).
    change as ready; it does not replace focused assertions. Preserve failed
    artifacts and report remaining limits.
 6. Report changed behavior, validation, state-space/ownership effect, intentional
-   retention and unresolved work. Only in the final Codex app response, list every
-   removed function, method and type with former owner, reason and replacement
-   if any; distinguish moves/renames. Keep this inventory out of repository files,
-   reports, changelogs, commit messages, PRs and issues.
+   retention and unresolved work. Apply the [change-reporting rules](../rules/change-reporting.md)
+   for separate deletion/move/rename counts, exact identities and scoped metrics.
+   Keep the full symbol inventory only in the final Codex app response.
 
 The original finding remains evidence. Record implementation and new checks with
 their own source identity, and update the owning GitHub issue under the baseline's

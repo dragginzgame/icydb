@@ -9,6 +9,7 @@ Inspect GitHub Actions CI through an authenticated local GitHub CLI session.
 
 Options:
   --branch <branch>   Branch or tag name to inspect. Defaults to the current git branch.
+                      Detached HEAD requires --branch, --commit or --run.
   --workflow <name>   Workflow name to inspect. Defaults to CI.
   --commit <revision> Resolve a local revision (e.g. HEAD) to an exact commit.
                       No implicit branch filter when this option is selected.
@@ -46,7 +47,7 @@ require_gh_auth() {
 }
 
 current_branch() {
-    git branch --show-current 2>/dev/null || true
+    git branch --show-current
 }
 
 workflow="CI"
@@ -150,8 +151,16 @@ if [[ -n "$commit" ]]; then
         echo 'git returned an invalid commit identity' >&2; exit 1;
     }
     printf 'Selected commit: %s\n' "$commit" >&2
-elif [ -z "$branch" ]; then
-    branch="$(current_branch)"
+elif [[ -z "$run_id" && -z "$branch" ]]; then
+    branch="$(current_branch)" || {
+        status=$?
+        echo 'cannot observe the current Git branch; select --branch, --commit or --run' >&2
+        exit "$status"
+    }
+    [[ -n "$branch" ]] || {
+        echo 'no current Git branch (detached HEAD); select --branch, --commit or --run' >&2
+        exit 1
+    }
 fi
 require_gh_auth
 

@@ -25,7 +25,10 @@ cat > "$fixture/bin/git" <<'SCRIPT'
 { printf 'git'; printf ' <%s>' "$@"; printf '\n'; } >> "$GH_CI_TEST_LOG"
 case "$1" in
     rev-parse) printf '%s\n' "$GH_CI_TEST_SHA"; exit "${GH_CI_TEST_GIT_STATUS:-0}" ;;
-    branch) printf '%s\n' main ;;
+    branch)
+        printf '%s\n' "${GH_CI_TEST_BRANCH-main}"
+        printf '%s' "${GH_CI_TEST_BRANCH_ERROR-}" >&2
+        exit "${GH_CI_TEST_BRANCH_STATUS:-0}" ;;
     *) exit 90 ;;
 esac
 SCRIPT
@@ -74,7 +77,29 @@ run
 grep -F 'gh <run> <list> <--workflow> <CI> <--branch> <main> <--limit> <1>' "$GH_CI_TEST_LOG"
 grep -Fx 'gh <run> <view> <42> <--verbose>' "$GH_CI_TEST_LOG"
 
-run --commit HEAD --all-workflows --limit 100
+# A failed branch observation (even with partial output), or detached HEAD,
+# must not silently broaden an implicit selection to unrelated branch runs.
+GH_CI_TEST_BRANCH=partial GH_CI_TEST_BRANCH_STATUS=9 GH_CI_TEST_BRANCH_ERROR='branch observation failed' refuse 9
+grep -F 'branch observation failed' "$fixture/output"
+if grep -F 'gh ' "$GH_CI_TEST_LOG"; then exit 1; fi
+for args in default list all; do
+    case "$args" in
+        default) GH_CI_TEST_BRANCH='' refuse 1 ;;
+        list) GH_CI_TEST_BRANCH='' refuse 1 --list ;;
+        all) GH_CI_TEST_BRANCH='' refuse 1 --all-workflows ;;
+    esac
+    grep -F 'select --branch, --commit or --run' "$fixture/output"
+    if grep -F 'gh ' "$GH_CI_TEST_LOG"; then exit 1; fi
+done
+# Explicit identities work without observing a branch, including --run when
+# invoked outside a checkout with an explicitly selected GitHub repository.
+GH_CI_TEST_BRANCH_STATUS=9 run --run 17 --logs
+if grep -F 'git ' "$GH_CI_TEST_LOG"; then exit 1; fi
+GH_CI_TEST_BRANCH_STATUS=9 run --branch release --list
+grep -F '<--branch> <release>' "$GH_CI_TEST_LOG"
+if grep -F 'git ' "$GH_CI_TEST_LOG"; then exit 1; fi
+
+GH_CI_TEST_BRANCH_STATUS=9 run --commit HEAD --all-workflows --limit 100
 grep -Fx 'git <rev-parse> <--verify> <--end-of-options> <HEAD^{commit}>' "$GH_CI_TEST_LOG"
 grep -Fx "gh <run> <list> <--commit> <$GH_CI_TEST_SHA> <--limit> <100>" "$GH_CI_TEST_LOG"
 grep -Fx "Selected commit: $GH_CI_TEST_SHA" "$fixture/output"

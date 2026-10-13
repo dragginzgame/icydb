@@ -127,7 +127,7 @@ parameters. Match the typed leaf code, not its broad class or display text.
 
 The declaration/admission owners still reject these failures before IcyDB opens
 ordinary database work. Startup observation does not grant memory or repair a
-rejected declaration. Unknown upstream variants and unrelated runtime/registry
+rejected declaration. Unknown upstream variants and unrelated runtime
 internal faults retain E23, with runtime origin. No unbounded upstream error text,
 namespace, authority or stable-key strings enter the public error record.
 
@@ -224,3 +224,9 @@ Applications decide whether to expose readiness, who may call that endpoint,
 and whether the compact typed failure belongs in an operational report. Normal
 queries, writes, schema operations, integrity checks, and database diagnostics
 remain gated while startup is incomplete.
+
+For composed hosts, collect the generated `icydb_memory_requests()` together
+with other component requests before sealing Memory’s explicit snapshot. Keep
+`prepare_memory_bootstrap` in the host policy’s preparation hook. Generated
+IcyDB startup checks its own requirements against the committed host once; it
+does not register keys, invoke the pool provider or bootstrap the host again.

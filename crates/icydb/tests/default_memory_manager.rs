@@ -1,8 +1,8 @@
 use ic_memory::{
     AllocationBinding, MemoryAllocationPool, MemoryAuthority, MemoryRequest,
-    RuntimeDiagnosticError, RuntimeOpenError, SchemaMetadata, committed_allocations,
-    default_memory_manager_memory_allocations, open_default_memory_manager_memory,
-    register_memory_request,
+    RuntimeDiagnosticError, RuntimeOpenError, SchemaMetadata, SealedDeclarationSnapshot,
+    committed_allocations, default_memory_manager_memory_allocations,
+    open_default_memory_manager_memory,
 };
 use icydb::db::ensure_default_memory_manager;
 use icydb::traits::{CanisterKind, Path};
@@ -39,19 +39,22 @@ fn ensure_bootstraps_once_then_reuses_committed_allocations() {
         committed_allocations(),
         Err(RuntimeOpenError::NotBootstrapped)
     ));
-    for role in ["commit.control", "startup.control", "integrity.progress"] {
-        register_memory_request(
-            MemoryRequest::new(
-                AUTHORITY,
-                &format!("{AUTHORITY}.{role}.v1"),
-                SchemaMetadata::default(),
-            )
-            .unwrap(),
-        )
-        .unwrap();
-    }
+    let requirements = SealedDeclarationSnapshot::new(
+        ["commit.control", "startup.control", "integrity.progress"]
+            .into_iter()
+            .map(|role| {
+                MemoryRequest::new(
+                    AUTHORITY,
+                    &format!("{AUTHORITY}.{role}.v1"),
+                    SchemaMetadata::default(),
+                )
+                .unwrap()
+            })
+            .collect(),
+    )
+    .unwrap();
 
-    ensure_default_memory_manager(AUTHORITY, 16, || {
+    ensure_default_memory_manager(AUTHORITY, &requirements, 16, || {
         MemoryAllocationPool::new(
             vec![MemoryAuthority::new(AUTHORITY, format!("{AUTHORITY}."))?],
             vec![],
@@ -62,7 +65,7 @@ fn ensure_bootstraps_once_then_reuses_committed_allocations() {
         .expect("cold ensure should publish committed allocations")
         .generation();
 
-    ensure_default_memory_manager(AUTHORITY, 16, || {
+    ensure_default_memory_manager(AUTHORITY, &requirements, 16, || {
         MemoryAllocationPool::new(
             vec![MemoryAuthority::new(AUTHORITY, format!("{AUTHORITY}."))?],
             vec![],

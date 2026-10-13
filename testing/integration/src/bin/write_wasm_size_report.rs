@@ -12,11 +12,12 @@ use std::{
     time::Duration,
 };
 
-use ic_host_artifacts::wasm::{InspectionLimits, inspect};
+use ic_host_artifacts::wasm::{ExportKind, InspectionLimits, WasmFacts, inspect};
 use ic_host_fs::read::hash_file;
 use ic_host_process::tool::{
     AdmittedTool, CompletedExecution, OutputLimit, OutputLimits, capture_command,
 };
+use ic_host_tools::interface::exported_methods;
 use icydb_testing_integration::{
     CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
     CanisterWasmProfile, ResolvedCanisterBuildConfiguration,
@@ -163,6 +164,8 @@ struct WasmInfo {
     data_section_bytes: Option<u64>,
     exported_method_count: usize,
     exported_methods: Vec<String>,
+    #[serde(skip)]
+    method_names: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -535,29 +538,18 @@ fn sha256_hex(path: &Path) -> Result<String, String> {
 fn parse_info(path: &Path, wasm_path: &Path, optimizer: &AdmittedTool) -> Result<WasmInfo, String> {
     let text = fs::read_to_string(path)
         .map_err(|err| format!("failed to read {}: {err}", path.display()))?;
-    let exported_methods = parse_exported_methods(&text);
-    let (defined_function_count, code_section_bytes) = wasm_code_structure(wasm_path)?;
+    let bytes = read_wasm_artifact(wasm_path)
+        .map_err(|error| format!("failed to read Wasm '{}': {error}", wasm_path.display()))?;
     let call_indirect_count = wasm_call_indirect_count(wasm_path, optimizer)?;
-    Ok(WasmInfo {
-        function_count: int_field(&text, "Number of functions:"),
-        defined_function_count,
-        code_section_bytes,
-        call_indirect_count,
-        callback_count: int_field(&text, "Number of callbacks:"),
-        data_section_count: int_field(&text, "Number of data sections:"),
-        data_section_bytes: int_field(&text, "Size of data sections:"),
-        exported_method_count: exported_methods.len(),
-        exported_methods,
-    })
+    wasm_structure(&bytes, &text, call_indirect_count)
+        .map_err(|error| format!("failed to inspect Wasm '{}': {error}", wasm_path.display()))
 }
 
-fn wasm_code_structure(path: &Path) -> Result<(u64, u64), String> {
-    let bytes = read_wasm_artifact(path)
-        .map_err(|error| format!("failed to read Wasm '{}': {error}", path.display()))?;
+fn wasm_structure(bytes: &[u8], text: &str, call_indirect_count: u64) -> Result<WasmInfo, String> {
     // Each structural entry consumes input bytes. Natural input-size ceilings
     // preserve whole-artifact reporting without adding a consumer budget knob.
     let facts = inspect(
-        &bytes,
+        bytes,
         InspectionLimits {
             module_bytes: bytes.len(),
             sections: bytes.len(),
@@ -565,11 +557,41 @@ fn wasm_code_structure(path: &Path) -> Result<(u64, u64), String> {
             custom_sections: bytes.len(),
         },
     )
-    .map_err(|error| format!("failed to inspect Wasm '{}': {error}", path.display()))?;
-    let code_section_bytes = u64::try_from(facts.code_section_bytes)
-        .map_err(|_| format!("Wasm code section is too large: '{}'", path.display()))?;
+    .map_err(|error| error.to_string())?;
+    report_wasm_facts(&facts, text, call_indirect_count)
+}
 
-    Ok((u64::from(facts.defined_functions), code_section_bytes))
+// Project canonical facts into the local report schema. Keep tool-only metrics
+// separate: data payload bytes exclude the encoded data-section framing.
+fn report_wasm_facts(
+    facts: &WasmFacts<'_>,
+    text: &str,
+    call_indirect_count: u64,
+) -> Result<WasmInfo, String> {
+    let code_section_bytes = u64::try_from(facts.code_section_bytes)
+        .map_err(|_| "Wasm code section is too large".to_string())?;
+    let exports = facts
+        .exports
+        .iter()
+        .filter(|(_, export)| export.kind == ExportKind::Function)
+        .map(|(name, _)| (*name).to_owned())
+        .collect::<Vec<_>>();
+    Ok(WasmInfo {
+        function_count: Some(
+            u64::from(facts.defined_functions) + u64::from(facts.imported_functions),
+        ),
+        defined_function_count: u64::from(facts.defined_functions),
+        code_section_bytes,
+        call_indirect_count,
+        callback_count: int_field(text, "Number of callbacks:"),
+        data_section_count: Some(u64::from(facts.data_segments)),
+        data_section_bytes: int_field(text, "Size of data sections:"),
+        exported_method_count: exports.len(),
+        exported_methods: exports,
+        method_names: exported_methods(facts)
+            .map(|method| method.name.to_owned())
+            .collect(),
+    })
 }
 
 fn wasm_call_indirect_count(path: &Path, optimizer: &AdmittedTool) -> Result<u64, String> {
@@ -614,47 +636,17 @@ fn int_field(text: &str, prefix: &str) -> Option<u64> {
         })
 }
 
-fn parse_exported_methods(text: &str) -> Vec<String> {
-    let mut exports = Vec::new();
-    let mut in_block = false;
-
-    for line in text.lines() {
-        let trimmed = line.trim();
-        if in_block {
-            if trimmed == "]" {
-                break;
-            }
-            if let Some(export) = parse_export_line(trimmed) {
-                exports.push(export);
-            }
-        } else if let Some(rest) = trimmed.strip_prefix("Exported methods:") {
-            in_block = true;
-            if let Some(export) = parse_export_line(rest.trim()) {
-                exports.push(export);
-            }
-        }
-    }
-
-    exports
-}
-
-fn parse_export_line(line: &str) -> Option<String> {
-    let line = line.trim_end_matches(',').trim();
-    if line == "[]" || line == "[" || line == "]" {
-        return None;
-    }
-    line.strip_prefix('"')
-        .and_then(|rest| rest.strip_suffix('"'))
-        .map(ToOwned::to_owned)
-}
-
 fn endpoint_surface(resolved: &ResolvedCanisterBuildConfiguration, info: &WasmInfo) -> Build {
     let exact_features = resolved
         .features()
         .iter()
         .map(|feature| (*feature).to_string())
         .collect();
-    let names = exported_method_names(info);
+    let names = info
+        .method_names
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
     let generated_endpoint_surface = GeneratedEndpointSurface {
         sql_readonly: names.contains(&"icydb_query"),
         sql_ddl: names.contains(&"icydb_ddl"),
@@ -707,8 +699,8 @@ fn validate_post_link_contract(
     final_info: &WasmInfo,
     resolved: &ResolvedCanisterBuildConfiguration,
 ) -> Result<(Build, u16), String> {
-    let compiler_exports = exported_method_names(compiler_info);
-    let final_exports = exported_method_names(final_info);
+    let compiler_exports = &compiler_info.exported_methods;
+    let final_exports = &final_info.exported_methods;
     if compiler_exports != final_exports {
         return Err(format!(
             "post-link export drift for {}: compiler={compiler_exports:?}, final={final_exports:?}",
@@ -724,23 +716,6 @@ fn validate_post_link_contract(
         ));
     }
     Ok((build, reduction))
-}
-
-fn exported_method_names(info: &WasmInfo) -> Vec<&str> {
-    info.exported_methods
-        .iter()
-        .map(|export| export_name(export))
-        .collect()
-}
-
-fn export_name(export: &str) -> &str {
-    if let Some(rest) = export.strip_prefix("canister_query ") {
-        return rest.split_whitespace().next().unwrap_or(rest);
-    }
-    if let Some(rest) = export.strip_prefix("canister_update ") {
-        return rest.split_whitespace().next().unwrap_or(rest);
-    }
-    export.split_whitespace().next().unwrap_or(export)
 }
 
 fn delta_bytes(before: &FileMeta, after: &FileMeta) -> Result<i64, String> {
@@ -917,7 +892,7 @@ mod tests {
 
     use super::{
         WasmInfo, command_text, endpoint_surface, file_meta, parse_args, pipeline,
-        validate_final_wasm_features, wasm_call_indirect_count, wasm_code_structure,
+        validate_final_wasm_features, wasm_call_indirect_count, wasm_structure,
     };
 
     #[test]
@@ -1002,15 +977,22 @@ mod tests {
 
     #[test]
     fn wasm_structure_reports_defined_functions_and_complete_code_payload_bytes() {
-        let path = env::temp_dir().join(format!("icydb-report-wasm-valid-{}", std::process::id()));
         let mut bytes = b"\0asm\x01\0\0\0".to_vec();
-        fs::write(&path, &bytes).expect("empty module should be writable");
-        assert_eq!(wasm_code_structure(&path).unwrap(), (0, 0));
+        let info = wasm_structure(&bytes, "", 0).unwrap();
+        assert_eq!(
+            (info.defined_function_count, info.code_section_bytes),
+            (0, 0)
+        );
+        assert_eq!(info.function_count, Some(0));
 
         // Imported functions do not count as defined functions.
         bytes.extend([1, 4, 1, 0x60, 0, 0, 2, 7, 1, 1, b'm', 1, b'f', 0, 0]);
-        fs::write(&path, &bytes).expect("import-only module should be writable");
-        assert_eq!(wasm_code_structure(&path).unwrap(), (0, 0));
+        let info = wasm_structure(&bytes, "Number of functions: 999", 0).unwrap();
+        assert_eq!(
+            (info.defined_function_count, info.code_section_bytes),
+            (0, 0)
+        );
+        assert_eq!(info.function_count, Some(1));
 
         // Two defined functions: one body crosses the one-byte LEB128 boundary.
         // The code payload includes its vector count and both body lengths,
@@ -1018,15 +1000,17 @@ mod tests {
         bytes.extend([3, 3, 2, 0, 0, 10, 0x88, 0x01, 2, 0x82, 0x01, 0]);
         bytes.extend(std::iter::repeat_n(0x01, 128));
         bytes.extend([0x0b, 2, 0, 0x0b, 0, 2, 1, b'x']);
-        fs::write(&path, &bytes).expect("defined-function module should be writable");
-        assert_eq!(wasm_code_structure(&path).unwrap(), (2, 136));
-        fs::remove_file(path).expect("module fixture should be removable");
+        let info = wasm_structure(&bytes, "", 7).unwrap();
+        assert_eq!(
+            (info.defined_function_count, info.code_section_bytes),
+            (2, 136)
+        );
+        assert_eq!(info.function_count, Some(3));
+        assert_eq!(info.call_indirect_count, 7);
     }
 
     #[test]
     fn wasm_structure_rejects_malformed_framing_and_inconsistent_function_counts() {
-        let path =
-            env::temp_dir().join(format!("icydb-report-wasm-invalid-{}", std::process::id()));
         for tail in [
             &[3, 2, 1, 0][..],
             &[3, 2, 1, 0, 10, 1, 0][..],
@@ -1034,10 +1018,8 @@ mod tests {
             &[1, 0x80, 0x80, 0x80, 0x80, 0x10][..],
         ] {
             let bytes = [b"\0asm\x01\0\0\0".as_slice(), tail].concat();
-            fs::write(&path, bytes).expect("malformed module should be writable");
-            assert!(wasm_code_structure(&path).is_err());
+            assert!(wasm_structure(&bytes, "", 0).is_err());
         }
-        fs::remove_file(path).expect("module fixture should be removable");
     }
 
     #[test]
@@ -1094,20 +1076,183 @@ mod tests {
     }
 
     fn wasm_info(exported_methods: &[&str]) -> WasmInfo {
-        WasmInfo {
-            function_count: None,
-            defined_function_count: 0,
-            code_section_bytes: 0,
-            call_indirect_count: 0,
-            callback_count: None,
-            data_section_count: None,
-            data_section_bytes: None,
-            exported_method_count: exported_methods.len(),
-            exported_methods: exported_methods
-                .iter()
-                .map(|export| (*export).to_string())
-                .collect(),
+        use ic_host_artifacts::wasm::{Export, ExportKind, InspectionLimits, inspect};
+
+        let mut facts = inspect(
+            b"\0asm\x01\0\0\0",
+            InspectionLimits {
+                module_bytes: 8,
+                sections: 0,
+                exports: 0,
+                custom_sections: 0,
+            },
+        )
+        .unwrap();
+        for name in exported_methods {
+            facts.exports.insert(
+                name,
+                Export {
+                    kind: ExportKind::Function,
+                    index: 0,
+                },
+            );
         }
+        // A namespace-looking non-function export must not become an endpoint.
+        facts.exports.insert(
+            "canister_query icydb_schema",
+            Export {
+                kind: ExportKind::Memory,
+                index: 0,
+            },
+        );
+        super::report_wasm_facts(&facts, "Exported methods: [\"wrong\"]", 0).unwrap()
+    }
+
+    #[test]
+    fn endpoint_inventory_preserves_exact_names_and_ignores_non_methods() {
+        let info = wasm_info(&[
+            "canister_composite_query icydb_query",
+            "canister_query spaced name (with parentheses)",
+            "canister_update quoted\"name",
+            "canister_init",
+            "get_candid_pointer",
+        ]);
+        let build = endpoint_surface(
+            &resolved(
+                "sql",
+                CanisterWasmProfile::WasmRelease,
+                CanisterSqlMode::Enabled,
+                CanisterCandidExportMode::Enabled,
+            ),
+            &info,
+        );
+        assert!(build.generated_endpoint_surface.sql_readonly);
+        assert!(!build.generated_endpoint_surface.schema);
+        assert_eq!(
+            build.custom_exports,
+            ["spaced name (with parentheses)", "quoted\"name"]
+        );
+        assert_eq!(info.exported_method_count, 5);
+        assert!(info.exported_methods.contains(&"canister_init".to_string()));
+        assert!(
+            info.exported_methods
+                .contains(&"get_candid_pointer".to_string())
+        );
+        let json = serde_json::to_value(&info).unwrap();
+        assert!(json.get("method_names").is_none());
+        assert_eq!(
+            json["exported_methods"],
+            serde_json::json!(info.exported_methods)
+        );
+    }
+
+    #[test]
+    fn post_link_contract_preserves_modes_lifecycle_exports_and_complete_names() {
+        let mut arguments = [
+            "--canister",
+            "sql",
+            "--profile",
+            "wasm-release",
+            "--build-profile",
+            "production",
+            "--sql-mode",
+            "on",
+            "--candid-export",
+            "on",
+        ]
+        .map(str::to_string)
+        .to_vec();
+        for flag in [
+            "--did",
+            "--compiler-wasm",
+            "--final-wasm",
+            "--final-gz",
+            "--compiler-info",
+            "--final-info",
+            "--report-json",
+            "--summary-md",
+            "--ic-wasm-bin",
+            "--wasm-opt-bin",
+        ] {
+            arguments.extend([flag.to_string(), "unused".to_string()]);
+        }
+        let args = parse_args(arguments).unwrap();
+        let before = super::FileMeta {
+            path: "before".to_string(),
+            bytes: 100,
+            sha256: String::new(),
+        };
+        let after = super::FileMeta {
+            path: "after".to_string(),
+            bytes: 1,
+            sha256: String::new(),
+        };
+        let resolved = resolved(
+            "sql",
+            CanisterWasmProfile::WasmRelease,
+            CanisterSqlMode::Enabled,
+            CanisterCandidExportMode::Enabled,
+        );
+        let compiler = wasm_info(&[
+            "canister_query spaced name",
+            "canister_init",
+            "get_candid_pointer",
+        ]);
+        assert!(
+            super::validate_post_link_contract(
+                &args, &before, &after, &compiler, &compiler, &resolved
+            )
+            .is_ok()
+        );
+        for changed in [
+            [
+                "canister_update spaced name",
+                "canister_init",
+                "get_candid_pointer",
+            ],
+            [
+                "canister_query spaced other",
+                "canister_init",
+                "get_candid_pointer",
+            ],
+            [
+                "canister_query spaced name",
+                "canister_pre_upgrade",
+                "get_candid_pointer",
+            ],
+            [
+                "canister_query spaced name",
+                "canister_init",
+                "other_helper",
+            ],
+        ] {
+            assert!(
+                super::validate_post_link_contract(
+                    &args,
+                    &before,
+                    &after,
+                    &compiler,
+                    &wasm_info(&changed),
+                    &resolved
+                )
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn data_payload_metric_keeps_its_meaning_separate_from_encoded_section_bytes() {
+        // One passive segment containing three bytes; encoded payload is six bytes.
+        let bytes = b"\0asm\x01\0\0\0\x0b\x06\x01\x01\x03abc";
+        let info = wasm_structure(
+            bytes,
+            "Number of data sections: 999\nSize of data sections: 3 bytes\nNumber of callbacks: 2",
+            0,
+        )
+        .unwrap();
+        assert_eq!(info.data_section_count, Some(1));
+        assert_eq!(info.data_section_bytes, Some(3));
+        assert_eq!(info.callback_count, Some(2));
     }
 
     #[test]

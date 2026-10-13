@@ -101,7 +101,7 @@ fn pool() -> MemoryAllocationPool {
 }
 
 fn snapshot(requests: &[MemoryRequest]) -> SealedDeclarationSnapshot {
-    SealedDeclarationSnapshot::new(requests).unwrap()
+    SealedDeclarationSnapshot::new(requests.to_vec()).unwrap()
 }
 
 // Refuse capacity before growing the backing, then permit retry on the same runtime.

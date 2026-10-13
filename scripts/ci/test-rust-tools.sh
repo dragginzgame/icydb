@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/dev/install-rust-tools.sh scripts/dev/cargo-tool-build.sh scripts/dev/tool-store.sh scripts/ci/select-tool-evidence.sh scripts/ci/archive-evidence.sh .githooks/pre-commit
+# Shared companions: scripts/dev/install-rust-tools.sh scripts/dev/cargo-tool-build.sh scripts/dev/tool-store.sh scripts/ci/cargo-tool-cache-key.sh scripts/ci/select-tool-evidence.sh scripts/ci/archive-evidence.sh .githooks/pre-commit
 set -euo pipefail
 ROOT="${BASH_SOURCE[0]}"
 [[ "$ROOT" == /* ]] || ROOT="$PWD/$ROOT"
@@ -10,6 +10,10 @@ fixture_complete=false
 finish() {
     local status=$?
     [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
+    if [[ -s "$fixture/forbidden-git" ]]; then
+        cat "$fixture/forbidden-git" >&2
+        status=1
+    fi
     if [[ "$status" == 0 ]]; then rm -rf "$fixture"
     else printf 'Failed Rust tool fixture retained: %s\n' "$fixture" >&2; fi
     exit "$status"
@@ -21,6 +25,23 @@ export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TEMPLATE_DIR="$fixt
 mkdir -p "$fixture/compiler/bin" "$fixture/assets" "$fixture/a" "$fixture/b"
 # Always exercise BSD-style padded counts, including on Linux.
 mkdir "$fixture/commands"
+printf '#!%s\nfixture=%q\nreal_git=%q\n' "$BASH" "$fixture" "$(command -v git)" > "$fixture/commands/git"
+cat >> "$fixture/commands/git" <<'STUB'
+args=("$@")
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -C|-c|--git-dir|--work-tree|--namespace) shift 2 ;;
+        -*) shift ;;
+        *) break ;;
+    esac
+done
+case "${1:-}" in
+    commit|commit-tree|tag|push)
+        printf 'forbidden fixture Git command: %s\n' "$1" >> "$fixture/forbidden-git"
+        exit 79 ;;
+esac
+exec "$real_git" "${args[@]}"
+STUB
 printf '#!%s\nreal_wc=%q\n' "$BASH" "$(command -v wc)" > "$fixture/commands/wc"
 cat >> "$fixture/commands/wc" <<'STUB'
 if [[ "$*" == -l ]]; then
@@ -78,7 +99,11 @@ case "$1" in -vV|--version) echo 'cargo fixture'; exit 0 ;; esac
 [[ -z "${RUSTFLAGS+x}${RUSTC_WRAPPER+x}${CARGO_ENCODED_RUSTFLAGS+x}${UNMODELLED_SECRET+x}" ]] || exit 71
 [[ "$CARGO_HOME" == "$fixture/store/cargo-cache" && "$RUSTC" == "$fixture/compiler/bin/rustc" ]] || exit 72
 if [[ "$1" == info ]]; then
-    [[ ! -f "$fixture/no-info" ]] || exit 91
+    if [[ -f "$fixture/no-info" ]]; then
+        printf 'refused\n' >> "$fixture/info-refusals"
+        echo 'injected Cargo source acquisition failure' >&2
+        exit 91
+    fi
     identity="${2/@/-}"
     mkdir -p "$CARGO_HOME/registry/cache/index.crates.io-fixture"
     cp "$fixture/assets/$identity.crate" "$CARGO_HOME/registry/cache/index.crates.io-fixture/"
@@ -159,10 +184,87 @@ refuse() {
 common() { bash "$installer" --consumer "$consumer" --versions "$fixture/versions" "$@"; }
 hook() (cd "$consumer" && bash .githooks/pre-commit)
 consumer="$fixture/a"
+# Direct compiler identity checks must use the fixture's prepared context too.
+# The invoking consumer may select an entirely different Rust toolchain.
+cd "$consumer"
 common --preflight
 [[ ! -e "$SHARED_TOOLING_STORE" && ! -e "$consumer/.tools" ]] || exit 1
 refuse common --check
 [[ ! -e "$SHARED_TOOLING_STORE" && ! -e "$consumer/.tools" ]] || exit 1
+# The CI cache key shares the installer identity and performs no setup. Exercise
+# changes in a private copy so no production source is modified by qualification.
+mkdir -p "$fixture/cache-source/scripts/dev" "$fixture/cache-source/scripts/ci" "$fixture/cache-source/ci"
+for file in scripts/ci/cargo-tool-cache-key.sh scripts/ci/verify-file-checksum.sh \
+    scripts/dev/cargo-tool-build.sh scripts/dev/tool-store.sh scripts/dev/install-rust-tools.sh; do
+    cp "$ROOT/$file" "$fixture/cache-source/$file"
+done
+cache_owner="$fixture/cache-source/scripts/ci/cargo-tool-cache-key.sh"
+cache_pins="$fixture/cache-source/ci/tool-versions.env"
+cp "$fixture/versions" "$cache_pins"
+cache_before="$(bash "$cache_owner" "$cache_pins")"
+[[ "$cache_before" == key=*$'\n'root="$SHARED_TOOLING_STORE" ]] || exit 1
+[[ "$(bash "$cache_owner" "$cache_pins")" == "$cache_before" && ! -e "$SHARED_TOOLING_STORE" && ! -e "$consumer/.tools" ]] || exit 1
+printf '\n# Changed pins\n' >> "$cache_pins"
+[[ "$(bash "$cache_owner" "$cache_pins")" != "$cache_before" ]] || exit 1
+cp "$fixture/versions" "$cache_pins"
+for file in scripts/dev/cargo-tool-build.sh scripts/dev/install-rust-tools.sh; do
+    printf '\n# Changed cache input\n' >> "$fixture/cache-source/$file"
+    [[ "$(bash "$cache_owner" "$cache_pins")" != "$cache_before" ]] || exit 1
+    cp "$ROOT/$file" "$fixture/cache-source/$file"
+done
+printf 'changed compiler\n' > "$fixture/compiler-version"
+[[ "$(bash "$cache_owner" "$cache_pins")" != "$cache_before" ]] || exit 1
+printf 'fixture rustc\n' > "$fixture/compiler-version"
+printf 'changed native environment\n' > "$fixture/changed-native"
+[[ "$(bash "$cache_owner" "$cache_pins")" != "$cache_before" ]] || exit 1
+rm "$fixture/changed-native"
+[[ "$(ImageVersion=fixture-changed-image bash "$cache_owner" "$cache_pins")" != "$cache_before" ]] || exit 1
+[[ "$(bash "$cache_owner" "$cache_pins")" == "$cache_before" ]] || exit 1
+refuse bash "$cache_owner"
+rm "$cache_pins"
+refuse bash "$cache_owner" "$cache_pins"
+[[ ! -e "$SHARED_TOOLING_STORE" && ! -e "$consumer/.tools" && ! -e "$fixture/builds" ]] || exit 1
+# User TOML policy retains its boolean type before any source/install dispatch.
+# The environment override remains an independent, explicitly selected contract.
+(
+    # shellcheck disable=SC2030 # This policy override is deliberately subshell-local.
+    export CARGO_HOME="$fixture/user-cargo"
+    unset CARGO_NET_OFFLINE
+    mkdir "$CARGO_HOME"
+    for value in '"true"' '"false\n"' 0 1 '[]' '{}' ; do
+        printf '[net]\noffline = %s\n' "$value" > "$CARGO_HOME/config.toml"
+        refuse common
+        [[ ! -e "$SHARED_TOOLING_STORE" && ! -e "$consumer/.tools" && ! -e "$fixture/builds" ]] || exit 1
+    done
+    # Exercise accepted flags through the same owner, without building tools.
+    # shellcheck source=scripts/dev/tool-store.sh
+    source "$ROOT/scripts/dev/tool-store.sh"
+    # shellcheck source=scripts/dev/cargo-tool-build.sh
+    source "$ROOT/scripts/dev/cargo-tool-build.sh"
+    for value in missing false true; do
+        printf '[net]\n' > "$CARGO_HOME/config.toml"
+        [[ "$value" == missing ]] || printf 'offline = %s\n' "$value" >> "$CARGO_HOME/config.toml"
+        cargo_build_init
+        expected=''; [[ "$value" != true ]] || expected=--offline
+        [[ "${offline_args[*]-}" == "$expected" ]] || exit 1
+    done
+    printf '' > "$CARGO_HOME/config.toml"
+    cargo_build_init
+    [[ "${#offline_args[@]}" == 0 ]] || exit 1
+    # Cargo gives config precedence over config.toml when both exist.
+    printf '[net]\noffline = true\n' > "$CARGO_HOME/config.toml"
+    printf '[net]\noffline = false\n' > "$CARGO_HOME/config"
+    cargo_build_init
+    [[ "${#offline_args[@]}" == 0 ]] || exit 1
+    printf '[net]\noffline = "invalid"\n' > "$CARGO_HOME/config"
+    for CARGO_NET_OFFLINE in true 1 false 0; do
+        export CARGO_NET_OFFLINE
+        cargo_build_init
+        expected=''
+        case "$CARGO_NET_OFFLINE" in true|1) expected=--offline ;; esac
+        [[ "${offline_args[*]-}" == "$expected" ]] || exit 1
+    done
+)
 # Preserve previous physical installations; adopt new shared references explicitly.
 mkdir -p "$consumer/.tools/rust/previous/installed/build"
 printf 'old local evidence\n' > "$consumer/.tools/rust/previous/installed/build/payload"
@@ -170,6 +272,17 @@ RUSTFLAGS=invalid RUSTC_WRAPPER=/missing UNMODELLED_SECRET=must-not-propagate co
 [[ "$(wc -l < "$fixture/builds")" -eq 3 ]] || exit 1
 common --check
 first_binary="$(perl -MCwd=abs_path -e 'print abs_path(shift)' "$consumer/.tools/rust/common/bin/cargo-sort")"
+(
+    # shellcheck disable=SC2031 # Reapply the override independently for this subshell.
+    export CARGO_HOME="$fixture/user-cargo"
+    unset CARGO_NET_OFFLINE
+    before="$(readlink "$consumer/.tools/rust/common")"
+    for mode in setup check; do
+        if [[ "$mode" == setup ]]; then refuse common; else refuse common --check; fi
+        [[ "$(readlink "$consumer/.tools/rust/common")" == "$before" && ! -e "$consumer/.tools/rust/common.lock" ]] || exit 1
+        [[ "$(wc -l < "$fixture/builds")" -eq 3 ]] || exit 1
+    done
+)
 # A real staged hook uses these receipts without installing into its export.
 # Cargo/compiler binaries above are substitutes; receipt admission and Git are real.
 mkdir -p "$consumer/scripts/ci" "$consumer/scripts/dev" "$consumer/.githooks"
@@ -182,7 +295,6 @@ for file in install-rust-tools cargo-tool-build tool-store; do
 done
 cp "$fixture/versions" "$consumer/pins"
 printf '.tools/\n' > "$consumer/.gitignore"
-printf 'original\n' > "$consumer/README.md"
 printf 'formatted\n' > "$consumer/selected.rs"
 cat > "$consumer/Makefile" <<'MAKE'
 fmt:
@@ -191,19 +303,39 @@ fmt:
 	@printf 'formatted\n' > selected.rs
 MAKE
 git init -q "$consumer"
+# Borrow immutable history; only this disposable repository's refs/index change.
+source_commit="$(git -C "$ROOT" rev-parse HEAD)"
+source_objects="$(git -C "$ROOT" rev-parse --git-path objects)"
+case "$source_objects" in /*) ;; *) source_objects="$ROOT/$source_objects" ;; esac
+printf '%s\n' "$source_objects" > "$consumer/.git/objects/info/alternates"
+git -C "$consumer" update-ref HEAD "$source_commit"
+# Keep only the fixture payload and an unchanged tracked README in its index.
+# Other source paths are staged deletions, never formatter inputs.
+git -C "$consumer" reset -q HEAD -- README.md
+git -C "$consumer" checkout-index -- README.md
 git -C "$consumer" add .gitignore .githooks scripts pins README.md selected.rs Makefile
-git -C "$consumer" -c user.name=Fixture -c user.email=fixture@example.invalid \
-    -c core.hooksPath=/dev/null commit -qm fixture
 printf 'working-only README\n' > "$consumer/README.md"
 printf 'retained evidence\n' > "$consumer/untracked-evidence"
 printf 'unformatted\n' > "$consumer/selected.rs"
 git -C "$consumer" add selected.rs
-# Unstaged catalog changes cannot select the tools used on the staged source.
+# Selected catalog edits must reject partial staging without changing any bytes.
+hook_tree="$(git -C "$consumer" write-tree)"
 printf 'exit 99\n' > "$consumer/pins"
-(cd "$consumer" && bash .githooks/pre-commit) > "$fixture/hook.log" 2>&1
-[[ "$(git -C "$consumer" show :selected.rs)" == formatted ]]
-[[ "$(cat "$consumer/pins")" == 'exit 99' && "$(cat "$consumer/README.md")" == 'working-only README' ]]
+refuse hook
+grep -F 'partially staged file: pins' "$fixture/refused.log" >/dev/null
+[[ "$(git -C "$consumer" write-tree)" == "$hook_tree" && "$(cat "$consumer/selected.rs")" == unformatted ]] || exit 1
+# Independently admit the staged catalog against the real checkout's receipts;
+# unrelated working catalog bytes must never select the exported tools.
+mkdir "$fixture/staged-inputs"
+git -C "$consumer" checkout-index --all --prefix="$fixture/staged-inputs/"
+SHARED_TOOLING_FORMAT_WORKTREE="$fixture/staged-inputs" SHARED_TOOLING_FORMAT_TOOLS_FROM="$consumer" \
+    bash "$installer" --consumer "$fixture/staged-inputs" --versions "$fixture/staged-inputs/pins" --check
+[[ ! -e "$fixture/staged-inputs/.tools" && "$(cat "$consumer/pins")" == 'exit 99' ]] || exit 1
 cp "$fixture/versions" "$consumer/pins"
+(cd "$consumer" && bash .githooks/pre-commit) > "$fixture/hook.log" 2>&1
+[[ "$(git -C "$consumer" show :selected.rs)" == formatted ]] || exit 1
+[[ "$(cat "$consumer/README.md")" == 'working-only README' ]] || exit 1
+[[ "$(git -C "$consumer" show :README.md)" == "$(git -C "$consumer" show HEAD:README.md)" ]] || exit 1
 printf 'unformatted\n' > "$consumer/selected.rs"
 git -C "$consumer" add selected.rs
 hook_tree="$(git -C "$consumer" write-tree)"
@@ -212,7 +344,7 @@ cp "$receipt" "$fixture/receipt.saved"
 printf '{}\n' > "$receipt"
 refuse hook
 cp "$fixture/receipt.saved" "$receipt"
-[[ "$(git -C "$consumer" write-tree)" == "$hook_tree" && "$(cat "$consumer/selected.rs")" == unformatted ]]
+[[ "$(git -C "$consumer" write-tree)" == "$hook_tree" && "$(cat "$consumer/selected.rs")" == unformatted ]] || exit 1
 # Changed staged pins and compiler context require fresh explicit preparation.
 printf 'SHARED_TOOLING_CARGO_SORT_VERSION=99.9.0\n' >> "$consumer/pins"
 git -C "$consumer" add pins
@@ -222,7 +354,7 @@ git -C "$consumer" add pins
 printf 'changed compiler\n' > "$fixture/compiler-version"
 refuse hook
 printf 'fixture rustc\n' > "$fixture/compiler-version"
-[[ "$(git -C "$consumer" write-tree)" == "$hook_tree" && "$(cat "$consumer/untracked-evidence")" == 'retained evidence' ]]
+[[ "$(git -C "$consumer" write-tree)" == "$hook_tree" && "$(cat "$consumer/untracked-evidence")" == 'retained evidence' ]] || exit 1
 printf 'unprepared staged compiler\n' > "$consumer/rust-toolchain.toml"
 git -C "$consumer" add rust-toolchain.toml
 refuse hook
@@ -258,6 +390,13 @@ find "$consumer/.tools/rust" "$held_slot" -print | sort > "$fixture/after-held"
 cmp "$fixture/before-held" "$fixture/after-held"
 rm "$held_slot/install.lock/owner"
 rmdir "$held_slot/install.lock"
+# A CI cache restores physical shared generations, never checkout selections.
+# Round-trip all builds/receipts/source bytes before the existing cold-checkout
+# reuse control; its no-info/build-count assertions prove no download or rebuild.
+(cd "$SHARED_TOOLING_STORE" && tar -czf "$fixture/cargo-tools-cache.tar.gz" cargo-cache rust-*)
+mv "$SHARED_TOOLING_STORE" "$fixture/store-before-restore"
+(umask 077; mkdir "$SHARED_TOOLING_STORE")
+tar -xzf "$fixture/cargo-tools-cache.tar.gz" -C "$SHARED_TOOLING_STORE"
 consumer="$fixture/b"
 touch "$fixture/no-info"
 CARGO_NET_OFFLINE=true common
@@ -295,6 +434,34 @@ extension_path="$(CARGO_NET_OFFLINE=true bash "$installer" --consumer "$fixture/
    "$(perl -MCwd=abs_path -e 'print abs_path(shift)' "$path")" ]] || exit 1
 rm "$fixture/no-info"
 physical="$(perl -MCwd=abs_path -e 'print abs_path(shift)' "$path")"; bundle="${physical%/bin/*}"
+# Missing source must preserve Cargo's status through both installer call shapes,
+# without a build, retry, activation or loss of previously retained evidence.
+cp "$fixture/versions" "$fixture/missing-source-versions"
+printf 'SHARED_TOOLING_CARGO_SORT_VERSION=99.9.9\n' >> "$fixture/missing-source-versions"
+cp -R "$SHARED_TOOLING_STORE" "$fixture/before-source-store"
+cp -R "$consumer/.tools" "$fixture/before-source-tools"
+source_common="$(readlink "$consumer/.tools/rust/common")"
+: > "$fixture/info-refusals"
+touch "$fixture/no-info"
+attempts=0
+for mode in common selected; do
+    status=0
+    if [[ "$mode" == common ]]; then
+        common --versions "$fixture/missing-source-versions" > "$fixture/source-$mode.out" 2> "$fixture/source-$mode.err" || status=$?
+    else
+        bash "$installer" "${selected_args[@]}" --version 9.9.9 > "$fixture/source-$mode.out" 2> "$fixture/source-$mode.err" || status=$?
+    fi
+    attempts=$((attempts + 1))
+    [[ "$status" -eq 91 && ! -s "$fixture/source-$mode.out" &&
+       "$(wc -l < "$fixture/info-refusals")" -eq "$attempts" &&
+       "$(wc -l < "$fixture/builds")" == "$builds_before" &&
+       "$(readlink "$consumer/.tools/rust/common")" == "$source_common" &&
+       "$(perl -MCwd=abs_path -e 'print abs_path(shift)' "$path")" == "$physical" ]] || exit 1
+    grep -Fx 'injected Cargo source acquisition failure' "$fixture/source-$mode.err" >/dev/null
+    diff -r "$fixture/before-source-store" "$SHARED_TOOLING_STORE"
+    diff -r "$fixture/before-source-tools" "$consumer/.tools"
+done
+rm "$fixture/no-info"
 for field in bin/prepare .crates2.json inputs.json selection.json source.crate Cargo.lock; do
     cp "$bundle/$field" "$fixture/saved"
     printf '\nchanged\n' >> "$bundle/$field"
@@ -463,5 +630,6 @@ for leaf in build-identity.observed.json native-environment.observed.txt; do
     rm "$fixture/redirect-observation" "$fixture/change-build"
     cp "$fixture/original-compiler" "$fixture/compiler-version"
 done
+[[ "$(git -C "$fixture/a" rev-parse HEAD)" == "$source_commit" && ! -s "$fixture/forbidden-git" ]] || exit 1
 echo 'Shared Cargo installation, standard environment, identities, retention and offline checks passed'
 fixture_complete=true
