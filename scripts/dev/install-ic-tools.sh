@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/verify-file-checksum.sh scripts/ci/verify-evidence-checksums.sh scripts/ci/ic-tool-pins.awk scripts/dev/tool-store.sh
+# Shared companions: scripts/ci/verify-file-checksum.sh scripts/ci/verify-evidence-checksums.sh scripts/ci/ic-tool-pins.awk scripts/dev/tool-store.sh ci/ic-tools.tsv
 set -euo pipefail
 
 ROOT="${BASH_SOURCE[0]}"
@@ -31,7 +31,7 @@ case "$consumer" in *$'\n'*|*$'\r'*) echo 'consumer path contains CR/LF' >&2; ex
 consumer="$(cd -P "$consumer" && printf '%s/.' "$PWD")"
 consumer="${consumer%/.}"
 case "$consumer" in *$'\n'*|*$'\r'*) echo 'resolved consumer path contains CR/LF' >&2; exit 1 ;; esac
-pins="${pins:-$consumer/ci/ic-tools.tsv}"
+pins="${pins:-$ROOT/ci/ic-tools.tsv}"
 [[ -f "$pins" ]] || { echo "missing IC tool pins: $pins" >&2; exit 1; }
 [[ "$pins" == /* ]] || pins="$PWD/$pins"
 pins_name="${pins##*/}"
@@ -145,18 +145,9 @@ verify_bundle() (
 
 tool_root="$consumer/.tools"
 active="$tool_root/ic"
-[[ ! -L "$tool_root" ]] || { echo 'repository .tools may not be a symlink' >&2; exit 1; }
-if [[ -e "$active" && ! -L "$active" ]]; then
-    echo 'refusing to replace an unmanaged .tools/ic path' >&2; exit 1
-fi
-if [[ -L "$active" ]]; then
-    # Preserve trailing newlines so admission checks the literal link target.
-    selection="$(perl -e 'my $s=readlink($ARGV[0]); defined($s) or exit 1; print $s,"/."' "$active")"
-    selection="${selection%/.}"
-    [[ "$selection" =~ ^ic-set\.[[:alnum:]]+$ ]] || {
-        echo 'refusing an unmanaged .tools/ic link' >&2; exit 1;
-    }
-    if bundle="$(tool_store_resolve "$tool_root/$selection" "$store_slot")" &&
+selection="$(tool_store_active_reference)"
+if [[ -n "$selection" ]]; then
+    if bundle="$(tool_store_resolve "$selection" "$store_slot")" &&
         tool_store_unlocked && verify_bundle "$bundle"; then
         printf '%s\n' "$active/bin"
         exit 0

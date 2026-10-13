@@ -66,8 +66,9 @@ in its own extension list. Extensions must not call their enclosing aggregate.
 Select independently qualified CLI versions in their existing owner adapters.
 Rustfmt, compiler targets, credentials and other product prerequisites retain
 their documented setup; executable installation grants no deployment authority.
-Versions and digests remain
-owned by the reviewed pin files below, rather than another copied version list.
+Common versions and digests come from the reviewed snapshot catalogs below.
+Do not maintain a second consumer default list. Explicit qualified exceptions
+remain available as described under [catalog selection](#catalog-selection).
 dfx is excluded from the common IC set. See the host limits below before setup.
 Keep identity stores separate from resettable state as described in
 [IC identity storage](ic-tools.md#identity-storage-and-local-resets); installing
@@ -94,11 +95,44 @@ Fleet reports such as `make cloc-tooling` normally run in Shared Tooling; consum
 need not vendor those reporters or run their regression suites. See the
 [optional fleet selection](consuming-snapshots.md#local-ic-tool-adoption).
 
+## Catalog selection
+
+Since 0.10.0, the executing reviewed snapshot owns the defaults:
+`ci/tool-versions.env` for host/Cargo tools and `ci/ic-tools.tsv` for IC tools.
+Make resolves both relative to `SHARED_TOOLING_ROOT`; standalone installers and
+the Cargo freshness checker resolve them relative to their own snapshot.
+`--consumer` selects the checkout's installations, not its default catalog.
+Missing snapshot catalogs fail; there is no consumer-local fallback.
+Snapshot adoption selects the pins but never installs or upgrades executables.
+
+For a justified exception, keep a separate reviewed consumer file and select the
+affected set explicitly before including `make/consumer.mk`:
+
+```make
+IC_TOOL_PINS := $(CURDIR)/config/qualified-ic-tools.tsv
+```
+
+`HOST_TOOL_VERSIONS` and `RUST_TOOL_VERSIONS` independently select alternative
+host and Cargo catalogs. A host override does not change Rust or formatting pins.
+Each file must contain the complete selection required by its set; no implicit
+overlay is merged. Record the reason, affected hosts and native qualification in
+consumer governance. Keep snapshot payloads unchanged, including when excepted.
+Standalone calls use explicit `--versions` or `--pins`; freshness inspection uses
+`--versions`. CI cache-key inputs and direct catalog reads must select the same
+catalog as installation. The failure-evidence action defaults to the catalogs
+beside its own snapshot; set `host-versions`/`ic-pins` explicitly when using an
+exception so successful-tool compaction checks the intended selection.
+
+Common catalogs do not own consumer compiler/MSRV choices, application
+dependencies, Testkit/PocketIC selections or product tool adapters. Workflow-only
+tools may retain consumer selections; merely adopting a catalog does not install
+tools outside the common inventory or change a workflow's declared support.
+
 ## Shared executable storage
 
 Shared Tooling owns storage for the common executable sets. Host and IC setup
 reuse verified bundles in a per-user store across checkouts with the same host
-and pins. Each repository retains its own pins and command
+and pins. Each repository retains its reviewed snapshot and command
 selection; changing one repository's selection must not change another's.
 Providing every common command does not require duplicating its binary in every
 checkout. Consumers must adopt the canonical implementation through reviewed
@@ -248,7 +282,8 @@ A relative `--versions`
 catalog is read from the caller's directory before entering the consumer;
 relative `--lockfile` paths retain their consumer-relative meaning.
 `RUST_TOOL_VERSIONS` selects a reviewed alternative catalog; it defaults to
-`HOST_TOOL_VERSIONS`. Keep qualified version exceptions in that selected catalog,
+the snapshot's `ci/tool-versions.env`, independently of `HOST_TOOL_VERSIONS`.
+Keep qualified version exceptions in that selected catalog,
 and remove duplicate consumer constants when adopting the shared pins.
 
 The complete common aggregate includes this set in every repository, including
@@ -509,7 +544,7 @@ Perl and ordinary utilities. For Linux Mint/Ubuntu:
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y bash git make curl ca-certificates tar gzip xz-utils perl
+sudo apt-get install -y bash git make curl ca-certificates tar gzip xz-utils zip unzip perl
 ```
 
 On macOS, with Xcode Command Line Tools and Homebrew already installed:

@@ -291,6 +291,47 @@ impl PersistedSchemaSnapshot {
         }
     }
 
+    /// Replace candidate field metadata, preserving every unrelated catalog component.
+    /// Acceptance and transition admission remain with the caller's existing boundary.
+    #[must_use]
+    pub(in crate::db::schema) fn with_fields(
+        mut self,
+        fields: Vec<PersistedFieldSnapshot>,
+    ) -> Self {
+        Rc::make_mut(&mut self.payload).fields = fields;
+        self
+    }
+
+    /// Replace candidate active secondary indexes, preserving every unrelated catalog component.
+    /// Acceptance and transition admission remain with the caller's existing boundary.
+    #[must_use]
+    pub(in crate::db::schema) fn with_indexes(
+        mut self,
+        indexes: Vec<PersistedIndexSnapshot>,
+    ) -> Self {
+        Rc::make_mut(&mut self.payload).indexes = indexes;
+        self
+    }
+
+    /// Replace candidate row layout, preserving every unrelated catalog component.
+    /// Acceptance and transition admission remain with the caller's existing boundary.
+    #[must_use]
+    pub(in crate::db::schema) fn with_row_layout(mut self, row_layout: SchemaRowLayout) -> Self {
+        Rc::make_mut(&mut self.payload).row_layout = row_layout;
+        self
+    }
+
+    /// Replace candidate ordered primary-key field identities, preserving every unrelated catalog component.
+    /// Acceptance and transition admission remain with the caller's existing boundary.
+    #[must_use]
+    pub(in crate::db::schema) fn with_primary_key_field_ids(
+        mut self,
+        primary_key_field_ids: Vec<FieldId>,
+    ) -> Self {
+        Rc::make_mut(&mut self.payload).primary_key_field_ids = primary_key_field_ids;
+        self
+    }
+
     /// Attach the accepted structural constraint catalog to this snapshot.
     #[must_use]
     pub(in crate::db) fn with_constraint_catalog(
@@ -1338,47 +1379,68 @@ pub(in crate::db) enum PersistedIndexOrigin {
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(in crate::db) enum PersistedIndexKeySnapshot {
-    FieldPath(Vec<PersistedIndexFieldPathSnapshot>),
-    Items(Vec<PersistedIndexKeyItemSnapshot>),
+pub(in crate::db) struct PersistedIndexKeySnapshot {
+    items: Vec<PersistedIndexKeyItemSnapshot>,
 }
 
 impl PersistedIndexKeySnapshot {
+    /// Build the one accepted ordered key-item representation.
+    #[must_use]
+    pub(in crate::db) const fn new(items: Vec<PersistedIndexKeyItemSnapshot>) -> Self {
+        Self { items }
+    }
+
+    /// Lower a field-only key through the same item representation.
+    #[must_use]
+    #[cfg(test)]
+    pub(in crate::db) fn from_field_paths(paths: Vec<PersistedIndexFieldPathSnapshot>) -> Self {
+        Self::new(
+            paths
+                .into_iter()
+                .map(PersistedIndexKeyItemSnapshot::FieldPath)
+                .collect(),
+        )
+    }
+
+    /// Borrow accepted components in physical key order.
+    #[must_use]
+    pub(in crate::db) fn items(&self) -> &[PersistedIndexKeyItemSnapshot] {
+        &self.items
+    }
+
     /// Return the accepted physical component arity.
     #[must_use]
     pub(in crate::db) const fn component_count(&self) -> usize {
-        match self {
-            Self::FieldPath(paths) => paths.len(),
-            Self::Items(items) => items.len(),
-        }
+        self.items.len()
     }
 
-    /// Return whether this key carries only accepted field-path components.
+    /// Derive the field-only execution capability from the canonical items.
     #[must_use]
-    pub(in crate::db) const fn is_field_path_only(&self) -> bool {
-        matches!(self, Self::FieldPath(_))
+    pub(in crate::db) fn is_field_path_only(&self) -> bool {
+        self.items
+            .iter()
+            .all(|item| matches!(item, PersistedIndexKeyItemSnapshot::FieldPath(_)))
     }
 
-    /// Borrow accepted field-path key items when this is a field-path index.
-    #[must_use]
-    pub(in crate::db) const fn field_paths(&self) -> &[PersistedIndexFieldPathSnapshot] {
-        match self {
-            Self::FieldPath(paths) => paths.as_slice(),
-            Self::Items(_) => &[],
-        }
+    /// Borrow direct field-path components without allocating another key.
+    pub(in crate::db) fn field_paths(
+        &self,
+    ) -> impl Iterator<Item = &PersistedIndexFieldPathSnapshot> {
+        self.items.iter().filter_map(|item| match item {
+            PersistedIndexKeyItemSnapshot::FieldPath(path) => Some(path),
+            PersistedIndexKeyItemSnapshot::Expression(_) => None,
+        })
     }
 
     /// Return whether any key component references the accepted field ID.
     #[must_use]
     pub(in crate::db) fn references_field(&self, field_id: FieldId) -> bool {
-        match self {
-            Self::FieldPath(paths) => paths.iter().any(|path| path.field_id() == field_id),
-            Self::Items(items) => items.iter().any(|item| item.references_field(field_id)),
-        }
+        self.items
+            .iter()
+            .any(|item| item.references_field(field_id))
     }
 
-    /// Clone this key with direct field-path root labels renamed for the
-    /// supplied durable field ID.
+    /// Rename key-source labels for one durable field identity.
     #[must_use]
     #[cfg(any(test, feature = "sql", feature = "migration"))]
     pub(in crate::db) fn clone_with_renamed_field_path_root(
@@ -1386,56 +1448,33 @@ impl PersistedIndexKeySnapshot {
         field_id: FieldId,
         new_name: &str,
     ) -> Self {
-        match self {
-            Self::FieldPath(paths) => Self::FieldPath(
-                paths
-                    .iter()
-                    .map(|path| path.clone_with_renamed_root(field_id, new_name))
-                    .collect(),
-            ),
-            Self::Items(items) => Self::Items(
-                items
-                    .iter()
-                    .map(|item| item.clone_with_renamed_field_path_root(field_id, new_name))
-                    .collect(),
-            ),
-        }
+        Self::new(
+            self.items
+                .iter()
+                .map(|item| item.clone_with_renamed_field_path_root(field_id, new_name))
+                .collect(),
+        )
     }
 
     #[cfg(any(test, feature = "sql", feature = "migration"))]
     fn clone_with_top_level_field_nullability(&self, field_id: FieldId, nullable: bool) -> Self {
-        match self {
-            Self::FieldPath(paths) => Self::FieldPath(
-                paths
-                    .iter()
-                    .map(|path| path.clone_with_top_level_nullability(field_id, nullable))
-                    .collect(),
-            ),
-            Self::Items(items) => Self::Items(
-                items
-                    .iter()
-                    .map(|item| item.clone_with_top_level_nullability(field_id, nullable))
-                    .collect(),
-            ),
-        }
+        Self::new(
+            self.items
+                .iter()
+                .map(|item| item.clone_with_top_level_nullability(field_id, nullable))
+                .collect(),
+        )
     }
 
     fn clone_with_mapped_field_layout(
         &self,
         map: impl Copy + Fn(FieldId, SchemaFieldSlot) -> Option<(FieldId, SchemaFieldSlot)>,
     ) -> Option<Self> {
-        match self {
-            Self::FieldPath(paths) => paths
-                .iter()
-                .map(|path| path.clone_with_mapped_field_layout(map))
-                .collect::<Option<Vec<_>>>()
-                .map(Self::FieldPath),
-            Self::Items(items) => items
-                .iter()
-                .map(|item| item.clone_with_mapped_field_layout(map))
-                .collect::<Option<Vec<_>>>()
-                .map(Self::Items),
-        }
+        self.items
+            .iter()
+            .map(|item| item.clone_with_mapped_field_layout(map))
+            .collect::<Option<Vec<_>>>()
+            .map(Self::new)
     }
 }
 

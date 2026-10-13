@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/check-make-execution.sh scripts/ci/next-release-version.sh
+# Shared companions: scripts/ci/check-make-execution.sh scripts/ci/next-release-version.sh scripts/ci/check-release-tag.sh
 set -euo pipefail
 
 # Canonical ordering and Git effects; consumer targets own metadata and gates.
@@ -54,7 +54,17 @@ state_root="$(git rev-parse --git-path release-state)"
 if [[ "$delivery" == pr ]]; then state_root="$(git rev-parse --git-common-dir)/release-state"; fi
 [[ ! -L "$state_root" ]] || fail 'release state directory is symlinked'
 mkdir -p "$state_root"
-mkdir "$state_root/lock" 2>/dev/null || fail 'release lock is occupied; inspect its owner before clearing a stale lock'
+if mkdir "$state_root/lock"; then
+    :
+else
+    lock_status=$?
+    if [[ -e "$state_root/lock" || -L "$state_root/lock" ]]; then
+        echo 'release refused: release lock is occupied; inspect its owner before clearing a stale lock' >&2
+    else
+        echo 'release refused: unable to acquire release lock' >&2
+    fi
+    exit "$lock_status"
+fi
 trap 'rmdir "$state_root/lock"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
@@ -260,7 +270,7 @@ assert_release_commit() {
     if [[ "$mode" != resume && "$(git rev-parse HEAD)" != "$release_commit" ]]; then followup=yes; fi
 }
 assert_release_tag() {
-    [[ "$(git cat-file -t "refs/tags/v$candidate")" == tag && "$(git rev-parse "refs/tags/v$candidate^{commit}")" == "$release_commit" ]] || fail 'existing tag differs from the exact release commit'
+    bash "$runner_dir/check-release-tag.sh" "$release_commit" "$candidate" || fail 'existing tag differs from the exact release commit'
 }
 read_remote_refs() {
     refs="$(git ls-remote --refs -- "$destination" "refs/heads/$branch" "refs/tags/v$candidate")"

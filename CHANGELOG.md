@@ -5,6 +5,30 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.274.0]
+
+- **Breaking:** replace accepted schema index-key encoding and remove
+  `IndexStore::clear`; recreate affected databases. Simplify row/snapshot ownership
+  and index setup; carry SQL, startup, accounting and CI/tooling fixes with
+  Shared Tooling 0.11.1
+  ([#358](https://github.com/dragginzgame/icydb/issues/358),
+  [#359](https://github.com/dragginzgame/icydb/issues/359),
+  [#114](https://github.com/dragginzgame/icydb/issues/114),
+  [#115](https://github.com/dragginzgame/icydb/issues/115),
+  [#344](https://github.com/dragginzgame/icydb/issues/344),
+  [#240](https://github.com/dragginzgame/icydb/issues/240),
+  [#218](https://github.com/dragginzgame/icydb/issues/218),
+  [#245](https://github.com/dragginzgame/icydb/issues/245),
+  [#215](https://github.com/dragginzgame/icydb/issues/215),
+  [#211](https://github.com/dragginzgame/icydb/issues/211),
+  [#208](https://github.com/dragginzgame/icydb/issues/208),
+  [#147](https://github.com/dragginzgame/icydb/issues/147),
+  [#357](https://github.com/dragginzgame/icydb/issues/357),
+  [#302](https://github.com/dragginzgame/icydb/issues/302),
+  [#307](https://github.com/dragginzgame/icydb/issues/307)).
+
+See [detailed notes](docs/changelog/0.274.md).
+
 ## [0.273.0] - 2026-10-13
 
 - **Breaking:** adopt Memory 0.36 explicit component declarations and host

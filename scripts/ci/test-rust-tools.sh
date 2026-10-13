@@ -205,7 +205,33 @@ cache_before="$(bash "$cache_owner" "$cache_pins")"
 [[ "$cache_before" == key=*$'\n'root="$SHARED_TOOLING_STORE" ]] || exit 1
 [[ "$(bash "$cache_owner" "$cache_pins")" == "$cache_before" && ! -e "$SHARED_TOOLING_STORE" && ! -e "$consumer/.tools" ]] || exit 1
 printf '\n# Changed pins\n' >> "$cache_pins"
+printf 'export SHARED_TOOLING_JQ_VERSION=99.9.9\nexport SHARED_TOOLING_JQ_SHA256_LINUX_AMD64=abc123\n' >> "$cache_pins"
+[[ "$(bash "$cache_owner" "$cache_pins")" == "$cache_before" ]] || exit 1
+awk '{ rows[NR]=$0 } END { for (i=NR; i>0; i--) print rows[i] }' "$cache_pins" > "$fixture/reordered-pins"
+[[ "$(bash "$cache_owner" "$fixture/reordered-pins")" == "$cache_before" ]] || exit 1
+# Shell comments need whitespace after an assignment; a glued # is value data.
+sed 's/$/ # comment/' "$fixture/versions" > "$cache_pins"
+[[ "$(bash "$cache_owner" "$cache_pins")" == "$cache_before" ]] || exit 1
+sed 's/$/#suffix/' "$fixture/versions" > "$cache_pins"
 [[ "$(bash "$cache_owner" "$cache_pins")" != "$cache_before" ]] || exit 1
+# CR in a shell assignment is part of its value, not harmless whitespace.
+awk '{ printf "%s\r\n", $0 }' "$fixture/versions" > "$cache_pins"
+[[ "$(bash "$cache_owner" "$cache_pins")" != "$cache_before" ]] || exit 1
+for pin in CARGO_SORT CARGO_SORT_DERIVES CANDID_EXTRACTOR; do
+    sed "s/SHARED_TOOLING_${pin}_VERSION=.*/SHARED_TOOLING_${pin}_VERSION=98.0.0/" "$fixture/versions" > "$cache_pins"
+    [[ "$(bash "$cache_owner" "$cache_pins")" != "$cache_before" ]] || exit 1
+done
+# Executable configuration is opaque: retain all bytes without running it.
+# shellcheck disable=SC2016 # Literal shell text must never be evaluated by the cache reader.
+for opaque in 'touch "$CACHE_KEY_SIDE_EFFECT"' 'export RUSTUP_TOOLCHAIN=nightly' \
+    'export SHARED_TOOLING_CARGO_SORT_VERSION=99.1.0'; do
+    cp "$fixture/versions" "$cache_pins"
+    printf '%s\n' "$opaque" >> "$cache_pins"
+    opaque_key="$(CACHE_KEY_SIDE_EFFECT="$fixture/unexpected-cache-effect" bash "$cache_owner" "$cache_pins")"
+    [[ "$opaque_key" != "$cache_before" && ! -e "$fixture/unexpected-cache-effect" ]] || exit 1
+    printf '# Opaque catalog changed\n' >> "$cache_pins"
+    [[ "$(bash "$cache_owner" "$cache_pins")" != "$opaque_key" ]] || exit 1
+done
 cp "$fixture/versions" "$cache_pins"
 for file in scripts/dev/cargo-tool-build.sh scripts/dev/install-rust-tools.sh; do
     printf '\n# Changed cache input\n' >> "$fixture/cache-source/$file"

@@ -98,7 +98,7 @@ fn candidate() -> CandidateSchemaRevision {
         "by_id".into(),
         STORE.into(),
         true,
-        PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+        PersistedIndexKeySnapshot::from_field_paths(vec![PersistedIndexFieldPathSnapshot::new(
             FieldId::new(1),
             SchemaFieldSlot::new(0),
             vec!["id".into()],

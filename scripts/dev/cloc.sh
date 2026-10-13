@@ -56,24 +56,37 @@ if [[ "${1:-}" == --check-tools ]]; then
     exit 0
 fi
 
+resolve_directory() (
+    directory="$1"
+    [[ "$directory" == /* ]] || directory="$PWD/$directory"
+    case "$directory" in
+        *$'\n'*|*$'\r'*) echo 'error: directory contains line breaks' >&2; exit 1 ;;
+    esac
+    cd -P "$directory" || exit 1
+    case "$PWD" in
+        *$'\n'*|*$'\r'*) echo 'error: resolved directory contains line breaks' >&2; exit 1 ;;
+    esac
+    printf '%s\n' "$PWD"
+)
+
 if [[ -n "$selected_manifest" ]]; then
+    case "$selected_manifest" in
+        *$'\n'*|*$'\r'*) echo 'error: manifest path contains line breaks' >&2; exit 1 ;;
+    esac
     [[ -f "$selected_manifest" && ! -L "$selected_manifest" ]] || {
         echo 'error: selected manifest must be a regular file' >&2; exit 1;
     }
-    selected_directory="$(cd "$(dirname "$selected_manifest")" && pwd -P)"
+    selected_directory="$(resolve_directory "$(dirname "$selected_manifest")")"
     selected_manifest="$selected_directory/$(basename "$selected_manifest")"
 fi
-requested_root="${1:-${selected_directory:-$PWD}}"
+requested_root="$(resolve_directory "${1:-${selected_directory:-$PWD}}")"
 if repo_root="$(git -C "${requested_root}" rev-parse --show-toplevel 2>/dev/null)"; then
     :
-elif repo_root="$(cd "${requested_root}" 2>/dev/null && pwd)"; then
-    :
 else
-    echo "error: repository directory not found: ${requested_root}" >&2
-    exit 1
+    repo_root="$requested_root"
 fi
 
-repo_root="$(cd "$repo_root" && pwd -P)"
+repo_root="$(resolve_directory "$repo_root")"
 manifest_path="${selected_manifest:-${repo_root}/Cargo.toml}"
 case "$manifest_path" in
     "$repo_root/"*) ;;

@@ -201,10 +201,11 @@ Cargo helper tools, ICP tooling, and repository hooks.
 `make update-dev` ensures the reviewed Rust, Cargo, actionlint, parser and ICP
 tool selections are installed (apart from installing `gh` if missing), ensures
 the repository's formatting hook is installed, and leaves repository dependencies
-unchanged. Common executables are selected by [ci/ic-tools.tsv](ci/ic-tools.tsv)
-and [ci/tool-versions.env](ci/tool-versions.env); IcyDB Cargo utilities are selected
+unchanged. The reviewed Shared snapshot owns common executable selections in
+[ci/ic-tools.tsv](ci/ic-tools.tsv) and [ci/tool-versions.env](ci/tool-versions.env);
+IcyDB Cargo utilities are selected
 by [ci/icydb-tools.env](ci/icydb-tools.env). Changing selections is an explicit
-maintenance action.
+snapshot adoption or a documented, explicitly selected consumer exception.
 Both setup targets prepare the selected lockfile with `make fetch` in the
 repository-local Cargo cache before offline tool verification. The same cache
 preparation supports explicit locked Testkit runner installation and downloads missing locked packages without upgrading dependency selections.

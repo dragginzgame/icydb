@@ -6,7 +6,7 @@
 use crate::{
     db::{
         codec::{ByteDecodeError, ByteReader},
-        data::{DecodedDataStoreKey, RawDataStoreKey},
+        data::{CanonicalRow, DecodedDataStoreKey, RawDataStoreKey},
         integrity::MutationProgressRecordOp,
         journal::{
             JournalBatch, JournalRecord, decode_journal_batch, encode_journal_batch,
@@ -60,23 +60,23 @@ pub(crate) const MAX_COMMIT_BYTES: u32 = 16 * 1024 * 1024;
 ///
 
 #[derive(Clone, Debug)]
-pub(in crate::db) struct CommitRowOp {
+pub(in crate::db) struct CommitRowOp<R = Vec<u8>> {
     pub(crate) entity_path: Rc<str>,
     pub(crate) key: RawDataStoreKey,
-    pub(crate) before: Option<Vec<u8>>,
-    pub(crate) after: Option<Vec<u8>>,
+    pub(crate) before: Option<R>,
+    pub(crate) after: Option<R>,
     pub(crate) schema_fingerprint: CommitSchemaFingerprint,
     pub(crate) mutation_diagnostic_context: Option<crate::error::MutationDiagnosticContext>,
 }
 
-impl CommitRowOp {
+impl<R> CommitRowOp<R> {
     /// Construct a row-level commit operation.
     #[must_use]
     pub(crate) fn new(
         entity_path: impl Into<Rc<str>>,
         key: RawDataStoreKey,
-        before: Option<Vec<u8>>,
-        after: Option<Vec<u8>>,
+        before: Option<R>,
+        after: Option<R>,
         schema_fingerprint: CommitSchemaFingerprint,
     ) -> Self {
         Self {
@@ -104,8 +104,8 @@ impl CommitRowOp {
     pub(crate) fn try_new_bytes(
         entity_path: impl Into<Rc<str>>,
         key: &[u8],
-        before: Option<Vec<u8>>,
-        after: Option<Vec<u8>>,
+        before: Option<R>,
+        after: Option<R>,
         schema_fingerprint: CommitSchemaFingerprint,
     ) -> Result<Self, InternalError> {
         let (raw_key, _) = decode_data_key(key)?;
@@ -119,6 +119,9 @@ impl CommitRowOp {
         ))
     }
 }
+
+/// Live-write row transition whose images retain canonical admission tokens.
+pub(in crate::db) type CanonicalRowCommitOp = CommitRowOp<CanonicalRow>;
 
 ///
 /// CommitMarker

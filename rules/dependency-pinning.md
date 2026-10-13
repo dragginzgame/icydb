@@ -173,7 +173,7 @@ The checker validates structure and matching scope; human review establishes app
 
 Consumers vendor the checker and `scripts/ci/dependency-pins.jq` together. Prepare
 a reviewed `yq` version (4.47.2 or later in v4) before running checks; the shared
-`install-yq.sh` accepts explicit version/digest inputs and uses the existing
+`install-ci-tool.sh yq` accepts explicit version/digest inputs and uses the existing
 checksum verifier. Shared Tooling's own selections live in `ci/tool-versions.env`.
 Qualify adoption on each declared native host. Do not silently change dependency
 versions, toolchains or release inputs while adopting this policy.

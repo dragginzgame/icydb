@@ -67,8 +67,8 @@ impl From<MeasurementAggregate> for InstructionMetrics {
             samples: measurement.samples(),
             instructions_total: measurement.total(),
             instructions_max: measurement.maximum().unwrap_or(0),
-            samples_saturated: measurement.samples_saturated(),
-            total_saturated: measurement.total_saturated(),
+            samples_saturated: measurement.samples_overflowed(),
+            total_saturated: measurement.total_overflowed(),
             instructions_mean: measurement.mean().ok().flatten(),
         }
     }
@@ -450,8 +450,8 @@ fn metrics_snapshot(journal_debt: crate::db::ExactBacklogMeasurement) -> Metrics
                 hits: counter.samples(),
                 instructions_total: counter.total(),
                 instructions_max: counter.maximum().unwrap_or(0),
-                samples_saturated: counter.samples_saturated(),
-                total_saturated: counter.total_saturated(),
+                samples_saturated: counter.samples_overflowed(),
+                total_saturated: counter.total_overflowed(),
                 instructions_mean: counter.mean().ok().flatten(),
             })
             .collect::<Vec<_>>();

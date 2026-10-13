@@ -6,9 +6,9 @@ _shared_tooling_default_goal := $(.DEFAULT_GOAL)
 include $(dir $(lastword $(MAKEFILE_LIST)))execution.mk
 
 SHARED_TOOLING_ROOT ?= $(CURDIR)
-HOST_TOOL_VERSIONS ?= $(CURDIR)/ci/tool-versions.env
-RUST_TOOL_VERSIONS ?= $(HOST_TOOL_VERSIONS)
-IC_TOOL_PINS ?= $(CURDIR)/ci/ic-tools.tsv
+HOST_TOOL_VERSIONS ?= $(SHARED_TOOLING_ROOT)/ci/tool-versions.env
+RUST_TOOL_VERSIONS ?= $(SHARED_TOOLING_ROOT)/ci/tool-versions.env
+IC_TOOL_PINS ?= $(SHARED_TOOLING_ROOT)/ci/ic-tools.tsv
 # Product-owned tool targets run in this order after the complete common set.
 LOCAL_TOOL_INSTALL_TARGETS ?=
 LOCAL_TOOL_CHECK_TARGETS ?=

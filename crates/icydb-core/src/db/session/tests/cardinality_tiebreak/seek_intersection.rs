@@ -37,7 +37,7 @@ fn initialize_intersection(case: u8, signed: bool) {
                 format!("{name}_idx"),
                 STORE_PATH.into(),
                 false,
-                PersistedIndexKeySnapshot::FieldPath(paths),
+                PersistedIndexKeySnapshot::from_field_paths(paths),
                 None,
             )
         })
@@ -278,13 +278,15 @@ fn qualify_signed_lookups(kind: AcceptedFieldKind, values: &[i64]) {
             "value_idx".into(),
             STORE_PATH.into(),
             false,
-            PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
-                FieldId::new(2),
-                SchemaFieldSlot::new(1),
-                vec!["value".into()],
-                kind,
-                false,
-            )]),
+            PersistedIndexKeySnapshot::from_field_paths(vec![
+                PersistedIndexFieldPathSnapshot::new(
+                    FieldId::new(2),
+                    SchemaFieldSlot::new(1),
+                    vec!["value".into()],
+                    kind,
+                    false,
+                ),
+            ]),
             None,
         )],
     );

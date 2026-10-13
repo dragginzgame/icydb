@@ -318,6 +318,11 @@ Consumer choices described in those guides remain subject to this baseline.
   formatter command inputs for extra workspaces/frontends instead of replacing
   the shared recipes; preserve all existing checks during adoption.
 - Shared Tooling owns common executable storage as well as installation commands.
+  Its reviewed snapshot also owns the default common tool versions and digests.
+  Adopt those catalogs with the installers; do not maintain independent default
+  copies. A consumer exception requires an explicitly selected catalog and a
+  documented reason and native qualification. Host, IC and Rust exceptions are
+  independent. Product tools, PocketIC selection and compiler policy stay local.
   Host, IC and Cargo installers share verified bundles per user across checkouts
   while retaining each repository's pinned selection. Cargo tools use the standard
   tool-build environment and exact build identities; application compiler flags
@@ -377,12 +382,18 @@ Consumer choices described in those guides remain subject to this baseline.
 - Keep shell wrappers small and declare dependencies and effects. Use the
   project's maintained implementation language for substantial tooling. Do not
   add Python tooling. Fail on invalid inputs rather than hiding broken assumptions.
+- Do not use directory paths containing carriage returns or newlines (CR/LF)
+  for checkouts, tooling, state or artifacts. Reject those inputs before trimming
+  or normalizing them, and check resolved directory aliases as well. Never repair
+  an invalid path by stripping characters: that can select a different directory.
+  This restriction does not prohibit ordinary spaces in paths.
 - CI/release tools use [reviewed snapshots](docs/consuming-snapshots.md), not symlinks
   or mutable sibling/network sources. Do not patch vendored copies; fix upstream
   or keep an explicit consumer-owned adapter outside the snapshot.
 - Portable scripts use Bash strict mode and preserve Bash 3.2 compatibility unless
   the support matrix is deliberately changed. Downloaded executables need exact
-  consumer-owned versions, pinned digests, HTTPS, verification before extraction
+  reviewed snapshot versions or explicit consumer exceptions, pinned digests,
+  HTTPS, verification before extraction
   and a version check before installation. No implicit credentials or targets.
 
 ## Host support

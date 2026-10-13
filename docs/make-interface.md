@@ -15,12 +15,13 @@ common toolset, but does not expose Rust formatting or hook installation.
 The include preserves the consumer's default goal, even when declared later.
 Parsing it never installs tools, activates hooks or starts a release.
 Selecting `make/consumer.mk` as a snapshot entrypoint includes the common
-installers and default LOC helper through their declared dependencies. Pin
-catalogs remain consumer-owned; optional fleet reports require explicit selection.
+installers, common pin catalogs and default LOC helper through their declared
+dependencies. Product pin exceptions remain consumer-owned; optional fleet
+reports require explicit selection.
 
 | Commands | Shared owner | Consumer inputs |
 | --- | --- | --- |
-| `install-tools`, `tools-check`, narrow host/IC/Rust commands | Ordered setup and offline admission | Reviewed pins and ordered product tool extensions |
+| `install-tools`, `tools-check`, narrow host/IC/Rust commands | Common pins, ordered setup and offline admission | Explicit pin exceptions and ordered product tool extensions |
 | `fmt`, `fmt-check`, `format-tools-check` | Prerequisite check, compact output, retained failure logs | Cargo environment and complete custom formatter commands when needed |
 | `install-hooks` | Safe repository-local activation | Tracked root `.githooks/pre-commit` and its companions |
 | `shared-tooling-check` | Offline snapshot integrity | `SHARED_TOOLING_MANIFEST`, default `.shared-tooling.snapshot` |

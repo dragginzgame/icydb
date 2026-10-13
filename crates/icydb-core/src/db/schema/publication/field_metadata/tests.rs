@@ -44,7 +44,7 @@ fn field_drop_fixture() -> (AcceptedSchemaSnapshot, SchemaDdlAcceptedSnapshotDer
         "by_retained".to_string(),
         "tests::Store".to_string(),
         false,
-        PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+        PersistedIndexKeySnapshot::from_field_paths(vec![PersistedIndexFieldPathSnapshot::new(
             FieldId::new(3),
             SchemaFieldSlot::new(2),
             vec!["retained".to_string()],
@@ -174,7 +174,7 @@ fn field_drop_accepts_dense_remapping_with_declared_version() {
     assert_eq!(after.fields()[1].name(), "retained");
     assert_eq!(after.fields()[1].id(), FieldId::new(2));
     assert_eq!(after.fields()[1].slot(), SchemaFieldSlot::new(1));
-    let key = &after.indexes()[0].key().field_paths()[0];
+    let key = &after.indexes()[0].key().field_paths().next().unwrap();
     assert_eq!(key.field_id(), FieldId::new(2));
     assert_eq!(key.slot(), SchemaFieldSlot::new(1));
     assert_ne!(

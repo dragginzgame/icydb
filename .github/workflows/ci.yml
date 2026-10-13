@@ -67,7 +67,7 @@ jobs:
         run: |
           source ci/tool-versions.env
           tool_dir="$RUNNER_TEMP/icydb-ci-tools"
-          bash scripts/ci/install-shellcheck.sh \
+          bash scripts/ci/install-ci-tool.sh shellcheck \
             --version "$SHARED_TOOLING_SHELLCHECK_VERSION" \
             --sha256 "$SHARED_TOOLING_SHELLCHECK_SHA256_LINUX_X86_64" \
             --install-dir "$tool_dir"
@@ -222,7 +222,7 @@ jobs:
           /bin/bash scripts/ci/test-wasm-audit-report.sh
           /bin/bash scripts/ci/verify-wasm-optimizer.sh
           make tools-check
-          shellcheck --exclude=SC2001,SC2016 scripts/dev/workstation-setup.sh scripts/dev/install-host-tools.sh scripts/dev/install-ic-tools.sh scripts/ci/install-gh.sh scripts/ci/verify-wasm-optimizer.sh scripts/ci/wasm-report-common.sh scripts/ci/wasm-size-report.sh scripts/ci/wasm-audit-report.sh scripts/ci/test-workstation-setup.sh scripts/ci/test-wasm-audit-report.sh
+          shellcheck -x --exclude=SC2001,SC2016 scripts/dev/workstation-setup.sh scripts/dev/install-host-tools.sh scripts/dev/install-ic-tools.sh scripts/ci/install-gh.sh scripts/ci/verify-wasm-optimizer.sh scripts/ci/wasm-report-common.sh scripts/ci/wasm-size-report.sh scripts/ci/wasm-audit-report.sh scripts/ci/test-workstation-setup.sh scripts/ci/test-wasm-audit-report.sh
       - name: Qualify native library and CLI builds
         run: |
           cargo clippy --locked -p icydb-testing-integration --lib --bin write_wasm_size_report -- -D warnings

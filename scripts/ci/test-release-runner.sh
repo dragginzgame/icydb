@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/run-release.sh scripts/ci/next-release-version.sh scripts/ci/finalize-release-changelog.awk
+# Shared companions: scripts/ci/run-release.sh scripts/ci/next-release-version.sh scripts/ci/finalize-release-changelog.awk scripts/ci/fixture-lifecycle.sh
 set -euo pipefail
 
 # This fixture owns its Make controls; production admission is tested below.
@@ -11,16 +11,10 @@ ROOT="${BASH_SOURCE[0]}"
 ROOT="$(cd -P "${ROOT%/*}/../.." && printf '%s/.' "$PWD")"
 ROOT="${ROOT%/.}"
 FIXTURE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/release-runner-test.XXXXXX")"
-# Bash 3.2 can enter EXIT with status zero after nounset; require completion too.
+# shellcheck source=scripts/ci/fixture-lifecycle.sh
+source "$ROOT/scripts/ci/fixture-lifecycle.sh"
 fixture_complete=false
-finish() {
-    local status=$?
-    [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
-    if [[ "$status" == 0 ]]; then rm -rf "$FIXTURE_ROOT"
-    else printf "Failed release-runner fixture retained: %s\n" "$FIXTURE_ROOT" >&2; fi
-    exit "$status"
-}
-trap finish EXIT
+trap 'fixture_finish "$?" "$FIXTURE_ROOT" "Failed release-runner fixture retained"' EXIT
 export REAL_GIT REAL_MAKE
 export RELEASE_FIXTURE_HASH_GIT RELEASE_FIXTURE_GIT_REFUSALS
 RELEASE_FIXTURE_HASH_GIT="$(command -v git)"
@@ -138,6 +132,10 @@ case "$1" in
                 if [[ -n "${FIXTURE_TAG_COMMIT:-}" ]]; then echo "$FIXTURE_TAG_COMMIT"; elif [[ -f "tags/$name" ]]; then cat "tags/$name"; else [[ -f tag ]] || exit 1; echo "$release_sha"; fi
                 ;;
             refs/tags/*) [[ -f tag ]] || exit 1; if [[ -f tag-object ]]; then cat tag-object; else echo "$tag_sha"; fi ;;
+            *'^{commit}')
+                name="${*: -1}"; name="${name%\^\{commit\}}"
+                [[ -f "commits/$name.tree" ]] || exit 1
+                printf '%s\n' "$name" ;;
             *) exit 2 ;;
         esac
         ;;
@@ -829,6 +827,33 @@ cp .release-state/0.1.1.plan earlier-plan
 expect_failure patch origin main
 cmp earlier-plan .release-state/0.1.1.plan
 [[ ! -e events && ! -e tag ]] || exit 1
+[[ -d .release-state/lock ]] || exit 1
+grep -F 'release lock is occupied' output >/dev/null
+
+# Inject a non-occupancy error even on hosts where chmod cannot deny writes.
+new_fixture lock-permission
+early_plan patch validate
+cp .release-state/0.1.1.plan earlier-plan
+export RELEASE_FIXTURE_REAL_MKDIR
+RELEASE_FIXTURE_REAL_MKDIR="$(command -v mkdir)"
+cat > "$FIXTURE_ROOT/bin/mkdir" <<'STUB'
+#!/usr/bin/env bash
+if [[ "$*" == .release-state/lock ]]; then
+    echo 'mkdir: fixture permission denied' >&2
+    exit 37
+fi
+exec "$RELEASE_FIXTURE_REAL_MKDIR" "$@"
+STUB
+chmod +x "$FIXTURE_ROOT/bin/mkdir"
+status=0
+bash "$ROOT/scripts/ci/run-release.sh" patch origin main > output 2>&1 || status=$?
+[[ "$status" == 37 ]] || exit 1
+grep -F 'mkdir: fixture permission denied' output >/dev/null
+grep -F 'unable to acquire release lock' output >/dev/null
+if grep -F 'lock is occupied' output >/dev/null; then exit 1; fi
+cmp earlier-plan .release-state/0.1.1.plan
+[[ ! -e events && ! -e tag && ! -e .release-state/lock ]] || exit 1
+rm "$FIXTURE_ROOT/bin/mkdir"
 
 new_fixture corrupt-plan
 early_plan patch validate

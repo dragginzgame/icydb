@@ -2,6 +2,8 @@
 use crate::db::codec::{
     finalize_hash_sha256, new_hash_sha256_prefixed, write_hash_len_u32, write_hash_u32,
 };
+#[cfg(test)]
+use crate::db::data::RawRow;
 #[cfg(feature = "sql")]
 use crate::db::{data::persisted_row::types::FieldSlot, schema::AcceptedRowDecodeContract};
 use crate::{
@@ -9,7 +11,7 @@ use crate::{
     db::{
         commit::CommitSchemaFingerprint,
         data::{
-            CanonicalRow, RawRow, StructuralRowContract,
+            CanonicalRow, StructuralRowContract,
             encode_accepted_value_ref_for_accepted_field_contract,
             encode_canonical_value_for_accepted_field_contract,
             persisted_row::{
@@ -354,19 +356,6 @@ pub(in crate::db) fn canonical_row_from_structural_slot_reader_with_accepted_con
     })
 }
 
-/// Build one canonical row from raw bytes using one structural row contract.
-///
-/// Callers must pass an accepted-schema row contract.
-pub(in crate::db) fn canonical_row_from_raw_row_with_structural_contract(
-    raw_row: &RawRow,
-    contract: &StructuralRowContract,
-) -> Result<CanonicalRow, InternalError> {
-    let row_fields =
-        StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(raw_row, contract)?;
-
-    canonical_row_from_structural_slot_reader_with_accepted_contract(&row_fields)
-}
-
 // Rewrap one row already loaded from storage as a canonical write token.
 #[cfg(test)]
 pub(in crate::db) const fn canonical_row_from_stored_raw_row(raw_row: RawRow) -> CanonicalRow {
@@ -587,7 +576,7 @@ pub(in crate::db) fn resolve_update_structural_patch_with_accepted_contract(
     contract: &StructuralRowContract,
     accepted_schema_fingerprint: CommitSchemaFingerprint,
     constraints: &CompiledAcceptedRowConstraints,
-    raw_row: &RawRow,
+    baseline: &StructuralSlotReader<'_>,
     patch: &AcceptedMutationIntentPatch,
     write_context: AcceptedWriteContext,
     mutation_context: MutationDiagnosticContext,
@@ -598,8 +587,6 @@ pub(in crate::db) fn resolve_update_structural_patch_with_accepted_contract(
         Some(mutation_context),
         constraints,
     );
-    let baseline =
-        StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(raw_row, contract)?;
     let mut payloads = vec![None; contract.field_count()];
     let mut provenance = vec![None; contract.field_count()];
     let mut intents = vec![None; contract.field_count()];
@@ -726,7 +713,7 @@ pub(in crate::db) fn resolve_update_structural_patch_with_accepted_contract(
     if logical_changed && let Some(slot) = updated_at_slot {
         validate_managed_timestamp_progression(
             contract,
-            &baseline,
+            baseline,
             write_context.operation_timestamp(),
             mutation_context,
         )?;
@@ -737,7 +724,7 @@ pub(in crate::db) fn resolve_update_structural_patch_with_accepted_contract(
         )?);
         provenance[slot] = Some(AcceptedFieldWriteProvenance::UpdateManaged);
     } else {
-        validate_existing_managed_timestamp_order(contract, &baseline, mutation_context)?;
+        validate_existing_managed_timestamp_order(contract, baseline, mutation_context)?;
     }
 
     let slot_payloads = payloads
@@ -762,7 +749,7 @@ pub(in crate::db) fn resolve_existing_replace_structural_patch_with_accepted_con
     contract: &StructuralRowContract,
     accepted_schema_fingerprint: CommitSchemaFingerprint,
     constraints: &CompiledAcceptedRowConstraints,
-    raw_row: &RawRow,
+    baseline: &StructuralSlotReader<'_>,
     patch: &AcceptedMutationIntentPatch,
     write_context: AcceptedWriteContext,
     mutation_context: MutationDiagnosticContext,
@@ -777,12 +764,8 @@ pub(in crate::db) fn resolve_existing_replace_structural_patch_with_accepted_con
         None,
     )?;
     let (inserted, mut provenance) = inserted.into_parts();
-    let baseline =
-        StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(raw_row, contract)?;
-    let candidate = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
-        inserted.as_raw_row(),
-        contract,
-    )?;
+    let candidate =
+        StructuralSlotReader::from_raw_row_with_borrowed_contract(inserted.as_raw_row(), contract)?;
     let mut payloads = vec![None; contract.field_count()];
     let mut updated_at_slot = None;
 
@@ -833,7 +816,7 @@ pub(in crate::db) fn resolve_existing_replace_structural_patch_with_accepted_con
     if logical_changed && let Some(slot) = updated_at_slot {
         validate_managed_timestamp_progression(
             contract,
-            &baseline,
+            baseline,
             write_context.operation_timestamp(),
             mutation_context,
         )?;
@@ -844,7 +827,7 @@ pub(in crate::db) fn resolve_existing_replace_structural_patch_with_accepted_con
         )?);
         provenance[slot] = Some(AcceptedFieldWriteProvenance::UpdateManaged);
     } else {
-        validate_existing_managed_timestamp_order(contract, &baseline, mutation_context)?;
+        validate_existing_managed_timestamp_order(contract, baseline, mutation_context)?;
     }
 
     let slot_payloads = payloads
@@ -1211,7 +1194,10 @@ mod tests {
                 &contract,
                 fingerprint,
                 &constraints,
-                &row,
+                &StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
+                    &row, &contract,
+                )
+                .unwrap(),
                 &patch,
                 write,
                 MutationDiagnosticContext::new(

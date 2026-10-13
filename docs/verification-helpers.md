@@ -182,8 +182,8 @@ of working versus committed sources and their release/preparation transactions.
 
 ## CI binary installers
 
-The actionlint, ShellCheck, gitleaks, sccache and yq entry points delegate to
-`scripts/ci/install-ci-tool.sh`. Their existing version, SHA-256 and installation
+Use `scripts/ci/install-ci-tool.sh TOOL` for actionlint, shellcheck, gitleaks,
+sccache and yq. Their existing version, SHA-256 and installation
 directory arguments are unchanged. The implementation shares host selection,
 HTTPS download, checksum admission, extraction, exact version admission and
 publication. Asset names and version-output formats remain explicit per tool.
@@ -194,18 +194,18 @@ introduced at the executable destination during setup is refused, and a late
 symlink is replaced without following its target. Perl must be available before
 setup starts; no tool is downloaded when this prerequisite is missing.
 This does not merge repository-local host/IC bundle activation
-or change any consumer's pins. Include the internal helper and checksum verifier
-in snapshots with any of these entry points.
+or change any consumer's pins. Include the command and checksum verifier
+in snapshots.
 
-`install-sccache.sh` uses the same explicit version, SHA-256 and installation
+`install-ci-tool.sh sccache` uses the same explicit version, SHA-256 and installation
 directory arguments. Its reviewed asset scope is Linux x86-64, using the
 `sccache-vVERSION-x86_64-unknown-linux-musl.tar.gz` release asset. Other hosts
 are rejected before installation or download; consumers retain their explicit
 Cargo/native setup on those hosts. Extending binary asset selection requires
 reviewed pins and corresponding qualification, not guessed download names.
 The installer prints the selected executable path; callers own `GITHUB_PATH`,
-`RUSTC_WRAPPER`, cache configuration and any server startup. Include this entry
-point, `install-ci-tool.sh` and `verify-file-checksum.sh` in the same snapshot.
+`RUSTC_WRAPPER`, cache configuration and any server startup. Include
+`install-ci-tool.sh` and `verify-file-checksum.sh` in the same snapshot.
 
 ## Compiler-cache launcher adoption
 

@@ -655,7 +655,7 @@ fn select_schema(snapshot: &SelectSnapshot) -> PersistedSchemaSnapshot {
                 index.name().to_string(),
                 STORE_PATH.to_string(),
                 false,
-                PersistedIndexKeySnapshot::FieldPath(
+                PersistedIndexKeySnapshot::from_field_paths(
                     index
                         .field_ids()
                         .iter()
@@ -745,13 +745,17 @@ fn mutation_schema(
                 format!("by_{}", field.name()),
                 STORE_PATH.to_string(),
                 false,
-                PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
-                    FieldId::new(field.id()),
-                    SchemaFieldSlot::new(u16::try_from(ordinal).expect("field slot should fit")),
-                    vec![field.name().to_string()],
-                    mutation_field_kind(field.kind()),
-                    field.nullable(),
-                )]),
+                PersistedIndexKeySnapshot::from_field_paths(vec![
+                    PersistedIndexFieldPathSnapshot::new(
+                        FieldId::new(field.id()),
+                        SchemaFieldSlot::new(
+                            u16::try_from(ordinal).expect("field slot should fit"),
+                        ),
+                        vec![field.name().to_string()],
+                        mutation_field_kind(field.kind()),
+                        field.nullable(),
+                    ),
+                ]),
                 None,
             )
         })

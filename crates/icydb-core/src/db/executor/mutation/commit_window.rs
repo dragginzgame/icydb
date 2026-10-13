@@ -8,10 +8,10 @@ use crate::{
     db::{
         Db,
         commit::{
-            CommitGuard, CommitMarker, CommitPrepareContextCache, CommitPrepareMode, CommitRowOp,
-            PreparedRowCommitOp, begin_commit, begin_mutation_progress_commit,
+            CanonicalRowCommitOp, CommitGuard, CommitMarker, CommitPrepareContextCache,
+            CommitPrepareMode, PreparedRowCommitOp, begin_commit, begin_mutation_progress_commit,
             database_incarnation_id, finish_commit, generate_commit_id, generate_marker_batch_id,
-            next_database_commit_sequence, prepare_row_commit_with_context,
+            next_database_commit_sequence, prepare_canonical_row_commit_with_context,
         },
         data::{DecodedDataStoreKey, RawDataStoreKey, RawRow},
         direction::Direction,
@@ -277,7 +277,10 @@ struct PreflightStoreOverlay<'a, C: CanisterKind> {
 impl<'a, C: CanisterKind> PreflightStoreOverlay<'a, C> {
     /// Construct one preflight overlay with every submitted final data image
     /// visible before storage-backed constraint scheduling begins.
-    fn from_row_ops(db: &'a Db<C>, row_ops: &[CommitRowOp]) -> Result<Self, InternalError> {
+    fn from_row_ops(
+        db: &'a Db<C>,
+        row_ops: &[CanonicalRowCommitOp],
+    ) -> Result<Self, InternalError> {
         let reserve_rows = row_ops.len().min(MUTATION_COMMIT_INITIAL_RESERVE_ROWS);
         let mut overlay = Self {
             db,
@@ -285,11 +288,7 @@ impl<'a, C: CanisterKind> PreflightStoreOverlay<'a, C> {
             index_overrides: HashMap::with_capacity(reserve_rows),
         };
         for row_op in row_ops {
-            let after = row_op
-                .after
-                .as_ref()
-                .map(|bytes| RawRow::from_untrusted_bytes(bytes.clone()))
-                .transpose()?;
+            let after = row_op.after.as_ref().map(|row| row.as_raw_row().clone());
             if overlay
                 .data_overrides
                 .insert(row_op.key.clone(), after)
@@ -490,7 +489,7 @@ fn record_index_store_generation_guard(
 // same streaming batch accumulator as the typed save/delete path.
 fn preflight_prepare_row_op_batch_structural<C: CanisterKind>(
     db: &Db<C>,
-    row_ops: &[CommitRowOp],
+    row_ops: &[CanonicalRowCommitOp],
     overlay: &mut PreflightStoreOverlay<'_, C>,
     fixed_commit_work_units: usize,
     relation_budget: &mut RelationCommitBudget,
@@ -516,7 +515,7 @@ fn preflight_prepare_row_op_batch_structural<C: CanisterKind>(
         if decoded_key.entity_tag() != context.entity_tag() {
             return Err(InternalError::query_executor_invariant());
         }
-        let row = prepare_row_commit_with_context(
+        let row = prepare_canonical_row_commit_with_context(
             db,
             row_op,
             context,
@@ -537,7 +536,7 @@ fn preflight_prepare_row_op_batch_structural<C: CanisterKind>(
 /// Preflight row ops, build marker, and persist the nongeneric delete commit window.
 pub(in crate::db::executor) fn open_commit_window_structural<C: CanisterKind>(
     db: &Db<C>,
-    row_ops: Vec<CommitRowOp>,
+    row_ops: Vec<CanonicalRowCommitOp>,
     deleted_key_groups: &[(String, BTreeSet<RawDataStoreKey>)],
     identity_ranges: Vec<IdentityRangeAdvance>,
 ) -> Result<OpenCommitWindow, InternalError> {
@@ -546,7 +545,7 @@ pub(in crate::db::executor) fn open_commit_window_structural<C: CanisterKind>(
 
 fn open_commit_window_structural_inner<C: CanisterKind>(
     db: &Db<C>,
-    row_ops: Vec<CommitRowOp>,
+    row_ops: Vec<CanonicalRowCommitOp>,
     deleted_key_groups: &[(String, BTreeSet<RawDataStoreKey>)],
     identity_ranges: Vec<IdentityRangeAdvance>,
     mutation_progress: Option<MutationProgressRecordOp>,
@@ -792,7 +791,7 @@ pub(in crate::db::executor) fn synchronized_store_handles_for_prepared_row_ops<C
 )]
 fn prepare_commit_effects_for_row_ops<C: CanisterKind>(
     db: &Db<C>,
-    row_ops: Vec<CommitRowOp>,
+    row_ops: Vec<CanonicalRowCommitOp>,
     prepared_row_ops: &[PreparedRowCommitOp],
     identity_ranges: &[IdentityRangeAdvance],
     mutation_progress: Option<MutationProgressRecordOp>,
@@ -1002,12 +1001,12 @@ fn begin_commit_window_payload<C: CanisterKind>(
     }
 }
 
-fn journal_record_for_row_op(row_op: CommitRowOp) -> Result<JournalRecord, InternalError> {
+fn journal_record_for_row_op(row_op: CanonicalRowCommitOp) -> Result<JournalRecord, InternalError> {
     match row_op.after {
         Some(after) => JournalRecord::row_put(
             row_op.entity_path.as_ref(),
             row_op.key,
-            after,
+            after.into_raw_row().as_bytes().to_vec(),
             row_op.schema_fingerprint,
         ),
         None => JournalRecord::row_delete(
@@ -1076,6 +1075,7 @@ fn key_within_bounds(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::commit::CommitRowOp;
     use crate::{
         db::{
             data::{DataStore, DecodedDataStoreKey},
@@ -1298,12 +1298,14 @@ mod tests {
         )
     }
 
-    fn test_row_op(key: &DecodedDataStoreKey, after: Option<Vec<u8>>) -> CommitRowOp {
+    fn test_row_op(key: &DecodedDataStoreKey, after: Option<Vec<u8>>) -> CanonicalRowCommitOp {
         CommitRowOp::new(
             "tests::SelfRelation",
             key.to_raw().expect("test key should encode"),
             None,
-            after,
+            after.map(|bytes| {
+                crate::db::data::canonical_row_from_stored_raw_row(RawRow::try_new(bytes).unwrap())
+            }),
             [7; 16],
         )
     }

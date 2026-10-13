@@ -48,13 +48,15 @@ fn initialize_composite_store(key_fields: &[&str], kind: &AcceptedFieldKind) {
                 format!("{name}_idx"),
                 STORE_PATH.into(),
                 unique,
-                PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
-                    FieldId::new(u32::from(slot) + 1),
-                    SchemaFieldSlot::new(slot),
-                    vec![name.into()],
-                    AcceptedFieldKind::Nat64,
-                    false,
-                )]),
+                PersistedIndexKeySnapshot::from_field_paths(vec![
+                    PersistedIndexFieldPathSnapshot::new(
+                        FieldId::new(u32::from(slot) + 1),
+                        SchemaFieldSlot::new(slot),
+                        vec![name.into()],
+                        AcceptedFieldKind::Nat64,
+                        false,
+                    ),
+                ]),
                 None,
             )
         })

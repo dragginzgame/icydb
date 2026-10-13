@@ -52,13 +52,15 @@ fn text_snapshot() -> PersistedSchemaSnapshot {
             "by_payload".to_string(),
             JOURNALED_STORE_PATH.to_string(),
             false,
-            PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
-                FieldId::new(2),
-                SchemaFieldSlot::new(1),
-                vec!["payload".to_string()],
-                kind,
-                false,
-            )]),
+            PersistedIndexKeySnapshot::from_field_paths(vec![
+                PersistedIndexFieldPathSnapshot::new(
+                    FieldId::new(2),
+                    SchemaFieldSlot::new(1),
+                    vec!["payload".to_string()],
+                    kind,
+                    false,
+                ),
+            ]),
             None,
         )],
     )

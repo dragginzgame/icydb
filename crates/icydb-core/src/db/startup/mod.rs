@@ -582,6 +582,54 @@ mod tests {
     }
 
     #[test]
+    fn non_virgin_control_page_fails_observation_without_writes_or_retry() {
+        const SUBMISSION: &str = "generated/0123456789abcdef";
+        select_commit_memory_allocation(
+            CorruptCanister::commit_memory_id().unwrap(),
+            CorruptCanister::COMMIT_STABLE_KEY,
+        );
+        let memory = commit_memory_handle(current_commit_memory_allocation().unwrap()).unwrap();
+        assert_eq!(memory.grow(1), Ok(0));
+        assert_eq!(
+            observe_generated_startup_state::<CorruptCanister>(&CORRUPT_STORES, SUBMISSION),
+            Ok(DatabaseStartupState::Recovering),
+        );
+        for (offset, bytes) in [
+            (0, &b"SCL"[..]),
+            (
+                crate::db::database_format::DATABASE_BOOT_RECORD_BYTES as u64,
+                &[1][..],
+            ),
+            (65_535, &[1][..]),
+        ] {
+            memory.write(offset, bytes);
+            let mut before = vec![0; 65_536];
+            memory.read(0, &mut before);
+            for _ in 0..2 {
+                let failure =
+                    observe_generated_startup_state::<CorruptCanister>(&CORRUPT_STORES, SUBMISSION)
+                        .expect_err(
+                            "non-virgin control memory must fail before recovery is scheduled",
+                        );
+                assert_eq!(failure.kind(), StartupFailureKind::DatabaseControl);
+                assert_eq!(
+                    failure.diagnostic().class(),
+                    icydb_diagnostic_code::ErrorClass::IncompatiblePersistedFormat
+                );
+            }
+            let mut after = vec![0; 65_536];
+            memory.read(0, &mut after);
+            assert_eq!(before, after);
+            assert_eq!(memory.size(), 1);
+            assert_eq!(
+                receipt::startup_memory::<CorruptCanister>().unwrap().size(),
+                0
+            );
+            memory.write(offset, &[0; 3][..bytes.len()]);
+        }
+    }
+
+    #[test]
     fn heap_only_malformed_marker_becomes_a_durable_database_control_failure() {
         const SUBMISSION: &str = "generated/89abcdef01234567";
 

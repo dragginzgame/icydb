@@ -190,3 +190,97 @@ fn sql_write_fields_reject_unknown_resumable_targets_without_persisting_jobs() {
     );
     assert_eq!(projection_rows(&session, read), before);
 }
+
+#[test]
+fn sql_public_delete_prepares_aliases_before_policy_and_execution() {
+    use crate::db::sql_statement_dispatch;
+
+    let session = initialize();
+    insert_row(&session, 2, "second", "group-a");
+
+    for (bounded, returning) in [(false, false), (false, true), (true, false), (true, true)] {
+        for (target, qualifier) in [
+            ("PlannerRow", ""),
+            ("PlannerRow", "PlannerRow."),
+            ("PlannerRow p", "p."),
+            ("PlannerRow P", "p."),
+            ("PlannerRow common", "common."),
+        ] {
+            insert_row(&session, 1, "first", "group-a");
+            let window = if bounded {
+                format!(" ORDER BY {qualifier}id ASC LIMIT 1")
+            } else {
+                String::new()
+            };
+            let output = if returning {
+                format!(" RETURNING {qualifier}id, {qualifier}common")
+            } else {
+                String::new()
+            };
+            let sql = format!("DELETE FROM {target} WHERE {qualifier}id = 1{window}{output}");
+            let dispatch = sql_statement_dispatch(&sql).unwrap();
+            let result = if bounded {
+                session.execute_sql_public_bounded_delete(&dispatch)
+            } else {
+                session.execute_sql_public_primary_key_delete(&dispatch)
+            };
+            match result.unwrap() {
+                SqlStatementResult::Count { row_count } => {
+                    assert!(!returning);
+                    assert_eq!(row_count, 1);
+                }
+                SqlStatementResult::Projection {
+                    rows, row_count, ..
+                } => {
+                    assert!(returning);
+                    assert_eq!(row_count, 1);
+                    assert_eq!(
+                        rows,
+                        vec![vec![
+                            OutputValue::nat64(1),
+                            OutputValue::text("first".into())
+                        ]]
+                    );
+                }
+                _ => panic!("delete must return its count or requested projection"),
+            }
+            let rows = projection_rows(&session, "SELECT id, common FROM PlannerRow ORDER BY id");
+            assert_eq!(
+                rows,
+                vec![vec![
+                    OutputValue::nat64(2),
+                    OutputValue::text("second".to_string())
+                ]]
+            );
+        }
+    }
+}
+
+#[test]
+fn sql_public_delete_rejects_unprepared_inputs_without_writes() {
+    use crate::db::sql_statement_dispatch;
+
+    let session = initialize();
+    insert_row(&session, 1, "first", "group-a");
+    for bounded in [false, true] {
+        let read = "SELECT id, common FROM PlannerRow ORDER BY id";
+        let before = projection_rows(&session, read);
+        for predicate in ["other.id = 1", "p.id = $1"] {
+            let window = if bounded {
+                " ORDER BY p.id ASC LIMIT 1"
+            } else {
+                ""
+            };
+            let sql = format!("DELETE FROM PlannerRow p WHERE {predicate}{window}");
+            let result = sql_statement_dispatch(&sql).and_then(|dispatch| {
+                if bounded {
+                    session.execute_sql_public_bounded_delete(&dispatch)
+                } else {
+                    session.execute_sql_public_primary_key_delete(&dispatch)
+                }
+            });
+            assert!(result.is_err());
+            assert_eq!(projection_rows(&session, read), before);
+        }
+    }
+}

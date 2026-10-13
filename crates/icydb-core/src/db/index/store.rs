@@ -740,28 +740,6 @@ impl IndexStore {
         }
     }
 
-    pub fn clear(&mut self) {
-        match &mut self.backend {
-            IndexStoreBackend::Heap(map) => map.clear(),
-            IndexStoreBackend::Journaled {
-                canonical,
-                live,
-                tombstones,
-                prefix_cardinality_delta,
-                ..
-            } => {
-                live.clear();
-                tombstones.clear();
-                for entry in canonical.iter() {
-                    tombstones.insert(entry.key().clone());
-                }
-                prefix_cardinality_delta.clear_unavailable();
-            }
-        }
-        self.prefix_cardinality.clear_unsynchronized();
-        self.bump_generation();
-    }
-
     /// Sum of bytes used by all stored index entries.
     pub fn memory_bytes(&self) -> u64 {
         let mut bytes = 0u64;

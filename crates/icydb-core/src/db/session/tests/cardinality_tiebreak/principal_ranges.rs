@@ -49,7 +49,7 @@ fn index(
         "principal_idx".into(),
         STORE_PATH.into(),
         unique,
-        PersistedIndexKeySnapshot::FieldPath(
+        PersistedIndexKeySnapshot::from_field_paths(
             items
                 .iter()
                 .map(|(id, slot, name, kind, nullable)| {

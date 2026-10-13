@@ -26,7 +26,7 @@ fn candidate_snapshot(
         "pending_unique_payload".to_string(),
         store_path.to_string(),
         true,
-        PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+        PersistedIndexKeySnapshot::from_field_paths(vec![PersistedIndexFieldPathSnapshot::new(
             FieldId::new(2),
             SchemaFieldSlot::new(1),
             vec!["payload".to_string()],

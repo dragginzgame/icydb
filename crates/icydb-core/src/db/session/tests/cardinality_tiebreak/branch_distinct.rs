@@ -402,13 +402,15 @@ fn numeric_prefixes(unique: bool) {
             "code_idx".into(),
             STORE_PATH.into(),
             unique,
-            PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
-                FieldId::new(2),
-                SchemaFieldSlot::new(1),
-                vec!["code".into()],
-                AcceptedFieldKind::Nat64,
-                false,
-            )]),
+            PersistedIndexKeySnapshot::from_field_paths(vec![
+                PersistedIndexFieldPathSnapshot::new(
+                    FieldId::new(2),
+                    SchemaFieldSlot::new(1),
+                    vec!["code".into()],
+                    AcceptedFieldKind::Nat64,
+                    false,
+                ),
+            ]),
             None,
         )],
     );

@@ -358,6 +358,7 @@ impl StructuralRowContract {
 
 #[derive(Clone, Debug)]
 pub(in crate::db::data) struct StructuralRowFieldBytes<'a> {
+    row_bytes: &'a [u8],
     layout_version: RowLayoutVersion,
     payload: &'a [u8],
     spans: SlotSpans,
@@ -375,6 +376,7 @@ impl<'a> StructuralRowFieldBytes<'a> {
             decode_row_field_spans(decoded.into_payload(), layout_version, contract)?;
 
         Ok(Self {
+            row_bytes,
             layout_version,
             payload,
             spans,
@@ -389,9 +391,13 @@ impl<'a> StructuralRowFieldBytes<'a> {
         Self::from_row_bytes_with_contract(raw_row.as_bytes(), contract)
     }
 
+    pub(in crate::db::data) const fn row_bytes(&self) -> &'a [u8] {
+        self.row_bytes
+    }
+
     /// Borrow one encoded persisted field payload by stable slot index.
     #[must_use]
-    pub(in crate::db::data) fn field(&self, slot: usize) -> Option<&[u8]> {
+    pub(in crate::db::data) fn field(&self, slot: usize) -> Option<&'a [u8]> {
         let (start, end) = self.spans.get(slot).copied().flatten()?;
 
         Some(&self.payload[start..end])

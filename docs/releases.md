@@ -734,3 +734,26 @@ of live package publication or a native host release.
 Supplement effect/interruption stubs with real Git index/tree checks at staging
 boundaries. Shared Tooling's metadata fixture reuses existing history without
 creating commits and exercises the actual adapter's failed-log retention.
+
+## Coordinated Cargo metadata adapter
+
+`scripts/ci/cargo-release-metadata.sh prepare|check PRIMARY_PACKAGE` owns
+the reusable Cargo-only metadata flow. Adopt it as a snapshot root; its version
+reader, lock rewriter and changelog finalizer are required companions. It requires
+root `Cargo.toml`, `Cargo.lock`, `CHANGELOG.md`, workspace-inherited package versions
+and no source-less packages outside the workspace. It admits actual workspace
+and lock identities before mutation; independently versioned packages need their
+consumer-owned adapter. Existing adapters are not replaced by adoption alone.
+
+The caller supplies `RELEASE_PREVIOUS`, `RELEASE_VERSION`, `RELEASE_DATE`, prepared
+Cargo-edit/Cargo-sort, jq and Mike Farah yq. Preparation uses the locked offline
+graph, restores all three original files on failure and retains failure custody.
+The `check` operation uses `RELEASE_COMMIT` when selected, exporting that exact
+committed source instead of reading newer working metadata. No version selection,
+fetch, tool installation, Git staging/ref mutation or publication is implicit.
+Consumer preflight and late source/index admission remain outside this helper.
+
+IC Metrics is the first prepared consumer. Its live adapter remains until the
+reviewed helper is committed and refreshed through normal snapshot distribution.
+Other Cargo consumers must retain their own file set, recovery and metadata policy
+when qualifying this adapter; it is not a fleet-wide automatic replacement.

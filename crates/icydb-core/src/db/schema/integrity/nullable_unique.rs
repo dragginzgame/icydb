@@ -3,8 +3,7 @@
 use crate::db::schema::{
     AcceptedIndexPredicate, PersistedFieldSnapshot, PersistedIndexExpressionOp,
     PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
-    PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-    SchemaIndexId, SchemaRowLayout,
+    PersistedIndexKeyItemSnapshot, PersistedIndexSnapshot, SchemaIndexId, SchemaRowLayout,
 };
 
 /// One bounded semantic rejection for an otherwise structural unique index.
@@ -120,23 +119,12 @@ pub(in crate::db) fn validate_index_semantic_contract(
 
 fn distinct_index_sources(index: &PersistedIndexSnapshot) -> Vec<&PersistedIndexFieldPathSnapshot> {
     let mut sources = Vec::new();
-    match index.key() {
-        PersistedIndexKeySnapshot::FieldPath(paths) => {
-            for path in paths {
-                push_distinct_source(&mut sources, path);
-            }
-        }
-        PersistedIndexKeySnapshot::Items(items) => {
-            for item in items {
-                let source = match item {
-                    PersistedIndexKeyItemSnapshot::FieldPath(path) => path,
-                    PersistedIndexKeyItemSnapshot::Expression(expression) => {
-                        expression_source(expression)
-                    }
-                };
-                push_distinct_source(&mut sources, source);
-            }
-        }
+    for item in index.key().items() {
+        let source = match item {
+            PersistedIndexKeyItemSnapshot::FieldPath(path) => path,
+            PersistedIndexKeyItemSnapshot::Expression(expression) => expression_source(expression),
+        };
+        push_distinct_source(&mut sources, source);
     }
     sources
 }

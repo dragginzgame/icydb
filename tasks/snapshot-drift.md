@@ -23,6 +23,21 @@ fixes, then inspect the owner's adoption issue and focused CI evidence. Never
 offer dirty upstream files as a published snapshot or infer adoption from an
 upstream release note.
 
+For 0.10 and later snapshots, trace the selected common catalogs as well as
+payload integrity. Record the default snapshot paths and any explicit
+`HOST_TOOL_VERSIONS`, `RUST_TOOL_VERSIONS` or `IC_TOOL_PINS` exceptions, including
+their documented reason and native qualification. These selections are
+independent; a host exception does not select Rust pins. Compare complete
+version/digest records, not just filenames or displayed versions.
+
+Inspect Make includes, standalone `--versions`/`--pins` calls, formatting adapters,
+CI cache-key inputs and failure-evidence action inputs for stale consumer-local
+catalog references. Distinguish unused duplicate defaults from files still needed
+for workflow-only tools or approved exceptions. Do not source a consumer catalog
+or execute its Makefile merely to inspect selections; report computed/ambiguous
+values as unresolved. Propose cleanup at the owning issue without deleting files,
+changing pins, installing tools or refreshing a snapshot during this check.
+
 Keep three conclusions distinct: snapshot byte integrity, available upstream
 changes, and consumer behavior/host qualification. An older intact snapshot is
 not corruption; prioritize applicable corrections rather than automatic churn.
@@ -34,5 +49,6 @@ An intact snapshot or a pushed commit alone does not satisfy behavior/native
 acceptance, and an upstream tracker with other outstanding consumers stays open.
 
 Return consumer/bundle root, recorded revision, integrity result, applicable
-upstream fixes and adoption evidence/issue. Do not refresh or patch snapshots
+upstream fixes, selected catalogs/exceptions, stale callers and adoption
+evidence/issue. Do not refresh or patch snapshots
 during this check.

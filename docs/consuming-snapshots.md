@@ -4,6 +4,34 @@ CI and release behavior must not depend on a sibling checkout, a moving Git
 branch, or network availability. Consumers vendor a reviewed file set and
 record its exact Shared Tooling source revision.
 
+## Common catalog ownership in 0.10.0
+
+Common installers now bring their reviewed pin catalogs as required snapshot
+companions. Make, standalone setup, formatting, freshness checks and the evidence
+action use the executing snapshot's defaults. Consumer-local catalog discovery
+and implicit host-to-Rust override inheritance are removed. See
+[catalog selection](local-setup.md#catalog-selection) for explicit exceptions.
+
+Before adoption, compare existing host/Cargo versions and IC versions/digests
+against the selected source commit. Qualify differences or retain an explicitly
+selected consumer exception; do not silently replace a product requirement.
+Review direct script calls, CI cache inputs, formatter adapters and evidence
+action inputs as well as Make. Product/compiler/PocketIC selections stay local.
+
+For root-layout snapshots, existing consumer-owned `ci/tool-versions.env` or
+`ci/ic-tools.tsv` may occupy the new payload paths. Move any still-needed local
+selections to a distinct exception/workflow file and update their callers before
+refresh. The exporter must retain its normal ownership and collision refusals;
+never force an overwrite or hand-edit snapshot ownership. With a nested snapshot,
+remove obsolete consumer copies only after all callers use the new defaults or
+explicit exceptions. Do not delete catalogs still used by local CI tools.
+
+Preview the full entrypoint closure, adopt the reviewed commit, explicitly run
+`make install-tools` and `make tools-check`, then qualify formatting and the
+consumer gate on its supported native hosts. Existing installations, failed logs
+and release plans remain retained. This is a Shared Tooling breaking selection
+change; a library consumer assesses its own published API impact independently.
+
 ## Entrypoint selection in 0.7.0
 
 Select the commands and documents the consumer uses with `--entrypoint`; the
@@ -255,17 +283,21 @@ refresh is harmless: removed paths are no longer in its ownership roster.
 No retirement journal or cleanup daemon is added.
 
 The optional `scripts/ci/test-installers.sh` fixture exercises all five CI
-installer wrappers: actionlint, gitleaks, ShellCheck, yq and sccache. Selecting
-that fixture requires all five wrappers, their shared `install-ci-tool.sh` engine
-and the checksum verifier, even if production CI uses only some of them. The
+tools through `install-ci-tool.sh`. Selecting the fixture requires that command
+and the checksum verifier, even if production CI uses only some of the tools. The
 exporter includes that closure; omit the optional fixture and its callers if unwanted.
-Selecting an individual production installer does not require the whole suite.
+Selecting the production installer does not require the fixture.
 
 Reusable Cargo, formatter, evidence, registry, release-PR and tool-command tests
 also declare their required helpers. Review fixture dependencies when selecting
 tests, not only production entrypoints. The PR fixture requires the PR helper
 even though direct release delivery does not. Caller-owned pin files and optional
 production modes stay explicit inputs rather than unconditional companions.
+Fixtures using `scripts/ci/fixture-lifecycle.sh` include it through their companion
+declarations. It removes successful fixture directories and preserves failures,
+including premature exits; production entrypoints do not acquire this test helper.
+The release runner also includes `scripts/ci/check-release-tag.sh` so direct and
+PR release paths use the same annotated-tag and exact-commit checks.
 
 Run `test-snapshot-distribution.sh` from Shared Tooling for upstream exporter and
 governance qualification. Consumers should normally omit that integration fixture
@@ -326,11 +358,9 @@ checks with trailing-slash and aliased temporary roots. Refresh
 `test-cloc-siblings.sh` to receive its physical-path correction; counts, partial
 totals, error handling and retained failures keep their existing contracts.
 
-When refreshing `install-actionlint.sh`, `install-shellcheck.sh`, `install-gitleaks.sh`,
-`install-sccache.sh` or `install-yq.sh`, the exporter derives
-`scripts/ci/install-ci-tool.sh` and `scripts/ci/verify-file-checksum.sh`.
-These entrypoints share that implementation; select only the roots used by callers.
-Pins and command arguments remain consumer-owned and unchanged.
+Select `scripts/ci/install-ci-tool.sh` as the production entrypoint; the exporter
+derives `scripts/ci/verify-file-checksum.sh`. Pins and installation arguments
+remain consumer-owned. See the 0.11 adoption instructions below.
 
 Cargo inheritance adoption selects `check-dependency-pins.sh`, whose declared
 companions include `dependency-pins.jq`, then adds `--cargo-inheritance` to the
@@ -479,7 +509,7 @@ than editing vendored tests or invoking an unauthorized broader suite.
 Pinning adoption also requires the checker and its jq module, prepared Git/jq/yq
 tools (and Cargo for Rust workspaces), a CI/release invocation, and consumer-owned
 qualification for locked builds and external inputs. Consumers may also vendor
-`scripts/ci/install-yq.sh` with `scripts/ci/install-ci-tool.sh` and the checksum
+`scripts/ci/install-ci-tool.sh` (selecting `yq`) and the checksum
 helper; choose and record their own reviewed version and platform digests.
 Resolve existing exceptions under the
 [pinning policy](../rules/dependency-pinning.md) before claiming adoption.
@@ -606,8 +636,8 @@ boundary; it does not itself require a library minor release.
 
 Select `make/tools.mk`, the baseline and setup guidance from a reviewed committed
 revision; the Make entrypoint derives the common installers and their companions.
-Update consumer-owned pin catalogs and refresh selected fixtures and evidence
-collectors in the same adoption; the selector calls the complete host check too.
+Adopt the common snapshot catalogs (or explicit qualified exceptions) and refresh
+selected fixtures and evidence collectors together; the selector calls the complete host check too.
 The current contract has no parser-only host mode or optional ripgrep/cloc flags.
 Remove `--with-ripgrep`/`--with-cloc` from direct callers, including custom CI and
 evidence checks. Retain historical documents as historical evidence.
@@ -650,11 +680,12 @@ completion as well as a successful exit, preserving evidence and failing on
 early exits, including Bash 3.2 nounset errors. Native consumer qualification
 remains separate from upstream source acceptance.
 
-Defaults use scripts and pins at the checkout root. For a snapshot stored below
+Defaults use scripts and pins from the reviewed snapshot. For a snapshot stored below
 that root, set `SHARED_TOOLING_ROOT` to its reviewed local directory before the
-include, and include its `make/consumer.mk`. `HOST_TOOL_VERSIONS` and `IC_TOOL_PINS`
-select consumer-owned pin exceptions; their defaults remain the checkout's
-`ci/tool-versions.env` and `ci/ic-tools.tsv`. Command selections target the
+include, and include its `make/consumer.mk`. `HOST_TOOL_VERSIONS`,
+`RUST_TOOL_VERSIONS` and `IC_TOOL_PINS` independently select consumer-owned pin
+exceptions; their defaults use the snapshot's `ci/tool-versions.env` and
+`ci/ic-tools.tsv`. Command selections target the
 consumer checkout; host/IC payloads use the [shared per-user store](local-setup.md#shared-executable-storage).
 The [consumer Make interface](make-interface.md) selects the setup, release and
 Rust formatting modules and supplies hook installation and snapshot checking.
@@ -768,3 +799,20 @@ include it and `docs/verification-helpers.md` when adopting it. Replace only
 database acquisition/isolation, retain consumer audit policy and failure evidence,
 and pass `--no-fetch` when auditing the prepared database so its identity stays
 bound to the recorded commit.
+
+## CI installer command in 0.11.0
+
+Replace `install-actionlint.sh`, `install-gitleaks.sh`, `install-shellcheck.sh`,
+`install-sccache.sh` and `install-yq.sh` calls with `install-ci-tool.sh TOOL`, where
+TOOL is respectively `actionlint`, `gitleaks`, `shellcheck`, `sccache` or `yq`.
+Keep existing `--version`, `--sha256` and `--install-dir` arguments and local pins.
+There are no forwarding aliases in 0.11.
+
+Before refresh, replace each recorded wrapper entrypoint with
+`scripts/ci/install-ci-tool.sh` in the reviewed selection. Pass the complete new
+root set with repeated `--entrypoint` arguments; `--add-entrypoint` alone retains
+the old roots. Use the normal preview and owned-file retirement checks to remove
+snapshot-owned wrappers; preserve modified or consumer-owned files for review.
+Refresh `test-installers.sh` too if selected, then qualify the same installer
+failure cases and each declared native host. No storage layout or tool upgrade
+is part of this command change.

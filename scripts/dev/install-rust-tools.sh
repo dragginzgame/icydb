@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/verify-file-checksum.sh scripts/dev/tool-store.sh scripts/dev/cargo-tool-build.sh
+# Shared companions: scripts/ci/verify-file-checksum.sh scripts/dev/tool-store.sh scripts/dev/cargo-tool-build.sh ci/tool-versions.env
 set -euo pipefail
 
 ROOT="$0"

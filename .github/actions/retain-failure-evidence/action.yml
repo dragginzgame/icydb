@@ -15,9 +15,9 @@ inputs:
     description: Recheck complete active toolsets and retain their pins/check evidence instead of bulky payloads; failed and unselected sets stay full.
     default: 'false'
   host-versions:
-    description: Absolute caller-selected host pin file for compact checking; defaults to repository ci/tool-versions.env.
+    description: Absolute host pin exception for compact checking; defaults to this action's snapshot ci/tool-versions.env.
   ic-pins:
-    description: Absolute caller-selected IC pin file for compact checking; defaults to repository ci/ic-tools.tsv.
+    description: Absolute IC pin exception for compact checking; defaults to this action's snapshot ci/ic-tools.tsv.
 outputs:
   collection-complete:
     description: Whether shared tool evidence selection completed without an admission failure.
@@ -25,6 +25,9 @@ outputs:
   artifact-id:
     description: Uploaded artifact identity, used for the hosted round-trip check.
     value: ${{ steps.upload.outputs.artifact-id }}
+  artifact-digest:
+    description: SHA-256 of the uploaded ZIP, used to authenticate exact-ID readback.
+    value: ${{ steps.upload.outputs.artifact-digest }}
 runs:
   using: composite
   steps:
@@ -59,8 +62,8 @@ runs:
         diagnostics="$(mktemp -d "$temp_root/tool-evidence.XXXXXX")"
         selection+=("$repository_root" "$diagnostics")
         if [[ "${EVIDENCE_COMPACT:-false}" == true ]]; then
-          selection+=("${EVIDENCE_HOST_VERSIONS:-$repository_root/ci/tool-versions.env}"
-                      "${EVIDENCE_IC_PINS:-$repository_root/ci/ic-tools.tsv}")
+          selection+=("${EVIDENCE_HOST_VERSIONS:-$EVIDENCE_ACTION_ROOT/../../../ci/tool-versions.env}"
+                      "${EVIDENCE_IC_PINS:-$EVIDENCE_ACTION_ROOT/../../../ci/ic-tools.tsv}")
         fi
         selector_status=0
         bash "$EVIDENCE_ACTION_ROOT/../../../scripts/ci/select-tool-evidence.sh" "${selection[@]}" \

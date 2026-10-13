@@ -18,9 +18,8 @@ use crate::{
         predicate::PredicateProgram,
         resource::construction::ConstructionBudget,
         schema::{
-            AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, PersistedIndexKeySnapshot,
-            SchemaExpressionIndexInfo, SchemaIndexId, SchemaIndexInfo,
-            schema_expression_index_info_from_accepted_index,
+            AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, SchemaExpressionIndexInfo,
+            SchemaIndexId, SchemaIndexInfo, schema_expression_index_info_from_accepted_index,
             schema_index_info_from_accepted_index,
         },
     },
@@ -142,45 +141,42 @@ impl AcceptedIndexInspectionPlan {
         for accepted in snapshot.indexes() {
             work.charge(Resource::PredicateExpressionSteps, 1)?;
             let predicate = compile_predicate(accepted.predicate(), row_contract, work)?;
-            let entry = match accepted.key() {
-                PersistedIndexKeySnapshot::FieldPath(_) => {
-                    let info =
-                        schema_index_info_from_accepted_index(accepted, snapshot, &value_catalog)
-                            .ok_or_else(InternalError::store_corruption)?;
-                    validate_projection_identity(
-                        info.ordinal(),
-                        info.physical_generation(),
-                        info.name(),
-                        info.store(),
-                        info.unique(),
-                        accepted,
-                    )?;
-                    AcceptedIndexInspectionEntry::FieldPath {
-                        schema_index_id: accepted.schema_id(),
-                        info,
-                        predicate,
-                    }
+            let entry = if accepted.key().is_field_path_only() {
+                let info =
+                    schema_index_info_from_accepted_index(accepted, snapshot, &value_catalog)
+                        .ok_or_else(InternalError::store_corruption)?;
+                validate_projection_identity(
+                    info.ordinal(),
+                    info.physical_generation(),
+                    info.name(),
+                    info.store(),
+                    info.unique(),
+                    accepted,
+                )?;
+                AcceptedIndexInspectionEntry::FieldPath {
+                    schema_index_id: accepted.schema_id(),
+                    info,
+                    predicate,
                 }
-                PersistedIndexKeySnapshot::Items(_) => {
-                    let info = schema_expression_index_info_from_accepted_index(
-                        accepted,
-                        snapshot,
-                        &value_catalog,
-                    )
-                    .ok_or_else(InternalError::store_corruption)?;
-                    validate_projection_identity(
-                        info.ordinal(),
-                        info.physical_generation(),
-                        info.name(),
-                        info.store(),
-                        info.unique(),
-                        accepted,
-                    )?;
-                    AcceptedIndexInspectionEntry::Expression {
-                        schema_index_id: accepted.schema_id(),
-                        info,
-                        predicate,
-                    }
+            } else {
+                let info = schema_expression_index_info_from_accepted_index(
+                    accepted,
+                    snapshot,
+                    &value_catalog,
+                )
+                .ok_or_else(InternalError::store_corruption)?;
+                validate_projection_identity(
+                    info.ordinal(),
+                    info.physical_generation(),
+                    info.name(),
+                    info.store(),
+                    info.unique(),
+                    accepted,
+                )?;
+                AcceptedIndexInspectionEntry::Expression {
+                    schema_index_id: accepted.schema_id(),
+                    info,
+                    predicate,
                 }
             };
             indexes.push(entry);

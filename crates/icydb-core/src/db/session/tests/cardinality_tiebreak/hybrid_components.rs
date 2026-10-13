@@ -64,7 +64,7 @@ pub(super) fn initialize_component_schema(kind: AcceptedFieldKind, enums: Accept
             "category_operand_idx".into(),
             STORE_PATH.into(),
             false,
-            PersistedIndexKeySnapshot::FieldPath(vec![
+            PersistedIndexKeySnapshot::from_field_paths(vec![
                 PersistedIndexFieldPathSnapshot::new(
                     FieldId::new(2),
                     SchemaFieldSlot::new(1),

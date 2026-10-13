@@ -1440,21 +1440,15 @@ fn describe_entity_indexes_with_persisted_schema(
 }
 
 fn describe_persisted_index_fields(key: &PersistedIndexKeySnapshot) -> Vec<String> {
-    match key {
-        PersistedIndexKeySnapshot::FieldPath(paths) => paths
-            .iter()
-            .map(|field_path| field_path.path().join("."))
-            .collect(),
-        PersistedIndexKeySnapshot::Items(items) => items
-            .iter()
-            .map(|item| match item {
-                PersistedIndexKeyItemSnapshot::FieldPath(field_path) => field_path.path().join("."),
-                PersistedIndexKeyItemSnapshot::Expression(expression) => {
-                    expression.canonical_text().to_string()
-                }
-            })
-            .collect(),
-    }
+    key.items()
+        .iter()
+        .map(|item| match item {
+            PersistedIndexKeyItemSnapshot::FieldPath(path) => path.path().join("."),
+            PersistedIndexKeyItemSnapshot::Expression(expression) => {
+                expression.canonical_text().to_string()
+            }
+        })
+        .collect()
 }
 
 /// Build the canonical compact SQL column projection from accepted authority.
@@ -1632,22 +1626,11 @@ fn compact_column_key(snapshot: &PersistedSchemaSnapshot, path: &str) -> SqlColu
     let primary =
         top_level_field.is_some_and(|field| snapshot.primary_key_field_ids().contains(&field.id()));
     let memberships = snapshot.indexes().iter().filter_map(|index| {
-        let key_items = match index.key() {
-            PersistedIndexKeySnapshot::FieldPath(paths) => paths.len(),
-            PersistedIndexKeySnapshot::Items(items) => items.len(),
-        };
-        let exact_path_member = match index.key() {
-            PersistedIndexKeySnapshot::FieldPath(paths) => {
-                paths.iter().any(|item| item.path().join(".") == path)
-            }
-            PersistedIndexKeySnapshot::Items(items) => items.iter().any(|item| {
-                matches!(
-                    item,
-                    PersistedIndexKeyItemSnapshot::FieldPath(field_path)
-                        if field_path.path().join(".") == path
-                )
-            }),
-        };
+        let key_items = index.key().component_count();
+        let exact_path_member = index
+            .key()
+            .field_paths()
+            .any(|item| item.path().join(".") == path);
         if !exact_path_member {
             return None;
         }
@@ -2357,13 +2340,15 @@ mod tests {
                 "account_email".to_string(),
                 "tests::Account::account_email".to_string(),
                 true,
-                PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
-                    FieldId::new(2),
-                    SchemaFieldSlot::new(1),
-                    vec!["email".to_string()],
-                    AcceptedFieldKind::Text { max_len: None },
-                    true,
-                )]),
+                PersistedIndexKeySnapshot::from_field_paths(vec![
+                    PersistedIndexFieldPathSnapshot::new(
+                        FieldId::new(2),
+                        SchemaFieldSlot::new(1),
+                        vec!["email".to_string()],
+                        AcceptedFieldKind::Text { max_len: None },
+                        true,
+                    ),
+                ]),
                 Some(crate::db::schema::AcceptedIndexPredicate::test_non_null(2)),
             )],
         );

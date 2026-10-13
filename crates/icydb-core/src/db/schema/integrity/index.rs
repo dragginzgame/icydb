@@ -5,8 +5,7 @@ use crate::{
     db::schema::{
         AcceptedFieldKind, PersistedFieldSnapshot, PersistedIndexExpressionOp,
         PersistedIndexExpressionSnapshot, PersistedIndexFieldPathSnapshot,
-        PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-        SchemaRowLayout,
+        PersistedIndexKeyItemSnapshot, PersistedIndexSnapshot, SchemaRowLayout,
     },
 };
 
@@ -52,7 +51,7 @@ pub(in crate::db::schema) fn schema_snapshot_index_integrity_detail(
 
         // Accepted metadata must be executable by the physical key codec.
         // Apply the same width to active and planner-invisible candidate keys.
-        if !(1..=MAX_INDEX_FIELDS).contains(&index_key_len(index.key())) {
+        if !(1..=MAX_INDEX_FIELDS).contains(&index.key().component_count()) {
             return Some(());
         }
 
@@ -64,31 +63,19 @@ pub(in crate::db::schema) fn schema_snapshot_index_integrity_detail(
     None
 }
 
-const fn index_key_len(key: &PersistedIndexKeySnapshot) -> usize {
-    match key {
-        PersistedIndexKeySnapshot::FieldPath(paths) => paths.len(),
-        PersistedIndexKeySnapshot::Items(items) => items.len(),
-    }
-}
-
 fn index_key_detail(
     row_layout: &SchemaRowLayout,
     fields: &[PersistedFieldSnapshot],
     index: &PersistedIndexSnapshot,
 ) -> Option<()> {
-    match index.key() {
-        PersistedIndexKeySnapshot::FieldPath(paths) => paths
-            .iter()
-            .find_map(|path| index_field_path_detail(row_layout, fields, path)),
-        PersistedIndexKeySnapshot::Items(items) => items.iter().find_map(|item| match item {
-            PersistedIndexKeyItemSnapshot::FieldPath(path) => {
-                index_field_path_detail(row_layout, fields, path)
-            }
-            PersistedIndexKeyItemSnapshot::Expression(expression) => {
-                index_expression_detail(row_layout, fields, expression)
-            }
-        }),
-    }
+    index.key().items().iter().find_map(|item| match item {
+        PersistedIndexKeyItemSnapshot::FieldPath(path) => {
+            index_field_path_detail(row_layout, fields, path)
+        }
+        PersistedIndexKeyItemSnapshot::Expression(expression) => {
+            index_expression_detail(row_layout, fields, expression)
+        }
+    })
 }
 
 fn index_expression_detail(

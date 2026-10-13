@@ -602,8 +602,17 @@ through `VALIDATE CONSTRAINT`. Each validation response reports typed
 constraint/job identity, full-width page sequence, engine-owned state,
 revision status, cumulative rows, bounded findings, and completion. A finding
 page remains stable until acknowledged by its exact `AFTER page_sequence`.
+`AFTER` identifies that held finding page; it is not a page offset. With no page
+held, validation continues normally, including retries of a consumed
+acknowledgement. An acknowledgement for another sequence returns the current
+held page unchanged.
 `DROP CONSTRAINT` drops or aborts only SQL-DDL-owned checks; generated and
 structural constraint ownership remains outside this surface.
+
+While any constraint activation is pending or validating, column rename and
+SET/DROP DEFAULT changes reject with the typed `LiveActivation` catalog cause
+before rebuilding schema metadata. Complete or abort the activation first.
+Existing exact no-op statements retain their no-op behavior.
 
 Destructive DDL keeps physical state and accepted-schema publication atomic at
 the guarded operation boundary. Rejection before a durable commit marker owns

@@ -4,10 +4,12 @@ use super::*;
 use crate::{
     db::{
         DbSession, DynamicMutation, DynamicStructuralPatch, DynamicWriteCell, RequestExecutionRoot,
+        SqlStatementResult,
         schema::{
             ConstraintValidationJob, ConstraintValidationPhase, PersistedSchemaSnapshot,
             application::apply_generated_schema,
         },
+        sql::ddl::{SqlConstraintValidationState, SqlDdlExecutionStatus, SqlDdlPreparationReport},
     },
     value::InputValue,
 };
@@ -251,6 +253,179 @@ fn qualify(ddl: &str, constraint: &str, pages: usize, changed_entity: Option<&st
 const CHECK: &str = "ALTER TABLE Item ADD CONSTRAINT sql_check CHECK (score >= 0) NOT VALID";
 const UNIQUE: &str = "CREATE UNIQUE INDEX sql_unique ON Item (score)";
 const NOT_NULL: &str = "ALTER TABLE Item ALTER COLUMN note SET NOT NULL";
+
+fn validate_constraint(
+    session: &DbSession<AbortCanister>,
+    constraint: &str,
+    after: Option<u64>,
+) -> SqlDdlPreparationReport {
+    let sql = match after {
+        Some(sequence) => {
+            format!("ALTER TABLE Item VALIDATE CONSTRAINT {constraint} AFTER {sequence}")
+        }
+        None => format!("ALTER TABLE Item VALIDATE CONSTRAINT {constraint}"),
+    };
+    let SqlStatementResult::Ddl(report) = session
+        .execute_admin_sql_ddl(&sql)
+        .unwrap_or_else(|error| panic!("validation {sql} failed: {error:?}"))
+    else {
+        panic!("validation must return its DDL report");
+    };
+    report
+}
+
+// Exercise lost-reply retries through SQL and durable job state. An old ACK
+// must resume an empty receipt slot, but cannot consume a newer finding page.
+fn qualify_retried_validation(ddl: &str, bad_field: &str, bad_value: InputValue) {
+    let (db, session) = initialize();
+    session
+        .execute_trusted_dynamic_mutation_batch(vec![DynamicMutation::Update {
+            entity: "Item".into(),
+            key: InputValue::nat64(1),
+            patch: DynamicStructuralPatch::new(vec![(
+                bad_field.into(),
+                DynamicWriteCell::Value(bad_value),
+            )]),
+        }])
+        .unwrap();
+    execute_ddl(&db, &session, ddl);
+    let constraint = snapshot(&db).constraint_activations()[0].name().to_string();
+    let validate = |after| validate_constraint(&session, &constraint, after);
+    assert_eq!(
+        validate(None).execution_status(),
+        SqlDdlExecutionStatus::ValidationStarted,
+    );
+    let first_finding = validate(None);
+    let first_sequence = first_finding
+        .constraint_validation()
+        .unwrap()
+        .page_sequence()
+        .unwrap();
+    let finding = validate(Some(first_sequence));
+    let page = finding.constraint_validation().unwrap();
+    let sequence = page.page_sequence().unwrap();
+    assert_eq!(sequence, first_sequence + 1);
+    assert!(!page.findings().is_empty());
+    for wrong_ack in [
+        None,
+        Some(first_sequence),
+        Some(sequence + 1),
+        Some(u64::MAX),
+    ] {
+        assert_eq!(validate(wrong_ack).constraint_validation(), Some(page));
+    }
+
+    // Deleting the offending row is safe for each activation family, including
+    // unique validation whose in-progress generation can reject key edits.
+    session
+        .execute_trusted_dynamic_mutation_batch(vec![DynamicMutation::Delete {
+            entity: "Item".into(),
+            key: InputValue::nat64(1),
+        }])
+        .unwrap();
+    let acknowledged = validate(Some(sequence));
+    assert!(
+        acknowledged
+            .constraint_validation()
+            .unwrap()
+            .page_sequence()
+            .is_none()
+    );
+    assert!(!acknowledged.constraint_validation().unwrap().complete());
+    let retained = snapshot(&db);
+    let before = job(&db, &retained).unwrap();
+    assert!(before.last_receipt().is_none());
+    let mut complete = false;
+    for _ in 0..4 {
+        let retried = validate(Some(sequence));
+        let page = retried.constraint_validation().unwrap();
+        assert!(page.page_sequence().is_none());
+        if page.complete() {
+            complete = true;
+            break;
+        }
+    }
+    assert!(
+        complete,
+        "retrying the consumed receipt must finish validation"
+    );
+    let accepted = snapshot(&db);
+    assert!(accepted.constraint_activations().is_empty());
+    assert!(
+        accepted
+            .constraints()
+            .iter()
+            .any(|active| active.name() == constraint)
+    );
+    assert_eq!(ABORT_DATA.with(|data| data.borrow().len()), 1);
+}
+
+#[test]
+fn repeated_check_receipt_acknowledgement_resumes_validation() {
+    qualify_retried_validation(CHECK, "score", InputValue::int64(-1));
+}
+
+#[test]
+fn repeated_unique_receipt_acknowledgement_resumes_validation() {
+    qualify_retried_validation(UNIQUE, "score", InputValue::int64(2));
+}
+
+#[test]
+fn repeated_not_null_receipt_acknowledgement_resumes_validation() {
+    qualify_retried_validation(NOT_NULL, "note", InputValue::null());
+}
+
+#[test]
+fn consumed_receipt_retries_advance_bounded_clean_forward_pages() {
+    let (db, session) = initialize();
+    for start in (3..=300).step_by(100) {
+        seed(&session, start..=(start + 99).min(300));
+    }
+    session
+        .execute_trusted_dynamic_mutation_batch(vec![DynamicMutation::Update {
+            entity: "Item".into(),
+            key: InputValue::nat64(1),
+            patch: DynamicStructuralPatch::new(vec![(
+                "score".into(),
+                DynamicWriteCell::Value(InputValue::int64(-1)),
+            )]),
+        }])
+        .unwrap();
+    execute_ddl(&db, &session, CHECK);
+    validate_constraint(&session, "sql_check", None);
+    let finding = validate_constraint(&session, "sql_check", None);
+    let sequence = finding
+        .constraint_validation()
+        .unwrap()
+        .page_sequence()
+        .unwrap();
+    session
+        .execute_trusted_dynamic_mutation_batch(vec![DynamicMutation::Delete {
+            entity: "Item".into(),
+            key: InputValue::nat64(1),
+        }])
+        .unwrap();
+    let acknowledged = validate_constraint(&session, "sql_check", Some(sequence));
+    let page = acknowledged.constraint_validation().unwrap();
+    assert_eq!(page.state(), SqlConstraintValidationState::Forward);
+    assert!(page.page_sequence().is_none());
+    let mut rows = page.rows_scanned();
+    let mut complete = false;
+    for _ in 0..5 {
+        let retried = validate_constraint(&session, "sql_check", Some(sequence));
+        let page = retried.constraint_validation().unwrap();
+        assert!(page.page_sequence().is_none());
+        assert!((1..=256).contains(&(page.rows_scanned() - rows)));
+        rows = page.rows_scanned();
+        if page.complete() {
+            complete = true;
+            break;
+        }
+    }
+    assert!(complete, "clean page retries must reach promotion");
+    assert!(snapshot(&db).constraint_activations().is_empty());
+    assert_eq!(ABORT_DATA.with(|data| data.borrow().len()), 299);
+}
 
 #[test]
 fn sql_check_new_writes_reconciles_unchanged() {

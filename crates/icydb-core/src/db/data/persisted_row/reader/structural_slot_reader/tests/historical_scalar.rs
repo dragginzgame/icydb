@@ -296,3 +296,54 @@ fn historical_update_rejects_forbidden_and_malformed_fills() {
         }
     }
 }
+
+#[test]
+fn row_layout_slot_counts_preserve_current_and_historical_admission() {
+    let contract = historical_contract(
+        AcceptedFieldKind::Nat64,
+        LeafCodec::Scalar(ScalarCodec::Nat64),
+        SchemaHistoricalFill::Null,
+    );
+    let current = RowLayoutVersion::INITIAL.checked_next().unwrap();
+    let key = encode_canonical_value_for_accepted_field_contract(
+        contract
+            .required_accepted_field_persistence_contract(0)
+            .unwrap(),
+        &Value::Nat64(1),
+    )
+    .unwrap();
+    let added = encode_canonical_value_for_accepted_field_contract(
+        contract
+            .required_accepted_field_persistence_contract(1)
+            .unwrap(),
+        &Value::Nat64(7),
+    )
+    .unwrap();
+    for (layout, payloads, expected_added) in [
+        (RowLayoutVersion::INITIAL, vec![key.clone()], Value::Null),
+        (current, vec![key.clone(), added.clone()], Value::Nat64(7)),
+    ] {
+        let row = emit_raw_row_from_slot_payloads(layout, payloads.len(), &payloads)
+            .unwrap()
+            .into_raw_row();
+        let reader =
+            StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(&row, &contract)
+                .unwrap();
+        assert_eq!(reader.required_cached_value(0).unwrap(), &Value::Nat64(1));
+        assert_eq!(reader.required_cached_value(1).unwrap(), &expected_added);
+    }
+    for (layout, payloads) in [
+        (RowLayoutVersion::INITIAL, vec![key.clone(), added.clone()]),
+        (current, vec![key.clone()]),
+        (current.checked_next().unwrap(), vec![key, added]),
+    ] {
+        let row = emit_raw_row_from_slot_payloads(layout, payloads.len(), &payloads)
+            .unwrap()
+            .into_raw_row();
+        let error =
+            StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(&row, &contract)
+                .err()
+                .expect("invalid row layout or slot count must reject");
+        assert_eq!(error.class(), ErrorClass::Corruption);
+    }
+}

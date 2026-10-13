@@ -1,7 +1,7 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `35cad65677ff989b5fb24a88d947fda37d2366e8` (Shared 0.9.13). Root
+at reviewed revision `7a7430bd30902dc655a025be61696ce19417c54a` (Shared 0.11.1). Root
 [AGENTS.md](../../AGENTS.md) is the local overlay. The shared approved layout
 retains the 42 existing canister, schema and testing packages in their
 restored directories, in the single root workspace and lockfile; no new package
@@ -12,7 +12,132 @@ these rules.
 
 ## Ownership and provenance
 
-### Current Shared 0.9.13 and Host 0.16 adoption
+### Delivered completion evidence and macOS lint caller — 2026-10-13
+
+Published 0.273.0 (`ed542f97e17ccca9d2dc35284e06c730230a0c63`) passes the
+126-case completion/retention matrix on both
+[Intel macOS](https://github.com/dragginzgame/icydb/actions/runs/38378345770/job/115232260383)
+and [Apple Silicon](https://github.com/dragginzgame/icydb/actions/runs/38378345770/job/115232260409)
+before those jobs fail at their later selected ShellCheck command. Actual receipt
+callbacks, standard release, hook and portable fixtures also reach their passing
+completion markers. The remaining normal candidate-receipt fixture now passes in
+disposable repositories on Linux Bash 5 and genuine Bash 3.2.57, using the same
+published subject/test bytes. Git effects stay inside those temporary fixtures.
+The original false-success finding is closed under
+[#342](https://github.com/dragginzgame/icydb/issues/342).
+
+The later host failure is reproducible with the exact selected lint command:
+SC1091 refuses to follow `tool-store.sh`, then SC2154 lacks its `store_slot`
+assignment. The consumer CI command now enables source following, preserving
+warning checks and immutable Shared 0.11.1 bytes. Selected ShellCheck, workflow
+lint and topology checks pass; another native macOS run is still required under
+[#302](https://github.com/dragginzgame/icydb/issues/302). Evidence is retained in
+`.cache/backlog-0274` and the downloaded published job logs. No runtime or tool
+selection changes; full workspace/release gates remain separately selected.
+
+### Shared 0.11.1 and IC Build 0.2.3 — 2026-10-13
+
+Canonical refresh uses the committed Shared 0.11.1 revision above from a clean
+temporary source checkout. The sibling's unpublished fixture edits are excluded.
+The snapshot now has 89 entrypoints and the same 98-file closure: retire the
+actionlint/ShellCheck forwarding scripts and derive the common tag checker and
+fixture lifecycle helper. CI and the consumer actionlint adapter call the
+canonical installer directly; two local fixtures share cleanup and failure
+retention. The completion probe accepts the maintained EXIT trap and stages its
+shared helper before testing interruption. Existing tool versions/digests,
+compiler selections and Testkit ownership remain unchanged
+([Shared #161](https://github.com/dragginzgame/shared-tooling/issues/161)).
+
+The incoming lock already selects registry IC Build 0.2.3, SHA-256
+`9f5baf0449153f28de324d37dc9787298d77788940e0bce88f3d0c252b018ca5`,
+whose published tag resolves to `23e047b7672aae0d5ba442c4b384c4b782835c87`.
+Its standalone source-evidence API stays upstream: IcyDB already delegates Cargo
+input/cache discovery to the maintained Wasm engine and needs no second inventory
+or new adapter. Unpublished staging/cache edits are excluded; manifests and
+lockfile selections are preserved. Strict integration/artifact-contract Clippy,
+nine artifact/Candid cases and five cache cases pass, including a real Wasm
+fixture with retained batch outputs and encoded flags
+([#307](https://github.com/dragginzgame/icydb/issues/307)).
+
+Common tool preparation/admission, snapshot integrity, KEEP-only refresh preview,
+selected ShellCheck, workflow lint/invariants, CI inspection, tool commands,
+consumer adapters and substitute release runner/receipt fixtures pass on Linux.
+Completion/retention covers 126 injected exits on each of Linux Bash 5 and genuine
+Bash 3.2.57. Consumer adapters, CI inspection, tool commands and release-runner
+fixtures pass on both shells. Evidence is retained in `.cache/shared0111-build023`.
+Exact-source upstream CI was queued when reviewed
+([Shared run](https://github.com/dragginzgame/shared-tooling/actions/runs/38418557877),
+[Build run](https://github.com/dragginzgame/ic-build/actions/runs/38416043907));
+native macOS and full workspace/release qualification remain separate. Raw Wasm,
+cycles and instruction deltas are unmeasured. No simulator/network lifecycle,
+Git delivery or release effects occurred.
+
+### Shared 0.10.1 catalog ownership and Host 0.17.2 — 2026-10-13
+
+Canonical refresh adopts committed Shared 0.10.1 with the existing 91 roots and
+98-file closure. Common host/Cargo versions and all IC versions/digests match
+the previous snapshot. Make, standalone installers, formatting, freshness
+inspection and failure evidence use snapshot-owned defaults; IcyDB needs no
+exception catalog. Root-layout workflow consumers already read those same
+immutable catalogs. Compiler/MSRV, product tools and Testkit remain locally
+owned. Cargo cache keys now retain reuse across unrelated literal catalog edits,
+while tool/build changes still invalidate them
+([#357](https://github.com/dragginzgame/icydb/issues/357),
+[Shared #154](https://github.com/dragginzgame/shared-tooling/issues/154)).
+
+The incoming lock already selects Host 0.17.2 from
+`e3afa6ddf022309e7ba97f6cefb312c48738db4e`. Its release changes producer fixtures
+and example failure retention, requiring no IcyDB API adapter. Explicit common
+setup and offline admission, strict CLI/integration Clippy, nine artifact/Candid
+tests and 21 CLI tests pass. CLI normal dependencies remain parser-free.
+Evidence is retained in `.cache/host0172-shared0101`. Native macOS and full
+workspace/release validation remain separate; raw Wasm, cycle and instruction
+deltas are unmeasured. No simulator/network lifecycle or Git delivery occurred.
+
+### Registry IC Build 0.2 adoption — 2026-10-13
+
+The authorized continuation updates the shared build catalog to registry 0.2
+and locks IC Build 0.2.0, archive SHA-256
+`fb055d1b5649636c09a52f23fdc091417c732cbb87a2125d5a24f93c043c8df8`,
+from `9ddcd4ee0b2ac85f0608b8aaf49493cf015f295a`. The three unused Host 0.16
+packages retire. All other registry versions/checksums and own package versions
+are preserved; runtime work and the prior Candid feature correction remain
+intact. No local producer override or compatibility build flow is retained.
+
+Strict selected integration library/artifact-contract Clippy, all nine
+artifact/Candid cases and five cache cases pass against the published graph.
+The cache cases include a real Wasm build preserving encoded flags and retained
+batch artifacts. The ordinary CLI normal
+dependency tree remains parser-free. Receipts live under
+`/tmp/ic-build-020-registry-adoption/icydb-*`. Existing 0.273.1 notes own this
+compatible integration change. Native macOS and full workspace/release checks
+remain separate; Wasm/cycle/instruction deltas are unmeasured. No simulator or
+network lifecycle, Git delivery or release action occurred
+([#307](https://github.com/dragginzgame/icydb/issues/307)).
+
+### Earlier Host 0.17 Candid integration qualification — 2026-10-13
+
+The authorized consumer correction enables `candid-service` alongside
+`candid-extraction` in native integration. Host 0.17's interface-only profile
+no longer provides service parsing. Root defaults and the ordinary CLI selection
+stay unchanged; its normal dependency tree excludes `candid_parser`.
+
+The incoming registry graph now selects IC Build 0.1.4 and Host 0.17. Focused
+integration library/artifact-contract Clippy and all nine artifact/Candid tests
+pass. Evidence is `/tmp/icydb-host017-{integration-clippy,artifact-contract-clippy,artifact-tests,cli-normal-tree}.log`.
+The explicit offline metadata preparation preserves the captured lock bytes;
+unrelated catalog/runtime work is retained. No own package version is changed.
+
+The same selected Clippy and nine tests pass against the unpublished IC Build
+0.2.0/Host 0.17 candidate in `/tmp/ic-build-020-consumers.GxZq30/icydb/`.
+That frozen fixture alone selects 0.2 and a local producer override. The real
+catalog remains registry-based; publication precedes adoption. This is Linux
+correctness evidence, not native macOS or full workspace/release qualification.
+Raw Wasm, cycles and instruction deltas are unmeasured. No simulator/network
+lifecycle, release or Git delivery action occurred
+([#307](https://github.com/dragginzgame/icydb/issues/307)).
+
+### Released Shared 0.9.13 and Host 0.16 adoption
 
 Canonical refresh from committed Shared 0.9.13 updates eleven payloads without
 changing the 91 roots or 98-file closure. Tool locks and Cargo-source acquisition

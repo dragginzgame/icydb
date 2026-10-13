@@ -373,7 +373,7 @@ fn identity_snapshot_for_entity(
             },
             store_path.to_string(),
             payload_unique,
-            PersistedIndexKeySnapshot::FieldPath(index_fields),
+            PersistedIndexKeySnapshot::from_field_paths(index_fields),
             None,
         )],
     );

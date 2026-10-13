@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/verify-file-checksum.sh scripts/dev/tool-store.sh
+# Shared companions: scripts/ci/verify-file-checksum.sh scripts/dev/tool-store.sh ci/tool-versions.env
 set -euo pipefail
 
 # Explicit local provisioning of the complete common host-tool set.
@@ -27,7 +27,7 @@ case "$consumer" in *$'\n'*|*$'\r'*) echo 'consumer path contains CR/LF' >&2; ex
 consumer="$(cd -P "$consumer" && printf '%s/.' "$PWD")"
 consumer="${consumer%/.}"
 case "$consumer" in *$'\n'*|*$'\r'*) echo 'resolved consumer path contains CR/LF' >&2; exit 1 ;; esac
-versions="${versions:-$consumer/ci/tool-versions.env}"
+versions="${versions:-$ROOT/ci/tool-versions.env}"
 # This reviewed shell file is code, just like the consumer's Makefile.
 # shellcheck disable=SC1090
 source "$versions"
@@ -131,16 +131,9 @@ verify() {
 }
 tool_root="$consumer/.tools"
 active="$tool_root/host"
-[[ ! -L "$tool_root" ]] || { echo 'repository .tools may not be a symlink' >&2; exit 1; }
-if [[ -e "$active" && ! -L "$active" ]]; then
-    echo 'refusing to replace unmanaged .tools/host' >&2; exit 1
-fi
-if [[ -L "$active" ]]; then
-    # Preserve trailing newlines so admission checks the literal link target.
-    selection="$(perl -e 'my $s=readlink($ARGV[0]); defined($s) or exit 1; print $s,"/."' "$active")"
-    selection="${selection%/.}"
-    [[ "$selection" =~ ^host-set\.[[:alnum:]]+$ ]] || { echo 'unmanaged host-tool selection' >&2; exit 1; }
-    if bundle="$(tool_store_resolve "$tool_root/$selection" "$store_slot")" &&
+selection="$(tool_store_active_reference)"
+if [[ -n "$selection" ]]; then
+    if bundle="$(tool_store_resolve "$selection" "$store_slot")" &&
         tool_store_unlocked && verify "$bundle"; then
         printf '%s\n' "$active/bin"; exit 0
     fi

@@ -11,17 +11,12 @@ unset GITHUB_STEP_SUMMARY
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 FIXTURE="$(mktemp -d "${TMPDIR:-/tmp}/icydb-shared-adapters.XXXXXX")"
 fixture_complete=false
-finish() {
-  local status=$?
-  [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
-  if [[ "$status" == 0 ]]; then rm -rf "$FIXTURE"
-  else echo "Shared adapter fixture retained: $FIXTURE" >&2; fi
-  exit "$status"
-}
-trap finish EXIT
+# shellcheck source=scripts/ci/fixture-lifecycle.sh
+source "$ROOT/scripts/ci/fixture-lifecycle.sh"
+trap 'fixture_finish "$?" "$FIXTURE" "Shared adapter fixture retained"' EXIT
 mkdir -p "$FIXTURE/scripts/ci" "$FIXTURE/bin" "$FIXTURE/install"
 for script in check-make-execution.sh run-validation-targets.sh run-icydb-validation-targets.sh \
-  install-actionlint.sh install-ci-tool.sh install-icydb-actionlint.sh verify-file-checksum.sh; do
+  install-ci-tool.sh install-icydb-actionlint.sh verify-file-checksum.sh; do
   cp "$ROOT/scripts/ci/$script" "$FIXTURE/scripts/ci/"
 done
 

@@ -24,9 +24,6 @@ pub(in crate::db) use entropy::set_boot_entropy_for_tests;
 
 pub(in crate::db) const DATABASE_BOOT_RECORD_BYTES: usize = 15;
 const DATABASE_BOOT_MAGIC: &[u8; 8] = b"ICYDBCTL";
-// `ic-memory` initializes the control slot as a stable cell before IcyDB writes
-// its database boot record. Treat that pre-boot header as an empty marker.
-const PRE_BOOT_STABLE_CELL_MAGIC: &[u8; 3] = b"SCL";
 const DATABASE_BOOT_CHECKSUM_OFFSET: usize = 11;
 const DATABASE_BOOT_INITIALIZED_STATE: u8 = 0x01;
 // The sole current pre-1.0 database boot format uses version 1.
@@ -119,7 +116,7 @@ enum BootInspection {
     Present(DatabaseBootRecord),
 }
 
-/// Pure fixed-read result for the database boot record.
+/// Read-only result for database control-format admission.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db) enum DatabaseFormatObservation {
     /// No current database incarnation has been initialized yet.
@@ -201,7 +198,7 @@ pub(in crate::db) fn forget_database_format_admission_for_tests() {
     ADMITTED_DATABASE_FORMATS.with_borrow_mut(Vec::clear);
 }
 
-/// Inspect the current boot prefix and registered durable-role sizes without mutation.
+/// Inspect the boot record and fresh-control admission without mutation.
 pub(in crate::db) fn observe_database_format(
     stores: &'static std::thread::LocalKey<crate::db::registry::StoreRegistry>,
 ) -> Result<DatabaseFormatObservation, InternalError> {
@@ -221,7 +218,8 @@ pub(in crate::db) fn observe_database_format(
         )),
         BootInspection::Missing => {
             let roles = open_registered_store_roles_from_registry(stores)?;
-            if control_memory.size() <= 1 && roles.iter().all(StoreRoleMemories::physically_virgin)
+            if control_memory_is_virgin(&control_memory)
+                && roles.iter().all(StoreRoleMemories::physically_virgin)
             {
                 Ok(DatabaseFormatObservation::Uninitialized)
             } else {
@@ -338,9 +336,7 @@ fn inspect_boot_record<M: Memory>(
 
     let mut bytes = [0_u8; DATABASE_BOOT_RECORD_BYTES];
     control_memory.read(0, &mut bytes);
-    if bytes.iter().all(|byte| *byte == 0)
-        || &bytes[..PRE_BOOT_STABLE_CELL_MAGIC.len()] == PRE_BOOT_STABLE_CELL_MAGIC
-    {
+    if bytes.iter().all(|byte| *byte == 0) {
         return Ok(BootInspection::Missing);
     }
 
@@ -496,7 +492,67 @@ pub(in crate::db) fn open_registered_store_memory(
 
 #[cfg(test)]
 mod tests {
-    use super::crc32c;
+    use super::*;
+    use crate::db::{commit::select_commit_memory_allocation, registry::StoreRegistry};
+
+    #[test]
+    fn observation_and_admission_agree_on_control_memory_virginity() {
+        thread_local! {
+            static STORES: StoreRegistry = StoreRegistry::new();
+        }
+        select_commit_memory_allocation(247, "icydb.test.format-observation.commit.v1");
+        let memory = commit_memory_handle(current_commit_memory_allocation().unwrap()).unwrap();
+        let page_bytes = usize::try_from(WASM_PAGE_BYTES).unwrap();
+        assert_eq!(
+            observe_database_format(&STORES).unwrap(),
+            DatabaseFormatObservation::Uninitialized
+        );
+        assert_eq!(admit_or_initialize_database_format(&memory, &[]), Ok(true));
+        assert_eq!(memory.size(), 0);
+        assert_eq!(memory.grow(1), Ok(0));
+        assert_eq!(
+            observe_database_format(&STORES).unwrap(),
+            DatabaseFormatObservation::Uninitialized
+        );
+        assert_eq!(admit_or_initialize_database_format(&memory, &[]), Ok(true));
+
+        for (offset, bytes) in [
+            (0, &b"SCL"[..]),
+            (DATABASE_BOOT_RECORD_BYTES as u64, &[1][..]),
+            (VIRGIN_SCAN_CHUNK_BYTES as u64 - 1, &[1][..]),
+            (VIRGIN_SCAN_CHUNK_BYTES as u64, &[1][..]),
+            (WASM_PAGE_BYTES - 1, &[1][..]),
+        ] {
+            memory.write(offset, bytes);
+            let mut before = vec![0; page_bytes];
+            memory.read(0, &mut before);
+            let observed = observe_database_format(&STORES)
+                .expect_err("non-virgin control memory must not appear fresh");
+            let admitted = admit_or_initialize_database_format(&memory, &[])
+                .map_err(map_admission_error)
+                .unwrap_err();
+            assert_eq!(observed.diagnostic(), admitted.diagnostic());
+            assert_eq!(observed.diagnostic_facts(), admitted.diagnostic_facts());
+            let mut after = vec![0; page_bytes];
+            memory.read(0, &mut after);
+            assert_eq!(before, after);
+            memory.write(offset, &[0; 3][..bytes.len()]);
+        }
+
+        assert_eq!(memory.grow(1), Ok(1));
+        let error = observe_database_format(&STORES).unwrap_err();
+        let admitted = admit_or_initialize_database_format(&memory, &[])
+            .map_err(map_admission_error)
+            .unwrap_err();
+        assert_eq!(error.diagnostic(), admitted.diagnostic());
+        memory.write(0, &DatabaseBootRecord::current().encode());
+        assert_eq!(
+            observe_database_format(&STORES).unwrap(),
+            DatabaseFormatObservation::Current
+        );
+        assert_eq!(admit_or_initialize_database_format(&memory, &[]), Ok(false));
+        assert_eq!(memory.size(), 2);
+    }
 
     #[test]
     fn crc32c_matches_known_vectors_and_bit_recurrence() {

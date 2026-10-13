@@ -69,6 +69,23 @@ tool_store_resolve() {
     printf '%s\n' "$target"
 }
 
+# Admit the checkout pointer before reuse or repair. An absent pointer prints
+# nothing; an unmanaged pointer is fatal even during explicit installation.
+tool_store_active_reference() {
+    local selection
+    [[ ! -L "$tool_root" ]] || { echo 'repository .tools may not be a symlink' >&2; return 1; }
+    if [[ -L "$active" ]]; then
+        selection="$(perl -e 'my $p=readlink(shift); defined $p or exit 1; print "$p/."' "$active")" || return $?
+        selection="${selection%/.}"
+        [[ "$selection" =~ ^$store_kind-set\.[[:alnum:]]+$ ]] || {
+            printf 'unmanaged %s tool selection: %s\n' "$store_kind" "$active" >&2; return 1;
+        }
+        printf '%s\n' "$tool_root/$selection"
+    elif [[ -e "$active" ]]; then
+        printf 'refusing to replace unmanaged tool path: %s\n' "$active" >&2; return 1
+    fi
+}
+
 # mkdir remains the atomic acquisition. Keep its diagnostic/status verbatim;
 # an observed path is not proof of a live owner or permission to remove it.
 tool_store_lock_directory() {
