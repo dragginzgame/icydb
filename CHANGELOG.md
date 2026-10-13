@@ -5,7 +5,7 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.274.0]
+## [0.274.0] - 2026-10-13
 
 - **Breaking:** replace accepted schema index-key encoding and remove
   `IndexStore::clear`; recreate affected databases. Simplify row/snapshot ownership
