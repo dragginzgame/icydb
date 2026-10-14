@@ -57,7 +57,8 @@ if [[ -z "$sql_variants_mode" ]]; then
     exit 1
 fi
 if [[ -z "${canister_names[0]+set}" ]]; then
-    read -r -a canister_names <<< "$(wasm_report_default_canisters | tr '\n' ' ')"
+    default_canisters="$(wasm_report_default_canisters)"
+    read -r -a canister_names <<< "${default_canisters//$'\n'/ }"
 fi
 for canister_name in "${canister_names[@]}"; do
     if [[ -z "$canister_name" ]]; then
@@ -121,7 +122,7 @@ build_variant() {
     echo "[wasm-size] Building '$canister_name' using profile '$profile' ($sql_variant)"
     (
         cd "$ROOT"
-        cargo run -p icydb-testing-integration --bin build_fixture_canister --locked -- \
+        cargo run -p icydb-testing-build --bin build_fixture_canister --locked -- \
             "$canister_name" \
             "${build_options[@]}"
     )
@@ -168,7 +169,7 @@ build_variant() {
 
     (
         cd "$ROOT"
-        cargo run -p icydb-testing-integration --bin write_wasm_size_report --locked -- \
+        cargo run -p icydb-testing-build --bin write_wasm_size_report --locked -- \
             --canister "$canister_name" \
             "${build_options[@]}" \
             --did "$DID_COPY" \
@@ -212,7 +213,7 @@ if has_selected_canister one_entity_typed_query \
         candidate_wasm="$out_dir/ten_entity_typed_query.${profile}${artifact_suffix}.final-deployable.wasm"
         (
             cd "$ROOT"
-            cargo run -p icydb-testing-integration --bin check_wasm_entity_scale --locked -- \
+            cargo run -p icydb-testing-build --bin check_wasm_entity_scale --locked -- \
                 "$baseline_wasm" "$candidate_wasm"
         )
     done
@@ -226,7 +227,7 @@ if has_selected_canister one_entity_reachable_operations \
         candidate_wasm="$out_dir/ten_entity_reachable_operations.${profile}${artifact_suffix}.final-deployable.wasm"
         (
             cd "$ROOT"
-            cargo run -p icydb-testing-integration --bin check_wasm_entity_scale --locked -- \
+            cargo run -p icydb-testing-build --bin check_wasm_entity_scale --locked -- \
                 "$baseline_wasm" "$candidate_wasm" --reachable
         )
     done

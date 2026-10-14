@@ -5,10 +5,11 @@ use ic_host_artifacts::artifact::Sha256Digest;
 use ic_testkit::pic::CandidCallExt as _;
 use ic_testkit::pocket_ic::PocketIc;
 use icydb::Error;
-use icydb_testing_integration::{
+use icydb_testing_build::{
     CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
-    CanisterWasmProfile, build_canister_with_options, install_prebuilt_fixture_canister,
+    CanisterWasmProfile, build_canister_with_options,
 };
+use icydb_testing_integration::install_prebuilt_fixture_canister;
 use serde::Deserialize;
 
 use std::time::Duration;

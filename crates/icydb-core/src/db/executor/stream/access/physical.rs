@@ -45,7 +45,7 @@ use crate::{
     value::Value,
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
-use std::{cell::Cell, mem::size_of, ops::Bound};
+use std::{cell::Cell, mem::size_of, ops::Bound, vec::IntoIter};
 
 ///
 /// KeyOrderState
@@ -870,7 +870,8 @@ pub(in crate::db::executor) struct PrimaryRangeKeyStream {
     direction: Direction,
     remaining: Option<usize>,
     chunk_entries: usize,
-    buffer: Vec<DecodedDataStoreKey>,
+    buffer: IntoIter<DecodedDataStoreKey>,
+    // Retain first-pull admission for direct visits and continuation binding.
     buffer_pos: usize,
     exhausted: bool,
 }
@@ -924,7 +925,7 @@ impl PrimaryRangeKeyStream {
             direction,
             remaining: limit,
             chunk_entries: primary_range_chunk_entries_for_active_page()?,
-            buffer: Vec::new(),
+            buffer: Vec::new().into_iter(),
             buffer_pos: 0,
             exhausted: false,
         })
@@ -953,7 +954,7 @@ impl PrimaryRangeKeyStream {
             direction,
             remaining: limit,
             chunk_entries: primary_range_chunk_entries_for_active_page()?,
-            buffer: Vec::new(),
+            buffer: Vec::new().into_iter(),
             buffer_pos: 0,
             exhausted: false,
         })
@@ -971,7 +972,7 @@ impl PrimaryRangeKeyStream {
     ) -> Result<Option<()>, InternalError> {
         if !matches!(self.direction, Direction::Asc)
             || self.buffer_pos != 0
-            || !self.buffer.is_empty()
+            || !self.buffer.as_slice().is_empty()
         {
             return Ok(None);
         }
@@ -1031,7 +1032,7 @@ impl PrimaryRangeKeyStream {
     ) -> Result<(), InternalError> {
         if boundary.entity_tag() != self.entity_tag
             || self.buffer_pos != 0
-            || !self.buffer.is_empty()
+            || !self.buffer.as_slice().is_empty()
         {
             return Err(InternalError::query_executor_invariant());
         }
@@ -1072,10 +1073,8 @@ impl PrimaryRangeKeyStream {
     // keys require no new storage traversal; an empty buffer may refill
     // one already-bounded chunk. The page owner reserves this amount before
     // polling, so batching does not advance unadmitted storage work.
-    const fn next_pull_entry_bound(&self) -> usize {
-        if self.buffer_pos < self.buffer.len()
-            || self.exhausted
-            || matches!(self.remaining, Some(0))
+    fn next_pull_entry_bound(&self) -> usize {
+        if !self.buffer.as_slice().is_empty() || self.exhausted || matches!(self.remaining, Some(0))
         {
             0
         } else {
@@ -1093,8 +1092,6 @@ impl PrimaryRangeKeyStream {
 
         let (keys, last_raw_key) = self.store.with_data(|store| {
             let mut keys = Vec::with_capacity(chunk_limit);
-            let mut last_raw_key = None;
-
             match self.direction {
                 Direction::Asc => {
                     store.visit_key_range(
@@ -1104,9 +1101,7 @@ impl PrimaryRangeKeyStream {
                                 DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
                                 1,
                             )?;
-                            let raw_key = raw_key.clone();
-                            keys.push(PrimaryScan::decode_data_key(&raw_key)?);
-                            last_raw_key = Some(raw_key);
+                            keys.push(PrimaryScan::decode_data_key(raw_key)?);
                             Ok::<StoreVisit, InternalError>(if keys.len() == chunk_limit {
                                 StoreVisit::Stop
                             } else {
@@ -1123,9 +1118,7 @@ impl PrimaryRangeKeyStream {
                                 DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
                                 1,
                             )?;
-                            let raw_key = raw_key.clone();
-                            keys.push(PrimaryScan::decode_data_key(&raw_key)?);
-                            last_raw_key = Some(raw_key);
+                            keys.push(PrimaryScan::decode_data_key(raw_key)?);
                             Ok::<StoreVisit, InternalError>(if keys.len() == chunk_limit {
                                 StoreVisit::Stop
                             } else {
@@ -1136,11 +1129,14 @@ impl PrimaryRangeKeyStream {
                 }
             }
 
+            // Decoding already freezes each raw key. Copy only the final one
+            // for the next chunk boundary instead of every visited key.
+            let last_raw_key = keys.last().map(DecodedDataStoreKey::to_raw).transpose()?;
             Ok::<_, InternalError>((keys, last_raw_key))
         })?;
 
         let emitted = keys.len();
-        self.buffer = keys;
+        self.buffer = keys.into_iter();
         self.buffer_pos = 0;
 
         if let Some(raw_key) = last_raw_key {
@@ -1167,16 +1163,14 @@ impl PrimaryRangeKeyStream {
     }
 
     fn pull_next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
-        if self.buffer_pos == self.buffer.len() {
+        if self.buffer.as_slice().is_empty() {
             self.load_next_chunk()?;
         }
-        if self.buffer_pos == self.buffer.len() {
-            return Ok(None);
+        let key = self.buffer.next();
+        if key.is_some() {
+            self.buffer_pos += 1;
         }
-
-        let key = self.buffer[self.buffer_pos].clone();
-        self.buffer_pos += 1;
-        Ok(Some(key))
+        Ok(key)
     }
 }
 
@@ -1252,8 +1246,7 @@ pub(in crate::db::executor) struct IndexRangeKeyStream {
     anchor: Option<RawIndexStoreKey>,
     remaining: Option<usize>,
     chunk_entries: usize,
-    buffer: Vec<DecodedDataStoreKey>,
-    buffer_pos: usize,
+    buffer: IntoIter<DecodedDataStoreKey>,
     exhausted: bool,
 }
 
@@ -1321,8 +1314,7 @@ impl IndexRangeKeyStream {
             anchor,
             remaining: limit,
             chunk_entries,
-            buffer: Vec::new(),
-            buffer_pos: 0,
+            buffer: Vec::new().into_iter(),
             exhausted: false,
         }
     }
@@ -1336,10 +1328,8 @@ impl IndexRangeKeyStream {
     // falls to zero while decoded keys remain buffered, allowing page-local
     // admission to preserve chunked store traversal without over-reserving
     // every candidate.
-    const fn next_pull_entry_bound(&self) -> usize {
-        if self.buffer_pos < self.buffer.len()
-            || self.exhausted
-            || matches!(self.remaining, Some(0))
+    fn next_pull_entry_bound(&self) -> usize {
+        if !self.buffer.as_slice().is_empty() || self.exhausted || matches!(self.remaining, Some(0))
         {
             0
         } else {
@@ -1367,8 +1357,7 @@ impl IndexRangeKeyStream {
         )?;
         let (keys, last_raw_key) = chunk.into_decoded_keys_and_resume_anchor();
         let emitted = keys.len();
-        self.buffer = keys;
-        self.buffer_pos = 0;
+        self.buffer = keys.into_iter();
 
         apply_index_scan_chunk_progress(
             &mut self.anchor,
@@ -1382,16 +1371,10 @@ impl IndexRangeKeyStream {
     }
 
     fn pull_next_key(&mut self) -> Result<Option<DecodedDataStoreKey>, InternalError> {
-        while self.buffer_pos == self.buffer.len() && !self.exhausted {
+        while self.buffer.as_slice().is_empty() && !self.exhausted {
             self.load_next_chunk()?;
         }
-        if self.buffer_pos == self.buffer.len() {
-            return Ok(None);
-        }
-
-        let key = self.buffer[self.buffer_pos].clone();
-        self.buffer_pos += 1;
-        Ok(Some(key))
+        Ok(self.buffer.next())
     }
 }
 
@@ -1892,6 +1875,90 @@ mod physical_polling_tests {
         }
         assert_eq!(stream.next_key().unwrap(), None);
         keys
+    }
+
+    #[test]
+    fn physical_polling_preserves_limits_across_chunk_boundaries() {
+        reset_heap_stores();
+        load_primary_keys();
+        load_index_keys(&IndexId::new(ENTITY, 1), b"lane");
+        for direction in [Direction::Asc, Direction::Desc] {
+            for limit in [
+                Some(0),
+                Some(1),
+                Some(63),
+                Some(64),
+                Some(65),
+                Some(100),
+                None,
+            ] {
+                let mut expected = (1..=100).map(data_key).collect::<Vec<_>>();
+                if direction == Direction::Desc {
+                    expected.reverse();
+                }
+                if let Some(limit) = limit {
+                    expected.truncate(limit);
+                }
+                let mut primary =
+                    PrimaryRangeKeyStream::new_full_scan(STORE, ENTITY, direction, limit).unwrap();
+                let mut index = ordered_index_stream(direction, limit, None);
+                assert_eq!(collect_keys(&mut primary), expected);
+                assert_eq!(collect_keys(&mut index), expected);
+            }
+        }
+    }
+
+    #[test]
+    fn drained_primary_chunk_does_not_reopen_first_pull_admission() {
+        reset_heap_stores();
+        load_primary_keys();
+        let mut stream =
+            PrimaryRangeKeyStream::new_full_scan(STORE, ENTITY, Direction::Asc, None).unwrap();
+        stream.chunk_entries = 1;
+        assert_eq!(stream.next_key().unwrap(), Some(data_key(1)));
+        assert!(stream.resume_strictly_after(data_key(50)).is_err());
+        let visits = Cell::new(0);
+        assert_eq!(
+            stream
+                .try_visit_rows_direct(
+                    &mut || {
+                        visits.set(visits.get() + 1);
+                        Ok(true)
+                    },
+                    &mut |_, _| {
+                        visits.set(visits.get() + 1);
+                        Ok(StoreVisit::Continue)
+                    },
+                )
+                .unwrap(),
+            None
+        );
+        assert_eq!(visits.get(), 0);
+        assert_eq!(
+            collect_keys(&mut stream),
+            (2..=100).map(data_key).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn primary_polling_preserves_malformed_key_rejection() {
+        reset_heap_stores();
+        let mut bytes = data_key(50).to_raw().unwrap().as_bytes().to_vec();
+        bytes.pop();
+        DATA.with_borrow_mut(|store| {
+            store.insert_raw_for_test(
+                RawDataStoreKey::from_persisted_bytes(bytes),
+                RawRow::try_new(vec![0]).unwrap(),
+            );
+        });
+        for direction in [Direction::Asc, Direction::Desc] {
+            let mut stream =
+                PrimaryRangeKeyStream::new_full_scan(STORE, ENTITY, direction, None).unwrap();
+            let error = stream
+                .next_key()
+                .expect_err("malformed primary keys must fail before emission");
+            assert_eq!(error.class(), crate::error::ErrorClass::Corruption);
+        }
     }
 
     #[test]

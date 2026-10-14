@@ -1,4 +1,5 @@
 # Consuming Shared Tooling Snapshots
+<!-- Shared companions: docs/rust-toolchains.md -->
 
 CI and release behavior must not depend on a sibling checkout, a moving Git
 branch, or network availability. Consumers vendor a reviewed file set and
@@ -766,6 +767,10 @@ Qualify explicit installation and offline checking on the consumer's declared
 native hosts, plus relevant product checks for changed tool selections. Do not
 claim deployment or PocketIC client/server compatibility from `--version` alone.
 Snapshot integrity and consumer adoption remain separate from upstream fixtures.
+
+The Rust setup action is an independent entrypoint:
+`.github/actions/prepare-rust-toolchains/action.yml`. It has no helper dependencies.
+Select `docs/rust-toolchains.md` too for its [caller contract](rust-toolchains.md).
 
 The evidence archiver can be adopted independently as
 `scripts/ci/archive-evidence.sh`; see its

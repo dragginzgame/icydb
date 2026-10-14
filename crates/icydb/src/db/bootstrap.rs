@@ -69,13 +69,6 @@ impl AllocationPolicy for DatabaseMemoryPolicy {
     fn validate_slot(&self, _: &StableKey, _: &MemoryManagerSlot) -> Result<(), Self::Error> {
         Ok(())
     }
-    fn validate_reserved_slot(
-        &self,
-        _: &StableKey,
-        _: &MemoryManagerSlot,
-    ) -> Result<(), Self::Error> {
-        Ok(())
-    }
 }
 
 impl RuntimeBootstrapPolicy for DatabaseMemoryPolicy {
@@ -180,14 +173,6 @@ mod tests {
         }
 
         fn validate_slot(
-            &self,
-            _key: &StableKey,
-            _slot: &MemoryManagerSlot,
-        ) -> Result<(), Self::Error> {
-            Ok(())
-        }
-
-        fn validate_reserved_slot(
             &self,
             _key: &StableKey,
             _slot: &MemoryManagerSlot,

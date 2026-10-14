@@ -41,28 +41,35 @@ impl ValidateNode for Map {
 
         // Map keys must stay scalar and canonical in runtime representation.
         if self.key.relation.is_some() {
-            return Err(DarlingError::custom(
-                "map key must be scalar and cannot be a relation",
-            ));
+            return Err(
+                DarlingError::custom("map key must be scalar and cannot be a relation")
+                    .with_span(&self.def.ident()),
+            );
         }
 
         if self.key.indirect {
-            return Err(DarlingError::custom("map key cannot be indirect"));
+            return Err(
+                DarlingError::custom("map key cannot be indirect").with_span(&self.def.ident())
+            );
         }
 
         if matches!(self.key.target(), ItemTarget::Primitive(Primitive::Unit)) {
-            return Err(DarlingError::custom("map key cannot be Unit"));
+            return Err(DarlingError::custom("map key cannot be Unit").with_span(&self.def.ident()));
         }
 
         if matches!(
             self.value.item.target(),
             ItemTarget::Primitive(Primitive::Unit)
         ) {
-            return Err(DarlingError::custom("map value cannot be Unit"));
+            return Err(
+                DarlingError::custom("map value cannot be Unit").with_span(&self.def.ident())
+            );
         }
 
         if self.value.item.indirect {
-            return Err(DarlingError::custom("map value cannot be indirect"));
+            return Err(
+                DarlingError::custom("map value cannot be indirect").with_span(&self.def.ident())
+            );
         }
 
         Ok(())

@@ -225,10 +225,11 @@ fn sql_fixture_pool_restores_captured_rows_before_reuse() {
 #[ignore = "manual wasm-release RETURNING instruction and cycle measurement"]
 fn returning_selected_cells_wasm_cost_matrix() {
     use ic_host_artifacts::artifact::Sha256Digest;
-    use icydb_testing_integration::{
+    use icydb_testing_build::{
         CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
-        CanisterWasmProfile, build_canister_with_options, install_prebuilt_fixture_canister,
+        CanisterWasmProfile, build_canister_with_options,
     };
+    use icydb_testing_integration::install_prebuilt_fixture_canister;
 
     let artifact = build_canister_with_options(
         "sql",

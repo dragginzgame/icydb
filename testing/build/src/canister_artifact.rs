@@ -1,4 +1,4 @@
-//! Module: integration::canister_artifact
+//! Module: build::canister_artifact
 //! Responsibility: actor policy and inspection.
 //! Does not own: builds or runtime.
 //! Boundary: checks artifacts against policy.
@@ -24,23 +24,14 @@ use ic_host_tools::{
         extraction::{ExtractionError, extract},
         service::{self, ServiceLimits},
     },
-    interface::{self, MethodMode},
+    interface,
 };
 use icydb::{
     Error,
     db::{SchemaMigrationCommand, SchemaMigrationStatusPage, SchemaMigrationStatusRequest},
 };
 
-/// Query/update mode encoded by both an IC Wasm export and Candid service.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub enum CanisterMethodMode {
-    /// Ordinary replicated update method.
-    Update,
-    /// Non-composite query method.
-    Query,
-    /// Composite query method.
-    CompositeQuery,
-}
+pub use ic_host_tools::interface::MethodMode;
 
 /// One method observed in a built canister artifact.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -48,11 +39,11 @@ pub struct CanisterMethod {
     /// Fixed public method name.
     pub name: String,
     /// IC execution mode.
-    pub mode: CanisterMethodMode,
+    pub mode: MethodMode,
 }
 
 impl CanisterMethod {
-    fn new(name: impl Into<String>, mode: CanisterMethodMode) -> Self {
+    fn new(name: impl Into<String>, mode: MethodMode) -> Self {
         Self {
             name: name.into(),
             mode,
@@ -61,7 +52,7 @@ impl CanisterMethod {
 }
 
 /// One frozen expected method without allocating policy state.
-pub type ExpectedCanisterMethod = (&'static str, CanisterMethodMode);
+pub type ExpectedCanisterMethod = (&'static str, MethodMode);
 
 /// Frozen production/local policy for one maintained generated actor.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -82,77 +73,75 @@ pub struct MaintainedCanisterPolicy {
 
 const NO_METHODS: &[ExpectedCanisterMethod] = &[];
 const METRICS_METHODS: &[ExpectedCanisterMethod] = &[
-    ("icydb_metrics", CanisterMethodMode::Query),
-    ("icydb_metrics_reset", CanisterMethodMode::Update),
+    ("icydb_metrics", MethodMode::Query),
+    ("icydb_metrics_reset", MethodMode::Update),
 ];
 const SQL_PERF_LOCAL_METHODS: &[ExpectedCanisterMethod] = &[
-    ("icydb_fixtures_load", CanisterMethodMode::Update),
-    ("icydb_fixtures_reset", CanisterMethodMode::Update),
+    ("icydb_fixtures_load", MethodMode::Update),
+    ("icydb_fixtures_reset", MethodMode::Update),
 ];
 const TEST_SQL_METHODS: &[ExpectedCanisterMethod] = &[
-    ("icydb_ddl", CanisterMethodMode::Update),
-    ("icydb_fixtures_load", CanisterMethodMode::Update),
-    ("icydb_fixtures_reset", CanisterMethodMode::Update),
-    ("icydb_integrity", CanisterMethodMode::Update),
-    ("icydb_metrics", CanisterMethodMode::Query),
-    ("icydb_metrics_reset", CanisterMethodMode::Update),
-    ("icydb_query", CanisterMethodMode::Query),
-    ("icydb_schema", CanisterMethodMode::Query),
-    ("icydb_snapshot", CanisterMethodMode::Query),
-    ("icydb_update", CanisterMethodMode::Update),
+    ("icydb_ddl", MethodMode::Update),
+    ("icydb_fixtures_load", MethodMode::Update),
+    ("icydb_fixtures_reset", MethodMode::Update),
+    ("icydb_integrity", MethodMode::Update),
+    ("icydb_metrics", MethodMode::Query),
+    ("icydb_metrics_reset", MethodMode::Update),
+    ("icydb_query", MethodMode::Query),
+    ("icydb_schema", MethodMode::Query),
+    ("icydb_snapshot", MethodMode::Query),
+    ("icydb_update", MethodMode::Update),
 ];
 const TEST_SQL_PRODUCTION_METHODS: &[ExpectedCanisterMethod] = &[
-    ("icydb_ddl", CanisterMethodMode::Update),
-    ("icydb_integrity", CanisterMethodMode::Update),
-    ("icydb_metrics", CanisterMethodMode::Query),
-    ("icydb_metrics_reset", CanisterMethodMode::Update),
-    ("icydb_schema", CanisterMethodMode::Query),
-    ("icydb_snapshot", CanisterMethodMode::Query),
-    ("icydb_update", CanisterMethodMode::Update),
+    ("icydb_ddl", MethodMode::Update),
+    ("icydb_integrity", MethodMode::Update),
+    ("icydb_metrics", MethodMode::Query),
+    ("icydb_metrics_reset", MethodMode::Update),
+    ("icydb_schema", MethodMode::Query),
+    ("icydb_snapshot", MethodMode::Query),
+    ("icydb_update", MethodMode::Update),
 ];
 const TEST_SQL_BOUNDED_METHODS: &[ExpectedCanisterMethod] = &[
-    ("icydb_ddl", CanisterMethodMode::Update),
-    ("icydb_fixtures_load", CanisterMethodMode::Update),
-    ("icydb_fixtures_reset", CanisterMethodMode::Update),
-    ("icydb_metrics", CanisterMethodMode::Query),
-    ("icydb_metrics_reset", CanisterMethodMode::Update),
-    ("icydb_query", CanisterMethodMode::Query),
-    ("icydb_schema", CanisterMethodMode::Query),
-    ("icydb_snapshot", CanisterMethodMode::Query),
-    ("icydb_update", CanisterMethodMode::Update),
+    ("icydb_ddl", MethodMode::Update),
+    ("icydb_fixtures_load", MethodMode::Update),
+    ("icydb_fixtures_reset", MethodMode::Update),
+    ("icydb_metrics", MethodMode::Query),
+    ("icydb_metrics_reset", MethodMode::Update),
+    ("icydb_query", MethodMode::Query),
+    ("icydb_schema", MethodMode::Query),
+    ("icydb_snapshot", MethodMode::Query),
+    ("icydb_update", MethodMode::Update),
 ];
 const TEST_SQL_BOUNDED_PRODUCTION_METHODS: &[ExpectedCanisterMethod] = &[
-    ("icydb_ddl", CanisterMethodMode::Update),
-    ("icydb_metrics", CanisterMethodMode::Query),
-    ("icydb_metrics_reset", CanisterMethodMode::Update),
-    ("icydb_schema", CanisterMethodMode::Query),
-    ("icydb_snapshot", CanisterMethodMode::Query),
-    ("icydb_update", CanisterMethodMode::Update),
+    ("icydb_ddl", MethodMode::Update),
+    ("icydb_metrics", MethodMode::Query),
+    ("icydb_metrics_reset", MethodMode::Update),
+    ("icydb_schema", MethodMode::Query),
+    ("icydb_snapshot", MethodMode::Query),
+    ("icydb_update", MethodMode::Update),
 ];
-const TEST_SQL_GUARD_METHODS: &[ExpectedCanisterMethod] =
-    &[("icydb_query", CanisterMethodMode::Query)];
+const TEST_SQL_GUARD_METHODS: &[ExpectedCanisterMethod] = &[("icydb_query", MethodMode::Query)];
 const TEST_READ_AUTHORITY_METHODS: &[ExpectedCanisterMethod] = &[
-    ("icydb_query", CanisterMethodMode::Query),
-    ("icydb_schema", CanisterMethodMode::Query),
+    ("icydb_query", MethodMode::Query),
+    ("icydb_schema", MethodMode::Query),
 ];
-const TEST_SCHEMA_METHODS: &[ExpectedCanisterMethod] =
-    &[("icydb_schema", CanisterMethodMode::Query)];
+const TEST_SCHEMA_METHODS: &[ExpectedCanisterMethod] = &[("icydb_schema", MethodMode::Query)];
 const RPG_PRODUCTION_METHODS: &[ExpectedCanisterMethod] = &[
-    ("icydb_ddl", CanisterMethodMode::Update),
-    ("icydb_metrics", CanisterMethodMode::Query),
-    ("icydb_metrics_reset", CanisterMethodMode::Update),
-    ("icydb_schema", CanisterMethodMode::Query),
-    ("icydb_snapshot", CanisterMethodMode::Query),
+    ("icydb_ddl", MethodMode::Update),
+    ("icydb_metrics", MethodMode::Query),
+    ("icydb_metrics_reset", MethodMode::Update),
+    ("icydb_schema", MethodMode::Query),
+    ("icydb_snapshot", MethodMode::Query),
 ];
 const RPG_LOCAL_METHODS: &[ExpectedCanisterMethod] = &[
-    ("icydb_ddl", CanisterMethodMode::Update),
-    ("icydb_fixtures_load", CanisterMethodMode::Update),
-    ("icydb_fixtures_reset", CanisterMethodMode::Update),
-    ("icydb_metrics", CanisterMethodMode::Query),
-    ("icydb_metrics_reset", CanisterMethodMode::Update),
-    ("icydb_query", CanisterMethodMode::Query),
-    ("icydb_schema", CanisterMethodMode::Query),
-    ("icydb_snapshot", CanisterMethodMode::Query),
+    ("icydb_ddl", MethodMode::Update),
+    ("icydb_fixtures_load", MethodMode::Update),
+    ("icydb_fixtures_reset", MethodMode::Update),
+    ("icydb_metrics", MethodMode::Query),
+    ("icydb_metrics_reset", MethodMode::Update),
+    ("icydb_query", MethodMode::Query),
+    ("icydb_schema", MethodMode::Query),
+    ("icydb_snapshot", MethodMode::Query),
 ];
 
 /// Frozen current build and export policy for maintained and evidence actors.
@@ -541,12 +530,12 @@ pub fn render_schema_migration_endpoint_abi() -> String {
         endpoint_method::<SchemaMigrationCommand, Result<SchemaMigrationStatusPage, Error>>(
             &mut container,
             "icydb_schema_migrate",
-            CanisterMethodMode::Update,
+            MethodMode::Update,
         ),
         endpoint_method::<SchemaMigrationStatusRequest, Result<SchemaMigrationStatusPage, Error>>(
             &mut container,
             "icydb_schema_migration",
-            CanisterMethodMode::Query,
+            MethodMode::Query,
         ),
     ];
     let actor: Type = TypeInner::Service(methods).into();
@@ -556,7 +545,7 @@ pub fn render_schema_migration_endpoint_abi() -> String {
 fn endpoint_method<A: CandidType + 'static, R: CandidType>(
     container: &mut TypeContainer,
     name: &str,
-    mode: CanisterMethodMode,
+    mode: MethodMode,
 ) -> (String, Type) {
     let args = if std::any::TypeId::of::<A>() == std::any::TypeId::of::<()>() {
         Vec::new()
@@ -564,9 +553,10 @@ fn endpoint_method<A: CandidType + 'static, R: CandidType>(
         vec![container.add::<A>()]
     };
     let mode = match mode {
-        CanisterMethodMode::Update => Vec::new(),
-        CanisterMethodMode::Query => vec![FuncMode::Query],
-        CanisterMethodMode::CompositeQuery => vec![FuncMode::CompositeQuery],
+        MethodMode::Update => Vec::new(),
+        MethodMode::Query => vec![FuncMode::Query],
+        MethodMode::CompositeQuery => vec![FuncMode::CompositeQuery],
+        MethodMode::Oneway => vec![FuncMode::Oneway],
     };
     let function = Function {
         modes: mode,
@@ -576,11 +566,9 @@ fn endpoint_method<A: CandidType + 'static, R: CandidType>(
     (name.to_string(), TypeInner::Func(function).into())
 }
 
-fn admitted_method_mode(mode: MethodMode) -> Result<CanisterMethodMode, String> {
+fn admitted_method_mode(mode: MethodMode) -> Result<MethodMode, String> {
     match mode {
-        MethodMode::Update => Ok(CanisterMethodMode::Update),
-        MethodMode::Query => Ok(CanisterMethodMode::Query),
-        MethodMode::CompositeQuery => Ok(CanisterMethodMode::CompositeQuery),
+        MethodMode::Update | MethodMode::Query | MethodMode::CompositeQuery => Ok(mode),
         MethodMode::Oneway => {
             Err("oneway Candid methods are unsupported by actor policy".to_string())
         }
@@ -591,8 +579,7 @@ fn candid_visible_wasm_methods(methods: &BTreeSet<CanisterMethod>) -> BTreeSet<C
     methods
         .iter()
         .filter(|method| {
-            method.name != "<ic-cdk internal> timer_executor"
-                || method.mode != CanisterMethodMode::Update
+            method.name != "<ic-cdk internal> timer_executor" || method.mode != MethodMode::Update
         })
         .cloned()
         .collect()
@@ -603,9 +590,9 @@ mod tests {
     use std::{collections::BTreeSet, fs};
 
     use super::{
-        CanisterMethod, CanisterMethodMode, MAINTAINED_CANISTER_POLICIES,
-        candid_visible_wasm_methods, inspect_candid_methods, inspect_canister_artifacts,
-        inspect_wasm_methods, read_wasm_artifact, render_schema_migration_endpoint_abi,
+        CanisterMethod, MAINTAINED_CANISTER_POLICIES, MethodMode, candid_visible_wasm_methods,
+        inspect_candid_methods, inspect_canister_artifacts, inspect_wasm_methods,
+        read_wasm_artifact, render_schema_migration_endpoint_abi,
     };
 
     #[test]
@@ -650,9 +637,9 @@ mod tests {
 
         let observed = inspect_candid_methods(candid).expect("Candid should inspect");
         let expected = BTreeSet::from([
-            CanisterMethod::new("composed", CanisterMethodMode::CompositeQuery),
-            CanisterMethod::new("read", CanisterMethodMode::Query),
-            CanisterMethod::new("write", CanisterMethodMode::Update),
+            CanisterMethod::new("composed", MethodMode::CompositeQuery),
+            CanisterMethod::new("read", MethodMode::Query),
+            CanisterMethod::new("write", MethodMode::Update),
         ]);
         assert_eq!(observed, expected);
     }
@@ -666,10 +653,7 @@ mod tests {
         "#;
         assert_eq!(
             inspect_candid_methods(source).unwrap(),
-            BTreeSet::from([CanisterMethod::new(
-                "read: with space",
-                CanisterMethodMode::Query
-            ),])
+            BTreeSet::from([CanisterMethod::new("read: with space", MethodMode::Query),])
         );
         for source in [
             "service : { ping : () -> () oneway }",
@@ -695,13 +679,10 @@ mod tests {
 
         let observed = inspect_wasm_methods(&wasm).expect("Wasm should inspect");
         let expected = BTreeSet::from([
-            CanisterMethod::new("composed", CanisterMethodMode::CompositeQuery),
-            CanisterMethod::new(
-                "<ic-cdk internal> timer_executor",
-                CanisterMethodMode::Update,
-            ),
-            CanisterMethod::new("read", CanisterMethodMode::Query),
-            CanisterMethod::new("write", CanisterMethodMode::Update),
+            CanisterMethod::new("composed", MethodMode::CompositeQuery),
+            CanisterMethod::new("<ic-cdk internal> timer_executor", MethodMode::Update),
+            CanisterMethod::new("read", MethodMode::Query),
+            CanisterMethod::new("write", MethodMode::Update),
         ]);
         assert_eq!(observed, expected);
     }
@@ -724,21 +705,18 @@ mod tests {
     #[test]
     fn candid_agreement_excludes_only_reserved_cdk_runtime_exports() {
         let methods = BTreeSet::from([
-            CanisterMethod::new(
-                "<ic-cdk internal> timer_executor",
-                CanisterMethodMode::Update,
-            ),
-            CanisterMethod::new("<ic-cdk internal> unexpected", CanisterMethodMode::Update),
-            CanisterMethod::new("read", CanisterMethodMode::Query),
-            CanisterMethod::new("write", CanisterMethodMode::Update),
+            CanisterMethod::new("<ic-cdk internal> timer_executor", MethodMode::Update),
+            CanisterMethod::new("<ic-cdk internal> unexpected", MethodMode::Update),
+            CanisterMethod::new("read", MethodMode::Query),
+            CanisterMethod::new("write", MethodMode::Update),
         ]);
 
         assert_eq!(
             candid_visible_wasm_methods(&methods),
             BTreeSet::from([
-                CanisterMethod::new("<ic-cdk internal> unexpected", CanisterMethodMode::Update,),
-                CanisterMethod::new("read", CanisterMethodMode::Query),
-                CanisterMethod::new("write", CanisterMethodMode::Update),
+                CanisterMethod::new("<ic-cdk internal> unexpected", MethodMode::Update,),
+                CanisterMethod::new("read", MethodMode::Query),
+                CanisterMethod::new("write", MethodMode::Update),
             ]),
         );
     }
@@ -789,10 +767,7 @@ mod tests {
         assert_eq!(manifest.candid, format!("{text}\n"));
         assert_eq!(
             manifest.icydb_methods(),
-            BTreeSet::from([CanisterMethod::new(
-                "icydb_schema",
-                CanisterMethodMode::Query
-            ),])
+            BTreeSet::from([CanisterMethod::new("icydb_schema", MethodMode::Query),])
         );
         let (wasm, did) =
             crate::stage_canister_artifact_paths(&input, &input, &directory, "probe", true)

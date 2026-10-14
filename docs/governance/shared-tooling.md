@@ -1,10 +1,10 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `53a8d0134a62e715dc310e10487d59fed41b89fd`
-(Shared 0.12.5 plus the reviewed fixture-probe extension). Root
+at reviewed revision `08b6a6ae4e1ea39140f42eebd692a506c4e08c09`
+(Shared 0.13.3 plus the reviewed fixture-probe extension). Root
 [AGENTS.md](../../AGENTS.md) is the local overlay. The shared approved layout
-retains the 42 existing canister, schema and testing packages in their
+retains existing canister, schema and testing packages in their
 restored directories, in the single root workspace and lockfile; no new package
 move is part of this adoption ([#310](https://github.com/dragginzgame/icydb/issues/310)).
 Product architecture, resource limits, exact qualification gates
@@ -12,6 +12,68 @@ remain local; standard release commands follow the shared contract. A sibling ch
 these rules.
 
 ## Ownership and provenance
+
+### Shared 0.13.3 with the maintained fixture extension — 2026-10-14
+
+Canonical preview/refresh selects committed source
+`08b6a6ae4e1ea39140f42eebd692a506c4e08c09`, combining upstream main
+`d963db4b85b4fa65560fd87e8398f228955a2b71` with the existing
+[Shared PR #183](https://github.com/dragginzgame/shared-tooling/pull/183)
+fixture extension. The source displays 0.13.3; its additive 0.13.4 notes are
+pending PR integration, not another release. The retained extension is required
+by IcyDB's current root aliases and diagnostic-failure controls.
+
+The same 92 entrypoints derive the same 105 payloads. Only the verification
+helper guide and fixture lifecycle implementation change. Shared now admits
+fixture completion separately from cleanup; cleanup still preserves original
+failure status and failed evidence. No tool catalog, compiler, Cargo selection,
+workflow gate or Testkit ownership change is required. Optional upstream helpers
+and pending PR capabilities are not inferred from changelog headings.
+
+The candidate passes the full 126-case IcyDB completion/retention roster on Linux
+Bash 5 and genuine Bash 3.2, together with affected producer completion/retention,
+consumer Make adapters, receipt callbacks and standard-release substitutes.
+Snapshot integrity, KEEP-only repeat preview and selected source-following
+ShellCheck pass. No real release, canister or network lifecycle effect occurs.
+Full workspace/release and native macOS qualification remain unrun. Upstream
+0.13.3 CI was queued at review
+([Shared run](https://github.com/dragginzgame/shared-tooling/actions/runs/38592784005)).
+
+Evidence is retained in `.cache/shared0133` and
+`/tmp/icydb-shared0133.C4agLD/`. The user explicitly authorized updating the
+existing PR branch after automatic review requested delivery approval. Revision
+`08b6a6a` is published on that branch and canonically adopted in the normal
+IcyDB checkout. Upstream integration/release and IcyDB staging/commits remain
+separate maintainer actions.
+
+
+### Shared 0.12.8 with the maintained fixture extension — 2026-10-14
+
+Canonical preview/refresh selects committed source
+`776390473585e5dc1ba25dcdc35a3071da1289bf`: upstream 0.12.8 at
+`eafa07cac1fdba7d6303d061ed8af458aacf32b7`, merged into the existing
+[Shared PR #183](https://github.com/dragginzgame/shared-tooling/pull/183).
+The PR remains an unpublished extension, rather than a released Shared patch.
+The 92 existing roots now derive 105 payloads. Two required guides cover
+explicit Rust toolchain setup and CI change selection; release documentation
+also records the publication-guide companion. Existing publication documentation
+was already selected here. Refresh does not enable publication commands.
+
+The shared changelog guidance now requires concise outcome-linked release
+summaries. IcyDB's current root draft points to its detailed outcome notes
+instead of repeating the full issue roster. The shared development/MSRV action
+is available upstream but remains unselected: IcyDB's distinct compiler jobs
+have different setup requirements and do not jointly prepare both toolchains.
+IcyDB retains its compiler versions, common catalogs, Testkit ownership and
+validation gates. Executable snapshot bytes and modes are unchanged.
+
+Focused consumer/producer fixture, integrity and stable-preview evidence is
+recorded in the current status tracker. Complete workspace/release and native
+macOS gates remain separate; Linux Bash 3.2 is not macOS qualification. The
+upstream 0.12.8 CI run was queued at inspection
+([Shared run](https://github.com/dragginzgame/shared-tooling/actions/runs/38558617555)).
+Evidence is retained under `.cache/shared0128`. Imported snapshot copies and
+prior pending work are excluded from this adoption's authored change metrics.
 
 ### Reviewed fixture-probe extension — 2026-10-14
 

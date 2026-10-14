@@ -1,4 +1,4 @@
-//! Module: integration::canister_build_cache
+//! Module: build::canister_build_cache
 //! Responsibility: build-artifact caching.
 //! Does not own: feature policy or artifact semantics.
 //! Boundary: caches resolved build recipes.
@@ -251,7 +251,7 @@ fn post_link_cache_spec(request: &PostLinkCacheRequest<'_>, optimizer: &Path) ->
         "post-link-pipeline",
         &request
             .workspace_root
-            .join("testing/integration/src/wasm_optimizer.rs"),
+            .join("testing/build/src/wasm_optimizer.rs"),
     )
     .with_tool("wasm-opt", optimizer)
     .with_arguments(WASM_OPT_FLAGS)
@@ -394,7 +394,7 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .and_then(std::path::Path::parent)
-            .expect("integration crate should live below the workspace root")
+            .expect("build crate should live below the workspace root")
             .to_path_buf()
     }
 

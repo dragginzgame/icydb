@@ -3,11 +3,13 @@ use std::{env, fs};
 use candid::CandidType;
 use ic_testkit::pic::{CandidCallExt as _, StandaloneCanisterFixture};
 use icydb::{Error, db::sql::SqlQueryResult};
-use icydb_testing_integration::{
+use icydb_testing_build::{
     CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
     CanisterWasmProfile, build_fixture_canister_wasm_stages_with_options,
-    deliver_fixture_startup_watchdog, install_prebuilt_fixture_canister, reset_icydb_fixtures,
     wasm_optimizer::optimize_deployable_wasm,
+};
+use icydb_testing_integration::{
+    deliver_fixture_startup_watchdog, install_prebuilt_fixture_canister, reset_icydb_fixtures,
 };
 use serde::Deserialize;
 

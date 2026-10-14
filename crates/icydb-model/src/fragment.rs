@@ -1381,8 +1381,8 @@ fn lower_scalar_default(primitive: Primitive, item: &Item, default: &Arg) -> Opt
         (Primitive::Principal, Arg::String(value)) => Principal::from_str(value)
             .ok()
             .map(ScalarLiteral::Principal),
-        (Primitive::Subaccount, Arg::String(value)) => parse_subaccount(value)
-            .map(Subaccount::from_array)
+        (Primitive::Subaccount, Arg::String(value)) => Subaccount::from_hex(value)
+            .ok()
             .map(ScalarLiteral::Subaccount),
         (Primitive::Text, Arg::String(value)) => Some(ScalarLiteral::Text((*value).to_string())),
         (Primitive::Timestamp, Arg::String(value)) => Timestamp::parse_flexible(value)
@@ -1502,18 +1502,6 @@ fn arg_decimal(value: &ArgNumber) -> Option<Decimal> {
         ArgNumber::Float64(value) => Decimal::from_f64_lossy(*value),
         _ => arg_i128(value).and_then(Decimal::from_i128),
     }
-}
-
-fn parse_subaccount(value: &str) -> Option<[u8; 32]> {
-    if value.len() != 64 {
-        return None;
-    }
-    let mut bytes = [0; 32];
-    for (index, chunk) in value.as_bytes().as_chunks::<2>().0.iter().enumerate() {
-        let text = std::str::from_utf8(chunk).ok()?;
-        bytes[index] = u8::from_str_radix(text, 16).ok()?;
-    }
-    Some(bytes)
 }
 
 #[cfg(test)]

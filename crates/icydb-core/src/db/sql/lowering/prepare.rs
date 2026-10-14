@@ -19,6 +19,7 @@ use crate::db::{
             bind_lowered_sql_select_query_structural_with_schema,
             normalize::{
                 ensure_entity_matches_expected, normalize_delete_statement_to_expected_entity,
+                normalize_insert_statement_to_expected_entity,
                 normalize_select_statement_to_expected_entity,
                 normalize_update_statement_to_expected_entity,
             },
@@ -408,7 +409,7 @@ fn prepare_insert_statement(
         )?));
     }
 
-    Ok(statement)
+    normalize_insert_statement_to_expected_entity(statement, expected_entity, work)
 }
 
 // Normalize one SQL INSERT SELECT source and keep it on the scalar query lane.

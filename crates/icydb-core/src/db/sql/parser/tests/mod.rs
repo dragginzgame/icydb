@@ -4020,6 +4020,7 @@ fn parse_insert_statement_with_explicit_columns_and_values() {
         statement,
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
+            table_alias: None,
             columns: vec!["id".to_string(), "name".to_string(), "age".to_string()],
             source: SqlInsertSource::Values(vec![vec![
                 sql_write_literal(Value::Int64(7)),
@@ -4040,6 +4041,7 @@ fn parse_insert_statement_preserves_explicit_default_values() {
         statement,
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
+            table_alias: None,
             columns: vec!["id".to_string(), "name".to_string()],
             source: SqlInsertSource::Values(vec![vec![
                 SqlWriteValue::Default,
@@ -4059,6 +4061,7 @@ fn parse_insert_statement_preserves_default_values_source() {
         statement,
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
+            table_alias: None,
             columns: Vec::new(),
             source: SqlInsertSource::DefaultValues,
             returning: None,
@@ -4075,6 +4078,7 @@ fn parse_insert_statement_with_hex_blob_literal_values() {
         statement,
         SqlStatement::Insert(SqlInsertStatement {
             entity: "files".to_string(),
+            table_alias: None,
             columns: vec!["id".to_string(), "thumbnail".to_string()],
             source: SqlInsertSource::Values(vec![vec![
                 sql_write_literal(Value::Int64(7)),
@@ -4095,6 +4099,7 @@ fn parse_insert_statement_with_multiple_values_tuples() {
         statement,
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
+            table_alias: None,
             columns: vec!["id".to_string(), "name".to_string(), "age".to_string()],
             source: SqlInsertSource::Values(vec![
                 vec![
@@ -4310,6 +4315,7 @@ fn parse_insert_statement_with_returning_field_list_parses() {
         statement,
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
+            table_alias: None,
             columns: vec!["id".to_string(), "name".to_string()],
             source: SqlInsertSource::Values(vec![vec![
                 sql_write_literal(Value::Int64(1)),
@@ -4398,6 +4404,7 @@ fn parse_insert_statement_without_column_list_parses() {
         statement,
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
+            table_alias: None,
             columns: vec![],
             source: SqlInsertSource::Values(vec![vec![sql_write_literal(Value::Int64(1))]]),
             returning: None,
@@ -4416,6 +4423,7 @@ fn parse_insert_statement_with_field_only_select_source_parses() {
         statement,
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
+            table_alias: None,
             columns: vec!["name".to_string(), "age".to_string()],
             source: SqlInsertSource::Select(Box::new(SqlSelectStatement {
                 entity: "users".to_string(),
@@ -4458,6 +4466,7 @@ fn parse_insert_statement_with_computed_select_source_parses() {
         statement,
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
+            table_alias: None,
             columns: vec!["name".to_string(), "age".to_string()],
             source: SqlInsertSource::Select(Box::new(SqlSelectStatement {
                 entity: "users".to_string(),
@@ -4497,6 +4506,7 @@ fn parse_insert_statement_accepts_single_table_alias() {
         statement,
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
+            table_alias: Some("u".into()),
             columns: vec!["id".to_string(), "name".to_string()],
             source: SqlInsertSource::Values(vec![vec![
                 sql_write_literal(Value::Int64(1)),
@@ -4516,6 +4526,7 @@ fn parse_insert_statement_accepts_as_table_alias_without_column_list() {
         statement,
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
+            table_alias: Some("u".into()),
             columns: vec![],
             source: SqlInsertSource::Values(vec![vec![sql_write_literal(Value::Int64(1))]]),
             returning: None,
@@ -4545,6 +4556,7 @@ fn parse_insert_statement_without_column_list_accepts_multiple_values_tuples() {
         statement,
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
+            table_alias: None,
             columns: vec![],
             source: SqlInsertSource::Values(vec![
                 vec![
@@ -5549,4 +5561,44 @@ fn parse_integrity_sql_rejects_noncanonical_mode_and_argument_shapes() {
             "unsupported integrity SQL should reject: {sql}",
         );
     }
+}
+
+#[test]
+fn parse_insert_statement_preserves_explicit_and_implicit_target_aliases() {
+    for sql in [
+        "INSERT INTO users u (u.id) VALUES (1) RETURNING u.id",
+        "INSERT INTO users AS u DEFAULT VALUES RETURNING u.id",
+        "INSERT INTO users u (u.id) SELECT s.id FROM users s RETURNING u.id",
+    ] {
+        let SqlStatement::Insert(statement) = parse_sql(sql).unwrap() else {
+            panic!("INSERT parser fixture");
+        };
+        assert_eq!(statement.table_alias.as_deref(), Some("u"));
+        assert_eq!(
+            statement.returning,
+            Some(SqlReturningProjection::Fields(vec!["u.id".into()]))
+        );
+        if let SqlInsertSource::Select(source) = statement.source {
+            assert_eq!(source.table_alias.as_deref(), Some("s"));
+        }
+    }
+}
+
+#[test]
+fn parsed_insert_alias_retention_obeys_the_same_byte_ceiling() {
+    use crate::retained::RetainedBytes;
+
+    let SqlStatement::Insert(mut statement) =
+        parse_sql("INSERT INTO users target VALUES (1)").unwrap()
+    else {
+        panic!("retained INSERT fixture");
+    };
+    let retained = RetainedBytes::measure(&statement, usize::MAX).unwrap();
+    assert_eq!(RetainedBytes::measure(&statement, retained), Some(retained));
+    assert_eq!(RetainedBytes::measure(&statement, retained - 1), None);
+    let alias_capacity = statement.table_alias.take().unwrap().capacity();
+    assert_eq!(
+        RetainedBytes::measure(&statement, retained),
+        Some(retained - alias_capacity)
+    );
 }

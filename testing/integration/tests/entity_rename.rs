@@ -12,9 +12,8 @@ use icydb::{
     },
     value::OutputValue,
 };
-use icydb_testing_integration::{
-    build_entity_rename_fixture_wasms, install_prebuilt_fixture_canister,
-};
+use icydb_testing_build::build_entity_rename_fixture_wasms;
+use icydb_testing_integration::install_prebuilt_fixture_canister;
 use serde::Deserialize;
 
 use std::sync::OnceLock;

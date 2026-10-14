@@ -7,10 +7,10 @@ use icydb::{
     db::{MemoryAllocationBinding, StorageReport},
     diagnostic::RuntimeBoundaryCode,
 };
-use icydb_testing_integration::{
+use icydb_testing_build::{
     CanisterBuildOptions, CanisterBuildProfile, build_fixture_canister_wasm_bytes_with_options,
-    install_prebuilt_fixture_canister,
 };
+use icydb_testing_integration::install_prebuilt_fixture_canister;
 
 #[test]
 fn generated_snapshot_reports_allocation_totals_without_mutation() {

@@ -258,7 +258,7 @@ _test-durability-integration:
 		--test recovery_closeout
 
 test-canister-artifact-contract:
-	+$(CARGO_WORK_ENV) cargo test --locked -p icydb-testing-integration \
+	+$(CARGO_WORK_ENV) cargo test --locked -p icydb-testing-build \
 		--test canister_artifact_contract \
 		production_and_local_source_declarations_match_the_frozen_endpoint_policy \
 		-- --ignored --exact --nocapture
@@ -297,13 +297,13 @@ test-sql-tier-c-replay:
 
 build-canister-local:
 	@test -n "$(CANISTER)" || { echo "CANISTER must name one maintained canister" >&2; exit 1; }
-	+$(CARGO_WORK_ENV) cargo run --locked -p icydb-testing-integration \
+	+$(CARGO_WORK_ENV) cargo run --locked -p icydb-testing-build \
 		--bin build_fixture_canister -- "$(CANISTER)" --build-profile local \
 		--profile debug --candid-export on
 
 build-canister-production:
 	@test -n "$(CANISTER)" || { echo "CANISTER must name one maintained canister" >&2; exit 1; }
-	+$(CARGO_WORK_ENV) cargo run --locked -p icydb-testing-integration \
+	+$(CARGO_WORK_ENV) cargo run --locked -p icydb-testing-build \
 		--bin build_fixture_canister -- "$(CANISTER)" --build-profile production \
 		--profile wasm-release --candid-export on
 

@@ -1089,7 +1089,7 @@ Counts cover inventory states, not implementation or release readiness.
 | `data-6` | low | Needs verification | By-kind decode accepts non-canonical or out-of-contract persisted bytes without failing | [#144](https://github.com/dragginzgame/icydb/issues/144) |
 | `data-7` | low | Needs verification | Historical-fill validation uses a decoder that cannot read canonical-wire enum/composite payloads | [#145](https://github.com/dragginzgame/icydb/issues/145) |
 | `data-8` | low | Needs verification | Fresh-boot convergence writes store memory before later fallible steps; a failure leaves memory that can never be admitted | [#146](https://github.com/dragginzgame/icydb/issues/146) |
-| `data-9` | low | Needs verification | Database-format observation and admission disagree on what counts as uninitialized control memory | [#147](https://github.com/dragginzgame/icydb/issues/147) |
+| `data-9` | low | Verified fixed | Database-format observation and admission disagree on what counts as uninitialized control memory **Current evidence:** Delivered in 0.274.0; affected source matches the release and all 12 focused format/startup tests pass on the current lock. Observation and admission share the existing virginity predicate, preserve control bytes and return the same typed failure. Full/native qualification remains separate; see the GitHub delivery receipt. | [#147](https://github.com/dragginzgame/icydb/issues/147) |
 | `executor-aggregate-10` | low | Needs verification | Grouped limit failures are surfaced as generic execution-budget errors that are not distinguishable from scalar DISTINCT exhaustion | [#148](https://github.com/dragginzgame/icydb/issues/148) |
 | `executor-aggregate-9` | low | Needs verification | Ordered DISTINCT group seek hard-codes MissingRowPolicy::Error regardless of the query's policy | [#149](https://github.com/dragginzgame/icydb/issues/149) |
 | `executor-core-1` | low | Needs verification | Instruction ceilings count from each tracker's own start, so every mutation-job advance or maintenance allowance gets a fresh 30B regardless of work already done in the message | [#150](https://github.com/dragginzgame/icydb/issues/150) |
@@ -1124,7 +1124,7 @@ Counts cover inventory states, not implementation or release readiness.
 | `model-macros-3` | low | Needs verification | Redundant-prefix index rejection is backwards for unique indexes and ignores filter predicates | [#178](https://github.com/dragginzgame/icydb/issues/178) |
 | `model-macros-4` | low | Needs verification | Runtime-adapter detection treats dev-dependencies and all target-specific dependencies as a usable `icydb` dependency | [#179](https://github.com/dragginzgame/icydb/issues/179) |
 | `model-macros-5` | low | Needs verification | Generated code uses unqualified prelude names and fixed derived item names, so common user aliases and names break compilation | [#180](https://github.com/dragginzgame/icydb/issues/180) |
-| `model-macros-6` | low | Needs verification | Validation and lowering disagree on predicate literals, and default parsing can panic, so proc-macro panics replace spanned errors | [#181](https://github.com/dragginzgame/icydb/issues/181) |
+| `model-macros-6` | low | Locally fixed; pending delivery | Validation and lowering disagree on predicate literals, and default parsing can panic, so proc-macro panics replace spanned errors **Current evidence:** Pending 0.274.1 shares literal parsing, constructs canonical identity bytes and propagates compiler diagnostics. The old source reproduces Unicode slicing panic and unsigned-literal validation drift; 53 focused Rust tests and seven compiler fixtures pass, including exact defaults/fragment lowering and spanned CHECK, index, default and map failures. See #181 for current delivery evidence. | [#181](https://github.com/dragginzgame/icydb/issues/181) |
 | `model-macros-7` | low | Needs verification | Crate-path rewriting replaces every bare `icydb` / `icydb_model` identifier in the output, including user-authored names and path segments | [#182](https://github.com/dragginzgame/icydb/issues/182) |
 | `model-macros-8` | low | Needs verification | User attributes, doc comments, struct fields and generics on the annotated item are silently discarded | [#183](https://github.com/dragginzgame/icydb/issues/183) |
 | `model-macros-9` | low | Needs verification | Any string argument containing "::" is reinterpreted as a Rust path, so text defaults and args containing "::" cannot be written | [#184](https://github.com/dragginzgame/icydb/issues/184) |
@@ -1174,7 +1174,7 @@ Counts cover inventory states, not implementation or release readiness.
 | `session-write-1` | low | Needs verification | Resumable update stamps UpdatedAt with a fresh clock reading on every forward advance, not the frozen continuation timestamp | [#224](https://github.com/dragginzgame/icydb/issues/224) |
 | `session-write-2` | low | Needs verification | Structural lane rejects explicit Default on database-owned insert fields (Identity PK, generated, CreatedAt/UpdatedAt) that SQL and the contract admit | [#225](https://github.com/dragginzgame/icydb/issues/225) |
 | `session-write-4` | low | Needs verification | Replace on a missing key lets callers author a database-generated Ulid/Timestamp primary key | [#226](https://github.com/dragginzgame/icydb/issues/226) |
-| `sql-parser-10` | low | Needs verification | INSERT table alias is parsed and discarded; alias-qualified column and RETURNING references are rejected, unlike UPDATE/DELETE | [#227](https://github.com/dragginzgame/icydb/issues/227) |
+| `sql-parser-10` | low | Locally fixed; pending delivery | INSERT target aliases now survive the private AST and use the existing target scope normalizer for columns and RETURNING. INSERT SELECT source scopes remain independent. Input/preparation and retained-byte boundaries account aliases; cold/resident dispatch, wrong qualifiers and pre-write refusal are qualified. Pending 0.274.1; #227 remains open through delivery. | [#227](https://github.com/dragginzgame/icydb/issues/227) |
 | `sql-parser-11` | low | Needs verification | The token cursor's move-out helpers still clone every string, blob and identifier payload for error reporting | [#228](https://github.com/dragginzgame/icydb/issues/228) |
 | `sql-parser-6` | low | Needs verification | Flat AND/OR chains of more than ~127 terms are rejected as ExpressionDepthLimit, contradicting READ_ADMISSION; parentheses count double toward the depth limit | [#229](https://github.com/dragginzgame/icydb/issues/229) |
 | `sql-parser-7` | low | Partial; pending delivery | SQL_SUBSET.md has drifted from the implemented grammar (required clauses undocumented, extra shapes accepted) **Current evidence:** Pending 0.274.1 documents DDL version intent and WHERE placement, no-op/validation distinctions, SELECT-source inserts, verbose execution EXPLAIN and byte modifiers; eight focused parser cases pass. COUNT DISTINCT star is already rejected during lowering. Repeated/conflicting ADD COLUMN nullability still uses last-wins parsing and remains open under #230. | [#230](https://github.com/dragginzgame/icydb/issues/230) |
@@ -1212,7 +1212,7 @@ Counts cover inventory states, not implementation or release readiness.
 | `xc-performance-6` | low | Needs verification | Primary-range scans for full-row strategies walk keys, then do a separate point B-tree lookup per row; the single-pass path is rarely reachable | [#261](https://github.com/dragginzgame/icydb/issues/261) |
 | `xc-performance-7` | low | Needs verification | Journal publish reads and clones the full previous row only to learn whether it existed | [#262](https://github.com/dragginzgame/icydb/issues/262) |
 | `xc-performance-8` | low | Needs verification | Storage report scans each journaled data and index store three times | [#263](https://github.com/dragginzgame/icydb/issues/263) |
-| `xc-performance-9` | low | Needs verification | PrimaryRangeKeyStream allocates the raw key three times per scanned key | [#264](https://github.com/dragginzgame/icydb/issues/264) |
+| `xc-performance-9` | low | Locally fixed; pending delivery | PrimaryRangeKeyStream allocates the raw key three times per scanned key **Current evidence:** Pending 0.274.1 moves primary/index buffered keys through owning iterators and copies only the final primary chunk boundary from its frozen key. Existing scan limits, entry charging, corruption and first-pull continuation admission are preserved. Buffered and end-to-end page controls pass; permitted performance deltas remain unmeasured. Direct row visitation is outside this buffered cleanup. See #264 for delivery evidence. | [#264](https://github.com/dragginzgame/icydb/issues/264) |
 | `xc-security-4` | low | Needs verification | Generated ULID primary keys on IC are fully predictable | [#265](https://github.com/dragginzgame/icydb/issues/265) |
 | `canisters-testing-ci-12` | info | Needs verification | CI invariant scanners have blind spots: rg errors are swallowed, and the no-panic scan misses several panic macros | [#266](https://github.com/dragginzgame/icydb/issues/266) |
 | `commit-7` | info | Needs verification | Production Gate-2 measurement and the marker-presence fast path have test-only replacements, so core unit tests never exercise them | [#267](https://github.com/dragginzgame/icydb/issues/267) |
@@ -1428,3 +1428,25 @@ one Rust line is replaced and three status/changelog docs record the correction.
 Production net lines and runtime complexity are unchanged; raw Wasm, cycles and
 instructions are unmeasured. Existing dirty changes are preserved, and all edits
 remain unstaged/uncommitted.
+
+### INSERT target alias qualification — 2026-10-14
+
+The maintainer selected issue [#227](https://github.com/dragginzgame/icydb/issues/227)
+for the current compatible 0.274.1 batch. Rechecked source on 73e4d3b with pending
+work preserved: parsing discarded the target alias and INSERT preparation did
+not normalize columns or RETURNING. The private AST carries that accepted fact;
+the existing identifier, input/preparation and retained-byte owners consume it.
+INSERT SELECT keeps its own source scope. No public AST, endpoint, persistent
+format, execution mode or generated-model fallback is introduced.
+
+The isolated before-image reproduces qualified-column rejection. Final focused
+qualification passes 57 executions covering 53 distinct tests, plus strict core
+SQL/metrics and no-default library/test lint. The matrix includes count/star/
+field RETURNING, repeated raw/resident dispatch, NULL tuples, AS/case/field-name
+alias collisions, full entity qualification, source aliases, wrong qualifiers
+and unresolved parameters without writes. DEFAULT VALUES and nested paths are
+covered at preparation; exact/one-short byte and scope-budget boundaries pass.
+Fixtures now retain parsed aliases rather than asserting they were discarded.
+Evidence is retained under `.cache/issue227`; linked current notes/status record
+this local result. Full workspace/release and native macOS were not selected;
+Wasm, cycles and instruction deltas are unmeasured. Keep #227 open for delivery.

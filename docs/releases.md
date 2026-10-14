@@ -1,4 +1,5 @@
 # Common release commands
+<!-- Shared companions: docs/cargo-publication.md -->
 
 Every `dragginzgame` repository, including Shared Tooling and repositories without
 a publishable package, must provide these Make targets:

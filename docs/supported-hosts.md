@@ -1,4 +1,8 @@
 # Supported Hosts And Dependencies
+<!-- Shared companions: docs/ci-change-selection.md docs/rust-toolchains.md -->
+
+For reviewed prose-only changes, use the [documentation-only CI selection](ci-change-selection.md)
+contract. Code and tooling changes retain the required native host coverage below.
 
 ## Required macOS support
 
@@ -20,6 +24,9 @@ macOS filesystem, process or deployment behavior. Report unqualified workflows
 explicitly while retaining the macOS support requirement.
 
 ## Host-specific setup and commands
+
+Rust workflows can adopt the shared [toolchain preparation action](rust-toolchains.md)
+while keeping their own development/MSRV selections and qualification gates.
 
 Dependency installation and CI/deployment setup may differ by host. Document
 those differences at the owning boundary and preserve the same product

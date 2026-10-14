@@ -284,3 +284,123 @@ fn sql_public_delete_rejects_unprepared_inputs_without_writes() {
         }
     }
 }
+
+#[test]
+fn sql_insert_aliases_normalize_columns_and_returning_on_cold_and_resident_commands() {
+    use crate::db::sql_statement_dispatch;
+
+    let session = sql_not_null::initialize_nullable_rows();
+    for (target, qualifier) in [
+        ("PlannerRow p", "p."),
+        ("PlannerRow AS P", "p."),
+        ("PlannerRow status", "status."),
+        ("PlannerRow", "PlannerRow."),
+        ("app.PlannerRow", "app.PlannerRow."),
+        ("PlannerRow", ""),
+    ] {
+        for returning in ["", " RETURNING *", "fields"] {
+            let suffix = if returning == "fields" {
+                format!(" RETURNING {qualifier}id, {qualifier}status")
+            } else {
+                returning.to_string()
+            };
+            let sql = format!(
+                "INSERT INTO {target} ({qualifier}id, {qualifier}marked, {qualifier}status) VALUES (7, FALSE, 'new'), (8, TRUE, NULL){suffix}"
+            );
+            let dispatch = sql_statement_dispatch(&sql).unwrap();
+            for resident in [false, true] {
+                let result = if resident {
+                    session.execute_trusted_sql_mutation_dispatch(&dispatch)
+                } else {
+                    session.execute_trusted_sql_mutation(&sql)
+                }
+                .unwrap();
+                match result {
+                    SqlStatementResult::Count { row_count } => {
+                        assert!(returning.is_empty());
+                        assert_eq!(row_count, 2);
+                    }
+                    SqlStatementResult::Projection {
+                        columns,
+                        rows,
+                        row_count,
+                        ..
+                    } => {
+                        assert!(!returning.is_empty());
+                        assert_eq!(row_count, 2);
+                        if returning == "fields" {
+                            assert_eq!(columns, ["id", "status"]);
+                            assert_eq!(
+                                rows,
+                                [
+                                    vec![OutputValue::nat64(7), OutputValue::text("new".into())],
+                                    vec![OutputValue::nat64(8), OutputValue::null()],
+                                ]
+                            );
+                        }
+                    }
+                    _ => panic!("INSERT must return its count or requested rows"),
+                }
+                assert_eq!(
+                    projection_rows(
+                        &session,
+                        "SELECT id, status FROM PlannerRow WHERE id >= 7 ORDER BY id"
+                    ),
+                    [
+                        vec![OutputValue::nat64(7), OutputValue::text("new".into())],
+                        vec![OutputValue::nat64(8), OutputValue::null()],
+                    ]
+                );
+                session
+                    .execute_trusted_sql_mutation("DELETE FROM PlannerRow WHERE id >= 7")
+                    .unwrap();
+            }
+        }
+    }
+}
+
+#[test]
+fn sql_insert_aliases_keep_select_source_scope_and_reject_wrong_qualifiers_before_writes() {
+    let session = sql_not_null::initialize_nullable_rows();
+    // Preserve the source's Nat64 family instead of testing arithmetic coercion.
+    session
+        .execute_trusted_sql_exact_update("UPDATE PlannerRow SET qty = 7 WHERE id = 1", 1)
+        .unwrap();
+    for target in ["PlannerRow t", "PlannerRow AS T"] {
+        for _ in 0..2 {
+            let sql = format!(
+                "INSERT INTO {target} (t.id, t.marked, t.status) SELECT s.qty, s.marked, s.status FROM PlannerRow s WHERE s.id = 1 RETURNING t.id, t.status"
+            );
+            let SqlStatementResult::Projection {
+                rows, row_count, ..
+            } = session.execute_trusted_sql_mutation(&sql).unwrap()
+            else {
+                panic!("INSERT SELECT should return requested rows");
+            };
+            assert_eq!(row_count, 1);
+            assert_eq!(
+                rows,
+                [vec![
+                    OutputValue::nat64(7),
+                    OutputValue::text("archived".into())
+                ]]
+            );
+            session
+                .execute_trusted_sql_mutation("DELETE FROM PlannerRow WHERE id = 7")
+                .unwrap();
+        }
+    }
+    let before = projection_rows(&session, "SELECT id, status FROM PlannerRow ORDER BY id");
+    for sql in [
+        "INSERT INTO PlannerRow t (other.id, t.marked) VALUES (7, FALSE)",
+        "INSERT INTO PlannerRow t (t.id, t.marked) VALUES (7, FALSE) RETURNING other.status",
+        "INSERT INTO PlannerRow t (t.id, t.marked) SELECT t.id, s.marked FROM PlannerRow s WHERE s.id = 99",
+        "INSERT INTO PlannerRow t (t.id, t.marked) SELECT $1, s.marked FROM PlannerRow s WHERE s.id = 1",
+    ] {
+        assert!(session.execute_trusted_sql_mutation(sql).is_err());
+        assert_eq!(
+            projection_rows(&session, "SELECT id, status FROM PlannerRow ORDER BY id"),
+            before
+        );
+    }
+}

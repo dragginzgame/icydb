@@ -1,6 +1,6 @@
 //! Canonical fixed-width subaccount atom.
 
-use crate::Principal;
+use crate::{Principal, SchemaContractError};
 use candid::CandidType;
 use serde::{Deserialize, Deserializer, Serialize, de::Error as DeError};
 use std::fmt::{self, Display};
@@ -31,6 +31,26 @@ impl Subaccount {
     #[must_use]
     pub const fn from_array(array: [u8; 32]) -> Self {
         Self(array)
+    }
+
+    /// Parse 64 ASCII hex digits, optionally prefixed by lowercase `0x`.
+    ///
+    /// # Errors
+    /// Returns [`SchemaContractError::InvalidLiteral`] for invalid width,
+    /// non-ASCII input or non-hex characters. No trimming is performed.
+    pub fn from_hex(text: &str) -> Result<Self, SchemaContractError> {
+        let text = text.strip_prefix("0x").unwrap_or(text);
+        if text.len() != 64 || !text.is_ascii() {
+            return Err(SchemaContractError::InvalidLiteral);
+        }
+        let mut bytes = [0; 32];
+        for (index, pair) in text.as_bytes().as_chunks::<2>().0.iter().enumerate() {
+            let pair =
+                std::str::from_utf8(pair).map_err(|_| SchemaContractError::InvalidLiteral)?;
+            bytes[index] =
+                u8::from_str_radix(pair, 16).map_err(|_| SchemaContractError::InvalidLiteral)?;
+        }
+        Ok(Self::from_array(bytes))
     }
 
     /// Borrow the fixed-width bytes.
@@ -133,6 +153,39 @@ impl Serialize for Subaccount {
 mod tests {
     use super::*;
     use crate::Account;
+
+    #[test]
+    fn hex_text_preserves_every_byte_with_optional_prefix() {
+        for byte in 0..=u8::MAX {
+            let expected = Subaccount::from_array([byte; 32]);
+            for text in [
+                format!("{byte:02x}").repeat(32),
+                format!("{byte:02X}").repeat(32),
+            ] {
+                assert_eq!(Subaccount::from_hex(&text), Ok(expected));
+                assert_eq!(Subaccount::from_hex(&format!("0x{text}")), Ok(expected));
+            }
+        }
+    }
+
+    #[test]
+    fn hex_text_rejects_width_unicode_and_nonhex_boundaries() {
+        for text in [
+            "".to_string(),
+            "0x".into(),
+            "0".repeat(63),
+            "0".repeat(65),
+            "g".repeat(64),
+            format!("aé{}", "0".repeat(61)),
+            format!(" {}", "0".repeat(64)),
+            format!("0X{}", "0".repeat(64)),
+        ] {
+            assert_eq!(
+                Subaccount::from_hex(&text),
+                Err(SchemaContractError::InvalidLiteral)
+            );
+        }
+    }
 
     #[test]
     fn binary_serde_and_candid_preserve_exact_subaccount_bytes() {

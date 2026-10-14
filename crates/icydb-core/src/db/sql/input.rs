@@ -222,6 +222,7 @@ pub(in crate::db) fn validate_sql_statement_input(
         }
         SqlStatement::Insert(insert) => {
             input.budget.name(&insert.entity, 1)?;
+            input.optional_name(insert.table_alias.as_deref())?;
             input.names(&insert.columns)?;
             match &insert.source {
                 SqlInsertSource::Values(rows) => {

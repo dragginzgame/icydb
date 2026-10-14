@@ -17,9 +17,9 @@ use icydb::{
     },
     value::OutputValue,
 };
+use icydb_testing_build::build_schema_migration_fixture_wasms;
 use icydb_testing_integration::{
-    build_schema_migration_fixture_wasms, deliver_fixture_startup_watchdog,
-    install_prebuilt_fixture_canister,
+    deliver_fixture_startup_watchdog, install_prebuilt_fixture_canister,
 };
 
 const ADVANCE_LIMIT: usize = 32;

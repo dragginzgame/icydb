@@ -5,11 +5,11 @@ use icydb::{
     db::{DatabaseStartupState, LiveQueryPageOutput, sql::SqlQueryResult},
     diagnostic::DiagnosticFactTag,
 };
+use icydb_testing_build::{CanisterBuildOptions, build_fixture_canister_wasm_bytes_with_options};
 use icydb_testing_integration::{
-    CanisterBuildOptions, MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES, StartupWatchdogPerfSnapshot,
-    advance_startup_watchdog_until_ready, build_fixture_canister_wasm_bytes_with_options,
-    deliver_startup_watchdog_message, install_fixture_canister, startup_watchdog_armed,
-    startup_watchdog_perf_snapshot,
+    MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES, StartupWatchdogPerfSnapshot,
+    advance_startup_watchdog_until_ready, deliver_startup_watchdog_message,
+    install_fixture_canister, startup_watchdog_armed, startup_watchdog_perf_snapshot,
 };
 use serde::Deserialize;
 

@@ -53,6 +53,8 @@ docs/make-interface.md
 ci/ic-tools.tsv
 ci/tool-versions.env
 docs/supported-hosts.md
+docs/ci-change-selection.md
+docs/rust-toolchains.md
 scripts/ci/verify-file-checksum.sh
 scripts/ci/verify-shared-tooling-snapshot.sh
 docs/tag-maintenance.md

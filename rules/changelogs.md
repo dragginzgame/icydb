@@ -35,11 +35,38 @@ this contract; the [release contract](../docs/releases.md) owns release executio
   qualified behavior. Routine validation results and readiness belong in the
   handoff or their existing evidence owner, rather than repeated release prose.
 
+## Readable release layout
+
+- Give each bullet one coherent outcome, normally in one or two short sentences.
+  Split independent changes into separate bullets even when they belong to the
+  same release or hard cut. Wrapping source lines does not split a rendered
+  paragraph; review the Markdown as readers will see it.
+- Group larger releases under relevant headings such as `Breaking`, `Changed`
+  and `Fixed`. Use short bold topic labels within bullets when they help readers
+  distinguish areas, for example **Build inputs**, **Restore** or **Initialization**.
+  Avoid deep nesting or creating a heading for every small change.
+- Put required upgrade actions in a distinct, easy-to-find bullet or paragraph.
+  Keep rebuild/reinstall requirements, retained-data implications and supported
+  recovery boundaries explicit instead of burying them among implementation work.
+- Keep issue links beside the outcome they explain. Do not append a detached
+  `Owning changes` list or a comma-separated issue dump to an omnibus paragraph.
+  Prefer one or two links per bullet; when more are needed, split by outcome or
+  move the supporting detail into the minor-line notes. Keep titles concise and
+  descriptive rather than copying a lengthy diagnostic into the link label.
+- Separate unfinished follow-up from delivered changes. Mention it only when
+  needed to explain a release limitation, with a clear label and its owning link.
+- When the root entry becomes difficult to scan, retain the release outcome,
+  breaking contract and required actions there, then link to grouped detailed
+  notes. Do not compress a large release into one giant bullet to meet a summary
+  convention, or remove meaningful issue coverage just to shorten the text.
+
 ## Issue links and compatibility
 
-- When a change fixes a GitHub issue, its changelog entry must link every resolved
-  issue relevant to the entry. When both root and detailed notes describe the
-  fix, include the issue links in both views.
+- Every resolved GitHub issue must be linked from the changelog entry describing
+  its owning change. When detailed notes carry the individual changes, keep the
+  complete issue coverage there; a root overview may link to those notes without
+  repeating their issue inventory. If both views describe a specific fix, include
+  its relevant issue links in both views.
 - Every GitHub issue reference must include its number and title in the clickable
   link text, for example
   `[#123 — Fix release retry failures](https://github.com/OWNER/REPO/issues/123)`.
@@ -186,13 +213,16 @@ For a latest finalized release of `0.14.7`:
   minor line for pending detail notes. If that candidate changes line, move only
   its unpublished notes to the matching file and update the root link; preserve
   finalized history in its original files.
-- A root minor-line index uses one concise summary per patch, normally one short
-  bullet. Product-facing ledgers may retain linked release titles and brief prose.
+- A root minor-line index uses a concise overview per patch. A small patch may
+  need only one short bullet; a broad release needs separate outcome and upgrade
+  bullets or grouped sections under the readable-layout rules above.
+  Product-facing ledgers may retain linked release titles and brief prose.
   Keep minor lines and their patch summaries newest first; detailed patch sections
   follow the same order. Preserve existing historical ordering when adopting
   these rules rather than reorganizing published notes without authorization.
 - Every patch in a minor-line index has a matching detail section. Keep root and
-  detailed notes aligned on scope, patch identity, issue links and compatibility.
+  detailed notes aligned on scope, patch identity and compatibility, with issue
+  coverage at the owning entries as described above.
   Where both views date a patch, their dates must agree. Small detail sections
   may remain short. Extend both views for the same draft.
 - Root entries must link to their detail files with clickable Markdown links.

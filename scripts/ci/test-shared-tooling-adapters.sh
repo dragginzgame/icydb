@@ -121,6 +121,8 @@ mkdir -p "$native/make" "$native/scripts/ci" "$native/bin"
 cp "$ROOT/Makefile" "$native/"
 cp "$ROOT/make/"*.mk "$native/make/"
 cp "$ROOT/scripts/ci/actionlint-checksums.tsv" "$native/scripts/ci/"
+mkdir -p "$native/testing/build/src"
+cp "$ROOT/testing/build/src/wasm_measurement_subjects.tsv" "$native/testing/build/src/"
 cp "$ROOT/rust-toolchain.toml" "$native/"
 printf '[workspace]\n' > "$native/Cargo.toml"
 printf 'version = 4\n' > "$native/Cargo.lock"
@@ -256,8 +258,8 @@ for lane in build-canister-local build-canister-production; do
     CANISTER=default_empty > "$native/$lane.log" 2>&1
 done
 printf '%s\n' \
-  'run --locked -p icydb-testing-integration --bin build_fixture_canister -- default_empty --build-profile local --profile debug --candid-export on' \
-  'run --locked -p icydb-testing-integration --bin build_fixture_canister -- default_empty --build-profile production --profile wasm-release --candid-export on' \
+  'run --locked -p icydb-testing-build --bin build_fixture_canister -- default_empty --build-profile local --profile debug --candid-export on' \
+  'run --locked -p icydb-testing-build --bin build_fixture_canister -- default_empty --build-profile production --profile wasm-release --candid-export on' \
   > "$native/expected-arguments"
 cmp "$native/expected-arguments" "$CI_CARGO_ARGUMENT_TRACE"
 mkdir "$native/doc-bin"

@@ -18,7 +18,8 @@ use ic_host_process::tool::{
     AdmittedTool, CompletedExecution, OutputLimit, OutputLimits, capture_command,
 };
 use ic_host_tools::interface::exported_methods;
-use icydb_testing_integration::{
+use ic_metrics::checked_scaled_ratio;
+use icydb_testing_build::{
     CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
     CanisterWasmProfile, ResolvedCanisterBuildConfiguration,
     canister_artifact::read_wasm_artifact,
@@ -26,8 +27,8 @@ use icydb_testing_integration::{
     wasm_measurement::{
         MINIMUM_POST_LINK_RAW_REDUCTION_BASIS_POINTS, WASM_LINE_BUDGETS,
         WASM_MEASUREMENT_COMPARISONS, WASM_MEASUREMENT_PROFILE_ID,
-        WASM_MEASUREMENT_PROFILE_VERSION, WASM_MEASUREMENT_SUBJECTS, WasmComparison,
-        WasmLineBudget, validate_wasm_measurement_contract,
+        WASM_MEASUREMENT_PROFILE_VERSION, WasmComparison, WasmLineBudget,
+        validate_wasm_measurement_contract, wasm_measurement_subjects,
     },
     wasm_optimizer::{
         POST_LINK_PIPELINE_IDENTITY, WASM_OPT_FLAGS, WASM_OPT_OUTPUT_FEATURES,
@@ -207,7 +208,7 @@ fn main() {
 fn run() -> Result<(), String> {
     let args = parse_args(env::args().skip(1))?;
     validate_wasm_measurement_contract().map_err(str::to_string)?;
-    if !WASM_MEASUREMENT_SUBJECTS.contains(&args.canister.as_str()) {
+    if !wasm_measurement_subjects().any(|name| name == args.canister) {
         return Err(format!(
             "canister '{}' is outside the current Wasm measurement contract",
             args.canister
@@ -414,7 +415,7 @@ fn workspace_root() -> Result<PathBuf, String> {
         .parent()
         .and_then(Path::parent)
         .map(Path::to_path_buf)
-        .ok_or_else(|| "integration crate should live two levels below workspace root".to_string())
+        .ok_or_else(|| "build crate should live two levels below workspace root".to_string())
 }
 
 fn capture_provenance(workspace_root: &Path) -> Result<Provenance, String> {
@@ -734,10 +735,8 @@ fn reduction_basis_points(before: &FileMeta, after: &FileMeta) -> Result<u16, St
         ));
     }
     let reduction = before.bytes - after.bytes;
-    let basis_points = reduction
-        .checked_mul(10_000)
-        .ok_or_else(|| "post-link reduction basis-point arithmetic overflowed".to_string())?
-        / before.bytes;
+    let basis_points = checked_scaled_ratio(u128::from(reduction), before.bytes, 10_000)
+        .map_err(|err| format!("post-link reduction basis-point arithmetic failed: {err}"))?;
     u16::try_from(basis_points)
         .map_err(|_| format!("post-link reduction basis points exceed u16: {basis_points}"))
 }
@@ -884,16 +883,44 @@ fn append_step_summary(path: &Path, summary: &str) -> Result<(), String> {
 mod tests {
     use std::{env, fs};
 
-    use icydb_testing_integration::{
+    use icydb_testing_build::{
         CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
         CanisterWasmProfile, ResolvedCanisterBuildConfiguration,
         resolve_fixture_canister_build_configuration,
     };
 
     use super::{
-        WasmInfo, command_text, endpoint_surface, file_meta, parse_args, pipeline,
-        validate_final_wasm_features, wasm_call_indirect_count, wasm_structure,
+        FileMeta, WasmInfo, command_text, endpoint_surface, file_meta, parse_args, pipeline,
+        reduction_basis_points, validate_final_wasm_features, wasm_call_indirect_count,
+        wasm_structure,
     };
+
+    #[test]
+    fn reduction_keeps_floor_rounding_and_handles_full_width_artifact_sizes() {
+        let artifact = |bytes| FileMeta {
+            path: "fixture.wasm".into(),
+            bytes,
+            sha256: String::new(),
+        };
+        assert_eq!(
+            reduction_basis_points(&artifact(3), &artifact(2)).unwrap(),
+            3_333
+        );
+        assert_eq!(
+            reduction_basis_points(&artifact(10), &artifact(10)).unwrap(),
+            0
+        );
+        assert_eq!(
+            reduction_basis_points(&artifact(u64::MAX), &artifact(0)).unwrap(),
+            10_000
+        );
+        assert_eq!(
+            reduction_basis_points(&artifact(u64::MAX), &artifact(u64::MAX - 1)).unwrap(),
+            0
+        );
+        assert!(reduction_basis_points(&artifact(0), &artifact(0)).is_err());
+        assert!(reduction_basis_points(&artifact(10), &artifact(11)).is_err());
+    }
 
     #[test]
     fn report_capture_keeps_native_arguments_utf8_and_refuses_failed_or_oversized_output() {

@@ -8,7 +8,7 @@ use icydb::{
     Error, ErrorCode, ErrorOrigin,
     db::{DatabaseStartupState, StartupFailure},
 };
-use icydb_testing_integration::build_logical_memory_fixture_wasms;
+use icydb_testing_build::build_logical_memory_fixture_wasms;
 
 fn artifacts() -> &'static (Vec<u8>, Vec<u8>) {
     static WASMS: OnceLock<(Vec<u8>, Vec<u8>)> = OnceLock::new();

@@ -11,11 +11,11 @@ use ic_testkit::{
     pocket_ic::{ErrorCode, RejectResponse},
 };
 use icydb::types::Ulid;
-use icydb_testing_integration::{
+use icydb_testing_build::{
     CanisterBuildOptions, CanisterBuildProfile, build_fixture_canister_wasm_bytes_with_options,
-    canister_artifact::{CanisterMethod, CanisterMethodMode, inspect_wasm_methods},
-    install_fixture_canister_without_startup_delivery,
+    canister_artifact::{CanisterMethod, MethodMode, inspect_wasm_methods},
 };
+use icydb_testing_integration::install_fixture_canister_without_startup_delivery;
 
 // Reviewed with Rust 1.98.1, PocketIC 16 and ic-memory 0.13.2: the converged
 // post-upgrade participant uses 12,579,497 instructions. The user-approved
@@ -373,23 +373,23 @@ fn participant_functions_are_absent_from_the_complete_ingress_surface() {
         BTreeSet::from([
             CanisterMethod {
                 name: "<ic-cdk internal> timer_executor".to_string(),
-                mode: CanisterMethodMode::Update,
+                mode: MethodMode::Update,
             },
             CanisterMethod {
                 name: "lifecycle_composition_snapshot".to_string(),
-                mode: CanisterMethodMode::Query,
+                mode: MethodMode::Query,
             },
             CanisterMethod {
                 name: "lifecycle_database_probe".to_string(),
-                mode: CanisterMethodMode::Query,
+                mode: MethodMode::Query,
             },
             CanisterMethod {
                 name: "lifecycle_insert_probe_row".to_string(),
-                mode: CanisterMethodMode::Update,
+                mode: MethodMode::Update,
             },
             CanisterMethod {
                 name: "lifecycle_probe_row_exists".to_string(),
-                mode: CanisterMethodMode::Query,
+                mode: MethodMode::Query,
             },
         ]),
     );
@@ -405,19 +405,19 @@ fn participant_functions_are_absent_from_the_complete_ingress_surface() {
         BTreeSet::from([
             CanisterMethod {
                 name: "<ic-cdk internal> timer_executor".to_string(),
-                mode: CanisterMethodMode::Update,
+                mode: MethodMode::Update,
             },
             CanisterMethod {
                 name: "lifecycle_composition_snapshot".to_string(),
-                mode: CanisterMethodMode::Query,
+                mode: MethodMode::Query,
             },
             CanisterMethod {
                 name: "lifecycle_database_probe".to_string(),
-                mode: CanisterMethodMode::Query,
+                mode: MethodMode::Query,
             },
             CanisterMethod {
                 name: "lifecycle_probe_row_exists".to_string(),
-                mode: CanisterMethodMode::Query,
+                mode: MethodMode::Query,
             },
         ]),
     );

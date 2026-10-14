@@ -557,7 +557,10 @@ fn validate_literal_for_field(
         DarlingError::custom(format!(
             "generated schema predicate literal is incompatible with primitive {primitive:?}"
         ))
-    })
+    })?;
+    // Reuse lowering's scalar parser before declaring the predicate validated.
+    // Literal shape alone does not prove integer sign/range or finite floats.
+    source_scalar_literal(field, literal).map(|_| ())
 }
 
 fn predicate_field<'a>(entity: &'a Entity, field_name: &str) -> Result<&'a Field, DarlingError> {
@@ -728,12 +731,17 @@ fn source_scalar_literal(field: &Field, value: &Literal) -> Result<TokenStream, 
         (Primitive::Text, Literal::Text(value)) => {
             quote! { ::icydb_model::schema::ScalarLiteral::Text(#value.to_string()) }
         }
-        (Primitive::Decimal, Literal::Number(value)) => quote! {
+        (Primitive::Decimal, Literal::Number(value)) => {
+            value.parse::<icydb_schema::Decimal>().map_err(|_| {
+                DarlingError::custom("generated Decimal predicate literal is invalid")
+            })?;
+            quote! {
             ::icydb_model::schema::ScalarLiteral::Decimal(
                 <::icydb_model::schema::Decimal as ::std::str::FromStr>::from_str(#value)
                     .map_err(|_| ::icydb_model::schema::SchemaContractError::InvalidLiteral)?
             )
-        },
+            }
+        }
         (
             Primitive::Int8
             | Primitive::Int16
@@ -764,6 +772,9 @@ fn source_scalar_literal(field: &Field, value: &Literal) -> Result<TokenStream, 
             let value = value.parse::<f32>().map_err(|_| {
                 DarlingError::custom("generated Float32 predicate literal is invalid")
             })?;
+            icydb_schema::Float32::try_new(value).ok_or_else(|| {
+                DarlingError::custom("generated Float32 predicate literal is invalid")
+            })?;
             quote! {
                 ::icydb_model::schema::ScalarLiteral::Float32(
                     ::icydb_model::schema::Float32::try_new(#value)
@@ -773,6 +784,9 @@ fn source_scalar_literal(field: &Field, value: &Literal) -> Result<TokenStream, 
         }
         (Primitive::Float64, Literal::Number(value)) => {
             let value = value.parse::<f64>().map_err(|_| {
+                DarlingError::custom("generated Float64 predicate literal is invalid")
+            })?;
+            icydb_schema::Float64::try_new(value).ok_or_else(|| {
                 DarlingError::custom("generated Float64 predicate literal is invalid")
             })?;
             quote! {

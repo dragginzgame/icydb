@@ -7,12 +7,12 @@ use icydb::{
     Error, ErrorCode,
     db::{EntitySchemaDescription, sql::SqlQueryResult},
 };
-use icydb_testing_integration::{
+use icydb_testing_build::{
     CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterWasmProfile,
     build_canister_with_options, build_fixture_canister_wasm_bytes_with_options,
-    canister_artifact::{CanisterMethod, CanisterMethodMode, inspect_canister_artifacts},
-    deliver_fixture_startup_watchdog, install_fixture_canister,
+    canister_artifact::{CanisterMethod, MethodMode, inspect_canister_artifacts},
 };
+use icydb_testing_integration::{deliver_fixture_startup_watchdog, install_fixture_canister};
 
 const CUMULATIVE_GUARDED_READ_RAW_WASM_GROWTH_CEILING: u64 = 128 * 1024;
 
@@ -307,11 +307,11 @@ fn controller_and_guarded_combined_artifacts_preserve_one_bounded_surface() {
     let expected = BTreeSet::from([
         CanisterMethod {
             name: "icydb_query".to_string(),
-            mode: CanisterMethodMode::Query,
+            mode: MethodMode::Query,
         },
         CanisterMethod {
             name: "icydb_schema".to_string(),
-            mode: CanisterMethodMode::Query,
+            mode: MethodMode::Query,
         },
     ]);
     let [controller_manifest, guarded_manifest] = [&controller_wasm, &guarded_wasm].map(|wasm| {

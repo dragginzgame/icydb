@@ -351,3 +351,39 @@ fn predicate_identifier_normalization_preserves_nested_field_paths() {
         }),
     );
 }
+
+#[test]
+fn sql_insert_aliases_normalize_default_values_and_nested_target_paths() {
+    use crate::db::{
+        query::preparation::with_preparation_work,
+        sql::{lowering::prepare::prepare_sql_statement, parser::SqlReturningProjection},
+    };
+
+    for (sql, expected_columns, expected_returning) in [
+        (
+            "INSERT INTO app.users AS u DEFAULT VALUES RETURNING u.id",
+            vec![],
+            vec!["id"],
+        ),
+        (
+            "INSERT INTO app.users AS u (u.profile.rank) VALUES (1) RETURNING u.profile.rank",
+            vec!["profile.rank"],
+            vec!["profile.rank"],
+        ),
+    ] {
+        let parsed = parse_sql(sql).unwrap();
+        let prepared =
+            with_preparation_work(|work| prepare_sql_statement(&parsed, "users", work)).unwrap();
+        let SqlStatement::Insert(insert) = prepared.into_statement() else {
+            panic!("prepared INSERT");
+        };
+        assert_eq!(insert.columns, expected_columns);
+        assert_eq!(
+            insert.returning,
+            Some(SqlReturningProjection::Fields(
+                expected_returning.into_iter().map(str::to_string).collect()
+            ))
+        );
+        assert_eq!(insert.table_alias, None);
+    }
+}

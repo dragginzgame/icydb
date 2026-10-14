@@ -10,7 +10,7 @@ source "$ROOT/scripts/ci/invariant-common.sh"
 require_rg "deployment inventory invariant checks"
 
 status=0
-policy_source="testing/integration/src/canister_artifact.rs"
+policy_source="testing/build/src/canister_artifact.rs"
 
 maintained_names="$({
   awk '

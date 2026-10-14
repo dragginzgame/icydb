@@ -1477,9 +1477,9 @@ dependencies = [
 
 [[package]]
 name = "ic-build"
-version = "0.3.0"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "415c50c37611014ab87016292bffb7ca366498c52062d226a0c9e886346683f8"
+checksum = "9376d6ab7241be995d669f1b60674e435c669f41478a24ab29313970e2b9ad4b"
 dependencies = [
  "ic-host-artifacts",
  "ic-host-fs",
@@ -1566,11 +1566,12 @@ dependencies = [
 
 [[package]]
 name = "ic-host-artifacts"
-version = "0.17.13"
+version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9acf9183cfe37a9400ce6893d77292af8b22bcdb7a5451d7a36c81cac33b3be4"
+checksum = "31b28d7e2d78a59977320625394e533850516e3f1c2b671a5909d833d73d6cdf"
 dependencies = [
  "flate2",
+ "leb128",
  "sha2",
  "tar",
  "wasmparser",
@@ -1578,9 +1579,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-fs"
-version = "0.17.13"
+version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c549e4539b625ae82ed2de592acef0b8fc98a35e6edba47cc5ee98614c0936b"
+checksum = "4a5c93188fbfb88e22dd1d7938b84a6f68d8ace2e3881935d13d73c3055fa0ce"
 dependencies = [
  "ic-host-artifacts",
  "rustix",
@@ -1588,9 +1589,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-process"
-version = "0.17.13"
+version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9f7d287d27872f8d97a64da3d2d26cc18bdeaafba3c3009a6d538ee8026e0b07"
+checksum = "277e18f76a599425c828995d5c13a118fabc93344663e6c206d32a6081a451fc"
 dependencies = [
  "ic-host-artifacts",
  "ic-host-fs",
@@ -1600,9 +1601,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-tools"
-version = "0.17.13"
+version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a1809790901bf594588453bd0746bfba19f8163defd7c6b2d1ca24e4598ff64"
+checksum = "7977d8466825c234e9506a7ec65de08a54504ffca1d92a4258942fc0c782bf2e"
 dependencies = [
  "candid_parser",
  "ic-host-artifacts",
@@ -1625,9 +1626,9 @@ dependencies = [
 
 [[package]]
 name = "ic-memory"
-version = "0.37.0"
+version = "0.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15bba259d2e86a8003d3a586d7b7ebeaa480c7d5a2ebe938c960b31be6f59017"
+checksum = "2059da9b208a5339a08215fddf1112aeca7af9ddce2954f8cb0353aada7ee3e4"
 dependencies = [
  "ciborium",
  "ic-stable-structures",
@@ -1637,9 +1638,9 @@ dependencies = [
 
 [[package]]
 name = "ic-metrics"
-version = "0.9.4"
+version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d65678222f2c60563768da53a4d03b39c963180dd85e3dd2894237b3ccb7a0fe"
+checksum = "b2e743e0e40b8bb69b6807b18c767e51625ce711bc7f672fb30c0460c9b07f76"
 
 [[package]]
 name = "ic-stable-structures"
@@ -1652,15 +1653,16 @@ dependencies = [
 
 [[package]]
 name = "ic-testkit"
-version = "0.40.0"
+version = "0.42.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2627451b0b7bf945b75963dc76218e493ed1ba9d19d6096bb1fec52dea2dfba9"
+checksum = "1bdb7fb04e3a78bad29b19b1198a48ab7e69679f75f1fd3c3cf62a7768a8a484"
 dependencies = [
  "candid",
  "ic-cdk",
  "ic-host-artifacts",
  "ic-host-fs",
  "ic-host-process",
+ "ic-metrics",
  "libc",
  "pocket-ic",
  "serde",
@@ -1671,9 +1673,9 @@ dependencies = [
 
 [[package]]
 name = "ic-timers"
-version = "0.22.2"
+version = "0.22.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6e4506d09cc707453611ee851a2375041592bf8da756a60887b14cacd9cd859"
+checksum = "7b1a13d887ab25a2b27edab6284d8f12168dcada4cdc694d1221f18f652c2003"
 dependencies = [
  "ic-cdk-timers",
  "ic-metrics",
@@ -2017,6 +2019,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "icydb-testing-build"
+version = "0.274.0"
+dependencies = [
+ "blake3",
+ "candid",
+ "ic-build",
+ "ic-host-artifacts",
+ "ic-host-fs",
+ "ic-host-process",
+ "ic-host-tools",
+ "ic-metrics",
+ "icydb",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "icydb-testing-demo-rpg-fixtures"
 version = "0.274.0"
 dependencies = [
@@ -2041,13 +2060,10 @@ version = "0.274.0"
 dependencies = [
  "blake3",
  "candid",
- "ic-build",
  "ic-host-artifacts",
- "ic-host-fs",
- "ic-host-process",
- "ic-host-tools",
  "ic-testkit",
  "icydb",
+ "icydb-testing-build",
  "icydb-testing-sql-generator",
  "icydb-testing-sqlite-reference",
  "proc-macro2",

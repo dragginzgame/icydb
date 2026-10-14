@@ -40,6 +40,7 @@ members = [
     "schema/demo/rpg",
     "schema/test/fixtures",
     "schema/test/sql",
+    "testing/build",
     "testing/endpoint-installation",
     "testing/integration",
     "testing/logical-memory",
@@ -86,13 +87,13 @@ ethnum = { version = "1.5.3", default-features = false }
 getrandom = "0.4"
 ic-build = "0.3"
 ic-cdk = "0.20.3"
-ic-host-artifacts = { version = "0.17", default-features = false }
-ic-host-fs = "0.17"
-ic-host-process = "0.17"
-ic-host-tools = { version = "0.17", default-features = false }
-ic-memory = "0.37"
+ic-host-artifacts = { version = "0.18", default-features = false }
+ic-host-fs = "0.18"
+ic-host-process = "0.18"
+ic-host-tools = { version = "0.18", default-features = false }
+ic-memory = "0.38"
 ic-metrics = "0.9"
-ic-testkit = "0.40"
+ic-testkit = "0.42"
 ic-timers = "0.22"
 icrc-ledger-types = "0.2.0"
 icydb = { path = "crates/icydb", version = "=0.274.0", default-features = false }
@@ -107,6 +108,7 @@ icydb-testing-audit-nested-relation-fixtures = { path = "schema/audit/nested_rel
 icydb-testing-audit-one-simple-fixtures = { path = "schema/audit/one_simple" }
 icydb-testing-audit-sql-perf-fixtures = { path = "schema/audit/sql_perf" }
 icydb-testing-audit-ten-simple-fixtures = { path = "schema/audit/ten_simple" }
+icydb-testing-build = { path = "testing/build" }
 icydb-testing-demo-rpg-fixtures = { path = "schema/demo/rpg" }
 icydb-testing-sql-generator = { path = "testing/sql-generator" }
 icydb-testing-sqlite-reference = { path = "testing/sqlite-reference" }

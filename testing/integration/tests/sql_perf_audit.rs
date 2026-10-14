@@ -149,7 +149,7 @@ fn sql_blob_scalar_query_executes_equality_and_octet_length() {
 }
 
 fn preparation_measurement_wasm() -> Vec<u8> {
-    use icydb_testing_integration::{
+    use icydb_testing_build::{
         CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
         CanisterWasmProfile, build_canister_with_options,
     };

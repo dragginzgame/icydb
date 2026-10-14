@@ -7,10 +7,11 @@ use icydb::{
     Error,
     value::{OutputValue, PublicValue},
 };
-use icydb_testing_integration::{
+use icydb_testing_build::{
     CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
-    CanisterWasmProfile, build_canister_with_options, install_prebuilt_fixture_canister,
+    CanisterWasmProfile, build_canister_with_options,
 };
+use icydb_testing_integration::install_prebuilt_fixture_canister;
 use serde::Deserialize;
 
 #[derive(CandidType, Deserialize)]

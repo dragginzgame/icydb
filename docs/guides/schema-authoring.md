@@ -112,6 +112,22 @@ or integration handle, use a generated primary key and an indexed
 `owner_principal` field instead. An identifier never proves authorization;
 see the [identity and primary-key contract](../contracts/IDENTITY_CONTRACT.md).
 
+## Literal Diagnostics
+
+Quoted Account, Principal, Subaccount and Ulid field defaults are parsed during
+macro expansion. Invalid identity text returns a compiler error at the field;
+requesting Rust `Default` does not postpone that check or turn it into a panic.
+Subaccount literals require 64 ASCII hex characters, optionally prefixed by
+lowercase `0x`. The schema scalar owns parsing for both generated defaults and
+sealed fragments. Valid identity defaults
+construct their canonical bytes without parsing text at runtime.
+
+Generated CHECK and filtered-index numeric literals use the same parser for
+validation and source-program lowering. Fractional or negative unsigned integer
+literals, integers outside the source literal domain, and nonfinite float or
+unrepresentable decimal literals produce compiler errors. Accepted field
+contracts remain responsible for their narrower value bounds.
+
 ## Field And Relation Names
 
 Authored fields use valid Rust `snake_case` identifiers. Required and optional

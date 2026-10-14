@@ -682,6 +682,14 @@ failure leaves the whole selected batch unchanged. INSERT VALUES remains literal
 NULL or direct DEFAULT only. Resumable jobs require fixed literal/DEFAULT
 assignments and reject every expression with E282 before creating a job.
 
+INSERT retains an optional target alias, with or without `AS`. Target columns
+and RETURNING fields accept entity or alias qualification through the same
+scope rules as UPDATE and DELETE. For example,
+`INSERT INTO Customer AS c (c.name) VALUES ('Ada') RETURNING c.name`
+resolves both references to `name`. An INSERT SELECT source has its own alias
+scope; the target alias does not qualify source expressions. Unknown qualifiers
+and unresolved parameters reject before writing.
+
 Trusted `INSERT INTO target (field, ...) SELECT ...` is also executable. The
 source uses the maintained SELECT projection/compilation path, and its columns
 must match the target width and accepted field contracts before the write.

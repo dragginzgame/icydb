@@ -98,8 +98,8 @@ fn ensure_bootstraps_once_then_reuses_committed_allocations() {
 
     let allocations = default_memory_manager_memory_allocations()
         .expect("the ensured runtime should report allocations");
-    assert_eq!(allocations.current_generation, Some(generation));
-    assert_eq!(allocations.bucket_size_pages, 16);
+    assert_eq!(allocations.summary.current_generation, Some(generation));
+    assert_eq!(allocations.summary.bucket_size_pages, 16);
     let allocation = allocations
         .memories
         .iter()
