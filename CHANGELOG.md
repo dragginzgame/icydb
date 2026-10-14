@@ -5,7 +5,7 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.274.1]
+## [0.274.1] - 2026-10-14
 
 - Correct SQL, schema and macro diagnostics; simplify scans, build/report
   ownership and scalar/hex parsing with Shared Tooling 0.13.3
