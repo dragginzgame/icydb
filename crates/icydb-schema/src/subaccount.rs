@@ -171,7 +171,7 @@ mod tests {
     #[test]
     fn hex_text_rejects_width_unicode_and_nonhex_boundaries() {
         for text in [
-            "".to_string(),
+            String::new(),
             "0x".into(),
             "0".repeat(63),
             "0".repeat(65),
