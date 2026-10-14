@@ -14,7 +14,7 @@ mod batch_workload;
 mod catalog_workload;
 mod collection_workload;
 
-use std::{collections::BTreeSet, num::NonZeroUsize};
+use std::{collections::BTreeSet, num::NonZeroUsize, sync::LazyLock};
 
 use crate::sql_harness::{
     CorrectnessObservation, CorrectnessScenario, CorrectnessVerdict, EligibleProvider,
@@ -25,9 +25,11 @@ use crate::sql_harness::{
 };
 use candid::{CandidType, Principal};
 use ic_testkit::pic::{
-    CachedStandaloneCanisterFixtureGuard, CachedStandaloneCanisterFixturePool,
-    StandaloneCanisterFixture,
+    BaselinePoolOutcome, CachedPocketIcBaselinePool, CachedPocketIcBaselinePoolGuard,
+    CandidCallExt as _, FixtureRecipeId, SnapshotRestoreFunding, StandaloneCanisterFixture,
+    StandaloneCanisterRecipe,
 };
+use ic_testkit::pocket_ic::PocketIc;
 use icydb::{
     Error, ErrorCode, ErrorOrigin,
     db::{
@@ -111,16 +113,41 @@ fn for_each_workload_scenario<T: Sync>(scenarios: &[T], run: impl Fn(&T) + Sync)
 const SQL_FIXTURE_POOL_CAPACITY: NonZeroUsize = NonZeroUsize::new(8).unwrap();
 const SQL_BOUNDED_FIXTURE_POOL_CAPACITY: NonZeroUsize = NonZeroUsize::new(4).unwrap();
 
-static SQL_FIXTURE_POOL: CachedStandaloneCanisterFixturePool =
-    CachedStandaloneCanisterFixturePool::new(SQL_FIXTURE_POOL_CAPACITY, || {
-        install_fixture_canister("sql")
+type SqlFixtureRecipe = StandaloneCanisterRecipe<fn() -> StandaloneCanisterFixture>;
+
+// Pooled SQL tests restore only this canister's captured state. Keep the prior
+// preserve-funding policy; lifecycle tests continue to own fresh installations.
+fn sql_fixture_pool(
+    capacity: NonZeroUsize,
+    identity: &str,
+    build: fn() -> StandaloneCanisterFixture,
+) -> CachedPocketIcBaselinePool<SqlFixtureRecipe> {
+    CachedPocketIcBaselinePool::new(
+        capacity,
+        StandaloneCanisterRecipe::new(
+            FixtureRecipeId::try_new(identity).unwrap(),
+            SnapshotRestoreFunding::Preserve,
+            build,
+        ),
+    )
+}
+
+static SQL_FIXTURE_POOL: LazyLock<CachedPocketIcBaselinePool<SqlFixtureRecipe>> =
+    LazyLock::new(|| {
+        sql_fixture_pool(SQL_FIXTURE_POOL_CAPACITY, "icydb.sql", || {
+            install_fixture_canister("sql")
+        })
     });
-static SQL_BOUNDED_FIXTURE_POOL: CachedStandaloneCanisterFixturePool =
-    CachedStandaloneCanisterFixturePool::new(SQL_BOUNDED_FIXTURE_POOL_CAPACITY, || {
-        install_fixture_canister("sql_bounded")
+static SQL_BOUNDED_FIXTURE_POOL: LazyLock<CachedPocketIcBaselinePool<SqlFixtureRecipe>> =
+    LazyLock::new(|| {
+        sql_fixture_pool(
+            SQL_BOUNDED_FIXTURE_POOL_CAPACITY,
+            "icydb.sql-bounded",
+            || install_fixture_canister("sql_bounded"),
+        )
     });
 
-fn install_sql_canister_fixture() -> CachedStandaloneCanisterFixtureGuard<'static> {
+fn install_sql_canister_fixture() -> CachedPocketIcBaselinePoolGuard<'static, SqlFixtureRecipe> {
     // Bound concurrent PocketIC ownership while restoring the installed
     // canister to its exact post-install baseline for every test lease.
     SQL_FIXTURE_POOL
@@ -129,7 +156,8 @@ fn install_sql_canister_fixture() -> CachedStandaloneCanisterFixtureGuard<'stati
         .0
 }
 
-fn install_sql_bounded_canister_fixture() -> CachedStandaloneCanisterFixtureGuard<'static> {
+fn install_sql_bounded_canister_fixture()
+-> CachedPocketIcBaselinePoolGuard<'static, SqlFixtureRecipe> {
     SQL_BOUNDED_FIXTURE_POOL
         .acquire()
         .unwrap_or_else(|error| panic!("bounded SQL fixture pool should restore cleanly: {error}"))
@@ -142,10 +170,53 @@ fn install_demo_rpg_canister_fixture() -> StandaloneCanisterFixture {
     install_fixture_canister("demo_rpg")
 }
 
-fn reset_sql_fixtures(fixture: &StandaloneCanisterFixture) {
+fn reset_sql_fixtures(pic: &PocketIc, canister_id: Principal) {
     // Keep each test isolated by resetting and then loading the deterministic
     // baseline fixture set through the live canister update surface.
-    reset_icydb_fixtures(fixture);
+    reset_icydb_fixtures(pic, canister_id);
+}
+
+#[test]
+fn sql_fixture_pool_restores_captured_rows_before_reuse() {
+    let pool = sql_fixture_pool(
+        NonZeroUsize::new(1).unwrap(),
+        "icydb.sql-reuse-control",
+        || install_fixture_canister("sql"),
+    );
+    let (first, outcome) = pool.acquire().expect("first lease should install");
+    assert!(matches!(outcome, BaselinePoolOutcome::Built { .. }));
+    let canister_id = *first.metadata();
+    let before = query_sql(
+        first.pocket_ic(),
+        canister_id,
+        "SELECT name FROM SqlTestUser ORDER BY name",
+    )
+    .expect("captured baseline should read");
+    reset_sql_fixtures(first.pocket_ic(), canister_id);
+    assert_ne!(
+        query_sql(
+            first.pocket_ic(),
+            canister_id,
+            "SELECT name FROM SqlTestUser ORDER BY name"
+        )
+        .unwrap(),
+        before,
+    );
+    drop(first);
+
+    let (reused, outcome) = pool.acquire().expect("second lease should restore");
+    assert!(matches!(outcome, BaselinePoolOutcome::Restored { .. }));
+    assert_eq!(*reused.metadata(), canister_id);
+    assert_eq!(
+        query_sql(
+            reused.pocket_ic(),
+            canister_id,
+            "SELECT name FROM SqlTestUser ORDER BY name"
+        )
+        .unwrap(),
+        before,
+    );
+    reset_sql_fixtures(reused.pocket_ic(), canister_id);
 }
 
 /// Matched retained-Wasm probe; setup and verification reads are outside the
@@ -184,25 +255,25 @@ fn returning_selected_cells_wasm_cost_matrix() {
             ("all", " RETURNING *"),
         ] {
             let fixture = install_prebuilt_fixture_canister("sql", module.clone());
-            reset_sql_fixtures(&fixture);
+            let pic = fixture.pocket_ic();
+            let canister_id = fixture.canister_id();
+            reset_sql_fixtures(pic, canister_id);
             if wide {
-                seed_oversized_sql_group_name(&fixture);
+                seed_oversized_sql_group_name(pic, canister_id);
             }
-            let id = sql_test_numeric_type_id_by_label(&fixture, "alpha");
+            let id = sql_test_numeric_type_id_by_label(pic, canister_id, "alpha");
             for repeat in 0..3 {
                 // Drain queued setup/query work without advancing IC time.
                 for _ in 0..64 {
-                    fixture.pocket_ic().tick();
+                    pic.tick();
                 }
                 let value = 37 + repeat;
                 let sql = format!(
                     "UPDATE SqlTestNumericTypes SET int32_value = {value} WHERE id = '{id}'{returning}"
                 );
-                let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
-                let sample = measure_mutation_sql(&fixture, &sql);
-                let cycles = before
-                    .checked_sub(fixture.pocket_ic().cycle_balance(fixture.canister_id()))
-                    .unwrap();
+                let before = pic.cycle_balance(canister_id);
+                let sample = measure_mutation_sql(pic, canister_id, &sql);
+                let cycles = before.checked_sub(pic.cycle_balance(canister_id)).unwrap();
                 let rejected = wide && shape == "all";
                 if rejected {
                     assert_eq!(
@@ -229,7 +300,8 @@ fn returning_selected_cells_wasm_cost_matrix() {
                 }
                 let observed = expect_projection(
                     query_sql(
-                        &fixture,
+                        pic,
+                        canister_id,
                         &format!("SELECT int32_value FROM SqlTestNumericTypes WHERE id = '{id}'"),
                     )
                     .expect("post-update read"),
@@ -256,9 +328,11 @@ fn returning_selected_cells_wasm_cost_matrix() {
 #[test]
 fn bound_null_functions_match_literals_in_non_test_wasm() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
-    let results: Vec<Result<SqlQueryResult, Error>> = fixture
-        .query_candid("check_bound_sql_null_parity", ())
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
+    let results: Vec<Result<SqlQueryResult, Error>> = pic
+        .query_candid(canister_id, "check_bound_sql_null_parity", ())
         .expect("fixed binding probe should decode");
     assert_eq!(results.len(), 25);
     for (index, pair) in results[..22].as_chunks::<2>().0.iter().enumerate() {
@@ -280,8 +354,10 @@ fn bound_null_functions_match_literals_in_non_test_wasm() {
 #[test]
 fn sql_canister_schema_endpoint_exposes_exact_diagnostic_identity() {
     let fixture = install_sql_canister_fixture();
-    let response: Result<Vec<EntitySchemaDescription>, Error> = fixture
-        .query_candid("icydb_schema", ())
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    let response: Result<Vec<EntitySchemaDescription>, Error> = pic
+        .query_candid(canister_id, "icydb_schema", ())
         .expect("schema endpoint response should decode");
     let report = response.expect("controller schema endpoint should succeed");
     assert!(
@@ -308,7 +384,8 @@ fn sql_canister_schema_endpoint_exposes_exact_diagnostic_identity() {
         .expect("schema endpoint should describe SqlTestUser");
     let SqlQueryResult::Describe(SqlDescribeOutput::Verbose {
         description: sql_entity,
-    }) = query_sql(&fixture, "DESCRIBE SqlTestUser VERBOSE").expect("SQL DESCRIBE should succeed")
+    }) = query_sql(pic, canister_id, "DESCRIBE SqlTestUser VERBOSE")
+        .expect("SQL DESCRIBE should succeed")
     else {
         panic!("SQL DESCRIBE should return one entity description");
     };
@@ -324,16 +401,22 @@ fn sql_canister_schema_endpoint_exposes_exact_diagnostic_identity() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "keep the end-to-end boundary assertions together with explicit Testkit call identity"
+)]
 fn sql_canister_compact_introspection_is_shared_typed_and_bounded() {
     let fixture = install_sql_canister_fixture();
-    let describe =
-        query_sql(&fixture, "DESCRIBE SqlTestUser").expect("compact DESCRIBE should succeed");
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    let describe = query_sql(pic, canister_id, "DESCRIBE SqlTestUser")
+        .expect("compact DESCRIBE should succeed");
     let SqlQueryResult::Describe(SqlDescribeOutput::Compact { entity, columns }) = describe else {
         panic!("default DESCRIBE must hard-cut to the compact result");
     };
     assert_eq!(entity, "SqlTestUser");
 
-    let show_columns = query_sql(&fixture, "SHOW COLUMNS sqltestuser")
+    let show_columns = query_sql(pic, canister_id, "SHOW COLUMNS sqltestuser")
         .expect("case-insensitive compact SHOW COLUMNS should succeed");
     let SqlQueryResult::ShowColumns(SqlShowColumnsOutput::Compact {
         entity: show_entity,
@@ -373,7 +456,7 @@ fn sql_canister_compact_introspection_is_shared_typed_and_bounded() {
         assert_eq!(column.extra(), &[SqlColumnExtra::Generated]);
     }
 
-    let identity = query_sql(&fixture, "DESCRIBE SqlTestIdentityNat64")
+    let identity = query_sql(pic, canister_id, "DESCRIBE SqlTestIdentityNat64")
         .expect("accepted Identity metadata should be compactly describable");
     let SqlQueryResult::Describe(SqlDescribeOutput::Compact {
         columns: identity_columns,
@@ -412,9 +495,9 @@ fn sql_canister_compact_introspection_is_shared_typed_and_bounded() {
     );
     assert!(!rendered.iter().any(|line| line.starts_with("entity:")));
 
-    let from = query_sql(&fixture, "SHOW RELATIONS FROM SqlTestUser")
+    let from = query_sql(pic, canister_id, "SHOW RELATIONS FROM SqlTestUser")
         .expect("SHOW RELATIONS FROM should succeed");
-    let in_form = query_sql(&fixture, "SHOW RELATIONS IN SqlTestUser")
+    let in_form = query_sql(pic, canister_id, "SHOW RELATIONS IN SqlTestUser")
         .expect("SHOW RELATIONS IN should succeed");
     assert_eq!(from, in_form);
     let SqlQueryResult::ShowRelations(relations) = from else {
@@ -423,10 +506,14 @@ fn sql_canister_compact_introspection_is_shared_typed_and_bounded() {
     assert_eq!(relations.entity(), "SqlTestUser");
     assert!(relations.relations().is_empty());
 
-    let compact_error = query_sql(&fixture, "DESCRIBE MissingIntrospectionEntity")
+    let compact_error = query_sql(pic, canister_id, "DESCRIBE MissingIntrospectionEntity")
         .expect_err("compact missing entity should fail");
-    let verbose_error = query_sql(&fixture, "DESCRIBE MissingIntrospectionEntity VERBOSE")
-        .expect_err("verbose missing entity should fail");
+    let verbose_error = query_sql(
+        pic,
+        canister_id,
+        "DESCRIBE MissingIntrospectionEntity VERBOSE",
+    )
+    .expect_err("verbose missing entity should fail");
     assert_eq!(compact_error.code(), verbose_error.code());
     assert_eq!(compact_error.class(), verbose_error.class());
 }
@@ -435,9 +522,11 @@ fn sql_canister_compact_introspection_is_shared_typed_and_bounded() {
 #[ignore = "release-closeout instruction probe over the exact prepared-commit work bound"]
 fn identity_closeout_reports_one_row_and_maximum_batch_instruction_costs() {
     let fixture = install_sql_canister_fixture();
-    let stable_before = stable_memory_fingerprint(&fixture);
-    let result: Result<IdentityCloseoutPerfResult, Error> = fixture
-        .update_candid("measure_identity_closeout_perf", ())
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    let stable_before = stable_memory_fingerprint(pic, canister_id);
+    let result: Result<IdentityCloseoutPerfResult, Error> = pic
+        .update_candid(canister_id, "measure_identity_closeout_perf", ())
         .expect("Identity closeout perf result should decode");
     let result = result.expect("Identity closeout perf endpoint should succeed");
 
@@ -466,8 +555,12 @@ fn identity_closeout_reports_one_row_and_maximum_batch_instruction_costs() {
     assert_eq!(result.maximum_batch_rows, (4 * 1024) - 1);
     assert_eq!(result.maximum_entity_context_count, 64);
     let membership_indexes = expect_show_indexes(
-        query_sql(&fixture, "SHOW INDEXES FROM SqlTestEnrollmentUserPrincipal")
-            .expect("Toko-shaped membership indexes should remain introspectable"),
+        query_sql(
+            pic,
+            canister_id,
+            "SHOW INDEXES FROM SqlTestEnrollmentUserPrincipal",
+        )
+        .expect("Toko-shaped membership indexes should remain introspectable"),
     );
     assert!(membership_indexes.iter().any(|index| {
         index.contains("(user_id)") && !index.contains("authentication_principal")
@@ -475,7 +568,7 @@ fn identity_closeout_reports_one_row_and_maximum_batch_instruction_costs() {
     assert!(membership_indexes.iter().any(|index| {
         index.starts_with("UNIQUE INDEX") && index.contains("(user_id, authentication_principal)")
     }));
-    let stable_after = stable_memory_fingerprint(&fixture);
+    let stable_after = stable_memory_fingerprint(pic, canister_id);
     assert!(stable_after.1 >= stable_before.1);
 
     println!(
@@ -502,8 +595,10 @@ fn identity_closeout_reports_one_row_and_maximum_batch_instruction_costs() {
 #[ignore = "release evidence for explicit application-behavior instruction costs"]
 fn application_behavior_reports_separate_and_composed_instruction_costs() {
     let fixture = install_sql_canister_fixture();
-    let result: Result<ApplicationBehaviorPerfResult, String> = fixture
-        .query_candid("measure_application_behavior_perf", ())
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    let result: Result<ApplicationBehaviorPerfResult, String> = pic
+        .query_candid(canister_id, "measure_application_behavior_perf", ())
         .expect("application behavior perf result should decode");
     let result = result.expect("application behavior perf endpoint should succeed");
 
@@ -525,76 +620,87 @@ fn application_behavior_reports_separate_and_composed_instruction_costs() {
     );
 }
 
-fn seed_oversized_sql_group_name(fixture: &StandaloneCanisterFixture) {
-    let result: Result<(), Error> = fixture
-        .update_candid("seed_oversized_sql_group_name", ())
+fn seed_oversized_sql_group_name(pic: &PocketIc, canister_id: Principal) {
+    let result: Result<(), Error> = pic
+        .update_candid(canister_id, "seed_oversized_sql_group_name", ())
         .expect("oversized SQL group-name seed call should decode");
 
     result.expect("oversized SQL group-name seed should succeed");
 }
 
 fn query_sql_endpoint(
-    fixture: &StandaloneCanisterFixture,
+    pic: &PocketIc,
+    canister_id: Principal,
     sql: &str,
 ) -> Result<SqlQueryResult, Error> {
-    fixture
-        .query_candid("icydb_query", (sql.to_string(),))
+    pic.query_candid(canister_id, "icydb_query", (sql.to_string(),))
         .expect("sql query canister call should decode")
 }
 
 fn measure_query_sql(
-    fixture: &StandaloneCanisterFixture,
+    pic: &PocketIc,
+    canister_id: Principal,
     sql: &str,
 ) -> SqlExecutionInstructionResult {
-    fixture
-        .query_candid("measure_sql_query_instructions", (sql.to_string(),))
-        .expect("measured SQL query canister call should decode")
+    pic.query_candid(
+        canister_id,
+        "measure_sql_query_instructions",
+        (sql.to_string(),),
+    )
+    .expect("measured SQL query canister call should decode")
 }
 
-fn query_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {
-    query_sql_endpoint(fixture, sql)
+fn query_sql(pic: &PocketIc, canister_id: Principal, sql: &str) -> Result<SqlQueryResult, Error> {
+    query_sql_endpoint(pic, canister_id, sql)
 }
 
 fn query_numeric_types(
-    fixture: &StandaloneCanisterFixture,
+    pic: &PocketIc,
+    canister_id: Principal,
     sql: &str,
 ) -> Result<SqlQueryResult, Error> {
-    query_sql(fixture, sql)
+    query_sql(pic, canister_id, sql)
 }
 
-fn ddl_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {
-    fixture
-        .update_candid("icydb_ddl", (sql.to_string(),))
+fn ddl_sql(pic: &PocketIc, canister_id: Principal, sql: &str) -> Result<SqlQueryResult, Error> {
+    pic.update_candid(canister_id, "icydb_ddl", (sql.to_string(),))
         .expect("sql DDL canister call should decode")
 }
 
 fn measure_ddl_sql(
-    fixture: &StandaloneCanisterFixture,
+    pic: &PocketIc,
+    canister_id: Principal,
     sql: &str,
 ) -> SqlExecutionInstructionResult {
-    fixture
-        .update_candid("measure_sql_ddl_admission_instructions", (sql.to_string(),))
-        .expect("measured SQL DDL canister call should decode")
+    pic.update_candid(
+        canister_id,
+        "measure_sql_ddl_admission_instructions",
+        (sql.to_string(),),
+    )
+    .expect("measured SQL DDL canister call should decode")
 }
 
 fn measure_mutation_sql(
-    fixture: &StandaloneCanisterFixture,
+    pic: &PocketIc,
+    canister_id: Principal,
     sql: &str,
 ) -> SqlExecutionInstructionResult {
-    fixture
-        .update_candid(
-            "measure_trusted_sql_exact_update_instructions",
-            (sql.to_string(),),
-        )
-        .expect("measured SQL mutation canister call should decode")
+    pic.update_candid(
+        canister_id,
+        "measure_trusted_sql_exact_update_instructions",
+        (sql.to_string(),),
+    )
+    .expect("measured SQL mutation canister call should decode")
 }
 
 fn measure_accepted_schema_read(
-    fixture: &StandaloneCanisterFixture,
+    pic: &PocketIc,
+    canister_id: Principal,
     entity: &str,
 ) -> AcceptedSchemaReadInstructionResult {
-    let result: Result<AcceptedSchemaReadInstructionResult, Error> = fixture
+    let result: Result<AcceptedSchemaReadInstructionResult, Error> = pic
         .query_candid(
+            canister_id,
             "measure_accepted_schema_read_instructions",
             (entity.to_string(),),
         )
@@ -602,8 +708,8 @@ fn measure_accepted_schema_read(
     result.expect("measured accepted-schema read should succeed")
 }
 
-fn stable_memory_fingerprint(fixture: &StandaloneCanisterFixture) -> ([u8; 32], usize) {
-    let stable = fixture.pocket_ic().get_stable_memory(fixture.canister_id());
+fn stable_memory_fingerprint(pic: &PocketIc, canister_id: Principal) -> ([u8; 32], usize) {
+    let stable = pic.get_stable_memory(canister_id);
     (*blake3::hash(&stable).as_bytes(), stable.len())
 }
 
@@ -615,9 +721,11 @@ fn reference_unknown_order_field_survives_real_canister_and_leaves_stable_bytes_
         ORDER BY hp DESC, pokemon_card_id DESC LIMIT 1";
 
     let fixture = install_sql_canister_fixture();
-    let stable_before = stable_memory_fingerprint(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    let stable_before = stable_memory_fingerprint(pic, canister_id);
 
-    let direct_error = query_sql(&fixture, FAILURE_SQL)
+    let direct_error = query_sql(pic, canister_id, FAILURE_SQL)
         .expect_err("reference unknown ORDER BY field should fail through generated dispatch");
     assert_eq!(direct_error.code(), ErrorCode::QUERY_PLAN);
     assert_eq!(direct_error.facts().len(), 1);
@@ -631,15 +739,15 @@ fn reference_unknown_order_field_survives_real_canister_and_leaves_stable_bytes_
         Ok(Some((icydb::diagnostic::QueryFieldRole::OrderBy, "id")))
     );
 
-    let measured_failure = measure_query_sql(&fixture, FAILURE_SQL);
+    let measured_failure = measure_query_sql(pic, canister_id, FAILURE_SQL);
     assert_eq!(measured_failure.result, Err(direct_error));
     assert!(measured_failure.local_instructions > 0);
     assert!(measured_failure.local_instructions < 40_000_000_000);
 
-    query_sql_endpoint(&fixture, SUCCESS_SQL)
+    query_sql_endpoint(pic, canister_id, SUCCESS_SQL)
         .expect("reference corrected query should succeed through generated dispatch");
 
-    let stable_after = stable_memory_fingerprint(&fixture);
+    let stable_after = stable_memory_fingerprint(pic, canister_id);
     assert_eq!(stable_after, stable_before);
 
     println!(
@@ -650,15 +758,14 @@ fn reference_unknown_order_field_survives_real_canister_and_leaves_stable_bytes_
     );
 }
 
-fn update_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {
-    fixture
-        .update_candid("icydb_update", (sql.to_string(),))
+fn update_sql(pic: &PocketIc, canister_id: Principal, sql: &str) -> Result<SqlQueryResult, Error> {
+    pic.update_candid(canister_id, "icydb_update", (sql.to_string(),))
         .expect("sql update canister call should decode")
 }
 
-fn expect_integrity_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> IntegrityCheckResult {
-    let result: Result<IntegrityCheckResult, SqlIntegrityError> = fixture
-        .update_candid("icydb_integrity", (sql.to_string(),))
+fn expect_integrity_sql(pic: &PocketIc, canister_id: Principal, sql: &str) -> IntegrityCheckResult {
+    let result: Result<IntegrityCheckResult, SqlIntegrityError> = pic
+        .update_candid(canister_id, "icydb_integrity", (sql.to_string(),))
         .expect("integrity canister call should decode");
 
     result.expect("integrity canister call should succeed")
@@ -676,10 +783,11 @@ impl DdlSchemaVersion {
 
     fn publish(
         &mut self,
-        fixture: &StandaloneCanisterFixture,
+        pic: &PocketIc,
+        canister_id: Principal,
         sql: &str,
     ) -> Result<SqlQueryResult, Error> {
-        let result = ddl_sql(fixture, &ddl_transition_sql(sql, self.current));
+        let result = ddl_sql(pic, canister_id, &ddl_transition_sql(sql, self.current));
         if result.is_ok() {
             self.current = self
                 .current
@@ -691,18 +799,20 @@ impl DdlSchemaVersion {
 
     fn reject(
         self,
-        fixture: &StandaloneCanisterFixture,
+        pic: &PocketIc,
+        canister_id: Principal,
         sql: &str,
     ) -> Result<SqlQueryResult, Error> {
-        ddl_sql(fixture, &ddl_transition_sql(sql, self.current))
+        ddl_sql(pic, canister_id, &ddl_transition_sql(sql, self.current))
     }
 
     fn measure_publish(
         &mut self,
-        fixture: &StandaloneCanisterFixture,
+        pic: &PocketIc,
+        canister_id: Principal,
         sql: &str,
     ) -> SqlExecutionInstructionResult {
-        let measured = measure_ddl_sql(fixture, &ddl_transition_sql(sql, self.current));
+        let measured = measure_ddl_sql(pic, canister_id, &ddl_transition_sql(sql, self.current));
         if measured.result.is_ok() {
             self.current = self
                 .current
@@ -714,37 +824,41 @@ impl DdlSchemaVersion {
 
     fn measure_reject(
         self,
-        fixture: &StandaloneCanisterFixture,
+        pic: &PocketIc,
+        canister_id: Principal,
         sql: &str,
     ) -> SqlExecutionInstructionResult {
-        measure_ddl_sql(fixture, &ddl_transition_sql(sql, self.current))
+        measure_ddl_sql(pic, canister_id, &ddl_transition_sql(sql, self.current))
     }
 
     fn measure_no_op(
         self,
-        fixture: &StandaloneCanisterFixture,
+        pic: &PocketIc,
+        canister_id: Principal,
         sql: &str,
     ) -> SqlExecutionInstructionResult {
-        measure_ddl_sql(fixture, &ddl_expected_sql(sql, self.current))
+        measure_ddl_sql(pic, canister_id, &ddl_expected_sql(sql, self.current))
     }
 
     fn no_op(
         self,
-        fixture: &StandaloneCanisterFixture,
+        pic: &PocketIc,
+        canister_id: Principal,
         sql: &str,
     ) -> Result<SqlQueryResult, Error> {
-        ddl_sql(fixture, &ddl_expected_sql(sql, self.current))
+        ddl_sql(pic, canister_id, &ddl_expected_sql(sql, self.current))
     }
 
     fn validate_constraint_to_completion(
         &mut self,
-        fixture: &StandaloneCanisterFixture,
+        pic: &PocketIc,
+        canister_id: Principal,
         entity: &str,
         constraint: &str,
     ) -> Result<SqlQueryResult, Error> {
         let sql = format!("ALTER TABLE {entity} VALIDATE CONSTRAINT {constraint}");
         for _ in 0..4 {
-            let result = ddl_sql(fixture, sql.as_str())?;
+            let result = ddl_sql(pic, canister_id, sql.as_str())?;
             if matches!(
                 &result,
                 SqlQueryResult::Ddl {
@@ -859,7 +973,8 @@ fn expect_show_indexes(result: SqlQueryResult) -> Vec<String> {
 }
 
 fn assert_sql_test_user_rank_index(
-    fixture: &StandaloneCanisterFixture,
+    pic: &PocketIc,
+    canister_id: Principal,
     expected_present: bool,
     context: &str,
 ) {
@@ -867,7 +982,7 @@ fn assert_sql_test_user_rank_index(
         "INDEX sql_test_user_rank_idx (rank) [state=ready] [origin=ddl]";
 
     let indexes = expect_show_indexes(
-        query_sql(fixture, "SHOW INDEXES FROM SqlTestUser")
+        query_sql(pic, canister_id, "SHOW INDEXES FROM SqlTestUser")
             .unwrap_or_else(|error| panic!("{context}: {error:?}")),
     );
     let matches_expectation = if expected_present {
@@ -881,13 +996,15 @@ fn assert_sql_test_user_rank_index(
 }
 
 fn active_constraint_name(
-    fixture: &StandaloneCanisterFixture,
+    pic: &PocketIc,
+    canister_id: Principal,
     entity: &str,
     kind: &str,
     field: &str,
 ) -> String {
     let sql = format!("SHOW CONSTRAINTS FROM {entity}");
-    let result = query_sql(fixture, sql.as_str()).expect("SHOW CONSTRAINTS should succeed");
+    let result =
+        query_sql(pic, canister_id, sql.as_str()).expect("SHOW CONSTRAINTS should succeed");
     let SqlQueryResult::ShowConstraints { constraints, .. } = result else {
         panic!("SHOW CONSTRAINTS should return constraint metadata");
     };
@@ -902,10 +1019,11 @@ fn active_constraint_name(
         .expect("live activation should be discoverable through SHOW CONSTRAINTS")
 }
 
-fn sql_test_user_id_by_name(fixture: &StandaloneCanisterFixture, name: &str) -> String {
+fn sql_test_user_id_by_name(pic: &PocketIc, canister_id: Principal, name: &str) -> String {
     let sql = format!("SELECT id FROM SqlTestUser WHERE name = '{name}'");
     let output = expect_projection(
-        query_sql(fixture, sql.as_str()).expect("fixture id read should find the named user"),
+        query_sql(pic, canister_id, sql.as_str())
+            .expect("fixture id read should find the named user"),
     );
 
     assert_eq!(
@@ -915,10 +1033,15 @@ fn sql_test_user_id_by_name(fixture: &StandaloneCanisterFixture, name: &str) -> 
     first_projected_text(&output)
 }
 
-fn sql_test_numeric_type_id_by_label(fixture: &StandaloneCanisterFixture, label: &str) -> String {
+fn sql_test_numeric_type_id_by_label(
+    pic: &PocketIc,
+    canister_id: Principal,
+    label: &str,
+) -> String {
     let sql = format!("SELECT id FROM SqlTestNumericTypes WHERE label = '{label}'");
     let output = expect_projection(
-        query_sql(fixture, sql.as_str()).expect("fixture id read should find the labeled row"),
+        query_sql(pic, canister_id, sql.as_str())
+            .expect("fixture id read should find the labeled row"),
     );
 
     assert_eq!(
@@ -1108,17 +1231,18 @@ fn assert_numeric_query_error(err: Error, expected_code: ErrorCode, context: &st
 }
 
 fn assert_ddl_rejects_without_index_visibility_change(
-    fixture: &StandaloneCanisterFixture,
+    pic: &PocketIc,
+    canister_id: Principal,
     schema_version: DdlSchemaVersion,
     sql: &str,
     forbidden_visibility_fragment: &str,
 ) {
     let before = expect_show_indexes(
-        query_sql(fixture, "SHOW INDEXES FROM SqlTestUser")
+        query_sql(pic, canister_id, "SHOW INDEXES FROM SqlTestUser")
             .expect("SHOW INDEXES FROM should read accepted indexes before rejected DDL"),
     );
     let err = schema_version
-        .reject(fixture, sql)
+        .reject(pic, canister_id, sql)
         .expect_err("invalid DDL should reject");
 
     assert_ddl_rejection_error(
@@ -1126,7 +1250,7 @@ fn assert_ddl_rejects_without_index_visibility_change(
         "invalid DDL should stay at the schema DDL admission boundary",
     );
     let after = expect_show_indexes(
-        query_sql(fixture, "SHOW INDEXES FROM SqlTestUser")
+        query_sql(pic, canister_id, "SHOW INDEXES FROM SqlTestUser")
             .expect("SHOW INDEXES FROM should still read accepted indexes after rejected DDL"),
     );
     assert_eq!(
@@ -1142,12 +1266,14 @@ fn assert_ddl_rejects_without_index_visibility_change(
 }
 
 fn assert_ddl_rejects_with_index_visibility_unchanged(
-    fixture: &StandaloneCanisterFixture,
+    pic: &PocketIc,
+    canister_id: Principal,
     schema_version: DdlSchemaVersion,
     sql: &str,
 ) -> Error {
     assert_ddl_rejects_with_entity_index_visibility_unchanged(
-        fixture,
+        pic,
+        canister_id,
         schema_version,
         "SqlTestUser",
         sql,
@@ -1155,17 +1281,18 @@ fn assert_ddl_rejects_with_index_visibility_unchanged(
 }
 
 fn assert_ddl_rejects_with_entity_index_visibility_unchanged(
-    fixture: &StandaloneCanisterFixture,
+    pic: &PocketIc,
+    canister_id: Principal,
     schema_version: DdlSchemaVersion,
     entity: &str,
     sql: &str,
 ) -> Error {
     let before = expect_show_indexes(
-        query_sql(fixture, &format!("SHOW INDEXES FROM {entity}"))
+        query_sql(pic, canister_id, &format!("SHOW INDEXES FROM {entity}"))
             .expect("SHOW INDEXES FROM should read accepted indexes before rejected DDL"),
     );
     let err = schema_version
-        .reject(fixture, sql)
+        .reject(pic, canister_id, sql)
         .expect_err("invalid DDL should reject");
 
     assert_ddl_rejection_error(
@@ -1173,7 +1300,7 @@ fn assert_ddl_rejects_with_entity_index_visibility_unchanged(
         "invalid DDL should stay at the schema DDL admission boundary",
     );
     let after = expect_show_indexes(
-        query_sql(fixture, &format!("SHOW INDEXES FROM {entity}"))
+        query_sql(pic, canister_id, &format!("SHOW INDEXES FROM {entity}"))
             .expect("SHOW INDEXES FROM should still read accepted indexes after rejected DDL"),
     );
     assert_eq!(
@@ -1187,7 +1314,9 @@ fn assert_ddl_rejects_with_entity_index_visibility_unchanged(
 #[test]
 fn sql_canister_required_sqlite_reference_profile_matches_bundled_reference() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     let scenarios = required_sqlite_reference_scenarios();
     assert!(
         scenarios.len() <= 96,
@@ -1206,7 +1335,7 @@ fn sql_canister_required_sqlite_reference_profile_matches_bundled_reference() {
         let sql = scenario
             .render_sql("SqlTestUser")
             .expect("maintained live entity identifier should render");
-        let live = query_sql(&fixture, &sql).unwrap_or_else(|error| {
+        let live = query_sql(pic, canister_id, &sql).unwrap_or_else(|error| {
             panic!(
                 "live IcyDB scenario {:?} rejected with {:?}/{:?}: {error}",
                 scenario.id(),
@@ -1669,12 +1798,15 @@ fn verify_live_row_count(
 #[test]
 fn sql_canister_ddl_endpoint_publishes_supported_field_path_index() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     let mut schema_version = DdlSchemaVersion::initial();
 
     let ddl = schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
         )
         .expect("supported CREATE INDEX DDL should publish through the canister endpoint");
@@ -1701,7 +1833,7 @@ fn sql_canister_ddl_endpoint_publishes_supported_field_path_index() {
     assert_eq!(index_keys_written, 3);
 
     let indexes = expect_show_indexes(
-        query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
+        query_sql(pic, canister_id, "SHOW INDEXES FROM SqlTestUser")
             .expect("SHOW INDEXES FROM should read accepted indexes after DDL publication"),
     );
     assert!(
@@ -1715,12 +1847,15 @@ fn sql_canister_ddl_endpoint_publishes_supported_field_path_index() {
 #[test]
 fn sql_canister_ddl_endpoint_publishes_supported_expression_index() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     let mut schema_version = DdlSchemaVersion::initial();
 
     let ddl = schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "CREATE INDEX sql_test_user_lower_name_idx ON SqlTestUser (LOWER(name))",
         )
         .expect(
@@ -1748,10 +1883,11 @@ fn sql_canister_ddl_endpoint_publishes_supported_expression_index() {
     assert_eq!(rows_scanned, 3);
     assert_eq!(index_keys_written, 3);
 
-    let indexes =
-        expect_show_indexes(query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser").expect(
+    let indexes = expect_show_indexes(
+        query_sql(pic, canister_id, "SHOW INDEXES FROM SqlTestUser").expect(
             "SHOW INDEXES FROM should read accepted indexes after expression DDL publication",
-        ));
+        ),
+    );
     assert!(
         indexes.iter().any(|index| index
             == "INDEX sql_test_user_lower_name_idx (expr:v1:LOWER(name)) [state=ready] [origin=ddl]"),
@@ -1760,7 +1896,8 @@ fn sql_canister_ddl_endpoint_publishes_supported_expression_index() {
 
     let no_op = schema_version
         .no_op(
-            &fixture,
+            pic,
+            canister_id,
             "CREATE INDEX IF NOT EXISTS sql_test_user_lower_name_idx ON SqlTestUser (LOWER(name))",
         )
         .expect(
@@ -1791,12 +1928,14 @@ fn sql_canister_ddl_endpoint_publishes_supported_expression_index() {
 #[test]
 fn sql_canister_ddl_endpoint_publishes_supported_unique_expression_index() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     let mut schema_version = DdlSchemaVersion::initial();
 
     let ddl = schema_version
         .publish(
-        &fixture,
+        pic, canister_id,
         "CREATE UNIQUE INDEX sql_test_user_lower_name_unique_idx ON SqlTestUser (LOWER(name))",
     )
     .expect(
@@ -1825,13 +1964,14 @@ fn sql_canister_ddl_endpoint_publishes_supported_unique_expression_index() {
     assert_eq!(index_keys_written, 0);
     schema_version
         .validate_constraint_to_completion(
-            &fixture,
+            pic,
+            canister_id,
             "SqlTestUser",
             "sql_test_user_lower_name_unique_idx",
         )
         .expect("unique expression validation should promote the candidate index");
 
-    let indexes = expect_show_indexes(query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser").expect(
+    let indexes = expect_show_indexes(query_sql(pic, canister_id, "SHOW INDEXES FROM SqlTestUser").expect(
         "SHOW INDEXES FROM should read accepted indexes after unique expression DDL publication",
     ));
     assert!(
@@ -1844,12 +1984,15 @@ fn sql_canister_ddl_endpoint_publishes_supported_unique_expression_index() {
 #[test]
 fn sql_canister_ddl_endpoint_publishes_supported_filtered_field_path_index() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     let mut schema_version = DdlSchemaVersion::initial();
 
     let ddl = schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "CREATE INDEX sql_test_user_filtered_rank_idx ON SqlTestUser (rank) WHERE age > 30",
         )
         .expect("supported filtered CREATE INDEX DDL should publish through the canister endpoint");
@@ -1875,10 +2018,11 @@ fn sql_canister_ddl_endpoint_publishes_supported_filtered_field_path_index() {
     assert_eq!(rows_scanned, 3);
     assert_eq!(index_keys_written, 2);
 
-    let indexes =
-        expect_show_indexes(query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser").expect(
+    let indexes = expect_show_indexes(
+        query_sql(pic, canister_id, "SHOW INDEXES FROM SqlTestUser").expect(
             "SHOW INDEXES FROM should read accepted indexes after filtered DDL publication",
-        ));
+        ),
+    );
     assert!(
         indexes.iter().any(|index| index
             == "INDEX sql_test_user_filtered_rank_idx (rank) WHERE age > 30 [state=ready] [origin=ddl]"),
@@ -1909,11 +2053,12 @@ fn assert_nullable_unique_route_evidence(
     );
 }
 
-fn populate_nullable_unique_nicknames(fixture: &StandaloneCanisterFixture) {
+fn populate_nullable_unique_nicknames(pic: &PocketIc, canister_id: Principal) {
     for (name, nickname) in [("alice", "ally"), ("bob", "bravo"), ("charlie", "zulu")] {
-        let id = sql_test_user_id_by_name(fixture, name);
+        let id = sql_test_user_id_by_name(pic, canister_id, name);
         update_sql(
-            fixture,
+            pic,
+            canister_id,
             format!("UPDATE SqlTestUser SET nickname = '{nickname}' WHERE id = '{id}'").as_str(),
         )
         .unwrap_or_else(|error| panic!("primary-key nickname update should succeed: {error:?}"));
@@ -1921,7 +2066,8 @@ fn populate_nullable_unique_nicknames(fixture: &StandaloneCanisterFixture) {
 }
 
 fn publish_and_assert_nullable_unique_constraints(
-    fixture: &StandaloneCanisterFixture,
+    pic: &PocketIc,
+    canister_id: Principal,
     schema_version: &mut DdlSchemaVersion,
 ) {
     for (ddl, index) in [
@@ -1935,14 +2081,14 @@ fn publish_and_assert_nullable_unique_constraints(
         ),
     ] {
         schema_version
-            .publish(fixture, ddl)
+            .publish(pic, canister_id, ddl)
             .unwrap_or_else(|error| panic!("unique index should enter validation: {error:?}"));
         schema_version
-            .validate_constraint_to_completion(fixture, "SqlTestUser", index)
+            .validate_constraint_to_completion(pic, canister_id, "SqlTestUser", index)
             .unwrap_or_else(|error| panic!("unique index should validate: {error:?}"));
     }
 
-    let constraints = match query_sql(fixture, "SHOW CONSTRAINTS FROM SqlTestUser")
+    let constraints = match query_sql(pic, canister_id, "SHOW CONSTRAINTS FROM SqlTestUser")
         .expect("SHOW CONSTRAINTS should expose accepted unique contracts")
     {
         SqlQueryResult::ShowConstraints { constraints, .. } => constraints,
@@ -1964,21 +2110,30 @@ fn publish_and_assert_nullable_unique_constraints(
     assert_eq!(unfiltered.semantics(), "unique_index_v1");
 }
 
-fn assert_nullable_unique_range_route_parity(fixture: &StandaloneCanisterFixture) {
+fn assert_nullable_unique_range_route_parity(pic: &PocketIc, canister_id: Principal) {
     let range_sql = "SELECT name FROM SqlTestUser WHERE nickname > 'b' ORDER BY age ASC";
     let range_explain = expect_explain(
-        query_sql(fixture, format!("EXPLAIN EXECUTION {range_sql}").as_str())
-            .expect("proven range EXPLAIN should succeed"),
+        query_sql(
+            pic,
+            canister_id,
+            format!("EXPLAIN EXECUTION {range_sql}").as_str(),
+        )
+        .expect("proven range EXPLAIN should succeed"),
     );
     assert!(
         range_explain.contains("IndexRange(sql_test_user_unique_nickname_idx)"),
         "a concrete non-null range should prove filtered-index eligibility: {range_explain}",
     );
-    let indexed = query_sql(fixture, range_sql).expect("proven range query should succeed");
+    let indexed =
+        query_sql(pic, canister_id, range_sql).expect("proven range query should succeed");
     let forced_sql = "SELECT name FROM SqlTestUser WHERE nickname > 'b' OR name = '__no_such_user__' ORDER BY age ASC";
     let forced_explain = expect_explain(
-        query_sql(fixture, format!("EXPLAIN EXECUTION {forced_sql}").as_str())
-            .expect("conservative range EXPLAIN should succeed"),
+        query_sql(
+            pic,
+            canister_id,
+            format!("EXPLAIN EXECUTION {forced_sql}").as_str(),
+        )
+        .expect("conservative range EXPLAIN should succeed"),
     );
     assert!(
         forced_explain.contains("FullScan")
@@ -1987,42 +2142,58 @@ fn assert_nullable_unique_range_route_parity(fixture: &StandaloneCanisterFixture
     );
     assert_eq!(
         indexed,
-        query_sql(fixture, forced_sql).expect("equivalent conservative range query should succeed"),
+        query_sql(pic, canister_id, forced_sql)
+            .expect("equivalent conservative range query should succeed"),
         "newly eligible range output must match an independently forced full scan",
     );
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "keep the end-to-end boundary assertions together with explicit Testkit call identity"
+)]
 fn sql_canister_filtered_unique_index_requires_and_uses_non_null_query_proof() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     let mut schema_version = DdlSchemaVersion::initial();
 
     schema_version
-        .publish(&fixture, "ALTER TABLE SqlTestUser ADD COLUMN nickname text")
+        .publish(
+            pic,
+            canister_id,
+            "ALTER TABLE SqlTestUser ADD COLUMN nickname text",
+        )
         .expect("nullable test field should publish through the canister endpoint");
-    populate_nullable_unique_nicknames(&fixture);
+    populate_nullable_unique_nicknames(pic, canister_id);
 
     let select_sql = "SELECT name FROM SqlTestUser WHERE nickname = 'ally'";
     let before_explain = expect_explain(
-        query_sql(&fixture, format!("EXPLAIN EXECUTION {select_sql}").as_str())
-            .expect("pre-index EXPLAIN should succeed"),
+        query_sql(
+            pic,
+            canister_id,
+            format!("EXPLAIN EXECUTION {select_sql}").as_str(),
+        )
+        .expect("pre-index EXPLAIN should succeed"),
     );
     assert!(
         before_explain.contains("FullScan")
             && !before_explain.contains("sql_test_user_unique_nickname_idx"),
         "pre-index EXPLAIN must retain the full scan and not select the future index: {before_explain}",
     );
-    let before =
-        query_sql_endpoint(&fixture, select_sql).expect("pre-index full-scan query should succeed");
+    let before = query_sql_endpoint(pic, canister_id, select_sql)
+        .expect("pre-index full-scan query should succeed");
 
-    publish_and_assert_nullable_unique_constraints(&fixture, &mut schema_version);
+    publish_and_assert_nullable_unique_constraints(pic, canister_id, &mut schema_version);
 
     let nullable_distinct_sql =
         "SELECT DISTINCT nickname FROM SqlTestUser ORDER BY nickname ASC LIMIT 3";
     let nullable_distinct_explain = expect_explain(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             format!("EXPLAIN EXECUTION {nullable_distinct_sql}").as_str(),
         )
         .expect("direct nullable DISTINCT EXPLAIN should succeed"),
@@ -2032,7 +2203,7 @@ fn sql_canister_filtered_unique_index_requires_and_uses_non_null_query_proof() {
             && !nullable_distinct_explain.contains("sql_test_user_unique_nickname_idx"),
         "a direct nullable field must not enter the non-null group-seek cohort: {nullable_distinct_explain}",
     );
-    let nullable_distinct = query_sql_endpoint(&fixture, nullable_distinct_sql)
+    let nullable_distinct = query_sql_endpoint(pic, canister_id, nullable_distinct_sql)
         .expect("direct nullable DISTINCT fallback should succeed");
     assert_projection_rendered(
         &expect_projection(nullable_distinct),
@@ -2043,17 +2214,23 @@ fn sql_canister_filtered_unique_index_requires_and_uses_non_null_query_proof() {
         "direct nullable DISTINCT fallback should preserve canonical results",
     );
     let after_explain = expect_explain(
-        query_sql(&fixture, format!("EXPLAIN EXECUTION {select_sql}").as_str())
-            .expect("post-index EXPLAIN should succeed"),
+        query_sql(
+            pic,
+            canister_id,
+            format!("EXPLAIN EXECUTION {select_sql}").as_str(),
+        )
+        .expect("post-index EXPLAIN should succeed"),
     );
     assert!(
         after_explain.contains("IndexPrefix(sql_test_user_unique_nickname_idx)"),
         "a concrete non-null equality should prove filtered-index eligibility: {after_explain}",
     );
-    let after = query_sql_endpoint(&fixture, select_sql).expect("post-index query should succeed");
+    let after =
+        query_sql_endpoint(pic, canister_id, select_sql).expect("post-index query should succeed");
     let missing_proof_explain = expect_explain(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "EXPLAIN EXECUTION SELECT name FROM SqlTestUser WHERE nickname IS NULL",
         )
         .expect("nullable query EXPLAIN should succeed"),
@@ -2062,12 +2239,13 @@ fn sql_canister_filtered_unique_index_requires_and_uses_non_null_query_proof() {
         !missing_proof_explain.contains("sql_test_user_unique_nickname_idx"),
         "a query that can observe omitted rows must not select the filtered index: {missing_proof_explain}",
     );
-    assert_nullable_unique_or_route_parity(&fixture, &after);
+    assert_nullable_unique_or_route_parity(pic, canister_id, &after);
     let forced_full_scan_sql =
         "SELECT name FROM SqlTestUser WHERE nickname = 'ally' OR name = '__no_such_user__'";
     let forced_full_scan_explain = expect_explain(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             format!("EXPLAIN EXECUTION {forced_full_scan_sql}").as_str(),
         )
         .expect("conservative OR query EXPLAIN should succeed"),
@@ -2077,27 +2255,33 @@ fn sql_canister_filtered_unique_index_requires_and_uses_non_null_query_proof() {
             && !forced_full_scan_explain.contains("sql_test_user_unique_nickname_idx"),
         "an OR branch without non-null proof must preserve the full-scan route: {forced_full_scan_explain}",
     );
-    let forced_full_scan = query_sql_endpoint(&fixture, forced_full_scan_sql)
+    let forced_full_scan = query_sql_endpoint(pic, canister_id, forced_full_scan_sql)
         .expect("equivalent conservative query should execute through a full scan");
-    assert_nullable_unique_range_route_parity(&fixture);
+    assert_nullable_unique_range_route_parity(pic, canister_id);
     assert_nullable_unique_route_evidence(&before, &after, &forced_full_scan);
 }
 
 fn assert_nullable_unique_or_route_parity(
-    fixture: &StandaloneCanisterFixture,
+    pic: &PocketIc,
+    canister_id: Principal,
     expected: &SqlQueryResult,
 ) {
     let sql = "SELECT name FROM SqlTestUser WHERE nickname = 'ally' OR nickname = 'never'";
     let explain = expect_explain(
-        query_sql(fixture, format!("EXPLAIN EXECUTION {sql}").as_str())
-            .expect("proven non-null OR query EXPLAIN should succeed"),
+        query_sql(
+            pic,
+            canister_id,
+            format!("EXPLAIN EXECUTION {sql}").as_str(),
+        )
+        .expect("proven non-null OR query EXPLAIN should succeed"),
     );
     assert!(
         !explain.contains("FullScan") && explain.contains("sql_test_user_unique_nickname_idx"),
         "non-null equality in every OR branch should permit filtered-index access: {explain}",
     );
     assert_eq!(
-        &query_sql_endpoint(fixture, sql).expect("proven non-null OR query should succeed"),
+        &query_sql_endpoint(pic, canister_id, sql)
+            .expect("proven non-null OR query should succeed"),
         expected,
         "indexed OR output must match the equivalent equality query",
     );
@@ -2115,13 +2299,15 @@ fn require_measured_ddl_success(measured: SqlExecutionInstructionResult, context
 }
 
 fn prepare_nullable_unique_measurement_fields(
-    fixture: &StandaloneCanisterFixture,
+    pic: &PocketIc,
+    canister_id: Principal,
     schema_version: &mut DdlSchemaVersion,
 ) {
     for field in ["closeout_nullable_valid", "closeout_nullable_rejected"] {
         schema_version
             .publish(
-                fixture,
+                pic,
+                canister_id,
                 format!("ALTER TABLE SqlTestUser ADD COLUMN {field} text").as_str(),
             )
             .unwrap_or_else(|error| panic!("closeout nullable field should publish: {error:?}"));
@@ -2129,41 +2315,56 @@ fn prepare_nullable_unique_measurement_fields(
 }
 
 fn measure_nullable_unique_ddl_matrix(
-    fixture: &StandaloneCanisterFixture,
+    pic: &PocketIc,
+    canister_id: Principal,
     schema_version: &mut DdlSchemaVersion,
 ) -> [u64; 4] {
     let non_unique = require_measured_ddl_success(
         schema_version.measure_publish(
-            fixture,
+            pic,
+            canister_id,
             "CREATE INDEX closeout_age_name_idx ON SqlTestUser (age, name)",
         ),
         "non-unique DDL admission",
     );
     let non_null_unique = require_measured_ddl_success(
         schema_version.measure_publish(
-            fixture,
+            pic,
+            canister_id,
             "CREATE UNIQUE INDEX closeout_rank_unique_idx ON SqlTestUser (rank)",
         ),
         "non-null unique DDL admission",
     );
     schema_version
-        .validate_constraint_to_completion(fixture, "SqlTestUser", "closeout_rank_unique_idx")
+        .validate_constraint_to_completion(
+            pic,
+            canister_id,
+            "SqlTestUser",
+            "closeout_rank_unique_idx",
+        )
         .expect("non-null unique closeout index should validate");
 
     let nullable_unique = require_measured_ddl_success(
         schema_version.measure_publish(
-            fixture,
+            pic,
+            canister_id,
             "CREATE UNIQUE INDEX closeout_nullable_valid_idx ON SqlTestUser \
              (closeout_nullable_valid) WHERE closeout_nullable_valid IS NOT NULL",
         ),
         "guarded nullable unique DDL admission",
     );
     schema_version
-        .validate_constraint_to_completion(fixture, "SqlTestUser", "closeout_nullable_valid_idx")
+        .validate_constraint_to_completion(
+            pic,
+            canister_id,
+            "SqlTestUser",
+            "closeout_nullable_valid_idx",
+        )
         .expect("guarded nullable unique closeout index should validate");
 
     let rejected = schema_version.measure_reject(
-        fixture,
+        pic,
+        canister_id,
         "CREATE UNIQUE INDEX closeout_nullable_rejected_idx ON SqlTestUser \
          (closeout_nullable_rejected)",
     );
@@ -2184,27 +2385,32 @@ fn measure_nullable_unique_ddl_matrix(
 #[test]
 fn nullable_unique_closeout_measures_admission_stable_bytes_and_unchanged_write_path() {
     let fixture = install_fixture_canister("sql");
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = fixture.canister_id();
+    reset_sql_fixtures(pic, canister_id);
     let mut schema_version = DdlSchemaVersion::initial();
-    prepare_nullable_unique_measurement_fields(&fixture, &mut schema_version);
-    let ddl_instructions = measure_nullable_unique_ddl_matrix(&fixture, &mut schema_version);
+    prepare_nullable_unique_measurement_fields(pic, canister_id, &mut schema_version);
+    let ddl_instructions =
+        measure_nullable_unique_ddl_matrix(pic, canister_id, &mut schema_version);
 
-    let stable_before = stable_memory_fingerprint(&fixture);
+    let stable_before = stable_memory_fingerprint(pic, canister_id);
     let no_op = schema_version.measure_no_op(
-        &fixture,
+        pic,
+        canister_id,
         "CREATE UNIQUE INDEX IF NOT EXISTS closeout_nullable_valid_idx ON SqlTestUser \
          (closeout_nullable_valid) WHERE closeout_nullable_valid IS NOT NULL",
     );
     require_measured_ddl_success(no_op, "identical accepted nullable unique DDL");
-    let stable_after = stable_memory_fingerprint(&fixture);
+    let stable_after = stable_memory_fingerprint(pic, canister_id);
     assert_eq!(
         stable_after, stable_before,
         "identical accepted schema and physical index authority must not change stable bytes",
     );
 
-    let alice_id = sql_test_user_id_by_name(&fixture, "alice");
+    let alice_id = sql_test_user_id_by_name(pic, canister_id, "alice");
     let write = measure_mutation_sql(
-        &fixture,
+        pic,
+        canister_id,
         format!("UPDATE SqlTestUser SET rank = 101 WHERE id = '{alice_id}'").as_str(),
     );
     write
@@ -2227,20 +2433,23 @@ fn nullable_unique_closeout_measures_admission_stable_bytes_and_unchanged_write_
 }
 
 fn add_closeout_indexes_to_eight(
-    fixture: &StandaloneCanisterFixture,
+    pic: &PocketIc,
+    canister_id: Principal,
     schema_version: &mut DdlSchemaVersion,
 ) {
     for ordinal in 1..=7 {
         let field = format!("closeout_reopen_{ordinal}");
         schema_version
             .publish(
-                fixture,
+                pic,
+                canister_id,
                 format!("ALTER TABLE SqlTestUser ADD COLUMN {field} text").as_str(),
             )
             .unwrap_or_else(|error| panic!("reopen measurement field should publish: {error:?}"));
         schema_version
             .publish(
-                fixture,
+                pic,
+                canister_id,
                 format!("CREATE INDEX closeout_reopen_{ordinal}_idx ON SqlTestUser ({field})")
                     .as_str(),
             )
@@ -2251,24 +2460,26 @@ fn add_closeout_indexes_to_eight(
 #[test]
 fn accepted_schema_reopen_reads_are_measured_at_one_and_eight_indexes() {
     let fixture = install_fixture_canister("sql");
-    deliver_fixture_startup_watchdog(&fixture);
-    let one = measure_accepted_schema_read(&fixture, "SqlTestUser");
+    let pic = fixture.pocket_ic();
+    let canister_id = fixture.canister_id();
+    deliver_fixture_startup_watchdog(pic);
+    let one = measure_accepted_schema_read(pic, canister_id, "SqlTestUser");
     assert_eq!(one.description.indexes().len(), 1);
     assert!(one.local_instructions > 0);
 
     let mut schema_version = DdlSchemaVersion::initial();
-    add_closeout_indexes_to_eight(&fixture, &mut schema_version);
+    add_closeout_indexes_to_eight(pic, canister_id, &mut schema_version);
     assert_eq!(
-        measure_accepted_schema_read(&fixture, "SqlTestUser")
+        measure_accepted_schema_read(pic, canister_id, "SqlTestUser")
             .description
             .indexes()
             .len(),
         8,
     );
-    upgrade_fixture_canister(&fixture, "sql");
-    deliver_fixture_startup_watchdog(&fixture);
-    deliver_fixture_startup_watchdog(&fixture);
-    let eight = measure_accepted_schema_read(&fixture, "SqlTestUser");
+    upgrade_fixture_canister(pic, canister_id, "sql");
+    deliver_fixture_startup_watchdog(pic);
+    deliver_fixture_startup_watchdog(pic);
+    let eight = measure_accepted_schema_read(pic, canister_id, "SqlTestUser");
     assert_eq!(eight.description.indexes().len(), 8);
     assert!(eight.local_instructions > 0);
 
@@ -2281,12 +2492,15 @@ fn accepted_schema_reopen_reads_are_measured_at_one_and_eight_indexes() {
 #[test]
 fn sql_canister_ddl_endpoint_publishes_supported_multi_field_path_index() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     let mut schema_version = DdlSchemaVersion::initial();
 
     let ddl = schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "CREATE INDEX sql_test_user_rank_age_idx ON SqlTestUser (rank, age)",
         )
         .expect(
@@ -2315,7 +2529,7 @@ fn sql_canister_ddl_endpoint_publishes_supported_multi_field_path_index() {
     assert_eq!(index_keys_written, 3);
 
     let indexes = expect_show_indexes(
-        query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
+        query_sql(pic, canister_id, "SHOW INDEXES FROM SqlTestUser")
             .expect("SHOW INDEXES FROM should read accepted indexes after DDL publication"),
     );
     assert!(
@@ -2328,12 +2542,15 @@ fn sql_canister_ddl_endpoint_publishes_supported_multi_field_path_index() {
 #[test]
 fn sql_canister_ddl_endpoint_treats_asc_index_order_as_default_order() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     let mut schema_version = DdlSchemaVersion::initial();
 
     let ddl = schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "CREATE INDEX sql_test_user_rank_age_asc_idx ON SqlTestUser (rank ASC, age ASC)",
         )
         .expect("CREATE INDEX with explicit ASC should publish through the canister endpoint");
@@ -2358,7 +2575,7 @@ fn sql_canister_ddl_endpoint_treats_asc_index_order_as_default_order() {
     assert_eq!(index_keys_written, 3);
 
     let indexes = expect_show_indexes(
-        query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
+        query_sql(pic, canister_id, "SHOW INDEXES FROM SqlTestUser")
             .expect("SHOW INDEXES FROM should read accepted indexes after ASC DDL publication"),
     );
     assert!(
@@ -2371,12 +2588,15 @@ fn sql_canister_ddl_endpoint_treats_asc_index_order_as_default_order() {
 #[test]
 fn sql_canister_ddl_endpoint_publishes_and_drops_supported_unique_field_path_index() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     let mut schema_version = DdlSchemaVersion::initial();
 
     let ddl = schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "CREATE UNIQUE INDEX sql_test_user_unique_rank_idx ON SqlTestUser (rank)",
         )
         .expect("supported CREATE UNIQUE INDEX DDL should publish through the canister endpoint");
@@ -2401,11 +2621,16 @@ fn sql_canister_ddl_endpoint_publishes_and_drops_supported_unique_field_path_ind
     assert_eq!(rows_scanned, 0);
     assert_eq!(index_keys_written, 0);
     schema_version
-        .validate_constraint_to_completion(&fixture, "SqlTestUser", "sql_test_user_unique_rank_idx")
+        .validate_constraint_to_completion(
+            pic,
+            canister_id,
+            "SqlTestUser",
+            "sql_test_user_unique_rank_idx",
+        )
         .expect("unique field-path validation should promote the candidate index");
 
     let indexes = expect_show_indexes(
-        query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
+        query_sql(pic, canister_id, "SHOW INDEXES FROM SqlTestUser")
             .expect("SHOW INDEXES FROM should read accepted indexes after unique DDL publication"),
     );
     assert!(
@@ -2416,7 +2641,8 @@ fn sql_canister_ddl_endpoint_publishes_and_drops_supported_unique_field_path_ind
 
     let ddl = schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "DROP INDEX sql_test_user_unique_rank_idx ON SqlTestUser",
         )
         .expect("supported DROP INDEX should remove a DDL-published unique field-path index");
@@ -2436,7 +2662,7 @@ fn sql_canister_ddl_endpoint_publishes_and_drops_supported_unique_field_path_ind
     assert_eq!(status, "published");
 
     let indexes = expect_show_indexes(
-        query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
+        query_sql(pic, canister_id, "SHOW INDEXES FROM SqlTestUser")
             .expect("SHOW INDEXES FROM should read accepted indexes after unique DROP INDEX"),
     );
     assert!(
@@ -2450,11 +2676,14 @@ fn sql_canister_ddl_endpoint_publishes_and_drops_supported_unique_field_path_ind
 #[test]
 fn sql_canister_unique_validation_retains_same_page_conflicts() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     for name in ["alice", "bob", "charlie"] {
-        let id = sql_test_user_id_by_name(&fixture, name);
+        let id = sql_test_user_id_by_name(pic, canister_id, name);
         update_sql(
-            &fixture,
+            pic,
+            canister_id,
             &format!("UPDATE SqlTestUser SET rank = 7 WHERE id = '{id}'"),
         )
         .expect("historical rows should share one rank before unique activation");
@@ -2462,13 +2691,15 @@ fn sql_canister_unique_validation_retains_same_page_conflicts() {
     let mut schema_version = DdlSchemaVersion::initial();
     schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "CREATE UNIQUE INDEX duplicate_rank_idx ON SqlTestUser (rank)",
         )
         .expect("unique activation should admit before historical validation");
     let sql = "ALTER TABLE SqlTestUser VALIDATE CONSTRAINT duplicate_rank_idx";
-    ddl_sql(&fixture, sql).expect("first validation call should start the durable job");
-    let result = ddl_sql(&fixture, sql).expect("Forward should report historical conflicts");
+    ddl_sql(pic, canister_id, sql).expect("first validation call should start the durable job");
+    let result =
+        ddl_sql(pic, canister_id, sql).expect("Forward should report historical conflicts");
     let SqlQueryResult::Ddl {
         constraint_validation: Some(validation),
         ..
@@ -2481,29 +2712,40 @@ fn sql_canister_unique_validation_retains_same_page_conflicts() {
     assert_eq!(validation.findings.len(), 2);
     assert!(validation.page_sequence.is_some());
     assert_eq!(
-        ddl_sql(&fixture, sql).expect("unacknowledged conflicts should remain retained"),
+        ddl_sql(pic, canister_id, sql).expect("unacknowledged conflicts should remain retained"),
         result,
     );
     schema_version
-        .publish(&fixture, "DROP INDEX duplicate_rank_idx ON SqlTestUser")
+        .publish(
+            pic,
+            canister_id,
+            "DROP INDEX duplicate_rank_idx ON SqlTestUser",
+        )
         .expect("conflicting activation should remain abortable");
 }
 
 #[test]
 fn sql_canister_ddl_endpoint_drops_supported_ddl_field_path_index() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     let mut schema_version = DdlSchemaVersion::initial();
 
     schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
         )
         .expect("setup CREATE INDEX should publish before DROP INDEX");
 
     let ddl = schema_version
-        .publish(&fixture, "DROP INDEX sql_test_user_rank_idx ON SqlTestUser")
+        .publish(
+            pic,
+            canister_id,
+            "DROP INDEX sql_test_user_rank_idx ON SqlTestUser",
+        )
         .expect("supported DROP INDEX DDL should publish through the canister endpoint");
     let SqlQueryResult::Ddl {
         entity,
@@ -2524,7 +2766,7 @@ fn sql_canister_ddl_endpoint_drops_supported_ddl_field_path_index() {
     assert_eq!(status, "published");
 
     let indexes = expect_show_indexes(
-        query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
+        query_sql(pic, canister_id, "SHOW INDEXES FROM SqlTestUser")
             .expect("SHOW INDEXES FROM should read accepted indexes after DROP INDEX"),
     );
     assert!(
@@ -2538,18 +2780,22 @@ fn sql_canister_ddl_endpoint_drops_supported_ddl_field_path_index() {
 #[test]
 fn demo_rpg_ddl_endpoint_rejects_targetless_drop_index() {
     let fixture = install_demo_rpg_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = fixture.canister_id();
+    reset_sql_fixtures(pic, canister_id);
     let mut schema_version = DdlSchemaVersion::initial();
 
     schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "CREATE INDEX character_renown_idx ON Character (renown)",
         )
         .expect("setup CREATE INDEX should publish before targetless DROP INDEX");
 
     assert_ddl_rejects_with_entity_index_visibility_unchanged(
-        &fixture,
+        pic,
+        canister_id,
         schema_version,
         "Character",
         "DROP INDEX character_renown_idx",
@@ -2559,18 +2805,22 @@ fn demo_rpg_ddl_endpoint_rejects_targetless_drop_index() {
 #[test]
 fn sql_canister_ddl_endpoint_rejects_ambiguous_drop_index_shorthand() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     let mut schema_version = DdlSchemaVersion::initial();
 
     schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
         )
         .expect("setup CREATE INDEX should publish before ambiguous DROP INDEX");
 
     assert_ddl_rejects_with_index_visibility_unchanged(
-        &fixture,
+        pic,
+        canister_id,
         schema_version,
         "DROP INDEX sql_test_user_rank_idx",
     );
@@ -2579,11 +2829,14 @@ fn sql_canister_ddl_endpoint_rejects_ambiguous_drop_index_shorthand() {
 #[test]
 fn sql_canister_ddl_endpoint_rejects_generated_index_drop_without_publication() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     let schema_version = DdlSchemaVersion::initial();
 
     let err = assert_ddl_rejects_with_index_visibility_unchanged(
-        &fixture,
+        pic,
+        canister_id,
         schema_version,
         "DROP INDEX idx_sql_test_user__name ON SqlTestUser",
     );
@@ -2597,12 +2850,15 @@ fn sql_canister_ddl_endpoint_rejects_generated_index_drop_without_publication() 
 #[test]
 fn sql_canister_ddl_endpoint_publishes_create_index_if_not_exists_for_absent_index() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     let mut schema_version = DdlSchemaVersion::initial();
 
     let ddl = schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "CREATE INDEX IF NOT EXISTS sql_test_user_rank_idx ON SqlTestUser (rank)",
         )
         .expect("absent CREATE INDEX IF NOT EXISTS should publish through the canister endpoint");
@@ -2629,7 +2885,7 @@ fn sql_canister_ddl_endpoint_publishes_create_index_if_not_exists_for_absent_ind
     assert_eq!(index_keys_written, 3);
 
     let indexes = expect_show_indexes(
-        query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
+        query_sql(pic, canister_id, "SHOW INDEXES FROM SqlTestUser")
             .expect("SHOW INDEXES FROM should read accepted indexes after idempotent CREATE INDEX"),
     );
     assert!(
@@ -2643,19 +2899,23 @@ fn sql_canister_ddl_endpoint_publishes_create_index_if_not_exists_for_absent_ind
 #[test]
 fn sql_canister_ddl_endpoint_noops_create_index_if_not_exists_for_existing_index() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     let mut schema_version = DdlSchemaVersion::initial();
 
     schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
         )
         .expect("setup CREATE INDEX should publish before idempotent CREATE INDEX");
 
     let ddl = schema_version
         .no_op(
-            &fixture,
+            pic,
+            canister_id,
             "CREATE INDEX IF NOT EXISTS sql_test_user_rank_idx ON SqlTestUser (rank)",
         )
         .expect("matching CREATE INDEX IF NOT EXISTS should no-op through the canister endpoint");
@@ -2682,7 +2942,7 @@ fn sql_canister_ddl_endpoint_noops_create_index_if_not_exists_for_existing_index
     assert_eq!(index_keys_written, 0);
 
     let indexes = expect_show_indexes(
-        query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
+        query_sql(pic, canister_id, "SHOW INDEXES FROM SqlTestUser")
             .expect("SHOW INDEXES FROM should read accepted indexes after no-op CREATE INDEX"),
     );
     let rank_index = "INDEX sql_test_user_rank_idx (rank) [state=ready] [origin=ddl]";
@@ -2699,18 +2959,22 @@ fn sql_canister_ddl_endpoint_noops_create_index_if_not_exists_for_existing_index
 #[test]
 fn sql_canister_ddl_endpoint_rejects_conflicting_create_index_if_not_exists() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     let mut schema_version = DdlSchemaVersion::initial();
 
     schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
         )
         .expect("setup CREATE INDEX should publish before conflicting idempotent CREATE INDEX");
 
     assert_ddl_rejects_without_index_visibility_change(
-        &fixture,
+        pic,
+        canister_id,
         schema_version,
         "CREATE INDEX IF NOT EXISTS sql_test_user_rank_idx ON SqlTestUser (age)",
         "INDEX sql_test_user_rank_idx (age)",
@@ -2720,19 +2984,23 @@ fn sql_canister_ddl_endpoint_rejects_conflicting_create_index_if_not_exists() {
 #[test]
 fn sql_canister_ddl_endpoint_drops_existing_index_with_if_exists() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     let mut schema_version = DdlSchemaVersion::initial();
 
     schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
         )
         .expect("setup CREATE INDEX should publish before idempotent DROP INDEX");
 
     let ddl = schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "DROP INDEX IF EXISTS sql_test_user_rank_idx ON SqlTestUser",
         )
         .expect("existing DROP INDEX IF EXISTS should publish through the canister endpoint");
@@ -2759,7 +3027,7 @@ fn sql_canister_ddl_endpoint_drops_existing_index_with_if_exists() {
     assert_eq!(index_keys_written, 0);
 
     let indexes = expect_show_indexes(
-        query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
+        query_sql(pic, canister_id, "SHOW INDEXES FROM SqlTestUser")
             .expect("SHOW INDEXES FROM should read accepted indexes after idempotent DROP INDEX"),
     );
     assert!(
@@ -2773,16 +3041,19 @@ fn sql_canister_ddl_endpoint_drops_existing_index_with_if_exists() {
 #[test]
 fn sql_canister_ddl_endpoint_noops_drop_index_if_exists_for_missing_index() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     let schema_version = DdlSchemaVersion::initial();
 
     let before = expect_show_indexes(
-        query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
+        query_sql(pic, canister_id, "SHOW INDEXES FROM SqlTestUser")
             .expect("SHOW INDEXES FROM should read accepted indexes before no-op DROP INDEX"),
     );
     let ddl = schema_version
         .no_op(
-            &fixture,
+            pic,
+            canister_id,
             "DROP INDEX IF EXISTS sql_test_user_missing_idx ON SqlTestUser",
         )
         .expect("missing DROP INDEX IF EXISTS should no-op through the canister endpoint");
@@ -2809,7 +3080,7 @@ fn sql_canister_ddl_endpoint_noops_drop_index_if_exists_for_missing_index() {
     assert_eq!(index_keys_written, 0);
 
     let after = expect_show_indexes(
-        query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
+        query_sql(pic, canister_id, "SHOW INDEXES FROM SqlTestUser")
             .expect("SHOW INDEXES FROM should read accepted indexes after no-op DROP INDEX"),
     );
     assert_eq!(
@@ -2821,11 +3092,14 @@ fn sql_canister_ddl_endpoint_noops_drop_index_if_exists_for_missing_index() {
 #[test]
 fn sql_canister_ddl_endpoint_rejects_generated_index_drop_with_if_exists() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     let schema_version = DdlSchemaVersion::initial();
 
     let err = assert_ddl_rejects_with_index_visibility_unchanged(
-        &fixture,
+        pic,
+        canister_id,
         schema_version,
         "DROP INDEX IF EXISTS idx_sql_test_user__name ON SqlTestUser",
     );
@@ -2839,11 +3113,13 @@ fn sql_canister_ddl_endpoint_rejects_generated_index_drop_with_if_exists() {
 #[test]
 fn sql_canister_ddl_publication_updates_describe_explain_and_reads() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     let mut schema_version = DdlSchemaVersion::initial();
 
     let before_describe = expect_describe(
-        query_sql(&fixture, "DESCRIBE SqlTestUser VERBOSE")
+        query_sql(pic, canister_id, "DESCRIBE SqlTestUser VERBOSE")
             .expect("DESCRIBE should read accepted schema before DDL"),
     );
     assert!(
@@ -2856,7 +3132,8 @@ fn sql_canister_ddl_publication_updates_describe_explain_and_reads() {
 
     let before_explain = expect_explain(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "EXPLAIN EXECUTION \
              SELECT name FROM SqlTestUser \
              WHERE rank >= 25 \
@@ -2872,13 +3149,14 @@ fn sql_canister_ddl_publication_updates_describe_explain_and_reads() {
 
     schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
         )
         .expect("supported CREATE INDEX DDL should publish before post-DDL visibility checks");
 
     let after_describe = expect_describe(
-        query_sql(&fixture, "DESCRIBE SqlTestUser VERBOSE")
+        query_sql(pic, canister_id, "DESCRIBE SqlTestUser VERBOSE")
             .expect("DESCRIBE should read accepted schema after DDL"),
     );
     assert!(
@@ -2893,7 +3171,8 @@ fn sql_canister_ddl_publication_updates_describe_explain_and_reads() {
 
     let after_explain = expect_explain(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "EXPLAIN EXECUTION \
              SELECT name FROM SqlTestUser \
              WHERE rank >= 25 \
@@ -2909,7 +3188,8 @@ fn sql_canister_ddl_publication_updates_describe_explain_and_reads() {
 
     let rows = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name FROM SqlTestUser WHERE rank >= 25 ORDER BY rank ASC LIMIT 2",
         )
         .expect("indexed read should succeed after DDL"),
@@ -2927,11 +3207,14 @@ fn sql_canister_ddl_publication_updates_describe_explain_and_reads() {
 #[test]
 fn sql_canister_ddl_endpoint_rejects_unknown_field_path_without_publication() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     let schema_version = DdlSchemaVersion::initial();
 
     assert_ddl_rejects_without_index_visibility_change(
-        &fixture,
+        pic,
+        canister_id,
         schema_version,
         "CREATE INDEX sql_test_user_missing_idx ON SqlTestUser (missing)",
         "sql_test_user_missing_idx",
@@ -2941,18 +3224,22 @@ fn sql_canister_ddl_endpoint_rejects_unknown_field_path_without_publication() {
 #[test]
 fn sql_canister_ddl_endpoint_rejects_duplicate_index_name_without_publication() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     let mut schema_version = DdlSchemaVersion::initial();
 
     schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
         )
         .expect("setup CREATE INDEX should publish before duplicate-name rejection");
 
     assert_ddl_rejects_without_index_visibility_change(
-        &fixture,
+        pic,
+        canister_id,
         schema_version,
         "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (age)",
         "INDEX sql_test_user_rank_idx (age)",
@@ -2962,11 +3249,14 @@ fn sql_canister_ddl_endpoint_rejects_duplicate_index_name_without_publication() 
 #[test]
 fn sql_canister_ddl_endpoint_rejects_duplicate_field_path_without_publication() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     let schema_version = DdlSchemaVersion::initial();
 
     assert_ddl_rejects_without_index_visibility_change(
-        &fixture,
+        pic,
+        canister_id,
         schema_version,
         "CREATE INDEX sql_test_user_duplicate_name_idx ON SqlTestUser (name)",
         "sql_test_user_duplicate_name_idx",
@@ -2976,28 +3266,42 @@ fn sql_canister_ddl_endpoint_rejects_duplicate_field_path_without_publication() 
 #[test]
 fn sql_canister_ddl_endpoint_rejects_unsupported_create_index_shapes_without_publication() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     let schema_version = DdlSchemaVersion::initial();
 
     assert_ddl_rejects_with_index_visibility_unchanged(
-        &fixture,
+        pic,
+        canister_id,
         schema_version,
         "CREATE INDEX sql_test_user_rank_desc_idx ON SqlTestUser (rank DESC)",
     );
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "keep the end-to-end boundary assertions together with explicit Testkit call identity"
+)]
 fn sql_canister_ddl_endpoint_publishes_alter_column_default() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     let mut schema_version = DdlSchemaVersion::initial();
 
     schema_version
-        .publish(&fixture, "ALTER TABLE SqlTestUser ADD COLUMN bonus nat64")
+        .publish(
+            pic,
+            canister_id,
+            "ALTER TABLE SqlTestUser ADD COLUMN bonus nat64",
+        )
         .expect("setup nullable ADD COLUMN should publish through the canister endpoint");
     let set_default = schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "ALTER TABLE SqlTestUser ALTER COLUMN bonus SET DEFAULT 7",
         )
         .expect("ALTER COLUMN SET DEFAULT should publish through the canister endpoint");
@@ -3023,7 +3327,7 @@ fn sql_canister_ddl_endpoint_publishes_alter_column_default() {
     assert_eq!(index_keys_written, 0);
 
     let describe_after_set = expect_describe(
-        query_sql(&fixture, "DESCRIBE SqlTestUser VERBOSE")
+        query_sql(pic, canister_id, "DESCRIBE SqlTestUser VERBOSE")
             .expect("DESCRIBE should read accepted schema after SET DEFAULT"),
     );
     assert!(
@@ -3040,7 +3344,8 @@ fn sql_canister_ddl_endpoint_publishes_alter_column_default() {
     );
     let set_default_no_op = schema_version
         .no_op(
-            &fixture,
+            pic,
+            canister_id,
             "ALTER TABLE SqlTestUser ALTER COLUMN bonus SET DEFAULT 7",
         )
         .expect("matching ALTER COLUMN SET DEFAULT should no-op through the canister endpoint");
@@ -3048,13 +3353,15 @@ fn sql_canister_ddl_endpoint_publishes_alter_column_default() {
 
     schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "ALTER TABLE SqlTestUser ADD COLUMN nickname text DEFAULT 'anonymous'",
         )
         .expect("setup nullable defaulted ADD COLUMN should publish through the canister endpoint");
     let drop_default = schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "ALTER TABLE SqlTestUser ALTER COLUMN nickname DROP DEFAULT",
         )
         .expect("ALTER COLUMN DROP DEFAULT should publish for nullable accepted fields");
@@ -3076,7 +3383,7 @@ fn sql_canister_ddl_endpoint_publishes_alter_column_default() {
     assert_eq!(status, "published");
 
     let describe_after_drop = expect_describe(
-        query_sql(&fixture, "DESCRIBE SqlTestUser VERBOSE")
+        query_sql(pic, canister_id, "DESCRIBE SqlTestUser VERBOSE")
             .expect("DESCRIBE should read accepted schema after DROP DEFAULT"),
     );
     assert!(
@@ -3093,19 +3400,22 @@ fn sql_canister_ddl_endpoint_publishes_alter_column_default() {
 #[test]
 fn sql_canister_compact_default_fallback_uses_accepted_payload_facts() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     let mut schema_version = DdlSchemaVersion::initial();
     let literal = "accepted-default-".repeat(12);
 
     schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             format!("ALTER TABLE SqlTestUser ADD COLUMN profile text DEFAULT '{literal}'").as_str(),
         )
         .expect("long accepted text default should publish through the canister endpoint");
 
     let verbose = expect_describe(
-        query_sql(&fixture, "DESCRIBE SqlTestUser VERBOSE")
+        query_sql(pic, canister_id, "DESCRIBE SqlTestUser VERBOSE")
             .expect("verbose DESCRIBE should expose accepted default payload facts"),
     );
     let profile = verbose
@@ -3122,7 +3432,7 @@ fn sql_canister_compact_default_fallback_uses_accepted_payload_facts() {
     let expected = format!("text(bytes={bytes}, sha256={hash})");
 
     let SqlQueryResult::Describe(SqlDescribeOutput::Compact { columns, .. }) =
-        query_sql(&fixture, "DESCRIBE SqlTestUser")
+        query_sql(pic, canister_id, "DESCRIBE SqlTestUser")
             .expect("compact DESCRIBE should render the accepted default")
     else {
         panic!("compact DESCRIBE should retain its typed compact envelope");
@@ -3141,7 +3451,7 @@ fn sql_canister_compact_default_fallback_uses_accepted_payload_facts() {
 
     let SqlQueryResult::ShowColumns(SqlShowColumnsOutput::Compact {
         columns: repeated, ..
-    }) = query_sql(&fixture, "SHOW COLUMNS SqlTestUser")
+    }) = query_sql(pic, canister_id, "SHOW COLUMNS SqlTestUser")
         .expect("SHOW COLUMNS should reuse the accepted compact projector")
     else {
         panic!("SHOW COLUMNS should retain its typed compact envelope");
@@ -3152,18 +3462,22 @@ fn sql_canister_compact_default_fallback_uses_accepted_payload_facts() {
 #[test]
 fn sql_canister_ddl_endpoint_publishes_alter_column_nullability() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     let mut schema_version = DdlSchemaVersion::initial();
 
     schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "ALTER TABLE SqlTestUser ADD COLUMN nickname text DEFAULT 'anonymous'",
         )
         .expect("setup nullable defaulted ADD COLUMN should publish through the canister endpoint");
     let set_not_null = schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "ALTER TABLE SqlTestUser ALTER COLUMN nickname SET NOT NULL",
         )
         .expect("ALTER COLUMN SET NOT NULL should publish through the canister endpoint");
@@ -3183,13 +3497,19 @@ fn sql_canister_ddl_endpoint_publishes_alter_column_nullability() {
     assert_eq!(status, "activation_published");
     assert_eq!(rows_scanned, 0);
     assert_eq!(index_keys_written, 0);
-    let constraint_name = active_constraint_name(&fixture, "SqlTestUser", "not_null", "nickname");
+    let constraint_name =
+        active_constraint_name(pic, canister_id, "SqlTestUser", "not_null", "nickname");
     schema_version
-        .validate_constraint_to_completion(&fixture, "SqlTestUser", constraint_name.as_str())
+        .validate_constraint_to_completion(
+            pic,
+            canister_id,
+            "SqlTestUser",
+            constraint_name.as_str(),
+        )
         .expect("bounded SET NOT NULL validation should promote the accepted constraint");
 
     let describe_after_set = expect_describe(
-        query_sql(&fixture, "DESCRIBE SqlTestUser VERBOSE")
+        query_sql(pic, canister_id, "DESCRIBE SqlTestUser VERBOSE")
             .expect("DESCRIBE should read accepted schema after SET NOT NULL"),
     );
     assert!(
@@ -3207,7 +3527,8 @@ fn sql_canister_ddl_endpoint_publishes_alter_column_nullability() {
 
     let drop_not_null = schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "ALTER TABLE SqlTestUser ALTER COLUMN nickname DROP NOT NULL",
         )
         .expect("ALTER COLUMN DROP NOT NULL should publish through the canister endpoint");
@@ -3230,7 +3551,8 @@ fn sql_canister_ddl_endpoint_publishes_alter_column_nullability() {
 
     let drop_not_null_no_op = schema_version
         .no_op(
-            &fixture,
+            pic,
+            canister_id,
             "ALTER TABLE SqlTestUser ALTER COLUMN nickname DROP NOT NULL",
         )
         .expect("matching ALTER COLUMN DROP NOT NULL should no-op through the canister endpoint");
@@ -3240,11 +3562,14 @@ fn sql_canister_ddl_endpoint_publishes_alter_column_nullability() {
 #[test]
 fn sql_canister_ddl_endpoint_aborts_pending_not_null_for_bound_field() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     let mut schema_version = DdlSchemaVersion::initial();
     schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "ALTER TABLE SqlTestUser ADD COLUMN nickname text DEFAULT 'anonymous'",
         )
         .expect("setup should add a nullable field with a default");
@@ -3252,18 +3577,20 @@ fn sql_canister_ddl_endpoint_aborts_pending_not_null_for_bound_field() {
     // Abort an unvalidated activation through its bound field identity.
     schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "ALTER TABLE SqlTestUser ALTER COLUMN nickname SET NOT NULL",
         )
         .expect("nullable field should admit a not-null activation");
     schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "ALTER TABLE SqlTestUser ALTER COLUMN nickname DROP NOT NULL",
         )
         .expect("DROP NOT NULL should abort the pending activation for the bound field");
     let after_abort = expect_describe(
-        query_sql(&fixture, "DESCRIBE SqlTestUser VERBOSE")
+        query_sql(pic, canister_id, "DESCRIBE SqlTestUser VERBOSE")
             .expect("aborted activation should leave its field visible"),
     );
     assert!(after_abort.fields().iter().any(|field| {
@@ -3273,7 +3600,8 @@ fn sql_canister_ddl_endpoint_aborts_pending_not_null_for_bound_field() {
     }));
     let repeated_abort = schema_version
         .no_op(
-            &fixture,
+            pic,
+            canister_id,
             "ALTER TABLE SqlTestUser ALTER COLUMN nickname DROP NOT NULL",
         )
         .expect("aborted activation should leave no pending change");
@@ -3283,17 +3611,24 @@ fn sql_canister_ddl_endpoint_aborts_pending_not_null_for_bound_field() {
 #[test]
 fn sql_canister_ddl_endpoint_rejects_unsupported_alter_column_without_publication() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     let mut schema_version = DdlSchemaVersion::initial();
 
     schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "ALTER TABLE SqlTestUser ADD COLUMN required_score nat64 NOT NULL DEFAULT 7",
         )
         .expect("setup required ADD COLUMN DEFAULT should publish before unsupported DROP DEFAULT");
     schema_version
-        .publish(&fixture, "ALTER TABLE SqlTestUser ADD COLUMN bonus nat64")
+        .publish(
+            pic,
+            canister_id,
+            "ALTER TABLE SqlTestUser ADD COLUMN bonus nat64",
+        )
         .expect("setup nullable ADD COLUMN should publish before invalid SET DEFAULT");
 
     for (sql, expected_code) in [
@@ -3311,11 +3646,11 @@ fn sql_canister_ddl_endpoint_rejects_unsupported_alter_column_without_publicatio
         ),
     ] {
         let before = expect_describe(
-            query_sql(&fixture, "DESCRIBE SqlTestUser VERBOSE")
+            query_sql(pic, canister_id, "DESCRIBE SqlTestUser VERBOSE")
                 .expect("DESCRIBE should read accepted schema before rejected ALTER COLUMN"),
         );
         let err = schema_version
-            .reject(&fixture, sql)
+            .reject(pic, canister_id, sql)
             .expect_err("ALTER COLUMN should reject before publication");
         assert_ddl_rejection_error(
             &err,
@@ -3327,7 +3662,7 @@ fn sql_canister_ddl_endpoint_rejects_unsupported_alter_column_without_publicatio
             "{sql} should preserve the compact DDL admission leaf code",
         );
         let after = expect_describe(
-            query_sql(&fixture, "DESCRIBE SqlTestUser VERBOSE")
+            query_sql(pic, canister_id, "DESCRIBE SqlTestUser VERBOSE")
                 .expect("DESCRIBE should read accepted schema after rejected ALTER COLUMN"),
         );
         assert_eq!(
@@ -3340,9 +3675,11 @@ fn sql_canister_ddl_endpoint_rejects_unsupported_alter_column_without_publicatio
 #[test]
 fn sql_canister_ddl_endpoint_publishes_empty_drop_column() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
-    let reset: Result<(), Error> = fixture
-        .update_candid("icydb_fixtures_reset", ())
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
+    let reset: Result<(), Error> = pic
+        .update_candid(canister_id, "icydb_fixtures_reset", ())
         .expect("fixture reset should decode");
     reset.expect("fixture rows should be removed");
     let mut schema_version = DdlSchemaVersion::initial();
@@ -3350,17 +3687,23 @@ fn sql_canister_ddl_endpoint_publishes_empty_drop_column() {
         "ALTER TABLE SqlTestUser ADD COLUMN nickname text",
         "ALTER TABLE SqlTestUser ADD COLUMN handle text",
     ] {
-        schema_version.publish(&fixture, sql).expect("add field");
+        schema_version
+            .publish(pic, canister_id, sql)
+            .expect("add field");
     }
 
     // Schema publication changes the cardinality proof's accepted-root binding.
     // Rebuild that proof through the existing startup lifecycle before requiring
     // exact emptiness; deleting all visible rows alone is not sufficient.
-    upgrade_fixture_canister(&fixture, "sql");
-    deliver_fixture_startup_watchdog(&fixture);
+    upgrade_fixture_canister(pic, canister_id, "sql");
+    deliver_fixture_startup_watchdog(pic);
 
     let dropped = schema_version
-        .publish(&fixture, "ALTER TABLE SqlTestUser DROP COLUMN nickname")
+        .publish(
+            pic,
+            canister_id,
+            "ALTER TABLE SqlTestUser DROP COLUMN nickname",
+        )
         .expect("empty entity should admit dense field removal");
     assert!(matches!(
         dropped,
@@ -3373,7 +3716,8 @@ fn sql_canister_ddl_endpoint_publishes_empty_drop_column() {
         } if mutation_kind == "drop_field" && status == "published"
     ));
     let description = expect_describe(
-        query_sql(&fixture, "DESCRIBE SqlTestUser VERBOSE").expect("describe after removal"),
+        query_sql(pic, canister_id, "DESCRIBE SqlTestUser VERBOSE")
+            .expect("describe after removal"),
     );
     assert!(
         !description
@@ -3388,7 +3732,7 @@ fn sql_canister_ddl_endpoint_publishes_empty_drop_column() {
             .any(|field| field.name() == "handle")
     );
     let rows = expect_projection(
-        query_sql(&fixture, "SELECT handle FROM SqlTestUser")
+        query_sql(pic, canister_id, "SELECT handle FROM SqlTestUser")
             .expect("retained field should remain queryable after remapping"),
     );
     assert_eq!(rows.row_count, 0);
@@ -3397,19 +3741,22 @@ fn sql_canister_ddl_endpoint_publishes_empty_drop_column() {
 #[test]
 fn sql_canister_ddl_endpoint_rejects_nonempty_drop_column_before_publication() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     let mut schema_version = DdlSchemaVersion::initial();
 
     let missing = schema_version
         .no_op(
-            &fixture,
+            pic,
+            canister_id,
             "ALTER TABLE SqlTestUser DROP COLUMN IF EXISTS missing",
         )
         .expect("DROP COLUMN IF EXISTS should no-op for missing accepted fields");
     assert_ddl_no_op(missing, "drop_field", "missing");
 
     let generated_err = schema_version
-        .reject(&fixture, "ALTER TABLE SqlTestUser DROP COLUMN rank")
+        .reject(pic, canister_id, "ALTER TABLE SqlTestUser DROP COLUMN rank")
         .expect_err("DROP COLUMN should reject generated accepted fields");
     assert_ddl_rejection_error(
         &generated_err,
@@ -3417,17 +3764,29 @@ fn sql_canister_ddl_endpoint_rejects_nonempty_drop_column_before_publication() {
     );
 
     schema_version
-        .publish(&fixture, "ALTER TABLE SqlTestUser ADD COLUMN nickname text")
+        .publish(
+            pic,
+            canister_id,
+            "ALTER TABLE SqlTestUser ADD COLUMN nickname text",
+        )
         .expect("setup nullable ADD COLUMN should publish through the canister endpoint");
     schema_version
-        .publish(&fixture, "ALTER TABLE SqlTestUser ADD COLUMN handle text")
+        .publish(
+            pic,
+            canister_id,
+            "ALTER TABLE SqlTestUser ADD COLUMN handle text",
+        )
         .expect("setup second nullable ADD COLUMN should publish through the canister endpoint");
     let before = expect_describe(
-        query_sql(&fixture, "DESCRIBE SqlTestUser VERBOSE")
+        query_sql(pic, canister_id, "DESCRIBE SqlTestUser VERBOSE")
             .expect("DESCRIBE should read accepted schema before DROP COLUMN"),
     );
     let error = schema_version
-        .reject(&fixture, "ALTER TABLE SqlTestUser DROP COLUMN nickname")
+        .reject(
+            pic,
+            canister_id,
+            "ALTER TABLE SqlTestUser DROP COLUMN nickname",
+        )
         .expect_err("nonempty DROP COLUMN should require the future migration protocol");
     assert_ddl_rejection_error(
         &error,
@@ -3439,7 +3798,7 @@ fn sql_canister_ddl_endpoint_rejects_nonempty_drop_column_before_publication() {
         "nonempty DROP COLUMN should preserve the migration-required leaf code",
     );
     let after = expect_describe(
-        query_sql(&fixture, "DESCRIBE SqlTestUser VERBOSE")
+        query_sql(pic, canister_id, "DESCRIBE SqlTestUser VERBOSE")
             .expect("DESCRIBE should read accepted schema after DROP COLUMN"),
     );
     assert!(
@@ -3473,12 +3832,15 @@ fn sql_canister_ddl_endpoint_rejects_nonempty_drop_column_before_publication() {
 #[test]
 fn sql_canister_ddl_endpoint_publishes_rename_column_for_ddl_owned_field() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     let mut schema_version = DdlSchemaVersion::initial();
 
     let same_name = schema_version
         .no_op(
-            &fixture,
+            pic,
+            canister_id,
             "ALTER TABLE SqlTestUser RENAME COLUMN rank TO rank",
         )
         .expect("same-name RENAME COLUMN should no-op through the canister endpoint");
@@ -3486,7 +3848,8 @@ fn sql_canister_ddl_endpoint_publishes_rename_column_for_ddl_owned_field() {
 
     let generated_err = schema_version
         .reject(
-            &fixture,
+            pic,
+            canister_id,
             "ALTER TABLE SqlTestUser RENAME COLUMN rank TO score",
         )
         .expect_err("RENAME COLUMN should reject generated accepted fields");
@@ -3496,46 +3859,53 @@ fn sql_canister_ddl_endpoint_publishes_rename_column_for_ddl_owned_field() {
     );
 
     schema_version
-        .publish(&fixture, "ALTER TABLE SqlTestUser ADD COLUMN nickname text")
+        .publish(
+            pic,
+            canister_id,
+            "ALTER TABLE SqlTestUser ADD COLUMN nickname text",
+        )
         .expect("setup nullable ADD COLUMN should publish through the canister endpoint");
     schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "CREATE INDEX sql_test_user_nickname_idx ON SqlTestUser (nickname)",
         )
         .expect("setup field-path CREATE INDEX should publish through the canister endpoint");
     schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "CREATE INDEX sql_test_user_lower_nickname_idx ON SqlTestUser (LOWER(nickname))",
         )
         .expect("setup expression CREATE INDEX should publish through the canister endpoint");
     schema_version
         .publish(
-            &fixture,
+            pic, canister_id,
             "CREATE INDEX sql_test_user_filtered_nickname_idx ON SqlTestUser (nickname) WHERE nickname IS NOT NULL",
         )
         .expect("setup filtered CREATE INDEX should publish through the canister endpoint");
     let before = expect_describe(
-        query_sql(&fixture, "DESCRIBE SqlTestUser VERBOSE")
+        query_sql(pic, canister_id, "DESCRIBE SqlTestUser VERBOSE")
             .expect("DESCRIBE should read accepted schema before RENAME COLUMN"),
     );
     let rename = schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "ALTER TABLE SqlTestUser RENAME COLUMN nickname TO handle",
         )
         .expect("RENAME COLUMN should publish DDL-owned accepted field metadata");
     assert_rename_column_ddl_report(rename);
 
     let after = expect_describe(
-        query_sql(&fixture, "DESCRIBE SqlTestUser VERBOSE")
+        query_sql(pic, canister_id, "DESCRIBE SqlTestUser VERBOSE")
             .expect("DESCRIBE should read accepted schema after RENAME COLUMN"),
     );
     assert_rename_column_schema_visibility(&before, &after);
 
     let indexes = expect_show_indexes(
-        query_sql(&fixture, "SHOW INDEXES FROM SqlTestUser")
+        query_sql(pic, canister_id, "SHOW INDEXES FROM SqlTestUser")
             .expect("SHOW INDEXES should read accepted index metadata after RENAME COLUMN"),
     );
     assert_rename_column_index_visibility(&indexes);
@@ -3544,8 +3914,10 @@ fn sql_canister_ddl_endpoint_publishes_rename_column_for_ddl_owned_field() {
 #[test]
 fn sql_canister_integrity_endpoint_executes_controller_gated_quick_check() {
     let fixture = install_sql_canister_fixture();
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
 
-    let result = expect_integrity_sql(&fixture, "CHECK INTEGRITY SqlTestUser QUICK");
+    let result = expect_integrity_sql(pic, canister_id, "CHECK INTEGRITY SqlTestUser QUICK");
     let IntegrityCheckResult::Quick(result) = result else {
         panic!("Quick integrity SQL should return the canonical Quick payload");
     };
@@ -3558,8 +3930,9 @@ fn sql_canister_integrity_endpoint_executes_controller_gated_quick_check() {
     );
 
     let outsider = Principal::self_authenticating([7_u8; 32]);
-    let rejected: Result<IntegrityCheckResult, SqlIntegrityError> = fixture
+    let rejected: Result<IntegrityCheckResult, SqlIntegrityError> = pic
         .update_candid_as(
+            canister_id,
             outsider,
             "icydb_integrity",
             ("CHECK INTEGRITY SqlTestUser QUICK".to_string(),),
@@ -3577,6 +3950,8 @@ fn sql_canister_integrity_endpoint_executes_controller_gated_quick_check() {
 #[test]
 fn source_declared_controller_endpoints_authorize_before_private_handlers() {
     let fixture = install_sql_canister_fixture();
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
     let outsider = Principal::self_authenticating([8_u8; 32]);
     let sql_error = Error::from_runtime_boundary(
         RuntimeBoundaryCode::SqlSurfaceControllerRequired,
@@ -3591,60 +3966,77 @@ fn source_declared_controller_endpoints_authorize_before_private_handlers() {
         ErrorOrigin::Interface,
     );
 
-    let query: Result<SqlQueryResult, Error> = fixture
-        .query_candid_as(outsider, "icydb_query", ("not valid SQL".to_string(),))
+    let query: Result<SqlQueryResult, Error> = pic
+        .query_candid_as(
+            canister_id,
+            outsider,
+            "icydb_query",
+            ("not valid SQL".to_string(),),
+        )
         .expect("non-controller SQL query response should decode");
     assert_eq!(query, Err(sql_error.clone()));
 
     for method in ["icydb_ddl", "icydb_update"] {
-        let result: Result<SqlQueryResult, Error> = fixture
-            .update_candid_as(outsider, method, ("not valid SQL".to_string(),))
+        let result: Result<SqlQueryResult, Error> = pic
+            .update_candid_as(
+                canister_id,
+                outsider,
+                method,
+                ("not valid SQL".to_string(),),
+            )
             .expect("non-controller SQL update response should decode");
         assert_eq!(result, Err(sql_error.clone()), "{method}");
     }
     for method in ["icydb_fixtures_reset", "icydb_fixtures_load"] {
-        let result: Result<(), Error> = fixture
-            .update_candid_as(outsider, method, ())
+        let result: Result<(), Error> = pic
+            .update_candid_as(canister_id, outsider, method, ())
             .expect("non-controller fixture response should decode");
         assert_eq!(result, Err(sql_error.clone()), "{method}");
     }
 
-    let metrics: Result<MetricsReport, Error> = fixture
-        .query_candid_as(outsider, "icydb_metrics", ())
+    let metrics: Result<MetricsReport, Error> = pic
+        .query_candid_as(canister_id, outsider, "icydb_metrics", ())
         .expect("public metrics response should decode");
     assert!(
         metrics.is_ok(),
         "public metrics must not require a controller"
     );
 
-    let metrics_reset: Result<(), Error> = fixture
-        .update_candid_as(outsider, "icydb_metrics_reset", ())
+    let metrics_reset: Result<(), Error> = pic
+        .update_candid_as(canister_id, outsider, "icydb_metrics_reset", ())
         .expect("non-controller metrics reset response should decode");
     assert_eq!(metrics_reset, Err(operational_error.clone()));
-    let snapshot: Result<StorageReport, Error> = fixture
-        .query_candid_as(outsider, "icydb_snapshot", ())
+    let snapshot: Result<StorageReport, Error> = pic
+        .query_candid_as(canister_id, outsider, "icydb_snapshot", ())
         .expect("non-controller snapshot response should decode");
     assert_eq!(
         snapshot.expect_err("a non-controller snapshot must fail before its handler"),
         operational_error,
     );
-    let schema: Result<Vec<EntitySchemaDescription>, Error> = fixture
-        .query_candid_as(outsider, "icydb_schema", ())
+    let schema: Result<Vec<EntitySchemaDescription>, Error> = pic
+        .query_candid_as(canister_id, outsider, "icydb_schema", ())
         .expect("non-controller schema response should decode");
     assert_eq!(schema, Err(schema_error));
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "keep the end-to-end boundary assertions together with explicit Testkit call identity"
+)]
 fn sql_canister_ddl_owned_schema_and_rows_survive_upgrade_reconciliation() {
     // Use an unpooled fixture because this test deliberately replaces the
     // installed Wasm and observes real post-upgrade reconciliation.
     let fixture = install_fixture_canister("sql");
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = fixture.canister_id();
+    reset_sql_fixtures(pic, canister_id);
     let mut schema_version = DdlSchemaVersion::initial();
 
     schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
         )
         .expect("accepted DDL index should publish before upgrade");
@@ -3652,23 +4044,25 @@ fn sql_canister_ddl_owned_schema_and_rows_survive_upgrade_reconciliation() {
     // Exercise online schema retirement after earlier row folds have created
     // canonical-only cardinality keys. Those derived keys are not overlays
     // owned by this DDL batch and must not cause E16.
-    deliver_startup_watchdog_message(&fixture);
-    deliver_startup_watchdog_message(&fixture);
+    deliver_startup_watchdog_message(pic);
+    deliver_startup_watchdog_message(pic);
     assert_sql_test_user_rank_index(
-        &fixture,
+        pic,
+        canister_id,
         true,
         "online convergence should retain the DDL-owned index",
     );
-    upgrade_fixture_canister(&fixture, "sql");
-    deliver_fixture_startup_watchdog(&fixture);
+    upgrade_fixture_canister(pic, canister_id, "sql");
+    deliver_fixture_startup_watchdog(pic);
     assert_sql_test_user_rank_index(
-        &fixture,
+        pic,
+        canister_id,
         true,
         "post-upgrade accepted indexes should retain the DDL-owned index",
     );
 
     let count = expect_projection(
-        query_sql(&fixture, "SELECT COUNT(*) FROM SqlTestUser")
+        query_sql(pic, canister_id, "SELECT COUNT(*) FROM SqlTestUser")
             .expect("post-upgrade count should observe durable rows"),
     );
     assert_projection_rendered(
@@ -3682,7 +4076,8 @@ fn sql_canister_ddl_owned_schema_and_rows_survive_upgrade_reconciliation() {
 
     let rows = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name FROM SqlTestUser WHERE rank >= 25 ORDER BY rank ASC LIMIT 2",
         )
         .expect("post-upgrade indexed read should retain original rows"),
@@ -3697,32 +4092,40 @@ fn sql_canister_ddl_owned_schema_and_rows_survive_upgrade_reconciliation() {
     );
 
     schema_version
-        .publish(&fixture, "DROP INDEX sql_test_user_rank_idx ON SqlTestUser")
+        .publish(
+            pic,
+            canister_id,
+            "DROP INDEX sql_test_user_rank_idx ON SqlTestUser",
+        )
         .expect("accepted DDL index deletion should publish before upgrade");
-    deliver_startup_watchdog_message(&fixture);
-    deliver_startup_watchdog_message(&fixture);
+    deliver_startup_watchdog_message(pic);
+    deliver_startup_watchdog_message(pic);
     assert_sql_test_user_rank_index(
-        &fixture,
+        pic,
+        canister_id,
         false,
         "online convergence should retain the DDL-owned deletion",
     );
-    upgrade_fixture_canister(&fixture, "sql");
-    deliver_fixture_startup_watchdog(&fixture);
+    upgrade_fixture_canister(pic, canister_id, "sql");
+    deliver_fixture_startup_watchdog(pic);
     assert_sql_test_user_rank_index(
-        &fixture,
+        pic,
+        canister_id,
         false,
         "post-upgrade accepted indexes must retain the DDL-owned deletion",
     );
 
     schema_version
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "CREATE INDEX sql_test_user_rank_idx ON SqlTestUser (rank)",
         )
         .expect("re-creation should prove the recovered physical domain has no stale keys");
     let rows = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name FROM SqlTestUser WHERE rank >= 25 ORDER BY rank ASC LIMIT 2",
         )
         .expect("re-created index should observe the original durable rows"),
@@ -3740,11 +4143,14 @@ fn sql_canister_ddl_owned_schema_and_rows_survive_upgrade_reconciliation() {
 #[test]
 fn sql_canister_query_endpoint_executes_scalar_and_grouped_queries() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let scalar = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name FROM SqlTestUser ORDER BY age ASC LIMIT 2",
         )
         .expect("scalar SQL query should succeed"),
@@ -3760,7 +4166,8 @@ fn sql_canister_query_endpoint_executes_scalar_and_grouped_queries() {
 
     let grouped = expect_grouped(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT age, COUNT(*) FROM SqlTestUser GROUP BY age ORDER BY age ASC LIMIT 10",
         )
         .expect("grouped SQL query should succeed"),
@@ -3785,11 +4192,13 @@ fn sql_canister_query_endpoint_executes_scalar_and_grouped_queries() {
 #[test]
 fn sql_canister_query_endpoint_executes_global_post_aggregate_value_queries() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let post_aggregate = expect_projection(
         query_sql(
-            &fixture,
+            pic, canister_id,
             "SELECT ROUND(AVG(age), 2) AS avg_rounded, COUNT(*) + 1 AS count_plus_one, MAX(age) - MIN(age) AS spread \
              FROM SqlTestUser",
         )
@@ -3809,16 +4218,20 @@ fn sql_canister_query_endpoint_executes_global_post_aggregate_value_queries() {
 #[test]
 fn u256_arithmetic_and_sum_clear_the_exact_canister_instruction_gate() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     DdlSchemaVersion::initial()
         .publish(
-            &fixture,
+            pic,
+            canister_id,
             "ALTER TABLE SqlTestUser ADD COLUMN amount u256 DEFAULT U256 '2' NOT NULL",
         )
         .expect("U256 measurement field should publish through accepted DDL authority");
 
     let u256_projection = measure_query_sql(
-        &fixture,
+        pic,
+        canister_id,
         "SELECT amount + U256 '3' FROM SqlTestUser ORDER BY id ASC LIMIT 3",
     );
     let u256_projection_instructions = u256_projection.local_instructions;
@@ -3837,7 +4250,8 @@ fn u256_arithmetic_and_sum_clear_the_exact_canister_instruction_gate() {
     );
 
     let nat64_projection = measure_query_sql(
-        &fixture,
+        pic,
+        canister_id,
         "SELECT age + 3 FROM SqlTestUser ORDER BY id ASC LIMIT 3",
     );
     let nat64_projection_instructions = nat64_projection.local_instructions;
@@ -3845,7 +4259,7 @@ fn u256_arithmetic_and_sum_clear_the_exact_canister_instruction_gate() {
         .result
         .expect("measured Nat64 projection control should execute");
 
-    let u256_sum = measure_query_sql(&fixture, "SELECT SUM(amount) FROM SqlTestUser");
+    let u256_sum = measure_query_sql(pic, canister_id, "SELECT SUM(amount) FROM SqlTestUser");
     let u256_sum_instructions = u256_sum.local_instructions;
     let u256_sum = expect_projection(u256_sum.result.expect("measured U256 SUM should execute"));
     assert_eq!(
@@ -3853,7 +4267,7 @@ fn u256_arithmetic_and_sum_clear_the_exact_canister_instruction_gate() {
         vec![vec![OutputValue::u256(U256::from(6_u64))]],
     );
 
-    let nat64_sum = measure_query_sql(&fixture, "SELECT SUM(age) FROM SqlTestUser");
+    let nat64_sum = measure_query_sql(pic, canister_id, "SELECT SUM(age) FROM SqlTestUser");
     let nat64_sum_instructions = nat64_sum.local_instructions;
     nat64_sum
         .result
@@ -3871,25 +4285,28 @@ fn u256_arithmetic_and_sum_clear_the_exact_canister_instruction_gate() {
     );
 }
 
-fn prepare_u256_closeout_rows(fixture: &StandaloneCanisterFixture) -> DdlSchemaVersion {
+fn prepare_u256_closeout_rows(pic: &PocketIc, canister_id: Principal) -> DdlSchemaVersion {
     let mut schema_version = DdlSchemaVersion::initial();
 
     schema_version
         .publish(
-            fixture,
+            pic,
+            canister_id,
             "ALTER TABLE SqlTestUser ADD COLUMN amount u256 DEFAULT U256 '2' NOT NULL",
         )
         .expect("U256 defaulted field should publish through accepted DDL authority");
     schema_version
         .publish(
-            fixture,
+            pic,
+            canister_id,
             "ALTER TABLE SqlTestUser ADD COLUMN optional_amount u256",
         )
         .expect("nullable U256 field should publish through accepted DDL authority");
 
     let defaults = expect_projection(
         query_sql(
-            fixture,
+            pic,
+            canister_id,
             "SELECT amount, optional_amount FROM SqlTestUser ORDER BY id ASC LIMIT 3",
         )
         .expect("U256 defaults should query through the live actor"),
@@ -3908,11 +4325,11 @@ fn prepare_u256_closeout_rows(fixture: &StandaloneCanisterFixture) -> DdlSchemaV
         ("bob", U256::ONE, Some(U256::ONE)),
         ("charlie", U256::from(7_u64), Some(U256::MAX)),
     ] {
-        let id = sql_test_user_id_by_name(fixture, name);
+        let id = sql_test_user_id_by_name(pic, canister_id, name);
         let optional_amount =
             optional_amount.map_or_else(|| "NULL".to_string(), |value| format!("U256 '{value}'"));
         update_sql(
-            fixture,
+            pic, canister_id,
             format!(
                 "UPDATE SqlTestUser SET amount = U256 '{amount}', optional_amount = {optional_amount} WHERE id = '{id}'"
             )
@@ -3925,36 +4342,42 @@ fn prepare_u256_closeout_rows(fixture: &StandaloneCanisterFixture) -> DdlSchemaV
 }
 
 fn publish_u256_closeout_constraints_and_indexes(
-    fixture: &StandaloneCanisterFixture,
+    pic: &PocketIc,
+    canister_id: Principal,
     schema_version: &mut DdlSchemaVersion,
 ) {
     schema_version
         .publish(
-            fixture,
+            pic,
+            canister_id,
             "ALTER TABLE SqlTestUser ADD CONSTRAINT amount_u256_bound CHECK (amount <= U256 '7')",
         )
         .expect("U256 check constraint should validate and publish in one bounded call");
     schema_version
         .publish(
-            fixture,
+            pic,
+            canister_id,
             "CREATE INDEX sql_test_user_optional_amount_idx ON SqlTestUser (optional_amount)",
         )
         .expect("nullable U256 index should publish");
     schema_version
         .publish(
-            fixture,
+            pic,
+            canister_id,
             "CREATE INDEX sql_test_user_amount_age_idx ON SqlTestUser (amount, age)",
         )
         .expect("composite U256 index should publish");
     schema_version
         .publish(
-            fixture,
+            pic,
+            canister_id,
             "CREATE UNIQUE INDEX sql_test_user_amount_unique_idx ON SqlTestUser (amount)",
         )
         .expect("unique U256 index should enter validation");
     schema_version
         .validate_constraint_to_completion(
-            fixture,
+            pic,
+            canister_id,
             "SqlTestUser",
             "sql_test_user_amount_unique_idx",
         )
@@ -3981,10 +4404,11 @@ fn expected_u256_closeout_rows() -> Vec<Vec<OutputValue>> {
     ]
 }
 
-fn assert_u256_closeout_queries(fixture: &StandaloneCanisterFixture) -> RowProjectionOutput {
+fn assert_u256_closeout_queries(pic: &PocketIc, canister_id: Principal) -> RowProjectionOutput {
     let ordered = expect_projection(
         query_sql(
-            fixture,
+            pic,
+            canister_id,
             "SELECT name, amount, optional_amount FROM SqlTestUser ORDER BY amount ASC LIMIT 3",
         )
         .expect("ascending U256 ordering should execute"),
@@ -3993,7 +4417,8 @@ fn assert_u256_closeout_queries(fixture: &StandaloneCanisterFixture) -> RowProje
 
     let descending = expect_projection(
         query_sql(
-            fixture,
+            pic,
+            canister_id,
             "SELECT amount FROM SqlTestUser ORDER BY amount DESC LIMIT 2",
         )
         .expect("descending U256 ordering should execute"),
@@ -4008,7 +4433,7 @@ fn assert_u256_closeout_queries(fixture: &StandaloneCanisterFixture) -> RowProje
 
     let case_projection = expect_projection(
         query_sql(
-            fixture,
+            pic, canister_id,
             "SELECT CASE WHEN amount = U256 '0' THEN U256 '7' ELSE amount END AS normalized_amount FROM SqlTestUser ORDER BY amount ASC LIMIT 3",
         )
         .expect("CASE should retain the exact U256 domain"),
@@ -4024,7 +4449,8 @@ fn assert_u256_closeout_queries(fixture: &StandaloneCanisterFixture) -> RowProje
 
     let distinct = expect_projection(
         query_sql(
-            fixture,
+            pic,
+            canister_id,
             "SELECT DISTINCT amount, optional_amount FROM SqlTestUser ORDER BY amount ASC LIMIT 3",
         )
         .expect("tuple DISTINCT should retain U256 and nullable U256 values"),
@@ -4039,18 +4465,18 @@ fn assert_u256_closeout_queries(fixture: &StandaloneCanisterFixture) -> RowProje
     );
 
     let sum = expect_projection(
-        query_sql(fixture, "SELECT SUM(amount) FROM SqlTestUser")
+        query_sql(pic, canister_id, "SELECT SUM(amount) FROM SqlTestUser")
             .expect("global checked U256 SUM should execute"),
     );
     assert_eq!(sum.rows, vec![vec![OutputValue::u256(U256::from(8_u64))]],);
 
     let indexed = query_sql(
-        fixture,
+        pic, canister_id,
         "SELECT name, amount FROM SqlTestUser WHERE amount >= U256 '1' ORDER BY amount DESC LIMIT 3",
     )
     .expect("indexed U256 range should execute");
     let forced_full_scan = query_sql(
-        fixture,
+        pic, canister_id,
         "SELECT name, amount FROM SqlTestUser WHERE amount >= U256 '1' OR name = '__no_such_user__' ORDER BY amount DESC LIMIT 3",
     )
     .expect("equivalent conservative U256 range should execute");
@@ -4062,16 +4488,18 @@ fn assert_u256_closeout_queries(fixture: &StandaloneCanisterFixture) -> RowProje
     ordered
 }
 
-fn assert_u256_closeout_write_rejections(fixture: &StandaloneCanisterFixture) {
-    let alice_id = sql_test_user_id_by_name(fixture, "alice");
+fn assert_u256_closeout_write_rejections(pic: &PocketIc, canister_id: Principal) {
+    let alice_id = sql_test_user_id_by_name(pic, canister_id, "alice");
     update_sql(
-        fixture,
+        pic,
+        canister_id,
         format!("UPDATE SqlTestUser SET amount = U256 '8' WHERE id = '{alice_id}'").as_str(),
     )
     .expect_err("validated U256 check constraint should reject an out-of-range update");
-    let charlie_id = sql_test_user_id_by_name(fixture, "charlie");
+    let charlie_id = sql_test_user_id_by_name(pic, canister_id, "charlie");
     update_sql(
-        fixture,
+        pic,
+        canister_id,
         format!("UPDATE SqlTestUser SET amount = U256 '1' WHERE id = '{charlie_id}'").as_str(),
     )
     .expect_err("validated unique U256 index should reject a duplicate update");
@@ -4080,18 +4508,21 @@ fn assert_u256_closeout_write_rejections(fixture: &StandaloneCanisterFixture) {
 #[test]
 fn u256_closeout_matrix_survives_catalog_reopen_and_upgrade() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
-    let mut schema_version = prepare_u256_closeout_rows(&fixture);
-    publish_u256_closeout_constraints_and_indexes(&fixture, &mut schema_version);
-    let ordered = assert_u256_closeout_queries(&fixture);
-    assert_u256_closeout_write_rejections(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
+    let mut schema_version = prepare_u256_closeout_rows(pic, canister_id);
+    publish_u256_closeout_constraints_and_indexes(pic, canister_id, &mut schema_version);
+    let ordered = assert_u256_closeout_queries(pic, canister_id);
+    assert_u256_closeout_write_rejections(pic, canister_id);
 
-    upgrade_fixture_canister(&fixture, "sql");
-    deliver_fixture_startup_watchdog(&fixture);
-    deliver_fixture_startup_watchdog(&fixture);
+    upgrade_fixture_canister(pic, canister_id, "sql");
+    deliver_fixture_startup_watchdog(pic);
+    deliver_fixture_startup_watchdog(pic);
     let reopened = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name, amount, optional_amount FROM SqlTestUser ORDER BY amount ASC LIMIT 3",
         )
         .expect("U256 rows and accepted indexes should reopen after upgrade"),
@@ -4111,11 +4542,14 @@ fn assert_instruction_delta_gate(label: &str, control: u64, candidate: u64) {
 #[test]
 fn sql_canister_query_endpoint_executes_global_aggregate_having_queries() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let matched = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT COUNT(*) FROM SqlTestUser HAVING COUNT(*) > 1",
         )
         .expect("global aggregate HAVING SQL query should succeed"),
@@ -4131,7 +4565,8 @@ fn sql_canister_query_endpoint_executes_global_aggregate_having_queries() {
 
     let filtered = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT ROUND(AVG(age), 2) AS avg_rounded FROM SqlTestUser HAVING AVG(age) > 40",
         )
         .expect("global aggregate HAVING should still return projection payload when filtered"),
@@ -4149,11 +4584,14 @@ fn sql_canister_query_endpoint_executes_global_aggregate_having_queries() {
 #[test]
 fn sql_canister_query_endpoint_executes_grouped_aggregate_combo_queries() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let grouped = expect_grouped(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT age, AVG(age + 1) AS avg_plus_one \
              FROM SqlTestUser \
              GROUP BY age \
@@ -4182,11 +4620,14 @@ fn sql_canister_query_endpoint_executes_grouped_aggregate_combo_queries() {
 #[test]
 fn sql_canister_query_endpoint_executes_grouped_wrapped_aggregate_input_order_queries() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let grouped = expect_grouped(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name, ROUND(AVG(age + 1 * 2), 2) AS avg_boosted \
              FROM SqlTestUser \
              GROUP BY name \
@@ -4214,11 +4655,14 @@ fn sql_canister_query_endpoint_executes_grouped_wrapped_aggregate_input_order_qu
 #[test]
 fn sql_canister_query_endpoint_executes_grouped_parenthesized_aggregate_input_order_queries() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let grouped = expect_grouped(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name, ROUND(AVG((age + age) / 2), 2) AS avg_balanced \
              FROM SqlTestUser \
              GROUP BY name \
@@ -4246,11 +4690,14 @@ fn sql_canister_query_endpoint_executes_grouped_parenthesized_aggregate_input_or
 #[test]
 fn sql_canister_query_endpoint_keeps_canonical_equivalent_grouped_having_explain_identity() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let left = expect_explain(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "EXPLAIN EXECUTION VERBOSE \
              SELECT age, COUNT(*) \
              FROM SqlTestUser \
@@ -4263,7 +4710,8 @@ fn sql_canister_query_endpoint_keeps_canonical_equivalent_grouped_having_explain
     );
     let right = expect_explain(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "EXPLAIN EXECUTION VERBOSE \
              SELECT age, COUNT(*) \
              FROM SqlTestUser \
@@ -4284,11 +4732,14 @@ fn sql_canister_query_endpoint_keeps_canonical_equivalent_grouped_having_explain
 #[test]
 fn sql_canister_query_endpoint_surfaces_semantic_reuse_diagnostics_on_verbose_explain() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let first = expect_explain(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "EXPLAIN EXECUTION VERBOSE \
              SELECT name \
              FROM SqlTestUser \
@@ -4300,7 +4751,8 @@ fn sql_canister_query_endpoint_surfaces_semantic_reuse_diagnostics_on_verbose_ex
     );
     let second = expect_explain(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "EXPLAIN EXECUTION VERBOSE \
              SELECT name \
              FROM SqlTestUser \
@@ -4326,11 +4778,14 @@ fn sql_canister_query_endpoint_surfaces_semantic_reuse_diagnostics_on_verbose_ex
 #[test]
 fn sql_canister_query_endpoint_executes_scalar_arithmetic_and_round_queries() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let arithmetic = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT age - 1 FROM SqlTestUser ORDER BY age ASC LIMIT 2",
         )
         .expect("scalar arithmetic SQL query should succeed"),
@@ -4346,7 +4801,8 @@ fn sql_canister_query_endpoint_executes_scalar_arithmetic_and_round_queries() {
 
     let rounded = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT ROUND(age / 3, 2) FROM SqlTestUser ORDER BY age ASC LIMIT 2",
         )
         .expect("scalar ROUND SQL query should succeed"),
@@ -4364,11 +4820,14 @@ fn sql_canister_query_endpoint_executes_scalar_arithmetic_and_round_queries() {
 #[test]
 fn sql_canister_query_endpoint_executes_chained_scalar_arithmetic_queries() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let precedence = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT age + 1 * 2 AS value FROM SqlTestUser ORDER BY age ASC LIMIT 2",
         )
         .expect("chained scalar precedence SQL query should succeed"),
@@ -4384,7 +4843,8 @@ fn sql_canister_query_endpoint_executes_chained_scalar_arithmetic_queries() {
 
     let associativity = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT age - 1 - 2 AS value FROM SqlTestUser ORDER BY age ASC LIMIT 2",
         )
         .expect("chained scalar associativity SQL query should succeed"),
@@ -4400,7 +4860,8 @@ fn sql_canister_query_endpoint_executes_chained_scalar_arithmetic_queries() {
 
     let parenthesized = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT ROUND((age + rank) / 2, 2) AS value FROM SqlTestUser ORDER BY age ASC LIMIT 2",
         )
         .expect("parenthesized scalar ROUND SQL query should succeed"),
@@ -4418,11 +4879,13 @@ fn sql_canister_query_endpoint_executes_chained_scalar_arithmetic_queries() {
 #[test]
 fn sql_canister_query_endpoint_executes_chained_global_aggregate_expression_queries() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let result = expect_projection(
         query_sql(
-            &fixture,
+            pic, canister_id,
             "SELECT ROUND(AVG(age + 1 * 2), 2) AS avg_shifted, ROUND(AVG((age + age) / 2), 2) AS avg_balanced FROM SqlTestUser",
         )
         .expect("chained global aggregate expression SQL query should succeed"),
@@ -4440,11 +4903,14 @@ fn sql_canister_query_endpoint_executes_chained_global_aggregate_expression_quer
 #[test]
 fn sql_canister_query_endpoint_executes_round_field_to_field_arithmetic_projection_queries() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let rounded = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT ROUND(age + rank, 2) AS total FROM SqlTestUser ORDER BY age ASC LIMIT 2",
         )
         .expect("ROUND(field + field) SQL query should succeed"),
@@ -4462,11 +4928,14 @@ fn sql_canister_query_endpoint_executes_round_field_to_field_arithmetic_projecti
 #[test]
 fn sql_canister_query_endpoint_executes_field_to_field_arithmetic_projection_queries() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let arithmetic = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT age + rank AS total FROM SqlTestUser ORDER BY age ASC LIMIT 2",
         )
         .expect("field-to-field arithmetic SQL query should succeed"),
@@ -4484,11 +4953,14 @@ fn sql_canister_query_endpoint_executes_field_to_field_arithmetic_projection_que
 #[test]
 fn sql_canister_numeric_type_endpoint_executes_small_width_numeric_projection_queries() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let small_width = expect_projection(
         query_numeric_types(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT label, nat16_value + 1, nat8_value + nat16_value, int8_value - 1 \
              FROM SqlTestNumericTypes \
              ORDER BY label \
@@ -4514,11 +4986,13 @@ fn sql_canister_numeric_type_endpoint_executes_small_width_numeric_projection_qu
 #[test]
 fn sql_canister_numeric_type_endpoint_executes_wide_integer_projection_queries() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let wide_width = expect_projection(
         query_numeric_types(
-            &fixture,
+            pic, canister_id,
             "SELECT label, int16_value + int32_value, int64_value + nat64_value, nat32_value + nat64_value \
              FROM SqlTestNumericTypes \
              ORDER BY nat16_value DESC \
@@ -4547,11 +5021,13 @@ fn sql_canister_numeric_type_endpoint_executes_wide_integer_projection_queries()
 #[test]
 fn sql_canister_numeric_type_endpoint_executes_decimal_float_projection_queries() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let decimal_float = expect_projection(
         query_numeric_types(
-            &fixture,
+            pic, canister_id,
             "SELECT label, ROUND(decimal_value * 100, 2), TRUNC(decimal_value / 3, 2), float64_value / 2, ROUND(float32_value + float64_value, 2) \
              FROM SqlTestNumericTypes \
              ORDER BY decimal_value DESC \
@@ -4581,11 +5057,13 @@ fn sql_canister_numeric_type_endpoint_executes_decimal_float_projection_queries(
 #[test]
 fn sql_canister_numeric_type_endpoint_executes_mixed_numeric_aggregate_queries() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let global = expect_projection(
         query_numeric_types(
-            &fixture,
+            pic, canister_id,
             "SELECT COUNT(*), SUM(nat16_value), AVG(int32_value), MIN(int16_value), MAX(nat64_value) \
              FROM SqlTestNumericTypes",
         )
@@ -4608,7 +5086,8 @@ fn sql_canister_numeric_type_endpoint_executes_mixed_numeric_aggregate_queries()
 
     let grouped = expect_grouped(
         query_numeric_types(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT group_name, SUM(nat32_value), AVG(decimal_value), MAX(float64_value) \
              FROM SqlTestNumericTypes \
              GROUP BY group_name \
@@ -4651,11 +5130,14 @@ fn sql_canister_numeric_type_endpoint_executes_mixed_numeric_aggregate_queries()
 #[test]
 fn generated_sql_query_endpoint_rejects_an_undeliverable_complete_envelope() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
-    seed_oversized_sql_group_name(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
+    seed_oversized_sql_group_name(pic, canister_id);
 
     let error = query_sql(
-        &fixture,
+        pic,
+        canister_id,
         "SELECT group_name, COUNT(*) \
          FROM SqlTestNumericTypes \
          GROUP BY group_name \
@@ -4670,7 +5152,7 @@ fn generated_sql_query_endpoint_rejects_an_undeliverable_complete_envelope() {
     assert_eq!(error.origin(), ErrorOrigin::Response);
 
     let count = expect_projection(
-        query_sql(&fixture, "SELECT COUNT(*) FROM SqlTestNumericTypes")
+        query_sql(pic, canister_id, "SELECT COUNT(*) FROM SqlTestNumericTypes")
             .expect("the typed oversize rejection must leave later endpoint replies usable"),
     );
     assert_projection_rendered(
@@ -4686,7 +5168,9 @@ fn generated_sql_query_endpoint_rejects_an_undeliverable_complete_envelope() {
 #[test]
 fn sql_canister_numeric_type_endpoint_reports_numeric_overflow_errors() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     for sql in [
         "SELECT label, POWER(nat16_value + nat8_value, 100) \
@@ -4713,7 +5197,7 @@ fn sql_canister_numeric_type_endpoint_reports_numeric_overflow_errors() {
          ORDER BY group_name \
          LIMIT 50",
     ] {
-        let err = query_numeric_types(&fixture, sql)
+        let err = query_numeric_types(pic, canister_id, sql)
             .expect_err("overflowing mixed numeric SQL should fail");
 
         assert_numeric_query_error(err, ErrorCode::QUERY_NUMERIC_OVERFLOW, sql);
@@ -4723,7 +5207,9 @@ fn sql_canister_numeric_type_endpoint_reports_numeric_overflow_errors() {
 #[test]
 fn sql_canister_numeric_type_endpoint_reports_numeric_not_representable_errors() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     for sql in [
         "SELECT label, nat16_value / 0 \
@@ -4739,7 +5225,7 @@ fn sql_canister_numeric_type_endpoint_reports_numeric_not_representable_errors()
          ORDER BY label \
          LIMIT 1",
     ] {
-        let err = query_numeric_types(&fixture, sql)
+        let err = query_numeric_types(pic, canister_id, sql)
             .expect_err("non-representable mixed numeric SQL should fail");
 
         assert_numeric_query_error(err, ErrorCode::QUERY_NUMERIC_NOT_REPRESENTABLE, sql);
@@ -4749,11 +5235,14 @@ fn sql_canister_numeric_type_endpoint_reports_numeric_not_representable_errors()
 #[test]
 fn sql_canister_query_endpoint_executes_singleton_global_output_order_alias_queries() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let ordered = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT ROUND(AVG(age), 2) AS avg_rounded FROM SqlTestUser ORDER BY avg_rounded DESC",
         )
         .expect("singleton global aggregate output ORDER BY alias SQL query should succeed"),
@@ -4771,25 +5260,29 @@ fn sql_canister_query_endpoint_executes_singleton_global_output_order_alias_quer
 #[test]
 fn sql_canister_query_endpoint_executes_order_by_bounded_numeric_alias_queries() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let arithmetic = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name, age + 1 AS next_age FROM SqlTestUser ORDER BY next_age ASC LIMIT 2",
         )
         .expect("ORDER BY arithmetic alias SQL query should succeed"),
     );
     let field_to_field = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name, age + rank AS total FROM SqlTestUser ORDER BY total ASC LIMIT 2",
         )
         .expect("ORDER BY field-to-field arithmetic alias SQL query should succeed"),
     );
     let rounded = expect_projection(
         query_sql(
-            &fixture,
+            pic, canister_id,
             "SELECT name, ROUND(age / 3, 2) AS rounded_age FROM SqlTestUser ORDER BY rounded_age DESC LIMIT 2",
         )
         .expect("ORDER BY ROUND alias SQL query should succeed"),
@@ -4824,18 +5317,22 @@ fn sql_canister_query_endpoint_executes_order_by_bounded_numeric_alias_queries()
 #[test]
 fn sql_canister_query_endpoint_executes_direct_bounded_numeric_order_queries() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let arithmetic = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name, age FROM SqlTestUser ORDER BY age + 1 ASC LIMIT 2",
         )
         .expect("direct ORDER BY arithmetic SQL query should succeed"),
     );
     let rounded = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name, age FROM SqlTestUser ORDER BY ROUND(age / 3, 2) DESC LIMIT 2",
         )
         .expect("direct ORDER BY ROUND SQL query should succeed"),
@@ -4862,11 +5359,14 @@ fn sql_canister_query_endpoint_executes_direct_bounded_numeric_order_queries() {
 #[test]
 fn sql_canister_query_endpoint_executes_field_to_field_predicate_queries() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let filtered = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name FROM SqlTestUser WHERE age > rank ORDER BY age ASC LIMIT 10",
         )
         .expect("field-to-field predicate SQL query should succeed"),
@@ -4882,7 +5382,8 @@ fn sql_canister_query_endpoint_executes_field_to_field_predicate_queries() {
 
     let mixed = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name FROM SqlTestUser WHERE age > 18 AND age > rank ORDER BY age ASC LIMIT 10",
         )
         .expect("mixed literal and field-to-field predicate SQL query should succeed"),
@@ -4900,11 +5401,13 @@ fn sql_canister_query_endpoint_executes_field_to_field_predicate_queries() {
 #[test]
 fn sql_canister_query_endpoint_executes_not_between_queries() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let filtered = expect_projection(
         query_sql(
-            &fixture,
+            pic, canister_id,
             "SELECT name FROM SqlTestUser WHERE age NOT BETWEEN 25 AND 40 ORDER BY age ASC LIMIT 10",
         )
         .expect("NOT BETWEEN SQL query should succeed"),
@@ -4922,11 +5425,13 @@ fn sql_canister_query_endpoint_executes_not_between_queries() {
 #[test]
 fn sql_canister_query_endpoint_executes_not_like_prefix_queries() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let filtered = expect_projection(
         query_sql(
-            &fixture,
+            pic, canister_id,
             "SELECT name FROM SqlTestUser WHERE LOWER(name) NOT LIKE 'a%' ORDER BY age ASC LIMIT 10",
         )
         .expect("NOT LIKE SQL query should succeed"),
@@ -4944,10 +5449,13 @@ fn sql_canister_query_endpoint_executes_not_like_prefix_queries() {
 #[test]
 fn sql_canister_query_endpoint_rejects_mutation_sql() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let err = query_sql(
-        &fixture,
+        pic,
+        canister_id,
         "DELETE FROM SqlTestUser WHERE name = 'bob' RETURNING name",
     )
     .expect_err("query(sql) must reject mutation statements");
@@ -4962,10 +5470,13 @@ fn sql_canister_query_endpoint_rejects_mutation_sql() {
 #[test]
 fn sql_canister_query_endpoint_rejects_update_sql() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let err = query_sql(
-        &fixture,
+        pic,
+        canister_id,
         "UPDATE SqlTestUser SET age = 22 WHERE name = 'alice'",
     )
     .expect_err("query(sql) must reject UPDATE statements");
@@ -4980,7 +5491,9 @@ fn sql_canister_query_endpoint_rejects_update_sql() {
 #[test]
 fn sql_canister_ddl_endpoint_rejects_row_mutation_sql_without_row_mutation() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     for (label, sql) in [
         (
@@ -4995,12 +5508,14 @@ fn sql_canister_ddl_endpoint_rejects_row_mutation_sql_without_row_mutation() {
     ] {
         let before = expect_projection(
             query_sql(
-                &fixture,
+                pic,
+                canister_id,
                 "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
             )
             .expect("pre-rejection read should prove the row set exists"),
         );
-        let err = ddl_sql(&fixture, sql).expect_err("DDL endpoint must reject row mutations");
+        let err =
+            ddl_sql(pic, canister_id, sql).expect_err("DDL endpoint must reject row mutations");
 
         assert_eq!(
             err.diagnostic_code(),
@@ -5019,7 +5534,8 @@ fn sql_canister_ddl_endpoint_rejects_row_mutation_sql_without_row_mutation() {
         );
         let after = expect_projection(
             query_sql(
-                &fixture,
+                pic,
+                canister_id,
                 "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
             )
             .expect("post-rejection read should still execute"),
@@ -5034,18 +5550,22 @@ fn sql_canister_ddl_endpoint_rejects_row_mutation_sql_without_row_mutation() {
 #[test]
 fn sql_canister_update_endpoint_admits_primary_key_update_only() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let alice = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT id, age FROM SqlTestUser WHERE name = 'alice'",
         )
         .expect("pre-update read should find alice"),
     );
     let alice_id = first_projected_text(&alice);
     let result = update_sql(
-        &fixture,
+        pic,
+        canister_id,
         format!("UPDATE SqlTestUser SET age = 32 WHERE id = '{alice_id}'").as_str(),
     )
     .expect("source-declared SQL update endpoint should admit primary-key UPDATE");
@@ -5058,20 +5578,28 @@ fn sql_canister_update_endpoint_admits_primary_key_update_only() {
         },
     );
     let after = expect_projection(
-        query_sql(&fixture, "SELECT age FROM SqlTestUser WHERE name = 'alice'")
-            .expect("post-update read should find alice"),
+        query_sql(
+            pic,
+            canister_id,
+            "SELECT age FROM SqlTestUser WHERE name = 'alice'",
+        )
+        .expect("post-update read should find alice"),
     );
     assert_eq!(after.rendered_rows(), string_rows(&[&["32"]]));
 
     // Reset uses ordinary trusted DELETE lowering, so this also verifies
     // deletion of populated rows under the generated memory configuration.
-    let reset: Result<(), Error> = fixture
-        .update_candid("icydb_fixtures_reset", ())
+    let reset: Result<(), Error> = pic
+        .update_candid(canister_id, "icydb_fixtures_reset", ())
         .expect("populated fixture reset should decode");
     reset.expect("populated rows should delete");
     let deleted = expect_projection(
-        query_sql(&fixture, "SELECT age FROM SqlTestUser WHERE name = 'alice'")
-            .expect("post-delete indexed query should execute"),
+        query_sql(
+            pic,
+            canister_id,
+            "SELECT age FROM SqlTestUser WHERE name = 'alice'",
+        )
+        .expect("post-delete indexed query should execute"),
     );
     assert_eq!(deleted.row_count, 0);
 }
@@ -5079,14 +5607,21 @@ fn sql_canister_update_endpoint_admits_primary_key_update_only() {
 #[test]
 fn sql_canister_update_expressions_use_original_rows_and_reject_before_effects() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
     let alice = expect_projection(
-        query_sql(&fixture, "SELECT id FROM SqlTestUser WHERE name = 'alice'").unwrap(),
+        query_sql(
+            pic,
+            canister_id,
+            "SELECT id FROM SqlTestUser WHERE name = 'alice'",
+        )
+        .unwrap(),
     );
     let id = first_projected_text(&alice);
     let result = expect_projection(
         update_sql(
-            &fixture,
+            pic, canister_id,
             &format!("UPDATE SqlTestUser SET rank = age, age = age + 1 WHERE id = '{id}' RETURNING age, rank"),
         )
         .unwrap(),
@@ -5094,12 +5629,19 @@ fn sql_canister_update_expressions_use_original_rows_and_reject_before_effects()
     assert_eq!(result.rendered_rows(), string_rows(&[&["32", "31"]]));
 
     let bounded = install_sql_bounded_canister_fixture();
-    reset_sql_fixtures(&bounded);
+    let bounded_pic = bounded.pocket_ic();
+    let bounded_canister_id = *bounded.metadata();
+    reset_sql_fixtures(bounded_pic, bounded_canister_id);
     let before = expect_projection(
-        query_sql(&bounded, "SELECT id, age FROM SqlTestUser ORDER BY id").unwrap(),
+        query_sql(
+            bounded_pic,
+            bounded_canister_id,
+            "SELECT id, age FROM SqlTestUser ORDER BY id",
+        )
+        .unwrap(),
     )
     .rendered_rows();
-    let result = expect_projection(update_sql(&bounded, "UPDATE SqlTestUser SET age = age + 1 WHERE age >= 0 ORDER BY id ASC LIMIT 2 RETURNING id, age").unwrap());
+    let result = expect_projection(update_sql(bounded_pic, bounded_canister_id, "UPDATE SqlTestUser SET age = age + 1 WHERE age >= 0 ORDER BY id ASC LIMIT 2 RETURNING id, age").unwrap());
     let expected = before
         .iter()
         .take(2)
@@ -5112,18 +5654,29 @@ fn sql_canister_update_expressions_use_original_rows_and_reject_before_effects()
         .collect::<Vec<_>>();
     assert_eq!(result.rendered_rows(), expected);
     let before = expect_projection(
-        query_sql(&bounded, "SELECT id, age FROM SqlTestUser ORDER BY id").unwrap(),
+        query_sql(
+            bounded_pic,
+            bounded_canister_id,
+            "SELECT id, age FROM SqlTestUser ORDER BY id",
+        )
+        .unwrap(),
     )
     .rendered_rows();
     let error = update_sql(
-        &bounded,
+        bounded_pic,
+        bounded_canister_id,
         "UPDATE SqlTestUser SET age = age + 0.5 WHERE age >= 0 ORDER BY id ASC LIMIT 2",
     )
     .unwrap_err();
     assert_eq!(error.code(), ErrorCode::SQL_WRITE_INVALID_FIELD_LITERAL);
     assert_eq!(
         expect_projection(
-            query_sql(&bounded, "SELECT id, age FROM SqlTestUser ORDER BY id").unwrap()
+            query_sql(
+                bounded_pic,
+                bounded_canister_id,
+                "SELECT id, age FROM SqlTestUser ORDER BY id"
+            )
+            .unwrap()
         )
         .rendered_rows(),
         before
@@ -5133,17 +5686,21 @@ fn sql_canister_update_expressions_use_original_rows_and_reject_before_effects()
 #[test]
 fn sql_canister_update_endpoint_rejects_non_primary_key_update_without_mutation() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let before = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
         )
         .expect("pre-rejection read should prove the row set exists"),
     );
     let err = update_sql(
-        &fixture,
+        pic,
+        canister_id,
         "UPDATE SqlTestUser SET age = 32 WHERE name = 'alice'",
     )
     .expect_err("source-declared SQL update endpoint must reject non-PK UPDATE");
@@ -5160,7 +5717,8 @@ fn sql_canister_update_endpoint_rejects_non_primary_key_update_without_mutation(
     );
     let after = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
         )
         .expect("post-rejection read should still execute"),
@@ -5174,18 +5732,22 @@ fn sql_canister_update_endpoint_rejects_non_primary_key_update_without_mutation(
 #[test]
 fn sql_canister_update_endpoint_rejects_primary_key_update_with_extra_guard_without_mutation() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let before = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
         )
         .expect("pre-rejection read should prove the row set exists"),
     );
-    let alice_id = sql_test_user_id_by_name(&fixture, "alice");
+    let alice_id = sql_test_user_id_by_name(pic, canister_id, "alice");
     let err = update_sql(
-        &fixture,
+        pic,
+        canister_id,
         format!("UPDATE SqlTestUser SET age = 32 WHERE id = '{alice_id}' AND age = 31").as_str(),
     )
     .expect_err("source-declared SQL update endpoint must reject guarded PK UPDATE");
@@ -5202,7 +5764,8 @@ fn sql_canister_update_endpoint_rejects_primary_key_update_with_extra_guard_with
     );
     let after = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
         )
         .expect("post-rejection read should still execute"),
@@ -5216,12 +5779,15 @@ fn sql_canister_update_endpoint_rejects_primary_key_update_with_extra_guard_with
 #[test]
 fn sql_canister_update_endpoint_returns_primary_key_post_update_rows() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
-    let alice_id = sql_test_user_id_by_name(&fixture, "alice");
+    let alice_id = sql_test_user_id_by_name(pic, canister_id, "alice");
     let returning = expect_projection(
         update_sql(
-            &fixture,
+            pic,
+            canister_id,
             format!("UPDATE SqlTestUser SET age = 34 WHERE id = '{alice_id}' RETURNING name, age")
                 .as_str(),
         )
@@ -5241,12 +5807,15 @@ fn sql_canister_update_endpoint_returns_primary_key_post_update_rows() {
 #[test]
 fn sql_canister_update_endpoint_returns_primary_key_post_update_star_rows() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
-    let alice_id = sql_test_user_id_by_name(&fixture, "alice");
+    let alice_id = sql_test_user_id_by_name(pic, canister_id, "alice");
     let returning = expect_projection(
         update_sql(
-            &fixture,
+            pic,
+            canister_id,
             format!("UPDATE SqlTestUser SET age = 35 WHERE id = '{alice_id}' RETURNING *").as_str(),
         )
         .expect("primary-key generated SQL update endpoint should admit RETURNING *"),
@@ -5283,12 +5852,15 @@ fn sql_canister_update_endpoint_returns_primary_key_post_update_star_rows() {
 #[test]
 fn sql_canister_update_endpoint_rejects_oversized_returning_response_without_mutation() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
-    let alpha_id = sql_test_numeric_type_id_by_label(&fixture, "alpha");
-    seed_oversized_sql_group_name(&fixture);
+    let alpha_id = sql_test_numeric_type_id_by_label(pic, canister_id, "alpha");
+    seed_oversized_sql_group_name(pic, canister_id);
     let err = update_sql(
-        &fixture,
+        pic,
+        canister_id,
         format!(
             "UPDATE SqlTestNumericTypes SET int32_value = 37 \
              WHERE id = '{alpha_id}' RETURNING group_name"
@@ -5309,7 +5881,8 @@ fn sql_canister_update_endpoint_rejects_oversized_returning_response_without_mut
     );
     let after = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             format!("SELECT int32_value FROM SqlTestNumericTypes WHERE id = '{alpha_id}'").as_str(),
         )
         .expect("post-rejection read should still execute"),
@@ -5324,18 +5897,22 @@ fn sql_canister_update_endpoint_rejects_oversized_returning_response_without_mut
 #[test]
 fn sql_canister_update_endpoint_rejects_computed_returning_without_mutation() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let before = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
         )
         .expect("pre-rejection read should prove the row set exists"),
     );
-    let alice_id = sql_test_user_id_by_name(&fixture, "alice");
+    let alice_id = sql_test_user_id_by_name(pic, canister_id, "alice");
     let err = update_sql(
-        &fixture,
+        pic,
+        canister_id,
         format!("UPDATE SqlTestUser SET age = 34 WHERE id = '{alice_id}' RETURNING LOWER(name)")
             .as_str(),
     )
@@ -5353,7 +5930,8 @@ fn sql_canister_update_endpoint_rejects_computed_returning_without_mutation() {
     );
     let after = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
         )
         .expect("post-rejection read should still execute"),
@@ -5367,23 +5945,27 @@ fn sql_canister_update_endpoint_rejects_computed_returning_without_mutation() {
 #[test]
 fn sql_canister_update_endpoint_rejects_invalid_returning_fields_without_mutation() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let before = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
         )
         .expect("pre-rejection read should prove the row set exists"),
     );
-    let alice_id = sql_test_user_id_by_name(&fixture, "alice");
+    let alice_id = sql_test_user_id_by_name(pic, canister_id, "alice");
 
     for (returning, expected_code) in [
         ("missing", ErrorCode::SQL_WRITE_UNKNOWN_RETURNING_FIELD),
         ("name, name", ErrorCode::SQL_WRITE_DUPLICATE_RETURNING_FIELD),
     ] {
         let err = update_sql(
-            &fixture,
+            pic,
+            canister_id,
             format!(
                 "UPDATE SqlTestUser SET age = 34 WHERE id = '{alice_id}' RETURNING {returning}"
             )
@@ -5406,7 +5988,8 @@ fn sql_canister_update_endpoint_rejects_invalid_returning_fields_without_mutatio
     }
     let after = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
         )
         .expect("post-rejection read should still execute"),
@@ -5420,17 +6003,21 @@ fn sql_canister_update_endpoint_rejects_invalid_returning_fields_without_mutatio
 #[test]
 fn sql_canister_bounded_update_endpoint_admits_explicit_limited_primary_key_order() {
     let fixture = install_sql_bounded_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let before = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
         )
         .expect("pre-update read should prove the row set exists"),
     );
     let result = update_sql(
-        &fixture,
+        pic,
+        canister_id,
         "UPDATE SqlTestUser SET age = 32 WHERE age >= 24 ORDER BY id ASC LIMIT 2",
     )
     .expect("source-declared bounded SQL update endpoint should admit explicit bounded UPDATE");
@@ -5444,7 +6031,8 @@ fn sql_canister_bounded_update_endpoint_admits_explicit_limited_primary_key_orde
     );
     let after = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
         )
         .expect("post-update read should still execute"),
@@ -5467,17 +6055,21 @@ fn sql_canister_bounded_update_endpoint_admits_explicit_limited_primary_key_orde
 #[test]
 fn sql_canister_bounded_update_endpoint_rejects_unordered_limit_without_mutation() {
     let fixture = install_sql_bounded_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let before = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
         )
         .expect("pre-rejection read should prove the row set exists"),
     );
     let err = update_sql(
-        &fixture,
+        pic,
+        canister_id,
         "UPDATE SqlTestUser SET age = 32 WHERE age >= 24 LIMIT 2",
     )
     .expect_err("source-declared bounded SQL update endpoint must reject implicit ordering");
@@ -5494,7 +6086,8 @@ fn sql_canister_bounded_update_endpoint_rejects_unordered_limit_without_mutation
     );
     let after = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
         )
         .expect("post-rejection read should still execute"),
@@ -5508,17 +6101,21 @@ fn sql_canister_bounded_update_endpoint_rejects_unordered_limit_without_mutation
 #[test]
 fn sql_canister_bounded_update_endpoint_rejects_limit_above_default_without_mutation() {
     let fixture = install_sql_bounded_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let before = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
         )
         .expect("pre-rejection read should prove the row set exists"),
     );
     let err = update_sql(
-        &fixture,
+        pic,
+        canister_id,
         "UPDATE SqlTestUser SET age = 32 WHERE age >= 24 ORDER BY id ASC LIMIT 101",
     )
     .expect_err("source-declared bounded SQL update endpoint must reject excessive LIMIT");
@@ -5535,7 +6132,8 @@ fn sql_canister_bounded_update_endpoint_rejects_limit_above_default_without_muta
     );
     let after = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
         )
         .expect("post-rejection read should still execute"),
@@ -5549,17 +6147,21 @@ fn sql_canister_bounded_update_endpoint_rejects_limit_above_default_without_muta
 #[test]
 fn sql_canister_bounded_update_endpoint_rejects_non_primary_key_order_without_mutation() {
     let fixture = install_sql_bounded_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let before = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
         )
         .expect("pre-rejection read should prove the row set exists"),
     );
     let err = update_sql(
-        &fixture,
+        pic,
+        canister_id,
         "UPDATE SqlTestUser SET age = 32 WHERE age >= 24 ORDER BY age ASC LIMIT 2",
     )
     .expect_err("source-declared bounded SQL update endpoint must reject non-PK ordering");
@@ -5576,7 +6178,8 @@ fn sql_canister_bounded_update_endpoint_rejects_non_primary_key_order_without_mu
     );
     let after = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
         )
         .expect("post-rejection read should still execute"),
@@ -5590,17 +6193,21 @@ fn sql_canister_bounded_update_endpoint_rejects_non_primary_key_order_without_mu
 #[test]
 fn sql_canister_bounded_update_endpoint_rejects_desc_order_without_mutation() {
     let fixture = install_sql_bounded_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let before = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
         )
         .expect("pre-rejection read should prove the row set exists"),
     );
     let err = update_sql(
-        &fixture,
+        pic,
+        canister_id,
         "UPDATE SqlTestUser SET age = 32 WHERE age >= 24 ORDER BY id DESC LIMIT 2",
     )
     .expect_err("source-declared bounded SQL update endpoint must reject descending order");
@@ -5617,7 +6224,8 @@ fn sql_canister_bounded_update_endpoint_rejects_desc_order_without_mutation() {
     );
     let after = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
         )
         .expect("post-rejection read should still execute"),
@@ -5631,17 +6239,21 @@ fn sql_canister_bounded_update_endpoint_rejects_desc_order_without_mutation() {
 #[test]
 fn sql_canister_bounded_update_endpoint_rejects_offset_without_mutation() {
     let fixture = install_sql_bounded_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let before = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
         )
         .expect("pre-rejection read should prove the row set exists"),
     );
     let err = update_sql(
-        &fixture,
+        pic,
+        canister_id,
         "UPDATE SqlTestUser SET age = 32 WHERE age >= 24 ORDER BY id ASC LIMIT 2 OFFSET 1",
     )
     .expect_err("source-declared bounded SQL update endpoint must reject OFFSET");
@@ -5658,7 +6270,8 @@ fn sql_canister_bounded_update_endpoint_rejects_offset_without_mutation() {
     );
     let after = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
         )
         .expect("post-rejection read should still execute"),
@@ -5672,18 +6285,22 @@ fn sql_canister_bounded_update_endpoint_rejects_offset_without_mutation() {
 #[test]
 fn sql_canister_bounded_update_endpoint_returns_post_update_rows() {
     let fixture = install_sql_bounded_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let target_names = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name FROM SqlTestUser WHERE age >= 24 ORDER BY id ASC LIMIT 2",
         )
         .expect("pre-update target read should prove the bounded order"),
     );
     let returning = expect_projection(
         update_sql(
-            &fixture,
+            pic,
+            canister_id,
             "UPDATE SqlTestUser SET age = 33 \
              WHERE age >= 24 ORDER BY id ASC LIMIT 2 RETURNING name, age",
         )
@@ -5707,18 +6324,22 @@ fn sql_canister_bounded_update_endpoint_returns_post_update_rows() {
 #[test]
 fn sql_canister_bounded_update_endpoint_returns_post_update_star_rows() {
     let fixture = install_sql_bounded_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let targets = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT id, name, rank FROM SqlTestUser WHERE age >= 24 ORDER BY id ASC LIMIT 2",
         )
         .expect("pre-update target read should prove the bounded order"),
     );
     let returning = expect_projection(
         update_sql(
-            &fixture,
+            pic,
+            canister_id,
             "UPDATE SqlTestUser SET age = 36 \
              WHERE age >= 24 ORDER BY id ASC LIMIT 2 RETURNING *",
         )
@@ -5761,18 +6382,22 @@ fn sql_canister_bounded_update_endpoint_returns_post_update_star_rows() {
 #[test]
 fn sql_canister_bounded_update_endpoint_rejects_oversized_returning_response_without_mutation() {
     let fixture = install_sql_bounded_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
-    seed_oversized_sql_group_name(&fixture);
+    seed_oversized_sql_group_name(pic, canister_id);
     let before = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT id, int32_value FROM SqlTestNumericTypes ORDER BY id ASC",
         )
         .expect("pre-rejection read should still execute"),
     );
     let err = update_sql(
-        &fixture,
+        pic,
+        canister_id,
         "UPDATE SqlTestNumericTypes SET int32_value = 37 \
          WHERE nat32_value >= 100 ORDER BY id ASC LIMIT 2 RETURNING group_name",
     )
@@ -5790,7 +6415,8 @@ fn sql_canister_bounded_update_endpoint_rejects_oversized_returning_response_wit
     );
     let after = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT id, int32_value FROM SqlTestNumericTypes ORDER BY id ASC",
         )
         .expect("post-rejection read should still execute"),
@@ -5804,17 +6430,21 @@ fn sql_canister_bounded_update_endpoint_rejects_oversized_returning_response_wit
 #[test]
 fn sql_canister_bounded_update_endpoint_rejects_computed_returning_without_mutation() {
     let fixture = install_sql_bounded_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let before = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
         )
         .expect("pre-rejection read should prove the row set exists"),
     );
     let err = update_sql(
-        &fixture,
+        pic,
+        canister_id,
         "UPDATE SqlTestUser SET age = 33 \
          WHERE age >= 24 ORDER BY id ASC LIMIT 2 RETURNING LOWER(name)",
     )
@@ -5832,7 +6462,8 @@ fn sql_canister_bounded_update_endpoint_rejects_computed_returning_without_mutat
     );
     let after = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
         )
         .expect("post-rejection read should still execute"),
@@ -5846,11 +6477,14 @@ fn sql_canister_bounded_update_endpoint_rejects_computed_returning_without_mutat
 #[test]
 fn sql_canister_bounded_update_endpoint_rejects_invalid_returning_fields_without_mutation() {
     let fixture = install_sql_bounded_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
     let before = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
         )
         .expect("pre-rejection read should prove the row set exists"),
@@ -5861,7 +6495,8 @@ fn sql_canister_bounded_update_endpoint_rejects_invalid_returning_fields_without
         ("name, name", ErrorCode::SQL_WRITE_DUPLICATE_RETURNING_FIELD),
     ] {
         let err = update_sql(
-            &fixture,
+            pic,
+            canister_id,
             format!(
                 "UPDATE SqlTestUser SET age = 33 \
                  WHERE age >= 24 ORDER BY id ASC LIMIT 2 RETURNING {returning}"
@@ -5883,7 +6518,8 @@ fn sql_canister_bounded_update_endpoint_rejects_invalid_returning_fields_without
     }
     let after = expect_projection(
         query_sql(
-            &fixture,
+            pic,
+            canister_id,
             "SELECT name, age FROM SqlTestUser ORDER BY name ASC",
         )
         .expect("post-rejection read should still execute"),
@@ -5897,9 +6533,11 @@ fn sql_canister_bounded_update_endpoint_rejects_invalid_returning_fields_without
 #[test]
 fn sql_canister_query_endpoint_rejects_malformed_sql() {
     let fixture = install_sql_canister_fixture();
-    reset_sql_fixtures(&fixture);
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
 
-    let err = query_sql(&fixture, "SELECT FROM SqlTestUser")
+    let err = query_sql(pic, canister_id, "SELECT FROM SqlTestUser")
         .expect_err("query(sql) must reject malformed SQL before execution");
 
     assert_runtime_unsupported_query_error(

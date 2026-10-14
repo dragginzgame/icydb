@@ -106,6 +106,21 @@ skipped run; do not treat missing failure logs as a completed diagnosis.
   and linked PRs. Prefer confirmed current CI defects, maintainer priorities and
   reproducible bugs with a clear local owner. Check whether another contributor
   or an open PR already covers the work before recommending or starting it.
+- For routine issue acceptance, select the latest delivered version containing
+  the maintained behavior and its latest applicable complete required CI matrix.
+  Verify that the implementation and relevant checks still cover the issue;
+  a newer green run alone does not establish that coverage. Close superseded
+  adoption or producer issues when this current evidence meets their owned
+  criteria. Local drafts have no hosted result; a failed, incomplete or cancelled
+  latest required gate remains unqualified.
+- Keep an older run as an active acceptance gate only for a concrete historical
+  obligation: version-specific compatibility or migration proof, an old-version
+  regression to reproduce, or an unresolved production failure confined to that
+  source. State the reason, exact source/run and required action. A formerly
+  queued or cancelled run alone is not such a reason. Update current issue
+  descriptions and decisions to use the selected delivered evidence; preserve
+  historical logs, comments and audit records without relabelling an older
+  commit as passed. This changes issue acceptance, not CI retention or dispatch.
 - Recommend a short ordered list with issue links, the concrete next action and
   any missing input. If CI inspection was inconclusive, state that limitation
   alongside issue recommendations. If nothing is actionable, report that and
@@ -140,19 +155,36 @@ skipped run; do not treat missing failure logs as a completed diagnosis.
   owning issue during the current inspection pass. Verify the exact delivered
   consumer revision, recorded Shared snapshot and relevant checks against the
   issue's completion criteria. Close completed consumer issues with those source
-  identities and evidence links; update the linked Shared issue with the result
-  and remaining obligation. A push, version bump or upstream release alone is
+  identities and evidence links. Update a linked Shared issue only when its
+  own remaining work changes; do not repeat consumer status in a closed producer
+  issue. A push, version bump or upstream release alone is
   not completion. Pending, cancelled or missing required native checks leave
   acceptance open. Do not poll indefinitely; revisit on the next requested or
   already-enabled maintenance pass.
 - Keep producer fixes and fleet coordination distinct. A producer issue can
-  close once its own implementation and qualification criteria are met and
-  unresolved consumer work has linked owning issues. An issue explicitly tracking
-  fleet adoption remains open until its named obligations are satisfied; do not
-  silently narrow those criteria to clear the queue. Do not use automatic closing
-  references in downstream changes for a Shared issue with unmet criteria.
-- That issue authorization does not authorize sibling file edits, unrelated
-  messages, commits or release effects. A check request
+  close once its own implementation is delivered and its required qualification
+  is complete. Record the producer revision/check evidence and link unresolved
+  consumer work to its owning issues; consumer adoption is not an additional
+  producer closure gate. Pending or cancelled required producer checks still
+  block closure. Reopen only for an actual producer defect or unmet producer
+  obligation, not a consumer that has yet to adopt.
+- Keep one active issue per owned outcome. Do not create open Shared umbrella
+  issues solely to mirror consumer adoption. During reconciliation, retire an
+  existing coordination-only tracker once each unresolved obligation has a
+  linked owning issue. Explain that tracking moved, preserve its evidence and
+  links, and close as not planned rather than claiming adoption completed.
+  Keep a cross-repository issue open only for concrete work still owned there;
+  name that work explicitly. Respect excluded repositories: retain existing
+  links without inspecting or claiming completion of their work.
+- Consolidate duplicate proposals under one issue, carrying over distinct
+  requirements and owner links before closing the duplicate. Do not erase
+  unresolved requirements to reduce the count. Downstream automatic closing
+  references must not close Shared issues with unmet producer criteria.
+- Issue-posting authority and source-contribution authority are separate.
+  Relevant sibling repairs use the standing
+  [isolated PR workflow](contributions.md#cross-repository-pull-requests), including
+  its scoped commits and branch pushes; never edit sibling working checkouts
+  directly. Neither authority permits unrelated messages or release effects. A check request
   remains inspection; it does not authorize applying newly found local repairs.
   If another contributor owns an active edit or validation, coordinate before
   changing its source; retain a proposed patch as evidence until it can be applied.

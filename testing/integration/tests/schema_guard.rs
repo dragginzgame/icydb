@@ -1,6 +1,7 @@
 use std::{collections::BTreeSet, fs};
 
 use candid::{CandidType, Principal};
+use ic_testkit::pic::CandidCallExt as _;
 use icydb::{Error, ErrorCode, db::EntitySchemaDescription};
 use icydb_testing_integration::{
     CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterWasmProfile,
@@ -34,7 +35,8 @@ fn query_schema(
     caller: Principal,
 ) -> Result<Vec<EntitySchemaDescription>, Error> {
     fixture
-        .query_candid_as(caller, "icydb_schema", ())
+        .pocket_ic()
+        .query_candid_as(fixture.canister_id(), caller, "icydb_schema", ())
         .expect("schema response should decode")
 }
 
@@ -54,7 +56,8 @@ fn public_controller_and_guarded_schema_modes_preserve_distinct_authority() {
     );
     let controller = install_prebuilt_fixture_canister("schema_guard", production_wasm);
     let controller_schema: Result<Vec<EntitySchemaDescription>, Error> = controller
-        .query_candid("icydb_schema", ())
+        .pocket_ic()
+        .query_candid(controller.canister_id(), "icydb_schema", ())
         .expect("controller schema response should decode");
     assert!(
         !controller_schema
@@ -79,7 +82,8 @@ fn public_controller_and_guarded_schema_modes_preserve_distinct_authority() {
         ErrorCode::RUNTIME_BOUNDARY_SCHEMA_SURFACE_POLICY_DENIED,
     );
     let guarded_controller: Result<Vec<EntitySchemaDescription>, Error> = guarded
-        .query_candid("icydb_schema", ())
+        .pocket_ic()
+        .query_candid(guarded.canister_id(), "icydb_schema", ())
         .expect("guarded controller denial should decode");
     assert_eq!(
         guarded_controller
@@ -88,7 +92,8 @@ fn public_controller_and_guarded_schema_modes_preserve_distinct_authority() {
         ErrorCode::RUNTIME_BOUNDARY_SCHEMA_SURFACE_POLICY_DENIED,
     );
 
-    let absent_sql = guarded.query_candid_as::<Result<(), Error>, _>(
+    let absent_sql = guarded.pocket_ic().query_candid_as::<Result<(), Error>, _>(
+        guarded.canister_id(),
         principal(42),
         "icydb_query",
         ("SHOW ENTITIES".to_string(),),
@@ -110,11 +115,14 @@ fn guarded_schema_rejects_anonymous_before_application_code_and_propagates_guard
         ErrorCode::RUNTIME_BOUNDARY_SCHEMA_SURFACE_POLICY_DENIED,
     );
 
-    let trapped = fixture.query_candid_as::<Result<Vec<EntitySchemaDescription>, Error>, _>(
-        principal(44),
-        "icydb_schema",
-        (),
-    );
+    let trapped = fixture
+        .pocket_ic()
+        .query_candid_as::<Result<Vec<EntitySchemaDescription>, Error>, _>(
+            fixture.canister_id(),
+            principal(44),
+            "icydb_schema",
+            (),
+        );
     assert!(trapped.is_err(), "application guard traps must propagate");
 }
 
@@ -122,7 +130,13 @@ fn guarded_schema_rejects_anonymous_before_application_code_and_propagates_guard
 fn guarded_schema_local_authorization_cost_stays_below_frozen_ceilings() {
     let fixture = install_fixture_canister("schema_guard");
     let cost: Result<ReadAuthorizationCostResult, Error> = fixture
-        .query_candid_as(principal(42), "read_authorization_cost", ())
+        .pocket_ic()
+        .query_candid_as(
+            fixture.canister_id(),
+            principal(42),
+            "read_authorization_cost",
+            (),
+        )
         .expect("authorization cost result should decode");
     let cost = cost.expect("non-anonymous authorization cost probe should succeed");
 

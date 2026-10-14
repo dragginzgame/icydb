@@ -1,5 +1,5 @@
 name: Retain failed validation and installer evidence
-# Shared companions: scripts/ci/archive-evidence.sh scripts/ci/select-tool-evidence.sh
+# Shared companions: scripts/ci/collect-tool-evidence.sh
 description: One collection contract for ordinary failures and hosted retention qualification.
 inputs:
   name:
@@ -60,32 +60,19 @@ runs:
           *) echo 'compact-successful-tools must be true or false' >&2; exit 2 ;;
         esac
         diagnostics="$(mktemp -d "$temp_root/tool-evidence.XXXXXX")"
-        selection+=("$repository_root" "$diagnostics")
-        if [[ "${EVIDENCE_COMPACT:-false}" == true ]]; then
-          selection+=("${EVIDENCE_HOST_VERSIONS:-$EVIDENCE_ACTION_ROOT/../../../ci/tool-versions.env}"
-                      "${EVIDENCE_IC_PINS:-$EVIDENCE_ACTION_ROOT/../../../ci/ic-tools.tsv}")
-        fi
-        selector_status=0
-        bash "$EVIDENCE_ACTION_ROOT/../../../scripts/ci/select-tool-evidence.sh" "${selection[@]}" \
-          > "$diagnostics/selections.nul" 2> "$diagnostics/selection.log" || selector_status=$?
-        printf '%s\n' "$selector_status" > "$diagnostics/selection-status"
+        archive="$(mktemp -d "$RUNNER_TEMP/shared-evidence.XXXXXX")/evidence.tar.gz"
+        collector_status=0
+        bash "$EVIDENCE_ACTION_ROOT/../../../scripts/ci/collect-tool-evidence.sh" \
+          "$archive" "$repository_root" "$diagnostics" "${selection[0]}" \
+          "${EVIDENCE_HOST_VERSIONS:-$EVIDENCE_ACTION_ROOT/../../../ci/tool-versions.env}" \
+          "${EVIDENCE_IC_PINS:-$EVIDENCE_ACTION_ROOT/../../../ci/ic-tools.tsv}" \
+          ${inputs[@]+"${inputs[@]}"} > "${archive%/*}/archive-path" || collector_status=$?
+        [[ "$collector_status" != 2 ]] || exit "$collector_status"
         complete=true
-        if [[ "$selector_status" != 0 ]]; then
-          complete=false
-          cat "$diagnostics/selection.log" >&2
-          echo 'Shared evidence collection incomplete; uploading admitted local evidence and diagnostics.' >&2
-        fi
+        [[ "$collector_status" == 0 ]] || complete=false
         printf 'collection-complete=%s\n' "$complete" >> "$GITHUB_OUTPUT"
-        while IFS= read -r -d '' selected_root && IFS= read -r -d '' selected_path; do
-          inputs+=("$selected_root" "$selected_path")
-        done < "$diagnostics/selections.nul"
-        if [[ "$complete" == false || -d "$diagnostics/host" || -d "$diagnostics/ic" ]]; then
-          inputs+=("$temp_root" "${diagnostics#"$temp_root/"}")
-        fi
-        if [[ ${#inputs[@]} != 0 ]]; then
-          archive="$(mktemp -d "$RUNNER_TEMP/shared-evidence.XXXXXX")/evidence.tar.gz"
-          bash "$EVIDENCE_ACTION_ROOT/../../../scripts/ci/archive-evidence.sh" "$archive" "${inputs[@]}"
-          printf 'path=%s\n' "$archive" >> "$GITHUB_OUTPUT"
+        if [[ -s "${archive%/*}/archive-path" ]]; then
+          printf 'path=%s\n' "$(cat "${archive%/*}/archive-path")" >> "$GITHUB_OUTPUT"
         fi
     - id: upload
       if: ${{ !cancelled() && steps.archive.outputs.path != '' }}

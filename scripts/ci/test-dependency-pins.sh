@@ -7,6 +7,8 @@ ROOT="$0"
 ROOT="$(cd -P "${ROOT%/*}/../.." && printf '%s/.' "$PWD")"
 ROOT="${ROOT%/.}"
 FIXTURE="$(mktemp -d "${TMPDIR:-/tmp}/dependency-pins-test.XXXXXX")"
+FIXTURE="$(CDPATH="" cd -P -- "$FIXTURE" && printf '%s/.' "$PWD")"
+FIXTURE="${FIXTURE%/.}"
 # shellcheck source=scripts/ci/fixture-lifecycle.sh
 source "$ROOT/scripts/ci/fixture-lifecycle.sh"
 fixture_complete=false

@@ -86,6 +86,20 @@ tool_store_active_reference() {
     fi
 }
 
+# Return a verified current bundle, or empty output when explicit setup is
+# needed. An unmanaged checkout pointer remains fatal, never a repair candidate.
+# Verifiers retain their own authentication, probes and diagnostics.
+tool_store_verified_selection() {
+    local verifier="$1" selection bundle
+    selection="$(tool_store_active_reference)" || return $?
+    if [[ -n "$selection" ]] &&
+        bundle="$(tool_store_resolve "$selection" "$store_slot")" &&
+        tool_store_unlocked && "$verifier" "$bundle"; then
+        printf '%s\n' "$bundle"
+    fi
+    return 0
+}
+
 # mkdir remains the atomic acquisition. Keep its diagnostic/status verbatim;
 # an observed path is not proof of a live owner or permission to remove it.
 tool_store_lock_directory() {

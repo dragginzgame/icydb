@@ -1,3 +1,4 @@
+use ic_testkit::pic::CandidCallExt as _;
 use icydb_testing_integration::{
     install_fixture_canister,
     nested_relation_contract::{
@@ -6,6 +7,7 @@ use icydb_testing_integration::{
         MAX_NESTED_RELATION_PATH_STEPS, REQUIRED_INSTRUCTION_HEADROOM,
     },
 };
+
 use std::time::Duration;
 
 const ADMITTED_CALIBRATION_INSTRUCTIONS: u64 =
@@ -38,7 +40,12 @@ fn measure_phase(
     phase: u8,
 ) -> u64 {
     let measured: Result<u64, icydb::Error> = fixture
-        .update_candid("measure_relation_calibration", (base, count, phase))
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "measure_relation_calibration",
+            (base, count, phase),
+        )
         .expect("stable relation-tree calibration phase should decode");
     let instructions = measured.unwrap_or_else(|error| {
         panic!("stable relation-tree calibration phase {phase} at base {base} failed: {error:?}")
@@ -54,7 +61,12 @@ fn call_phase(
     phase: u8,
 ) -> Result<u64, icydb::Error> {
     fixture
-        .update_candid("measure_relation_calibration", (base, count, phase))
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "measure_relation_calibration",
+            (base, count, phase),
+        )
         .expect("stable relation-tree boundary phase should decode")
 }
 
@@ -143,7 +155,12 @@ fn controlled_actors_exercise_the_frozen_direct_relation_flow() {
         let fixture = install_fixture_canister(actor);
         for operation in 0_u8..=6 {
             let ((succeeded, instructions),): ((bool, u64),) = fixture
-                .update_candid("exercise_relation_flow", (operation,))
+                .pocket_ic()
+                .update_candid(
+                    fixture.canister_id(),
+                    "exercise_relation_flow",
+                    (operation,),
+                )
                 .expect("controlled relation operation should decode");
             assert!(instructions > 0);
             assert_eq!(
@@ -163,7 +180,12 @@ fn shallow_actor_exercises_every_single_valued_nested_relation_flow() {
     let fixture = install_fixture_canister("nested_relation_shallow");
     for operation in 0_u8..=5 {
         let ((succeeded, instructions),): ((bool, u64),) = fixture
-            .update_candid("exercise_shallow_relation_flow", (operation,))
+            .pocket_ic()
+            .update_candid(
+                fixture.canister_id(),
+                "exercise_shallow_relation_flow",
+                (operation,),
+            )
             .expect("shallow nested relation operation should decode");
         assert!(
             succeeded,
@@ -181,7 +203,12 @@ fn repeated_actor_exercises_every_collection_nested_relation_flow() {
     let fixture = install_fixture_canister("nested_relation_repeated");
     for operation in 0_u8..=5 {
         let ((succeeded, instructions),): ((bool, u64),) = fixture
-            .update_candid("exercise_repeated_relation_flow", (operation,))
+            .pocket_ic()
+            .update_candid(
+                fixture.canister_id(),
+                "exercise_repeated_relation_flow",
+                (operation,),
+            )
             .expect("repeated nested relation operation should decode");
         assert!(
             succeeded,
@@ -198,7 +225,9 @@ fn repeated_actor_exercises_every_collection_nested_relation_flow() {
 fn repeated_actor_charges_raw_occurrences_before_deduplication() {
     let fixture = install_fixture_canister("nested_relation_repeated");
     let exact: Result<(), icydb::Error> = fixture
+        .pocket_ic()
         .update_candid(
+            fixture.canister_id(),
             "commit_repeated_relation_boundary",
             (
                 40_000_i32,
@@ -210,7 +239,9 @@ fn repeated_actor_charges_raw_occurrences_before_deduplication() {
     exact.expect("exact raw-occurrence boundary should commit");
 
     let over: Result<(), icydb::Error> = fixture
+        .pocket_ic()
         .update_candid(
+            fixture.canister_id(),
             "commit_repeated_relation_boundary",
             (
                 40_001_i32,
@@ -230,7 +261,9 @@ fn repeated_actor_charges_raw_occurrences_before_deduplication() {
 fn direct_relation_stable_tree_calibration_retains_required_message_headroom() {
     let fixture = install_fixture_canister("nested_relation_direct");
     let ((traversal_checksum, traversal_instructions),): ((u64, u64),) = fixture
+        .pocket_ic()
         .query_candid(
+            fixture.canister_id(),
             "measure_relation_traversal",
             (
                 u8::try_from(MAX_NESTED_RELATION_PATH_STEPS)

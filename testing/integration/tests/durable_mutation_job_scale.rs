@@ -1,6 +1,7 @@
 //! Collection-scale durable mutation-job composition and upgrade evidence.
 
 use candid::CandidType;
+use ic_testkit::pic::CandidCallExt as _;
 use icydb::{
     Error,
     db::{
@@ -21,6 +22,7 @@ use icydb_testing_integration::{
     install_fixture_canister, upgrade_fixture_canister,
 };
 use serde::Deserialize;
+
 use std::time::Duration;
 
 const LOAD_PAGE_ROWS: u32 = 1_024;
@@ -252,7 +254,12 @@ fn load_scale_fixture(fixture: &ic_testkit::pic::StandaloneCanisterFixture) {
     while first_id <= DURABLE_MUTATION_JOB_FIXTURE_ROWS {
         let row_count = LOAD_PAGE_ROWS.min(DURABLE_MUTATION_JOB_FIXTURE_ROWS - first_id + 1);
         let evidence: Result<MutationScaleLoadEvidence, Error> = fixture
-            .update_candid("load_collection_mutation_scale_page", (first_id, row_count))
+            .pocket_ic()
+            .update_candid(
+                fixture.canister_id(),
+                "load_collection_mutation_scale_page",
+                (first_id, row_count),
+            )
             .expect("scale load page should decode");
         let evidence = evidence.expect("scale load page should succeed");
         assert_eq!(evidence.first_id, first_id);
@@ -267,7 +274,7 @@ fn load_scale_fixture(fixture: &ic_testkit::pic::StandaloneCanisterFixture) {
         // families. Four rounds therefore drain every page completely, with
         // inactive extra rounds becoming no-ops after later pages quiesce.
         for _ in 0..4 {
-            deliver_startup_watchdog_message(fixture);
+            deliver_startup_watchdog_message(fixture.pocket_ic());
         }
         loaded = loaded.saturating_add(row_count);
         first_id = first_id.saturating_add(row_count);
@@ -278,7 +285,12 @@ fn load_scale_fixture(fixture: &ic_testkit::pic::StandaloneCanisterFixture) {
 fn scale_facts(fixture: &ic_testkit::pic::StandaloneCanisterFixture) -> MutationScaleFixtureFacts {
     let count = |fact| {
         let count: Result<u32, Error> = fixture
-            .query_candid("collection_mutation_scale_fact", (fact,))
+            .pocket_ic()
+            .query_candid(
+                fixture.canister_id(),
+                "collection_mutation_scale_fact",
+                (fact,),
+            )
             .expect("scale fact should decode");
         count.expect("scale fact should load")
     };
@@ -298,7 +310,8 @@ fn application_startup_contract(
     fixture: &ic_testkit::pic::StandaloneCanisterFixture,
 ) -> ApplicationStartupSnapshot {
     fixture
-        .query_candid("application_startup_contract", ())
+        .pocket_ic()
+        .query_candid(fixture.canister_id(), "application_startup_contract", ())
         .expect("application startup contract should decode")
 }
 
@@ -324,14 +337,16 @@ fn accepted_schema_descriptions(
     fixture: &ic_testkit::pic::StandaloneCanisterFixture,
 ) -> Vec<EntitySchemaDescription> {
     let descriptions: Result<Vec<EntitySchemaDescription>, Error> = fixture
-        .query_candid("accepted_schema_descriptions", ())
+        .pocket_ic()
+        .query_candid(fixture.canister_id(), "accepted_schema_descriptions", ())
         .expect("accepted schema descriptions should decode");
     descriptions.expect("accepted schema descriptions should remain available")
 }
 
 fn query_count(fixture: &ic_testkit::pic::StandaloneCanisterFixture, sql: &str) -> u64 {
     let response: Result<SqlQueryResult, Error> = fixture
-        .query_candid("query_user", (sql.to_string(),))
+        .pocket_ic()
+        .query_candid(fixture.canister_id(), "query_user", (sql.to_string(),))
         .expect("scale SQL count should decode");
     let SqlQueryResult::Projection(projection) = response.expect("scale SQL count should succeed")
     else {
@@ -407,7 +422,12 @@ fn start_scale_job(
     job: MutationScaleJob,
 ) -> MutationJobState {
     let state: Result<MutationJobState, MutationJobError> = fixture
-        .update_candid("start_collection_mutation_scale_job", (job,))
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "start_collection_mutation_scale_job",
+            (job,),
+        )
         .expect("scale start should decode");
     state.expect("scale start should succeed")
 }
@@ -417,7 +437,12 @@ fn scale_job_state(
     job: MutationScaleJob,
 ) -> Result<MutationJobState, MutationJobError> {
     fixture
-        .update_candid("collection_mutation_scale_job_state", (job,))
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "collection_mutation_scale_job_state",
+            (job,),
+        )
         .expect("scale job state should decode")
 }
 
@@ -427,7 +452,9 @@ fn advance_scale_job(
     sequence: u64,
 ) -> Result<MutationScaleAdvancePerfResult, MutationJobError> {
     fixture
+        .pocket_ic()
         .update_candid(
+            fixture.canister_id(),
             "advance_collection_mutation_scale_job",
             (job, sequence, format!("{}-{sequence}", job.label())),
         )
@@ -485,7 +512,7 @@ fn run_scale_job(
         }
         // Model separate user calls with the replicated watchdog running
         // between them; each callback owns at most one complete batch.
-        deliver_startup_watchdog_message(fixture);
+        deliver_startup_watchdog_message(fixture.pocket_ic());
     }
 
     assert_eq!(evidence.status, MutationJobStatus::Completed);
@@ -516,7 +543,12 @@ fn acknowledge_scale_job(
 ) {
     for _ in 0..2 {
         let result: Result<(), MutationJobError> = fixture
-            .update_candid("acknowledge_collection_mutation_scale_job", (job, sequence))
+            .pocket_ic()
+            .update_candid(
+                fixture.canister_id(),
+                "acknowledge_collection_mutation_scale_job",
+                (job, sequence),
+            )
             .expect("scale acknowledgement should decode");
         result.expect("terminal acknowledgement should be replay-safe");
     }
@@ -549,7 +581,8 @@ fn prove_eager_control_is_bounded(
     initial: &MutationScaleFixtureFacts,
 ) {
     let eager: Result<SqlQueryResult, Error> = fixture
-        .update_candid("try_collection_eager_tier_reset", ())
+        .pocket_ic()
+        .update_candid(fixture.canister_id(), "try_collection_eager_tier_reset", ())
         .expect("eager control should decode");
     let eager_error = eager.expect_err("10,001 rows must exceed one-shot exact admission");
     assert!(matches!(
@@ -587,7 +620,7 @@ fn start_composed_scale_jobs(
     );
     // Keep the Forward instruction fixture independent of setup debt. The
     // recovery scenario below creates and retains its own current batches.
-    deliver_startup_watchdog_message(fixture);
+    deliver_startup_watchdog_message(fixture.pocket_ic());
     (tier_state, scoring_state)
 }
 
@@ -608,7 +641,7 @@ fn run_warm_scale_jobs(
         replay_scale_advance(fixture, MutationScaleJob::Tier, 0, &first_tier);
     tier_evidence.forward_replayed = true;
     tier_evidence.record_committed(MutationScaleJob::Tier, &first_tier);
-    deliver_startup_watchdog_message(fixture);
+    deliver_startup_watchdog_message(fixture.pocket_ic());
     tier_evidence = run_scale_job(
         fixture,
         MutationScaleJob::Tier,
@@ -681,7 +714,12 @@ fn drive_populated_startup_recovery(
     // recovery can chain immediate successor callbacks.
     icydb_testing_integration::advance_startup_watchdog_until_ready(fixture);
     let observation: Result<MutationScaleRecoveryEvidence, Error> = fixture
-        .update_candid("recover_collection_mutation_scale_store", ())
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "recover_collection_mutation_scale_store",
+            (),
+        )
         .expect("scale recovery observation should decode");
     let observation = observation.expect("scale target store observation should remain available");
     assert!(observation.complete);
@@ -710,7 +748,7 @@ fn recover_active_tier_job(
     let accepted_schema_before_upgrade = candid::encode_one(accepted_schema_descriptions(fixture))
         .expect("accepted schema should encode before upgrade");
     let stable_bytes_before_upgrade = canister_stable_memory_bytes(fixture);
-    upgrade_fixture_canister(fixture, "sql_perf");
+    upgrade_fixture_canister(fixture.pocket_ic(), fixture.canister_id(), "sql_perf");
     assert!(
         canister_stable_memory_bytes(fixture) >= stable_bytes_before_upgrade,
         "same-schema upgrade may advance recovery but must not shrink stable memory",

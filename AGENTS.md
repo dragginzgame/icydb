@@ -180,7 +180,8 @@ rather than prohibiting retired names.
 
 ## Final Response
 
-Final reports should be brief, nicely formatted, and include only:
+Follow the shared [change-reporting rules](rules/change-reporting.md), including
+the required metrics and symbol changes. Keep reports brief and include:
 
 - summary
 - files changed, using absolute paths

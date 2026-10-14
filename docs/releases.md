@@ -660,6 +660,9 @@ plan is retained evidence and does not block the next release. A later failure
 from a separately chained command does not undo that successful branch/tag push.
 Package publication requires a consumer-owned publication command and an eligible
 package; do not append `make publish` automatically to the standard release flow.
+For a crates.io package using the workspace's stable version, consumers may reuse
+the [read-only publication admission helper](verification-helpers.md#read-only-cargo-publication-admission)
+while keeping upload authority, package policy and recovery local.
 
 ## Shared changelog finalization
 
@@ -682,15 +685,16 @@ rollback, receipts and exact prepared-payload checks.
 Pass the saved previous version even after package metadata has been bumped.
 Undated numbered sections at or below that version remain history. One pending
 numbered section must agree with the target; competing candidates or a target
-already dated differently are conflicts. The helper also understands the older
-`Draft` input, but maintained notes follow the numbered-draft rules. With no
-draft it creates the selected heading; it does not invent release-note content.
+already dated differently are conflicts. The selected numbered candidate must
+be the first release heading; `Draft` and misplaced candidates are rejected.
+With no candidate, the first release heading must identify the saved previous
+version; the helper then inserts the selected heading without inventing content.
 
 Horizontal spaces and tabs in headings are normalized only for classification;
 an already-dated target with extra separator whitespace cannot become a second
 release entry. Retained content keeps its original bytes, including a historical
-body without a terminal newline. A draft moved from EOF gains only the separator
-needed before the following history. The helper reads the document as one awk
+body without a terminal newline. Candidates are never moved from history.
+The helper reads the document as one awk
 record using regular-expression `RS`, supported by the system awks on the host
 matrix; it does not depend on GNU awk's `RT` extension.
 
@@ -704,6 +708,11 @@ and reconcile prose requirements with the [changelog rules](../rules/changelogs.
 Do not silently change a consumer's refusal or recovery behavior during adoption.
 
 ## Adoption and verification
+
+For a caller-admitted Cargo upload or dry run, the optional
+[publication attempt helper](cargo-publication.md) records one exact selection
+and command. It does not replace consumer registry/provenance admission or
+partial-upload recovery, and release execution never invokes it implicitly.
 
 The Makefile pattern specifies a contract; adding this document does not install
 helpers or prove consumer adoption. Consumers implement or align their targets,
@@ -735,6 +744,35 @@ Supplement effect/interruption stubs with real Git index/tree checks at staging
 boundaries. Shared Tooling's metadata fixture reuses existing history without
 creating commits and exercises the actual adapter's failed-log retention.
 
+## Pure workspace-version rendering
+
+`scripts/ci/render-cargo-workspace-version.pl SOURCE PREVIOUS CANDIDATE` emits
+the complete candidate manifest without changing the source. It recognizes one
+literal bare `workspace.package` table and one double-quoted stable version,
+including indentation, table comments and CRLF. Surrounding bytes and unrelated
+versions remain unchanged. Missing, duplicate, unsupported or mismatched literal
+selectors fail before candidate output; version components compare as strings.
+
+This helper is not a TOML parser or a release transaction. The caller admits the
+source with its existing TOML owner and independently checks the candidate's
+meaning before installation. Keep file custody, source identity, metadata roster,
+dependency selection, rollback and interruption recovery in the consumer. A
+saved-source renderer must not be replaced by the mutating adapter below solely
+to share version mechanics
+([#159](https://github.com/dragginzgame/shared-tooling/issues/159)).
+
+Dependency-selector edits and candidate comparison remain separate consumer
+contracts. An exact saved-byte comparison must not become parsed-TOML equality
+merely to share code; a consumer admitting harmless formatting differences must
+not silently gain byte-exact rejection either. Keep independent parsed-candidate
+checks where they protect the renderer boundary. The shared scalar renderer
+does not replace those checks or generalize into a selector/comparator framework
+without another demonstrated matching contract.
+
+Select this helper as a snapshot entrypoint when invoking it directly. Commit
+and qualify its owner before adopting it; a dirty producer draft is not an
+immutable consumer export.
+
 ## Coordinated Cargo metadata adapter
 
 `scripts/ci/cargo-release-metadata.sh prepare|check PRIMARY_PACKAGE` owns
@@ -753,7 +791,7 @@ committed source instead of reading newer working metadata. No version selection
 fetch, tool installation, Git staging/ref mutation or publication is implicit.
 Consumer preflight and late source/index admission remain outside this helper.
 
-IC Metrics is the first prepared consumer. Its live adapter remains until the
-reviewed helper is committed and refreshed through normal snapshot distribution.
+IC Metrics adopts the corrected helper from committed Shared Tooling 0.11.1
+through normal snapshot distribution, retaining its local policy in a thin adapter.
 Other Cargo consumers must retain their own file set, recovery and metadata policy
 when qualifying this adapter; it is not a fleet-wide automatic replacement.

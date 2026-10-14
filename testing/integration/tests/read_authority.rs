@@ -2,7 +2,7 @@ use std::{collections::BTreeSet, fs};
 
 use candid::Principal;
 use ic_host_artifacts::artifact::Sha256Digest;
-use ic_testkit::pic::StandaloneCanisterFixture;
+use ic_testkit::pic::{CandidCallExt as _, StandaloneCanisterFixture};
 use icydb::{
     Error, ErrorCode,
     db::{EntitySchemaDescription, sql::SqlQueryResult},
@@ -29,7 +29,13 @@ fn query_sql(
     caller: Principal,
 ) -> Result<SqlQueryResult, Error> {
     let result: Result<SqlQueryResult, Error> = fixture
-        .query_candid_as(caller, "icydb_query", ("SHOW ENTITIES".to_string(),))
+        .pocket_ic()
+        .query_candid_as(
+            fixture.canister_id(),
+            caller,
+            "icydb_query",
+            ("SHOW ENTITIES".to_string(),),
+        )
         .expect("SQL response should decode");
     result
 }
@@ -39,7 +45,8 @@ fn query_schema(
     caller: Principal,
 ) -> Result<Vec<EntitySchemaDescription>, Error> {
     fixture
-        .query_candid_as(caller, "icydb_schema", ())
+        .pocket_ic()
+        .query_candid_as(fixture.canister_id(), caller, "icydb_schema", ())
         .expect("schema response should decode")
 }
 
@@ -50,7 +57,8 @@ fn set_policy(
     enabled: bool,
 ) -> bool {
     fixture
-        .update_candid_as(caller, method, (enabled,))
+        .pocket_ic()
+        .update_candid_as(fixture.canister_id(), caller, method, (enabled,))
         .expect("application policy update should decode")
 }
 
@@ -231,7 +239,7 @@ fn assert_same_release_upgrade(
     // Immediate healthy recovery may finish while the policy is being
     // re-enabled, so the old externally observable one-second pending window
     // is no longer a stable authorization contract.
-    deliver_fixture_startup_watchdog(fixture);
+    deliver_fixture_startup_watchdog(fixture.pocket_ic());
     assert_eq!(
         &query_sql(fixture, reader).expect("SQL should recover after upgrade"),
         allowed_sql

@@ -145,13 +145,10 @@ verify_bundle() (
 
 tool_root="$consumer/.tools"
 active="$tool_root/ic"
-selection="$(tool_store_active_reference)"
-if [[ -n "$selection" ]]; then
-    if bundle="$(tool_store_resolve "$selection" "$store_slot")" &&
-        tool_store_unlocked && verify_bundle "$bundle"; then
-        printf '%s\n' "$active/bin"
-        exit 0
-    fi
+bundle="$(tool_store_verified_selection verify_bundle)"
+if [[ -n "$bundle" ]]; then
+    printf '%s\n' "$active/bin"
+    exit 0
 fi
 [[ "$check" == false ]] || { echo 'IC tools missing, changed or selected with different pins; run make install-ic-tools' >&2; exit 1; }
 for command in curl tar gzip perl; do command -v "$command" >/dev/null; done

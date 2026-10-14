@@ -131,13 +131,12 @@ verify() {
 }
 tool_root="$consumer/.tools"
 active="$tool_root/host"
-selection="$(tool_store_active_reference)"
-if [[ -n "$selection" ]]; then
-    if bundle="$(tool_store_resolve "$selection" "$store_slot")" &&
-        tool_store_unlocked && verify "$bundle"; then
-        printf '%s\n' "$active/bin"; exit 0
-    fi
-elif [[ "$check" == true ]]; then
+bundle="$(tool_store_verified_selection verify)"
+if [[ -n "$bundle" ]]; then
+    printf '%s\n' "$active/bin"
+    exit 0
+fi
+if [[ "$check" == true && ! -L "$active" ]]; then
     tool_failure jq "$active/bin/jq" missing-bundle
 fi
 [[ "$check" == false ]] || exit 1

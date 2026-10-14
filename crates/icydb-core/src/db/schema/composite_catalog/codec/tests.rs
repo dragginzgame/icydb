@@ -276,6 +276,108 @@ fn accepted_composite_catalog_decode_rejects_unknown_references() {
     );
 }
 
+fn encode_shape_fixture(shape: &AcceptedCompositeShape) -> Vec<u8> {
+    let mut writer = CatalogWriter::new();
+    writer.push_bytes(ACCEPTED_COMPOSITE_CATALOG_MAGIC);
+    writer.push_u16(ACCEPTED_COMPOSITE_CATALOG_CODEC_VERSION);
+    writer.push_len(1).unwrap();
+    writer.push_u32(1);
+    writer.push_string("codec::LocalShape").unwrap();
+    writer.push_u8(CODEC_STRUCTURAL_V1);
+    // Bypass catalog validation while preserving the current shape framing.
+    encode_shape(&mut writer, shape).unwrap();
+    writer.finish().unwrap()
+}
+
+#[test]
+fn accepted_composite_catalog_local_kind_shape_agrees_across_construction_and_codec() {
+    let enums = empty_enum_catalog();
+    for (leaf, valid) in [
+        (AcceptedFieldKind::Decimal { scale: u32::MAX }, false),
+        (AcceptedFieldKind::IntBig { max_bytes: 0 }, false),
+        (AcceptedFieldKind::NatBig { max_bytes: 0 }, false),
+        (
+            AcceptedFieldKind::Decimal {
+                scale: icydb_schema::Decimal::max_supported_scale(),
+            },
+            true,
+        ),
+        (AcceptedFieldKind::IntBig { max_bytes: 1 }, true),
+        (AcceptedFieldKind::NatBig { max_bytes: 1 }, true),
+    ] {
+        for kind in [
+            leaf.clone(),
+            AcceptedFieldKind::List(Box::new(leaf.clone())),
+            AcceptedFieldKind::Set(Box::new(leaf.clone())),
+            AcceptedFieldKind::Map {
+                key: Box::new(leaf.clone()),
+                value: Box::new(AcceptedFieldKind::Nat64),
+            },
+            AcceptedFieldKind::Map {
+                key: Box::new(AcceptedFieldKind::Nat64),
+                value: Box::new(leaf.clone()),
+            },
+        ] {
+            for shape in [
+                AcceptedCompositeShape::Record(vec![AcceptedCompositeField::new(
+                    CompositeFieldId::new(1).unwrap(),
+                    "field".into(),
+                    AcceptedCompositeElement::new(kind.clone(), true),
+                )]),
+                AcceptedCompositeShape::Tuple(vec![AcceptedCompositeElement::new(
+                    kind.clone(),
+                    true,
+                )]),
+                AcceptedCompositeShape::Newtype(AcceptedCompositeElement::new(kind.clone(), false)),
+            ] {
+                let definitions = BTreeMap::from([(
+                    CompositeTypeId::new(1).unwrap(),
+                    ("codec::LocalShape".into(), shape.clone()),
+                )]);
+                let built = AcceptedCompositeCatalog::from_initial_definitions(definitions, &enums);
+                let encoded = encode_shape_fixture(&shape);
+                let decoded = decode_accepted_composite_catalog(&encoded, &enums);
+                if valid {
+                    let catalog = built.unwrap();
+                    assert_eq!(decoded.unwrap(), catalog);
+                    assert_eq!(
+                        encode_accepted_composite_catalog(&catalog, &enums).unwrap(),
+                        encoded,
+                    );
+                } else {
+                    assert!(built.is_err());
+                    let error = decoded.unwrap_err();
+                    assert_eq!(error.class(), ErrorClass::Corruption);
+                    assert_eq!(error.origin(), ErrorOrigin::Store);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn accepted_composite_catalog_rejects_nullable_newtype_element() {
+    let enums = empty_enum_catalog();
+    let shape = AcceptedCompositeShape::Newtype(AcceptedCompositeElement::new(
+        AcceptedFieldKind::Nat64,
+        true,
+    ));
+    let error =
+        decode_accepted_composite_catalog(&encode_shape_fixture(&shape), &enums).unwrap_err();
+    assert_eq!(error.class(), ErrorClass::Corruption);
+    assert_eq!(error.origin(), ErrorOrigin::Store);
+    assert!(
+        AcceptedCompositeCatalog::from_initial_definitions(
+            BTreeMap::from([(
+                CompositeTypeId::new(1).unwrap(),
+                ("codec::LocalShape".into(), shape),
+            )]),
+            &enums,
+        )
+        .is_err()
+    );
+}
+
 #[test]
 fn accepted_composite_catalog_decode_accepts_resolved_recursion() {
     let recursive_type_id = CompositeTypeId::new(1).expect("one is non-zero");

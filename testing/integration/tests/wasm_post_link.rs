@@ -1,7 +1,7 @@
 use std::{env, fs};
 
 use candid::CandidType;
-use ic_testkit::pic::StandaloneCanisterFixture;
+use ic_testkit::pic::{CandidCallExt as _, StandaloneCanisterFixture};
 use icydb::{Error, db::sql::SqlQueryResult};
 use icydb_testing_integration::{
     CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
@@ -36,21 +36,33 @@ const fn wasm_release_test_options() -> CanisterBuildOptions {
 
 fn schema_application_update(fixture: &StandaloneCanisterFixture) -> SchemaApplicationPerfResult {
     let result: Result<SchemaApplicationPerfResult, Error> = fixture
-        .update_candid("measure_schema_application_update", ())
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "measure_schema_application_update",
+            (),
+        )
         .expect("schema-application update result should decode");
     result.expect("schema-application update should succeed")
 }
 
 fn schema_application_query(fixture: &StandaloneCanisterFixture) -> SchemaApplicationPerfResult {
     let result: Result<SchemaApplicationPerfResult, Error> = fixture
-        .query_candid("measure_schema_application_query", ())
+        .pocket_ic()
+        .query_candid(
+            fixture.canister_id(),
+            "measure_schema_application_query",
+            (),
+        )
         .expect("schema-application query result should decode");
     result.expect("schema-application query should succeed")
 }
 
 fn query_user(fixture: &StandaloneCanisterFixture) -> SqlQueryResult {
     let result: Result<SqlQueryResult, Error> = fixture
+        .pocket_ic()
         .query_candid(
+            fixture.canister_id(),
             "query_user",
             ("SELECT id, name, age FROM PerfAuditUser ORDER BY id".to_string(),),
         )
@@ -60,7 +72,9 @@ fn query_user(fixture: &StandaloneCanisterFixture) -> SqlQueryResult {
 
 fn query_user_instructions(fixture: &StandaloneCanisterFixture) -> SqlTotalOnlyPerfResult {
     let result: Result<SqlTotalOnlyPerfResult, Error> = fixture
+        .pocket_ic()
         .query_candid(
+            fixture.canister_id(),
             "query_user_with_perf",
             ("SELECT id, name, age FROM PerfAuditUser ORDER BY id".to_string(),),
         )
@@ -102,8 +116,8 @@ fn canonical_post_link_wasm_is_deterministic_and_upgrade_safe() {
     let initialized = schema_application_update(&fixture);
     assert_eq!(initialized.first_create, 0);
     assert_eq!(initialized.exact_match, 1);
-    reset_icydb_fixtures(&fixture);
-    deliver_fixture_startup_watchdog(&fixture);
+    reset_icydb_fixtures(fixture.pocket_ic(), fixture.canister_id());
+    deliver_fixture_startup_watchdog(fixture.pocket_ic());
     let before_upgrade_rows = query_user(&fixture);
     let before_upgrade_exact = schema_application_query(&fixture);
     let before_upgrade_query = query_user_instructions(&fixture);
@@ -114,8 +128,11 @@ fn canonical_post_link_wasm_is_deterministic_and_upgrade_safe() {
     let optimized_initialized = schema_application_update(&optimized_fixture);
     assert_eq!(optimized_initialized.first_create, 0);
     assert_eq!(optimized_initialized.exact_match, 1);
-    reset_icydb_fixtures(&optimized_fixture);
-    deliver_fixture_startup_watchdog(&optimized_fixture);
+    reset_icydb_fixtures(
+        optimized_fixture.pocket_ic(),
+        optimized_fixture.canister_id(),
+    );
+    deliver_fixture_startup_watchdog(optimized_fixture.pocket_ic());
     assert_eq!(query_user(&optimized_fixture), before_upgrade_rows);
     let optimized_exact = schema_application_query(&optimized_fixture);
     let optimized_query = query_user_instructions(&optimized_fixture);
@@ -151,7 +168,7 @@ fn canonical_post_link_wasm_is_deterministic_and_upgrade_safe() {
             None,
         )
         .expect("compiler-to-post-link upgrade should succeed");
-    deliver_fixture_startup_watchdog(&fixture);
+    deliver_fixture_startup_watchdog(fixture.pocket_ic());
 
     let after_upgrade_rows = query_user(&fixture);
     assert_eq!(after_upgrade_rows, before_upgrade_rows);
@@ -159,7 +176,7 @@ fn canonical_post_link_wasm_is_deterministic_and_upgrade_safe() {
     assert_eq!(after_upgrade_exact.first_create, 0);
     assert_eq!(after_upgrade_exact.exact_match, 1);
 
-    reset_icydb_fixtures(&fixture);
+    reset_icydb_fixtures(fixture.pocket_ic(), fixture.canister_id());
     assert_eq!(query_user(&fixture), before_upgrade_rows);
 
     println!(

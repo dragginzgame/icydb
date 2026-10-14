@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Shared companions: scripts/dev/install-rust-tools.sh scripts/dev/cargo-tool-build.sh scripts/dev/tool-store.sh scripts/ci/cargo-tool-cache-key.sh scripts/ci/select-tool-evidence.sh scripts/ci/archive-evidence.sh .githooks/pre-commit
 set -euo pipefail
+path_context=false
+if [[ "${1:-}" == --path-context && $# == 1 ]]; then path_context=true;
+elif [[ $# != 0 ]]; then echo 'usage: fixture [--path-context]' >&2; exit 2; fi
 ROOT="${BASH_SOURCE[0]}"
 [[ "$ROOT" == /* ]] || ROOT="$PWD/$ROOT"
 ROOT="$(cd -P "${ROOT%/*}/../.." && printf '%s/.' "$PWD")"; ROOT="${ROOT%/.}"
@@ -191,10 +194,30 @@ common --preflight
 [[ ! -e "$SHARED_TOOLING_STORE" && ! -e "$consumer/.tools" ]] || exit 1
 refuse common --check
 [[ ! -e "$SHARED_TOOLING_STORE" && ! -e "$consumer/.tools" ]] || exit 1
+if [[ "$path_context" == true ]]; then
+    common
+    common --check
+    original="$(readlink "$consumer/.tools/rust/common")"
+    before="$(wc -l < "$fixture/builds")"
+    common
+    [[ "$(wc -l < "$fixture/builds")" == "$before" ]] || exit 1
+    source_package cargo-sort 99.1.1
+    sed 's/99.1.0/99.1.1/' "$fixture/versions" > "$fixture/new-versions"
+    cp "$fixture/new-versions" "$fixture/versions"
+    touch "$fixture/fail-cargo-sort"
+    refuse common
+    grep -F 'Cargo tool attempt retained:' "$fixture/refused.log"
+    [[ "$(readlink "$consumer/.tools/rust/common")" == "$original" ]] || exit 1
+    [[ ! -e "$consumer/.tools/rust/common.lock" && -z "$(find "$SHARED_TOOLING_STORE" -name install.lock)" ]] || exit 1
+    [[ -n "$(find "$SHARED_TOOLING_STORE" -path '*/build/evidence' -type f)" ]] || exit 1
+    fixture_complete=true
+    echo 'Rust path-context install, reuse, check and retained failure passed'
+    exit 0
+fi
 # The CI cache key shares the installer identity and performs no setup. Exercise
 # changes in a private copy so no production source is modified by qualification.
 mkdir -p "$fixture/cache-source/scripts/dev" "$fixture/cache-source/scripts/ci" "$fixture/cache-source/ci"
-for file in scripts/ci/cargo-tool-cache-key.sh scripts/ci/verify-file-checksum.sh \
+for file in scripts/ci/cargo-tool-cache-key.sh scripts/ci/tool-catalog-records.pl scripts/ci/verify-file-checksum.sh \
     scripts/dev/cargo-tool-build.sh scripts/dev/tool-store.sh scripts/dev/install-rust-tools.sh; do
     cp "$ROOT/$file" "$fixture/cache-source/$file"
 done

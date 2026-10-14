@@ -37,11 +37,19 @@ this contract; the [release contract](../docs/releases.md) owns release executio
 
 ## Issue links and compatibility
 
-- When a change fixes a GitHub issue, its changelog entry must include a clickable
-  link to that issue, for example `[#123](https://github.com/OWNER/REPO/issues/123)`.
-  Link every resolved issue relevant to the entry. When both root and detailed
-  notes describe the fix, include the issue links in both views. Bare issue
-  numbers or local tracking labels do not replace links; never invent issue URLs.
+- When a change fixes a GitHub issue, its changelog entry must link every resolved
+  issue relevant to the entry. When both root and detailed notes describe the
+  fix, include the issue links in both views.
+- Every GitHub issue reference must include its number and title in the clickable
+  link text, for example
+  `[#123 — Fix release retry failures](https://github.com/OWNER/REPO/issues/123)`.
+  Use the actual issue title, or a concise, faithful shortening when it is long.
+  Read the issue to verify its title and destination; never invent either.
+  Do not use number-only links, bare URLs or lists of unexplained issue numbers,
+  even when surrounding prose summarizes the batch. Each issue needs its own
+  descriptive link so readers can identify it and click a useful target.
+  Apply this to new and edited pending notes; preserve published history unless
+  its correction is explicitly authorized.
 - Mark breaking public API or semantic changes explicitly in the root summary.
   State the affected contract and required consumer action, with fuller detail
   in the minor-line notes when needed. Include relevant API, CLI, response/error,

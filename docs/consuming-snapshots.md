@@ -218,8 +218,10 @@ preserves the roots. Pass a complete replacement `--entrypoint` set to narrow or
 replace them; supplying roots is a replacement, not an addition.
 
 Selected committed files can declare unconditional shared dependencies on their
-second line as `# Shared companions: relative/path another/path`. Refresh checks
-those declarations in the exported blobs, including companions' own declarations,
+second line as `# Shared companions: relative/path another/path`, or for Markdown
+as `<!-- Shared companions: relative/path another/path -->`. Markdown declarations
+keep required guides with reduced task exports without selecting optional commands.
+Refresh checks those declarations in the exported blobs, including companions' own declarations,
 and includes their complete closure. Missing source payloads refuse before any
 consumer replacement. Review additions in preview; no inspected code is executed
 to discover dependencies.
@@ -296,6 +298,11 @@ production modes stay explicit inputs rather than unconditional companions.
 Fixtures using `scripts/ci/fixture-lifecycle.sh` include it through their companion
 declarations. It removes successful fixture directories and preserves failures,
 including premature exits; production entrypoints do not acquire this test helper.
+Callers resolve the created fixture directory to an absolute physical path before
+registering their trap or changing working directory; clear `CDPATH` for that
+resolution. They own the directory, completion assertion and diagnostic label.
+The helper reports cleanup failure even when invoked from a conditional, and
+retains the original nonzero status if reporting fails. Sourcing it has no effects.
 The release runner also includes `scripts/ci/check-release-tag.sh` so direct and
 PR release paths use the same annotated-tag and exact-commit checks.
 
@@ -465,8 +472,11 @@ them. Reporting an issue neither applies the upstream fix nor verifies consumer
 adoption; broad validation authority stays unchanged.
 After delivering the adoption, apply that rule's issue reconciliation: record
 the exact consumer commit, Shared revision and required validation evidence in
-the consumer's owning issue, close it when its criteria are met, and update the
-linked Shared tracker. Consumers still awaiting required CI remain open. This is
+the consumer's owning issue and close it when its criteria are met. Update a
+linked Shared issue only for its own remaining work; completed producer issues
+stay closed while adoption proceeds in consumer issues. Retire redundant
+coordination trackers through the maintenance procedure, preserving owner links.
+Consumers still awaiting required CI remain open. This is
 part of the agent's adoption/maintenance pass, not a GitHub auto-close-on-push
 workflow or authorization to dispatch CI or start a schedule.
 

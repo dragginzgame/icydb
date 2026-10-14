@@ -393,12 +393,15 @@ impl AcceptedEnumCatalog {
     fn validate(&self) -> bool {
         self.lookup_maps_are_bijective()
             && self.by_id.values().all(|definition| {
-                definition.variants_by_id.values().all(|variant| {
-                    let AcceptedEnumVariantBody::Payload { contract } = &variant.body else {
-                        return true;
-                    };
-                    accepted_kind_matches_catalog(self, &contract.kind, 0)
-                })
+                // An empty catalog is valid; an enum without a variant is not.
+                !definition.variants_by_id.is_empty()
+                    && definition.variants_by_id.values().all(|variant| {
+                        let AcceptedEnumVariantBody::Payload { contract } = &variant.body else {
+                            return true;
+                        };
+                        contract.kind.has_valid_local_shape()
+                            && accepted_kind_matches_catalog(self, &contract.kind, 0)
+                    })
             })
     }
 

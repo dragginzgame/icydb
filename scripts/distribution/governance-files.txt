@@ -57,3 +57,5 @@ scripts/ci/verify-file-checksum.sh
 scripts/ci/verify-shared-tooling-snapshot.sh
 docs/tag-maintenance.md
 scripts/distribution/governance-files.txt
+docs/tool-catalog-bindings.md
+docs/cargo-publication.md

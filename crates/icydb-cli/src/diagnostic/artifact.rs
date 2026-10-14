@@ -10,7 +10,7 @@ use std::{
     path::Path,
 };
 
-use ic_host_fs::read::read_opened_file;
+use ic_host_fs::read::{open_regular_file, read_opened_file};
 use serde::{Deserialize, Serialize};
 
 const DIAGNOSTIC_ARTIFACT_FORMAT: &str = "icydb-diagnostic-schema";
@@ -142,7 +142,9 @@ impl DiagnosticSchemaArtifact {
     }
 
     fn read(path: &Path) -> Result<Self, String> {
-        let file = File::open(path).map_err(|err| {
+        // Admit the selected descriptor before reading; a FIFO must not wait
+        // for a writer during open. Regular-file symlinks remain supported.
+        let file = open_regular_file(path).map_err(|err| {
             format!(
                 "failed to open diagnostic artifact '{}': {err}",
                 path.display()

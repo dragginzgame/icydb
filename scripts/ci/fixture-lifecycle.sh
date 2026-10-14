@@ -4,8 +4,19 @@
 fixture_finish() {
     local status="$1" directory="$2" label="$3"
     # Bash 3.2 can report zero after nounset before assertions finish.
-    [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
-    if [[ "$status" == 0 ]]; then rm -rf -- "$directory"
-    else printf '%s: %s\n' "$label" "$directory" >&2; fi
+    [[ "${fixture_complete:-false}" == true || "$status" != 0 ]] || status=1
+    if [[ "$status" == 0 ]]; then
+        # Callers anchor their created directory before changing cwd. Never let
+        # a relative path or empty/root selection turn cleanup into another effect.
+        if [[ "$directory" != /* || "$directory" == / ]]; then status=1
+        else
+            rm -rf -- "$directory" || status=$?
+            [[ ! -e "$directory" && ! -L "$directory" ]] || { [[ "$status" != 0 ]] || status=1; }
+        fi
+    fi
+    if [[ "$status" != 0 ]]; then
+        # Reporting must not replace the original operation/cleanup failure.
+        printf '%s: %s\n' "$label" "$directory" >&2 || :
+    fi
     exit "$status"
 }

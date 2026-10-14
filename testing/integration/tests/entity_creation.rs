@@ -2,7 +2,7 @@
 
 use super::{migration_command, migration_status, projection, query_sql};
 use candid::CandidType;
-use ic_testkit::pic::StandaloneCanisterFixture;
+use ic_testkit::pic::{CandidCallExt as _, StandaloneCanisterFixture};
 use icydb::{
     Error, ErrorCode,
     db::{
@@ -15,6 +15,7 @@ use icydb_testing_integration::{
     build_entity_creation_fixture_wasms, install_prebuilt_fixture_canister,
 };
 use serde::Deserialize;
+
 use std::sync::OnceLock;
 
 #[derive(CandidType, Deserialize)]
@@ -92,7 +93,12 @@ fn measured_rows(
 ) -> RowProjectionOutput {
     let before = cycles(fixture);
     let measured: Measurement<SqlQueryResult> = fixture
-        .query_candid("measure_sql_query_instructions", (sql.to_string(),))
+        .pocket_ic()
+        .query_candid(
+            fixture.canister_id(),
+            "measure_sql_query_instructions",
+            (sql.to_string(),),
+        )
         .expect("query measurement should decode");
     report(fixture, before, label, measured.local_instructions);
     let SqlQueryResult::Projection(rows) = measured.result.expect("accepted read should succeed")
@@ -105,7 +111,9 @@ fn measured_rows(
 fn measured_update(fixture: &StandaloneCanisterFixture, sql: &str, label: &str) {
     let before = cycles(fixture);
     let measured: Measurement<SqlQueryResult> = fixture
+        .pocket_ic()
         .update_candid(
+            fixture.canister_id(),
             "measure_trusted_sql_exact_update_instructions",
             (sql.to_string(),),
         )
@@ -116,7 +124,9 @@ fn measured_update(fixture: &StandaloneCanisterFixture, sql: &str, label: &str) 
 
 fn catalog(fixture: &StandaloneCanisterFixture, entity: &str) -> EntitySchemaDescription {
     let measured: Result<CatalogMeasurement, Error> = fixture
+        .pocket_ic()
         .query_candid(
+            fixture.canister_id(),
             "measure_accepted_schema_read_instructions",
             (entity.to_string(),),
         )
@@ -139,11 +149,13 @@ fn seed() -> StandaloneCanisterFixture {
     let fixture = install_prebuilt_fixture_canister("sql", artifacts()[0].clone());
     projection(&fixture, "SELECT id FROM Item ORDER BY id");
     let seeded: Result<(), Error> = fixture
-        .update_candid("seed_entity_rename", ())
+        .pocket_ic()
+        .update_candid(fixture.canister_id(), "seed_entity_rename", ())
         .expect("source seed should decode");
     seeded.expect("populated source should seed");
     let inserted: Result<(), Error> = fixture
-        .update_candid("seed_entity_creation_target", ())
+        .pocket_ic()
+        .update_candid(fixture.canister_id(), "seed_entity_creation_target", ())
         .expect("source insert should decode");
     inserted.expect("unreferenced target row should insert");
     measured_update(
@@ -220,7 +232,8 @@ fn complete_mixed(
 fn assert_created(fixture: &StandaloneCanisterFixture, item: &str) {
     let before = cycles(fixture);
     let checked: Measurement<()> = fixture
-        .query_candid("check_created_quest", ())
+        .pocket_ic()
+        .query_candid(fixture.canister_id(), "check_created_quest", ())
         .expect("generated named value read should decode");
     checked
         .result
@@ -244,7 +257,12 @@ fn assert_created(fixture: &StandaloneCanisterFixture, item: &str) {
         ]]
     );
     let deleted: Result<Error, Error> = fixture
-        .update_candid("check_created_quest_target_delete", ())
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "check_created_quest_target_delete",
+            (),
+        )
         .expect("delete response should decode");
     assert_eq!(
         deleted
@@ -254,7 +272,12 @@ fn assert_created(fixture: &StandaloneCanisterFixture, item: &str) {
     );
     for (target, code) in [(3_u64, 700_u64), (999, 701)] {
         let rejected: Measurement<()> = fixture
-            .update_candid("write_created_quest", (8_u64, target, code))
+            .pocket_ic()
+            .update_candid(
+                fixture.canister_id(),
+                "write_created_quest",
+                (8_u64, target, code),
+            )
             .expect("rejected new write should decode");
         assert_eq!(
             rejected.result.unwrap_err().code(),
@@ -270,7 +293,8 @@ fn assert_created(fixture: &StandaloneCanisterFixture, item: &str) {
         vec![vec![OutputValue::nat64(2)]]
     );
     let checked: Result<(), Error> = fixture
-        .query_candid("check_entity_rename_bindings", ())
+        .pocket_ic()
+        .query_candid(fixture.canister_id(), "check_entity_rename_bindings", ())
         .expect("old typed bindings should decode");
     checked.expect("old generated bindings remain readable");
 }
@@ -334,7 +358,12 @@ fn rehearse(successor: Successor) {
     }
     let before = cycles(&fixture);
     let created: Measurement<()> = fixture
-        .update_candid("write_created_quest", (7_u64, 3_u64, 700_u64))
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "write_created_quest",
+            (7_u64, 3_u64, 700_u64),
+        )
         .expect("new write measurement should decode");
     created
         .result

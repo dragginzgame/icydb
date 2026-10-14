@@ -251,6 +251,7 @@ Supported shapes:
 - `EXPLAIN DELETE ...`
 - `EXPLAIN EXECUTION SELECT ...`
 - `EXPLAIN EXECUTION DELETE ...`
+- `EXPLAIN EXECUTION VERBOSE SELECT ...` / `EXPLAIN EXECUTION VERBOSE DELETE ...`
 - `EXPLAIN JSON SELECT ...`
 - `EXPLAIN JSON DELETE ...`
 
@@ -361,8 +362,9 @@ SQL DDL.
 
 Default `DESCRIBE` and `SHOW COLUMNS` return the same compact accepted column
 rows with fixed `name`, `type`, `nullable`, `key`, `default`, and `extra`
-columns. Key labels are `PRI`, single-field `UNI`, compound/non-unique `MUL`,
-or `-`; a compound unique member never implies independent uniqueness. Compact
+columns. Key labels are `PRI`, unconditional single-field `UNI`,
+compound/filtered/non-unique `MUL`, or `-`; compound and filtered unique members
+never imply whole-column uniqueness. Compact
 defaults use accepted insert behavior only, and nested fields use canonical
 dotted paths with ancestor-aware nullability.
 
@@ -375,10 +377,14 @@ absence: `insert_omission`, bounded canonical `insert_default` facts,
 `introduced_in_layout`, and separately decoded `historical_fill` facts.
 Corrupt accepted temporal payloads reject introspection rather than falling
 back to generated metadata or a byte-only display.
+Nested verbose rows retain their complete dotted path relative to the displayed
+top-level field, including intervening record members.
 
 `SHOW RELATIONS FROM|IN entity` returns accepted relation rows in stable
 relation-ID order. Its shell table uses the qualified accepted target path and
-the closed `Single`, `List`, or `Set` cardinality. Verbose `DESCRIBE` and `SHOW
+the closed `Single`, `List`, or `Set` source cardinality. Nested list or map-value
+traversal reports `List`; set-only traversal reports `Set`; a path without
+collection traversal reports `Single`. Verbose `DESCRIBE` and `SHOW
 CONSTRAINTS` continue to consume the maintained constraint projection ordered
 by stable constraint ID. It reports accepted identity, origin, current display
 names, referenced fields, structural semantics, activation state, durable
@@ -435,7 +441,20 @@ this grammar.
 
 ### DDL
 
-Supported shapes:
+The shape summaries below omit schema-version intent. Catalog changes require
+`EXPECT SCHEMA VERSION n` matching the current accepted version and
+`SET SCHEMA VERSION n+1`. A no-op still requires `EXPECT`, but must omit `SET`;
+an empty bump is rejected. These clauses are admission checks, not automatic
+version discovery or retry instructions.
+
+For `CREATE INDEX`, place them after the key list and before a filtered `WHERE`:
+`CREATE INDEX user_email ON User (email) EXPECT SCHEMA VERSION 3 SET SCHEMA
+VERSION 4 WHERE email IS NOT NULL`. `DROP INDEX` accepts them after its target.
+`ALTER TABLE` accepts them immediately after the entity or after its operation.
+Each clause may appear once, in either order. `VALIDATE CONSTRAINT` instead uses
+its own bounded job protocol and rejects schema-version modifiers.
+
+Supported operation shapes:
 
 - `CREATE INDEX name ON entity (field_path)`
 - `CREATE INDEX name ON entity (field_path, another_field_path)`
@@ -452,6 +471,7 @@ Supported shapes:
 - `DROP INDEX IF EXISTS name ON entity`
 - `ALTER TABLE entity ADD COLUMN field type`
 - `ALTER TABLE entity ADD COLUMN field type DEFAULT value`
+- `ALTER TABLE entity ADD COLUMN field type NULL` / `... type NOT NULL`
 - `ALTER TABLE entity ALTER COLUMN field SET DEFAULT value`
 - `ALTER TABLE entity ALTER COLUMN field DROP DEFAULT`
 - `ALTER TABLE entity ALTER COLUMN field SET NOT NULL`
@@ -486,6 +506,17 @@ city ORDER BY country ASC, city DESC` rejects with a typed grouped-order policy
 error. Aggregate-driven Top-K ordering retains per-term directions and requires
 an explicit LIMIT; it does not issue grouped continuations. See
 `docs/contracts/GROUP-BY.md` for the maintained ordering boundary.
+
+`ADD COLUMN` accepts a single `NULL` or `NOT NULL` modifier and a literal
+`DEFAULT` before or after it; omission makes the field nullable. Wide integer
+types accept `int_big(max_bytes=N)` or `nat_big(max_bytes=N)`, with the positive
+byte bound admitted by the accepted type contract; bare forms use the default
+bound. Other type heads do not gain support
+merely because the parser can retain a `max_bytes` modifier.
+
+Known admission gap: repeated or conflicting `NULL`/`NOT NULL` modifiers are
+currently accepted with the last declaration winning. Use one declaration;
+the correction remains tracked in [#230](https://github.com/dragginzgame/icydb/issues/230).
 
 `CREATE INDEX` currently admits field-path secondary indexes and deterministic
 text expression secondary indexes. Single-field, multi-field, unique, explicit
@@ -650,6 +681,12 @@ Selection and all row patches complete before the atomic write begins, so any
 failure leaves the whole selected batch unchanged. INSERT VALUES remains literal,
 NULL or direct DEFAULT only. Resumable jobs require fixed literal/DEFAULT
 assignments and reject every expression with E282 before creating a job.
+
+Trusted `INSERT INTO target (field, ...) SELECT ...` is also executable. The
+source uses the maintained SELECT projection/compilation path, and its columns
+must match the target width and accepted field contracts before the write.
+The SQL mutation surface retains its staged-row and returning bounds; this
+form does not establish a new bounded source-scan policy.
 
 Mutation ownership lives on one accepted structural write lane:
 
@@ -849,6 +886,9 @@ Supported aggregate projection forms are:
   post-aggregate computed items come after them
 
 DISTINCT and FILTER compose on the same aggregate in global and grouped queries.
+`COUNT(DISTINCT *)` is rejected during aggregate lowering; parser recognition
+alone does not make that form executable. Use `COUNT(*)` for rows or
+`COUNT(DISTINCT expression)` for distinct non-NULL values.
 FILTER selects rows before DISTINCT deduplicates admitted input values; the
 aggregate's current NULL and empty-input rules still apply.
 

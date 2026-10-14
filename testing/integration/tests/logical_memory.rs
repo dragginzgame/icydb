@@ -3,7 +3,7 @@
 
 use std::sync::OnceLock;
 
-use ic_testkit::pic::{InstallSpec, StandaloneCanisterFixture};
+use ic_testkit::pic::{CandidCallExt as _, InstallSpec, StandaloneCanisterFixture};
 use icydb::{
     Error, ErrorCode, ErrorOrigin,
     db::{DatabaseStartupState, StartupFailure},
@@ -33,13 +33,16 @@ fn step(fixture: &StandaloneCanisterFixture) -> Result<bool, Error> {
     // advancing the watchdog cadence, retaining direct observation of registry
     // rejection and control-frame conservation on the next driver attempt.
     for _ in 0..32 {
-        let result: Result<bool, Error> = fixture.update_candid("step", ()).unwrap();
+        let result: Result<bool, Error> = fixture
+            .pocket_ic()
+            .update_candid(fixture.canister_id(), "step", ())
+            .unwrap();
         if !matches!(&result, Err(error) if error.code()
             == ErrorCode::RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING)
         {
             return result;
         }
-        icydb_testing_integration::deliver_startup_watchdog_message(fixture);
+        icydb_testing_integration::deliver_startup_watchdog_message(fixture.pocket_ic());
     }
     panic!("entropy should arrive within the bounded startup delivery budget");
 }
@@ -47,8 +50,10 @@ fn step(fixture: &StandaloneCanisterFixture) -> Result<bool, Error> {
 fn settle(fixture: &StandaloneCanisterFixture) {
     for _ in 0..32 {
         if step(fixture).unwrap() {
-            let state: Result<DatabaseStartupState, StartupFailure> =
-                fixture.query_candid("state", ()).unwrap();
+            let state: Result<DatabaseStartupState, StartupFailure> = fixture
+                .pocket_ic()
+                .query_candid(fixture.canister_id(), "state", ())
+                .unwrap();
             assert_eq!(state.unwrap(), DatabaseStartupState::Ready);
             return;
         }
@@ -69,11 +74,17 @@ fn upgrade(fixture: &StandaloneCanisterFixture, wasm: &[u8]) {
 }
 
 fn control(fixture: &StandaloneCanisterFixture) -> Vec<u8> {
-    fixture.query_candid("control_frame", ()).unwrap()
+    fixture
+        .pocket_ic()
+        .query_candid(fixture.canister_id(), "control_frame", ())
+        .unwrap()
 }
 
 fn assert_kept_row(fixture: &StandaloneCanisterFixture) {
-    let present: Result<bool, String> = fixture.query_candid("keep_row_exists", ()).unwrap();
+    let present: Result<bool, String> = fixture
+        .pocket_ic()
+        .query_candid(fixture.canister_id(), "keep_row_exists", ())
+        .unwrap();
     assert!(present.unwrap());
 }
 
@@ -89,11 +100,20 @@ fn assert_rejected_without_control_publication(fixture: &StandaloneCanisterFixtu
 #[test]
 fn empty_omitted_store_retires_without_relocating_survivors() {
     let fixture = install();
-    let _: Vec<u8> = fixture.update_candid("insert_keep", ()).unwrap();
+    let _: Vec<u8> = fixture
+        .pocket_ic()
+        .update_candid(fixture.canister_id(), "insert_keep", ())
+        .unwrap();
     settle(&fixture);
-    let before: Vec<(String, u8)> = fixture.query_candid("allocations", ()).unwrap();
+    let before: Vec<(String, u8)> = fixture
+        .pocket_ic()
+        .query_candid(fixture.canister_id(), "allocations", ())
+        .unwrap();
     upgrade(&fixture, &artifacts().1);
-    let after: Vec<(String, u8)> = fixture.query_candid("allocations", ()).unwrap();
+    let after: Vec<(String, u8)> = fixture
+        .pocket_ic()
+        .query_candid(fixture.canister_id(), "allocations", ())
+        .unwrap();
     assert_eq!(before.len(), 11);
     assert_eq!(after.len(), 8);
     for allocation in &after {
@@ -120,24 +140,36 @@ fn empty_omitted_store_retires_without_relocating_survivors() {
 fn omitted_store_with_journal_debt_rejects_and_original_actor_recovers() {
     let fixture = install();
     fixture
-        .update_candid::<(), _>("insert_retiring", ())
+        .pocket_ic()
+        .update_candid::<(), _>(fixture.canister_id(), "insert_retiring", ())
         .unwrap();
     let before = control(&fixture);
     upgrade(&fixture, &artifacts().1);
     assert_rejected_without_control_publication(&fixture, &before);
     upgrade(&fixture, &artifacts().0);
     settle(&fixture);
-    let present: Result<bool, String> = fixture.query_candid("retiring_row_exists", ()).unwrap();
+    let present: Result<bool, String> = fixture
+        .pocket_ic()
+        .query_candid(fixture.canister_id(), "retiring_row_exists", ())
+        .unwrap();
     assert!(present.unwrap());
 }
 
 #[test]
 fn valid_pending_marker_blocks_registry_change_after_journal_folding() {
     let fixture = install();
-    let pending: Vec<u8> = fixture.update_candid("insert_keep", ()).unwrap();
+    let pending: Vec<u8> = fixture
+        .pocket_ic()
+        .update_candid(fixture.canister_id(), "insert_keep", ())
+        .unwrap();
     settle(&fixture);
     fixture
-        .update_candid::<(), _>("restore_control_frame", (pending.clone(),))
+        .pocket_ic()
+        .update_candid::<(), _>(
+            fixture.canister_id(),
+            "restore_control_frame",
+            (pending.clone(),),
+        )
         .unwrap();
 
     // Positive control: the captured production marker is valid and recovers
@@ -148,7 +180,12 @@ fn valid_pending_marker_blocks_registry_change_after_journal_folding() {
     assert_kept_row(&fixture);
 
     fixture
-        .update_candid::<(), _>("restore_control_frame", (pending.clone(),))
+        .pocket_ic()
+        .update_candid::<(), _>(
+            fixture.canister_id(),
+            "restore_control_frame",
+            (pending.clone(),),
+        )
         .unwrap();
     upgrade(&fixture, &artifacts().1);
     assert_rejected_without_control_publication(&fixture, &pending);

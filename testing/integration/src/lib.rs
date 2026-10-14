@@ -32,10 +32,16 @@ use std::{
     time::Duration,
 };
 
-use candid::CandidType;
-use ic_build::artifacts::{ArtifactCacheRecord, LabeledWasmBuildSpec, WasmBuildRecord};
+use candid::{CandidType, Principal};
+use ic_build::artifacts::{
+    ArtifactCacheOutcome, ArtifactCacheRecord, LabeledWasmBuildSpec, WasmBuildBatchContractError,
+    WasmBuildBatchReport, WasmBuildOutcome, WasmBuildRecord,
+};
 use ic_testkit::{
-    pic::{InstallSpec, PocketIcBuilderExt, PocketIcStartupConfig, StandaloneCanisterFixture},
+    pic::{
+        CandidCallExt as _, InstallSpec, PocketIcInstance, PocketIcStartupConfig,
+        StandaloneCanisterFixture,
+    },
     pocket_ic::{PocketIc, PocketIcBuilder},
 };
 use icydb::{Error, ErrorCode};
@@ -89,12 +95,12 @@ pub struct StartupWatchdogPerfSnapshot {
 }
 
 /// Deliver pending startup-watchdog messages in PocketIC without advancing time.
-pub fn deliver_startup_watchdog_message(fixture: &StandaloneCanisterFixture) {
+pub fn deliver_startup_watchdog_message(pic: &PocketIc) {
     // Normal progress schedules zero-delay successor messages. These bounded
     // ticks let PocketIC deliver them and finish deterministic time slicing
     // without admitting a cadence-backed retry.
     for _ in 0..WATCHDOG_MESSAGE_COMPLETION_TICKS {
-        fixture.pocket_ic().tick();
+        pic.tick();
     }
 }
 
@@ -109,7 +115,8 @@ pub fn startup_watchdog_perf_snapshot(
     fixture: &StandaloneCanisterFixture,
 ) -> StartupWatchdogPerfSnapshot {
     fixture
-        .query_candid("startup_watchdog_perf_snapshot", ())
+        .pocket_ic()
+        .query_candid(fixture.canister_id(), "startup_watchdog_perf_snapshot", ())
         .expect("startup watchdog performance snapshot should decode")
 }
 
@@ -121,7 +128,8 @@ pub fn startup_watchdog_perf_snapshot(
 #[must_use]
 pub fn startup_watchdog_armed(fixture: &StandaloneCanisterFixture) -> bool {
     fixture
-        .query_candid("startup_watchdog_armed", ())
+        .pocket_ic()
+        .query_candid(fixture.canister_id(), "startup_watchdog_armed", ())
         .expect("startup watchdog scheduling state should decode")
 }
 
@@ -135,7 +143,12 @@ pub fn startup_watchdog_armed(fixture: &StandaloneCanisterFixture) -> bool {
 pub fn advance_startup_watchdog_until_ready(fixture: &StandaloneCanisterFixture) {
     for delivered in 0..=MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES {
         let probe: Result<(), Error> = fixture
-            .update_candid("initialize_startup_observation_fixture", ())
+            .pocket_ic()
+            .update_candid(
+                fixture.canister_id(),
+                "initialize_startup_observation_fixture",
+                (),
+            )
             .expect("ordinary startup probe should decode");
         match probe {
             Ok(()) => return,
@@ -146,7 +159,7 @@ pub fn advance_startup_watchdog_until_ready(fixture: &StandaloneCanisterFixture)
                 if delivered == MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES {
                     break;
                 }
-                deliver_startup_watchdog_message(fixture);
+                deliver_startup_watchdog_message(fixture.pocket_ic());
                 // A new boot first waits for raw_rand; completed replies do
                 // not make the cadence-backed retry immediately due.
                 fixture.pocket_ic().advance_time(Duration::from_secs(1));
@@ -1017,7 +1030,7 @@ pub fn install_prebuilt_fixture_canister(
     wasm: Vec<u8>,
 ) -> StandaloneCanisterFixture {
     let fixture = install_prebuilt_fixture_canister_without_startup_delivery(canister_name, wasm);
-    deliver_fixture_startup_watchdog(&fixture);
+    deliver_fixture_startup_watchdog(fixture.pocket_ic());
     fixture
 }
 
@@ -1059,7 +1072,7 @@ pub fn install_prebuilt_fixture_canister_without_startup_delivery(
 #[must_use]
 pub fn install_fixture_canister(canister_name: &str) -> StandaloneCanisterFixture {
     let fixture = install_fixture_canister_without_startup_delivery(canister_name);
-    deliver_fixture_startup_watchdog(&fixture);
+    deliver_fixture_startup_watchdog(fixture.pocket_ic());
     fixture
 }
 
@@ -1123,13 +1136,11 @@ fn install_fixture_canister_with_options_and_optional_progress(
 ///
 /// # Panics
 /// Panics if the selected configuration is invalid or instance startup fails.
-#[must_use]
-pub fn start_fixture_pocket_ic() -> PocketIc {
+pub fn start_fixture_pocket_ic() -> PocketIcInstance<PocketIc> {
     let config = PocketIcStartupConfig::from_env(POCKET_IC_INSTANCE_STARTUP_TIMEOUT)
         .unwrap_or_else(|error| panic!("configure fixture PocketIC: {error}"));
-    PocketIcBuilder::new()
-        .with_application_subnet()
-        .try_build(config)
+    config
+        .build_instance(PocketIcBuilder::new().with_application_subnet())
         .unwrap_or_else(|error| panic!("start fixture PocketIC on governed server: {error}"))
 }
 
@@ -1138,15 +1149,15 @@ pub fn start_fixture_pocket_ic() -> PocketIc {
 /// This helper is used after installation or upgrade when a test needs an
 /// ordinary-work-ready canister but does not inspect the startup control
 /// surface itself.
-pub fn deliver_fixture_startup_watchdog(fixture: &StandaloneCanisterFixture) {
+pub fn deliver_fixture_startup_watchdog(pic: &PocketIc) {
     // Drain asynchronous entropy replies before admitting the next one-second
     // watchdog retry. Ticks alone advance only deterministic execution slices,
     // so they cannot finish startup after its first entropy-pending result.
     // Keep setup bounded for both install and upgrade.
     for _ in 0..8 {
-        fixture.pocket_ic().advance_time(Duration::from_secs(1));
+        pic.advance_time(Duration::from_secs(1));
         for _ in 0..FIXTURE_STARTUP_MESSAGE_COMPLETION_TICKS {
-            fixture.pocket_ic().tick();
+            pic.tick();
         }
     }
 }
@@ -1209,14 +1220,14 @@ fn canister_build_label(fixture: &FixtureCanister, options: CanisterBuildOptions
 /// # Panics
 ///
 /// Panics if the reset or load calls fail to decode or return fixture errors.
-pub fn reset_icydb_fixtures(fixture: &StandaloneCanisterFixture) {
-    let reset: Result<(), Error> = fixture
-        .update_candid("icydb_fixtures_reset", ())
+pub fn reset_icydb_fixtures(pic: &PocketIc, canister_id: Principal) {
+    let reset: Result<(), Error> = pic
+        .update_candid(canister_id, "icydb_fixtures_reset", ())
         .expect("icydb_fixtures_reset should decode");
     reset.expect("icydb_fixtures_reset should succeed");
 
-    let load: Result<(), Error> = fixture
-        .update_candid("icydb_fixtures_load", ())
+    let load: Result<(), Error> = pic
+        .update_candid(canister_id, "icydb_fixtures_load", ())
         .expect("icydb_fixtures_load should decode");
     load.expect("icydb_fixtures_load should succeed");
 }
@@ -1227,13 +1238,11 @@ pub fn reset_icydb_fixtures(fixture: &StandaloneCanisterFixture) {
 ///
 /// Panics if the canister cannot be built, the built WASM cannot be read, empty
 /// upgrade args cannot be encoded, or PocketIC rejects the upgrade.
-pub fn upgrade_fixture_canister(fixture: &StandaloneCanisterFixture, canister_name: &str) {
+pub fn upgrade_fixture_canister(pic: &PocketIc, canister_id: Principal, canister_name: &str) {
     let wasm = local_fixture_wasm_bytes(canister_name);
     let args = candid::encode_args(()).expect("encode empty upgrade args");
 
-    fixture
-        .pocket_ic()
-        .upgrade_canister(fixture.canister_id(), wasm, args, None)
+    pic.upgrade_canister(canister_id, wasm, args, None)
         .unwrap_or_else(|err| panic!("{canister_name} canister upgrade should succeed: {err}"));
 }
 
@@ -1376,7 +1385,7 @@ fn plan_maintained_canister_builds(
 fn finish_maintained_canister_build_plan(
     root: &Path,
     plan: MaintainedCanisterBuildPlan,
-    cargo_report: canister_build_cache::CanisterCacheBatchReport<WasmBuildRecord>,
+    cargo_report: Result<WasmBuildBatchReport, WasmBuildBatchContractError>,
 ) -> Result<Vec<(&'static str, BuiltCanisterArtifacts)>, String> {
     finish_maintained_canister_builds(
         root,
@@ -1394,12 +1403,36 @@ fn finish_maintained_canister_builds(
         ConfiguredCanisterBuild,
     )>,
     contexts: &[String],
-    cargo_report: canister_build_cache::CanisterCacheBatchReport<WasmBuildRecord>,
+    cargo_report: Result<WasmBuildBatchReport, WasmBuildBatchContractError>,
     options: CanisterBuildOptions,
 ) -> Result<Vec<(&'static str, BuiltCanisterArtifacts)>, String> {
-    let mut failures = cargo_report.failures;
-    let mut retained = Vec::with_capacity(cargo_report.successes.len());
-    for (index, record) in cargo_report.successes {
+    let cargo_report = cargo_report.map_err(|error| {
+        format!("maintained canister build failed:\n  - Cargo Wasm batch contract failed: {error}")
+    })?;
+    let mut failures = cargo_report
+        .failures()
+        .map(|failure| {
+            format!(
+                "Cargo [{}] {} failed during {:?} after {:?}; timings={:?}: {}",
+                failure.index(),
+                failure.label(),
+                failure.phase(),
+                failure.entry_elapsed(),
+                failure.timings(),
+                failure.error(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let mut retained = Vec::with_capacity(cargo_report.outcomes().count());
+    // Upstream entries carry the identity and retained record through both stages.
+    for entry in cargo_report.into_entries() {
+        let (index, _, outcome, _, _) = entry.into_parts();
+        let Ok(outcome) = outcome else {
+            continue;
+        };
+        let record = match outcome {
+            WasmBuildOutcome::Built(record) | WasmBuildOutcome::Reused(record) => record,
+        };
         let Some((policy, configured)) = configured.get(index) else {
             failures.push(format!(
                 "Cargo returned unknown successful entry index {index}"
@@ -1427,8 +1460,26 @@ fn finish_maintained_canister_builds(
             })
             .collect::<Vec<_>>();
         let post_link_report = cache_post_link_wasm_batch(root, &cache_root, &entries)?;
-        failures.extend(post_link_report.failures);
-        for (index, record) in post_link_report.successes {
+        failures.extend(post_link_report.failures().map(|failure| {
+            format!(
+                "post-link [{}] {} failed during {} after {:?}: {}",
+                failure.index(),
+                failure.label(),
+                failure.failure().phase(),
+                failure.entry_elapsed(),
+                failure.failure(),
+            )
+        }));
+        for entry in post_link_report.into_entries() {
+            let (index, _, outcome, _) = entry.into_parts();
+            let Ok(outcome) = outcome else {
+                continue;
+            };
+            let record = match outcome {
+                ArtifactCacheOutcome::Built(record) | ArtifactCacheOutcome::Reused(record) => {
+                    record
+                }
+            };
             let Some((_, _, _, artifacts)) = retained.get_mut(index) else {
                 failures.push(format!(
                     "post-link returned unknown successful entry index {index}"

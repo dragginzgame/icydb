@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 # Shared companions: make/tools.mk scripts/ci/fixture-lifecycle.sh
 set -euo pipefail
+path_context=false
+if [[ "${1:-}" == --path-context && $# == 1 ]]; then path_context=true;
+elif [[ $# != 0 ]]; then echo 'usage: fixture [--path-context]' >&2; exit 2; fi
 
 ROOT="$0"
 [[ "$ROOT" == /* ]] || ROOT="$PWD/$ROOT"
 ROOT="$(cd -P "${ROOT%/*}/../.." && printf '%s/.' "$PWD")"
 ROOT="${ROOT%/.}"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/shared-tool-commands.XXXXXX")"
-fixture="$(cd "$fixture" && pwd -P)"
+fixture="$(CDPATH="" cd -P -- "$fixture" && printf '%s/.' "$PWD")"
+fixture="${fixture%/.}"
 # shellcheck source=scripts/ci/fixture-lifecycle.sh
 source "$ROOT/scripts/ci/fixture-lifecycle.sh"
 fixture_complete=false
@@ -75,6 +79,16 @@ install-ic-tools.sh <--consumer> <$consumer> <--pins> <$consumer/reviewed IC pin
 install-rust-tools.sh <--consumer> <$consumer> <--versions> <$snapshot/ci/tool-versions.env> <--check>
 EOF
 cmp "$fixture/expected" "$TOOL_COMMAND_LOG"
+
+if [[ "$path_context" == true ]]; then
+    : > "$TOOL_COMMAND_LOG"
+    status=0
+    TOOL_COMMAND_FAIL=install-host-tools.sh make --no-print-directory -C "$consumer" tools-check > "$fixture/failed.log" 2>&1 || status=$?
+    [[ "$status" != 0 && "$(wc -l < "$TOOL_COMMAND_LOG" | tr -d ' ')" == 1 ]] || exit 1
+    fixture_complete=true
+    echo 'Make path-context dispatch, checks and failure propagation passed'
+    exit 0
+fi
 
 # Every common failure stops the ordered aggregate, including under parallel Make.
 for target in install-tools tools-check; do

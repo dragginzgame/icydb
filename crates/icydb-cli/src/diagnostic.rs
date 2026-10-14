@@ -161,12 +161,12 @@ fn resolved_diagnostic_report(
     let live_artifact = if !fact_schema_is_valid || exact_artifact_found {
         None
     } else if let Some(canister) = args.canister_name() {
-        match load_schema_report(args.environment(), canister) {
-            Ok(report) => Some(DiagnosticSchemaArtifact::from_report(
-                args.environment(),
-                canister,
-                report.as_slice(),
-            )?),
+        // A decoded response may still be unusable as diagnostic authority.
+        // Both failures belong to optional live resolution, not offline admission.
+        match load_schema_report(args.environment(), canister).and_then(|report| {
+            DiagnosticSchemaArtifact::from_report(args.environment(), canister, &report)
+        }) {
+            Ok(artifact) => Some(artifact),
             Err(err) => {
                 notes.push(format!(
                     "live schema introspection unavailable ({err}); continuing with offline resolvers"

@@ -20,9 +20,10 @@ Apply the [common authority and evidence contract](README.md).
    line; metadata changes and release execution retain separate authority.
 5. Format changed source and run the smallest meaningful owner/boundary checks.
    Apply the named measurement proof for changed hot or Wasm-sensitive shape.
-   Run the documented full validation suite before delivering the completed code
-   change as ready; it does not replace focused assertions. Preserve failed
-   artifacts and report remaining limits.
+   Qualify affected callers and contracts with focused checks before handoff;
+   cleanup does not itself authorize a full suite. Reserve broad local gates for
+   release or an explicit request under the baseline. Preserve failed artifacts
+   and report remaining limits.
 6. Report changed behavior, validation, state-space/ownership effect, intentional
    retention and unresolved work. Apply the [change-reporting rules](../rules/change-reporting.md)
    for separate deletion/move/rename counts, exact identities and scoped metrics.

@@ -1,7 +1,7 @@
 //! Matched lifecycle envelopes; no instruction-to-cycle conversion is assumed.
 
 use super::{migration_status, projection};
-use ic_testkit::pic::StandaloneCanisterFixture;
+use ic_testkit::pic::{CandidCallExt as _, StandaloneCanisterFixture};
 use icydb::{Error, ErrorCode, db::RowProjectionOutput, metrics::SchemaLifecycleMetrics};
 use icydb_testing_integration::{
     CanisterWasmProfile, build_entity_creation_lifecycle_fixture_wasms,
@@ -42,7 +42,12 @@ fn report_cycles(fixture: &StandaloneCanisterFixture, before: u128, label: &str)
 
 fn lifecycle_metrics(fixture: &StandaloneCanisterFixture) -> SchemaLifecycleMetrics {
     let result: Result<SchemaLifecycleMetrics, Error> = fixture
-        .query_candid("entity_creation_lifecycle_metrics", ())
+        .pocket_ic()
+        .query_candid(
+            fixture.canister_id(),
+            "entity_creation_lifecycle_metrics",
+            (),
+        )
         .expect("fixed lifecycle counters should decode");
     result.expect("canonical journal controls should remain readable")
 }
@@ -73,7 +78,12 @@ fn report_lifecycle(metrics: &SchemaLifecycleMetrics, label: &str) {
 
 fn snapshot(fixture: &StandaloneCanisterFixture, label: &str) -> (u64, u64) {
     let result: Result<(bool, u64, u128, u128, u64, u64), Error> = fixture
-        .query_candid("entity_creation_startup_snapshot", ())
+        .pocket_ic()
+        .query_candid(
+            fixture.canister_id(),
+            "entity_creation_startup_snapshot",
+            (),
+        )
         .expect("startup snapshot should decode");
     let (ready, samples, work, scheduler, started, completed) =
         result.expect("startup should remain observable");
@@ -89,12 +99,13 @@ fn seed(wasm: &[u8]) -> (StandaloneCanisterFixture, RowProjectionOutput) {
     projection(&fixture, "SELECT id FROM Item");
     for method in ["seed_entity_rename", "seed_entity_creation_target"] {
         let result: Result<(), Error> = fixture
-            .update_candid(method, ())
+            .pocket_ic()
+            .update_candid(fixture.canister_id(), method, ())
             .expect("source seeding should decode");
         result.expect("fixed source rows should seed");
     }
     // Fold source writes outside all upgrade intervals.
-    deliver_fixture_startup_watchdog(&fixture);
+    deliver_fixture_startup_watchdog(fixture.pocket_ic());
     let rows = projection(&fixture, ROWS);
     assert_eq!(rows.rows.len(), 3);
     (fixture, rows)
@@ -118,13 +129,13 @@ fn raw_upgrade(fixture: &StandaloneCanisterFixture, wasm: &[u8], label: &str) {
 fn natural_upgrade(fixture: &StandaloneCanisterFixture, wasm: &[u8], label: &str) {
     raw_upgrade(fixture, wasm, label);
     let before = cycles(fixture);
-    deliver_fixture_startup_watchdog(fixture);
+    deliver_fixture_startup_watchdog(fixture.pocket_ic());
     report_cycles(fixture, before, &format!("{label}/watchdog-delivery"));
     snapshot(fixture, &format!("{label}/after-watchdog"));
     // Finish callbacks and deterministic execution slices without advancing
     // the retry cadence. Pending reservations are not burned cycles.
     let before = cycles(fixture);
-    deliver_startup_watchdog_message(fixture);
+    deliver_startup_watchdog_message(fixture.pocket_ic());
     report_cycles(fixture, before, &format!("{label}/zero-time-drain"));
     let (started, completed) = snapshot(fixture, &format!("{label}/after-drain"));
     assert_eq!(started, completed, "observed work callbacks should finish");
@@ -145,7 +156,8 @@ fn assert_rows(fixture: &StandaloneCanisterFixture, rows: &RowProjectionOutput, 
         assert!(projection(fixture, "SELECT id FROM Quest").rows.is_empty());
     }
     let result: Result<(), Error> = fixture
-        .query_candid("check_entity_rename_bindings", ())
+        .pocket_ic()
+        .query_candid(fixture.canister_id(), "check_entity_rename_bindings", ())
         .expect("old generated bindings should decode");
     result.expect("old generated bindings should remain valid");
 }
@@ -247,7 +259,7 @@ fn application_case(source: &[u8], target: &[u8], label: &str, added: bool) {
     );
     result.expect("exact generated application replay should succeed");
     assert_rows(&fixture, &rows, added);
-    deliver_startup_watchdog_message(&fixture);
+    deliver_startup_watchdog_message(fixture.pocket_ic());
     let (started, completed) = snapshot(&fixture, &format!("{label}/after-explicit-pages"));
     assert_eq!(started, completed, "explicit probe callbacks should finish");
     report_cycles(

@@ -1,5 +1,5 @@
 use candid::CandidType;
-use ic_testkit::pic::StandaloneCanisterFixture;
+use ic_testkit::pic::{CandidCallExt as _, StandaloneCanisterFixture};
 use icydb::{
     Error, ErrorCode,
     db::{DatabaseStartupState, LiveQueryPageOutput, sql::SqlQueryResult},
@@ -12,6 +12,7 @@ use icydb_testing_integration::{
     startup_watchdog_perf_snapshot,
 };
 use serde::Deserialize;
+
 use std::time::Duration;
 
 const CONVERGENCE_CALLBACK_INSTRUCTION_LIMIT: u64 = 30_000_000_000;
@@ -146,7 +147,7 @@ fn run_bounded_convergence_watchdog(
     let time_before = fixture.pocket_ic().get_time();
 
     for _ in 0..CONVERGENCE_RESIDUAL_MESSAGE_LIMIT {
-        deliver_startup_watchdog_message(fixture);
+        deliver_startup_watchdog_message(fixture.pocket_ic());
         if !startup_watchdog_armed(fixture) {
             break;
         }
@@ -231,7 +232,12 @@ fn load_convergence_debt(
     first_id: i32,
 ) -> ConvergenceCloseoutDebtFacts {
     let facts: Result<ConvergenceCloseoutDebtFacts, Error> = fixture
-        .update_candid("load_convergence_closeout_debt", (first_id,))
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "load_convergence_closeout_debt",
+            (first_id,),
+        )
         .expect("convergence closeout debt facts should decode");
     let facts = facts.expect("the exact batch ceiling should load");
     assert_eq!(facts.admitted_batches, 64);
@@ -261,7 +267,12 @@ fn load_convergence_debt(
 
 fn retry_convergence_row(fixture: &StandaloneCanisterFixture, id: i32) {
     let retried: Result<(), Error> = fixture
-        .update_candid("retry_convergence_closeout_row", (id,))
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "retry_convergence_closeout_row",
+            (id,),
+        )
         .expect("convergence retry should decode");
     retried.expect("drained pressure should make the rejected row retryable");
 }
@@ -280,7 +291,7 @@ fn upgrade_with_wasm(fixture: &StandaloneCanisterFixture, wasm: Vec<u8>) {
     // Finish the first entropy request while the retry is still in the future.
     // Keep the complete recovery backlog available to the next measured driver
     // callback, or to the rollback probe that intentionally runs before it.
-    deliver_startup_watchdog_message(fixture);
+    deliver_startup_watchdog_message(fixture.pocket_ic());
     let entropy_wait = startup_watchdog_perf_snapshot(fixture);
     assert_eq!(entropy_wait.work_samples, 1);
     assert_eq!(entropy_wait.no_work, 1);
@@ -301,7 +312,8 @@ fn query_total_only(
     sql: &str,
 ) -> SqlQueryResult {
     let result: Result<SqlQueryPerfResult, Error> = fixture
-        .query_candid(method, (sql.to_string(),))
+        .pocket_ic()
+        .query_candid(fixture.canister_id(), method, (sql.to_string(),))
         .expect("total-only query should decode");
     result.expect("total-only query should succeed").result
 }
@@ -318,14 +330,24 @@ fn assert_count(result: SqlQueryResult, expected: u32) {
 
 fn user_count_with_perf(fixture: &StandaloneCanisterFixture, sql: &str) -> SqlQueryPerfResult {
     let result: Result<SqlQueryPerfResult, Error> = fixture
-        .query_candid("query_user_with_perf", (sql.to_string(),))
+        .pocket_ic()
+        .query_candid(
+            fixture.canister_id(),
+            "query_user_with_perf",
+            (sql.to_string(),),
+        )
         .expect("attributed user count should decode");
     result.expect("attributed user count should succeed")
 }
 
 fn token_count_with_perf(fixture: &StandaloneCanisterFixture, sql: &str) -> SqlQueryPerfResult {
     let result: Result<SqlQueryPerfResult, Error> = fixture
-        .query_candid("query_token_with_perf", (sql.to_string(),))
+        .pocket_ic()
+        .query_candid(
+            fixture.canister_id(),
+            "query_token_with_perf",
+            (sql.to_string(),),
+        )
         .expect("attributed token count should decode");
     result.expect("attributed token count should succeed")
 }
@@ -389,7 +411,9 @@ fn mutate_cardinality_index(
     next_version: u64,
 ) -> CardinalityIndexPublicationFacts {
     let result: Result<CardinalityIndexPublicationFacts, Error> = fixture
+        .pocket_ic()
         .update_candid(
+            fixture.canister_id(),
             "mutate_cardinality_closeout_index",
             (present, expected_version, next_version),
         )
@@ -430,12 +454,17 @@ fn assert_user_index_count(fixture: &StandaloneCanisterFixture) {
 
 fn startup_observation(fixture: &StandaloneCanisterFixture) -> StartupObservationPerfResult {
     let observed: Result<StartupObservationPerfResult, icydb::db::StartupFailure> = fixture
-        .query_candid("measure_startup_observation", ())
+        .pocket_ic()
+        .query_candid(fixture.canister_id(), "measure_startup_observation", ())
         .expect("startup observation should decode");
     observed.expect("current-form startup observation should remain readable")
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "keep the end-to-end boundary assertions together with explicit Testkit call identity"
+)]
 fn populated_cardinality_build_upgrade_maintenance_and_slot_reuse_close_cleanly() {
     const fn unavailable_fallback_ceiling(predecessor: u64) -> u64 {
         predecessor.saturating_add(predecessor / 20)
@@ -447,7 +476,12 @@ fn populated_cardinality_build_upgrade_maintenance_and_slot_reuse_close_cleanly(
 
     let fixture = install_fixture_canister("sql_perf");
     let loaded: Result<ScaleFixtureFacts, Error> = fixture
-        .update_candid("load_joint_three_index_boundary_fixture", ())
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "load_joint_three_index_boundary_fixture",
+            (),
+        )
         .expect("populated cardinality fixture should decode");
     assert_eq!(
         loaded
@@ -560,7 +594,12 @@ fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
 
     let fixture = install_fixture_canister("sql_perf");
     let loaded: Result<u32, Error> = fixture
-        .update_candid("load_cardinality_tiebreak_fixture", ())
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "load_cardinality_tiebreak_fixture",
+            (),
+        )
         .expect("selective cardinality fixture should decode");
     assert_eq!(
         loaded.expect("selective cardinality fixture should load"),
@@ -597,7 +636,9 @@ fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
         "{fallback_explain}",
     );
     let first: Result<LiveQueryPagePerfOutput, Error> = fixture
+        .pocket_ic()
         .query_candid(
+            fixture.canister_id(),
             "query_cardinality_tiebreak_live_page_with_perf",
             (None::<String>,),
         )
@@ -613,7 +654,9 @@ fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
     );
 
     let before_ready: Result<LiveQueryPagePerfOutput, Error> = fixture
+        .pocket_ic()
         .query_candid(
+            fixture.canister_id(),
             "query_cardinality_tiebreak_live_page_with_perf",
             (Some(
                 continuation
@@ -647,7 +690,9 @@ fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
     );
 
     let expired: Result<LiveQueryPagePerfOutput, Error> = fixture
+        .pocket_ic()
         .query_candid(
+            fixture.canister_id(),
             "query_cardinality_tiebreak_live_page_with_perf",
             (continuation.take(),),
         )
@@ -657,7 +702,9 @@ fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
         ErrorCode::QUERY_INVALID_CONTINUATION_CURSOR,
     );
     let restarted: Result<LiveQueryPagePerfOutput, Error> = fixture
+        .pocket_ic()
         .query_candid(
+            fixture.canister_id(),
             "query_cardinality_tiebreak_live_page_with_perf",
             (None::<String>,),
         )
@@ -680,7 +727,9 @@ fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
             break;
         };
         let next: Result<LiveQueryPagePerfOutput, Error> = fixture
+            .pocket_ic()
             .query_candid(
+                fixture.canister_id(),
                 "query_cardinality_tiebreak_live_page_with_perf",
                 (Some(cursor),),
             )
@@ -702,7 +751,12 @@ fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
     assert_eq!(ready_rows, fallback_rows);
 
     let exact: Result<SqlQueryPerfResult, Error> = fixture
-        .update_candid("warm_user_query_with_perf", (SELECTIVE_SQL.to_string(),))
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "warm_user_query_with_perf",
+            (SELECTIVE_SQL.to_string(),),
+        )
         .expect("Ready exact sample should decode");
     let exact = exact.expect("Ready exact selection should execute");
     assert_eq!(exact.result, fallback.result);
@@ -711,7 +765,12 @@ fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
         "the production-shaped selective route must repay its bounded planning work",
     );
     let warm_exact: Result<SqlQueryPerfResult, Error> = fixture
-        .update_candid("warm_user_query_with_perf", (SELECTIVE_SQL.to_string(),))
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "warm_user_query_with_perf",
+            (SELECTIVE_SQL.to_string(),),
+        )
         .expect("warm exact-selected sample should decode");
     let warm_exact = warm_exact.expect("warm exact-selected plan should execute");
     assert_eq!(warm_exact.result, exact.result);
@@ -757,7 +816,12 @@ fn exact_cardinality_tiebreak_maximum_ic_shapes_remain_bounded() {
 
     let fixture = install_fixture_canister("sql_perf");
     let loaded: Result<JointFanoutFixtureFacts, Error> = fixture
-        .update_candid("load_joint_fanout_boundary_fixture", ())
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "load_joint_fanout_boundary_fixture",
+            (),
+        )
         .expect("maximum cardinality fixture should decode");
     let loaded = loaded.expect("maximum cardinality fixture should load");
     assert_eq!((loaded.rows, loaded.secondary_indexes_per_row), (240, 64));
@@ -784,7 +848,12 @@ fn exact_cardinality_tiebreak_maximum_ic_shapes_remain_bounded() {
     );
 
     let loaded: Result<u32, Error> = fixture
-        .update_candid("load_cardinality_probe_boundary_fixture", ())
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "load_cardinality_probe_boundary_fixture",
+            (),
+        )
         .expect("maximum probe fixture should decode");
     assert_eq!(loaded.expect("maximum probe fixture should load"), 1);
     report_convergence_observation(
@@ -827,7 +896,12 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
     let populated = install_fixture_canister("sql_perf");
 
     let loaded: Result<ScaleFixtureFacts, Error> = populated
-        .update_candid("load_joint_three_index_boundary_fixture", ())
+        .pocket_ic()
+        .update_candid(
+            populated.canister_id(),
+            "load_joint_three_index_boundary_fixture",
+            (),
+        )
         .expect("populated history fixture should decode");
     assert_eq!(
         loaded
@@ -965,7 +1039,9 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
     assert!(startup_watchdog_armed(&populated));
 
     let pending: Result<SqlQueryPerfResult, Error> = populated
+        .pocket_ic()
         .query_candid(
+            populated.canister_id(),
             "query_user_with_perf",
             ("SELECT COUNT(*) FROM PerfAuditUser".to_string(),),
         )
@@ -1068,7 +1144,12 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
 fn complete_batch_recovery_trap_rolls_back_and_the_canonical_watchdog_retries() {
     let fixture = install_fixture_canister("sql_perf");
     let loaded: Result<ScaleFixtureFacts, Error> = fixture
-        .update_candid("load_joint_three_index_boundary_fixture", ())
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "load_joint_three_index_boundary_fixture",
+            (),
+        )
         .expect("three-index fixture facts should decode");
     let loaded = loaded.expect("three-index fixture should load");
     assert_eq!(loaded.fixture_rows, 2_048);
@@ -1077,8 +1158,11 @@ fn complete_batch_recovery_trap_rolls_back_and_the_canonical_watchdog_retries() 
     upgrade_with_wasm(&fixture, wasm);
     let stable_before_trap = stable_memory_fingerprint(&fixture);
 
-    let trapped =
-        fixture.update_candid::<Result<(), Error>, _>("trap_after_complete_startup_recovery", ());
+    let trapped = fixture.pocket_ic().update_candid::<Result<(), Error>, _>(
+        fixture.canister_id(),
+        "trap_after_complete_startup_recovery",
+        (),
+    );
     assert!(
         trapped.is_err(),
         "the audit call must trap only after recovery reaches Ready",
@@ -1090,7 +1174,12 @@ fn complete_batch_recovery_trap_rolls_back_and_the_canonical_watchdog_retries() 
     );
 
     let pending: Result<(), Error> = fixture
-        .update_candid("initialize_startup_observation_fixture", ())
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "initialize_startup_observation_fixture",
+            (),
+        )
         .expect("post-trap startup probe should decode");
     assert_eq!(
         pending
@@ -1101,7 +1190,8 @@ fn complete_batch_recovery_trap_rolls_back_and_the_canonical_watchdog_retries() 
 
     advance_startup_watchdog_until_ready(&fixture);
     let watchdog: StartupWatchdogPerfSnapshot = fixture
-        .query_candid("startup_watchdog_perf_snapshot", ())
+        .pocket_ic()
+        .query_candid(fixture.canister_id(), "startup_watchdog_perf_snapshot", ())
         .expect("watchdog closeout snapshot should decode");
     // Recovery may separate required replay from the schema handoff. Check
     // completed, classified callbacks and the bounded retry outcome rather
@@ -1169,7 +1259,12 @@ AND stage IN ('Draft', 'Review', 'Hold', 'Minted', 'Frozen', 'Burned', \
 
     let fixture = install_fixture_canister("sql_perf");
     let loaded: Result<ScaleFixtureFacts, Error> = fixture
-        .update_candid("load_token_scale_fixture", (2_048_u32,))
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "load_token_scale_fixture",
+            (2_048_u32,),
+        )
         .expect("token recovery fixture facts should decode");
     let loaded = loaded.expect("token recovery fixture should load");
     assert_eq!(loaded.quarter_match_rows, 512);
@@ -1193,7 +1288,12 @@ AND stage IN ('Draft', 'Review', 'Hold', 'Minted', 'Frozen', 'Burned', \
 fn explicit_reinstall_recreates_clean_current_state() {
     let fixture = install_fixture_canister("sql_perf");
     let loaded: Result<(), Error> = fixture
-        .update_candid("load_journaled_reentry_probe_fixture", ())
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "load_journaled_reentry_probe_fixture",
+            (),
+        )
         .expect("journaled fixture should decode");
     loaded.expect("journaled fixture should load");
 

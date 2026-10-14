@@ -11,15 +11,17 @@ use std::{
     path::PathBuf,
     process::{Command, Output, Stdio},
     sync::atomic::{AtomicU64, Ordering},
+    time::{Duration, Instant},
 };
 
 use candid::{CandidType, Encode};
 use icydb::{
     Error, ErrorOrigin,
     db::{
-        RowProjectionOutput, SchemaMigrationPhase, SchemaMigrationStatusPage, sql::SqlQueryResult,
+        EntityConstraintDescription, EntitySchemaDescription, RowProjectionOutput,
+        SchemaMigrationPhase, SchemaMigrationStatusPage, sql::SqlQueryResult,
     },
-    diagnostic::RuntimeBoundaryCode,
+    diagnostic::{DiagnosticFactTag, RuntimeBoundaryCode},
     value::OutputValue,
 };
 
@@ -173,6 +175,32 @@ esac
         command
     }
 
+    fn diagnostic_command(&self, response: &str) -> Command {
+        let mut command = self.command(response);
+        command.args([
+            "diagnostic",
+            "E221",
+            "--canister",
+            "fixture",
+            "-e",
+            "fixture",
+        ]);
+        // Complete mutation-field facts preserve the same identity through
+        // live resolution, offline metadata and numeric rendering.
+        let half = u64::from_be_bytes([7; 8]);
+        for (tag, value) in [
+            (DiagnosticFactTag::AcceptedSchemaFingerprintMethod, 1),
+            (DiagnosticFactTag::AcceptedSchemaFingerprintHigh, half),
+            (DiagnosticFactTag::AcceptedSchemaFingerprintLow, half),
+            (DiagnosticFactTag::EntityTag, 42),
+            (DiagnosticFactTag::FieldId, 1),
+            (DiagnosticFactTag::MutationOperation, 1),
+        ] {
+            command.args(["--fact", &format!("{}={value}", tag.raw())]);
+        }
+        command
+    }
+
     fn migration_command(&self, status: &str, replies: &[String], operation: &str) -> Command {
         fs::write(self.directory.join("status"), status).unwrap();
         for (index, reply) in replies.iter().enumerate() {
@@ -237,6 +265,196 @@ fn response_hex<T: CandidType>(response: Result<T, Error>) -> String {
     }
 
     hex
+}
+
+fn diagnostic_report(
+    path: String,
+    constraints: Vec<EntityConstraintDescription>,
+) -> Vec<EntitySchemaDescription> {
+    vec![EntitySchemaDescription::new(
+        path,
+        "LiveAccount".into(),
+        42,
+        1,
+        [7; 16],
+        "id".into(),
+        vec!["id".into()],
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        constraints,
+        1,
+        1,
+    )]
+}
+
+fn diagnostic_artifact_json() -> serde_json::Value {
+    serde_json::json!({
+        "format": "icydb-diagnostic-schema", "version": 1,
+        "provenance": { "kind": "source", "source": "schema/Account" },
+        "entities": [{
+            "fingerprint_method": 1, "fingerprint": vec![7; 16], "entity_tag": 42,
+            "entity_name": "OfflineAccount", "entity_path": "schema::OfflineAccount",
+            "fields": [{ "id": 1, "name": "id" }],
+            "constraints": [], "indexes": [], "relations": []
+        }]
+    })
+}
+
+#[test]
+fn diagnostic_invalid_live_reports_keep_source_metadata_resolution() {
+    let constraints = ["id", "other"]
+        .into_iter()
+        .zip(1_u32..)
+        .map(|(field, id)| {
+            serde_json::from_value(serde_json::json!({
+                "id": id, "name": format!("required_{field}"), "kind": "not_null",
+                "origin": "ddl", "validation_state": "validated", "field_id": 1,
+                "fields": [field], "semantics": "required"
+            }))
+            .unwrap()
+        })
+        .collect();
+    let replies = [
+        response_hex(Ok(diagnostic_report(
+            "x".repeat(icydb_schema::MAX_SOURCE_KEY_BYTES + 1),
+            Vec::new(),
+        ))),
+        response_hex(Ok(diagnostic_report(
+            "schema::LiveAccount".into(),
+            constraints,
+        ))),
+        response_hex::<Vec<EntitySchemaDescription>>(Err(Error::from_runtime_boundary(
+            RuntimeBoundaryCode::DatabaseStartupRecoveryPending,
+            ErrorOrigin::Runtime,
+        ))),
+        "00".into(),
+    ];
+    for reply in replies {
+        let fixture = IcpFixture::new();
+        let artifact = fixture.directory.join("source.json");
+        fs::write(&artifact, diagnostic_artifact_json().to_string()).unwrap();
+        let output = fixture
+            .diagnostic_command(&reply)
+            .arg("--source-metadata")
+            .arg(&artifact)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let report = String::from_utf8(output.stdout).unwrap();
+        assert!(report.contains("entity_tag=42(OfflineAccount)"), "{report}");
+        assert!(report.contains("field_id=1(id)"), "{report}");
+        assert!(report.lines().any(|line| line.starts_with("note:")));
+        fixture.assert_call("icydb_schema", true);
+    }
+}
+
+#[test]
+fn diagnostic_live_lookup_preserves_numeric_fallback_and_exact_artifact_priority() {
+    let malformed = response_hex(Ok(diagnostic_report(
+        "x".repeat(icydb_schema::MAX_SOURCE_KEY_BYTES + 1),
+        Vec::new(),
+    )));
+    let fixture = IcpFixture::new();
+    let output = fixture.diagnostic_command(&malformed).output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let report = String::from_utf8(output.stdout).unwrap();
+    assert!(report.contains("entity_tag=42"));
+    assert!(!report.contains("LiveAccount"));
+    assert!(report.lines().any(|line| line.starts_with("note:")));
+    fixture.assert_call("icydb_schema", true);
+
+    let fixture = IcpFixture::new();
+    let artifact = fixture.directory.join("deployment.json");
+    let mut json = diagnostic_artifact_json();
+    json["provenance"] = serde_json::json!({
+        "kind": "deployment", "environment": "fixture", "canister": "fixture"
+    });
+    fs::write(&artifact, json.to_string()).unwrap();
+    let output = fixture
+        .diagnostic_command(&malformed)
+        .arg("--artifact")
+        .arg(&artifact)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let report = String::from_utf8(output.stdout).unwrap();
+    assert!(report.contains("entity_tag=42(OfflineAccount)"));
+    assert!(!fixture.directory.join("calls").exists());
+}
+
+#[test]
+fn diagnostic_valid_live_reports_and_invalid_explicit_artifacts_keep_their_boundaries() {
+    let reply = response_hex(Ok(diagnostic_report(
+        "schema::LiveAccount".into(),
+        Vec::new(),
+    )));
+    let fixture = IcpFixture::new();
+    let output = fixture.diagnostic_command(&reply).output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let report = String::from_utf8(output.stdout).unwrap();
+    assert!(report.contains("entity_tag=42(LiveAccount)"));
+    assert!(!report.lines().any(|line| line.starts_with("note:")));
+    fixture.assert_call("icydb_schema", true);
+
+    for option in ["--artifact", "--source-metadata"] {
+        let fixture = IcpFixture::new();
+        let artifact = fixture.directory.join("invalid.json");
+        fs::write(&artifact, "{}").unwrap();
+        let output = fixture
+            .diagnostic_command(&reply)
+            .arg(option)
+            .arg(&artifact)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(!fixture.directory.join("calls").exists());
+    }
+}
+
+#[test]
+fn diagnostic_artifact_options_refuse_fifos_without_waiting_for_a_writer() {
+    for option in ["--artifact", "--source-metadata"] {
+        let fixture = IcpFixture::new();
+        let fifo = fixture.directory.join("artifact.fifo");
+        assert!(
+            Command::new("/usr/bin/mkfifo")
+                .args(["-m", "600"])
+                .arg(&fifo)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let link = fixture.directory.join("artifact.link");
+        std::os::unix::fs::symlink(&fifo, &link).unwrap();
+        for selected in [&fifo, &link] {
+            let mut child = fixture
+                .diagnostic_command("00")
+                .arg(option)
+                .arg(selected)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            // This deadline bounds a blocking-open regression in the fixture;
+            // it is neither a performance assertion nor a filesystem deadline.
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while child.try_wait().unwrap().is_none() {
+                if Instant::now() >= deadline {
+                    child.kill().unwrap();
+                    let output = child.wait_with_output().unwrap();
+                    panic!("diagnostic waited for a FIFO writer: {output:?}");
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            let output = child.wait_with_output().unwrap();
+            assert!(!output.status.success(), "{output:?}");
+            assert!(output.stdout.is_empty(), "{output:?}");
+            assert!(!output.stderr.is_empty(), "{output:?}");
+            assert!(!fixture.directory.join("calls").exists());
+        }
+    }
 }
 
 fn success_response() -> String {

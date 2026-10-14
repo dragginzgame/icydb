@@ -1,14 +1,16 @@
 //! Matched full-row catalogue measurement; not a Toko Miner deployment.
 
-use candid::CandidType;
+use candid::{CandidType, Principal};
 use ic_host_artifacts::artifact::Sha256Digest;
-use ic_testkit::pic::StandaloneCanisterFixture;
+use ic_testkit::pic::CandidCallExt as _;
+use ic_testkit::pocket_ic::PocketIc;
 use icydb::Error;
 use icydb_testing_integration::{
     CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
     CanisterWasmProfile, build_canister_with_options, install_prebuilt_fixture_canister,
 };
 use serde::Deserialize;
+
 use std::time::Duration;
 
 #[derive(CandidType, Debug, Deserialize, Eq, PartialEq)]
@@ -76,7 +78,12 @@ fn full_catalogue_rows_preserve_values_and_report_costs() {
         let fixture = install_prebuilt_fixture_canister("sql", module.clone());
         for start in (0..count).step_by(16) {
             let seeded: Result<(), Error> = fixture
-                .update_candid("seed_catalog_workload", (start, 16_u32))
+                .pocket_ic()
+                .update_candid(
+                    fixture.canister_id(),
+                    "seed_catalog_workload",
+                    (start, 16_u32),
+                )
                 .expect("seed reply");
             seeded.expect("seed outside measurement");
             // Seed convergence is outside query measurement; exercise the
@@ -108,7 +115,8 @@ fn full_catalogue_rows_preserve_values_and_report_costs() {
                 }
                 let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
                 let sample: CatalogWorkloadSample = fixture
-                    .update_candid("measure_catalog_workload", (staged,))
+                    .pocket_ic()
+                    .update_candid(fixture.canister_id(), "measure_catalog_workload", (staged,))
                     .expect("measurement reply");
                 let cycles = before
                     .checked_sub(fixture.pocket_ic().cycle_balance(fixture.canister_id()))
@@ -133,11 +141,11 @@ fn full_catalogue_rows_preserve_values_and_report_costs() {
                 );
             }
         }
-        check_catalog_labels(&fixture, count);
+        check_catalog_labels(fixture.pocket_ic(), fixture.canister_id(), count);
     });
 }
 
-fn check_catalog_labels(fixture: &StandaloneCanisterFixture, count: u32) {
+fn check_catalog_labels(pic: &PocketIc, canister_id: Principal, count: u32) {
     let expected_labels: Vec<_> = (0..u64::from(count))
         .map(|id| CatalogLabel {
             id,
@@ -149,14 +157,14 @@ fn check_catalog_labels(fixture: &StandaloneCanisterFixture, count: u32) {
     // These are ordered observations, not isolated cold/warm cache claims.
     for (observation, selected) in [false, true, true, false].into_iter().enumerate() {
         for _ in 0..64 {
-            fixture.pocket_ic().tick();
+            pic.tick();
         }
-        let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
-        let sample: CatalogLabelSample = fixture
-            .update_candid("measure_catalog_labels", (selected,))
+        let before = pic.cycle_balance(canister_id);
+        let sample: CatalogLabelSample = pic
+            .update_candid(canister_id, "measure_catalog_labels", (selected,))
             .expect("label measurement reply");
         let cycles = before
-            .checked_sub(fixture.pocket_ic().cycle_balance(fixture.canister_id()))
+            .checked_sub(pic.cycle_balance(canister_id))
             .expect("label update debits cycles");
         assert_eq!(
             sample.result.expect("label query succeeds"),

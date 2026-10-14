@@ -7,7 +7,7 @@ use std::{collections::BTreeSet, time::Duration};
 
 use candid::{CandidType, Deserialize};
 use ic_testkit::{
-    pic::{CanisterInstallExt, RetryPolicy, StandaloneCanisterFixture},
+    pic::{CandidCallExt as _, CanisterInstallExt, RetryPolicy, StandaloneCanisterFixture},
     pocket_ic::{ErrorCode, RejectResponse},
 };
 use icydb::types::Ulid;
@@ -63,25 +63,29 @@ struct LifecycleCompositionSnapshot {
 
 fn snapshot(fixture: &StandaloneCanisterFixture) -> LifecycleCompositionSnapshot {
     fixture
-        .query_candid("lifecycle_composition_snapshot", ())
+        .pocket_ic()
+        .query_candid(fixture.canister_id(), "lifecycle_composition_snapshot", ())
         .expect("lifecycle composition snapshot should decode")
 }
 
 fn database_probe(fixture: &StandaloneCanisterFixture) -> Result<bool, icydb::Error> {
     fixture
-        .query_candid("lifecycle_database_probe", ())
+        .pocket_ic()
+        .query_candid(fixture.canister_id(), "lifecycle_database_probe", ())
         .expect("lifecycle database probe should decode")
 }
 
 fn insert_probe_row(fixture: &StandaloneCanisterFixture) -> Result<Ulid, icydb::Error> {
     fixture
-        .update_candid("lifecycle_insert_probe_row", ())
+        .pocket_ic()
+        .update_candid(fixture.canister_id(), "lifecycle_insert_probe_row", ())
         .expect("lifecycle probe-row insert should decode")
 }
 
 fn probe_row_exists(fixture: &StandaloneCanisterFixture, id: Ulid) -> Result<bool, icydb::Error> {
     fixture
-        .query_candid("lifecycle_probe_row_exists", (id,))
+        .pocket_ic()
+        .query_candid(fixture.canister_id(), "lifecycle_probe_row_exists", (id,))
         .expect("lifecycle probe-row query should decode")
 }
 

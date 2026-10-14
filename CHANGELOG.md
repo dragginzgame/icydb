@@ -5,6 +5,21 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.274.1]
+
+- Correct schema descriptions, catalog admission and diagnostic handling;
+  simplify build/fixture tooling with shared owners and Testkit 0.40
+  ([#134 — Preserve diagnostic fallback](https://github.com/dragginzgame/icydb/issues/134),
+  [#200 — Reject invalid catalog definitions](https://github.com/dragginzgame/icydb/issues/200),
+  [#201 — Correct nested DESCRIBE output](https://github.com/dragginzgame/icydb/issues/201),
+  [#230 — Align SQL subset grammar documentation](https://github.com/dragginzgame/icydb/issues/230),
+  [#242 — Correct CLI INSERT/DELETE completion claims](https://github.com/dragginzgame/icydb/issues/242),
+  [#302 — Adopt common repository-local IC tools](https://github.com/dragginzgame/icydb/issues/302),
+  [#307 — Adopt split host owners in CLI and artifact helpers](https://github.com/dragginzgame/icydb/issues/307),
+  [Shared #174 — Share fixture exit and retained-evidence probes](https://github.com/dragginzgame/shared-tooling/issues/174)).
+
+See [detailed notes](docs/changelog/0.274.md).
+
 ## [0.274.0] - 2026-10-13
 
 - **Breaking:** replace accepted schema index-key encoding and remove
