@@ -3178,22 +3178,7 @@ fn lower_index_key(
             }
         })
         .collect::<Result<Vec<_>, _>>()?;
-    if items
-        .iter()
-        .all(|item| matches!(item, PersistedIndexKeyItemSnapshot::FieldPath(_)))
-    {
-        Ok(PersistedIndexKeySnapshot::FieldPath(
-            items
-                .into_iter()
-                .filter_map(|item| match item {
-                    PersistedIndexKeyItemSnapshot::FieldPath(path) => Some(path),
-                    PersistedIndexKeyItemSnapshot::Expression(_) => None,
-                })
-                .collect(),
-        ))
-    } else {
-        Ok(PersistedIndexKeySnapshot::Items(items))
-    }
+    Ok(PersistedIndexKeySnapshot::new(items))
 }
 
 fn lower_initial_relations(
@@ -3599,12 +3584,7 @@ mod tests {
                     AcceptedSchemaSnapshot::try_new(snapshot.clone()).unwrap();
                     assert_eq!(snapshot.indexes().len(), 1);
                     let key = snapshot.indexes()[0].key();
-                    let arity = match key {
-                        crate::db::schema::PersistedIndexKeySnapshot::FieldPath(paths) => {
-                            paths.len()
-                        }
-                        crate::db::schema::PersistedIndexKeySnapshot::Items(items) => items.len(),
-                    };
+                    let arity = key.component_count();
                     assert_eq!(arity, count);
                 } else {
                     let Err(error) = result else {

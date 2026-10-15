@@ -118,13 +118,6 @@ impl IndexPrefixCardinality {
         }
     }
 
-    pub(super) fn clear_unsynchronized(&mut self) {
-        self.first_component_counts.clear();
-        self.counts.clear();
-        self.data_generation = None;
-        self.decodable = true;
-    }
-
     pub(super) const fn mark_synchronized(&mut self, data_generation: u64) {
         if self.decodable {
             self.data_generation = Some(data_generation);
@@ -700,10 +693,6 @@ impl IndexPrefixCardinalityDelta {
         self.counts.clear();
         self.base_watermark = None;
         self.decodable = false;
-    }
-
-    pub(super) fn clear_unavailable(&mut self) {
-        self.invalidate();
     }
 }
 

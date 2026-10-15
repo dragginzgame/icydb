@@ -198,7 +198,7 @@ fn with_predicate(base: &PersistedSchemaSnapshot, predicate: P) -> PersistedSche
         "filtered".into(),
         "tests::Filtered::filtered".into(),
         false,
-        PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+        PersistedIndexKeySnapshot::from_field_paths(vec![PersistedIndexFieldPathSnapshot::new(
             field.id(),
             field.slot(),
             vec![field.name().into()],

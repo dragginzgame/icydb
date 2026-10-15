@@ -1,0 +1,23 @@
+error: default for primitive Account requires valid account text
+ --> tests/ui/schema_literals/invalid_identity_defaults.rs:3:30
+  |
+3 | #[record(fields(field(name = "account", value(item(prim = "Account")), default = "zz")), traits(add(Default)))]
+  |                              ^^^^^^^^^
+
+error: default for primitive Principal requires valid principal text
+ --> tests/ui/schema_literals/invalid_identity_defaults.rs:6:30
+  |
+6 | #[record(fields(field(name = "owner", value(item(prim = "Principal")), default = "zz")), traits(add(Default)))]
+  |                              ^^^^^^^
+
+error: default for primitive Subaccount requires 64 ASCII hex characters
+ --> tests/ui/schema_literals/invalid_identity_defaults.rs:9:30
+  |
+9 | #[record(fields(field(name = "sub", value(item(prim = "Subaccount")), default = "aé00000000000000000000000000000000000000000000000000...
+  |                              ^^^^^
+
+error: default for primitive Ulid requires valid ULID text
+  --> tests/ui/schema_literals/invalid_identity_defaults.rs:12:30
+   |
+12 | #[record(fields(field(name = "id", value(item(prim = "Ulid")), default = "zz")), traits(add(Default)))]
+   |                              ^^^^

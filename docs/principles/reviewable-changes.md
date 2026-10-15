@@ -38,7 +38,7 @@ unrelated behavior.
 
 At handoff, report:
 
-- files touched and approximate line delta;
+- files touched and scoped metrics under the [change-reporting rules](../../rules/change-reporting.md);
 - primary delivery areas crossed;
 - whether width came from semantics or mechanical propagation; and
 - whether the implementation became simpler, stayed neutral, or became more
@@ -51,17 +51,12 @@ change.
 
 ## Cleanup reporting
 
-Build the deletion inventory from the actual diff, including declarations in
-deleted files. In the final response to the maintainer in the Codex app only,
-list every removed function, method and type, public or private,
-with its former file or module, removal reason and replacement when applicable.
-Use exact names so the maintainer can identify what disappeared and why; a
-summary such as "removed legacy helpers" or a symbol count is insufficient.
-Group entries with the same reason if useful, while enumerating every name.
-Label moves and renames explicitly so they do not imply behavior was deleted.
-Do not put this inventory in repository files, changelogs, audit reports, commit
-messages, PRs or issues. Their ordinary summaries still explain meaningful public
-API removals, changed behavior and required consumer actions.
+Apply the [canonical reporting contract](../../rules/change-reporting.md): separate
+genuine deletions, moves and renames under **symbol changes**, with counts and
+exact identities. Keep edited declarations distinct and keep the full inventory
+only in the final Codex app handoff. Physical line churn and semantic deletion
+counts answer different questions; neither substitutes for the other. The same
+rule owns the required Rust/type/documentation metrics and their counting units.
 
 ## Validation
 

@@ -20,7 +20,7 @@ WASM_TARGET="$ICP_DIR/$CAN.wasm"
 
 cargo run --manifest-path "$ROOT/Cargo.toml" \
     --locked \
-    --package icydb-testing-integration \
+    --package icydb-testing-build \
     --bin build_fixture_canister \
     -- "$CAN" --build-profile local --profile debug --candid-export on
 if [ -n "${ICP_WASM_OUTPUT_PATH:-}" ]; then

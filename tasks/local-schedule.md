@@ -4,6 +4,7 @@ The coordinator runs the [maintenance prompt](maintenance-prompt.md) against
 the [task catalog](README.md). Local source files stay unchanged; findings go to
 the run report and owning GitHub issues. This optional coordinator needs Codex
 and a scheduler only on its host, not in every consumer repository.
+The runner also uses the prepared host's Bash, Git and Perl.
 
 ## Linux user timer
 
@@ -38,6 +39,11 @@ Quote values containing spaces using systemd EnvironmentFile syntax. Select the
 prepared executable paths explicitly; a user service does not source an
 interactive shell profile. Preserve existing host configuration rather than
 overwriting it. Keep credentials in their normal authenticated stores.
+
+Project, state and runner-checkout paths must contain no CR/LF characters,
+including their resolved directory aliases. Admission checks existing ancestors
+of a future state root without creating it. Invalid paths fail before CLI probes
+or state writes; ordinary spaces and aliases remain supported.
 
 Run the helper's `--check PROJECTS_ROOT STATE_ROOT` mode to check Codex version,
 automatic-review support and saved login without starting an agent. Also check

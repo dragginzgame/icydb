@@ -278,6 +278,13 @@ success does not establish that the whole migration has applied. Abort continues
 bounded cleanup through intermediate pages, including rejected pages whose
 private staging progress is absent from the displayed status.
 
+Each `abort --yes` invocation makes at most 1,024 update calls and reports its
+completed call count every 128 nonterminal replies. If cleanup is still pending
+at that limit, the CLI prints the latest status and findings, reports the limit
+on stderr and exits nonzero. Inspect `status`, then rerun `abort --yes` to
+continue retained cleanup. An `Aborted` receipt on the last allowed call still
+succeeds; unchanged status pages alone do not imply stalled cleanup.
+
 The core migration gate permits ordinary row operations during `Prepared` when
 the migration capability is present, but this is not application readiness:
 the unpublished generated successor reports startup `Recovering`. Generated ordinary

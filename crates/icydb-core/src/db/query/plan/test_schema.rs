@@ -66,7 +66,7 @@ pub(in crate::db) fn exact_metadata_schema(
                 (*name).to_string(),
                 format!("pipeline_tests::{name}"),
                 false,
-                PersistedIndexKeySnapshot::FieldPath(key),
+                PersistedIndexKeySnapshot::from_field_paths(key),
                 None,
             )
         })

@@ -63,7 +63,7 @@ impl<C: CanisterKind> DbSession<C> {
             .collect()
     }
 
-    fn accepted_schema_runtime_root(
+    pub(in crate::db::session) fn accepted_schema_runtime_root(
         &self,
     ) -> Result<Rc<AcceptedSchemaRuntimeRoot>, AcceptedInspectionPlanLoadError> {
         self.db

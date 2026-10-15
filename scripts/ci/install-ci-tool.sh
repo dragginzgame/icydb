@@ -2,7 +2,7 @@
 # Shared companions: scripts/ci/verify-file-checksum.sh
 set -euo pipefail
 
-# Internal implementation of the reviewed CI-tool entry points.
+# Public entry point for reviewed CI binary installation.
 SCRIPT_DIR="${BASH_SOURCE[0]}"
 [[ "$SCRIPT_DIR" == /* ]] || SCRIPT_DIR="$PWD/$SCRIPT_DIR"
 SCRIPT_DIR="$(cd -P "${SCRIPT_DIR%/*}" && printf '%s/.' "$PWD")"
@@ -12,7 +12,7 @@ case "$tool" in actionlint|gitleaks|shellcheck|sccache|yq) shift ;; *) echo 'unk
 version=""
 checksum=""
 install_dir="${TOOL_INSTALL_DIR:-$HOME/.local/bin}"
-usage() { echo "usage: install-$tool.sh --version <version> --sha256 <digest> [--install-dir <directory>]" >&2; }
+usage() { echo "usage: install-ci-tool.sh $tool --version <version> --sha256 <digest> [--install-dir <directory>]" >&2; }
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --version|--sha256|--install-dir)

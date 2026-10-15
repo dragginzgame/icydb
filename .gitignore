@@ -46,3 +46,4 @@ backend/Cargo.lock
 
 # Interrupted shared-tooling snapshot refresh scratch
 /.shared-tooling-refresh.*
+.shared-tooling-payload.*

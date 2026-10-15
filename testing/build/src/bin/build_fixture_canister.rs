@@ -3,7 +3,7 @@
 //! Does not own: policy or the ICP network.
 //! Boundary: turns CLI input into typed build options.
 
-use icydb_testing_integration::{
+use icydb_testing_build::{
     CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
     CanisterWasmProfile, stage_canister_for_icp_with_options,
 };

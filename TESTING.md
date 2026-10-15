@@ -12,15 +12,21 @@ The goal is to keep tests:
 
 ## Test Taxonomy (Authoritative)
 
-IcyDB uses **five distinct classes of tests**. Each class has a clear purpose and a clear home.
+Classify tests by the boundary they exercise. Regression coverage is a discipline
+within these categories, rather than a separate execution lane.
 
-| Test Type              | Purpose                                   | Lives In                                   | May Touch Internals | Runs On IC |
-| ---------------------- | ----------------------------------------- | ------------------------------------------ | ------------------- | ---------- |
-| Unit Tests             | Local invariants of a single module       | Same crate as code                         | Yes                 | No         |
-| Integration Tests      | Cross-module correctness inside one crate | `crates/*/tests` or `mod tests`            | Limited             | No         |
-| Schema / Planner Tests | Declarative schema → planning semantics   | `icydb-core`                               | Yes                 | No         |
-| End-to-End (E2E) Tests | System-level behavior of generated code   | `testing/macro-tests/src/e2e`              | No                  | No         |
-| Regression Tests       | Lock in previously-broken behavior        | Wherever the bug lived                     | Yes                 | Depends    |
+| Test type | Purpose | Location | Runtime |
+| --- | --- | --- | --- |
+| Unit | Local module/type invariants | Owning crate's test modules | Native |
+| Native integration | Cross-module or public crate behavior | `crates/*/tests` and owning subsystem harnesses | Native |
+| Schema / planner | Accepted-schema, lowering and planning semantics | `crates/icydb-core` | Native |
+| Generated surface | Macro/model expansion, generated containers and adapter boundaries | `schema/test/fixtures`, `testing/model-*`, `testing/endpoint-installation`, model crate tests | Native or compile-only |
+| Canister E2E | Generated endpoints, authorization, persistence, message boundaries and lifecycle | `testing/integration/tests`, using actors under `canisters/test` and `canisters/audit` | PocketIC via IC Testkit |
+| Regression | A minimal reproduction of a repaired behavior | The category owning that behavior | Depends on the boundary |
+
+The [root workspace](Cargo.toml) owns package membership;
+[the integration manifest](testing/integration/Cargo.toml) explicitly declares
+its test binaries. Do not infer test execution from fixture presence alone.
 
 ---
 
@@ -28,7 +34,7 @@ IcyDB uses **five distinct classes of tests**. Each class has a clear purpose an
 
 Use fixture modules according to ownership, not convenience.
 
-> `schema/test` = shared macro/e2e test schema fixtures  
+> `schema/test` = generated-model and canister schema fixtures
 > `crates/*/testing` = engine-internal fixtures
 
 ### `schema/test`
@@ -36,7 +42,7 @@ Use fixture modules according to ownership, not convenience.
 Use for shared fixtures that represent runtime-facing behavior:
 
 * Macro/schema contract fixture entities reused across test crates
-* End-to-end runtime harness fixture schemas
+* Canister integration fixture schemas
 * Declarative schemas required by test framework coverage
 
 ### `crates/*/testing`
@@ -49,8 +55,11 @@ Use for crate-local engine scaffolding and internal invariants:
 
 ### Rule
 
-If a fixture is intended to be consumed by shared test/runtime integration flows, it belongs in `schema/test`.  
-If a fixture exists only to test one crate's internals, it belongs under that crate's `testing` modules.
+Reusable generated schemas belong in `schema/test`; canister tests consume the
+schemas appropriate to their actors. Crate-internal fixtures stay with the owning
+crate. The standalone `icydb-testing-test-fixtures` package also owns native tests
+of generated collection and newtype behavior; it remains exercised as a workspace
+member even when another package does not depend on it.
 
 ---
 
@@ -215,46 +224,77 @@ test matrix is:
 * `cargo test -p icydb-core --no-default-features`
 
 Strict Clippy is enforced on the primary feature-rich workspace surface and on
-explicit no-default `sql` / `diagnostics` feature combinations. No-default
+the no-default `sql` configuration selected by `ci-core`. The maintained feature
+sets are declared in [the facade](crates/icydb/Cargo.toml) and
+[core](crates/icydb-core/Cargo.toml); do not invent feature combinations. No-default
 all-targets Clippy is not a supported release gate because disabling SQL leaves
 many SQL/test helper surfaces intentionally unused.
 
 ---
 
-## 4. End-to-End (E2E) Tests
+## 4. Generated Surface and Canister E2E Tests
 
-### Purpose
+### Native generated-surface coverage
 
-Validate **system-level behavior** from a user perspective:
+Use model crate tests, the `testing/model-*` adapter packages,
+[endpoint-installation fixtures](testing/endpoint-installation), and
+[generated-schema fixtures](schema/test/fixtures) to check expansion, public
+container behavior and model/runtime dependency boundaries. These native or
+compile-only checks do not establish message, stable-memory or upgrade behavior.
 
-* Schema declaration
-* Reads and writes
-* Referential integrity
-* Recovery behavior
+### Canister E2E coverage
 
-These tests answer: *"Does the generated surface behave coherently?"*
+[The integration package](testing/integration) runs real test actors under
+PocketIC through IC Testkit. Its tests cover generated endpoints, reads and
+writes, caller/controller authorization, schema application, durable mutations,
+interruption recovery and upgrades. Assert public canister results and retained
+state; internal planner assertions belong in core tests.
 
-### Location
+IC Testkit owns server selection, provisioning, admission and lifecycle. IcyDB
+selects actor inputs and scenarios through the maintained Testkit contract.
+[Local setup](INSTALLING.md) documents the selected tool preparation; do not add
+consumer-owned PocketIC pins or installers.
 
-`testing/macro-tests/src/e2e`
+### Execution and CI coverage
 
-### Characteristics
+The [Makefile](Makefile) owns local test selections and
+[the CI workflow](.github/workflows/ci.yml) owns their automatic placement.
+A native test, compiled actor or source declaration is not evidence of a live
+canister scenario. Current lane selection is:
 
-* Medium cost
-* Host-test harness (no canister runtime)
-* Moderate confidence
+| Lane / target | Selected coverage | Execution |
+| --- | --- | --- |
+| `ci-core` | No-default facade/core checks and tests, explicit SQL checks and Clippy | CI |
+| `ci-workspace` | Workspace Clippy and tests; selected integration targets are linted, integration tests are excluded here | CI |
+| `ci-sql-tier-a` | One seeded sample per scheduled SELECT/mutation obligation, using IcyDB, bundled SQLite and the independent mutation model; plus `sql_correctness` | Native CI |
+| `ci-sql-tier-b` | `sql_canister` and `sql_perf_audit` | PocketIC CI |
+| `test-durability` | Core commit/mutation-job suites plus `convergence_candidate`, `durable_mutation_job_scale` and `recovery_closeout` | Explicit local selection |
+| `test-canister-artifact-contract` | Production/local Wasm export policy test, explicitly including its ignored test | Explicit local selection; also included by `make test` |
+| `test-sql-tier-c-shard`, `test-sql-tier-c-merge`, `test-sql-tier-c-replay` | Generated/reference receipts and failure replay | Explicit local selection |
 
-### Allowed Dependencies
+The SQL coverage manifest credits enabled tests registered by Cargo in the
+workspace or Tier B selections above. Ignored tests, including conditional
+`cfg_attr(..., ignore)`, and unselected integration binaries cannot satisfy its
+automatic evidence obligations. The artifact-contract test remains a separately
+requested check and is not credited by the automatic provider registry. Cargo
+registration and CI topology admission establish eligibility, not an observed
+pass of the referenced test; actual results belong to their CI run or local log.
 
-* Public API only
-* Macro-generated types
-* Host test harness
+Provider-to-CI bindings participate in the manifest revision used by Tier C.
+After changing those declarations, rederive its golden identity and regenerate
+receipts for the maintained manifest; do not reuse old receipts as current proof.
 
-### Forbidden
+`make test-unit` includes workspace integration test binaries; it is broader than
+`ci-workspace`. Most lifecycle binaries therefore run under explicitly selected
+local tests, rather than the Tier B pair. For development, select one binary/test
+or use `test-integration-feedback` with its required `TEST_TARGET` and `TEST_NAME`;
+that target runs one exact test and then the complete selected binary.
 
-* Internal planner assertions
-* White-box checks
-* Canister lifecycle assumptions
+The terminal CI `check` job aggregates static, Rust and native macOS host lanes.
+Branch protection and release publication additionally require `dependency_msrv`
+and `wasm_size_report`; [branch-protection guidance](.github/BRANCH_PROTECTION.md)
+owns that selection. Linux portable-shell fixtures do not qualify native macOS
+or live canister behavior. Report skipped or ignored scenarios as unrun evidence.
 
 ---
 
@@ -338,7 +378,6 @@ Do not add public exports solely to satisfy tests.
 
 ## What We Explicitly Do NOT Have
 
-* ❌ IC canister-level E2E tests (deployment, upgrade, message boundaries)
 * ❌ `__internal` test-only APIs
 * ❌ Dual schema languages ("real" vs "test")
 * ❌ Generated entity/index models used as accepted runtime authority

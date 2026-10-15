@@ -1,5 +1,6 @@
-use ic_testkit::pic::StandaloneCanisterFixture;
+use ic_testkit::pic::{CandidCallExt as _, StandaloneCanisterFixture};
 use icydb_testing_integration::{install_fixture_canister, install_prebuilt_fixture_canister};
+
 use std::{env, fs};
 
 #[test]
@@ -7,18 +8,24 @@ fn application_owned_sql_syntax_survives_queries_and_rebuilds_after_upgrade() {
     let fixture = install_fixture_canister("one_entity_sql_query");
     for _ in 0..3 {
         let rows: u32 = fixture
-            .query_candid("query_one_entity_sql", ())
+            .pocket_ic()
+            .query_candid(fixture.canister_id(), "query_one_entity_sql", ())
             .expect("domain query reply");
         assert_eq!(
             rows, 0,
             "a missing lifecycle-initialized dispatch returns the failure sentinel"
         );
     }
-    icydb_testing_integration::upgrade_fixture_canister(&fixture, "one_entity_sql_query");
-    icydb_testing_integration::deliver_fixture_startup_watchdog(&fixture);
+    icydb_testing_integration::upgrade_fixture_canister(
+        fixture.pocket_ic(),
+        fixture.canister_id(),
+        "one_entity_sql_query",
+    );
+    icydb_testing_integration::deliver_fixture_startup_watchdog(fixture.pocket_ic());
     for _ in 0..3 {
         let rows: u32 = fixture
-            .query_candid("query_one_entity_sql", ())
+            .pocket_ic()
+            .query_candid(fixture.canister_id(), "query_one_entity_sql", ())
             .expect("post-upgrade domain query reply");
         assert_eq!(rows, 0);
     }
@@ -29,7 +36,8 @@ fn audited_typed_query_row_count(
     method: &str,
 ) -> Result<u32, u16> {
     fixture
-        .query_candid(method, ())
+        .pocket_ic()
+        .query_candid(fixture.canister_id(), method, ())
         .expect("typed query endpoint response should decode")
 }
 
@@ -37,7 +45,12 @@ fn audited_typed_query_row_count(
 fn query_only_typed_and_dynamic_canisters_execute_without_sql() {
     let dynamic_fixture = install_fixture_canister("one_entity_dynamic_query");
     let dynamic_row_count: u32 = dynamic_fixture
-        .query_candid("query_one_entity_dynamic_rows", ())
+        .pocket_ic()
+        .query_candid(
+            dynamic_fixture.canister_id(),
+            "query_one_entity_dynamic_rows",
+            (),
+        )
         .expect("dynamic query endpoint response should decode");
     assert_eq!(dynamic_row_count, 0);
 
@@ -49,7 +62,12 @@ fn query_only_typed_and_dynamic_canisters_execute_without_sql() {
 
     let ten_entity_fixture = install_fixture_canister("ten_entity_typed_query");
     let ten_entity_row_count: u32 = ten_entity_fixture
-        .query_candid("query_ten_entity_typed_rows", ())
+        .pocket_ic()
+        .query_candid(
+            ten_entity_fixture.canister_id(),
+            "query_ten_entity_typed_rows",
+            (),
+        )
         .expect("ten-entity typed query endpoint response should decode");
     assert_eq!(ten_entity_row_count, 0);
 }
@@ -69,9 +87,17 @@ fn reachable_entity_audit_pair_exercises_the_shared_operation_mix() {
             };
             let selected_entity = if operation >= 6 { 0 } else { entity };
             let response = if operation <= 1 {
-                fixture.query_candid(method, (selected_entity, operation))
+                fixture.pocket_ic().query_candid(
+                    fixture.canister_id(),
+                    method,
+                    (selected_entity, operation),
+                )
             } else {
-                fixture.update_candid(method, (selected_entity, operation))
+                fixture.pocket_ic().update_candid(
+                    fixture.canister_id(),
+                    method,
+                    (selected_entity, operation),
+                )
             };
             let ((succeeded, local_instructions),): ((u32, u64),) =
                 response.expect("reachable generated operation response should decode");
@@ -100,7 +126,8 @@ fn repeated_dynamic_point_query_instruction_measurement() {
         ("grouped", "measure_repeated_grouped_queries"),
     ] {
         let ((executions, failures, rows, local_instructions),): ((u16, u16, u32, u64),) = fixture
-            .query_candid(method, (200_u16,))
+            .pocket_ic()
+            .query_candid(fixture.canister_id(), method, (200_u16,))
             .expect("repeated dynamic-query measurement should decode");
 
         assert_eq!(executions, 200);
@@ -142,7 +169,8 @@ fn native_exact_key_batch_instruction_measurement() {
         ),
     ] {
         let ((items, failures, rows, local_instructions),): ((u16, u16, u32, u64),) = fixture
-            .query_candid(method, (requested_items, distinct))
+            .pocket_ic()
+            .query_candid(fixture.canister_id(), method, (requested_items, distinct))
             .expect("exact-key instruction measurement should decode");
 
         assert_eq!(items, requested_items);

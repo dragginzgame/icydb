@@ -10,7 +10,9 @@ branch protections continue to apply.
 ## User-owned Git and release flow
 
 The user owns staging, commits, version changes, tags, pushes and release
-execution by default. An ordinary coding task ends with reviewable working-tree
+execution by default in the current working repository. The standing
+[cross-repository PR workflow](#cross-repository-pull-requests) is the scoped
+exception for contributions elsewhere. An ordinary local coding task ends with reviewable working-tree
 changes, numbered changelog notes and the appropriate validation. Leave existing
 staging untouched; do not stage or unstage the user's work to make checks pass.
 
@@ -37,10 +39,12 @@ explicitly authorized action.
 
 ## Agent authorization
 
-The user may expressly delegate a named operation. Preserve any approved local
-maintainer-only restriction; a generic request to prepare a release or PR does
-not waive it. The following table describes explicit delegation, not automatic
-authority at the end of development.
+The user may expressly delegate a named operation. Preserve approved local
+release restrictions; a PR never waives them. Local contribution restrictions
+are subject to the standing cross-repository exception below. The following
+table describes explicit delegation, not automatic
+authority at the end of local development. Cross-repository PRs also have the
+standing authority defined below.
 
 Treat an explicit request to deliver a PR as authorization to complete its
 necessary workflow, including the commits it requires. Do not refuse because agents
@@ -65,6 +69,47 @@ A request to change these rules is not itself a request to commit or open a PR.
 An explicit limit, such as "draft the description only" or "do not push yet",
 narrows the authorized steps.
 
+## Cross-repository pull requests
+
+Relevant fixes and adoption work in other `dragginzgame/*` repositories should
+normally be delivered as PRs. Agents have standing permission to prepare those
+contributions without asking for authorization per repository or per step.
+This includes scoped source edits, required checks, staging selected files,
+commits, topic-branch pushes and creating/updating the PR.
+
+- Verify the destination owner, read its adopted baseline and product overlay,
+  and search existing issues/PRs before starting. Keep the contribution tied to
+  confirmed work in the current task; coordinate with an active owner rather
+  than duplicating their fix. Link the owning issue where one exists.
+- Use a separate worktree or clone and a dedicated topic branch from the intended
+  upstream base. Never edit, switch branches in, stage, reset, clean or commit
+  another contributor's normal sibling checkout. Do not carry its dirty changes
+  into the contribution. Build and validate in the isolated checkout.
+- Complete the destination's focused checks for the changed behavior and affected
+  callers, respecting its documented execution restrictions. PR preparation does
+  not authorize local full-suite runs; reserve those for release or an explicit
+  request under the baseline. Describe evidence and remaining release checks in
+  the PR. An unrun full suite alone does not require a draft; use a draft for
+  incomplete implementation or missing focused evidence. Required hosted checks
+  still apply. Leave review and integration to the owner.
+- Standing permission does not include merging, enabling auto-merge, approving
+  your own PR, direct integration-branch pushes, force-pushing, version bumps,
+  tags, releases, publication, deployment or artifact cleanup. Those require
+  their own explicit authorization.
+- Explicit read-only requests, no-push instructions and excluded repositories
+  remain binding. `dragginzgame/toko` and `dragginzgame/toko-miner` remain excluded
+  unless the maintainer explicitly authorizes work there. Repositories outside
+  `dragginzgame` require explicit destination/action authorization.
+- This policy replaces blanket sibling-edit or agent-commit prohibitions for
+  this isolated PR workflow only. It does not relax product safety, validation,
+  release or retention requirements. Ordinary work in the current repository
+  still leaves its commits and releases to the user.
+
+An inspection-only task reports findings and owning issues; it does not silently
+become implementation. When repair work is authorized, use this standing PR
+workflow for relevant sibling fixes instead of requesting permission again.
+Requesting a policy update does not itself request fleet-wide adoption PRs.
+
 ## Delivery and review
 
 - Keep unrelated staged and working changes intact. Review the entire index
@@ -82,9 +127,9 @@ narrows the authorized steps.
   repository template where present. Maintain the numbered changelog draft under
   the [changelog rules](changelogs.md); an ordinary contribution does not bump
   package versions, tag, publish or deploy unless those effects were requested.
-- PR authority covers its named repository and change. It does not authorize
-  editing sibling repositories. Coordinate their adoption through issues until
-  their own changes are expressly authorized.
+- Each PR covers one destination and coherent change. Coordinate cross-repository
+  adoption through linked owning issues and separate isolated PRs under the
+  standing authority above; never make direct edits to sibling working checkouts.
 
 The standard release runner defaults to an atomic selected-branch/tag push.
 Consumers can explicitly adopt `RELEASE_DELIVERY=pr` under the

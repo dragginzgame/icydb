@@ -7,8 +7,8 @@ use crate::{
 };
 use ic_memory::{
     AllocationValidationError, BootstrapAdmissionError, MemoryAllocationPoolError,
-    MemoryResolutionError, RuntimeAdoptionError, RuntimeBootstrapError, RuntimeConstructionError,
-    RuntimeOpenError, RuntimeStateError, StaticMemoryDeclarationError,
+    MemoryDeclarationError, MemoryResolutionError, RuntimeAdoptionError, RuntimeBootstrapError,
+    RuntimeConstructionError, RuntimeOpenError, RuntimeStateError,
 };
 use icydb_diagnostic_code::{DiagnosticFactTag, RuntimeBoundaryCode};
 
@@ -70,9 +70,9 @@ fn cold_bootstrap_error(
                 vec![(DiagnosticFactTag::ActualMemoryId, u64::from(*id))],
             ))
         }
-        RuntimeBootstrapError::Registry(cause)
-        | RuntimeBootstrapError::Resolution(MemoryResolutionError::Registry(cause)) => {
-            registry_error(cause)
+        RuntimeBootstrapError::Declarations(cause)
+        | RuntimeBootstrapError::Resolution(MemoryResolutionError::Declarations(cause)) => {
+            declaration_error(cause)
         }
         _ => None,
     }
@@ -107,7 +107,7 @@ fn historical_error(cause: &BootstrapAdmissionError) -> Option<Error> {
         | BootstrapAdmissionError::Retired(_)
         | BootstrapAdmissionError::Duplicate(_)
         | BootstrapAdmissionError::TooManyDeclarations => vec![],
-        BootstrapAdmissionError::Registry(cause) => return registry_error(cause),
+        BootstrapAdmissionError::Declarations(cause) => return declaration_error(cause),
         _ => return None,
     };
     Some(boundary(
@@ -116,14 +116,14 @@ fn historical_error(cause: &BootstrapAdmissionError) -> Option<Error> {
     ))
 }
 
-fn registry_error(cause: &StaticMemoryDeclarationError) -> Option<Error> {
+fn declaration_error(cause: &MemoryDeclarationError) -> Option<Error> {
     match cause {
-        StaticMemoryDeclarationError::Declaration(_)
-        | StaticMemoryDeclarationError::TooManyDeclarations
-        | StaticMemoryDeclarationError::DuplicateRequest { .. }
-        | StaticMemoryDeclarationError::InvalidAuthority { .. }
-        | StaticMemoryDeclarationError::ReservedAuthority { .. }
-        | StaticMemoryDeclarationError::ReservedStableKey { .. } => Some(boundary(
+        MemoryDeclarationError::Declaration(_)
+        | MemoryDeclarationError::TooManyDeclarations
+        | MemoryDeclarationError::DuplicateRequest { .. }
+        | MemoryDeclarationError::InvalidAuthority { .. }
+        | MemoryDeclarationError::ReservedAuthority { .. }
+        | MemoryDeclarationError::ReservedStableKey { .. } => Some(boundary(
             RuntimeBoundaryCode::MemoryDeclarationInvalid,
             vec![],
         )),

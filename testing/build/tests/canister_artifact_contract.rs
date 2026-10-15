@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use icydb_testing_integration::{
+use icydb_testing_build::{
     BuiltCanisterArtifacts, CanisterBuildProfile, build_maintained_canister_contract_profiles,
     canister_artifact::{
         CanisterMethod, ExpectedCanisterMethod, MAINTAINED_CANISTER_POLICIES,

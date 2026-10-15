@@ -10,7 +10,7 @@ impl Parser {
     pub(super) fn parse_insert_statement(&mut self) -> Result<SqlInsertStatement, SqlParseError> {
         self.expect_identifier_keyword("INTO")?;
         let entity = self.expect_identifier()?;
-        let _table_alias = self.parse_optional_table_alias()?;
+        let table_alias = self.parse_optional_table_alias()?;
 
         let columns = if self.peek_lparen() {
             self.expect_lparen()?;
@@ -40,6 +40,7 @@ impl Parser {
 
         Ok(SqlInsertStatement {
             entity,
+            table_alias,
             columns,
             source,
             returning,

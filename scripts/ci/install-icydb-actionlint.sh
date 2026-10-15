@@ -31,5 +31,5 @@ if [[ -z "$digest" ]]; then
   exit 1
 fi
 
-exec bash "$ROOT/scripts/ci/install-actionlint.sh" \
+exec bash "$ROOT/scripts/ci/install-ci-tool.sh" actionlint \
   --version "$version" --sha256 "$digest" --install-dir "$INSTALL_DIR"

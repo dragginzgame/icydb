@@ -16,7 +16,7 @@ env:
   CARGO_HOME: ${{ github.workspace }}/.cache/cargo/icydb
   CARGO_TARGET_DIR: ${{ github.workspace }}/target/icydb
   CARGO_TERM_COLOR: always
-  RUST_CURRENT: "1.99.0"
+  RUST_CURRENT: "stable"
   SCCACHE_GHA_ENABLED: "true"
 
 jobs:
@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       RUSTC_WRAPPER: sccache
-      RUSTUP_TOOLCHAIN: "1.88.0"
+      RUSTUP_TOOLCHAIN: "1.91.0"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -67,7 +67,7 @@ jobs:
         run: |
           source ci/tool-versions.env
           tool_dir="$RUNNER_TEMP/icydb-ci-tools"
-          bash scripts/ci/install-shellcheck.sh \
+          bash scripts/ci/install-ci-tool.sh shellcheck \
             --version "$SHARED_TOOLING_SHELLCHECK_VERSION" \
             --sha256 "$SHARED_TOOLING_SHELLCHECK_SHA256_LINUX_X86_64" \
             --install-dir "$tool_dir"
@@ -123,7 +123,7 @@ jobs:
           components: clippy
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       - name: Install wasm target
-        if: matrix.lane == 'tier-b'
+        if: matrix.lane == 'workspace' || matrix.lane == 'tier-b'
         run: rustup target add wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
@@ -222,21 +222,22 @@ jobs:
           /bin/bash scripts/ci/test-wasm-audit-report.sh
           /bin/bash scripts/ci/verify-wasm-optimizer.sh
           make tools-check
-          shellcheck --exclude=SC2001,SC2016 scripts/dev/workstation-setup.sh scripts/dev/install-host-tools.sh scripts/dev/install-ic-tools.sh scripts/ci/install-gh.sh scripts/ci/verify-wasm-optimizer.sh scripts/ci/wasm-report-common.sh scripts/ci/wasm-size-report.sh scripts/ci/wasm-audit-report.sh scripts/ci/test-workstation-setup.sh scripts/ci/test-wasm-audit-report.sh
+          shellcheck -x --exclude=SC2001,SC2016 scripts/dev/workstation-setup.sh scripts/dev/install-host-tools.sh scripts/dev/install-ic-tools.sh scripts/ci/install-gh.sh scripts/ci/verify-wasm-optimizer.sh scripts/ci/wasm-report-common.sh scripts/ci/wasm-size-report.sh scripts/ci/wasm-audit-report.sh scripts/ci/test-workstation-setup.sh scripts/ci/test-wasm-audit-report.sh
       - name: Qualify native library and CLI builds
         run: |
-          cargo clippy --locked -p icydb-testing-integration --lib --bin write_wasm_size_report -- -D warnings
+          cargo clippy --locked -p icydb-testing-build --lib --bin write_wasm_size_report -- -D warnings
+          cargo clippy --locked -p icydb-testing-integration --lib -- -D warnings
           cargo clippy --locked -p icydb-cli --bin icydb -- -D warnings
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --bin icydb tests::icp::hex_response_bytes
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --bin icydb diagnostic::
-          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-integration --lib canister_artifact::tests
-          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-integration --lib wasm_optimizer::tests
+          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-build --lib canister_artifact::tests
+          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-build --lib wasm_optimizer::tests
           POCKET_IC_BIN="$(make --silent testkit-check)"
           export POCKET_IC_BIN
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-integration --lib pocketic_startup_tests:: -- --ignored
           bash scripts/ci/run-with-pocketic-server.sh bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-integration --lib pocketic_startup_tests:: -- --ignored
-          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-integration --lib canister_build_cache::tests::post_link_batch_reports_failure_and_finishes_later_artifact
-          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-integration --bin write_wasm_size_report
+          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-build --lib canister_build_cache::tests::post_link_batch_reports_failure_and_finishes_later_artifact
+          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-build --bin write_wasm_size_report
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-core --lib --all-features db::integrity::tests::quick_
           make build-canister-production CANISTER=default_empty
           make fmt-check

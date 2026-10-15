@@ -557,6 +557,12 @@ impl AcceptedRowDecodeContract {
             ));
         }
 
+        // Current layouts contain every admitted dense slot; reuse the frozen
+        // count rather than inspecting introduction history for each row.
+        if version == self.current_layout_version {
+            return Ok(self.required_slot_count);
+        }
+
         Ok(self
             .fields_by_slot
             .iter()

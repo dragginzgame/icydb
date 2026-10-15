@@ -852,3 +852,96 @@ fn schema_part_emits_relation_edge_metadata() {
         "unexpected schema tokens: {tokens}",
     );
 }
+
+#[test]
+fn generated_integer_predicates_reject_lowering_failures_during_validation() {
+    for (primitive, literal) in [
+        (Primitive::Nat32, "-1"),
+        (Primitive::Nat64, "1.5"),
+        (Primitive::Nat128, "340282366920938463463374607431768211456"),
+        (Primitive::Int32, "1.5"),
+        (Primitive::Int128, "170141183460469231731687303715884105728"),
+    ] {
+        for operator in [">=", "IN"] {
+            let predicate = if operator == "IN" {
+                format!("qty IN (1, {literal})")
+            } else {
+                format!("qty {operator} {literal}")
+            };
+            let index = Index {
+                fields: field_list(&["qty"]),
+                unique: false,
+                predicate: Some(predicate),
+            };
+            let entity = entity_with_fields_and_indexes(
+                vec![
+                    primitive_field("id", Primitive::Nat64),
+                    primitive_field("qty", primitive),
+                ],
+                vec![index],
+            );
+            entity.indexes[0]
+                .validated_generated_predicate(&entity)
+                .expect_err("validation must reject any literal that cannot lower");
+        }
+    }
+}
+
+#[test]
+fn generated_numeric_predicates_preserve_successful_validation_and_lowering() {
+    for (primitive, literal) in [
+        (Primitive::Nat128, "340282366920938463463374607431768211455"),
+        (
+            Primitive::Int128,
+            "-170141183460469231731687303715884105728",
+        ),
+        (Primitive::Int128, "170141183460469231731687303715884105727"),
+        (Primitive::Float32, "1.5"),
+        (Primitive::Float64, "1.5"),
+        (Primitive::Decimal, "1.5"),
+    ] {
+        let index = Index {
+            fields: field_list(&["qty"]),
+            unique: false,
+            predicate: Some(format!("qty >= {literal}")),
+        };
+        let entity = entity_with_fields_and_indexes(
+            vec![
+                primitive_field("id", Primitive::Nat64),
+                primitive_field("qty", primitive),
+            ],
+            vec![index],
+        );
+        entity.indexes[0]
+            .validated_generated_predicate(&entity)
+            .expect("valid numeric literals must validate");
+        entity.indexes[0]
+            .schema_part_for_entity(&entity, "TestEntity")
+            .expect("validated numeric literals must lower");
+    }
+}
+
+#[test]
+fn generated_numeric_predicates_reject_nonfinite_and_unrepresentable_literals() {
+    for (primitive, digits) in [
+        (Primitive::Float32, 40),
+        (Primitive::Float64, 310),
+        (Primitive::Decimal, 40),
+    ] {
+        let index = Index {
+            fields: field_list(&["qty"]),
+            unique: false,
+            predicate: Some(format!("qty >= {}", "9".repeat(digits))),
+        };
+        let entity = entity_with_fields_and_indexes(
+            vec![
+                primitive_field("id", Primitive::Nat64),
+                primitive_field("qty", primitive),
+            ],
+            vec![index],
+        );
+        entity.indexes[0]
+            .validated_generated_predicate(&entity)
+            .expect_err("unrepresentable numeric literals must reject before token construction");
+    }
+}

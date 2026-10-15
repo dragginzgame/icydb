@@ -263,7 +263,7 @@ pub(crate) enum SqlCreateIndexExpressionFunction {
 }
 
 impl SqlCreateIndexExpressionFunction {
-    pub(crate) fn parse(value: &str) -> Option<Self> {
+    pub(crate) const fn parse(value: &str) -> Option<Self> {
         if value.eq_ignore_ascii_case("LOWER") {
             Some(Self::Lower)
         } else if value.eq_ignore_ascii_case("UPPER") {
@@ -1228,6 +1228,7 @@ pub(crate) enum SqlWriteValue {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SqlInsertStatement {
     pub(crate) entity: String,
+    pub(crate) table_alias: Option<String>,
     pub(crate) columns: Vec<String>,
     pub(crate) source: SqlInsertSource,
     pub(crate) returning: Option<SqlReturningProjection>,
@@ -1459,7 +1460,7 @@ crate::retained::retained_fields!(SqlWriteValue {
     Self::Literal(value) => [value], Self::Default => [], Self::Expression(expr) => [expr],
 });
 crate::retained::retained_fields!(SqlInsertStatement {
-    Self { entity, columns, source, returning } => [entity, columns, source, returning],
+    Self { entity, table_alias, columns, source, returning } => [entity, table_alias, columns, source, returning],
 });
 crate::retained::retained_fields!(SqlAssignment {
     Self { field, value } => [field, value],

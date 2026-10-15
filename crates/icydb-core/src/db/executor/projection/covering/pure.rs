@@ -491,6 +491,7 @@ fn pure_covering_output_capacity_hint(
 
     page.and_then(|page| page.limit)
         .map_or(0, |limit| usize::try_from(limit).unwrap_or(usize::MAX))
+        .min(32)
 }
 
 fn primary_store_covering_key_stream<C>(

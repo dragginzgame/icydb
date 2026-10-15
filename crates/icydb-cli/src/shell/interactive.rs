@@ -3,9 +3,9 @@
 //! Does not own: SQL execution semantics, call routing, or shell text rendering rules.
 //! Boundary: coordinates shell input, history persistence, and command output.
 
-use std::{collections::VecDeque, path::Path};
+use std::{collections::VecDeque, io::ErrorKind, path::Path};
 
-use rustyline::DefaultEditor;
+use rustyline::{DefaultEditor, error::ReadlineError};
 
 use crate::shell::{
     ShellConfig, execute_sql,
@@ -14,7 +14,7 @@ use crate::shell::{
 };
 
 pub(super) fn run_interactive_shell(config: &ShellConfig) -> Result<(), String> {
-    // Phase 1: prepare the line editor and persistent history file.
+    // Phase 1: prepare the editor; optional history I/O cannot block SQL.
     let mut editor = prepare_editor(config.history_file.as_path())?;
     let mut pending_sql = VecDeque::<String>::new();
     let mut partial_statement = String::new();
@@ -32,8 +32,6 @@ pub(super) fn run_interactive_shell(config: &ShellConfig) -> Result<(), String> 
                 print_successful_command_output(input::shell_help_text());
             }
             ShellInput::Sql(sql) => {
-                record_history_entry(&mut editor, config.history_file.as_path(), sql.as_str())?;
-
                 match execute_sql(
                     config.environment.as_str(),
                     config.canister.as_str(),
@@ -44,6 +42,16 @@ pub(super) fn run_interactive_shell(config: &ShellConfig) -> Result<(), String> 
                     }
                     Err(err) => println!("ERROR: {err}"),
                 }
+                // Retain attempted statements for recall after their execution;
+                // persistence failures must not end the interactive session.
+                if let Err(error) =
+                    record_history_entry(&mut editor, config.history_file.as_path(), sql.as_str())
+                {
+                    eprintln!(
+                        "WARNING: could not save SQL history '{}': {error}",
+                        config.history_file.display(),
+                    );
+                }
             }
         }
     }
@@ -53,13 +61,13 @@ pub(super) fn run_interactive_shell(config: &ShellConfig) -> Result<(), String> 
 
 fn prepare_editor(history_file: &Path) -> Result<DefaultEditor, String> {
     let mut editor = DefaultEditor::new().map_err(|err| err.to_string())?;
-    if let Some(parent) = history_file.parent() {
-        std::fs::create_dir_all(parent).map_err(|err| err.to_string())?;
-    }
-    if history_file.exists() {
-        editor
-            .load_history(history_file)
-            .map_err(|err| err.to_string())?;
+    match editor.load_history(history_file) {
+        Ok(()) => {}
+        Err(ReadlineError::Io(error)) if error.kind() == ErrorKind::NotFound => {}
+        Err(error) => eprintln!(
+            "WARNING: could not load SQL history '{}': {error}",
+            history_file.display(),
+        ),
     }
 
     Ok(editor)
@@ -73,6 +81,12 @@ fn record_history_entry(
     editor
         .add_history_entry(sql)
         .map_err(|err| err.to_string())?;
+    if let Some(parent) = history_file
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
     editor
         .append_history(history_file)
         .map_err(|err| err.to_string())

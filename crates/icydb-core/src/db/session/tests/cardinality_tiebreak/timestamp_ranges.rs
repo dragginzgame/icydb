@@ -18,13 +18,15 @@ fn seed_timestamps(unique: bool) -> Vec<(i64, u64)> {
             "stamp_idx".into(),
             STORE_PATH.into(),
             unique,
-            PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
-                FieldId::new(2),
-                SchemaFieldSlot::new(1),
-                vec!["stamp".into()],
-                AcceptedFieldKind::Timestamp,
-                false,
-            )]),
+            PersistedIndexKeySnapshot::from_field_paths(vec![
+                PersistedIndexFieldPathSnapshot::new(
+                    FieldId::new(2),
+                    SchemaFieldSlot::new(1),
+                    vec!["stamp".into()],
+                    AcceptedFieldKind::Timestamp,
+                    false,
+                ),
+            ]),
             None,
         )],
     );

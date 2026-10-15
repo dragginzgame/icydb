@@ -12,7 +12,10 @@ Prepare the declared Rust/Cargo toolchain and native build prerequisites first,
 even when the repository has no Rust packages. The Makefile uses local tool
 paths automatically. Interactive shells need the
 export above; setup does not edit shell profiles. Installation downloads tools;
-checks are offline and never install missing dependencies. Before downloads,
+tool checks are offline and never install missing executables. Preparing missing
+workspace dependency sources during authorized development/validation follows
+the [locked Cargo fetch policy](../rules/cargo-dependencies.md#cargo-network-policy).
+Before tool downloads,
 `install-tools` uses the existing IC and Rust installers to admit the complete-set
 platform/pins and probe the consumer's selected `rustc` and `cargo`. These
 read-only `--preflight` calls create no tool/build directories and disable
@@ -63,8 +66,9 @@ in its own extension list. Extensions must not call their enclosing aggregate.
 Select independently qualified CLI versions in their existing owner adapters.
 Rustfmt, compiler targets, credentials and other product prerequisites retain
 their documented setup; executable installation grants no deployment authority.
-Versions and digests remain
-owned by the reviewed pin files below, rather than another copied version list.
+Common versions and digests come from the reviewed snapshot catalogs below.
+Do not maintain a second consumer default list. Explicit qualified exceptions
+remain available as described under [catalog selection](#catalog-selection).
 dfx is excluded from the common IC set. See the host limits below before setup.
 Keep identity stores separate from resettable state as described in
 [IC identity storage](ic-tools.md#identity-storage-and-local-resets); installing
@@ -91,11 +95,44 @@ Fleet reports such as `make cloc-tooling` normally run in Shared Tooling; consum
 need not vendor those reporters or run their regression suites. See the
 [optional fleet selection](consuming-snapshots.md#local-ic-tool-adoption).
 
+## Catalog selection
+
+Since 0.10.0, the executing reviewed snapshot owns the defaults:
+`ci/tool-versions.env` for host/Cargo tools and `ci/ic-tools.tsv` for IC tools.
+Make resolves both relative to `SHARED_TOOLING_ROOT`; standalone installers and
+the Cargo freshness checker resolve them relative to their own snapshot.
+`--consumer` selects the checkout's installations, not its default catalog.
+Missing snapshot catalogs fail; there is no consumer-local fallback.
+Snapshot adoption selects the pins but never installs or upgrades executables.
+
+For a justified exception, keep a separate reviewed consumer file and select the
+affected set explicitly before including `make/consumer.mk`:
+
+```make
+IC_TOOL_PINS := $(CURDIR)/config/qualified-ic-tools.tsv
+```
+
+`HOST_TOOL_VERSIONS` and `RUST_TOOL_VERSIONS` independently select alternative
+host and Cargo catalogs. A host override does not change Rust or formatting pins.
+Each file must contain the complete selection required by its set; no implicit
+overlay is merged. Record the reason, affected hosts and native qualification in
+consumer governance. Keep snapshot payloads unchanged, including when excepted.
+Standalone calls use explicit `--versions` or `--pins`; freshness inspection uses
+`--versions`. CI cache-key inputs and direct catalog reads must select the same
+catalog as installation. The failure-evidence action defaults to the catalogs
+beside its own snapshot; set `host-versions`/`ic-pins` explicitly when using an
+exception so successful-tool compaction checks the intended selection.
+
+Common catalogs do not own consumer compiler/MSRV choices, application
+dependencies, Testkit/PocketIC selections or product tool adapters. Workflow-only
+tools may retain consumer selections; merely adopting a catalog does not install
+tools outside the common inventory or change a workflow's declared support.
+
 ## Shared executable storage
 
 Shared Tooling owns storage for the common executable sets. Host and IC setup
 reuse verified bundles in a per-user store across checkouts with the same host
-and pins. Each repository retains its own pins and command
+and pins. Each repository retains its reviewed snapshot and command
 selection; changing one repository's selection must not change another's.
 Providing every common command does not require duplicating its binary in every
 checkout. Consumers must adopt the canonical implementation through reviewed
@@ -190,6 +227,16 @@ inspect `.tools/.host-tools.lock/owner` and confirm its process has stopped befo
 removing an abandoned lock; shared slots also retain `install.lock/owner`.
 Offline checks report the shared lock path and refuse while that selection's
 shared lock is held, including when another checkout owns the installation.
+Host and IC setup attempt both lock releases on exit, even if checkout cleanup
+fails. An installation failure keeps its original status and retained candidate;
+a cleanup-only failure also returns nonzero. Inspect any remaining lock before
+retrying, even when the selected bundle was successfully activated.
+Explicit host and IC asset downloads use curl's transient retry classification,
+with at most three retries, a two-second delay and a 60-second retry-start window.
+Each attempt keeps its 15-second connection and 300-second transfer limits;
+an attempt already in flight can finish after the retry window. Permanent HTTP
+errors and checksum/admission failures are not retried. Exhaustion returns curl's
+final failure status and preserves the failed candidate and previous selection.
 Cleanup remains explicit. The `--versions` option
 selects a reviewed shell file, which is executable code like a Makefile.
 
@@ -235,7 +282,8 @@ A relative `--versions`
 catalog is read from the caller's directory before entering the consumer;
 relative `--lockfile` paths retain their consumer-relative meaning.
 `RUST_TOOL_VERSIONS` selects a reviewed alternative catalog; it defaults to
-`HOST_TOOL_VERSIONS`. Keep qualified version exceptions in that selected catalog,
+the snapshot's `ci/tool-versions.env`, independently of `HOST_TOOL_VERSIONS`.
+Keep qualified version exceptions in that selected catalog,
 and remove duplicate consumer constants when adopting the shared pins.
 
 The complete common aggregate includes this set in every repository, including
@@ -287,14 +335,21 @@ selected compiler's bin directory followed by system executable directories,
 fixed C locale/UTC timezone, private permissions and two compilation jobs.
 Repository flags, wrappers, custom targets, user Cargo configuration and arbitrary
 environment variables are not inherited. Application builds are unaffected.
-Explicit `CARGO_NET_OFFLINE` or user Cargo `net.offline` is preserved; no check
-downloads or repairs tools. Custom registries, extra native search paths and
+An explicit nonempty `CARGO_NET_OFFLINE` (`true`/`false` or `1`/`0`) takes
+precedence over user Cargo `net.offline`. Without that override, `net.offline`
+must be a TOML boolean; strings and numbers are rejected before installation or
+selection changes. Empty configuration or an absent key defaults to online
+permission. Cargo's `config` takes precedence over `config.toml` when both exist.
+No check downloads or repairs tools. Custom registries, extra native search paths and
 proxy/credential configuration are not supplied to these public crates.io builds.
 
 The key records the exact build-helper digest, Cargo/rustc verbose identities and executable digests, host,
 native compiler/linker digests, Linux package inventory or macOS/Xcode/SDK
 identity, package/version, executable kind/name, profile, published crate digest
 and packaged lock digest. Cargo owns registry downloads and `--locked` builds.
+Changing the build helper requires explicit setup to select builds under the new
+policy digest; previous builds remain retained and offline checks do not repair
+their selections.
 Missing packaged locks and non-registry dependency sources refuse reuse/builds;
 unexpected Cargo configuration in the managed cache is rejected. This contract
 supports managed Debian/RPM Linux hosts and the qualified macOS toolchain; it
@@ -489,7 +544,7 @@ Perl and ordinary utilities. For Linux Mint/Ubuntu:
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y bash git make curl ca-certificates tar gzip xz-utils perl
+sudo apt-get install -y bash git make curl ca-certificates tar gzip xz-utils zip unzip perl
 ```
 
 On macOS, with Xcode Command Line Tools and Homebrew already installed:
@@ -524,6 +579,9 @@ together and points back here; it never installs tools or replaces the individua
 fixtures' version, feature and behavior checks. Standard Unix utilities from the
 bootstrap environment are still required. This is Shared Tooling's own suite
 setup, not a new prerequisite gate for every consumer.
+The download retry fixture starts a temporary IPv4 loopback HTTP listener and
+uses real curl with test-only transport substitution. It needs permission to bind
+`127.0.0.1`, but contacts no public server and adds no TLS/certificate prerequisite.
 
 ShellCheck, actionlint and Gitleaks use the existing explicit CI installers and
 pins; GitHub maintenance needs an installed, authenticated `gh`. Consumer-owned

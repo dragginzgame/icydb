@@ -10,10 +10,10 @@ use ic_cdk::api::call_context_instruction_counter;
 use candid::CandidType;
 use ic_cdk::{query, update};
 use ic_timers::{
-    AfterCompletionDecision, AfterCompletionRegistration, AfterCompletionRunResult,
-    DeclarationLifetime, TimerCadence, TimerCompletion, TimerIdentity, TimerSchedule,
-    WatchdogDecision, WatchdogRegistration, WatchdogRunResult, initialize_runtime,
-    register_after_completion, register_watchdog, timer_snapshot,
+    AfterCompletionDecision, AfterCompletionRegistration, AfterCompletionRunResult, TimerCadence,
+    TimerCompletion, TimerIdentity, TimerSchedule, TimerStart, WatchdogDecision,
+    WatchdogRegistration, WatchdogRunResult, initialize_runtime, register_after_completion,
+    register_watchdog, timer_snapshot,
 };
 use std::{
     cell::{Cell, RefCell},
@@ -92,8 +92,9 @@ fn startup_timer_probe_start() -> bool {
     let Ok(watchdog) = register_watchdog(
         watchdog_identity(),
         cadence,
-        DeclarationLifetime::Retained,
-        Some(TimerSchedule::After(WATCHDOG_INTERVAL)),
+        TimerStart::Retained {
+            initial: Some(TimerSchedule::After(WATCHDOG_INTERVAL)),
+        },
         |_context| {
             let now = ic_cdk::api::time();
             let should_trap = TRAP_AT.with(|trap_at| {
@@ -123,8 +124,9 @@ fn startup_timer_probe_start() -> bool {
     let Ok(application) = register_after_completion(
         application_identity(),
         cadence,
-        DeclarationLifetime::Retained,
-        Some(TimerSchedule::After(WATCHDOG_INTERVAL)),
+        TimerStart::Retained {
+            initial: Some(TimerSchedule::After(WATCHDOG_INTERVAL)),
+        },
         |_context| async {
             record_callback(
                 &APPLICATION_CALLBACKS,

@@ -2,14 +2,16 @@
 
 use candid::CandidType;
 use ic_host_artifacts::artifact::Sha256Digest;
+use ic_testkit::pic::CandidCallExt as _;
 use icydb::{
     Error,
     value::{OutputValue, PublicValue},
 };
-use icydb_testing_integration::{
+use icydb_testing_build::{
     CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
-    CanisterWasmProfile, build_canister_with_options, install_prebuilt_fixture_canister,
+    CanisterWasmProfile, build_canister_with_options,
 };
+use icydb_testing_integration::install_prebuilt_fixture_canister;
 use serde::Deserialize;
 
 #[derive(CandidType, Deserialize)]
@@ -41,7 +43,8 @@ fn collection_workload_preserves_results_and_reports_costs() {
     crate::for_each_workload_scenario(&[16_u32, 256, 1_024], |&length| {
         let fixture = install_prebuilt_fixture_canister("sql", module.clone());
         let seeded: Result<(), Error> = fixture
-            .update_candid("seed_collection_workload", (length,))
+            .pocket_ic()
+            .update_candid(fixture.canister_id(), "seed_collection_workload", (length,))
             .expect("seed response");
         seeded.expect("seed succeeds outside the measured messages");
         for (scenario, name) in [
@@ -66,7 +69,9 @@ fn collection_workload_preserves_results_and_reports_costs() {
                 }
                 let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
                 let sample: CollectionWorkloadSample = fixture
+                    .pocket_ic()
                     .update_candid(
+                        fixture.canister_id(),
                         "measure_collection_workload",
                         (length, u8::try_from(scenario).unwrap()),
                     )

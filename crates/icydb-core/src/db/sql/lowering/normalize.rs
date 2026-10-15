@@ -5,9 +5,9 @@ use crate::db::sql::{
     identifier::{identifier_last_segment, identifiers_tail_match, normalize_identifier_to_scope},
     lowering::SqlLoweringError,
     parser::{
-        SqlAggregateCall, SqlAssignment, SqlDeleteStatement, SqlExpr, SqlOrderTerm, SqlProjection,
-        SqlReturningProjection, SqlSelectItem, SqlSelectStatement, SqlUpdateStatement,
-        SqlWriteValue,
+        SqlAggregateCall, SqlAssignment, SqlDeleteStatement, SqlExpr, SqlInsertStatement,
+        SqlOrderTerm, SqlProjection, SqlReturningProjection, SqlSelectItem, SqlSelectStatement,
+        SqlUpdateStatement, SqlWriteValue,
     },
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
@@ -82,6 +82,28 @@ pub(in crate::db::sql::lowering) fn normalize_delete_statement_to_expected_entit
     statement.returning = statement
         .returning
         .map(|returning| normalize_returning_projection(returning, entity_scope.as_slice(), work))
+        .transpose()?;
+    statement.table_alias = None;
+
+    Ok(statement)
+}
+
+// Target qualification is independent from any INSERT SELECT source scope.
+pub(in crate::db::sql::lowering) fn normalize_insert_statement_to_expected_entity(
+    mut statement: SqlInsertStatement,
+    expected_entity: &str,
+    work: &PreparationWork<'_>,
+) -> Result<SqlInsertStatement, SqlLoweringError> {
+    let entity_scope = sql_statement_scope_candidates(
+        statement.entity.as_str(),
+        expected_entity,
+        statement.table_alias.as_deref(),
+        work,
+    )?;
+    statement.columns = normalize_identifier_list(statement.columns, &entity_scope, work)?;
+    statement.returning = statement
+        .returning
+        .map(|returning| normalize_returning_projection(returning, &entity_scope, work))
         .transpose()?;
     statement.table_alias = None;
 

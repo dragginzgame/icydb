@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/run-release.sh scripts/ci/next-release-version.sh scripts/ci/finalize-release-changelog.awk
+# Shared companions: scripts/ci/run-release.sh scripts/ci/next-release-version.sh scripts/ci/finalize-release-changelog.awk scripts/ci/fixture-lifecycle.sh
 set -euo pipefail
 
 # This fixture owns its Make controls; production admission is tested below.
@@ -11,16 +11,12 @@ ROOT="${BASH_SOURCE[0]}"
 ROOT="$(cd -P "${ROOT%/*}/../.." && printf '%s/.' "$PWD")"
 ROOT="${ROOT%/.}"
 FIXTURE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/release-runner-test.XXXXXX")"
-# Bash 3.2 can enter EXIT with status zero after nounset; require completion too.
+FIXTURE_ROOT="$(CDPATH="" cd -P -- "$FIXTURE_ROOT" && printf '%s/.' "$PWD")"
+FIXTURE_ROOT="${FIXTURE_ROOT%/.}"
+# shellcheck source=scripts/ci/fixture-lifecycle.sh
+source "$ROOT/scripts/ci/fixture-lifecycle.sh"
 fixture_complete=false
-finish() {
-    local status=$?
-    [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
-    if [[ "$status" == 0 ]]; then rm -rf "$FIXTURE_ROOT"
-    else printf "Failed release-runner fixture retained: %s\n" "$FIXTURE_ROOT" >&2; fi
-    exit "$status"
-}
-trap finish EXIT
+trap 'fixture_finish "$?" "$FIXTURE_ROOT" "Failed release-runner fixture retained"' EXIT
 export REAL_GIT REAL_MAKE
 export RELEASE_FIXTURE_HASH_GIT RELEASE_FIXTURE_GIT_REFUSALS
 RELEASE_FIXTURE_HASH_GIT="$(command -v git)"
@@ -138,6 +134,10 @@ case "$1" in
                 if [[ -n "${FIXTURE_TAG_COMMIT:-}" ]]; then echo "$FIXTURE_TAG_COMMIT"; elif [[ -f "tags/$name" ]]; then cat "tags/$name"; else [[ -f tag ]] || exit 1; echo "$release_sha"; fi
                 ;;
             refs/tags/*) [[ -f tag ]] || exit 1; if [[ -f tag-object ]]; then cat tag-object; else echo "$tag_sha"; fi ;;
+            *'^{commit}')
+                name="${*: -1}"; name="${name%\^\{commit\}}"
+                [[ -f "commits/$name.tree" ]] || exit 1
+                printf '%s\n' "$name" ;;
             *) exit 2 ;;
         esac
         ;;
@@ -829,6 +829,33 @@ cp .release-state/0.1.1.plan earlier-plan
 expect_failure patch origin main
 cmp earlier-plan .release-state/0.1.1.plan
 [[ ! -e events && ! -e tag ]] || exit 1
+[[ -d .release-state/lock ]] || exit 1
+grep -F 'release lock is occupied' output >/dev/null
+
+# Inject a non-occupancy error even on hosts where chmod cannot deny writes.
+new_fixture lock-permission
+early_plan patch validate
+cp .release-state/0.1.1.plan earlier-plan
+export RELEASE_FIXTURE_REAL_MKDIR
+RELEASE_FIXTURE_REAL_MKDIR="$(command -v mkdir)"
+cat > "$FIXTURE_ROOT/bin/mkdir" <<'STUB'
+#!/usr/bin/env bash
+if [[ "$*" == .release-state/lock ]]; then
+    echo 'mkdir: fixture permission denied' >&2
+    exit 37
+fi
+exec "$RELEASE_FIXTURE_REAL_MKDIR" "$@"
+STUB
+chmod +x "$FIXTURE_ROOT/bin/mkdir"
+status=0
+bash "$ROOT/scripts/ci/run-release.sh" patch origin main > output 2>&1 || status=$?
+[[ "$status" == 37 ]] || exit 1
+grep -F 'mkdir: fixture permission denied' output >/dev/null
+grep -F 'unable to acquire release lock' output >/dev/null
+if grep -F 'lock is occupied' output >/dev/null; then exit 1; fi
+cmp earlier-plan .release-state/0.1.1.plan
+[[ ! -e events && ! -e tag && ! -e .release-state/lock ]] || exit 1
+rm "$FIXTURE_ROOT/bin/mkdir"
 
 new_fixture corrupt-plan
 early_plan patch validate
@@ -836,6 +863,20 @@ printf 'unexpected record\n' >> .release-state/0.1.1.plan
 expect_failure resume 0.1.1 origin main
 expect_failure patch origin main
 [[ ! -e events ]] || exit 1
+
+# Malformed saved source identities cannot be archived as restartable early
+# intent and silently replaced by the current source before validation.
+for width in 39 41 63 65; do
+    new_fixture "source-width-$width"
+    early_plan patch validate
+    identity="$(printf "%0${width}d" 1)"
+    awk -v identity="$identity" 'NR==6 {$0=identity} {print}' .release-state/0.1.1.plan > changed-plan
+    mv changed-plan .release-state/0.1.1.plan
+    cp .release-state/0.1.1.plan saved-plan
+    expect_failure patch origin main
+    cmp saved-plan .release-state/0.1.1.plan
+    [[ ! -e events && ! -e tag && ! -e .release-state/lock ]] || exit 1
+done
 
 new_fixture concurrent-reconciliation
 export FIXTURE_FAIL_TARGET=release-prepared-check
@@ -852,7 +893,7 @@ new_fixture changelog
 cat > CHANGELOG.md <<'NOTES'
 # Changelog
 
-## [Draft]
+## [0.1.1]
 
 - Current completed change.
 
@@ -861,7 +902,7 @@ cat > CHANGELOG.md <<'NOTES'
 - Retained history.
 NOTES
 awk -v version=0.1.1 -v date=2026-10-06 -f "$ROOT/scripts/ci/finalize-release-changelog.awk" CHANGELOG.md > prepared
-sed 's/## \[Draft\]/## [0.1.1] - 2026-10-06/' CHANGELOG.md > expected
+sed 's/## \[0.1.1\]/## [0.1.1] - 2026-10-06/' CHANGELOG.md > expected
 cmp expected prepared
 printf '\n## [0.2.0]\n\n- Competing selection.\n' >> CHANGELOG.md
 if awk -v version=0.1.1 -v date=2026-10-06 -f "$ROOT/scripts/ci/finalize-release-changelog.awk" CHANGELOG.md > prepared 2>/dev/null; then exit 1; fi
@@ -948,7 +989,7 @@ NOTES
     done
 done
 # Horizontal heading whitespace is presentation, not a different release identity.
-for heading in '## [Draft]' '## [0.1.1]'; do
+for heading in '## [0.1.1]' $'##\t[0.1.1]'; do
     printf '# Changelog\n\n%s  \t\n\n- Selected notes.\n\n## [0.1.0]\t \n\n- Kept history.\n' "$heading" > whitespace-notes
     printf '# Changelog\n\n## [0.1.1] - 2026-10-06\n\n- Selected notes.\n\n## [0.1.0]\t \n\n- Kept history.\n' > whitespace-expected
     awk -v version=0.1.1 -v previous=0.1.0 -v date=2026-10-06 \
@@ -982,8 +1023,7 @@ for selected_date in 2026-10-06 2026-10-07; do
     fi
 done
 
-# Preserve byte boundaries at historical EOF, even when the draft moves from EOF
-# to the front. A blanket removal of the output's last LF breaks the latter.
+# Preserve byte boundaries at historical EOF without relocating candidates.
 for ending in lf no-lf; do
     printf '## [0.1.0]\n\n- Historical café, literal ^$ and tabs\t.' > history-bytes
     [[ "$ending" != lf ]] || printf '\n' >> history-bytes
@@ -1002,11 +1042,39 @@ printf '## [0.1.0]\n\n- History.\n\n' > history-bytes
 printf '# Changelog\n\n' > byte-notes
 cat history-bytes >> byte-notes
 printf '## [0.1.1]\n\n- Draft at EOF.' >> byte-notes
-printf '# Changelog\n\n## [0.1.1] - 2026-10-06\n\n- Draft at EOF.\n' > byte-expected
-cat history-bytes >> byte-expected
-awk -v version=0.1.1 -v previous=0.1.0 -v date=2026-10-06 \
-    -f "$ROOT/scripts/ci/finalize-release-changelog.awk" byte-notes > byte-result
-cmp byte-expected byte-result
+if awk -v version=0.1.1 -v previous=0.1.0 -v date=2026-10-06 \
+    -f "$ROOT/scripts/ci/finalize-release-changelog.awk" byte-notes > byte-result 2> rejected-notes.log; then exit 1; fi
+[[ ! -s byte-result ]] || exit 1
+
+# Strict candidate admission replaces consumer-owned heading scanners.
+for top in '## [Draft]' '## [0.0.9]' '## Unexpected'; do
+    printf '# Changelog\n\n%s\n\n- Notes.\n' "$top" > strict-notes
+    if awk -v version=0.1.1 -v previous=0.1.0 -v date=2026-10-06 \
+        -f "$ROOT/scripts/ci/finalize-release-changelog.awk" strict-notes > strict-result 2> strict-error; then exit 1; fi
+    [[ ! -s strict-result ]] || exit 1
+done
+for top in '## [0.1.0]' '## [0.1.0] - 2026-10-05'; do
+    printf '# Changelog\n\n%s\n\n- History.' "$top" > strict-notes
+    printf '# Changelog\n\n## [0.1.1] - 2026-10-06\n\n%s\n\n- History.' "$top" > strict-expected
+    awk -v version=0.1.1 -v previous=0.1.0 -v date=2026-10-06 \
+        -f "$ROOT/scripts/ci/finalize-release-changelog.awk" strict-notes > strict-result
+    cmp strict-expected strict-result
+done
+
+# Empty ledgers and legacy headings below the selected candidate cannot emit
+# a partially prepared payload or modify the source.
+for layout in empty heading-only nested-draft; do
+    case "$layout" in
+        empty) : > strict-notes ;;
+        heading-only) printf '# Changelog\n' > strict-notes ;;
+        nested-draft) printf '## [0.1.1]\n\n- Pending.\n\n## [Draft]\n' > strict-notes ;;
+    esac
+    cp strict-notes strict-before
+    if awk -v version=0.1.1 -v previous=0.1.0 -v date=2026-10-06 \
+        -f "$ROOT/scripts/ci/finalize-release-changelog.awk" strict-notes > strict-result 2> strict-error; then exit 1; fi
+    [[ ! -s strict-result ]] || exit 1
+    cmp strict-before strict-notes
+done
 
 [[ ! -s "$RELEASE_FIXTURE_GIT_REFUSALS" ]] || exit 1
 echo 'release runner command-stub tests passed'

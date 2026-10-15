@@ -27,7 +27,7 @@ use mapping::{decode_sequence, encode_sequence};
 #[cfg(test)]
 use std::cell::Cell;
 
-const SCHEMA_SNAPSHOT_MAGIC: [u8; 8] = *b"ICYUSNP\0";
+const SCHEMA_SNAPSHOT_MAGIC: [u8; 8] = *b"ICYISNP\0";
 const SCHEMA_SNAPSHOT_FORMAT_VERSION: u8 = 1;
 /// Maximum canonical bytes for one persisted entity-schema snapshot.
 pub(in crate::db) const MAX_SCHEMA_SNAPSHOT_BYTES: u32 = 512 * 1024;
@@ -206,6 +206,14 @@ pub(in crate::db) fn decode_persisted_schema_snapshot(
     let relations = decode_sequence!(reader, icydb_schema::MAX_FRAGMENT_RELATIONS, {
         decode_relation(&mut reader)?
     });
+    // Proposal construction sorts relation identities; persisted authority must
+    // already have that canonical order before entering the constructor.
+    if relations
+        .windows(2)
+        .any(|pair| pair[0].id() >= pair[1].id())
+    {
+        return Err(InternalError::store_corruption());
+    }
     let candidate_indexes = decode_sequence!(reader, icydb_schema::MAX_FRAGMENT_INDEXES, {
         decode_index(&mut reader)?
     });

@@ -1,14 +1,14 @@
 # Include once from the consumer Makefile after any local path overrides.
-# Shared companions: make/execution.mk scripts/ci/check-make-execution.sh
+# Shared companions: make/execution.mk scripts/ci/check-make-execution.sh scripts/dev/install-host-tools.sh scripts/dev/install-ic-tools.sh scripts/dev/install-rust-tools.sh scripts/dev/cloc.sh
 # SHARED_TOOLING_ROOT must name a reviewed local snapshot, never a sibling checkout.
 # Preserve the consumer's default goal, including when it is declared after us.
 _shared_tooling_default_goal := $(.DEFAULT_GOAL)
 include $(dir $(lastword $(MAKEFILE_LIST)))execution.mk
 
 SHARED_TOOLING_ROOT ?= $(CURDIR)
-HOST_TOOL_VERSIONS ?= $(CURDIR)/ci/tool-versions.env
-RUST_TOOL_VERSIONS ?= $(HOST_TOOL_VERSIONS)
-IC_TOOL_PINS ?= $(CURDIR)/ci/ic-tools.tsv
+HOST_TOOL_VERSIONS ?= $(SHARED_TOOLING_ROOT)/ci/tool-versions.env
+RUST_TOOL_VERSIONS ?= $(SHARED_TOOLING_ROOT)/ci/tool-versions.env
+IC_TOOL_PINS ?= $(SHARED_TOOLING_ROOT)/ci/ic-tools.tsv
 # Product-owned tool targets run in this order after the complete common set.
 LOCAL_TOOL_INSTALL_TARGETS ?=
 LOCAL_TOOL_CHECK_TARGETS ?=

@@ -3,25 +3,25 @@
 //! Does not own: production lifecycle orchestration or fixture canister implementation.
 //! Boundary: exercises installed fixture behavior through PocketIC-facing APIs.
 
-use std::{collections::BTreeSet, time::Duration};
+use std::{collections::BTreeSet, num::NonZeroUsize, time::Duration};
 
 use candid::{CandidType, Deserialize};
 use ic_testkit::{
-    pic::{CanisterInstallExt, RetryPolicy, StandaloneCanisterFixture},
+    pic::{CandidCallExt as _, CanisterInstallExt, RetryPolicy, StandaloneCanisterFixture},
     pocket_ic::{ErrorCode, RejectResponse},
 };
 use icydb::types::Ulid;
-use icydb_testing_integration::{
+use icydb_testing_build::{
     CanisterBuildOptions, CanisterBuildProfile, build_fixture_canister_wasm_bytes_with_options,
-    canister_artifact::{CanisterMethod, CanisterMethodMode, inspect_wasm_methods},
-    install_fixture_canister_without_startup_delivery,
+    canister_artifact::{CanisterMethod, MethodMode, inspect_wasm_methods},
 };
+use icydb_testing_integration::install_fixture_canister_without_startup_delivery;
 
 // Reviewed with Rust 1.98.1, PocketIC 16 and ic-memory 0.13.2: the converged
 // post-upgrade participant uses 12,579,497 instructions. The user-approved
 // ceiling accepts that cost with 1.36% headroom; production limits are unchanged.
 const PARTICIPANT_INSTRUCTION_CEILING: u64 = 12_750_000;
-const INSTALL_CODE_RETRY_LIMIT: usize = 4;
+const INSTALL_CODE_RETRY_LIMIT: NonZeroUsize = NonZeroUsize::new(4).unwrap();
 const INSTALL_CODE_COOLDOWN: Duration = Duration::from_mins(5);
 
 fn production_build_options() -> CanisterBuildOptions {
@@ -63,25 +63,29 @@ struct LifecycleCompositionSnapshot {
 
 fn snapshot(fixture: &StandaloneCanisterFixture) -> LifecycleCompositionSnapshot {
     fixture
-        .query_candid("lifecycle_composition_snapshot", ())
+        .pocket_ic()
+        .query_candid(fixture.canister_id(), "lifecycle_composition_snapshot", ())
         .expect("lifecycle composition snapshot should decode")
 }
 
 fn database_probe(fixture: &StandaloneCanisterFixture) -> Result<bool, icydb::Error> {
     fixture
-        .query_candid("lifecycle_database_probe", ())
+        .pocket_ic()
+        .query_candid(fixture.canister_id(), "lifecycle_database_probe", ())
         .expect("lifecycle database probe should decode")
 }
 
 fn insert_probe_row(fixture: &StandaloneCanisterFixture) -> Result<Ulid, icydb::Error> {
     fixture
-        .update_candid("lifecycle_insert_probe_row", ())
+        .pocket_ic()
+        .update_candid(fixture.canister_id(), "lifecycle_insert_probe_row", ())
         .expect("lifecycle probe-row insert should decode")
 }
 
 fn probe_row_exists(fixture: &StandaloneCanisterFixture, id: Ulid) -> Result<bool, icydb::Error> {
     fixture
-        .query_candid("lifecycle_probe_row_exists", (id,))
+        .pocket_ic()
+        .query_candid(fixture.canister_id(), "lifecycle_probe_row_exists", (id,))
         .expect("lifecycle probe-row query should decode")
 }
 
@@ -131,9 +135,8 @@ fn advance_until_active(fixture: &StandaloneCanisterFixture) -> LifecycleComposi
     panic!("deferred application work should activate within twelve ticks");
 }
 
-fn install_code_retry_policy() -> RetryPolicy {
-    RetryPolicy::try_new(INSTALL_CODE_RETRY_LIMIT, INSTALL_CODE_COOLDOWN)
-        .expect("install-code retry policy should be valid")
+const fn install_code_retry_policy() -> RetryPolicy {
+    RetryPolicy::new(INSTALL_CODE_RETRY_LIMIT, INSTALL_CODE_COOLDOWN)
 }
 
 fn upgrade_with_retry(
@@ -369,23 +372,23 @@ fn participant_functions_are_absent_from_the_complete_ingress_surface() {
         BTreeSet::from([
             CanisterMethod {
                 name: "<ic-cdk internal> timer_executor".to_string(),
-                mode: CanisterMethodMode::Update,
+                mode: MethodMode::Update,
             },
             CanisterMethod {
                 name: "lifecycle_composition_snapshot".to_string(),
-                mode: CanisterMethodMode::Query,
+                mode: MethodMode::Query,
             },
             CanisterMethod {
                 name: "lifecycle_database_probe".to_string(),
-                mode: CanisterMethodMode::Query,
+                mode: MethodMode::Query,
             },
             CanisterMethod {
                 name: "lifecycle_insert_probe_row".to_string(),
-                mode: CanisterMethodMode::Update,
+                mode: MethodMode::Update,
             },
             CanisterMethod {
                 name: "lifecycle_probe_row_exists".to_string(),
-                mode: CanisterMethodMode::Query,
+                mode: MethodMode::Query,
             },
         ]),
     );
@@ -401,19 +404,19 @@ fn participant_functions_are_absent_from_the_complete_ingress_surface() {
         BTreeSet::from([
             CanisterMethod {
                 name: "<ic-cdk internal> timer_executor".to_string(),
-                mode: CanisterMethodMode::Update,
+                mode: MethodMode::Update,
             },
             CanisterMethod {
                 name: "lifecycle_composition_snapshot".to_string(),
-                mode: CanisterMethodMode::Query,
+                mode: MethodMode::Query,
             },
             CanisterMethod {
                 name: "lifecycle_database_probe".to_string(),
-                mode: CanisterMethodMode::Query,
+                mode: MethodMode::Query,
             },
             CanisterMethod {
                 name: "lifecycle_probe_row_exists".to_string(),
-                mode: CanisterMethodMode::Query,
+                mode: MethodMode::Query,
             },
         ]),
     );

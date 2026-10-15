@@ -350,9 +350,11 @@ mod tests {
 
     #[test]
     fn admitted_optimizer_preserves_outputs_on_failure_and_handles_spaced_paths() {
-        let root =
-            std::env::temp_dir().join(format!("icydb optimizer host {}", std::process::id()));
-        std::fs::create_dir(&root).unwrap();
+        let root = ic_host_fs::testing::create_fixture_directory(
+            &std::env::temp_dir(),
+            "icydb optimizer host",
+        )
+        .unwrap();
         let input = root.join("compiler input.wasm");
         let output = root.join("final output.wasm");
         let optimizer = pinned_wasm_optimizer().unwrap();
@@ -374,9 +376,11 @@ mod tests {
         use ic_host_process::tool::{AdmittedTool, ExecutionContext, VersionSpec};
         use std::{ffi::OsString, os::unix::fs::PermissionsExt};
 
-        let root =
-            std::env::temp_dir().join(format!("icydb empty optimizer {}", std::process::id()));
-        std::fs::create_dir(&root).unwrap();
+        let root = ic_host_fs::testing::create_fixture_directory(
+            &std::env::temp_dir(),
+            "icydb empty optimizer",
+        )
+        .unwrap();
         let input = root.join("input.wasm");
         let output = root.join("output.wasm");
         let previous = b"\0asm\x01\0\0\0";

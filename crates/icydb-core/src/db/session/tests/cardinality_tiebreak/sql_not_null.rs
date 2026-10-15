@@ -442,3 +442,89 @@ fn sql_boolean_tests_preserve_parameters_and_case_conditions() {
             .to_vec()
     );
 }
+
+#[test]
+fn sql_coalesce_short_circuits_like_case_across_expression_consumers() {
+    let session = initialize_nullable_rows();
+    let execute = |sql: &str| {
+        session
+            .execute_trusted_sql_query(sql)
+            .unwrap_or_else(|error| panic!("query {sql} failed: {error:?}"))
+    };
+    let assert_same_rows = |actual: &str, expected: &str| match (execute(actual), execute(expected))
+    {
+        (
+            SqlStatementResult::Projection { rows: actual, .. },
+            SqlStatementResult::Projection { rows: expected, .. },
+        ) => assert_eq!(actual, expected),
+        (
+            SqlStatementResult::Grouped { rows: actual, .. },
+            SqlStatementResult::Grouped { rows: expected, .. },
+        ) => assert_eq!(actual, expected),
+        _ => panic!("conditional expressions must use the same result lane"),
+    };
+    for (coalesce, case) in [
+        (
+            "COALESCE(qty, 1 / 0)",
+            "CASE WHEN qty IS NOT NULL THEN qty ELSE 1 / 0 END",
+        ),
+        (
+            "COALESCE(qty + 1, 1 / 0)",
+            "CASE WHEN qty IS NOT NULL THEN qty + 1 ELSE 1 / 0 END",
+        ),
+        (
+            "COALESCE(NULL, COALESCE(qty, 1 / 0))",
+            "CASE WHEN qty IS NOT NULL THEN qty ELSE 1 / 0 END",
+        ),
+    ] {
+        for template in [
+            "SELECT id, {value} FROM PlannerRow WHERE id IN (1, 2, 4, 5) ORDER BY id",
+            "SELECT flag, SUM({value}) FROM PlannerRow WHERE id IN (1, 2, 4, 5) GROUP BY flag ORDER BY flag",
+        ] {
+            for _ in 0..2 {
+                assert_same_rows(
+                    &template.replace("{value}", coalesce),
+                    &template.replace("{value}", case),
+                );
+            }
+        }
+    }
+    assert!(
+        session
+            .execute_trusted_sql_query(
+                "SELECT COALESCE(qty, nonexistent_field) FROM PlannerRow WHERE id = 1"
+            )
+            .is_err()
+    );
+    let read = "SELECT flag, SUM(qty) FROM PlannerRow WHERE id IN (1, 2, 4, 5) GROUP BY flag HAVING {value} >= 0 ORDER BY flag";
+    assert_same_rows(
+        &read.replace("{value}", "COALESCE(SUM(qty), 1 / 0)"),
+        &read.replace(
+            "{value}",
+            "CASE WHEN SUM(qty) IS NOT NULL THEN SUM(qty) ELSE 1 / 0 END",
+        ),
+    );
+}
+
+#[test]
+fn sql_coalesce_update_skips_unused_errors_and_preserves_atomic_failure() {
+    let session = initialize_nullable_rows();
+    let read = "SELECT id, qty FROM PlannerRow ORDER BY id";
+    let before = sql_rows(&session, read);
+    session
+        .execute_trusted_sql_exact_update(
+            "UPDATE PlannerRow SET qty = COALESCE(qty, 1 / 0) WHERE id IN (1, 2, 4, 5)",
+            4,
+        )
+        .unwrap();
+    assert_eq!(sql_rows(&session, read), before);
+    assert!(
+        session
+            .execute_trusted_sql_exact_update(
+                "UPDATE PlannerRow SET qty = COALESCE(qty + 1, 1 / 0) WHERE id <= 3",
+                3,
+            )
+            .is_err()
+    );
+    assert_eq!(sql_rows(&session, read), before);
+}

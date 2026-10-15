@@ -144,12 +144,6 @@ impl DecodedDataStoreKey {
             .ok_or_else(InternalError::query_executor_invariant)
     }
 
-    /// Compute the maximum on-disk entry size from value length.
-    #[must_use]
-    pub(in crate::db) const fn entry_size_bytes(value_len: u64) -> u64 {
-        RawDataStoreKey::MAX_STORED_SIZE_BYTES + value_len
-    }
-
     // ------------------------------------------------------------------
     // Encoding / decoding
     // ------------------------------------------------------------------

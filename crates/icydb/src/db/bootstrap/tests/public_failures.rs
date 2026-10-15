@@ -40,7 +40,7 @@ fn snapshot(owner: &str, roles: &[&str]) -> SealedDeclarationSnapshot {
             .unwrap()
         })
         .collect();
-    SealedDeclarationSnapshot::new(&requests).unwrap()
+    SealedDeclarationSnapshot::new(requests).unwrap()
 }
 
 fn reject_fresh(

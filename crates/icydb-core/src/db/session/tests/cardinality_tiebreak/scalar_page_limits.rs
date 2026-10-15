@@ -117,13 +117,15 @@ fn unique_numeric_ranges_preserve_page_union_and_every_resume_suffix() {
                 "code_idx".into(),
                 STORE_PATH.into(),
                 true,
-                PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
-                    FieldId::new(2),
-                    SchemaFieldSlot::new(1),
-                    vec!["code".into()],
-                    AcceptedFieldKind::Nat64,
-                    false,
-                )]),
+                PersistedIndexKeySnapshot::from_field_paths(vec![
+                    PersistedIndexFieldPathSnapshot::new(
+                        FieldId::new(2),
+                        SchemaFieldSlot::new(1),
+                        vec!["code".into()],
+                        AcceptedFieldKind::Nat64,
+                        false,
+                    ),
+                ]),
                 None,
             )],
         );
@@ -192,6 +194,47 @@ fn insert_payload_rows(ids: Range<u64>) {
             .execute_trusted_dynamic_insert_batch(ENTITY_NAME, rows)
             .unwrap();
     }
+}
+
+#[test]
+fn huge_trusted_limits_keep_small_initial_allocations_and_bounded_reads() {
+    initialize_payload_store();
+    for count in [0, 48] {
+        if count != 0 {
+            insert_payload_rows(0..count);
+        }
+        for fields in ["*", "id", "id + 1", "id, payload"] {
+            for order in ["ASC", "DESC"] {
+                for offset in [0, 7, u32::MAX] {
+                    let source = format!(
+                        "FROM PlannerRow ORDER BY id {order} LIMIT {{limit}} OFFSET {offset}"
+                    );
+                    let control = format!("SELECT {fields} {}", source.replace("{limit}", "64"));
+                    let huge = format!(
+                        "SELECT {fields} {}",
+                        source.replace("{limit}", &u32::MAX.to_string())
+                    );
+                    let root = RequestExecutionRoot::__new_runtime_root();
+                    let expected = projection_rows(&new_request_session(&root), &control);
+                    for _ in 0..2 {
+                        let root = RequestExecutionRoot::__new_runtime_root();
+                        assert_eq!(
+                            projection_rows(&new_request_session(&root), &huge),
+                            expected
+                        );
+                    }
+                }
+            }
+        }
+    }
+    let root = limited_request(SMALL_READ_BYTES);
+    let error = new_request_session(&root)
+        .execute_trusted_sql_query("SELECT * FROM PlannerRow ORDER BY id LIMIT 4294967295")
+        .unwrap_err();
+    assert!(error.diagnostic_facts().contains(&(
+        icydb_diagnostic_code::DiagnosticFactTag::BudgetResource,
+        Resource::StoredBytesRead.raw(),
+    )));
 }
 
 #[test]

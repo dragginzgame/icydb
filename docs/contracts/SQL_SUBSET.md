@@ -233,6 +233,13 @@ bypass the concrete SQL-command cache while retaining eligible shared-plan reuse
 
 #### SQL cache retention
 
+Trusted text query calls look up exact SQL and API surface before parsing. A
+resident command is reused only after the current accepted runtime root, including
+its database incarnation and all catalog identities, matches the compilation
+root. Its original entity label is resolved from that same current root. Misses
+and stale entries use the ordinary parser/compiler; bound dispatches retain the
+separate behavior above. Application authorization remains per invocation.
+
 The compiled-command cache admits at most 1,024 entries and 4 MiB of accounted
 retained payload per store registry. Accounting includes both key references,
 compiled syntax and decoded literals; shared allocations are charged
@@ -251,6 +258,7 @@ Supported shapes:
 - `EXPLAIN DELETE ...`
 - `EXPLAIN EXECUTION SELECT ...`
 - `EXPLAIN EXECUTION DELETE ...`
+- `EXPLAIN EXECUTION VERBOSE SELECT ...` / `EXPLAIN EXECUTION VERBOSE DELETE ...`
 - `EXPLAIN JSON SELECT ...`
 - `EXPLAIN JSON DELETE ...`
 
@@ -361,8 +369,9 @@ SQL DDL.
 
 Default `DESCRIBE` and `SHOW COLUMNS` return the same compact accepted column
 rows with fixed `name`, `type`, `nullable`, `key`, `default`, and `extra`
-columns. Key labels are `PRI`, single-field `UNI`, compound/non-unique `MUL`,
-or `-`; a compound unique member never implies independent uniqueness. Compact
+columns. Key labels are `PRI`, unconditional single-field `UNI`,
+compound/filtered/non-unique `MUL`, or `-`; compound and filtered unique members
+never imply whole-column uniqueness. Compact
 defaults use accepted insert behavior only, and nested fields use canonical
 dotted paths with ancestor-aware nullability.
 
@@ -375,10 +384,14 @@ absence: `insert_omission`, bounded canonical `insert_default` facts,
 `introduced_in_layout`, and separately decoded `historical_fill` facts.
 Corrupt accepted temporal payloads reject introspection rather than falling
 back to generated metadata or a byte-only display.
+Nested verbose rows retain their complete dotted path relative to the displayed
+top-level field, including intervening record members.
 
 `SHOW RELATIONS FROM|IN entity` returns accepted relation rows in stable
 relation-ID order. Its shell table uses the qualified accepted target path and
-the closed `Single`, `List`, or `Set` cardinality. Verbose `DESCRIBE` and `SHOW
+the closed `Single`, `List`, or `Set` source cardinality. Nested list or map-value
+traversal reports `List`; set-only traversal reports `Set`; a path without
+collection traversal reports `Single`. Verbose `DESCRIBE` and `SHOW
 CONSTRAINTS` continue to consume the maintained constraint projection ordered
 by stable constraint ID. It reports accepted identity, origin, current display
 names, referenced fields, structural semantics, activation state, durable
@@ -435,7 +448,20 @@ this grammar.
 
 ### DDL
 
-Supported shapes:
+The shape summaries below omit schema-version intent. Catalog changes require
+`EXPECT SCHEMA VERSION n` matching the current accepted version and
+`SET SCHEMA VERSION n+1`. A no-op still requires `EXPECT`, but must omit `SET`;
+an empty bump is rejected. These clauses are admission checks, not automatic
+version discovery or retry instructions.
+
+For `CREATE INDEX`, place them after the key list and before a filtered `WHERE`:
+`CREATE INDEX user_email ON User (email) EXPECT SCHEMA VERSION 3 SET SCHEMA
+VERSION 4 WHERE email IS NOT NULL`. `DROP INDEX` accepts them after its target.
+`ALTER TABLE` accepts them immediately after the entity or after its operation.
+Each clause may appear once, in either order. `VALIDATE CONSTRAINT` instead uses
+its own bounded job protocol and rejects schema-version modifiers.
+
+Supported operation shapes:
 
 - `CREATE INDEX name ON entity (field_path)`
 - `CREATE INDEX name ON entity (field_path, another_field_path)`
@@ -452,6 +478,7 @@ Supported shapes:
 - `DROP INDEX IF EXISTS name ON entity`
 - `ALTER TABLE entity ADD COLUMN field type`
 - `ALTER TABLE entity ADD COLUMN field type DEFAULT value`
+- `ALTER TABLE entity ADD COLUMN field type NULL` / `... type NOT NULL`
 - `ALTER TABLE entity ALTER COLUMN field SET DEFAULT value`
 - `ALTER TABLE entity ALTER COLUMN field DROP DEFAULT`
 - `ALTER TABLE entity ALTER COLUMN field SET NOT NULL`
@@ -486,6 +513,17 @@ city ORDER BY country ASC, city DESC` rejects with a typed grouped-order policy
 error. Aggregate-driven Top-K ordering retains per-term directions and requires
 an explicit LIMIT; it does not issue grouped continuations. See
 `docs/contracts/GROUP-BY.md` for the maintained ordering boundary.
+
+`ADD COLUMN` accepts a single `NULL` or `NOT NULL` modifier and a literal
+`DEFAULT` before or after it; omission makes the field nullable. Wide integer
+types accept `int_big(max_bytes=N)` or `nat_big(max_bytes=N)`, with the positive
+byte bound admitted by the accepted type contract; bare forms use the default
+bound. Other type heads do not gain support
+merely because the parser can retain a `max_bytes` modifier.
+
+Repeated or conflicting `NULL`/`NOT NULL` modifiers are rejected during parsing,
+including when a `DEFAULT` separates them. A second declaration cannot override
+the field's nullability.
 
 `CREATE INDEX` currently admits field-path secondary indexes and deterministic
 text expression secondary indexes. Single-field, multi-field, unique, explicit
@@ -602,8 +640,17 @@ through `VALIDATE CONSTRAINT`. Each validation response reports typed
 constraint/job identity, full-width page sequence, engine-owned state,
 revision status, cumulative rows, bounded findings, and completion. A finding
 page remains stable until acknowledged by its exact `AFTER page_sequence`.
+`AFTER` identifies that held finding page; it is not a page offset. With no page
+held, validation continues normally, including retries of a consumed
+acknowledgement. An acknowledgement for another sequence returns the current
+held page unchanged.
 `DROP CONSTRAINT` drops or aborts only SQL-DDL-owned checks; generated and
 structural constraint ownership remains outside this surface.
+
+While any constraint activation is pending or validating, column rename and
+SET/DROP DEFAULT changes reject with the typed `LiveActivation` catalog cause
+before rebuilding schema metadata. Complete or abort the activation first.
+Existing exact no-op statements retain their no-op behavior.
 
 Destructive DDL keeps physical state and accepted-schema publication atomic at
 the guarded operation boundary. Rejection before a durable commit marker owns
@@ -641,6 +688,20 @@ Selection and all row patches complete before the atomic write begins, so any
 failure leaves the whole selected batch unchanged. INSERT VALUES remains literal,
 NULL or direct DEFAULT only. Resumable jobs require fixed literal/DEFAULT
 assignments and reject every expression with E282 before creating a job.
+
+INSERT retains an optional target alias, with or without `AS`. Target columns
+and RETURNING fields accept entity or alias qualification through the same
+scope rules as UPDATE and DELETE. For example,
+`INSERT INTO Customer AS c (c.name) VALUES ('Ada') RETURNING c.name`
+resolves both references to `name`. An INSERT SELECT source has its own alias
+scope; the target alias does not qualify source expressions. Unknown qualifiers
+and unresolved parameters reject before writing.
+
+Trusted `INSERT INTO target (field, ...) SELECT ...` is also executable. The
+source uses the maintained SELECT projection/compilation path, and its columns
+must match the target width and accepted field contracts before the write.
+The SQL mutation surface retains its staged-row and returning bounds; this
+form does not establish a new bounded source-scan policy.
 
 Mutation ownership lives on one accepted structural write lane:
 
@@ -840,6 +901,9 @@ Supported aggregate projection forms are:
   post-aggregate computed items come after them
 
 DISTINCT and FILTER compose on the same aggregate in global and grouped queries.
+`COUNT(DISTINCT *)` is rejected during aggregate lowering; parser recognition
+alone does not make that form executable. Use `COUNT(*)` for rows or
+`COUNT(DISTINCT expression)` for distinct non-NULL values.
 FILTER selects rows before DISTINCT deduplicates admitted input values; the
 aggregate's current NULL and empty-input rules still apply.
 
@@ -917,8 +981,10 @@ Supported text scalar functions include `LOWER`, `UPPER`, `LENGTH`,
 `OCTET_LENGTH`, `TRIM`, `LTRIM`, `RTRIM`, `LEFT`, `RIGHT`, `STARTS_WITH`,
 `ENDS_WITH`, `CONTAINS`, `POSITION`, `REPLACE`, and `SUBSTRING`.
 
-`COALESCE` and `NULLIF` provide the admitted value-selection forms. Function
-call shapes, argument types, and direct ordering eligibility remain bounded by
+`COALESCE` evaluates arguments from left to right through the first non-NULL
+value; later arguments are not evaluated. All authored arguments still undergo
+field, type and arity admission. `NULLIF` compares its two evaluated arguments.
+Function call shapes, argument types, and direct ordering eligibility remain bounded by
 the clause-specific lowering contract; admission in the shared expression
 family does not make every expression a valid `ORDER BY` target.
 

@@ -66,7 +66,8 @@ include make/consumer.mk
 
 It supplies `format-tools-check`, `fmt` and `fmt-check`, using the shared
 [formatter prerequisite check](../docs/verification-helpers.md#formatter-prerequisites)
-and the `HOST_TOOL_VERSIONS` pin file. Formatting uses prepared tools offline and
+and the `RUST_TOOL_VERSIONS` pin file (the reviewed snapshot catalog by default).
+Formatting uses prepared tools offline and
 disables automatic rustup installation. `FORMAT_CARGO` selects one executable
 name or path, not a command string; export `RUSTUP_TOOLCHAIN` to select a compiler.
 The include preserves the default goal and never activates hooks or installs

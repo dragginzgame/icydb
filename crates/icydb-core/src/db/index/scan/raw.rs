@@ -424,7 +424,7 @@ impl IndexStore {
                     }
                 }
                 IndexStoreBackend::Journaled { .. } => {
-                    self.visit_journaled_entries_in_range(bounds, direction, visit)?;
+                    self.visit_journaled_entries_in_range(bounds, direction, &mut visit)?;
                 }
             },
             Direction::Desc => match &self.backend {
@@ -436,7 +436,7 @@ impl IndexStore {
                     }
                 }
                 IndexStoreBackend::Journaled { .. } => {
-                    self.visit_journaled_entries_in_range(bounds, direction, visit)?;
+                    self.visit_journaled_entries_in_range(bounds, direction, &mut visit)?;
                 }
             },
         }

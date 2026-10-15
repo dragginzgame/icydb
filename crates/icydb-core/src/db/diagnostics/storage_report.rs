@@ -37,11 +37,9 @@ struct EntityStats {
 
 impl EntityStats {
     // Accumulate per-entity entry count and byte footprint for snapshot output.
-    const fn update(&mut self, value_len: u64) {
+    const fn update(&mut self, entry_bytes: u64) {
         self.entries = self.entries.saturating_add(1);
-        self.memory_bytes = self
-            .memory_bytes
-            .saturating_add(DecodedDataStoreKey::entry_size_bytes(value_len));
+        self.memory_bytes = self.memory_bytes.saturating_add(entry_bytes);
     }
 }
 
@@ -51,18 +49,18 @@ impl EntityStats {
 fn update_default_entity_stats(
     entity_stats: &mut Vec<(EntityTag, EntityStats)>,
     entity_tag: EntityTag,
-    value_len: u64,
+    entry_bytes: u64,
 ) {
     if let Some((_, stats)) = entity_stats
         .iter_mut()
         .find(|(existing_tag, _)| *existing_tag == entity_tag)
     {
-        stats.update(value_len);
+        stats.update(entry_bytes);
         return;
     }
 
     let mut stats = EntityStats::default();
-    stats.update(value_len);
+    stats.update(entry_bytes);
     entity_stats.push((entity_tag, stats));
 }
 
@@ -215,16 +213,16 @@ impl EntityStatsByMode {
 
     // Accumulate one data-row contribution using the mode-specific backing
     // collection retained from the previous separate implementations.
-    fn update(&mut self, entity_tag: EntityTag, value_len: u64) {
+    fn update(&mut self, entity_tag: EntityTag, entry_bytes: u64) {
         match self {
             Self::Default(entity_stats) => {
-                update_default_entity_stats(entity_stats, entity_tag, value_len);
+                update_default_entity_stats(entity_stats, entity_tag, entry_bytes);
             }
             Self::Explicit(entity_stats) => {
                 entity_stats
                     .entry(entity_tag)
                     .or_default()
-                    .update(value_len);
+                    .update(entry_bytes);
             }
         }
     }
@@ -357,16 +355,14 @@ fn build_storage_report<C: CanisterKind>(
                 let _: Result<(), Infallible> = store.visit_entries(|raw_key, raw_row| {
                     // Physical totals include corrupt keys, unlike entity rollups.
                     entries = entries.saturating_add(1);
-                    memory_bytes = memory_bytes
-                        .saturating_add(raw_key.as_bytes().len() as u64 + raw_row.len() as u64);
+                    let entry_bytes = raw_key.as_bytes().len() as u64 + raw_row.len() as u64;
+                    memory_bytes = memory_bytes.saturating_add(entry_bytes);
                     let Ok(dk) = DecodedDataStoreKey::try_from_raw(raw_key) else {
                         corrupted_keys = corrupted_keys.saturating_add(1);
                         return Ok(StoreVisit::Continue);
                     };
 
-                    let value_len = raw_row.len() as u64;
-
-                    by_entity.update(dk.entity_tag(), value_len);
+                    by_entity.update(dk.entity_tag(), entry_bytes);
                     Ok(StoreVisit::Continue)
                 });
 

@@ -12,9 +12,9 @@ function historical(value, a, b, n) {
     }
     return 1
 }
-function emit(i, followed) {
+function emit(i) {
     printf "%s", lines[i]
-    if (i < count || final_lf || followed) printf "\n"
+    if (i < count || final_lf) printf "\n"
 }
 {
     if (NR != 1) { input_error = 1; next }
@@ -25,42 +25,53 @@ function emit(i, followed) {
         heading = lines[line]
         sub(/[ \t]+$/, "", heading)
         gsub(/[ \t]+/, " ", heading)
-        if (heading ~ /^## / && first == 0) first = line
+        if (heading ~ /^## / && first == 0) {
+            first = line
+            top = heading
+        }
+        if (heading == "## [Draft]") conflict = 1
+        if (line != first && (heading == "## [" version "]" ||
+            index(heading, "## [" version "] - ") == 1)) conflict = 1
         if (heading == "## [" version "] - " date) { finalized++; finalized_line=line }
         else if (index(heading, "## [" version "] - ") == 1) conflict = 1
         split(heading, fields, " ")
         heading_version = substr(fields[2], 2, length(fields[2])-2)
-        if (heading ~ /^## \[(Draft|[0-9]+\.[0-9]+\.[0-9]+)\]$/ &&
-            (fields[2] == "[Draft]" || !historical(heading_version))) {
+        if (heading ~ /^## \[[0-9]+\.[0-9]+\.[0-9]+\]$/ &&
+            !historical(heading_version)) {
             drafts++
             start = line
-            if (heading != "## [Draft]" && heading != "## [" version "]") conflict = 1
+            if (heading != "## [" version "]") conflict = 1
         } else if (start && !finish && line > start && heading ~ /^## /) {
             finish = line
         }
     }
 }
 END {
+    # Direct callers must not turn retained previous history into a downgrade.
+    if (previous != "" && historical(version)) conflict = 1
+    if (!first || (top != "## [" version "]" &&
+        !(allow_finalized && top == "## [" version "] - " date) &&
+        !(previous != "" && (top == "## [" previous "]" ||
+            index(top, "## [" previous "] - ") == 1)))) conflict = 1
     if (input_error || conflict || drafts > 1 || (finalized &&
         (!allow_finalized || finalized != 1 || drafts || finalized_line != first))) {
         print "ambiguous or already finalized release candidate" > "/dev/stderr"
         exit 1
     }
     if (finalized) {
-        for (i = 1; i <= count; i++) emit(i, 0)
+        for (i = 1; i <= count; i++) emit(i)
         exit
     }
-    if (!first) first = count + 1
     if (!finish) finish = count + 1
     for (i = 1; i <= count + 1; i++) {
         if (i == first) {
             print "## [" version "] - " date
             if (start) {
-                for (j = start + 1; j < finish; j++) emit(j, start > first)
+                for (j = start + 1; j < finish; j++) emit(j)
             } else {
                 print ""
             }
         }
-        if (i <= count && (!start || i < start || i >= finish)) emit(i, first == count + 1)
+        if (i <= count && (!start || i < start || i >= finish)) emit(i)
     }
 }

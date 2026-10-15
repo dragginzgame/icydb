@@ -1,10 +1,11 @@
-use ic_testkit::pic::StandaloneCanisterFixture;
+use ic_testkit::pic::{CandidCallExt as _, StandaloneCanisterFixture};
 use icydb::{Error, db::sql::SqlQueryResult, metrics::MetricsReport};
 use icydb_testing_integration::{
     MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES, deliver_fixture_startup_watchdog,
     deliver_startup_watchdog_message, install_fixture_canister, reset_icydb_fixtures,
     upgrade_fixture_canister,
 };
+
 use std::time::Duration;
 
 const QUERY_SQL: &str = "SELECT name FROM SqlTestUser ORDER BY age ASC LIMIT 2";
@@ -18,14 +19,16 @@ fn metrics_activity(fixture: &StandaloneCanisterFixture) -> u64 {
 
 fn report(fixture: &StandaloneCanisterFixture) -> MetricsReport {
     let report: Result<MetricsReport, Error> = fixture
-        .query_candid("icydb_metrics", ())
+        .pocket_ic()
+        .query_candid(fixture.canister_id(), "icydb_metrics", ())
         .expect("metrics response should decode");
     report.expect("public metrics endpoint should succeed")
 }
 
 fn reset_metrics(fixture: &StandaloneCanisterFixture) {
     let reset: Result<(), Error> = fixture
-        .update_candid("icydb_metrics_reset", ())
+        .pocket_ic()
+        .update_candid(fixture.canister_id(), "icydb_metrics_reset", ())
         .expect("metrics reset should decode");
     reset.expect("controller metrics reset should succeed");
 }
@@ -37,7 +40,7 @@ fn drain_canonical_debt(fixture: &StandaloneCanisterFixture) -> MetricsReport {
             return current;
         }
         fixture.pocket_ic().advance_time(Duration::from_secs(1));
-        deliver_startup_watchdog_message(fixture);
+        deliver_startup_watchdog_message(fixture.pocket_ic());
     }
     panic!("canonical debt must drain within the existing delivery bound");
 }
@@ -72,13 +75,13 @@ fn assert_conservation(before: &MetricsReport, after: &MetricsReport) {
 #[test]
 fn canonical_debt_conserves_across_writes_reset_fold_and_upgrade() {
     let fixture = install_fixture_canister("sql");
-    reset_icydb_fixtures(&fixture);
-    deliver_fixture_startup_watchdog(&fixture);
+    reset_icydb_fixtures(fixture.pocket_ic(), fixture.canister_id());
+    deliver_fixture_startup_watchdog(fixture.pocket_ic());
     reset_metrics(&fixture);
     let empty = report(&fixture);
     assert_eq!(tuple(empty.journal_debt()), [0; 3]);
 
-    reset_icydb_fixtures(&fixture);
+    reset_icydb_fixtures(fixture.pocket_ic(), fixture.canister_id());
     let written = report(&fixture);
     assert!(written.journal_debt().batch_count() > 0);
     assert!(written.journal_debt().record_count() > 0);
@@ -102,12 +105,17 @@ fn canonical_debt_conserves_across_writes_reset_fold_and_upgrade() {
     assert!(folded.convergence().journal_fold().instructions_total() > 0);
 
     let batches: Result<u32, Error> = fixture
-        .update_candid("seed_convergence_metrics_backlog", ())
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "seed_convergence_metrics_backlog",
+            (),
+        )
         .expect("fixed recovery backlog should decode");
     assert_eq!(batches.expect("full backlog should publish"), 64);
     let before_upgrade = report(&fixture);
     assert_eq!(before_upgrade.journal_debt().batch_count(), 64);
-    upgrade_fixture_canister(&fixture, "sql");
+    upgrade_fixture_canister(fixture.pocket_ic(), fixture.canister_id(), "sql");
     let restarted = report(&fixture);
     assert!(
         restarted.journal_debt().batch_count() > 0,
@@ -124,23 +132,33 @@ fn canonical_debt_conserves_across_writes_reset_fold_and_upgrade() {
 
 fn call_generated_query(fixture: &StandaloneCanisterFixture) {
     let result: Result<SqlQueryResult, Error> = fixture
-        .query_candid("icydb_query", (QUERY_SQL.to_string(),))
+        .pocket_ic()
+        .query_candid(
+            fixture.canister_id(),
+            "icydb_query",
+            (QUERY_SQL.to_string(),),
+        )
         .expect("generated SQL query response should decode");
     result.expect("generated SQL query should succeed");
 }
 
 fn trap_metrics_query(fixture: &StandaloneCanisterFixture) {
-    let call = fixture.query_candid::<Result<(), Error>, _>("audit_metrics_query_trap", ());
+    let call = fixture.pocket_ic().query_candid::<Result<(), Error>, _>(
+        fixture.canister_id(),
+        "audit_metrics_query_trap",
+        (),
+    );
     assert!(call.is_err(), "the audit query must trap intentionally");
 }
 
 #[test]
 fn query_execution_records_nothing_and_cannot_contaminate_later_methods() {
     let fixture = install_fixture_canister("sql");
-    reset_icydb_fixtures(&fixture);
+    reset_icydb_fixtures(fixture.pocket_ic(), fixture.canister_id());
 
     let reset: Result<(), Error> = fixture
-        .update_candid("icydb_metrics_reset", ())
+        .pocket_ic()
+        .update_candid(fixture.canister_id(), "icydb_metrics_reset", ())
         .expect("metrics reset response should decode");
     reset.expect("controller metrics reset should succeed");
 
@@ -157,7 +175,8 @@ fn query_execution_records_nothing_and_cannot_contaminate_later_methods() {
 
     trap_metrics_query(&fixture);
     let update: Result<(), Error> = fixture
-        .update_candid("icydb_fixtures_reset", ())
+        .pocket_ic()
+        .update_candid(fixture.canister_id(), "icydb_fixtures_reset", ())
         .expect("generated fixture-reset response should decode");
     update.expect("update after a trapped query should succeed");
     assert!(

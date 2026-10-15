@@ -2,7 +2,7 @@
 
 use std::{env, fs, path::Path};
 
-use icydb_testing_integration::wasm_measurement::{
+use icydb_testing_build::wasm_measurement::{
     ENTITY_SCALE_ADDED_ENTITIES, entity_scale_raw_bytes_per_added_entity,
     validate_reachable_entity_scale_raw_wasm, validate_schema_entity_scale_raw_wasm,
 };

@@ -26,12 +26,11 @@ use crate::{
             AcceptedFieldDecodeContract, AcceptedFieldKind, AcceptedSchemaSnapshot,
             AcceptedSourceBindingCatalog, AcceptedTypedAdapterNames, MAX_ACCEPTED_RECURSIVE_DEPTH,
             MAX_SCHEMA_SNAPSHOT_BYTES, PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot,
-            PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedSchemaSnapshot,
-            SchemaSnapshotAcceptanceError, classify_accepted_field_kind,
-            decode_accepted_source_bindings, decode_persisted_schema_snapshot,
-            encode_accepted_source_bindings, encode_persisted_schema_snapshot,
-            validate_accepted_targeted_rules, validate_query_projections,
-            validate_schema_snapshot_acceptance,
+            PersistedIndexKeyItemSnapshot, PersistedSchemaSnapshot, SchemaSnapshotAcceptanceError,
+            classify_accepted_field_kind, decode_accepted_source_bindings,
+            decode_persisted_schema_snapshot, encode_accepted_source_bindings,
+            encode_persisted_schema_snapshot, validate_accepted_targeted_rules,
+            validate_query_projections, validate_schema_snapshot_acceptance,
             wire::{SchemaWireReader, SchemaWireWriter},
         },
     },
@@ -577,22 +576,13 @@ fn validate_index_capabilities(
     snapshot: &PersistedSchemaSnapshot,
 ) -> Result<(), InternalError> {
     for index in snapshot.indexes() {
-        match index.key() {
-            PersistedIndexKeySnapshot::FieldPath(paths) => {
-                for path in paths {
+        for item in index.key().items() {
+            match item {
+                PersistedIndexKeyItemSnapshot::FieldPath(path) => {
                     validate_index_path(catalog, path)?;
                 }
-            }
-            PersistedIndexKeySnapshot::Items(items) => {
-                for item in items {
-                    match item {
-                        PersistedIndexKeyItemSnapshot::FieldPath(path) => {
-                            validate_index_path(catalog, path)?;
-                        }
-                        PersistedIndexKeyItemSnapshot::Expression(expression) => {
-                            validate_index_path(catalog, expression.source())?;
-                        }
-                    }
+                PersistedIndexKeyItemSnapshot::Expression(expression) => {
+                    validate_index_path(catalog, expression.source())?;
                 }
             }
         }

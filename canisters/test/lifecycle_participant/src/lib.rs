@@ -153,8 +153,9 @@ fn application_timer_identity() -> ic_timers::TimerIdentity {
 fn schedule_deferred_database_work() {
     let Ok(registration) = ic_timers::register_once(
         application_timer_identity(),
-        ic_timers::DeclarationLifetime::Retained,
-        Some(ic_timers::TimerSchedule::After(APPLICATION_STARTUP_RETRY)),
+        ic_timers::TimerStart::Retained {
+            initial: Some(ic_timers::TimerSchedule::After(APPLICATION_STARTUP_RETRY)),
+        },
         |_context| async { run_deferred_database_work() },
     ) else {
         ic_cdk::trap("lifecycle composition timer registration failed");

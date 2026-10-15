@@ -8,11 +8,10 @@ use std::path::Path;
 use crate::{
     endpoint::{SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT},
     icp::test_support::{
-        build_command, canister_status_check_command, canister_status_id_command, deploy_command,
+        build_command, canister_status_id_command, canister_status_json_command, deploy_command,
         fixtures_load_command, hex_response_bytes, icp_query_command, icp_update_command,
         install_upgrade_command, parse_canister_cycles, parse_manifest_canisters,
         parse_manifest_environment_network, status_command, top_up_command,
-        unreachable_network_hint,
     },
 };
 
@@ -238,8 +237,15 @@ fn lifecycle_commands_target_selected_environment() {
 fn canister_status_probe_commands_target_selected_environment() {
     for (command, expected) in [
         (
-            canister_status_check_command("demo", "demo_rpg"),
-            vec!["canister", "status", "demo_rpg", "--environment", "demo"],
+            canister_status_json_command("demo", "demo_rpg"),
+            vec![
+                "canister",
+                "status",
+                "demo_rpg",
+                "--json",
+                "--environment",
+                "demo",
+            ],
         ),
         (
             canister_status_id_command("demo", "demo_rpg"),
@@ -300,26 +306,6 @@ environments:
     assert_eq!(
         parse_manifest_environment_network(contents, "missing"),
         None
-    );
-}
-
-#[test]
-fn unreachable_network_hint_recognizes_local_icp_connection_failures() {
-    for message in [
-        "connection refused while calling local replica",
-        "failed to connect to local network",
-        "PocketIC transport is unavailable",
-        "network is not running",
-    ] {
-        assert!(
-            unreachable_network_hint(message).is_some(),
-            "local ICP network failure should produce guidance: {message}",
-        );
-    }
-
-    assert!(
-        unreachable_network_hint("canister demo_rpg not found").is_none(),
-        "ordinary canister lifecycle errors should not be reported as network reachability",
     );
 }
 

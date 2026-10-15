@@ -1,6 +1,7 @@
 DRAGGINZGAME.md
 rules/contributions.md
 rules/changelogs.md
+rules/change-reporting.md
 rules/cargo-dependencies.md
 rules/rust-workspaces.md
 rules/dependency-pinning.md
@@ -10,6 +11,7 @@ tasks/README.md
 tasks/cargo-machete.md
 tasks/msrv.md
 tasks/rust-toolchain.md
+tasks/cargo-tool-versions.md
 tasks/ci-health.md
 tasks/snapshot-drift.md
 tasks/dependency-security.md
@@ -51,7 +53,11 @@ docs/make-interface.md
 ci/ic-tools.tsv
 ci/tool-versions.env
 docs/supported-hosts.md
+docs/ci-change-selection.md
+docs/rust-toolchains.md
 scripts/ci/verify-file-checksum.sh
 scripts/ci/verify-shared-tooling-snapshot.sh
 docs/tag-maintenance.md
 scripts/distribution/governance-files.txt
+docs/tool-catalog-bindings.md
+docs/cargo-publication.md

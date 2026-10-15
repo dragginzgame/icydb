@@ -8,7 +8,10 @@ use super::{
 use crate::{
     db::{
         DbSession, DynamicMutation,
-        data::{RawDataStoreKey, RawRow, canonical_row_from_stored_raw_row},
+        data::{
+            DataStore, DecodedDataStoreKey, RawDataStoreKey, RawRow,
+            canonical_row_from_stored_raw_row,
+        },
         diagnostics::EntitySnapshot,
         index::{IndexEntryValue, IndexKey, IndexStore, IndexStoreVisit, RawIndexStoreKey},
     },
@@ -16,6 +19,18 @@ use crate::{
     value::InputValue,
 };
 use std::convert::Infallible;
+
+// Keep malformed-key bytes separate from the physical store's own accounting.
+fn corrupt_data_bytes(data: &DataStore) -> u64 {
+    let mut bytes = 0;
+    let _: Result<(), Infallible> = data.visit_entries(|key, row| {
+        if DecodedDataStoreKey::try_from_raw(key).is_err() {
+            bytes += key.as_bytes().len() as u64 + row.len() as u64;
+        }
+        Ok(crate::db::data::StoreVisit::Continue)
+    });
+    bytes
+}
 
 fn assert_report<C: CanisterKind>(
     session: &DbSession<C>,
@@ -29,7 +44,8 @@ fn assert_report<C: CanisterKind>(
         let mut stores = registry
             .iter()
             .map(|(path, store)| {
-                let data = store.with_data(|data| (data.len(), data.memory_bytes()));
+                let data = store
+                    .with_data(|data| (data.len(), data.memory_bytes(), corrupt_data_bytes(data)));
                 let index = store.with_index(|index| {
                     let mut namespaces = [0u64; 2];
                     let _: Result<(), Infallible> = index.visit_entries(|key, _| {
@@ -67,7 +83,7 @@ fn assert_report<C: CanisterKind>(
             assert_eq!(index_snapshot.path(), *path);
             assert_eq!(
                 (data_snapshot.entries(), data_snapshot.memory_bytes()),
-                *data
+                (data.0, data.1)
             );
             assert_eq!(
                 (index_snapshot.entries(), index_snapshot.memory_bytes()),
@@ -102,6 +118,18 @@ fn assert_report<C: CanisterKind>(
                 .map(EntitySnapshot::entries)
                 .sum::<u64>(),
             valid_rows
+        );
+        assert_eq!(
+            report
+                .entity_storage()
+                .iter()
+                .map(EntitySnapshot::memory_bytes)
+                .sum::<u64>(),
+            expected
+                .iter()
+                .map(|entry| entry.1.1 - entry.1.2)
+                .sum::<u64>(),
+            "entity rollups count actual visible data bytes, excluding corrupt keys",
         );
         if aliases.is_some() && valid_rows > 0 {
             assert!(
