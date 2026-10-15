@@ -670,25 +670,14 @@ const fn query_field_schema_mismatch_text(mismatch: QueryFieldSchemaMismatch) ->
 }
 
 fn escape_query_field(field: &str) -> String {
-    let mut escaped = String::with_capacity(field.len());
-    for character in field.chars() {
-        match character {
-            '\\' => escaped.push_str("\\\\"),
-            '`' => escaped.push_str("\\`"),
-            '\'' => escaped.push_str("\\'"),
-            '"' => escaped.push_str("\\\""),
-            '\n' => escaped.push_str("\\n"),
-            '\r' => escaped.push_str("\\r"),
-            '\t' => escaped.push_str("\\t"),
-            character if character.is_control() => {
-                for escaped_character in character.escape_unicode() {
-                    escaped.push(escaped_character);
-                }
-            }
-            character => escaped.push(character),
-        }
-    }
-    escaped
+    // Quote the diagnostic grammar first, so Host's visible control escapes
+    // keep their single backslash while authored backslashes remain doubled.
+    let quoted = field
+        .replace('\\', "\\\\")
+        .replace('`', "\\`")
+        .replace('\'', "\\'")
+        .replace('"', "\\\"");
+    ic_host_text::escape::terminal_text(&quoted)
 }
 
 const fn fact_tag_text(tag: icydb::diagnostic::DiagnosticFactTag) -> &'static str {
@@ -1793,10 +1782,12 @@ mod tests {
         });
         let bytes = serde_json::to_vec(&input).unwrap();
         let expected = read_error_json(bytes.as_slice()).unwrap();
-        let path = std::env::temp_dir().join(format!(
-            "icydb-diagnostic-input-{}.json",
-            std::process::id()
-        ));
+        let root = ic_host_fs::testing::create_fixture_directory(
+            &std::env::temp_dir(),
+            "icydb-diagnostic-input",
+        )
+        .unwrap();
+        let path = root.join("input.json");
         let mut file = std::fs::File::create_new(&path).expect("new test input");
         file.write_all(&bytes).unwrap();
         drop(file);
@@ -1811,7 +1802,7 @@ mod tests {
             panic!("diagnostic command")
         };
         let report = diagnostic_command_report(&args);
-        std::fs::remove_file(path).expect("remove this test's input");
+        std::fs::remove_dir_all(root).expect("remove this test's input");
         let report = report.expect("structured report");
         assert!(report.ends_with(&format!("payload: {}", render_error(&expected))));
         assert!(!report.contains('\u{1b}'));
@@ -1889,14 +1880,14 @@ mod tests {
         let error = decoded_query_field_error(
             icydb::ErrorCode::QUERY_PLAN,
             icydb::diagnostic::QueryFieldRole::Projection.raw(),
-            "line\n\0`\"'\u{1b}\\",
+            "line\n\0`\"'\u{1b}\\\u{202e}",
             serde_json::json!([]),
         );
         let rendered = render_error(&error);
 
         assert_eq!(
             rendered,
-            "E_QUERY_PLAN: query planning failed; projection field `line\\n\\u{0}\\`\\\"\\'\\u{1b}\\\\`"
+            "E_QUERY_PLAN: query planning failed; projection field `line\\n\\u{0}\\`\\\"\\'\\u{1b}\\\\\\u{202e}`"
         );
         assert!(!rendered.contains('\n'));
         assert!(!rendered.contains('\0'));

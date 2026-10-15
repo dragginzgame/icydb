@@ -361,14 +361,7 @@ fn relevant_prefixed_environment(name: &OsStr) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        env,
-        ffi::OsStr,
-        fs,
-        path::PathBuf,
-        process::Command,
-        time::{SystemTime, UNIX_EPOCH},
-    };
+    use std::{env, ffi::OsStr, fs, path::PathBuf, process::Command};
 
     use super::{
         ArtifactCacheOutcome, BUILD_PROGRESS_HEARTBEAT_INTERVAL, CACHE_MAINTENANCE_INTERVAL,
@@ -380,16 +373,6 @@ mod tests {
         shared_incremental_target_maintenance_config, wasm_build_progress_config,
     };
 
-    fn fixture_root(label: &str) -> PathBuf {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock should follow the Unix epoch")
-            .as_nanos();
-        let root = env::temp_dir().join(format!("icydb-{label}-{}-{unique}", std::process::id()));
-        fs::create_dir_all(&root).expect("create artifact fixture");
-        root
-    }
-
     fn workspace_root() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -400,7 +383,11 @@ mod tests {
 
     #[test]
     fn encoded_flags_reach_single_and_batch_builds_and_cache_identity() {
-        let root = fixture_root("encoded-flags space");
+        let root = ic_host_fs::testing::create_fixture_directory(
+            &env::temp_dir(),
+            "icydb encoded-flags space",
+        )
+        .unwrap();
         fs::create_dir(root.join("src")).unwrap();
         fs::write(
             root.join("Cargo.toml"),
@@ -533,7 +520,11 @@ mod tests {
 
     #[test]
     fn post_link_batch_reports_failure_and_finishes_later_artifact() {
-        let root = fixture_root("post-link-batch");
+        let root = ic_host_fs::testing::create_fixture_directory(
+            &env::temp_dir(),
+            "icydb post-link-batch",
+        )
+        .unwrap();
         let invalid_input = root.join("invalid.wasm");
         let valid_input = root.join("valid.wasm");
         let invalid_output = root.join("invalid.final.wasm");

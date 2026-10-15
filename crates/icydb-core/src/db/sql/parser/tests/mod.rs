@@ -2446,6 +2446,55 @@ fn parse_alter_table_add_column_statement_rejects_malformed_nat_big_max_bytes_mo
 }
 
 #[test]
+fn parse_add_column_rejects_repeated_nullability_modifiers() {
+    for first in ["NULL", "NOT NULL"] {
+        for second in ["NULL", "NOT NULL"] {
+            for default in ["", "DEFAULT 7 "] {
+                for (prefix, suffix) in [
+                    ("", ""),
+                    ("EXPECT SCHEMA VERSION 3 SET SCHEMA VERSION 4 ", ""),
+                    ("", " EXPECT SCHEMA VERSION 3 SET SCHEMA VERSION 4"),
+                ] {
+                    let sql = format!(
+                        "ALTER TABLE users {prefix}ADD COLUMN score nat64 \
+                         {first} {default}{second}{suffix}"
+                    );
+                    assert_eq!(
+                        parse_sql(&sql).expect_err("a second nullability clause must reject"),
+                        super::SqlParseError::UnsupportedFeature {
+                            feature: SqlFeatureCode::AlterTableAddColumnModifiers,
+                        },
+                        "{sql}",
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn parse_add_column_preserves_single_nullability_and_default_order() {
+    for (modifiers, nullable, default) in [
+        ("", true, None),
+        ("NULL", true, None),
+        ("NOT NULL", false, None),
+        ("DEFAULT 7", true, Some(Value::Int64(7))),
+        ("NULL DEFAULT 7", true, Some(Value::Int64(7))),
+        ("DEFAULT 7 NULL", true, Some(Value::Int64(7))),
+        ("NOT NULL DEFAULT 7", false, Some(Value::Int64(7))),
+        ("DEFAULT 7 NOT NULL", false, Some(Value::Int64(7))),
+    ] {
+        let sql = format!("ALTER TABLE users ADD COLUMN score nat64 {modifiers}");
+        let statement = parse_sql(&sql).expect("one optional nullability clause should parse");
+        let SqlStatement::Ddl(SqlDdlStatement::AlterTableAddColumn(column)) = statement else {
+            panic!("expected ADD COLUMN intent");
+        };
+        assert_eq!(column.nullable, nullable, "{sql}");
+        assert_eq!(column.default, default, "{sql}");
+    }
+}
+
+#[test]
 fn parse_alter_table_alter_column_statement_keeps_default_intent_unresolved() {
     let statement = parse_sql("ALTER TABLE users ALTER COLUMN score SET DEFAULT 7")
         .expect("ALTER TABLE ALTER COLUMN SET DEFAULT should parse as DDL intent");

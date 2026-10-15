@@ -5,6 +5,13 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.275.0]
+
+- **Breaking:** raise the public MSRV to Rust 1.91 and use latest stable for
+  development/CI; carry pending SQL, tooling and index corrections forward.
+
+See [detailed notes](docs/changelog/0.275.md).
+
 ## [0.274.1] - 2026-10-14
 
 - Correct SQL, schema and macro diagnostics; simplify scans, build/report

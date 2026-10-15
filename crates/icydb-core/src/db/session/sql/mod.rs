@@ -31,7 +31,7 @@ pub use crate::db::sql::ddl::{
 };
 pub(in crate::db) use cache::SqlCompiledCommandCacheKey;
 pub(in crate::db::session::sql) use cache::{
-    SqlCompiledCommandCacheContext, SqlCompiledCommandSurface,
+    SqlCompiledCommandCacheEntry, SqlCompiledCommandSurface,
 };
 pub(in crate::db) use compiled::{
     CompiledSqlCommand, CompiledSqlInsertCommand, SqlCompiledCommandExecutionContext,
@@ -66,9 +66,20 @@ impl<C: CanisterKind> DbSession<C> {
     /// supplies finite physical and aggregate execution policy; its caller
     /// separately owns authorization.
     pub fn execute_trusted_sql_query(&self, sql: &str) -> Result<SqlStatementResult, QueryError> {
-        let dispatch = sql_statement_dispatch(sql)?;
-        self.execute_trusted_sql_query_with_entity_name(&dispatch, &[])
+        self.execute_trusted_sql_query_text_with_entity_name(sql)
             .map(|(result, _)| result)
+    }
+
+    /// Execute trusted SQL text with its original entity label for facade output.
+    /// Resident syntax is reused only under current accepted catalog authority.
+    #[doc(hidden)]
+    pub fn execute_trusted_sql_query_text_with_entity_name(
+        &self,
+        sql: &str,
+    ) -> Result<(SqlStatementResult, String), QueryError> {
+        let (compiled, entity) = self.compile_sql_query_text_execution_context(sql)?;
+        let result = self.execute_compiled_sql_query_context_owned(compiled)?;
+        Ok((result, entity))
     }
 
     /// Execute one trusted query from an admitted parsed dispatch.

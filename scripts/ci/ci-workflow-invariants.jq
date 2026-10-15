@@ -79,6 +79,18 @@ require(has("permissions") and (.permissions != null);
       "CI must bind \($selection[0]) to \($selection[1])")),
   require(.jobs.rust.strategy["fail-fast"] == false;
     "parallel Rust validation must retain every lane after one fails"),
+  # Workspace build-cache tests compile real Wasm, just like the live Tier B lane.
+  # Require their target before dispatch, independently of any restored cache.
+  (.jobs.rust.steps as $steps |
+    range(0; ($steps | length)) as $index |
+    select($steps[$index] | run_text | contains("make \"$MAKE_TARGET\"")) |
+    require($steps[$index].env.MAKE_TARGET == "${{ matrix.make_target }}";
+      "Rust validation must select its matrix Make target"),
+    require(any($steps[0:$index][];
+      .if == "matrix.lane == 'workspace' || matrix.lane == 'tier-b'"
+      and (.["continue-on-error"] // false) == false
+      and (run_text | test("^\\s*rustup target add wasm32-unknown-unknown\\s*$")));
+      "workspace and Tier B require earlier Wasm target installation that stops on failure")),
   require(.jobs.check | needs_are(["static", "rust", "macos_host"]);
     "terminal check must aggregate every validation lane"),
   require(.jobs.wasm_size_report | needs_are([]);

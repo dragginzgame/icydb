@@ -34,11 +34,12 @@ The maintained [facade-only example](testing/model-facade-only/) and
 routes, including renamed Cargo dependencies and generated macro resolution.
 Use the same release tag for every IcyDB package.
 
-The public runtime `icydb` crate path supports Rust `1.88.0` and newer.
+The public runtime `icydb` crate path supports Rust `1.91.0` and newer.
 Its library dependency path, including `icydb-model` and
 `icydb-model-macros`, retains the same floor. Other workspace-only packages
 may use the workspace Rust `1.96.0` floor. Repository maintenance uses the
-pinned Rust `1.99.0` toolchain listed below.
+latest stable Rust channel selected by `rust-toolchain.toml`. Update an existing
+installation with `rustup update stable`.
 
 Generated endpoint build scripts should depend on `icydb` with the same tag and
 call `icydb::build::build_canister!(SchemaCanister)`.

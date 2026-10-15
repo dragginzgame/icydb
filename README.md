@@ -22,8 +22,8 @@
 </p>
 <!-- helper-navigation:end -->
 
-![Dependency MSRV](https://img.shields.io/badge/dependency%20MSRV-1.88.0-blue.svg)
-![Internal Toolchain](https://img.shields.io/badge/internal%20rustc-1.99.0-4c1.svg)
+![Dependency MSRV](https://img.shields.io/badge/dependency%20MSRV-1.91.0-blue.svg)
+![Development Toolchain](https://img.shields.io/badge/development%20rustc-stable-4c1.svg)
 [![CI](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml/badge.svg)](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml)
 [![License: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](LICENSE-APACHE)
 
@@ -122,8 +122,8 @@ Runtime-enabled crates use `icydb` alone and author schemas through
 alone, including its schema scalar re-exports; scalar/proposal-only tooling
 may use `icydb-schema` alone. See the [dependency choices](INSTALLING.md)
 for these supported narrower routes. The public dependency
-path supports Rust `1.88.0`; workspace development uses pinned Rust `1.99.0`,
-with a `1.96.0` declared floor for other workspace packages.
+path supports Rust `1.91.0`; workspace development uses the latest stable Rust
+channel, with a `1.96.0` declared floor for other workspace packages.
 
 See [installation](INSTALLING.md) for feature and endpoint setup, local tools,
 validation, and troubleshooting.

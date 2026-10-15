@@ -22,5 +22,8 @@ icydb = { workspace = true, default-features = true, features = ["metrics", "mig
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 
+[dev-dependencies]
+ic-host-fs = { workspace = true, features = ["test-support"] }
+
 [lints]
 workspace = true

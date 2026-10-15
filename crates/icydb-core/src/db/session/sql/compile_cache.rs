@@ -4,16 +4,22 @@
 //! Does not own: parsed-statement semantic compilation or SQL execution.
 //! Boundary: keeps the public query/mutation compile surfaces on one cache shell.
 
+use std::rc::Rc;
+
 use crate::{
     db::{
         DbSession, QueryError, SqlStatementDispatch,
-        executor::AcceptedSchemaCatalogContext,
+        executor::{
+            AcceptedInspectionPlanLoadError, AcceptedSchemaCatalogContext,
+            AcceptedSchemaRuntimeRoot,
+        },
         session::sql::{
-            CompiledSqlCommand, SqlCompiledCommandCacheContext, SqlCompiledCommandCacheKey,
+            CompiledSqlCommand, SqlCompiledCommandCacheEntry, SqlCompiledCommandCacheKey,
             SqlCompiledCommandExecutionContext, SqlCompiledCommandSurface,
             cache::compiled_command_retained_bytes, sql_statement_entity_name_from_statement,
         },
         sql::{lowering::validate_sql_bindings, parser::SqlStatement},
+        sql_shared::validate_sql_input_bytes,
     },
     error::InternalError,
     traits::CanisterKind,
@@ -26,8 +32,42 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         sql: &str,
     ) -> Result<(SqlCompiledCommandExecutionContext, String), QueryError> {
-        let dispatch = crate::db::sql_statement_dispatch(sql)?;
+        self.compile_sql_query_text_execution_context(sql)
+    }
 
+    // Exact resident text has already passed syntax/input admission. Revalidate
+    // lifecycle and the complete accepted root on every hit before resolving its
+    // entity from current authority. Misses keep the ordinary parser/compiler.
+    pub(in crate::db::session::sql) fn compile_sql_query_text_execution_context(
+        &self,
+        sql: &str,
+    ) -> Result<(SqlCompiledCommandExecutionContext, String), QueryError> {
+        validate_sql_input_bytes(sql).map_err(QueryError::from_sql_parse_error)?;
+        let key = SqlCompiledCommandCacheKey::new(SqlCompiledCommandSurface::Query, sql);
+        let cached = self.with_sql_compiled_command_cache(|cache| cache.get(&key).cloned());
+        if let Some(cached) = cached {
+            let root = self
+                .accepted_schema_runtime_root()
+                .map_err(AcceptedInspectionPlanLoadError::into_internal)
+                .map_err(QueryError::execute)?;
+            if cached.root == root.identity() {
+                let catalog = sql_query_catalog_context(root, cached.entity_name.as_deref())?;
+                let entity = cached
+                    .entity_name
+                    .as_deref()
+                    .unwrap_or_default()
+                    .to_string();
+                return Ok((
+                    SqlCompiledCommandExecutionContext::new(
+                        cached.command,
+                        catalog,
+                        SqlCompiledCommandSurface::Query,
+                    ),
+                    entity,
+                ));
+            }
+        }
+        let dispatch = crate::db::sql_statement_dispatch(sql)?;
         self.compile_sql_query_with_dispatch_execution_context(&dispatch, &[])
     }
 
@@ -40,15 +80,11 @@ impl<C: CanisterKind> DbSession<C> {
         let parsed = dispatch.statement();
         validate_sql_bindings(parsed, bindings)?;
         let entity_name = sql_statement_entity_name_from_statement(parsed).map(str::to_string);
-        let catalog = match entity_name.as_deref() {
-            Some(entity_name) => self
-                .find_accepted_schema_catalog_context_for_entity_name(entity_name)
-                .map_err(QueryError::execute)?
-                .ok_or_else(|| QueryError::execute(InternalError::sql_query_entity_not_found()))?,
-            None => self
-                .accepted_schema_catalog_context_for_entity_name(None)
-                .map_err(QueryError::execute)?,
-        };
+        let root = self
+            .accepted_schema_runtime_root()
+            .map_err(AcceptedInspectionPlanLoadError::into_internal)
+            .map_err(QueryError::execute)?;
+        let catalog = sql_query_catalog_context(root, entity_name.as_deref())?;
         let context = self.compile_sql_surface_with_catalog(
             dispatch.sql(),
             parsed,
@@ -100,8 +136,7 @@ impl<C: CanisterKind> DbSession<C> {
                 compiled, catalog, surface,
             ));
         }
-        let context = SqlCompiledCommandCacheContext::from_catalog(surface, sql, catalog);
-        let (cache_key, catalog) = context.into_cache_inputs();
+        let cache_key = SqlCompiledCommandCacheKey::new(surface, sql);
         let compiled =
             self.compile_sql_statement_with_cache(cache_key, &catalog, parsed, surface)?;
         let context = SqlCompiledCommandExecutionContext::new(compiled, catalog, surface);
@@ -119,8 +154,10 @@ impl<C: CanisterKind> DbSession<C> {
         surface: SqlCompiledCommandSurface,
     ) -> Result<CompiledSqlCommand, QueryError> {
         let cached = self.with_sql_compiled_command_cache(|cache| cache.get(&cache_key).cloned());
-        if let Some(compiled) = cached {
-            return Ok(compiled);
+        if let Some(cached) = cached
+            && cached.root == catalog.runtime_root_identity()
+        {
+            return Ok(cached.command);
         }
         let schema = catalog.accepted_schema_info();
 
@@ -128,7 +165,11 @@ impl<C: CanisterKind> DbSession<C> {
 
         // Queries are owned by the clone, so execution-local memoization cannot
         // grow the resident command after its retained-byte admission.
-        let resident = compiled.clone();
+        let resident = SqlCompiledCommandCacheEntry {
+            root: catalog.runtime_root_identity(),
+            entity_name: sql_statement_entity_name_from_statement(parsed).map(Rc::from),
+            command: compiled.clone(),
+        };
         if let Some(bytes) = compiled_command_retained_bytes(&cache_key, &resident) {
             self.with_sql_compiled_command_cache(|cache| {
                 cache.insert_weighted(cache_key, resident, bytes);
@@ -137,4 +178,21 @@ impl<C: CanisterKind> DbSession<C> {
 
         Ok(compiled)
     }
+}
+
+// Resolve the parsed (or resident) entity label from the same freshly admitted
+// root used to verify compilation authority. No second root capture is needed.
+fn sql_query_catalog_context(
+    root: Rc<AcceptedSchemaRuntimeRoot>,
+    entity_name: Option<&str>,
+) -> Result<AcceptedSchemaCatalogContext, QueryError> {
+    let entity = match entity_name {
+        Some(name) => root
+            .entity_for_name(name)
+            .ok_or_else(|| QueryError::execute(InternalError::sql_query_entity_not_found()))?,
+        None => root.first_entity().ok_or_else(|| {
+            QueryError::execute(InternalError::unsupported_entity_path(entity_name))
+        })?,
+    };
+    Ok(AcceptedSchemaCatalogContext::new(root, entity))
 }

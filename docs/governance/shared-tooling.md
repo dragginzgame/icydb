@@ -13,6 +13,81 @@ these rules.
 
 ## Ownership and provenance
 
+### Selected IC Build 0.5.0 — 2026-10-15
+
+The incoming manifest and lock already select registry Build 0.5.0. Its archive
+matches checksum `9f05b745a916221ec7ca511de9fdba79304c582711b0b8c3ec815cba070716ce`
+and identifies release/tag source `4feef850010ed725edb9b9e9adeaed140baf5106`.
+The refreshed registry index lists 0.5.0 as the latest non-yanked stable version.
+This is the published source, not the newer dirty sibling checkout.
+
+IcyDB makes one `with_extra_env` call for encoded compiler flags, so the new
+merge-across-calls contract preserves its recipe. Neither the removed
+`with_rustc_program` nor `artifacts::test_target_dir` has a maintained caller;
+compiler admission and fixture paths remain with their existing owners. Rust
+1.91 is below the private build package's floor. No local API fallback, source
+override, cache identity or recipe change is needed. The Cargo-flags helper is
+still absent from the published API; [Build PR #37](https://github.com/dragginzgame/ic-build/pull/37)
+remains open, so the qualified consumer deletion is still publication-gated.
+
+Strict build all-target Clippy passes. All 22 distinct build-library cases and
+14 report cases pass, including real-Cargo flag precedence, single/batch cache
+identity, changed remap delivery and retained partial-failure outcomes. The first
+library run passed 21 cases and failed only because stable lacked its Wasm
+standard library. Explicitly installing that target permits the failed case to
+pass; the failed fixture/log is retained. The 0.5.0 selected graph stays fixed at
+manifest/lock SHA-256
+`61169339d807b2b95843ef2f1fc5d4a1e14cc847225cbee8c72dc57a98fff7a2` /
+`52d9b75712c97e951b9a493e0839e38288eee07af65f99297a7d75ad967d0988`.
+Public normal/build dependency inspection still excludes Build and Host. No
+Rust source, Cargo selection, package version, source override or Git delivery
+change is made. Full workspace/release and native macOS gates remain unselected;
+raw Wasm/IC cycle/instruction effects are unmeasured. No IC network lifecycle
+operation runs. Evidence: `.cache/ic-build-050`.
+
+### Selected IC Build 0.4.0 — 2026-10-15
+
+The incoming registry selection is Build 0.4.0, checksum
+`17bc5e5c137a0055ce069d2d244017aafcddcfe47fd92bf2141bf7e7154c1010`,
+whose archive identifies released source `d223747a003c35954d02e43ed110dd23707affa1`.
+Its Rust 1.91 floor is within IcyDB's private contributor floor; the public
+library normal/build graph excludes Build and Host. IcyDB uses retained artifact
+records and has no calls to the removed Wasm path/readiness helpers. No local
+replacement, cache format or recipe change is introduced.
+
+Strict build all-target lint, 22 build-library and 14 report cases pass with
+Host 0.18.5 / Timers 0.23.1 on fixed lock
+`af6a4986fc1cf451e78ec4f9dadbaba70e9114dc8c489f612c10361a4211ae8d`.
+The concurrent Timers update and its initial cache failure are retained separately
+from the initial 0.23.0 qualification. Existing native-host receipts identify
+their delivered graphs. Full workspace/release and native macOS checks remain
+unselected. Evidence: `.cache/build-refresh-02742` and the current 0.274 tracker.
+
+### Delivered 0.274.1 native-host acceptance — 2026-10-15
+
+Released IcyDB `361347ed90f580f15b26d432945e44f3ce6f3d7a` selects the
+Shared 0.13.3 plus fixture-extension snapshot recorded below. Its latest
+[CI matrix](https://github.com/dragginzgame/icydb/actions/runs/38635605619)
+passes both [Apple Silicon](https://github.com/dragginzgame/icydb/actions/runs/38635605619/job/116097841601)
+and [Intel macOS](https://github.com/dragginzgame/icydb/actions/runs/38635605619/job/116097842086).
+Actual native logs confirm workstation setup, offline tools, portable automation,
+release/receipt/hook fixtures, all 126 completion controls, diagnostic/artifact
+tests, Testkit-managed and explicit-server startup, post-link failure isolation,
+report tests, production Wasm construction and formatting. These are actual
+native results, replacing the earlier pending-host status for that delivered source.
+
+The complete matrix remains failed: Linux workspace build-cache flag propagation
+reaches a real Wasm build without its target installed. Core, static, Tier A,
+Tier B, public MSRV and Wasm evidence pass; the separate
+[Tier C run](https://github.com/dragginzgame/icydb/actions/runs/38668416205) also passes.
+The pending compatible correction prepares that target before workspace dispatch
+and qualifies its absence/order/failure policy. Full-gate acceptance remains open
+under #302/#311/#357 and build/report delivery under #361 until corrected delivered
+CI passes. This does not qualify the incoming dirty dependency updates.
+Exact job observations/logs and focused checks are retained in
+`.cache/issues-02742`; historical failures and their original identities remain
+unchanged. No new native run, release or local IC network lifecycle is invoked.
+
 ### Shared 0.13.3 with the maintained fixture extension — 2026-10-14
 
 Canonical preview/refresh selects committed source

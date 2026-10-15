@@ -42,7 +42,7 @@ fn record_index_store_entry_read() {
 fn visit_index_store_entry<E>(
     key: &RawIndexStoreKey,
     value: &IndexEntryValue,
-    visit: &mut impl FnMut(&RawIndexStoreKey, &IndexEntryValue) -> Result<bool, E>,
+    visit: &mut (impl FnMut(&RawIndexStoreKey, &IndexEntryValue) -> Result<bool, E> + ?Sized),
 ) -> Result<bool, E> {
     #[cfg(test)]
     record_index_store_entry_read();
@@ -189,7 +189,7 @@ impl IndexStore {
             IndexStoreBackend::Journaled { .. } => self.visit_journaled_entries_in_range(
                 (&Bound::Unbounded, &Bound::Unbounded),
                 Direction::Asc,
-                |key, value| visitor(key, value).map(IndexStoreVisit::should_stop),
+                &mut |key, value| visitor(key, value).map(IndexStoreVisit::should_stop),
             )?,
         }
 
@@ -796,11 +796,13 @@ impl IndexStore {
         live.get(key).cloned().or_else(|| canonical.get(key))
     }
 
+    // Share stable iteration and overlay merging across visitor closures. Error
+    // types remain generic so store callers retain their original typed failures.
     pub(super) fn visit_journaled_entries_in_range<E>(
         &self,
         bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
         direction: Direction,
-        mut visit: impl FnMut(&RawIndexStoreKey, &IndexEntryValue) -> Result<bool, E>,
+        mut visit: &mut dyn FnMut(&RawIndexStoreKey, &IndexEntryValue) -> Result<bool, E>,
     ) -> Result<(), E> {
         let IndexStoreBackend::Journaled {
             canonical,
@@ -1406,21 +1408,70 @@ mod tests {
 
         let mut asc = Vec::new();
         store
-            .visit_journaled_entries_in_range((&lower, &upper), Direction::Asc, |key, _value| {
-                asc.push(key.as_bytes()[0]);
-                Ok::<_, Infallible>(asc.len() == 2)
-            })
+            .visit_journaled_entries_in_range(
+                (&lower, &upper),
+                Direction::Asc,
+                &mut |key, _value| {
+                    asc.push(key.as_bytes()[0]);
+                    Ok::<_, Infallible>(asc.len() == 2)
+                },
+            )
             .expect("asc journaled index range traversal should succeed");
         assert_eq!(asc, vec![0, 3]);
 
         let mut desc = Vec::new();
         store
-            .visit_journaled_entries_in_range((&lower, &upper), Direction::Desc, |key, _value| {
-                desc.push(key.as_bytes()[0]);
-                Ok::<_, Infallible>(desc.len() == 2)
-            })
+            .visit_journaled_entries_in_range(
+                (&lower, &upper),
+                Direction::Desc,
+                &mut |key, _value| {
+                    desc.push(key.as_bytes()[0]);
+                    Ok::<_, Infallible>(desc.len() == 2)
+                },
+            )
             .expect("desc journaled index range traversal should succeed");
         assert_eq!(desc, vec![5, 4]);
+    }
+
+    #[test]
+    fn journaled_index_range_preserves_typed_failure_and_stops_immediately() {
+        // Exercise canonical-only, live-only and mixed/tombstoned fast paths.
+        for backend in 0..3 {
+            let mut store = IndexStore::init_journaled(test_memory(93));
+            if backend != 1 {
+                for value in [1, 3, 5] {
+                    store
+                        .apply_canonical_entry(raw_key(value), Some(IndexEntryValue::presence()))
+                        .expect("canonical seed should apply");
+                }
+            }
+            if backend != 0 {
+                for value in [0, 4, 5] {
+                    store.insert(raw_key(value), IndexEntryValue::presence());
+                }
+                store.remove(&raw_key(1));
+            }
+            let lower = Bound::Included(raw_key(0));
+            let upper = Bound::Included(raw_key(5));
+            for direction in [Direction::Asc, Direction::Desc] {
+                let mut visited = Vec::new();
+                let result = store.visit_journaled_entries_in_range(
+                    (&lower, &upper),
+                    direction,
+                    &mut |key, _| {
+                        visited.push(key.as_bytes()[0]);
+                        Err::<bool, u8>(7)
+                    },
+                );
+                assert_eq!(result, Err(7));
+                let first = match direction {
+                    Direction::Asc if backend == 0 => 1,
+                    Direction::Asc => 0,
+                    Direction::Desc => 5,
+                };
+                assert_eq!(visited, vec![first]);
+            }
+        }
     }
 
     #[test]
