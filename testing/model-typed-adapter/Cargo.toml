@@ -4,7 +4,7 @@ edition = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 publish = false
-license = { workspace = true }
+license-file = { workspace = true }
 description = "Renamed-dependency typed-adapter fixture for IcyDB model packages"
 repository = { workspace = true }
 authors = { workspace = true }

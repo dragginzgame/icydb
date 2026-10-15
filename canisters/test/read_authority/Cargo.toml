@@ -1,4 +1,5 @@
 [package]
+license-file.workspace = true
 name = "canister_test_read_authority"
 edition = { workspace = true }
 rust-version = { workspace = true }

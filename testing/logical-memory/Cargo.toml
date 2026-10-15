@@ -1,4 +1,5 @@
 [package]
+license-file.workspace = true
 name = "canister_test_logical_memory"
 build = "src/build.rs"
 edition = { workspace = true }

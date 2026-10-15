@@ -1,4 +1,5 @@
 [package]
+license-file.workspace = true
 name = "icydb-testing-audit-sql-perf-fixtures"
 edition = { workspace = true }
 rust-version = { workspace = true }

@@ -3,7 +3,7 @@ name = "icydb-model-macros"
 edition = { workspace = true }
 rust-version = "1.91.0"
 version = { workspace = true }
-license = { workspace = true }
+license-file = { workspace = true }
 description = "Procedural macros for IcyDB application models"
 repository = { workspace = true }
 authors = { workspace = true }

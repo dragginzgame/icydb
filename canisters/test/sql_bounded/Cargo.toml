@@ -1,4 +1,5 @@
 [package]
+license-file.workspace = true
 name = "canister_test_sql_bounded"
 edition = { workspace = true }
 rust-version = { workspace = true }
