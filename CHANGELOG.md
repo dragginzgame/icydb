@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ## [0.275.0]
 
 - **Breaking:** raise the public MSRV to Rust 1.91 and use latest stable for
-  development/CI; improve SQL execution and tooling reliability.
+  development/CI; improve SQL execution, tooling and test-fixture reliability.
 
 See [detailed notes](docs/changelog/0.275.md).
 
