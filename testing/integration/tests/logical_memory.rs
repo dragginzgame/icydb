@@ -19,11 +19,12 @@ fn install() -> StandaloneCanisterFixture {
     // Build before starting an instance so a cold compilation cannot consume
     // its server inactivity window.
     let wasm = artifacts().0.clone();
-    let fixture = StandaloneCanisterFixture::install(
+    let fixture = StandaloneCanisterFixture::try_install(
         icydb_testing_integration::start_fixture_pocket_ic(),
         InstallSpec::new(wasm, candid::encode_args(()).unwrap(), 10_000_000_000_000)
             .label("logical_memory"),
-    );
+    )
+    .unwrap_or_else(|error| panic!("install logical-memory fixture: {error}"));
     settle(&fixture);
     fixture
 }

@@ -7,7 +7,7 @@ use icydb_testing_integration::deliver_fixture_startup_watchdog;
 #[ignore = "requires ICYDB_MODEL_FACADE_WASM built from icydb-testing-model-facade-only"]
 fn single_package_model_survives_install_write_and_upgrade() {
     let wasm = std::fs::read(std::env::var("ICYDB_MODEL_FACADE_WASM").unwrap()).unwrap();
-    let fixture = StandaloneCanisterFixture::install(
+    let fixture = StandaloneCanisterFixture::try_install(
         icydb_testing_integration::start_fixture_pocket_ic(),
         InstallSpec::new(
             wasm.clone(),
@@ -15,7 +15,8 @@ fn single_package_model_survives_install_write_and_upgrade() {
             10_000_000_000_000,
         )
         .label("model_facade"),
-    );
+    )
+    .unwrap_or_else(|error| panic!("install model-facade fixture: {error}"));
     let before_startup = fixture.pocket_ic().cycle_balance(fixture.canister_id());
     deliver_fixture_startup_watchdog(fixture.pocket_ic());
     let startup_cycles = before_startup - fixture.pocket_ic().cycle_balance(fixture.canister_id());

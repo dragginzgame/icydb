@@ -183,7 +183,7 @@ pub fn install_prebuilt_fixture_canister_without_startup_delivery(
 ) -> StandaloneCanisterFixture {
     resolve_fixture_canister_build_configuration(canister_name, CanisterBuildOptions::default())
         .unwrap_or_else(|error| panic!("fixture canister should be supported: {error}"));
-    StandaloneCanisterFixture::install(
+    StandaloneCanisterFixture::try_install(
         start_fixture_pocket_ic(),
         InstallSpec::new(
             wasm,
@@ -192,6 +192,7 @@ pub fn install_prebuilt_fixture_canister_without_startup_delivery(
         )
         .label(canister_name),
     )
+    .unwrap_or_else(|error| panic!("install {canister_name} fixture: {error}"))
 }
 
 /// Build one supported canister and install it into a fresh standalone fixture
@@ -246,7 +247,7 @@ fn install_fixture_canister_with_options_and_optional_progress(
         eprintln!("{label}: handing off to PocketIC install/startup");
     }
 
-    let fixture = StandaloneCanisterFixture::install(
+    let fixture = StandaloneCanisterFixture::try_install(
         start_fixture_pocket_ic(),
         InstallSpec::new(
             wasm,
@@ -254,7 +255,8 @@ fn install_fixture_canister_with_options_and_optional_progress(
             FIXTURE_INSTALL_CYCLES,
         )
         .label(canister_name),
-    );
+    )
+    .unwrap_or_else(|error| panic!("install {canister_name} fixture: {error}"));
     if let Some(label) = progress_label {
         eprintln!("{label}: installed {canister_name} canister in PocketIC");
     }

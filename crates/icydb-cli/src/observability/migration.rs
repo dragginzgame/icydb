@@ -11,6 +11,10 @@ use crate::{
     observability::{call_query, call_update, endpoint_result_error, render_hex_lower},
 };
 
+// Public status omits cleanup's private cursor, so identical pages cannot prove
+// a stall. Bound paid calls per invocation instead; retained cleanup is resumable.
+const MAX_ABORT_UPDATE_CALLS: usize = 1_024;
+
 pub(super) fn run_schema_migration_command(command: SchemaMigrationCommand) -> Result<(), String> {
     let status = match &command {
         SchemaMigrationCommand::Status(target) => load_status(target),
@@ -60,7 +64,7 @@ fn run_confirmed_abort(
     let plan = status
         .plan_digest()
         .ok_or_else(|| "deployed schema has no migration plan to abort".to_string())?;
-    loop {
+    for completed_calls in 1..=MAX_ABORT_UPDATE_CALLS {
         let next = abort(target, &status)?;
         if next.database_identity() != database || next.plan_digest() != Some(plan) {
             return Err(
@@ -73,11 +77,18 @@ fn run_confirmed_abort(
         ) {
             return Ok(next);
         }
-        // Candidate-generation cleanup is deliberately bounded and its
-        // private scan cursor is not part of the public status contract. Keep
-        // issuing exact-plan abort pages until the terminal receipt publishes.
         status = next;
+        if completed_calls % 128 == 0 {
+            println!(
+                "schema migration abort: {completed_calls} update calls completed; phase {:?}",
+                status.phase()
+            );
+        }
     }
+    print_status(&status);
+    Err(format!(
+        "schema migration abort reached its limit of {MAX_ABORT_UPDATE_CALLS} update calls; inspect migration status, then rerun abort --yes to continue cleanup"
+    ))
 }
 
 fn run_confirmed(

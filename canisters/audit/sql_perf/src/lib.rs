@@ -442,17 +442,18 @@ fn engine_startup_watchdog_perf_snapshot() -> StartupWatchdogPerfSnapshot {
     let observability = snapshot.observability();
     let counters = observability.counters();
     let performance = observability.performance();
-    let scheduler = performance.scheduler_instructions();
+    let scheduler = performance.scheduler_instructions().aggregate();
     let work = performance.work_instructions();
+    let work_aggregate = work.aggregate();
 
     StartupWatchdogPerfSnapshot {
         scheduler_samples: scheduler.samples(),
         scheduler_total_instructions: scheduler.total(),
         scheduler_maximum_instructions: scheduler.maximum(),
-        work_samples: work.samples(),
-        work_total_instructions: work.total(),
+        work_samples: work_aggregate.samples(),
+        work_total_instructions: work_aggregate.total(),
         work_latest_instructions: work.latest(),
-        work_maximum_instructions: work.maximum(),
+        work_maximum_instructions: work_aggregate.maximum(),
         work_started: counters.work_started(),
         work_completed: counters.work_completed(),
         succeeded: counters.succeeded(),
