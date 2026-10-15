@@ -2,7 +2,7 @@
 name = "icydb"
 autotests = false
 edition = { workspace = true }
-rust-version = "1.88.0"
+rust-version = "1.91.0"
 version = { workspace = true }
 license-file = { workspace = true }
 description = { workspace = true }

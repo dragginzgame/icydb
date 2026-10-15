@@ -233,6 +233,13 @@ bypass the concrete SQL-command cache while retaining eligible shared-plan reuse
 
 #### SQL cache retention
 
+Trusted text query calls look up exact SQL and API surface before parsing. A
+resident command is reused only after the current accepted runtime root, including
+its database incarnation and all catalog identities, matches the compilation
+root. Its original entity label is resolved from that same current root. Misses
+and stale entries use the ordinary parser/compiler; bound dispatches retain the
+separate behavior above. Application authorization remains per invocation.
+
 The compiled-command cache admits at most 1,024 entries and 4 MiB of accounted
 retained payload per store registry. Accounting includes both key references,
 compiled syntax and decoded literals; shared allocations are charged
@@ -514,9 +521,9 @@ byte bound admitted by the accepted type contract; bare forms use the default
 bound. Other type heads do not gain support
 merely because the parser can retain a `max_bytes` modifier.
 
-Known admission gap: repeated or conflicting `NULL`/`NOT NULL` modifiers are
-currently accepted with the last declaration winning. Use one declaration;
-the correction remains tracked in [#230](https://github.com/dragginzgame/icydb/issues/230).
+Repeated or conflicting `NULL`/`NOT NULL` modifiers are rejected during parsing,
+including when a `DEFAULT` separates them. A second declaration cannot override
+the field's nullability.
 
 `CREATE INDEX` currently admits field-path secondary indexes and deterministic
 text expression secondary indexes. Single-field, multi-field, unique, explicit
@@ -974,8 +981,10 @@ Supported text scalar functions include `LOWER`, `UPPER`, `LENGTH`,
 `OCTET_LENGTH`, `TRIM`, `LTRIM`, `RTRIM`, `LEFT`, `RIGHT`, `STARTS_WITH`,
 `ENDS_WITH`, `CONTAINS`, `POSITION`, `REPLACE`, and `SUBSTRING`.
 
-`COALESCE` and `NULLIF` provide the admitted value-selection forms. Function
-call shapes, argument types, and direct ordering eligibility remain bounded by
+`COALESCE` evaluates arguments from left to right through the first non-NULL
+value; later arguments are not evaluated. All authored arguments still undergo
+field, type and arity admission. `NULLIF` compares its two evaluated arguments.
+Function call shapes, argument types, and direct ordering eligibility remain bounded by
 the clause-specific lowering contract; admission in the shared expression
 family does not make every expression a valid `ORDER BY` target.
 

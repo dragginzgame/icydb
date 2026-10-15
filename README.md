@@ -22,8 +22,8 @@
 </p>
 <!-- helper-navigation:end -->
 
-![Dependency MSRV](https://img.shields.io/badge/dependency%20MSRV-1.88.0-blue.svg)
-![Internal Toolchain](https://img.shields.io/badge/internal%20rustc-1.99.0-4c1.svg)
+![Dependency MSRV](https://img.shields.io/badge/dependency%20MSRV-1.91.0-blue.svg)
+![Development Toolchain](https://img.shields.io/badge/development%20rustc-stable-4c1.svg)
 [![CI](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml/badge.svg)](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml)
 [![License: Dragginz](https://img.shields.io/badge/license-Dragginz-blue)](LICENSE)
 
@@ -42,7 +42,7 @@ records, marketplace listings and relationships between records. Its queries
 are deliberately predictable and resource-limited to fit the Internet
 Computer's execution environment.
 
-Current workspace version: `0.274.1`
+Current workspace version: `0.275.0`
 
 > **Before using IcyDB:** IcyDB is still before version 1.0. Ordinary supported
 > schema changes can use explicit migrations, but some IcyDB upgrades may change
@@ -105,10 +105,10 @@ Use the same release for runtime and host-side model generation:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.274.1" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.275.0" }
 
 [build-dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.274.1" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.275.0" }
 ```
 
 The default feature set includes structural, typed, and dynamic reads and writes.
@@ -122,8 +122,8 @@ Runtime-enabled crates use `icydb` alone and author schemas through
 alone, including its schema scalar re-exports; scalar/proposal-only tooling
 may use `icydb-schema` alone. See the [dependency choices](INSTALLING.md)
 for these supported narrower routes. The public dependency
-path supports Rust `1.88.0`; workspace development uses pinned Rust `1.99.0`,
-with a `1.96.0` declared floor for other workspace packages.
+path supports Rust `1.91.0`; workspace development uses the latest stable Rust
+channel, with a `1.96.0` declared floor for other workspace packages.
 
 See [installation](INSTALLING.md) for feature and endpoint setup, local tools,
 validation, and troubleshooting.
@@ -270,7 +270,7 @@ release notes retain historical evidence and do not replace current contracts.
 
 ## License
 
-Future contributions and releases use the [Dragginz Source Available License —
+New material is offered under the [Dragginz Source Available License —
 Verifiable ICP Burn 1.0](LICENSE). Third-party live deployments must satisfy its
 burn and evidence requirements; section 5 defines the Toko Studios Ltd exception.
 This is source-available software, not MIT-licensed new material.

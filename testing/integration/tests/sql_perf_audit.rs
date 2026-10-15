@@ -179,6 +179,85 @@ fn preparation_measurement_wasm() -> Vec<u8> {
     module
 }
 
+/// Frozen production-Wasm probe for journaled index traversal. Installation,
+/// fixture writes and recovery are outside the measured read calls.
+#[test]
+#[ignore = "manual wasm-release journaled index instruction and cycle measurement"]
+fn journaled_index_traversal_wasm_cost_matrix() {
+    use ic_host_artifacts::artifact::Sha256Digest;
+    use icydb_testing_integration::{
+        deliver_fixture_startup_watchdog, install_prebuilt_fixture_canister,
+    };
+
+    let module = preparation_measurement_wasm();
+    println!(
+        "journaled_index_wasm sha256={} raw_bytes={}",
+        Sha256Digest::compute(&module),
+        module.len()
+    );
+    let fixture = install_prebuilt_fixture_canister("sql_perf", module.clone());
+    let loaded: Result<candid::Reserved, Error> = fixture
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "load_user_scale_fixture",
+            (2_048_u32,),
+        )
+        .expect("indexed fixture should decode");
+    loaded.expect("indexed fixture should load");
+
+    for reopened in [false, true] {
+        if reopened {
+            fixture
+                .pocket_ic()
+                .upgrade_canister(
+                    fixture.canister_id(),
+                    module.clone(),
+                    candid::encode_args(()).unwrap(),
+                    None,
+                )
+                .expect("same-artifact recovery should succeed");
+            deliver_fixture_startup_watchdog(fixture.pocket_ic());
+        }
+        for direction in ["ASC", "DESC"] {
+            for limit in [1, 100] {
+                let sql = format!(
+                    "SELECT id FROM PerfAuditUser WHERE age >= 24 AND age < 40 \
+                     ORDER BY age {direction}, id {direction} LIMIT {limit}"
+                );
+                let expected = query_perf(&fixture, "query_user_with_perf", &sql).result;
+                let SqlQueryResult::Projection(rows) = &expected else {
+                    panic!("index probe should project rows");
+                };
+                assert_eq!(rows.row_count, limit);
+                for repeat in 0..2 {
+                    settle_measurement_rounds(&fixture);
+                    let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
+                    let sample: Result<SqlQueryPerfResult, Error> = fixture
+                        .pocket_ic()
+                        .update_candid(
+                            fixture.canister_id(),
+                            "warm_user_query_with_perf",
+                            (sql.clone(),),
+                        )
+                        .expect("index measurement should decode");
+                    let cycles = before
+                        .checked_sub(fixture.pocket_ic().cycle_balance(fixture.canister_id()))
+                        .expect("read update should charge cycles");
+                    let sample = sample.expect("index measurement should execute");
+                    assert_eq!(sample.result, expected);
+                    assert!(sample.instructions > 0);
+                    println!(
+                        "journaled_index_cost reopened={reopened} direction={direction} limit={limit} repeat={repeat} result={} instructions={} cycles={cycles}",
+                        Sha256Digest::compute(&candid::encode_one(&sample.result).unwrap()),
+                        sample.instructions
+                    );
+                }
+            }
+        }
+    }
+}
+
 /// Small matched-actor probe for materialized grouped heap selection; the rank
 /// field has no ordering index. Setup/startup charges stay outside each sample.
 #[test]

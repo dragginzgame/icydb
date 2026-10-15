@@ -398,6 +398,18 @@ impl CompiledExpr {
         function: Function,
         args: &'row [Self],
     ) -> Result<Cow<'row, Value>, ProjectionEvalError> {
+        // COALESCE is conditional: do not evaluate an unused fallback. Keep
+        // invalid arities on the ordinary validated-call error path below.
+        if matches!(function, Function::Coalesce) && args.len() >= 2 {
+            for arg in args {
+                let value = arg.evaluate(reader)?;
+                if !matches!(value.as_ref(), Value::Null) {
+                    return Ok(value);
+                }
+            }
+            return Ok(Cow::Owned(Value::Null));
+        }
+
         let value = match args {
             [] => eval_grouped_function_call(function, &[])?,
             [arg] => {

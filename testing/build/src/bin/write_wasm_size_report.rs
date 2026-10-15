@@ -952,8 +952,9 @@ mod tests {
         use ic_host_process::tool::{AdmittedTool, ExecutionContext, VersionSpec};
         use std::os::unix::fs::PermissionsExt;
 
-        let root = env::temp_dir().join(format!("icydb report capture {}", std::process::id()));
-        fs::create_dir(&root).unwrap();
+        let root =
+            ic_host_fs::testing::create_fixture_directory(&env::temp_dir(), "icydb report capture")
+                .unwrap();
         let tool = root.join("fixture tool");
         let wasm = root.join("selected artifact.wasm");
         fs::write(&wasm, b"\0asm\x01\0\0\0").unwrap();
@@ -1051,7 +1052,12 @@ mod tests {
 
     #[test]
     fn artifact_identity_keeps_report_fields_and_hashes_complete_files() {
-        let path = env::temp_dir().join(format!("icydb-report-artifact-{}", std::process::id()));
+        let root = ic_host_fs::testing::create_fixture_directory(
+            &env::temp_dir(),
+            "icydb-report-artifact",
+        )
+        .unwrap();
+        let path = root.join("artifact.wasm");
         let streamed_bytes = vec![0x80; 16 * 1024 + 1];
         for (bytes, digest) in [
             (
@@ -1080,7 +1086,7 @@ mod tests {
                 })
             );
         }
-        fs::remove_file(&path).expect("report artifact should be removable");
+        fs::remove_dir_all(root).expect("report fixture should be removable");
         assert!(file_meta(&path).is_err());
     }
 

@@ -1108,6 +1108,44 @@ fn migration_abort_requires_aborted_and_preserves_paged_rejected_cleanup() {
 }
 
 #[test]
+fn migration_abort_limits_calls_and_another_invocation_resumes_cleanup() {
+    for phase in [
+        SchemaMigrationPhase::Prepared,
+        SchemaMigrationPhase::Rejected,
+    ] {
+        let fixture = IcpFixture::new();
+        let status = migration_response(phase, 0);
+        let mut replies = vec![status.clone(); 1_024];
+        replies.push(migration_response(SchemaMigrationPhase::Aborted, 0));
+        let mut command = fixture.migration_command(&status, &replies, "abort");
+        command.arg("--yes");
+
+        // An additional valid response makes an off-by-one call observable without
+        // leaving the unbounded implementation spinning on an infinite substitute.
+        assert_migration_outcome(command.output().unwrap(), phase, 1);
+        assert_eq!(fixture.migration_calls(), 1_024);
+
+        assert_migration_outcome(command.output().unwrap(), SchemaMigrationPhase::Aborted, 0);
+        assert_eq!(fixture.migration_calls(), 1_025);
+    }
+}
+
+#[test]
+fn migration_abort_accepts_terminal_receipt_on_its_last_allowed_call() {
+    let fixture = IcpFixture::new();
+    let status = migration_response(SchemaMigrationPhase::Rejected, 0);
+    let mut replies = vec![status.clone(); 1_023];
+    replies.push(migration_response(SchemaMigrationPhase::Aborted, 0));
+    let output = fixture
+        .migration_command(&status, &replies, "abort")
+        .arg("--yes")
+        .output()
+        .unwrap();
+    assert_migration_outcome(output, SchemaMigrationPhase::Aborted, 0);
+    assert_eq!(fixture.migration_calls(), 1_024);
+}
+
+#[test]
 fn migration_status_inspects_every_phase_without_claiming_operation_success() {
     for phase in PROGRESS_PHASES.into_iter().chain([
         SchemaMigrationPhase::Unadopted,

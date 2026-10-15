@@ -277,7 +277,7 @@ const COMMIT_MARKER_MUTATION_DIGEST_BYTES: usize = 32;
 pub(in crate::db) fn generate_commit_id() -> Result<[u8; COMMIT_ID_BYTES], InternalError> {
     #[allow(
         deprecated,
-        reason = "Atomic try_update requires Rust 1.95; MSRV is 1.88."
+        reason = "Atomic try_update requires Rust 1.95; MSRV is 1.91."
     )]
     let sequence = COMMIT_ID_SEQUENCE
         .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {

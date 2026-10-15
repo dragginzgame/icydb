@@ -14,7 +14,7 @@ mod batch_workload;
 mod catalog_workload;
 mod collection_workload;
 
-use std::{collections::BTreeSet, num::NonZeroUsize, sync::LazyLock};
+use std::{collections::BTreeSet, io, num::NonZeroUsize, sync::LazyLock};
 
 use crate::sql_harness::{
     CorrectnessObservation, CorrectnessScenario, CorrectnessVerdict, EligibleProvider,
@@ -113,14 +113,14 @@ fn for_each_workload_scenario<T: Sync>(scenarios: &[T], run: impl Fn(&T) + Sync)
 const SQL_FIXTURE_POOL_CAPACITY: NonZeroUsize = NonZeroUsize::new(8).unwrap();
 const SQL_BOUNDED_FIXTURE_POOL_CAPACITY: NonZeroUsize = NonZeroUsize::new(4).unwrap();
 
-type SqlFixtureRecipe = StandaloneCanisterRecipe<fn() -> StandaloneCanisterFixture>;
+type SqlFixtureRecipe = StandaloneCanisterRecipe<fn() -> io::Result<StandaloneCanisterFixture>>;
 
 // Pooled SQL tests restore only this canister's captured state. Keep the prior
 // preserve-funding policy; lifecycle tests continue to own fresh installations.
 fn sql_fixture_pool(
     capacity: NonZeroUsize,
     identity: &str,
-    build: fn() -> StandaloneCanisterFixture,
+    build: fn() -> io::Result<StandaloneCanisterFixture>,
 ) -> CachedPocketIcBaselinePool<SqlFixtureRecipe> {
     CachedPocketIcBaselinePool::new(
         capacity,
@@ -135,7 +135,7 @@ fn sql_fixture_pool(
 static SQL_FIXTURE_POOL: LazyLock<CachedPocketIcBaselinePool<SqlFixtureRecipe>> =
     LazyLock::new(|| {
         sql_fixture_pool(SQL_FIXTURE_POOL_CAPACITY, "icydb.sql", || {
-            install_fixture_canister("sql")
+            Ok(install_fixture_canister("sql"))
         })
     });
 static SQL_BOUNDED_FIXTURE_POOL: LazyLock<CachedPocketIcBaselinePool<SqlFixtureRecipe>> =
@@ -143,7 +143,7 @@ static SQL_BOUNDED_FIXTURE_POOL: LazyLock<CachedPocketIcBaselinePool<SqlFixtureR
         sql_fixture_pool(
             SQL_BOUNDED_FIXTURE_POOL_CAPACITY,
             "icydb.sql-bounded",
-            || install_fixture_canister("sql_bounded"),
+            || Ok(install_fixture_canister("sql_bounded")),
         )
     });
 
@@ -181,7 +181,7 @@ fn sql_fixture_pool_restores_captured_rows_before_reuse() {
     let pool = sql_fixture_pool(
         NonZeroUsize::new(1).unwrap(),
         "icydb.sql-reuse-control",
-        || install_fixture_canister("sql"),
+        || Ok(install_fixture_canister("sql")),
     );
     let (first, outcome) = pool.acquire().expect("first lease should install");
     assert!(matches!(outcome, BaselinePoolOutcome::Built { .. }));

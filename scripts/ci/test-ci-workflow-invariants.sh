@@ -94,6 +94,21 @@ reset
 mutate '.jobs.rust.steps |= map(select((.uses // "" | test("^mozilla-actions/sccache-action@")) | not))'
 check fail unprepared-job-wrapper
 reset
+mutate '.jobs.rust.steps |= map(select(.run != "rustup target add wasm32-unknown-unknown"))'
+check fail missing-workspace-wasm-target
+reset
+mutate '(.jobs.rust.steps[] | select(.run == "rustup target add wasm32-unknown-unknown")).if = "matrix.lane == '\''tier-b'\''"'
+check fail wasm-target-only-in-tier-b
+reset
+mutate '(.jobs.rust.steps[] | select(.run == "rustup target add wasm32-unknown-unknown")).continue-on-error = true'
+check fail ignored-workspace-wasm-target-failure
+reset
+mutate '.jobs.rust.steps |= (map(select(.run != "rustup target add wasm32-unknown-unknown")) + [.[] | select(.run == "rustup target add wasm32-unknown-unknown")])'
+check fail late-workspace-wasm-target
+reset
+mutate '(.jobs.rust.steps[] | select(.env.MAKE_TARGET == "${{ matrix.make_target }}")) |= del(.env.MAKE_TARGET)'
+check fail missing-matrix-make-target
+reset
 mutate '.jobs.rust.steps |= map(select(.run != "make fetch"))'
 check fail missing-locked-cache-preparation
 reset

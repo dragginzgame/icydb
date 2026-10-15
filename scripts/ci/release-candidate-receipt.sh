@@ -65,37 +65,30 @@ validate_transition() {
     fi
 }
 
-project_release_surface() {
+# A subshell confines temporary-input cleanup to this projection. The shared
+# transformer accepts a regular file and remains the only lockfile rewrite owner.
+project_release_surface() (
     local path="$1" previous="$2" release="$3"
     if [[ "$path" == ci/dependency-pinning-exceptions.json ]]; then
         jq --arg previous "$previous" --arg release "$release" \
             --argjson packages "$(printf '%s\n' "$RELEASE_PACKAGE_NAMES" | jq -Rn '[inputs | select(length > 0)]')" \
-            -f "$(dirname "${BASH_SOURCE[0]}")/../release/pin-exceptions.jq"
+            -f "$SCRIPT_DIR/../release/pin-exceptions.jq"
         return
     fi
     if [[ "$path" != Cargo.lock ]]; then
         sed "s/${previous//./\\.}/$release/g"
         return
     fi
-    # Lockfile registry packages and checksums retain their validated selection,
-    # even when their numeric version happens to equal the workspace version.
-    ICYDB_RELEASE_NAMES="$RELEASE_PACKAGE_NAMES" perl -0777 -e '
-        my ($previous, $release) = @ARGV;
-        local $/; $_ = <STDIN>;
-        my %owned = map { $_ => 1 } split /\n/, $ENV{ICYDB_RELEASE_NAMES};
-        s{(\[\[package\]\]\n.*?)(?=\n\[\[package\]\]|\z)}{
-            my $block = $1; my ($name) = $block =~ /^name = "([^"]+)"$/m;
-            if ($owned{$name // ""} && $block !~ /^source = /m) {
-                $block =~ s/^version = "\Q$previous\E"$/version = "$release"/m;
-            }
-            for my $package (keys %owned) {
-                $block =~ s/"\Q$package $previous\E"/"$package $release"/g;
-            }
-            $block
-        }gse;
-        print $_;
-    ' "$previous" "$release"
-}
+    local input package
+    local -a packages=()
+    input="$(mktemp "${TMPDIR:-/tmp}/release-lock-projection.XXXXXX")" || exit 1
+    trap 'rm -f "$input"' EXIT
+    cat > "$input" || exit 1
+    while IFS= read -r package; do
+        [[ -z "$package" ]] || packages[${#packages[@]}]="$package"
+    done <<< "$RELEASE_PACKAGE_NAMES"
+    perl "$SCRIPT_DIR/rewrite-local-lock-versions.pl" "$input" "$previous" "$release" "${packages[@]}"
+)
 
 validate_changed_paths() {
     local diff_mode="$1"

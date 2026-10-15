@@ -599,8 +599,11 @@ mod tests {
     fn artifact_reads_preserve_complete_regular_files_and_follow_selected_links() {
         use ic_host_artifacts::artifact::ArtifactError;
 
-        let root = std::env::temp_dir().join(format!("icydb wasm reads {}", std::process::id()));
-        fs::create_dir(&root).unwrap();
+        let root = ic_host_fs::testing::create_fixture_directory(
+            &std::env::temp_dir(),
+            "icydb wasm reads",
+        )
+        .unwrap();
         let path = root.join("complete.wasm");
         for bytes in [Vec::new(), vec![0x80; 16 * 1024 + 1]] {
             fs::write(&path, &bytes).unwrap();
@@ -751,8 +754,11 @@ mod tests {
 
     #[test]
     fn shared_candid_and_publication_preserve_artifacts_and_failure_boundaries() {
-        let root = std::env::temp_dir().join(format!("icydb host staging {}", std::process::id()));
-        fs::create_dir(&root).unwrap();
+        let root = ic_host_fs::testing::create_fixture_directory(
+            &std::env::temp_dir(),
+            "icydb host staging",
+        )
+        .unwrap();
         let input = root.join("input.wasm");
         let directory = root.join("missing parent").join("staged");
         let text = "service : { icydb_schema : () -> () query; };  \n\n";

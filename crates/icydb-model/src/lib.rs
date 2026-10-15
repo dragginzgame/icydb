@@ -12,10 +12,11 @@ pub mod build;
 pub mod error;
 pub mod fragment;
 // Declarations remain available on Wasm, while their whole-graph validation
-// helpers are deliberately host-only work.
+// helpers are deliberately host-only work. Usage varies by feature profile,
+// so these Wasm allowances must not require dead code to be present.
 #[cfg_attr(
     target_arch = "wasm32",
-    expect(
+    allow(
         dead_code,
         reason = "Wasm retains declaration nodes while host code owns whole-graph traversal"
     )
@@ -32,7 +33,7 @@ pub mod types;
 pub mod validate;
 #[cfg_attr(
     target_arch = "wasm32",
-    expect(
+    allow(
         dead_code,
         reason = "Wasm retains declarations while host code owns graph visitation"
     )

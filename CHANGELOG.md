@@ -5,15 +5,19 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.275.0]
+## [0.276.0]
 
-- **Breaking licensing change:** use the Dragginz Verifiable ICP Burn license for
-  future grants. Third-party live deployments must meet its burn and evidence
-  requirements; contributors must accept the section 5 organization exception.
-  Preserve prior Apache-2.0 and MIT grants and ship their notices with package
-  license files. Package versions are unchanged by this preparation.
+- **Breaking licensing change:** offer new material under Dragginz Verifiable ICP
+  Burn 1.0, preserving prior Apache-2.0 and MIT grants and notices.
 
-Detailed notes: [docs/changelog/0.275.md](docs/changelog/0.275.md)
+See [detailed notes](docs/changelog/0.276.md).
+
+## [0.275.0] - 2026-10-15
+
+- **Breaking:** raise the public MSRV to Rust 1.91 and use latest stable for
+  development/CI; improve SQL execution, tooling and test-fixture reliability.
+
+See [detailed notes](docs/changelog/0.275.md).
 
 ## [0.274.1] - 2026-10-14
 

@@ -16,7 +16,7 @@ env:
   CARGO_HOME: ${{ github.workspace }}/.cache/cargo/icydb
   CARGO_TARGET_DIR: ${{ github.workspace }}/target/icydb
   CARGO_TERM_COLOR: always
-  RUST_CURRENT: "1.99.0"
+  RUST_CURRENT: "stable"
   SCCACHE_GHA_ENABLED: "true"
 
 jobs:
@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       RUSTC_WRAPPER: sccache
-      RUSTUP_TOOLCHAIN: "1.88.0"
+      RUSTUP_TOOLCHAIN: "1.91.0"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -123,7 +123,7 @@ jobs:
           components: clippy
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
       - name: Install wasm target
-        if: matrix.lane == 'tier-b'
+        if: matrix.lane == 'workspace' || matrix.lane == 'tier-b'
         run: rustup target add wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:

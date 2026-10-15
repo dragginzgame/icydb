@@ -11,6 +11,7 @@ mod membership;
 mod planner_watermark;
 mod sql_cache_accounting;
 mod sql_construction;
+mod sql_text_cache;
 mod template_accounting;
 
 use crate::{
