@@ -1,4 +1,5 @@
 [package]
+license.workspace = true
 name = "icydb-testing-audit-nested-relation-fixtures"
 edition = { workspace = true }
 rust-version = { workspace = true }

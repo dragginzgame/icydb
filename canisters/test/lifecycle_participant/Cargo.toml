@@ -1,4 +1,5 @@
 [package]
+license.workspace = true
 name = "canister_test_lifecycle_participant"
 edition = { workspace = true }
 rust-version = { workspace = true }

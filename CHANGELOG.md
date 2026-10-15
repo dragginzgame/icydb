@@ -5,6 +5,14 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.274.2]
+
+- Standardize future releases on MIT, include license text in published crates,
+  and inherit licensing across all workspace members. Earlier Apache-2.0 OR MIT
+  grants remain valid for the material they cover.
+
+Detailed notes: [docs/changelog/0.274.md](docs/changelog/0.274.md)
+
 ## [0.274.1] - 2026-10-14
 
 - Correct SQL, schema and macro diagnostics; simplify scans, build/report

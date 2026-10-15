@@ -1,4 +1,5 @@
 [package]
+license.workspace = true
 name = "canister_audit_sql_perf"
 edition = { workspace = true }
 rust-version = { workspace = true }
