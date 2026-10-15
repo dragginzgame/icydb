@@ -40,6 +40,7 @@ members = [
     "schema/demo/rpg",
     "schema/test/fixtures",
     "schema/test/sql",
+    "testing/build",
     "testing/endpoint-installation",
     "testing/integration",
     "testing/logical-memory",
@@ -55,7 +56,7 @@ resolver = "3"
 [workspace.package]
 rust-version = "1.96.0"
 edition = "2024"
-version = "0.271.0"
+version = "0.275.0"
 authors = ["borovan <84897664+borovan@users.noreply.github.com>"]
 description = "IcyDB — A schema-first typed query engine and persistence runtime for Internet Computer canisters"
 categories = ["database", "web-programming", "wasm"]
@@ -84,28 +85,31 @@ derive_more = { version = "2.0", default-features = false, features = [
 ] }
 ethnum = { version = "1.5.3", default-features = false }
 getrandom = "0.4"
+ic-build = "0.6"
 ic-cdk = "0.20.3"
-ic-host-artifacts = { version = "0.14", default-features = false }
-ic-host-fs = "0.14"
-ic-host-process = "0.14"
-ic-host-tools = { version = "0.14", default-features = false }
-ic-memory = "0.35"
-ic-metrics = "0.7"
-ic-testkit = "0.34"
-ic-timers = "0.19"
+ic-host-artifacts = { version = "0.19", default-features = false }
+ic-host-fs = "0.19"
+ic-host-process = "0.19"
+ic-host-text = "0.19"
+ic-host-tools = { version = "0.19", default-features = false }
+ic-memory = "0.41"
+ic-metrics = "0.11"
+ic-testkit = "0.46"
+ic-timers = "0.24"
 icrc-ledger-types = "0.2.0"
-icydb = { path = "crates/icydb", version = "=0.271.0", default-features = false }
-icydb-core = { path = "crates/icydb-core", version = "=0.271.0" }
-icydb-diagnostic-code = { path = "crates/icydb-diagnostic-code", version = "=0.271.0" }
-icydb-model = { path = "crates/icydb-model", version = "=0.271.0" }
-icydb-model-macros = { path = "crates/icydb-model-macros", version = "=0.271.0" }
-icydb-schema = { path = "crates/icydb-schema", version = "=0.271.0" }
+icydb = { path = "crates/icydb", version = "=0.275.0", default-features = false }
+icydb-core = { path = "crates/icydb-core", version = "=0.275.0" }
+icydb-diagnostic-code = { path = "crates/icydb-diagnostic-code", version = "=0.275.0" }
+icydb-model = { path = "crates/icydb-model", version = "=0.275.0" }
+icydb-model-macros = { path = "crates/icydb-model-macros", version = "=0.275.0" }
+icydb-schema = { path = "crates/icydb-schema", version = "=0.275.0" }
 icydb-testing-audit-default-empty-fixtures = { path = "schema/audit/default_empty" }
 icydb-testing-audit-group-path-fixtures = { path = "schema/audit/group_path" }
 icydb-testing-audit-nested-relation-fixtures = { path = "schema/audit/nested_relation" }
 icydb-testing-audit-one-simple-fixtures = { path = "schema/audit/one_simple" }
 icydb-testing-audit-sql-perf-fixtures = { path = "schema/audit/sql_perf" }
 icydb-testing-audit-ten-simple-fixtures = { path = "schema/audit/ten_simple" }
+icydb-testing-build = { path = "testing/build" }
 icydb-testing-demo-rpg-fixtures = { path = "schema/demo/rpg" }
 icydb-testing-sql-generator = { path = "testing/sql-generator" }
 icydb-testing-sqlite-reference = { path = "testing/sqlite-reference" }

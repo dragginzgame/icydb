@@ -45,6 +45,7 @@ enum TestKind {
     Nat64,
     Enum(u32),
     List(Box<Self>),
+    Local(AcceptedFieldKind),
 }
 
 fn unit_type(id: u32, path: &str) -> TestType<'_> {
@@ -116,6 +117,7 @@ fn encode_test_kind(writer: &mut CatalogWriter, kind: &TestKind) {
             writer.push_u8(KIND_LIST);
             encode_test_kind(writer, inner);
         }
+        TestKind::Local(kind) => encode_value_kind(writer, kind, 0).unwrap(),
     }
 }
 
@@ -283,6 +285,98 @@ fn accepted_enum_catalog_codec_round_trips_empty_catalog() {
         decode_accepted_enum_catalog(&encoded).expect("empty catalog should decode"),
         catalog,
     );
+}
+
+#[test]
+fn accepted_enum_catalog_rejects_empty_enum_definition() {
+    let encoded = encode_test_wire(
+        ACCEPTED_ENUM_CATALOG_CODEC_VERSION,
+        &[TestType {
+            id: 1,
+            path: "codec::Empty",
+            variants: Vec::new(),
+        }],
+    );
+    let error = decode_accepted_enum_catalog(&encoded).unwrap_err();
+    assert_eq!(error.class(), ErrorClass::Corruption);
+    assert_eq!(error.origin(), ErrorOrigin::Store);
+    assert!(
+        AcceptedEnumCatalog::from_initial_definitions(BTreeMap::from([(
+            EnumTypeId::new(1).unwrap(),
+            ("codec::Empty".into(), BTreeMap::new()),
+        )]))
+        .is_err()
+    );
+}
+
+#[test]
+fn accepted_enum_catalog_local_kind_shape_agrees_across_construction_and_codec() {
+    for (leaf, valid) in [
+        (AcceptedFieldKind::Decimal { scale: u32::MAX }, false),
+        (AcceptedFieldKind::IntBig { max_bytes: 0 }, false),
+        (AcceptedFieldKind::NatBig { max_bytes: 0 }, false),
+        (
+            AcceptedFieldKind::Decimal {
+                scale: icydb_schema::Decimal::max_supported_scale(),
+            },
+            true,
+        ),
+        (AcceptedFieldKind::IntBig { max_bytes: 1 }, true),
+        (AcceptedFieldKind::NatBig { max_bytes: 1 }, true),
+    ] {
+        for kind in [
+            leaf.clone(),
+            AcceptedFieldKind::List(Box::new(leaf.clone())),
+            AcceptedFieldKind::Set(Box::new(leaf.clone())),
+            AcceptedFieldKind::Map {
+                key: Box::new(leaf.clone()),
+                value: Box::new(AcceptedFieldKind::Nat64),
+            },
+            AcceptedFieldKind::Map {
+                key: Box::new(AcceptedFieldKind::Nat64),
+                value: Box::new(leaf.clone()),
+            },
+        ] {
+            let built = AcceptedEnumCatalog::from_initial_definitions(BTreeMap::from([(
+                EnumTypeId::new(1).unwrap(),
+                (
+                    "codec::LocalShape".into(),
+                    BTreeMap::from([(
+                        EnumVariantId::new(1).unwrap(),
+                        (
+                            "Payload".into(),
+                            Some((kind.clone(), FieldStorageDecode::ByKind)),
+                        ),
+                    )]),
+                ),
+            )]));
+            // Write the kind directly, bypassing catalog admission so invalid
+            // bytes exercise the persisted boundary rather than the builder.
+            let encoded = encode_test_wire(
+                ACCEPTED_ENUM_CATALOG_CODEC_VERSION,
+                &[TestType {
+                    id: 1,
+                    path: "codec::LocalShape",
+                    variants: vec![TestVariant {
+                        id: 1,
+                        name: "Payload",
+                        body: TestVariantBody::Payload(TestKind::Local(kind)),
+                    }],
+                }],
+            );
+            let decoded = decode_accepted_enum_catalog(&encoded);
+            if valid {
+                let catalog = built.unwrap();
+                assert_eq!(decoded.unwrap(), catalog);
+                assert_eq!(encode_accepted_enum_catalog(&catalog).unwrap(), encoded);
+            } else {
+                assert!(built.is_err());
+                let error = decoded.unwrap_err();
+                assert_eq!(error.class(), ErrorClass::Corruption);
+                assert_eq!(error.origin(), ErrorOrigin::Store);
+            }
+        }
+    }
 }
 
 #[test]

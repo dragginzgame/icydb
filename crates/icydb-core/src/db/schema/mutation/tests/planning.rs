@@ -69,14 +69,14 @@ fn index_mutation_plans_preserve_the_current_physical_target() {
 }
 
 #[test]
-fn field_path_index_request_lowering_fails_closed_for_unsupported_indexes() {
+fn field_path_index_request_lowering_uses_canonical_items_and_rejects_empty_keys() {
     let unique = PersistedIndexSnapshot::new(
         SchemaIndexId::new(1).expect("test index identity should be non-zero"),
         1,
         "unique_name".to_string(),
         "test::mutation::unique_name".to_string(),
         true,
-        PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
+        PersistedIndexKeySnapshot::from_field_paths(vec![name_key_path()]),
         None,
     );
     let explicit_items = PersistedIndexSnapshot::new(
@@ -85,7 +85,7 @@ fn field_path_index_request_lowering_fails_closed_for_unsupported_indexes() {
         "items_name".to_string(),
         "test::mutation::items_name".to_string(),
         false,
-        PersistedIndexKeySnapshot::Items(vec![PersistedIndexKeyItemSnapshot::FieldPath(
+        PersistedIndexKeySnapshot::new(vec![PersistedIndexKeyItemSnapshot::FieldPath(
             name_key_path(),
         )]),
         None,
@@ -96,7 +96,7 @@ fn field_path_index_request_lowering_fails_closed_for_unsupported_indexes() {
         "empty_name".to_string(),
         "test::mutation::empty_name".to_string(),
         false,
-        PersistedIndexKeySnapshot::FieldPath(Vec::new()),
+        PersistedIndexKeySnapshot::from_field_paths(Vec::new()),
         None,
     );
 
@@ -107,8 +107,15 @@ fn field_path_index_request_lowering_fails_closed_for_unsupported_indexes() {
         panic!("unique field-path index should preserve its target");
     };
     assert!(target.unique);
+    let SchemaMutationRequest::AddFieldPathIndex { target } =
+        SchemaMutationRequest::from_accepted_field_path_index(&explicit_items).unwrap()
+    else {
+        panic!("field items lower through the field-only capability");
+    };
+    assert_eq!(target.key_paths.len(), 1);
+    assert_eq!(target.key_paths[0].field_id, name_key_path().field_id());
     assert_eq!(
-        SchemaMutationRequest::from_accepted_field_path_index(&explicit_items),
+        SchemaMutationRequest::from_accepted_field_path_index(&expression_name_index()),
         Err(AcceptedSchemaMutationError::UnsupportedIndexKeyShape),
     );
     assert_eq!(
@@ -126,7 +133,7 @@ fn expression_index_request_lowering_fails_closed_for_unsupported_indexes() {
         "items_name".to_string(),
         "test::mutation::items_name".to_string(),
         false,
-        PersistedIndexKeySnapshot::Items(vec![PersistedIndexKeyItemSnapshot::FieldPath(
+        PersistedIndexKeySnapshot::new(vec![PersistedIndexKeyItemSnapshot::FieldPath(
             name_key_path(),
         )]),
         None,
@@ -137,13 +144,13 @@ fn expression_index_request_lowering_fails_closed_for_unsupported_indexes() {
         "empty_expression".to_string(),
         "test::mutation::empty_expression".to_string(),
         false,
-        PersistedIndexKeySnapshot::Items(Vec::new()),
+        PersistedIndexKeySnapshot::new(Vec::new()),
         None,
     );
 
     assert_eq!(
         SchemaMutationRequest::from_accepted_expression_index(&field_path_only),
-        Err(AcceptedSchemaMutationError::UnsupportedIndexKeyShape),
+        Err(AcceptedSchemaMutationError::ExpressionIndexRequiresExpressionKey),
     );
     assert_eq!(
         SchemaMutationRequest::from_accepted_expression_index(&items_without_expression),
@@ -434,7 +441,7 @@ fn structural_constraint_mutations_allocate_once_and_never_reuse_ids() {
         "unique_name".to_string(),
         "test::mutation::unique_name".to_string(),
         true,
-        PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
+        PersistedIndexKeySnapshot::from_field_paths(vec![name_key_path()]),
         None,
     );
 
@@ -551,7 +558,12 @@ fn nullability_changes_update_index_metadata_and_preserve_exact_no_ops() {
         let after = changed.accepted_after().persisted_snapshot();
         assert_eq!(after.fields()[1].nullable(), nullable);
         assert_eq!(
-            after.indexes()[0].key().field_paths()[0].nullable(),
+            after.indexes()[0]
+                .key()
+                .field_paths()
+                .next()
+                .unwrap()
+                .nullable(),
             nullable
         );
         assert_eq!(after.row_layout(), before.row_layout());
@@ -576,7 +588,7 @@ fn nullability_mutation_revalidates_nullable_unique_contract_before_publication(
         "unique_name".to_string(),
         "test::mutation::unique_name".to_string(),
         true,
-        PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
+        PersistedIndexKeySnapshot::from_field_paths(vec![name_key_path()]),
         None,
     );
     let indexed = derive_sql_ddl_field_path_index_accepted_after(&accepted, unique)
@@ -610,7 +622,7 @@ fn nullability_mutation_rejects_while_unique_candidate_is_live() {
         "candidate_unique_name".to_string(),
         "test::mutation::candidate_unique_name".to_string(),
         true,
-        PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
+        PersistedIndexKeySnapshot::from_field_paths(vec![name_key_path()]),
         None,
     )
     .clone_with_schema_identity(
@@ -639,6 +651,110 @@ fn nullability_mutation_rejects_while_unique_candidate_is_live() {
 
 #[test]
 #[cfg(feature = "sql")]
+fn field_metadata_derivations_reject_live_constraint_activations() {
+    use crate::db::schema::{
+        AcceptedCheckExprV1, AcceptedSchemaFingerprint, AcceptedSchemaSnapshot,
+        PersistedFieldOrigin, SchemaFieldWritePolicy,
+    };
+
+    let field = PersistedFieldSnapshot::new_initial_with_write_policy_and_origin(
+        FieldId::new(3),
+        "nickname".to_string(),
+        SchemaFieldSlot::new(2),
+        AcceptedFieldKind::Text { max_len: None },
+        Vec::new(),
+        true,
+        SchemaInsertDefault::SlotPayload(vec![0xFF, 0x01, b'Z']),
+        SchemaFieldWritePolicy::none(),
+        PersistedFieldOrigin::SqlDdl,
+        FieldStorageDecode::ByKind,
+        LeafCodec::Scalar(ScalarCodec::Text),
+    );
+    let before = append_fields_snapshot(&base_snapshot(), std::slice::from_ref(&field));
+    let accepted = AcceptedSchemaSnapshot::try_new(before.clone()).unwrap();
+    assert!(derive_sql_ddl_field_rename_accepted_after(&accepted, "nickname", "label").is_ok());
+    for default in [
+        SchemaInsertDefault::None,
+        SchemaInsertDefault::SlotPayload(vec![0xFF, 0x01, b'A']),
+    ] {
+        assert!(
+            derive_sql_ddl_field_default_accepted_after(&accepted, "nickname", default).is_ok()
+        );
+    }
+
+    let fingerprint = AcceptedSchemaFingerprint::new([0xA7; 32]);
+    let unique = PersistedIndexSnapshot::new_sql_ddl(
+        SchemaIndexId::new(1).unwrap(),
+        1,
+        "candidate_unique_name".to_string(),
+        "test::mutation::candidate_unique_name".to_string(),
+        true,
+        PersistedIndexKeySnapshot::from_field_paths(vec![name_key_path()]),
+        None,
+    )
+    .clone_with_schema_identity(SchemaIndexId::new(1).unwrap(), 1, 7);
+    let unique = before
+        .clone()
+        .with_added_unique_activation(unique, fingerprint, 7)
+        .unwrap();
+    let check = before
+        .constraint_catalog()
+        .clone()
+        .with_added_check_activation(
+            "pending_check".to_string(),
+            ConstraintOrigin::SqlDdl,
+            AcceptedCheckExprV1::True,
+            fingerprint,
+            7,
+        )
+        .unwrap();
+    let not_null = before
+        .constraint_catalog()
+        .clone()
+        .with_added_not_null_activation(&field, fingerprint, 7)
+        .unwrap();
+    for pending in [
+        unique,
+        before.clone().with_constraint_catalog(check),
+        before.with_constraint_catalog(not_null),
+    ] {
+        let activation_id = pending.constraint_catalog().activations()[0].id();
+        let validating_catalog = pending
+            .constraint_catalog()
+            .clone()
+            .with_validation_started(activation_id)
+            .unwrap();
+        let validating = pending.clone().with_constraint_catalog(validating_catalog);
+        for snapshot in [pending, validating] {
+            let accepted = AcceptedSchemaSnapshot::try_new(snapshot.clone()).unwrap();
+            assert_live_activation_metadata_rejection(&accepted);
+            assert_eq!(accepted.persisted_snapshot(), &snapshot);
+        }
+    }
+}
+
+#[cfg(feature = "sql")]
+fn assert_live_activation_metadata_rejection(accepted: &crate::db::schema::AcceptedSchemaSnapshot) {
+    let expected = Err(SchemaDdlMutationAdmissionError::ConstraintCatalog(
+        crate::db::schema::AcceptedConstraintCatalogError::LiveActivation,
+    ));
+    assert_eq!(
+        derive_sql_ddl_field_rename_accepted_after(accepted, "nickname", "label"),
+        expected,
+    );
+    for default in [
+        SchemaInsertDefault::None,
+        SchemaInsertDefault::SlotPayload(vec![0xFF, 0x01, b'A']),
+    ] {
+        assert_eq!(
+            derive_sql_ddl_field_default_accepted_after(accepted, "nickname", default),
+            expected,
+        );
+    }
+}
+
+#[test]
+#[cfg(feature = "sql")]
 fn field_rename_preserves_nullable_unique_predicate_identity_and_rejects_corruption() {
     let accepted = crate::db::schema::AcceptedSchemaSnapshot::try_new(base_snapshot())
         .expect("test accepted schema should be internally valid");
@@ -648,7 +764,7 @@ fn field_rename_preserves_nullable_unique_predicate_identity_and_rejects_corrupt
         "unique_name".to_string(),
         "test::mutation::unique_name".to_string(),
         true,
-        PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
+        PersistedIndexKeySnapshot::from_field_paths(vec![name_key_path()]),
         Some(crate::db::schema::AcceptedIndexPredicate::test_non_null(2)),
     );
     let indexed = derive_sql_ddl_field_path_index_accepted_after(&accepted, unique)
@@ -673,7 +789,7 @@ fn field_rename_preserves_nullable_unique_predicate_identity_and_rejects_corrupt
         "malformed_name".to_string(),
         "test::mutation::malformed_name".to_string(),
         true,
-        PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
+        PersistedIndexKeySnapshot::from_field_paths(vec![name_key_path()]),
         Some(crate::db::schema::AcceptedIndexPredicate::test_non_null(99)),
     );
     // Bypass acceptance deliberately to exercise rejection of corrupted authority.
@@ -699,7 +815,7 @@ fn sql_ddl_index_identity_exhaustion_is_typed_and_fail_closed() {
         "exhausted".to_string(),
         "test::mutation::exhausted".to_string(),
         false,
-        PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
+        PersistedIndexKeySnapshot::from_field_paths(vec![name_key_path()]),
         None,
     );
     let before = snapshot_with_indexes(&base_snapshot(), vec![exhausted_index]);
@@ -736,7 +852,7 @@ fn secondary_index_drop_compacts_only_physical_ordinals() {
         "by_name_copy".to_string(),
         "test::mutation::by_name_copy".to_string(),
         false,
-        PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
+        PersistedIndexKeySnapshot::from_field_paths(vec![name_key_path()]),
         None,
     );
     let before = snapshot_with_indexes(&base_snapshot(), vec![first, dropped.clone(), surviving]);

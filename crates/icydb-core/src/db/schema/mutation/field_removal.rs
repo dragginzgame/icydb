@@ -142,18 +142,14 @@ pub(in crate::db::schema) fn derive_dense_field_removal_candidate(
         .collect::<Option<Vec<_>>>()
         .ok_or(DenseFieldRemovalError::Unsupported)?;
     let constraint_catalog = remap_constraint_catalog(before, removed_field, map_field)?;
-    let snapshot = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
-        before.version(),
-        before.entity_path().to_string(),
-        before.entity_name().to_string(),
-        primary_key_field_ids,
-        row_layout,
-        fields,
-        indexes,
-    )
-    .with_constraint_catalog(constraint_catalog)
-    .with_relation_id_allocator(before.relation_id_allocator())
-    .with_relations(relations);
+    let snapshot = before
+        .clone()
+        .with_primary_key_field_ids(primary_key_field_ids)
+        .with_row_layout(row_layout)
+        .with_fields(fields)
+        .with_indexes(indexes)
+        .with_constraint_catalog(constraint_catalog)
+        .with_relations(relations);
 
     Ok(DenseFieldRemovalCandidate {
         snapshot,

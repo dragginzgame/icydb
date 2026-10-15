@@ -34,11 +34,12 @@ The maintained [facade-only example](testing/model-facade-only/) and
 routes, including renamed Cargo dependencies and generated macro resolution.
 Use the same release tag for every IcyDB package.
 
-The public runtime `icydb` crate path supports Rust `1.88.0` and newer.
+The public runtime `icydb` crate path supports Rust `1.91.0` and newer.
 Its library dependency path, including `icydb-model` and
 `icydb-model-macros`, retains the same floor. Other workspace-only packages
 may use the workspace Rust `1.96.0` floor. Repository maintenance uses the
-pinned Rust `1.99.0` toolchain listed below.
+latest stable Rust channel selected by `rust-toolchain.toml`. Update an existing
+installation with `rustup update stable`.
 
 Generated endpoint build scripts should depend on `icydb` with the same tag and
 call `icydb::build::build_canister!(SchemaCanister)`.
@@ -201,10 +202,11 @@ Cargo helper tools, ICP tooling, and repository hooks.
 `make update-dev` ensures the reviewed Rust, Cargo, actionlint, parser and ICP
 tool selections are installed (apart from installing `gh` if missing), ensures
 the repository's formatting hook is installed, and leaves repository dependencies
-unchanged. Common executables are selected by [ci/ic-tools.tsv](ci/ic-tools.tsv)
-and [ci/tool-versions.env](ci/tool-versions.env); IcyDB Cargo utilities are selected
+unchanged. The reviewed Shared snapshot owns common executable selections in
+[ci/ic-tools.tsv](ci/ic-tools.tsv) and [ci/tool-versions.env](ci/tool-versions.env);
+IcyDB Cargo utilities are selected
 by [ci/icydb-tools.env](ci/icydb-tools.env). Changing selections is an explicit
-maintenance action.
+snapshot adoption or a documented, explicitly selected consumer exception.
 Both setup targets prepare the selected lockfile with `make fetch` in the
 repository-local Cargo cache before offline tool verification. The same cache
 preparation supports explicit locked Testkit runner installation and downloads missing locked packages without upgrading dependency selections.
@@ -345,11 +347,13 @@ it cannot change its parent shell's environment.
 ### SQL Evidence Commands
 
 Run the compact native generated and bundled-SQLite comparisons without the
-live canister boundary with:
+live canister boundary with the same nonempty selections used by CI. Each
+scheduled obligation gets one root seed and repetition; full repeated receipt
+shards remain Tier C-owned:
 
 ```bash
-cargo test --locked -p icydb-core --no-default-features --features sql db::session::tests::sqlite_reference
-cargo test --locked -p icydb-core --no-default-features --features sql db::session::tests::mutation_reference
+make _ci-tier-a-sqlite
+make _ci-tier-a-mutation
 cargo test --locked -p icydb-testing-integration --test sql_correctness
 ```
 
@@ -443,8 +447,11 @@ cargo run -q -p icydb-cli -- canister list --environment test
 `icydb sql` only queries the current canister state. It does not create or load
 demo data automatically. Use `canister refresh` for the destructive reset flow
 in the selected ICP environment. It deploys or reinstalls the canister, then
-calls `icydb_fixtures_load`. If the installation probe reports an error,
-refresh stops before deployment. A missing fixture endpoint or failed load makes
+calls `icydb_fixtures_load`. A successful ICP JSON status reports installed
+Wasm through `module_hash`; `null` selects ordinary deployment for a created,
+empty canister. Failed or malformed installation probes stop before deployment
+and preserve the ICP diagnostic. Create a new canister with `icydb canister deploy`
+before using refresh. A missing fixture endpoint or failed load makes
 refresh fail after deployment; a reinstall has already cleared stable memory.
 
 ## CLI Command Shapes
@@ -469,6 +476,10 @@ In the SQL shell, finish each statement with `;`. Ctrl-D or EOF exits and
 discards unfinished input, including when stdin is piped. Complete statements
 already submitted still run. One-shot `--sql` and trailing SQL accept a statement
 without a final semicolon.
+
+History load and save failures report warnings with the selected history path
+and keep the shell running. Completed statements enter history after execution,
+including statements that return SQL errors; unfinished input is discarded.
 
 `canister upgrade` builds the selected canister, then installs ICP's build
 output in upgrade mode. ICP resolves the project and selected environment,

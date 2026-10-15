@@ -1,63 +1,24 @@
 //! Module: db::data::persisted_row::reader::cache
 //! Responsibility: lazy validated and materialized persisted-row slot state.
 //! Does not own: field decode policy or row-envelope validation.
-//! Boundary: `StructuralSlotReader` caches scalar validation and runtime values here.
+//! Boundary: `StructuralSlotReader` retains borrowed scalar views and runtime values here.
 
 use crate::{
-    db::data::{
-        ScalarValueRef, StructuralRowContract, StructuralRowFieldBytes,
-        persisted_row::{
-            codec::ScalarSlotValueRef, contract::decode_scalar_slot_value_from_row_contract,
-        },
+    db::{
+        data::{ScalarSlotValueRef, StructuralRowContract},
+        schema::LeafCodec,
     },
-    db::schema::LeafCodec,
     error::InternalError,
     value::Value,
 };
 use std::cell::OnceCell;
 
-///
-/// ValidatedScalarSlotValue
-///
-/// ValidatedScalarSlotValue stores the compact post-validation shape for one
-/// scalar slot.
-/// Payload-backed scalar variants keep only enough state to prove validation
-/// happened, while fixed-width variants can be reconstructed without decoding
-/// the persisted bytes again.
-///
-
-#[derive(Clone, Copy, Debug)]
-pub(in crate::db::data::persisted_row) enum ValidatedScalarSlotValue {
-    Null,
-    Blob,
-    Bool(bool),
-    Date(crate::types::Date),
-    Duration(crate::types::Duration),
-    Float32(crate::types::Float32),
-    Float64(crate::types::Float64),
-    Int(i64),
-    Principal(crate::types::Principal),
-    Subaccount(crate::types::Subaccount),
-    Text,
-    Timestamp(crate::types::Timestamp),
-    Nat(u64),
-    Ulid(crate::types::Ulid),
-    Unit,
-    U256(crate::types::U256),
-}
-
-///
-/// CachedSlotValue
-///
-/// CachedSlotValue tracks whether one slot has already been validated, and
-/// whether its semantic runtime `Value` has been materialized yet, during the
-/// current structural row access pass.
-///
-
+/// Validated scalar views borrow the immutable row payload, including text and
+/// blobs. Materialization reuses that admission rather than decoding again.
 #[derive(Debug)]
-pub(in crate::db::data::persisted_row) enum CachedSlotValue {
+pub(in crate::db::data::persisted_row) enum CachedSlotValue<'a> {
     Scalar {
-        validated: OnceCell<ValidatedScalarSlotValue>,
+        validated: OnceCell<ScalarSlotValueRef<'a>>,
         materialized: OnceCell<Value>,
     },
     Deferred {
@@ -65,12 +26,10 @@ pub(in crate::db::data::persisted_row) enum CachedSlotValue {
     },
 }
 
-// Build the initial per-slot cache shape from the static field contract only.
-// This avoids a row-open decode loop while still letting access-time readers
-// branch cheaply by leaf codec.
-pub(super) fn build_initial_slot_cache(
+// Select cache shape from the accepted contract without decoding any payload.
+pub(super) fn build_initial_slot_cache<'a>(
     contract: &StructuralRowContract,
-) -> Result<Vec<CachedSlotValue>, InternalError> {
+) -> Result<Vec<CachedSlotValue<'a>>, InternalError> {
     (0..contract.field_count())
         .map(|slot| {
             Ok(match contract.field_leaf_codec(slot)? {
@@ -84,99 +43,4 @@ pub(super) fn build_initial_slot_cache(
             })
         })
         .collect()
-}
-
-// Freeze one validated scalar slot into a compact cache state that preserves
-// fixed-width scalar payloads by value and defers payload-backed scalar
-// materialization until a caller actually asks for a runtime `Value`.
-pub(super) const fn validated_scalar_slot_value(
-    value: ScalarSlotValueRef<'_>,
-) -> ValidatedScalarSlotValue {
-    match value {
-        ScalarSlotValueRef::Null => ValidatedScalarSlotValue::Null,
-        ScalarSlotValueRef::Value(value) => match value {
-            ScalarValueRef::Blob(_) => ValidatedScalarSlotValue::Blob,
-            ScalarValueRef::Bool(value) => ValidatedScalarSlotValue::Bool(value),
-            ScalarValueRef::Date(value) => ValidatedScalarSlotValue::Date(value),
-            ScalarValueRef::Duration(value) => ValidatedScalarSlotValue::Duration(value),
-            ScalarValueRef::Float32(value) => ValidatedScalarSlotValue::Float32(value),
-            ScalarValueRef::Float64(value) => ValidatedScalarSlotValue::Float64(value),
-            ScalarValueRef::Int(value) => ValidatedScalarSlotValue::Int(value),
-            ScalarValueRef::Principal(value) => ValidatedScalarSlotValue::Principal(value),
-            ScalarValueRef::Subaccount(value) => ValidatedScalarSlotValue::Subaccount(value),
-            ScalarValueRef::Text(_) => ValidatedScalarSlotValue::Text,
-            ScalarValueRef::Timestamp(value) => ValidatedScalarSlotValue::Timestamp(value),
-            ScalarValueRef::Nat(value) => ValidatedScalarSlotValue::Nat(value),
-            ScalarValueRef::Ulid(value) => ValidatedScalarSlotValue::Ulid(value),
-            ScalarValueRef::Unit => ValidatedScalarSlotValue::Unit,
-            ScalarValueRef::U256(value) => ValidatedScalarSlotValue::U256(value),
-        },
-    }
-}
-
-// Borrow one scalar slot view from the validated cache without rebuilding
-// fixed-width scalar values from persisted bytes.
-pub(super) fn scalar_slot_value_ref_from_validated<'a>(
-    validated: ValidatedScalarSlotValue,
-    contract: &StructuralRowContract,
-    field_bytes: &'a StructuralRowFieldBytes<'a>,
-    slot: usize,
-) -> Result<ScalarSlotValueRef<'a>, InternalError> {
-    match validated {
-        ValidatedScalarSlotValue::Null => Ok(ScalarSlotValueRef::Null),
-        ValidatedScalarSlotValue::Blob | ValidatedScalarSlotValue::Text => {
-            contract.field_name(slot)?;
-            let raw_value = field_bytes
-                .field(slot)
-                .ok_or_else(InternalError::persisted_row_decode_corruption)?;
-            decode_scalar_slot_value_from_row_contract(contract, slot, raw_value)
-        }
-        ValidatedScalarSlotValue::Bool(value) => {
-            Ok(ScalarSlotValueRef::Value(ScalarValueRef::Bool(value)))
-        }
-        ValidatedScalarSlotValue::Date(value) => {
-            Ok(ScalarSlotValueRef::Value(ScalarValueRef::Date(value)))
-        }
-        ValidatedScalarSlotValue::Duration(value) => {
-            Ok(ScalarSlotValueRef::Value(ScalarValueRef::Duration(value)))
-        }
-        ValidatedScalarSlotValue::Float32(value) => {
-            Ok(ScalarSlotValueRef::Value(ScalarValueRef::Float32(value)))
-        }
-        ValidatedScalarSlotValue::Float64(value) => {
-            Ok(ScalarSlotValueRef::Value(ScalarValueRef::Float64(value)))
-        }
-        ValidatedScalarSlotValue::Int(value) => {
-            Ok(ScalarSlotValueRef::Value(ScalarValueRef::Int(value)))
-        }
-        ValidatedScalarSlotValue::Principal(value) => {
-            Ok(ScalarSlotValueRef::Value(ScalarValueRef::Principal(value)))
-        }
-        ValidatedScalarSlotValue::Subaccount(value) => {
-            Ok(ScalarSlotValueRef::Value(ScalarValueRef::Subaccount(value)))
-        }
-        ValidatedScalarSlotValue::Timestamp(value) => {
-            Ok(ScalarSlotValueRef::Value(ScalarValueRef::Timestamp(value)))
-        }
-        ValidatedScalarSlotValue::Nat(value) => {
-            Ok(ScalarSlotValueRef::Value(ScalarValueRef::Nat(value)))
-        }
-        ValidatedScalarSlotValue::Ulid(value) => {
-            Ok(ScalarSlotValueRef::Value(ScalarValueRef::Ulid(value)))
-        }
-        ValidatedScalarSlotValue::Unit => Ok(ScalarSlotValueRef::Value(ScalarValueRef::Unit)),
-        ValidatedScalarSlotValue::U256(value) => {
-            Ok(ScalarSlotValueRef::Value(ScalarValueRef::U256(value)))
-        }
-    }
-}
-
-// Materialize one validated scalar slot into the runtime `Value` enum.
-pub(super) fn materialize_validated_scalar_slot_value(
-    validated: ValidatedScalarSlotValue,
-    contract: &StructuralRowContract,
-    field_bytes: &StructuralRowFieldBytes<'_>,
-    slot: usize,
-) -> Result<Value, InternalError> {
-    Ok(scalar_slot_value_ref_from_validated(validated, contract, field_bytes, slot)?.into_value())
 }

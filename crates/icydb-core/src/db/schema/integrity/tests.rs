@@ -74,9 +74,9 @@ fn index_width_is_enforced_for_accepted_and_candidate_key_forms() {
     for count in [0, 1, MAX_INDEX_FIELDS, MAX_INDEX_FIELDS + 1] {
         for form in 0..3 {
             let key = if form == 0 {
-                PersistedIndexKeySnapshot::FieldPath(vec![source.clone(); count])
+                PersistedIndexKeySnapshot::from_field_paths(vec![source.clone(); count])
             } else {
-                PersistedIndexKeySnapshot::Items(
+                PersistedIndexKeySnapshot::new(
                     (0..count)
                         .map(|offset| {
                             if form == 2 && offset % 2 == 0 {
@@ -219,7 +219,7 @@ fn index(id: u32, ordinal: u16, name: &str, field_id: u32) -> PersistedIndexSnap
         name.into(),
         "test::Store".into(),
         false,
-        PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+        PersistedIndexKeySnapshot::from_field_paths(vec![PersistedIndexFieldPathSnapshot::new(
             FieldId::new(field_id),
             SchemaFieldSlot::new(0),
             vec!["id".into()],

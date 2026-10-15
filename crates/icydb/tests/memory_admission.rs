@@ -30,14 +30,6 @@ impl AllocationPolicy for HostPolicy {
     fn validate_slot(&self, _: &StableKey, _: &MemoryManagerSlot) -> Result<(), Self::Error> {
         Ok(())
     }
-
-    fn validate_reserved_slot(
-        &self,
-        _: &StableKey,
-        _: &MemoryManagerSlot,
-    ) -> Result<(), Self::Error> {
-        Ok(())
-    }
 }
 
 impl RuntimeBootstrapPolicy for HostPolicy {
@@ -101,7 +93,7 @@ fn pool() -> MemoryAllocationPool {
 }
 
 fn snapshot(requests: &[MemoryRequest]) -> SealedDeclarationSnapshot {
-    SealedDeclarationSnapshot::new(requests).unwrap()
+    SealedDeclarationSnapshot::new(requests.to_vec()).unwrap()
 }
 
 // Refuse capacity before growing the backing, then permit retry on the same runtime.

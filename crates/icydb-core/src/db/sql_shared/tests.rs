@@ -204,3 +204,21 @@ fn tokenize_sql_rejects_oversized_hex_blob_literals() {
         }
     );
 }
+
+#[test]
+fn tokenize_sql_hex_blob_preserves_all_bytes_and_empty_payloads() {
+    let bytes: Vec<_> = (0..=u8::MAX).collect();
+    let hex = crate::db::codec::hex::encode_hex_lower(&bytes);
+    for hex in [hex.to_uppercase(), hex] {
+        let tokens =
+            tokenize_sql(&format!("X'{hex}' X''")).expect("valid hex blobs should tokenize");
+        assert_eq!(tokens[0].kind, TokenKind::BlobLiteral(bytes.clone()));
+        assert_eq!(tokens[1].kind, TokenKind::BlobLiteral(Vec::new()));
+    }
+    assert_eq!(
+        tokenize_sql("X'é'"),
+        Err(SqlParseError::invalid_syntax(
+            SqlSyntaxErrorKind::BlobLiteralNonHexDigit
+        )),
+    );
+}

@@ -43,7 +43,11 @@ fn caller_flags_and_release_remaps_reach_cargo() {
     };
 
     // Spaces must remain inside the remap argument, not become new rustc tokens.
-    let root = env::temp_dir().join(format!("icydb flags {} {case}", std::process::id()));
+    let root = ic_host_fs::testing::create_fixture_directory(
+        &env::temp_dir(),
+        &format!("icydb flags {case}"),
+    )
+    .unwrap();
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(
         root.join("Cargo.toml"),

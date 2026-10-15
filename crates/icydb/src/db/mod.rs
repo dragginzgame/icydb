@@ -18,7 +18,10 @@ mod startup;
 pub use bootstrap::DatabaseBootstrapError;
 #[doc(hidden)]
 pub use bootstrap::ensure_default_memory_manager;
-pub use ic_memory::{MemoryAllocationPool, MemoryAllocationPoolError, MemoryAuthority};
+pub use ic_memory::{
+    MemoryAllocationPool, MemoryAllocationPoolError, MemoryAuthority, MemoryDeclarationError,
+    MemoryRequest, SchemaMetadata, SealedDeclarationSnapshot,
+};
 pub use icydb_core::db::{
     CompareProofAndAdvanceError, DynamicQuery, ExactBacklogMeasurement, ExhaustiveQueryPageOutput,
     GroupedQueryOutput, GroupedRow, LiveQueryPageOutput, MAX_MUTATION_JOB_CONTINUATION_BYTES,

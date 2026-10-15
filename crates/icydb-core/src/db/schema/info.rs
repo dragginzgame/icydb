@@ -11,8 +11,8 @@ use crate::db::schema::{
     AcceptedConstraintIdentity, AcceptedEnumCatalog, AcceptedFieldKind, AcceptedSchemaSnapshot,
     AcceptedValueAdmissionContract, AcceptedValueCatalogHandle, FieldId, FieldStorageDecode,
     FieldType, LeafCodec, PersistedFieldSnapshot, PersistedIndexExpressionOp,
-    PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot,
-    PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
+    PersistedIndexFieldPathSnapshot, PersistedIndexKeyItemSnapshot, PersistedIndexSnapshot,
+    PersistedNestedLeafSnapshot, PersistedSchemaSnapshot, SchemaFieldSlot,
     enum_catalog::AcceptedValueContract, field_type_from_persisted_kind,
     query_field_kind_from_persisted_kind, query_field_type_from_persisted_kind,
 };
@@ -1007,7 +1007,6 @@ pub(in crate::db) fn schema_index_info_from_accepted_index(
         fields: index
             .key()
             .field_paths()
-            .iter()
             .map(|path| schema_index_field_path_info_from_accepted(path, snapshot, value_catalog))
             .collect(),
         predicate: index.predicate().cloned(),
@@ -1030,9 +1029,7 @@ pub(in crate::db) fn schema_expression_index_info_from_accepted_index(
     snapshot: &PersistedSchemaSnapshot,
     value_catalog: &AcceptedValueCatalogHandle,
 ) -> Option<SchemaExpressionIndexInfo> {
-    let PersistedIndexKeySnapshot::Items(items) = index.key() else {
-        return None;
-    };
+    let items = index.key().items();
 
     if !items
         .iter()

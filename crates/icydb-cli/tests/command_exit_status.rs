@@ -1,4 +1,4 @@
-//! Exercise SQL, migration and upgrade outcomes through the actual CLI process.
+//! Exercise SQL, canister and migration outcomes through the actual CLI process.
 //! A local ICP fixture supplies current Candid responses without a live network.
 
 #![cfg(unix)]
@@ -11,15 +11,17 @@ use std::{
     path::PathBuf,
     process::{Command, Output, Stdio},
     sync::atomic::{AtomicU64, Ordering},
+    time::{Duration, Instant},
 };
 
 use candid::{CandidType, Encode};
 use icydb::{
     Error, ErrorOrigin,
     db::{
-        RowProjectionOutput, SchemaMigrationPhase, SchemaMigrationStatusPage, sql::SqlQueryResult,
+        EntityConstraintDescription, EntitySchemaDescription, RowProjectionOutput,
+        SchemaMigrationPhase, SchemaMigrationStatusPage, sql::SqlQueryResult,
     },
-    diagnostic::RuntimeBoundaryCode,
+    diagnostic::{DiagnosticFactTag, RuntimeBoundaryCode},
     value::OutputValue,
 };
 
@@ -73,11 +75,24 @@ case "$1:$2" in
     read -r contents < "$artifact" || exit 1
     printf '%s\n' "$contents" > "$ICP_FIXTURE_DIRECTORY/installed"
     ;;
+  canister:list) printf '%s\n' '{"canisters":["fixture"]}' ;;
   canister:status)
+    if [ -n "${ICP_FIXTURE_STATUS_ERROR-}" ]; then
+      printf '%s\n' "$ICP_FIXTURE_STATUS_ERROR" >&2
+      exit 7
+    fi
     case "${ICP_FIXTURE_REFRESH_CASE-}" in
       status-failure) printf '%s\n' 'connection refused' >&2; exit 1 ;;
-      absent) printf '%s\n' 'canister not installed' >&2; exit 1 ;;
-      *) printf '%s\n' 'aaaaa-aa' ;;
+      uninstalled) printf '%s\n' '{"module_hash":null}' ;;
+      invalid-status) printf '%s\n' '{"status":"running"}' ;;
+      invalid-json) printf '%s\n' '{' ;;
+      invalid-module-hash) printf '%s\n' '{"module_hash":42}' ;;
+      *)
+        case "$4" in
+          --json) printf '%s\n' '{"module_hash":"0x0123"}' ;;
+          *) printf '%s\n' 'aaaaa-aa' ;;
+        esac
+        ;;
     esac
     ;;
   deploy:fixture) [ "${ICP_FIXTURE_REFRESH_CASE-}" != deploy-failure ] || exit 1 ;;
@@ -128,6 +143,7 @@ esac
             .env("ICP_FIXTURE_DIRECTORY", &self.directory)
             .env("ICP_FIXTURE_RESPONSE", response)
             .env("ICP_FIXTURE_SUCCESS", success_response())
+            .env_remove("ICP_FIXTURE_STATUS_ERROR")
             .env_remove("ICP_FIXTURE_REFRESH_CASE")
             .env_remove("ICP_FIXTURE_TRANSPORT_FAILURE");
 
@@ -156,6 +172,32 @@ esac
             .env_remove("ICP_FIXTURE_UPGRADE_FAILURE")
             .args(["canister", "upgrade", "fixture", "-e", environment]);
 
+        command
+    }
+
+    fn diagnostic_command(&self, response: &str) -> Command {
+        let mut command = self.command(response);
+        command.args([
+            "diagnostic",
+            "E221",
+            "--canister",
+            "fixture",
+            "-e",
+            "fixture",
+        ]);
+        // Complete mutation-field facts preserve the same identity through
+        // live resolution, offline metadata and numeric rendering.
+        let half = u64::from_be_bytes([7; 8]);
+        for (tag, value) in [
+            (DiagnosticFactTag::AcceptedSchemaFingerprintMethod, 1),
+            (DiagnosticFactTag::AcceptedSchemaFingerprintHigh, half),
+            (DiagnosticFactTag::AcceptedSchemaFingerprintLow, half),
+            (DiagnosticFactTag::EntityTag, 42),
+            (DiagnosticFactTag::FieldId, 1),
+            (DiagnosticFactTag::MutationOperation, 1),
+        ] {
+            command.args(["--fact", &format!("{}={value}", tag.raw())]);
+        }
         command
     }
 
@@ -225,6 +267,196 @@ fn response_hex<T: CandidType>(response: Result<T, Error>) -> String {
     hex
 }
 
+fn diagnostic_report(
+    path: String,
+    constraints: Vec<EntityConstraintDescription>,
+) -> Vec<EntitySchemaDescription> {
+    vec![EntitySchemaDescription::new(
+        path,
+        "LiveAccount".into(),
+        42,
+        1,
+        [7; 16],
+        "id".into(),
+        vec!["id".into()],
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        constraints,
+        1,
+        1,
+    )]
+}
+
+fn diagnostic_artifact_json() -> serde_json::Value {
+    serde_json::json!({
+        "format": "icydb-diagnostic-schema", "version": 1,
+        "provenance": { "kind": "source", "source": "schema/Account" },
+        "entities": [{
+            "fingerprint_method": 1, "fingerprint": vec![7; 16], "entity_tag": 42,
+            "entity_name": "OfflineAccount", "entity_path": "schema::OfflineAccount",
+            "fields": [{ "id": 1, "name": "id" }],
+            "constraints": [], "indexes": [], "relations": []
+        }]
+    })
+}
+
+#[test]
+fn diagnostic_invalid_live_reports_keep_source_metadata_resolution() {
+    let constraints = ["id", "other"]
+        .into_iter()
+        .zip(1_u32..)
+        .map(|(field, id)| {
+            serde_json::from_value(serde_json::json!({
+                "id": id, "name": format!("required_{field}"), "kind": "not_null",
+                "origin": "ddl", "validation_state": "validated", "field_id": 1,
+                "fields": [field], "semantics": "required"
+            }))
+            .unwrap()
+        })
+        .collect();
+    let replies = [
+        response_hex(Ok(diagnostic_report(
+            "x".repeat(icydb_schema::MAX_SOURCE_KEY_BYTES + 1),
+            Vec::new(),
+        ))),
+        response_hex(Ok(diagnostic_report(
+            "schema::LiveAccount".into(),
+            constraints,
+        ))),
+        response_hex::<Vec<EntitySchemaDescription>>(Err(Error::from_runtime_boundary(
+            RuntimeBoundaryCode::DatabaseStartupRecoveryPending,
+            ErrorOrigin::Runtime,
+        ))),
+        "00".into(),
+    ];
+    for reply in replies {
+        let fixture = IcpFixture::new();
+        let artifact = fixture.directory.join("source.json");
+        fs::write(&artifact, diagnostic_artifact_json().to_string()).unwrap();
+        let output = fixture
+            .diagnostic_command(&reply)
+            .arg("--source-metadata")
+            .arg(&artifact)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let report = String::from_utf8(output.stdout).unwrap();
+        assert!(report.contains("entity_tag=42(OfflineAccount)"), "{report}");
+        assert!(report.contains("field_id=1(id)"), "{report}");
+        assert!(report.lines().any(|line| line.starts_with("note:")));
+        fixture.assert_call("icydb_schema", true);
+    }
+}
+
+#[test]
+fn diagnostic_live_lookup_preserves_numeric_fallback_and_exact_artifact_priority() {
+    let malformed = response_hex(Ok(diagnostic_report(
+        "x".repeat(icydb_schema::MAX_SOURCE_KEY_BYTES + 1),
+        Vec::new(),
+    )));
+    let fixture = IcpFixture::new();
+    let output = fixture.diagnostic_command(&malformed).output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let report = String::from_utf8(output.stdout).unwrap();
+    assert!(report.contains("entity_tag=42"));
+    assert!(!report.contains("LiveAccount"));
+    assert!(report.lines().any(|line| line.starts_with("note:")));
+    fixture.assert_call("icydb_schema", true);
+
+    let fixture = IcpFixture::new();
+    let artifact = fixture.directory.join("deployment.json");
+    let mut json = diagnostic_artifact_json();
+    json["provenance"] = serde_json::json!({
+        "kind": "deployment", "environment": "fixture", "canister": "fixture"
+    });
+    fs::write(&artifact, json.to_string()).unwrap();
+    let output = fixture
+        .diagnostic_command(&malformed)
+        .arg("--artifact")
+        .arg(&artifact)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let report = String::from_utf8(output.stdout).unwrap();
+    assert!(report.contains("entity_tag=42(OfflineAccount)"));
+    assert!(!fixture.directory.join("calls").exists());
+}
+
+#[test]
+fn diagnostic_valid_live_reports_and_invalid_explicit_artifacts_keep_their_boundaries() {
+    let reply = response_hex(Ok(diagnostic_report(
+        "schema::LiveAccount".into(),
+        Vec::new(),
+    )));
+    let fixture = IcpFixture::new();
+    let output = fixture.diagnostic_command(&reply).output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let report = String::from_utf8(output.stdout).unwrap();
+    assert!(report.contains("entity_tag=42(LiveAccount)"));
+    assert!(!report.lines().any(|line| line.starts_with("note:")));
+    fixture.assert_call("icydb_schema", true);
+
+    for option in ["--artifact", "--source-metadata"] {
+        let fixture = IcpFixture::new();
+        let artifact = fixture.directory.join("invalid.json");
+        fs::write(&artifact, "{}").unwrap();
+        let output = fixture
+            .diagnostic_command(&reply)
+            .arg(option)
+            .arg(&artifact)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(!fixture.directory.join("calls").exists());
+    }
+}
+
+#[test]
+fn diagnostic_artifact_options_refuse_fifos_without_waiting_for_a_writer() {
+    for option in ["--artifact", "--source-metadata"] {
+        let fixture = IcpFixture::new();
+        let fifo = fixture.directory.join("artifact.fifo");
+        assert!(
+            Command::new("/usr/bin/mkfifo")
+                .args(["-m", "600"])
+                .arg(&fifo)
+                .status()
+                .unwrap()
+                .success()
+        );
+        let link = fixture.directory.join("artifact.link");
+        std::os::unix::fs::symlink(&fifo, &link).unwrap();
+        for selected in [&fifo, &link] {
+            let mut child = fixture
+                .diagnostic_command("00")
+                .arg(option)
+                .arg(selected)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            // This deadline bounds a blocking-open regression in the fixture;
+            // it is neither a performance assertion nor a filesystem deadline.
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while child.try_wait().unwrap().is_none() {
+                if Instant::now() >= deadline {
+                    child.kill().unwrap();
+                    let output = child.wait_with_output().unwrap();
+                    panic!("diagnostic waited for a FIFO writer: {output:?}");
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            let output = child.wait_with_output().unwrap();
+            assert!(!output.status.success(), "{output:?}");
+            assert!(output.stdout.is_empty(), "{output:?}");
+            assert!(!output.stderr.is_empty(), "{output:?}");
+            assert!(!fixture.directory.join("calls").exists());
+        }
+    }
+}
+
 fn success_response() -> String {
     response_hex(Ok(SqlQueryResult::Count {
         entity: "Character".into(),
@@ -245,11 +477,71 @@ fn assert_failure(output: Output) {
 }
 
 #[test]
+fn failed_canister_probes_preserve_diagnostics_and_stop_before_effects() {
+    // These are opaque child payloads, never inputs to a stderr classifier.
+    for diagnostic in [
+        "replica rejected the caller: controller permission required",
+        "fixture configuration failure",
+        "connection refused by fixture transport",
+    ] {
+        for environment in ["local", "ic", "fixture"] {
+            for arguments in [
+                vec!["sql", "-c", "fixture", "--sql", "SELECT id FROM Character"],
+                vec!["canister", "list"],
+                vec!["canister", "refresh", "fixture"],
+            ] {
+                let fixture = IcpFixture::new();
+                let output = fixture
+                    .command(&success_response())
+                    .env("ICP_FIXTURE_STATUS_ERROR", diagnostic)
+                    .args(arguments)
+                    .args(["-e", environment])
+                    .output()
+                    .unwrap();
+                assert_eq!(output.status.code(), Some(1));
+                let stderr = String::from_utf8(output.stderr).unwrap();
+                assert!(stderr.contains(diagnostic), "child diagnostic must survive");
+                let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
+                let arguments = calls.lines().collect::<Vec<_>>();
+                assert!(!arguments.contains(&"deploy"));
+                assert!(!arguments.contains(&"call"));
+                assert!(
+                    arguments
+                        .windows(2)
+                        .any(|pair| pair == ["--environment", environment])
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn missing_icp_executable_reports_command_context() {
+    for arguments in [
+        vec!["sql", "-c", "fixture", "--sql", "SELECT id FROM Character"],
+        vec!["canister", "refresh", "fixture"],
+    ] {
+        let fixture = IcpFixture::new();
+        fs::remove_file(fixture.directory.join("icp")).unwrap();
+        let output = fixture.command("").args(arguments).output().unwrap();
+        assert_eq!(output.status.code(), Some(1));
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(
+            stderr.contains("icp"),
+            "diagnostic must identify the missing executable"
+        );
+    }
+}
+
+#[test]
 fn refresh_preserves_probe_admission_and_stops_after_failed_stages() {
     for (case, exit, deployed, reinstalled, fixtures_called) in [
         ("status-failure", 1, false, false, false),
         ("installed", 0, true, true, true),
-        ("absent", 0, true, false, true),
+        ("uninstalled", 0, true, false, true),
+        ("invalid-status", 1, false, false, false),
+        ("invalid-json", 1, false, false, false),
+        ("invalid-module-hash", 1, false, false, false),
         ("deploy-failure", 1, true, true, false),
         ("fixture-failure", 1, true, true, true),
     ] {
@@ -540,6 +832,62 @@ fn interactive_sql_eof_discards_unterminated_statements() {
         assert!(!history.contains("DROP INDEX") && !history.contains("UPDATE"));
         if completed_queries == 0 {
             assert!(history.is_empty());
+        } else {
+            assert!(history.contains("SELECT id FROM Character;"));
+        }
+    }
+}
+
+#[test]
+fn interactive_sql_history_failures_do_not_block_completed_statements() {
+    for case in ["parent_file", "history_directory", "invalid_utf8"] {
+        let fixture = IcpFixture::new();
+        let history = fixture.directory.join(".cache/sql_history");
+        match case {
+            "parent_file" => fs::write(fixture.directory.join(".cache"), b"untouched").unwrap(),
+            "history_directory" => fs::create_dir_all(&history).unwrap(),
+            "invalid_utf8" => {
+                fs::create_dir_all(history.parent().unwrap()).unwrap();
+                fs::write(&history, [0xff]).unwrap();
+            }
+            _ => unreachable!(),
+        }
+
+        let mut child = fixture
+            .sql_command(&success_response())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(b"SELECT id FROM Character;\nSELECT id FROM Character;\n")
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(0),
+            "history case {case}: {:?}",
+            String::from_utf8_lossy(&output.stderr),
+        );
+        let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
+        assert_eq!(
+            calls.lines().filter(|line| *line == "icydb_query").count(),
+            2
+        );
+        assert!(String::from_utf8_lossy(&output.stderr).contains(".cache/sql_history"));
+        if case == "parent_file" {
+            assert_eq!(
+                fs::read(fixture.directory.join(".cache")).unwrap(),
+                b"untouched"
+            );
+        } else if case == "history_directory" {
+            assert!(history.is_dir());
+        } else {
+            assert_eq!(fs::read(&history).unwrap(), [0xff]);
         }
     }
 }
@@ -757,6 +1105,44 @@ fn migration_abort_requires_aborted_and_preserves_paged_rejected_cleanup() {
         );
         assert_eq!(fixture.migration_calls(), replies.len());
     }
+}
+
+#[test]
+fn migration_abort_limits_calls_and_another_invocation_resumes_cleanup() {
+    for phase in [
+        SchemaMigrationPhase::Prepared,
+        SchemaMigrationPhase::Rejected,
+    ] {
+        let fixture = IcpFixture::new();
+        let status = migration_response(phase, 0);
+        let mut replies = vec![status.clone(); 1_024];
+        replies.push(migration_response(SchemaMigrationPhase::Aborted, 0));
+        let mut command = fixture.migration_command(&status, &replies, "abort");
+        command.arg("--yes");
+
+        // An additional valid response makes an off-by-one call observable without
+        // leaving the unbounded implementation spinning on an infinite substitute.
+        assert_migration_outcome(command.output().unwrap(), phase, 1);
+        assert_eq!(fixture.migration_calls(), 1_024);
+
+        assert_migration_outcome(command.output().unwrap(), SchemaMigrationPhase::Aborted, 0);
+        assert_eq!(fixture.migration_calls(), 1_025);
+    }
+}
+
+#[test]
+fn migration_abort_accepts_terminal_receipt_on_its_last_allowed_call() {
+    let fixture = IcpFixture::new();
+    let status = migration_response(SchemaMigrationPhase::Rejected, 0);
+    let mut replies = vec![status.clone(); 1_023];
+    replies.push(migration_response(SchemaMigrationPhase::Aborted, 0));
+    let output = fixture
+        .migration_command(&status, &replies, "abort")
+        .arg("--yes")
+        .output()
+        .unwrap();
+    assert_migration_outcome(output, SchemaMigrationPhase::Aborted, 0);
+    assert_eq!(fixture.migration_calls(), 1_024);
 }
 
 #[test]

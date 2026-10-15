@@ -21,13 +21,15 @@ fn initialize_group_schema(kind: AcceptedFieldKind) {
             "category_idx".into(),
             STORE_PATH.into(),
             false,
-            PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
-                FieldId::new(2),
-                SchemaFieldSlot::new(1),
-                vec!["category".into()],
-                AcceptedFieldKind::Nat64,
-                false,
-            )]),
+            PersistedIndexKeySnapshot::from_field_paths(vec![
+                PersistedIndexFieldPathSnapshot::new(
+                    FieldId::new(2),
+                    SchemaFieldSlot::new(1),
+                    vec!["category".into()],
+                    AcceptedFieldKind::Nat64,
+                    false,
+                ),
+            ]),
             None,
         )],
     );

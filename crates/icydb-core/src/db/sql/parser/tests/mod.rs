@@ -2446,6 +2446,55 @@ fn parse_alter_table_add_column_statement_rejects_malformed_nat_big_max_bytes_mo
 }
 
 #[test]
+fn parse_add_column_rejects_repeated_nullability_modifiers() {
+    for first in ["NULL", "NOT NULL"] {
+        for second in ["NULL", "NOT NULL"] {
+            for default in ["", "DEFAULT 7 "] {
+                for (prefix, suffix) in [
+                    ("", ""),
+                    ("EXPECT SCHEMA VERSION 3 SET SCHEMA VERSION 4 ", ""),
+                    ("", " EXPECT SCHEMA VERSION 3 SET SCHEMA VERSION 4"),
+                ] {
+                    let sql = format!(
+                        "ALTER TABLE users {prefix}ADD COLUMN score nat64 \
+                         {first} {default}{second}{suffix}"
+                    );
+                    assert_eq!(
+                        parse_sql(&sql).expect_err("a second nullability clause must reject"),
+                        super::SqlParseError::UnsupportedFeature {
+                            feature: SqlFeatureCode::AlterTableAddColumnModifiers,
+                        },
+                        "{sql}",
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn parse_add_column_preserves_single_nullability_and_default_order() {
+    for (modifiers, nullable, default) in [
+        ("", true, None),
+        ("NULL", true, None),
+        ("NOT NULL", false, None),
+        ("DEFAULT 7", true, Some(Value::Int64(7))),
+        ("NULL DEFAULT 7", true, Some(Value::Int64(7))),
+        ("DEFAULT 7 NULL", true, Some(Value::Int64(7))),
+        ("NOT NULL DEFAULT 7", false, Some(Value::Int64(7))),
+        ("DEFAULT 7 NOT NULL", false, Some(Value::Int64(7))),
+    ] {
+        let sql = format!("ALTER TABLE users ADD COLUMN score nat64 {modifiers}");
+        let statement = parse_sql(&sql).expect("one optional nullability clause should parse");
+        let SqlStatement::Ddl(SqlDdlStatement::AlterTableAddColumn(column)) = statement else {
+            panic!("expected ADD COLUMN intent");
+        };
+        assert_eq!(column.nullable, nullable, "{sql}");
+        assert_eq!(column.default, default, "{sql}");
+    }
+}
+
+#[test]
 fn parse_alter_table_alter_column_statement_keeps_default_intent_unresolved() {
     let statement = parse_sql("ALTER TABLE users ALTER COLUMN score SET DEFAULT 7")
         .expect("ALTER TABLE ALTER COLUMN SET DEFAULT should parse as DDL intent");
@@ -4020,6 +4069,7 @@ fn parse_insert_statement_with_explicit_columns_and_values() {
         statement,
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
+            table_alias: None,
             columns: vec!["id".to_string(), "name".to_string(), "age".to_string()],
             source: SqlInsertSource::Values(vec![vec![
                 sql_write_literal(Value::Int64(7)),
@@ -4040,6 +4090,7 @@ fn parse_insert_statement_preserves_explicit_default_values() {
         statement,
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
+            table_alias: None,
             columns: vec!["id".to_string(), "name".to_string()],
             source: SqlInsertSource::Values(vec![vec![
                 SqlWriteValue::Default,
@@ -4059,6 +4110,7 @@ fn parse_insert_statement_preserves_default_values_source() {
         statement,
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
+            table_alias: None,
             columns: Vec::new(),
             source: SqlInsertSource::DefaultValues,
             returning: None,
@@ -4075,6 +4127,7 @@ fn parse_insert_statement_with_hex_blob_literal_values() {
         statement,
         SqlStatement::Insert(SqlInsertStatement {
             entity: "files".to_string(),
+            table_alias: None,
             columns: vec!["id".to_string(), "thumbnail".to_string()],
             source: SqlInsertSource::Values(vec![vec![
                 sql_write_literal(Value::Int64(7)),
@@ -4095,6 +4148,7 @@ fn parse_insert_statement_with_multiple_values_tuples() {
         statement,
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
+            table_alias: None,
             columns: vec!["id".to_string(), "name".to_string(), "age".to_string()],
             source: SqlInsertSource::Values(vec![
                 vec![
@@ -4310,6 +4364,7 @@ fn parse_insert_statement_with_returning_field_list_parses() {
         statement,
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
+            table_alias: None,
             columns: vec!["id".to_string(), "name".to_string()],
             source: SqlInsertSource::Values(vec![vec![
                 sql_write_literal(Value::Int64(1)),
@@ -4398,6 +4453,7 @@ fn parse_insert_statement_without_column_list_parses() {
         statement,
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
+            table_alias: None,
             columns: vec![],
             source: SqlInsertSource::Values(vec![vec![sql_write_literal(Value::Int64(1))]]),
             returning: None,
@@ -4416,6 +4472,7 @@ fn parse_insert_statement_with_field_only_select_source_parses() {
         statement,
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
+            table_alias: None,
             columns: vec!["name".to_string(), "age".to_string()],
             source: SqlInsertSource::Select(Box::new(SqlSelectStatement {
                 entity: "users".to_string(),
@@ -4458,6 +4515,7 @@ fn parse_insert_statement_with_computed_select_source_parses() {
         statement,
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
+            table_alias: None,
             columns: vec!["name".to_string(), "age".to_string()],
             source: SqlInsertSource::Select(Box::new(SqlSelectStatement {
                 entity: "users".to_string(),
@@ -4497,6 +4555,7 @@ fn parse_insert_statement_accepts_single_table_alias() {
         statement,
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
+            table_alias: Some("u".into()),
             columns: vec!["id".to_string(), "name".to_string()],
             source: SqlInsertSource::Values(vec![vec![
                 sql_write_literal(Value::Int64(1)),
@@ -4516,6 +4575,7 @@ fn parse_insert_statement_accepts_as_table_alias_without_column_list() {
         statement,
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
+            table_alias: Some("u".into()),
             columns: vec![],
             source: SqlInsertSource::Values(vec![vec![sql_write_literal(Value::Int64(1))]]),
             returning: None,
@@ -4545,6 +4605,7 @@ fn parse_insert_statement_without_column_list_accepts_multiple_values_tuples() {
         statement,
         SqlStatement::Insert(SqlInsertStatement {
             entity: "users".to_string(),
+            table_alias: None,
             columns: vec![],
             source: SqlInsertSource::Values(vec![
                 vec![
@@ -5549,4 +5610,44 @@ fn parse_integrity_sql_rejects_noncanonical_mode_and_argument_shapes() {
             "unsupported integrity SQL should reject: {sql}",
         );
     }
+}
+
+#[test]
+fn parse_insert_statement_preserves_explicit_and_implicit_target_aliases() {
+    for sql in [
+        "INSERT INTO users u (u.id) VALUES (1) RETURNING u.id",
+        "INSERT INTO users AS u DEFAULT VALUES RETURNING u.id",
+        "INSERT INTO users u (u.id) SELECT s.id FROM users s RETURNING u.id",
+    ] {
+        let SqlStatement::Insert(statement) = parse_sql(sql).unwrap() else {
+            panic!("INSERT parser fixture");
+        };
+        assert_eq!(statement.table_alias.as_deref(), Some("u"));
+        assert_eq!(
+            statement.returning,
+            Some(SqlReturningProjection::Fields(vec!["u.id".into()]))
+        );
+        if let SqlInsertSource::Select(source) = statement.source {
+            assert_eq!(source.table_alias.as_deref(), Some("s"));
+        }
+    }
+}
+
+#[test]
+fn parsed_insert_alias_retention_obeys_the_same_byte_ceiling() {
+    use crate::retained::RetainedBytes;
+
+    let SqlStatement::Insert(mut statement) =
+        parse_sql("INSERT INTO users target VALUES (1)").unwrap()
+    else {
+        panic!("retained INSERT fixture");
+    };
+    let retained = RetainedBytes::measure(&statement, usize::MAX).unwrap();
+    assert_eq!(RetainedBytes::measure(&statement, retained), Some(retained));
+    assert_eq!(RetainedBytes::measure(&statement, retained - 1), None);
+    let alias_capacity = statement.table_alias.take().unwrap().capacity();
+    assert_eq!(
+        RetainedBytes::measure(&statement, retained),
+        Some(retained - alias_capacity)
+    );
 }

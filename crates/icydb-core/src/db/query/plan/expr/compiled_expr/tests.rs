@@ -1097,3 +1097,130 @@ fn compiled_expr_case_slot_bool_matches_generic_non_boolean_admission() {
             .expect_err("specialized CASE should reject text condition"),
     );
 }
+
+#[test]
+fn coalesce_reads_only_through_the_first_non_null_argument() {
+    for arity in [2, 3, 5] {
+        for selected in 0..arity {
+            for value in [
+                Value::Nat64(0),
+                Value::Bool(false),
+                Value::Text(String::new()),
+            ] {
+                let reader = TracingRowView {
+                    slots: (0..arity)
+                        .map(|slot| match slot.cmp(&selected) {
+                            Ordering::Less => Some(Value::Null),
+                            Ordering::Equal => Some(value.clone()),
+                            Ordering::Greater => None,
+                        })
+                        .collect(),
+                    read_slots: RefCell::new(Vec::new()),
+                };
+                let expr = function_expr(Function::Coalesce, (0..arity).map(slot_expr).collect());
+                assert_eq!(expr.evaluate(&reader).unwrap().as_ref(), &value);
+                assert_eq!(
+                    *reader.read_slots.borrow(),
+                    (0..=selected).collect::<Vec<_>>()
+                );
+            }
+        }
+        let reader = TracingRowView {
+            slots: vec![Some(Value::Null); arity],
+            read_slots: RefCell::new(Vec::new()),
+        };
+        let expr = function_expr(Function::Coalesce, (0..arity).map(slot_expr).collect());
+        assert_eq!(expr.evaluate(&reader).unwrap().as_ref(), &Value::Null);
+        assert_eq!(*reader.read_slots.borrow(), (0..arity).collect::<Vec<_>>());
+    }
+}
+
+#[test]
+fn coalesce_preserves_needed_errors_and_other_function_evaluation() {
+    let reader = TestRowView { slots: Vec::new() };
+    let failing = generic_binary_expr(
+        BinaryOp::Div,
+        CompiledExpr::Literal(Value::Nat64(1)),
+        CompiledExpr::Literal(Value::Nat64(0)),
+    );
+    for (function, args) in [
+        (
+            Function::Coalesce,
+            vec![CompiledExpr::Literal(Value::Null), failing.clone()],
+        ),
+        (
+            Function::Coalesce,
+            vec![failing.clone(), CompiledExpr::Literal(Value::Nat64(1))],
+        ),
+        (
+            Function::NullIf,
+            vec![CompiledExpr::Literal(Value::Null), failing.clone()],
+        ),
+        (
+            Function::Coalesce,
+            vec![CompiledExpr::Literal(Value::Nat64(7)), failing],
+        ),
+    ] {
+        let skipped = matches!(args[0], CompiledExpr::Literal(Value::Nat64(7)));
+        let expr = function_expr(function, args);
+        let result = expr.evaluate(&reader);
+        if skipped {
+            assert_eq!(result.unwrap().as_ref(), &Value::Nat64(7));
+        } else {
+            assert!(matches!(result, Err(ProjectionEvalError::Numeric(_))));
+        }
+    }
+    for args in [vec![], vec![CompiledExpr::Literal(Value::Nat64(7))]] {
+        let argument_count = args.len();
+        let expr = function_expr(Function::Coalesce, args);
+        assert_eq!(
+            expr.evaluate(&reader),
+            Err(ProjectionEvalError::InvalidFunctionCall {
+                function: Function::Coalesce,
+                argument_count,
+            }),
+        );
+    }
+}
+
+#[test]
+fn coalesce_shares_selection_for_grouped_nested_and_owned_values() {
+    let grouped = TestGroupedView {
+        group_keys: vec![Value::Null],
+        aggregates: vec![Value::Nat64(9)],
+    };
+    let expr = function_expr(
+        Function::Coalesce,
+        vec![
+            CompiledExpr::GroupKey { offset: 0 },
+            CompiledExpr::Aggregate { index: 0 },
+            CompiledExpr::Aggregate { index: 99 },
+        ],
+    );
+    assert_eq!(expr.evaluate(&grouped).unwrap().as_ref(), &Value::Nat64(9));
+    let nested = TracingRowView {
+        slots: vec![Some(Value::Null), Some(Value::Text("ABC".into()))],
+        read_slots: RefCell::new(Vec::new()),
+    };
+    let expr = function_expr(
+        Function::Coalesce,
+        vec![
+            field_path_expr(0),
+            function_expr(Function::Lower, vec![field_path_expr(1)]),
+            field_path_expr(99),
+        ],
+    );
+    assert_eq!(
+        expr.evaluate(&nested).unwrap().as_ref(),
+        &Value::Text("abc".into())
+    );
+    assert_eq!(*nested.read_slots.borrow(), vec![0, 1]);
+    let needed = function_expr(
+        Function::Coalesce,
+        vec![CompiledExpr::Literal(Value::Null), field_path_expr(99)],
+    );
+    assert!(matches!(
+        needed.evaluate(&nested),
+        Err(ProjectionEvalError::MissingFieldPathValue { root_slot: 99 })
+    ));
+}

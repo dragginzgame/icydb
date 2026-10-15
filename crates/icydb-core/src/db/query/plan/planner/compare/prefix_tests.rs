@@ -66,7 +66,7 @@ pub(in crate::db::query::plan) fn schema() -> SchemaInfo {
                 false,
             );
             let key = if name.ends_with("lower") {
-                PersistedIndexKeySnapshot::Items(vec![PersistedIndexKeyItemSnapshot::Expression(
+                PersistedIndexKeySnapshot::new(vec![PersistedIndexKeyItemSnapshot::Expression(
                     Box::new(PersistedIndexExpressionSnapshot::new(
                         PersistedIndexExpressionOp::Lower,
                         source,
@@ -76,7 +76,7 @@ pub(in crate::db::query::plan) fn schema() -> SchemaInfo {
                     )),
                 )])
             } else {
-                PersistedIndexKeySnapshot::FieldPath(vec![source])
+                PersistedIndexKeySnapshot::from_field_paths(vec![source])
             };
             PersistedIndexSnapshot::new(
                 SchemaIndexId::new(u32::from(slot) + 1).unwrap(),

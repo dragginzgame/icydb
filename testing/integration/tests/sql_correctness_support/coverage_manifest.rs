@@ -10,6 +10,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     path::{Component, Path, PathBuf},
+    process::Command,
 };
 
 use icydb_testing_sql_generator::TIER_C_SQL_COVERAGE_MANIFEST_REVISION;
@@ -274,13 +275,6 @@ const PROVIDERS: &[ProviderSpec] = &[
         "build.sql.introspection_guard",
         "crates/icydb-model/src/build/actor/db/sql.rs",
         "generated_sql_query_capability_keeps_introspection_gate",
-        BoundaryAssertion,
-        [Boundary]
-    ),
-    provider!(
-        "source.sql.feature_profiles",
-        "testing/integration/tests/canister_artifact_contract.rs",
-        "production_and_local_source_declarations_match_the_frozen_endpoint_policy",
         BoundaryAssertion,
         [Boundary]
     ),
@@ -1372,10 +1366,7 @@ const MANIFEST: &[CoverageCell] = &[
         Policy,
         REQ_BOUNDARY,
         ELIGIBLE_ICYDB,
-        [
-            "build.sql.introspection_guard",
-            "source.sql.feature_profiles",
-        ],
+        ["build.sql.introspection_guard"],
         NO_EXTERNAL_POLICY
     ),
     cell!(
@@ -1752,10 +1743,7 @@ const MANIFEST: &[CoverageCell] = &[
         Policy,
         REQ_BOUNDARY,
         ELIGIBLE_ICYDB,
-        [
-            "build.sql.update_disabled_by_default",
-            "source.sql.feature_profiles"
-        ],
+        ["build.sql.update_disabled_by_default"],
         NO_EXTERNAL_POLICY
     ),
     cell!(
@@ -1768,8 +1756,7 @@ const MANIFEST: &[CoverageCell] = &[
         ELIGIBLE_ICYDB,
         [
             "build.sql.update_primary_key_policy",
-            "canister.mutation.primary_key_policy",
-            "source.sql.feature_profiles"
+            "canister.mutation.primary_key_policy"
         ],
         NO_EXTERNAL_POLICY
     ),
@@ -1783,8 +1770,7 @@ const MANIFEST: &[CoverageCell] = &[
         ELIGIBLE_ICYDB,
         [
             "build.sql.update_bounded_policy",
-            "canister.mutation.bounded_policy",
-            "source.sql.feature_profiles"
+            "canister.mutation.bounded_policy"
         ],
         NO_EXTERNAL_POLICY
     ),
@@ -2361,6 +2347,10 @@ fn items_declare_test(items: &[syn::Item], test_symbol: &str) -> bool {
                     .attrs
                     .iter()
                     .any(|attr| attr.path().is_ident("test"))
+                && !function
+                    .attrs
+                    .iter()
+                    .any(|attr| attribute_can_ignore_test(&attr.meta))
         }
         syn::Item::Mod(module) => module
             .content
@@ -2370,9 +2360,112 @@ fn items_declare_test(items: &[syn::Item], test_symbol: &str) -> bool {
     })
 }
 
+// Conditional ignoring can differ across CI hosts/features. Only unconditional
+// enabled tests may promise automatic coverage; do not infer a cfg predicate here.
+fn attribute_can_ignore_test(meta: &syn::Meta) -> bool {
+    if meta.path().is_ident("ignore") {
+        return true;
+    }
+    match meta {
+        syn::Meta::List(list) if list.path.is_ident("cfg_attr") => list
+            .parse_args_with(
+                syn::punctuated::Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated,
+            )
+            .map_or(true, |attributes| {
+                attributes.iter().any(attribute_can_ignore_test)
+            }),
+        _ => false,
+    }
+}
+
+// These are the maintained CI execution owners, not a new lane catalog. The
+// topology guard qualifies their unfiltered Cargo selections in the Makefile.
+fn provider_ci_target(source_path: &str) -> Option<&'static str> {
+    match source_path {
+        "testing/integration/tests/sql_canister.rs" => Some("_ci-tier-b-sql-canister"),
+        "testing/integration/tests/sql_perf_audit.rs" => Some("_ci-tier-b-sql-perf"),
+        path if path.starts_with("crates/") => Some("_ci-workspace-tests"),
+        _ => None,
+    }
+}
+
+// Cargo owns package/target registration. A source declaration in an orphaned
+// package or undeclared integration binary cannot supply automatic evidence.
+fn provider_source_is_registered(
+    metadata: &serde_json::Value,
+    root: &Path,
+    source_path: &str,
+) -> bool {
+    let source = root.join(source_path);
+    let Some(members) = metadata
+        .get("workspace_members")
+        .and_then(serde_json::Value::as_array)
+    else {
+        return false;
+    };
+    metadata
+        .get("packages")
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|packages| {
+            packages.iter().any(|package| {
+                members.iter().any(|id| package.get("id") == Some(id))
+                    && package
+                        .get("targets")
+                        .and_then(serde_json::Value::as_array)
+                        .is_some_and(|targets| {
+                            targets.iter().any(|target| {
+                                if target.get("test").and_then(serde_json::Value::as_bool)
+                                    != Some(true)
+                                {
+                                    return false;
+                                }
+                                let Some(path) =
+                                    target.get("src_path").and_then(serde_json::Value::as_str)
+                                else {
+                                    return false;
+                                };
+                                let path = Path::new(path);
+                                let Some(kind) =
+                                    target.get("kind").and_then(serde_json::Value::as_array)
+                                else {
+                                    return false;
+                                };
+                                (kind.iter().any(|value| value == "test") && path == source)
+                                    || (kind.iter().any(|value| value == "lib")
+                                        && path
+                                            .parent()
+                                            .is_some_and(|parent| source.starts_with(parent)))
+                            })
+                        })
+            })
+        })
+}
+
 fn provider_specs() -> Result<BTreeMap<&'static str, &'static ProviderSpec>, String> {
     let mut specs = BTreeMap::new();
-    let root = repository_root();
+    let root = repository_root()
+        .canonicalize()
+        .map_err(|error| error.to_string())?;
+    let output = Command::new(env!("CARGO"))
+        .current_dir(&root)
+        .args([
+            "metadata",
+            "--locked",
+            "--offline",
+            "--no-deps",
+            "--format-version",
+            "1",
+        ])
+        .output()
+        .map_err(|error| format!("read Cargo test-target registration: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "Cargo test-target registration failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    let metadata = serde_json::from_slice(&output.stdout)
+        .map_err(|error| format!("parse Cargo test-target registration: {error}"))?;
 
     for provider in PROVIDERS {
         if provider.id.is_empty() || provider.evidence.is_empty() {
@@ -2382,6 +2475,14 @@ fn provider_specs() -> Result<BTreeMap<&'static str, &'static ProviderSpec>, Str
             ));
         }
         validate_source_path(provider.source_path)?;
+        if provider_ci_target(provider.source_path).is_none()
+            || !provider_source_is_registered(&metadata, &root, provider.source_path)
+        {
+            return Err(format!(
+                "provider {:?} is not registered in an automatic CI test selection",
+                provider.id
+            ));
+        }
         let source_path = root.join(provider.source_path);
         let source = fs::read_to_string(&source_path).map_err(|error| {
             format!(
@@ -2392,7 +2493,7 @@ fn provider_specs() -> Result<BTreeMap<&'static str, &'static ProviderSpec>, Str
         })?;
         if !source_declares_test(&source, provider.test_symbol) {
             return Err(format!(
-                "provider {:?} symbol {:?} is missing or not a test in {}",
+                "provider {:?} symbol {:?} is missing, ignored or not a test in {}",
                 provider.id, provider.test_symbol, provider.source_path
             ));
         }
@@ -2565,6 +2666,10 @@ pub(super) fn sql_coverage_manifest_revision() -> String {
         hash_text(&mut hasher, provider.id);
         hash_text(&mut hasher, provider.source_path);
         hash_text(&mut hasher, provider.test_symbol);
+        hash_text(
+            &mut hasher,
+            provider_ci_target(provider.source_path).unwrap_or_default(),
+        );
         hash_text(&mut hasher, provider.strength.code());
         hash_text_list(
             &mut hasher,
@@ -2772,6 +2877,11 @@ fn provider_test_resolution_uses_rust_items_and_attributes() {
         assert!(source_declares_test(source, "evidence"));
     }
     for source in [
+        "#[cfg_attr(feature = \"manual\", ignore)] #[test] fn evidence() {}",
+        "#[cfg_attr(unix, cfg_attr(feature = \"manual\", ignore))] #[test] fn evidence() {}",
+        "#[test] #[ignore] fn evidence() {}",
+        "#[ignore = \"manual run\"] #[test] fn evidence() {}",
+        "mod tests { #[test] #[ignore] fn evidence() {} }",
         "#[test] fn actual_test() {} fn evidence() {}",
         "// #[test]\nfn evidence() {}",
         "const FAKE: &str = \"#[test] fn evidence() {}\";",
@@ -2783,4 +2893,54 @@ fn provider_test_resolution_uses_rust_items_and_attributes() {
         !source_declares_test("#[test] fn evidence() {}", "missing"),
         "a real test must not satisfy a missing evidence symbol",
     );
+}
+
+#[test]
+fn providers_require_workspace_test_registration_and_a_ci_selection() {
+    let root = Path::new("/repository");
+    let metadata = serde_json::json!({
+        "workspace_members": ["core", "facade", "integration"],
+        "packages": [
+            {"id": "core", "targets": [{"kind": ["lib"], "src_path": "/repository/crates/core/src/lib.rs", "test": true}]},
+            {"id": "facade", "targets": [{"kind": ["test"], "src_path": "/repository/crates/facade/tests/contract.rs", "test": true}]},
+            {"id": "integration", "targets": [{"kind": ["test"], "src_path": "/repository/testing/integration/tests/sql_canister.rs", "test": true}]},
+            {"id": "orphan", "targets": [{"kind": ["lib"], "src_path": "/repository/crates/orphan/src/lib.rs", "test": true}]}
+        ]
+    });
+    for (source, lane) in [
+        ("crates/core/src/nested/tests.rs", "_ci-workspace-tests"),
+        ("crates/facade/tests/contract.rs", "_ci-workspace-tests"),
+        (
+            "testing/integration/tests/sql_canister.rs",
+            "_ci-tier-b-sql-canister",
+        ),
+    ] {
+        assert!(provider_source_is_registered(&metadata, root, source));
+        assert_eq!(provider_ci_target(source), Some(lane));
+    }
+    for source in [
+        "crates/orphan/src/tests.rs",
+        "crates/facade/tests/undeclared.rs",
+        "crates/core/examples/demo.rs",
+    ] {
+        assert!(!provider_source_is_registered(&metadata, root, source));
+    }
+    let mut disabled = metadata;
+    disabled["packages"][0]["targets"][0]["test"] = serde_json::json!(false);
+    assert!(!provider_source_is_registered(
+        &disabled,
+        root,
+        "crates/core/src/tests.rs"
+    ));
+    assert!(!provider_source_is_registered(
+        &serde_json::json!({}),
+        root,
+        "crates/core/src/tests.rs"
+    ));
+    assert_eq!(
+        provider_ci_target("testing/integration/tests/sql_perf_audit.rs"),
+        Some("_ci-tier-b-sql-perf")
+    );
+    assert!(provider_ci_target("testing/integration/tests/recovery_closeout.rs").is_none());
+    assert!(provider_ci_target("canisters/test/sql/src/lib.rs").is_none());
 }

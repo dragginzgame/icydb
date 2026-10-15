@@ -7,11 +7,7 @@ candidate_line="${candidate_line%.*}"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/icydb-release-notes.XXXXXX")"
 trap 'rm -rf "$scratch"' EXIT
 candidate="docs/changelog/$candidate_line.md"
-if [[ -f "$candidate" ]]; then
-    cp -p "$candidate" "$scratch/candidate"
-else
-    printf '# %s\n\n' "$candidate_line" > "$scratch/candidate"
-fi
+cp -p "$candidate" "$scratch/candidate"
 awk -v version="$RELEASE_VERSION" -v date="${RELEASE_DATE:?}" \
     -f scripts/ci/finalize-release-changelog.awk "$scratch/candidate" > "$scratch/finalized"
 awk -v version="$RELEASE_VERSION" -v date="$RELEASE_DATE" \

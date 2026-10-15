@@ -22,6 +22,16 @@ use std::cell::RefCell;
 const RESOURCE_COUNT: usize = DiagnosticExecutionBudgetResource::ALL.len();
 const PAGE_RESOURCE_NOT_OWNED: u64 = u64::MAX;
 const MAX_SCALAR_ROW_NESTED_STEPS: u64 = 256;
+// This reservation depends only on compile-time caps, not on the candidate.
+// Overflow in a changed cap must fail compilation rather than each row pull.
+const SCALAR_OUTPUT_ROW_RESERVATION: PageWork = PageWork::one(
+    DiagnosticExecutionBudgetResource::NestedValueSteps,
+    MAX_SCALAR_ROW_NESTED_STEPS,
+)
+.merge(PageWork::one(
+    DiagnosticExecutionBudgetResource::MaterializedBytes,
+    MAX_ROW_BYTES as u64 + MAX_SCALAR_ROW_NESTED_STEPS * RUNTIME_VALUE_NODE_OVERHEAD_BYTES,
+));
 // Stable protocol identities frozen from the original v1 operational
 // envelopes. Limit tuning within either profile must not invalidate progress.
 const TRUSTED_SCALAR_PAGE_PROFILE_IDENTITY: u64 = 0x1fcc_206d_e0a3_9aa5;
@@ -552,7 +562,7 @@ pub(in crate::db::executor) fn begin_production_scalar_page_unit(
     }
 
     let reservation = scalar_candidate_inspection_reservation(access_entry_bound)?;
-    let complete_unit_reservation = reservation.merge(scalar_output_row_reservation()?);
+    let complete_unit_reservation = reservation.merge(SCALAR_OUTPUT_ROW_RESERVATION);
     let before = current_execution_budget_usage()?;
     ACTIVE_PRODUCTION_SCALAR_PAGE_WORK.with(|active| {
         let mut active = active
@@ -664,25 +674,6 @@ fn scalar_candidate_inspection_reservation(
     .merge(PageWork::one(
         DiagnosticExecutionBudgetResource::TemporaryBytes,
         index_bytes,
-    )))
-}
-
-fn scalar_output_row_reservation() -> Result<PageWork, InternalError> {
-    let maximum_output_bytes = u64::from(MAX_ROW_BYTES)
-        .checked_add(
-            MAX_SCALAR_ROW_NESTED_STEPS
-                .checked_mul(RUNTIME_VALUE_NODE_OVERHEAD_BYTES)
-                .ok_or_else(InternalError::query_executor_invariant)?,
-        )
-        .ok_or_else(InternalError::query_executor_invariant)?;
-
-    Ok(PageWork::one(
-        DiagnosticExecutionBudgetResource::NestedValueSteps,
-        MAX_SCALAR_ROW_NESTED_STEPS,
-    )
-    .merge(PageWork::one(
-        DiagnosticExecutionBudgetResource::MaterializedBytes,
-        maximum_output_bytes,
     )))
 }
 

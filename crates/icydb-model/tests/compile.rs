@@ -31,3 +31,9 @@ fn source_migration_plan_grammar() {
     tests.pass("tests/ui/migrations/pass/*.rs");
     tests.compile_fail("tests/ui/migrations/fail/*.rs");
 }
+
+#[test]
+fn schema_literal_diagnostics() {
+    let tests = trybuild::TestCases::new();
+    tests.compile_fail("tests/ui/schema_literals/*.rs");
+}

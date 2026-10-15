@@ -5,6 +5,81 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.275.0] - 2026-10-15
+
+- **Breaking:** raise the public MSRV to Rust 1.91 and use latest stable for
+  development/CI; improve SQL execution, tooling and test-fixture reliability.
+
+See [detailed notes](docs/changelog/0.275.md).
+
+## [0.274.1] - 2026-10-14
+
+- Correct SQL, schema and macro diagnostics; simplify scans, build/report
+  ownership and scalar/hex parsing with Shared Tooling 0.13.3
+  ([#200](https://github.com/dragginzgame/icydb/issues/200),
+  [#302](https://github.com/dragginzgame/icydb/issues/302),
+  [#361](https://github.com/dragginzgame/icydb/issues/361),
+  [#363](https://github.com/dragginzgame/icydb/issues/363)).
+
+See [detailed notes](docs/changelog/0.274.md).
+
+## [0.274.0] - 2026-10-13
+
+- **Breaking:** replace accepted schema index-key encoding and remove
+  `IndexStore::clear`; recreate affected databases. Simplify row/snapshot ownership
+  and index setup; carry SQL, startup, accounting and CI/tooling fixes with
+  Shared Tooling 0.11.1
+  ([#358](https://github.com/dragginzgame/icydb/issues/358),
+  [#359](https://github.com/dragginzgame/icydb/issues/359),
+  [#114](https://github.com/dragginzgame/icydb/issues/114),
+  [#115](https://github.com/dragginzgame/icydb/issues/115),
+  [#344](https://github.com/dragginzgame/icydb/issues/344),
+  [#240](https://github.com/dragginzgame/icydb/issues/240),
+  [#218](https://github.com/dragginzgame/icydb/issues/218),
+  [#245](https://github.com/dragginzgame/icydb/issues/245),
+  [#215](https://github.com/dragginzgame/icydb/issues/215),
+  [#211](https://github.com/dragginzgame/icydb/issues/211),
+  [#208](https://github.com/dragginzgame/icydb/issues/208),
+  [#147](https://github.com/dragginzgame/icydb/issues/147),
+  [#357](https://github.com/dragginzgame/icydb/issues/357),
+  [#302](https://github.com/dragginzgame/icydb/issues/302),
+  [#307](https://github.com/dragginzgame/icydb/issues/307)).
+
+See [detailed notes](docs/changelog/0.274.md).
+
+## [0.273.0] - 2026-10-13
+
+- **Breaking:** adopt Memory 0.36 explicit component declarations and host
+  composition; adopt Host 0.16 and Shared Tooling 0.9.13, carrying portable CI,
+  IC Build and Wasm-report
+  improvements ([#355](https://github.com/dragginzgame/icydb/issues/355),
+  [#302](https://github.com/dragginzgame/icydb/issues/302),
+  [#307](https://github.com/dragginzgame/icydb/issues/307)).
+
+See [detailed notes](docs/changelog/0.273.md).
+
+## [0.272.0] - 2026-10-12
+
+- **Breaking:** expose tracked metrics quality and producer-admitted means;
+  adopt current upstream crates, Shared Tooling 0.9.4 and Host artifact inspection,
+  and repair CI, CLI, read and storage bounds
+  ([#354](https://github.com/dragginzgame/icydb/issues/354),
+  [#116](https://github.com/dragginzgame/icydb/issues/116),
+  [#155](https://github.com/dragginzgame/icydb/issues/155),
+  [#307](https://github.com/dragginzgame/icydb/issues/307),
+  [#41](https://github.com/dragginzgame/icydb/issues/41),
+  [#48](https://github.com/dragginzgame/icydb/issues/48),
+  [#139](https://github.com/dragginzgame/icydb/issues/139),
+  [#172](https://github.com/dragginzgame/icydb/issues/172),
+  [#302](https://github.com/dragginzgame/icydb/issues/302),
+  [#132](https://github.com/dragginzgame/icydb/issues/132),
+  [#126](https://github.com/dragginzgame/icydb/issues/126),
+  [#123](https://github.com/dragginzgame/icydb/issues/123),
+  [#118](https://github.com/dragginzgame/icydb/issues/118),
+  [IC Build #1](https://github.com/dragginzgame/ic-build/issues/1)).
+
+See [detailed notes](docs/changelog/0.272.md).
+
 ## [0.271.0] - 2026-10-12
 
 - **Breaking:** retire duplicate schema snapshots and use the accepted bundle

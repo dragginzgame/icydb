@@ -1,0 +1,16 @@
+default_empty	default
+default_empty_metrics	default
+group_path_sql_query	manual
+nested_relation_none	default
+nested_relation_direct	default
+nested_relation_shallow	default
+nested_relation_repeated	default
+one_entity_dynamic_query	default
+one_entity_reachable_operations	default
+one_entity_typed_query	default
+one_entity_sql_query	default
+request_future_scale	default
+ten_entity_typed_query	default
+ten_entity_reachable_operations	default
+sql_perf	default
+sql	default

@@ -1,6 +1,7 @@
 use candid::{CandidType, Deserialize, Principal};
-use ic_testkit::pic::StandaloneCanisterFixture;
+use ic_testkit::pic::{CandidCallExt as _, StandaloneCanisterFixture};
 use icydb_testing_integration::{install_fixture_canister, upgrade_fixture_canister};
+
 use std::time::Duration;
 
 const TIMER_EXECUTOR_METHOD: &str = "<ic-cdk internal> timer_executor";
@@ -26,7 +27,12 @@ fn shared_watchdog_survives_instruction_exhaustion() {
     assert!(start(&fixture));
 
     let exhaust_at: u64 = fixture
-        .update_candid("startup_timer_probe_arm_exhaustion", ())
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "startup_timer_probe_arm_exhaustion",
+            (),
+        )
         .expect("instruction-exhaustion arming should decode");
     advance_timer_round(&fixture, Duration::from_secs(1));
     // Production instruction limits use deterministic time slicing. Drive
@@ -55,13 +61,15 @@ fn shared_watchdog_survives_instruction_exhaustion() {
 
 fn snapshot(fixture: &StandaloneCanisterFixture) -> TimerProbeSnapshot {
     fixture
-        .query_candid("startup_timer_probe_snapshot", ())
+        .pocket_ic()
+        .query_candid(fixture.canister_id(), "startup_timer_probe_snapshot", ())
         .expect("timer probe snapshot should decode")
 }
 
 fn start(fixture: &StandaloneCanisterFixture) -> bool {
     fixture
-        .update_candid("startup_timer_probe_start", ())
+        .pocket_ic()
+        .update_candid(fixture.canister_id(), "startup_timer_probe_start", ())
         .expect("timer probe start should decode")
 }
 
@@ -94,7 +102,8 @@ fn shared_watchdog_survives_trap_and_upgrade() {
     assert_eq!(snapshot(&fixture), before_external);
 
     let trap_at: u64 = fixture
-        .update_candid("startup_timer_probe_arm_trap", ())
+        .pocket_ic()
+        .update_candid(fixture.canister_id(), "startup_timer_probe_arm_trap", ())
         .expect("trap arming should decode");
     advance_timer_round(&fixture, Duration::from_secs(1));
     let trapped = snapshot(&fixture);
@@ -119,7 +128,7 @@ fn shared_watchdog_survives_trap_and_upgrade() {
     assert!(recovered.watchdog_instructions > 0);
     assert!(recovered.application_instructions > 0);
 
-    upgrade_fixture_canister(&fixture, "startup_timer");
+    upgrade_fixture_canister(fixture.pocket_ic(), fixture.canister_id(), "startup_timer");
     let upgraded = snapshot(&fixture);
     assert!(!upgraded.watchdog_registered);
     assert!(!upgraded.application_registered);
@@ -133,7 +142,8 @@ fn shared_watchdog_survives_trap_and_upgrade() {
     assert_eq!(reregistered.application_callbacks, 1);
 
     fixture
-        .update_candid::<(), _>("startup_timer_probe_stop", ())
+        .pocket_ic()
+        .update_candid::<(), _>(fixture.canister_id(), "startup_timer_probe_stop", ())
         .expect("timer probe stop should decode");
     let stopped = snapshot(&fixture);
     assert!(!stopped.watchdog_registered);

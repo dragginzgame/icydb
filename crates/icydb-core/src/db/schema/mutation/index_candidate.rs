@@ -226,25 +226,6 @@ fn sql_ddl_secondary_index_key_snapshot(
     accepted_before: &AcceptedSchemaSnapshot,
     key_items: &[SchemaDdlSecondaryIndexKeyIntent],
 ) -> Result<PersistedIndexKeySnapshot, SchemaDdlSecondaryIndexKeyCandidateError> {
-    if key_items
-        .iter()
-        .all(|key_item| matches!(key_item, SchemaDdlSecondaryIndexKeyIntent::FieldPath(_)))
-    {
-        return key_items
-            .iter()
-            .filter_map(|key_item| {
-                let SchemaDdlSecondaryIndexKeyIntent::FieldPath(field_path) = key_item else {
-                    return None;
-                };
-                Some(sql_ddl_index_field_path_snapshot(
-                    accepted_before,
-                    field_path,
-                ))
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .map(PersistedIndexKeySnapshot::FieldPath);
-    }
-
     key_items
         .iter()
         .map(|key_item| match key_item {
@@ -257,7 +238,7 @@ fn sql_ddl_secondary_index_key_snapshot(
             }
         })
         .collect::<Result<Vec<_>, _>>()
-        .map(PersistedIndexKeySnapshot::Items)
+        .map(PersistedIndexKeySnapshot::new)
 }
 
 fn sql_ddl_index_field_path_snapshot(

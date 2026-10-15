@@ -24,7 +24,7 @@ fn initialize_scoped_serials(unique: bool) {
                 name.into(),
                 STORE_PATH.into(),
                 unique,
-                PersistedIndexKeySnapshot::FieldPath(
+                PersistedIndexKeySnapshot::from_field_paths(
                     fields[1..=arity]
                         .iter()
                         .map(|field| {

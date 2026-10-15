@@ -1,0 +1,11 @@
+error: map key cannot be Unit
+ --> tests/ui/schema_literals/invalid_map_shapes.rs:4:12
+  |
+4 | pub struct UnitKey;
+  |            ^^^^^^^
+
+error: map value cannot be Unit
+ --> tests/ui/schema_literals/invalid_map_shapes.rs:7:12
+  |
+7 | pub struct UnitValue;
+  |            ^^^^^^^^^

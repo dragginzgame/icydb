@@ -9,9 +9,7 @@ mod fixtures;
 
 use crate::{
     icp::{
-        process::{
-            canister_id, canister_is_installed, run_external_command, unreachable_network_hint,
-        },
+        process::{canister_id, canister_is_installed, run_external_command},
         project::known_canisters,
     },
     table::{ColumnAlign, append_indented_table},
@@ -34,23 +32,18 @@ pub(super) fn list_canisters(environment: &str) -> Result<(), String> {
     let rows = canisters
         .into_iter()
         .map(|canister| canister_list_row(environment, canister))
-        .collect::<Vec<_>>();
+        .collect::<Result<Vec<_>, _>>()?;
     print_canister_table(environment, rows.as_slice());
 
     Ok(())
 }
 
 // Convert one ICP canister name into the row shape printed by `canister list`.
-fn canister_list_row(environment: &str, canister: String) -> CanisterListRow {
-    match canister_id(environment, canister.as_str()) {
-        Ok(Some(id)) => [canister, "created".to_string(), id],
-        Err(err) if unreachable_network_hint(err.as_str()).is_some() => [
-            canister,
-            "unknown".to_string(),
-            "local ICP network is not reachable".to_string(),
-        ],
-        Ok(None) | Err(_) => [canister, "not created".to_string(), "-".to_string()],
-    }
+fn canister_list_row(environment: &str, canister: String) -> Result<CanisterListRow, String> {
+    Ok(match canister_id(environment, canister.as_str())? {
+        Some(id) => [canister, "created".to_string(), id],
+        None => [canister, "not created".to_string(), "-".to_string()],
+    })
 }
 
 // Print the local canister inventory with principal as the final column.

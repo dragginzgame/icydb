@@ -243,7 +243,9 @@ impl Entity {
 
     // Validate any filtered-index predicate against the generated field surface.
     fn validate_index_predicate(&self, index: &Index) -> Result<(), DarlingError> {
-        let _ = index.validated_generated_predicate(self)?;
+        let _ = index
+            .validated_generated_predicate(self)
+            .map_err(|error| error.with_span(&self.def.ident()))?;
 
         Ok(())
     }
@@ -550,20 +552,26 @@ impl HasSchemaPart for Entity {
         let schema_version = syn::LitInt::new(&self.schema_version.to_string(), Span::call_site());
         let primary_key = self.primary_key.schema_part();
         let entity_name = self.def.ident().to_string();
-        let indexes = self
+        let indexes = match self
             .indexes
             .iter()
             .map(|index| index.schema_part_for_entity(self, entity_name.as_str()))
             .collect::<Result<Vec<_>, _>>()
-            .expect("validated indexes should lower into source fragments");
+        {
+            Ok(indexes) => indexes,
+            Err(error) => return error.with_span(&self.def.ident()).write_errors(),
+        };
         let indexes = quote! { &[#(#indexes),*] };
         let relations = quote_slice(&self.relations, Relation::schema_part);
-        let constraints = self
+        let constraints = match self
             .constraints
             .iter()
             .map(|constraint| constraint.schema_part_for_entity(self))
             .collect::<Result<Vec<_>, _>>()
-            .expect("validated constraints should lower into source fragments");
+        {
+            Ok(constraints) => constraints,
+            Err(error) => return error.with_span(&self.def.ident()).write_errors(),
+        };
         let constraints = quote! { &[#(#constraints),*] };
         let fields = &self.fields.schema_part();
         let ty = &self.ty.schema_part();

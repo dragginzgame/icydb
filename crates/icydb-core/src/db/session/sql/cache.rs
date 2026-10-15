@@ -6,12 +6,7 @@
 use crate::db::resource::bounded_cache::{BoundedCache, CacheEntryWeight};
 
 use crate::{
-    db::{
-        DbSession,
-        executor::AcceptedSchemaCatalogContext,
-        schema::{AcceptedSchemaRevision, AcceptedSchemaRuntimeRootIdentity, SchemaVersion},
-        session::sql::compiled::{CompiledSqlCommand, SqlCompiledSchemaFingerprint},
-    },
+    db::{DbSession, schema::AcceptedSchemaRuntimeRootIdentity, session::sql::CompiledSqlCommand},
     retained::RetainedBytes,
     traits::CanisterKind,
 };
@@ -41,67 +36,28 @@ pub(in crate::db::session::sql) enum SqlCompiledCommandSurface {
 ///
 /// SqlCompiledCommandCacheKey pins one compiled SQL artifact to the exact
 /// session-local semantic boundary that produced it.
-/// The key is intentionally conservative: surface kind, entity path, schema
-/// runtime-root identity, entity schema revision/version, schema fingerprint,
-/// and raw SQL text must all match before execution can reuse a prior compile.
+/// Exact text and API surface locate an entry before parsing. Its value carries
+/// the accepted runtime-root identity; callers must verify that authority before
+/// reuse. A schema change replaces the old entry instead of retaining both.
 ///
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(in crate::db) struct SqlCompiledCommandCacheKey {
     surface: SqlCompiledCommandSurface,
-    entity_path: Rc<str>,
-    accepted_runtime_root_identity: AcceptedSchemaRuntimeRootIdentity,
-    accepted_schema_revision: AcceptedSchemaRevision,
-    schema_version: SchemaVersion,
-    schema_fingerprint: SqlCompiledSchemaFingerprint,
     sql: Rc<str>,
 }
 
 pub(in crate::db) type SqlCompiledCommandCache =
-    BoundedCache<SqlCompiledCommandCacheKey, CompiledSqlCommand>;
+    BoundedCache<SqlCompiledCommandCacheKey, SqlCompiledCommandCacheEntry>;
 
-///
-/// SqlCompiledCommandCacheContext
-///
-/// SqlCompiledCommandCacheContext carries the accepted-schema facts needed by
-/// one SQL compile lookup. The cache key uses the accepted schema fingerprint;
-/// miss compilation uses the paired `EntityAuthority` and `SchemaInfo` so
-/// read-side predicate canonicalization observes the same live schema authority.
-///
-
-#[derive(Debug)]
-pub(in crate::db::session::sql) struct SqlCompiledCommandCacheContext {
-    key: SqlCompiledCommandCacheKey,
-    catalog: AcceptedSchemaCatalogContext,
-}
-
-impl SqlCompiledCommandCacheContext {
-    #[must_use]
-    pub(in crate::db::session::sql) fn from_catalog(
-        surface: SqlCompiledCommandSurface,
-        sql: &str,
-        catalog: AcceptedSchemaCatalogContext,
-    ) -> Self {
-        Self {
-            key: SqlCompiledCommandCacheKey::new(
-                surface,
-                catalog.identity().entity_path(),
-                catalog.runtime_root_identity(),
-                catalog.revision(),
-                catalog.schema_version(),
-                SqlCompiledSchemaFingerprint::from_catalog(&catalog),
-                sql,
-            ),
-            catalog,
-        }
-    }
-
-    #[must_use]
-    pub(in crate::db::session::sql) fn into_cache_inputs(
-        self,
-    ) -> (SqlCompiledCommandCacheKey, AcceptedSchemaCatalogContext) {
-        (self.key, self.catalog)
-    }
+/// Syntax metadata and its compilation authority, without retaining a runtime
+/// root or prepared execution plan. The root identity covers every accepted
+/// store/catalog plus database incarnation, including entity renames/removal.
+#[derive(Clone, Debug)]
+pub(in crate::db::session::sql) struct SqlCompiledCommandCacheEntry {
+    pub(in crate::db::session::sql) root: AcceptedSchemaRuntimeRootIdentity,
+    pub(in crate::db::session::sql) entity_name: Option<Rc<str>>,
+    pub(in crate::db::session::sql) command: CompiledSqlCommand,
 }
 
 thread_local! {
@@ -114,22 +70,9 @@ thread_local! {
 }
 
 impl SqlCompiledCommandCacheKey {
-    fn new(
-        surface: SqlCompiledCommandSurface,
-        entity_path: impl Into<Rc<str>>,
-        accepted_runtime_root_identity: AcceptedSchemaRuntimeRootIdentity,
-        accepted_schema_revision: AcceptedSchemaRevision,
-        schema_version: SchemaVersion,
-        schema_fingerprint: SqlCompiledSchemaFingerprint,
-        sql: &str,
-    ) -> Self {
+    pub(in crate::db::session::sql) fn new(surface: SqlCompiledCommandSurface, sql: &str) -> Self {
         Self {
             surface,
-            entity_path: entity_path.into(),
-            accepted_runtime_root_identity,
-            accepted_schema_revision,
-            schema_version,
-            schema_fingerprint,
             sql: Rc::from(sql),
         }
     }
@@ -204,12 +147,12 @@ impl<C: CanisterKind> DbSession<C> {
 // Overflow, excessive depth, or an oversized payload skips retention, not execution.
 pub(in crate::db::session::sql) fn compiled_command_retained_bytes(
     key: &SqlCompiledCommandCacheKey,
-    command: &CompiledSqlCommand,
+    command: &SqlCompiledCommandCacheEntry,
 ) -> Option<usize> {
     let mut bytes = RetainedBytes::new(SQL_COMPILED_COMMAND_CACHE_MAX_RETAINED_BYTES);
     bytes.add(
         2 * size_of::<SqlCompiledCommandCacheKey>()
-            + size_of::<CompiledSqlCommand>()
+            + size_of::<SqlCompiledCommandCacheEntry>()
             + size_of::<CacheEntryWeight>()
             + 3 * size_of::<usize>(),
     )?;
@@ -221,6 +164,8 @@ pub(in crate::db::session::sql) fn compiled_command_retained_bytes(
 }
 
 crate::retained::retained_fields!(SqlCompiledCommandCacheKey {
-    Self { surface: _, entity_path, accepted_runtime_root_identity: _, accepted_schema_revision: _, schema_version: _, schema_fingerprint: _, sql }
-        => [entity_path, sql],
+    Self { surface: _, sql } => [sql],
+});
+crate::retained::retained_fields!(SqlCompiledCommandCacheEntry {
+    Self { root: _, entity_name, command } => [entity_name, command],
 });

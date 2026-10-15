@@ -1,4 +1,4 @@
-//! Module: integration::canister_build_cache
+//! Module: build::canister_build_cache
 //! Responsibility: build-artifact caching.
 //! Does not own: feature policy or artifact semantics.
 //! Boundary: caches resolved build recipes.
@@ -16,13 +16,13 @@ use std::{
     time::Duration,
 };
 
-use ic_testkit::artifacts::{
-    ArtifactCacheOutcome, ArtifactCachePreparation, ArtifactCachePrunePolicy, ArtifactCacheRecord,
-    ArtifactCacheSpec, LabeledArtifactCacheSpec, LabeledWasmBuildSpec,
+use ic_build::artifacts::{
+    ArtifactCacheBatchReport, ArtifactCacheOutcome, ArtifactCachePreparation,
+    ArtifactCachePrunePolicy, ArtifactCacheSpec, LabeledArtifactCacheSpec, LabeledWasmBuildSpec,
     SharedIncrementalTargetMaintenanceConfig, SharedIncrementalTargetMaintenanceFailureMode,
     SharedIncrementalTargetPrunePolicy, WasmBuildBatchConfig, WasmBuildBatchContractError,
     WasmBuildBatchProgressEvent, WasmBuildBatchReport, WasmBuildOutcome, WasmBuildProgressConfig,
-    WasmBuildProgressEvent, WasmBuildRecord, WasmBuildSpec, build_artifact_caches_batch,
+    WasmBuildProgressEvent, WasmBuildSpec, build_artifact_caches_batch,
     build_wasm_canisters_cached_batch_with_config_and_progress,
     build_wasm_canisters_cached_with_progress, prepare_artifact_cache,
 };
@@ -78,12 +78,6 @@ pub(crate) struct PostLinkBatchEntry<'a> {
     pub(crate) final_deployable: &'a Path,
 }
 
-pub(crate) struct CanisterCacheBatchReport<Record> {
-    // Keep upstream retention alive after the batch report is summarized.
-    pub(crate) successes: Vec<(usize, Record)>,
-    pub(crate) failures: Vec<String>,
-}
-
 pub(crate) fn build_cached_cargo_wasm(
     request: &CargoWasmCacheRequest<'_>,
 ) -> Result<WasmBuildOutcome, String> {
@@ -133,58 +127,21 @@ pub(crate) fn cargo_wasm_batch_specs(
 
 pub(crate) fn build_cached_cargo_wasm_batch(
     specs: &[LabeledWasmBuildSpec],
-) -> CanisterCacheBatchReport<WasmBuildRecord> {
+) -> Result<WasmBuildBatchReport, WasmBuildBatchContractError> {
     let batch_config = WasmBuildBatchConfig::new()
         .with_shared_incremental_target_maintenance(shared_incremental_target_maintenance_config());
-    summarize_wasm_build_batch(build_wasm_canisters_cached_batch_with_config_and_progress(
+    let report = build_wasm_canisters_cached_batch_with_config_and_progress(
         specs,
         batch_config,
         wasm_build_progress_config(),
         report_wasm_build_batch_progress,
-    ))
-}
-
-fn summarize_wasm_build_batch(
-    report: Result<WasmBuildBatchReport, WasmBuildBatchContractError>,
-) -> CanisterCacheBatchReport<WasmBuildRecord> {
-    let report = match report {
-        Ok(report) => report,
-        Err(error) => {
-            return CanisterCacheBatchReport {
-                successes: Vec::new(),
-                failures: vec![format!("Cargo Wasm batch contract failed: {error}")],
-            };
-        }
-    };
-
+    )?;
     for outcome in report.outcomes() {
         trace_wasm_build(outcome.label(), outcome.outcome());
         report_shared_target_maintenance_failure(outcome.label(), outcome.outcome());
     }
     eprintln!("maintained canister cargo_wasm_batch={report}");
-
-    let successes = report
-        .outcomes()
-        .map(|entry| (entry.index(), entry.outcome().record().clone()))
-        .collect();
-    let failures = report
-        .failures()
-        .map(|failure| {
-            let index = failure.index();
-            format!(
-                "Cargo [{index}] {} failed during {:?} after {:?}; timings={:?}: {}",
-                failure.label(),
-                failure.phase(),
-                failure.entry_elapsed(),
-                failure.timings(),
-                failure.error(),
-            )
-        })
-        .collect::<Vec<_>>();
-    CanisterCacheBatchReport {
-        successes,
-        failures,
-    }
+    Ok(report)
 }
 
 fn cargo_wasm_spec(
@@ -241,7 +198,7 @@ pub(crate) fn cache_post_link_wasm_batch(
     workspace_root: &Path,
     cache_root: &Path,
     entries: &[PostLinkBatchEntry<'_>],
-) -> Result<CanisterCacheBatchReport<ArtifactCacheRecord>, String> {
+) -> Result<ArtifactCacheBatchReport<String>, String> {
     let optimizer = pinned_wasm_optimizer()?;
     let requests = entries
         .iter()
@@ -279,27 +236,7 @@ pub(crate) fn cache_post_link_wasm_batch(
     }
     eprintln!("maintained canister post_link_batch={report}");
 
-    let successes = report
-        .outcomes()
-        .map(|entry| (entry.index(), entry.outcome().record().clone()))
-        .collect();
-    let failures = report
-        .failures()
-        .map(|failure| {
-            let index = failure.index();
-            format!(
-                "post-link [{index}] {} failed during {} after {:?}: {}",
-                failure.label(),
-                failure.failure().phase(),
-                failure.entry_elapsed(),
-                failure.failure(),
-            )
-        })
-        .collect::<Vec<_>>();
-    Ok(CanisterCacheBatchReport {
-        successes,
-        failures,
-    })
+    Ok(report)
 }
 
 fn post_link_cache_spec(request: &PostLinkCacheRequest<'_>, optimizer: &Path) -> ArtifactCacheSpec {
@@ -314,7 +251,7 @@ fn post_link_cache_spec(request: &PostLinkCacheRequest<'_>, optimizer: &Path) ->
         "post-link-pipeline",
         &request
             .workspace_root
-            .join("testing/integration/src/wasm_optimizer.rs"),
+            .join("testing/build/src/wasm_optimizer.rs"),
     )
     .with_tool("wasm-opt", optimizer)
     .with_arguments(WASM_OPT_FLAGS)
@@ -347,7 +284,7 @@ fn report_wasm_build_progress(context: &str, event: WasmBuildProgressEvent) {
     };
     let _ = writeln!(
         io::stderr().lock(),
-        "{context}: ic_testkit_progress phase={phase} elapsed={elapsed:?}",
+        "{context}: ic_build_progress phase={phase} elapsed={elapsed:?}",
     );
 }
 
@@ -368,7 +305,7 @@ fn report_shared_target_maintenance_failure(context: &str, outcome: &WasmBuildOu
     };
     let _ = writeln!(
         io::stderr().lock(),
-        "{context}: ic_testkit_maintenance_warning error={message}",
+        "{context}: ic_build_maintenance_warning error={message}",
     );
 }
 
@@ -424,47 +361,33 @@ fn relevant_prefixed_environment(name: &OsStr) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        env,
-        ffi::OsStr,
-        fs,
-        path::PathBuf,
-        process::Command,
-        time::{SystemTime, UNIX_EPOCH},
-    };
+    use std::{env, ffi::OsStr, fs, path::PathBuf, process::Command};
 
     use super::{
-        BUILD_PROGRESS_HEARTBEAT_INTERVAL, CACHE_MAINTENANCE_INTERVAL, CACHE_MAX_AGE,
-        CACHE_MAX_BYTES, CargoWasmBatchEntry, CargoWasmCacheRequest, EXTRA_BUILD_ENVIRONMENT,
-        POST_LINK_CACHE_NAMESPACE, PostLinkBatchEntry, SHARED_INCREMENTAL_TARGET_MAX_BYTES,
+        ArtifactCacheOutcome, BUILD_PROGRESS_HEARTBEAT_INTERVAL, CACHE_MAINTENANCE_INTERVAL,
+        CACHE_MAX_AGE, CACHE_MAX_BYTES, CargoWasmBatchEntry, CargoWasmCacheRequest,
+        EXTRA_BUILD_ENVIRONMENT, PostLinkBatchEntry, SHARED_INCREMENTAL_TARGET_MAX_BYTES,
         SharedIncrementalTargetMaintenanceFailureMode, artifact_cache_prune_policy,
         build_cached_cargo_wasm, build_cached_cargo_wasm_batch, cache_post_link_wasm_batch,
         cargo_wasm_batch_specs, relevant_prefixed_environment,
         shared_incremental_target_maintenance_config, wasm_build_progress_config,
     };
-    use ic_testkit::artifacts::{ArtifactCachePrunePolicy, prune_artifact_cache};
-
-    fn fixture_root(label: &str) -> PathBuf {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system clock should follow the Unix epoch")
-            .as_nanos();
-        let root = env::temp_dir().join(format!("icydb-{label}-{}-{unique}", std::process::id()));
-        fs::create_dir_all(&root).expect("create artifact fixture");
-        root
-    }
 
     fn workspace_root() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .and_then(std::path::Path::parent)
-            .expect("integration crate should live below the workspace root")
+            .expect("build crate should live below the workspace root")
             .to_path_buf()
     }
 
     #[test]
     fn encoded_flags_reach_single_and_batch_builds_and_cache_identity() {
-        let root = fixture_root("encoded-flags space");
+        let root = ic_host_fs::testing::create_fixture_directory(
+            &env::temp_dir(),
+            "icydb encoded-flags space",
+        )
+        .unwrap();
         fs::create_dir(root.join("src")).unwrap();
         fs::write(
             root.join("Cargo.toml"),
@@ -527,21 +450,11 @@ mod tests {
                 },
             ],
         );
-        let batch = build_cached_cargo_wasm_batch(&specs);
-        assert!(batch.failures.is_empty(), "{:?}", batch.failures);
-        assert_eq!(batch.successes.len(), 2);
-        let same = &batch
-            .successes
-            .iter()
-            .find(|(index, _)| *index == 0)
-            .unwrap()
-            .1;
-        let changed = &batch
-            .successes
-            .iter()
-            .find(|(index, _)| *index == 1)
-            .unwrap()
-            .1;
+        let batch = build_cached_cargo_wasm_batch(&specs).unwrap();
+        assert_eq!(batch.failures().count(), 0, "{batch:?}");
+        assert_eq!(batch.outcomes().count(), 2);
+        let same = batch.entries()[0].result().unwrap().record();
+        let changed = batch.entries()[1].result().unwrap().record();
         assert_eq!(single.record().fingerprint(), same.fingerprint());
         assert_ne!(same.fingerprint(), changed.fingerprint());
         for (record, prefix) in [
@@ -607,7 +520,11 @@ mod tests {
 
     #[test]
     fn post_link_batch_reports_failure_and_finishes_later_artifact() {
-        let root = fixture_root("post-link-batch");
+        let root = ic_host_fs::testing::create_fixture_directory(
+            &env::temp_dir(),
+            "icydb post-link-batch",
+        )
+        .unwrap();
         let invalid_input = root.join("invalid.wasm");
         let valid_input = root.join("valid.wasm");
         let invalid_output = root.join("invalid.final.wasm");
@@ -630,85 +547,27 @@ mod tests {
             cache_post_link_wasm_batch(&workspace_root(), &root.join("artifact-cache"), &entries)
                 .expect("post-link batch setup should succeed");
 
-        assert_eq!(report.successes.len(), 1);
-        assert_eq!(report.successes[0].0, 1);
-        assert_eq!(report.failures.len(), 1);
+        assert_eq!(report.outcomes().count(), 1);
+        assert_eq!(report.outcomes().next().unwrap().index(), 1);
+        assert_eq!(report.failures().count(), 1);
         assert!(!invalid_output.exists());
         assert!(valid_output.is_file());
-        let retained = report.successes[0].1.artifacts()[0].path();
+        // Consume the upstream report just like the coordinator: the moved
+        // record must retain the exact artifact after other entries are dropped.
+        let mut entries = report.into_entries();
+        let (_, _, outcome, _) = entries.pop().unwrap().into_parts();
+        let record = match outcome.unwrap() {
+            ArtifactCacheOutcome::Built(record) | ArtifactCacheOutcome::Reused(record) => record,
+        };
+        drop(entries);
+        let retained = record.artifacts()[0].path();
+        assert_ne!(retained, valid_output);
         fs::remove_file(&valid_output).expect("remove mutable materialization");
         assert_eq!(
             fs::read(retained).expect("read retained success"),
             b"\0asm\x01\0\0\0"
         );
-        drop(report);
+        drop(record);
         fs::remove_dir_all(root).expect("remove post-link batch fixture");
-    }
-
-    #[test]
-    fn post_link_batch_retains_cold_and_warm_results_during_replacement_and_pruning() {
-        let root = fixture_root("post-link-retention");
-        let cache = root.join("cache");
-        let first = root.join("first.wasm");
-        let second = root.join("second.wasm");
-        let output = root.join("shared.wasm");
-        fs::write(&first, b"\0asm\x01\0\0\0").expect("write empty Wasm");
-        // A distinct valid module exporting f() -> i32, returning 7.
-        fs::write(&second, b"\0asm\x01\0\0\0\x01\x05\x01\x60\0\x01\x7f\x03\x02\x01\0\x07\x05\x01\x01f\0\0\x0a\x06\x01\x04\0\x41\x07\x0b")
-            .expect("write distinct Wasm");
-        let acquire = |input: &std::path::Path| {
-            let report = cache_post_link_wasm_batch(
-                &workspace_root(),
-                &cache,
-                &[PostLinkBatchEntry {
-                    context: "retained fixture",
-                    compiler_emitted: input,
-                    final_deployable: &output,
-                }],
-            )
-            .expect("acquire post-link artifact");
-            assert!(report.failures.is_empty());
-            assert_eq!(report.successes.len(), 1);
-            report
-        };
-        let cold = acquire(&first);
-        let warm = acquire(&first);
-        let first_path = cold.successes[0].1.artifacts()[0].path().to_path_buf();
-        assert_eq!(warm.successes[0].1.artifacts()[0].path(), first_path);
-        assert_ne!(first_path, output);
-        let expected = fs::read(&first_path).expect("read first retained artifact");
-        drop(cold);
-        // Join establishes that replacement and pruning happen before the read,
-        // while the warm record remains alive in this thread. No timing race.
-        std::thread::scope(|scope| {
-            scope
-                .spawn(|| {
-                    let replacement = acquire(&second);
-                    assert_ne!(fs::read(&output).expect("read replacement"), expected);
-                    fs::remove_file(&output).expect("remove mutable materialization");
-                    prune_artifact_cache(
-                        &cache,
-                        POST_LINK_CACHE_NAMESPACE,
-                        ArtifactCachePrunePolicy::new().with_max_size_bytes(0),
-                    )
-                    .expect("prune while acquired results are retained");
-                    assert!(replacement.successes[0].1.artifacts()[0].path().is_file());
-                })
-                .join()
-                .expect("replacement worker should finish");
-        });
-        assert_eq!(
-            fs::read(&first_path).expect("warm owner retains original"),
-            expected
-        );
-        drop(warm);
-        prune_artifact_cache(
-            &cache,
-            POST_LINK_CACHE_NAMESPACE,
-            ArtifactCachePrunePolicy::new().with_max_size_bytes(0),
-        )
-        .expect("prune after releasing results");
-        assert!(!first_path.exists());
-        fs::remove_dir_all(root).expect("remove retention fixture");
     }
 }

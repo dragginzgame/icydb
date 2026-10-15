@@ -5,10 +5,11 @@
 
 use crate::{metrics::ExecutionMetricsPhase, runtime::now_millis};
 use candid::CandidType;
+use ic_metrics::MeasurementAggregate;
 use serde::Deserialize;
 use std::{cell::RefCell, collections::BTreeMap};
 
-/// Saturating local instruction observations for one execution owner.
+/// Local instruction observations and their tracked quality for one owner.
 ///
 /// Spans include failed attempts and may nest; totals are not exclusive
 /// accounting and must not be summed or converted to cycles.
@@ -17,6 +18,9 @@ pub struct InstructionMetrics {
     samples: u64,
     instructions_total: u128,
     instructions_max: u64,
+    samples_saturated: bool,
+    total_saturated: bool,
+    instructions_mean: Option<u128>,
 }
 
 impl InstructionMetrics {
@@ -38,13 +42,35 @@ impl InstructionMetrics {
         self.instructions_max
     }
 
-    fn record(&mut self, instructions: u64) {
-        ic_metrics::record_sample(
-            &mut self.samples,
-            &mut self.instructions_total,
-            instructions,
-        );
-        self.instructions_max = self.instructions_max.max(instructions);
+    /// Whether the sample count actually overflowed, rather than reaching its cap.
+    #[must_use]
+    pub const fn samples_saturated(&self) -> bool {
+        self.samples_saturated
+    }
+
+    /// Whether the instruction total actually overflowed.
+    #[must_use]
+    pub const fn total_saturated(&self) -> bool {
+        self.total_saturated
+    }
+
+    /// Exact floor-rounded mean, unavailable for empty or overflowed observations.
+    #[must_use]
+    pub const fn instructions_mean(&self) -> Option<u128> {
+        self.instructions_mean
+    }
+}
+
+impl From<MeasurementAggregate> for InstructionMetrics {
+    fn from(measurement: MeasurementAggregate) -> Self {
+        Self {
+            samples: measurement.samples(),
+            instructions_total: measurement.total(),
+            instructions_max: measurement.maximum().unwrap_or(0),
+            samples_saturated: measurement.samples_overflowed(),
+            total_saturated: measurement.total_overflowed(),
+            instructions_mean: measurement.mean().ok().flatten(),
+        }
     }
 }
 
@@ -131,17 +157,52 @@ impl ConvergenceMetrics {
 }
 
 #[derive(Clone, Debug, Default)]
-struct EntityCounter {
-    hits: u64,
-    instructions_total: u128,
-    instructions_max: u64,
+struct SchemaLifecycleMeasurements {
+    lowering: MeasurementAggregate,
+    publication: MeasurementAggregate,
+    runtime_compilation: MeasurementAggregate,
+    cardinality: MeasurementAggregate,
+    startup_recovery: MeasurementAggregate,
+}
+
+impl SchemaLifecycleMeasurements {
+    // Project only at the report boundary; the upstream aggregate remains the
+    // sole recording and overflow authority for each heap observation window.
+    fn snapshot(&self) -> SchemaLifecycleMetrics {
+        SchemaLifecycleMetrics {
+            lowering: self.lowering.into(),
+            publication: self.publication.into(),
+            runtime_compilation: self.runtime_compilation.into(),
+            cardinality: self.cardinality.into(),
+            startup_recovery: self.startup_recovery.into(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+struct ConvergenceMeasurements {
+    appended: crate::db::ExactBacklogMeasurement,
+    retired: crate::db::ExactBacklogMeasurement,
+    overflowed: bool,
+    journal_fold: MeasurementAggregate,
+}
+
+impl ConvergenceMeasurements {
+    fn snapshot(&self) -> ConvergenceMetrics {
+        ConvergenceMetrics {
+            appended: self.appended,
+            retired: self.retired,
+            overflowed: self.overflowed,
+            journal_fold: self.journal_fold.into(),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
 struct MetricsState {
-    entities: BTreeMap<String, EntityCounter>,
-    schema_lifecycle: SchemaLifecycleMetrics,
-    convergence: ConvergenceMetrics,
+    entities: BTreeMap<String, MeasurementAggregate>,
+    schema_lifecycle: SchemaLifecycleMeasurements,
+    convergence: ConvergenceMeasurements,
     window_start_ms: u64,
     window_id: Option<u64>,
 }
@@ -150,8 +211,8 @@ impl Default for MetricsState {
     fn default() -> Self {
         Self {
             entities: BTreeMap::new(),
-            schema_lifecycle: SchemaLifecycleMetrics::default(),
-            convergence: ConvergenceMetrics::default(),
+            schema_lifecycle: SchemaLifecycleMeasurements::default(),
+            convergence: ConvergenceMeasurements::default(),
             window_start_ms: now_millis(),
             window_id: Some(0),
         }
@@ -169,6 +230,9 @@ pub struct EntityMetrics {
     hits: u64,
     instructions_total: u128,
     instructions_max: u64,
+    samples_saturated: bool,
+    total_saturated: bool,
+    instructions_mean: Option<u128>,
 }
 
 impl EntityMetrics {
@@ -194,6 +258,24 @@ impl EntityMetrics {
     #[must_use]
     pub const fn instructions_max(&self) -> u64 {
         self.instructions_max
+    }
+
+    /// Whether the observation count actually overflowed.
+    #[must_use]
+    pub const fn samples_saturated(&self) -> bool {
+        self.samples_saturated
+    }
+
+    /// Whether the instruction total actually overflowed.
+    #[must_use]
+    pub const fn total_saturated(&self) -> bool {
+        self.total_saturated
+    }
+
+    /// Producer-admitted floor-rounded mean, absent when empty or overflowed.
+    #[must_use]
+    pub const fn instructions_mean(&self) -> Option<u128> {
+        self.instructions_mean
     }
 }
 
@@ -327,12 +409,7 @@ pub(super) fn record_entity_execution(entity_path: &str, instructions: u64) {
         } else {
             state.entities.entry(entity_path.to_owned()).or_default()
         };
-        ic_metrics::record_sample(
-            &mut counter.hits,
-            &mut counter.instructions_total,
-            instructions,
-        );
-        counter.instructions_max = counter.instructions_max.max(instructions);
+        counter.record(instructions);
     });
 }
 
@@ -370,9 +447,12 @@ fn metrics_snapshot(journal_debt: crate::db::ExactBacklogMeasurement) -> Metrics
             })
             .map(|(path, counter)| EntityMetrics {
                 path: path.clone(),
-                hits: counter.hits,
-                instructions_total: counter.instructions_total,
-                instructions_max: counter.instructions_max,
+                hits: counter.samples(),
+                instructions_total: counter.total(),
+                instructions_max: counter.maximum().unwrap_or(0),
+                samples_saturated: counter.samples_overflowed(),
+                total_saturated: counter.total_overflowed(),
+                instructions_mean: counter.mean().ok().flatten(),
             })
             .collect::<Vec<_>>();
         entities.sort_by(|left, right| {
@@ -389,9 +469,9 @@ fn metrics_snapshot(journal_debt: crate::db::ExactBacklogMeasurement) -> Metrics
             window_end_ms: now_millis(),
             total_entities: state.entities.len() as u64,
             entities,
-            schema_lifecycle: state.schema_lifecycle.clone(),
+            schema_lifecycle: state.schema_lifecycle.snapshot(),
             journal_debt,
-            convergence: state.convergence.clone(),
+            convergence: state.convergence.snapshot(),
         }
     })
 }
@@ -405,8 +485,8 @@ pub fn metrics_reset_all() {
         let mut state = state.borrow_mut();
         state.window_id = state.window_id.and_then(|id| id.checked_add(1));
         state.entities.clear();
-        state.schema_lifecycle = SchemaLifecycleMetrics::default();
-        state.convergence = ConvergenceMetrics::default();
+        state.schema_lifecycle = SchemaLifecycleMeasurements::default();
+        state.convergence = ConvergenceMeasurements::default();
         state.window_start_ms = now_millis();
     });
 }
@@ -514,6 +594,74 @@ mod tests {
             metrics_snapshot(crate::db::ExactBacklogMeasurement::EMPTY).window_id(),
             report.window_id()
         );
+    }
+
+    #[test]
+    fn tracked_quality_and_exact_means_survive_every_report_boundary() {
+        use super::{ConvergenceMeasurements, SchemaLifecycleMeasurements};
+        use ic_metrics::MeasurementAggregate;
+
+        let exact_count =
+            MeasurementAggregate::from_parts(u64::MAX, 0, Some(0), false, false).unwrap();
+        let mut overflowed_count = exact_count;
+        overflowed_count.record(0);
+        let mut exact_total =
+            MeasurementAggregate::from_parts(u64::MAX, u128::MAX - 1, Some(u64::MAX), true, false)
+                .unwrap();
+        exact_total.record(1);
+        let mut overflowed_total = exact_total;
+        overflowed_total.record(1);
+        let mut measured_zero = MeasurementAggregate::EMPTY;
+        measured_zero.record(0);
+        for (measurement, samples_saturated, total_saturated, mean) in [
+            (MeasurementAggregate::EMPTY, false, false, None),
+            (measured_zero, false, false, Some(0)),
+            (exact_count, false, false, Some(0)),
+            (overflowed_count, true, false, None),
+            (exact_total, true, false, None),
+            (overflowed_total, true, true, None),
+        ] {
+            metrics_reset_all();
+            STATE.with_borrow_mut(|state| {
+                state.entities.insert("entity".into(), measurement);
+                state.schema_lifecycle = SchemaLifecycleMeasurements {
+                    lowering: measurement,
+                    publication: measurement,
+                    runtime_compilation: measurement,
+                    cardinality: measurement,
+                    startup_recovery: measurement,
+                };
+                state.convergence = ConvergenceMeasurements {
+                    journal_fold: measurement,
+                    ..ConvergenceMeasurements::default()
+                };
+            });
+            let report = metrics_snapshot(crate::db::ExactBacklogMeasurement::EMPTY);
+            let encoded = candid::encode_one(&report).unwrap();
+            let decoded: MetricsReport = candid::decode_one(&encoded).unwrap();
+            assert_eq!(decoded, report);
+            let entity = &decoded.entities()[0];
+            assert_eq!(entity.samples_saturated(), samples_saturated);
+            assert_eq!(entity.total_saturated(), total_saturated);
+            assert_eq!(entity.instructions_mean(), mean);
+            let lifecycle = decoded.schema_lifecycle();
+            for owner in [
+                lifecycle.lowering(),
+                lifecycle.publication(),
+                lifecycle.runtime_compilation(),
+                lifecycle.cardinality(),
+                lifecycle.startup_recovery(),
+                decoded.convergence().journal_fold(),
+            ] {
+                assert_eq!(owner.samples(), measurement.samples());
+                assert_eq!(owner.instructions_total(), measurement.total());
+                assert_eq!(owner.instructions_max(), measurement.maximum().unwrap_or(0));
+                assert_eq!(owner.samples_saturated(), samples_saturated);
+                assert_eq!(owner.total_saturated(), total_saturated);
+                assert_eq!(owner.instructions_mean(), mean);
+            }
+        }
+        metrics_reset_all();
     }
 
     #[test]

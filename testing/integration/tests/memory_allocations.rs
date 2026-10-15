@@ -1,15 +1,16 @@
 //! Controller-only allocation reporting through the generated snapshot endpoint.
 
 use candid::Principal;
+use ic_testkit::pic::CandidCallExt as _;
 use icydb::{
     Error, ErrorOrigin,
     db::{MemoryAllocationBinding, StorageReport},
     diagnostic::RuntimeBoundaryCode,
 };
-use icydb_testing_integration::{
+use icydb_testing_build::{
     CanisterBuildOptions, CanisterBuildProfile, build_fixture_canister_wasm_bytes_with_options,
-    install_prebuilt_fixture_canister,
 };
+use icydb_testing_integration::install_prebuilt_fixture_canister;
 
 #[test]
 fn generated_snapshot_reports_allocation_totals_without_mutation() {
@@ -22,8 +23,10 @@ fn generated_snapshot_reports_allocation_totals_without_mutation() {
     );
     let fixture = install_prebuilt_fixture_canister("sql", wasm);
     let before = fixture.pocket_ic().get_stable_memory(fixture.canister_id());
-    let response: Result<StorageReport, Error> =
-        fixture.query_candid("icydb_snapshot", ()).unwrap();
+    let response: Result<StorageReport, Error> = fixture
+        .pocket_ic()
+        .query_candid(fixture.canister_id(), "icydb_snapshot", ())
+        .unwrap();
     let report = response.unwrap();
     let allocations = report.memory_allocations().unwrap();
     assert_eq!(allocations.bucket_size_pages, 16);
@@ -55,11 +58,15 @@ fn generated_snapshot_reports_allocation_totals_without_mutation() {
     );
     assert_eq!(allocations.metadata_bytes_read, 34_848);
 
-    let repeated: Result<StorageReport, Error> =
-        fixture.query_candid("icydb_snapshot", ()).unwrap();
+    let repeated: Result<StorageReport, Error> = fixture
+        .pocket_ic()
+        .query_candid(fixture.canister_id(), "icydb_snapshot", ())
+        .unwrap();
     assert_eq!(repeated.unwrap().memory_allocations(), Some(allocations));
     let denied: Result<StorageReport, Error> = fixture
+        .pocket_ic()
         .query_candid_as(
+            fixture.canister_id(),
             Principal::self_authenticating([42; 32]),
             "icydb_snapshot",
             (),

@@ -329,7 +329,8 @@ pub(in crate::db) fn canonicalize_filter_literal_for_persisted_kind<'a>(
                 Value::Blob(bytes) if bytes.len() <= max_len => Some(Cow::Borrowed(value)),
                 Value::Text(text) => {
                     charge_filter_hex_decode(text, max_len, work)?;
-                    decode_hex_bounded(text, max_len).map(|bytes| Cow::Owned(Value::Blob(bytes)))
+                    decode_hex_bounded(text.as_bytes(), max_len)
+                        .map(|bytes| Cow::Owned(Value::Blob(bytes)))
                 }
                 _ => None,
             }
@@ -549,7 +550,7 @@ fn canonicalize_filter_string_backed_atom(
                 _ => None,
             },
             |value| {
-                let bytes = decode_hex_bounded(value, 32).ok_or(())?;
+                let bytes = decode_hex_bounded(value.as_bytes(), 32).ok_or(())?;
                 <[u8; 32]>::try_from(bytes)
                     .map(Subaccount::from_array)
                     .map_err(|_| ())

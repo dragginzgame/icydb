@@ -140,8 +140,9 @@ In the owning repository's authorized change:
    for every affected workspace with prepared tools and caches. Keep the existing
    Linux/macOS qualification obligations and local command authority. Adoption
    does not add a new gate or authorize publication, cleanup or version changes.
-   Code changes still complete the repository's existing full validation suite
-   before delivery under the baseline.
+   Qualify directly affected consumers with focused checks before handoff;
+   reserve local full-suite runs for release or an explicit request under the
+   baseline.
 5. Verify the adopted snapshot and update local instructions and documentation.
    Distinguish committed adoption from local preparation and native execution
    evidence from source inspection.

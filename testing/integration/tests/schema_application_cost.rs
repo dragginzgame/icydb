@@ -1,9 +1,10 @@
 use candid::{CandidType, Deserialize, Principal};
-use ic_testkit::pic::StandaloneCanisterFixture;
+use ic_testkit::pic::{CandidCallExt as _, StandaloneCanisterFixture};
 use icydb_testing_integration::{
     install_fixture_canister, install_fixture_canister_without_startup_delivery,
     upgrade_fixture_canister,
 };
+
 use std::time::Duration;
 
 const TIMER_EXECUTOR_METHOD: &str = "<ic-cdk internal> timer_executor";
@@ -56,7 +57,12 @@ fn query_probe_result(
     fixture: &StandaloneCanisterFixture,
 ) -> Result<SchemaApplicationPerfResult, icydb::Error> {
     fixture
-        .query_candid("measure_schema_application_query", ())
+        .pocket_ic()
+        .query_candid(
+            fixture.canister_id(),
+            "measure_schema_application_query",
+            (),
+        )
         .expect("schema-application query probe should decode")
 }
 
@@ -66,14 +72,20 @@ fn query_probe(fixture: &StandaloneCanisterFixture) -> SchemaApplicationPerfResu
 
 fn update_probe(fixture: &StandaloneCanisterFixture) -> SchemaApplicationPerfResult {
     let result: Result<SchemaApplicationPerfResult, icydb::Error> = fixture
-        .update_candid("measure_schema_application_update", ())
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "measure_schema_application_update",
+            (),
+        )
         .expect("schema-application update probe should decode");
     result.expect("schema-application update probe should succeed")
 }
 
 fn startup_observation(fixture: &StandaloneCanisterFixture) -> StartupObservationPerfResult {
     let result: Result<StartupObservationPerfResult, icydb::db::StartupFailure> = fixture
-        .query_candid("measure_startup_observation", ())
+        .pocket_ic()
+        .query_candid(fixture.canister_id(), "measure_startup_observation", ())
         .expect("startup observation should decode");
     result.expect("startup observation should not fail")
 }
@@ -83,7 +95,9 @@ fn accepted_schema_read(
     entity: &str,
 ) -> AcceptedSchemaReadInstructionResult {
     let result: Result<AcceptedSchemaReadInstructionResult, icydb::Error> = fixture
+        .pocket_ic()
         .query_candid(
+            fixture.canister_id(),
             "measure_accepted_schema_read_instructions",
             (entity.to_string(),),
         )
@@ -93,7 +107,8 @@ fn accepted_schema_read(
 
 fn application_startup_contract(fixture: &StandaloneCanisterFixture) -> ApplicationStartupSnapshot {
     fixture
-        .query_candid("application_startup_contract", ())
+        .pocket_ic()
+        .query_candid(fixture.canister_id(), "application_startup_contract", ())
         .expect("application startup contract should decode")
 }
 
@@ -106,7 +121,9 @@ fn inject_application_startup_failure(fixture: &StandaloneCanisterFixture) {
         ),
     };
     fixture
+        .pocket_ic()
         .update_candid::<(), _>(
+            fixture.canister_id(),
             "observe_application_startup_for_tests",
             (Result::<icydb::db::DatabaseStartupState, StartupFailureInput>::Err(failure),),
         )
@@ -153,7 +170,7 @@ fn application_readiness_restores_only_after_ready_and_stops_on_typed_failure() 
     assert_eq!(installed_ready.restorations, 1);
     assert!(!installed_ready.retry_scheduled);
 
-    upgrade_fixture_canister(&fixture, "sql_perf");
+    upgrade_fixture_canister(fixture.pocket_ic(), fixture.canister_id(), "sql_perf");
     let upgraded = application_startup_contract(&fixture);
     assert_eq!(upgraded.hook, ApplicationStartupHook::PostUpgrade);
     assert!(upgraded.engine_registered_before_hook);
@@ -165,7 +182,7 @@ fn application_readiness_restores_only_after_ready_and_stops_on_typed_failure() 
     assert_eq!(upgraded_ready.ready_observations, 1);
     assert_eq!(upgraded_ready.restorations, 1);
 
-    upgrade_fixture_canister(&fixture, "sql_perf");
+    upgrade_fixture_canister(fixture.pocket_ic(), fixture.canister_id(), "sql_perf");
     inject_application_startup_failure(&fixture);
     let failed = application_startup_contract(&fixture);
     let failure = failed
@@ -222,7 +239,7 @@ fn lifecycle_driver_is_private_and_reconstructable_after_upgrade() {
         startup_observation(&fixture).state,
         icydb::db::DatabaseStartupState::Ready,
     );
-    upgrade_fixture_canister(&fixture, "sql_perf");
+    upgrade_fixture_canister(fixture.pocket_ic(), fixture.canister_id(), "sql_perf");
     assert_eq!(
         startup_observation(&fixture).state,
         icydb::db::DatabaseStartupState::Recovering,
@@ -246,7 +263,12 @@ fn startup_observation_is_bounded_before_after_readiness_and_upgrade() {
     assert!(fresh.local_instructions <= OBSERVATION_INSTRUCTION_CEILING);
 
     let pending: Result<(), icydb::Error> = fixture
-        .update_candid("initialize_startup_observation_fixture", ())
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "initialize_startup_observation_fixture",
+            (),
+        )
         .expect("ordinary pending probe should decode");
     let pending = pending.expect_err("ordinary work must reject while recovery is pending");
     assert_eq!(
@@ -259,7 +281,7 @@ fn startup_observation_is_bounded_before_after_readiness_and_upgrade() {
     assert_eq!(ready.state, icydb::db::DatabaseStartupState::Ready);
     assert!(ready.local_instructions <= OBSERVATION_INSTRUCTION_CEILING);
 
-    upgrade_fixture_canister(&fixture, "sql_perf");
+    upgrade_fixture_canister(fixture.pocket_ic(), fixture.canister_id(), "sql_perf");
     let upgraded = startup_observation(&fixture);
     assert_eq!(upgraded.state, icydb::db::DatabaseStartupState::Recovering);
     assert!(upgraded.local_instructions <= OBSERVATION_INSTRUCTION_CEILING);
@@ -317,7 +339,7 @@ fn schema_application_is_driver_owned_and_ordinary_probes_are_state_only() {
     assert_eq!(update.first_create, 0);
     assert!(update.exact_match > 0);
 
-    upgrade_fixture_canister(&fixture, "sql_perf");
+    upgrade_fixture_canister(fixture.pocket_ic(), fixture.canister_id(), "sql_perf");
     let post_upgrade_pending = query_probe_result(&fixture)
         .expect_err("post-upgrade query must not drive recovery or schema reconciliation");
     assert_eq!(

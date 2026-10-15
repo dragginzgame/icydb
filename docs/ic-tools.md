@@ -44,6 +44,7 @@ from the standard toolset. Availability of an asset does not prove native qualif
 Prerequisites are Bash 3.2+, curl, tar with xz/gzip support, Perl, and either
 `sha256sum` or `shasum`. `make` exposes the standard targets. No Rust compilation,
 sudo, package-manager bootstrap or shell-profile editing is involved.
+Explicit downloads use the common [bounded transient retry policy](local-setup.md#pinned-local-tool-sets).
 
 ## Installation and retention
 

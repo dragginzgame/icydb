@@ -479,12 +479,9 @@ pub(in crate::db) fn derive_sql_ddl_field_addition_accepted_after(
         .clone()
         .with_added_not_null(&field)
         .map_err(SchemaDdlMutationAdmissionError::ConstraintCatalog)?;
-    let persisted_after = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
-        before.version(),
-        before.entity_path().to_string(),
-        before.entity_name().to_string(),
-        before.primary_key_field_ids().to_vec(),
-        SchemaRowLayout::new(
+    let persisted_after = before
+        .clone()
+        .with_row_layout(SchemaRowLayout::new(
             field.introduced_in_layout(),
             if matches!(
                 field.historical_fill(),
@@ -495,13 +492,9 @@ pub(in crate::db) fn derive_sql_ddl_field_addition_accepted_after(
                 before.row_layout().history_floor()
             },
             field_to_slot,
-        ),
-        fields,
-        before.indexes().to_vec(),
-    )
-    .with_constraint_catalog(constraint_catalog)
-    .with_relation_id_allocator(before.relation_id_allocator())
-    .with_relations(before.relations().to_vec());
+        ))
+        .with_fields(fields)
+        .with_constraint_catalog(constraint_catalog);
     let accepted_after = AcceptedSchemaSnapshot::try_new_with_acceptance(persisted_after)
         .map_err(SchemaDdlMutationAdmissionError::AcceptedAfter)?;
     let admission = admit_sql_ddl_field_addition_candidate(&field);
@@ -552,6 +545,10 @@ pub(in crate::db) fn derive_sql_ddl_field_default_accepted_after(
     default: SchemaInsertDefault,
 ) -> Result<SchemaDdlAcceptedSnapshotDerivation, SchemaDdlMutationAdmissionError> {
     let before = accepted_before.persisted_snapshot();
+    before
+        .constraint_catalog()
+        .reject_live_activation()
+        .map_err(SchemaDdlMutationAdmissionError::ConstraintCatalog)?;
     let before_field = before
         .fields()
         .iter()
@@ -594,18 +591,7 @@ pub(in crate::db) fn derive_sql_ddl_field_default_persisted_after(
             }
         })
         .collect();
-    PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
-        before.version(),
-        before.entity_path().to_string(),
-        before.entity_name().to_string(),
-        before.primary_key_field_ids().to_vec(),
-        before.row_layout().clone(),
-        fields,
-        before.indexes().to_vec(),
-    )
-    .with_constraint_catalog(before.constraint_catalog().clone())
-    .with_relation_id_allocator(before.relation_id_allocator())
-    .with_relations(before.relations().to_vec())
+    before.clone().with_fields(fields)
 }
 
 /// Derive and admit the accepted-after schema snapshot for one SQL DDL
@@ -763,23 +749,18 @@ fn build_field_nullability_snapshot(
         .map(update_index)
         .collect();
 
-    PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
-        version,
-        before.entity_path().to_string(),
-        before.entity_name().to_string(),
-        before.primary_key_field_ids().to_vec(),
-        SchemaRowLayout::new(
+    before
+        .clone()
+        .with_schema_version(version)
+        .with_row_layout(SchemaRowLayout::new(
             before.row_layout().current_version(),
             history_floor,
             before.row_layout().field_to_slot().to_vec(),
-        ),
-        fields,
-        indexes,
-    )
-    .with_constraint_catalog(constraint_catalog)
-    .with_relation_id_allocator(before.relation_id_allocator())
-    .with_relations(before.relations().to_vec())
-    .with_constraint_candidates(candidate_indexes, before.candidate_relations().to_vec())
+        ))
+        .with_fields(fields)
+        .with_indexes(indexes)
+        .with_constraint_catalog(constraint_catalog)
+        .with_constraint_candidates(candidate_indexes, before.candidate_relations().to_vec())
 }
 
 /// Derive and admit the accepted-after schema snapshot for one SQL DDL
@@ -790,6 +771,10 @@ pub(in crate::db) fn derive_sql_ddl_field_rename_accepted_after(
     new_name: &str,
 ) -> Result<SchemaDdlAcceptedSnapshotDerivation, SchemaDdlMutationAdmissionError> {
     let before = accepted_before.persisted_snapshot();
+    before
+        .constraint_catalog()
+        .reject_live_activation()
+        .map_err(SchemaDdlMutationAdmissionError::ConstraintCatalog)?;
     let before_field = before
         .fields()
         .iter()
@@ -829,16 +814,5 @@ pub(in crate::db) fn derive_sql_ddl_field_rename_persisted_after(
         .iter()
         .map(|index| index.clone_with_renamed_field_path_root(before_field.id(), new_name))
         .collect::<Vec<_>>();
-    PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
-        before.version(),
-        before.entity_path().to_string(),
-        before.entity_name().to_string(),
-        before.primary_key_field_ids().to_vec(),
-        before.row_layout().clone(),
-        fields,
-        indexes,
-    )
-    .with_constraint_catalog(before.constraint_catalog().clone())
-    .with_relation_id_allocator(before.relation_id_allocator())
-    .with_relations(before.relations().to_vec())
+    before.clone().with_fields(fields).with_indexes(indexes)
 }

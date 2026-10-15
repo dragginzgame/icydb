@@ -11,6 +11,7 @@ mod membership;
 mod planner_watermark;
 mod sql_cache_accounting;
 mod sql_construction;
+mod sql_text_cache;
 mod template_accounting;
 
 use crate::{
@@ -1222,13 +1223,15 @@ fn publish_schema_with_label(
             "singleton_label_idx".to_string(),
             STORE_PATH.to_string(),
             false,
-            PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
-                FieldId::new(2),
-                SchemaFieldSlot::new(1),
-                vec![label.to_string()],
-                AcceptedFieldKind::Text { max_len: None },
-                false,
-            )]),
+            PersistedIndexKeySnapshot::from_field_paths(vec![
+                PersistedIndexFieldPathSnapshot::new(
+                    FieldId::new(2),
+                    SchemaFieldSlot::new(1),
+                    vec![label.to_string()],
+                    AcceptedFieldKind::Text { max_len: None },
+                    false,
+                ),
+            ]),
             None,
         )],
     );

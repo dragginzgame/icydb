@@ -174,3 +174,76 @@ fn managed_fields_do_not_accept_insert_generators() {
         .validate()
         .expect("a managed field without a competing generator should validate");
 }
+
+#[test]
+fn identity_defaults_reject_invalid_text_during_field_validation() {
+    for primitive in [
+        Primitive::Account,
+        Primitive::Principal,
+        Primitive::Subaccount,
+        Primitive::Ulid,
+    ] {
+        let mut field = field("identity", primitive);
+        field.default = Some(Arg::String(parse_quote!("zz")));
+        field
+            .validate()
+            .expect_err("malformed identity text must reject before Rust Default generation");
+    }
+}
+
+#[test]
+fn subaccount_default_lowering_is_fallible_for_unicode_hex() {
+    let mut field = field("sub", Primitive::Subaccount);
+    // Exactly 64 bytes, with the first two-byte slice splitting a UTF-8 scalar.
+    let text = format!("aé{}", "0".repeat(61));
+    field.default = Some(Arg::String(syn::LitStr::new(
+        &text,
+        proc_macro2::Span::call_site(),
+    )));
+    assert!(field.rust_default_expr().is_none());
+    field.validate().expect_err("Unicode is not Subaccount hex");
+}
+
+#[test]
+fn identity_defaults_share_validation_and_panic_free_construction() {
+    for (primitive, text) in [
+        (Primitive::Account, "2vxsx-fae".to_string()),
+        (Primitive::Principal, "aaaaa-aa".to_string()),
+        (Primitive::Principal, "2vxsx-fae".to_string()),
+        (Primitive::Subaccount, "ab".repeat(32)),
+        (Primitive::Subaccount, format!("0x{}", "AB".repeat(32))),
+        (Primitive::Ulid, "00000000000000000000000000".to_string()),
+        (Primitive::Ulid, "7ZZZZZZZZZZZZZZZZZZZZZZZZZ".to_string()),
+    ] {
+        let mut field = field("identity", primitive);
+        field.default = Some(Arg::String(syn::LitStr::new(
+            &text,
+            proc_macro2::Span::call_site(),
+        )));
+        field
+            .validate()
+            .expect("valid identity literals must validate");
+        let expression = field
+            .rust_default_expr()
+            .expect("valid literals construct defaults");
+        syn::parse2::<syn::Expr>(expression).expect("construction must be valid Rust");
+    }
+    for text in [
+        "",
+        "0x",
+        "zz",
+        &"g".repeat(64),
+        &"0".repeat(63),
+        &"0".repeat(65),
+    ] {
+        let mut field = field("sub", Primitive::Subaccount);
+        field.default = Some(Arg::String(syn::LitStr::new(
+            text,
+            proc_macro2::Span::call_site(),
+        )));
+        field
+            .validate()
+            .expect_err("invalid Subaccount literals must reject");
+        assert!(field.rust_default_expr().is_none());
+    }
+}

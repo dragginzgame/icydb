@@ -34,11 +34,13 @@ fn entity_creation_startup_snapshot() -> Result<(bool, u64, u128, u128, u64, u64
         .ok_or_else(typed_fixture_invariant_error)?;
     let performance = snapshot.observability().performance();
     let counters = snapshot.observability().counters();
+    let work = performance.work_instructions().aggregate();
+    let scheduler = performance.scheduler_instructions().aggregate();
     Ok((
         lifecycle_ready()?,
-        performance.work_instructions().samples(),
-        performance.work_instructions().total(),
-        performance.scheduler_instructions().total(),
+        work.samples(),
+        work.total(),
+        scheduler.total(),
         counters.work_started(),
         counters.work_completed(),
     ))

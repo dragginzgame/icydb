@@ -1,4 +1,8 @@
 # Supported Hosts And Dependencies
+<!-- Shared companions: docs/ci-change-selection.md docs/rust-toolchains.md -->
+
+For reviewed prose-only changes, use the [documentation-only CI selection](ci-change-selection.md)
+contract. Code and tooling changes retain the required native host coverage below.
 
 ## Required macOS support
 
@@ -20,6 +24,9 @@ macOS filesystem, process or deployment behavior. Report unqualified workflows
 explicitly while retaining the macOS support requirement.
 
 ## Host-specific setup and commands
+
+Rust workflows can adopt the shared [toolchain preparation action](rust-toolchains.md)
+while keeping their own development/MSRV selections and qualification gates.
 
 Dependency installation and CI/deployment setup may differ by host. Document
 those differences at the owning boundary and preserve the same product
@@ -80,6 +87,13 @@ a newer commit's success does not qualify an older release. Consumers must updat
 their owned workflows when adopting this guidance; snapshot refresh alone does
 not change their concurrency settings.
 
+Routine issue acceptance can use the latest delivered version that retains and
+tests the behavior; it need not wait for cancelled superseded runs. Follow the
+[issue maintenance procedure](../rules/agent-maintenance.md#issue-review-and-repair)
+to preserve historical evidence and require an explicit version-specific reason
+for any older run kept as an active gate. This does not qualify an older release
+or weaken the current version's required native matrix.
+
 Use the [CI-health task](../tasks/ci-health.md#queued-native-jobs-and-repeated-validation)
 to diagnose persistent native queues and repeated branch/tag gates. Keep all
 required hosts and checks on the retained run. Release, publication and deployment
@@ -95,6 +109,41 @@ All three jobs also run real Prettier/Rust hook qualification and a native
 installer failure-artifact round trip, described below. These are separate
 from the offline portable suite.
 
+### CI setup reuse and timings
+
+Shared Tooling's native jobs cache the existing Cargo source cache and physical
+Rust tool generations, including build and receipt evidence. Checkout `.tools`
+selections, user Cargo credentials and host/IC bundles are not cached. Host/IC
+setup therefore continues to exercise fresh pinned downloads on every runner.
+The cache key uses the installer's exact compiler/native/build-policy identity,
+runner image identity, Cargo tool pins and installer/checksum sources. There are
+no misses solely from comments, record order or unrelated tool pins in the
+literal common catalog. Catalogs with executable configuration, duplicate
+assignments or unsupported syntax retain their full bytes as key input; cache
+inspection never executes them or guesses their selections. There are
+no broad restore prefixes or cross-host restores. Changed inputs or an absent
+cache use ordinary cold setup.
+
+A restored cache is only a setup optimization: every job still runs complete
+`make install-tools`, offline `make tools-check` and actual cross-checkout reuse
+qualification. Existing receipt, byte, path and lock admission remains the
+authority. Cache transport errors are nonfatal; setup and validation errors are
+not. Cache steps have a three-minute bound. Only main push jobs save caches,
+after successful setup/reuse and before the test suite, so later cancellation
+does not necessarily discard expensive preparation. PR jobs only restore.
+This follows the official [cache action](https://github.com/actions/cache)
+restore/save interface; a cache hit is not native qualification.
+
+The portable suite prints a per-fixture duration/exit-status table on success
+and failure. Failed runs retain `timings.tsv` with their ordinary temporary
+evidence. All fixtures remain sequential and all three hosts run the complete
+suite. Compare cold/warm setup and fixture timings on matching hosted inputs;
+local timings and cache fixtures do not establish a hosted speed-up or explain
+runner queue capacity.
+The IC-tool fixture also prints cleanup start, elapsed seconds and exit status
+after successful assertions. A start without an end identifies an interrupted
+cleanup; use native evidence before attributing a timeout or claiming a speed-up.
+
 Shared Tooling's portable scripts do not support Windows or non-Bash shells.
 This does not prohibit a consumer from supporting additional hosts or shells
 through its own qualified tooling.
@@ -108,6 +157,7 @@ required to run setup. Make targets and CI select this same local tool set.
 
 | Tool | Additional dependencies |
 | --- | --- |
+| Evidence download and its portable fixture | GitHub CLI, jq, unzip and SHA-256 verification; the fixture also uses zip |
 | `scripts/dev/cloc.sh` | Git, Cargo, `cloc`, `jq`, `awk`, `find`, `grep`, and `sort` |
 | `scripts/dev/cloc-siblings.sh` | Git and the same prepared tools as `cloc.sh`; read-only root workspace summaries |
 | `scripts/dev/cloc-tooling.pl` | Git, cloc, and core Perl modules including JSON::PP and Digest::SHA; no Cargo or consumer command execution |
@@ -128,11 +178,11 @@ required to run setup. Make targets and CI select this same local tool set.
 | Snapshot refresh | Git, a clean Shared Tooling checkout, and a SHA-256 implementation |
 | Dependency pin checker | Git, jq, Mike Farah yq v4.47.2+; Cargo when Cargo manifests exist |
 | Workspace-version reader | Prepared Cargo, jq and Mike Farah yq v4.47.2+; explicit Cargo.toml input; no dependency resolution |
-| Release runner | GNU Make, Git, `date`, explicit consumer metadata/check targets, and Bash 3.2 |
+| Release runner | GNU Make, Git, Perl, `date`, explicit consumer metadata/check targets, and Bash 3.2 |
 | PR release delivery | The release runner prerequisites, authenticated GitHub CLI with `gh api --paginate`, jq, and Git supporting `switch`, `worktree` and `fetch --no-write-fetch-head`; see the [PR contract](releases.md#pr-delivery) |
 | Changelog finalizer | System awk with regular-expression `RS` (the declared Linux/macOS hosts); preserves historical EOF bytes without GNU `RT` |
 | Rust pre-commit hook and installer | Git, GNU Make, consumer-owned `fmt` prerequisites (Cargo/rustfmt and an exact `cargo-sort` version), Bash 3.2 and standard Unix file utilities |
-| Consumer formatting adoption checker | The hook prerequisites above, Perl-free shell utilities, and reviewed consumer Make inputs; no implicit downloads |
+| Consumer formatting adoption checker | The hook prerequisites above, Perl, and reviewed consumer Make inputs; no implicit downloads |
 | Formatter prerequisite checker | Prepared Cargo/rustfmt and the consumer's exact cargo-sort version; optional Cargo executable and `RUSTUP_TOOLCHAIN`; no installation |
 | Local lockfile transformer | Perl core only; the caller separately validates the prepared graph with Cargo |
 | Explicit tag maintenance | Git and Perl core modules; atomic push support for remote deletion; see [tag maintenance](tag-maintenance.md) |
@@ -153,6 +203,17 @@ run the complete aggregate on Linux x86-64 and both macOS architectures; narrowe
 CI jobs may prepare only their own declared prerequisites without claiming a
 complete developer installation. Linux ARM64 remains host-set-only because the
 IC set lacks a matching Quill asset.
+
+The standalone `scripts/ci/test-rust-tools.sh` uses substitute Cargo/compiler
+executables in its own prepared directory, including when invoked by absolute
+path from a consumer with `rust-toolchain.toml`. It borrows the source checkout's
+existing Git commit and tracked `README.md` through a read-only object reference;
+only disposable fixture refs, indexes and working files change. It creates no
+commits or tags and performs no pushes. Forbidden Git attempts are recorded and
+fail the fixture even when an expected-failure case consumes their exit status.
+Real staged hook, partial-staging, receipt and exported-input isolation checks
+remain part of this same entrypoint. This contract does not cover the separate
+release-history fixtures in Shared Tooling's full suite.
 
 The hook regression fixture also requires `jq` and the `cargo-sort` version from
 `ci/tool-versions.env` (`2.1.4`). CI installs it before offline tests; local
@@ -239,13 +300,22 @@ leave no completed manifest. All evidence is retained. CI observes the failed st
 requires that invocation's completion output (an old manifest cannot qualify it),
 uploads through the common collector, downloads the exact returned artifact ID,
 and extracts the archive to check its payload against the original checksum
-manifest. Both full and compact evidence readbacks use the pinned download
-action's authenticated REST path, scoped to the current repository and run.
-Only the portable job grants `actions: read`; download digest mismatches fail
-before the independent payload checks. This transport selection follows
-[the Blob readback report](https://github.com/dragginzgame/shared-tooling/issues/93);
-its original internal lookup failure has no proven cause, and local checks do
-not establish hosted acceptance of the new path.
+manifest. Both full and compact readbacks use `scripts/ci/download-evidence.sh`
+with the upload output ID and SHA-256, scoped to the current repository and run.
+It requires GitHub CLI, jq, unzip and an explicit `GH_TOKEN` with `actions: read`.
+Only the portable job grants that permission. Direct artifact metadata must match
+the ID, run, expiry status and upload digest. The downloaded ZIP must match that
+digest and contain exactly `evidence.tar.gz`; payload checks remain independent.
+
+Only reported HTTP 404 responses from metadata or the exact-ID download are
+retried: six attempts with 2, 4, 8, 16 and 30 seconds of backoff. Each hosted
+readback has a three-minute timeout. Other API failures, malformed metadata,
+identity conflicts, unexpected archive members and checksum failures stop
+immediately. Every attempt remains in the destination, which must be new.
+No separate listing preflight, name fallback, upload replay or extraction of
+arbitrary ZIP paths occurs. This addresses the visibility regression tracked in
+[#158](https://github.com/dragginzgame/shared-tooling/issues/158); hosted
+qualification is still required on every native host.
 Separate checks cover a newline/colon filename's bytes and mode,
 executable state and a symlink whose target stays outside the selection. Missing logs,
 hidden candidate files, failed uploads, early fixture failures and corrupted

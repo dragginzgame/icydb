@@ -7,9 +7,9 @@
 
 use crate::{
     db::{
-        commit::{CommitRowOp, CommitSchemaFingerprint},
+        commit::{CanonicalRowCommitOp, CommitSchemaFingerprint},
         data::{
-            AcceptedFieldWriteProvenance, DecodedDataStoreKey, RawDataStoreKey, RawRow,
+            AcceptedFieldWriteProvenance, DecodedDataStoreKey, RawDataStoreKey,
             StructuralRowContract, StructuralSlotReader,
         },
         schema::{CompiledAcceptedRowConstraints, accepted_row_constraint_write_error},
@@ -25,10 +25,9 @@ use std::collections::{BTreeMap, BTreeSet};
     reason = "the accepted scheduler keeps identity, mode, provenance, row contract, fingerprint, and compiled constraints explicit"
 )]
 fn validate_row_local_after_image(
-    contract: &StructuralRowContract,
     entity_tag: EntityTag,
     mode: MutationMode,
-    row: &RawRow,
+    row_fields: &StructuralSlotReader<'_>,
     provenance: &[Option<AcceptedFieldWriteProvenance>],
     accepted_schema_fingerprint: CommitSchemaFingerprint,
     fingerprint_method: u8,
@@ -56,8 +55,6 @@ fn validate_row_local_after_image(
     if constraints.is_empty() {
         return Ok(());
     }
-    let row_fields =
-        StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(row, contract)?;
     let values = row_fields.decode_selected_slot_values(constraints.required_slots())?;
     constraints
         .evaluate(accepted_schema_fingerprint, values.as_slice())
@@ -80,7 +77,7 @@ fn validate_row_local_after_image(
 ///
 
 pub(in crate::db) struct AcceptedMutationConstraintBatch {
-    rows: Vec<CommitRowOp>,
+    rows: Vec<CanonicalRowCommitOp>,
     deleted_key_groups: Vec<(String, BTreeSet<RawDataStoreKey>)>,
 }
 
@@ -93,7 +90,10 @@ impl AcceptedMutationConstraintBatch {
 
     pub(in crate::db::executor) fn into_parts(
         self,
-    ) -> (Vec<CommitRowOp>, Vec<(String, BTreeSet<RawDataStoreKey>)>) {
+    ) -> (
+        Vec<CanonicalRowCommitOp>,
+        Vec<(String, BTreeSet<RawDataStoreKey>)>,
+    ) {
         (self.rows, self.deleted_key_groups)
     }
 }
@@ -122,7 +122,7 @@ pub(in crate::db) struct AcceptedMutationConstraintContext<'a> {
 pub(in crate::db) struct AcceptedMutationConstraintScheduler {
     seen_keys: BTreeMap<RawDataStoreKey, u32>,
     deleted_key_groups: Vec<(String, BTreeSet<RawDataStoreKey>)>,
-    rows: Vec<CommitRowOp>,
+    rows: Vec<CanonicalRowCommitOp>,
 }
 
 impl AcceptedMutationConstraintScheduler {
@@ -147,9 +147,9 @@ impl AcceptedMutationConstraintScheduler {
         context: AcceptedMutationConstraintContext<'_>,
         mode: MutationMode,
         data_key: &DecodedDataStoreKey,
-        row: &RawRow,
+        row: &StructuralSlotReader<'_>,
         provenance: &[Option<AcceptedFieldWriteProvenance>],
-        row_op: Option<CommitRowOp>,
+        row_op: Option<CanonicalRowCommitOp>,
         batch_position: u32,
     ) -> Result<(), InternalError> {
         let raw_key = data_key.to_raw()?;
@@ -162,7 +162,6 @@ impl AcceptedMutationConstraintScheduler {
             batch_position,
         );
         validate_row_local_after_image(
-            context.row_contract,
             context.entity_tag,
             mode,
             row,
@@ -177,7 +176,10 @@ impl AcceptedMutationConstraintScheduler {
             if row_op.entity_path.as_ref() != context.row_contract.entity_path()
                 || row_op.key != raw_key
                 || row_op.schema_fingerprint != context.schema_fingerprint
-                || row_op.after.as_deref() != Some(row.as_bytes())
+                || row_op
+                    .after
+                    .as_ref()
+                    .is_none_or(|after| after.as_raw_row().as_bytes() != row.contract_row_bytes())
             {
                 return Err(InternalError::query_executor_invariant());
             }
@@ -195,7 +197,7 @@ impl AcceptedMutationConstraintScheduler {
         entity_path: &str,
         entity_tag: EntityTag,
         schema_fingerprint: CommitSchemaFingerprint,
-        row_op: CommitRowOp,
+        row_op: CanonicalRowCommitOp,
         batch_position: u32,
     ) -> Result<(), InternalError> {
         if row_op.entity_path.as_ref() != entity_path

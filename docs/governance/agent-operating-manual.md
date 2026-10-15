@@ -29,9 +29,9 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
 - `scripts/`: release/version helpers.
 - `Makefile`: common tasks.
 - `Cargo.toml`: workspace manifest; edition 2024 and workspace package
-  rust-version 1.96.0. `rust-toolchain.toml` pins maintainer and CI tooling to
-  1.99.0. The public `icydb` dependency path and its library dependencies
-  advertise and are checked on MSRV 1.88.0; other workspace-only packages use
+  rust-version 1.96.0. `rust-toolchain.toml` selects the latest stable channel
+  for maintainer and CI tooling. The public `icydb` dependency path and its
+  library dependencies advertise and are checked on MSRV 1.91.0; other workspace-only packages use
   the workspace floor.
 
 ## Workflow
@@ -63,9 +63,9 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
 - Formatting helpers: install `cargo-sort` and `cargo-sort-derives` as described
   in `INSTALLING.md`. `make install-hooks` installs the hook explicitly;
   `make install-dev` and `make update-dev` also ensure it is installed.
-- CI uses Rust `1.99.0`, `rustfmt`, `clippy -D warnings`, `cargo test`, and
+- CI uses the latest stable Rust channel, `rustfmt`, `clippy -D warnings`, `cargo test`, and
   release builds. It also checks the public `icydb` dependency path on Rust
-  `1.88.0`.
+  `1.91.0`.
 
 ## Concurrent Editing
 
@@ -161,7 +161,7 @@ struct TypeName;
 - Use Rust test harness.
 - Unit tests live near code when they stay within the owning module boundary.
 - Cross-module behavior suites belong under the owning subsystem `tests/` directory.
-- Macro-driven entity/index tests belong in `testing/macro-tests`; do not add ad-hoc `DummyEntity` types in `icydb-core` tests.
+- Macro/model expansion tests belong with the model crates and `testing/model-*` adapters; generated behavior fixtures live in `schema/test/fixtures`. Canister E2E tests belong in `testing/integration`. Follow [TESTING.md](../../TESTING.md); do not add ad-hoc generated `DummyEntity` types to accepted-schema planner tests.
 - Every inline unit test module must be preceded by:
 
 ```rust

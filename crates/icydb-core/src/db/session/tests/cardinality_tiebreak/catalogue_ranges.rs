@@ -23,13 +23,15 @@ fn seed_catalogue(count: u16, unique: bool) -> Vec<Vec<OutputValue>> {
             "catalog_order_idx".into(),
             STORE_PATH.into(),
             unique,
-            PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
-                FieldId::new(2),
-                SchemaFieldSlot::new(1),
-                vec!["catalog_order".into()],
-                AcceptedFieldKind::Nat16,
-                false,
-            )]),
+            PersistedIndexKeySnapshot::from_field_paths(vec![
+                PersistedIndexFieldPathSnapshot::new(
+                    FieldId::new(2),
+                    SchemaFieldSlot::new(1),
+                    vec!["catalog_order".into()],
+                    AcceptedFieldKind::Nat16,
+                    false,
+                ),
+            ]),
             None,
         )],
     );

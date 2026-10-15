@@ -145,7 +145,7 @@ fn call_hex(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
-        .map_err(|err| err.to_string())?;
+        .map_err(|err| format!("failed to run icp canister call: {err}"))?;
 
     if !output.status.success() {
         let stderr = output_stderr(output.stderr.as_slice());

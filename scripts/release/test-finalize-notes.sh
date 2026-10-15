@@ -3,15 +3,11 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/icydb-numbered-notes.XXXXXX")"
+fixture="$(cd -P "$fixture" && pwd)"
 fixture_complete=false
-finish() {
-    local status=$?
-    [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
-    if [[ "$status" == 0 ]]; then rm -rf "$fixture"
-    else echo "Release-note fixture retained: $fixture" >&2; fi
-    exit "$status"
-}
-trap finish EXIT
+# shellcheck source=scripts/ci/fixture-lifecycle.sh
+source "$root/scripts/ci/fixture-lifecycle.sh"
+trap 'fixture_finish "$?" "$fixture" "Release-note fixture retained"' EXIT
 mkdir -p "$fixture/scripts/ci" "$fixture/scripts/release" "$fixture/docs/changelog"
 cp "$root/scripts/ci/finalize-release-changelog.awk" "$fixture/scripts/ci/"
 cp "$root/scripts/release/finalize-notes.sh" "$fixture/scripts/release/"
@@ -47,6 +43,28 @@ for candidate in 0.264.11 0.265.0; do
     fi
     cmp "$fixture/root-before" CHANGELOG.md
     cmp "$fixture/detail-before" "docs/changelog/$line.md"
+done
+
+# The shared hard cut requires numbered candidates at the top of both views.
+for invalid in draft misplaced; do
+    for view in root detail; do
+        printf '# Changelog\n\n## [0.265.0]\n\nRoot notes.\n' > CHANGELOG.md
+        printf '# 0.265\n\n## [0.265.0]\n\nDetailed notes.\n' > docs/changelog/0.265.md
+        target=CHANGELOG.md
+        [[ "$view" != detail ]] || target=docs/changelog/0.265.md
+        if [[ "$invalid" == draft ]]; then
+            printf '# Notes\n\n## [Draft]\n\nUnnumbered notes.\n' > "$target"
+        else
+            printf '# Notes\n\n## [0.264.0] - 2026-10-04\n\nHistory first.\n\n## [0.265.0]\n\nMisplaced candidate.\n' > "$target"
+        fi
+        cp CHANGELOG.md "$fixture/root-before"
+        cp docs/changelog/0.265.md "$fixture/detail-before"
+        if RELEASE_VERSION=0.265.0 RELEASE_DATE=2026-10-05 bash scripts/release/finalize-notes.sh > "$fixture/output" 2>&1; then
+            echo 'accepted unnumbered or misplaced notes' >&2; exit 1
+        fi
+        cmp "$fixture/root-before" CHANGELOG.md
+        cmp "$fixture/detail-before" docs/changelog/0.265.md
+    done
 done
 
 # Either view conflicting with the saved release selection preserves both files.

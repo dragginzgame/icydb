@@ -5,34 +5,17 @@ wasm_report_sha256() {
     bash "$ROOT/scripts/ci/verify-file-checksum.sh" --print sha256 "$1"
 }
 
+# One product-owned roster serves Rust admission and portable shell selection.
 wasm_report_default_canisters() {
-    printf '%s\n' \
-        default_empty \
-        default_empty_metrics \
-        nested_relation_none \
-        nested_relation_direct \
-        nested_relation_shallow \
-        nested_relation_repeated \
-        one_entity_dynamic_query \
-        one_entity_reachable_operations \
-        one_entity_typed_query \
-        one_entity_sql_query \
-        request_future_scale \
-        ten_entity_typed_query \
-        ten_entity_reachable_operations \
-        sql_perf \
-        sql
+    awk -F '\t' '$2 == "default" { print $1 }' "$ROOT/testing/build/src/wasm_measurement_subjects.tsv"
 }
 
 wasm_report_canister_is_maintained_subject() {
-    case "$1" in
-        default_empty|default_empty_metrics|group_path_sql_query|nested_relation_none|nested_relation_direct|nested_relation_shallow|nested_relation_repeated|one_entity_dynamic_query|one_entity_reachable_operations|one_entity_typed_query|one_entity_sql_query|request_future_scale|ten_entity_typed_query|ten_entity_reachable_operations|sql_perf|sql)
-            return 0
-            ;;
-        *)
-            return 1
-            ;;
-    esac
+    local subject _selection
+    while IFS=$'\t' read -r subject _selection; do
+        [[ "$subject" != "$1" ]] || return 0
+    done < "$ROOT/testing/build/src/wasm_measurement_subjects.tsv"
+    return 1
 }
 
 wasm_report_sql_variants() {

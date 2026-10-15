@@ -11,17 +11,12 @@ unset GITHUB_STEP_SUMMARY
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 FIXTURE="$(mktemp -d "${TMPDIR:-/tmp}/icydb-shared-adapters.XXXXXX")"
 fixture_complete=false
-finish() {
-  local status=$?
-  [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
-  if [[ "$status" == 0 ]]; then rm -rf "$FIXTURE"
-  else echo "Shared adapter fixture retained: $FIXTURE" >&2; fi
-  exit "$status"
-}
-trap finish EXIT
+# shellcheck source=scripts/ci/fixture-lifecycle.sh
+source "$ROOT/scripts/ci/fixture-lifecycle.sh"
+trap 'fixture_finish "$?" "$FIXTURE" "Shared adapter fixture retained"' EXIT
 mkdir -p "$FIXTURE/scripts/ci" "$FIXTURE/bin" "$FIXTURE/install"
 for script in check-make-execution.sh run-validation-targets.sh run-icydb-validation-targets.sh \
-  install-actionlint.sh install-ci-tool.sh install-icydb-actionlint.sh verify-file-checksum.sh; do
+  install-ci-tool.sh install-icydb-actionlint.sh verify-file-checksum.sh; do
   cp "$ROOT/scripts/ci/$script" "$FIXTURE/scripts/ci/"
 done
 
@@ -126,11 +121,14 @@ mkdir -p "$native/make" "$native/scripts/ci" "$native/bin"
 cp "$ROOT/Makefile" "$native/"
 cp "$ROOT/make/"*.mk "$native/make/"
 cp "$ROOT/scripts/ci/actionlint-checksums.tsv" "$native/scripts/ci/"
+mkdir -p "$native/testing/build/src"
+cp "$ROOT/testing/build/src/wasm_measurement_subjects.tsv" "$native/testing/build/src/"
 cp "$ROOT/rust-toolchain.toml" "$native/"
 printf '[workspace]\n' > "$native/Cargo.toml"
 printf 'version = 4\n' > "$native/Cargo.lock"
 for script in check-make-execution.sh run-validation-targets.sh run-icydb-validation-targets.sh \
-  wasm-size-report.sh wasm-audit-report.sh wasm-report-common.sh verify-file-checksum.sh; do
+  run-nonempty-cargo-test.sh wasm-size-report.sh wasm-audit-report.sh \
+  wasm-report-common.sh verify-file-checksum.sh; do
   cp "$ROOT/scripts/ci/$script" "$native/scripts/ci/"
 done
 export CI_CARGO_ROOT="$native" CI_CARGO_TRACE="$native/cargo-trace"
@@ -163,6 +161,9 @@ fi
 case "$1 ${2:-}" in
   'locate-project --workspace') printf '%s\n' "$CI_CARGO_ROOT/Cargo.toml" ;;
   'sort --version') printf 'cargo-sort 2.1.4\n' ;;
+  # Qualify Make dispatch through the real nonempty-test helper. Product test
+  # execution and oracle comparisons are checked separately, without substitutes.
+  'test '*) printf 'test result: ok. 1 passed; 0 failed; 0 ignored\n' ;;
 esac
 if [[ -n "${ICYDB_SQL_TIER_C_ARTIFACT_DIR:-}" ]]; then
   [[ "$ICYDB_SQL_TIER_C_ARTIFACT_DIR" == "$CI_CARGO_ROOT/tier-c" ]]
@@ -257,8 +258,8 @@ for lane in build-canister-local build-canister-production; do
     CANISTER=default_empty > "$native/$lane.log" 2>&1
 done
 printf '%s\n' \
-  'run --locked -p icydb-testing-integration --bin build_fixture_canister -- default_empty --build-profile local --profile debug --candid-export on' \
-  'run --locked -p icydb-testing-integration --bin build_fixture_canister -- default_empty --build-profile production --profile wasm-release --candid-export on' \
+  'run --locked -p icydb-testing-build --bin build_fixture_canister -- default_empty --build-profile local --profile debug --candid-export on' \
+  'run --locked -p icydb-testing-build --bin build_fixture_canister -- default_empty --build-profile production --profile wasm-release --candid-export on' \
   > "$native/expected-arguments"
 cmp "$native/expected-arguments" "$CI_CARGO_ARGUMENT_TRACE"
 mkdir "$native/doc-bin"

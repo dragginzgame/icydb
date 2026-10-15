@@ -46,7 +46,7 @@ fn filtered_snapshot(expression: bool) -> PersistedSchemaSnapshot {
         false,
     );
     let key = if expression {
-        PersistedIndexKeySnapshot::Items(vec![PersistedIndexKeyItemSnapshot::Expression(Box::new(
+        PersistedIndexKeySnapshot::new(vec![PersistedIndexKeyItemSnapshot::Expression(Box::new(
             PersistedIndexExpressionSnapshot::new(
                 PersistedIndexExpressionOp::Lower,
                 path,
@@ -56,7 +56,7 @@ fn filtered_snapshot(expression: bool) -> PersistedSchemaSnapshot {
             ),
         ))])
     } else {
-        PersistedIndexKeySnapshot::FieldPath(vec![path])
+        PersistedIndexKeySnapshot::from_field_paths(vec![path])
     };
     PersistedSchemaSnapshot::new_with_indexes(
         base.version(),

@@ -1,23 +1,21 @@
 #!/usr/bin/env bash
-# Shared companions: make/tools.mk
+# Shared companions: make/tools.mk scripts/ci/fixture-lifecycle.sh
 set -euo pipefail
+path_context=false
+if [[ "${1:-}" == --path-context && $# == 1 ]]; then path_context=true;
+elif [[ $# != 0 ]]; then echo 'usage: fixture [--path-context]' >&2; exit 2; fi
 
 ROOT="$0"
 [[ "$ROOT" == /* ]] || ROOT="$PWD/$ROOT"
 ROOT="$(cd -P "${ROOT%/*}/../.." && printf '%s/.' "$PWD")"
 ROOT="${ROOT%/.}"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/shared-tool-commands.XXXXXX")"
-fixture="$(cd "$fixture" && pwd -P)"
-# Bash 3.2 can enter EXIT with status zero after nounset; require completion too.
+fixture="$(CDPATH="" cd -P -- "$fixture" && printf '%s/.' "$PWD")"
+fixture="${fixture%/.}"
+# shellcheck source=scripts/ci/fixture-lifecycle.sh
+source "$ROOT/scripts/ci/fixture-lifecycle.sh"
 fixture_complete=false
-finish() {
-    local status=$?
-    [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
-    if [[ "$status" == 0 ]]; then rm -rf "$fixture"
-    else printf "Failed tool command fixture retained: %s\n" "$fixture" >&2; fi
-    exit "$status"
-}
-trap finish EXIT
+trap 'fixture_finish "$?" "$fixture" "Failed tool command fixture retained"' EXIT
 unset MAKEFLAGS MFLAGS MAKEOVERRIDES GNUMAKEFLAGS MAKEFILES
 consumer="$fixture/consumer with spaces"
 snapshot="$consumer/vendor/shared-tooling"
@@ -63,11 +61,11 @@ MAKE
 
 make --no-print-directory -j4 -C "$consumer" install-tools > "$fixture/install.log" 2>&1
 cat > "$fixture/expected" <<EOF
-install-ic-tools.sh <--consumer> <$consumer> <--pins> <$consumer/ci/ic-tools.tsv> <--preflight>
-install-rust-tools.sh <--consumer> <$consumer> <--versions> <$consumer/ci/tool-versions.env> <--preflight>
-install-host-tools.sh <--consumer> <$consumer> <--versions> <$consumer/ci/tool-versions.env>
-install-ic-tools.sh <--consumer> <$consumer> <--pins> <$consumer/ci/ic-tools.tsv>
-install-rust-tools.sh <--consumer> <$consumer> <--versions> <$consumer/ci/tool-versions.env>
+install-ic-tools.sh <--consumer> <$consumer> <--pins> <$snapshot/ci/ic-tools.tsv> <--preflight>
+install-rust-tools.sh <--consumer> <$consumer> <--versions> <$snapshot/ci/tool-versions.env> <--preflight>
+install-host-tools.sh <--consumer> <$consumer> <--versions> <$snapshot/ci/tool-versions.env>
+install-ic-tools.sh <--consumer> <$consumer> <--pins> <$snapshot/ci/ic-tools.tsv>
+install-rust-tools.sh <--consumer> <$consumer> <--versions> <$snapshot/ci/tool-versions.env>
 EOF
 cmp "$fixture/expected" "$TOOL_COMMAND_LOG"
 
@@ -78,9 +76,19 @@ make --no-print-directory -j4 -C "$consumer" tools-check \
 cat > "$fixture/expected" <<EOF
 install-host-tools.sh <--consumer> <$consumer> <--versions> <$consumer/reviewed host pins.env> <--check>
 install-ic-tools.sh <--consumer> <$consumer> <--pins> <$consumer/reviewed IC pins.tsv> <--check>
-install-rust-tools.sh <--consumer> <$consumer> <--versions> <$consumer/reviewed host pins.env> <--check>
+install-rust-tools.sh <--consumer> <$consumer> <--versions> <$snapshot/ci/tool-versions.env> <--check>
 EOF
 cmp "$fixture/expected" "$TOOL_COMMAND_LOG"
+
+if [[ "$path_context" == true ]]; then
+    : > "$TOOL_COMMAND_LOG"
+    status=0
+    TOOL_COMMAND_FAIL=install-host-tools.sh make --no-print-directory -C "$consumer" tools-check > "$fixture/failed.log" 2>&1 || status=$?
+    [[ "$status" != 0 && "$(wc -l < "$TOOL_COMMAND_LOG" | tr -d ' ')" == 1 ]] || exit 1
+    fixture_complete=true
+    echo 'Make path-context dispatch, checks and failure propagation passed'
+    exit 0
+fi
 
 # Every common failure stops the ordered aggregate, including under parallel Make.
 for target in install-tools tools-check; do
@@ -178,7 +186,7 @@ install-product install-second check-product check-second:
 MAKE
 : > "$TOOL_COMMAND_LOG"
 make --no-print-directory -j4 -C "$consumer" install-tools > "$fixture/rust-install.log" 2>&1
-[[ "$(sed -n '5p' "$TOOL_COMMAND_LOG")" == "install-rust-tools.sh <--consumer> <$consumer> <--versions> <$consumer/ci/tool-versions.env>" ]] || exit 1
+[[ "$(sed -n '5p' "$TOOL_COMMAND_LOG")" == "install-rust-tools.sh <--consumer> <$consumer> <--versions> <$snapshot/ci/tool-versions.env>" ]] || exit 1
 printf 'install-product\ninstall-second\n' > "$fixture/product-expected"
 tail -2 "$TOOL_COMMAND_LOG" > "$fixture/product-actual"
 cmp "$fixture/product-expected" "$fixture/product-actual"
@@ -247,11 +255,11 @@ cp "$fixture/prefixed.mk" "$consumer/Makefile"
 cmp "$fixture/expected" "$TOOL_COMMAND_LOG"
 # Exercise the actual preflight owners through the actual parallel aggregate.
 # Host setup remains a recording stub: refusal must happen before it is called.
-mkdir -p "$snapshot/scripts/ci" "$consumer/ci" "$fixture/bin"
+mkdir -p "$snapshot/scripts/ci" "$snapshot/ci" "$consumer/ci" "$fixture/bin"
 cp "$ROOT/scripts/dev/install-ic-tools.sh" "$ROOT/scripts/dev/install-rust-tools.sh" "$snapshot/scripts/dev/"
 cp "$ROOT/scripts/dev/tool-store.sh" "$ROOT/scripts/dev/cargo-tool-build.sh" "$snapshot/scripts/dev/"
 cp "$ROOT/scripts/ci/ic-tool-pins.awk" "$ROOT/scripts/ci/verify-file-checksum.sh" "$snapshot/scripts/ci/"
-cp "$ROOT/ci/ic-tools.tsv" "$ROOT/ci/tool-versions.env" "$consumer/ci/"
+cp "$ROOT/ci/ic-tools.tsv" "$ROOT/ci/tool-versions.env" "$snapshot/ci/"
 cat > "$fixture/bin/uname" <<'SCRIPT'
 #!/usr/bin/env bash
 case "$1" in -s) echo Linux ;; -m) echo "${TOOL_PREFLIGHT_ARCH:-x86_64}" ;; esac
@@ -298,8 +306,6 @@ done
 cold="$fixture/cold consumer"; mkdir "$cold"
 for mode in ic rust; do
     args=(--consumer "$cold" --preflight)
-    if [[ "$mode" == ic ]]; then args+=(--pins "$consumer/ci/ic-tools.tsv")
-    else args+=(--versions "$consumer/ci/tool-versions.env"); fi
     PATH="$fixture/bin" TOOL_COMMAND_CONSUMER="$cold" CARGO_NET_OFFLINE=true \
         bash "$snapshot/scripts/dev/install-$mode-tools.sh" "${args[@]}" > "$fixture/preflight-$mode.out"
     [[ ! -s "$fixture/preflight-$mode.out" && ! -e "$cold/.tools" ]] || exit 1
@@ -310,7 +316,7 @@ printf 'retained failure evidence\n' > "$cold/.tools/rust/build/evidence"
 printf 'retained receipt\n' > "$cold/.tools/rust/.crates2.json"
 cp -R "$cold/.tools" "$fixture/retained-tools"
 PATH="$fixture/bin" TOOL_COMMAND_CONSUMER="$cold" bash "$snapshot/scripts/dev/install-rust-tools.sh" \
-    --consumer "$cold" --versions "$consumer/ci/tool-versions.env" --preflight
+    --consumer "$cold" --preflight
 diff -r "$fixture/retained-tools" "$cold/.tools"
 # Admission modes are distinct; combining them never falls through to setup.
 for mode in ic rust; do

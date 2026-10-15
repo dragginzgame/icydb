@@ -16,7 +16,8 @@ use crate::{
             ConstraintOrigin, ConstraintValidationJob, FieldId, FieldInsertGeneration,
             PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
             PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot,
-            PersistedRelationSourceSnapshot, PersistedSchemaSnapshot, SchemaHistoricalFill,
+            PersistedRelationPathStepSnapshot, PersistedRelationSourceSnapshot,
+            PersistedSchemaSnapshot, SchemaHistoricalFill,
             composite_catalog::{AcceptedCompositeElement, AcceptedCompositeShape},
             identity_kind_maximum, output_value_from_runtime, query_field_is_queryable,
             render_accepted_check_expr_sql,
@@ -43,9 +44,9 @@ const MAX_SQL_COMPACT_COLUMN_ROWS: usize =
 pub enum SqlColumnKey {
     /// Accepted primary-key field.
     Primary,
-    /// Sole field path in one accepted unique secondary index.
+    /// Sole field path in one unconditional accepted unique secondary index.
     Unique,
-    /// Member of a compound or non-unique accepted secondary index.
+    /// Member of a compound, filtered or non-unique accepted secondary index.
     Multiple,
     /// No accepted primary or secondary index membership.
     None,
@@ -998,7 +999,7 @@ impl EntityRelationDescription {
 
 #[cfg_attr(
     doc,
-    doc = "EntityRelationCardinality\n\nDescribe relation cardinality."
+    doc = "EntityRelationCardinality\n\nDescribe source multiplicity: List includes list/map-value traversal; Set denotes set-only traversal."
 )]
 #[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 pub enum EntityRelationCardinality {
@@ -1440,21 +1441,15 @@ fn describe_entity_indexes_with_persisted_schema(
 }
 
 fn describe_persisted_index_fields(key: &PersistedIndexKeySnapshot) -> Vec<String> {
-    match key {
-        PersistedIndexKeySnapshot::FieldPath(paths) => paths
-            .iter()
-            .map(|field_path| field_path.path().join("."))
-            .collect(),
-        PersistedIndexKeySnapshot::Items(items) => items
-            .iter()
-            .map(|item| match item {
-                PersistedIndexKeyItemSnapshot::FieldPath(field_path) => field_path.path().join("."),
-                PersistedIndexKeyItemSnapshot::Expression(expression) => {
-                    expression.canonical_text().to_string()
-                }
-            })
-            .collect(),
-    }
+    key.items()
+        .iter()
+        .map(|item| match item {
+            PersistedIndexKeyItemSnapshot::FieldPath(path) => path.path().join("."),
+            PersistedIndexKeyItemSnapshot::Expression(expression) => {
+                expression.canonical_text().to_string()
+            }
+        })
+        .collect()
 }
 
 /// Build the canonical compact SQL column projection from accepted authority.
@@ -1632,26 +1627,17 @@ fn compact_column_key(snapshot: &PersistedSchemaSnapshot, path: &str) -> SqlColu
     let primary =
         top_level_field.is_some_and(|field| snapshot.primary_key_field_ids().contains(&field.id()));
     let memberships = snapshot.indexes().iter().filter_map(|index| {
-        let key_items = match index.key() {
-            PersistedIndexKeySnapshot::FieldPath(paths) => paths.len(),
-            PersistedIndexKeySnapshot::Items(items) => items.len(),
-        };
-        let exact_path_member = match index.key() {
-            PersistedIndexKeySnapshot::FieldPath(paths) => {
-                paths.iter().any(|item| item.path().join(".") == path)
-            }
-            PersistedIndexKeySnapshot::Items(items) => items.iter().any(|item| {
-                matches!(
-                    item,
-                    PersistedIndexKeyItemSnapshot::FieldPath(field_path)
-                        if field_path.path().join(".") == path
-                )
-            }),
-        };
+        let key_items = index.key().component_count();
+        let exact_path_member = index
+            .key()
+            .field_paths()
+            .any(|item| item.path().join(".") == path);
         if !exact_path_member {
             return None;
         }
-        Some((index.unique(), key_items))
+        // A predicate limits uniqueness to its matching rows; it cannot supply
+        // a whole-column UNI hint, even for a single-component key.
+        Some((index.unique() && index.predicate().is_none(), key_items))
     });
     classify_compact_column_key(primary, memberships)
 }
@@ -1807,7 +1793,7 @@ fn describe_persisted_nested_leaves(
         } else {
             "├─ "
         };
-        let name = leaf.path().last().map_or("", String::as_str);
+        let name = leaf.path().join(".");
         let metadata = DescribeFieldMetadata::new(
             summarize_persisted_field_kind(leaf.kind(), value_catalog)?,
             leaf.nullable(),
@@ -1817,7 +1803,7 @@ fn describe_persisted_nested_leaves(
 
         push_described_field_row(
             fields,
-            name,
+            &name,
             None,
             false,
             Some(prefix),
@@ -1872,8 +1858,26 @@ fn persisted_relation_cardinality(
     snapshot: &PersistedSchemaSnapshot,
     relation: &PersistedRelationEdgeSnapshot,
 ) -> Result<EntityRelationCardinality, InternalError> {
-    let PersistedRelationSourceSnapshot::Direct { field_ids } = relation.source() else {
-        return Ok(EntityRelationCardinality::Single);
+    let field_ids = match relation.source() {
+        PersistedRelationSourceSnapshot::Direct { field_ids } => field_ids,
+        PersistedRelationSourceSnapshot::Nested { steps, .. } => {
+            // Flattened list/map values can repeat targets even inside a set.
+            // Retain Set only when every collection step is a set traversal.
+            let mut cardinality = EntityRelationCardinality::Single;
+            for step in steps {
+                match step {
+                    PersistedRelationPathStepSnapshot::ListItems
+                    | PersistedRelationPathStepSnapshot::MapValues => {
+                        return Ok(EntityRelationCardinality::List);
+                    }
+                    PersistedRelationPathStepSnapshot::SetItems => {
+                        cardinality = EntityRelationCardinality::Set;
+                    }
+                    _ => {}
+                }
+            }
+            return Ok(cardinality);
+        }
     };
     let [field_id] = field_ids.as_slice() else {
         return Ok(EntityRelationCardinality::Single);
@@ -2289,20 +2293,23 @@ mod tests {
         classify_compact_column_key, compact_column_capacity_from_counts, compact_column_extras,
         describe_accepted_constraint, describe_compact_columns_with_persisted_schema,
         describe_constraint_activation, describe_entity_constraints_with_persisted_schema,
-        describe_entity_fields_with_persisted_schema, nested_path_nullable,
+        describe_entity_fields_with_persisted_schema,
+        describe_entity_relations_with_persisted_schema, nested_path_nullable,
+        persisted_relation_cardinality,
     };
     use crate::db::schema::{
         AcceptedCheckExprV1, AcceptedCheckValueExprV1, AcceptedCompositeCatalog,
         AcceptedConstraintCatalog, AcceptedConstraintKind, AcceptedConstraintSnapshot,
-        AcceptedFieldKind, AcceptedNamedTypeIdentity, AcceptedRuleOperation, AcceptedRuleTarget,
-        AcceptedSchemaFingerprint, AcceptedSchemaRevision, AcceptedSchemaSnapshot,
-        AcceptedValueCatalogHandle, CompositeFieldId, CompositeTypeId, ConstraintActivationKind,
-        ConstraintActivationSnapshot, ConstraintActivationState, ConstraintId, ConstraintOrigin,
-        ConstraintValidationJob, FieldId, FieldStorageDecode, LeafCodec, MAX_SCHEMA_SNAPSHOT_BYTES,
-        PersistedFieldSnapshot, PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot,
-        PersistedIndexSnapshot, PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot,
-        PersistedSchemaSnapshot, RelationId, ScalarCodec, SchemaFieldSlot, SchemaIndexId,
-        SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
+        AcceptedFieldKind, AcceptedIndexPredicate, AcceptedNamedTypeIdentity,
+        AcceptedRuleOperation, AcceptedRuleTarget, AcceptedSchemaFingerprint,
+        AcceptedSchemaRevision, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
+        CompositeFieldId, CompositeTypeId, ConstraintActivationKind, ConstraintActivationSnapshot,
+        ConstraintActivationState, ConstraintId, ConstraintOrigin, ConstraintValidationJob,
+        FieldId, FieldStorageDecode, LeafCodec, MAX_SCHEMA_SNAPSHOT_BYTES, PersistedFieldSnapshot,
+        PersistedIndexFieldPathSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
+        PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot,
+        PersistedRelationPathStepSnapshot, PersistedSchemaSnapshot, RelationId, ScalarCodec,
+        SchemaFieldSlot, SchemaIndexId, SchemaInsertDefault, SchemaRowLayout, SchemaVersion,
         composite_catalog::{
             AcceptedCompositeElement, AcceptedCompositeField, AcceptedCompositeShape,
             decode_accepted_composite_catalog, encode_accepted_composite_catalog,
@@ -2357,13 +2364,15 @@ mod tests {
                 "account_email".to_string(),
                 "tests::Account::account_email".to_string(),
                 true,
-                PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
-                    FieldId::new(2),
-                    SchemaFieldSlot::new(1),
-                    vec!["email".to_string()],
-                    AcceptedFieldKind::Text { max_len: None },
-                    true,
-                )]),
+                PersistedIndexKeySnapshot::from_field_paths(vec![
+                    PersistedIndexFieldPathSnapshot::new(
+                        FieldId::new(2),
+                        SchemaFieldSlot::new(1),
+                        vec!["email".to_string()],
+                        AcceptedFieldKind::Text { max_len: None },
+                        true,
+                    ),
+                ]),
                 Some(crate::db::schema::AcceptedIndexPredicate::test_non_null(2)),
             )],
         );
@@ -2657,6 +2666,295 @@ mod tests {
         assert_eq!(
             classify_compact_column_key(false, std::iter::empty()),
             SqlColumnKey::None
+        );
+    }
+
+    #[test]
+    fn descriptive_column_keys_require_unconditional_uniqueness() {
+        let (snapshot, values) = constraint_description_fixture();
+        // An unconditional unique control needs a non-null source; nullable
+        // unique admission deliberately requires an explicit omission guard.
+        let email = PersistedFieldSnapshot::new_initial(
+            FieldId::new(2),
+            "email".into(),
+            SchemaFieldSlot::new(1),
+            AcceptedFieldKind::Text { max_len: None },
+            Vec::new(),
+            false,
+            SchemaInsertDefault::None,
+            FieldStorageDecode::ByKind,
+            LeafCodec::Scalar(ScalarCodec::Text),
+        );
+        let snapshot = snapshot
+            .clone()
+            .with_fields(vec![snapshot.fields()[0].clone(), email]);
+        let partial = snapshot.indexes()[0]
+            .clone_with_top_level_field_nullability(FieldId::new(2), false)
+            .clone_with_predicate_for_tests(Some(AcceptedIndexPredicate::bind_test_sql(
+                "email <> 'excluded'",
+                snapshot.fields(),
+            )));
+        let key = partial.key().clone();
+        let unconditional = |ordinal| {
+            PersistedIndexSnapshot::new(
+                SchemaIndexId::new(2).unwrap(),
+                ordinal,
+                "account_all_email".into(),
+                "tests::Account::account_all_email".into(),
+                true,
+                key.clone(),
+                None,
+            )
+        };
+        for (indexes, expected) in [
+            (vec![partial.clone()], SqlColumnKey::Multiple),
+            (vec![unconditional(1)], SqlColumnKey::Unique),
+            (vec![partial, unconditional(2)], SqlColumnKey::Unique),
+            (Vec::new(), SqlColumnKey::None),
+        ] {
+            let snapshot = snapshot.clone().with_indexes(indexes);
+            let constraints = AcceptedConstraintCatalog::initial(
+                snapshot.fields(),
+                snapshot.indexes(),
+                snapshot.relations(),
+            )
+            .unwrap();
+            let schema = AcceptedSchemaSnapshot::try_new_with_acceptance(
+                snapshot.with_constraint_catalog(constraints),
+            )
+            .unwrap();
+            let columns = describe_compact_columns_with_persisted_schema(&schema, &values).unwrap();
+            assert_eq!(columns[0].key(), SqlColumnKey::Primary);
+            assert_eq!(columns[1].key(), expected);
+        }
+    }
+
+    // An accepted record with distinct address.city and city leaves lets the
+    // compact and verbose projections qualify the same metadata authority.
+    fn nested_description_fixture() -> (AcceptedSchemaSnapshot, AcceptedValueCatalogHandle) {
+        let (snapshot, _) = constraint_description_fixture();
+        let profile_id = CompositeTypeId::new(1).unwrap();
+        let address_id = CompositeTypeId::new(2).unwrap();
+        let text = AcceptedFieldKind::Text { max_len: None };
+        let member = |id, name: &str, kind, nullable| {
+            AcceptedCompositeField::new(
+                CompositeFieldId::new(id).unwrap(),
+                name.into(),
+                AcceptedCompositeElement::new(kind, nullable),
+            )
+        };
+        let enums = empty_accepted_enum_catalog_for_tests();
+        let profile_shape = AcceptedCompositeShape::Record(vec![
+            member(
+                1,
+                "address",
+                AcceptedFieldKind::Composite {
+                    type_id: address_id,
+                },
+                false,
+            ),
+            member(2, "city", text.clone(), true),
+        ]);
+        let address_shape =
+            AcceptedCompositeShape::Record(vec![member(1, "city", text.clone(), false)]);
+        let composites = AcceptedCompositeCatalog::from_initial_definitions(
+            BTreeMap::from([
+                (profile_id, ("tests::Profile".into(), profile_shape)),
+                (address_id, ("tests::Address".into(), address_shape)),
+            ]),
+            &enums,
+        )
+        .unwrap();
+        let values = AcceptedValueCatalogHandle::new_for_tests(
+            enums,
+            composites,
+            AcceptedSchemaRevision::INITIAL,
+        );
+        let leaves = vec![
+            PersistedNestedLeafSnapshot::new(
+                vec!["address".into(), "city".into()],
+                text.clone(),
+                false,
+            ),
+            PersistedNestedLeafSnapshot::new(vec!["city".into()], text, true),
+        ];
+        let profile = PersistedFieldSnapshot::new_initial(
+            FieldId::new(2),
+            "profile".into(),
+            SchemaFieldSlot::new(1),
+            AcceptedFieldKind::Composite {
+                type_id: profile_id,
+            },
+            leaves,
+            false,
+            SchemaInsertDefault::None,
+            FieldStorageDecode::CatalogValue,
+            LeafCodec::Structural,
+        );
+        let snapshot = snapshot
+            .clone()
+            .with_fields(vec![snapshot.fields()[0].clone(), profile])
+            .with_indexes(Vec::new());
+        let constraints = AcceptedConstraintCatalog::initial(
+            snapshot.fields(),
+            snapshot.indexes(),
+            snapshot.relations(),
+        )
+        .unwrap();
+        let schema =
+            AcceptedSchemaSnapshot::try_new(snapshot.with_constraint_catalog(constraints)).unwrap();
+
+        (schema, values)
+    }
+
+    #[test]
+    fn descriptive_nested_names_retain_the_complete_relative_path() {
+        let (schema, values) = nested_description_fixture();
+        let fields = describe_entity_fields_with_persisted_schema(&schema, &values).unwrap();
+        let columns = describe_compact_columns_with_persisted_schema(&schema, &values).unwrap();
+        assert_eq!(fields[1].name(), "profile");
+        for (index, display, canonical) in [
+            (2, "├─ address.city", "profile.address.city"),
+            (3, "└─ city", "profile.city"),
+        ] {
+            assert_eq!(fields[index].name(), display);
+            assert_eq!(columns[index].name(), canonical);
+            assert_eq!(fields[index].slot(), None);
+            assert_eq!(fields[index].nullable(), columns[index].nullable());
+        }
+        assert!(!fields[2].nullable());
+        assert!(fields[3].nullable());
+    }
+
+    #[test]
+    fn descriptive_nested_relations_report_collection_multiplicity() {
+        use PersistedRelationPathStepSnapshot::{ListItems, MapValues, OptionalSome, SetItems};
+        // Optional/scalar traversal stays single. Any sequence/map fanout is
+        // list-like; a path with only set fanout retains the existing Set hint.
+        for (steps, expected) in [
+            (vec![OptionalSome], EntityRelationCardinality::Single),
+            (
+                vec![OptionalSome, ListItems],
+                EntityRelationCardinality::List,
+            ),
+            (vec![SetItems], EntityRelationCardinality::Set),
+            (vec![MapValues], EntityRelationCardinality::List),
+            (vec![SetItems, ListItems], EntityRelationCardinality::List),
+            (vec![ListItems, SetItems], EntityRelationCardinality::List),
+            (vec![SetItems, SetItems], EntityRelationCardinality::Set),
+            (vec![SetItems, MapValues], EntityRelationCardinality::List),
+        ] {
+            let kind = steps
+                .iter()
+                .rev()
+                .fold(AcceptedFieldKind::Ulid, |kind, step| match step {
+                    ListItems => AcceptedFieldKind::List(Box::new(kind)),
+                    SetItems => AcceptedFieldKind::Set(Box::new(kind)),
+                    MapValues => AcceptedFieldKind::Map {
+                        key: Box::new(AcceptedFieldKind::Nat64),
+                        value: Box::new(kind),
+                    },
+                    OptionalSome => kind,
+                    _ => unreachable!("fixture contains only collection/optional traversal"),
+                });
+            let nullable = steps.first() == Some(&OptionalSome);
+            let relation = PersistedRelationEdgeSnapshot::new_nested(
+                RelationId::new(1).unwrap(),
+                "nested_owner".into(),
+                "tests::Owner".into(),
+                FieldId::new(2),
+                steps,
+            );
+            let schema = relation_description_fixture(kind, nullable, relation);
+            let rows = describe_entity_relations_with_persisted_schema(&schema, &|_| {
+                Ok(("Owner".into(), "tests::OwnerStore".into()))
+            })
+            .unwrap();
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].cardinality(), expected);
+        }
+    }
+
+    // Keep relation projections rooted in an admitted source shape rather than
+    // supplying collection steps over an unrelated scalar field.
+    fn relation_description_fixture(
+        kind: AcceptedFieldKind,
+        nullable: bool,
+        relation: PersistedRelationEdgeSnapshot,
+    ) -> AcceptedSchemaSnapshot {
+        let (snapshot, _) = constraint_description_fixture();
+        let (storage, codec) = if kind == AcceptedFieldKind::Ulid {
+            (
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Ulid),
+            )
+        } else {
+            (FieldStorageDecode::CatalogValue, LeafCodec::Structural)
+        };
+        let source = PersistedFieldSnapshot::new_initial(
+            FieldId::new(2),
+            "owner".into(),
+            SchemaFieldSlot::new(1),
+            kind,
+            Vec::new(),
+            nullable,
+            SchemaInsertDefault::None,
+            storage,
+            codec,
+        );
+        let snapshot = snapshot
+            .clone()
+            .with_fields(vec![snapshot.fields()[0].clone(), source])
+            .with_indexes(Vec::new())
+            .with_relations(vec![relation]);
+        let constraints = AcceptedConstraintCatalog::initial(
+            snapshot.fields(),
+            snapshot.indexes(),
+            snapshot.relations(),
+        )
+        .unwrap();
+        AcceptedSchemaSnapshot::try_new(snapshot.with_constraint_catalog(constraints)).unwrap()
+    }
+
+    #[test]
+    fn descriptive_direct_relations_preserve_scalar_tuple_list_and_set_hints() {
+        for (kind, expected) in [
+            (AcceptedFieldKind::Ulid, EntityRelationCardinality::Single),
+            (
+                AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Ulid)),
+                EntityRelationCardinality::List,
+            ),
+            (
+                AcceptedFieldKind::Set(Box::new(AcceptedFieldKind::Ulid)),
+                EntityRelationCardinality::Set,
+            ),
+        ] {
+            let relation = PersistedRelationEdgeSnapshot::new_direct(
+                RelationId::new(1).unwrap(),
+                "owner".into(),
+                "tests::Owner".into(),
+                vec![FieldId::new(2)],
+            );
+            let schema = relation_description_fixture(kind, false, relation);
+            assert_eq!(
+                persisted_relation_cardinality(
+                    schema.persisted_snapshot(),
+                    &schema.persisted_snapshot().relations()[0]
+                )
+                .unwrap(),
+                expected
+            );
+        }
+        let (snapshot, _) = constraint_description_fixture();
+        let tuple = PersistedRelationEdgeSnapshot::new_direct(
+            RelationId::new(1).unwrap(),
+            "tuple_owner".into(),
+            "tests::Owner".into(),
+            vec![FieldId::new(1), FieldId::new(2)],
+        );
+        assert_eq!(
+            persisted_relation_cardinality(&snapshot, &tuple).unwrap(),
+            EntityRelationCardinality::Single
         );
     }
 

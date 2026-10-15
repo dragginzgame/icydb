@@ -38,7 +38,7 @@ pub(in crate::db) use key::{
 };
 pub(in crate::db) use plan::{
     AcceptedIndexInspectionDomain, AcceptedIndexInspectionPlan, IndexDelta, IndexDeltaGroup,
-    IndexMembershipDelta, IndexMutationPlan, IndexPlanReadView,
+    IndexMembershipDelta, IndexMutationPlan, IndexPlanReadView, PreparedIndexMutationMetadata,
     plan_index_mutation_for_slot_reader_structural,
 };
 pub(in crate::db) use predicate::{
