@@ -1,3 +1,174 @@
+Dragginz Source Available License — Verifiable ICP Burn, Version 1.0
+
+Copyright (c) 2024 IcyDB Contributors
+
+1. Scope and permission
+
+"Software" means the copyrightable code and documentation offered under this
+license, including copies, modifications and derivative works in source,
+object, WebAssembly or other form. "You" means the person or legal entity
+exercising permissions here. Each copyright holder grants permissions only
+to the extent of the rights that holder controls.
+
+Subject to this license, you may use, reproduce, study, modify, create
+derivative works of, distribute and sell the Software, including commercially.
+You may combine it with other software and keep your own application code
+private. Private enterprise and Cloud Engine use are permitted when the
+applicable conditions below are met. This is a source-available license, not
+the MIT License or an OSI-approved open-source license.
+
+2. Covered deployments
+
+A "Live Deployment" is use of the Software for operational workloads on an
+Internet Computer subnet or an equivalent execution environment, including
+private, permissioned, enterprise, self-hosted and forked environments. Internal
+enterprise workloads count even if no third party pays for them. Isolated
+development replicas and simulators used solely for non-operational development
+or testing are excluded. Calling an operational deployment a test is not an
+exemption.
+
+A "Cloud Engine" is a Live Deployment on a subnet or execution environment
+offered or operated as a Cloud Engine, including through Open Cloud, or an
+equivalent private, sovereign, dedicated or permissioned environment running
+the Internet Computer Protocol or a fork or adaptation of it, whose capacity
+or node set is reserved for, selected by or controlled by a customer, enterprise
+or affiliated group rather than operated as an ordinary shared public subnet.
+Branding, ownership, provider, payment currency and connection to mainnet do not
+change this classification. Private canister data alone does not make an
+ordinary shared public subnet a Cloud Engine.
+
+3. Required mainnet ICP burning
+
+Except for the express organization exception in section 5, your permission
+for a Live Deployment is conditional on the following requirements.
+
+For a non-Cloud-Engine deployment, 100% of the ICP used to fund its protocol
+resource charges must be irreversibly burned on the canonical Internet Computer
+mainnet through the ICP-to-cycles mechanism. All resource credits consumed by
+the deployment must be backed by that funding, whether acquired directly or
+through a provider. Unbacked, locally minted or simulated credits do not qualify.
+This requirement concerns resource funding, not application revenue or user
+assets, and does not require a second burn of already qualifying funding.
+
+For a Cloud Engine, ICP with a value of at least 20% of its Infrastructure Base
+must be irreversibly burned on that mainnet. "Infrastructure Base" means the
+gross infrastructure consideration for the engine capacity hosting the Software,
+including reserved capacity, node rental, compute, storage, bandwidth and
+in-kind consideration, excluding separately itemized statutory taxes. Do not
+deduct provider costs, profits, commissions or affiliate payments. It is not
+20% of application revenue or of the token supply.
+
+Free, discounted, internally provided and affiliated infrastructure must not
+reduce that base below the independently advertised price of comparable
+capacity from an unrelated provider for the same period. Publish the selected
+tariff and capacity comparison. If no independently verifiable comparable tariff
+exists, obtain a written valuation schedule from Toko Studios Ltd before use;
+absence of a price or invoice is not a zero-burn exemption.
+
+For consideration in another currency, publish the conversion to XDR and ICP
+using the mainnet protocol's applicable conversion rate at settlement and an
+independently published exchange rate where necessary. No private exchange
+rate, substitute token, wrapped-token burn or simulated-network burn qualifies.
+Actual mainnet ICP burns through protocol conversion may satisfy the threshold;
+cycle destruction by itself does not prove an ICP burn. Ordinary transfers to
+an account, staking, locking tokens and promises of future burning do not qualify.
+
+Before Cloud Engine operational use begins, publish the deployment identity,
+metering method, applicable valuation and actual mainnet burn evidence covering
+the initial prepaid or reserved capacity. Continue burning and recording ICP
+before using additional capacity. Reconcile the funding and actual Infrastructure
+Base for each UTC calendar month within 30 days after its end. That reconciliation
+deadline does not permit operation without advance qualifying burn coverage.
+If coverage or timely reconciliation is absent, continued Live Deployment is not
+permitted. Closure or transfer does not erase unsettled obligations.
+
+4. Verifiable evidence and avoidance
+
+Maintain a publicly accessible audit trail linking each Live Deployment and
+accounting period to the resource funding or Infrastructure Base, conversion
+calculations and canonical mainnet ICP ledger burn transactions. Include stable
+deployment identifiers, transaction/block references, burned amounts and the
+allocation of each amount to the covered capacity and period. Preserve records
+for at least three years after the applicable period. Application contents and
+personal data need not be disclosed, but redaction must not prevent verification
+of the required amounts, deployment association or accounting completeness.
+
+Provider or pooled funding is permitted only with independently verifiable
+allocation and reconciliation. One burn may cover multiple deployments only
+when its allocated amounts do not exceed the actual burn. No amount may be
+counted twice. A provider statement, invoice, dashboard assertion or local
+cycle-burn counter without the required mainnet evidence is insufficient.
+
+You must not use the Software, including host tools and relay services running
+elsewhere, to knowingly provision, administer, operate or serve a noncompliant
+Live Deployment. Contractors, affiliates, intermediaries, wrappers, proxies,
+renaming and modified copies do not remove these conditions. A covered
+deployment that fails either the required ICP burning or the evidence obligation
+has no permission under this license, subject only to the stated reconciliation
+deadline. No automatic conversion to an unrestricted license occurs over time.
+
+5. Express organization exception
+
+"Organization" means Toko Studios Ltd. Every copyright holder offering material
+under this license expressly grants the Organization a perpetual, worldwide,
+non-exclusive, royalty-free, irrevocable permission to use, reproduce, modify
+and operate that material for the Organization's own operations and services,
+including commercial services, on any infrastructure, without the deployment,
+burn, accounting or evidence conditions in sections 2 through 4.
+
+The Organization may exercise this permission through employees and contractors
+acting solely on its behalf. This is not an exemption for a customer's or
+contractor's independently operated deployment. Copies distributed to others
+remain subject to this license; purchasing a service, receiving a copy, becoming
+a contributor or operating a fork does not make someone the Organization.
+This exception grants no authority to waive another copyright holder's rights
+in independently licensed material or previously submitted contributions that
+were not offered under this license. Sections 6 and 8 still apply.
+
+6. Distribution, notices and existing rights
+
+Include this complete license and applicable copyright, attribution and
+third-party notices with copies or substantial portions, including binaries.
+Identify modifications prominently. Recipients receive the covered permissions
+directly from the copyright holders. You may license separate material
+differently, but may not represent this grant as allowing others to disregard
+its deployment conditions or expand the named organization exception.
+
+Rights already granted for previously released material under another license
+are not revoked or restricted. Independently licensed third-party material
+retains its terms and notices. Those grants do not grant rights to later
+material offered only under this license. No trademark rights are granted.
+Rights not expressly granted are reserved.
+
+7. Termination
+
+Except for the irrevocable permission expressly granted in section 5, your
+permissions under this license terminate automatically upon violation. Stop
+exercising terminated permissions. Reinstatement requires express written
+permission from the relevant copyright holders; later compliance alone does
+not reinstate them. Termination does not affect independently compliant
+recipients, accrued obligations or independently granted third-party rights.
+
+The deployment conditions are essential limitations of the general grant. If
+they cannot be enforced for a particular use under applicable law, this license
+grants no general permission for that use to the extent permitted by law.
+This does not remove the express section 5 permission. No provision limits
+rights that applicable law does not permit to be limited.
+
+8. Disclaimer
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE,
+TITLE AND NONINFRINGEMENT. TO THE MAXIMUM EXTENT PERMITTED BY LAW, NO
+COPYRIGHT HOLDER OR CONTRIBUTOR IS LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY ARISING FROM THE SOFTWARE OR ITS USE, WHETHER IN CONTRACT, TORT
+OR OTHERWISE.
+
+Prior-material notice (not an alternative grant for new material)
+
+The following notice is retained for material previously offered under MIT.
+It does not offer later, exclusively source-available contributions under MIT.
+
 MIT License
 
 Copyright (c) 2024 IcyDB Contributors
@@ -9,13 +180,13 @@ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
 copies of the Software, and to permit persons to whom the Software is
 furnished to do so, subject to the following conditions:
 
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

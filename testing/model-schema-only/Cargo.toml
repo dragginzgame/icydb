@@ -4,7 +4,7 @@ edition = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 publish = false
-license = { workspace = true }
+license-file = { workspace = true }
 description = "Schema-only compile fixture for the standalone IcyDB model package"
 repository = { workspace = true }
 authors = { workspace = true }

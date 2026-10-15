@@ -1,5 +1,5 @@
 [package]
-license.workspace = true
+license-file.workspace = true
 name = "canister_audit_one_entity_reachable_operations"
 edition = { workspace = true }
 rust-version = { workspace = true }

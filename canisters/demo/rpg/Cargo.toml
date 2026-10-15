@@ -1,5 +1,5 @@
 [package]
-license.workspace = true
+license-file.workspace = true
 name = "canister_demo_rpg"
 edition = { workspace = true }
 rust-version = { workspace = true }

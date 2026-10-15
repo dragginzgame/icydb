@@ -25,7 +25,7 @@
 ![Dependency MSRV](https://img.shields.io/badge/dependency%20MSRV-1.88.0-blue.svg)
 ![Internal Toolchain](https://img.shields.io/badge/internal%20rustc-1.99.0-4c1.svg)
 [![CI](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml/badge.svg)](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![License: Dragginz](https://img.shields.io/badge/license-Dragginz-blue)](LICENSE)
 
 IcyDB is a database toolkit for applications running on the Internet Computer.
 It helps developers describe the information their application stores, save
@@ -270,5 +270,11 @@ release notes retain historical evidence and do not replace current contracts.
 
 ## License
 
-Licensed under the [MIT License](LICENSE). Earlier releases retain their
-original Apache-2.0 OR MIT grants; this change does not revoke existing rights.
+Future contributions and releases use the [Dragginz Source Available License —
+Verifiable ICP Burn 1.0](LICENSE). Third-party live deployments must satisfy its
+burn and evidence requirements; section 5 defines the Toko Studios Ltd exception.
+This is source-available software, not MIT-licensed new material.
+
+Earlier material retains its [Apache-2.0](LICENSE-APACHE) or [MIT](LICENSE-MIT)
+grants. Those preserved notices do not offer new, exclusively Dragginz-licensed
+contributions under the earlier terms. See [contribution licensing](CONTRIBUTING.md).

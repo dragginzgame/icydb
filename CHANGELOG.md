@@ -5,13 +5,15 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.274.2]
+## [0.275.0]
 
-- Standardize future releases on MIT, include license text in published crates,
-  and inherit licensing across all workspace members. Earlier Apache-2.0 OR MIT
-  grants remain valid for the material they cover.
+- **Breaking licensing change:** use the Dragginz Verifiable ICP Burn license for
+  future grants. Third-party live deployments must meet its burn and evidence
+  requirements; contributors must accept the section 5 organization exception.
+  Preserve prior Apache-2.0 and MIT grants and ship their notices with package
+  license files. Package versions are unchanged by this preparation.
 
-Detailed notes: [docs/changelog/0.274.md](docs/changelog/0.274.md)
+Detailed notes: [docs/changelog/0.275.md](docs/changelog/0.275.md)
 
 ## [0.274.1] - 2026-10-14
 

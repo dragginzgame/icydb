@@ -1,5 +1,5 @@
 [package]
-license.workspace = true
+license-file.workspace = true
 name = "canister_audit_nested_relation_repeated"
 edition = { workspace = true }
 rust-version = { workspace = true }

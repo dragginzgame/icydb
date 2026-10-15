@@ -4,7 +4,7 @@ autotests = false
 edition = { workspace = true }
 rust-version = "1.88.0"
 version = { workspace = true }
-license = { workspace = true }
+license-file = { workspace = true }
 description = { workspace = true }
 repository = { workspace = true }
 authors = { workspace = true }
