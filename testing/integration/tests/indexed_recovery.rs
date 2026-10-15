@@ -4,7 +4,7 @@ use super::{
     IndexedBigIntegerAttempt, preparation_measurement_wasm, query_perf, settle_measurement_rounds,
 };
 use candid::CandidType;
-use ic_testkit::pic::StandaloneCanisterFixture;
+use ic_testkit::pic::{CandidCallExt as _, StandaloneCanisterFixture};
 use icydb::{Error, ErrorCode, db::sql::SqlQueryResult};
 use icydb_testing_integration::{
     MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES, deliver_startup_watchdog_message,
@@ -23,6 +23,10 @@ struct RecoveryBacklog {
 /// This measures its reconstruction, not marker-owned final-effect verification.
 #[test]
 #[ignore = "manual wasm-release indexed scalar recovery instruction and cycle measurement"]
+#[expect(
+    clippy::too_many_lines,
+    reason = "keep the end-to-end boundary assertions together with explicit Testkit call identity"
+)]
 fn indexed_big_integer_recovery_wasm_cost_matrix() {
     let module = preparation_measurement_wasm();
     for negative in [false, true] {
@@ -30,13 +34,20 @@ fn indexed_big_integer_recovery_wasm_cost_matrix() {
             for rows in [1_u16, 32] {
                 let fixture = install_prebuilt_fixture_canister("sql_perf", module.clone());
                 let prepared: Result<(), Error> = fixture
-                    .update_candid("prepare_indexed_big_integer_fixture", ())
+                    .pocket_ic()
+                    .update_candid(
+                        fixture.canister_id(),
+                        "prepare_indexed_big_integer_fixture",
+                        (),
+                    )
                     .expect("fixed index setup should decode");
                 prepared.expect("accepted indexes should publish");
                 settle_measurement_rounds(&fixture);
                 queue_recovery_backlog(&fixture);
                 let sample: Result<IndexedBigIntegerAttempt, Error> = fixture
+                    .pocket_ic()
                     .update_candid(
+                        fixture.canister_id(),
                         "measure_indexed_big_integer_write",
                         (negative, digits, rows),
                     )
@@ -66,7 +77,8 @@ fn indexed_big_integer_recovery_wasm_cost_matrix() {
                         )
                         .expect("same-Wasm upgrade should succeed");
                     let pending: Result<SqlQueryResult, Error> = fixture
-                        .query_candid("query_user", (ALL_ROWS.to_string(),))
+                        .pocket_ic()
+                        .query_candid(fixture.canister_id(), "query_user", (ALL_ROWS.to_string(),))
                         .expect("startup admission should decode");
                     assert_eq!(
                         pending
@@ -76,7 +88,7 @@ fn indexed_big_integer_recovery_wasm_cost_matrix() {
                     );
                     let cycles_before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
                     for _ in 0..MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES {
-                        deliver_startup_watchdog_message(&fixture);
+                        deliver_startup_watchdog_message(fixture.pocket_ic());
                         if !startup_watchdog_armed(&fixture) {
                             break;
                         }
@@ -133,7 +145,12 @@ fn indexed_big_integer_recovery_wasm_cost_matrix() {
 // to free write capacity. The target batch is appended after the remaining debt.
 fn queue_recovery_backlog(fixture: &StandaloneCanisterFixture) {
     let backlog: Result<RecoveryBacklog, Error> = fixture
-        .update_candid("load_convergence_closeout_debt", (100_001_i32,))
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "load_convergence_closeout_debt",
+            (100_001_i32,),
+        )
         .expect("fixed backlog facts should decode");
     assert_eq!(
         backlog
@@ -141,7 +158,7 @@ fn queue_recovery_backlog(fixture: &StandaloneCanisterFixture) {
             .admitted_batches,
         64
     );
-    deliver_startup_watchdog_message(fixture);
+    deliver_startup_watchdog_message(fixture.pocket_ic());
     assert!(
         startup_watchdog_armed(fixture),
         "backlog must remain pending"

@@ -119,25 +119,16 @@ fn validate_entity_scale_raw_wasm_with_maximum(
     Ok(observed)
 }
 
+// Shell reporting reads this same roster without compiling or fetching tools.
+// The second column preserves the existing default versus explicit-only cohort.
+const WASM_MEASUREMENT_SUBJECTS: &str = include_str!("wasm_measurement_subjects.tsv");
+
 /// Exact maintained production subjects in canonical report order.
-pub const WASM_MEASUREMENT_SUBJECTS: &[&str] = &[
-    "default_empty",
-    "default_empty_metrics",
-    "group_path_sql_query",
-    "nested_relation_none",
-    "nested_relation_direct",
-    "nested_relation_shallow",
-    "nested_relation_repeated",
-    "one_entity_dynamic_query",
-    "one_entity_reachable_operations",
-    "one_entity_typed_query",
-    "one_entity_sql_query",
-    "request_future_scale",
-    "ten_entity_typed_query",
-    "ten_entity_reachable_operations",
-    "sql_perf",
-    "sql",
-];
+pub fn wasm_measurement_subjects() -> impl Iterator<Item = &'static str> + Clone {
+    WASM_MEASUREMENT_SUBJECTS
+        .lines()
+        .map(|line| line.split_once('\t').map_or("", |(subject, _)| subject))
+}
 
 /// Whether a subtraction may attribute its delta to one controlled change.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -320,24 +311,32 @@ pub const WASM_LINE_BUDGETS: &[WasmLineBudget] = &[
 pub fn validate_wasm_measurement_contract() -> Result<(), &'static str> {
     if WASM_MEASUREMENT_PROFILE_VERSION != 1
         || WASM_MEASUREMENT_PROFILE_ID != "icydb-wasm-footprint/0.251/v1"
-        || WASM_MEASUREMENT_SUBJECTS.len() != 16
+        || wasm_measurement_subjects().count() != 16
     {
         return Err("Wasm measurement identity or subject count drifted");
     }
     if WASM_MEASUREMENT_SUBJECTS
-        .iter()
-        .enumerate()
-        .any(|(index, subject)| {
-            subject.is_empty() || WASM_MEASUREMENT_SUBJECTS[index + 1..].contains(subject)
-        })
+        .lines()
+        .any(|line| !matches!(line.split_once('\t'), Some((_, "default" | "manual"))))
+        || wasm_measurement_subjects()
+            .enumerate()
+            .any(|(index, subject)| {
+                subject.is_empty()
+                    || !subject
+                        .bytes()
+                        .all(|byte| byte.is_ascii_lowercase() || byte == b'_')
+                    || wasm_measurement_subjects()
+                        .skip(index + 1)
+                        .any(|later| later == subject)
+            })
     {
-        return Err("Wasm measurement subjects must be non-empty and unique");
+        return Err("Wasm measurement subjects must have valid selection, non-empty unique names");
     }
     if WASM_MEASUREMENT_COMPARISONS.iter().any(|comparison| {
         comparison.id.is_empty()
             || comparison.reason.is_empty()
-            || !WASM_MEASUREMENT_SUBJECTS.contains(&comparison.baseline)
-            || !WASM_MEASUREMENT_SUBJECTS.contains(&comparison.candidate)
+            || !wasm_measurement_subjects().any(|subject| subject == comparison.baseline)
+            || !wasm_measurement_subjects().any(|subject| subject == comparison.candidate)
             || comparison.baseline == comparison.candidate
     }) {
         return Err("Wasm comparison ledger contains an invalid subject or reason");
@@ -353,11 +352,11 @@ pub fn validate_wasm_measurement_contract() -> Result<(), &'static str> {
     {
         return Err("Wasm comparisons must have unique identities");
     }
-    if WASM_LINE_BUDGETS.len() != WASM_MEASUREMENT_SUBJECTS.len()
+    if WASM_LINE_BUDGETS.len() != wasm_measurement_subjects().count()
         || WASM_LINE_BUDGETS
             .iter()
-            .zip(WASM_MEASUREMENT_SUBJECTS)
-            .any(|(budget, subject)| budget.subject != *subject)
+            .zip(wasm_measurement_subjects())
+            .any(|(budget, subject)| budget.subject != subject)
     {
         return Err("Wasm line budgets must cover every maintained subject in canonical order");
     }

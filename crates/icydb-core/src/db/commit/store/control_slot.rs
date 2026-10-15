@@ -353,6 +353,10 @@ pub(super) fn encode_commit_control_slot_from_marker(
     encoded.extend_from_slice(&lengths.marker_length.to_le_bytes());
     write_commit_marker_envelope_header(&mut encoded, lengths.payload_size)?;
     let journal_batch_ranges = write_commit_marker_payload(&mut encoded, marker)?;
+    // Reject sizing/writer drift before these bytes can be published durably.
+    if encoded.len() != lengths.capacity {
+        return Err(control_slot_canonical_envelope_required());
+    }
 
     Ok(EncodedCommitControlSlot {
         bytes: encoded,

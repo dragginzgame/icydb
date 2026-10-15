@@ -5,15 +5,16 @@ use super::{
     SchemaDdlMutationAdmission, SchemaDdlMutationAdmissionError, SchemaDdlMutationTarget,
     schema_mutation_request_for_snapshots,
 };
+#[cfg(any(test, feature = "sql"))]
+use crate::db::schema::PersistedIndexKeySnapshot;
 use crate::db::schema::{
     AcceptedFieldKind, FieldId, PersistedIndexExpressionOp, PersistedIndexFieldPathSnapshot,
-    PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-    SchemaFieldSlot,
+    PersistedIndexKeyItemSnapshot, PersistedIndexSnapshot, SchemaFieldSlot,
 };
 #[cfg(feature = "sql")]
 use crate::db::schema::{
     AcceptedSchemaSnapshot, ConstraintActivationKind, ConstraintActivationSnapshot, ConstraintId,
-    ConstraintOrigin, PersistedSchemaSnapshot,
+    ConstraintOrigin,
 };
 
 ///
@@ -175,15 +176,19 @@ impl SchemaMutationRequest<'_> {
     pub(in crate::db::schema) fn from_accepted_field_path_index(
         index: &PersistedIndexSnapshot,
     ) -> Result<Self, AcceptedSchemaMutationError> {
-        let PersistedIndexKeySnapshot::FieldPath(paths) = index.key() else {
+        if !index.key().is_field_path_only() {
             return Err(AcceptedSchemaMutationError::UnsupportedIndexKeyShape);
-        };
+        }
 
-        if paths.is_empty() {
+        if index.key().component_count() == 0 {
             return Err(AcceptedSchemaMutationError::EmptyIndexKey);
         }
 
-        let key_paths = paths.iter().map(field_path_rebuild_key).collect();
+        let key_paths = index
+            .key()
+            .field_paths()
+            .map(field_path_rebuild_key)
+            .collect();
 
         Ok(Self::AddFieldPathIndex {
             target: SchemaFieldPathIndexRebuildTarget {
@@ -204,10 +209,7 @@ impl SchemaMutationRequest<'_> {
     pub(in crate::db::schema) fn from_accepted_expression_index(
         index: &PersistedIndexSnapshot,
     ) -> Result<Self, AcceptedSchemaMutationError> {
-        let PersistedIndexKeySnapshot::Items(items) = index.key() else {
-            return Err(AcceptedSchemaMutationError::UnsupportedIndexKeyShape);
-        };
-
+        let items = index.key().items();
         if items.is_empty() {
             return Err(AcceptedSchemaMutationError::EmptyIndexKey);
         }
@@ -331,29 +333,17 @@ pub(in crate::db) fn resolve_sql_ddl_secondary_index_drop_candidate(
 
 #[cfg(any(test, feature = "sql"))]
 fn ddl_drop_index_key_report(key: &PersistedIndexKeySnapshot) -> Option<Vec<String>> {
-    match key {
-        PersistedIndexKeySnapshot::FieldPath(field_paths) => match field_paths.as_slice() {
-            [] => None,
-            [field_path] => Some(field_path.path().to_vec()),
-            _ => Some(vec![
-                field_paths
-                    .iter()
-                    .map(|field_path| field_path.path().join("."))
-                    .collect::<Vec<_>>()
-                    .join(","),
-            ]),
-        },
-        PersistedIndexKeySnapshot::Items(items) => match items.as_slice() {
-            [] => None,
-            [item] => Some(vec![ddl_drop_index_key_item_text(item)]),
-            _ => Some(vec![
-                items
-                    .iter()
-                    .map(ddl_drop_index_key_item_text)
-                    .collect::<Vec<_>>()
-                    .join(","),
-            ]),
-        },
+    match key.items() {
+        [] => None,
+        [PersistedIndexKeyItemSnapshot::FieldPath(path)] => Some(path.path().to_vec()),
+        [item] => Some(vec![ddl_drop_index_key_item_text(item)]),
+        items => Some(vec![
+            items
+                .iter()
+                .map(ddl_drop_index_key_item_text)
+                .collect::<Vec<_>>()
+                .join(","),
+        ]),
     }
 }
 
@@ -383,18 +373,10 @@ pub(in crate::db) fn derive_sql_ddl_field_path_index_accepted_after(
         .map_err(SchemaDdlMutationAdmissionError::ConstraintCatalog)?;
     let mut indexes = before.indexes().to_vec();
     indexes.push(index);
-    let persisted_after = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
-        before.version(),
-        before.entity_path().to_string(),
-        before.entity_name().to_string(),
-        before.primary_key_field_ids().to_vec(),
-        before.row_layout().clone(),
-        before.fields().to_vec(),
-        indexes,
-    )
-    .with_constraint_catalog(constraint_catalog)
-    .with_relation_id_allocator(before.relation_id_allocator())
-    .with_relations(before.relations().to_vec());
+    let persisted_after = before
+        .clone()
+        .with_indexes(indexes)
+        .with_constraint_catalog(constraint_catalog);
     let accepted_after = AcceptedSchemaSnapshot::try_new_with_acceptance(persisted_after)
         .map_err(SchemaDdlMutationAdmissionError::AcceptedAfter)?;
     let request = schema_mutation_request_for_snapshots(
@@ -429,18 +411,10 @@ pub(in crate::db) fn derive_sql_ddl_expression_index_accepted_after(
         .map_err(SchemaDdlMutationAdmissionError::ConstraintCatalog)?;
     let mut indexes = before.indexes().to_vec();
     indexes.push(index.clone());
-    let persisted_after = PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
-        before.version(),
-        before.entity_path().to_string(),
-        before.entity_name().to_string(),
-        before.primary_key_field_ids().to_vec(),
-        before.row_layout().clone(),
-        before.fields().to_vec(),
-        indexes,
-    )
-    .with_constraint_catalog(constraint_catalog)
-    .with_relation_id_allocator(before.relation_id_allocator())
-    .with_relations(before.relations().to_vec());
+    let persisted_after = before
+        .clone()
+        .with_indexes(indexes)
+        .with_constraint_catalog(constraint_catalog);
     let accepted_after = AcceptedSchemaSnapshot::try_new_with_acceptance(persisted_after)
         .map_err(SchemaDdlMutationAdmissionError::AcceptedAfter)?;
     let admission = admit_sql_ddl_expression_index_candidate(&index)?;

@@ -2379,13 +2379,15 @@ fn persisted_schema_snapshot_with_index_for_test(
             index_name.to_string(),
             "RoleSpecificStore".to_string(),
             false,
-            PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
-                FieldId::new(1),
-                SchemaFieldSlot::new(0),
-                vec!["id".to_string()],
-                AcceptedFieldKind::Ulid,
-                false,
-            )]),
+            PersistedIndexKeySnapshot::from_field_paths(vec![
+                PersistedIndexFieldPathSnapshot::new(
+                    FieldId::new(1),
+                    SchemaFieldSlot::new(0),
+                    vec!["id".to_string()],
+                    AcceptedFieldKind::Ulid,
+                    false,
+                ),
+            ]),
             None,
         )],
     )

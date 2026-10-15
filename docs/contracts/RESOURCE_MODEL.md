@@ -414,9 +414,17 @@ Entity, schema-owner and journal-fold instruction totals use `u128` and Candid
 `nat`. Individual observations, sample counts and maxima remain `u64`/`nat64`.
 An exact counted window can retain every admitted observation without narrowing
 its accumulated total. Counts and totals still saturate independently at their
-own caps; unavailable raw-field means remain distinct from measured zero.
+own caps. Recording uses Metrics-owned tracked aggregates. Reports carry sticky
+`samples_saturated` and `total_saturated` flags for actual overflow, rather than
+inferring overflow from cap values. The producer projects `instructions_mean`
+as an exact floor-rounded optional value: empty or overflowed observations are
+unavailable, measured zero and exactly reached count caps remain valid.
 These reports are heap-only and clear on reset/upgrade; they introduce no durable
-metrics format. Consumers must regenerate report bindings for the wide totals.
+metrics format. Regenerate report bindings and update the CLI for the current
+quality fields and producer-projected mean. Upgrades start fresh windows; clipped
+observations from a previous heap window are not reconstructed.
+The CLI marks clipped entity counts/totals with `+`, explains that marker and
+prints actual sample/total overflow flags for journal-fold and startup spans.
 
 IC query calls do not retain heap mutations, so entity metrics deliberately do
 no recording in query execution. Canic remains the authority for endpoint-level

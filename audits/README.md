@@ -66,6 +66,11 @@ Use a compact report with:
 4. Intentional retention/no-action decisions and verification gaps.
 5. Checks performed and their results, skipped checks and remaining adoption work.
 
+Completed maintainer reports also include the scoped metrics in the
+[change-reporting rules](../rules/change-reporting.md), including explicit zeroes
+for inspection-only work. The detailed symbol inventory remains confined to the
+final Codex app handoff, not a saved audit report.
+
 Use `LOW`, `MEDIUM` or `HIGH` severity per finding, justified by present impact.
 HIGH means an evidenced serious correctness, integrity, security, availability
 or authority failure; MEDIUM means a bounded defect, material proof gap or

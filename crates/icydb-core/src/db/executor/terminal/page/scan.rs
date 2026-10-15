@@ -584,8 +584,9 @@ fn next_kernel_scan_key(
     key_stream.next_key()
 }
 
-// Compute the staged row capacity after the caller has converted a cursorless
-// page offset into a scan-time skip.
+// Compute a small initial allocation after converting cursorless offsets to
+// scan-time skips. Authored limits and exact hints are not allocation authority;
+// additional rows grow under the existing execution budget as they are read.
 fn staged_row_capacity(
     key_stream: &OrderedKeyStreamBox,
     row_keep_cap: Option<usize>,
@@ -598,6 +599,7 @@ fn staged_row_capacity(
                 .map(|hint| hint.saturating_sub(row_skip_count))
         })
         .unwrap_or(0)
+        .min(32)
 }
 
 // Retain one matched scan row only after the caller-owned cursorless page

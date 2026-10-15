@@ -249,7 +249,7 @@ fn persisted_row_envelope_malformed_corpus_fails_closed() {
 fn persisted_schema_snapshot_malformed_corpus_fails_closed() {
     let cases = [
         ("empty schema snapshot", Vec::new()),
-        ("truncated current schema snapshot", b"ICYUSNP".to_vec()),
+        ("truncated current schema snapshot", b"ICYISNP".to_vec()),
         (
             "nonsense schema snapshot bytes",
             vec![0xDE, 0xAD, 0xBE, 0xEF],

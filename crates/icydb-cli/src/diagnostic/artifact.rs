@@ -10,7 +10,7 @@ use std::{
     path::Path,
 };
 
-use ic_host_fs::read::read_opened_file;
+use ic_host_fs::read::{open_regular_file, read_opened_file};
 use serde::{Deserialize, Serialize};
 
 const DIAGNOSTIC_ARTIFACT_FORMAT: &str = "icydb-diagnostic-schema";
@@ -142,7 +142,9 @@ impl DiagnosticSchemaArtifact {
     }
 
     fn read(path: &Path) -> Result<Self, String> {
-        let file = File::open(path).map_err(|err| {
+        // Admit the selected descriptor before reading; a FIFO must not wait
+        // for a writer during open. Regular-file symlinks remain supported.
+        let file = open_regular_file(path).map_err(|err| {
             format!(
                 "failed to open diagnostic artifact '{}': {err}",
                 path.display()
@@ -645,10 +647,12 @@ mod tests {
 
     #[test]
     fn artifact_labels_resolve_independently_of_json_list_order() {
-        let path = std::env::temp_dir().join(format!(
-            "icydb-artifact-list-order-{}.json",
-            std::process::id()
-        ));
+        let root = ic_host_fs::testing::create_fixture_directory(
+            &std::env::temp_dir(),
+            "icydb-artifact-list-order",
+        )
+        .unwrap();
+        let path = root.join("artifact.json");
         for order in [
             [3, 5, 7],
             [3, 7, 5],
@@ -706,7 +710,7 @@ mod tests {
                 assert!(decoded.resolve(1, [7; 16], 43, Some(3)).is_none());
             }
         }
-        std::fs::remove_file(path).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -750,13 +754,12 @@ mod tests {
     #[test]
     fn current_artifact_roundtrips_without_overwriting_existing_output() {
         let artifact = DiagnosticSchemaArtifact::test_fixture();
-        let path = std::env::temp_dir().join(format!(
-            "icydb-diagnostic-artifact-{}.json",
-            std::process::id()
-        ));
-        if path.exists() {
-            std::fs::remove_file(path.as_path()).expect("stale test artifact should be removable");
-        }
+        let root = ic_host_fs::testing::create_fixture_directory(
+            &std::env::temp_dir(),
+            "icydb-diagnostic-artifact",
+        )
+        .unwrap();
+        let path = root.join("artifact.json");
 
         artifact
             .write_new(path.as_path())
@@ -768,16 +771,18 @@ mod tests {
         );
         assert!(artifact.write_new(path.as_path()).is_err());
 
-        std::fs::remove_file(path).expect("test artifact should be removable");
+        std::fs::remove_dir_all(root).expect("test fixture should be removable");
     }
 
     #[test]
     #[cfg(unix)]
     fn artifact_publication_preserves_parent_and_create_only_policy() {
         use std::os::unix::fs::{PermissionsExt as _, symlink};
-        let root =
-            std::env::temp_dir().join(format!("icydb-artifact-publication-{}", std::process::id()));
-        std::fs::create_dir(&root).unwrap();
+        let root = ic_host_fs::testing::create_fixture_directory(
+            &std::env::temp_dir(),
+            "icydb-artifact-publication",
+        )
+        .unwrap();
         let artifact = DiagnosticSchemaArtifact::test_fixture();
         assert!(
             artifact
@@ -821,11 +826,11 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn artifact_publication_rejects_directory_required_targets() {
-        let root = std::env::temp_dir().join(format!(
-            "icydb-artifact-target-suffix-{}",
-            std::process::id()
-        ));
-        std::fs::create_dir(&root).unwrap();
+        let root = ic_host_fs::testing::create_fixture_directory(
+            &std::env::temp_dir(),
+            "icydb-artifact-target-suffix",
+        )
+        .unwrap();
         let existing = root.join("existing");
         std::fs::write(&existing, b"preserved").unwrap();
         let artifact = DiagnosticSchemaArtifact::test_fixture();
@@ -845,10 +850,12 @@ mod tests {
 
     #[test]
     fn artifact_reads_preserve_exact_limits_and_reject_invalid_files() {
-        let path = std::env::temp_dir().join(format!(
-            "icydb-diagnostic-read-boundary-{}.json",
-            std::process::id()
-        ));
+        let root = ic_host_fs::testing::create_fixture_directory(
+            &std::env::temp_dir(),
+            "icydb-diagnostic-read-boundary",
+        )
+        .unwrap();
+        let path = root.join("artifact.json");
         let artifact = DiagnosticSchemaArtifact::test_fixture();
         let mut bytes = serde_json::to_vec(&artifact).unwrap();
         bytes.resize(super::MAX_DIAGNOSTIC_ARTIFACT_BYTES, b' ');
@@ -864,15 +871,18 @@ mod tests {
         assert!(DiagnosticSchemaArtifact::read_deployment(&path).is_err());
         std::fs::remove_file(&path).unwrap();
         assert!(DiagnosticSchemaArtifact::read_deployment(&path).is_err());
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[cfg(unix)]
     #[test]
     fn artifact_reads_preserve_symlink_selection_and_reject_special_files() {
-        let path = std::env::temp_dir().join(format!(
-            "icydb-diagnostic-read-link-{}.json",
-            std::process::id()
-        ));
+        let root = ic_host_fs::testing::create_fixture_directory(
+            &std::env::temp_dir(),
+            "icydb-diagnostic-read-link",
+        )
+        .unwrap();
+        let path = root.join("artifact.json");
         let link = path.with_extension("link");
         let artifact = DiagnosticSchemaArtifact::test_fixture();
         std::fs::write(&path, serde_json::to_vec(&artifact).unwrap()).unwrap();
@@ -882,27 +892,20 @@ mod tests {
             artifact
         );
         assert!(DiagnosticSchemaArtifact::read_deployment(Path::new("/dev/null")).is_err());
-        std::fs::remove_file(link).unwrap();
-        std::fs::remove_file(path).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn deployment_and_source_provenance_are_not_interchangeable() {
         let deployment = DiagnosticSchemaArtifact::test_fixture();
         let source = DiagnosticSchemaArtifact::test_source_fixture();
-        let deployment_path = std::env::temp_dir().join(format!(
-            "icydb-diagnostic-deployment-{}.json",
-            std::process::id()
-        ));
-        let source_path = std::env::temp_dir().join(format!(
-            "icydb-diagnostic-source-{}.json",
-            std::process::id()
-        ));
-        for path in [&deployment_path, &source_path] {
-            if path.exists() {
-                std::fs::remove_file(path).expect("stale test artifact should be removable");
-            }
-        }
+        let root = ic_host_fs::testing::create_fixture_directory(
+            &std::env::temp_dir(),
+            "icydb-diagnostic-provenance",
+        )
+        .unwrap();
+        let deployment_path = root.join("deployment.json");
+        let source_path = root.join("source.json");
 
         deployment
             .write_new(deployment_path.as_path())
@@ -925,8 +928,7 @@ mod tests {
             source
         );
 
-        std::fs::remove_file(deployment_path).expect("test artifact should be removable");
-        std::fs::remove_file(source_path).expect("test artifact should be removable");
+        std::fs::remove_dir_all(root).expect("test fixture should be removable");
     }
 
     #[test]

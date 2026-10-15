@@ -280,3 +280,53 @@ fn metrics_report_rendering_uses_human_summary() {
     assert!(text.contains("instruction spans may nest; totals are not additive"));
     assert!(text.contains("entities\n  None"));
 }
+
+#[test]
+fn schema_report_keeps_unicode_columns_aligned_and_controls_on_one_line() {
+    let report = ["界", "e\u{301}", "line\n\x1b[31m\u{009b}\u{202e}\u{2028}"].map(|name| {
+        EntitySchemaDescription::new(
+            "demo::Entity".into(),
+            name.into(),
+            8,
+            1,
+            [0x22; 16],
+            "id".into(),
+            vec!["id".into()],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            1,
+            1,
+        )
+    });
+    let text = render_schema_report(&report);
+    let wide = text.lines().find(|line| line.starts_with("  界")).unwrap();
+    let combining = text
+        .lines()
+        .find(|line| line.starts_with("  e\u{301}"))
+        .unwrap();
+    // CJK occupies two terminal columns; an accented combining sequence one.
+    // The following numeric column must start at the same display position.
+    let wide_padding = wide
+        .strip_prefix("  界")
+        .unwrap()
+        .chars()
+        .take_while(|ch| *ch == ' ')
+        .count();
+    let combining_padding = combining
+        .strip_prefix("  e\u{301}")
+        .unwrap()
+        .chars()
+        .take_while(|ch| *ch == ' ')
+        .count();
+    assert_eq!(combining_padding, wide_padding + 1);
+    assert!(text.contains("line\\n\\u{1b}[31m\\u{9b}\\u{202e}\\u{2028}"));
+    assert!(!text.contains(['\x1b', '\u{009b}', '\u{202e}', '\u{2028}']));
+    assert_eq!(
+        text.lines()
+            .filter(|line| line.contains("demo::Entity"))
+            .count(),
+        3
+    );
+}

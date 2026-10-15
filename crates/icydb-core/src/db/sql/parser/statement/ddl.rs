@@ -375,7 +375,7 @@ impl Parser {
         }
         let column_name = self.expect_identifier()?;
         let column_type = self.parse_alter_table_add_column_type()?;
-        let mut nullable = true;
+        let mut nullable = None;
         let mut default = None;
 
         loop {
@@ -386,13 +386,22 @@ impl Parser {
                     ));
                 }
                 default = Some(self.parse_literal()?);
-            } else if self.eat_keyword(Keyword::Not) {
-                self.expect_keyword(Keyword::Null)?;
-                nullable = false;
-            } else if self.eat_keyword(Keyword::Null) {
-                nullable = true;
             } else {
-                break;
+                let declaration = if self.eat_keyword(Keyword::Not) {
+                    self.expect_keyword(Keyword::Null)?;
+                    false
+                } else if self.eat_keyword(Keyword::Null) {
+                    true
+                } else {
+                    break;
+                };
+                // A second declaration is invalid even when it agrees with the
+                // first; DEFAULT may occur on either side, not reset this fact.
+                if nullable.replace(declaration).is_some() {
+                    return Err(SqlParseError::unsupported_feature(
+                        SqlFeatureCode::AlterTableAddColumnModifiers,
+                    ));
+                }
             }
         }
 
@@ -400,7 +409,7 @@ impl Parser {
             entity,
             column_name,
             column_type,
-            nullable,
+            nullable: nullable.unwrap_or(true),
             default,
             schema_version_contract: SqlDdlSchemaVersionContract::default(),
         })

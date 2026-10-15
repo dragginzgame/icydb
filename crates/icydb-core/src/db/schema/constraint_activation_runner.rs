@@ -1259,7 +1259,9 @@ fn acknowledge_validation_receipt(
     job: &mut ConstraintValidationJob,
     acknowledged_receipt: Option<u64>,
 ) -> Result<Option<ConstraintValidationProgress>, InternalError> {
-    if job.acknowledge_receipt(acknowledged_receipt) {
+    // AFTER identifies a held finding page, not a progress offset. A retried
+    // acknowledgement needs no receipt mutation when the page is already gone.
+    if job.last_receipt().is_none() || job.acknowledge_receipt(acknowledged_receipt) {
         return Ok(None);
     }
     let receipt = job

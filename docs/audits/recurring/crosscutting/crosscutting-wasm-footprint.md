@@ -21,8 +21,9 @@ Measure and report:
 - `ic-wasm info` structure snapshots (function/data/export counts)
 - Twiggy breakdowns (`top`, `dominators`, `monos`) for size attribution
 
-The canonical default canister list is `wasm_report_default_canisters` in
-[wasm-report-common.sh](../../../../scripts/ci/wasm-report-common.sh).
+The canonical subject roster and default selection are recorded in
+[wasm_measurement_subjects.tsv](../../../../testing/build/src/wasm_measurement_subjects.tsv).
+Rust admission and the portable shell adapters consume this same file.
 It includes the empty/metrics controls, four nested-relation controls, query
 and entity-scale actors, request-future scaling, `sql_perf`, and `sql`.
 Use that helper's current list rather than maintaining a second exact matrix here.

@@ -111,7 +111,7 @@ fn non_unique_name_index() -> PersistedIndexSnapshot {
         "by_name".to_string(),
         "test::mutation::by_name".to_string(),
         false,
-        PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
+        PersistedIndexKeySnapshot::from_field_paths(vec![name_key_path()]),
         Some(crate::db::schema::AcceptedIndexPredicate::test_non_null(2)),
     )
 }
@@ -133,15 +133,15 @@ fn expression_name_index() -> PersistedIndexSnapshot {
         "by_lower_name".to_string(),
         "test::mutation::by_lower_name".to_string(),
         false,
-        PersistedIndexKeySnapshot::Items(vec![PersistedIndexKeyItemSnapshot::Expression(
-            Box::new(PersistedIndexExpressionSnapshot::new(
+        PersistedIndexKeySnapshot::new(vec![PersistedIndexKeyItemSnapshot::Expression(Box::new(
+            PersistedIndexExpressionSnapshot::new(
                 PersistedIndexExpressionOp::Lower,
                 name_key_path(),
                 AcceptedFieldKind::Text { max_len: None },
                 AcceptedFieldKind::Text { max_len: None },
                 "expr:v1:LOWER(name)".to_string(),
-            )),
-        )]),
+            ),
+        ))]),
         Some(crate::db::schema::AcceptedIndexPredicate::test_non_null(2)),
     )
 }

@@ -283,7 +283,7 @@ impl Field {
         }
 
         match (&self.default, self.value.cardinality()) {
-            (Some(default), _) => Some(schema_default_rust_expr(default, &self.value)),
+            (Some(default), _) => schema_default_rust_expr(default, &self.value).ok(),
             (None, Cardinality::One) if self.write_management.is_some() => {
                 Some(quote!(Default::default()))
             }
@@ -493,31 +493,50 @@ fn generated_insert_contract(generator: &Arg) -> Option<GeneratedInsertContract>
     }
 }
 
-fn schema_default_rust_expr(default: &Arg, value: &Value) -> TokenStream {
-    match (value.item.primitive, default) {
+// Parse identity literals at expansion time. Validation and construction share
+// this owner, so neither malformed input nor generated Rust needs a parse panic.
+fn schema_default_rust_expr(default: &Arg, value: &Value) -> Result<TokenStream, String> {
+    Ok(match (value.item.primitive, default) {
         (Some(Primitive::Account), Arg::String(value)) => {
-            quote!(<::icydb_model::schema::Account as ::core::str::FromStr>::from_str(#value)
-                .expect("validated Account schema default should parse")
-                .into())
+            let account = value
+                .value()
+                .parse::<icydb_schema::Account>()
+                .map_err(|_| "default for primitive Account requires valid account text")?;
+            let owner = account.owner();
+            let owner = owner.as_slice();
+            let subaccount = account.subaccount().map(|subaccount| {
+                let bytes = subaccount.to_array();
+                quote!(::icydb_model::schema::Subaccount::from_array([#(#bytes),*]))
+            });
+            let subaccount = quote_option(subaccount.as_ref(), Clone::clone);
+            quote!(::icydb_model::schema::Account::from_owner_and_subaccount(
+                ::icydb_model::schema::Principal::from_slice(&[#(#owner),*]),
+                #subaccount,
+            ).into())
         }
         (Some(Primitive::Principal), Arg::String(value)) => {
-            quote!(::icydb_model::schema::Principal::from_text(#value)
-                .expect("validated Principal schema default should parse")
-                .into())
+            let principal = icydb_schema::Principal::from_text(&value.value())
+                .map_err(|_| "default for primitive Principal requires valid principal text")?;
+            let bytes = principal.as_slice();
+            quote!(::icydb_model::schema::Principal::from_slice(&[#(#bytes),*]).into())
         }
         (Some(Primitive::Subaccount), Arg::String(value)) => {
-            let bytes = parse_subaccount_hex(value.value().as_str())
-                .expect("validated Subaccount schema default should parse");
+            let bytes = icydb_schema::Subaccount::from_hex(&value.value())
+                .map_err(|_| "default for primitive Subaccount requires 64 ASCII hex characters")?
+                .to_array();
             let byte_tokens = bytes.iter().map(|byte| quote!(#byte));
             quote!(::icydb_model::schema::Subaccount::from_array([#(#byte_tokens),*]).into())
         }
         (Some(Primitive::Ulid), Arg::String(value)) => {
-            quote!(<::icydb_model::schema::Ulid as ::core::str::FromStr>::from_str(#value)
-                .expect("validated Ulid schema default should parse")
-                .into())
+            let ulid = value
+                .value()
+                .parse::<icydb_schema::Ulid>()
+                .map_err(|_| "default for primitive Ulid requires valid ULID text")?;
+            let bytes = ulid.to_bytes();
+            quote!(::icydb_model::schema::Ulid::from_bytes([#(#bytes),*]).into())
         }
         _ => quote!(#default.into()),
-    }
+    })
 }
 
 fn validate_database_default_shape(default: &Arg, value: &Value) -> Result<(), String> {
@@ -576,7 +595,8 @@ fn validate_database_default_shape(default: &Arg, value: &Value) -> Result<(), S
 
     compatible.then_some(()).ok_or_else(|| {
         format!("default value {default:?} is not compatible with primitive {primitive:?}")
-    })
+    })?;
+    schema_default_rust_expr(default, value).map(|_| ())
 }
 
 fn identity_like_default_constructor_error(default: &Arg, primitive: Primitive) -> Option<String> {
@@ -597,26 +617,6 @@ fn identity_like_default_constructor_error(default: &Arg, primitive: Primitive) 
              defaults; use an explicit persisted literal if this default is intentional"
         )
     })
-}
-
-fn parse_subaccount_hex(value: &str) -> Result<[u8; 32], String> {
-    let value = value.strip_prefix("0x").unwrap_or(value);
-    if value.len() != 64 {
-        return Err(format!(
-            "default for primitive Subaccount requires 64 hex characters, got {}",
-            value.len()
-        ));
-    }
-
-    let mut bytes = [0u8; 32];
-    for (index, byte) in bytes.iter_mut().enumerate() {
-        let start = index * 2;
-        *byte = u8::from_str_radix(&value[start..start + 2], 16).map_err(|_| {
-            format!("default for primitive Subaccount has invalid hex at byte {index}")
-        })?;
-    }
-
-    Ok(bytes)
 }
 
 // Explicit `None` or `Option::default()` matches the implicit optional default.

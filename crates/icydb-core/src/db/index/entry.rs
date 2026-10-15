@@ -49,9 +49,9 @@ pub(crate) struct IndexRowIdentity {
 /// IndexEntryExistenceWitness
 ///
 /// Narrow storage-owned row-existence witness carried per raw index entry.
-/// `Present` is the normal encoded state; `Missing` exists so the stale-entry
-/// repair path can preserve the secondary entry while still exposing one
-/// explicit storage-level missing-row witness.
+/// Maintained writers emit `Present`. The current decoder also recognizes the
+/// explicit `Missing` witness; startup does not repair stale secondary entries.
+/// Deep integrity checks diagnose missing primary rows.
 ///
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

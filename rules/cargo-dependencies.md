@@ -48,6 +48,19 @@ exact constraints, immutable Git revisions, lockfiles and external path inputs.
 
 ## Cargo network policy
 
+- Authorized development, tests and validation include preparing missing sources
+  with `cargo fetch --locked` for each affected workspace's existing lockfile.
+  Run it with that workspace's selected toolchain and Cargo cache; do not ask for
+  separate maintainer approval merely because a selected source is not cached.
+  Keep manifests, lockfiles and version selections unchanged. If the lockfile is
+  missing or inconsistent, report the failure; this authority does not include
+  generating a lockfile, an unlocked retry or a dependency update.
+  Honour explicit offline settings and actual environment/sandbox restrictions;
+  an agent-added offline flag does not create a new approval requirement.
+  This covers dependency-source preparation only, not executable-tool downloads
+  or installation, runtime network access, new credentials/targets, paid effects,
+  deployment or release execution. Keep preparation separate from offline checks
+  and read-only helpers; do not add automatic fetches to every check target.
 - An authorized dependency update includes normal registry/Git access needed to
   resolve and obtain the selected dependencies. Agents and helpers must not add
   `--offline`, `--frozen` or `CARGO_NET_OFFLINE=true` to `cargo update` merely

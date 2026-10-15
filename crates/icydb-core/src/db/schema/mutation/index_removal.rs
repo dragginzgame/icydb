@@ -56,18 +56,8 @@ pub(in crate::db::schema) fn derive_dense_index_removal_candidate(
         return Err(InternalError::store_unsupported());
     }
 
-    Ok(
-        PersistedSchemaSnapshot::new_with_primary_key_fields_and_indexes(
-            before.version(),
-            before.entity_path().to_string(),
-            before.entity_name().to_string(),
-            before.primary_key_field_ids().to_vec(),
-            before.row_layout().clone(),
-            before.fields().to_vec(),
-            indexes,
-        )
-        .with_constraint_catalog(constraint_catalog)
-        .with_relation_id_allocator(before.relation_id_allocator())
-        .with_relations(before.relations().to_vec()),
-    )
+    Ok(before
+        .clone()
+        .with_indexes(indexes)
+        .with_constraint_catalog(constraint_catalog))
 }

@@ -1,16 +1,17 @@
 use std::{collections::BTreeSet, fs};
 
 use candid::{CandidType, Principal};
+use ic_testkit::pic::CandidCallExt as _;
 use icydb::{
     Error, ErrorCode,
     db::{EntitySchemaDescription, sql::SqlQueryResult},
 };
-use icydb_testing_integration::{
+use icydb_testing_build::{
     CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterWasmProfile,
     build_canister_with_options,
-    canister_artifact::{CanisterMethod, CanisterMethodMode, inspect_canister_artifacts},
-    install_fixture_canister,
+    canister_artifact::{CanisterMethod, MethodMode, inspect_canister_artifacts},
 };
+use icydb_testing_integration::install_fixture_canister;
 use serde::Deserialize;
 
 const WRAPPER_INSTRUCTION_CEILING: u64 = 5_000_000;
@@ -45,23 +46,38 @@ fn guarded_sql_authorizes_one_reader_and_preserves_the_read_only_lane() {
         "EXPLAIN SELECT id FROM OneSimpleEntity01 ORDER BY id ASC LIMIT 1",
     ] {
         let allowed: Result<SqlQueryResult, Error> = fixture
-            .query_candid_as(reader, "icydb_query", (sql.to_string(),))
+            .pocket_ic()
+            .query_candid_as(
+                fixture.canister_id(),
+                reader,
+                "icydb_query",
+                (sql.to_string(),),
+            )
             .expect("guarded SQL success should decode");
         allowed.unwrap_or_else(|error| panic!("the SQL guard should admit {sql:?}: {error:?}"));
     }
 
-    let absent_schema = fixture.query_candid_as::<Result<Vec<EntitySchemaDescription>, Error>, _>(
-        reader,
-        "icydb_schema",
-        (),
-    );
+    let absent_schema = fixture
+        .pocket_ic()
+        .query_candid_as::<Result<Vec<EntitySchemaDescription>, Error>, _>(
+            fixture.canister_id(),
+            reader,
+            "icydb_schema",
+            (),
+        );
     assert!(
         absent_schema.is_err(),
         "SQL introspection authority must not imply the dedicated schema method",
     );
 
     let denied: Result<SqlQueryResult, Error> = fixture
-        .query_candid_as(outsider, "icydb_query", ("not valid SQL".to_string(),))
+        .pocket_ic()
+        .query_candid_as(
+            fixture.canister_id(),
+            outsider,
+            "icydb_query",
+            ("not valid SQL".to_string(),),
+        )
         .expect("guarded SQL denial should decode");
     assert_eq!(
         denied.expect_err("the outsider should be denied").code(),
@@ -69,7 +85,12 @@ fn guarded_sql_authorizes_one_reader_and_preserves_the_read_only_lane() {
     );
 
     let controller: Result<SqlQueryResult, Error> = fixture
-        .query_candid("icydb_query", ("SHOW ENTITIES".to_string(),))
+        .pocket_ic()
+        .query_candid(
+            fixture.canister_id(),
+            "icydb_query",
+            ("SHOW ENTITIES".to_string(),),
+        )
         .expect("controller denial should decode");
     assert_eq!(
         controller
@@ -79,7 +100,9 @@ fn guarded_sql_authorizes_one_reader_and_preserves_the_read_only_lane() {
     );
 
     let mutation: Result<SqlQueryResult, Error> = fixture
+        .pocket_ic()
         .query_candid_as(
+            fixture.canister_id(),
             reader,
             "icydb_query",
             (
@@ -101,7 +124,9 @@ fn guarded_sql_rejects_anonymous_before_application_code_and_propagates_guard_tr
     let fixture = install_fixture_canister("sql_guard");
 
     let anonymous: Result<SqlQueryResult, Error> = fixture
+        .pocket_ic()
         .query_candid_as(
+            fixture.canister_id(),
             Principal::anonymous(),
             "icydb_query",
             ("SHOW ENTITIES".to_string(),),
@@ -112,11 +137,14 @@ fn guarded_sql_rejects_anonymous_before_application_code_and_propagates_guard_tr
         ErrorCode::RUNTIME_BOUNDARY_SQL_SURFACE_POLICY_DENIED,
     );
 
-    let trapped = fixture.query_candid_as::<Result<SqlQueryResult, Error>, _>(
-        principal(44),
-        "icydb_query",
-        ("SHOW ENTITIES".to_string(),),
-    );
+    let trapped = fixture
+        .pocket_ic()
+        .query_candid_as::<Result<SqlQueryResult, Error>, _>(
+            fixture.canister_id(),
+            principal(44),
+            "icydb_query",
+            ("SHOW ENTITIES".to_string(),),
+        );
     assert!(trapped.is_err(), "application guard traps must propagate");
 }
 
@@ -124,7 +152,13 @@ fn guarded_sql_rejects_anonymous_before_application_code_and_propagates_guard_tr
 fn guarded_sql_local_authorization_cost_stays_below_frozen_ceilings() {
     let fixture = install_fixture_canister("sql_guard");
     let cost: Result<ReadAuthorizationCostResult, Error> = fixture
-        .query_candid_as(principal(42), "read_authorization_cost", ())
+        .pocket_ic()
+        .query_candid_as(
+            fixture.canister_id(),
+            principal(42),
+            "read_authorization_cost",
+            (),
+        )
         .expect("authorization cost result should decode");
     let cost = cost.expect("non-anonymous authorization cost probe should succeed");
 
@@ -172,7 +206,7 @@ fn guarded_and_controller_sql_artifacts_keep_one_identical_public_surface() {
 
     let expected = BTreeSet::from([CanisterMethod {
         name: "icydb_query".to_string(),
-        mode: CanisterMethodMode::Query,
+        mode: MethodMode::Query,
     }]);
     let [controller_manifest, guarded_manifest] = [&controller_wasm, &guarded_wasm].map(|wasm| {
         let manifest = inspect_canister_artifacts(wasm.as_ref())

@@ -258,7 +258,7 @@ _test-durability-integration:
 		--test recovery_closeout
 
 test-canister-artifact-contract:
-	+$(CARGO_WORK_ENV) cargo test --locked -p icydb-testing-integration \
+	+$(CARGO_WORK_ENV) cargo test --locked -p icydb-testing-build \
 		--test canister_artifact_contract \
 		production_and_local_source_declarations_match_the_frozen_endpoint_policy \
 		-- --ignored --exact --nocapture
@@ -297,13 +297,13 @@ test-sql-tier-c-replay:
 
 build-canister-local:
 	@test -n "$(CANISTER)" || { echo "CANISTER must name one maintained canister" >&2; exit 1; }
-	+$(CARGO_WORK_ENV) cargo run --locked -p icydb-testing-integration \
+	+$(CARGO_WORK_ENV) cargo run --locked -p icydb-testing-build \
 		--bin build_fixture_canister -- "$(CANISTER)" --build-profile local \
 		--profile debug --candid-export on
 
 build-canister-production:
 	@test -n "$(CANISTER)" || { echo "CANISTER must name one maintained canister" >&2; exit 1; }
-	+$(CARGO_WORK_ENV) cargo run --locked -p icydb-testing-integration \
+	+$(CARGO_WORK_ENV) cargo run --locked -p icydb-testing-build \
 		--bin build_fixture_canister -- "$(CANISTER)" --build-profile production \
 		--profile wasm-release --candid-export on
 
@@ -469,7 +469,9 @@ shellcheck:
 		scripts/app/*.sh scripts/ci/*.sh scripts/dev/*.sh scripts/release/*.sh .githooks/pre-commit
 
 # GitHub Actions consumes these exact local targets as parallel lanes. The
-# terminal `check` job remains the one branch-protection and release gate.
+# terminal `check` job aggregates these lanes and native macOS host checks.
+# Branch protection/publication also require dependency_msrv and wasm_size_report;
+# their selection is documented in .github/BRANCH_PROTECTION.md.
 ci-static:
 	+$(VALIDATION_RUNNER) --fail-fast host-tools-check _ci-format lint-workflows shellcheck check-dependency-pins check-invariants
 
@@ -529,14 +531,14 @@ ci-sql-tier-a:
 		_ci-tier-a-integration
 
 _ci-tier-a-sqlite:
-	+$(CARGO_WORK_ENV) cargo test --locked -p icydb-core \
+	+$(CARGO_WORK_ENV) bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-core \
 		--no-default-features --features sql \
-		db::session::tests::sqlite_reference --verbose
+		db::session::tests::tier_c_reference::tier_a_native_sqlite_reference --verbose
 
 _ci-tier-a-mutation:
-	+$(CARGO_WORK_ENV) cargo test --locked -p icydb-core \
+	+$(CARGO_WORK_ENV) bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-core \
 		--no-default-features --features sql \
-		db::session::tests::mutation_reference --verbose
+		db::session::tests::tier_c_reference::tier_a_native_mutation_reference --verbose
 
 _ci-tier-a-integration:
 	+$(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \

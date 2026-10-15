@@ -18,7 +18,7 @@ use crate::{
             write_policy::SqlWriteExecutionBounds,
         },
         sql::{
-            lowering::bind_sql_delete_statement_structural_with_schema,
+            lowering::{bind_sql_delete_statement_structural_with_schema, prepare_sql_statement},
             parser::{SqlDeleteStatement, SqlReturningProjection},
         },
     },
@@ -147,12 +147,25 @@ impl<C: CanisterKind> DbSession<C> {
             None,
             entity_name,
             None,
-            |_catalog, descriptor| {
+            |catalog, descriptor| {
                 let context =
                     SqlDeletePolicyContext::public_generated(descriptor.primary_key_names());
-                let result =
-                    classify_sql_delete_statement_policy(dispatch.statement(), policy, context);
-                result.map_err(|_| QueryError::unsupported_query())
+                PreparationWork::run(
+                    self.db.request_execution_scope(),
+                    icydb_diagnostic_code::DiagnosticExecutionLane::Mutation,
+                    |work| {
+                        // Admission and execution must consume the same normalized statement.
+                        let statement = prepare_sql_statement(
+                            dispatch.statement(),
+                            catalog.snapshot().persisted_snapshot().entity_name(),
+                            work,
+                        )
+                        .map_err(QueryError::from_sql_lowering_error)?
+                        .into_statement();
+                        classify_sql_delete_statement_policy(&statement, policy, context)
+                            .map_err(|_| QueryError::unsupported_query())
+                    },
+                )
             },
         )
     }

@@ -164,7 +164,7 @@ mod tests {
             "generated_index".to_string(),
             "GeneratedIndex".to_string(),
             false,
-            PersistedIndexKeySnapshot::FieldPath(Vec::new()),
+            PersistedIndexKeySnapshot::from_field_paths(Vec::new()),
             None,
         );
         let ddl = PersistedIndexSnapshot::new_sql_ddl(
@@ -173,7 +173,7 @@ mod tests {
             "ddl_index".to_string(),
             "DdlIndex".to_string(),
             false,
-            PersistedIndexKeySnapshot::FieldPath(Vec::new()),
+            PersistedIndexKeySnapshot::from_field_paths(Vec::new()),
             None,
         );
         let indexes = [generated, ddl];

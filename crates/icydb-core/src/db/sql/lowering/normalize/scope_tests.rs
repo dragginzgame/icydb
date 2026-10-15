@@ -57,6 +57,8 @@ fn preparation_variants_share_scope_admission_before_lowering() {
         "DELETE FROM E WHERE id = 1",
         "UPDATE E SET id = 2 WHERE id = 1",
         "INSERT INTO E (id) SELECT u.id FROM E u",
+        "INSERT INTO E u (u.id) VALUES (1) RETURNING u.id",
+        "INSERT INTO E u DEFAULT VALUES RETURNING u.id",
         "EXPLAIN SELECT u.id FROM E u",
     ] {
         let syntax = parse_sql(sql).expect("supported statement");

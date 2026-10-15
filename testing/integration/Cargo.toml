@@ -13,18 +13,16 @@ authors = { workspace = true }
 [dependencies]
 blake3 = { workspace = true }
 candid = { workspace = true }
-ic-host-artifacts = { workspace = true, features = ["wasm"] }
-ic-host-fs = { workspace = true }
-ic-host-process = { workspace = true }
-ic-host-tools = { workspace = true, features = ["candid-extraction"] }
 ic-testkit = { workspace = true }
 icydb = { workspace = true, default-features = true, features = ["metrics", "migration", "sql"] }
+icydb-testing-build = { workspace = true }
 icydb-testing-sql-generator = { workspace = true }
 icydb-testing-sqlite-reference = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 
 [dev-dependencies]
+ic-host-artifacts = { workspace = true }
 proc-macro2 = { workspace = true, features = ["span-locations"] }
 syn = { workspace = true, features = ["full", "visit"] }
 
@@ -90,10 +88,6 @@ path = "tests/sql_correctness.rs"
 [[test]]
 name = "sql_perf_audit"
 path = "tests/sql_perf_audit.rs"
-
-[[test]]
-name = "canister_artifact_contract"
-path = "tests/canister_artifact_contract.rs"
 
 [[test]]
 name = "u256_measurement_contract"

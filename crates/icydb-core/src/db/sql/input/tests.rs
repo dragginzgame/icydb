@@ -236,3 +236,23 @@ fn repeated_boolean_tests_retain_linear_nodes_and_exact_depth_admission() {
         }
     }
 }
+
+#[test]
+fn sql_insert_aliases_share_the_statement_content_budget() {
+    for (alias_bytes, admitted) in [
+        (MAX_QUERY_INPUT_BYTES - 1, true),
+        (MAX_QUERY_INPUT_BYTES, false),
+    ] {
+        let mut statement = parse_sql("INSERT INTO E DEFAULT VALUES").unwrap();
+        let SqlStatement::Insert(insert) = &mut statement else {
+            panic!("INSERT input fixture");
+        };
+        insert.table_alias = Some("a".repeat(alias_bytes));
+        let result = validate_sql_statement_input(&statement, &[]);
+        if admitted {
+            result.unwrap();
+        } else {
+            assert_eq!(result, Err(QueryReadAdmissionCode::InputBytesExceeded));
+        }
+    }
+}

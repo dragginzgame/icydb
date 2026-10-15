@@ -6,8 +6,8 @@ use crate::{
 };
 use ic_memory::{
     AllocationValidationError, BootstrapAdmissionError, MemoryAllocationPoolError,
-    RuntimeAdoptionError, RuntimeBootstrapError, RuntimeOpenError, RuntimeStateError, StableKey,
-    StaticMemoryDeclarationError,
+    MemoryDeclarationError, RuntimeAdoptionError, RuntimeBootstrapError, RuntimeOpenError,
+    RuntimeStateError, StableKey,
 };
 use icydb_diagnostic_code::{DiagnosticFactTag, ErrorCode};
 
@@ -88,7 +88,7 @@ fn memory_bootstrap_roles_and_invalid_declarations_keep_their_identity() {
                 "icydb.main.commit.control.v1".into(),
             ),
         )),
-        RuntimeBootstrapError::Registry(StaticMemoryDeclarationError::DuplicateRequest {
+        RuntimeBootstrapError::Declarations(MemoryDeclarationError::DuplicateRequest {
             stable_key: StableKey::parse("icydb.main.commit.control.v1").unwrap(),
         }),
     ] {
@@ -133,8 +133,7 @@ fn memory_adoption_requirement_drift_is_a_public_conflict() {
 fn memory_bootstrap_internal_failures_retain_internal_classification() {
     for cause in [
         RuntimeBootstrapError::State(RuntimeStateError::ReentrantAccess),
-        RuntimeBootstrapError::Registry(StaticMemoryDeclarationError::RegistryPoisoned),
-        RuntimeBootstrapError::Registry(StaticMemoryDeclarationError::EagerInitPanicked),
+        RuntimeBootstrapError::State(RuntimeStateError::Unavailable),
     ] {
         let error = public(cause);
         assert_eq!(error.code(), ErrorCode::RUNTIME_INTERNAL);

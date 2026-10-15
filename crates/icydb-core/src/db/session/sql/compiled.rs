@@ -3,10 +3,8 @@
 //! Does not own: SQL parsing/lowering or execution dispatch.
 //! Boundary: keeps compiled command, schema identity, and execution-context owners separate.
 
-mod cache;
 mod command;
 mod context;
 
-pub(in crate::db) use cache::SqlCompiledSchemaFingerprint;
 pub(in crate::db) use command::{CompiledSqlCommand, CompiledSqlInsertCommand};
 pub(in crate::db) use context::SqlCompiledCommandExecutionContext;

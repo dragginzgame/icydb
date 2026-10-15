@@ -147,6 +147,11 @@ icydb diagnostic E210 --artifact app.diagnostic.json \
   --fact constraint_id=4
 ```
 
+Artifact and source-metadata inputs must resolve to regular files. Symlinks to
+regular files are supported; Unix FIFOs are refused without waiting for a writer.
+The existing independent byte limit still applies to the opened file. This does
+not impose a filesystem deadline or prevent concurrent changes to its contents.
+
 Names are used only when the fingerprint method, complete 128-bit accepted
 fingerprint, and entity tag match exactly. If they do not, the CLI withholds
 artifact names and prints numeric identities. When `--artifact` and
@@ -185,6 +190,9 @@ icydb diagnostic E210 --source-metadata app.source-diagnostic.json \
 Resolution order is exact deployment artifact, explicit live introspection,
 exact source metadata, then numeric fallback. Deployment and source provenance
 are not interchangeable, and any identity mismatch withholds names.
+An unavailable or invalid live schema report adds a note and continues through
+the remaining resolvers. An invalid explicitly supplied artifact or source
+metadata file remains a command error; fallback does not bypass its validation.
 
 The JSON artifact is a tooling format, not database state. It cannot authorize
 a write, apply a schema, recover data, or replace accepted schema authority.

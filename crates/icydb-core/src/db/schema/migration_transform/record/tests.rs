@@ -49,7 +49,7 @@ fn catalogs() -> (AcceptedValueCatalogHandle, AcceptedValueCatalogHandle) {
                     "Wrapper".into(),
                     AcceptedCompositeShape::Newtype(AcceptedCompositeElement::new(
                         composite(1),
-                        true,
+                        false,
                     )),
                 ),
             ),
@@ -97,14 +97,19 @@ fn record(a: u64, z: u64, renamed: bool) -> Value {
     Value::Map(entries)
 }
 
-fn assert_admitted(catalog: &AcceptedValueCatalogHandle, kind: &AcceptedFieldKind, value: Value) {
+fn assert_admitted(
+    catalog: &AcceptedValueCatalogHandle,
+    kind: &AcceptedFieldKind,
+    nullable: bool,
+    value: Value,
+) {
     let contract =
         AcceptedValueContract::from_accepted_field(catalog, kind, FieldStorageDecode::CatalogValue)
             .unwrap();
     admit_canonical_value(
         catalog,
         &contract,
-        false,
+        nullable,
         value,
         &mut ValueAdmissionBudget::standard(),
     )
@@ -166,10 +171,10 @@ fn record_rename_preserves_nested_values_and_restores_container_order() {
         ),
     ];
     for (kind, value, expected) in cases {
-        // Nullability of the newtype's inner element is part of its contract.
-        if !matches!(value, Value::Null) {
-            assert_admitted(&before, &kind, value.clone());
-        }
+        // The null case models a nullable containing field, not a nullable
+        // newtype element. Admit it under both catalog revisions as well.
+        let nullable = matches!(value, Value::Null);
+        assert_admitted(&before, &kind, nullable, value.clone());
         let rewritten = rewrite_value(
             value,
             &kind,
@@ -180,9 +185,7 @@ fn record_rename_preserves_nested_values_and_restores_container_order() {
         )
         .unwrap();
         assert_eq!(rewritten, expected);
-        if !matches!(rewritten, Value::Null) {
-            assert_admitted(&after, &kind, rewritten);
-        }
+        assert_admitted(&after, &kind, nullable, rewritten);
     }
 }
 

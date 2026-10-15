@@ -1386,7 +1386,10 @@ impl AcceptedConstraintCatalog {
         Ok(())
     }
 
-    const fn reject_live_activation(&self) -> Result<(), AcceptedConstraintCatalogError> {
+    /// Keep schema edits outside an active constraint-validation transition.
+    pub(in crate::db::schema) const fn reject_live_activation(
+        &self,
+    ) -> Result<(), AcceptedConstraintCatalogError> {
         if self.activations.is_empty() {
             Ok(())
         } else {

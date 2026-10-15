@@ -1,0 +1,11 @@
+error: generated unsigned integer predicate literal is out of range
+ --> tests/ui/schema_literals/invalid_predicate_literals.rs:4:46
+  |
+4 |     constraint(name = "nonnegative", check = "qty >= -1"),
+  |                                              ^^^^^^^^^^^
+
+error: generated unsigned integer predicate literal is out of range
+  --> tests/ui/schema_literals/invalid_predicate_literals.rs:11:12
+   |
+11 | pub struct FractionalUnsignedIndex;
+   |            ^^^^^^^^^^^^^^^^^^^^^^^

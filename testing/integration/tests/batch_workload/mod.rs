@@ -1,14 +1,16 @@
 //! End-to-end batch evidence over the existing retained SQL fixture actor.
 
 use crate::{expect_projection, query_sql};
-use candid::CandidType;
+use candid::{CandidType, Principal};
 use ic_host_artifacts::artifact::Sha256Digest;
-use ic_testkit::pic::StandaloneCanisterFixture;
+use ic_testkit::pic::CandidCallExt as _;
+use ic_testkit::pocket_ic::PocketIc;
 use icydb::{Error, types::Ulid};
-use icydb_testing_integration::{
+use icydb_testing_build::{
     CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
-    CanisterWasmProfile, build_canister_with_options, install_prebuilt_fixture_canister,
+    CanisterWasmProfile, build_canister_with_options,
 };
+use icydb_testing_integration::install_prebuilt_fixture_canister;
 use serde::Deserialize;
 
 #[derive(CandidType, Debug, Deserialize)]
@@ -23,10 +25,17 @@ struct BatchWorkloadSample {
 
 // Expected data is defined independently from the actor's implementation and
 // checked through a different, maintained read surface after every scenario.
-fn assert_rows(fixture: &StandaloneCanisterFixture, count: u32, committed: u32, reject_last: bool) {
+fn assert_rows(
+    pic: &PocketIc,
+    canister_id: Principal,
+    count: u32,
+    committed: u32,
+    reject_last: bool,
+) {
     let output = expect_projection(
         query_sql(
-            fixture,
+            pic,
+            canister_id,
             "SELECT id, display_name FROM SqlTestEnrollmentUser ORDER BY id LIMIT 256",
         )
         .expect("independent readback"),
@@ -55,10 +64,21 @@ fn assert_rows(fixture: &StandaloneCanisterFixture, count: u32, committed: u32, 
 fn qualify_scenario(module: &[u8], count: u32, chunk: u32, individual: bool, reject_last: bool) {
     let fixture = install_prebuilt_fixture_canister("sql", module.to_vec());
     let seeded: Result<(), Error> = fixture
-        .update_candid("seed_batch_workload", (count, reject_last))
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "seed_batch_workload",
+            (count, reject_last),
+        )
         .expect("seed response");
     seeded.expect("seed succeeds outside measurement");
-    assert_rows(&fixture, count, 0, reject_last);
+    assert_rows(
+        fixture.pocket_ic(),
+        fixture.canister_id(),
+        count,
+        0,
+        reject_last,
+    );
     let mut committed = 0;
     let mut cycle_total = 0_u128;
     let mut instruction_total = 0_u64;
@@ -72,7 +92,12 @@ fn qualify_scenario(module: &[u8], count: u32, chunk: u32, individual: bool, rej
         }
         let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
         let sample: BatchWorkloadSample = fixture
-            .update_candid("measure_batch_workload", (start, length, individual))
+            .pocket_ic()
+            .update_candid(
+                fixture.canister_id(),
+                "measure_batch_workload",
+                (start, length, individual),
+            )
             .expect("sample response");
         let cycles = before
             .checked_sub(fixture.pocket_ic().cycle_balance(fixture.canister_id()))
@@ -103,7 +128,13 @@ fn qualify_scenario(module: &[u8], count: u32, chunk: u32, individual: bool, rej
             sample.total_instructions
         );
         // Check every committed prefix, not only the endpoint's self-report.
-        assert_rows(&fixture, count, committed, reject_last);
+        assert_rows(
+            fixture.pocket_ic(),
+            fixture.canister_id(),
+            count,
+            committed,
+            reject_last,
+        );
     }
     assert_eq!(
         committed,

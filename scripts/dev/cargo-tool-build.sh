@@ -62,7 +62,16 @@ cargo_build_init() {
         user_config="$user_home/config.toml"
         [[ ! -f "$user_home/config" ]] || user_config="$user_home/config"
         if [[ -f "$user_config" ]]; then
-            offline="$(yq -p toml -o json '.' "$user_config" | jq -er '(.net.offline // false) | tostring')" || return 1
+            offline="$(yq -p toml -o json '.' "$user_config" | jq -ers '
+                # yq represents an empty TOML document as null.
+                if length == 1 and (.[0] == null or (.[0] | type) == "object")
+                then (.[0] // {}) else error("expected one Cargo configuration object") end
+                | if has("net") then .net else {} end
+                | if type != "object" then error("Cargo net configuration must be a table") else . end
+                | if has("offline") then .offline else false end
+                | if type == "boolean" then tostring
+                  else error("Cargo net.offline must be a boolean") end
+            ')" || return 1
         fi
     fi
     case "${offline:-false}" in
@@ -117,7 +126,7 @@ cargo_source() {
     if [[ ${#archives[@]} == 0 && "$check_only" == false ]]; then
         # Cargo owns registry download/checksum admission; no second registry client.
         (umask 077; cd "$cargo_cache" && "${build_environment[@]}" "HOME=$cargo_cache" "$cargo_bin" info \
-            "$package@$selected_version" --registry crates-io ${offline_args[@]+"${offline_args[@]}"}) >&2 || return 1
+            "$package@$selected_version" --registry crates-io ${offline_args[@]+"${offline_args[@]}"}) >&2 || return $?
         archives=("$cargo_cache"/registry/cache/index.crates.io-*/"$package-$selected_version.crate")
     fi
     [[ ${#archives[@]} == 1 && -f "${archives[0]}" && ! -L "${archives[0]}" ]] || {

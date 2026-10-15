@@ -167,13 +167,15 @@ fn relation_snapshot() -> PersistedSchemaSnapshot {
             "by_code".to_string(),
             STORE_PATH.to_string(),
             true,
-            PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
-                FieldId::new(3),
-                SchemaFieldSlot::new(2),
-                vec!["code".to_string()],
-                AcceptedFieldKind::Nat64,
-                false,
-            )]),
+            PersistedIndexKeySnapshot::from_field_paths(vec![
+                PersistedIndexFieldPathSnapshot::new(
+                    FieldId::new(3),
+                    SchemaFieldSlot::new(2),
+                    vec!["code".to_string()],
+                    AcceptedFieldKind::Nat64,
+                    false,
+                ),
+            ]),
             None,
         )],
     )

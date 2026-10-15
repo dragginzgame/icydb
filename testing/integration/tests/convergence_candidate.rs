@@ -1,7 +1,7 @@
 //! Dormant 0.229 convergence-candidate IC instruction evidence.
 
 use candid::CandidType;
-use ic_testkit::pic::StandaloneCanisterFixture;
+use ic_testkit::pic::{CandidCallExt as _, StandaloneCanisterFixture};
 use icydb_testing_integration::install_fixture_canister;
 use serde::Deserialize;
 
@@ -44,7 +44,12 @@ fn maximum_dormant_retirement_and_store_scan_fit_the_reserved_callback_headroom(
     let fixture = install_fixture_canister("sql_perf");
     let memory_before = canister_memory_bytes(&fixture);
     let measured: ConvergenceCandidatePerfResult = fixture
-        .update_candid("measure_dormant_convergence_candidate", ())
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "measure_dormant_convergence_candidate",
+            (),
+        )
         .expect("dormant convergence evidence should decode");
     let memory_after = canister_memory_bytes(&fixture);
 

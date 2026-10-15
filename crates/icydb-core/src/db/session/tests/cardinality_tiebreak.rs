@@ -1878,7 +1878,7 @@ fn index(
         name.to_string(),
         store_path.to_string(),
         false,
-        PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+        PersistedIndexKeySnapshot::from_field_paths(vec![PersistedIndexFieldPathSnapshot::new(
             FieldId::new(field_id),
             SchemaFieldSlot::new(slot),
             vec![field_name.to_string()],
@@ -1914,7 +1914,7 @@ fn composite_index(
         name.to_string(),
         store_path.to_string(),
         false,
-        PersistedIndexKeySnapshot::FieldPath(paths),
+        PersistedIndexKeySnapshot::from_field_paths(paths),
         None,
     )
 }
@@ -1941,15 +1941,15 @@ fn lower_expression_index(
         name.to_string(),
         store_path.to_string(),
         false,
-        PersistedIndexKeySnapshot::Items(vec![PersistedIndexKeyItemSnapshot::Expression(
-            Box::new(PersistedIndexExpressionSnapshot::new(
+        PersistedIndexKeySnapshot::new(vec![PersistedIndexKeyItemSnapshot::Expression(Box::new(
+            PersistedIndexExpressionSnapshot::new(
                 PersistedIndexExpressionOp::Lower,
                 source,
                 AcceptedFieldKind::Text { max_len: None },
                 AcceptedFieldKind::Text { max_len: None },
                 format!("expr:v1:LOWER({field_name})"),
-            )),
-        )]),
+            ),
+        ))]),
         None,
     )
 }

@@ -3975,32 +3975,20 @@ fn finalize_schema_metadata(
 }
 
 fn hash_persisted_index_key(hasher: &mut sha2::Sha256, key: &PersistedIndexKeySnapshot) {
-    match key {
-        PersistedIndexKeySnapshot::FieldPath(paths) => {
-            write_hash_tag_u8(hasher, 1);
-            write_hash_len_u32(hasher, paths.len());
-            for path in paths {
+    write_hash_len_u32(hasher, key.component_count());
+    for item in key.items() {
+        match item {
+            PersistedIndexKeyItemSnapshot::FieldPath(path) => {
+                write_hash_tag_u8(hasher, 1);
                 hash_persisted_index_field_path(hasher, path);
             }
-        }
-        PersistedIndexKeySnapshot::Items(items) => {
-            write_hash_tag_u8(hasher, 2);
-            write_hash_len_u32(hasher, items.len());
-            for item in items {
-                match item {
-                    PersistedIndexKeyItemSnapshot::FieldPath(path) => {
-                        write_hash_tag_u8(hasher, 1);
-                        hash_persisted_index_field_path(hasher, path);
-                    }
-                    PersistedIndexKeyItemSnapshot::Expression(expression) => {
-                        write_hash_tag_u8(hasher, 2);
-                        write_hash_str_u32(hasher, persisted_expression_op_name(expression.op()));
-                        hash_persisted_index_field_path(hasher, expression.source());
-                        hash_accepted_field_kind(hasher, expression.input_kind());
-                        hash_accepted_field_kind(hasher, expression.output_kind());
-                        write_hash_str_u32(hasher, expression.canonical_text());
-                    }
-                }
+            PersistedIndexKeyItemSnapshot::Expression(expression) => {
+                write_hash_tag_u8(hasher, 2);
+                write_hash_str_u32(hasher, persisted_expression_op_name(expression.op()));
+                hash_persisted_index_field_path(hasher, expression.source());
+                hash_accepted_field_kind(hasher, expression.input_kind());
+                hash_accepted_field_kind(hasher, expression.output_kind());
+                write_hash_str_u32(hasher, expression.canonical_text());
             }
         }
     }

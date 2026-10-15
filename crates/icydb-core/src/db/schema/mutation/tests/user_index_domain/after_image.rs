@@ -9,7 +9,7 @@ use crate::{
         },
         index::{
             EncodedValue, IndexMutationPlan, IndexPlanReadView, IndexReadContract,
-            plan_index_mutation_for_slot_reader_structural,
+            PreparedIndexMutationMetadata, plan_index_mutation_for_slot_reader_structural,
         },
     },
     error::InternalError,
@@ -139,19 +139,112 @@ fn plan_name_update(
     old: &ObservedNameRow,
     new: &ObservedNameRow,
 ) -> Result<IndexMutationPlan, InternalError> {
+    let metadata = PreparedIndexMutationMetadata::new(schema.clone(), contract.clone())?;
     let primary_key = PrimaryKeyValue::Scalar(PrimaryKeyComponent::Ulid(crate::types::Ulid::MIN));
     plan_index_mutation_for_slot_reader_structural(
         EntityTag::new(7),
         [0; 16],
         None,
-        schema,
+        &metadata,
         &NoIndexReads,
-        contract,
         Some(&primary_key),
         Some(old),
         Some(&primary_key),
         Some(new),
     )
+}
+
+#[test]
+fn reused_index_metadata_tracks_partial_membership_for_both_index_families() {
+    let gate = PersistedFieldSnapshot::new_initial(
+        FieldId::new(3),
+        "enabled".into(),
+        SchemaFieldSlot::new(2),
+        AcceptedFieldKind::Bool,
+        Vec::new(),
+        true,
+        SchemaInsertDefault::None,
+        FieldStorageDecode::ByKind,
+        LeafCodec::Scalar(ScalarCodec::Bool),
+    );
+    let base = append_fields_snapshot(&base_snapshot(), &[gate]);
+    let predicate = Some(crate::db::schema::AcceptedIndexPredicate::bind_test_sql(
+        "enabled = TRUE",
+        base.fields(),
+    ));
+    let field_index = PersistedIndexSnapshot::new(
+        SchemaIndexId::new(1).unwrap(),
+        1,
+        "by_name".into(),
+        STORE_PATH.into(),
+        false,
+        PersistedIndexKeySnapshot::from_field_paths(vec![name_key_path()]),
+        predicate.clone(),
+    );
+    for index in [
+        field_index,
+        domain_expression_index(1, "by_lower_name", false, predicate),
+    ] {
+        let snapshot = snapshot_with_indexes(&base, vec![index]);
+        let contract = accepted_row_contract(&snapshot);
+        let accepted = AcceptedSchemaSnapshot::try_new(snapshot).unwrap();
+        let schema = SchemaInfo::from_accepted_snapshot_and_catalog(
+            &accepted,
+            contract.accepted_value_catalog_handle().clone(),
+        );
+        let metadata = PreparedIndexMutationMetadata::new(schema, contract.clone()).unwrap();
+        let make_row = |enabled: Value| {
+            let values = [
+                Value::Ulid(crate::types::Ulid::MIN),
+                Value::Text("Ada".into()),
+                enabled,
+            ];
+            canonical_row_from_runtime_value_source_with_accepted_contract(&contract, |slot| {
+                Ok(Cow::Borrowed(&values[slot]))
+            })
+            .unwrap()
+            .into_raw_row()
+        };
+        let primary_key =
+            PrimaryKeyValue::Scalar(PrimaryKeyComponent::Ulid(crate::types::Ulid::MIN));
+        for (before, after, inserts) in [
+            (Value::Bool(false), Value::Bool(false), false),
+            (Value::Null, Value::Bool(false), false),
+            (Value::Null, Value::Bool(true), true),
+            (Value::Bool(false), Value::Bool(true), true),
+            (Value::Bool(true), Value::Bool(true), false),
+        ] {
+            let before = make_row(before);
+            let after = make_row(after);
+            let old = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
+                &before, &contract,
+            )
+            .unwrap();
+            let new = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
+                &after, &contract,
+            )
+            .unwrap();
+            let plan = plan_index_mutation_for_slot_reader_structural(
+                EntityTag::new(7),
+                [0; 16],
+                None,
+                &metadata,
+                &NoIndexReads,
+                Some(&primary_key),
+                Some(&old),
+                Some(&primary_key),
+                Some(&new),
+            )
+            .unwrap();
+            assert_eq!(plan.groups.len(), usize::from(inserts));
+            if inserts {
+                assert!(matches!(
+                    plan.groups[0].deltas.as_slice(),
+                    [crate::db::index::IndexDelta::Insert(_)]
+                ));
+            }
+        }
+    }
 }
 
 #[test]
@@ -166,7 +259,7 @@ fn malformed_accepted_predicates_reject_query_mutation_and_inspection_plans() {
         "by_name".into(),
         STORE_PATH.into(),
         false,
-        PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
+        PersistedIndexKeySnapshot::from_field_paths(vec![name_key_path()]),
         malformed.clone(),
     );
     for index in [
@@ -482,8 +575,8 @@ fn nested_profile_expression_index(
         "by_profile_name".into(),
         STORE_PATH.into(),
         false,
-        PersistedIndexKeySnapshot::Items(vec![PersistedIndexKeyItemSnapshot::Expression(
-            Box::new(PersistedIndexExpressionSnapshot::new(
+        PersistedIndexKeySnapshot::new(vec![PersistedIndexKeyItemSnapshot::Expression(Box::new(
+            PersistedIndexExpressionSnapshot::new(
                 op,
                 PersistedIndexFieldPathSnapshot::new(
                     FieldId::new(2),
@@ -495,8 +588,8 @@ fn nested_profile_expression_index(
                 text.clone(),
                 text,
                 format!("expr:v1:{canonical}(profile.name)"),
-            )),
-        )]),
+            ),
+        ))]),
         None,
     )
 }
@@ -528,6 +621,8 @@ fn nested_expression_index_writes_match_rebuild_keys_and_null_membership() {
         .unwrap()
         .into_row_contract();
         let schema = SchemaInfo::from_accepted_snapshot_and_catalog(&accepted, catalog.clone());
+        let metadata =
+            PreparedIndexMutationMetadata::new(schema.clone(), contract.clone()).unwrap();
         for (profile, has_key) in [
             (
                 Value::Map(vec![(
@@ -590,9 +685,8 @@ fn nested_expression_index_writes_match_rebuild_keys_and_null_membership() {
                 tag,
                 [0; 16],
                 None,
-                &schema,
+                &metadata,
                 &NoIndexReads,
-                &contract,
                 Some(&primary_key),
                 Some(&reader),
                 Some(&primary_key),

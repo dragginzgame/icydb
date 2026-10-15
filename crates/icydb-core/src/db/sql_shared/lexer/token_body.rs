@@ -1,3 +1,4 @@
+use crate::db::codec::hex::decode_hex_bounded;
 use crate::db::sql_shared::{
     SqlParseError, SqlSyntaxErrorKind, TokenKind,
     lexer::{
@@ -137,29 +138,6 @@ fn decode_hex_blob_literal(hex: &[u8]) -> Result<Vec<u8>, crate::db::sql_shared:
         ));
     }
 
-    let mut bytes = Vec::with_capacity(hex.len() / 2);
-    for pair in hex.as_chunks::<2>().0 {
-        let Some(high) = hex_nibble(pair[0]) else {
-            return Err(crate::db::sql_shared::SqlParseError::invalid_syntax(
-                SqlSyntaxErrorKind::BlobLiteralNonHexDigit,
-            ));
-        };
-        let Some(low) = hex_nibble(pair[1]) else {
-            return Err(crate::db::sql_shared::SqlParseError::invalid_syntax(
-                SqlSyntaxErrorKind::BlobLiteralNonHexDigit,
-            ));
-        };
-        bytes.push((high << 4) | low);
-    }
-
-    Ok(bytes)
-}
-
-const fn hex_nibble(byte: u8) -> Option<u8> {
-    match byte {
-        b'0'..=b'9' => Some(byte - b'0'),
-        b'a'..=b'f' => Some(byte - b'a' + 10),
-        b'A'..=b'F' => Some(byte - b'A' + 10),
-        _ => None,
-    }
+    decode_hex_bounded(hex, MAX_SQL_BLOB_LITERAL_BYTES)
+        .ok_or_else(|| SqlParseError::invalid_syntax(SqlSyntaxErrorKind::BlobLiteralNonHexDigit))
 }

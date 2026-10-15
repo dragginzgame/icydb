@@ -6,6 +6,7 @@
 mod delta;
 mod error;
 mod integrity;
+mod metadata;
 mod read;
 mod unique;
 
@@ -16,10 +17,7 @@ use crate::{
         index::{IndexKey, IndexReadContract, IndexRowIdentity},
         key_taxonomy::PrimaryKeyValue,
         predicate::PredicateProgram,
-        schema::{
-            SchemaExpressionIndexInfo, SchemaExpressionIndexKeyItemInfo, SchemaIndexInfo,
-            SchemaInfo,
-        },
+        schema::{SchemaExpressionIndexInfo, SchemaIndexInfo},
     },
     error::{InternalError, MutationDiagnosticContext},
     types::EntityTag,
@@ -29,7 +27,10 @@ pub(in crate::db) use delta::{
     IndexDelta, IndexDeltaGroup, IndexMembershipDelta, IndexMutationPlan,
 };
 pub(in crate::db) use integrity::{AcceptedIndexInspectionDomain, AcceptedIndexInspectionPlan};
+pub(in crate::db) use metadata::PreparedIndexMutationMetadata;
 pub(in crate::db) use read::IndexPlanReadView;
+
+use metadata::PreparedIndexInputs;
 
 // Distinguish the two structural key-build lanes so planner diagnostics can
 // preserve the existing insertion-vs-removal error taxonomy.
@@ -168,23 +169,25 @@ pub(in crate::db) fn plan_index_mutation_for_slot_reader_structural(
     entity_tag: EntityTag,
     accepted_schema_fingerprint: CommitSchemaFingerprint,
     mutation: Option<MutationDiagnosticContext>,
-    schema_info: &SchemaInfo,
+    metadata: &PreparedIndexMutationMetadata,
     read_view: &dyn IndexPlanReadView,
-    row_contract: &StructuralRowContract,
     old_primary_key: Option<&PrimaryKeyValue>,
     old_slots: Option<&dyn CanonicalSlotReader>,
     new_primary_key: Option<&PrimaryKeyValue>,
     new_slots: Option<&dyn CanonicalSlotReader>,
 ) -> Result<IndexMutationPlan, InternalError> {
+    let schema_info = &metadata.schema_info;
+    let row_contract = &metadata.row_contract;
     let accepted_expression_indexes = schema_info.expression_indexes();
     let mut groups = Vec::with_capacity(
         schema_info.field_path_indexes().len() + accepted_expression_indexes.len(),
     );
 
-    for accepted_index in schema_info.field_path_indexes() {
-        let predicate_program = accepted_index
-            .predicate()?
-            .map(|predicate| PredicateProgram::compile_with_row_contract(row_contract, &predicate));
+    for (accepted_index, inputs) in schema_info
+        .field_path_indexes()
+        .iter()
+        .zip(&metadata.field_path_inputs)
+    {
         plan_accepted_field_path_index_mutation_for_slot_reader_structural(
             &mut groups,
             entity_tag,
@@ -193,7 +196,7 @@ pub(in crate::db) fn plan_index_mutation_for_slot_reader_structural(
             read_view,
             row_contract,
             accepted_index,
-            predicate_program.as_ref(),
+            inputs,
             old_primary_key,
             old_slots,
             new_primary_key,
@@ -201,10 +204,10 @@ pub(in crate::db) fn plan_index_mutation_for_slot_reader_structural(
         )?;
     }
 
-    for accepted_index in accepted_expression_indexes {
-        let predicate_program = accepted_index
-            .predicate()?
-            .map(|predicate| PredicateProgram::compile_with_row_contract(row_contract, &predicate));
+    for (accepted_index, inputs) in accepted_expression_indexes
+        .iter()
+        .zip(&metadata.expression_inputs)
+    {
         plan_accepted_expression_index_mutation_for_slot_reader_structural(
             &mut groups,
             entity_tag,
@@ -213,7 +216,7 @@ pub(in crate::db) fn plan_index_mutation_for_slot_reader_structural(
             read_view,
             row_contract,
             accepted_index,
-            predicate_program.as_ref(),
+            inputs,
             old_primary_key,
             old_slots,
             new_primary_key,
@@ -233,21 +236,13 @@ fn plan_accepted_field_path_index_mutation_for_slot_reader_structural(
     read_view: &dyn IndexPlanReadView,
     row_contract: &StructuralRowContract,
     accepted_index: &SchemaIndexInfo,
-    predicate_program: Option<&PredicateProgram>,
+    inputs: &PreparedIndexInputs,
     old_primary_key: Option<&PrimaryKeyValue>,
     old_slots: Option<&dyn CanonicalSlotReader>,
     new_primary_key: Option<&PrimaryKeyValue>,
     new_slots: Option<&dyn CanonicalSlotReader>,
 ) -> Result<(), InternalError> {
-    let mut referenced_slots = vec![false; row_contract.field_count()];
-    for field in accepted_index.fields() {
-        if let Some(referenced) = referenced_slots.get_mut(field.slot()) {
-            *referenced = true;
-        }
-    }
-    if let Some(predicate_program) = predicate_program {
-        predicate_program.mark_referenced_slots(&mut referenced_slots);
-    }
+    let predicate_program = inputs.predicate_program.as_ref();
     // Verification rebuilds every after-image key. Admit it even when the
     // indexed inputs are unchanged, then reuse it without reading index state.
     let new_key = match new_slots {
@@ -266,7 +261,7 @@ fn plan_accepted_field_path_index_mutation_for_slot_reader_structural(
         old_slots,
         new_primary_key,
         new_slots,
-        &referenced_slots,
+        &inputs.referenced_slots,
     )? {
         return Ok(());
     }
@@ -331,25 +326,13 @@ fn plan_accepted_expression_index_mutation_for_slot_reader_structural(
     read_view: &dyn IndexPlanReadView,
     row_contract: &StructuralRowContract,
     accepted_index: &SchemaExpressionIndexInfo,
-    predicate_program: Option<&PredicateProgram>,
+    inputs: &PreparedIndexInputs,
     old_primary_key: Option<&PrimaryKeyValue>,
     old_slots: Option<&dyn CanonicalSlotReader>,
     new_primary_key: Option<&PrimaryKeyValue>,
     new_slots: Option<&dyn CanonicalSlotReader>,
 ) -> Result<(), InternalError> {
-    let mut referenced_slots = vec![false; row_contract.field_count()];
-    for item in accepted_index.key_items() {
-        let field = match item {
-            SchemaExpressionIndexKeyItemInfo::FieldPath(field) => field,
-            SchemaExpressionIndexKeyItemInfo::Expression(expression) => expression.source(),
-        };
-        if let Some(referenced) = referenced_slots.get_mut(field.slot()) {
-            *referenced = true;
-        }
-    }
-    if let Some(predicate_program) = predicate_program {
-        predicate_program.mark_referenced_slots(&mut referenced_slots);
-    }
+    let predicate_program = inputs.predicate_program.as_ref();
     // Verification rebuilds every after-image key. Admit it even when the
     // indexed inputs are unchanged, then reuse it without reading index state.
     let new_key = match new_slots {
@@ -368,7 +351,7 @@ fn plan_accepted_expression_index_mutation_for_slot_reader_structural(
         old_slots,
         new_primary_key,
         new_slots,
-        &referenced_slots,
+        &inputs.referenced_slots,
     )? {
         return Ok(());
     }

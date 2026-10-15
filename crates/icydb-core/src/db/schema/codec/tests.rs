@@ -199,6 +199,15 @@ fn decode_persisted_schema_snapshot_rejects_corrupt_format_magic() {
 }
 
 #[test]
+fn persisted_schema_snapshot_rejects_the_retired_index_key_profile() {
+    let mut encoded = encode_persisted_schema_snapshot(&temporal_schema_snapshot()).unwrap();
+    encoded[..8].copy_from_slice(b"ICYUSNP\0");
+    let error = decode_persisted_schema_snapshot(&encoded).unwrap_err();
+    assert_eq!(error.class(), ErrorClass::Corruption);
+    assert_eq!(error.origin(), ErrorOrigin::Store);
+}
+
+#[test]
 fn persisted_schema_snapshot_rejects_unknown_tags_and_trailing_bytes() {
     let mut kind_reader = super::SnapshotReader::new(&[u8::MAX]);
     let kind_error = super::field::decode_kind(&mut kind_reader, 0)
@@ -216,7 +225,7 @@ fn persisted_schema_snapshot_rejects_unknown_tags_and_trailing_bytes() {
 #[test]
 fn persisted_schema_snapshot_encoding_is_canonical() {
     const TEMPORAL_SCHEMA_V1: &[u8] = &[
-        73, 67, 89, 85, 83, 78, 80, 0, 1, 0, 0, 0, 2, 0, 0, 0, 18, 101, 110, 116, 105, 116, 105,
+        73, 67, 89, 73, 83, 78, 80, 0, 1, 0, 0, 0, 2, 0, 0, 0, 18, 101, 110, 116, 105, 116, 105,
         101, 115, 58, 58, 84, 101, 109, 112, 111, 114, 97, 108, 0, 0, 0, 8, 84, 101, 109, 112, 111,
         114, 97, 108, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 1, 0, 0,
         0, 0, 0, 2, 0, 1, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 1, 0, 0, 0, 19, 95, 95, 105,
@@ -745,7 +754,7 @@ fn persisted_schema_snapshot_round_trips_planner_invisible_unique_candidate() {
         "unique_score".to_string(),
         "entities::Temporal::unique_score".to_string(),
         true,
-        PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+        PersistedIndexKeySnapshot::from_field_paths(vec![PersistedIndexFieldPathSnapshot::new(
             FieldId::new(2),
             SchemaFieldSlot::new(1),
             vec!["score".to_string()],
@@ -911,13 +920,15 @@ fn decode_persisted_schema_snapshot_rejects_fragmented_index_ordinals() {
             "idx_fragmented_indexes__email".to_string(),
             "fragmented_indexes::email".to_string(),
             false,
-            PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
-                FieldId::new(2),
-                SchemaFieldSlot::new(1),
-                vec!["email".to_string()],
-                AcceptedFieldKind::Text { max_len: None },
-                false,
-            )]),
+            PersistedIndexKeySnapshot::from_field_paths(vec![
+                PersistedIndexFieldPathSnapshot::new(
+                    FieldId::new(2),
+                    SchemaFieldSlot::new(1),
+                    vec!["email".to_string()],
+                    AcceptedFieldKind::Text { max_len: None },
+                    false,
+                ),
+            ]),
             None,
         )],
     );
@@ -1302,13 +1313,15 @@ fn persisted_schema_snapshot_round_trips_field_path_indexes() {
             "idx_indexed__email".to_string(),
             "indexed::email".to_string(),
             true,
-            PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
-                FieldId::new(2),
-                SchemaFieldSlot::new(1),
-                vec!["email".to_string()],
-                AcceptedFieldKind::Text { max_len: None },
-                false,
-            )]),
+            PersistedIndexKeySnapshot::from_field_paths(vec![
+                PersistedIndexFieldPathSnapshot::new(
+                    FieldId::new(2),
+                    SchemaFieldSlot::new(1),
+                    vec!["email".to_string()],
+                    AcceptedFieldKind::Text { max_len: None },
+                    false,
+                ),
+            ]),
             Some(crate::db::schema::AcceptedIndexPredicate::test_non_null(2)),
         )],
     );
@@ -1329,9 +1342,18 @@ fn persisted_schema_snapshot_round_trips_field_path_indexes() {
         index.predicate(),
         Some(&crate::db::schema::AcceptedIndexPredicate::test_non_null(2))
     );
-    assert_eq!(index.key().field_paths()[0].field_id(), FieldId::new(2));
-    assert_eq!(index.key().field_paths()[0].slot(), SchemaFieldSlot::new(1));
-    assert_eq!(index.key().field_paths()[0].path(), &["email".to_string()]);
+    assert_eq!(
+        index.key().field_paths().next().unwrap().field_id(),
+        FieldId::new(2)
+    );
+    assert_eq!(
+        index.key().field_paths().next().unwrap().slot(),
+        SchemaFieldSlot::new(1)
+    );
+    assert_eq!(
+        index.key().field_paths().next().unwrap().path(),
+        &["email".to_string()]
+    );
 }
 
 #[test]
@@ -1472,13 +1494,15 @@ fn nullable_unique_codec_fixture(predicate_sql: Option<&str>) -> PersistedSchema
             "idx_nullable_unique__email".to_string(),
             "nullable_unique::email".to_string(),
             true,
-            PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
-                FieldId::new(2),
-                SchemaFieldSlot::new(1),
-                vec!["email".to_string()],
-                AcceptedFieldKind::Text { max_len: None },
-                true,
-            )]),
+            PersistedIndexKeySnapshot::from_field_paths(vec![
+                PersistedIndexFieldPathSnapshot::new(
+                    FieldId::new(2),
+                    SchemaFieldSlot::new(1),
+                    vec!["email".to_string()],
+                    AcceptedFieldKind::Text { max_len: None },
+                    true,
+                ),
+            ]),
             None,
         )],
     );
@@ -1497,8 +1521,7 @@ fn nullable_unique_codec_fixture(predicate_sql: Option<&str>) -> PersistedSchema
     )
 }
 
-#[test]
-fn persisted_schema_snapshot_round_trips_relation_edges() {
+fn relation_schema_fixture() -> PersistedSchemaSnapshot {
     let relation_kind = AcceptedFieldKind::Relation {
         target_path: "entities::Owner".to_string(),
         target_entity_name: "Owner".to_string(),
@@ -1532,7 +1555,7 @@ fn persisted_schema_snapshot_round_trips_relation_edges() {
                 FieldId::new(2),
                 "owner_id".to_string(),
                 SchemaFieldSlot::new(1),
-                relation_kind.clone(),
+                relation_kind,
                 Vec::new(),
                 false,
                 SchemaInsertDefault::None,
@@ -1556,7 +1579,12 @@ fn persisted_schema_snapshot_round_trips_relation_edges() {
         snapshot.relations(),
     )
     .expect("test relation constraint catalog should build");
-    let snapshot = snapshot.with_constraint_catalog(constraint_catalog);
+    snapshot.with_constraint_catalog(constraint_catalog)
+}
+
+#[test]
+fn persisted_schema_snapshot_round_trips_relation_edges() {
+    let snapshot = relation_schema_fixture();
     let encoded = encode_persisted_schema_snapshot(&snapshot)
         .expect("schema snapshot should encode accepted relation contracts");
     assert_runtime_fingerprint_projection(&snapshot);
@@ -1574,7 +1602,7 @@ fn persisted_schema_snapshot_round_trips_relation_edges() {
         panic!("decoded direct relation should retain its direct source shape");
     };
     assert_eq!(field_ids, &[FieldId::new(2)]);
-    assert_eq!(decoded.fields()[1].kind(), &relation_kind);
+    assert_eq!(decoded.fields()[1].kind(), snapshot.fields()[1].kind());
 
     let inconsistent = snapshot.with_relation_id_allocator(RelationIdAllocator::default());
     let inconsistent_bytes = encode_unchecked_schema_fixture(&inconsistent);
@@ -1582,6 +1610,61 @@ fn persisted_schema_snapshot_round_trips_relation_edges() {
         .expect_err("decoder must reject a relation ID above the persisted high-water");
     assert_eq!(error.class(), ErrorClass::Corruption);
     assert_eq!(error.origin(), ErrorOrigin::Store);
+}
+
+#[test]
+fn persisted_schema_snapshot_rejects_noncanonical_relation_order() {
+    let snapshot = relation_schema_fixture();
+    let second_relation = PersistedRelationEdgeSnapshot::new_direct(
+        RelationId::new(2).expect("second relation identity should admit"),
+        "backup_owner".to_string(),
+        "entities::Owner".to_string(),
+        vec![FieldId::new(2)],
+    );
+    let ordered = snapshot.clone().with_relations(vec![
+        second_relation.clone(),
+        snapshot.relations()[0].clone(),
+    ]);
+    let catalog = AcceptedConstraintCatalog::initial(
+        ordered.fields(),
+        ordered.indexes(),
+        ordered.relations(),
+    )
+    .expect("two-relation catalog should build");
+    let ordered = ordered.with_constraint_catalog(catalog);
+    let canonical = encode_persisted_schema_snapshot(&ordered)
+        .expect("proposal relations should encode in identity order");
+    let reopened = decode_persisted_schema_snapshot(&canonical)
+        .expect("canonical relation order should reopen");
+    assert_eq!(reopened, ordered);
+    assert_eq!(
+        encode_persisted_schema_snapshot(&reopened).unwrap(),
+        canonical
+    );
+
+    // Mutate the persisted relation sequence, leaving the constraint catalog
+    // and allocator intact. Derive its framing from the maintained encoder.
+    let mut writer = super::SnapshotWriter::new();
+    for relation in ordered.relations() {
+        super::encode_relation(&mut writer, relation).unwrap();
+    }
+    let relation_bytes = writer.finish().unwrap();
+    let offset = canonical
+        .windows(relation_bytes.len())
+        .position(|bytes| bytes == relation_bytes)
+        .expect("encoded relation sequence should be present");
+    for first in [&second_relation, &ordered.relations()[0]] {
+        let mut writer = super::SnapshotWriter::new();
+        super::encode_relation(&mut writer, first).unwrap();
+        super::encode_relation(&mut writer, &ordered.relations()[0]).unwrap();
+        let replacement = writer.finish().unwrap();
+        let mut malformed = canonical.clone();
+        malformed.splice(offset..offset + relation_bytes.len(), replacement);
+        let error = decode_persisted_schema_snapshot(&malformed)
+            .expect_err("reversed or repeated persisted relation identities must reject");
+        assert_eq!(error.class(), ErrorClass::Corruption);
+        assert_eq!(error.origin(), ErrorOrigin::Store);
+    }
 }
 
 #[test]
@@ -1729,7 +1812,7 @@ fn persisted_schema_snapshot_round_trips_expression_indexes() {
             "idx_expression_indexed__lower_email".to_string(),
             "expression_indexed::lower_email".to_string(),
             true,
-            PersistedIndexKeySnapshot::Items(vec![PersistedIndexKeyItemSnapshot::Expression(
+            PersistedIndexKeySnapshot::new(vec![PersistedIndexKeyItemSnapshot::Expression(
                 Box::new(PersistedIndexExpressionSnapshot::new(
                     PersistedIndexExpressionOp::Lower,
                     source,
@@ -1748,9 +1831,7 @@ fn persisted_schema_snapshot_round_trips_expression_indexes() {
     let decoded = decode_persisted_schema_snapshot(&encoded)
         .expect("schema snapshot should decode accepted expression index contracts");
 
-    let PersistedIndexKeySnapshot::Items(items) = decoded.indexes()[0].key() else {
-        panic!("expression index should decode as explicit accepted key items");
-    };
+    let items = decoded.indexes()[0].key().items();
     let PersistedIndexKeyItemSnapshot::Expression(expression) = &items[0] else {
         panic!("expression key item should decode as an accepted expression");
     };

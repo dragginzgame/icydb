@@ -14,7 +14,7 @@ compiler versions, run broad gates, commit, push, deploy or clean artifacts.
 Current GitHub, Rust release and advisory-feed reads are part of these checks.
 Write new evidence only under the supplied run directory. Retain failed evidence.
 
-Run the seven routine tasks, including advisory README freshness, then one
+Run the eight routine tasks, including Cargo tool and advisory README freshness, then one
 bounded audit. README findings never block releases or trigger prose rewrites.
 Alternate code-audit and tooling-duplication using the last completed report
 when available; start with

@@ -297,6 +297,34 @@ fn branch_distinct_preserves_typed_state_and_access_budget_failures() {
 }
 
 #[test]
+fn branch_ordered_construction_is_admitted_before_any_index_entry() {
+    let setup = initialize_branches();
+    for descending in [false, true] {
+        let query = query(descending);
+        setup.execute_trusted_live_page(&query, None).unwrap();
+        let root = RequestExecutionRoot::new_for_tests(
+            HardExecutionBudget::uniform_for_tests(
+                16_000_000,
+                HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+            )
+            .with_limit_for_tests(Resource::CursorSteps, 1),
+        );
+        let error = new_request_session(&root)
+            .execute_trusted_live_page(&query, None)
+            .unwrap_err();
+        assert!(error.diagnostic_facts().contains(&(
+            DiagnosticFactTag::BudgetResource,
+            Resource::CursorSteps.raw(),
+        )));
+        // The unsorted, repeated IN operands lower to three live branches.
+        // Admit the entire family before a leaf can consume any candidate.
+        assert_eq!(root.observed(Resource::CursorSteps), 3);
+        assert_eq!(root.observed(Resource::KeyIndexEntriesVisited), 0);
+        assert_eq!(root.observed(Resource::RowsVisited), 0);
+    }
+}
+
+#[test]
 fn branch_distinct_preserves_identity_primary_order_and_composite_controls() {
     let session = initialize_branches();
     for order in ["common ASC", "common DESC", "id ASC", "id DESC"] {
@@ -374,13 +402,15 @@ fn numeric_prefixes(unique: bool) {
             "code_idx".into(),
             STORE_PATH.into(),
             unique,
-            PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
-                FieldId::new(2),
-                SchemaFieldSlot::new(1),
-                vec!["code".into()],
-                AcceptedFieldKind::Nat64,
-                false,
-            )]),
+            PersistedIndexKeySnapshot::from_field_paths(vec![
+                PersistedIndexFieldPathSnapshot::new(
+                    FieldId::new(2),
+                    SchemaFieldSlot::new(1),
+                    vec!["code".into()],
+                    AcceptedFieldKind::Nat64,
+                    false,
+                ),
+            ]),
             None,
         )],
     );

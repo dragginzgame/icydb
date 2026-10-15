@@ -19,11 +19,7 @@ use crate::{
                     validate_non_scalar_slot_value_with_row_contract,
                 },
                 reader::{
-                    cache::{
-                        CachedSlotValue, ValidatedScalarSlotValue, build_initial_slot_cache,
-                        materialize_validated_scalar_slot_value,
-                        scalar_slot_value_ref_from_validated, validated_scalar_slot_value,
-                    },
+                    cache::{CachedSlotValue, build_initial_slot_cache},
                     primary_key::validate_primary_key_component_from_slot_bytes_with_contract,
                 },
                 types::{CanonicalSlotReader, SlotReader},
@@ -51,7 +47,7 @@ use std::{borrow::Cow, cell::OnceCell};
 pub(in crate::db) struct StructuralSlotReader<'a> {
     contract: Cow<'a, StructuralRowContract>,
     field_bytes: StructuralRowFieldBytes<'a>,
-    pub(in crate::db::data::persisted_row) cached_values: Vec<CachedSlotValue>,
+    pub(in crate::db::data::persisted_row) cached_values: Vec<CachedSlotValue<'a>>,
 }
 
 impl<'a> StructuralSlotReader<'a> {
@@ -118,6 +114,11 @@ impl<'a> StructuralSlotReader<'a> {
         slot: usize,
     ) -> Result<AcceptedFieldDecodeContract<'_>, InternalError> {
         self.contract.required_accepted_field_decode_contract(slot)
+    }
+
+    /// Borrow the exact immutable row envelope admitted by this reader.
+    pub(in crate::db) const fn contract_row_bytes(&self) -> &'a [u8] {
+        self.field_bytes.row_bytes()
     }
 
     /// Return the declared structural field count for this reader contract.
@@ -260,17 +261,19 @@ impl<'a> StructuralSlotReader<'a> {
     fn required_validated_scalar_slot_value_for_slot(
         &self,
         slot: usize,
-        validated: &OnceCell<ValidatedScalarSlotValue>,
-    ) -> Result<ValidatedScalarSlotValue, InternalError> {
+        validated: &OnceCell<ScalarSlotValueRef<'a>>,
+    ) -> Result<ScalarSlotValueRef<'a>, InternalError> {
         if let Some(validated) = validated.get() {
             return Ok(*validated);
         }
 
         self.contract.field_name(slot)?;
-        let raw_value = self.required_field_bytes(slot)?;
-        let validated_value = validated_scalar_slot_value(
-            decode_scalar_slot_value_from_row_contract(&self.contract, slot, raw_value)?,
-        );
+        let raw_value = self
+            .field_bytes
+            .field(slot)
+            .ok_or_else(InternalError::persisted_row_decode_corruption)?;
+        let validated_value =
+            decode_scalar_slot_value_from_row_contract(&self.contract, slot, raw_value)?;
         let _ = validated.set(validated_value);
 
         Ok(validated_value)
@@ -309,12 +312,7 @@ impl<'a> StructuralSlotReader<'a> {
                 let validated =
                     self.required_validated_scalar_slot_value_for_slot(slot, validated)?;
                 if materialized.get().is_none() {
-                    let value = materialize_validated_scalar_slot_value(
-                        validated,
-                        &self.contract,
-                        &self.field_bytes,
-                        slot,
-                    )?;
+                    let value = validated.into_value();
                     let _ = materialized.set(value);
                 }
 
@@ -390,26 +388,6 @@ impl<'a> StructuralSlotReader<'a> {
         materialized
             .take()
             .ok_or_else(InternalError::persisted_row_decode_corruption)
-    }
-
-    // Decode one scalar slot for eager all-slot validation through accepted
-    // metadata when available. This mirrors the lazy scalar-cache validation
-    // helper so both paths agree on the field name and scalar codec authority.
-    fn decode_scalar_slot_value_for_slot<'raw>(
-        &self,
-        slot: usize,
-        raw_value: &'raw [u8],
-    ) -> Result<ScalarSlotValueRef<'raw>, InternalError> {
-        decode_scalar_slot_value_from_row_contract(&self.contract, slot, raw_value)
-    }
-
-    // Validate one structural slot through accepted metadata.
-    fn validate_non_scalar_slot_for_contract(
-        &self,
-        slot: usize,
-        raw_value: &[u8],
-    ) -> Result<(), InternalError> {
-        validate_non_scalar_slot_value_with_row_contract(&self.contract, slot, raw_value)
     }
 
     // Read a value-storage scalar without reopening generated kind metadata.
@@ -519,18 +497,36 @@ impl<'a> StructuralSlotReader<'a> {
     fn validate_all_declared_slots(&self) -> Result<(), InternalError> {
         for slot in 0..self.contract.field_count() {
             let Some(raw_value) = self.field_bytes.field(slot) else {
-                let _ = self
-                    .contract
-                    .historical_slot_value(slot, self.field_bytes.layout_version())?;
+                // The accepted historical value is already materialized by
+                // admission. Retain it in the same cache used by physical slots.
+                self.required_cached_value(slot)?;
                 continue;
             };
 
             match self.contract.field_leaf_codec(slot)? {
                 LeafCodec::Scalar(_) => {
-                    self.decode_scalar_slot_value_for_slot(slot, raw_value)?;
+                    let Some(CachedSlotValue::Scalar { validated, .. }) =
+                        self.cached_values.get(slot)
+                    else {
+                        return Err(InternalError::persisted_row_decode_corruption());
+                    };
+                    self.required_validated_scalar_slot_value_for_slot(slot, validated)?;
                 }
                 LeafCodec::Structural => {
-                    self.validate_non_scalar_slot_for_contract(slot, raw_value)?;
+                    if self
+                        .required_accepted_field_decode_contract(slot)?
+                        .uses_canonical_value_wire()
+                    {
+                        // Canonical-wire admission already materializes a value.
+                        // Retain it in the existing cell for downstream consumers.
+                        self.required_cached_value(slot)?;
+                    } else {
+                        validate_non_scalar_slot_value_with_row_contract(
+                            &self.contract,
+                            slot,
+                            raw_value,
+                        )?;
+                    }
                 }
             }
         }
@@ -565,13 +561,7 @@ impl SlotReader for StructuralSlotReader<'_> {
                     let validated =
                         self.required_validated_scalar_slot_value_for_slot(slot, validated)?;
 
-                    scalar_slot_value_ref_from_validated(
-                        validated,
-                        &self.contract,
-                        &self.field_bytes,
-                        slot,
-                    )
-                    .map(Some)
+                    Ok(Some(validated))
                 }
                 Some(CachedSlotValue::Deferred { .. }) => {
                     Err(InternalError::persisted_row_decode_corruption())
@@ -742,7 +732,7 @@ mod tests {
         )
     }
 
-    fn scalar_slot_is_untouched(value: &CachedSlotValue) -> bool {
+    fn scalar_slot_is_untouched(value: &CachedSlotValue<'_>) -> bool {
         matches!(
             value,
             CachedSlotValue::Scalar {

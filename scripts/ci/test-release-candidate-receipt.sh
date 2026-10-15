@@ -33,24 +33,45 @@ write_lockfile() {
 
     # The checksum deliberately matches an unescaped SemVer regex but not the
     # literal version. Release validation must leave it untouched.
-    printf 'version = 3\nchecksum = "prefix0a223b6suffix"\n\n[[package]]\nname = "fixture"\nversion = "%s"\n' \
-        "$version" > "$FIXTURE/Cargo.lock"
+    cat > "$FIXTURE/Cargo.lock" <<EOF
+version = 3
+checksum = "prefix0a223b6suffix"
+
+[[package]]
+name = "fixture"
+version = "$version"
+dependencies = [
+ "fixture 0.223.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "local-helper $version",
+]
+
+[[package]]
+name = "local-helper"
+version = "$version"
+
+[[package]]
+name = "fixture"
+version = "0.223.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "prefix0a223b6suffix"
+EOF
 }
 
 mkdir -p "$FIXTURE"
 git -C "$FIXTURE" init -q
 git -C "$FIXTURE" config user.name "IcyDB release fixture"
 git -C "$FIXTURE" config user.email "release-fixture@invalid.example"
-mkdir -p "$FIXTURE/docs/changelog" "$FIXTURE/ci"
+mkdir -p "$FIXTURE/docs/changelog" "$FIXTURE/ci" "$FIXTURE/local-helper"
+printf '[package]\nname = "local-helper"\nversion.workspace = true\nedition = "2024"\n[lib]\npath = "../code.txt"\n' > "$FIXTURE/local-helper/Cargo.toml"
 printf '.ignored/\n' > "$FIXTURE/.gitignore"
-printf '[workspace]\n[workspace.package]\nversion = "0.223.6"\n[package]\nname = "fixture"\nversion.workspace = true\nedition = "2024"\n[lib]\npath = "code.txt"\n' > "$FIXTURE/Cargo.toml"
+printf '[workspace]\nmembers = ["local-helper"]\n[workspace.package]\nversion = "0.223.6"\n[package]\nname = "fixture"\nversion.workspace = true\nedition = "2024"\n[lib]\npath = "code.txt"\n' > "$FIXTURE/Cargo.toml"
 write_lockfile 0.223.6
 printf 'IcyDB 0.223.6\n' > "$FIXTURE/README.md"
 printf 'root release notes\n' > "$FIXTURE/CHANGELOG.md"
 printf 'detailed release notes\n' > "$FIXTURE/docs/changelog/0.223.md"
 printf '[{"rule":"cargo-exact","file":"Cargo.toml","subject":"fixture","value":"=0.223.6","reason":"Coupled generated API","evidence":"README.md"}]\n' | jq . > "$FIXTURE/ci/dependency-pinning-exceptions.json"
 printf 'candidate source\n' > "$FIXTURE/code.txt"
-git -C "$FIXTURE" add .gitignore Cargo.toml Cargo.lock README.md CHANGELOG.md docs/changelog/0.223.md code.txt ci/dependency-pinning-exceptions.json
+git -C "$FIXTURE" add .gitignore local-helper/Cargo.toml Cargo.toml Cargo.lock README.md CHANGELOG.md docs/changelog/0.223.md code.txt ci/dependency-pinning-exceptions.json
 git -C "$FIXTURE" commit -q --no-verify -m "candidate"
 candidate_commit="$(git -C "$FIXTURE" rev-parse HEAD)"
 
@@ -73,7 +94,7 @@ run_subject verify-tested-tree "$candidate_commit"
 git -C "$FIXTURE" add CHANGELOG.md docs/changelog/0.223.md
 run_subject verify-tested-tree "$candidate_commit"
 
-printf '[workspace]\n[workspace.package]\nversion = "0.223.7"\n[package]\nname = "fixture"\nversion.workspace = true\nedition = "2024"\n[lib]\npath = "code.txt"\n' > "$FIXTURE/Cargo.toml"
+printf '[workspace]\nmembers = ["local-helper"]\n[workspace.package]\nversion = "0.223.7"\n[package]\nname = "fixture"\nversion.workspace = true\nedition = "2024"\n[lib]\npath = "code.txt"\n' > "$FIXTURE/Cargo.toml"
 write_lockfile 0.223.7
 jq --arg previous 0.223.6 --arg release 0.223.7 --argjson packages '["fixture"]' \
     -f "$ROOT_DIR/scripts/release/pin-exceptions.jq" "$FIXTURE/ci/dependency-pinning-exceptions.json" > "$TEST_ROOT/projected.json"
@@ -106,7 +127,7 @@ expect_failure run_subject verify-staged
 git -C "$FIXTURE" commit -q --no-verify -m "tampered release"
 expect_failure run_subject verify-commit
 git -C "$FIXTURE" switch -q --detach "$candidate_commit"
-printf '[workspace]\n[workspace.package]\nversion = "0.223.7"\n[package]\nname = "fixture"\nversion.workspace = true\nedition = "2024"\n[lib]\npath = "code.txt"\n' > "$FIXTURE/Cargo.toml"
+printf '[workspace]\nmembers = ["local-helper"]\n[workspace.package]\nversion = "0.223.7"\n[package]\nname = "fixture"\nversion.workspace = true\nedition = "2024"\n[lib]\npath = "code.txt"\n' > "$FIXTURE/Cargo.toml"
 write_lockfile 0.223.7
 jq --arg previous 0.223.6 --arg release 0.223.7 --argjson packages '["fixture"]' \
     -f "$ROOT_DIR/scripts/release/pin-exceptions.jq" "$FIXTURE/ci/dependency-pinning-exceptions.json" > "$TEST_ROOT/projected.json"
@@ -135,7 +156,7 @@ RELEASE_COMMIT="$release_commit" expect_failure run_subject verify-commit
 git -C "$FIXTURE" restore code.txt
 RELEASE_COMMIT="$release_commit" run_subject verify-commit
 
-printf '[workspace]\n[workspace.package]\nversion = "0.223.8"\n[package]\nname = "fixture"\nversion.workspace = true\nedition = "2024"\n[lib]\npath = "code.txt"\n' > "$FIXTURE/Cargo.toml"
+printf '[workspace]\nmembers = ["local-helper"]\n[workspace.package]\nversion = "0.223.8"\n[package]\nname = "fixture"\nversion.workspace = true\nedition = "2024"\n[lib]\npath = "code.txt"\n' > "$FIXTURE/Cargo.toml"
 write_lockfile 0.223.8
 printf 'IcyDB 0.223.8\n' > "$FIXTURE/README.md"
 printf 'candidate source changed during bump\n' > "$FIXTURE/code.txt"

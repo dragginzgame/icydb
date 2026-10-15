@@ -327,7 +327,7 @@ fn complete_domain_stage_uses_candidate_logical_rows_for_new_index_fields() {
         "by_nickname".to_string(),
         STORE_PATH.to_string(),
         false,
-        PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+        PersistedIndexKeySnapshot::from_field_paths(vec![PersistedIndexFieldPathSnapshot::new(
             FieldId::new(3),
             SchemaFieldSlot::new(2),
             vec!["nickname".to_string()],
@@ -381,7 +381,7 @@ fn complete_domain_stage_uses_historical_fill_in_composite_index_key() {
         "by_name_nickname".to_string(),
         STORE_PATH.to_string(),
         false,
-        PersistedIndexKeySnapshot::FieldPath(vec![
+        PersistedIndexKeySnapshot::from_field_paths(vec![
             name_key_path(),
             PersistedIndexFieldPathSnapshot::new(
                 FieldId::new(3),
@@ -441,7 +441,7 @@ fn complete_domain_stage_rejects_unique_collision_from_candidate_logical_fill() 
         "unique_nickname".to_string(),
         STORE_PATH.to_string(),
         true,
-        PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+        PersistedIndexKeySnapshot::from_field_paths(vec![PersistedIndexFieldPathSnapshot::new(
             FieldId::new(3),
             SchemaFieldSlot::new(2),
             vec!["nickname".to_string()],
@@ -513,7 +513,7 @@ fn filtered_unique_domain_omits_guard_false_rows_and_matches_incremental_keys() 
         "unique_nickname".to_string(),
         STORE_PATH.to_string(),
         true,
-        PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+        PersistedIndexKeySnapshot::from_field_paths(vec![PersistedIndexFieldPathSnapshot::new(
             FieldId::new(3),
             SchemaFieldSlot::new(2),
             vec!["nickname".to_string()],
@@ -641,7 +641,7 @@ fn complete_domain_stage_rejects_index_owned_by_another_store() {
         "by_name".to_string(),
         "test::mutation::foreign".to_string(),
         false,
-        PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
+        PersistedIndexKeySnapshot::from_field_paths(vec![name_key_path()]),
         None,
     );
     let after = snapshot_with_indexes(&before, vec![foreign_index]);
@@ -865,7 +865,7 @@ fn domain_field_index(ordinal: u16, name: &str, unique: bool) -> PersistedIndexS
         name.to_string(),
         STORE_PATH.to_string(),
         unique,
-        PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
+        PersistedIndexKeySnapshot::from_field_paths(vec![name_key_path()]),
         None,
     )
 }
@@ -899,7 +899,7 @@ fn complete_domain_stage_flat_or_matches_explicit_membership() {
                     "by_name".into(),
                     STORE_PATH.into(),
                     false,
-                    PersistedIndexKeySnapshot::FieldPath(vec![name_key_path()]),
+                    PersistedIndexKeySnapshot::from_field_paths(vec![name_key_path()]),
                     Some(crate::db::schema::AcceptedIndexPredicate::bind_test_sql(
                         sql,
                         before.fields(),
@@ -948,15 +948,15 @@ fn domain_expression_index(
         name.to_string(),
         STORE_PATH.to_string(),
         unique,
-        PersistedIndexKeySnapshot::Items(vec![PersistedIndexKeyItemSnapshot::Expression(
-            Box::new(PersistedIndexExpressionSnapshot::new(
+        PersistedIndexKeySnapshot::new(vec![PersistedIndexKeyItemSnapshot::Expression(Box::new(
+            PersistedIndexExpressionSnapshot::new(
                 PersistedIndexExpressionOp::Lower,
                 name_key_path(),
                 AcceptedFieldKind::Text { max_len: None },
                 AcceptedFieldKind::Text { max_len: None },
                 "expr:v1:LOWER(name)".to_string(),
-            )),
-        )]),
+            ),
+        ))]),
         predicate,
     )
 }
@@ -968,7 +968,7 @@ fn domain_mixed_index(ordinal: u16, name: &str) -> PersistedIndexSnapshot {
         name.to_string(),
         STORE_PATH.to_string(),
         false,
-        PersistedIndexKeySnapshot::Items(vec![
+        PersistedIndexKeySnapshot::new(vec![
             PersistedIndexKeyItemSnapshot::FieldPath(name_key_path()),
             PersistedIndexKeyItemSnapshot::Expression(Box::new(
                 PersistedIndexExpressionSnapshot::new(
@@ -1124,13 +1124,15 @@ fn complete_domain_generated_numeric_filters_enforce_unique_membership_after_cod
             "unique_name".into(),
             STORE_PATH.into(),
             true,
-            PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
-                FieldId::new(2),
-                SchemaFieldSlot::new(1),
-                vec!["name".into()],
-                kind,
-                false,
-            )]),
+            PersistedIndexKeySnapshot::from_field_paths(vec![
+                PersistedIndexFieldPathSnapshot::new(
+                    FieldId::new(2),
+                    SchemaFieldSlot::new(1),
+                    vec!["name".into()],
+                    kind,
+                    false,
+                ),
+            ]),
             Some(predicate),
         );
         let after = snapshot_with_indexes(&before, vec![index]);

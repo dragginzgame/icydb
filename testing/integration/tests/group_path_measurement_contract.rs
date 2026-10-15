@@ -1,7 +1,7 @@
 //! Frozen scalar record-path grouping actor and Slice 3 behavior contract.
 
 use candid::Principal;
-use ic_testkit::pic::StandaloneCanisterFixture;
+use ic_testkit::pic::{CandidCallExt as _, StandaloneCanisterFixture};
 use icydb::{
     Error,
     db::sql::{SqlGroupedRowsOutput, SqlQueryResult},
@@ -24,7 +24,12 @@ use icydb_testing_integration::{
 
 fn load_group_path_rows(fixture: &StandaloneCanisterFixture) {
     let loaded: Result<u32, Error> = fixture
-        .update_candid("load_group_path_fixture", (GROUP_PATH_FIXTURE_ROWS,))
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "load_group_path_fixture",
+            (GROUP_PATH_FIXTURE_ROWS,),
+        )
         .expect("group-path fixture row count should decode");
     assert_eq!(
         loaded.expect("group-path fixture should load"),
@@ -34,7 +39,12 @@ fn load_group_path_rows(fixture: &StandaloneCanisterFixture) {
 
 fn query_group_path_rows(fixture: &StandaloneCanisterFixture, sql: &str) -> SqlGroupedRowsOutput {
     let result: Result<SqlQueryResult, Error> = fixture
-        .query_candid("query_group_path", (sql.to_string(),))
+        .pocket_ic()
+        .query_candid(
+            fixture.canister_id(),
+            "query_group_path",
+            (sql.to_string(),),
+        )
         .expect("group-path query should decode");
     let SqlQueryResult::Grouped(grouped) = result.expect("group-path query should execute") else {
         panic!("group-path query should return grouped rows");
@@ -44,7 +54,12 @@ fn query_group_path_rows(fixture: &StandaloneCanisterFixture, sql: &str) -> SqlG
 
 fn explain_group_path(fixture: &StandaloneCanisterFixture, sql: &str) -> String {
     let result: Result<SqlQueryResult, Error> = fixture
-        .query_candid("query_group_path", (format!("EXPLAIN JSON {sql}"),))
+        .pocket_ic()
+        .query_candid(
+            fixture.canister_id(),
+            "query_group_path",
+            (format!("EXPLAIN JSON {sql}"),),
+        )
         .expect("group-path explain should decode");
     let SqlQueryResult::Explain { explain, .. } =
         result.expect("group-path explain should execute")
@@ -83,7 +98,12 @@ fn measure_query_instructions_with_index(sql: &str, index_ddl: Option<&str>) -> 
 
     let fixture = install_fixture_canister("group_path_sql_query");
     let loaded: Result<u32, Error> = fixture
-        .update_candid("load_group_path_fixture", (GROUP_PATH_FIXTURE_ROWS,))
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "load_group_path_fixture",
+            (GROUP_PATH_FIXTURE_ROWS,),
+        )
         .expect("group-path fixture row count should decode");
     assert_eq!(
         loaded.expect("group-path fixture should load"),
@@ -91,7 +111,12 @@ fn measure_query_instructions_with_index(sql: &str, index_ddl: Option<&str>) -> 
     );
     if let Some(index_ddl) = index_ddl {
         let ddl: Result<SqlQueryResult, Error> = fixture
-            .update_candid("ddl_group_path", (index_ddl.to_string(),))
+            .pocket_ic()
+            .update_candid(
+                fixture.canister_id(),
+                "ddl_group_path",
+                (index_ddl.to_string(),),
+            )
             .expect("measured index DDL response should decode");
         assert!(
             matches!(ddl, Ok(SqlQueryResult::Ddl { .. })),
@@ -103,7 +128,13 @@ fn measure_query_instructions_with_index(sql: &str, index_ddl: Option<&str>) -> 
         for node in 0..APPLICATION_SUBNET_NODES {
             let caller = Principal::from_slice(&[epoch.saturating_add(1), node.saturating_add(1)]);
             let result: Result<SqlQueryResult, Error> = fixture
-                .query_candid_as(caller, "query_group_path", (sql.to_string(),))
+                .pocket_ic()
+                .query_candid_as(
+                    fixture.canister_id(),
+                    caller,
+                    "query_group_path",
+                    (sql.to_string(),),
+                )
                 .expect("measured group-path query response should decode");
             let SqlQueryResult::Grouped(_) = result.expect("measured query should execute") else {
                 panic!("measured query should return grouped rows");
@@ -132,7 +163,12 @@ fn measure_query_instructions_with_index(sql: &str, index_ddl: Option<&str>) -> 
 fn direct_grouping_fixture_is_executable() {
     let fixture = install_fixture_canister("group_path_sql_query");
     let loaded: Result<u32, Error> = fixture
-        .update_candid("load_group_path_fixture", (GROUP_PATH_FIXTURE_ROWS,))
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "load_group_path_fixture",
+            (GROUP_PATH_FIXTURE_ROWS,),
+        )
         .expect("group-path fixture row count should decode");
     assert_eq!(
         loaded.expect("group-path fixture should load"),
@@ -140,7 +176,12 @@ fn direct_grouping_fixture_is_executable() {
     );
 
     let direct: Result<SqlQueryResult, Error> = fixture
-        .query_candid("query_group_path", (GROUP_PATH_DIRECT_QUERY.to_string(),))
+        .pocket_ic()
+        .query_candid(
+            fixture.canister_id(),
+            "query_group_path",
+            (GROUP_PATH_DIRECT_QUERY.to_string(),),
+        )
         .expect("direct grouped control should decode");
     let SqlQueryResult::Grouped(direct) = direct.expect("direct grouped control should execute")
     else {
@@ -152,10 +193,19 @@ fn direct_grouping_fixture_is_executable() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "keep the end-to-end boundary assertions together with explicit Testkit call identity"
+)]
 fn scalar_path_grouping_matches_direct_and_preserves_null_semantics() {
     let fixture = install_fixture_canister("group_path_sql_query");
     let loaded: Result<u32, Error> = fixture
-        .update_candid("load_group_path_fixture", (GROUP_PATH_FIXTURE_ROWS,))
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "load_group_path_fixture",
+            (GROUP_PATH_FIXTURE_ROWS,),
+        )
         .expect("group-path fixture row count should decode");
     assert_eq!(
         loaded.expect("group-path fixture should load"),
@@ -164,7 +214,12 @@ fn scalar_path_grouping_matches_direct_and_preserves_null_semantics() {
 
     let query = |sql: &str| {
         let result: Result<SqlQueryResult, Error> = fixture
-            .query_candid("query_group_path", (sql.to_string(),))
+            .pocket_ic()
+            .query_candid(
+                fixture.canister_id(),
+                "query_group_path",
+                (sql.to_string(),),
+            )
             .expect("group-path query response should decode");
         let SqlQueryResult::Grouped(grouped) = result.unwrap_or_else(|error| {
             panic!(
@@ -298,7 +353,12 @@ fn scalar_path_ordered_grouping_stays_within_instruction_budget() {
 fn complete_scalar_path_index_admits_ordered_grouping() {
     let fixture = install_fixture_canister("group_path_sql_query");
     let loaded: Result<u32, Error> = fixture
-        .update_candid("load_group_path_fixture", (GROUP_PATH_FIXTURE_ROWS,))
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "load_group_path_fixture",
+            (GROUP_PATH_FIXTURE_ROWS,),
+        )
         .expect("group-path fixture row count should decode");
     assert_eq!(
         loaded.expect("group-path fixture should load"),
@@ -306,7 +366,9 @@ fn complete_scalar_path_index_admits_ordered_grouping() {
     );
 
     let ddl: Result<SqlQueryResult, Error> = fixture
+        .pocket_ic()
         .update_candid(
+            fixture.canister_id(),
             "ddl_group_path",
             (GROUP_PATH_COMPLETE_INDEX_DDL.to_string(),),
         )
@@ -331,7 +393,8 @@ fn complete_scalar_path_index_admits_ordered_grouping() {
 
     let explain_sql = format!("EXPLAIN JSON {GROUP_PATH_REQUIRED_QUERY}");
     let explain: Result<SqlQueryResult, Error> = fixture
-        .query_candid("query_group_path", (explain_sql,))
+        .pocket_ic()
+        .query_candid(fixture.canister_id(), "query_group_path", (explain_sql,))
         .expect("ordered path-group explain should decode");
     let SqlQueryResult::Explain { explain, .. } =
         explain.expect("ordered path-group explain should execute")
@@ -348,7 +411,12 @@ fn complete_scalar_path_index_admits_ordered_grouping() {
     );
 
     let result: Result<SqlQueryResult, Error> = fixture
-        .query_candid("query_group_path", (GROUP_PATH_PAGED_QUERY.to_string(),))
+        .pocket_ic()
+        .query_candid(
+            fixture.canister_id(),
+            "query_group_path",
+            (GROUP_PATH_PAGED_QUERY.to_string(),),
+        )
         .expect("ordered path-group result should decode");
     let SqlQueryResult::Grouped(grouped) = result.expect("ordered path grouping should execute")
     else {
@@ -364,19 +432,31 @@ fn complete_scalar_path_index_admits_ordered_grouping() {
 fn complete_mixed_direct_path_index_admits_one_ordered_prefix() {
     let fixture = install_fixture_canister("group_path_sql_query");
     let loaded: Result<u32, Error> = fixture
-        .update_candid("load_group_path_fixture", (GROUP_PATH_FIXTURE_ROWS,))
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "load_group_path_fixture",
+            (GROUP_PATH_FIXTURE_ROWS,),
+        )
         .expect("group-path fixture row count should decode");
     assert_eq!(
         loaded.expect("group-path fixture should load"),
         GROUP_PATH_FIXTURE_ROWS,
     );
     let ddl: Result<SqlQueryResult, Error> = fixture
-        .update_candid("ddl_group_path", (GROUP_PATH_MIXED_INDEX_DDL.to_string(),))
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "ddl_group_path",
+            (GROUP_PATH_MIXED_INDEX_DDL.to_string(),),
+        )
         .expect("mixed path-index DDL response should decode");
     assert!(matches!(ddl, Ok(SqlQueryResult::Ddl { .. })));
 
     let explain: Result<SqlQueryResult, Error> = fixture
+        .pocket_ic()
         .query_candid(
+            fixture.canister_id(),
             "query_group_path",
             (format!("EXPLAIN JSON {GROUP_PATH_MIXED_QUERY}"),),
         )
@@ -392,7 +472,12 @@ fn complete_mixed_direct_path_index_admits_one_ordered_prefix() {
     );
 
     let result: Result<SqlQueryResult, Error> = fixture
-        .query_candid("query_group_path", (GROUP_PATH_MIXED_QUERY.to_string(),))
+        .pocket_ic()
+        .query_candid(
+            fixture.canister_id(),
+            "query_group_path",
+            (GROUP_PATH_MIXED_QUERY.to_string(),),
+        )
         .expect("mixed ordered result should decode");
     let SqlQueryResult::Grouped(grouped) = result.expect("mixed ordered grouping should execute")
     else {
@@ -406,10 +491,19 @@ fn complete_mixed_direct_path_index_admits_one_ordered_prefix() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "keep the end-to-end boundary assertions together with explicit Testkit call identity"
+)]
 fn omission_capable_path_index_requires_a_non_null_query_proof() {
     let fixture = install_fixture_canister("group_path_sql_query");
     let loaded: Result<u32, Error> = fixture
-        .update_candid("load_group_path_fixture", (GROUP_PATH_FIXTURE_ROWS,))
+        .pocket_ic()
+        .update_candid(
+            fixture.canister_id(),
+            "load_group_path_fixture",
+            (GROUP_PATH_FIXTURE_ROWS,),
+        )
         .expect("group-path fixture row count should decode");
     assert_eq!(
         loaded.expect("group-path fixture should load"),
@@ -417,7 +511,9 @@ fn omission_capable_path_index_requires_a_non_null_query_proof() {
     );
 
     let unindexed: Result<SqlQueryResult, Error> = fixture
+        .pocket_ic()
         .query_candid(
+            fixture.canister_id(),
             "query_group_path",
             (GROUP_PATH_OPTIONAL_NON_NULL_QUERY.to_string(),),
         )
@@ -430,7 +526,8 @@ fn omission_capable_path_index_requires_a_non_null_query_proof() {
 
     for ddl in [GROUP_PATH_COMPLETE_INDEX_DDL, GROUP_PATH_OMISSION_INDEX_DDL] {
         let result: Result<SqlQueryResult, Error> = fixture
-            .update_candid("ddl_group_path", (ddl.to_string(),))
+            .pocket_ic()
+            .update_candid(fixture.canister_id(), "ddl_group_path", (ddl.to_string(),))
             .expect("path-index DDL response should decode");
         assert!(
             matches!(result, Ok(SqlQueryResult::Ddl { .. })),
@@ -440,7 +537,12 @@ fn omission_capable_path_index_requires_a_non_null_query_proof() {
 
     let explain = |sql: &str| {
         let result: Result<SqlQueryResult, Error> = fixture
-            .query_candid("query_group_path", (format!("EXPLAIN JSON {sql}"),))
+            .pocket_ic()
+            .query_candid(
+                fixture.canister_id(),
+                "query_group_path",
+                (format!("EXPLAIN JSON {sql}"),),
+            )
             .expect("path-group explain should decode");
         let SqlQueryResult::Explain { explain, .. } =
             result.expect("path-group explain should execute")
@@ -465,7 +567,9 @@ fn omission_capable_path_index_requires_a_non_null_query_proof() {
     );
 
     let complete: Result<SqlQueryResult, Error> = fixture
+        .pocket_ic()
         .query_candid(
+            fixture.canister_id(),
             "query_group_path",
             (GROUP_PATH_NULLABLE_TERMINAL_QUERY.to_string(),),
         )
@@ -478,7 +582,9 @@ fn omission_capable_path_index_requires_a_non_null_query_proof() {
     assert_eq!(complete.row_count, 127);
 
     let excluding: Result<SqlQueryResult, Error> = fixture
+        .pocket_ic()
         .query_candid(
+            fixture.canister_id(),
             "query_group_path",
             (GROUP_PATH_OPTIONAL_NON_NULL_QUERY.to_string(),),
         )
@@ -513,7 +619,9 @@ fn predicate_selected_composite_path_index_requires_complete_nullable_suffix() {
     assert!(unindexed.rows.contains(&vec!["0".into(), "11".into()]));
 
     let ddl: Result<SqlQueryResult, Error> = fixture
+        .pocket_ic()
         .update_candid(
+            fixture.canister_id(),
             "ddl_group_path",
             (GROUP_PATH_OMISSION_PREFIX_INDEX_DDL.to_string(),),
         )
@@ -546,7 +654,9 @@ fn predicate_selected_composite_path_index_requires_complete_nullable_suffix() {
     );
 
     let delete: Result<SqlQueryResult, Error> = fixture
+        .pocket_ic()
         .update_candid(
+            fixture.canister_id(),
             "mutate_group_path",
             ("DELETE FROM GroupPathAuditRow WHERE id = 0".to_string(),),
         )
@@ -573,7 +683,12 @@ fn path_grouping_rejects_non_scalar_unknown_and_undeclared_paths() {
         (GROUP_PATH_UNKNOWN_MEMBER_QUERY, DiagnosticCode::QueryPlan),
     ] {
         let result: Result<SqlQueryResult, Error> = fixture
-            .query_candid("query_group_path", (sql.to_string(),))
+            .pocket_ic()
+            .query_candid(
+                fixture.canister_id(),
+                "query_group_path",
+                (sql.to_string(),),
+            )
             .expect("path grouped rejection should decode");
         assert_eq!(
             result

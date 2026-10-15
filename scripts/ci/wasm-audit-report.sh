@@ -80,7 +80,8 @@ if [[ -z "$audit_date" ]]; then
     exit 1
 fi
 if [[ -z "${canister_names[0]+set}" ]]; then
-    read -r -a canister_names <<< "$(wasm_report_default_canisters | tr '\n' ' ')"
+    default_canisters="$(wasm_report_default_canisters)"
+    read -r -a canister_names <<< "${default_canisters//$'\n'/ }"
 fi
 for canister_name in "${canister_names[@]}"; do
     if [[ -z "$canister_name" ]]; then

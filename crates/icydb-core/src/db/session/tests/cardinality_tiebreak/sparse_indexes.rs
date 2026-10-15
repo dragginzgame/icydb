@@ -72,7 +72,7 @@ fn sparse_schema_candidate(complete_index: bool) -> CandidateSchemaRevision {
                 (*name).to_string(),
                 STORE_PATH.to_string(),
                 false,
-                PersistedIndexKeySnapshot::FieldPath(
+                PersistedIndexKeySnapshot::from_field_paths(
                     slots
                         .iter()
                         .map(|slot| {

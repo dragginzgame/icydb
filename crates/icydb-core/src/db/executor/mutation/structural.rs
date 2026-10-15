@@ -8,7 +8,7 @@ use crate::{
         data::{
             AcceptedMutationIntentPatch, AcceptedPreKeyInsert, DecodedDataStoreKey, FieldSlot,
             RawRow, StructuralRowContract, StructuralSlotReader,
-            canonical_row_from_raw_row_with_structural_contract,
+            canonical_row_from_structural_slot_reader_with_accepted_contract,
             resolve_existing_replace_structural_patch_with_accepted_contract,
             resolve_insert_structural_patch_with_accepted_contract,
             resolve_update_structural_patch_with_accepted_contract,
@@ -425,19 +425,12 @@ pub(in crate::db) fn data_key_from_validated_reader(
     DecodedDataStoreKey::try_from_structural_key_values(entity_tag, &values)
 }
 
-fn validated_existing_row(
+fn load_existing_row(
     store: crate::db::registry::StoreHandle,
     data_key: &DecodedDataStoreKey,
-    contract: &StructuralRowContract,
 ) -> Result<Option<RawRow>, InternalError> {
     let raw_key = data_key.to_raw()?;
-    let row = store.with_data(|data| data.get(&raw_key));
-    if let Some(row) = row.as_ref() {
-        let reader =
-            StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(row, contract)?;
-        reader.validate_primary_key(data_key)?;
-    }
-    Ok(row)
+    Ok(store.with_data(|data| data.get(&raw_key)))
 }
 
 // This is the reader's last use, after whole-row and Identity validation.
@@ -576,11 +569,16 @@ pub(in crate::db) fn execute_accepted_structural_mutation_batch<C: CanisterKind,
             let AcceptedStructuralMutation::Delete { key } = mutation else {
                 return Err(InternalError::executor_invariant());
             };
-            let before = validated_existing_row(store, &key, row_contract)?
+            let before = load_existing_row(store, &key)?
                 .ok_or_else(|| InternalError::store_not_found(&key))?;
             let raw_key = key.to_raw()?;
+            let reader = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
+                &before,
+                row_contract,
+            )?;
+            reader.validate_primary_key(&key)?;
             let canonical_before =
-                canonical_row_from_raw_row_with_structural_contract(&before, row_contract)?;
+                canonical_row_from_structural_slot_reader_with_accepted_contract(&reader)?;
             let admission = admit_structural_mutation_staged_charge(
                 &mut staged_bytes,
                 [
@@ -608,15 +606,11 @@ pub(in crate::db) fn execute_accepted_structural_mutation_batch<C: CanisterKind,
                 CommitRowOp::new(
                     entity_path,
                     raw_key,
-                    Some(canonical_before.as_raw_row().as_bytes().to_vec()),
+                    Some(canonical_before),
                     None,
                     catalog.fingerprint(),
                 ),
                 batch_input_ordinal,
-            )?;
-            let reader = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
-                canonical_before.as_raw_row(),
-                row_contract,
             )?;
             let values = if capture_output_values {
                 into_mutation_output_values(
@@ -679,10 +673,25 @@ pub(in crate::db) fn execute_accepted_structural_mutation_batch<C: CanisterKind,
             .ok_or_else(InternalError::executor_invariant)?;
         let before = match (expected_key.as_ref(), preloaded_before) {
             (Some(_), Some(row)) => Some(row),
-            (Some(key), None) => validated_existing_row(store, key, row_contract)?,
+            (Some(key), None) => load_existing_row(store, key)?,
             (None, None) => None,
             (None, Some(_)) => return Err(InternalError::executor_invariant()),
         };
+        let before_reader = before
+            .as_ref()
+            .map(|row| {
+                let reader = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
+                    row,
+                    row_contract,
+                )?;
+                reader.validate_primary_key(
+                    expected_key
+                        .as_ref()
+                        .ok_or_else(InternalError::executor_invariant)?,
+                )?;
+                Ok::<_, InternalError>(reader)
+            })
+            .transpose()?;
         match mode {
             MutationMode::Insert if before.is_some() => {
                 return Err(mutation_key_exists_error());
@@ -741,7 +750,7 @@ pub(in crate::db) fn execute_accepted_structural_mutation_batch<C: CanisterKind,
             None
         };
 
-        let resolved = match (mode, before.as_ref()) {
+        let resolved = match (mode, before_reader.as_ref()) {
             (MutationMode::Insert | MutationMode::Replace, None) => {
                 resolve_insert_structural_patch_with_accepted_contract(
                     row_contract,
@@ -780,7 +789,7 @@ pub(in crate::db) fn execute_accepted_structural_mutation_batch<C: CanisterKind,
             }
         };
         let (after, provenance) = resolved.into_parts();
-        let reader = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
+        let reader = StructuralSlotReader::from_raw_row_with_borrowed_contract(
             after.as_raw_row(),
             row_contract,
         )?;
@@ -806,16 +815,24 @@ pub(in crate::db) fn execute_accepted_structural_mutation_batch<C: CanisterKind,
             )?;
         }
         if matches!(mode, MutationMode::Insert)
-            && validated_existing_row(store, &data_key, row_contract)?.is_some()
+            && let Some(existing) = load_existing_row(store, &data_key)?
         {
+            // Preserve fail-closed admission at the retained store boundary even
+            // when this generated key collision will reject the write.
+            let existing_reader =
+                StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
+                    &existing,
+                    row_contract,
+                )?;
+            existing_reader.validate_primary_key(&data_key)?;
             return Err(insert_key_exists_after_generation(
                 identity_allocation.is_some(),
             ));
         }
         let raw_key = data_key.to_raw()?;
-        let canonical_before = before
+        let canonical_before = before_reader
             .as_ref()
-            .map(|before| canonical_row_from_raw_row_with_structural_contract(before, row_contract))
+            .map(canonical_row_from_structural_slot_reader_with_accepted_contract)
             .transpose()?;
         let logical_changed = canonical_before
             .as_ref()
@@ -850,10 +867,8 @@ pub(in crate::db) fn execute_accepted_structural_mutation_batch<C: CanisterKind,
             CommitRowOp::new(
                 entity_path,
                 raw_key.clone(),
-                canonical_before
-                    .as_ref()
-                    .map(|before| before.as_raw_row().as_bytes().to_vec()),
-                Some(after.as_raw_row().as_bytes().to_vec()),
+                canonical_before,
+                Some(after.clone()),
                 catalog.fingerprint(),
             )
         });
@@ -867,7 +882,7 @@ pub(in crate::db) fn execute_accepted_structural_mutation_batch<C: CanisterKind,
             },
             mode,
             &data_key,
-            after.as_raw_row(),
+            &reader,
             provenance.as_slice(),
             row_op,
             batch_input_ordinal,

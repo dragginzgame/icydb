@@ -51,6 +51,12 @@ Application schema revisions and entity-local row-layout revisions are domain
 history, not wire-format versions. They may advance beyond 1 while the sole
 current schema and row codecs remain version 1.
 
+Fresh database control memory must be absent or one entirely zero-filled Wasm
+page, with every registered journaled store role physically empty. Startup
+observation and format admission share this freshness check. A zero boot prefix
+alone does not establish that the remaining control page is empty; freshness
+verification scans at most one page without writing memory.
+
 This policy matches the repository rule that internal protocols/formats can be
 hard-cut before `1.0.0` instead of carrying legacy fallback machinery.
 

@@ -37,7 +37,8 @@ fn full_row_handoff_moves_nested_heap_backing_and_reuses_output_capacity() {
     .unwrap()
     .into_raw_row();
     let reader =
-        StructuralSlotReader::from_raw_row_with_borrowed_contract(&row, &contract).unwrap();
+        StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(&row, &contract)
+            .unwrap();
     let backing = |value: &Value| {
         let Value::List(items) = value else {
             panic!("list")

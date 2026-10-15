@@ -7,18 +7,11 @@ unset MAKEFLAGS MAKEOVERRIDES MFLAGS
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 export PATH="$ROOT/.tools/host/bin:$PATH"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/icydb-release-pins.XXXXXX")"
+fixture="$(cd -P "$fixture" && pwd)"
 fixture_complete=false
-finish() {
-  local status=$?
-  [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
-  if [[ "$status" == 0 ]]; then
-    rm -rf "$fixture"
-  else
-    echo "Release pin fixture retained: $fixture" >&2
-  fi
-  exit "$status"
-}
-trap finish EXIT
+# shellcheck source=scripts/ci/fixture-lifecycle.sh
+source "$ROOT/scripts/ci/fixture-lifecycle.sh"
+trap 'fixture_finish "$?" "$fixture" "Release pin fixture retained"' EXIT
 mkdir -p "$fixture/scripts/ci" "$fixture/scripts/release" "$fixture/ci" "$fixture/bin"
 export PIN_FIXTURE_MKTEMP PIN_FIXTURE_SYSTEM_TMP
 PIN_FIXTURE_MKTEMP="$(command -v mktemp)"

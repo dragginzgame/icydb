@@ -357,15 +357,21 @@ impl AcceptedCompositeType {
                         && unique_values(fields.iter().map(|field| field.id))
                         && fields.iter().all(|field| {
                             !field.name.is_empty()
+                                && field.contract.kind.has_valid_local_shape()
                                 && composite_catalog
                                     .matches_kind(enum_catalog, &field.contract.kind)
                         })
                 }
-                AcceptedCompositeShape::Tuple(elements) => elements
-                    .iter()
-                    .all(|element| composite_catalog.matches_kind(enum_catalog, &element.kind)),
+                AcceptedCompositeShape::Tuple(elements) => elements.iter().all(|element| {
+                    element.kind.has_valid_local_shape()
+                        && composite_catalog.matches_kind(enum_catalog, &element.kind)
+                }),
                 AcceptedCompositeShape::Newtype(inner) => {
-                    composite_catalog.matches_kind(enum_catalog, &inner.kind)
+                    // Nullability belongs to the containing field, not a
+                    // nominal wrapper's single element.
+                    !inner.nullable
+                        && inner.kind.has_valid_local_shape()
+                        && composite_catalog.matches_kind(enum_catalog, &inner.kind)
                 }
             }
     }

@@ -26,6 +26,8 @@ FIXTURE="$TEST_ROOT/repository"
 ARTIFACTS="$FIXTURE/artifacts/wasm-size"
 mkdir -p "$FIXTURE/scripts/ci" "$FIXTURE/docs/reports/recurring" "$ARTIFACTS" "$TEST_ROOT/bin"
 cp "$ROOT/scripts/ci/wasm-audit-report.sh" "$ROOT/scripts/ci/wasm-report-common.sh" "$ROOT/scripts/ci/verify-file-checksum.sh" "$FIXTURE/scripts/ci/"
+mkdir -p "$FIXTURE/testing/build/src"
+cp "$ROOT/testing/build/src/wasm_measurement_subjects.tsv" "$FIXTURE/testing/build/src/"
 # A real executable stub keeps the test independent of installed Wasm tools.
 printf '#!/usr/bin/env bash\nexit 0\n' > "$TEST_ROOT/bin/twiggy"
 chmod +x "$TEST_ROOT/bin/twiggy"
@@ -98,6 +100,15 @@ run_subject --canister default_empty_metrics
 grep -Fq "code snapshot identifier: \`$revision\`" "$report_dir/report.md"
 grep -Fq "source tree: \`$tree\`" "$report_dir/report.md"
 grep -Fq "lockfile SHA-256: \`$digest\`" "$report_dir/report.md"
+
+# The explicit-only actor remains admitted without changing the default cohort.
+wasm_report_canister_is_maintained_subject group_path_sql_query
+if wasm_report_canister_is_maintained_subject unknown_actor; then exit 1; fi
+if wasm_report_default_canisters | grep -Fxq group_path_sql_query; then exit 1; fi
+write_fixture group_path_sql_query
+bash "$FIXTURE/scripts/ci/wasm-audit-report.sh" --skip-build \
+    --date 2026-09-05 --report-dir "$TEST_ROOT/manual-subject" \
+    --canister group_path_sql_query > "$TEST_ROOT/output" 2>&1
 
 # Resolve the default subject set through the same owner as explicit subjects.
 while IFS= read -r canister; do

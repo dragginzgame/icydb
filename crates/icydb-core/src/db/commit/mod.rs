@@ -55,8 +55,8 @@ pub(in crate::db) use marker::{
     encode_commit_marker_payload,
 };
 pub(in crate::db) use marker::{
-    CommitMarker, CommitRowOp, CommitSchemaFingerprint, DatabaseControlOp, MAX_COMMIT_BYTES,
-    generate_commit_id, generate_marker_batch_id,
+    CanonicalRowCommitOp, CommitMarker, CommitRowOp, CommitSchemaFingerprint, DatabaseControlOp,
+    MAX_COMMIT_BYTES, generate_commit_id, generate_marker_batch_id,
 };
 #[cfg(test)]
 pub(in crate::db) use memory::current_commit_memory_allocation_if_configured;
@@ -66,7 +66,8 @@ pub(in crate::db) use memory::{
 };
 pub(in crate::db) use prepare::{
     CommitPrepareContext, CommitPrepareContextCache, CommitPrepareMode,
-    prepare_commit_context_from_catalog_selection, prepare_row_commit_with_context,
+    prepare_canonical_row_commit_with_context, prepare_commit_context_from_catalog_selection,
+    prepare_row_commit_with_context,
 };
 pub(in crate::db) use prepared_op::{PreparedIndexMutation, PreparedRowCommitOp};
 pub(in crate::db) use recovery::{

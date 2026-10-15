@@ -3,6 +3,14 @@
 # shellcheck disable=SC2154 # Caller owns consumer, tool_root, lock and active.
 # Sourced by installers and evidence selection. No effects until a function is called.
 
+# Only explicit host/IC asset setup retries, inside curl's transient classifier.
+# The retry window limits new attempts; an in-flight attempt keeps its own cap.
+tool_store_download() {
+    curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL \
+        --connect-timeout 15 --max-time 300 \
+        --retry 3 --retry-delay 2 --retry-max-time 60 -o "$2" "$1"
+}
+
 # Resolve the configured root without creating it. Existing ancestor aliases
 # (notably macOS /var) are allowed; the managed root itself may not be a link.
 tool_store_root() {
@@ -61,13 +69,57 @@ tool_store_resolve() {
     printf '%s\n' "$target"
 }
 
+# Admit the checkout pointer before reuse or repair. An absent pointer prints
+# nothing; an unmanaged pointer is fatal even during explicit installation.
+tool_store_active_reference() {
+    local selection
+    [[ ! -L "$tool_root" ]] || { echo 'repository .tools may not be a symlink' >&2; return 1; }
+    if [[ -L "$active" ]]; then
+        selection="$(perl -e 'my $p=readlink(shift); defined $p or exit 1; print "$p/."' "$active")" || return $?
+        selection="${selection%/.}"
+        [[ "$selection" =~ ^$store_kind-set\.[[:alnum:]]+$ ]] || {
+            printf 'unmanaged %s tool selection: %s\n' "$store_kind" "$active" >&2; return 1;
+        }
+        printf '%s\n' "$tool_root/$selection"
+    elif [[ -e "$active" ]]; then
+        printf 'refusing to replace unmanaged tool path: %s\n' "$active" >&2; return 1
+    fi
+}
+
+# Return a verified current bundle, or empty output when explicit setup is
+# needed. An unmanaged checkout pointer remains fatal, never a repair candidate.
+# Verifiers retain their own authentication, probes and diagnostics.
+tool_store_verified_selection() {
+    local verifier="$1" selection bundle
+    selection="$(tool_store_active_reference)" || return $?
+    if [[ -n "$selection" ]] &&
+        bundle="$(tool_store_resolve "$selection" "$store_slot")" &&
+        tool_store_unlocked && "$verifier" "$bundle"; then
+        printf '%s\n' "$bundle"
+    fi
+    return 0
+}
+
+# mkdir remains the atomic acquisition. Keep its diagnostic/status verbatim;
+# an observed path is not proof of a live owner or permission to remove it.
+tool_store_lock_directory() {
+    local status
+    if mkdir "$1"; then return 0; else status=$?; fi
+    if [[ -e "$1" || -L "$1" ]]; then
+        printf 'tool installation lock path already exists: %s\n' "$1" >&2
+    else
+        printf 'unable to acquire tool installation lock: %s\n' "$1" >&2
+    fi
+    return "$status"
+}
+
 tool_store_acquire() {
     [[ ! -L "$store_root" && ! -L "$store_slot" ]] || { echo 'redirected tool store' >&2; return 1; }
     if [[ -e "$store_root" ]]; then tool_store_directory "$store_root" || return 1; fi
     if [[ -e "$store_slot" ]]; then tool_store_directory "$store_slot" || return 1; fi
-    (umask 077; mkdir -p "$store_slot") || return 1
+    (umask 077; mkdir -p "$store_slot") || return $?
     tool_store_directory "$store_root" && tool_store_directory "$store_slot" || return 1
-    mkdir "$store_slot/install.lock" 2>/dev/null || { echo "tool store installation locked: $store_slot/install.lock" >&2; return 1; }
+    tool_store_lock_directory "$store_slot/install.lock" || return $?
     store_lock="$store_slot/install.lock"
     printf 'pid=%s\nconsumer=%s\n' "$$" "$consumer" > "$store_lock/owner"
 }
@@ -110,6 +162,44 @@ tool_store_reference() {
 tool_store_new() {
     stage="$(mktemp -d "$store_slot/set.XXXXXX")" || return $?
     tool_store_reference "$stage"
+}
+
+# Host/IC setup owns this whole process. Register cleanup only after acquiring
+# the checkout lock; failure must never remove another installer's lock.
+tool_store_prepare_install() {
+    local verifier="$1" bundle
+    mkdir -p "$tool_root" || return $?
+    lock="$tool_root/.$store_kind-tools.lock"
+    tool_store_lock_directory "$lock" || return $?
+    stage=''
+    trap 'tool_store_finish_install "$?"' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    printf 'pid=%s\nconsumer=%s\n' "$$" "$consumer" > "$lock/owner" || return $?
+    tool_store_acquire || return $?
+    if bundle="$(tool_store_cached)" && "$verifier" "$bundle"; then
+        tool_store_reference "$bundle" || return $?
+        tool_store_activate "$bundle" || return $?
+    else
+        tool_store_new || return $?
+    fi
+    # An empty stage means the verified cached bundle is already active. A new
+    # stage stays unselected until the caller's download/verification succeeds.
+}
+
+tool_store_finish_install() {
+    local status="$1" cleanup_status=0
+    trap - EXIT
+    rm -f "$lock/selected" "$lock/owner" || cleanup_status=$?
+    rmdir "$lock" || cleanup_status=$?
+    # Attempt both releases even if checkout cleanup failed. Preserve an earlier
+    # installation failure; a cleanup-only failure must still fail the command.
+    tool_store_release || cleanup_status=$?
+    [[ "$status" != 0 ]] || status=$cleanup_status
+    if [[ "$status" != 0 && -n "$stage" ]]; then
+        echo "Failed $store_kind tool installation retained: $stage" >&2
+    fi
+    exit "$status"
 }
 
 tool_store_activate() {

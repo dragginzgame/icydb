@@ -1900,7 +1900,7 @@ fn compiled_unique_activation_blocks_inserts_and_dependency_changes_only() {
         "unique_score".to_string(),
         "tests::CheckedEntity::unique_score".to_string(),
         true,
-        PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+        PersistedIndexKeySnapshot::from_field_paths(vec![PersistedIndexFieldPathSnapshot::new(
             FieldId::new(2),
             SchemaFieldSlot::new(1),
             vec!["score".to_string()],
@@ -1969,7 +1969,7 @@ fn unique_activation_predicate_fixture(sql: &str) -> PersistedSchemaSnapshot {
         "unique_score".into(),
         "tests::CheckedEntity::unique_score".into(),
         true,
-        PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
+        PersistedIndexKeySnapshot::from_field_paths(vec![PersistedIndexFieldPathSnapshot::new(
             FieldId::new(2),
             SchemaFieldSlot::new(1),
             vec!["score".into()],

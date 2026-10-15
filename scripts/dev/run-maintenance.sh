@@ -13,6 +13,22 @@ state_root="$3"
 [[ "$projects_root" == /* && -d "$projects_root" && "$state_root" == /* ]] || {
     echo 'projects-root must be an existing absolute directory; state-root must be absolute' >&2; exit 2;
 }
+# Check literal inputs before normalization, and resolve existing ancestors
+# without creating a not-yet-initialized state root. Aliases must not conceal
+# line breaks that would split prompt fields or evidence locations.
+perl -MCwd=abs_path -MFile::Basename=dirname -e '
+    for my $path (@ARGV) {
+        $path !~ /[\r\n]/ or die "maintenance path contains CR/LF\n";
+        while (!-e $path && !-l $path) {
+            my $parent=dirname($path);
+            $parent ne $path or die "cannot resolve maintenance path\n";
+            $path=$parent;
+        }
+        my $resolved=abs_path($path);
+        defined $resolved or die "cannot resolve maintenance path\n";
+        $resolved !~ /[\r\n]/ or die "resolved maintenance path contains CR/LF\n";
+    }
+' "$projects_root" "$state_root" "$0" "$PWD"
 ROOT="$0"
 [[ "$ROOT" == /* ]] || ROOT="$PWD/$ROOT"
 ROOT="$(cd -P "${ROOT%/*}/../.." && printf '%s/.' "$PWD")"

@@ -232,7 +232,7 @@ fn nullable_unique_schema_fixture(
             "idx_nullable_unique".to_string(),
             "nullable_unique::value".to_string(),
             unique,
-            PersistedIndexKeySnapshot::FieldPath(key),
+            PersistedIndexKeySnapshot::from_field_paths(key),
             predicate_sql
                 .map(|sql| crate::db::schema::AcceptedIndexPredicate::bind_test_sql(sql, &fields)),
         )],
@@ -294,13 +294,15 @@ fn nested_nullable_unique_schema_fixture(
             "idx_nested_nullable_unique".to_string(),
             "nested_nullable_unique::profile_email".to_string(),
             true,
-            PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
-                FieldId::new(2),
-                SchemaFieldSlot::new(1),
-                vec!["profile".to_string(), "email".to_string()],
-                AcceptedFieldKind::Text { max_len: None },
-                terminal_nullable,
-            )]),
+            PersistedIndexKeySnapshot::from_field_paths(vec![
+                PersistedIndexFieldPathSnapshot::new(
+                    FieldId::new(2),
+                    SchemaFieldSlot::new(1),
+                    vec!["profile".to_string(), "email".to_string()],
+                    AcceptedFieldKind::Text { max_len: None },
+                    terminal_nullable,
+                ),
+            ]),
             None,
         )],
     );
@@ -433,13 +435,15 @@ fn update_managed_unique_field_requires_global_write_validation() {
             "idx_managed_unique__updated_at".to_string(),
             "managed_unique::updated_at".to_string(),
             true,
-            PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
-                FieldId::new(2),
-                SchemaFieldSlot::new(1),
-                vec!["updated_at".to_string()],
-                AcceptedFieldKind::Timestamp,
-                false,
-            )]),
+            PersistedIndexKeySnapshot::from_field_paths(vec![
+                PersistedIndexFieldPathSnapshot::new(
+                    FieldId::new(2),
+                    SchemaFieldSlot::new(1),
+                    vec!["updated_at".to_string()],
+                    AcceptedFieldKind::Timestamp,
+                    false,
+                ),
+            ]),
             None,
         )],
     );
@@ -644,15 +648,15 @@ fn nullable_unique_acceptance_applies_to_expression_sources() {
         "idx_lower_email".to_string(),
         "nullable_unique::lower_email".to_string(),
         true,
-        PersistedIndexKeySnapshot::Items(vec![PersistedIndexKeyItemSnapshot::Expression(
-            Box::new(PersistedIndexExpressionSnapshot::new(
+        PersistedIndexKeySnapshot::new(vec![PersistedIndexKeyItemSnapshot::Expression(Box::new(
+            PersistedIndexExpressionSnapshot::new(
                 PersistedIndexExpressionOp::Lower,
                 source,
                 AcceptedFieldKind::Text { max_len: None },
                 AcceptedFieldKind::Text { max_len: None },
                 "expr:v1:LOWER(email)".to_string(),
-            )),
-        )]),
+            ),
+        ))]),
         Some(crate::db::schema::AcceptedIndexPredicate::test_non_null(2)),
     );
     let snapshot = PersistedSchemaSnapshot::new_with_indexes(
@@ -683,8 +687,18 @@ fn nullable_unique_acceptance_deduplicates_repeated_and_mixed_sources_at_the_key
         &["email", "tenant"],
         Some("email IS NOT NULL AND tenant IS NOT NULL"),
     );
-    let email = base.indexes()[0].key().field_paths()[0].clone();
-    let tenant = base.indexes()[0].key().field_paths()[1].clone();
+    let email = base.indexes()[0]
+        .key()
+        .field_paths()
+        .next()
+        .unwrap()
+        .clone();
+    let tenant = base.indexes()[0]
+        .key()
+        .field_paths()
+        .nth(1)
+        .unwrap()
+        .clone();
     let lower_email = || {
         PersistedIndexKeyItemSnapshot::Expression(Box::new(PersistedIndexExpressionSnapshot::new(
             PersistedIndexExpressionOp::Lower,
@@ -701,7 +715,7 @@ fn nullable_unique_acceptance_deduplicates_repeated_and_mixed_sources_at_the_key
         lower_email(),
     ];
     assert_eq!(key_items.len(), crate::MAX_INDEX_FIELDS);
-    let key = PersistedIndexKeySnapshot::Items(key_items);
+    let key = PersistedIndexKeySnapshot::new(key_items);
 
     let snapshot_with_predicate = |predicate_sql: &str| {
         let snapshot = PersistedSchemaSnapshot::new_with_indexes(
@@ -773,7 +787,7 @@ fn nullable_unique_acceptance_preserves_structural_precedence_for_invalid_source
             "idx_invalid_nullable_unique".to_string(),
             "nullable_unique::invalid".to_string(),
             true,
-            PersistedIndexKeySnapshot::FieldPath(vec![invalid_source]),
+            PersistedIndexKeySnapshot::from_field_paths(vec![invalid_source]),
             Some(crate::db::schema::AcceptedIndexPredicate::test_non_null(99)),
         )],
     );
@@ -908,6 +922,36 @@ fn shared_unique_transitions_preserve_accepted_authority() {
         assert_eq!(changed.version(), SchemaVersion::new(2));
         AcceptedSchemaSnapshot::try_new(changed).expect("transition remains acceptable");
     }
+}
+
+#[test]
+fn field_candidate_edit_preserves_pending_owners_and_original_bytes() {
+    let original =
+        pending_unique_schema_fixture().with_relation_id_allocator(RelationIdAllocator::new(9));
+    let original_bytes = encode_persisted_schema_snapshot(&original).unwrap();
+    let mut fields = original.fields().to_vec();
+    fields[1] = fields[1].clone_with_insert_default(SchemaInsertDefault::SlotPayload(vec![0]));
+    let candidate = original.clone().with_fields(fields.clone());
+
+    // An owner-local edit changes exactly its component, including when the
+    // snapshot contains planner-invisible pending owners and allocator state.
+    let mut expected = original.clone();
+    Rc::make_mut(&mut expected.payload).fields = fields;
+    assert_eq!(candidate, expected);
+    assert_eq!(candidate.candidate_indexes(), original.candidate_indexes());
+    assert_eq!(
+        candidate.constraint_activations(),
+        original.constraint_activations()
+    );
+    let candidate_bytes = encode_persisted_schema_snapshot(&candidate).unwrap();
+    assert_eq!(
+        decode_persisted_schema_snapshot(&candidate_bytes).unwrap(),
+        candidate
+    );
+    assert_eq!(
+        encode_persisted_schema_snapshot(&original).unwrap(),
+        original_bytes
+    );
 }
 
 #[test]
@@ -1091,13 +1135,15 @@ fn accepted_schema_snapshot_try_new_rejects_invalid_index_contract() {
             "idx_indexed__email".to_string(),
             "indexed::email".to_string(),
             false,
-            PersistedIndexKeySnapshot::FieldPath(vec![PersistedIndexFieldPathSnapshot::new(
-                FieldId::new(2),
-                SchemaFieldSlot::new(7),
-                vec!["email".to_string()],
-                AcceptedFieldKind::Text { max_len: None },
-                false,
-            )]),
+            PersistedIndexKeySnapshot::from_field_paths(vec![
+                PersistedIndexFieldPathSnapshot::new(
+                    FieldId::new(2),
+                    SchemaFieldSlot::new(7),
+                    vec!["email".to_string()],
+                    AcceptedFieldKind::Text { max_len: None },
+                    false,
+                ),
+            ]),
             None,
         )],
     );
@@ -1178,7 +1224,7 @@ fn accepted_schema_snapshot_try_new_rejects_index_source_contract_drift() {
                 "idx_indexed__email".to_string(),
                 "indexed::email".to_string(),
                 false,
-                PersistedIndexKeySnapshot::FieldPath(vec![source]),
+                PersistedIndexKeySnapshot::from_field_paths(vec![source]),
                 None,
             )],
         );
@@ -1486,7 +1532,7 @@ fn accepted_schema_snapshot_try_new_rejects_invalid_expression_index_contract() 
             "idx_expression_indexed__lower_email".to_string(),
             "expression_indexed::lower_email".to_string(),
             false,
-            PersistedIndexKeySnapshot::Items(vec![PersistedIndexKeyItemSnapshot::Expression(
+            PersistedIndexKeySnapshot::new(vec![PersistedIndexKeyItemSnapshot::Expression(
                 Box::new(PersistedIndexExpressionSnapshot::new(
                     PersistedIndexExpressionOp::Lower,
                     source,
