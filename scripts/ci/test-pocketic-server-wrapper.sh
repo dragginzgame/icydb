@@ -46,7 +46,7 @@ done
 [[ "$TEST_MODE" != startup ]] || exit 9
 printf '12345\n' > "$port_file"
 # One owned process with no children or network sockets.
-exec sleep 60
+exec cat "$TEST_STATE/block"
 SERVER
 cat > "$fixture/child-command" <<'CHILD'
 #!/usr/bin/env bash
@@ -56,8 +56,8 @@ printf 'called\n' > "$TEST_STATE/child-called"
 printf '%s\n' "$$" > "$TEST_STATE/child.pid"
 case "$TEST_MODE" in
   child) exit 7 ;;
-  term) kill -TERM "$(cat "$TEST_STATE/wrapper.pid")"; exec sleep 60 ;;
-  int) kill -INT "$(cat "$TEST_STATE/wrapper.pid")"; exec sleep 60 ;;
+  term) kill -TERM "$(cat "$TEST_STATE/wrapper.pid")"; exec cat "$TEST_STATE/block" ;;
+  int) kill -INT "$(cat "$TEST_STATE/wrapper.pid")"; exec cat "$TEST_STATE/block" ;;
   success) exit 0 ;;
   *) exit 99 ;;
 esac
@@ -69,13 +69,17 @@ for ((line = 1; line <= 4096; line++)); do
 done
 printf 'unrelated evidence\n' > "$fixture/unrelated"
 cp "$fixture/unrelated" "$fixture/unrelated-before"
-sleep 60 &
+# A control process lives until fixture cleanup; elapsed fixture work must not
+# turn an unrelated-process survival check into a lease-expiry failure.
+mkfifo "$fixture/control"
+cat "$fixture/control" > /dev/null &
 control_pid="$!"
 count=0
 shopt -s nullglob
 for mode in startup child term int success; do
   state="$fixture/$mode"
   mkdir -p "$state/scratch"
+  mkfifo "$state/block"
   invocation=(bash "$ROOT/scripts/ci/run-with-pocketic-server.sh" "$fixture/child-command")
   if [[ "$mode" == success ]]; then
     # Qualify Make's managed-lane handoff without executing the Tier B suites.
