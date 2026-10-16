@@ -90,13 +90,13 @@ derive_more = { version = "2.0", default-features = false, features = [
 ] }
 ethnum = { version = "1.5.3", default-features = false }
 getrandom = "0.4"
-ic-build = "0.11"
+ic-build = "0.12"
 ic-cdk = "0.20.3"
-ic-host-artifacts = { version = "0.23", default-features = false }
-ic-host-fs = "0.23"
-ic-host-process = "0.23"
-ic-host-text = "0.23"
-ic-host-tools = { version = "0.23", default-features = false }
+ic-host-artifacts = { version = "0.24", default-features = false }
+ic-host-fs = "0.24"
+ic-host-process = "0.24"
+ic-host-text = "0.24"
+ic-host-tools = { version = "0.24", default-features = false }
 ic-memory = "0.44"
 ic-metrics = "0.11"
 ic-testkit = "0.50"
