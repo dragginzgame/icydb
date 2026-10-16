@@ -3,6 +3,8 @@
 //! Does not own: job persistence, page advancement, or accepted-schema meaning.
 //! Boundary: accepted inspection plan + registered physical stores -> canonical proof vector.
 
+#[cfg(not(test))]
+use crate::db::memory_runtime;
 use crate::{
     db::{
         Db,
@@ -242,8 +244,10 @@ fn allocation_registry_generation() -> Result<u64, InternalError> {
 
 #[cfg(not(test))]
 fn allocation_registry_generation() -> Result<u64, InternalError> {
-    let allocations =
-        ic_memory::committed_allocations().map_err(|_| InternalError::store_internal())?;
+    let runtime = memory_runtime().ok_or_else(InternalError::store_internal)?;
+    let allocations = runtime
+        .committed_allocations()
+        .map_err(|_| InternalError::store_internal())?;
     // The opaque committed capability owns declaration validity and uniqueness.
     // Integrity retains its exact generation as the read-set authority.
     Ok(allocations.generation())
@@ -261,7 +265,9 @@ pub(super) const fn validate_integrity_allocation_registry() -> Result<(), Inter
 #[cfg(not(test))]
 pub(super) fn validate_integrity_allocation_registry() -> Result<(), InternalError> {
     // Availability is IcyDB's boundary; rebuilding upstream uniqueness sets is not.
-    ic_memory::committed_allocations()
+    memory_runtime()
+        .ok_or_else(InternalError::store_internal)?
+        .committed_allocations()
         .map(|_| ())
         .map_err(|_| InternalError::store_internal())
 }

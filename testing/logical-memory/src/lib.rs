@@ -4,9 +4,8 @@
 mod schema;
 
 use ic_memory::{
-    RuntimeMemory, committed_allocations,
+    RuntimeMemory,
     ic_stable_structures::{DefaultMemoryImpl, Memory},
-    open_default_memory_manager_memory,
 };
 use icydb::{
     db::{DatabaseStartupState, StartupFailure, TypedWriteAdapter as _, WriteCell},
@@ -51,7 +50,9 @@ fn state() -> Result<DatabaseStartupState, StartupFailure> {
 
 #[ic_cdk::query]
 fn allocations() -> Vec<(String, u8)> {
-    committed_allocations()
+    icydb::db::memory_runtime()
+        .unwrap()
+        .committed_allocations()
         .unwrap()
         .declarations()
         .iter()
@@ -119,7 +120,7 @@ const PAYLOAD_OFFSET: u64 = FRAME_OFFSET + FRAME_BYTES as u64;
 const MAX_FIXTURE_CONTROL_BYTES: usize = 64 * 1024;
 
 fn control() -> RuntimeMemory<DefaultMemoryImpl> {
-    open_default_memory_manager_memory(CONTROL_KEY).unwrap()
+    icydb::__macro::open_memory(CONTROL_KEY).unwrap()
 }
 
 #[ic_cdk::query]

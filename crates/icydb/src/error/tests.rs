@@ -11,7 +11,7 @@ use candid::{
     Decode, Encode,
     types::{CandidType, Label, Type, TypeInner},
 };
-use ic_memory::{RuntimeBootstrapError, RuntimeStateError};
+use ic_memory::RuntimeBootstrapError;
 #[cfg(feature = "sql")]
 use icydb_core::db::{PlanError, QueryExecutionError, ValidateError};
 use icydb_core::error::{ErrorClass as CoreErrorClass, ErrorOrigin as CoreErrorOrigin};
@@ -742,12 +742,14 @@ fn relation_contract_identity_survives_facade_and_candid() {
 #[test]
 fn database_bootstrap_preserves_typed_cause_until_public_projection() {
     let cause: RuntimeBootstrapError<crate::db::MemoryBootstrapAdmissionError> =
-        RuntimeBootstrapError::State(RuntimeStateError::ReentrantAccess);
+        RuntimeBootstrapError::StableCellLedgerWriteTooLarge {
+            value_size: usize::MAX,
+        };
     let bootstrap = crate::db::DatabaseBootstrapError::from(cause);
     assert!(matches!(
         &bootstrap,
         crate::db::DatabaseBootstrapError::Bootstrap(source)
-            if matches!(source.as_ref(), RuntimeBootstrapError::State(RuntimeStateError::ReentrantAccess))
+            if matches!(source.as_ref(), RuntimeBootstrapError::StableCellLedgerWriteTooLarge { value_size: usize::MAX })
     ));
 
     let facade = Error::from(bootstrap);

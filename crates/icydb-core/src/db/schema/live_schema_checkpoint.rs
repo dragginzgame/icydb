@@ -3,8 +3,8 @@
 //! Does not own: proposal lowering, accepted reconciliation, or runtime schema interpretation.
 //! Boundary: marker-owned accepted candidate -> bounded control-memory checkpoint -> recovery.
 
-#[cfg(any(test, feature = "migration"))]
 use crate::db::codec::BoundedByteWriter;
+#[cfg(any(test, feature = "migration"))]
 use crate::db::schema::migration_record::SchemaMigrationRecordOp;
 use crate::{
     db::{

@@ -4,12 +4,11 @@
 use std::{cell::Cell, rc::Rc};
 
 use ic_memory::{
-    AllocationPolicy, BootstrapAdmission, BootstrapAdmissionError, GenericAllocationPolicy,
-    MemoryAllocationPool, MemoryAuthority, MemoryManagerConfig, MemoryManagerIdRange,
-    MemoryManagerSlot, MemoryRequest, MemoryResolutionError, MemoryRuntime, PolicyIdentity,
-    PolicyIdentityError, RuntimeAdoptionError, RuntimeBootstrapError, RuntimeBootstrapPolicy,
-    RuntimeConstructionError, RuntimeOpenError, SchemaMetadata, SealedDeclarationSnapshot,
-    StableKey,
+    BootstrapAdmission, BootstrapAdmissionError, GenericAllocationPolicy, MemoryAllocationPool,
+    MemoryAuthority, MemoryManagerConfig, MemoryManagerIdRange, MemoryManagerSlot, MemoryRequest,
+    MemoryResolutionError, MemoryRuntime, PolicyIdentity, PolicyIdentityError,
+    RuntimeAdoptionError, RuntimeBootstrapError, RuntimeBootstrapPolicy, RuntimeConstructionError,
+    RuntimeOpenError, SchemaMetadata, SealedDeclarationSnapshot, StableKey,
     ic_stable_structures::{Memory, VectorMemory},
 };
 use icydb::db::{MemoryBootstrapAdmissionError, prepare_memory_bootstrap};
@@ -20,7 +19,7 @@ struct HostPolicy {
     select_historical_controls: bool,
 }
 
-impl AllocationPolicy for HostPolicy {
+impl RuntimeBootstrapPolicy for HostPolicy {
     type Error = MemoryBootstrapAdmissionError;
 
     fn validate_key(&self, _: &StableKey) -> Result<(), Self::Error> {
@@ -30,9 +29,6 @@ impl AllocationPolicy for HostPolicy {
     fn validate_slot(&self, _: &StableKey, _: &MemoryManagerSlot) -> Result<(), Self::Error> {
         Ok(())
     }
-}
-
-impl RuntimeBootstrapPolicy for HostPolicy {
     fn prepare_bootstrap(&self, admission: &mut BootstrapAdmission<'_>) -> Result<(), Self::Error> {
         self.calls.set(self.calls.get() + 1);
         if self.select_historical_controls {
@@ -189,7 +185,9 @@ fn typed_ledger_and_application_growth_refusal_preserve_authority_and_retry() {
     retry_memory.write(0, b"retained");
     let before = backing.bytes.borrow().clone();
     assert!(matches!(
-        memory.grow(u64::from(summary.bucket_capacity)),
+        memory.grow(u64::from(
+            ic_memory::MemoryAllocationSummary::BUCKET_CAPACITY
+        )),
         Err(RuntimeGrowError::BucketExhausted { .. })
     ));
     assert_eq!(

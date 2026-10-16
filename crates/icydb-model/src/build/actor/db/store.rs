@@ -474,7 +474,7 @@ fn stable_store_cell_tokens(
                 #store_ty
             > = ::std::cell::RefCell::new(
                 #store_ty::init(
-                    ::icydb::__macro::open_default_memory_manager_memory(#stable_key)
+                    ::icydb::__macro::open_memory(#stable_key)
                     .expect(concat!(
                         "ic-memory committed allocation unavailable: ",
                         #stable_key
@@ -496,7 +496,7 @@ fn journaled_store_cell_tokens(
                 #store_ty
             > = ::std::cell::RefCell::new(
                 #store_ty::init_journaled(
-                    ::icydb::__macro::open_default_memory_manager_memory(#stable_key)
+                    ::icydb::__macro::open_memory(#stable_key)
                     .expect(concat!(
                         "ic-memory committed allocation unavailable: ",
                         #stable_key
@@ -1034,12 +1034,7 @@ mod tests {
         assert!(rendered.contains("__ICYDB_STORE_0_DATA"));
         assert!(rendered.contains("__ICYDB_STORE_0_INDEX"));
         assert!(rendered.contains("__ICYDB_STORE_0_SCHEMA"));
-        assert_eq!(
-            rendered
-                .matches("open_default_memory_manager_memory")
-                .count(),
-            0
-        );
+        assert_eq!(rendered.matches("open_memory").count(), 0);
         assert_eq!(
             rendered
                 .matches("StoreAllocationIdentity :: from_committed_key")
@@ -1063,12 +1058,7 @@ mod tests {
         }
         .to_string();
 
-        assert_eq!(
-            rendered
-                .matches("open_default_memory_manager_memory")
-                .count(),
-            4
-        );
+        assert_eq!(rendered.matches("open_memory").count(), 4);
         assert_eq!(
             rendered
                 .matches("ic-memory committed allocation unavailable:")

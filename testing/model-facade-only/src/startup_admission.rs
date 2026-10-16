@@ -58,10 +58,7 @@ fn generated_memory_admission_errors_match_startup_and_db() {
             candid::decode_one::<StartupFailure>(&wire).unwrap(),
             failure
         );
-        assert!(matches!(
-            ic_memory::committed_allocations(),
-            Err(ic_memory::RuntimeOpenError::NotBootstrapped)
-        ));
+        assert!(icydb::db::memory_runtime().is_none());
         return;
     }
     for case in ["excluded_pool", "missing_grant", "fresh_allowed"] {
@@ -109,10 +106,7 @@ fn component_requests_are_complete_before_open_and_adopt_a_composed_host() {
                 .iter()
                 .all(|request| request.authority() == "icydb.facade_only")
         );
-        assert!(matches!(
-            ic_memory::committed_allocations(),
-            Err(ic_memory::RuntimeOpenError::NotBootstrapped)
-        ));
+        assert!(icydb::db::memory_runtime().is_none());
         let mut composed = requests;
         composed.push(
             ic_memory::MemoryRequest::new(
@@ -131,15 +125,24 @@ fn component_requests_are_complete_before_open_and_adopt_a_composed_host() {
             vec![],
         )
         .unwrap();
-        let committed = ic_memory::bootstrap_default_memory_manager(&snapshot, &pool).unwrap();
+        let mut runtime = ic_memory::MemoryRuntime::new(
+            ic_memory::ic_stable_structures::DefaultMemoryImpl::default(),
+        )
+        .unwrap();
+        let committed = runtime
+            .bootstrap(&snapshot, &pool, &ic_memory::GenericAllocationPolicy)
+            .unwrap()
+            .clone();
+        let runtime = std::rc::Rc::new(runtime);
+        icydb::db::bind_memory_runtime(std::rc::Rc::clone(&runtime)).unwrap();
         crate::__icydb_generated::__drive_native_database_for_tests().unwrap();
         assert_eq!(
             crate::startup_state().unwrap(),
             icydb::db::DatabaseStartupState::Ready
         );
         assert!(with_request_execution(|| icydb::db!()).is_ok());
-        assert_eq!(ic_memory::committed_allocations().unwrap(), committed);
-        assert!(ic_memory::open_default_memory_manager_memory("host.control.v1").is_ok());
+        assert_eq!(runtime.committed_allocations().unwrap(), &committed);
+        assert!(runtime.open_memory("host.control.v1").is_ok());
     })
     .join()
     .unwrap();

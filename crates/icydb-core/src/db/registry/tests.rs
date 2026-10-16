@@ -363,23 +363,28 @@ fn committed_key_open_refuses_drifted_ids_without_changing_storage() {
             vec![],
         )
         .unwrap();
-        ic_memory::bootstrap_default_memory_manager(&requests, &pool).unwrap();
-        let id = ic_memory::default_memory_manager_memory_id(KEY).unwrap();
+        let mut runtime = ic_memory::MemoryRuntime::new(
+            ic_memory::ic_stable_structures::DefaultMemoryImpl::default(),
+        )
+        .unwrap();
+        runtime
+            .bootstrap(&requests, &pool, &ic_memory::GenericAllocationPolicy)
+            .unwrap();
+        let runtime = std::rc::Rc::new(runtime);
+        crate::db::bind_memory_runtime(std::rc::Rc::clone(&runtime)).unwrap();
+        let id = runtime.memory_id(KEY).unwrap();
         let memory = crate::db::registry::open_committed_memory(KEY, id).unwrap();
         memory.grow(1).unwrap();
         memory.write(0, b"retained");
-        let commitment = ic_memory::committed_allocations().unwrap();
-        let before = ic_memory::default_memory_manager_memory_allocations().unwrap();
+        let commitment = runtime.committed_allocations().unwrap();
+        let before = runtime.memory_allocations().unwrap();
         assert!(crate::db::registry::open_committed_memory(KEY, id + 1).is_err());
         assert!(
             crate::db::registry::open_committed_memory("icydb.core_identity.absent.v1", id)
                 .is_err()
         );
-        assert_eq!(ic_memory::committed_allocations().unwrap(), commitment);
-        assert_eq!(
-            ic_memory::default_memory_manager_memory_allocations().unwrap(),
-            before
-        );
+        assert_eq!(runtime.committed_allocations().unwrap(), commitment);
+        assert_eq!(runtime.memory_allocations().unwrap(), before);
         let memory = crate::db::registry::open_committed_memory(KEY, id).unwrap();
         let mut bytes = [0; 8];
         memory.read(0, &mut bytes);

@@ -9,6 +9,7 @@ use crate::db::{
     index::{IndexId, IndexKeyKind, IndexState, IndexStore, UserIndexPrefixCardinalityKey},
     integrity::DatabaseIncarnationId,
     journal::{FoldWatermark, JournalTailStore},
+    memory_runtime, open_memory,
     schema::{
         SchemaStore,
         cardinality_build::CardinalityBuildAuthority,
@@ -362,7 +363,9 @@ impl StoreAllocationIdentity {
         stable_key: &'static str,
     ) -> Result<Self, ic_memory::RuntimeOpenError> {
         Ok(Self::new(
-            ic_memory::default_memory_manager_memory_id(stable_key)?,
+            memory_runtime()
+                .ok_or(ic_memory::RuntimeOpenError::NotBootstrapped)?
+                .memory_id(stable_key)?,
             stable_key,
         ))
     }
@@ -399,13 +402,14 @@ pub(in crate::db) fn open_committed_memory(
     ic_memory::RuntimeMemory<ic_memory::ic_stable_structures::DefaultMemoryImpl>,
     InternalError,
 > {
-    let committed_id = ic_memory::default_memory_manager_memory_id(stable_key)
+    let committed_id = memory_runtime()
+        .ok_or_else(InternalError::store_internal)?
+        .memory_id(stable_key)
         .map_err(|_| InternalError::store_internal())?;
     if committed_id != memory_id {
         return Err(InternalError::store_internal());
     }
-    ic_memory::open_default_memory_manager_memory(stable_key)
-        .map_err(|_| InternalError::store_internal())
+    open_memory(stable_key).map_err(|_| InternalError::store_internal())
 }
 
 ///

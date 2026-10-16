@@ -17,6 +17,22 @@ Every row in this inventory follows the default pre-`1.0.0` posture: one
 current internal form, every genuine format discriminator is version 1,
 noncurrent bytes fail closed, and no legacy fallback is retained.
 
+## Memory 0.44 allocation ledger cut
+
+The application retains one bootstrapped `ic_memory::MemoryRuntime`; composed
+hosts bind it through `icydb::db::bind_memory_runtime` before database startup.
+Standalone generated startup constructs and binds its runtime. Store opens,
+integrity generations and allocation reports use that same committed instance.
+The binding is process-local and grants no authority before Memory bootstrap.
+
+Memory 0.44's sole current allocation ledger uses an `ICMDIRCT` checksummed
+snapshot containing direct ledger CBOR. Earlier allocation-ledger images reject;
+retain required backups and old-binary recovery/export access before explicitly
+retiring or resetting affected installations. This integration changes no
+IcyDB row, journal, checkpoint or cursor bytes and performs no database reset.
+Same-contract interruption recovery remains owned by Memory and IcyDB's existing
+recovery mechanisms.
+
 ## Active Durable Surfaces
 
 | Surface | Owner Modules | Durable Role | Current Posture |

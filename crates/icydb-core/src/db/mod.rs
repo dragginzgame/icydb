@@ -12,6 +12,7 @@ pub(crate) mod diagnostics;
 mod dynamic_write;
 pub(crate) mod identity;
 pub(crate) mod integrity;
+mod memory_runtime;
 mod mutation_job;
 pub(crate) mod predicate;
 pub(crate) mod query;
@@ -106,6 +107,9 @@ pub use key_taxonomy::{
     PrimaryKeyEncodeError, PrimaryKeyValue, ScalarRelationTargetKey,
     validate_entity_key_bytes_buffer,
 };
+#[doc(hidden)]
+pub use memory_runtime::open_memory;
+pub use memory_runtime::{MemoryRuntimeBindingError, bind_memory_runtime, memory_runtime};
 pub use mutation_job::{
     MAX_MUTATION_JOB_CONTINUATION_BYTES, MAX_MUTATION_JOB_IDEMPOTENCY_KEY_BYTES,
     MAX_MUTATION_JOB_INTENT_BYTES, MAX_MUTATION_JOB_RECEIPT_BYTES, MAX_MUTATION_JOB_RECORD_BYTES,

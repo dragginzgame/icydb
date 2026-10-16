@@ -114,7 +114,7 @@ pub fn prepare_memory_bootstrap(
     // journal identities so selection can mutably borrow admission afterward.
     let mut journals = Vec::new();
     for record in admission.recovered_allocations() {
-        let Some(role) = allocation_role(record.stable_key)? else {
+        let Some(role) = allocation_role(record.stable_key())? else {
             continue;
         };
         if !groups.contains_key(&(role.namespace, None)) {
@@ -128,7 +128,7 @@ pub fn prepare_memory_bootstrap(
         {
             journals.push((
                 format!("icydb.{}", role.namespace),
-                record.stable_key.clone(),
+                record.stable_key().clone(),
             ));
         }
     }

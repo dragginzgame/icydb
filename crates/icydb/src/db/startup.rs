@@ -128,14 +128,10 @@ mod tests {
     #[test]
     fn bucket_mismatch_startup_failure_preserves_pages_through_candid() {
         for (persisted, requested) in [(128, 16), (16, 4), (4, 128)] {
-            let cause = ic_memory::RuntimeBootstrapError::State(
-                ic_memory::RuntimeStateError::Construction(
-                    ic_memory::RuntimeConstructionError::BucketSizeMismatch {
-                        persisted,
-                        requested,
-                    },
-                ),
-            );
+            let cause = ic_memory::RuntimeConstructionError::BucketSizeMismatch {
+                persisted,
+                requested,
+            };
             let failure = __startup_bootstrap_failure(DatabaseBootstrapError::from(cause));
             let bytes = Encode!(&failure).expect("bucket mismatch should encode");
             let decoded = Decode!(&bytes, StartupFailure).expect("bucket mismatch should decode");

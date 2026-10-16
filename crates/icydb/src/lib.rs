@@ -180,7 +180,7 @@ pub mod __macro {
         execute_generated_storage_report,
     };
     pub use crate::guards::{authorize_schema_read, authorize_sql_read};
-    pub use ic_memory::open_default_memory_manager_memory;
+    pub use icydb_core::db::open_memory;
     #[cfg(feature = "sql")]
     pub use icydb_core::db::sql_statement_dispatch;
     pub use icydb_core::db::{

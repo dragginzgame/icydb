@@ -8,12 +8,14 @@ use crate::{
 use ic_memory::{
     AllocationValidationError, BootstrapAdmissionError, MemoryAllocationPoolError,
     MemoryDeclarationError, MemoryResolutionError, RuntimeAdoptionError, RuntimeBootstrapError,
-    RuntimeConstructionError, RuntimeOpenError, RuntimeStateError,
+    RuntimeConstructionError, RuntimeOpenError,
 };
 use icydb_diagnostic_code::{DiagnosticFactTag, RuntimeBoundaryCode};
 
 pub(super) fn bootstrap_error(cause: &DatabaseBootstrapError) -> Error {
     let classified = match cause {
+        DatabaseBootstrapError::Construction(cause) => construction_error(cause),
+        DatabaseBootstrapError::Binding(_) => None,
         DatabaseBootstrapError::Bootstrap(cause) => cold_bootstrap_error(cause),
         DatabaseBootstrapError::Adoption(cause) => adoption_error(cause),
     };
@@ -27,22 +29,26 @@ pub(super) fn bootstrap_error(cause: &DatabaseBootstrapError) -> Error {
     })
 }
 
-fn cold_bootstrap_error(
-    cause: &RuntimeBootstrapError<MemoryBootstrapAdmissionError>,
-) -> Option<Error> {
+fn construction_error(cause: &RuntimeConstructionError) -> Option<Error> {
     match cause {
-        RuntimeBootstrapError::State(RuntimeStateError::Construction(
-            RuntimeConstructionError::BucketSizeMismatch {
-                persisted,
-                requested,
-            },
-        )) => Some(boundary(
+        RuntimeConstructionError::BucketSizeMismatch {
+            persisted,
+            requested,
+        } => Some(boundary(
             RuntimeBoundaryCode::MemoryBucketSizeMismatch,
             vec![
                 (DiagnosticFactTag::Expected, u64::from(*requested)),
                 (DiagnosticFactTag::Actual, u64::from(*persisted)),
             ],
         )),
+        _ => None,
+    }
+}
+
+fn cold_bootstrap_error(
+    cause: &RuntimeBootstrapError<MemoryBootstrapAdmissionError>,
+) -> Option<Error> {
+    match cause {
         RuntimeBootstrapError::DeclarationSnapshotMismatch
         | RuntimeBootstrapError::AllocationPoolMismatch => Some(boundary(
             RuntimeBoundaryCode::MemoryDeclarationSnapshotMismatch,
@@ -70,8 +76,7 @@ fn cold_bootstrap_error(
                 vec![(DiagnosticFactTag::ActualMemoryId, u64::from(*id))],
             ))
         }
-        RuntimeBootstrapError::Declarations(cause)
-        | RuntimeBootstrapError::Resolution(MemoryResolutionError::Declarations(cause)) => {
+        RuntimeBootstrapError::Resolution(MemoryResolutionError::Declarations(cause)) => {
             declaration_error(cause)
         }
         _ => None,

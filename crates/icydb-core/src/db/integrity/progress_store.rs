@@ -3,6 +3,8 @@
 //! Does not own: inspected database state, commit markers, journals, or advancement semantics.
 //! Boundary: current-form job codec -> physically separate stable BTreeMap allocation.
 
+#[cfg(not(test))]
+use crate::db::open_memory;
 use crate::{
     db::{
         codec::{finalize_hash_sha256, new_hash_sha256_prefixed},
@@ -31,8 +33,6 @@ use ic_memory::RuntimeMemory;
 use ic_memory::ic_stable_structures::{
     BTreeMap as StableBTreeMap, DefaultMemoryImpl, Storable, storable::Bound,
 };
-#[cfg(not(test))]
-use ic_memory::open_default_memory_manager_memory;
 use serde::Deserialize;
 use sha2::Digest;
 use std::borrow::Cow;
@@ -1111,8 +1111,7 @@ fn progress_memory<C: CanisterKind>() -> Result<RuntimeMemory<DefaultMemoryImpl>
 #[cfg(not(test))]
 fn progress_memory<C: CanisterKind>() -> Result<RuntimeMemory<DefaultMemoryImpl>, IntegrityJobError>
 {
-    open_default_memory_manager_memory(C::INTEGRITY_PROGRESS_STABLE_KEY)
-        .map_err(|_| IntegrityJobError::Internal)
+    open_memory(C::INTEGRITY_PROGRESS_STABLE_KEY).map_err(|_| IntegrityJobError::Internal)
 }
 
 #[cfg(test)]

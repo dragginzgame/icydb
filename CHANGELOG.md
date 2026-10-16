@@ -5,7 +5,16 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.275.1]
+## [0.276.0]
+
+### ⚠️ Breaking
+
+- **Breaking:** adopt Memory 0.44 with an explicit host runtime binding and
+  typed construction failures. Retain backups and recovery/export access before
+  explicitly retiring or resetting installations with older allocation ledgers
+  ([#365 — Memory allocation diagnostics adoption](https://github.com/dragginzgame/icydb/issues/365)).
+
+### 🔧 Changed
 
 - Share fixture contracts, response conversion and deterministic test machinery;
   simplify CLI/tooling, process diagnostics, actor builds and journaled reads; stabilize
@@ -13,7 +22,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   ([#149 — DISTINCT missing-row policy](https://github.com/dragginzgame/icydb/issues/149),
   [#292 — Shared store traversal](https://github.com/dragginzgame/icydb/issues/292)).
 
-See [detailed notes](docs/changelog/0.275.md).
+See [detailed notes](docs/changelog/0.276.md).
 
 ## [0.275.0] - 2026-10-15
 

@@ -42,6 +42,7 @@ pub use icydb_core::db::{
     ResumableJobState, ResumableJobStatus, RowProjectionOutput, ScalarPageWork,
     TypedBindingContext,
 };
+pub use icydb_core::db::{MemoryRuntimeBindingError, bind_memory_runtime, memory_runtime};
 #[cfg(feature = "migration")]
 pub use icydb_core::db::{
     SchemaMigrationCommand, SchemaMigrationEntityTransition, SchemaMigrationFinding,

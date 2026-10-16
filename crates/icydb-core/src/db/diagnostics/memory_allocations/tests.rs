@@ -5,10 +5,10 @@ use crate::{
         data::{DecodedDataStoreKey, RawRow},
         key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
     },
-    testing::test_memory_runtime,
+    testing::{run_isolated, test_memory_runtime},
     types::EntityTag,
 };
-use ic_memory::ic_stable_structures::VectorMemory;
+use ic_memory::ic_stable_structures::{Memory, VectorMemory};
 use ic_memory::{MemoryManagerConfig, MemoryRuntime};
 
 fn assert_accounting(report: &MemoryAllocations) {
@@ -49,33 +49,52 @@ fn assert_numeric_summary<M: ic_memory::ic_stable_structures::Memory>(
     let summary = runtime.memory_allocation_summary().unwrap();
     assert_eq!(summary.current_generation, detailed.current_generation);
     assert_eq!(
-        summary.physical_extent.bytes,
+        summary.physical_extent.bytes(),
         detailed.physical_extent.bytes
     );
-    assert_eq!(summary.virtual_extent.bytes, detailed.virtual_extent.bytes);
     assert_eq!(
-        summary.allocated_bucket_bytes,
+        summary.virtual_extent.bytes(),
+        detailed.virtual_extent.bytes
+    );
+    assert_eq!(
+        summary.allocated_bucket_bytes(),
         detailed.allocated_bucket_bytes
     );
-    assert_eq!(summary.bucket_slack_bytes, detailed.bucket_slack_bytes);
+    assert_eq!(summary.bucket_slack_bytes(), detailed.bucket_slack_bytes);
     assert_eq!(
-        summary.unknown_binding.allocated_bytes,
+        summary
+            .unknown_binding
+            .allocated_bytes(summary.bucket_size_pages),
         detailed.unknown_binding_bytes
     );
     assert_eq!(
-        summary.current_binding.allocated_bytes + summary.ledger_binding.allocated_bytes,
+        summary
+            .current_binding
+            .allocated_bytes(summary.bucket_size_pages)
+            + summary
+                .ledger_binding
+                .allocated_bytes(summary.bucket_size_pages),
         detailed.known_binding_bytes
     );
     assert_eq!(
-        summary.current_binding.bucket_slack_bytes
-            + summary.ledger_binding.bucket_slack_bytes
-            + summary.unknown_binding.bucket_slack_bytes,
+        summary
+            .current_binding
+            .bucket_slack_bytes(summary.bucket_size_pages)
+            + summary
+                .ledger_binding
+                .bucket_slack_bytes(summary.bucket_size_pages)
+            + summary
+                .unknown_binding
+                .bucket_slack_bytes(summary.bucket_size_pages),
         detailed.bucket_slack_bytes
     );
-    assert_eq!(summary.metadata_bytes_read, detailed.metadata_bytes_read);
-    assert!(summary.metadata_bytes_read <= 34_848);
     assert_eq!(
-        usize::from(summary.memories_measured),
+        ic_memory::MemoryAllocationSummary::METADATA_BYTES_READ,
+        detailed.metadata_bytes_read
+    );
+    assert!(detailed.metadata_bytes_read <= 34_848);
+    assert_eq!(
+        usize::from(ic_memory::MemoryAllocationSummary::MEMORIES_MEASURED),
         detailed.memories.len()
     );
 }
@@ -189,4 +208,17 @@ fn fresh_bucket_trial_preserves_accounting_and_current_candid_shape() {
 fn absent_default_runtime_diagnostics_do_not_construct_memory() {
     assert!(collect_memory_allocations().unwrap().is_none());
     assert!(collect_memory_allocations().unwrap().is_none());
+}
+
+#[test]
+fn bound_runtime_diagnostics_distinguish_corruption_from_absence() {
+    run_isolated(|| {
+        assert!(collect_memory_allocations().unwrap().is_none());
+        let backing = VectorMemory::default();
+        let runtime = test_memory_runtime(backing.clone(), MemoryManagerConfig::new(1).unwrap());
+        crate::db::bind_memory_runtime(std::rc::Rc::new(runtime)).unwrap();
+        assert!(collect_memory_allocations().unwrap().is_some());
+        backing.write(0, b"BAD");
+        assert!(collect_memory_allocations().is_err());
+    });
 }
