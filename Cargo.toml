@@ -99,7 +99,7 @@ ic-host-text = "0.23"
 ic-host-tools = { version = "0.23", default-features = false }
 ic-memory = "0.44"
 ic-metrics = "0.11"
-ic-testkit = "0.49"
+ic-testkit = "0.50"
 ic-timers = "0.25"
 ic-wire = { git = "https://github.com/dragginzgame/ic-wire.git", rev = "66e1f0c5bdced1579573999c8928a697f6135425" }
 ic0 = "1.2"
