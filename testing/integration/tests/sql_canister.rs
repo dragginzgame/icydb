@@ -25,7 +25,7 @@ use crate::sql_harness::{
 };
 use candid::{CandidType, Principal};
 use ic_testkit::pic::{
-    BaselinePoolOutcome, CachedPocketIcBaselinePool, CachedPocketIcBaselinePoolGuard,
+    BaselinePoolDisposition, CachedPocketIcBaselinePool, CachedPocketIcBaselinePoolGuard,
     CandidCallExt as _, FixtureRecipeId, SnapshotRestoreFunding, StandaloneCanisterFixture,
     StandaloneCanisterRecipe,
 };
@@ -184,7 +184,10 @@ fn sql_fixture_pool_restores_captured_rows_before_reuse() {
         || Ok(install_fixture_canister("sql")),
     );
     let (first, outcome) = pool.acquire().expect("first lease should install");
-    assert!(matches!(outcome, BaselinePoolOutcome::Built { .. }));
+    assert!(matches!(
+        outcome.disposition,
+        BaselinePoolDisposition::Built
+    ));
     let canister_id = *first.metadata();
     let before = query_sql(
         first.pocket_ic(),
@@ -205,7 +208,10 @@ fn sql_fixture_pool_restores_captured_rows_before_reuse() {
     drop(first);
 
     let (reused, outcome) = pool.acquire().expect("second lease should restore");
-    assert!(matches!(outcome, BaselinePoolOutcome::Restored { .. }));
+    assert!(matches!(
+        outcome.disposition,
+        BaselinePoolDisposition::Restored
+    ));
     assert_eq!(*reused.metadata(), canister_id);
     assert_eq!(
         query_sql(
