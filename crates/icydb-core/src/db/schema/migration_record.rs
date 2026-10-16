@@ -4,13 +4,11 @@
 //! compare-and-replace effect. It stores accepted IDs and opaque digests only;
 //! generated Rust models and executable migration code are never persisted.
 
+use crate::db::codec::BoundedByteWriter;
 use crate::{
     db::{
         database_format::crc32c,
-        schema::{
-            FieldId,
-            wire::{SchemaWireReader, SchemaWireWriter},
-        },
+        schema::{FieldId, wire::SchemaWireReader},
     },
     error::InternalError,
     types::EntityTag,
@@ -31,7 +29,7 @@ const MIGRATION_VERSION: u8 = 1;
 const MIGRATION_HEADER_BYTES: usize = 8 + 1 + 4;
 const MIGRATION_CHECKSUM_BYTES: usize = 4;
 
-type MigrationWriter = SchemaWireWriter<MAX_SCHEMA_MIGRATION_RECORD_BYTES>;
+type MigrationWriter = BoundedByteWriter<MAX_SCHEMA_MIGRATION_RECORD_BYTES>;
 type MigrationReader<'a> = SchemaWireReader<'a>;
 
 /// Persisted lifecycle phase. Public source-only phases are derived rather

@@ -384,6 +384,64 @@ fn data_store_row_preflight_can_stop_before_visiting_the_payload() {
 }
 
 #[test]
+fn journaled_data_visitors_preserve_typed_failures_and_early_stop() {
+    for backend in 0..3 {
+        let mut store = DataStore::init_journaled(test_memory(229));
+        if backend != 1 {
+            for id in [1, 3, 5] {
+                store
+                    .fold_recovered_journal_put(raw_key(1, id), raw_row(11))
+                    .unwrap();
+            }
+        }
+        if backend != 0 {
+            for id in [0, 4, 5] {
+                store
+                    .apply_recovered_journal_put(raw_key(1, id), raw_row(22))
+                    .unwrap();
+            }
+            store.remove(&raw_key(1, 1));
+        }
+        for fail in [false, true] {
+            let expected = if fail { Err(7_u8) } else { Ok(()) };
+            let first = u64::from(backend == 0);
+            let mut rows = Vec::new();
+            let result = store.visit_range(.., |key, row| {
+                rows.push((key.clone(), row.as_bytes()[0]));
+                if fail {
+                    Err(7_u8)
+                } else {
+                    Ok(StoreVisit::Stop)
+                }
+            });
+            assert_eq!(result, expected);
+            assert_eq!(
+                rows,
+                [(raw_key(1, first), if backend == 0 { 11 } else { 22 })]
+            );
+            for reverse in [false, true] {
+                let mut keys = Vec::new();
+                let mut visit = |key: &RawDataStoreKey| {
+                    keys.push(key.clone());
+                    if fail {
+                        Err(7_u8)
+                    } else {
+                        Ok(StoreVisit::Stop)
+                    }
+                };
+                let result = if reverse {
+                    store.visit_key_range_rev(.., &mut visit)
+                } else {
+                    store.visit_key_range(.., &mut visit)
+                };
+                assert_eq!(result, expected);
+                assert_eq!(keys, [raw_key(1, if reverse { 5 } else { first })]);
+            }
+        }
+    }
+}
+
+#[test]
 fn data_store_entity_cardinality_tracks_heap_writes() {
     let mut store = seed_heap_store(&[(1, 1, 11), (1, 2, 12), (2, 1, 21)]);
 

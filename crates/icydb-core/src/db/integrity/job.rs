@@ -4,7 +4,8 @@
 //! Boundary: Deep controller <-> current-form progress record codec.
 
 use crate::db::{
-    codec::hex::{decode_hex_nibble, encode_hex_lower},
+    codec::hex::decode_hex_nibble,
+    encode_hex_lower,
     integrity::{
         DatabaseIncarnationId, IntegrityAuthorityDiagnostic, IntegrityEntityIdentity,
         IntegrityFinding, IntegrityFindingKind, IntegrityPhase, IntegrityProofVector,

@@ -548,7 +548,7 @@ for script in check-make-execution.sh invariant-common.sh check-dependency-graph
   check-executor-no-production-panics.sh test-invariant-scanners.sh; do
   cp "$ROOT/scripts/ci/$script" "$native/scripts/ci/"
 done
-cp "$ROOT/"{Cargo.toml,Cargo.lock} "$native/"
+cp "$ROOT/"{Cargo.toml,Cargo.lock,.shared-rust-source.snapshot} "$native/"
 for owner in executor commit journal startup; do
   mkdir -p "$native/crates/icydb-core/src/db/$owner"
   printf 'fn production() {}\n' > "$native/crates/icydb-core/src/db/$owner/probe.rs"

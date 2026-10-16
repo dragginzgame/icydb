@@ -184,6 +184,26 @@ fn preparation_measurement_wasm() -> Vec<u8> {
 #[test]
 #[ignore = "manual wasm-release journaled index instruction and cycle measurement"]
 fn journaled_index_traversal_wasm_cost_matrix() {
+    journaled_traversal_wasm_cost_matrix("index", |direction, limit| {
+        format!(
+            "SELECT id FROM PerfAuditUser WHERE age >= 24 AND age < 40 \
+             ORDER BY age {direction}, id {direction} LIMIT {limit}"
+        )
+    });
+}
+
+/// Frozen-module comparison for row-backed primary traversal in both directions.
+#[test]
+#[ignore = "manual wasm-release journaled data instruction and cycle measurement"]
+fn journaled_data_traversal_wasm_cost_matrix() {
+    journaled_traversal_wasm_cost_matrix("data", |direction, limit| {
+        format!("SELECT id, name, age FROM PerfAuditUser ORDER BY id {direction} LIMIT {limit}")
+    });
+}
+
+// Both storage probes share installation, measurement boundaries and reopen
+// handling; only the query contract differs. No simulated progression is timed.
+fn journaled_traversal_wasm_cost_matrix(family: &str, sql_for: fn(&str, u32) -> String) {
     use ic_host_artifacts::artifact::Sha256Digest;
     use icydb_testing_integration::{
         deliver_fixture_startup_watchdog, install_prebuilt_fixture_canister,
@@ -191,7 +211,7 @@ fn journaled_index_traversal_wasm_cost_matrix() {
 
     let module = preparation_measurement_wasm();
     println!(
-        "journaled_index_wasm sha256={} raw_bytes={}",
+        "journaled_{family}_wasm sha256={} raw_bytes={}",
         Sha256Digest::compute(&module),
         module.len()
     );
@@ -221,10 +241,7 @@ fn journaled_index_traversal_wasm_cost_matrix() {
         }
         for direction in ["ASC", "DESC"] {
             for limit in [1, 100] {
-                let sql = format!(
-                    "SELECT id FROM PerfAuditUser WHERE age >= 24 AND age < 40 \
-                     ORDER BY age {direction}, id {direction} LIMIT {limit}"
-                );
+                let sql = sql_for(direction, limit);
                 let expected = query_perf(&fixture, "query_user_with_perf", &sql).result;
                 let SqlQueryResult::Projection(rows) = &expected else {
                     panic!("index probe should project rows");
@@ -248,7 +265,7 @@ fn journaled_index_traversal_wasm_cost_matrix() {
                     assert_eq!(sample.result, expected);
                     assert!(sample.instructions > 0);
                     println!(
-                        "journaled_index_cost reopened={reopened} direction={direction} limit={limit} repeat={repeat} result={} instructions={} cycles={cycles}",
+                        "journaled_{family}_cost reopened={reopened} direction={direction} limit={limit} repeat={repeat} result={} instructions={} cycles={cycles}",
                         Sha256Digest::compute(&candid::encode_one(&sample.result).unwrap()),
                         sample.instructions
                     );

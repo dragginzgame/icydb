@@ -4,7 +4,8 @@ use super::*;
 use crate::db::{QueryError, RequestExecutionRoot, test_support::request_with_limit};
 use crate::{
     db::{
-        codec::{hex::encode_hex_lower, new_hash_sha256},
+        codec::new_hash_sha256,
+        encode_hex_lower,
         query::{
             builder::{count, min_by, sum},
             fingerprint::finalize_sha256_digest,

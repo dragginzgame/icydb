@@ -419,6 +419,30 @@ fn injected_mutation_failure_shrinks_and_replays_canonically() {
         .expect("canonical mutation replay should decode");
 
     assert_eq!(decoded, replay);
+    let mut noncanonical = bytes.clone();
+    noncanonical.push(b'\n');
+    assert_eq!(
+        MutationReplayRecord::from_canonical_json(&noncanonical)
+            .unwrap_err()
+            .kind(),
+        crate::SqlGeneratorErrorKind::CanonicalReplay,
+    );
+    for (field, value) in [
+        ("format_version", serde_json::json!(0)),
+        ("snapshot_fingerprint", serde_json::json!("stale")),
+        ("unknown_field", serde_json::json!(true)),
+    ] {
+        let mut stale: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        stale[field] = value;
+        let stale = crate::replay::canonical_json_bytes(&stale).unwrap();
+        assert_eq!(
+            MutationReplayRecord::from_canonical_json(&stale)
+                .unwrap_err()
+                .kind(),
+            crate::SqlGeneratorErrorKind::CanonicalReplay,
+        );
+    }
+
     assert_eq!(decoded.format_version(), MUTATION_REPLAY_FORMAT_VERSION);
     let canonical = str::from_utf8(bytes.as_slice()).expect("canonical replay should be UTF-8");
     assert!(canonical.contains("\"witness_id\":"));

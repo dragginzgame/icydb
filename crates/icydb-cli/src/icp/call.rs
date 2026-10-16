@@ -3,23 +3,34 @@
 //! Does not own: command execution, endpoint selection, or Candid decoding.
 //! Boundary: exposes reusable call builders and response decoding to CLI command surfaces.
 
-use std::process::{Command, Stdio};
+use std::{
+    io::Write as _,
+    path::Path,
+    process::{Command, Stdio},
+};
 
+use candid::utils::ArgumentEncoder;
 use ic_host_tools::response::{ResponseError, ResponseFormat, ResponseLimits, decode};
 
 use crate::icp::process::output_stderr;
+
+// Encode the authoritative wire type once. ICP accepts these bytes directly
+// through its binary argument-file format; no text printer supplies types.
+pub(crate) fn encode_candid_args(arguments: impl ArgumentEncoder) -> Result<Vec<u8>, String> {
+    candid::encode_args(arguments).map_err(|error| error.to_string())
+}
 
 pub(super) fn icp_query_command(
     environment: &str,
     canister: &str,
     method: &str,
-    candid_arg: &str,
+    argument_file: &Path,
 ) -> Command {
     icp_call_command(
         environment,
         canister,
         method,
-        candid_arg,
+        argument_file,
         IcpCallKind::Query,
     )
 }
@@ -28,13 +39,13 @@ pub(super) fn icp_update_command(
     environment: &str,
     canister: &str,
     method: &str,
-    candid_arg: &str,
+    argument_file: &Path,
 ) -> Command {
     icp_call_command(
         environment,
         canister,
         method,
-        candid_arg,
+        argument_file,
         IcpCallKind::Update,
     )
 }
@@ -48,7 +59,7 @@ fn icp_call_command(
     environment: &str,
     canister: &str,
     method: &str,
-    candid_arg: &str,
+    argument_file: &Path,
     kind: IcpCallKind,
 ) -> Command {
     let mut command = Command::new("icp");
@@ -57,7 +68,10 @@ fn icp_call_command(
         .arg("call")
         .arg(canister)
         .arg(method)
-        .arg(candid_arg);
+        .arg("--args-file")
+        .arg(argument_file)
+        .arg("--args-format")
+        .arg("bin");
     match kind {
         IcpCallKind::Query => {
             command.arg("--query");
@@ -114,11 +128,12 @@ pub(super) fn call_query_hex(
     environment: &str,
     canister: &str,
     method: &str,
-    candid_arg: &str,
+    candid_arg: &[u8],
     error_message: impl FnOnce(&str) -> String,
 ) -> Result<Vec<u8>, String> {
     call_hex(
-        icp_query_command(environment, canister, method, candid_arg),
+        candid_arg,
+        |path| icp_query_command(environment, canister, method, path),
         error_message,
     )
 }
@@ -127,20 +142,29 @@ pub(super) fn call_update_hex(
     environment: &str,
     canister: &str,
     method: &str,
-    candid_arg: &str,
+    candid_arg: &[u8],
     error_message: impl FnOnce(&str) -> String,
 ) -> Result<Vec<u8>, String> {
     call_hex(
-        icp_update_command(environment, canister, method, candid_arg),
+        candid_arg,
+        |path| icp_update_command(environment, canister, method, path),
         error_message,
     )
 }
 
 fn call_hex(
-    mut command: Command,
+    candid_arg: &[u8],
+    build_command: impl FnOnce(&Path) -> Command,
     error_message: impl FnOnce(&str) -> String,
 ) -> Result<Vec<u8>, String> {
-    let output = command
+    // The private file stays alive through child completion and is removed on
+    // every return. Passing a path avoids OS argv limits and binary NUL bytes.
+    let mut arguments = tempfile::NamedTempFile::new()
+        .map_err(|error| format!("create ICP argument file: {error}"))?;
+    arguments
+        .write_all(candid_arg)
+        .map_err(|error| format!("write ICP argument file: {error}"))?;
+    let output = build_command(arguments.path())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

@@ -1,8 +1,11 @@
-use crate::types::{
-    Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
-    Timestamp, U256, Ulid,
+use crate::{
+    codec::hex::encode_hex_lower,
+    types::{
+        Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
+        Timestamp, U256, Ulid,
+    },
+    value::Value,
 };
-use crate::value::Value;
 use candid::CandidType;
 use serde::Deserialize;
 
@@ -246,17 +249,6 @@ impl PublicEnumValue {
 fn render_blob_value(bytes: &[u8]) -> String {
     let mut rendered = String::from("0x");
     rendered.push_str(encode_hex_lower(bytes).as_str());
-    rendered
-}
-
-fn encode_hex_lower(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-
-    let mut rendered = String::with_capacity(bytes.len().saturating_mul(2));
-    for byte in bytes {
-        rendered.push(char::from(HEX[usize::from(byte >> 4)]));
-        rendered.push(char::from(HEX[usize::from(byte & 0x0f)]));
-    }
     rendered
 }
 

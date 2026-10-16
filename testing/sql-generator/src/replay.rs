@@ -3,10 +3,13 @@
 //! Does not own: mismatch discovery, product execution, or shrink candidate policy.
 //! Boundary: serializes the current generator format only and rejects stale/non-canonical input.
 
+mod codec;
+
 use crate::{GeneratedSelectCase, SelectFeature, SqlGeneratorError, SqlGeneratorErrorKind};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
 use std::collections::BTreeSet;
+
+pub(crate) use codec::{decode_replay_json, encode_bounded_replay};
 
 /// Current hard-cut canonical SELECT replay format.
 pub const SELECT_REPLAY_FORMAT_VERSION: u32 = 1;
@@ -430,24 +433,11 @@ impl SelectReplayRecord {
     /// record's artifact-size budget fails.
     pub fn to_canonical_json(&self) -> Result<Vec<u8>, SqlGeneratorError> {
         self.validate()?;
-        let bytes = canonical_json_bytes(self)?;
-        let byte_count = u32::try_from(bytes.len()).map_err(|_| {
-            SqlGeneratorError::new(
-                SqlGeneratorErrorKind::Budget,
-                "canonical SELECT replay exceeds u32 byte accounting",
-            )
-        })?;
-        if byte_count > self.original_case.budgets().max_artifact_bytes() {
-            return Err(SqlGeneratorError::new(
-                SqlGeneratorErrorKind::Budget,
-                format!(
-                    "canonical SELECT replay has {byte_count} bytes, exceeding its {}-byte budget",
-                    self.original_case.budgets().max_artifact_bytes(),
-                ),
-            ));
-        }
-
-        Ok(bytes)
+        encode_bounded_replay(
+            self,
+            self.original_case.budgets().max_artifact_bytes(),
+            "SELECT",
+        )
     }
 
     /// Decode exactly one canonical current-version replay record.
@@ -457,13 +447,7 @@ impl SelectReplayRecord {
     /// Returns a typed replay error for malformed JSON, unknown versions,
     /// non-canonical bytes, stale fingerprints, invalid cases, or exceeded bounds.
     pub fn from_canonical_json(bytes: &[u8]) -> Result<Self, SqlGeneratorError> {
-        let record = serde_json::from_slice::<Self>(bytes).map_err(|source| {
-            SqlGeneratorError::with_json_source(
-                SqlGeneratorErrorKind::CanonicalReplay,
-                "failed to decode canonical SELECT replay",
-                source,
-            )
-        })?;
+        let record: Self = decode_replay_json(bytes, "SELECT")?;
         if record.format_version != SELECT_REPLAY_FORMAT_VERSION {
             return Err(SqlGeneratorError::new(
                 SqlGeneratorErrorKind::CanonicalReplay,
@@ -474,7 +458,11 @@ impl SelectReplayRecord {
             ));
         }
         record.validate()?;
-        let canonical = record.to_canonical_json()?;
+        let canonical = encode_bounded_replay(
+            &record,
+            record.original_case.budgets().max_artifact_bytes(),
+            "SELECT",
+        )?;
         if canonical != bytes {
             return Err(SqlGeneratorError::new(
                 SqlGeneratorErrorKind::CanonicalReplay,
@@ -533,35 +521,19 @@ pub(crate) fn canonical_json_bytes<T>(value: &T) -> Result<Vec<u8>, SqlGenerator
 where
     T: Serialize + ?Sized,
 {
-    let value = serde_json::to_value(value).map_err(|source| {
+    let mut value = serde_json::to_value(value).map_err(|source| {
         SqlGeneratorError::with_json_source(
             SqlGeneratorErrorKind::Serialization,
             "failed to materialize canonical SQL JSON",
             source,
         )
     })?;
-    let canonical = canonicalize_value(value);
-    serde_json::to_vec(&canonical).map_err(|source| {
+    value.sort_all_objects();
+    serde_json::to_vec(&value).map_err(|source| {
         SqlGeneratorError::with_json_source(
             SqlGeneratorErrorKind::Serialization,
             "failed to encode canonical SQL JSON",
             source,
         )
     })
-}
-
-fn canonicalize_value(value: Value) -> Value {
-    match value {
-        Value::Array(values) => Value::Array(values.into_iter().map(canonicalize_value).collect()),
-        Value::Object(values) => {
-            let mut sorted = values.into_iter().collect::<Vec<_>>();
-            sorted.sort_by(|left, right| left.0.cmp(&right.0));
-            let canonical = sorted
-                .into_iter()
-                .map(|(key, value)| (key, canonicalize_value(value)))
-                .collect::<Map<_, _>>();
-            Value::Object(canonical)
-        }
-        scalar => scalar,
-    }
 }

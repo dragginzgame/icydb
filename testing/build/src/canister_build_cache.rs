@@ -11,20 +11,21 @@ use std::{
     collections::BTreeSet,
     env,
     ffi::{OsStr, OsString},
+    fmt::Write as _,
     io::{self, Write as _},
     path::Path,
     time::Duration,
 };
 
 use ic_build::artifacts::{
-    ArtifactCacheBatchReport, ArtifactCacheOutcome, ArtifactCachePreparation,
+    ArtifactCacheBatchFailure, ArtifactCacheBatchReport, ArtifactCacheOutcome,
     ArtifactCachePrunePolicy, ArtifactCacheSpec, LabeledArtifactCacheSpec, LabeledWasmBuildSpec,
     SharedIncrementalTargetMaintenanceConfig, SharedIncrementalTargetMaintenanceFailureMode,
     SharedIncrementalTargetPrunePolicy, WasmBuildBatchConfig, WasmBuildBatchContractError,
     WasmBuildBatchProgressEvent, WasmBuildBatchReport, WasmBuildOutcome, WasmBuildProgressConfig,
     WasmBuildProgressEvent, WasmBuildSpec, build_artifact_caches_batch,
     build_wasm_canisters_cached_batch_with_config_and_progress,
-    build_wasm_canisters_cached_with_progress, prepare_artifact_cache,
+    build_wasm_canisters_cached_with_progress,
 };
 
 const CACHE_TRACE_ENV: &str = "ICYDB_CANISTER_CACHE_TRACE";
@@ -52,7 +53,6 @@ pub(crate) struct CargoWasmCacheRequest<'a> {
     pub(crate) workspace_root: &'a Path,
     pub(crate) target_dir: &'a Path,
     pub(crate) packages: &'a [&'a str],
-    pub(crate) profile_target_dir: &'a str,
     pub(crate) arguments: &'a [OsString],
     pub(crate) encoded_rustflags: Option<&'a str>,
 }
@@ -85,7 +85,6 @@ pub(crate) fn build_cached_cargo_wasm(
         request.workspace_root,
         request.target_dir,
         request.packages,
-        request.profile_target_dir,
         request.arguments,
         request.encoded_rustflags,
         true,
@@ -103,7 +102,6 @@ pub(crate) fn build_cached_cargo_wasm(
 pub(crate) fn cargo_wasm_batch_specs(
     workspace_root: &Path,
     target_dir: &Path,
-    profile_target_dir: &str,
     entries: &[CargoWasmBatchEntry<'_>],
 ) -> Vec<LabeledWasmBuildSpec> {
     entries
@@ -115,7 +113,6 @@ pub(crate) fn cargo_wasm_batch_specs(
                     workspace_root,
                     target_dir,
                     &[entry.package],
-                    profile_target_dir,
                     entry.arguments,
                     entry.encoded_rustflags,
                     false,
@@ -148,12 +145,11 @@ fn cargo_wasm_spec(
     workspace_root: &Path,
     target_dir: &Path,
     packages: &[&str],
-    profile_target_dir: &str,
     arguments: &[OsString],
     encoded_rustflags: Option<&str>,
     integrated_shared_target_maintenance: bool,
 ) -> WasmBuildSpec {
-    let mut spec = WasmBuildSpec::new(workspace_root, target_dir, packages, profile_target_dir)
+    let mut spec = WasmBuildSpec::new(workspace_root, target_dir, packages)
         .with_cargo_profile_args(arguments)
         .with_inherited_env(inherited_build_environment())
         .with_shared_incremental_target(target_dir)
@@ -175,26 +171,54 @@ fn cargo_wasm_spec(
 pub(crate) fn cache_post_link_wasm(
     request: &PostLinkCacheRequest<'_>,
 ) -> Result<ArtifactCacheOutcome, String> {
-    let optimizer = pinned_wasm_optimizer()?;
-    let spec = post_link_cache_spec(request, optimizer.path());
-
-    match prepare_artifact_cache(&spec)
-        .map_err(|error| format!("post-link artifact cache failed: {error}"))?
-    {
-        ArtifactCachePreparation::Reused(record) => Ok(ArtifactCacheOutcome::Reused(record)),
-        ArtifactCachePreparation::Build(transaction) => {
-            let output = transaction
-                .output_path("final-deployable")
-                .map_err(|error| format!("post-link artifact cache failed: {error}"))?;
-            optimize_deployable_wasm_with_optimizer(request.compiler_emitted, &output, &optimizer)?;
-            transaction
-                .commit()
-                .map_err(|error| format!("post-link artifact cache failed: {error}"))
+    let report = cache_post_link_wasm_entries(
+        request.workspace_root,
+        request.cache_root,
+        &[PostLinkBatchEntry {
+            context: request.coordination_scope,
+            compiler_emitted: request.compiler_emitted,
+            final_deployable: request.final_deployable,
+        }],
+    )?;
+    let entry = report
+        .into_entries()
+        .pop()
+        .ok_or_else(|| "post-link artifact batch omitted its single entry".to_owned())?;
+    entry.into_parts().2.map_err(|failure| match failure {
+        ArtifactCacheBatchFailure::Cache { source, .. } => {
+            format!("post-link artifact cache failed: {source}")
         }
-    }
+        ArtifactCacheBatchFailure::Build {
+            source,
+            cleanup_error,
+            ..
+        } => {
+            let mut message = *source;
+            if let Some(cleanup) = cleanup_error {
+                let _ = write!(message, "\npost-link artifact cleanup: {cleanup}");
+            }
+            message
+        }
+    })
 }
 
 pub(crate) fn cache_post_link_wasm_batch(
+    workspace_root: &Path,
+    cache_root: &Path,
+    entries: &[PostLinkBatchEntry<'_>],
+) -> Result<ArtifactCacheBatchReport<String>, String> {
+    let report = cache_post_link_wasm_entries(workspace_root, cache_root, entries)?;
+
+    for outcome in report.outcomes() {
+        trace_post_link(outcome.label(), outcome.outcome());
+    }
+    eprintln!("maintained canister post_link_batch={report}");
+
+    Ok(report)
+}
+
+// One transaction engine owns cache reuse, producer abort and commit for both lanes.
+fn cache_post_link_wasm_entries(
     workspace_root: &Path,
     cache_root: &Path,
     entries: &[PostLinkBatchEntry<'_>],
@@ -230,11 +254,6 @@ pub(crate) fn cache_post_link_wasm_batch(
         optimize_deployable_wasm_with_optimizer(entry.compiler_emitted, &output, &optimizer)
     })
     .map_err(|error| format!("post-link artifact batch contract failed: {error}"))?;
-
-    for outcome in report.outcomes() {
-        trace_post_link(outcome.label(), outcome.outcome());
-    }
-    eprintln!("maintained canister post_link_batch={report}");
 
     Ok(report)
 }
@@ -366,11 +385,12 @@ mod tests {
     use super::{
         ArtifactCacheOutcome, BUILD_PROGRESS_HEARTBEAT_INTERVAL, CACHE_MAINTENANCE_INTERVAL,
         CACHE_MAX_AGE, CACHE_MAX_BYTES, CargoWasmBatchEntry, CargoWasmCacheRequest,
-        EXTRA_BUILD_ENVIRONMENT, PostLinkBatchEntry, SHARED_INCREMENTAL_TARGET_MAX_BYTES,
-        SharedIncrementalTargetMaintenanceFailureMode, artifact_cache_prune_policy,
-        build_cached_cargo_wasm, build_cached_cargo_wasm_batch, cache_post_link_wasm_batch,
-        cargo_wasm_batch_specs, relevant_prefixed_environment,
-        shared_incremental_target_maintenance_config, wasm_build_progress_config,
+        EXTRA_BUILD_ENVIRONMENT, PostLinkBatchEntry, PostLinkCacheRequest,
+        SHARED_INCREMENTAL_TARGET_MAX_BYTES, SharedIncrementalTargetMaintenanceFailureMode,
+        artifact_cache_prune_policy, build_cached_cargo_wasm, build_cached_cargo_wasm_batch,
+        cache_post_link_wasm, cache_post_link_wasm_batch, cargo_wasm_batch_specs,
+        relevant_prefixed_environment, shared_incremental_target_maintenance_config,
+        wasm_build_progress_config,
     };
 
     fn workspace_root() -> PathBuf {
@@ -426,7 +446,6 @@ mod tests {
             workspace_root: &root,
             target_dir: &target,
             packages: &["cache_flags_probe"],
-            profile_target_dir: "debug",
             arguments: &[],
             encoded_rustflags: Some(&flags),
         })
@@ -434,7 +453,6 @@ mod tests {
         let specs = cargo_wasm_batch_specs(
             &root,
             &target,
-            "debug",
             &[
                 CargoWasmBatchEntry {
                     context: "flags-same",
@@ -516,6 +534,50 @@ mod tests {
             Some(BUILD_PROGRESS_HEARTBEAT_INTERVAL)
         );
         assert!(!config.emits_cargo_output());
+    }
+
+    #[test]
+    fn single_post_link_reuses_batch_identity_and_preserves_output_on_failure() {
+        let root = ic_host_fs::testing::create_fixture_directory(
+            &env::temp_dir(),
+            "icydb single post-link",
+        )
+        .unwrap();
+        let input = root.join("input.wasm");
+        let output = root.join("output.wasm");
+        let cache = root.join("cache");
+        let workspace = workspace_root();
+        fs::write(&input, b"\0asm\x01\0\0\0").unwrap();
+        let entries = [PostLinkBatchEntry {
+            context: "same post-link recipe",
+            compiler_emitted: &input,
+            final_deployable: &output,
+        }];
+        let batch = cache_post_link_wasm_batch(&workspace, &cache, &entries).unwrap();
+        let request = PostLinkCacheRequest {
+            workspace_root: &workspace,
+            cache_root: &cache,
+            coordination_scope: entries[0].context,
+            compiler_emitted: &input,
+            final_deployable: &output,
+        };
+        let single = cache_post_link_wasm(&request).unwrap();
+        assert!(single.is_reused());
+        assert_eq!(
+            single.record().key(),
+            batch.outcomes().next().unwrap().outcome().record().key()
+        );
+        fs::write(&input, b"invalid wasm").unwrap();
+        assert!(cache_post_link_wasm(&request).is_err());
+        assert_eq!(fs::read(&output).unwrap(), b"\0asm\x01\0\0\0");
+        drop(batch);
+        fs::remove_file(&output).unwrap();
+        assert_eq!(
+            fs::read(single.record().artifacts()[0].path()).unwrap(),
+            b"\0asm\x01\0\0\0"
+        );
+        drop(single);
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

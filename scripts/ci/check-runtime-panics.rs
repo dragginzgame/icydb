@@ -1,5 +1,5 @@
-//! Development-only structural check for IcyDB's critical runtime source roots.
-//! The shell gate owns discovery; Syn owns Rust syntax and test-item boundaries.
+// Development-only structural check for caller-selected Rust source files.
+// Consumers own source discovery and policy scope; Syn owns item boundaries.
 
 use std::{env, fs, process::ExitCode};
 
@@ -233,9 +233,7 @@ fn main() -> ExitCode {
         }
     }
     if failed {
-        eprintln!(
-            "Production executor, commit, journal and startup code must return typed errors instead of panicking."
-        );
+        eprintln!("Selected production source must return typed errors instead of panicking.");
         ExitCode::FAILURE
     } else {
         ExitCode::SUCCESS

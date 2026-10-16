@@ -3,6 +3,7 @@
 //! Does not own: activation semantics, row mutation, or final structural publication.
 //! Boundary: binds one schema-owned Forward/Verify job to an exact activation.
 
+use crate::db::codec::BoundedByteWriter;
 use crate::{
     db::{
         data::{DecodedDataStoreKey, RawDataStoreKey},
@@ -14,7 +15,7 @@ use crate::{
             MAX_ACCEPTED_TARGET_PATH_COMPONENTS,
             composite_catalog::{CompositeFieldId, CompositeTypeId},
             enum_catalog::{EnumTypeId, EnumVariantId},
-            wire::{SchemaWireReader, SchemaWireWriter},
+            wire::SchemaWireReader,
         },
     },
     error::InternalError,
@@ -43,7 +44,7 @@ const MAX_CONSTRAINT_VALIDATION_STORE_REVISIONS: usize = 16;
 const MAX_CONSTRAINT_VALIDATION_FINDINGS_PER_RECEIPT: usize = 64;
 const MAX_CONSTRAINT_VALIDATION_FINDING_FIELDS: usize = 32;
 
-type ConstraintValidationJobWriter = SchemaWireWriter<
+type ConstraintValidationJobWriter = BoundedByteWriter<
     { MAX_CONSTRAINT_VALIDATION_JOB_BYTES - CONSTRAINT_VALIDATION_JOB_CHECKSUM_BYTES },
 >;
 type ConstraintValidationJobReader<'a> = SchemaWireReader<'a>;

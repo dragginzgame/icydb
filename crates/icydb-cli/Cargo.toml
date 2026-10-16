@@ -24,6 +24,7 @@ icydb-schema = { workspace = true }
 rustyline = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+tempfile = { workspace = true }
 
 [dev-dependencies]
 ic-host-fs = { workspace = true, features = ["test-support"] }

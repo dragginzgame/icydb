@@ -5,7 +5,7 @@
 
 use crate::{
     GeneratedSelectCase, SelectMismatchSignature, SelectObservedOutcome, SelectReplayRecord,
-    SqlGeneratorError,
+    SqlGeneratorError, minimize::minimize,
 };
 
 ///
@@ -109,46 +109,22 @@ where
     signature.validate()?;
 
     let budgets = original_case.budgets();
-    let mut minimized_case = original_case.clone();
-    let mut shrink_candidates_attempted = 0_u32;
-    let mut evaluations = 0_u32;
+    let (minimized_case, minimization_complete, evaluations) = minimize(
+        original_case,
+        budgets.max_shrink_candidates(),
+        budgets.max_evaluations(),
+        shrink_candidates,
+        |candidate| Ok(evaluate(candidate)?.as_ref() == Some(signature)),
+    )?;
 
-    loop {
-        let candidates = shrink_candidates(&minimized_case);
-        let mut accepted_candidate = None;
-        for candidate in candidates {
-            if shrink_candidates_attempted >= budgets.max_shrink_candidates()
-                || evaluations >= budgets.max_evaluations()
-            {
-                return Ok(SelectShrinkReport {
-                    original_case: original_case.clone(),
-                    minimized_case,
-                    signature: signature.clone(),
-                    minimization_complete: false,
-                    shrink_candidates_attempted,
-                    evaluations,
-                });
-            }
-            shrink_candidates_attempted = shrink_candidates_attempted.saturating_add(1);
-            evaluations = evaluations.saturating_add(1);
-            if evaluate(&candidate)?.as_ref() == Some(signature) {
-                accepted_candidate = Some(candidate);
-                break;
-            }
-        }
-
-        let Some(candidate) = accepted_candidate else {
-            return Ok(SelectShrinkReport {
-                original_case: original_case.clone(),
-                minimized_case,
-                signature: signature.clone(),
-                minimization_complete: true,
-                shrink_candidates_attempted,
-                evaluations,
-            });
-        };
-        minimized_case = candidate;
-    }
+    Ok(SelectShrinkReport {
+        original_case: original_case.clone(),
+        minimized_case,
+        signature: signature.clone(),
+        minimization_complete,
+        shrink_candidates_attempted: evaluations,
+        evaluations,
+    })
 }
 
 fn shrink_candidates(case: &GeneratedSelectCase) -> Vec<GeneratedSelectCase> {

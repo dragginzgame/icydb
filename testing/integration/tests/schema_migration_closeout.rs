@@ -17,7 +17,7 @@ use icydb::{
     },
     value::OutputValue,
 };
-use icydb_testing_build::build_schema_migration_fixture_wasms;
+use icydb_testing_integration::fixture_variants::build_schema_migration_fixture_wasms;
 use icydb_testing_integration::{
     deliver_fixture_startup_watchdog, install_prebuilt_fixture_canister,
 };

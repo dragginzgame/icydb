@@ -10,10 +10,10 @@ use std::{
     time::Duration,
 };
 
-use ic_host_fs::durable::{NamedWriteError, write_named_with};
+use ic_host_fs::durable::{NamedWriteError, PublicationMode, WriteOptions, write_named_with};
 use ic_host_process::tool::{
-    AdmittedTool, CompletedExecution, ExecutionContext, OutputLimit, OutputLimits, ToolError,
-    ToolSpec, resolve_executable,
+    AdmittedTool, CompletedExecution, ExecutionContext, OutputLimit, OutputLimits, VersionSpec,
+    format_failure_evidence, resolve_executable,
 };
 
 /// Environment variable that may point at the pinned `wasm-opt` executable.
@@ -110,22 +110,22 @@ pub fn admit_wasm_optimizer(requested: &Path, current_dir: &Path) -> Result<Admi
     // admitted handle carries pin authority into every batch transform.
     let environment = env::vars_os().collect::<Vec<_>>();
     AdmittedTool::admit(
-        &ToolSpec {
+        &VersionSpec {
             executable: &executable,
-            sha256: wasm_opt_sha256()?
-                .parse()
-                .map_err(|error| format!("invalid pinned optimizer digest: {error}"))?,
             executable_bytes: u64::MAX,
             version_arguments: &[OsString::from("--version")],
             version_identity: WASM_OPT_VERSION,
         },
+        wasm_opt_sha256()?
+            .parse()
+            .map_err(|error| format!("invalid pinned optimizer digest: {error}"))?,
         &ExecutionContext {
             current_dir,
             environment: &environment,
         },
         OPTIMIZER_OUTPUT_LIMITS,
     )
-    .map_err(|error| format_tool_failure("pinned wasm optimizer admission", &error))
+    .map_err(|error| format_failure_evidence("pinned wasm optimizer admission", &error))
 }
 
 /// Run an admitted optimizer with the pipeline's inherited environment and bounds.
@@ -151,7 +151,7 @@ pub fn run_wasm_optimizer(
             OPTIMIZER_OUTPUT_LIMITS,
         )
         .and_then(CompletedExecution::require_success)
-        .map_err(|error| format_tool_failure(operation, &error))
+        .map_err(|error| format_failure_evidence(operation, &error))
 }
 
 /// Transform compiler-emitted Wasm into the sole final deployable artifact.
@@ -174,28 +174,35 @@ pub(crate) fn optimize_deployable_wasm_with_optimizer(
     }
     let current_dir = env::current_dir()
         .map_err(|error| format!("failed to resolve optimizer working directory: {error}"))?;
-    write_named_with(output, |stage| {
-        let arguments = std::iter::once(input.as_os_str().to_owned())
-            .chain(WASM_OPT_FLAGS.map(OsString::from))
-            .chain([OsString::from("-o"), stage.as_os_str().to_owned()])
-            .collect::<Vec<_>>();
-        run_wasm_optimizer(
-            optimizer,
-            &arguments,
-            &current_dir,
-            "canonical wasm optimization",
-        )?;
-        // Staging is precreated by the shared owner. Check bounded Wasm framing
-        // before admitting publication; existence alone proves no producer work.
-        let mut header = [0; 8];
-        fs::File::open(stage)
-            .and_then(|mut file| file.read_exact(&mut header))
-            .map_err(|error| format!("read optimized Wasm header: {error}"))?;
-        if header != *b"\0asm\x01\0\0\0" {
-            return Err("canonical wasm optimizer produced an invalid Wasm header".to_string());
-        }
-        Ok(())
-    })
+    write_named_with(
+        output,
+        WriteOptions {
+            mode: PublicationMode::Replace,
+            permissions: 0o666,
+        },
+        |stage| {
+            let arguments = std::iter::once(input.as_os_str().to_owned())
+                .chain(WASM_OPT_FLAGS.map(OsString::from))
+                .chain([OsString::from("-o"), stage.as_os_str().to_owned()])
+                .collect::<Vec<_>>();
+            run_wasm_optimizer(
+                optimizer,
+                &arguments,
+                &current_dir,
+                "canonical wasm optimization",
+            )?;
+            // Staging is precreated by the shared owner. Check bounded Wasm framing
+            // before admitting publication; existence alone proves no producer work.
+            let mut header = [0; 8];
+            fs::File::open(stage)
+                .and_then(|mut file| file.read_exact(&mut header))
+                .map_err(|error| format!("read optimized Wasm header: {error}"))?;
+            if header != *b"\0asm\x01\0\0\0" {
+                return Err("canonical wasm optimizer produced an invalid Wasm header".to_string());
+            }
+            Ok(())
+        },
+    )
     .map_err(|error| match error {
         NamedWriteError::Producer {
             source,
@@ -227,90 +234,16 @@ pub(crate) fn optimize_deployable_wasm_with_optimizer(
     })
 }
 
-/// Format bounded process output and cleanup evidence with IcyDB's context.
-///
-/// Shared error display omits captured bytes; callers use this projection when
-/// their diagnostic contract needs the original status, streams and cleanup errors.
-#[must_use]
-pub fn format_tool_failure(context: &str, error: &ToolError) -> String {
-    let mut message = format!("{context}: {error}");
-    if let Some(evidence) = error.evidence() {
-        let _ = write!(
-            message,
-            "\nstatus: {:?}\nstdout:\n{}\nstderr:\n{}",
-            evidence.status,
-            String::from_utf8_lossy(&evidence.stdout).trim_end(),
-            String::from_utf8_lossy(&evidence.stderr).trim_end(),
-        );
-    }
-    if let Some(cleanup) = error
-        .execution_error()
-        .and_then(|failure| failure.cleanup.as_ref())
-    {
-        let _ = write!(message, "\ncleanup: {cleanup}");
-    }
-    message
-}
-
 ///
 /// TESTS
 ///
 
 #[cfg(test)]
 mod tests {
-    use ic_host_process::{
-        child::CleanupError,
-        tool::{ExecutionError, ExecutionEvidence, ExecutionFailure, ToolError},
-    };
-    use std::io;
-
     use super::{
         POST_LINK_PIPELINE_IDENTITY, WASM_OPT_FLAGS, WASM_OPT_OUTPUT_FEATURES, WASM_OPT_VERSION,
-        format_tool_failure, optimize_deployable_wasm_with_optimizer, pinned_wasm_optimizer,
-        wasm_opt_sha256,
+        optimize_deployable_wasm_with_optimizer, pinned_wasm_optimizer, wasm_opt_sha256,
     };
-
-    #[test]
-    fn failure_projection_retains_each_cleanup_error_and_original_evidence() {
-        for field in 0..4 {
-            let mut failure = ExecutionError {
-                failure: ExecutionFailure::Cancelled,
-                evidence: ExecutionEvidence {
-                    status: None,
-                    stdout: b"retained stdout\n".to_vec(),
-                    stderr: b"retained stderr\n".to_vec(),
-                    ..ExecutionEvidence::default()
-                },
-                cleanup: None,
-            };
-            let mut cleanup = CleanupError {
-                status: None,
-                term_error: None,
-                group_error: None,
-                kill_error: None,
-                wait_error: None,
-            };
-            let cause = io::Error::from(io::ErrorKind::PermissionDenied);
-            match field {
-                0 => cleanup.term_error = Some(cause),
-                1 => cleanup.group_error = Some(cause),
-                2 => cleanup.kill_error = Some(cause),
-                _ => cleanup.wait_error = Some(cause),
-            }
-            failure.cleanup = Some(Box::new(cleanup));
-            // Check the diagnostic projection, deriving error display from its
-            // typed owner rather than freezing platform-dependent error prose.
-            let expected = format!(
-                "fixture: {failure}\nstatus: {:?}\nstdout:\nretained stdout\nstderr:\nretained stderr\ncleanup: {}",
-                failure.evidence.status,
-                failure.cleanup.as_ref().unwrap(),
-            );
-            assert_eq!(
-                format_tool_failure("fixture", &ToolError::Execution(Box::new(failure))),
-                expected,
-            );
-        }
-    }
 
     #[test]
     fn post_link_optimizer_contract_is_exact_and_available() {

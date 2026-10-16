@@ -11,6 +11,7 @@ use super::{
     encode_accepted_enum_catalog,
     equality_key::{EqualityCapability, enum_equality_capability},
 };
+use crate::db::codec::BoundedByteWriter;
 use crate::db::schema::composite_catalog::{
     AcceptedCompositeCatalog, AcceptedCompositeElement, AcceptedCompositeShape, CompositeTypeId,
     decode_accepted_composite_catalog, encode_accepted_composite_catalog,
@@ -31,7 +32,7 @@ use crate::{
             decode_persisted_schema_snapshot, encode_accepted_source_bindings,
             encode_persisted_schema_snapshot, validate_accepted_targeted_rules,
             validate_query_projections, validate_schema_snapshot_acceptance,
-            wire::{SchemaWireReader, SchemaWireWriter},
+            wire::SchemaWireReader,
         },
     },
     error::InternalError,
@@ -51,7 +52,7 @@ const ACCEPTED_SCHEMA_ROOT_CHECKSUM_OFFSET: usize = ACCEPTED_SCHEMA_ROOT_BYTES -
 const ACCEPTED_SCHEMA_FINGERPRINT_PROFILE: &[u8] = b"icydb.accepted-schema.semantic.v1";
 pub(in crate::db::schema) const MAX_ACCEPTED_SCHEMA_BUNDLE_BYTES: usize = 16 * 1024 * 1024;
 pub(in crate::db::schema) const MAX_SCHEMA_STORE_PATH_BYTES: usize = 4 * 1024;
-type BundleWriter = SchemaWireWriter<MAX_ACCEPTED_SCHEMA_BUNDLE_BYTES>;
+type BundleWriter = BoundedByteWriter<MAX_ACCEPTED_SCHEMA_BUNDLE_BYTES>;
 type BundleReader<'a> = SchemaWireReader<'a>;
 
 /// Monotonic publication identity for one store-local accepted schema.

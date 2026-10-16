@@ -22,6 +22,7 @@ pub use ic_memory::{
     MemoryAllocationPool, MemoryAllocationPoolError, MemoryAuthority, MemoryDeclarationError,
     MemoryRequest, SchemaMetadata, SealedDeclarationSnapshot,
 };
+pub use icydb_core::db::encode_hex_lower;
 pub use icydb_core::db::{
     CompareProofAndAdvanceError, DynamicQuery, ExactBacklogMeasurement, ExhaustiveQueryPageOutput,
     GroupedQueryOutput, GroupedRow, LiveQueryPageOutput, MAX_MUTATION_JOB_CONTINUATION_BYTES,

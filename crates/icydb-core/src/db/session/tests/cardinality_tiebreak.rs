@@ -585,7 +585,7 @@ fn grouped_decimal_cursor_resumes_canonical_scalar_and_collection_keys() {
     use crate::{db::count, types::Decimal, value::PublicValue};
 
     for collection in [false, true] {
-        std::thread::spawn(move || {
+        crate::testing::run_isolated(move || {
             let session = initialize();
             let decimal = AcceptedFieldKind::Decimal { scale: 2 };
             let kind = if collection {
@@ -676,9 +676,7 @@ fn grouped_decimal_cursor_resumes_canonical_scalar_and_collection_keys() {
                     assert_eq!(cursor.is_some(), index < 2);
                 }
             }
-        })
-        .join()
-        .unwrap();
+        });
     }
 }
 

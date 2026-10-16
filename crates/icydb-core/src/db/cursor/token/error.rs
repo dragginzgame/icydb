@@ -3,7 +3,7 @@
 //! Does not own: higher-level cursor validation or continuation policy.
 //! Boundary: local error surface for cursor token serialization helpers.
 
-use crate::db::codec::ByteDecodeError;
+use crate::db::codec::{ByteDecodeError, writer::ByteEncodeError};
 
 ///
 /// TokenWireError
@@ -31,5 +31,11 @@ impl TokenWireError {
 impl From<ByteDecodeError> for TokenWireError {
     fn from(_: ByteDecodeError) -> Self {
         Self::Decode
+    }
+}
+
+impl From<ByteEncodeError> for TokenWireError {
+    fn from(_: ByteEncodeError) -> Self {
+        Self::Encode
     }
 }

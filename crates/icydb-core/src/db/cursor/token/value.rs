@@ -4,17 +4,13 @@
 //! `Value` serialization.
 //! Boundary: scalar/grouped token codec -> value payload bytes.
 
+use crate::db::codec::writer::{
+    checked_len_u32, write_i64_be, write_i128_be, write_len_prefixed_bytes_be, write_string_be,
+    write_u32_be, write_u64_be, write_u128_be,
+};
+
 use crate::{
-    db::{
-        codec::ByteReader,
-        cursor::token::{
-            TokenWireError,
-            bytes::{
-                checked_len_u32, write_i64, write_i128, write_len_prefixed_bytes, write_string,
-                write_u32, write_u64, write_u128,
-            },
-        },
-    },
+    db::{codec::ByteReader, cursor::token::TokenWireError},
     types::{
         Account, AccountStorageCodec, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig,
         Principal, Subaccount, Timestamp, U256, Ulid,
@@ -88,7 +84,7 @@ fn write_value_slice_at_depth(
     values: &[Value],
     depth: usize,
 ) -> Result<(), TokenWireError> {
-    write_u32(out, checked_len_u32(values.len())?);
+    write_u32_be(out, checked_len_u32(values.len())?);
 
     for value in values {
         write_value_at_depth(out, value, depth)?;
@@ -146,7 +142,7 @@ fn write_value_at_depth(
         }
         Value::Blob(value) => {
             out.push(VALUE_BLOB);
-            write_len_prefixed_bytes(out, value.as_slice())
+            write_len_prefixed_bytes_be(out, value.as_slice()).map_err(TokenWireError::from)
         }
         Value::Bool(value) => {
             out.push(VALUE_BOOL);
@@ -165,7 +161,7 @@ fn write_value_at_depth(
         }
         Value::Duration(value) => {
             out.push(VALUE_DURATION);
-            write_u64(out, value.as_millis());
+            write_u64_be(out, value.as_millis());
             Ok(())
         }
         Value::Enum(value) => {
@@ -184,12 +180,12 @@ fn write_value_at_depth(
         }
         Value::Int64(value) => {
             out.push(VALUE_INT);
-            write_i64(out, *value);
+            write_i64_be(out, *value);
             Ok(())
         }
         Value::Int128(value) => {
             out.push(VALUE_INT128);
-            write_i128(out, *value);
+            write_i128_be(out, *value);
             Ok(())
         }
         Value::IntBig(value) => {
@@ -220,21 +216,21 @@ fn write_value_at_depth(
         }
         Value::Text(value) => {
             out.push(VALUE_TEXT);
-            write_string(out, value)
+            write_string_be(out, value).map_err(TokenWireError::from)
         }
         Value::Timestamp(value) => {
             out.push(VALUE_TIMESTAMP);
-            write_i64(out, value.as_millis());
+            write_i64_be(out, value.as_millis());
             Ok(())
         }
         Value::Nat64(value) => {
             out.push(VALUE_NAT);
-            write_u64(out, *value);
+            write_u64_be(out, *value);
             Ok(())
         }
         Value::Nat128(value) => {
             out.push(VALUE_NAT128);
-            write_u128(out, *value);
+            write_u128_be(out, *value);
             Ok(())
         }
         Value::NatBig(value) => {
@@ -270,7 +266,7 @@ fn write_account(out: &mut Vec<u8>, value: Account) -> Result<(), TokenWireError
 fn write_principal(out: &mut Vec<u8>, value: Principal) -> Result<(), TokenWireError> {
     let bytes = value.to_bytes().map_err(|_| TokenWireError::encode())?;
 
-    write_len_prefixed_bytes(out, bytes.as_slice())
+    write_len_prefixed_bytes_be(out, bytes.as_slice()).map_err(TokenWireError::from)
 }
 
 fn write_i32_days(out: &mut Vec<u8>, value: Date) {
@@ -279,7 +275,7 @@ fn write_i32_days(out: &mut Vec<u8>, value: Date) {
 
 fn write_decimal(out: &mut Vec<u8>, value: Decimal) {
     let decimal_parts = value.parts();
-    write_i128(out, decimal_parts.mantissa());
+    write_i128_be(out, decimal_parts.mantissa());
     // Valid Decimal scales are 0–28; the full mantissa remains unchanged.
     out.push(decimal_parts.scale().to_be_bytes()[3]);
 }
@@ -289,8 +285,8 @@ fn write_value_enum(
     value: &ValueEnum,
     depth: usize,
 ) -> Result<(), TokenWireError> {
-    write_u32(out, value.type_id().get());
-    write_u32(out, value.variant_id().get());
+    write_u32_be(out, value.type_id().get());
+    write_u32_be(out, value.variant_id().get());
     match value.body() {
         CanonicalEnumBody::Unit => out.push(0),
         CanonicalEnumBody::Payload(payload) => {
@@ -307,7 +303,7 @@ fn write_map_entries(
     entries: &[(Value, Value)],
     depth: usize,
 ) -> Result<(), TokenWireError> {
-    write_u32(out, checked_len_u32(entries.len())?);
+    write_u32_be(out, checked_len_u32(entries.len())?);
 
     for (key, value) in entries {
         write_value_at_depth(out, key, depth)?;
@@ -432,7 +428,7 @@ fn write_big_magnitude(
             1
         });
     }
-    write_u32(out, checked_len_u32(len)?);
+    write_u32_be(out, checked_len_u32(len)?);
     for digit in digits {
         out.extend_from_slice(&digit.to_le_bytes());
     }

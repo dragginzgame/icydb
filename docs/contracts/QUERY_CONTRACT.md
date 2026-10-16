@@ -303,17 +303,28 @@ metrics mode.
 
 ## Missing-Row Semantics (Explicit)
 
-Missing-row behavior is an explicit part of intent and must be preserved through
-planning and execution. It cannot depend on access-path choice.
+Missing-row behavior is an explicit part of intent. Planning and execution must
+also preserve the stronger row-presence claim made by an accepted secondary
+index.
 Missing-row refers to any referenced logical row that cannot be materialized
 from storage during execution.
 Consistency is currently defined solely in terms of missing-row policy.
 
 Required policy:
-- `MissingRowPolicy::Ignore`: missing rows are ignored and do not affect results.
+- `MissingRowPolicy::Ignore`: absent primary-key candidates are ignored and do
+  not affect results.
 - `MissingRowPolicy::Error`: missing rows are treated as corruption and surface an error.
 
 If a query intent does not specify this policy, it is invalid.
+
+When access selects an accepted secondary index, the effective policy is always
+`Error`: each emitted index key claims that its authoritative row exists.
+A missing referenced row is typed store corruption, including for an intent
+whose primary-key policy is `Ignore`. Covering reads, ordered DISTINCT group
+seek and retained-row execution preserve this same claim. They must not hide
+stale index entries by returning incomplete successful results. An absent exact
+primary-key candidate, including one in an OR branch, remains an ordinary
+missing candidate under `Ignore`.
 
 ## Planner Responsibilities
 
@@ -371,7 +382,8 @@ Planning:
 - Internal: planner bugs or violated planner invariants
 
 Execution:
-- Corruption: missing rows under Strict policy, index corruption,
+- Corruption: missing rows under `Error` policy or referenced by an accepted
+  secondary index, index corruption,
   malformed persisted bytes
 - Unsupported: only if the executor receives a plan that violates this contract
 - Internal: executor logic bugs
@@ -380,4 +392,5 @@ Execution:
 
 - Equivalent intents produce equivalent plans under the same schema.
 - Planning determinism is required for fingerprinting and diagnostics.
-- Access-path choice must not change query correctness or missing-row behavior.
+- Execution-route choice must preserve the effective missing-row policy,
+  including the row-presence claim of accepted secondary-index access.

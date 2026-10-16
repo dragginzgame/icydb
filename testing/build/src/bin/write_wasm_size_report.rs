@@ -16,6 +16,7 @@ use ic_host_artifacts::wasm::{ExportKind, InspectionLimits, WasmFacts, inspect};
 use ic_host_fs::read::hash_file;
 use ic_host_process::tool::{
     AdmittedTool, CompletedExecution, OutputLimit, OutputLimits, capture_command,
+    format_failure_evidence,
 };
 use ic_host_tools::interface::exported_methods;
 use ic_metrics::checked_scaled_ratio;
@@ -32,7 +33,7 @@ use icydb_testing_build::{
     },
     wasm_optimizer::{
         POST_LINK_PIPELINE_IDENTITY, WASM_OPT_FLAGS, WASM_OPT_OUTPUT_FEATURES,
-        admit_wasm_optimizer, format_tool_failure, run_wasm_optimizer,
+        admit_wasm_optimizer, run_wasm_optimizer,
     },
 };
 use serde::Serialize;
@@ -469,7 +470,7 @@ fn command_text(current_dir: &Path, program: &Path, args: &[&str]) -> Result<Str
         REPORT_OUTPUT_LIMITS,
     )
     .and_then(CompletedExecution::require_success)
-    .map_err(|error| format_tool_failure(&format!("run {}", program.display()), &error))?;
+    .map_err(|error| format_failure_evidence(&format!("run {}", program.display()), &error))?;
     String::from_utf8(output.stdout)
         .map(|text| text.trim().to_string())
         .map_err(|error| format!("{} emitted non-UTF-8 output: {error}", program.display()))
@@ -948,9 +949,10 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn report_capture_keeps_feature_and_metrics_parsing_for_spaced_artifact_paths() {
-        use ic_host_fs::durable::write_bytes;
-        use ic_host_process::tool::{AdmittedTool, ExecutionContext, VersionSpec};
-        use std::os::unix::fs::PermissionsExt;
+        use ic_host_process::{
+            testing::write_executable_script,
+            tool::{AdmittedTool, ExecutionContext, VersionSpec},
+        };
 
         let root =
             ic_host_fs::testing::create_fixture_directory(&env::temp_dir(), "icydb report capture")
@@ -962,9 +964,8 @@ mod tests {
         let script = format!(
             "#!/bin/sh\nif [ \"$1\" = --version ]; then echo fixture; exit 0; fi\n[ -f \"$1\" ] || exit 9\ncase \"$2\" in\n--metrics) [ \"$3\" = --all-features ] || exit 6; printf 'CallIndirect : 7\\n' >&2 ;;\n--enable-bulk-memory) [ \"$6\" = --print-features ] || exit 5; printf '%s\\n' '{features}' ;;\n*) exit 8 ;;\nesac\n"
         );
-        // Publish a closed, synchronized inode before native execution.
-        write_bytes(&tool, script.as_bytes()).unwrap();
-        fs::set_permissions(&tool, fs::Permissions::from_mode(0o700)).unwrap();
+        // Keep writable executable descriptors out of parallel parent forks.
+        write_executable_script(&tool, script.as_bytes()).unwrap();
         let selected_tool = fs::canonicalize(&tool).unwrap();
         let optimizer = AdmittedTool::admit_version(
             &VersionSpec {
@@ -996,8 +997,7 @@ mod tests {
         // rather than a malformed feature/metric response masking execution.
         let mut changed_tool = fs::read(&tool).unwrap();
         changed_tool.extend_from_slice(b"\n# changed executable identity\n");
-        write_bytes(&tool, &changed_tool).unwrap();
-        fs::set_permissions(&tool, fs::Permissions::from_mode(0o700)).unwrap();
+        write_executable_script(&tool, &changed_tool).unwrap();
         assert!(validate_final_wasm_features(&root, &optimizer, &wasm).is_err());
         assert!(wasm_call_indirect_count(&wasm, &optimizer).is_err());
         fs::remove_dir_all(root).unwrap();

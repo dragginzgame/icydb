@@ -6,6 +6,7 @@
 mod hash_stream;
 pub(in crate::db) mod hex;
 mod reader;
+pub(in crate::db) mod writer;
 
 use crate::{db::schema::RowLayoutVersion, error::InternalError};
 
@@ -15,6 +16,7 @@ pub(in crate::db) use hash_stream::{
 };
 
 pub(in crate::db) use reader::{ByteDecodeError, ByteReader};
+pub(in crate::db) use writer::BoundedByteWriter;
 
 /// Max serialized bytes for a single row (protocol-level limit).
 pub(crate) const MAX_ROW_BYTES: u32 = 4 * 1024 * 1024;

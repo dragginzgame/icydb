@@ -3,6 +3,7 @@
 //! Does not own: proposal lowering, accepted-schema publication, or activation advancement.
 //! Boundary: marker-owned exact record replacement -> shared schema-control namespace.
 
+use crate::db::codec::BoundedByteWriter;
 use crate::{
     db::{
         database_format::crc32c,
@@ -15,7 +16,7 @@ use crate::{
                 control_memory,
             },
             derive_schema_change_job_id,
-            wire::{SchemaWireReader, SchemaWireWriter},
+            wire::SchemaWireReader,
         },
     },
     error::InternalError,
@@ -38,7 +39,7 @@ const OUTCOME_PENDING_TAG: u8 = 3;
 const OUTCOME_ABORTED_TAG: u8 = 4;
 pub(super) const MAX_SCHEMA_APPLICATION_RECORDS: u64 = 64;
 const APPLICATION_RECORD_KEY_PROFILE: &[u8] = b"icydb.schema-application.record-key.v1";
-type ApplicationRecordWriter = SchemaWireWriter<
+type ApplicationRecordWriter = BoundedByteWriter<
     { MAX_SCHEMA_APPLICATION_RECORD_BYTES as usize - APPLICATION_RECORD_HEADER_BYTES },
 >;
 type ApplicationRecordReader<'a> = SchemaWireReader<'a>;

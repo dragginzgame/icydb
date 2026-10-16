@@ -49,7 +49,7 @@ fn sql_multiplication_reads_padded_decimal_fields() {
 #[test]
 fn sql_integral_decimal_literals_match_dynamic_comparisons_and_stored_writes() {
     for scale in [0, 8, 28] {
-        std::thread::spawn(move || {
+        crate::testing::run_isolated(move || {
             let session = initialize();
             publish_operand_schema(&session, AcceptedFieldKind::Decimal { scale });
             session
@@ -142,9 +142,7 @@ fn sql_integral_decimal_literals_match_dynamic_comparisons_and_stored_writes() {
                     }
                 }
             }
-        })
-        .join()
-        .unwrap();
+        });
     }
 }
 
@@ -183,7 +181,7 @@ fn sql_bare_wide_integers_match_typed_stored_writes_and_reads() {
             ],
         ),
     ] {
-        std::thread::spawn(move || {
+        crate::testing::run_isolated(move || {
             let session = initialize();
             publish_operand_schema(&session, kind);
             session
@@ -262,9 +260,7 @@ fn sql_bare_wide_integers_match_typed_stored_writes_and_reads() {
                     }
                 }
             }
-        })
-        .join()
-        .unwrap();
+        });
     }
 }
 
@@ -345,9 +341,7 @@ fn bound_scalar_families_match_structural_reads_of_stored_values() {
     for (kind, input) in cases {
         // Each accepted schema gets a fresh thread-local registry and cache,
         // rather than replacing storage beneath a retained runtime root.
-        std::thread::spawn(move || assert_stored_operand_parity(kind, input))
-            .join()
-            .expect("scalar parity case");
+        crate::testing::run_isolated(move || assert_stored_operand_parity(kind, input));
     }
 }
 
@@ -495,7 +489,7 @@ fn assert_stored_decimal_expression(
 ) {
     // Each accepted scale owns fresh storage; repeated requests qualify
     // cold/warm compiled plans without replacing a retained schema root.
-    std::thread::spawn(move || {
+    crate::testing::run_isolated(move || {
         let session = initialize();
         publish_operand_schema(&session, AcceptedFieldKind::Decimal { scale });
         session
@@ -526,9 +520,7 @@ fn assert_stored_decimal_expression(
                 Err(expected) => assert_eq!(result.unwrap_err().diagnostic_code(), expected),
             }
         }
-    })
-    .join()
-    .unwrap();
+    });
 }
 
 #[test]
@@ -575,7 +567,7 @@ fn sql_remainder_decimal_scale_alignment_preserves_stored_results() {
     ] {
         // Fresh accepted storage per scale; repeated requests cover cold/warm
         // plans while reading the maintained padded decimal field encoding.
-        std::thread::spawn(move || {
+        crate::testing::run_isolated(move || {
             let session = initialize();
             publish_operand_schema(&session, AcceptedFieldKind::Decimal { scale });
             session
@@ -617,9 +609,7 @@ fn sql_remainder_decimal_scale_alignment_preserves_stored_results() {
                 };
                 assert_eq!(rows, vec![vec![OutputValue::null(), OutputValue::null()]]);
             }
-        })
-        .join()
-        .unwrap();
+        });
     }
 }
 

@@ -119,7 +119,7 @@ fn sql_affine_integer_literals_match_scalar_grouped_and_update_routes() {
     ]);
     for (kind, first, second) in cases {
         // Each accepted schema owns fresh thread-local storage and runtime state.
-        std::thread::spawn(move || {
+        crate::testing::run_isolated(move || {
             let session = seed_scalar_pairs(kind, first, second);
             for (condition, ids) in [
                 ("left_value + 1 = 3", vec![1, 2, 5]),
@@ -137,9 +137,7 @@ fn sql_affine_integer_literals_match_scalar_grouped_and_update_routes() {
             ] {
                 assert_affine_route_rows(&session, condition, &ids);
             }
-        })
-        .join()
-        .expect("affine comparison case should pass");
+        });
     }
 }
 
@@ -165,12 +163,10 @@ fn sql_affine_integer_boundary_and_decimal_controls_preserve_rows() {
             "left_value + 0.5 = 2.75",
         ),
     ] {
-        std::thread::spawn(move || {
+        crate::testing::run_isolated(move || {
             let session = seed_scalar_pairs(kind, first, second);
             assert_affine_route_rows(&session, condition, &[1, 2, 5]);
-        })
-        .join()
-        .expect("affine boundary case should pass");
+        });
     }
 }
 
@@ -500,9 +496,7 @@ fn sql_issue_field_ordering_scalar_families_match_execution_lanes() {
     ] {
         // Each schema needs fresh thread-local authority, as in the maintained
         // multi-schema session fixtures.
-        std::thread::spawn(move || assert_scalar_column_ordering(kind, first, second))
-            .join()
-            .unwrap();
+        crate::testing::run_isolated(move || assert_scalar_column_ordering(kind, first, second));
     }
 }
 

@@ -5,8 +5,7 @@
 
 use crate::{
     db::{
-        QueryError,
-        codec::hex::encode_hex_lower,
+        QueryError, encode_hex_lower,
         query::plan::expr::{BinaryOp, Expr, FieldId, Function, UnaryOp},
         query::preparation::PreparationWork,
         schema::SchemaInfo,

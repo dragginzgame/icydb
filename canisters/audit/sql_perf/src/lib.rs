@@ -49,14 +49,20 @@ use icydb::{
     },
     value::InputValue,
 };
-#[cfg(feature = "test-admin-api")]
-use icydb_testing_audit_sql_perf_fixtures::sql_perf::PerfAuditCardinalityTie;
 #[cfg(feature = "sql")]
 use icydb_testing_audit_sql_perf_fixtures::sql_perf::{
     PerfAuditAccount, PerfAuditBlob, PerfAuditHeapUser, PerfAuditJournaledUser,
     PerfAuditMutationScoringState, PerfAuditMutationToken, PerfAuditRelationSource,
     PerfAuditRelationTarget, PerfAuditStreamingCompoundRow, PerfAuditStreamingRow, PerfAuditToken,
     PerfAuditUser,
+};
+#[cfg(feature = "test-admin-api")]
+use icydb_testing_audit_sql_perf_fixtures::{
+    contracts::{
+        AcceptedSchemaReadInstructionResult, ApplicationStartupHook, ApplicationStartupSnapshot,
+        SchemaApplicationPerfResult, StartupObservationPerfResult, StartupWatchdogPerfSnapshot,
+    },
+    sql_perf::PerfAuditCardinalityTie,
 };
 
 // The final host owns grants and exclusions; components request permanent keys.
@@ -146,51 +152,6 @@ struct ReadTotalOnlyPerfResult {
     instructions: u64,
 }
 
-/// Exact schema-application work observed inside one IC message.
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
-#[cfg(feature = "test-admin-api")]
-struct SchemaApplicationPerfResult {
-    local_instructions: u64,
-    reconcile_checks: u64,
-    first_create: u64,
-    exact_match: u64,
-}
-
-/// Pure startup-state work observed inside one IC query message.
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
-#[cfg(feature = "test-admin-api")]
-struct StartupObservationPerfResult {
-    state: icydb::db::DatabaseStartupState,
-    local_instructions: u64,
-}
-
-/// Accepted catalog read observed after startup has reopened schema authority.
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
-#[cfg(feature = "test-admin-api")]
-struct AcceptedSchemaReadInstructionResult {
-    description: EntitySchemaDescription,
-    local_instructions: u64,
-}
-
-/// Canonical instruction evidence recorded by the generated startup watchdog.
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
-#[cfg(feature = "test-admin-api")]
-struct StartupWatchdogPerfSnapshot {
-    scheduler_samples: u64,
-    scheduler_total_instructions: u128,
-    scheduler_maximum_instructions: Option<u64>,
-    work_samples: u64,
-    work_total_instructions: u128,
-    work_latest_instructions: Option<u64>,
-    work_maximum_instructions: Option<u64>,
-    work_started: u64,
-    work_completed: u64,
-    succeeded: u64,
-    no_work: u64,
-    retryable_failures: u64,
-    invariant_failures: u64,
-}
-
 /// Exact admitted debt and retryable pressure observed by the closeout fixture.
 #[derive(CandidType, Clone, Debug, Eq, PartialEq)]
 #[cfg(feature = "test-admin-api")]
@@ -222,28 +183,6 @@ struct ConvergenceCandidatePerfResult {
     remaining_effects: u32,
     checksum: u64,
     local_instructions: u64,
-}
-
-/// Application lifecycle entry that began the current readiness observation.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-#[cfg(feature = "test-admin-api")]
-enum ApplicationStartupHook {
-    Init,
-    PostUpgrade,
-}
-
-/// Application-owned readiness and restoration evidence.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-#[cfg(feature = "test-admin-api")]
-struct ApplicationStartupSnapshot {
-    hook: ApplicationStartupHook,
-    engine_registered_before_hook: bool,
-    observations: u32,
-    recovering_observations: u32,
-    ready_observations: u32,
-    restorations: u32,
-    retry_scheduled: bool,
-    failure: Option<icydb::db::StartupFailure>,
 }
 
 #[cfg(feature = "test-admin-api")]

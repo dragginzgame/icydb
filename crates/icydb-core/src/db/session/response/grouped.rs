@@ -7,7 +7,8 @@ use crate::db::cursor::encode_cursor;
 use crate::db::{
     GroupedRow, QueryError,
     executor::{RuntimeGroupedRow, StructuralGroupedProjectionResult},
-    schema::{AcceptedEnumCatalog, output_value_from_runtime},
+    schema::AcceptedEnumCatalog,
+    session::response::output_row_from_runtime,
 };
 
 /// Grouped rows and an optional encoded continuation.
@@ -21,18 +22,8 @@ fn grouped_row_from_runtime_row(
     row: RuntimeGroupedRow,
 ) -> Result<GroupedRow, QueryError> {
     let (group_key, aggregate_values) = row.into_group_key_and_aggregate_values();
-    let group_key = group_key
-        .into_iter()
-        .map(|value| {
-            output_value_from_runtime(catalog, value).map_err(|_error| QueryError::invariant())
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let aggregate_values = aggregate_values
-        .into_iter()
-        .map(|value| {
-            output_value_from_runtime(catalog, value).map_err(|_error| QueryError::invariant())
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let group_key = output_row_from_runtime(catalog, group_key)?;
+    let aggregate_values = output_row_from_runtime(catalog, aggregate_values)?;
 
     Ok(GroupedRow::new(group_key, aggregate_values))
 }

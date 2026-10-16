@@ -898,12 +898,16 @@ fn assert_group_seek_corruption(
     expectation: &str,
 ) {
     for direction in ["ASC", "DESC"] {
-        let sql =
-            format!("SELECT DISTINCT label FROM Singleton ORDER BY label {direction} LIMIT 1");
-        let error = session
-            .execute_trusted_sql_query(&sql)
-            .expect_err(expectation);
-        assert_corruption_origin(error, expected_origin);
+        // LIMIT admits the group seek; the unbounded control uses retained-row
+        // DISTINCT. Both must reject the same accepted-index corruption.
+        for window in [" LIMIT 1", ""] {
+            let sql =
+                format!("SELECT DISTINCT label FROM Singleton ORDER BY label {direction}{window}");
+            let error = session
+                .execute_trusted_sql_query(&sql)
+                .expect_err(expectation);
+            assert_corruption_origin(error, expected_origin);
+        }
     }
 }
 

@@ -12,7 +12,7 @@ use icydb::{
     },
     value::OutputValue,
 };
-use icydb_testing_build::build_entity_rename_fixture_wasms;
+use icydb_testing_integration::fixture_variants::build_entity_rename_fixture_wasms;
 use icydb_testing_integration::install_prebuilt_fixture_canister;
 use serde::Deserialize;
 

@@ -4,6 +4,7 @@
 //! Boundary: marker-owned accepted candidate -> bounded control-memory checkpoint -> recovery.
 
 #[cfg(any(test, feature = "migration"))]
+use crate::db::codec::BoundedByteWriter;
 use crate::db::schema::migration_record::SchemaMigrationRecordOp;
 use crate::{
     db::{
@@ -25,7 +26,7 @@ use crate::{
                 decode_identity_state, encode_identity_state, prepare_identity_state_transition,
             },
             migration_record::{SchemaMigrationRecord, decode_schema_migration_record},
-            wire::{SchemaWireReader, SchemaWireWriter},
+            wire::SchemaWireReader,
         },
     },
     error::InternalError,
@@ -59,7 +60,7 @@ const MAX_LIVE_SCHEMA_CHECKPOINT_BYTES: usize = CHECKPOINT_FIXED_BYTES
     + MAX_ACCEPTED_SCHEMA_BUNDLE_BYTES
     + ACCEPTED_SCHEMA_ROOT_BYTES
     + MAX_IDENTITY_STATE_RECORDS_PER_DATABASE * IDENTITY_STATE_RECORD_BYTES;
-type CheckpointWriter = SchemaWireWriter<MAX_LIVE_SCHEMA_CHECKPOINT_BYTES>;
+type CheckpointWriter = BoundedByteWriter<MAX_LIVE_SCHEMA_CHECKPOINT_BYTES>;
 type CheckpointReader<'a> = SchemaWireReader<'a>;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]

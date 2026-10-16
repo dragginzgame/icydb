@@ -16,7 +16,8 @@ use crate::{
                 expr::{Expr, ProjectionField, ProjectionSpec},
             },
         },
-        schema::{AcceptedSchemaSnapshot, AcceptedValueCatalogHandle, output_value_from_runtime},
+        schema::{AcceptedSchemaSnapshot, AcceptedValueCatalogHandle},
+        session::response::output_row_from_runtime,
     },
     traits::CanisterKind,
     value::{OutputValue, Value},
@@ -87,14 +88,7 @@ impl StructuralProjectionPayload {
         let rows = self
             .rows
             .into_iter()
-            .map(|row| {
-                row.into_iter()
-                    .map(|value| {
-                        output_value_from_runtime(catalog, value)
-                            .map_err(|_error| QueryError::invariant())
-                    })
-                    .collect::<Result<Vec<_>, _>>()
-            })
+            .map(|row| output_row_from_runtime(catalog, row))
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok((self.columns, self.fixed_scales, rows, self.row_count))

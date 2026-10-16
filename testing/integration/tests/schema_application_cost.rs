@@ -1,5 +1,9 @@
-use candid::{CandidType, Deserialize, Principal};
+use candid::{CandidType, Principal};
 use ic_testkit::pic::{CandidCallExt as _, StandaloneCanisterFixture};
+use icydb_testing_audit_sql_perf_fixtures::contracts::{
+    AcceptedSchemaReadInstructionResult, ApplicationStartupHook, ApplicationStartupSnapshot,
+    SchemaApplicationPerfResult, StartupObservationPerfResult,
+};
 use icydb_testing_integration::{
     install_fixture_canister, install_fixture_canister_without_startup_delivery,
     upgrade_fixture_canister,
@@ -8,44 +12,6 @@ use icydb_testing_integration::{
 use std::time::Duration;
 
 const TIMER_EXECUTOR_METHOD: &str = "<ic-cdk internal> timer_executor";
-
-#[derive(CandidType, Debug, Deserialize, Eq, PartialEq)]
-struct SchemaApplicationPerfResult {
-    local_instructions: u64,
-    reconcile_checks: u64,
-    first_create: u64,
-    exact_match: u64,
-}
-
-#[derive(CandidType, Debug, Deserialize, Eq, PartialEq)]
-struct StartupObservationPerfResult {
-    state: icydb::db::DatabaseStartupState,
-    local_instructions: u64,
-}
-
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-struct AcceptedSchemaReadInstructionResult {
-    description: icydb::db::EntitySchemaDescription,
-    local_instructions: u64,
-}
-
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-enum ApplicationStartupHook {
-    Init,
-    PostUpgrade,
-}
-
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-struct ApplicationStartupSnapshot {
-    hook: ApplicationStartupHook,
-    engine_registered_before_hook: bool,
-    observations: u32,
-    recovering_observations: u32,
-    ready_observations: u32,
-    restorations: u32,
-    retry_scheduled: bool,
-    failure: Option<icydb::db::StartupFailure>,
-}
 
 #[derive(CandidType)]
 struct StartupFailureInput {

@@ -88,7 +88,7 @@ fn icp_query_command_targets_environment_and_hex_query_output() {
         "demo",
         "demo_rpg",
         SQL_QUERY_ENDPOINT.method(),
-        "(\"SELECT 1\")",
+        Path::new("arguments.bin"),
     );
     let args = command
         .get_args()
@@ -103,7 +103,10 @@ fn icp_query_command_targets_environment_and_hex_query_output() {
             "call",
             "demo_rpg",
             "icydb_query",
-            "(\"SELECT 1\")",
+            "--args-file",
+            "arguments.bin",
+            "--args-format",
+            "bin",
             "--query",
             "--output",
             "hex",
@@ -119,7 +122,7 @@ fn icp_update_command_targets_environment_without_query_flag() {
         "demo",
         "demo_rpg",
         SQL_DDL_ENDPOINT.method(),
-        "(\"CREATE INDEX name_idx\")",
+        Path::new("arguments.bin"),
     );
     let args = command
         .get_args()
@@ -134,7 +137,10 @@ fn icp_update_command_targets_environment_without_query_flag() {
             "call",
             "demo_rpg",
             "icydb_ddl",
-            "(\"CREATE INDEX name_idx\")",
+            "--args-file",
+            "arguments.bin",
+            "--args-format",
+            "bin",
             "--output",
             "hex",
             "--environment",

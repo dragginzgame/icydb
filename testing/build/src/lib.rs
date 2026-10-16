@@ -3,9 +3,8 @@
 //! Does not own: PocketIC installation, simulator lifecycle or integration scenarios.
 //! Boundary: reuses IC Build and Host owners within the root workspace.
 
-#[cfg(test)]
-mod build_flags_tests;
 mod canister_build_cache;
+mod plan;
 
 pub mod canister_artifact;
 pub mod wasm_measurement;
@@ -13,10 +12,11 @@ pub mod wasm_optimizer;
 
 use crate::canister_artifact::read_wasm_artifact;
 use crate::canister_build_cache::{
-    CargoWasmBatchEntry, CargoWasmCacheRequest, PostLinkBatchEntry, PostLinkCacheRequest,
-    build_cached_cargo_wasm, build_cached_cargo_wasm_batch, cache_post_link_wasm,
-    cache_post_link_wasm_batch, cargo_wasm_batch_specs, trace_post_link, trace_wasm_build,
+    CargoWasmCacheRequest, PostLinkBatchEntry, PostLinkCacheRequest, build_cached_cargo_wasm,
+    build_cached_cargo_wasm_batch, cache_post_link_wasm, cache_post_link_wasm_batch,
+    trace_post_link, trace_wasm_build,
 };
+use crate::plan::{MaintainedCanisterBuildPlan, plan_maintained_canister_builds};
 use std::{
     env,
     ffi::OsString,
@@ -26,9 +26,12 @@ use std::{
     sync::OnceLock,
 };
 
-use ic_build::artifacts::{
-    ArtifactCacheOutcome, ArtifactCacheRecord, LabeledWasmBuildSpec, WasmBuildBatchContractError,
-    WasmBuildBatchReport, WasmBuildOutcome, WasmBuildRecord,
+use ic_build::{
+    artifacts::{
+        ArtifactCacheOutcome, ArtifactCacheRecord, WasmBuildBatchContractError,
+        WasmBuildBatchReport, WasmBuildOutcome, WasmBuildRecord,
+    },
+    cargo::flags::combined_encoded_rustflags,
 };
 
 struct FixtureCanister {
@@ -93,16 +96,6 @@ struct ConfiguredCanisterBuild {
     arguments: Vec<OsString>,
     encoded_rustflags: Option<String>,
     final_deployable: PathBuf,
-}
-
-struct MaintainedCanisterBuildPlan {
-    options: CanisterBuildOptions,
-    configured: Vec<(
-        &'static canister_artifact::MaintainedCanisterPolicy,
-        ConfiguredCanisterBuild,
-    )>,
-    contexts: Vec<String>,
-    specs: Vec<LabeledWasmBuildSpec>,
 }
 
 static FIXTURE_LOCAL_WASM_BYTES: [OnceLock<Vec<u8>>;
@@ -449,31 +442,6 @@ fn wasm_release_path_trim_flags(root: &Path) -> Vec<String> {
     flags
 }
 
-// Cargo selects encoded flags before ordinary flags, even when explicitly empty.
-// Append remaps to that effective input and encode argument boundaries once so
-// spaces in paths survive. With no additions, leave Cargo's inheritance alone.
-fn combined_encoded_rustflags(extra_flags: &[String]) -> Option<String> {
-    if extra_flags.is_empty() {
-        return None;
-    }
-
-    let mut combined = env::var("CARGO_ENCODED_RUSTFLAGS").unwrap_or_else(|_| {
-        env::var("RUSTFLAGS")
-            .unwrap_or_default()
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join("\x1f")
-    });
-    for flag in extra_flags {
-        if !combined.is_empty() {
-            combined.push('\x1f');
-        }
-        combined.push_str(flag);
-    }
-
-    Some(combined)
-}
-
 fn build_canister_package_artifacts(
     package_name: &str,
     options: CanisterBuildOptions,
@@ -506,7 +474,6 @@ fn build_configured_canister_artifacts(
         workspace_root: root,
         target_dir: canister_target_dir,
         packages: &packages,
-        profile_target_dir: options.profile.as_str(),
         arguments: &configured.arguments,
         encoded_rustflags: configured.encoded_rustflags.as_deref(),
     })
@@ -522,146 +489,17 @@ fn build_configured_canister_artifacts(
     )
 }
 
-/// Build the full and omitted-store logical-memory test actors, in that order.
-///
-/// Both use the ordinary retained Cargo/post-link pipeline. Read each result
-/// while its owner is alive, before another variant can replace shared outputs.
-/// These actors expose test-only controls and must not host application data.
-///
-/// # Errors
-/// Returns a build, post-link or retained-artifact read failure.
-pub fn build_logical_memory_fixture_wasms() -> Result<(Vec<u8>, Vec<u8>), String> {
-    Ok((
-        build_fixture_variant_wasm(
-            "canister_test_logical_memory",
-            "test-admin-api",
-            "logical-memory-full",
-        )?,
-        build_fixture_variant_wasm(
-            "canister_test_logical_memory",
-            "test-admin-api,omit-retiring-store",
-            "logical-memory-omitted",
-        )?,
-    ))
-}
-
-/// Build the maintained source and successor schema-migration actors.
-///
-/// Both source shapes use the current library and storage format. Artifact
-/// retention lasts through each read, before the next variant is built.
-///
-/// # Errors
-/// Returns a build, post-link or retained-artifact read failure.
-pub fn build_schema_migration_fixture_wasms() -> Result<(Vec<u8>, Vec<u8>), String> {
-    Ok((
-        build_fixture_variant_wasm(
-            "canister_test_sql",
-            "test-admin-api,local-sql-query,schema-migration-api",
-            "schema-migration-source",
-        )?,
-        build_fixture_variant_wasm(
-            "canister_test_sql",
-            "test-admin-api,local-sql-query,schema-migration-v2",
-            "schema-migration-successor",
-        )?,
-    ))
-}
-
-/// Build the populated entity-rename source and successor using the SQL actor.
-/// Both actors use current formats and the same durable namespace/store keys.
-///
-/// # Errors
-/// Returns a build, post-link or retained-artifact read failure.
-pub fn build_entity_rename_fixture_wasms() -> Result<(Vec<u8>, Vec<u8>), String> {
-    Ok((
-        build_fixture_variant_wasm(
-            "canister_test_sql",
-            "test-admin-api,local-sql-query,entity-rename",
-            "entity-rename-source",
-        )?,
-        build_fixture_variant_wasm(
-            "canister_test_sql",
-            "test-admin-api,local-sql-query,entity-rename-successor",
-            "entity-rename-successor",
-        )?,
-    ))
-}
-
-/// Build populated source, additive, metadata and physical creation actors.
-/// Every actor uses current formats and the same durable namespace/store keys.
-///
-/// # Errors
-/// Returns a build, post-link or retained-artifact read failure.
-pub fn build_entity_creation_fixture_wasms() -> Result<[Vec<u8>; 4], String> {
-    Ok([
-        build_fixture_variant_wasm(
-            "canister_test_sql",
-            "test-admin-api,local-sql-query,entity-rename",
-            "entity-creation-source",
-        )?,
-        build_fixture_variant_wasm(
-            "canister_test_sql",
-            "test-admin-api,local-sql-query,entity-creation",
-            "entity-creation-additive",
-        )?,
-        build_fixture_variant_wasm(
-            "canister_test_sql",
-            "test-admin-api,local-sql-query,entity-creation,entity-rename-successor",
-            "entity-creation-metadata",
-        )?,
-        build_fixture_variant_wasm(
-            "canister_test_sql",
-            "test-admin-api,local-sql-query,entity-creation-physical",
-            "entity-creation-physical",
-        )?,
-    ])
-}
-
-/// Build matched source, unchanged-schema export control and additive actors.
-///
-/// The control changes only the existing Candid export feature; all artifacts
-/// retain the same storage namespace and use the selected canonical profile.
-///
-/// # Errors
-/// Returns a build, post-link or retained-artifact read failure.
-pub fn build_entity_creation_lifecycle_fixture_wasms(
-    profile: CanisterWasmProfile,
-) -> Result<[Vec<u8>; 3], String> {
-    let build = |features, label| {
-        build_fixture_variant_wasm_with_profile("canister_test_sql", features, label, profile)
-    };
-    Ok([
-        build(
-            "test-admin-api,local-sql-query,entity-rename",
-            "creation-lifecycle-source",
-        )?,
-        build(
-            "test-admin-api,local-sql-query,entity-rename,candid-export",
-            "creation-lifecycle-control",
-        )?,
-        build(
-            "test-admin-api,local-sql-query,entity-creation,candid-export",
-            "creation-lifecycle-additive",
-        )?,
-    ])
-}
-
 // Read while the retained Cargo/post-link owner is alive. Variant-specific
 // features must not borrow a mutable artifact path from another build.
-fn build_fixture_variant_wasm(
-    package: &str,
-    features: &str,
-    label: &str,
-) -> Result<Vec<u8>, String> {
-    build_fixture_variant_wasm_with_profile(
-        package,
-        features,
-        label,
-        CanisterBuildOptions::default().profile,
-    )
-}
-
-fn build_fixture_variant_wasm_with_profile(
+/// Build and read one caller-described fixture variant under the selected profile.
+///
+/// Package/features and role labels belong to the scenario. Cargo and post-link
+/// records remain alive through the read, so later variants cannot replace the
+/// referenced artifact before its bytes have been copied.
+///
+/// # Errors
+/// Returns a build, post-link or retained-artifact read failure.
+pub fn build_fixture_variant_wasm_with_profile(
     package: &str,
     features: &str,
     label: &str,
@@ -954,9 +792,9 @@ pub fn build_maintained_canisters_with_options(
 ) -> Result<Vec<(&'static str, BuiltCanisterArtifacts)>, String> {
     let root = workspace_root();
     let plan = plan_maintained_canister_builds(&root, options)?;
-    let cargo_report = build_cached_cargo_wasm_batch(&plan.specs);
+    let cargo_report = build_cached_cargo_wasm_batch(&plan.cargo_specs(&root));
 
-    finish_maintained_canister_build_plan(&root, plan, cargo_report)
+    finish_maintained_canister_builds(&root, plan, cargo_report)
 }
 
 /// Build both maintained whole-fleet contract profiles with checked input resolution.
@@ -999,8 +837,8 @@ pub fn build_maintained_canister_contract_profiles()
                 let build_profile = plan.options.build_profile;
                 let root = &root;
                 let handle = scope.spawn(move || {
-                    let cargo_report = build_cached_cargo_wasm_batch(&plan.specs);
-                    finish_maintained_canister_build_plan(root, plan, cargo_report)
+                    let cargo_report = build_cached_cargo_wasm_batch(&plan.cargo_specs(root));
+                    finish_maintained_canister_builds(root, plan, cargo_report)
                 });
                 (build_profile, handle)
             })
@@ -1027,77 +865,12 @@ pub fn build_maintained_canister_contract_profiles()
     })
 }
 
-fn plan_maintained_canister_builds(
-    root: &Path,
-    options: CanisterBuildOptions,
-) -> Result<MaintainedCanisterBuildPlan, String> {
-    let canister_target_dir = target_dir(root).join(options.build_profile.target_dir_name());
-    let configured = canister_artifact::MAINTAINED_CANISTER_POLICIES
-        .iter()
-        .map(|policy| {
-            configure_canister_build(root, &canister_target_dir, policy.package, options)
-                .map(|configured| (policy, configured))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let contexts = configured
-        .iter()
-        .map(|(policy, _)| {
-            format!(
-                "{} canister build ({}, {:?})",
-                policy.canister,
-                options.profile.as_str(),
-                options.build_profile,
-            )
-        })
-        .collect::<Vec<_>>();
-    let batch_entries = configured
-        .iter()
-        .zip(&contexts)
-        .map(|((policy, configured), context)| CargoWasmBatchEntry {
-            context,
-            package: policy.package,
-            arguments: &configured.arguments,
-            encoded_rustflags: configured.encoded_rustflags.as_deref(),
-        })
-        .collect::<Vec<_>>();
-    let specs = cargo_wasm_batch_specs(
-        root,
-        &canister_target_dir,
-        options.profile.as_str(),
-        &batch_entries,
-    );
-    Ok(MaintainedCanisterBuildPlan {
-        options,
-        configured,
-        contexts,
-        specs,
-    })
-}
-
-fn finish_maintained_canister_build_plan(
+fn finish_maintained_canister_builds(
     root: &Path,
     plan: MaintainedCanisterBuildPlan,
     cargo_report: Result<WasmBuildBatchReport, WasmBuildBatchContractError>,
 ) -> Result<Vec<(&'static str, BuiltCanisterArtifacts)>, String> {
-    finish_maintained_canister_builds(
-        root,
-        plan.configured,
-        &plan.contexts,
-        cargo_report,
-        plan.options,
-    )
-}
-
-fn finish_maintained_canister_builds(
-    root: &Path,
-    configured: Vec<(
-        &'static canister_artifact::MaintainedCanisterPolicy,
-        ConfiguredCanisterBuild,
-    )>,
-    contexts: &[String],
-    cargo_report: Result<WasmBuildBatchReport, WasmBuildBatchContractError>,
-    options: CanisterBuildOptions,
-) -> Result<Vec<(&'static str, BuiltCanisterArtifacts)>, String> {
+    let options = plan.options;
     let cargo_report = cargo_report.map_err(|error| {
         format!("maintained canister build failed:\n  - Cargo Wasm batch contract failed: {error}")
     })?;
@@ -1125,16 +898,15 @@ fn finish_maintained_canister_builds(
         let record = match outcome {
             WasmBuildOutcome::Built(record) | WasmBuildOutcome::Reused(record) => record,
         };
-        let Some((policy, configured)) = configured.get(index) else {
+        let Some(entry) = plan.entries.get(index) else {
             failures.push(format!(
                 "Cargo returned unknown successful entry index {index}"
             ));
             continue;
         };
-        let Some(context) = contexts.get(index) else {
-            failures.push("post-link batch context mapping was incomplete".to_owned());
-            continue;
-        };
+        let policy = entry.policy;
+        let configured = &entry.configured;
+        let context = &entry.context;
         match BuiltCanisterArtifacts::from_cargo(record) {
             Ok(artifacts) => retained.push((policy.canister, configured, context, artifacts)),
             Err(error) => failures.push(format!("Cargo [{index}] {}: {error}", policy.canister)),
@@ -1276,8 +1048,15 @@ fn stage_canister_artifact_paths(
         return Ok((wasm, None));
     }
     let candid = canister_artifact::extract_canister_candid(&wasm)?;
-    ic_host_fs::durable::write_bytes(&did, candid.as_bytes())
-        .map_err(|error| format!("publish staged Candid '{}': {error:?}", did.display()))?;
+    ic_host_fs::durable::write_bytes(
+        &did,
+        ic_host_fs::durable::WriteOptions {
+            mode: ic_host_fs::durable::PublicationMode::Replace,
+            permissions: 0o666,
+        },
+        candid.as_bytes(),
+    )
+    .map_err(|error| format!("publish staged Candid '{}': {error:?}", did.display()))?;
     Ok((wasm, Some(did)))
 }
 

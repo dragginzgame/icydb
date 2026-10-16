@@ -30,6 +30,8 @@ extern crate self as icydb;
 #[macro_use]
 pub(crate) mod scalar_registry;
 
+mod codec;
+
 // public exports are one module level down
 pub mod db;
 pub mod error;

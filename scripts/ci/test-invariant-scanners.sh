@@ -21,14 +21,25 @@ for script in invariant-common.sh check-executor-no-production-panics.sh \
   cp "$ROOT/scripts/ci/$script" "$scratch/scripts/ci/"
 done
 
+# The copied gate independently verifies the shared scanner source. Copy its
+# authoritative manifest closure instead of maintaining another payload roster.
+cp "$ROOT/.shared-rust-source.snapshot" "$scratch/.shared-rust-source.snapshot"
+shared_records="$(bash "$ROOT/scripts/ci/verify-shared-tooling-snapshot.sh" \
+  --read-manifest "$ROOT/.shared-rust-source.snapshot")"
+while IFS=$'\t' read -r kind _digest _mode shared_path; do
+  [[ "$kind" == file ]] || continue
+  mkdir -p "$scratch/${shared_path%/*}"
+  cp "$ROOT/$shared_path" "$scratch/$shared_path"
+done <<< "$shared_records"
+
 # Build one real structural checker for all copied-source cases. The fixture's
 # Cargo adapter forwards source arguments only; it never resolves dependencies.
 export CARGO_HOME="${CARGO_HOME:-$ROOT/.cache/cargo/icydb}"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target/icydb}"
 cargo build --locked --offline --quiet --manifest-path "$ROOT/Cargo.toml" \
-  -p icydb-testing-integration --example check_runtime_panics
+  -p icydb-testing-source-checks --bin check_runtime_panics
 mkdir -p "$scratch/bin"
-export TEST_RUNTIME_PANIC_CHECKER="$CARGO_TARGET_DIR/debug/examples/check_runtime_panics"
+export TEST_RUNTIME_PANIC_CHECKER="$CARGO_TARGET_DIR/debug/check_runtime_panics"
 cat > "$scratch/bin/cargo" <<'CARGO'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -82,87 +93,28 @@ for root in "${panic_roots[@]}"; do
 done
 executor="$scratch/${panic_roots[0]}"
 panic_checker="$scratch/scripts/ci/check-executor-no-production-panics.sh"
-for pattern in 'value.unwrap();' 'value.expect ("reason");' 'panic!("reason");' \
-  'panic! { "reason" };' 'assert!(false);' 'assert_eq!(1, 2);' 'assert_ne![1, 1];' \
-  'unreachable!();' 'todo!();' 'unimplemented!();'; do
-  printf 'fn production() { %s }\n' "$pattern" > "$executor/production.rs"
-  check "panic-$cases" 1 bash "$panic_checker"
-done
+# Shared owns syntax regressions; retain only local root/discovery boundaries.
+bash "$ROOT/scripts/ci/test-runtime-panics.sh" "$TEST_RUNTIME_PANIC_CHECKER"
 printf 'fn production() {}\n' > "$executor/production.rs"
 for root in "${panic_roots[@]:1}"; do
   printf 'fn production() { value.unwrap(); }\n' > "$scratch/$root/production.rs"
   check "runtime-root-$cases" 1 bash "$panic_checker"
   printf 'fn production() {}\n' > "$scratch/$root/production.rs"
 done
-# The production inventory must not discard durable recovery files merely
-# because Git ignores them or because they have no executor-owned neighbors.
-printf 'fn recovery() { panic!("fixture"); }\n' > "$scratch/${panic_roots[1]}/recovery.rs"
-printf '/recovery.rs\n' > "$scratch/${panic_roots[1]}/.gitignore"
-check ignored-recovery-file 1 bash "$panic_checker"
-rm "$scratch/${panic_roots[1]}/recovery.rs"
-cat > "$executor/production.rs" <<'RUST'
-const _: () =
-    assert!(MAX_RECEIPT_BYTES <= MAX_PUBLIC_BYTES);
-fn production() { debug_assert!(true); }
-RUST
-check compile-time-assertion 0 bash "$panic_checker"
-printf 'fn production() { assert!(false); }\n' >> "$executor/production.rs"
-check runtime-after-compile-time-assertion 1 bash "$panic_checker"
-cat > "$executor/production.rs" <<'RUST'
-const _: () =
-    assert!(true); fn production() { panic!("fixture"); }
-RUST
-check runtime-beside-compile-time-assertion 1 bash "$panic_checker"
-printf 'const fn production() { assert!(false); }\n' > "$executor/production.rs"
-check runtime-callable-const-function 1 bash "$panic_checker"
-cat > "$executor/production.rs" <<'RUST'
-fn production() { debug_assert!(true); debug_assert_eq!(1, 1); }
-// panic!() describes the prohibition.
-#[cfg(test)]
-mod tests {
-    fn test() { assert!(true); todo!(); }
-}
-#[cfg(test)]
-fn standalone_test() { panic!("fixture"); }
-#[cfg(all(test, feature = "sql"))]
-fn feature_test() { unreachable!(); }
-RUST
+printf 'fn production() {}\n' > "$executor/production.rs"
+# Test-only filename exclusions belong to the local discovery inventory.
 mkdir -p "$executor/tests"
 printf 'fn test() { panic!("fixture"); }\n' > "$executor/tests/case.rs"
 cp "$executor/tests/case.rs" "$executor/tests.rs"
 cp "$executor/tests/case.rs" "$executor/case_tests.rs"
 cp "$executor/tests/case.rs" "$executor/test_case.rs"
 cp "$executor/tests/case.rs" "$scratch/${panic_roots[1]}/convergence_candidate_tests.rs"
-check test-exclusion 0 bash "$panic_checker"
-# Structural item boundaries ignore lexical braces, including raw strings and
-# nested comments, and still expose the production function after the test item.
-for body in 'const EXAMPLE: &str = "{";' \
-  'const EXAMPLE: &str = r###"{ \" }"###;' \
-  '// {' '/* { /* } */ { */' \
-  'fn test() { let _ = "}"; assert!(true); }'; do
-  printf '#[cfg(test)]\nmod tests {\n%s\n}\n' "$body" > "$executor/production.rs"
-  check "lexical-test-only-$cases" 0 bash "$panic_checker"
-  printf 'fn production() { panic!("must be detected"); }\n' >> "$executor/production.rs"
-  check "lexical-production-after-$cases" 1 bash "$panic_checker"
-done
-printf 'fn production() { let _ = r###"panic! { .unwrap()"###; /* panic!() */ }\n' > "$executor/production.rs"
-check production-literal-and-comment 0 bash "$panic_checker"
-printf 'fn production() { let _ = format!("{}", value.unwrap()); }\n' > "$executor/production.rs"
-check production-inside-macro 1 bash "$panic_checker"
-printf 'macro_rules! runtime { () => { panic!("fixture"); }; }\n' > "$executor/production.rs"
-check production-macro-template 1 bash "$panic_checker"
-printf '#[cfg(all(feature = "sql", test))]\nfn test() { panic!("fixture"); }\n' > "$executor/production.rs"
-check reordered-test-cfg 0 bash "$panic_checker"
-printf '#[cfg(not(not(test)))]\nfn test() { panic!("fixture"); }\n' > "$executor/production.rs"
-check nested-test-cfg 0 bash "$panic_checker"
-printf 'struct S; impl S { #[cfg(test)] fn test() { panic!("fixture"); } }\n' > "$executor/production.rs"
-check test-only-associated-item 0 bash "$panic_checker"
-printf 'fn production() {\n' > "$executor/production.rs"
-check malformed-runtime-source 2 bash "$panic_checker"
-printf '#[cfg(not(test))]\nfn production() { panic!("reason"); }\n' > "$executor/production.rs"
-check production-cfg 1 bash "$panic_checker"
-printf '#[cfg(any(test, feature = "sql"))]\nfn production() { todo!(); }\n' > "$executor/production.rs"
-check mixed-production-cfg 1 bash "$panic_checker"
+check test-file-exclusion 0 bash "$panic_checker"
+printf 'fn production() { panic!("fixture"); }\n' > "$scratch/${panic_roots[1]}/recovery.rs"
+printf '/recovery.rs\n' > "$scratch/${panic_roots[1]}/.gitignore"
+check ignored-recovery-file 1 bash "$panic_checker"
+rm "$scratch/${panic_roots[1]}/recovery.rs"
+printf 'fn production() { todo!(); }\n' > "$executor/production.rs"
 printf '/production.rs\n' > "$executor/.gitignore"
 check ignored-production-file 1 bash "$panic_checker"
 rm "$executor/production.rs"

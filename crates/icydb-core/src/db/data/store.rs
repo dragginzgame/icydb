@@ -649,7 +649,7 @@ impl DataStore {
             DataStoreBackend::Journaled { .. } => Self::visit_journaled_entries_in_bounds(
                 &self.backend,
                 (Bound::Unbounded, Bound::Unbounded),
-                visitor,
+                &mut visitor,
             )?,
         }
 
@@ -712,7 +712,7 @@ impl DataStore {
                 }
             }
             DataStoreBackend::Journaled { .. } => {
-                Self::visit_journaled_entries_in_bounds(&self.backend, bounds, visitor)?;
+                Self::visit_journaled_entries_in_bounds(&self.backend, bounds, &mut visitor)?;
             }
         }
 
@@ -891,18 +891,20 @@ impl DataStore {
                 }
             }
             DataStoreBackend::Journaled { .. } => {
-                Self::visit_journaled_keys_in_bounds(&self.backend, bounds, reverse, visitor)?;
+                Self::visit_journaled_keys_in_bounds(&self.backend, bounds, reverse, &mut visitor)?;
             }
         }
 
         Ok(())
     }
 
+    // Share journaled traversal across callback types while retaining typed
+    // caller errors. Key-only traversal must never materialize row payloads.
     fn visit_journaled_keys_in_bounds<E>(
         backend: &DataStoreBackend,
         bounds: (Bound<&RawDataStoreKey>, Bound<&RawDataStoreKey>),
         reverse: bool,
-        mut visitor: impl FnMut(&RawDataStoreKey) -> Result<StoreVisit, E>,
+        visitor: &mut dyn FnMut(&RawDataStoreKey) -> Result<StoreVisit, E>,
     ) -> Result<(), E> {
         let DataStoreBackend::Journaled {
             canonical,
@@ -999,10 +1001,12 @@ impl DataStore {
         Ok(())
     }
 
+    // Keep one journaled row traversal body per error type, independently of
+    // each caller's closure. The ordered overlay remains the merge authority.
     fn visit_journaled_entries_in_bounds<E>(
         backend: &DataStoreBackend,
         bounds: (Bound<&RawDataStoreKey>, Bound<&RawDataStoreKey>),
-        mut visitor: impl FnMut(&RawDataStoreKey, &RawRow) -> Result<StoreVisit, E>,
+        visitor: &mut dyn FnMut(&RawDataStoreKey, &RawRow) -> Result<StoreVisit, E>,
     ) -> Result<(), E> {
         let DataStoreBackend::Journaled {
             canonical,

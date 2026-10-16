@@ -15,6 +15,7 @@ blake3 = { workspace = true }
 candid = { workspace = true }
 ic-testkit = { workspace = true }
 icydb = { workspace = true, default-features = true, features = ["metrics", "migration", "sql"] }
+icydb-testing-audit-sql-perf-fixtures = { workspace = true }
 icydb-testing-build = { workspace = true }
 icydb-testing-sql-generator = { workspace = true }
 icydb-testing-sqlite-reference = { workspace = true }
@@ -23,8 +24,7 @@ serde_json = { workspace = true }
 
 [dev-dependencies]
 ic-host-artifacts = { workspace = true }
-proc-macro2 = { workspace = true, features = ["span-locations"] }
-syn = { workspace = true, features = ["full", "visit"] }
+syn = { workspace = true, features = ["full"] }
 
 [lints]
 workspace = true

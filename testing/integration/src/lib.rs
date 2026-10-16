@@ -7,12 +7,13 @@
 mod pocketic_startup_tests;
 
 pub mod durable_mutation_job_contract;
+pub mod fixture_variants;
 pub mod group_path_contract;
 pub mod nested_relation_contract;
 
 use std::time::Duration;
 
-use candid::{CandidType, Principal};
+use candid::Principal;
 use ic_testkit::{
     pic::{
         CandidCallExt as _, InstallSpec, PocketIcInstance, PocketIcStartupConfig,
@@ -21,11 +22,11 @@ use ic_testkit::{
     pocket_ic::{PocketIc, PocketIcBuilder},
 };
 use icydb::{Error, ErrorCode};
+pub use icydb_testing_audit_sql_perf_fixtures::contracts::StartupWatchdogPerfSnapshot;
 use icydb_testing_build::{
     CanisterBuildOptions, local_fixture_wasm_bytes, local_fixture_wasm_bytes_with_options,
     resolve_fixture_canister_build_configuration,
 };
-use serde::Deserialize;
 
 const FIXTURE_INSTALL_CYCLES: u128 = 100_000_000_000_000;
 const FIXTURE_STARTUP_MESSAGE_COMPLETION_TICKS: usize = 4;
@@ -41,38 +42,6 @@ const WATCHDOG_MESSAGE_COMPLETION_TICKS: usize = 24;
 /// the original four driver deliveries plus separate replay and verification.
 /// Ordinary online convergence still needs at most one fold per batch.
 pub const MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES: usize = 70;
-
-/// Canonical instruction and completion evidence returned by the SQL audit
-/// canister's generated startup watchdog.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-pub struct StartupWatchdogPerfSnapshot {
-    /// Scheduler callbacks observed by the timer runtime.
-    pub scheduler_samples: u64,
-    /// Total instructions consumed by scheduler callbacks.
-    pub scheduler_total_instructions: u128,
-    /// Maximum instructions consumed by one scheduler callback.
-    pub scheduler_maximum_instructions: Option<u64>,
-    /// IcyDB work callbacks observed inside scheduler callbacks.
-    pub work_samples: u64,
-    /// Total instructions consumed by IcyDB work callbacks.
-    pub work_total_instructions: u128,
-    /// Instructions consumed by the latest IcyDB work callback.
-    pub work_latest_instructions: Option<u64>,
-    /// Maximum instructions consumed by one IcyDB work callback.
-    pub work_maximum_instructions: Option<u64>,
-    /// IcyDB work callbacks that started.
-    pub work_started: u64,
-    /// IcyDB work callbacks that completed.
-    pub work_completed: u64,
-    /// Successful IcyDB work callbacks.
-    pub succeeded: u64,
-    /// Callbacks that completed normally while startup dependencies were pending.
-    pub no_work: u64,
-    /// Retryable IcyDB work callback failures.
-    pub retryable_failures: u64,
-    /// Invariant-failing IcyDB work callbacks.
-    pub invariant_failures: u64,
-}
 
 /// Deliver pending startup-watchdog messages in PocketIC without advancing time.
 pub fn deliver_startup_watchdog_message(pic: &PocketIc) {

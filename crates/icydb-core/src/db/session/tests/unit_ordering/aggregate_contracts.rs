@@ -67,7 +67,7 @@ fn with_operand(
     check: impl FnOnce(DbSession<TestCanister>) + Send + 'static,
 ) {
     // Each accepted shape gets an isolated registry, runtime root and request budget.
-    std::thread::spawn(move || {
+    crate::testing::run_isolated(move || {
         let session = initialize();
         publish_operand_schema(&session, kind);
         session
@@ -80,9 +80,7 @@ fn with_operand(
             )
             .expect("accepted numeric write");
         check(session);
-    })
-    .join()
-    .expect("aggregate contract fixture");
+    });
 }
 
 #[test]

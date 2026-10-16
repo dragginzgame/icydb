@@ -13,6 +13,25 @@ these rules.
 
 ## Ownership and provenance
 
+### Structural Rust scanner source
+
+The additive [.shared-rust-source.snapshot](../../.shared-rust-source.snapshot)
+selects only Shared Tooling's panic scanner, semantic fixtures and compilation
+guide at reviewed commit `48f546ad4671351bba45f89fb007a2c42be521e1`
+([Shared #225 — Rust panic scanner](https://github.com/dragginzgame/shared-tooling/issues/225),
+[PR #226](https://github.com/dragginzgame/shared-tooling/pull/226)). This is the
+reviewed contribution commit, not a claim of a released scanner API. The root governance/tool snapshot above remains unchanged. Both selections use
+the same unchanged verifier bytes; the panic gate verifies the additive source
+before compilation. A later full adoption can consolidate these roots through
+the existing exporter ownership handover.
+
+Private `testing/source-checks/` compiles the shared source under the existing
+workspace and selected lockfile. It depends only on Syn/proc-macro2, with no
+database, Build, Testkit or PocketIC edge. IcyDB retains source-root discovery,
+required nonempty inventories and actual production scans. Shared owns syntax,
+macro, cfg and parser regressions; its source has no independent installed tool
+or dependency selection.
+
 ### Selected IC Build 0.5.0 — 2026-10-15
 
 The incoming manifest and lock already select registry Build 0.5.0. Its archive
@@ -62,6 +81,25 @@ The concurrent Timers update and its initial cache failure are retained separate
 from the initial 0.23.0 qualification. Existing native-host receipts identify
 their delivered graphs. Full workspace/release and native macOS checks remain
 unselected. Evidence: `.cache/build-refresh-02742` and the current 0.274 tracker.
+
+### Delivered 0.275.0 full-gate closeout — 2026-10-16
+
+Released IcyDB `e104fe1c9f5921336f0e5b292acbda99f8311476` retains the reviewed
+Shared 0.13.3 snapshot. [PR #353's complete CI](https://github.com/dragginzgame/icydb/actions/runs/38759471077)
+passes Linux workspace/core/MSRV/Tier A/Tier B/Wasm report, both native macOS 15
+hosts and the aggregate check. Head `e5eb616dd5ff5e882d66cebb9a68eddcbaaf850f`
+differs from that release only in two workflow action-pin files; product source,
+lock, adopted snapshot and common catalogs are identical. Workspace CI now
+installs the Wasm target before its real encoded-flags build-cache case.
+
+This closes [#311](https://github.com/dragginzgame/icydb/issues/311) and
+[#357](https://github.com/dragginzgame/icydb/issues/357)'s delivered adoption
+criteria. The older records below retain their original evidence and gaps.
+Later intermittent fixture failures are corrected separately by
+[PR #368](https://github.com/dragginzgame/icydb/pull/368); the incoming dependency
+graph and Memory 0.43 diagnostics remain unqualified under
+[#365](https://github.com/dragginzgame/icydb/issues/365). No local broad gate or
+release operation was run for this closeout.
 
 ### Delivered 0.274.1 native-host acceptance — 2026-10-15
 

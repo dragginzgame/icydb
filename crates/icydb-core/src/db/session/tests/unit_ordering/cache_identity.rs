@@ -187,7 +187,7 @@ fn projection_cache_preserves_aliases_across_warm_calls() {
     for suffix in ["", ", COUNT(*)"] {
         for sequence in [[0, 1, 0], [1, 0, 1]] {
             // Isolate both SQL-command and shared-plan caches for each call order.
-            std::thread::spawn(move || {
+            crate::testing::run_isolated(move || {
                 let session = initialize();
                 seed_singleton(&session);
                 let grouped = if suffix.is_empty() {
@@ -239,9 +239,7 @@ fn projection_cache_preserves_aliases_across_warm_calls() {
                     assert_eq!(row_count, 1);
                 }
                 assert!(session.shared_query_cache_usage_for_tests().0 > 0);
-            })
-            .join()
-            .unwrap();
+            });
         }
     }
 }

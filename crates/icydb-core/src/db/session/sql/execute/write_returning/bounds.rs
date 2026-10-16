@@ -5,8 +5,10 @@
 
 use crate::{
     db::{
-        RowProjectionOutput, schema::AcceptedEnumCatalog,
-        session::sql::write_policy::SqlWriteReturningBounds, sql::parser::SqlReturningProjection,
+        RowProjectionOutput,
+        schema::AcceptedEnumCatalog,
+        session::{response::output_row_from_runtime, sql::write_policy::SqlWriteReturningBounds},
+        sql::parser::SqlReturningProjection,
     },
     error::InternalError,
     value::{OutputValue, Value},
@@ -14,9 +16,7 @@ use crate::{
 use candid::{CandidType, ser::ValueSerializer};
 use icydb_diagnostic_code::{DiagnosticFactTag, SqlWriteBoundaryCode};
 
-use super::projection::{
-    SqlReturningFieldProjection, query_error_to_internal_invariant, sql_returning_output_value_row,
-};
+use super::projection::{SqlReturningFieldProjection, query_error_to_internal_invariant};
 
 // Serialize only value bytes: each row contributes its value encoding, never
 // another DIDL header/type table. Candid remains the encoding authority.
@@ -158,11 +158,11 @@ fn encoded_sql_materialized_returning_projection_response_len_check(
         base_len,
         max_response_bytes,
         rows.iter().map(|row| match &projection {
-            None => sql_returning_output_value_row(enum_catalog, row.clone())
+            None => output_row_from_runtime(enum_catalog, row.clone())
                 .map_err(query_error_to_internal_invariant),
             Some(projection) => projection
                 .project_borrowed_row(row)
-                .and_then(|row| sql_returning_output_value_row(enum_catalog, row))
+                .and_then(|row| output_row_from_runtime(enum_catalog, row))
                 .map_err(query_error_to_internal_invariant),
         }),
     )
@@ -237,7 +237,7 @@ mod tests {
             let output_rows = rows
                 .iter()
                 .cloned()
-                .map(|row| sql_returning_output_value_row(&catalog, row).unwrap())
+                .map(|row| output_row_from_runtime(&catalog, row).unwrap())
                 .collect();
             let output = RowProjectionOutput {
                 entity: "Row".into(),

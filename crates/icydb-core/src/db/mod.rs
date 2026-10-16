@@ -61,12 +61,12 @@ use crate::{
 };
 use std::{collections::BTreeSet, marker::PhantomData, thread::LocalKey};
 
+#[doc(hidden)]
+pub use crate::codec::hex::encode_hex_lower;
 pub use catalog::{
     EntityCatalogCounts, EntityCatalogDescription, MemoryCatalogDescription,
     StoreCatalogDescription,
 };
-#[doc(hidden)]
-pub use codec::hex::encode_hex_lower;
 #[doc(hidden)]
 pub use commit::{ExactBacklogMeasurement, install_startup_recovery_wakeup};
 pub use data::DataStore;

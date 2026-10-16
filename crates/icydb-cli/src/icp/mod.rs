@@ -10,11 +10,13 @@ mod project;
 
 use std::path::Path;
 
+pub(crate) use call::encode_candid_args;
+
 pub(crate) fn call_query_hex(
     environment: &str,
     canister: &str,
     method: &str,
-    candid_arg: &str,
+    candid_arg: &[u8],
     error_message: impl FnOnce(&str) -> String,
 ) -> Result<Vec<u8>, String> {
     call::call_query_hex(environment, canister, method, candid_arg, error_message)
@@ -24,7 +26,7 @@ pub(crate) fn call_update_hex(
     environment: &str,
     canister: &str,
     method: &str,
-    candid_arg: &str,
+    candid_arg: &[u8],
     error_message: impl FnOnce(&str) -> String,
 ) -> Result<Vec<u8>, String> {
     call::call_update_hex(environment, canister, method, candid_arg, error_message)
@@ -76,18 +78,18 @@ pub(crate) mod test_support {
         environment: &str,
         canister: &str,
         method: &str,
-        candid_arg: &str,
+        argument_file: &std::path::Path,
     ) -> Command {
-        call::icp_query_command(environment, canister, method, candid_arg)
+        call::icp_query_command(environment, canister, method, argument_file)
     }
 
     pub(crate) fn icp_update_command(
         environment: &str,
         canister: &str,
         method: &str,
-        candid_arg: &str,
+        argument_file: &std::path::Path,
     ) -> Command {
-        call::icp_update_command(environment, canister, method, candid_arg)
+        call::icp_update_command(environment, canister, method, argument_file)
     }
 
     pub(crate) fn fixtures_load_command(environment: &str, canister: &str) -> Command {

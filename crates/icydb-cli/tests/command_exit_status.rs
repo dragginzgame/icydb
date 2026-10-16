@@ -97,6 +97,16 @@ case "$1:$2" in
     ;;
   deploy:fixture) [ "${ICP_FIXTURE_REFRESH_CASE-}" != deploy-failure ] || exit 1 ;;
   canister:call)
+    if [ "$4" != icydb_fixtures_load ]; then
+    [ "$5" = --args-file ] || exit 2
+    [ "$7:$8" = --args-format:bin ] || exit 2
+    argument=0
+    if [ -f "$ICP_FIXTURE_DIRECTORY/argument-count" ]; then read -r argument < "$ICP_FIXTURE_DIRECTORY/argument-count"; fi
+    captured="$ICP_FIXTURE_DIRECTORY/argument-$argument.bin"
+    command -p cp "$6" "$captured" || exit 2
+    printf '%s\n' "$4" "$captured" >> "$ICP_FIXTURE_DIRECTORY/arguments"
+    printf '%s\n' "$((argument + 1))" > "$ICP_FIXTURE_DIRECTORY/argument-count"
+    fi
     if [ "$ICP_FIXTURE_TRANSPORT_FAILURE" = 1 ] ||
        { [ "$ICP_FIXTURE_TRANSPORT_FAILURE" = update ] && [ "$4" = icydb_schema_migrate ]; }; then
       printf '%s\n' 'fixture transport failure' >&2
@@ -117,10 +127,11 @@ case "$1:$2" in
         printf '%s\n' "$((step + 1))" > "$ICP_FIXTURE_DIRECTORY/step"
         ;;
       *)
-    case "$5" in
-      *'SELECT id FROM Character'*) printf '%s\n' "$ICP_FIXTURE_SUCCESS" ;;
-      *) printf '%s\n' "$ICP_FIXTURE_RESPONSE" ;;
-    esac
+    if command -p cmp -s "$6" "$ICP_FIXTURE_SUCCESS_ARG" || command -p cmp -s "$6" "$ICP_FIXTURE_SUCCESS_ARG_TERMINATED"; then
+      printf '%s\n' "$ICP_FIXTURE_SUCCESS"
+    else
+      printf '%s\n' "$ICP_FIXTURE_RESPONSE"
+    fi
         ;;
     esac
     ;;
@@ -135,6 +146,18 @@ esac
     }
 
     fn command(&self, response: &str) -> Command {
+        let success = self.directory.join("success-argument.bin");
+        let terminated = self.directory.join("success-argument-terminated.bin");
+        fs::write(
+            &success,
+            candid::encode_args(("SELECT id FROM Character",)).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            &terminated,
+            candid::encode_args(("SELECT id FROM Character;",)).unwrap(),
+        )
+        .unwrap();
         let mut command = Command::new(env!("CARGO_BIN_EXE_icydb"));
         command
             .current_dir(&self.directory)
@@ -143,6 +166,8 @@ esac
             .env("ICP_FIXTURE_DIRECTORY", &self.directory)
             .env("ICP_FIXTURE_RESPONSE", response)
             .env("ICP_FIXTURE_SUCCESS", success_response())
+            .env("ICP_FIXTURE_SUCCESS_ARG", &success)
+            .env("ICP_FIXTURE_SUCCESS_ARG_TERMINATED", &terminated)
             .env_remove("ICP_FIXTURE_STATUS_ERROR")
             .env_remove("ICP_FIXTURE_REFRESH_CASE")
             .env_remove("ICP_FIXTURE_TRANSPORT_FAILURE");
@@ -221,11 +246,20 @@ esac
                     call.contains(&"--query"),
                     call[2] == "icydb_schema_migration"
                 );
+                assert!(call.windows(2).any(|pair| pair == ["--args-format", "bin"]));
             }
         }
-        log.lines()
-            .filter(|line| *line == "icydb_schema_migrate")
-            .count()
+        for bytes in self.call_arguments("icydb_schema_migration") {
+            let request = candid::decode_one::<icydb::db::SchemaMigrationStatusRequest>(&bytes)
+                .expect("CLI status arguments must carry the maintained request type");
+            assert_eq!(request.cursor(), None);
+        }
+        let commands = self.call_arguments("icydb_schema_migrate");
+        for bytes in &commands {
+            candid::decode_one::<icydb::db::SchemaMigrationCommand>(bytes)
+                .expect("CLI mutation arguments must carry the maintained command type");
+        }
+        commands.len()
     }
 
     fn one_shot(&self, response: &str, sql: &str, explicit: bool) -> Output {
@@ -237,10 +271,28 @@ esac
     }
 
     fn assert_call(&self, method: &str, query: bool) {
-        let calls = fs::read_to_string(self.directory.join("calls")).unwrap();
+        let calls = fs::read_to_string(self.directory.join("calls")).unwrap_or_default();
         let arguments = calls.lines().collect::<Vec<_>>();
         assert!(arguments.contains(&method));
         assert_eq!(arguments.contains(&"--query"), query);
+        assert!(
+            arguments
+                .windows(2)
+                .any(|pair| pair == ["--args-format", "bin"])
+        );
+    }
+
+    fn call_arguments(&self, method: &str) -> Vec<Vec<u8>> {
+        let calls = fs::read_to_string(self.directory.join("arguments")).unwrap_or_default();
+        calls
+            .lines()
+            .collect::<Vec<_>>()
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .filter(|pair| pair[0] == method)
+            .map(|pair| fs::read(pair[1]).unwrap())
+            .collect()
     }
 }
 
@@ -253,6 +305,36 @@ impl Drop for IcpFixture {
             );
         } else {
             let _ = fs::remove_dir_all(&self.directory);
+        }
+    }
+}
+
+#[test]
+fn sql_process_passes_exact_typed_bytes_for_arbitrary_text() {
+    for sql in [
+        "SELECT name FROM Character".to_string(),
+        "SELECT name FROM Character WHERE name = '\u{1b}\u{0085}\u{202e}界e\u{301}🦀'".to_string(),
+        "SELECT name FROM Character\nWHERE note = 'a\\path\"quote\r\tb'".to_string(),
+        format!(
+            "SELECT name FROM Character WHERE name = '{}'",
+            "x".repeat(96 * 1024)
+        ),
+    ] {
+        let fixture = IcpFixture::new();
+        let output = fixture.one_shot(&success_response(), &sql, true);
+        assert!(output.status.success(), "{output:?}");
+        fixture.assert_call("icydb_query", true);
+        let arguments = fixture.call_arguments("icydb_query");
+        assert_eq!(arguments.len(), 1);
+        assert_eq!(candid::decode_one::<String>(&arguments[0]).unwrap(), sql);
+        let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
+        for pair in calls.lines().collect::<Vec<_>>().windows(2) {
+            if pair[0] == "--args-file" {
+                assert!(
+                    !std::path::Path::new(pair[1]).exists(),
+                    "argument file must be retired after the child completes"
+                );
+            }
         }
     }
 }

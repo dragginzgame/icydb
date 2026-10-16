@@ -6,9 +6,7 @@
 use crate::{
     db::{
         QueryError,
-        schema::{
-            AcceptedEnumCatalog, AcceptedRowLayoutRuntimeContract, output_value_from_runtime,
-        },
+        schema::{AcceptedEnumCatalog, AcceptedRowLayoutRuntimeContract},
         session::sql::{
             SqlStatementResult,
             projection::{
@@ -19,7 +17,7 @@ use crate::{
         sql::parser::SqlReturningProjection,
     },
     error::InternalError,
-    value::{OutputValue, Value},
+    value::Value,
 };
 use icydb_diagnostic_code::{DiagnosticFactTag, SqlWriteBoundaryCode};
 
@@ -106,17 +104,6 @@ pub(in crate::db::session::sql::execute) fn validate_sql_returning_projection_fi
     };
     let columns = projection_labels_from_accepted_write_descriptor(descriptor);
     SqlReturningFieldProjection::from_fields(columns.as_slice(), fields).map(|_| ())
-}
-
-pub(super) fn sql_returning_output_value_row(
-    enum_catalog: &AcceptedEnumCatalog,
-    row: Vec<Value>,
-) -> Result<Vec<OutputValue>, QueryError> {
-    row.into_iter()
-        .map(|value| {
-            output_value_from_runtime(enum_catalog, value).map_err(|_error| QueryError::invariant())
-        })
-        .collect()
 }
 
 pub(super) fn query_error_to_internal_invariant(_err: QueryError) -> InternalError {

@@ -3,6 +3,7 @@ use std::{env, fs};
 use candid::CandidType;
 use ic_testkit::pic::{CandidCallExt as _, StandaloneCanisterFixture};
 use icydb::{Error, db::sql::SqlQueryResult};
+use icydb_testing_audit_sql_perf_fixtures::contracts::SchemaApplicationPerfResult;
 use icydb_testing_build::{
     CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
     CanisterWasmProfile, build_fixture_canister_wasm_stages_with_options,
@@ -12,14 +13,6 @@ use icydb_testing_integration::{
     deliver_fixture_startup_watchdog, install_prebuilt_fixture_canister, reset_icydb_fixtures,
 };
 use serde::Deserialize;
-
-#[derive(CandidType, Debug, Deserialize, Eq, PartialEq)]
-struct SchemaApplicationPerfResult {
-    local_instructions: u64,
-    reconcile_checks: u64,
-    first_create: u64,
-    exact_match: u64,
-}
 
 #[derive(CandidType, Debug, Deserialize, Eq, PartialEq)]
 struct SqlTotalOnlyPerfResult {

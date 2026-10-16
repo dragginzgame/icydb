@@ -5,6 +5,7 @@
 
 pub(crate) mod artifact;
 
+use icydb::db::encode_hex_lower;
 use icydb::diagnostic::{
     DiagnosticBacklogResource, DiagnosticCode, DiagnosticComponentKind,
     DiagnosticConstraintContext, DiagnosticConstraintKind, DiagnosticDetail,
@@ -20,7 +21,7 @@ use std::{fmt::Write as _, fs::File, io::Read, path::Path};
 use crate::{
     cli::DiagnosticArgs,
     diagnostic::artifact::{DiagnosticSchemaArtifact, ResolvedDiagnosticEntity},
-    observability::{load_schema_report, render_hex_lower},
+    observability::load_schema_report,
 };
 
 use ic_host_artifacts::artifact::{ArtifactError, read_reader};
@@ -272,7 +273,7 @@ fn render_error_code_report_with_facts(
             lines.push(format!(
                 "accepted schema identity: method={} fingerprint={} entity_tag={}",
                 identity.fingerprint_method,
-                render_hex_lower(&identity.fingerprint),
+                encode_hex_lower(&identity.fingerprint),
                 identity.entity_tag
             ));
         }
@@ -677,7 +678,7 @@ fn escape_query_field(field: &str) -> String {
         .replace('`', "\\`")
         .replace('\'', "\\'")
         .replace('"', "\\\"");
-    ic_host_text::escape::terminal_text(&quoted)
+    ic_host_text::escape::terminal_text(&quoted).into_owned()
 }
 
 const fn fact_tag_text(tag: icydb::diagnostic::DiagnosticFactTag) -> &'static str {

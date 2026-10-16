@@ -5,7 +5,6 @@
 
 use std::{collections::BTreeSet, env, ffi::OsString, fs, path::Path, time::Duration};
 
-use crate::wasm_optimizer::format_tool_failure;
 use candid::{
     CandidType,
     pretty::candid::compile,
@@ -17,7 +16,8 @@ use ic_host_artifacts::{
 };
 use ic_host_fs::read::read_opened_file;
 use ic_host_process::tool::{
-    AdmittedTool, ExecutionContext, OutputLimit, OutputLimits, VersionSpec, resolve_executable,
+    AdmittedTool, ExecutionContext, OutputLimit, OutputLimits, VersionSpec,
+    format_failure_evidence, resolve_executable,
 };
 use ic_host_tools::{
     candid::{
@@ -449,12 +449,12 @@ pub(crate) fn extract_canister_candid(wasm_path: &Path) -> Result<String, String
         &context,
         limits,
     )
-    .map_err(|error| format_tool_failure("Candid extractor admission", &error))?;
+    .map_err(|error| format_failure_evidence("Candid extractor admission", &error))?;
     let source =
         fs::canonicalize(wasm_path).map_err(|error| format!("resolve Candid source: {error}"))?;
     let extracted =
         extract(&tool, &source, &context, u64::MAX, limits).map_err(|error| match error {
-            ExtractionError::Tool(error) => format_tool_failure("Candid extraction", &error),
+            ExtractionError::Tool(error) => format_failure_evidence("Candid extraction", &error),
             error => format!("Candid extraction: {error}"),
         })?;
     // Keep the exact existing artifact/manifest text, rather than adopting

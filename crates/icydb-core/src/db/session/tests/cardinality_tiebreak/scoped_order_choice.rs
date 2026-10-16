@@ -170,7 +170,7 @@ fn scoped_order_choice_preserves_public_top_one_and_resume_without_extra_predica
     for unique in [true, false] {
         // Accepted startup authority is retained outside the live stores.
         // Each schema variant needs a complete isolated native fixture.
-        std::thread::spawn(move || {
+        crate::testing::run_isolated(move || {
             initialize_scoped_serials(unique);
             let setup = new_request_session(&RequestExecutionRoot::__new_runtime_root());
             for descending in [false, true] {
@@ -251,8 +251,6 @@ fn scoped_order_choice_preserves_public_top_one_and_resume_without_extra_predica
                     })
                 );
             }
-        })
-        .join()
-        .unwrap();
+        });
     }
 }

@@ -5,7 +5,7 @@ use super::{bindings_parity::publish_operand_schema, *};
 #[test]
 fn stored_nested_direct_projection_preserves_unique_and_repeated_outputs() {
     for items in [0, 4] {
-        std::thread::spawn(move || {
+        crate::testing::run_isolated(move || {
             let session = initialize();
             publish_operand_schema(
                 &session,
@@ -93,8 +93,6 @@ fn stored_nested_direct_projection_preserves_unique_and_repeated_outputs() {
                     assert_eq!(filtered.continuation, None);
                 }
             }
-        })
-        .join()
-        .expect("stored direct projection fixture");
+        });
     }
 }

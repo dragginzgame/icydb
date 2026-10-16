@@ -10,6 +10,9 @@ use icydb::{
     },
     diagnostic::{DiagnosticDetail, SqlWriteBoundaryCode},
 };
+use icydb_testing_audit_sql_perf_fixtures::contracts::{
+    ApplicationStartupHook, ApplicationStartupSnapshot,
+};
 use icydb_testing_integration::{
     deliver_startup_watchdog_message,
     durable_mutation_job_contract::{
@@ -92,24 +95,6 @@ struct MutationScaleRecoveryEvidence {
     complete: bool,
     warmed_rows: u32,
     local_instructions: u64,
-}
-
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-enum ApplicationStartupHook {
-    Init,
-    PostUpgrade,
-}
-
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-struct ApplicationStartupSnapshot {
-    hook: ApplicationStartupHook,
-    engine_registered_before_hook: bool,
-    observations: u32,
-    recovering_observations: u32,
-    ready_observations: u32,
-    restorations: u32,
-    retry_scheduled: bool,
-    failure: Option<icydb::db::StartupFailure>,
 }
 
 struct MutationScaleStartupEvidence {

@@ -81,13 +81,12 @@ fn execute_sql(environment: &str, canister: &str, sql: &str) -> Result<String, S
     let endpoint = sql_endpoint(call_kind);
     require_created_canister(environment, canister)?;
 
-    let escaped_sql = call::candid_escape_string(sql);
     let candid_bytes = match call_kind {
         route::SqlShellCallKind::Query => {
-            call::icp_query(environment, canister, endpoint.method(), &escaped_sql)?
+            call::icp_query(environment, canister, endpoint.method(), sql)?
         }
         route::SqlShellCallKind::Ddl | route::SqlShellCallKind::Update => {
-            call::icp_update(environment, canister, endpoint.method(), &escaped_sql)?
+            call::icp_update(environment, canister, endpoint.method(), sql)?
         }
     };
 
@@ -146,10 +145,6 @@ pub(crate) mod test_support {
 
     pub(crate) fn sql_shell_call_kind(sql: &str) -> Result<SqlShellCallKind, String> {
         super::route::sql_shell_call_kind(sql)
-    }
-
-    pub(crate) fn candid_escape_string(sql: &str) -> String {
-        super::call::candid_escape_string(sql)
     }
 
     pub(crate) fn finalize_successful_command_output(rendered: &str) -> String {

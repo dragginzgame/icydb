@@ -533,6 +533,8 @@ fn cached_secondary_order_preserves_covering_and_distinct_seek_contracts() {
                     )
                     .unwrap();
                 let plan = prepared.logical_plan();
+                assert_eq!(plan.scalar_plan().consistency, MissingRowPolicy::Ignore);
+                assert_eq!(plan.scalar_consistency(), MissingRowPolicy::Error);
                 let order = plan
                     .planner_route_profile()
                     .secondary_order_contract()

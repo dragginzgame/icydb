@@ -3,7 +3,8 @@
 use super::{migration_status, projection};
 use ic_testkit::pic::{CandidCallExt as _, StandaloneCanisterFixture};
 use icydb::{Error, ErrorCode, db::RowProjectionOutput, metrics::SchemaLifecycleMetrics};
-use icydb_testing_build::{CanisterWasmProfile, build_entity_creation_lifecycle_fixture_wasms};
+use icydb_testing_build::CanisterWasmProfile;
+use icydb_testing_integration::fixture_variants::build_entity_creation_lifecycle_fixture_wasms;
 use icydb_testing_integration::{
     deliver_fixture_startup_watchdog, deliver_startup_watchdog_message,
     install_prebuilt_fixture_canister,

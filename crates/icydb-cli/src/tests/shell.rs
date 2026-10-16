@@ -4,9 +4,9 @@
 //! Boundary: test-only assertions over shell helpers and decoded SQL payload text.
 
 use crate::shell::test_support::{
-    SqlShellCallKind, candid_escape_string, drain_complete_shell_statements,
-    finalize_successful_command_output, interactive_start_message, is_shell_exit_command,
-    is_shell_help_command, render_sql_response, shell_help_text, sql_shell_call_kind,
+    SqlShellCallKind, drain_complete_shell_statements, finalize_successful_command_output,
+    interactive_start_message, is_shell_exit_command, is_shell_help_command, render_sql_response,
+    shell_help_text, sql_shell_call_kind,
 };
 use candid::{Decode, Encode};
 use icydb::{
@@ -162,14 +162,6 @@ fn interactive_start_message_names_target_and_exit_controls() {
     assert!(message.contains("'test:demo_rpg'"));
     assert!(message.contains("terminate statements with ';'"));
     assert!(message.contains("\\q, exit, or Ctrl-D"));
-}
-
-#[test]
-fn candid_escape_string_escapes_sql_for_wire_arg() {
-    assert_eq!(
-        candid_escape_string("SELECT \"name\\path\"\nFROM Character\tWHERE note = 'a\rb'"),
-        "SELECT \\\"name\\\\path\\\"\\nFROM Character\\tWHERE note = 'a\\rb'",
-    );
 }
 
 #[test]

@@ -5,6 +5,7 @@ use icydb::{
     db::{DatabaseStartupState, LiveQueryPageOutput, sql::SqlQueryResult},
     diagnostic::DiagnosticFactTag,
 };
+use icydb_testing_audit_sql_perf_fixtures::contracts::StartupObservationPerfResult;
 use icydb_testing_build::{CanisterBuildOptions, build_fixture_canister_wasm_bytes_with_options};
 use icydb_testing_integration::{
     MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES, StartupWatchdogPerfSnapshot,
@@ -74,12 +75,6 @@ struct ConvergenceCloseoutDebtFacts {
     last_admitted_id: i32,
     rejected_id: i32,
     pressure: Error,
-}
-
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-struct StartupObservationPerfResult {
-    state: DatabaseStartupState,
-    local_instructions: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -1,14 +1,15 @@
 //! Deployed-only source-migration command execution and rendering.
 
-use candid::Decode;
-use icydb::db::{SchemaMigrationPhase, SchemaMigrationStatusPage};
-use icydb::{Error, db::SchemaMigrationCommand as RuntimeMigrationCommand};
+use icydb::db::{
+    SchemaMigrationCommand as RuntimeMigrationCommand, SchemaMigrationPhase,
+    SchemaMigrationStatusPage, SchemaMigrationStatusRequest, encode_hex_lower,
+};
 
 use crate::{
     cli::{CanisterTarget, ConfirmedMigrationTarget, SchemaMigrationCommand},
     endpoint::{SCHEMA_MIGRATE_ENDPOINT, SCHEMA_MIGRATION_ENDPOINT},
     icp::require_created_canister,
-    observability::{call_query, call_update, endpoint_result_error, render_hex_lower},
+    observability::{call_query, call_update, decode_endpoint_result},
 };
 
 // Public status omits cleanup's private cursor, so identical pages cannot prove
@@ -146,12 +147,13 @@ fn load_status(target: &CanisterTarget) -> Result<SchemaMigrationStatusPage, Str
         target.environment(),
         target.canister_name(),
         SCHEMA_MIGRATION_ENDPOINT.method(),
-        "(record { cursor = null })",
+        (&SchemaMigrationStatusRequest::default(),),
     )?;
-    decode_response(
+    decode_endpoint_result(
         &candid,
         "schema migration status",
-        target,
+        target.environment(),
+        target.canister_name(),
         SCHEMA_MIGRATION_ENDPOINT.method(),
     )
 }
@@ -210,76 +212,15 @@ fn call_command(
         target.environment(),
         target.canister_name(),
         SCHEMA_MIGRATE_ENDPOINT.method(),
-        &command_candid(command),
+        (command,),
     )?;
-    decode_response(
+    decode_endpoint_result(
         &candid,
         "schema migration",
-        target,
+        target.environment(),
+        target.canister_name(),
         SCHEMA_MIGRATE_ENDPOINT.method(),
     )
-}
-
-fn decode_response(
-    candid: &[u8],
-    label: &str,
-    target: &CanisterTarget,
-    method: &str,
-) -> Result<SchemaMigrationStatusPage, String> {
-    let response = Decode!(candid, Result<SchemaMigrationStatusPage, Error>)
-        .map_err(|error| error.to_string())?;
-    response.map_err(|error| endpoint_result_error(label, target, method, error))
-}
-
-fn command_candid(command: &RuntimeMigrationCommand) -> String {
-    match command {
-        RuntimeMigrationCommand::Adopt {
-            expected_database,
-            expected_head,
-        } => format!(
-            "(variant {{ Adopt = record {{ expected_database = {}; expected_head = {} }} }})",
-            blob(expected_database.to_bytes()),
-            head_candid(expected_head),
-        ),
-        RuntimeMigrationCommand::Advance {
-            expected_database,
-            expected_head,
-            expected_plan,
-            acknowledged_finding_page,
-        } => format!(
-            "(variant {{ Advance = record {{ expected_database = {}; expected_head = {}; expected_plan = {}; acknowledged_finding_page = {} }} }})",
-            blob(expected_database.to_bytes()),
-            head_candid(expected_head),
-            blob(expected_plan.to_bytes()),
-            acknowledged_finding_page.map_or_else(
-                || "(null : opt nat64)".to_string(),
-                |value| format!("opt ({value} : nat64)")
-            ),
-        ),
-        RuntimeMigrationCommand::Abort {
-            expected_database,
-            expected_head,
-            expected_plan,
-        } => format!(
-            "(variant {{ Abort = record {{ expected_database = {}; expected_head = {}; expected_plan = {} }} }})",
-            blob(expected_database.to_bytes()),
-            head_candid(expected_head),
-            blob(expected_plan.to_bytes()),
-        ),
-    }
-}
-
-fn head_candid(head: &icydb::db::ExpectedAcceptedHead) -> String {
-    match head {
-        icydb::db::ExpectedAcceptedHead::Empty => "variant { Empty }".to_string(),
-        icydb::db::ExpectedAcceptedHead::Exact {
-            revision,
-            fingerprint,
-        } => format!(
-            "variant {{ Exact = record {{ revision = ({revision} : nat64); fingerprint = {} }} }}",
-            blob(fingerprint.to_bytes()),
-        ),
-    }
 }
 
 fn render_accepted_head(head: &icydb::db::ExpectedAcceptedHead) -> String {
@@ -312,7 +253,7 @@ fn print_status(status: &SchemaMigrationStatusPage) {
     println!("  phase: {:?}", status.phase());
     println!(
         "  database: {}",
-        render_hex_lower(&status.database_identity().to_bytes())
+        encode_hex_lower(&status.database_identity().to_bytes())
     );
     println!(
         "  accepted head: {}",
@@ -322,7 +263,7 @@ fn print_status(status: &SchemaMigrationStatusPage) {
         "  plan: {}",
         status.plan_digest().map_or_else(
             || "None".to_string(),
-            |digest| render_hex_lower(&digest.to_bytes()),
+            |digest| encode_hex_lower(&digest.to_bytes()),
         )
     );
     println!("  rows validated: {}", status.rows_validated());
@@ -334,74 +275,57 @@ fn print_status(status: &SchemaMigrationStatusPage) {
             "    {:?}: entity {} key {}",
             finding.kind(),
             finding.entity_tag(),
-            render_hex_lower(finding.primary_key()),
+            encode_hex_lower(finding.primary_key()),
         );
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{blob, command_candid};
+    use crate::icp::encode_candid_args;
     use candid::Decode;
     use icydb::db::{ExpectedAcceptedHead, SchemaMigrationCommand, TargetDatabaseIdentity};
     use icydb_schema::{ExpectedSchemaFingerprint, SchemaMigrationPlanDigest};
-    use std::{path::Path, process::Command};
 
     #[test]
-    fn deployed_migration_command_candid_is_exact_and_local_source_free() {
-        let candid = command_candid(&SchemaMigrationCommand::Adopt {
-            expected_database: TargetDatabaseIdentity::from_bytes([1; 32]),
-            expected_head: ExpectedAcceptedHead::Empty,
-        });
-        assert!(candid.contains("variant { Adopt"));
-        assert!(candid.contains(&blob([1; 32])));
-        assert!(candid.contains("variant { Empty }"));
-    }
-    #[test]
     fn migration_commands_decode_without_canister_type_metadata() {
-        let didc = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.tools/ic/bin/didc");
         for revision in [1, u64::MAX] {
-            let head = ExpectedAcceptedHead::Exact {
-                revision,
-                fingerprint: ExpectedSchemaFingerprint::from_bytes([3; 32]),
-            };
-            let database = TargetDatabaseIdentity::from_bytes([1; 32]);
-            let plan = SchemaMigrationPlanDigest::from_bytes([2; 32]);
-            for command in [
-                SchemaMigrationCommand::Adopt {
-                    expected_database: database,
-                    expected_head: head.clone(),
-                },
-                SchemaMigrationCommand::Abort {
-                    expected_database: database,
-                    expected_head: head.clone(),
-                    expected_plan: plan,
-                },
-                SchemaMigrationCommand::Advance {
-                    expected_database: database,
-                    expected_head: head.clone(),
-                    expected_plan: plan,
-                    acknowledged_finding_page: None,
-                },
-                SchemaMigrationCommand::Advance {
-                    expected_database: database,
-                    expected_head: head.clone(),
-                    expected_plan: plan,
-                    acknowledged_finding_page: Some(u64::MAX),
+            for head in [
+                ExpectedAcceptedHead::Empty,
+                ExpectedAcceptedHead::Exact {
+                    revision,
+                    fingerprint: ExpectedSchemaFingerprint::from_bytes([3; 32]),
                 },
             ] {
-                // No DID, service metadata or network supplies types to this encoder.
-                let output = Command::new(&didc)
-                    .args(["encode", &command_candid(&command)])
-                    .output()
-                    .expect("selected common didc should execute");
-                assert!(
-                    output.status.success(),
-                    "Candid arguments should encode: {output:?}"
-                );
-                let text = String::from_utf8(output.stdout).unwrap();
-                let bytes = crate::icp::test_support::hex_response_bytes(&text).unwrap();
-                assert_eq!(Decode!(&bytes, SchemaMigrationCommand).unwrap(), command);
+                let database = TargetDatabaseIdentity::from_bytes([1; 32]);
+                let plan = SchemaMigrationPlanDigest::from_bytes([2; 32]);
+                for command in [
+                    SchemaMigrationCommand::Adopt {
+                        expected_database: database,
+                        expected_head: head.clone(),
+                    },
+                    SchemaMigrationCommand::Abort {
+                        expected_database: database,
+                        expected_head: head.clone(),
+                        expected_plan: plan,
+                    },
+                    SchemaMigrationCommand::Advance {
+                        expected_database: database,
+                        expected_head: head.clone(),
+                        expected_plan: plan,
+                        acknowledged_finding_page: None,
+                    },
+                    SchemaMigrationCommand::Advance {
+                        expected_database: database,
+                        expected_head: head.clone(),
+                        expected_plan: plan,
+                        acknowledged_finding_page: Some(u64::MAX),
+                    },
+                ] {
+                    // The argument carries its own types, without service metadata.
+                    let bytes = encode_candid_args((&command,)).unwrap();
+                    assert_eq!(Decode!(&bytes, SchemaMigrationCommand).unwrap(), command);
+                }
             }
         }
     }

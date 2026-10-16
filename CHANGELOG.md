@@ -5,6 +5,16 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.275.1]
+
+- Share fixture contracts, response conversion and deterministic test machinery;
+  simplify CLI/tooling, process diagnostics, actor builds and journaled reads; stabilize
+  portable CI fixtures and clarify query consistency
+  ([#149 — DISTINCT missing-row policy](https://github.com/dragginzgame/icydb/issues/149),
+  [#292 — Shared store traversal](https://github.com/dragginzgame/icydb/issues/292)).
+
+See [detailed notes](docs/changelog/0.275.md).
+
 ## [0.275.0] - 2026-10-15
 
 - **Breaking:** raise the public MSRV to Rust 1.91 and use latest stable for

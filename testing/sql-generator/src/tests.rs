@@ -23,6 +23,21 @@ use crate::{
 use std::collections::{BTreeMap, BTreeSet};
 
 #[test]
+fn canonical_json_keeps_nested_order_and_scalar_bytes() {
+    let value = serde_json::json!({
+        "é": {"z": null, "a": true},
+        "z": u64::MAX,
+        "a": [{"z": 2, "a": 1}, "line\nbreak"],
+    });
+    let expected =
+        r#"{"a":[{"a":1,"z":2},"line\nbreak"],"z":18446744073709551615,"é":{"a":true,"z":null}}"#;
+    assert_eq!(
+        crate::replay::canonical_json_bytes(&value).unwrap(),
+        expected.as_bytes(),
+    );
+}
+
+#[test]
 fn splitmix64_state_transition_has_fixed_golden_vector() {
     let mut rng = SplitMix64::new(0);
     let actual = (0..5).map(|_| rng.next_u64()).collect::<Vec<_>>();
@@ -588,6 +603,30 @@ fn mismatch_shrinks_and_round_trips_in_current_formats() {
     let decoded = crate::SelectReplayRecord::from_canonical_json(&bytes)
         .expect("canonical current replay should decode");
     assert_eq!(decoded, replay);
+    let mut noncanonical = bytes.clone();
+    noncanonical.push(b'\n');
+    assert_eq!(
+        crate::SelectReplayRecord::from_canonical_json(&noncanonical)
+            .unwrap_err()
+            .kind(),
+        crate::SqlGeneratorErrorKind::CanonicalReplay,
+    );
+    for (field, value) in [
+        ("format_version", serde_json::json!(0)),
+        ("snapshot_fingerprint", serde_json::json!("stale")),
+        ("unknown_field", serde_json::json!(true)),
+    ] {
+        let mut stale: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        stale[field] = value;
+        let stale = crate::replay::canonical_json_bytes(&stale).unwrap();
+        assert_eq!(
+            crate::SelectReplayRecord::from_canonical_json(&stale)
+                .unwrap_err()
+                .kind(),
+            crate::SqlGeneratorErrorKind::CanonicalReplay,
+        );
+    }
+
     assert_eq!(decoded.format_version(), SELECT_REPLAY_FORMAT_VERSION);
 
     let artifact =

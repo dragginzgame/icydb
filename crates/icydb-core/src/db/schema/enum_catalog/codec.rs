@@ -7,12 +7,11 @@ use super::{
     AcceptedEnumCatalog, AcceptedEnumType, AcceptedEnumVariant, AcceptedEnumVariantBody,
     AcceptedFieldKind, AcceptedValueContract, EnumOrderingPolicy, EnumTypeId, EnumVariantId,
 };
+use crate::db::codec::BoundedByteWriter;
 use crate::{
     db::schema::FieldStorageDecode,
     db::schema::{
-        MAX_ACCEPTED_RECURSIVE_DEPTH,
-        composite_catalog::CompositeTypeId,
-        wire::{SchemaWireReader, SchemaWireWriter},
+        MAX_ACCEPTED_RECURSIVE_DEPTH, composite_catalog::CompositeTypeId, wire::SchemaWireReader,
     },
     error::InternalError,
     types::EntityTag,
@@ -23,7 +22,7 @@ const ACCEPTED_ENUM_CATALOG_MAGIC: &[u8; 8] = b"ICYDBENX";
 const ACCEPTED_ENUM_CATALOG_CODEC_VERSION: u16 = 1;
 const ACCEPTED_ENUM_CATALOG_HEADER_BYTES: usize = 14;
 pub(super) const MAX_ACCEPTED_ENUM_CATALOG_BYTES: usize = 512 * 1024;
-pub(in crate::db::schema) type CatalogWriter = SchemaWireWriter<MAX_ACCEPTED_ENUM_CATALOG_BYTES>;
+pub(in crate::db::schema) type CatalogWriter = BoundedByteWriter<MAX_ACCEPTED_ENUM_CATALOG_BYTES>;
 pub(in crate::db::schema) type CatalogReader<'a> = SchemaWireReader<'a>;
 
 const ORDERING_EQUALITY_ONLY: u8 = 0;
