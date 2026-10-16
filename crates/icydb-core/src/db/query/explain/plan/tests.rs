@@ -137,12 +137,7 @@ fn logical_summaries_depend_on_plan_shape_not_operand_payload_size() {
             },
         ]
     }
-    let large = Value::List(vec![
-        Value::Text("x".repeat(MAX_LOGICAL_RENDER_BYTES + 1)),
-        Value::NatBig(crate::types::NatBig::from_biguint(
-            num_bigint::BigUint::from(1_u8) << 524_288,
-        )),
-    ]);
+    let large = Value::List(vec![Value::Text("x".repeat(MAX_LOGICAL_RENDER_BYTES + 1))]);
     for (small_access, large_access) in paths(Value::Null).into_iter().zip(paths(large.clone())) {
         let mut small = project(
             &grouped_query(),

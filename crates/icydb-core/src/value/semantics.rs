@@ -41,11 +41,9 @@ const fn coercion_family(value: &Value) -> CoercionFamily {
         | Value::Float64(_)
         | Value::Int64(_)
         | Value::Int128(_)
-        | Value::IntBig(_)
         | Value::Timestamp(_)
         | Value::Nat64(_)
         | Value::Nat128(_)
-        | Value::NatBig(_)
         | Value::U256(_) => CoercionFamily::Numeric,
         Value::Enum(_) => CoercionFamily::Enum,
         Value::List(_) | Value::Map(_) => CoercionFamily::Collection,

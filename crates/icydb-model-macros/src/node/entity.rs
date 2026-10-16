@@ -931,25 +931,11 @@ fn typed_item_field_type_tokens(item: &Item) -> TokenStream {
         Primitive::Int32 => quote!(::icydb::__macro::ScalarType::Int32),
         Primitive::Int64 => quote!(::icydb::__macro::ScalarType::Int64),
         Primitive::Int128 => quote!(::icydb::__macro::ScalarType::Int128),
-        Primitive::IntBig => {
-            let max_bytes = item.max_bytes.map_or_else(
-                || quote!(::icydb::__macro::DEFAULT_BIG_INT_MAX_BYTES),
-                |value| quote!(#value),
-            );
-            quote!(::icydb::__macro::ScalarType::IntBig { max_bytes: #max_bytes })
-        }
         Primitive::Nat8 => quote!(::icydb::__macro::ScalarType::Nat8),
         Primitive::Nat16 => quote!(::icydb::__macro::ScalarType::Nat16),
         Primitive::Nat32 => quote!(::icydb::__macro::ScalarType::Nat32),
         Primitive::Nat64 => quote!(::icydb::__macro::ScalarType::Nat64),
         Primitive::Nat128 => quote!(::icydb::__macro::ScalarType::Nat128),
-        Primitive::NatBig => {
-            let max_bytes = item.max_bytes.map_or_else(
-                || quote!(::icydb::__macro::DEFAULT_BIG_INT_MAX_BYTES),
-                |value| quote!(#value),
-            );
-            quote!(::icydb::__macro::ScalarType::NatBig { max_bytes: #max_bytes })
-        }
         Primitive::Principal => quote!(::icydb::__macro::ScalarType::Principal),
         Primitive::Subaccount => quote!(::icydb::__macro::ScalarType::Subaccount),
         Primitive::Text => {

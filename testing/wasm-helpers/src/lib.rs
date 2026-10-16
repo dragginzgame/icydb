@@ -1,5 +1,7 @@
 //! Shared helpers for wasm fixture schema and canister builds.
 
+pub mod wire;
+
 use icydb::{
     db::{
         DbSession, DynamicQuery, StructuralMutation, StructuralPatch, TypedEntityAdapter,

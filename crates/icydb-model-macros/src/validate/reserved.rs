@@ -48,7 +48,7 @@ static RESERVED_WORDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     ]);
 
     // icydb schema numeric labels
-    words.extend(["int128", "int_big", "nat128", "nat_big"]);
+    words.extend(["int128", "nat128"]);
 
     // rust
     // https://doc.rust-lang.org/reference/keywords.html

@@ -11,11 +11,7 @@ mod tests;
 
 use crate::{
     db::{QueryError, query::plan::expr::Expr},
-    value::{
-        Value,
-        decimal::{ValueFormatWriter, write_signed_literal, write_unsigned_literal},
-        format::write_value_debug,
-    },
+    value::{Value, format::write_value_debug},
 };
 use std::fmt;
 
@@ -82,7 +78,7 @@ pub(in crate::db) fn render_scalar_projection_expr_plan_label(expr: &Expr) -> St
 /// a write before retaining its bytes; rendering stops at that first failure.
 pub(in crate::db) fn write_scalar_projection_expr_plan_label(
     expr: &Expr,
-    output: &mut (impl ValueFormatWriter + ?Sized),
+    output: &mut (impl std::fmt::Write + ?Sized),
 ) -> fmt::Result {
     write_scalar_projection_expr_plan_label_with_parent(expr, None, false, output)
 }
@@ -91,7 +87,7 @@ fn write_scalar_projection_expr_plan_label_with_parent(
     expr: &Expr,
     parent_op: Option<crate::db::query::plan::expr::BinaryOp>,
     is_right_child: bool,
-    output: &mut (impl ValueFormatWriter + ?Sized),
+    output: &mut (impl std::fmt::Write + ?Sized),
 ) -> fmt::Result {
     match expr {
         Expr::Field(field) => output.write_str(field.as_str()),
@@ -224,7 +220,7 @@ const fn binary_op_symbol(op: crate::db::query::plan::expr::BinaryOp) -> &'stati
 
 fn write_scalar_projection_literal(
     value: &Value,
-    output: &mut (impl ValueFormatWriter + ?Sized),
+    output: &mut (impl std::fmt::Write + ?Sized),
 ) -> fmt::Result {
     match value {
         Value::Null => output.write_str("NULL"),
@@ -240,10 +236,8 @@ fn write_scalar_projection_literal(
         }
         Value::Int64(value) => write!(output, "{value}"),
         Value::Int128(value) => write!(output, "{value}"),
-        Value::IntBig(value) => write_signed_literal(value, output),
         Value::Nat64(value) => write!(output, "{value}"),
         Value::Nat128(value) => write!(output, "{value}"),
-        Value::NatBig(value) => write_unsigned_literal(value, output),
         Value::U256(value) => write!(output, "{value}"),
         Value::Decimal(value) => write!(output, "{value}"),
         Value::Float32(value) => write!(output, "{value}"),

@@ -1,7 +1,7 @@
 use crate::{
     types::{
-        Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
-        Timestamp, U256, Ulid,
+        Account, Date, Decimal, Duration, Float32, Float64, Principal, Subaccount, Timestamp, U256,
+        Ulid,
     },
     value::PublicValue,
 };
@@ -96,12 +96,6 @@ impl OutputValue {
         Self(PublicValue::Int128(value))
     }
 
-    /// Build an unbounded signed integer output value.
-    #[must_use]
-    pub const fn int_big(value: IntBig) -> Self {
-        Self(PublicValue::IntBig(value))
-    }
-
     /// Build a recursive list output value.
     #[must_use]
     pub const fn list(values: Vec<PublicValue>) -> Self {
@@ -154,12 +148,6 @@ impl OutputValue {
     #[must_use]
     pub const fn nat128(value: u128) -> Self {
         Self(PublicValue::Nat128(value))
-    }
-
-    /// Build an unbounded natural output value.
-    #[must_use]
-    pub const fn nat_big(value: NatBig) -> Self {
-        Self(PublicValue::NatBig(value))
     }
 
     /// Build a ULID output value.

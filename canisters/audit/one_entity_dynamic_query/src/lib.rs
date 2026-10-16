@@ -9,6 +9,7 @@ use ic_cdk::api::call_context_instruction_counter;
 #[cfg(target_arch = "wasm32")]
 use ic_cdk::api::call_context_instruction_counter;
 
+use ic_wire::{Method, ResponseBytes, decode_request, encode_response};
 use icydb::{
     db::{
         DynamicQuery,
@@ -16,6 +17,7 @@ use icydb::{
     },
     types::Ulid,
 };
+use icydb_testing_wasm_helpers::wire::DynamicRowsQuery;
 
 // The final host owns grants and exclusions; components request permanent keys.
 fn icydb_memory_pool()
@@ -33,8 +35,39 @@ icydb::start!();
 
 const MAX_REPEATED_QUERIES: u16 = 1_000;
 
-#[ic_cdk::query]
-fn query_one_entity_dynamic_rows() -> u32 {
+// Artifact inspection binds this non-Candid export to its shared Method.
+#[cfg(target_arch = "wasm32")]
+#[used]
+#[expect(
+    unsafe_code,
+    reason = "the linker section contains only the shared read-only contract identity"
+)]
+#[unsafe(link_section = "icydb:wire")]
+static DYNAMIC_ROWS_WIRE_CONTRACT_ID: [u8; 8] = DynamicRowsQuery::ID.to_le_bytes();
+
+// Hidden from Candid because this method accepts and returns raw IC Wire.
+#[ic_cdk::query(manual_reply = true, hidden = true)]
+fn query_one_entity_dynamic_rows() {
+    // Admission precedes the CDK's argument copy and all database work.
+    if ic0::msg_arg_data_size() > DynamicRowsQuery::REQUEST_LIMITS.bytes {
+        ic_cdk::api::msg_reject("dynamic row query request limit");
+        return;
+    }
+    match dynamic_rows_reply(&ic_cdk::api::msg_arg_data(), dynamic_row_count) {
+        Ok(reply) => ic_cdk::api::msg_reply(reply.as_bytes()),
+        Err(error) => ic_cdk::api::msg_reject(error.to_string()),
+    }
+}
+
+fn dynamic_rows_reply(
+    request: &[u8],
+    query: impl FnOnce() -> u32,
+) -> Result<ResponseBytes<DynamicRowsQuery>, ic_wire::Error> {
+    decode_request::<DynamicRowsQuery>(request)?;
+    encode_response::<DynamicRowsQuery>(&query())
+}
+
+fn dynamic_row_count() -> u32 {
     icydb::db::with_request_execution(|| {
         let Ok(database) = icydb::db!() else {
             return 0;
@@ -156,3 +189,49 @@ fn measure_repeated_grouped_queries(repetitions: u16) -> ((u16, u16, u32, u64),)
 // Export after all endpoints so the generated interface includes every method.
 #[cfg(feature = "candid-export")]
 ic_cdk::export_candid!();
+
+#[cfg(test)]
+mod wire_tests {
+    use super::dynamic_rows_reply;
+    use ic_wire::{decode_response, encode_request};
+    use icydb_testing_wasm_helpers::wire::DynamicRowsQuery;
+    use std::cell::Cell;
+
+    #[test]
+    fn wire_admission_precedes_query_execution() {
+        let request = encode_request::<DynamicRowsQuery>(&()).unwrap();
+        let mut invalid = (0..request.as_bytes().len())
+            .map(|length| request.as_bytes()[..length].to_vec())
+            .collect::<Vec<_>>();
+        invalid.push(b"DIDL\0\0".to_vec());
+        let mut wrong_identity = request.as_bytes().to_vec();
+        wrong_identity[2] ^= 1;
+        invalid.push(wrong_identity);
+        let mut wrong_direction = request.as_bytes().to_vec();
+        wrong_direction[10] = 1;
+        invalid.push(wrong_direction);
+        let mut trailing = request.as_bytes().to_vec();
+        trailing.push(0);
+        invalid.push(trailing);
+
+        let executions = Cell::new(0);
+        for bytes in invalid {
+            assert!(
+                dynamic_rows_reply(&bytes, || {
+                    executions.set(executions.get() + 1);
+                    7
+                })
+                .is_err()
+            );
+        }
+        assert_eq!(executions.get(), 0);
+
+        let reply = dynamic_rows_reply(request.as_bytes(), || {
+            executions.set(executions.get() + 1);
+            7
+        })
+        .unwrap();
+        assert_eq!(decode_response::<DynamicRowsQuery>(reply.as_bytes()), Ok(7));
+        assert_eq!(executions.get(), 1);
+    }
+}

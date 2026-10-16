@@ -57,25 +57,15 @@ still reserves its fixed 62-byte database payload.
 
 `Decimal` uses decimal text for both Candid and Serde, including binary Serde
 formats such as CBOR. Clients should submit that same text representation.
-`Int128`/`IntBig` use native Candid `int`; `Nat128`/`NatBig` and `U256` use
-native `nat`. These variable-length integer carriers keep small values compact;
-internal row/index/cursor encodings have separate contracts.
+`Int128` uses native Candid `int`; `Nat128` and `U256` use native `nat`.
+Their Rust and database numeric domains remain fixed-width even though Candid's
+integer wire representation is variable-length.
 
-`IntBig`, `NatBig` and `U256` use decimal strings in human-readable Serde
-(including JSON). Binary Serde uses native i64/u64 for representable values;
-larger values use byte strings containing a marker followed by minimal
-little-endian bytes: marker 0 and two's complement for signed integers, marker
-1 and unsigned magnitude for naturals/U256. U256 still rejects values above
-256 bits. These carriers match Candid's integer visitor; public Candid remains
-native `int`/`nat`. Regenerate affected external binary snapshots and bigint
-JSON snapshots when adopting this hard cut. Custom database row/index/cursor
-formats are unchanged by this Serde change.
-
-Binary CBOR becomes smaller for small and dense values. Sparse bigints such as
-large powers of two can grow because their low zero limbs previously occupied
-one CBOR byte each. See the
-[storage comparison](../design/0.257-typed-query-explain/0.257-storage-size.md#s9--compact-round-trippable-integer-serde)
-for measured examples and the retained trade-off.
+`U256` uses decimal strings in human-readable Serde (including JSON). Binary
+Serde uses native u64 for representable values; larger values use a byte string
+with marker 1 followed by the minimal little-endian unsigned magnitude.
+Ingress rejects negative values and values above 256 bits. Its public Candid
+shape remains native `nat`; row/index/cursor encodings have separate contracts.
 
 Direct row fields declared `Int8`/`Nat8`, `Int16`/`Nat16`, and `Int32`/`Nat32`
 store 1, 2, and 4 little-endian payload bytes respectively, plus the two-byte
@@ -84,14 +74,6 @@ selects the width, including direct relations with narrow integer keys; writes
 reject out-of-range values. Adopting this format requires affected databases
 and persisted row/default/catalog data to be recreated. Index keys, decoded
 runtime integers, and nested structural values retain their own representations.
-
-`IntBig` and `NatBig` structural storage uses a minimal little-endian magnitude
-inside a byte-string frame. Signed values include one sign byte; zero uses an
-empty magnitude. This applies to both ordinary structural fields and nested
-canonical values, including encoded defaults. Recreate affected databases and
-regenerate encoded artifacts when adopting this representation. The accepted
-`max_bytes` bound still measures canonical signed/unsigned LEB128 length; it is
-not the length of the stored magnitude or its framing.
 
 Nested fixed-width scalars store one type tag followed by the fixed payload,
 without an inner tag or length prefix. Date uses four epoch-day bytes. Account
@@ -142,7 +124,7 @@ reserved field identifiers:
   `func`, `import`, `int`, `int8`, `int16`, `int32`, `int64`, `nat`, `nat8`,
   `nat16`, `nat32`, `nat64`, `null`, `oneway`, `opt`, `principal`, `query`,
   `record`, `reserved`, `service`, `text`, `type`, `variant`, and `vec`.
-- IcyDB scalar labels: `int128`, `int_big`, `nat128`, and `nat_big`.
+- IcyDB scalar labels: `int128` and `nat128`.
 - Rust: `as`, `break`, `const`, `continue`, `crate`, `else`, `enum`, `extern`,
   `false`, `fn`, `for`, `gen`, `if`, `impl`, `in`, `let`, `loop`, `match`,
   `mod`, `move`, `mut`, `pub`, `ref`, `return`, `self`, `Self`, `static`,

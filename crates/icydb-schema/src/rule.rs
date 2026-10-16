@@ -74,11 +74,7 @@ impl SourceRuleOperation {
 pub(crate) const fn exact_multiple_literal(literal: &ScalarLiteral) -> bool {
     matches!(
         literal.kind(),
-        ScalarKind::Decimal
-            | ScalarKind::Int128
-            | ScalarKind::IntBig
-            | ScalarKind::Nat128
-            | ScalarKind::NatBig
+        ScalarKind::Decimal | ScalarKind::Int128 | ScalarKind::Nat128
     )
 }
 
@@ -89,9 +85,7 @@ const fn numeric_literal(literal: &ScalarLiteral) -> bool {
             | ScalarKind::Float32
             | ScalarKind::Float64
             | ScalarKind::Int128
-            | ScalarKind::IntBig
             | ScalarKind::Nat128
-            | ScalarKind::NatBig
             | ScalarKind::U256
     )
 }
@@ -102,9 +96,7 @@ fn scalar_literal_le(left: &ScalarLiteral, right: &ScalarLiteral) -> bool {
         (ScalarLiteral::Float32(left), ScalarLiteral::Float32(right)) => left <= right,
         (ScalarLiteral::Float64(left), ScalarLiteral::Float64(right)) => left <= right,
         (ScalarLiteral::Int(left), ScalarLiteral::Int(right)) => left <= right,
-        (ScalarLiteral::IntBig(left), ScalarLiteral::IntBig(right)) => left <= right,
         (ScalarLiteral::Nat(left), ScalarLiteral::Nat(right)) => left <= right,
-        (ScalarLiteral::NatBig(left), ScalarLiteral::NatBig(right)) => left <= right,
         (ScalarLiteral::U256(left), ScalarLiteral::U256(right)) => left <= right,
         _ => false,
     }
@@ -114,9 +106,7 @@ fn scalar_literal_is_zero(literal: &ScalarLiteral) -> bool {
     match literal {
         ScalarLiteral::Decimal(value) => value.is_zero(),
         ScalarLiteral::Int(value) => *value == 0,
-        ScalarLiteral::IntBig(value) => value == &crate::IntBig::default(),
         ScalarLiteral::Nat(value) => *value == 0,
-        ScalarLiteral::NatBig(value) => value == &crate::NatBig::default(),
         ScalarLiteral::U256(value) => *value == crate::U256::ZERO,
         ScalarLiteral::Account(_)
         | ScalarLiteral::Blob(_)

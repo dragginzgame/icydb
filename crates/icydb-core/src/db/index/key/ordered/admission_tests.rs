@@ -8,8 +8,8 @@ use crate::{
         resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     },
     types::{
-        Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
-        Timestamp, U256, Ulid,
+        Account, Date, Decimal, Duration, Float32, Float64, Principal, Subaccount, Timestamp, U256,
+        Ulid,
     },
     value::{Value, ValueEnum},
 };
@@ -51,10 +51,6 @@ fn scalar_admission_covers_shared_capacity_and_rejects_before_encoding() {
         (Value::Text("a\0é".into()), 11),
         // Comparison operands keep their existing domain beyond stored-key caps.
         (Value::Text("x".repeat(4096)), 8195),
-        (Value::IntBig(IntBig::from(0)), 2),
-        (Value::IntBig(IntBig::from(-256)), 6),
-        (Value::NatBig(NatBig::from(0u64)), 3),
-        (Value::NatBig(NatBig::from(256u64)), 5),
         (Value::Decimal(Decimal::new(0, 0)), 46),
         (Value::Decimal(Decimal::new(-11, 1)), 46),
     ];

@@ -14,16 +14,20 @@ authors = { workspace = true }
 blake3 = { workspace = true }
 candid = { workspace = true }
 ic-testkit = { workspace = true }
+ic-wire = { workspace = true }
 icydb = { workspace = true, default-features = true, features = ["metrics", "migration", "sql"] }
 icydb-testing-audit-sql-perf-fixtures = { workspace = true }
 icydb-testing-build = { workspace = true }
 icydb-testing-sql-generator = { workspace = true }
 icydb-testing-sqlite-reference = { workspace = true }
+icydb-testing-wasm-helpers = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 
 [dev-dependencies]
+canister_audit_codec_wire_query = { workspace = true }
 ic-host-artifacts = { workspace = true }
+icydb-testing-codec-query = { workspace = true }
 syn = { workspace = true, features = ["full"] }
 
 [lints]
@@ -60,6 +64,10 @@ path = "tests/schema_guard.rs"
 [[test]]
 name = "query_canister"
 path = "tests/query_canister.rs"
+
+[[test]]
+name = "codec_query_comparison"
+path = "tests/codec_query_comparison.rs"
 
 [[test]]
 name = "schema_application_cost"

@@ -1,6 +1,5 @@
 //! Total-only instruction coverage for the SQL performance actor.
 
-mod indexed_recovery;
 mod seek_intersection;
 
 use candid::CandidType;
@@ -12,12 +11,6 @@ use serde::Deserialize;
 #[derive(CandidType, Debug, Deserialize)]
 struct ReadTotalOnlyPerfResult {
     row_count: u32,
-    instructions: u64,
-}
-
-#[derive(CandidType, Debug, Deserialize)]
-struct IndexedBigIntegerAttempt {
-    outcome: Result<u32, Error>,
     instructions: u64,
 }
 
@@ -546,158 +539,6 @@ fn case_admission_wasm_cost_matrix() {
                 println!(
                     "case_admission_cost levels={levels} repeat={repeat} phase={phase} instructions={} cycles={cycles}",
                     sample.instructions
-                );
-            }
-        }
-    }
-}
-
-/// Matched frozen-module comparison for scalar big-integer filter conversion.
-#[test]
-#[ignore = "manual wasm-release big-integer instruction and cycle measurement"]
-fn big_literal_wasm_cost_matrix() {
-    let module = preparation_measurement_wasm();
-    for digits in [20_u32, 80, 300] {
-        for negative in [false, true] {
-            let fixture = icydb_testing_integration::install_prebuilt_fixture_canister(
-                "sql_perf",
-                module.clone(),
-            );
-            // A fresh installed fixture has no rows in the dedicated big-literal
-            // entity. Cold/warm calls still resolve and normalize accepted types.
-            for repeat in 0..4 {
-                settle_measurement_rounds(&fixture);
-                let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
-                let sample: Result<ReadTotalOnlyPerfResult, Error> = fixture
-                    .pocket_ic()
-                    .update_candid(
-                        fixture.canister_id(),
-                        "measure_big_literal_preparation",
-                        (negative, digits),
-                    )
-                    .expect("big-literal measurement should decode");
-                let cycles = before
-                    .checked_sub(fixture.pocket_ic().cycle_balance(fixture.canister_id()))
-                    .expect("update charges cycles");
-                let sample = sample.expect("big-literal query should prepare and execute");
-                assert_eq!(sample.row_count, 0);
-                assert!(sample.instructions > 0);
-                println!(
-                    "big_literal_cost negative={negative} digits={digits} repeat={repeat} instructions={} cycles={cycles}",
-                    sample.instructions
-                );
-            }
-        }
-    }
-}
-
-/// Matched frozen-module comparison for accepted big-integer write admission.
-#[test]
-#[ignore = "manual wasm-release big-integer write instruction and cycle measurement"]
-fn big_integer_write_wasm_cost_matrix() {
-    let module = preparation_measurement_wasm();
-    for digits in [20_u32, 80, 300] {
-        let fixture = icydb_testing_integration::install_prebuilt_fixture_canister(
-            "sql_perf",
-            module.clone(),
-        );
-        for repeat in 0_i32..4 {
-            settle_measurement_rounds(&fixture);
-            let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
-            let sample: Result<ReadTotalOnlyPerfResult, Error> = fixture
-                .pocket_ic()
-                .update_candid(
-                    fixture.canister_id(),
-                    "measure_big_integer_write",
-                    (digits, repeat),
-                )
-                .expect("big-integer write measurement should decode");
-            let cycles = before
-                .checked_sub(fixture.pocket_ic().cycle_balance(fixture.canister_id()))
-                .expect("update charges cycles");
-            let sample = sample.expect("big-integer write should succeed");
-            assert_eq!(sample.row_count, 1);
-            assert!(sample.instructions > 0);
-            println!(
-                "big_integer_write_cost digits={digits} repeat={repeat} instructions={} cycles={cycles}",
-                sample.instructions
-            );
-        }
-    }
-}
-
-/// Exercise the existing scalar index boundary, including late batch rejection.
-#[test]
-#[ignore = "manual wasm-release indexed scalar admission instruction and cycle measurement"]
-fn indexed_big_integer_write_wasm_cost_matrix() {
-    let module = preparation_measurement_wasm();
-    for negative in [false, true] {
-        for digits in [20_u32, 300, 9_854, 9_855, 9_856, 9_857] {
-            for rows in [1_u16, 32] {
-                let fixture = icydb_testing_integration::install_prebuilt_fixture_canister(
-                    "sql_perf",
-                    module.clone(),
-                );
-                let prepared: Result<(), Error> = fixture
-                    .pocket_ic()
-                    .update_candid(
-                        fixture.canister_id(),
-                        "prepare_indexed_big_integer_fixture",
-                        (),
-                    )
-                    .expect("fixed index setup should decode");
-                prepared.expect("empty accepted indexes should publish");
-                settle_measurement_rounds(&fixture);
-                let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
-                let sample: Result<IndexedBigIntegerAttempt, Error> = fixture
-                    .pocket_ic()
-                    .update_candid(
-                        fixture.canister_id(),
-                        "measure_indexed_big_integer_write",
-                        (negative, digits, rows),
-                    )
-                    .expect("indexed scalar measurement should decode");
-                let cycles = before
-                    .checked_sub(fixture.pocket_ic().cycle_balance(fixture.canister_id()))
-                    .expect("the update should charge cycles");
-                let sample = sample.expect("the fixed measurement input should be valid");
-                // Binary magnitude plus tag/length/sign must fit 4,096 bytes.
-                let accepted = digits <= if negative { 9_854 } else { 9_856 };
-                assert!(sample.instructions > 0);
-                if accepted {
-                    assert_eq!(
-                        sample.outcome.expect("bounded index components should fit"),
-                        u32::from(rows)
-                    );
-                } else {
-                    assert_eq!(
-                        sample
-                            .outcome
-                            .expect_err("oversized components must reject")
-                            .origin(),
-                        icydb::ErrorOrigin::Index,
-                    );
-                }
-                let result: Result<SqlQueryResult, Error> = fixture
-                    .pocket_ic()
-                    .query_candid(
-                        fixture.canister_id(),
-                        "query_user",
-                        ("SELECT id FROM PerfAuditIndexedBigInteger ORDER BY id".to_string(),),
-                    )
-                    .expect("post-write row inspection should decode");
-                let SqlQueryResult::Projection(projection) =
-                    result.expect("row inspection should succeed")
-                else {
-                    panic!("row inspection must return a projection");
-                };
-                assert_eq!(
-                    projection.rows.len(),
-                    if accepted { usize::from(rows) } else { 0 }
-                );
-                println!(
-                    "indexed_big_integer_write_cost negative={negative} digits={digits} rows={rows} accepted={accepted} instructions={} cycles={cycles}",
-                    sample.instructions,
                 );
             }
         }

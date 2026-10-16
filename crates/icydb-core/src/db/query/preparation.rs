@@ -131,22 +131,6 @@ impl PreparationWork<'_> {
 }
 
 impl ConstructionBudget for PreparationWork<'_> {
-    fn admit_format_scratch(&self, bytes: u64, steps: u64) -> Result<(), InternalError> {
-        // Preserve the pre-conversion checkpoint even through the shared text
-        // sink. The enclosing preparation segment also checks on exit.
-        self.check_instruction_watermark()?;
-        ConstructionBudget::charge(
-            self,
-            DiagnosticExecutionBudgetResource::TemporaryBytes,
-            bytes,
-        )?;
-        ConstructionBudget::charge(
-            self,
-            DiagnosticExecutionBudgetResource::PredicateExpressionSteps,
-            steps,
-        )
-    }
-
     fn charge(
         &self,
         resource: DiagnosticExecutionBudgetResource,

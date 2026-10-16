@@ -347,7 +347,6 @@ pub(in crate::db::schema) fn source_literal_input(
             AcceptedFieldKind::Int128 => PublicValue::Int128(*value),
             _ => return Err(AcceptedCheckExprV1Error::LiteralAdmissionRejected),
         },
-        ScalarLiteral::IntBig(value) => PublicValue::IntBig(value.clone()),
         ScalarLiteral::Nat(value) => match expected {
             AcceptedFieldKind::Nat8
             | AcceptedFieldKind::Nat16
@@ -359,7 +358,6 @@ pub(in crate::db::schema) fn source_literal_input(
             AcceptedFieldKind::Nat128 => PublicValue::Nat128(*value),
             _ => return Err(AcceptedCheckExprV1Error::LiteralAdmissionRejected),
         },
-        ScalarLiteral::NatBig(value) => PublicValue::NatBig(value.clone()),
         ScalarLiteral::Principal(value) => PublicValue::Principal(*value),
         ScalarLiteral::Subaccount(value) => PublicValue::Subaccount(*value),
         ScalarLiteral::Text(value) => PublicValue::Text(value.clone()),

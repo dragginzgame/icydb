@@ -96,7 +96,7 @@ impl Primitive {
 
     #[must_use]
     pub const fn supports_copy(self) -> bool {
-        !matches!(self, Self::Blob | Self::IntBig | Self::NatBig | Self::Text)
+        !matches!(self, Self::Blob | Self::Text)
     }
 
     // NumericValue can fallibly route all numeric-like primitives through Decimal.
@@ -112,7 +112,6 @@ impl Primitive {
                 | Self::Int32
                 | Self::Int64
                 | Self::Int128
-                | Self::IntBig
                 | Self::Float32
                 | Self::Float64
                 | Self::Nat8
@@ -120,7 +119,6 @@ impl Primitive {
                 | Self::Nat32
                 | Self::Nat64
                 | Self::Nat128
-                | Self::NatBig
                 | Self::Timestamp
         )
     }

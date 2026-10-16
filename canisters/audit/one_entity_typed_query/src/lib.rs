@@ -441,11 +441,7 @@ mod tests {
 
     #[test]
     fn owned_scalar_decode_preserves_buffers_values_and_shape_errors() {
-        use icydb::{
-            model::TypedOutputValue,
-            types::{Blob, IntBig, NatBig},
-            value::PublicValue,
-        };
+        use icydb::{model::TypedOutputValue, types::Blob, value::PublicValue};
 
         crate::__icydb_generated::__drive_native_database_for_tests()
             .expect("native startup should complete");
@@ -458,21 +454,6 @@ mod tests {
             assert_eq!(blob.as_bytes(), &[42; 1024]);
             assert_eq!(blob.as_bytes().as_ptr(), pointer);
 
-            let signed: IntBig = "-12345678901234567890123456789012345678901234567890"
-                .parse()
-                .unwrap();
-            let unsigned: NatBig = "12345678901234567890123456789012345678901234567890"
-                .parse()
-                .unwrap();
-            assert_eq!(
-                IntBig::decode_typed_output(&binding, PublicValue::IntBig(signed.clone())).unwrap(),
-                signed
-            );
-            assert_eq!(
-                NatBig::decode_typed_output(&binding, PublicValue::NatBig(unsigned.clone()))
-                    .unwrap(),
-                unsigned
-            );
             assert_eq!(
                 u8::decode_typed_output(&binding, PublicValue::Nat64(255)),
                 Ok(255)

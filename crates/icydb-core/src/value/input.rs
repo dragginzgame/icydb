@@ -1,8 +1,8 @@
 use crate::{
     db::EntityKey,
     types::{
-        Account, Blob, Date, Decimal, Duration, Float32, Float64, Id, IntBig, NatBig, Principal,
-        Subaccount, Timestamp, U256, Ulid, Unit,
+        Account, Blob, Date, Decimal, Duration, Float32, Float64, Id, Principal, Subaccount,
+        Timestamp, U256, Ulid, Unit,
     },
     value::{PublicEnumValue, PublicValue, Value},
 };
@@ -100,12 +100,6 @@ impl InputValue {
         Self(PublicValue::Int128(value))
     }
 
-    /// Build an unbounded signed integer input value.
-    #[must_use]
-    pub const fn int_big(value: IntBig) -> Self {
-        Self(PublicValue::IntBig(value))
-    }
-
     /// Build a recursive list from caller-authored input values.
     ///
     /// The owned root wrappers move into the shared recursive kernel without
@@ -177,12 +171,6 @@ impl InputValue {
     #[must_use]
     pub const fn nat128(value: u128) -> Self {
         Self(PublicValue::Nat128(value))
-    }
-
-    /// Build an unbounded natural input value.
-    #[must_use]
-    pub const fn nat_big(value: NatBig) -> Self {
-        Self(PublicValue::NatBig(value))
     }
 
     /// Build a ULID input value.
@@ -352,21 +340,9 @@ impl From<Float64> for InputValue {
     }
 }
 
-impl From<IntBig> for InputValue {
-    fn from(value: IntBig) -> Self {
-        Self(PublicValue::IntBig(value))
-    }
-}
-
 impl From<i128> for InputValue {
     fn from(value: i128) -> Self {
         Self(PublicValue::Int128(value))
-    }
-}
-
-impl From<NatBig> for InputValue {
-    fn from(value: NatBig) -> Self {
-        Self(PublicValue::NatBig(value))
     }
 }
 

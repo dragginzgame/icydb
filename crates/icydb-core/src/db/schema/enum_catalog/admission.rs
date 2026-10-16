@@ -98,20 +98,6 @@ impl ValueAdmissionBudget {
             .ok_or(ValueAdmissionError::SizeExceeded)?;
         Ok(())
     }
-
-    // Check the field bound before charging the existing tag/length overhead.
-    // Callers obtain exact lengths from the atom without allocating an encoding.
-    fn consume_big_integer(
-        &mut self,
-        bytes: u64,
-        max_bytes: u32,
-    ) -> Result<(), ValueAdmissionError> {
-        if bytes > u64::from(max_bytes) {
-            return Err(ValueAdmissionError::ScalarConstraint);
-        }
-        let bytes = usize::try_from(bytes).map_err(|_| ValueAdmissionError::SizeExceeded)?;
-        self.consume(5_usize.saturating_add(bytes))
-    }
 }
 
 /// Owned canonical value pinned to the accepted revision that admitted it.
@@ -467,10 +453,6 @@ fn normalize_kind(
             budget.consume(17)?;
             Ok(CanonicalValue::Int128(value))
         }
-        (AcceptedFieldKind::IntBig { max_bytes }, PublicValue::IntBig(value)) => {
-            budget.consume_big_integer(value.leb128_len(), *max_bytes)?;
-            Ok(CanonicalValue::IntBig(value))
-        }
         (AcceptedFieldKind::Principal, PublicValue::Principal(value)) => {
             budget.consume(32)?;
             Ok(CanonicalValue::Principal(value))
@@ -507,10 +489,6 @@ fn normalize_kind(
         (AcceptedFieldKind::Nat128, PublicValue::Nat128(value)) => {
             budget.consume(17)?;
             Ok(CanonicalValue::Nat128(value))
-        }
-        (AcceptedFieldKind::NatBig { max_bytes }, PublicValue::NatBig(value)) => {
-            budget.consume_big_integer(value.leb128_len(), *max_bytes)?;
-            Ok(CanonicalValue::NatBig(value))
         }
         (AcceptedFieldKind::Ulid, PublicValue::Ulid(value)) => {
             budget.consume(17)?;
@@ -801,9 +779,6 @@ fn validate_kind(
         (AcceptedFieldKind::Int128, CanonicalValue::Int128(_))
         | (AcceptedFieldKind::Nat128, CanonicalValue::Nat128(_))
         | (AcceptedFieldKind::Ulid, CanonicalValue::Ulid(_)) => budget.consume(17),
-        (AcceptedFieldKind::IntBig { max_bytes }, CanonicalValue::IntBig(value)) => {
-            budget.consume_big_integer(value.leb128_len(), *max_bytes)
-        }
         (AcceptedFieldKind::Principal, CanonicalValue::Principal(_)) => budget.consume(32),
         (AcceptedFieldKind::Subaccount, CanonicalValue::Subaccount(_))
         | (AcceptedFieldKind::U256, CanonicalValue::U256(_)) => budget.consume(33),
@@ -823,9 +798,6 @@ fn validate_kind(
             if u32::try_from(*value).is_ok() =>
         {
             budget.consume(5)
-        }
-        (AcceptedFieldKind::NatBig { max_bytes }, CanonicalValue::NatBig(value)) => {
-            budget.consume_big_integer(value.leb128_len(), *max_bytes)
         }
         (AcceptedFieldKind::Unit, CanonicalValue::Unit) => budget.consume(1),
         (AcceptedFieldKind::Relation { key_kind, .. }, value) => {

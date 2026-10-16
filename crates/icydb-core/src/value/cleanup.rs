@@ -30,10 +30,8 @@ pub(crate) fn clear_value(value: Value) {
             | Value::Float64(_)
             | Value::Int64(_)
             | Value::Int128(_)
-            | Value::IntBig(_)
             | Value::Nat64(_)
             | Value::Nat128(_)
-            | Value::NatBig(_)
             | Value::Null
             | Value::Principal(_)
             | Value::Subaccount(_)

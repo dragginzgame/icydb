@@ -4,7 +4,6 @@
 //!
 
 #[cfg(feature = "test-admin-api")]
-mod indexed_big_integer;
 #[cfg(feature = "test-admin-api")]
 mod seek_intersection;
 
@@ -18,7 +17,6 @@ use ic_cdk::api::call_context_instruction_counter;
 use ic_cdk::api::call_context_instruction_counter;
 
 #[cfg(all(feature = "test-admin-api", feature = "candid-export"))]
-use crate::indexed_big_integer::IndexedBigIntegerAttempt;
 #[cfg(all(feature = "test-admin-api", feature = "candid-export"))]
 use crate::seek_intersection::IntersectionPageSample;
 
@@ -2025,68 +2023,6 @@ fn measure_typed_filter_preparation(
         Ok(ReadTotalOnlyPerfResult {
             row_count: page.row_count,
             instructions,
-        })
-    })
-}
-
-/// Measure big-literal preparation without row decoding or decimal formatting.
-#[cfg(feature = "test-admin-api")]
-#[update]
-fn measure_big_literal_preparation(
-    negative: bool,
-    digits: u32,
-) -> Result<ReadTotalOnlyPerfResult, icydb::Error> {
-    if ![20, 80, 300].contains(&digits) {
-        return Err(query_validate_error());
-    }
-    let text = format!(
-        "{}{}",
-        if negative { "-" } else { "" },
-        "9".repeat(digits as usize)
-    );
-    let field = if negative { "signed" } else { "unsigned" };
-    icydb::db::with_request_execution(|| {
-        let start = call_context_instruction_counter();
-        let query = DynamicQuery::new("PerfAuditBigLiteral")
-            .filter(FilterExpr::eq(field, text))
-            .select(["id"])
-            .limit(1);
-        let page = db()?.execute_trusted_live_page(&query, None)?;
-        Ok(ReadTotalOnlyPerfResult {
-            row_count: page.row_count,
-            instructions: call_context_instruction_counter().saturating_sub(start),
-        })
-    })
-}
-
-/// Measure accepted big-integer admission through an ordinary structural write.
-#[cfg(feature = "test-admin-api")]
-#[update]
-fn measure_big_integer_write(
-    digits: u32,
-    id: i32,
-) -> Result<ReadTotalOnlyPerfResult, icydb::Error> {
-    if ![20, 80, 300].contains(&digits) || !(0..4).contains(&id) {
-        return Err(query_validate_error());
-    }
-    let text = "9".repeat(digits as usize);
-    let signed = format!("-{text}")
-        .parse()
-        .map_err(|_| query_validate_error())?;
-    let unsigned = text.parse().map_err(|_| query_validate_error())?;
-    let patch = StructuralPatch::new()
-        .field("id", authored(id))
-        .field("signed", authored(InputValue::int_big(signed)))
-        .field("unsigned", authored(InputValue::nat_big(unsigned)));
-    icydb::db::with_request_execution(|| {
-        let start = call_context_instruction_counter();
-        let result = db()?.execute_trusted_structural_mutation(StructuralMutation::Insert {
-            entity: "PerfAuditBigLiteral".into(),
-            patch,
-        })?;
-        Ok(ReadTotalOnlyPerfResult {
-            row_count: result.affected_rows,
-            instructions: call_context_instruction_counter().saturating_sub(start),
         })
     })
 }

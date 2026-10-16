@@ -16,28 +16,20 @@ const fn scalar_kind_is_numeric(kind: ScalarKind) -> bool {
             | ScalarKind::Float64
             | ScalarKind::Int
             | ScalarKind::Int128
-            | ScalarKind::IntBig
             | ScalarKind::Timestamp
             | ScalarKind::Nat
             | ScalarKind::Nat128
-            | ScalarKind::NatBig
     )
 }
 
 #[cfg(test)]
 const fn scalar_kind_is_signed_numeric(kind: ScalarKind) -> bool {
-    matches!(
-        kind,
-        ScalarKind::Int | ScalarKind::Int128 | ScalarKind::IntBig
-    )
+    matches!(kind, ScalarKind::Int | ScalarKind::Int128)
 }
 
 #[cfg(test)]
 const fn scalar_kind_is_unsigned_numeric(kind: ScalarKind) -> bool {
-    matches!(
-        kind,
-        ScalarKind::Nat | ScalarKind::Nat128 | ScalarKind::NatBig
-    )
+    matches!(kind, ScalarKind::Nat | ScalarKind::Nat128)
 }
 
 /// Return true when arithmetic numeric aggregates may consume this kind.
@@ -268,9 +260,6 @@ pub(in crate::db) const fn classify_accepted_field_kind(
         AcceptedFieldKind::Int128 => {
             AcceptedFieldKindSemantics::new(AcceptedFieldKindCategory::Scalar(ScalarKind::Int128))
         }
-        AcceptedFieldKind::IntBig { .. } => {
-            AcceptedFieldKindSemantics::new(AcceptedFieldKindCategory::Scalar(ScalarKind::IntBig))
-        }
         AcceptedFieldKind::Principal => AcceptedFieldKindSemantics::new(
             AcceptedFieldKindCategory::Scalar(ScalarKind::Principal),
         ),
@@ -291,9 +280,6 @@ pub(in crate::db) const fn classify_accepted_field_kind(
         }
         AcceptedFieldKind::Nat128 => {
             AcceptedFieldKindSemantics::new(AcceptedFieldKindCategory::Scalar(ScalarKind::Nat128))
-        }
-        AcceptedFieldKind::NatBig { .. } => {
-            AcceptedFieldKindSemantics::new(AcceptedFieldKindCategory::Scalar(ScalarKind::NatBig))
         }
         AcceptedFieldKind::Ulid => {
             AcceptedFieldKindSemantics::new(AcceptedFieldKindCategory::Scalar(ScalarKind::Ulid))
@@ -414,7 +400,6 @@ mod tests {
         let unit = classify_accepted_field_kind(&AcceptedFieldKind::Unit);
         let date = classify_accepted_field_kind(&AcceptedFieldKind::Date);
         let timestamp = classify_accepted_field_kind(&AcceptedFieldKind::Timestamp);
-        let bigint = classify_accepted_field_kind(&AcceptedFieldKind::IntBig { max_bytes: 32 });
 
         assert!(blob.is_sql_comparable());
         assert!(!blob.is_orderable());
@@ -428,8 +413,5 @@ mod tests {
 
         assert!(timestamp.is_numeric());
         assert!(timestamp.is_relation_key_eligible());
-
-        assert!(bigint.is_signed_numeric());
-        assert!(!bigint.is_relation_key_eligible());
     }
 }

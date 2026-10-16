@@ -73,19 +73,6 @@ fn validate_accepts_max_len_for_blob_primitive() {
 }
 
 #[test]
-fn validate_accepts_max_bytes_for_big_integer_primitives() {
-    for primitive in [Primitive::IntBig, Primitive::NatBig] {
-        let item = Item {
-            primitive: Some(primitive),
-            max_bytes: Some(512),
-            ..Item::default()
-        };
-
-        assert!(item.validate().is_ok());
-    }
-}
-
-#[test]
 fn validate_accepts_explicit_unbounded_for_text_primitive() {
     let item = Item {
         primitive: Some(Primitive::Text),
@@ -144,28 +131,6 @@ fn validate_rejects_max_len_for_unbounded_primitive() {
     let item = Item {
         primitive: Some(Primitive::Nat64),
         max_len: Some(32),
-        ..Item::default()
-    };
-
-    assert!(item.validate().is_err());
-}
-
-#[test]
-fn validate_rejects_max_bytes_for_non_big_integer_primitive() {
-    let item = Item {
-        primitive: Some(Primitive::Nat64),
-        max_bytes: Some(512),
-        ..Item::default()
-    };
-
-    assert!(item.validate().is_err());
-}
-
-#[test]
-fn validate_rejects_zero_max_bytes() {
-    let item = Item {
-        primitive: Some(Primitive::NatBig),
-        max_bytes: Some(0),
         ..Item::default()
     };
 

@@ -6,7 +6,6 @@ use crate::{
         AcceptedFieldKind, FieldStorageDecode, TestEnumDefinition, TestEnumVariant,
         build_accepted_enum_catalog_for_tests,
     },
-    types::{IntBig, NatBig},
     value::ValueEnum,
 };
 
@@ -107,8 +106,6 @@ fn public_output_moves_heap_payloads_and_preserves_public_wire() {
         Value::Map(vec![]),
         Value::Null,
         Value::Bool(true),
-        Value::IntBig(i128::MIN.to_string().parse::<IntBig>().unwrap()),
-        Value::NatBig(u128::MAX.to_string().parse::<NatBig>().unwrap()),
     ] {
         let expected =
             OutputValue::from_public(PublicValue::try_from_runtime_non_enum(&value).unwrap());

@@ -7,7 +7,7 @@ use crate::{
         },
         schema::AcceptedFieldKind,
     },
-    types::{Decimal, IntBig},
+    types::Decimal,
     value::Value,
 };
 
@@ -117,10 +117,6 @@ fn accepted_by_kind_decode_and_validation_agree_on_mutated_wire() {
             Value::Decimal(Decimal::from_i128_with_scale(123, 2)),
         ),
         (
-            AcceptedFieldKind::IntBig { max_bytes: 16 },
-            Value::IntBig(IntBig::from(-123_i64)),
-        ),
-        (
             AcceptedFieldKind::Set(Box::new(AcceptedFieldKind::Nat64)),
             Value::List(vec![Value::Nat64(1), Value::Nat64(2)]),
         ),
@@ -184,89 +180,4 @@ fn accepted_relation_null_filtering_still_checks_following_items() {
     )
     .unwrap();
     assert_accepted_rejects(&relation, &invalid);
-}
-
-#[test]
-fn accepted_big_integer_collections_preserve_magnitude_boundaries() {
-    use crate::types::NatBig;
-
-    for (kind, values) in [
-        (
-            AcceptedFieldKind::IntBig { max_bytes: 2 },
-            vec![
-                Value::IntBig(IntBig::from(-8192)),
-                Value::IntBig(IntBig::from(8191)),
-            ],
-        ),
-        (
-            AcceptedFieldKind::NatBig { max_bytes: 2 },
-            vec![
-                Value::NatBig(NatBig::from(0_u32)),
-                Value::NatBig(NatBig::from(16383_u32)),
-            ],
-        ),
-    ] {
-        let kind = AcceptedFieldKind::Map {
-            key: Box::new(AcceptedFieldKind::Text { max_len: None }),
-            value: Box::new(AcceptedFieldKind::List(Box::new(kind))),
-        };
-        let value = Value::Map(vec![(Value::Text("numbers".into()), Value::List(values))]);
-        assert_accepted_roundtrip(&kind, &value);
-        let encoded = encode_structural_field_by_accepted_kind_bytes(&kind, &value).unwrap();
-        for end in 0..encoded.len() {
-            assert_accepted_rejects(&kind, &encoded[..end]);
-        }
-    }
-}
-
-#[test]
-fn big_integer_storage_sizes_cover_one_thousand_256_bit_values() {
-    use crate::{
-        db::data::structural_field::{
-            decode_canonical_value_storage_bytes, encode_canonical_value_storage_bytes,
-        },
-        types::NatBig,
-    };
-    use num_bigint::{BigInt, BigUint, Sign};
-
-    let magnitude = BigUint::from_bytes_le(&[255; 32]);
-    for (kind, value, direct_len) in [
-        (
-            AcceptedFieldKind::NatBig { max_bytes: 40 },
-            Value::NatBig(NatBig::from_biguint(magnitude.clone())),
-            37,
-        ),
-        (
-            AcceptedFieldKind::IntBig { max_bytes: 40 },
-            Value::IntBig(IntBig::from_bigint(BigInt::from_biguint(
-                Sign::Minus,
-                magnitude,
-            ))),
-            38,
-        ),
-    ] {
-        let direct = encode_structural_field_by_accepted_kind_bytes(&kind, &value).unwrap();
-        assert_eq!(direct.len(), direct_len);
-        let list = Value::List(vec![value; 1000]);
-        let encoded = encode_structural_field_by_accepted_kind_bytes(
-            &AcceptedFieldKind::List(Box::new(kind.clone())),
-            &list,
-        )
-        .unwrap();
-        assert_eq!(encoded.len(), 5 + 1000 * direct_len);
-        assert_eq!(
-            decode_structural_field_by_accepted_kind_bytes(
-                &encoded,
-                &AcceptedFieldKind::List(Box::new(kind))
-            )
-            .unwrap(),
-            list
-        );
-        let canonical = encode_canonical_value_storage_bytes(&list).unwrap();
-        assert_eq!(canonical.len(), 5 + 1000 * (direct_len + 1));
-        assert_eq!(
-            decode_canonical_value_storage_bytes(&canonical).unwrap(),
-            list
-        );
-    }
 }

@@ -209,7 +209,6 @@ const fn primitive_supports_neg(primitive: Primitive) -> bool {
             | Primitive::Int32
             | Primitive::Int64
             | Primitive::Int128
-            | Primitive::IntBig
     )
 }
 
@@ -222,13 +221,11 @@ const fn primitive_supports_full_arithmetic(primitive: Primitive) -> bool {
             | Primitive::Int32
             | Primitive::Int64
             | Primitive::Int128
-            | Primitive::IntBig
             | Primitive::Nat8
             | Primitive::Nat16
             | Primitive::Nat32
             | Primitive::Nat64
             | Primitive::Nat128
-            | Primitive::NatBig
     )
 }
 
@@ -266,7 +263,7 @@ mod tests {
     use darling::{FromMeta, ast::NestedMeta};
     use quote::quote;
 
-    const ALL_PRIMITIVES: [Primitive; 27] = [
+    const ALL_PRIMITIVES: [Primitive; 25] = [
         Primitive::Account,
         Primitive::Blob,
         Primitive::Bool,
@@ -275,13 +272,11 @@ mod tests {
         Primitive::Duration,
         Primitive::Float32,
         Primitive::Float64,
-        Primitive::IntBig,
         Primitive::Int8,
         Primitive::Int16,
         Primitive::Int32,
         Primitive::Int64,
         Primitive::Int128,
-        Primitive::NatBig,
         Primitive::Nat8,
         Primitive::Nat16,
         Primitive::Nat32,

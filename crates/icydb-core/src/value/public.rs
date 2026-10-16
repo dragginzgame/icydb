@@ -1,8 +1,8 @@
 use crate::{
     codec::hex::encode_hex_lower,
     types::{
-        Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
-        Timestamp, U256, Ulid,
+        Account, Date, Decimal, Duration, Float32, Float64, Principal, Subaccount, Timestamp, U256,
+        Ulid,
     },
     value::Value,
 };
@@ -27,7 +27,6 @@ pub enum PublicValue {
     #[serde(rename = "Int")]
     Int64(i64),
     Int128(i128),
-    IntBig(IntBig),
     List(Vec<Self>),
     Map(Vec<(Self, Self)>),
     Null,
@@ -38,7 +37,6 @@ pub enum PublicValue {
     #[serde(rename = "Nat")]
     Nat64(u64),
     Nat128(u128),
-    NatBig(NatBig),
     Ulid(Ulid),
     Unit,
     U256(U256),
@@ -60,7 +58,6 @@ impl PublicValue {
             Self::Float64(value) => value.to_string(),
             Self::Int64(value) => value.to_string(),
             Self::Int128(value) => value.to_string(),
-            Self::IntBig(value) => value.to_string(),
             Self::List(items) => render_list_value(items),
             Self::Map(entries) => render_map_value(entries),
             Self::Null => "null".to_string(),
@@ -70,7 +67,6 @@ impl PublicValue {
             Self::Timestamp(value) => value.as_millis().to_string(),
             Self::Nat64(value) => value.to_string(),
             Self::Nat128(value) => value.to_string(),
-            Self::NatBig(value) => value.to_string(),
             Self::Ulid(value) => value.to_string(),
             Self::Unit => "()".to_string(),
             Self::U256(value) => value.to_string(),
@@ -90,7 +86,6 @@ impl PublicValue {
             Self::Float64(value) => Value::Float64(value),
             Self::Int64(value) => Value::Int64(value),
             Self::Int128(value) => Value::Int128(value),
-            Self::IntBig(value) => Value::IntBig(value),
             Self::List(values) => Value::List(
                 values
                     .into_iter()
@@ -116,7 +111,6 @@ impl PublicValue {
             Self::Timestamp(value) => Value::Timestamp(value),
             Self::Nat64(value) => Value::Nat64(value),
             Self::Nat128(value) => Value::Nat128(value),
-            Self::NatBig(value) => Value::NatBig(value),
             Self::Ulid(value) => Value::Ulid(value),
             Self::Unit => Value::Unit,
             Self::U256(value) => Value::U256(value),
@@ -136,7 +130,6 @@ impl PublicValue {
             Value::Float64(value) => Self::Float64(*value),
             Value::Int64(value) => Self::Int64(*value),
             Value::Int128(value) => Self::Int128(*value),
-            Value::IntBig(value) => Self::IntBig(value.clone()),
             Value::List(values) => Self::List(
                 values
                     .iter()
@@ -161,7 +154,6 @@ impl PublicValue {
             Value::Timestamp(value) => Self::Timestamp(*value),
             Value::Nat64(value) => Self::Nat64(*value),
             Value::Nat128(value) => Self::Nat128(*value),
-            Value::NatBig(value) => Self::NatBig(value.clone()),
             Value::Ulid(value) => Self::Ulid(*value),
             Value::Unit => Self::Unit,
             Value::U256(value) => Self::U256(*value),

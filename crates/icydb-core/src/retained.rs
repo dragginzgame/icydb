@@ -265,24 +265,10 @@ impl<K: Retained, V: Retained> Retained for BTreeMap<K, V> {
     }
 }
 
-impl Retained for crate::types::IntBig {
-    fn visit_retained(&self, _: &mut RetainedBytes) -> Option<()> {
-        // The external limb allocation does not expose its retained capacity.
-        // Execution remains supported; this artifact cannot claim a byte bound.
-        None
-    }
-}
-
-impl Retained for crate::types::NatBig {
-    fn visit_retained(&self, _: &mut RetainedBytes) -> Option<()> {
-        None
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::RetainedBytes;
-    use crate::{types::IntBig, value::Value};
+    use crate::value::Value;
     use std::{rc::Rc, sync::OnceLock};
 
     #[test]
@@ -313,9 +299,7 @@ mod tests {
     }
 
     #[test]
-    fn retained_unknown_or_excessively_deep_values_decline_accounting() {
-        let value = Value::IntBig(IntBig::from(1_i64));
-        assert_eq!(RetainedBytes::measure(&value, usize::MAX), None);
+    fn retained_excessively_deep_values_and_overflow_decline_accounting() {
         let mut nested = Value::Null;
         for _ in 0..130 {
             nested = Value::List(vec![nested]);

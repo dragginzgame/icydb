@@ -15,84 +15,27 @@ fn hash_contract_seed_and_version_are_frozen() {
 }
 
 #[test]
-fn bigint_hash_streams_preserve_candid_bytes_and_single_list_framing() {
-    for bit in [
-        0_usize, 6, 7, 31, 32, 63, 64, 447, 448, 449, 895, 896, 897, 16384,
-    ] {
-        let magnitude = num_bigint::BigUint::from(1_u8) << bit;
-        let mut unsigned_bytes = Vec::new();
-        candid::Nat::from(magnitude.clone())
-            .encode(&mut unsigned_bytes)
-            .unwrap();
-        let mut cases = vec![(
-            Value::NatBig(crate::types::NatBig::from_biguint(magnitude.clone())),
-            unsigned_bytes,
-        )];
-        for integer in [
-            num_bigint::BigInt::from(magnitude.clone()),
-            -num_bigint::BigInt::from(magnitude),
-        ] {
-            let mut bytes = Vec::new();
-            candid::Int::from(integer.clone())
-                .encode(&mut bytes)
-                .unwrap();
-            cases.push((
-                Value::IntBig(crate::types::IntBig::from_bigint(integer)),
-                bytes,
-            ));
-        }
-        for (value, bytes) in cases {
-            for list in [false, true] {
-                let mut expected = Xxh3::with_seed(VALUE_HASH_SEED);
-                feed_u8(&mut expected, VALUE_HASH_VERSION);
-                if list {
-                    feed_u8(&mut expected, ValueTag::List.to_u8());
-                    feed_u32(&mut expected, 1);
-                    feed_u8(&mut expected, 0xFF);
-                }
-                feed_u8(&mut expected, value.canonical_tag().to_u8());
-                feed_len_u32(&mut expected, bytes.len()).unwrap();
-                feed_bytes(&mut expected, &bytes);
-                let expected = expected.digest128().to_be_bytes();
-                if list {
-                    assert_eq!(
-                        hash_value(&Value::List(vec![value.clone()])).unwrap(),
-                        expected
-                    );
-                    assert_eq!(
-                        hash_single_list_identity_canonical_value(&value).unwrap(),
-                        Some(expected)
-                    );
-                } else {
-                    assert_eq!(hash_value(&value).unwrap(), expected);
-                }
-            }
-        }
-    }
-}
-
-#[test]
 fn hash_digest_contract_vectors_are_frozen_for_upgrade_stability() {
     let vectors = vec![
         (
             "null",
             Value::Null,
-            0x07d3_310a_0679_d482_1974_aae7_68bf_e723,
+            0xdfaf_9423_b3de_9944_0ba8_26ad_5663_8a12,
         ),
         (
             "empty_list",
             Value::List(Vec::new()),
-            0xc961_6022_4099_6188_601a_2e1d_a3d4_577d,
+            0xf8c9_06ce_8fc3_ad0b_d71d_c7b2_be94_b6cd,
         ),
         (
             "empty_map",
             Value::Map(Vec::new()),
-            0xfe53_d0af_a864_e41f_7540_c693_50b9_b8d7,
+            0xc961_6022_4099_6188_601a_2e1d_a3d4_577d,
         ),
         (
             "nat_42",
             Value::Nat64(42),
-            0x8c99_03a0_7f2c_731c_2e7a_9cd6_52cb_010f,
+            0xa401_17bf_4119_7e82_bb21_ed31_5d8c_f992,
         ),
         (
             "int_neg7",
@@ -102,7 +45,7 @@ fn hash_digest_contract_vectors_are_frozen_for_upgrade_stability() {
         (
             "text_alpha",
             Value::Text("alpha".to_string()),
-            0x6ec7_96a5_45c2_ad82_58ff_9d4a_4ea8_1c2b,
+            0x0123_51fb_30ed_4d9f_0946_7c2c_7595_6fb0,
         ),
         (
             "decimal_1",
@@ -115,7 +58,7 @@ fn hash_digest_contract_vectors_are_frozen_for_upgrade_stability() {
                 (Value::Text("a".to_string()), Value::Nat64(1)),
                 (Value::Text("z".to_string()), Value::Nat64(9)),
             ]),
-            0xea0e_28c9_f878_6d85_c240_88c8_f0d7_9d81,
+            0xbd7e_f83f_fb8d_d205_445f_9762_9732_4182,
         ),
         (
             "nested_list_map",
@@ -126,7 +69,7 @@ fn hash_digest_contract_vectors_are_frozen_for_upgrade_stability() {
                 ]),
                 Value::Decimal(Decimal::new(25, 0)),
             ]),
-            0x65e9_3e05_85b6_72cc_de03_6d05_eaa9_8c57,
+            0xfff3_270d_358d_8057_8e24_f082_192e_a010,
         ),
     ];
     for (label, value, expected_digest) in vectors {
@@ -302,14 +245,12 @@ fn single_list_identity_canonical_hash_matches_generic_hash_contract() {
         Value::Float64(F64::try_new(2.5).expect("finite f64")),
         Value::Int64(-7),
         Value::Int128(123i128),
-        Value::IntBig(crate::types::IntBig::from(99i32)),
         Value::Principal(crate::types::Principal::from_slice(&[1u8, 2u8, 3u8])),
         Value::Subaccount(crate::types::Subaccount::from_array([1u8; 32])),
         Value::Text("example".to_string()),
         Value::Timestamp(crate::types::Timestamp::from_secs(1)),
         Value::Nat64(7),
         Value::Nat128(9u128),
-        Value::NatBig(crate::types::NatBig::from(11u64)),
         Value::Ulid(crate::types::Ulid::from_u128(42)),
     ];
 
@@ -332,14 +273,14 @@ fn cryptographic_fingerprints_stream_current_canonical_bytes() {
     for (value, bytes) in [
         (
             Value::Text("victim".into()),
-            b"\x01\x12\x00\x00\x00\x06victim".to_vec(),
+            b"\x01\x11\x00\x00\x00\x06victim".to_vec(),
         ),
         (
             Value::Blob(vec![0, 1, 255]),
             vec![1, 2, 1, 0, 0, 0, 3, 0, 1, 255],
         ),
-        (Value::Null, vec![1, 15]),
-        (Value::Unit, vec![1, 24]),
+        (Value::Null, vec![1, 14]),
+        (Value::Unit, vec![1, 22]),
     ] {
         assert_eq!(
             fingerprint_value(&value).unwrap(),

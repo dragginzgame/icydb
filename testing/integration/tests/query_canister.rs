@@ -1,5 +1,12 @@
 use ic_testkit::pic::{CandidCallExt as _, StandaloneCanisterFixture};
+use ic_wire::{Method, decode_response, encode_request};
+use icydb_testing_build::{
+    CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
+    CanisterWasmProfile, build_canister_with_options,
+    canister_artifact::{MethodMode, inspect_canister_artifacts},
+};
 use icydb_testing_integration::{install_fixture_canister, install_prebuilt_fixture_canister};
+use icydb_testing_wasm_helpers::wire::DynamicRowsQuery;
 
 use std::{env, fs};
 
@@ -44,14 +51,7 @@ fn audited_typed_query_row_count(
 #[test]
 fn query_only_typed_and_dynamic_canisters_execute_without_sql() {
     let dynamic_fixture = install_fixture_canister("one_entity_dynamic_query");
-    let dynamic_row_count: u32 = dynamic_fixture
-        .pocket_ic()
-        .query_candid(
-            dynamic_fixture.canister_id(),
-            "query_one_entity_dynamic_rows",
-            (),
-        )
-        .expect("dynamic query endpoint response should decode");
+    let dynamic_row_count = dynamic_wire_row_count(&dynamic_fixture);
     assert_eq!(dynamic_row_count, 0);
 
     let audited_fixture = install_fixture_canister("one_entity_typed_query");
@@ -70,6 +70,89 @@ fn query_only_typed_and_dynamic_canisters_execute_without_sql() {
         )
         .expect("ten-entity typed query endpoint response should decode");
     assert_eq!(ten_entity_row_count, 0);
+}
+
+fn dynamic_wire_row_count(fixture: &StandaloneCanisterFixture) -> u32 {
+    let request = encode_request::<DynamicRowsQuery>(&()).expect("Wire request should encode");
+    let reply = fixture
+        .pocket_ic()
+        .query_call(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            DynamicRowsQuery::NAME,
+            request.into_bytes(),
+        )
+        .expect("dynamic query raw transport should succeed");
+    decode_response::<DynamicRowsQuery>(&reply).expect("dynamic query Wire reply should decode")
+}
+
+#[test]
+fn dynamic_query_wire_endpoint_rejects_other_bytes_and_survives_upgrade() {
+    let options = CanisterBuildOptions {
+        profile: CanisterWasmProfile::WasmRelease,
+        sql_mode: CanisterSqlMode::Disabled,
+        candid_export: CanisterCandidExportMode::Enabled,
+        build_profile: CanisterBuildProfile::Production,
+    };
+    let artifacts = build_canister_with_options("one_entity_dynamic_query", options)
+        .expect("Wire query artifact should build");
+    let manifest = inspect_canister_artifacts(artifacts.as_ref())
+        .expect("mixed declarations should agree with exports");
+    assert_eq!(manifest.wire_methods.len(), 1);
+    let method = manifest.wire_methods.first().unwrap();
+    assert_eq!(method.name, DynamicRowsQuery::NAME);
+    assert_eq!(method.mode, MethodMode::Query);
+    assert!(
+        manifest
+            .candid_methods
+            .iter()
+            .all(|method| method.name != DynamicRowsQuery::NAME)
+    );
+
+    let wasm = fs::read(artifacts.as_ref()).expect("retained Wire artifact should read");
+    let fixture = install_prebuilt_fixture_canister("one_entity_dynamic_query", wasm.clone());
+    assert_eq!(dynamic_wire_row_count(&fixture), 0);
+    let request = encode_request::<DynamicRowsQuery>(&())
+        .unwrap()
+        .into_bytes();
+    let mut invalid = (0..request.len())
+        .map(|length| request[..length].to_vec())
+        .collect::<Vec<_>>();
+    invalid.push(candid::encode_args(()).unwrap());
+    let mut wrong_identity = request.clone();
+    wrong_identity[2] ^= 1;
+    invalid.push(wrong_identity);
+    let mut wrong_direction = request.clone();
+    wrong_direction[10] = 1;
+    invalid.push(wrong_direction);
+    let mut oversized = request;
+    oversized.extend([0; 1024]);
+    invalid.push(oversized);
+    for bytes in invalid {
+        assert!(
+            fixture
+                .pocket_ic()
+                .query_call(
+                    fixture.canister_id(),
+                    candid::Principal::anonymous(),
+                    DynamicRowsQuery::NAME,
+                    bytes,
+                )
+                .is_err()
+        );
+        assert_eq!(dynamic_wire_row_count(&fixture), 0);
+    }
+    fixture
+        .pocket_ic()
+        .upgrade_canister(
+            fixture.canister_id(),
+            wasm,
+            candid::encode_args(()).unwrap(),
+            None,
+        )
+        .expect("same-contract upgrade should succeed");
+    icydb_testing_integration::deliver_fixture_startup_watchdog(fixture.pocket_ic());
+    assert_eq!(dynamic_wire_row_count(&fixture), 0);
 }
 
 #[test]

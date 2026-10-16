@@ -18,7 +18,9 @@ ic-host-fs = { workspace = true }
 ic-host-process = { workspace = true }
 ic-host-tools = { workspace = true, features = ["candid-extraction", "candid-service", "ic-interface"] }
 ic-metrics = { workspace = true }
+ic-wire = { workspace = true }
 icydb = { workspace = true, default-features = true, features = ["metrics", "migration", "sql"] }
+icydb-testing-wasm-helpers = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 

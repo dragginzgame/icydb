@@ -354,10 +354,8 @@ const fn is_numeric_order_offset_literal(expr: &Expr) -> bool {
         Expr::Literal(
             Value::Int64(_)
                 | Value::Int128(_)
-                | Value::IntBig(_)
                 | Value::Nat64(_)
                 | Value::Nat128(_)
-                | Value::NatBig(_)
                 | Value::Decimal(_)
                 | Value::Float32(_)
                 | Value::Float64(_)

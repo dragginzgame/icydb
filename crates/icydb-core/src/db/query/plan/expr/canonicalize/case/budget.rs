@@ -35,8 +35,7 @@ pub(super) struct ConditionCopy {
 impl ConditionCopy {
     // Every expression/value node owns at most one parent cell; vector pairs
     // and CASE arms have two children and therefore two units. Path segments
-    // own String cells. Each payload unit covers 64 bytes, including rounding
-    // big-integer magnitude to a 32-/64-bit limb. Charging the largest cell per
+    // own String cells. Each payload unit covers 64 bytes. Charging the largest cell per
     // unit thus bounds a fresh Clone, not source capacity or allocator overhead.
     fn bytes(self) -> u64 {
         let cell = size_of::<Expr>()
@@ -159,8 +158,6 @@ impl ExpansionBudget<'_, '_> {
         match value {
             Value::Text(text) => self.payload(text.len(), copies),
             Value::Blob(blob) => self.payload(blob.len(), copies),
-            Value::IntBig(value) => self.big_payload(value.magnitude_bits(), copies),
-            Value::NatBig(value) => self.big_payload(value.magnitude_bits(), copies),
             Value::List(values) => {
                 for value in values {
                     if !self.value(value, copies)? {
@@ -204,13 +201,6 @@ impl ExpansionBudget<'_, '_> {
             | Value::Ulid(_)
             | Value::Unit => Ok(true),
         }
-    }
-
-    fn big_payload(&mut self, bits: u64, copies: usize) -> Result<bool, QueryError> {
-        let Ok(bytes) = usize::try_from(bits.div_ceil(8)) else {
-            return Ok(false);
-        };
-        self.payload(bytes, copies)
     }
 }
 

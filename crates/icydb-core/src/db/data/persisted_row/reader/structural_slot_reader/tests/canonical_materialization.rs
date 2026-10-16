@@ -340,65 +340,6 @@ fn narrow_integer_rows_preserve_projection_nulls_and_encoded_savings() {
 }
 
 #[test]
-fn big_integer_rows_preserve_nested_projection_and_borrowed_skip_boundaries() {
-    use crate::{
-        db::data::{
-            CanonicalSlotReader, ValueStorageView,
-            structural_field::decode_canonical_value_storage_bytes,
-        },
-        types::{IntBig, NatBig},
-    };
-
-    for (kind, value) in [
-        (
-            AcceptedFieldKind::IntBig { max_bytes: 2 },
-            Value::IntBig(IntBig::from(-8192)),
-        ),
-        (
-            AcceptedFieldKind::NatBig { max_bytes: 2 },
-            Value::NatBig(NatBig::from(16383_u32)),
-        ),
-    ] {
-        let map_kind = |max_bytes| AcceptedFieldKind::Map {
-            key: Box::new(AcceptedFieldKind::Text { max_len: None }),
-            value: Box::new(AcceptedFieldKind::List(Box::new(match kind {
-                AcceptedFieldKind::IntBig { .. } => AcceptedFieldKind::IntBig { max_bytes },
-                _ => AcceptedFieldKind::NatBig { max_bytes },
-            }))),
-        };
-        let contract = payload_contract(map_kind(2), LeafCodec::Structural, true);
-        let narrow = payload_contract(map_kind(1), LeafCodec::Structural, true);
-        let items = Value::List(vec![value]);
-        let payload = Value::Map(vec![
-            (Value::Text("a".into()), items.clone()),
-            (Value::Text("b".into()), items.clone()),
-        ]);
-        let row = row_with_payload(
-            &contract,
-            encode_canonical_value_storage_bytes(&payload).unwrap(),
-        );
-        let mut reader =
-            StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(&row, &contract)
-                .unwrap();
-        let bytes = reader.required_bytes(2).unwrap();
-        let view = ValueStorageView::from_raw_validated(bytes).unwrap();
-        // Looking up the second entry must skip the first compact bigint/list
-        // without confusing magnitude bytes with structural tags.
-        let second = view.map_text_key_bytes(b"b").unwrap().unwrap();
-        assert_eq!(
-            decode_canonical_value_storage_bytes(second.as_bytes()).unwrap(),
-            items
-        );
-        assert_eq!(reader.take_direct_projection_value(2).unwrap(), payload);
-        assert_eq!(reader.required_cached_value(2).unwrap(), &payload);
-        assert!(
-            StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(&row, &narrow)
-                .is_err()
-        );
-    }
-}
-
-#[test]
 fn fixed_scalar_rows_preserve_nested_projection_nulls_and_reencoding() {
     use crate::{
         db::data::CanonicalSlotReader,

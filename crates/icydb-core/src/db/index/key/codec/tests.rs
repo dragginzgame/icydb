@@ -13,7 +13,7 @@ use crate::{
             encode_index_store_key,
         },
     },
-    types::{Account, Decimal, EntityTag, Float32, Float64, IntBig, Principal, Subaccount},
+    types::{Account, Decimal, EntityTag, Float32, Float64, Principal, Subaccount},
     value::Value,
 };
 use ic_memory::ic_stable_structures::Storable;
@@ -595,9 +595,9 @@ fn index_key_golden_snapshot_system_two_component_text_and_identifier() {
     expected.extend_from_slice(&expected_index_id_entity_email_bytes());
     expected.push(2);
     expected.extend_from_slice(&[0x00, 0x08]);
-    expected.extend_from_slice(&[0x12, b'a', b'l', b'p', b'h', b'a', 0x00, 0x00]);
+    expected.extend_from_slice(&[0x11, b'a', b'l', b'p', b'h', b'a', 0x00, 0x00]);
     expected.extend_from_slice(&[0x00, 0x05]);
-    expected.extend_from_slice(&[0x10, 0x03, 0x01, 0x02, 0x03]);
+    expected.extend_from_slice(&[0x0F, 0x03, 0x01, 0x02, 0x03]);
     expected.extend_from_slice(&[0x00, 0x01, 0x10]);
 
     assert_eq!(
@@ -622,8 +622,8 @@ fn index_key_golden_snapshot_user_max_cardinality_mixed_components() {
             encode_component(&Value::Float64(
                 Float64::try_new(0.0).expect("finite float should construct"),
             )),
-            encode_component(&Value::IntBig(IntBig::from(999i32))),
-            encode_component(&Value::IntBig(IntBig::from(-7i32))),
+            encode_component(&Value::Int128(999)),
+            encode_component(&Value::Int128(-7)),
             encode_component(&Value::Bool(true)),
         ],
         vec![0x42, 0x43],
@@ -634,10 +634,16 @@ fn index_key_golden_snapshot_user_max_cardinality_mixed_components() {
     expected.push(0x04);
     expected.extend_from_slice(&[0x00, 0x09]);
     expected.extend_from_slice(&[0x09, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
-    expected.extend_from_slice(&[0x00, 0x06]);
-    expected.extend_from_slice(&[0x0C, 0x02, 0x00, 0x02, 0x03, 0xE7]);
-    expected.extend_from_slice(&[0x00, 0x05]);
-    expected.extend_from_slice(&[0x0C, 0x00, 0xFF, 0xFE, 0xF8]);
+    expected.extend_from_slice(&[0x00, 0x11]);
+    expected.extend_from_slice(&[
+        0x0B, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x03, 0xE7,
+    ]);
+    expected.extend_from_slice(&[0x00, 0x11]);
+    expected.extend_from_slice(&[
+        0x0B, 0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+        0xFF, 0xF9,
+    ]);
     expected.extend_from_slice(&[0x00, 0x02]);
     expected.extend_from_slice(&[0x03, 0x01]);
     expected.extend_from_slice(&[0x00, 0x02, 0x42, 0x43]);
@@ -2030,73 +2036,5 @@ fn index_key_cross_index_isolation_keeps_ranges_separate() {
     for raw in matched {
         let decoded = IndexKey::try_from_raw(&raw).expect("matched key should decode");
         assert_eq!(decoded.index_id, idx_a);
-    }
-}
-
-#[test]
-fn binary_bigint_index_keys_measure_one_thousand_entries() {
-    use crate::types::NatBig;
-    use num_bigint::{BigInt, BigUint, Sign};
-
-    let maximum = (BigUint::from(1_u8) << 256_usize) - BigUint::from(1_u8);
-    for signed in [false, true] {
-        let mut total = 0;
-        for id in 0_u64..1000 {
-            let magnitude = &maximum - BigUint::from(id);
-            let value = if signed {
-                Value::IntBig(IntBig::from_bigint(BigInt::from_biguint(
-                    Sign::Minus,
-                    magnitude,
-                )))
-            } else {
-                Value::NatBig(NatBig::from_biguint(magnitude))
-            };
-            let component = encode_component(&value);
-            assert_eq!(component.len(), if signed { 36 } else { 35 });
-            let key = key_with(
-                IndexKeyKind::User,
-                index_id(),
-                vec![component],
-                compact_pk(PrimaryKeyComponent::Nat64(id)),
-            );
-            let raw = key.to_raw().unwrap();
-            assert_eq!(raw.as_bytes().len(), if signed { 69 } else { 68 });
-            total += raw.as_bytes().len();
-            let persisted =
-                <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(raw.as_bytes().to_vec()));
-            assert_eq!(IndexKey::try_from_raw(&persisted).unwrap(), key);
-        }
-        assert_eq!(total, if signed { 69_000 } else { 68_000 });
-    }
-}
-
-#[test]
-fn binary_bigint_index_components_preserve_outer_size_bounds() {
-    use crate::types::NatBig;
-    use num_bigint::{BigInt, BigUint, Sign};
-
-    for signed in [false, true] {
-        let header = if signed { 4 } else { 3 };
-        for over in [0, 1] {
-            let magnitude_bytes = IndexKey::MAX_COMPONENT_SIZE - header + over;
-            let magnitude = BigUint::from(1_u8) << (magnitude_bytes * 8 - 1);
-            let value = if signed {
-                Value::IntBig(IntBig::from_bigint(BigInt::from_biguint(
-                    Sign::Minus,
-                    magnitude,
-                )))
-            } else {
-                Value::NatBig(NatBig::from_biguint(magnitude))
-            };
-            let component = encode_component(&value);
-            assert_eq!(component.len(), IndexKey::MAX_COMPONENT_SIZE + over);
-            let key = key_with(
-                IndexKeyKind::User,
-                index_id(),
-                vec![component],
-                compact_pk(PrimaryKeyComponent::Nat64(1)),
-            );
-            assert_eq!(key.to_raw().is_ok(), over == 0);
-        }
     }
 }

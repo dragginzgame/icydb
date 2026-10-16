@@ -3410,9 +3410,6 @@ pub(in crate::db) const fn lower_scalar_type(scalar: &ScalarType) -> AcceptedFie
         ScalarType::Int32 => AcceptedFieldKind::Int32,
         ScalarType::Int64 => AcceptedFieldKind::Int64,
         ScalarType::Int128 => AcceptedFieldKind::Int128,
-        ScalarType::IntBig { max_bytes } => AcceptedFieldKind::IntBig {
-            max_bytes: *max_bytes,
-        },
         ScalarType::Principal => AcceptedFieldKind::Principal,
         ScalarType::Subaccount => AcceptedFieldKind::Subaccount,
         ScalarType::Text { max_len } => AcceptedFieldKind::Text { max_len: *max_len },
@@ -3422,9 +3419,6 @@ pub(in crate::db) const fn lower_scalar_type(scalar: &ScalarType) -> AcceptedFie
         ScalarType::Nat32 => AcceptedFieldKind::Nat32,
         ScalarType::Nat64 => AcceptedFieldKind::Nat64,
         ScalarType::Nat128 => AcceptedFieldKind::Nat128,
-        ScalarType::NatBig { max_bytes } => AcceptedFieldKind::NatBig {
-            max_bytes: *max_bytes,
-        },
         ScalarType::Ulid => AcceptedFieldKind::Ulid,
         ScalarType::Unit => AcceptedFieldKind::Unit,
         ScalarType::U256 => AcceptedFieldKind::U256,

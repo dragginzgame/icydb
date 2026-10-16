@@ -134,17 +134,6 @@ macro_rules! scalar_kind_registry_entries {
                 is_primary_key_component_encodable = true
             ),
             (
-                IntBig,
-                Numeric,
-                is_numeric_value = false,
-                supports_numeric_coercion = false,
-                supports_arithmetic = true,
-                supports_equality = true,
-                supports_ordering = true,
-                is_keyable = false,
-                is_primary_key_component_encodable = false
-            ),
-            (
                 Principal,
                 Identifier,
                 is_numeric_value = false,
@@ -209,17 +198,6 @@ macro_rules! scalar_kind_registry_entries {
                 supports_ordering = true,
                 is_keyable = true,
                 is_primary_key_component_encodable = true
-            ),
-            (
-                NatBig,
-                Numeric,
-                is_numeric_value = false,
-                supports_numeric_coercion = false,
-                supports_arithmetic = true,
-                supports_equality = true,
-                supports_ordering = true,
-                is_keyable = false,
-                is_primary_key_component_encodable = false
             ),
             (
                 U256,
@@ -293,13 +271,11 @@ macro_rules! authoring_primitive_registry {
             (Int32, Int),
             (Int64, Int),
             (Int128, Int128),
-            (IntBig, IntBig),
             (Nat8, Nat),
             (Nat16, Nat),
             (Nat32, Nat),
             (Nat64, Nat),
             (Nat128, Nat128),
-            (NatBig, NatBig),
             (Principal, Principal),
             (Subaccount, Subaccount),
             (Text, Text),

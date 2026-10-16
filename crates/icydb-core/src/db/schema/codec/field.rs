@@ -140,28 +140,20 @@ pub(super) fn encode_kind(
         AcceptedFieldKind::Int32 => writer.push_u8(12),
         AcceptedFieldKind::Int64 => writer.push_u8(13),
         AcceptedFieldKind::Int128 => writer.push_u8(14),
-        AcceptedFieldKind::IntBig { max_bytes } => {
-            writer.push_u8(15);
-            writer.push_u32(*max_bytes);
-        }
-        AcceptedFieldKind::Principal => writer.push_u8(16),
-        AcceptedFieldKind::Subaccount => writer.push_u8(17),
+        AcceptedFieldKind::Principal => writer.push_u8(15),
+        AcceptedFieldKind::Subaccount => writer.push_u8(16),
         AcceptedFieldKind::Text { max_len } => {
-            writer.push_u8(18);
+            writer.push_u8(17);
             writer.push_optional_u32(*max_len);
         }
-        AcceptedFieldKind::Timestamp => writer.push_u8(19),
-        AcceptedFieldKind::Nat8 => writer.push_u8(20),
-        AcceptedFieldKind::Nat16 => writer.push_u8(21),
-        AcceptedFieldKind::Nat32 => writer.push_u8(22),
-        AcceptedFieldKind::Nat64 => writer.push_u8(23),
-        AcceptedFieldKind::Nat128 => writer.push_u8(24),
-        AcceptedFieldKind::NatBig { max_bytes } => {
-            writer.push_u8(25);
-            writer.push_u32(*max_bytes);
-        }
-        AcceptedFieldKind::Ulid => writer.push_u8(26),
-        AcceptedFieldKind::Unit => writer.push_u8(27),
+        AcceptedFieldKind::Timestamp => writer.push_u8(18),
+        AcceptedFieldKind::Nat8 => writer.push_u8(19),
+        AcceptedFieldKind::Nat16 => writer.push_u8(20),
+        AcceptedFieldKind::Nat32 => writer.push_u8(21),
+        AcceptedFieldKind::Nat64 => writer.push_u8(22),
+        AcceptedFieldKind::Nat128 => writer.push_u8(23),
+        AcceptedFieldKind::Ulid => writer.push_u8(24),
+        AcceptedFieldKind::Unit => writer.push_u8(25),
         AcceptedFieldKind::Relation {
             target_path,
             target_entity_name,
@@ -169,7 +161,7 @@ pub(super) fn encode_kind(
             target_store_path,
             key_kind,
         } => {
-            writer.push_u8(28);
+            writer.push_u8(26);
             writer.push_bounded_string(target_path, MAX_SCHEMA_STORE_PATH_BYTES)?;
             writer.push_bounded_string(target_entity_name, MAX_NAME_BYTES)?;
             writer.push_u64(target_entity_tag.value());
@@ -177,23 +169,23 @@ pub(super) fn encode_kind(
             encode_kind(writer, key_kind, depth.saturating_add(1))?;
         }
         AcceptedFieldKind::List(inner) => {
-            writer.push_u8(29);
+            writer.push_u8(27);
             encode_kind(writer, inner, depth.saturating_add(1))?;
         }
         AcceptedFieldKind::Set(inner) => {
-            writer.push_u8(30);
+            writer.push_u8(28);
             encode_kind(writer, inner, depth.saturating_add(1))?;
         }
         AcceptedFieldKind::Map { key, value } => {
-            writer.push_u8(31);
+            writer.push_u8(29);
             encode_kind(writer, key, depth.saturating_add(1))?;
             encode_kind(writer, value, depth.saturating_add(1))?;
         }
         AcceptedFieldKind::Composite { type_id } => {
-            writer.push_u8(32);
+            writer.push_u8(30);
             writer.push_u32(type_id.get());
         }
-        AcceptedFieldKind::U256 => writer.push_u8(33),
+        AcceptedFieldKind::U256 => writer.push_u8(31),
     }
     Ok(())
 }
@@ -228,47 +220,41 @@ pub(super) fn decode_kind(
         12 => Ok(AcceptedFieldKind::Int32),
         13 => Ok(AcceptedFieldKind::Int64),
         14 => Ok(AcceptedFieldKind::Int128),
-        15 => Ok(AcceptedFieldKind::IntBig {
-            max_bytes: reader.read_u32()?,
-        }),
-        16 => Ok(AcceptedFieldKind::Principal),
-        17 => Ok(AcceptedFieldKind::Subaccount),
-        18 => Ok(AcceptedFieldKind::Text {
+        15 => Ok(AcceptedFieldKind::Principal),
+        16 => Ok(AcceptedFieldKind::Subaccount),
+        17 => Ok(AcceptedFieldKind::Text {
             max_len: reader.read_optional_u32()?,
         }),
-        19 => Ok(AcceptedFieldKind::Timestamp),
-        20 => Ok(AcceptedFieldKind::Nat8),
-        21 => Ok(AcceptedFieldKind::Nat16),
-        22 => Ok(AcceptedFieldKind::Nat32),
-        23 => Ok(AcceptedFieldKind::Nat64),
-        24 => Ok(AcceptedFieldKind::Nat128),
-        25 => Ok(AcceptedFieldKind::NatBig {
-            max_bytes: reader.read_u32()?,
-        }),
-        26 => Ok(AcceptedFieldKind::Ulid),
-        27 => Ok(AcceptedFieldKind::Unit),
-        28 => Ok(AcceptedFieldKind::Relation {
+        18 => Ok(AcceptedFieldKind::Timestamp),
+        19 => Ok(AcceptedFieldKind::Nat8),
+        20 => Ok(AcceptedFieldKind::Nat16),
+        21 => Ok(AcceptedFieldKind::Nat32),
+        22 => Ok(AcceptedFieldKind::Nat64),
+        23 => Ok(AcceptedFieldKind::Nat128),
+        24 => Ok(AcceptedFieldKind::Ulid),
+        25 => Ok(AcceptedFieldKind::Unit),
+        26 => Ok(AcceptedFieldKind::Relation {
             target_path: reader.read_bounded_string(MAX_SCHEMA_STORE_PATH_BYTES)?,
             target_entity_name: reader.read_bounded_string(MAX_NAME_BYTES)?,
             target_entity_tag: EntityTag::new(reader.read_u64()?),
             target_store_path: reader.read_bounded_string(MAX_SCHEMA_STORE_PATH_BYTES)?,
             key_kind: Box::new(decode_kind(reader, next_depth)?),
         }),
-        29 => Ok(AcceptedFieldKind::List(Box::new(decode_kind(
+        27 => Ok(AcceptedFieldKind::List(Box::new(decode_kind(
             reader, next_depth,
         )?))),
-        30 => Ok(AcceptedFieldKind::Set(Box::new(decode_kind(
+        28 => Ok(AcceptedFieldKind::Set(Box::new(decode_kind(
             reader, next_depth,
         )?))),
-        31 => Ok(AcceptedFieldKind::Map {
+        29 => Ok(AcceptedFieldKind::Map {
             key: Box::new(decode_kind(reader, next_depth)?),
             value: Box::new(decode_kind(reader, next_depth)?),
         }),
-        32 => Ok(AcceptedFieldKind::Composite {
+        30 => Ok(AcceptedFieldKind::Composite {
             type_id: CompositeTypeId::new(reader.read_u32()?)
                 .ok_or_else(InternalError::store_corruption)?,
         }),
-        33 => Ok(AcceptedFieldKind::U256),
+        31 => Ok(AcceptedFieldKind::U256),
         _ => Err(InternalError::store_corruption()),
     }
 }

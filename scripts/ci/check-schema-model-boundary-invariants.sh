@@ -207,7 +207,7 @@ do
 done
 
 canonical_atoms=(
-  Account Blob Date Decimal Duration Float32 Float64 IntBig NatBig Principal
+  Account Blob Date Decimal Duration Float32 Float64 Principal
   Subaccount Timestamp Ulid Unit
 )
 for atom in "${canonical_atoms[@]}"; do

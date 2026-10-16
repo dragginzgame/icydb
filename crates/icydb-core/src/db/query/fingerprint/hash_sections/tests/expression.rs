@@ -85,7 +85,7 @@ fn query_expression_hashes_preserve_bytes_under_exact_and_cumulative_admission()
                     Expr::Binary {
                         op: BinaryOp::Add,
                         left: Box::new(Expr::Field(FieldId::new("amount"))),
-                        right: Box::new(Expr::Literal(Value::IntBig(
+                        right: Box::new(Expr::Literal(Value::Int128(
                             "18446744073709551616".parse().unwrap(),
                         ))),
                     },

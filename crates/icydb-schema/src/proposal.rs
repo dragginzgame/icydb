@@ -975,13 +975,11 @@ const fn exact_numeric_scalar(scalar: ScalarType) -> bool {
             | ScalarType::Int32
             | ScalarType::Int64
             | ScalarType::Int128
-            | ScalarType::IntBig { .. }
             | ScalarType::Nat8
             | ScalarType::Nat16
             | ScalarType::Nat32
             | ScalarType::Nat64
             | ScalarType::Nat128
-            | ScalarType::NatBig { .. }
     )
 }
 
@@ -996,13 +994,11 @@ const fn numeric_scalar(scalar: ScalarType) -> bool {
             | ScalarType::Int32
             | ScalarType::Int64
             | ScalarType::Int128
-            | ScalarType::IntBig { .. }
             | ScalarType::Nat8
             | ScalarType::Nat16
             | ScalarType::Nat32
             | ScalarType::Nat64
             | ScalarType::Nat128
-            | ScalarType::NatBig { .. }
             | ScalarType::U256
     )
 }

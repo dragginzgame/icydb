@@ -39,7 +39,7 @@ use crate::{
     value::{InputValue, Value},
 };
 use icydb_diagnostic_code::DiagnosticFactTag;
-use icydb_schema::{Decimal, IntBig, NatBig, ScalarLiteral};
+use icydb_schema::{Decimal, ScalarLiteral};
 use std::{borrow::Cow, collections::BTreeMap};
 
 const FINGERPRINT: CommitSchemaFingerprint = [7; 16];
@@ -82,18 +82,6 @@ fn sql_wide_integer_checks_bind_exact_atoms_and_nominal_kinds() {
             AcceptedFieldKind::Nat128,
             InputValue::nat128(u128::from(u64::MAX) + 1),
             (u128::from(u64::MAX) + 1).to_string(),
-        ),
-        (
-            AcceptedFieldKind::IntBig { max_bytes: 32 },
-            InputValue::int_big(IntBig::from_bigint((-i128::MAX).into())),
-            (-i128::MAX).to_string(),
-        ),
-        (
-            AcceptedFieldKind::NatBig { max_bytes: 32 },
-            InputValue::nat_big(NatBig::from_biguint(
-                u128::try_from(i128::MAX).unwrap().into(),
-            )),
-            i128::MAX.to_string(),
         ),
     ] {
         for wrapped in [false, true] {
@@ -182,7 +170,7 @@ fn sql_wide_integer_checks_bind_exact_atoms_and_nominal_kinds() {
                         "{sql}"
                     );
                     // Fixed-width integers also round-trip through canonical rendering.
-                    // Big-integer display grouping is a separate, currently open renderer gap.
+                    // Use plain decimal text for the SQL integer literal.
                     if matches!(kind, AcceptedFieldKind::Int128 | AcceptedFieldKind::Nat128) {
                         let sql =
                             render_accepted_check_expr_sql(&expected, &schema, &catalog).unwrap();
@@ -227,18 +215,8 @@ fn exact_multiple_of_covers_every_runtime_integer_width_and_decimal() {
     let exact_cases = vec![
         (Value::Int64(-10), Value::Int64(5), Value::Int64(-11)),
         (Value::Int128(10), Value::Int128(5), Value::Int128(11)),
-        (
-            Value::IntBig(IntBig::from(-10_i64)),
-            Value::IntBig(IntBig::from(5_i64)),
-            Value::IntBig(IntBig::from(-11_i64)),
-        ),
         (Value::Nat64(10), Value::Nat64(5), Value::Nat64(11)),
         (Value::Nat128(10), Value::Nat128(5), Value::Nat128(11)),
-        (
-            Value::NatBig(NatBig::from(10_u64)),
-            Value::NatBig(NatBig::from(5_u64)),
-            Value::NatBig(NatBig::from(11_u64)),
-        ),
         (
             Value::Decimal(Decimal::new(100, 2)),
             Value::Decimal(Decimal::new(25, 2)),
@@ -327,13 +305,11 @@ fn exact_multiple_of_kind_set_excludes_only_numeric_floats() {
         AcceptedFieldKind::Int32,
         AcceptedFieldKind::Int64,
         AcceptedFieldKind::Int128,
-        AcceptedFieldKind::IntBig { max_bytes: 32 },
         AcceptedFieldKind::Nat8,
         AcceptedFieldKind::Nat16,
         AcceptedFieldKind::Nat32,
         AcceptedFieldKind::Nat64,
         AcceptedFieldKind::Nat128,
-        AcceptedFieldKind::NatBig { max_bytes: 32 },
     ] {
         assert!(crate::db::schema::accepted_rule_exact_numeric_kind_is_supported(&kind));
     }

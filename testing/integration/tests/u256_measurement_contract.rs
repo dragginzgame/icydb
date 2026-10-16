@@ -5,7 +5,7 @@
 
 use std::collections::BTreeSet;
 
-use icydb::types::NatBig;
+use icydb::types::U256;
 use serde::Deserialize;
 
 const FIXTURE: &str = include_str!("../fixtures/u256/ethereum-workload-v1.json");
@@ -44,8 +44,6 @@ struct Workload {
 
 #[derive(Deserialize)]
 struct Controls {
-    nat_big_max_bytes: u32,
-    nat_big_adapter_max_bytes: u32,
     native_u256_bits: u32,
 }
 
@@ -106,8 +104,6 @@ fn ethereum_u256_measurement_fixture_is_complete_and_bounded() {
     assert_eq!(workload.format_version, 1);
     assert_eq!(workload.profile, PROFILE);
     assert_eq!(workload.row_count, ROW_COUNT);
-    assert_eq!(workload.controls.nat_big_max_bytes, 37);
-    assert_eq!(workload.controls.nat_big_adapter_max_bytes, 37);
     assert_eq!(workload.controls.native_u256_bits, 256);
     assert_eq!(workload.entity.name, "EthereumPosition");
     assert_eq!(workload.entity.primary_key.name, "id");
@@ -122,15 +118,10 @@ fn ethereum_u256_measurement_fixture_is_complete_and_bounded() {
     let sample_ids = unique_ids(workload.samples.iter().map(|sample| sample.id.as_str()));
     assert_eq!(sample_ids, REQUIRED_SAMPLE_IDS.iter().copied().collect());
     for sample in &workload.samples {
-        let value = sample
+        sample
             .decimal
-            .parse::<NatBig>()
-            .expect("measurement sample should be an unsigned decimal");
-        assert!(
-            value.to_leb128().len() <= workload.controls.nat_big_max_bytes as usize,
-            "sample {} exceeds the complete constrained NatBig control",
-            sample.id
-        );
+            .parse::<U256>()
+            .expect("measurement sample must fit U256");
     }
     let maximum = workload
         .samples
@@ -138,9 +129,9 @@ fn ethereum_u256_measurement_fixture_is_complete_and_bounded() {
         .find(|sample| sample.id == "u256_max")
         .expect("fixture should carry U256::MAX")
         .decimal
-        .parse::<NatBig>()
+        .parse::<U256>()
         .expect("U256::MAX should parse");
-    assert_eq!(maximum.to_leb128().len(), 37);
+    assert_eq!(maximum, U256::MAX);
 
     let mut field_ids = BTreeSet::new();
     for field in &workload.fields {
@@ -184,9 +175,11 @@ fn ethereum_u256_measurement_fixture_is_complete_and_bounded() {
         .find(|sample| sample.id == token_id.distribution[0].sample)
         .expect("token sequence base should exist")
         .decimal
-        .parse::<NatBig>()
+        .parse::<U256>()
         .expect("token sequence base should parse");
-    let token_last = token_base + NatBig::from(u64::from(workload.row_count - 1));
+    let token_last = token_base
+        .checked_add(U256::from(u64::from(workload.row_count - 1)))
+        .expect("token sequence must fit");
     assert!(token_last <= maximum);
     assert!(
         workload

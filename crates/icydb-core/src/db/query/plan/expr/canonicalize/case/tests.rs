@@ -214,32 +214,6 @@ fn rewrite_budget_is_content_based_and_covers_large_and_nested_values() {
 }
 
 #[test]
-fn rewrite_budget_accounts_big_integer_magnitude_without_encoding() {
-    crate::db::query::preparation::with_preparation_work(|work| {
-        for value in [Value::IntBig(1_i64.into()), Value::NatBig(1_u64.into())] {
-            let arms = [CaseWhenArm::new(field("condition"), Expr::Literal(value))];
-            assert!(
-                admit_expansion(&arms, &field("no"), work)
-                    .unwrap()
-                    .is_some()
-            );
-        }
-        let digits = "9".repeat(40_000);
-        for value in [
-            Value::IntBig(digits.parse().expect("large integer")),
-            Value::NatBig(digits.parse().expect("large natural")),
-        ] {
-            let arms = [CaseWhenArm::new(field("condition"), Expr::Literal(value))];
-            assert!(
-                admit_expansion(&arms, &field("no"), work)
-                    .unwrap()
-                    .is_none()
-            );
-        }
-    });
-}
-
-#[test]
 fn nested_case_stays_compact_and_canonicalization_is_idempotent() {
     crate::db::query::preparation::with_preparation_work(|work| {
         for levels in [1, 2, 4, 6, 12] {

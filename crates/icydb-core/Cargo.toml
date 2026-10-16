@@ -28,7 +28,6 @@ ic-memory = { workspace = true }
 ic-metrics.workspace = true
 icydb-diagnostic-code = { workspace = true }
 icydb-schema = { workspace = true }
-num-bigint = { workspace = true }
 rand_chacha = { workspace = true }
 remain = { workspace = true }
 serde = { workspace = true }

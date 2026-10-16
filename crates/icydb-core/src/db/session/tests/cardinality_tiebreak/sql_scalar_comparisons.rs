@@ -2,8 +2,8 @@
 
 use super::*;
 use crate::types::{
-    Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
-    Timestamp, U256, Ulid,
+    Account, Date, Decimal, Duration, Float32, Float64, Principal, Subaccount, Timestamp, U256,
+    Ulid,
 };
 
 fn nullable_scalar_field(
@@ -456,32 +456,6 @@ fn sql_issue_field_ordering_scalar_families_match_execution_lanes() {
             AcceptedFieldKind::U256,
             InputValue::u256(U256::ONE),
             InputValue::u256(U256::MAX),
-        ),
-        (
-            AcceptedFieldKind::IntBig { max_bytes: 64 },
-            InputValue::int_big(
-                "170141183460469231731687303715884105728"
-                    .parse::<IntBig>()
-                    .unwrap(),
-            ),
-            InputValue::int_big(
-                "170141183460469231731687303715884105729"
-                    .parse::<IntBig>()
-                    .unwrap(),
-            ),
-        ),
-        (
-            AcceptedFieldKind::NatBig { max_bytes: 64 },
-            InputValue::nat_big(
-                "340282366920938463463374607431768211456"
-                    .parse::<NatBig>()
-                    .unwrap(),
-            ),
-            InputValue::nat_big(
-                "340282366920938463463374607431768211457"
-                    .parse::<NatBig>()
-                    .unwrap(),
-            ),
         ),
         (
             AcceptedFieldKind::Int64,

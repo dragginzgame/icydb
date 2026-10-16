@@ -12,8 +12,8 @@ use crate::{
         sql::parser::{SqlExpr, SqlStatement, parse_sql},
     },
     types::{
-        Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
-        Timestamp, U256, Ulid,
+        Account, Date, Decimal, Duration, Float32, Float64, Principal, Subaccount, Timestamp, U256,
+        Ulid,
     },
     value::{InputValue, PublicValue, Value},
 };
@@ -96,24 +96,8 @@ fn typed_scalar_families_keep_runtime_values_and_reusable_syntax() {
             ),
             (AcceptedFieldKind::Int64, InputValue::int64(-3)),
             (AcceptedFieldKind::Int128, InputValue::int128(i128::MAX)),
-            (
-                AcceptedFieldKind::IntBig { max_bytes: 64 },
-                InputValue::int_big(
-                    "170141183460469231731687303715884105727"
-                        .parse::<IntBig>()
-                        .expect("wide integer"),
-                ),
-            ),
             (AcceptedFieldKind::Nat64, InputValue::nat64(3)),
             (AcceptedFieldKind::Nat128, InputValue::nat128(u128::MAX)),
-            (
-                AcceptedFieldKind::NatBig { max_bytes: 64 },
-                InputValue::nat_big(
-                    "340282366920938463463374607431768211455"
-                        .parse::<NatBig>()
-                        .expect("wide natural"),
-                ),
-            ),
             (AcceptedFieldKind::U256, InputValue::u256(U256::MAX)),
             (
                 AcceptedFieldKind::Principal,
@@ -241,10 +225,9 @@ fn binding_limits_and_placement_are_typed_and_payload_independent() {
         )
         .is_err()
     );
-    let huge = NatBig::from_biguint(num_bigint::BigUint::from(1_u8) << (65536 * 8));
     let one = parse_sql("SELECT id FROM Bindings WHERE operand = ?").expect("one slot");
-    let error =
-        validate_sql_bindings(&one, &[InputValue::nat_big(huge)]).expect_err("large magnitude");
+    let error = validate_sql_bindings(&one, &[InputValue::blob(vec![0; 65537])])
+        .expect_err("large payload");
     assert_eq!(
         error.diagnostic(),
         QueryError::sql_lowering(SqlLoweringCode::BindingLimit).diagnostic()

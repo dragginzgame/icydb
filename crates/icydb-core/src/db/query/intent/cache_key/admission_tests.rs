@@ -12,7 +12,7 @@ use crate::{
         },
         test_support::request_with_limit,
     },
-    types::{Decimal, IntBig, NatBig},
+    types::Decimal,
     value::{
         Value, ValueEnum, fingerprint_value, hash_value, test_hash_budget_error,
         with_test_hash_override,
@@ -35,13 +35,10 @@ fn literal_key(
 
 #[test]
 fn literal_hash_admission_preserves_digests_and_cumulative_limits() {
-    let signed = IntBig::from_bigint(-(num_bigint::BigInt::from(1u8) << 223usize));
     let values = [
         Value::Text("text".repeat(1024)),
         Value::Blob(vec![7; 4096]),
         Value::Decimal(Decimal::from(7_u64)),
-        Value::IntBig(signed),
-        Value::NatBig(NatBig::from(8192_u32)),
         Value::Enum(ValueEnum::test_payload(
             1,
             1,

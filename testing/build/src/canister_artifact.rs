@@ -26,10 +26,12 @@ use ic_host_tools::{
     },
     interface,
 };
+use ic_wire::Method;
 use icydb::{
     Error,
     db::{SchemaMigrationCommand, SchemaMigrationStatusPage, SchemaMigrationStatusRequest},
 };
+use icydb_testing_wasm_helpers::wire::DynamicRowsQuery;
 
 pub use ic_host_tools::interface::MethodMode;
 
@@ -340,13 +342,15 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
     },
 ];
 
-/// Candid and raw-Wasm method manifests for one built actor.
+/// Candid, IC Wire and raw-Wasm method manifests for one built actor.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CanisterArtifactManifest {
     /// Generated Candid carried by the exact inspected Wasm artifact.
     pub candid: String,
     /// Methods registered in generated Candid.
     pub candid_methods: BTreeSet<CanisterMethod>,
+    /// IC Wire methods declared by the artifact's current contract identity.
+    pub wire_methods: BTreeSet<CanisterMethod>,
     /// IC query/update exports present in raw Wasm, including reserved runtime
     /// self-call entrypoints that are intentionally absent from Candid.
     pub wasm_methods: BTreeSet<CanisterMethod>,
@@ -364,14 +368,14 @@ impl CanisterArtifactManifest {
     }
 }
 
-/// Inspect one Candid-exporting canister and require Candid/application-Wasm
-/// agreement while retaining reserved CDK runtime exports in the raw manifest.
+/// Inspect one canister and require its Candid and IC Wire declarations to
+/// agree with application Wasm exports, retaining reserved CDK runtime exports.
 ///
 /// # Errors
 ///
 /// Returns an error for unreadable or malformed Wasm, unavailable Candid
 /// extraction, malformed Candid service declarations, or a method/mode drift
-/// between the two artifacts.
+/// between declarations and exports, or an unknown/duplicated Wire identity.
 pub fn inspect_canister_artifacts(wasm_path: &Path) -> Result<CanisterArtifactManifest, String> {
     let wasm = read_wasm_artifact(wasm_path)
         .map_err(|error| format!("failed to read {}: {error}", wasm_path.display()))?;
@@ -379,14 +383,21 @@ pub fn inspect_canister_artifacts(wasm_path: &Path) -> Result<CanisterArtifactMa
 
     let candid = extract_canister_candid(wasm_path)?;
     let candid_methods = inspect_candid_methods(&candid)?;
+    let wire_methods = inspect_wire_methods(&wasm)?;
     let application_wasm_methods = candid_visible_wasm_methods(&wasm_methods);
-    if candid_methods != application_wasm_methods {
+    if !candid_methods.is_disjoint(&wire_methods)
+        || candid_methods
+            .union(&wire_methods)
+            .cloned()
+            .collect::<BTreeSet<_>>()
+            != application_wasm_methods
+    {
         let runtime_methods = wasm_methods
             .difference(&application_wasm_methods)
             .cloned()
             .collect::<BTreeSet<_>>();
         return Err(format!(
-            "Candid/Wasm method drift for {}: Candid {candid_methods:?}, application Wasm {application_wasm_methods:?}, reserved runtime Wasm {runtime_methods:?}",
+            "declaration/Wasm method drift for {}: Candid {candid_methods:?}, Wire {wire_methods:?}, application Wasm {application_wasm_methods:?}, reserved runtime Wasm {runtime_methods:?}",
             wasm_path.display()
         ));
     }
@@ -394,8 +405,38 @@ pub fn inspect_canister_artifacts(wasm_path: &Path) -> Result<CanisterArtifactMa
     Ok(CanisterArtifactManifest {
         candid,
         candid_methods,
+        wire_methods,
         wasm_methods,
     })
+}
+
+// The trial declares exactly one current identity, rather than inferring a
+// protocol from an export's spelling or accepting undeclared hidden methods.
+fn inspect_wire_methods(wasm: &[u8]) -> Result<BTreeSet<CanisterMethod>, String> {
+    let facts = inspect(
+        wasm,
+        InspectionLimits {
+            module_bytes: wasm.len(),
+            sections: wasm.len(),
+            exports: u32::try_from(wasm.len()).unwrap_or(u32::MAX),
+            custom_sections: wasm.len(),
+        },
+    )
+    .map_err(|error| format!("failed to inspect Wire declarations: {error}"))?;
+    let mut declarations = facts
+        .custom_sections
+        .iter()
+        .filter(|section| section.name == "icydb:wire");
+    let Some(declaration) = declarations.next() else {
+        return Ok(BTreeSet::new());
+    };
+    if declarations.next().is_some() || declaration.data != DynamicRowsQuery::ID.to_le_bytes() {
+        return Err("unknown or duplicated IC Wire contract identity".to_string());
+    }
+    Ok(BTreeSet::from([CanisterMethod::new(
+        DynamicRowsQuery::NAME,
+        MethodMode::Query,
+    )]))
 }
 
 /// Read a complete regular Wasm artifact through its selected descriptor.
@@ -592,8 +633,47 @@ mod tests {
     use super::{
         CanisterMethod, MAINTAINED_CANISTER_POLICIES, MethodMode, candid_visible_wasm_methods,
         inspect_candid_methods, inspect_canister_artifacts, inspect_wasm_methods,
-        read_wasm_artifact, render_schema_migration_endpoint_abi,
+        inspect_wire_methods, read_wasm_artifact, render_schema_migration_endpoint_abi,
     };
+    use ic_host_artifacts::wasm::{CustomSection, encode_custom_section};
+    use ic_wire::Method;
+    use icydb_testing_wasm_helpers::wire::DynamicRowsQuery;
+
+    #[test]
+    fn wire_declarations_require_one_known_current_identity() {
+        let mut wasm = wasm_with_exports(&[("canister_query query_one_entity_dynamic_rows", 0)]);
+        assert!(inspect_wire_methods(&wasm).unwrap().is_empty());
+        let declaration = encode_custom_section(
+            CustomSection {
+                name: "icydb:wire",
+                data: &DynamicRowsQuery::ID.to_le_bytes(),
+            },
+            64,
+        )
+        .unwrap();
+        wasm.extend(&declaration);
+        assert_eq!(
+            inspect_wire_methods(&wasm).unwrap(),
+            BTreeSet::from([CanisterMethod::new(
+                DynamicRowsQuery::NAME,
+                MethodMode::Query
+            ),])
+        );
+        wasm.extend(&declaration);
+        assert!(inspect_wire_methods(&wasm).is_err());
+        let mut unknown = b"\0asm\x01\0\0\0".to_vec();
+        unknown.extend(
+            encode_custom_section(
+                CustomSection {
+                    name: "icydb:wire",
+                    data: &[0; 8],
+                },
+                64,
+            )
+            .unwrap(),
+        );
+        assert!(inspect_wire_methods(&unknown).is_err());
+    }
 
     #[test]
     fn artifact_reads_preserve_complete_regular_files_and_follow_selected_links() {

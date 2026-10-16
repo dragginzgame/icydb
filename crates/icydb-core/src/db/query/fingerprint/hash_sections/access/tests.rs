@@ -235,10 +235,8 @@ fn access_key_hashes_preserve_payload_and_framing() {
     let first = Value::Text("start".repeat(1024));
     let last = Value::Text("stop".repeat(1024));
     let nested = Value::List(vec![Value::Map(vec![(
-        Value::Text("payload".to_string()),
-        Value::NatBig(crate::types::NatBig::from_biguint(
-            num_bigint::BigUint::from(1_u8) << 4096_usize,
-        )),
+        Value::Text("wide".into()),
+        Value::U256(crate::types::U256::MAX),
     )])]);
     // Raw access fixtures qualify hash framing, not key-type admission. Cover
     // payload-bearing values so the hash boundary cannot assume Copy keys.

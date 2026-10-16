@@ -45,25 +45,23 @@ const KIND_INT16: u8 = 10;
 const KIND_INT32: u8 = 11;
 const KIND_INT64: u8 = 12;
 const KIND_INT128: u8 = 13;
-const KIND_INT_BIG: u8 = 14;
-const KIND_PRINCIPAL: u8 = 15;
-const KIND_SUBACCOUNT: u8 = 16;
-const KIND_TEXT: u8 = 17;
-const KIND_TIMESTAMP: u8 = 18;
-const KIND_NAT8: u8 = 19;
-const KIND_NAT16: u8 = 20;
-const KIND_NAT32: u8 = 21;
-const KIND_NAT64: u8 = 22;
-const KIND_NAT128: u8 = 23;
-const KIND_NAT_BIG: u8 = 24;
-const KIND_ULID: u8 = 25;
-const KIND_UNIT: u8 = 26;
-const KIND_RELATION: u8 = 27;
-const KIND_LIST: u8 = 28;
-const KIND_SET: u8 = 29;
-const KIND_MAP: u8 = 30;
-const KIND_COMPOSITE: u8 = 31;
-const KIND_U256: u8 = 32;
+const KIND_PRINCIPAL: u8 = 14;
+const KIND_SUBACCOUNT: u8 = 15;
+const KIND_TEXT: u8 = 16;
+const KIND_TIMESTAMP: u8 = 17;
+const KIND_NAT8: u8 = 18;
+const KIND_NAT16: u8 = 19;
+const KIND_NAT32: u8 = 20;
+const KIND_NAT64: u8 = 21;
+const KIND_NAT128: u8 = 22;
+const KIND_ULID: u8 = 23;
+const KIND_UNIT: u8 = 24;
+const KIND_RELATION: u8 = 25;
+const KIND_LIST: u8 = 26;
+const KIND_SET: u8 = 27;
+const KIND_MAP: u8 = 28;
+const KIND_COMPOSITE: u8 = 29;
+const KIND_U256: u8 = 30;
 
 /// Encode one canonical accepted enum catalog into its current durable codec.
 pub(in crate::db::schema) fn encode_accepted_enum_catalog(
@@ -256,10 +254,6 @@ pub(in crate::db::schema) fn encode_value_kind(
         AcceptedFieldKind::Int32 => writer.push_u8(KIND_INT32),
         AcceptedFieldKind::Int64 => writer.push_u8(KIND_INT64),
         AcceptedFieldKind::Int128 => writer.push_u8(KIND_INT128),
-        AcceptedFieldKind::IntBig { max_bytes } => {
-            writer.push_u8(KIND_INT_BIG);
-            writer.push_u32(*max_bytes);
-        }
         AcceptedFieldKind::Principal => writer.push_u8(KIND_PRINCIPAL),
         AcceptedFieldKind::Subaccount => writer.push_u8(KIND_SUBACCOUNT),
         AcceptedFieldKind::Text { max_len } => {
@@ -272,10 +266,6 @@ pub(in crate::db::schema) fn encode_value_kind(
         AcceptedFieldKind::Nat32 => writer.push_u8(KIND_NAT32),
         AcceptedFieldKind::Nat64 => writer.push_u8(KIND_NAT64),
         AcceptedFieldKind::Nat128 => writer.push_u8(KIND_NAT128),
-        AcceptedFieldKind::NatBig { max_bytes } => {
-            writer.push_u8(KIND_NAT_BIG);
-            writer.push_u32(*max_bytes);
-        }
         AcceptedFieldKind::Ulid => writer.push_u8(KIND_ULID),
         AcceptedFieldKind::Unit => writer.push_u8(KIND_UNIT),
         AcceptedFieldKind::Relation {
@@ -344,9 +334,6 @@ pub(in crate::db::schema) fn decode_value_kind(
         KIND_INT32 => AcceptedFieldKind::Int32,
         KIND_INT64 => AcceptedFieldKind::Int64,
         KIND_INT128 => AcceptedFieldKind::Int128,
-        KIND_INT_BIG => AcceptedFieldKind::IntBig {
-            max_bytes: reader.read_u32()?,
-        },
         KIND_PRINCIPAL => AcceptedFieldKind::Principal,
         KIND_SUBACCOUNT => AcceptedFieldKind::Subaccount,
         KIND_TEXT => AcceptedFieldKind::Text {
@@ -358,9 +345,6 @@ pub(in crate::db::schema) fn decode_value_kind(
         KIND_NAT32 => AcceptedFieldKind::Nat32,
         KIND_NAT64 => AcceptedFieldKind::Nat64,
         KIND_NAT128 => AcceptedFieldKind::Nat128,
-        KIND_NAT_BIG => AcceptedFieldKind::NatBig {
-            max_bytes: reader.read_u32()?,
-        },
         KIND_ULID => AcceptedFieldKind::Ulid,
         KIND_UNIT => AcceptedFieldKind::Unit,
         KIND_RELATION => AcceptedFieldKind::Relation {

@@ -12,15 +12,15 @@ use std::{
 };
 
 use icydb_schema::{
-    Account, Blob, ConstraintFragment, DEFAULT_BIG_INT_MAX_BYTES, Date, Decimal,
-    DeclaredEntityVersion, Duration, EntityFragment, EntitySourceKey, EnumTypeFragment,
-    EnumVariantFragment, FieldFragment, FieldInsertPolicy, FieldManagementPolicy, FieldSourceKey,
-    FieldType, Float32, Float64, IndexFragment, IndexKeyFragment, IntBig,
-    MAX_PROPOSAL_LITERAL_BYTES, NamedTypeFragment, NatBig, Principal, RecordFieldFragment,
-    RecordTypeFragment, RelationDeleteAction, RelationFragment, RelationPathStepFragment,
-    RelationSourceFragment, RuleSourceKey, ScalarLiteral, ScalarType, SchemaContractError,
-    SchemaFragment, SchemaName, SourceRuleOperation as ProposalSourceRuleOperation, Subaccount,
-    TargetedRuleFragment, Timestamp, TupleElementFragment, TypeSourceKey, U256, Ulid, Unit,
+    Account, Blob, ConstraintFragment, Date, Decimal, DeclaredEntityVersion, Duration,
+    EntityFragment, EntitySourceKey, EnumTypeFragment, EnumVariantFragment, FieldFragment,
+    FieldInsertPolicy, FieldManagementPolicy, FieldSourceKey, FieldType, Float32, Float64,
+    IndexFragment, IndexKeyFragment, MAX_PROPOSAL_LITERAL_BYTES, NamedTypeFragment, Principal,
+    RecordFieldFragment, RecordTypeFragment, RelationDeleteAction, RelationFragment,
+    RelationPathStepFragment, RelationSourceFragment, RuleSourceKey, ScalarLiteral, ScalarType,
+    SchemaContractError, SchemaFragment, SchemaName,
+    SourceRuleOperation as ProposalSourceRuleOperation, Subaccount, TargetedRuleFragment,
+    Timestamp, TupleElementFragment, TypeSourceKey, U256, Ulid, Unit,
 };
 use thiserror::Error;
 
@@ -882,17 +882,11 @@ fn lower_rule_numeric_literal(
         | Primitive::Int32
         | Primitive::Int64
         | Primitive::Int128 => rule_integer_i128(value).map(ScalarLiteral::Int),
-        Primitive::IntBig => rule_integer_text(value)
-            .and_then(|value| IntBig::from_str(value).ok())
-            .map(ScalarLiteral::IntBig),
         Primitive::Nat8
         | Primitive::Nat16
         | Primitive::Nat32
         | Primitive::Nat64
         | Primitive::Nat128 => rule_integer_u128(value).map(ScalarLiteral::Nat),
-        Primitive::NatBig => rule_integer_text(value)
-            .and_then(|value| NatBig::from_str(value).ok())
-            .map(ScalarLiteral::NatBig),
         Primitive::U256 => rule_integer_text(value)
             .and_then(|value| U256::from_str(value).ok())
             .map(ScalarLiteral::U256),
@@ -1255,17 +1249,11 @@ fn lower_scalar_type(primitive: Primitive, item: &Item) -> ScalarType {
         Primitive::Int32 => ScalarType::Int32,
         Primitive::Int64 => ScalarType::Int64,
         Primitive::Int128 => ScalarType::Int128,
-        Primitive::IntBig => ScalarType::IntBig {
-            max_bytes: item.max_bytes().unwrap_or(DEFAULT_BIG_INT_MAX_BYTES),
-        },
         Primitive::Nat8 => ScalarType::Nat8,
         Primitive::Nat16 => ScalarType::Nat16,
         Primitive::Nat32 => ScalarType::Nat32,
         Primitive::Nat64 => ScalarType::Nat64,
         Primitive::Nat128 => ScalarType::Nat128,
-        Primitive::NatBig => ScalarType::NatBig {
-            max_bytes: item.max_bytes().unwrap_or(DEFAULT_BIG_INT_MAX_BYTES),
-        },
         Primitive::U256 => ScalarType::U256,
         Primitive::Principal => ScalarType::Principal,
         Primitive::Subaccount => ScalarType::Subaccount,
@@ -1350,13 +1338,6 @@ fn lower_scalar_default(primitive: Primitive, item: &Item, default: &Arg) -> Opt
             | Primitive::Int128,
             Arg::Number(value),
         ) => arg_i128(value).map(ScalarLiteral::Int),
-        (Primitive::IntBig, Arg::Number(value)) => arg_i128(value)
-            .map(|value| value.to_string())
-            .and_then(|value| IntBig::from_str(value.as_str()).ok())
-            .map(ScalarLiteral::IntBig),
-        (Primitive::IntBig, Arg::String(value)) => {
-            IntBig::from_str(value).ok().map(ScalarLiteral::IntBig)
-        }
         (
             Primitive::Nat8
             | Primitive::Nat16
@@ -1365,13 +1346,6 @@ fn lower_scalar_default(primitive: Primitive, item: &Item, default: &Arg) -> Opt
             | Primitive::Nat128,
             Arg::Number(value),
         ) => arg_u128(value).map(ScalarLiteral::Nat),
-        (Primitive::NatBig, Arg::Number(value)) => arg_u128(value)
-            .map(|value| value.to_string())
-            .and_then(|value| NatBig::from_str(value.as_str()).ok())
-            .map(ScalarLiteral::NatBig),
-        (Primitive::NatBig, Arg::String(value)) => {
-            NatBig::from_str(value).ok().map(ScalarLiteral::NatBig)
-        }
         (Primitive::U256, Arg::Number(value)) => {
             arg_u128(value).map(U256::from).map(ScalarLiteral::U256)
         }
@@ -1427,13 +1401,11 @@ fn zero_scalar_literal(primitive: Primitive, item: &Item) -> Option<ScalarLitera
         | Primitive::Int32
         | Primitive::Int64
         | Primitive::Int128 => Some(ScalarLiteral::Int(0)),
-        Primitive::IntBig => IntBig::from_str("0").ok().map(ScalarLiteral::IntBig),
         Primitive::Nat8
         | Primitive::Nat16
         | Primitive::Nat32
         | Primitive::Nat64
         | Primitive::Nat128 => Some(ScalarLiteral::Nat(0)),
-        Primitive::NatBig => NatBig::from_str("0").ok().map(ScalarLiteral::NatBig),
         Primitive::U256 => Some(ScalarLiteral::U256(U256::ZERO)),
         Primitive::Text => Some(ScalarLiteral::Text(String::new())),
         Primitive::Timestamp => Some(ScalarLiteral::Timestamp(Timestamp::EPOCH)),
@@ -1547,7 +1519,6 @@ mod tests {
             None,
             None,
             None,
-            None,
             &[],
             &[],
             false,
@@ -1578,7 +1549,6 @@ mod tests {
             Cardinality::One,
             Item::new(
                 ItemTarget::Primitive(Primitive::Nat64),
-                None,
                 None,
                 None,
                 None,
@@ -1653,7 +1623,6 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
                 &[],
                 &[],
                 false,
@@ -1674,7 +1643,6 @@ mod tests {
                     None,
                     None,
                     None,
-                    None,
                     &[],
                     &[],
                     false,
@@ -1688,7 +1656,6 @@ mod tests {
             Cardinality::Opt,
             Item::new(
                 ItemTarget::Is("test::Recursive"),
-                None,
                 None,
                 None,
                 None,
@@ -1707,7 +1674,6 @@ mod tests {
             Cardinality::One,
             Item::new(
                 ItemTarget::Is("test::Recursive"),
-                None,
                 None,
                 None,
                 None,
@@ -1820,7 +1786,6 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
                 &[],
                 &[],
                 false,
@@ -1841,7 +1806,6 @@ mod tests {
                 Cardinality::One,
                 Item::new(
                     ItemTarget::Is("test::Nested"),
-                    None,
                     None,
                     None,
                     None,
@@ -1893,7 +1857,6 @@ mod tests {
                     None,
                     scale,
                     None,
-                    None,
                     &[],
                     &[],
                     false,
@@ -1914,7 +1877,6 @@ mod tests {
                         } else {
                             "test::PriceStep"
                         }),
-                        None,
                         None,
                         None,
                         None,
@@ -1976,7 +1938,6 @@ mod tests {
                 None,
                 Some(2),
                 None,
-                None,
                 &[],
                 &[],
                 false,
@@ -1990,7 +1951,6 @@ mod tests {
                 Cardinality::One,
                 Item::new(
                     ItemTarget::Is("test::InexactStep"),
-                    None,
                     None,
                     None,
                     None,
@@ -2016,7 +1976,6 @@ mod tests {
                     None,
                     None,
                     None,
-                    None,
                     &[],
                     &[],
                     false,
@@ -2035,7 +1994,6 @@ mod tests {
                     None,
                     None,
                     Some(32),
-                    None,
                     &[],
                     &[],
                     false,
@@ -2051,7 +2009,6 @@ mod tests {
                 Cardinality::One,
                 Item::new(
                     ItemTarget::Is("test::Status"),
-                    None,
                     None,
                     None,
                     None,
@@ -2073,7 +2030,6 @@ mod tests {
                     None,
                     None,
                     None,
-                    None,
                     &[],
                     &[],
                     false,
@@ -2089,7 +2045,6 @@ mod tests {
                 Cardinality::One,
                 Item::new(
                     ItemTarget::Is("test::Label"),
-                    None,
                     None,
                     None,
                     None,
@@ -2135,7 +2090,6 @@ mod tests {
                 None,
                 None,
                 None,
-                None,
                 &[],
                 &[],
                 false,
@@ -2148,7 +2102,6 @@ mod tests {
             "Label",
             Item::new(
                 ItemTarget::Primitive(Primitive::Text),
-                None,
                 None,
                 None,
                 None,

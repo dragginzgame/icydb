@@ -1,0 +1,12 @@
+[package]
+name = "icydb-testing-codec-query"
+edition = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+publish = false
+
+[dependencies]
+ic0 = { workspace = true }
+
+[lints]
+workspace = true

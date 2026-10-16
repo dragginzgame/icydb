@@ -5,6 +5,16 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.277.0]
+
+### ⚠️ Breaking
+
+- Remove arbitrary-precision integer fields and values, compact scalar tags,
+  require affected databases and serialized artifacts to be recreated, and trial
+  IC Wire with an installed audit query and a Candid-free codec comparison.
+
+See [detailed notes](docs/changelog/0.277.md).
+
 ## [0.276.0] - 2026-10-16
 
 ### ⚠️ Breaking

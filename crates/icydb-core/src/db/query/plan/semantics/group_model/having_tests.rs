@@ -6,7 +6,6 @@ use crate::{
         query::preparation::PreparationWork, schema::AcceptedFieldKind,
         test_support::request_with_limit,
     },
-    types::{IntBig, NatBig},
     value::Value,
 };
 use icydb_diagnostic_code::{
@@ -89,34 +88,17 @@ fn partial_numeric_conversion_keeps_unconverted_recursive_payloads() {
 }
 
 #[test]
-fn exact_big_atoms_and_nonconverting_kinds_need_no_copy_budget() {
-    for (kind, mut value) in [
-        (
-            AcceptedFieldKind::IntBig { max_bytes: 1 },
-            Value::IntBig(IntBig::from(-64)),
-        ),
-        (
-            AcceptedFieldKind::NatBig { max_bytes: 1 },
-            Value::NatBig(NatBig::from(127_u64)),
-        ),
-        (
-            AcceptedFieldKind::IntBig { max_bytes: 1 },
-            Value::IntBig(IntBig::from(64)),
-        ),
-        (
-            AcceptedFieldKind::Ulid,
-            Value::Text("01ARZ3NDEKTSV4RRFFQ69G5FAV".into()),
-        ),
-    ] {
-        let before = value.clone();
-        let root = request_with_limit(Resource::TemporaryBytes, 0);
-        PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
-            normalize(&kind, &mut value, work)
-        })
-        .expect("unchanged atoms need no allocation");
-        assert_eq!(value, before);
-        assert_eq!(root.observed(Resource::TemporaryBytes), 0);
-    }
+fn nonconverting_kinds_need_no_copy_budget() {
+    let kind = AcceptedFieldKind::Ulid;
+    let mut value = Value::Text("01ARZ3NDEKTSV4RRFFQ69G5FAV".into());
+    let before = value.clone();
+    let root = request_with_limit(Resource::TemporaryBytes, 0);
+    PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
+        normalize(&kind, &mut value, work)
+    })
+    .expect("unchanged atoms need no allocation");
+    assert_eq!(value, before);
+    assert_eq!(root.observed(Resource::TemporaryBytes), 0);
 }
 
 #[test]

@@ -318,10 +318,8 @@ fn validate_numeric_literal(literal: &Value) -> Result<(), SqlLoweringError> {
         literal,
         Value::Int64(_)
             | Value::Int128(_)
-            | Value::IntBig(_)
             | Value::Nat64(_)
             | Value::Nat128(_)
-            | Value::NatBig(_)
             | Value::U256(_)
             | Value::Decimal(_)
             | Value::Float32(_)

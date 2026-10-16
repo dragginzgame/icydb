@@ -54,8 +54,8 @@ pub fn migration_literal_from_text(
     value: &str,
 ) -> Result<icydb_schema::ScalarLiteral, icydb_schema::SchemaContractError> {
     use icydb_schema::{
-        Account, Blob, Date, Decimal, Duration, IntBig, NatBig, Principal, ScalarLiteral,
-        Subaccount, Timestamp, U256, Ulid,
+        Account, Blob, Date, Decimal, Duration, Principal, ScalarLiteral, Subaccount, Timestamp,
+        U256, Ulid,
     };
 
     let invalid = || icydb_schema::SchemaContractError::InvalidLiteral;
@@ -74,12 +74,6 @@ pub fn migration_literal_from_text(
             .map_err(|_| invalid()),
         "duration" => Duration::parse_flexible(value)
             .map(ScalarLiteral::Duration)
-            .map_err(|_| invalid()),
-        "int_big" => IntBig::from_str(value)
-            .map(ScalarLiteral::IntBig)
-            .map_err(|_| invalid()),
-        "nat_big" => NatBig::from_str(value)
-            .map(ScalarLiteral::NatBig)
             .map_err(|_| invalid()),
         "principal" => Principal::from_str(value)
             .map(ScalarLiteral::Principal)

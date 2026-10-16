@@ -764,7 +764,6 @@ impl CompiledAcceptedTargetedRules {
             | AcceptedFieldKind::Int32
             | AcceptedFieldKind::Int64
             | AcceptedFieldKind::Int128
-            | AcceptedFieldKind::IntBig { .. }
             | AcceptedFieldKind::Principal
             | AcceptedFieldKind::Subaccount
             | AcceptedFieldKind::Text { .. }
@@ -774,7 +773,6 @@ impl CompiledAcceptedTargetedRules {
             | AcceptedFieldKind::Nat32
             | AcceptedFieldKind::Nat64
             | AcceptedFieldKind::Nat128
-            | AcceptedFieldKind::NatBig { .. }
             | AcceptedFieldKind::Ulid
             | AcceptedFieldKind::Unit
             | AcceptedFieldKind::U256 => {}

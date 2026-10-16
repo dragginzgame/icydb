@@ -12,12 +12,11 @@ use crate::db::codec::writer::{
 use crate::{
     db::{codec::ByteReader, cursor::token::TokenWireError},
     types::{
-        Account, AccountStorageCodec, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig,
-        Principal, Subaccount, Timestamp, U256, Ulid,
+        Account, AccountStorageCodec, Date, Decimal, Duration, Float32, Float64, Principal,
+        Subaccount, Timestamp, U256, Ulid,
     },
     value::{CanonicalEnumBody, EnumTypeId, EnumVariantId, Value, ValueEnum},
 };
-use num_bigint::{BigInt, BigUint, Sign};
 
 const VALUE_ACCOUNT: u8 = 0;
 const VALUE_BLOB: u8 = 1;
@@ -30,20 +29,18 @@ const VALUE_FLOAT32: u8 = 7;
 const VALUE_FLOAT64: u8 = 8;
 const VALUE_INT: u8 = 9;
 const VALUE_INT128: u8 = 10;
-const VALUE_INT_BIG: u8 = 11;
-const VALUE_LIST: u8 = 12;
-const VALUE_MAP: u8 = 13;
-const VALUE_NULL: u8 = 14;
-const VALUE_PRINCIPAL: u8 = 15;
-const VALUE_SUBACCOUNT: u8 = 16;
-const VALUE_TEXT: u8 = 17;
-const VALUE_TIMESTAMP: u8 = 18;
-const VALUE_NAT: u8 = 19;
-const VALUE_NAT128: u8 = 20;
-const VALUE_NAT_BIG: u8 = 21;
-const VALUE_ULID: u8 = 22;
-const VALUE_UNIT: u8 = 23;
-const VALUE_U256: u8 = 24;
+const VALUE_LIST: u8 = 11;
+const VALUE_MAP: u8 = 12;
+const VALUE_NULL: u8 = 13;
+const VALUE_PRINCIPAL: u8 = 14;
+const VALUE_SUBACCOUNT: u8 = 15;
+const VALUE_TEXT: u8 = 16;
+const VALUE_TIMESTAMP: u8 = 17;
+const VALUE_NAT: u8 = 18;
+const VALUE_NAT128: u8 = 19;
+const VALUE_ULID: u8 = 20;
+const VALUE_UNIT: u8 = 21;
+const VALUE_U256: u8 = 22;
 
 // Bound recursive construction and cleanup independently of payload byte size.
 // A root is depth zero; list items, map keys/values and enum payloads each add
@@ -188,11 +185,6 @@ fn write_value_at_depth(
             write_i128_be(out, *value);
             Ok(())
         }
-        Value::IntBig(value) => {
-            out.push(VALUE_INT_BIG);
-            let (negative, digits) = value.sign_and_u32_digits();
-            write_big_magnitude(out, Some(negative), digits)
-        }
         Value::List(items) => {
             out.push(VALUE_LIST);
             write_value_slice_at_depth(out, items.as_slice(), depth + 1)
@@ -232,10 +224,6 @@ fn write_value_at_depth(
             out.push(VALUE_NAT128);
             write_u128_be(out, *value);
             Ok(())
-        }
-        Value::NatBig(value) => {
-            out.push(VALUE_NAT_BIG);
-            write_big_magnitude(out, None, value.u32_digits())
         }
         Value::Ulid(value) => {
             out.push(VALUE_ULID);
@@ -339,7 +327,6 @@ fn read_value_at_depth(cursor: &mut ByteReader<'_>, depth: usize) -> Result<Valu
         )),
         VALUE_INT => Ok(Value::Int64(cursor.read_i64()?)),
         VALUE_INT128 => Ok(Value::Int128(cursor.read_i128()?)),
-        VALUE_INT_BIG => Ok(Value::IntBig(read_big_int(cursor)?)),
         VALUE_LIST => Ok(Value::List(read_value_vec_at_depth(cursor, depth + 1)?)),
         VALUE_MAP => read_map_value(cursor, depth + 1),
         VALUE_NULL => Ok(Value::Null),
@@ -351,7 +338,6 @@ fn read_value_at_depth(cursor: &mut ByteReader<'_>, depth: usize) -> Result<Valu
         VALUE_TIMESTAMP => Ok(Value::Timestamp(Timestamp::from_millis(cursor.read_i64()?))),
         VALUE_NAT => Ok(Value::Nat64(cursor.read_u64()?)),
         VALUE_NAT128 => Ok(Value::Nat128(cursor.read_u128()?)),
-        VALUE_NAT_BIG => Ok(Value::NatBig(read_big_nat(cursor)?)),
         VALUE_ULID => Ok(Value::Ulid(Ulid::from_bytes(cursor.read_array()?))),
         VALUE_UNIT => Ok(Value::Unit),
         VALUE_U256 => Ok(Value::U256(U256::from_be_bytes(cursor.read_array()?))),
@@ -401,70 +387,6 @@ fn read_value_enum(cursor: &mut ByteReader<'_>, depth: usize) -> Result<ValueEnu
         }
     };
     Ok(ValueEnum::new(type_id, variant_id, body))
-}
-
-// Stream the atom's borrowed limbs directly into one canonical magnitude frame.
-// Signed zero has sign 0 and no magnitude; nonzero signs are 1 (+) and 2 (-).
-fn write_big_magnitude(
-    out: &mut Vec<u8>,
-    negative: Option<bool>,
-    mut digits: impl DoubleEndedIterator<Item = u32> + ExactSizeIterator,
-) -> Result<(), TokenWireError> {
-    let high = digits.next_back();
-    let high_len = high.map_or(0, |digit| {
-        (u32::BITS - digit.leading_zeros()).div_ceil(8) as usize
-    });
-    let len = digits
-        .len()
-        .checked_mul(4)
-        .and_then(|len| len.checked_add(high_len))
-        .ok_or_else(TokenWireError::encode)?;
-    if let Some(negative) = negative {
-        out.push(if len == 0 {
-            0
-        } else if negative {
-            2
-        } else {
-            1
-        });
-    }
-    write_u32_be(out, checked_len_u32(len)?);
-    for digit in digits {
-        out.extend_from_slice(&digit.to_le_bytes());
-    }
-    if let Some(high) = high {
-        out.extend_from_slice(&high.to_le_bytes()[..high_len]);
-    }
-    Ok(())
-}
-
-fn read_big_int(cursor: &mut ByteReader<'_>) -> Result<IntBig, TokenWireError> {
-    let sign = match cursor.read_u8()? {
-        0 => Sign::NoSign,
-        1 => Sign::Plus,
-        2 => Sign::Minus,
-        _ => return Err(TokenWireError::decode()),
-    };
-    let magnitude = read_big_magnitude(cursor)?;
-    if (sign == Sign::NoSign) != magnitude.is_empty() {
-        return Err(TokenWireError::decode());
-    }
-    Ok(IntBig::from_bigint(BigInt::from_bytes_le(sign, magnitude)))
-}
-
-fn read_big_nat(cursor: &mut ByteReader<'_>) -> Result<NatBig, TokenWireError> {
-    Ok(NatBig::from_biguint(BigUint::from_bytes_le(
-        read_big_magnitude(cursor)?,
-    )))
-}
-
-// Validate the full borrowed frame before allocating a decoded integer.
-fn read_big_magnitude<'a>(cursor: &mut ByteReader<'a>) -> Result<&'a [u8], TokenWireError> {
-    let magnitude = cursor.read_len_prefixed_bytes()?;
-    if magnitude.last() == Some(&0) {
-        return Err(TokenWireError::decode());
-    }
-    Ok(magnitude)
 }
 
 fn read_map_value(cursor: &mut ByteReader<'_>, depth: usize) -> Result<Value, TokenWireError> {
@@ -668,23 +590,6 @@ mod tests {
     #[test]
     fn compact_cursor_values_preserve_sizes_domains_and_nested_boundaries() {
         let mut cases = Vec::new();
-        for bits in [0_usize, 1, 8, 9, 32, 33, 256, 1024] {
-            let magnitude = (BigUint::from(1_u8) << bits) - BigUint::from(1_u8);
-            let width = bits.div_ceil(8);
-            cases.push((
-                Value::NatBig(NatBig::from_biguint(magnitude.clone())),
-                5 + width,
-            ));
-            for sign in [Sign::Plus, Sign::Minus] {
-                cases.push((
-                    Value::IntBig(IntBig::from_bigint(BigInt::from_biguint(
-                        sign,
-                        magnitude.clone(),
-                    ))),
-                    6 + width,
-                ));
-            }
-        }
         for subaccount in [None, Some(Subaccount::MAX)] {
             cases.push((Value::Account(Account::new(Principal::MAX, subaccount)), 63));
         }
@@ -721,19 +626,7 @@ mod tests {
     }
 
     #[test]
-    fn compact_cursor_values_reject_noncanonical_magnitudes_and_metadata() {
-        for payload in [
-            vec![VALUE_NAT_BIG, 0, 0, 0, 1, 0],
-            vec![VALUE_NAT_BIG, 0, 0, 0, 2, 1, 0],
-            vec![VALUE_NAT_BIG, 255, 255, 255, 255],
-            vec![VALUE_INT_BIG, 3, 0, 0, 0, 0],
-            vec![VALUE_INT_BIG, 1, 0, 0, 0, 0],
-            vec![VALUE_INT_BIG, 2, 0, 0, 0, 0],
-            vec![VALUE_INT_BIG, 0, 0, 0, 0, 1, 1],
-            vec![VALUE_INT_BIG, 2, 0, 0, 0, 1, 0],
-        ] {
-            assert!(read_value(&mut ByteReader::new(&payload)).is_err());
-        }
+    fn compact_cursor_values_reject_noncanonical_metadata() {
         for scale in [29, 255] {
             let mut payload = vec![VALUE_DECIMAL];
             payload.extend_from_slice(&0_i128.to_be_bytes());

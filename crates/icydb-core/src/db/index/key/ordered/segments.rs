@@ -8,7 +8,6 @@ use crate::{
     types::{Account, Principal, Subaccount},
 };
 
-const LENGTH_BYTES: usize = 2;
 const ACCOUNT_OWNER_MAX_LEN: usize = Principal::MAX_LENGTH_IN_BYTES as usize;
 const ACCOUNT_SUBACCOUNT_LEN: usize = 32;
 const ACCOUNT_SUBACCOUNT_TAG: u8 = 0x80;
@@ -79,12 +78,4 @@ pub(super) fn push_inverted(out: &mut Vec<u8>, bytes: &[u8]) {
     for &byte in bytes {
         out.push(!byte);
     }
-}
-
-pub(super) fn encode_segment_len(
-    len: usize,
-) -> Result<[u8; LENGTH_BYTES], OrderedValueEncodeError> {
-    let len_u16 = u16::try_from(len).map_err(|_| OrderedValueEncodeError::SegmentTooLarge)?;
-
-    Ok(len_u16.to_be_bytes())
 }

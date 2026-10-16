@@ -109,8 +109,6 @@ impl_primitive_visitable!(
     crate::schema::Duration,
     crate::schema::Float32,
     crate::schema::Float64,
-    crate::schema::IntBig,
-    crate::schema::NatBig,
     crate::schema::Principal,
     crate::schema::Subaccount,
     crate::schema::Timestamp,

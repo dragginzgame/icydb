@@ -15,8 +15,8 @@ use crate::{
         },
     },
     types::{
-        Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
-        Timestamp, U256, Ulid,
+        Account, Date, Decimal, Duration, Float32, Float64, Principal, Subaccount, Timestamp, U256,
+        Ulid,
     },
     value::{PublicEnumValue, PublicValue, Value},
 };
@@ -331,16 +331,7 @@ component_case!(
 );
 component_case!(hybrid_int128, AcceptedFieldKind::Int128, Value::Int128(-42));
 component_case!(hybrid_nat128, AcceptedFieldKind::Nat128, Value::Nat128(42));
-component_case!(
-    hybrid_int_big,
-    AcceptedFieldKind::IntBig { max_bytes: 64 },
-    Value::IntBig(IntBig::from(-42_i64))
-);
-component_case!(
-    hybrid_nat_big,
-    AcceptedFieldKind::NatBig { max_bytes: 64 },
-    Value::NatBig(NatBig::from(42_u64))
-);
+
 component_case!(hybrid_u256, AcceptedFieldKind::U256, Value::U256(U256::MAX));
 component_case!(
     hybrid_principal,

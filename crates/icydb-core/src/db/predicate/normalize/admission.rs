@@ -36,12 +36,6 @@ fn input_construction_bytes(
     match value {
         Value::Text(text) => bytes = bytes.saturating_add(text.len() as u64),
         Value::Blob(blob) => bytes = bytes.saturating_add(blob.len() as u64),
-        Value::IntBig(value) => {
-            bytes = bytes.saturating_add(value.magnitude_bits().div_ceil(64) * 8);
-        }
-        Value::NatBig(value) => {
-            bytes = bytes.saturating_add(value.magnitude_bits().div_ceil(64) * 8);
-        }
         Value::List(values) => {
             for value in values {
                 let (child_bytes, child_enum) = input_construction_bytes(value, work)?;

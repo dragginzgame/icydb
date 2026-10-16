@@ -422,30 +422,23 @@ mod tests {
 
     #[test]
     fn authenticated_compact_scalar_cursor_round_trips_and_measures_external_bytes() {
-        use crate::{
-            db::cursor::{decode_cursor, encode_cursor},
-            types::{IntBig, NatBig},
-        };
-        use num_bigint::{BigInt, BigUint, Sign};
+        use crate::db::cursor::{decode_cursor, encode_cursor};
 
         let key = [0x66; 32];
-        let magnitude = (BigUint::from(1_u8) << 256_usize) - BigUint::from(1_u8);
         let mut current = token();
         current.progress.last_emitted_logical = Some(CursorBoundary {
             slots: vec![
-                CursorBoundarySlot::Present(Value::IntBig(IntBig::from_bigint(
-                    BigInt::from_biguint(Sign::Minus, magnitude.clone()),
-                ))),
+                CursorBoundarySlot::Present(Value::Int128(i128::MIN)),
+                CursorBoundarySlot::Present(Value::U256(crate::types::U256::MAX)),
                 CursorBoundarySlot::Missing,
-                CursorBoundarySlot::Present(Value::NatBig(NatBig::from_biguint(magnitude))),
             ],
         });
         for mode in [ScalarPageMode::Live, ScalarPageMode::Exhaustive] {
             current.mode = mode;
             let bytes = current.encode(&key).unwrap();
             let text = encode_cursor(&bytes);
-            assert_eq!(bytes.len(), 327);
-            assert_eq!(text.len(), 436);
+            assert_eq!(bytes.len(), 302);
+            assert_eq!(text.len(), 403);
             assert_eq!(
                 ScalarPageToken::decode(&decode_cursor(&text).unwrap(), &key).unwrap(),
                 current

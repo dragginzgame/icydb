@@ -3,7 +3,6 @@ use crate::{
         QueryError, RequestExecutionRoot, query::preparation::PreparationWork,
         test_support::request_with_limit,
     },
-    types::{IntBig, NatBig},
     value::{Value, ValueEnum},
 };
 use icydb_diagnostic_code::{
@@ -22,8 +21,6 @@ fn owned_payload_families_charge_before_each_allocation() {
     let cases = [
         (Value::Text("abc".to_string()), 3, 1),
         (Value::Blob(vec![1, 2, 3]), 3, 1),
-        (Value::IntBig(IntBig::from(i64::MIN)), 8, 1),
-        (Value::NatBig(NatBig::from(u64::MAX)), 8, 1),
         (
             Value::List(vec![Value::Text("a".to_string()), Value::Blob(vec![2, 3])]),
             2 * slot + 3,
@@ -105,8 +102,6 @@ fn zero_backing_values_still_charge_a_visit() {
         Value::List(vec![]),
         Value::Map(vec![]),
         Value::Enum(ValueEnum::test_unit(1, 2)),
-        Value::IntBig(IntBig::from(0)),
-        Value::NatBig(NatBig::from(0_u64)),
     ] {
         let exact = request_with_limit(Resource::TemporaryBytes, 0);
         assert_eq!(copy(&value, &exact).unwrap(), value);

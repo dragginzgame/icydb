@@ -1027,9 +1027,9 @@ mod tests {
         // value codec's nesting bound, independently of the expression limit.
         let mut payload = Vec::new();
         for _ in 0..1000 {
-            payload.extend_from_slice(&[12, 0, 0, 0, 1]); // singleton value list
+            payload.extend_from_slice(&[11, 0, 0, 0, 1]); // singleton value list
         }
-        payload.push(23); // unit leaf
+        payload.push(21); // unit leaf
         let mut scope_bytes = Vec::from(*SCOPE_MAGIC);
         scope_bytes.extend_from_slice(&[SCOPE_FORMAT_VERSION, 2]); // literal
         scope_bytes.extend_from_slice(&u32::try_from(payload.len()).unwrap().to_be_bytes());
@@ -1083,17 +1083,11 @@ mod tests {
     }
 
     #[test]
-    fn current_intent_preserves_compact_bigint_decimal_and_account_literals() {
-        use crate::types::{Account, Decimal, IntBig, NatBig, Principal, Subaccount};
-        use num_bigint::{BigInt, BigUint, Sign};
-
-        let magnitude = (BigUint::from(1_u8) << 256_usize) - BigUint::from(1_u8);
+    fn current_intent_preserves_fixed_integer_decimal_and_account_literals() {
+        use crate::types::{Account, Decimal, Principal, Subaccount, U256};
         let values = [
-            Value::NatBig(NatBig::from_biguint(magnitude.clone())),
-            Value::IntBig(IntBig::from_bigint(BigInt::from_biguint(
-                Sign::Minus,
-                magnitude,
-            ))),
+            Value::Int128(i128::MIN),
+            Value::U256(U256::MAX),
             Value::Decimal(Decimal::from_i128_with_scale(i128::MIN, 28)),
             Value::Account(Account::new(Principal::MAX, Some(Subaccount::MAX))),
         ];

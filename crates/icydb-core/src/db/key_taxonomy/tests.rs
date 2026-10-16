@@ -17,8 +17,7 @@ use crate::{
     },
     traits::Repr,
     types::{
-        Account, AccountStorageCodec, EntityTag, IntBig, NatBig, Principal, Subaccount, Timestamp,
-        U256, Ulid,
+        Account, AccountStorageCodec, EntityTag, Principal, Subaccount, Timestamp, U256, Ulid,
     },
     value::Value,
 };
@@ -94,12 +93,6 @@ fn runtime_values_convert_directly_to_primary_key_components() {
             "value: {value:?}"
         );
     }
-}
-
-#[test]
-fn runtime_big_integer_values_do_not_convert_to_primary_key_components() {
-    assert!(PrimaryKeyComponent::from_runtime_value(&Value::IntBig(IntBig::from(1i32))).is_none());
-    assert!(PrimaryKeyComponent::from_runtime_value(&Value::NatBig(NatBig::from(1u32))).is_none());
 }
 
 #[test]

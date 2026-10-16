@@ -6,7 +6,7 @@ use crate::{
         avg,
         query::plan::expr::{Expr, ExprType, NumericSubtype, infer_expr_type},
     },
-    types::{Decimal, IntBig, NatBig},
+    types::Decimal,
 };
 use icydb_diagnostic_code::DiagnosticCode;
 
@@ -85,29 +85,7 @@ fn with_operand(
 
 #[test]
 fn aggregate_numeric_domain_failures_keep_typed_diagnostics_across_frontends() {
-    let cases = [
-        (AcceptedFieldKind::Nat128, InputValue::nat128(u128::MAX)),
-        (
-            AcceptedFieldKind::NatBig { max_bytes: 64 },
-            InputValue::nat_big(NatBig::from(2_u32)),
-        ),
-        (
-            AcceptedFieldKind::IntBig { max_bytes: 64 },
-            InputValue::int_big(IntBig::from(-2_i32)),
-        ),
-        (
-            AcceptedFieldKind::NatBig { max_bytes: 64 },
-            InputValue::nat_big(u128::MAX.to_string().parse::<NatBig>().unwrap()),
-        ),
-        (
-            AcceptedFieldKind::IntBig { max_bytes: 64 },
-            InputValue::int_big(
-                "-340282366920938463463374607431768211455"
-                    .parse::<IntBig>()
-                    .unwrap(),
-            ),
-        ),
-    ];
+    let cases = [(AcceptedFieldKind::Nat128, InputValue::nat128(u128::MAX))];
     for (kind, input) in cases {
         with_operand(kind, input, |session| {
             for operation in ["SUM", "AVG"] {

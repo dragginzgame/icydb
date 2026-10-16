@@ -13,8 +13,6 @@ pub enum TypeParseError {
     InvalidDecimal,
     /// Duration text is invalid.
     InvalidDuration,
-    /// Signed big-integer text is invalid.
-    InvalidIntBig,
     /// Timestamp text is invalid.
     InvalidTimestamp,
 }
@@ -25,7 +23,6 @@ impl Display for TypeParseError {
             Self::InvalidDate => "invalid date",
             Self::InvalidDecimal => "invalid decimal",
             Self::InvalidDuration => "invalid duration",
-            Self::InvalidIntBig => "invalid signed big integer",
             Self::InvalidTimestamp => "invalid timestamp",
         })
     }

@@ -112,7 +112,7 @@ fn expression_order_hashing_preserves_bytes_under_exact_and_cumulative_admission
                                 .with_filter_expr(Expr::Literal(Value::Bool(false))),
                         ),
                     )],
-                    else_expr: Box::new(Expr::Literal(Value::NatBig(
+                    else_expr: Box::new(Expr::Literal(Value::Nat128(
                         "18446744073709551616".parse().unwrap(),
                     ))),
                 },
@@ -124,7 +124,7 @@ fn expression_order_hashing_preserves_bytes_under_exact_and_cumulative_admission
     let expected = expected_hash(&[
         ("owner_λ", OrderDirection::Asc),
         (
-            "CASE WHEN TRUE THEN SUM(DISTINCT amount) FILTER (WHERE FALSE) ELSE 18_446_744_073_709_551_616 END",
+            "CASE WHEN TRUE THEN SUM(DISTINCT amount) FILTER (WHERE FALSE) ELSE 18446744073709551616 END",
             OrderDirection::Desc,
         ),
     ]);
@@ -169,7 +169,7 @@ fn order_format_failure_cannot_publish_a_continuation() {
     };
     scalar.order = Some(OrderSpec {
         fields: vec![OrderTerm::new(
-            Expr::Literal(Value::NatBig("18446744073709551616".parse().unwrap())),
+            Expr::Literal(Value::Text("x".repeat(64))),
             OrderDirection::Desc,
         )],
     });
@@ -179,14 +179,14 @@ fn order_format_failure_cannot_publish_a_continuation() {
                 .map_err(QueryError::execute)
         })
     };
-    let root = request_with_limit(Resource::TemporaryBytes, 27);
+    let root = request_with_limit(Resource::TemporaryBytes, 0);
     let error = build(&root).unwrap_err();
     assert!(error.diagnostic_facts().contains(&(
         DiagnosticFactTag::BudgetResource,
         Resource::TemporaryBytes.raw()
     )));
-    // Bigint conversion rejects its 28-byte scratch before output or order copying.
-    assert_eq!(root.observed(Resource::TemporaryBytes), 28);
+    // The first output byte is rejected before publishing a continuation.
+    assert_eq!(root.observed(Resource::TemporaryBytes), 4);
     let root = request_with_limit(Resource::TemporaryBytes, 16_000_000);
     let expected =
         with_preparation_work(|work| plan.continuation_signature("tests::Entity", work)).unwrap();

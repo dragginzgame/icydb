@@ -7,7 +7,6 @@ fn primitive_item(primitive: Primitive) -> Item {
         None,
         None,
         None,
-        None,
         &[],
         &[],
         false,
@@ -18,7 +17,6 @@ fn relation_item(target_path: &'static str, primitive: Primitive) -> Item {
     Item::new(
         ItemTarget::Primitive(primitive),
         Some(target_path),
-        None,
         None,
         None,
         &[],
@@ -37,18 +35,12 @@ fn field(ident: &'static str, primitive: Primitive) -> Field {
     )
 }
 
-fn item_with_metadata(
-    primitive: Primitive,
-    scale: Option<u32>,
-    max_len: Option<u32>,
-    max_bytes: Option<u32>,
-) -> Item {
+fn item_with_metadata(primitive: Primitive, scale: Option<u32>, max_len: Option<u32>) -> Item {
     Item::new(
         ItemTarget::Primitive(primitive),
         None,
         scale,
         max_len,
-        max_bytes,
         &[],
         &[],
         false,
@@ -134,46 +126,14 @@ fn scalar_128_bit_relation_targets_validate_at_schema_node_boundary() {
 #[test]
 fn scalar_relation_target_descriptor_compares_type_and_bounds() {
     for (primitive, expected_metadata, wrong_metadata) in [
-        (
-            Primitive::Decimal,
-            (Some(4), None, None),
-            (Some(2), None, None),
-        ),
-        (
-            Primitive::Text,
-            (None, Some(64), None),
-            (None, Some(32), None),
-        ),
-        (
-            Primitive::IntBig,
-            (None, None, Some(32)),
-            (None, None, Some(16)),
-        ),
+        (Primitive::Decimal, (Some(4), None), (Some(2), None)),
+        (Primitive::Text, (None, Some(64)), (None, Some(32))),
     ] {
-        let expected = item_with_metadata(
-            primitive,
-            expected_metadata.0,
-            expected_metadata.1,
-            expected_metadata.2,
-        );
-        let same = item_with_metadata(
-            primitive,
-            expected_metadata.0,
-            expected_metadata.1,
-            expected_metadata.2,
-        );
-        let wrong_bounds = item_with_metadata(
-            primitive,
-            wrong_metadata.0,
-            wrong_metadata.1,
-            wrong_metadata.2,
-        );
-        let wrong_target = item_with_metadata(
-            Primitive::Nat64,
-            expected_metadata.0,
-            expected_metadata.1,
-            expected_metadata.2,
-        );
+        let expected = item_with_metadata(primitive, expected_metadata.0, expected_metadata.1);
+        let same = item_with_metadata(primitive, expected_metadata.0, expected_metadata.1);
+        let wrong_bounds = item_with_metadata(primitive, wrong_metadata.0, wrong_metadata.1);
+        let wrong_target =
+            item_with_metadata(Primitive::Nat64, expected_metadata.0, expected_metadata.1);
 
         let expected = RelationComponentContract::from_item(&expected);
         assert!(!expected.mismatches(RelationComponentContract::from_item(&same)));
@@ -221,7 +181,7 @@ fn scalar_relation_target_from_field_preserves_metadata_descriptor() {
         "id",
         Value::new(
             Cardinality::One,
-            item_with_metadata(Primitive::Text, None, Some(64), None),
+            item_with_metadata(Primitive::Text, None, Some(64)),
         ),
         None,
         None,
@@ -232,5 +192,4 @@ fn scalar_relation_target_from_field_preserves_metadata_descriptor() {
     assert_eq!(descriptor.target(), &ItemTarget::Primitive(Primitive::Text));
     assert_eq!(descriptor.scale(), None);
     assert_eq!(descriptor.max_len(), Some(64));
-    assert_eq!(descriptor.max_bytes(), None);
 }

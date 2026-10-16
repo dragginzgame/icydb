@@ -4035,10 +4035,6 @@ fn hash_accepted_field_kind(hasher: &mut sha2::Sha256, kind: &AcceptedFieldKind)
         AcceptedFieldKind::Int32 => write_hash_tag_u8(hasher, 12),
         AcceptedFieldKind::Int64 => write_hash_tag_u8(hasher, 13),
         AcceptedFieldKind::Int128 => write_hash_tag_u8(hasher, 14),
-        AcceptedFieldKind::IntBig { max_bytes } => {
-            write_hash_tag_u8(hasher, 15);
-            write_hash_u32(hasher, *max_bytes);
-        }
         AcceptedFieldKind::Principal => write_hash_tag_u8(hasher, 16),
         AcceptedFieldKind::Subaccount => write_hash_tag_u8(hasher, 17),
         AcceptedFieldKind::Text { max_len } => {
@@ -4051,10 +4047,6 @@ fn hash_accepted_field_kind(hasher: &mut sha2::Sha256, kind: &AcceptedFieldKind)
         AcceptedFieldKind::Nat32 => write_hash_tag_u8(hasher, 22),
         AcceptedFieldKind::Nat64 => write_hash_tag_u8(hasher, 23),
         AcceptedFieldKind::Nat128 => write_hash_tag_u8(hasher, 24),
-        AcceptedFieldKind::NatBig { max_bytes } => {
-            write_hash_tag_u8(hasher, 25);
-            write_hash_u32(hasher, *max_bytes);
-        }
         AcceptedFieldKind::Ulid => write_hash_tag_u8(hasher, 26),
         AcceptedFieldKind::Unit => write_hash_tag_u8(hasher, 27),
         AcceptedFieldKind::Relation {

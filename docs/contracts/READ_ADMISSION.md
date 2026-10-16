@@ -68,8 +68,8 @@ lane does not bypass them. They are separate from the public row/access policy
 above and from resource charges for work performed during preparation.
 
 Node accounting includes expression/value nodes and authored names, not just
-predicates. Payload accounting includes names, strings, blobs and big-integer
-magnitude bytes. SQL admission also accounts for effective parameter copies.
+predicates. Payload accounting includes names, strings and blobs. SQL admission
+also accounts for effective parameter copies.
 Depth measures nesting, not the number of siblings in a flat `AND`, `OR` or
 `IN`; a wide flat query can instead reach the node or payload ceiling.
 

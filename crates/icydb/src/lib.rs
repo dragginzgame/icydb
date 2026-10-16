@@ -193,7 +193,7 @@ pub mod __macro {
     pub use icydb_core::error::{ErrorClass, ErrorOrigin, InternalError};
     pub use icydb_core::traits::{CanisterKind, Path};
     pub use icydb_core::value::Value;
-    pub use icydb_schema::{DEFAULT_BIG_INT_MAX_BYTES, ScalarType};
+    pub use icydb_schema::ScalarType;
 }
 
 // Dependencies used by generated actor glue. Application-model macro

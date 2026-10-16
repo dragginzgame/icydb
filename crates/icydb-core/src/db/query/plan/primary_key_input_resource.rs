@@ -51,15 +51,6 @@ pub(super) fn estimate_value_payload_bytes(
         | Value::Timestamp(_) => 8,
         Value::Enum(value) => estimate_enum_payload_bytes(value, budget)?,
         Value::Int128(_) | Value::Nat128(_) | Value::Ulid(_) => 16,
-        Value::IntBig(value) => {
-            // Signed length can scan trailing zero limbs at a sign boundary.
-            // Admit that scan from bit metadata before asking for its length.
-            budget.charge(
-                Resource::PredicateExpressionSteps,
-                value.magnitude_bits().div_ceil(32),
-            )?;
-            u32::try_from(value.leb128_len()).unwrap_or(u32::MAX)
-        }
         Value::List(values) => values.iter().try_fold(0u32, |total, value| {
             Ok::<_, InternalError>(
                 total.saturating_add(estimate_value_payload_bytes(value, budget)?),
@@ -72,7 +63,6 @@ pub(super) fn estimate_value_payload_bytes(
                     .saturating_add(estimate_value_payload_bytes(value, budget)?),
             )
         })?,
-        Value::NatBig(value) => u32::try_from(value.leb128_len()).unwrap_or(u32::MAX),
         Value::Null | Value::Unit => 0,
         Value::Principal(value) => byte_len_u32(value.as_slice().len()),
         Value::Subaccount(_) | Value::U256(_) => 32,
@@ -105,7 +95,6 @@ mod tests {
             query::preparation::PreparationWork,
             resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
         },
-        types::{IntBig, NatBig},
         value::{Value, ValueEnum},
     };
     use icydb_diagnostic_code::{
@@ -122,26 +111,6 @@ mod tests {
             .with_limit_for_tests(Resource::PredicateExpressionSteps, steps)
             .with_limit_for_tests(Resource::TemporaryBytes, 0),
         )
-    }
-
-    #[test]
-    fn bigint_key_payload_estimates_match_encoded_lengths() {
-        for integer in [-8193_i32, -8192, -65, -64, -1, 0, 63, 64, 8191, 8192] {
-            let signed = IntBig::from(integer);
-            let unsigned = NatBig::from(integer.unsigned_abs());
-            let expected =
-                u32::try_from(signed.to_leb128().len() + unsigned.to_leb128().len()).unwrap();
-            let values = Value::List(vec![Value::IntBig(signed), Value::NatBig(unsigned)]);
-            let root = request(16_000_000);
-            PreparationWork::run(&root.scope(), Lane::PublicRead, |work| {
-                assert_eq!(
-                    estimate_value_payload_bytes(&values, work).unwrap(),
-                    expected
-                );
-                Ok(())
-            })
-            .unwrap();
-        }
     }
 
     #[test]
@@ -204,27 +173,5 @@ mod tests {
         .unwrap();
         assert_eq!(root.observed(Resource::PredicateExpressionSteps), 2);
         assert_eq!(root.observed(Resource::TemporaryBytes), 0);
-    }
-
-    #[test]
-    fn signed_bigint_length_scan_is_admitted_before_sizing() {
-        let value = IntBig::from_bigint(-(num_bigint::BigInt::from(1u8) << 223usize));
-        let expected = u32::try_from(value.to_leb128().len()).unwrap();
-        let steps = 1 + value.magnitude_bits().div_ceil(32);
-        let value = Value::IntBig(value);
-        for limit in [steps - 1, steps] {
-            let root = request(limit);
-            let result = PreparationWork::run(&root.scope(), Lane::PublicRead, |work| {
-                estimate_value_payload_bytes(&value, work).map_err(QueryError::execute)
-            });
-            if limit == steps {
-                assert_eq!(result.unwrap(), expected);
-            } else {
-                assert!(result.unwrap_err().diagnostic_facts().contains(&(
-                    DiagnosticFactTag::BudgetResource,
-                    Resource::PredicateExpressionSteps.raw(),
-                )));
-            }
-        }
     }
 }

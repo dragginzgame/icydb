@@ -1,0 +1,16 @@
+[package]
+name = "canister_audit_codec_candid_query"
+edition = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+candid = { workspace = true }
+icydb-testing-codec-query = { workspace = true }
+
+[lints]
+workspace = true

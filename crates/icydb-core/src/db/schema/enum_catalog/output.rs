@@ -48,7 +48,6 @@ fn output_value_from_canonical(
         CanonicalValue::Float64(value) => PublicValue::Float64(value),
         CanonicalValue::Int64(value) => PublicValue::Int64(value),
         CanonicalValue::Int128(value) => PublicValue::Int128(value),
-        CanonicalValue::IntBig(value) => PublicValue::IntBig(value),
         CanonicalValue::List(values) => PublicValue::List(
             values
                 .into_iter()
@@ -73,7 +72,6 @@ fn output_value_from_canonical(
         CanonicalValue::Timestamp(value) => PublicValue::Timestamp(value),
         CanonicalValue::Nat64(value) => PublicValue::Nat64(value),
         CanonicalValue::Nat128(value) => PublicValue::Nat128(value),
-        CanonicalValue::NatBig(value) => PublicValue::NatBig(value),
         CanonicalValue::Ulid(value) => PublicValue::Ulid(value),
         CanonicalValue::Unit => PublicValue::Unit,
         CanonicalValue::U256(value) => PublicValue::U256(value),

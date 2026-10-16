@@ -1973,13 +1973,6 @@ fn write_length_bounded_field_kind_summary(
     }
 }
 
-fn write_byte_bounded_field_kind_summary(out: &mut String, kind_name: &str, max_bytes: u32) {
-    out.push_str(kind_name);
-    out.push_str("(max_bytes=");
-    out.push_str(&max_bytes.to_string());
-    out.push(')');
-}
-
 ///
 /// RenderedTemporalPayload
 ///
@@ -2095,7 +2088,6 @@ const fn output_value_kind_label(value: &OutputValue) -> &'static str {
         crate::value::PublicValue::Float64(_) => "float64",
         crate::value::PublicValue::Int64(_) => "int64",
         crate::value::PublicValue::Int128(_) => "int128",
-        crate::value::PublicValue::IntBig(_) => "int_big",
         crate::value::PublicValue::List(_) => "list",
         crate::value::PublicValue::Map(_) => "map",
         crate::value::PublicValue::Null => "null",
@@ -2105,7 +2097,6 @@ const fn output_value_kind_label(value: &OutputValue) -> &'static str {
         crate::value::PublicValue::Timestamp(_) => "timestamp",
         crate::value::PublicValue::Nat64(_) => "nat64",
         crate::value::PublicValue::Nat128(_) => "nat128",
-        crate::value::PublicValue::NatBig(_) => "nat_big",
         crate::value::PublicValue::Ulid(_) => "ulid",
         crate::value::PublicValue::Unit => "unit",
         crate::value::PublicValue::U256(_) => "u256",
@@ -2153,9 +2144,6 @@ fn write_persisted_field_kind_summary(
         }
         AcceptedFieldKind::Decimal { scale } => {
             let _ = write!(out, "decimal(scale={scale})");
-        }
-        AcceptedFieldKind::IntBig { max_bytes } => {
-            write_byte_bounded_field_kind_summary(out, "int_big", *max_bytes);
         }
         AcceptedFieldKind::Enum { type_id } => {
             let definition = value_catalog
@@ -2232,9 +2220,6 @@ fn write_persisted_field_kind_summary(
         | AcceptedFieldKind::Ulid
         | AcceptedFieldKind::Unit
         | AcceptedFieldKind::U256 => return Err(InternalError::store_invariant()),
-        AcceptedFieldKind::NatBig { max_bytes } => {
-            write_byte_bounded_field_kind_summary(out, "nat_big", *max_bytes);
-        }
     }
 
     Ok(())
@@ -2267,8 +2252,6 @@ const fn describe_kind_name(kind: &AcceptedFieldKind) -> Option<&'static str> {
         AcceptedFieldKind::Blob { .. }
         | AcceptedFieldKind::Decimal { .. }
         | AcceptedFieldKind::Enum { .. }
-        | AcceptedFieldKind::IntBig { .. }
-        | AcceptedFieldKind::NatBig { .. }
         | AcceptedFieldKind::Text { .. }
         | AcceptedFieldKind::Relation { .. }
         | AcceptedFieldKind::List(_)

@@ -16,10 +16,6 @@ impl dyn ConstructionBudget + '_ {
         let bytes = match value {
             Value::Text(text) => text.len() as u64,
             Value::Blob(blob) => blob.len() as u64,
-            // Clone requests initialized magnitude limbs, not source spare
-            // capacity. Whole 64-bit words cover both 32- and 64-bit limbs.
-            Value::IntBig(integer) => integer.magnitude_bits().div_ceil(64).saturating_mul(8),
-            Value::NatBig(integer) => integer.magnitude_bits().div_ceil(64).saturating_mul(8),
             Value::List(values) => {
                 self.charge(
                     Resource::TemporaryBytes,
@@ -76,8 +72,7 @@ impl dyn ConstructionBudget + '_ {
             | Value::Ulid(_)
             | Value::Unit => 0,
         };
-        // Byte-copy work is separate from the per-value visit. Conservative
-        // big-integer storage allowance also bounds its initialized limb copy.
+        // Byte-copy work is separate from the per-value visit.
         if bytes != 0 {
             self.charge(Resource::PredicateExpressionSteps, bytes)?;
             self.charge(Resource::TemporaryBytes, bytes)?;

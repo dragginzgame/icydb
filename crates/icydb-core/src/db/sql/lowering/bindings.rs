@@ -107,20 +107,6 @@ fn scalar_input_sizes(value: &PublicValue) -> Result<(u64, usize), QueryError> {
         }
         PublicValue::Blob(value) => return Ok((value.len() as u64, value.len())),
         PublicValue::Text(value) => return Ok((value.len() as u64, value.len())),
-        PublicValue::IntBig(value) => {
-            let bytes = value.magnitude_bits().div_ceil(8);
-            return Ok((
-                bytes.saturating_add(1),
-                usize::try_from(bytes).map_err(|_| binding_error(SqlLoweringCode::BindingLimit))?,
-            ));
-        }
-        PublicValue::NatBig(value) => {
-            let bytes = value.magnitude_bits().div_ceil(8);
-            return Ok((
-                bytes,
-                usize::try_from(bytes).map_err(|_| binding_error(SqlLoweringCode::BindingLimit))?,
-            ));
-        }
         PublicValue::Account(value) => {
             value.owner().as_slice().len() as u64
                 + 1
