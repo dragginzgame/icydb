@@ -10,6 +10,7 @@ use candid::{
     pretty::candid::compile,
     types::{FuncMode, Function, Type, TypeInner, internal::TypeContainer},
 };
+use ic_build::artifacts::candid::{ExtractionError, extract};
 use ic_host_artifacts::{
     artifact::ArtifactError,
     wasm::{InspectionLimits, inspect},
@@ -20,10 +21,7 @@ use ic_host_process::tool::{
     format_failure_evidence, resolve_executable,
 };
 use ic_host_tools::{
-    candid::{
-        extraction::{ExtractionError, extract},
-        service::{self, ServiceLimits},
-    },
+    candid::service::{self, ServiceLimits},
     interface,
 };
 use ic_wire::Method;

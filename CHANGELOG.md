@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   require affected databases and serialized artifacts to be recreated, and trial
   IC Wire with an installed audit query and a Candid-free codec comparison.
 
+### 🔧 Changed
+
+- Adopt Build 0.12 and Host 0.24 together; native Candid extraction now uses
+  Build while text, grammar, tool admission and publication remain local.
+
 See [detailed notes](docs/changelog/0.277.md).
 
 ## [0.276.0] - 2026-10-16
