@@ -36,7 +36,7 @@ require_text \
     'whole-fleet Cargo failures must retain partial phase timings.'
 require_text \
     testing/build/src/lib.rs \
-    'let cargo_report = build_cached_cargo_wasm_batch(&plan.specs);' \
+    'let cargo_report = build_cached_cargo_wasm_batch(&plan.cargo_specs(root));' \
     'the two-profile artifact contract must use the checked Cargo batch owner.'
 require_text \
     testing/build/src/canister_build_cache.rs \

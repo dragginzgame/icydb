@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 - Share fixture contracts, response conversion and deterministic test machinery;
   simplify CLI/tooling, process diagnostics, actor builds and journaled reads; stabilize
-  portable CI fixtures and clarify query consistency
+  portable CI fixtures, repair post-link validation and clarify query consistency
   ([#149 — DISTINCT missing-row policy](https://github.com/dragginzgame/icydb/issues/149),
   [#292 — Shared store traversal](https://github.com/dragginzgame/icydb/issues/292)).
 
