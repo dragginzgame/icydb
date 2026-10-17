@@ -242,6 +242,7 @@ fn load_scale_fixture(fixture: &ic_testkit::pic::StandaloneCanisterFixture) {
             .pocket_ic()
             .update_candid(
                 fixture.canister_id(),
+                candid::Principal::anonymous(),
                 "load_collection_mutation_scale_page",
                 (first_id, row_count),
             )
@@ -273,6 +274,7 @@ fn scale_facts(fixture: &ic_testkit::pic::StandaloneCanisterFixture) -> Mutation
             .pocket_ic()
             .query_candid(
                 fixture.canister_id(),
+                candid::Principal::anonymous(),
                 "collection_mutation_scale_fact",
                 (fact,),
             )
@@ -296,7 +298,12 @@ fn application_startup_contract(
 ) -> ApplicationStartupSnapshot {
     fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "application_startup_contract", ())
+        .query_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "application_startup_contract",
+            (),
+        )
         .expect("application startup contract should decode")
 }
 
@@ -323,7 +330,12 @@ fn accepted_schema_descriptions(
 ) -> Vec<EntitySchemaDescription> {
     let descriptions: Result<Vec<EntitySchemaDescription>, Error> = fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "accepted_schema_descriptions", ())
+        .query_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "accepted_schema_descriptions",
+            (),
+        )
         .expect("accepted schema descriptions should decode");
     descriptions.expect("accepted schema descriptions should remain available")
 }
@@ -331,7 +343,12 @@ fn accepted_schema_descriptions(
 fn query_count(fixture: &ic_testkit::pic::StandaloneCanisterFixture, sql: &str) -> u64 {
     let response: Result<SqlQueryResult, Error> = fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "query_user", (sql.to_string(),))
+        .query_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "query_user",
+            (sql.to_string(),),
+        )
         .expect("scale SQL count should decode");
     let SqlQueryResult::Projection(projection) = response.expect("scale SQL count should succeed")
     else {
@@ -410,6 +427,7 @@ fn start_scale_job(
         .pocket_ic()
         .update_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "start_collection_mutation_scale_job",
             (job,),
         )
@@ -425,6 +443,7 @@ fn scale_job_state(
         .pocket_ic()
         .update_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "collection_mutation_scale_job_state",
             (job,),
         )
@@ -440,6 +459,7 @@ fn advance_scale_job(
         .pocket_ic()
         .update_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "advance_collection_mutation_scale_job",
             (job, sequence, format!("{}-{sequence}", job.label())),
         )
@@ -531,6 +551,7 @@ fn acknowledge_scale_job(
             .pocket_ic()
             .update_candid(
                 fixture.canister_id(),
+                candid::Principal::anonymous(),
                 "acknowledge_collection_mutation_scale_job",
                 (job, sequence),
             )
@@ -567,7 +588,12 @@ fn prove_eager_control_is_bounded(
 ) {
     let eager: Result<SqlQueryResult, Error> = fixture
         .pocket_ic()
-        .update_candid(fixture.canister_id(), "try_collection_eager_tier_reset", ())
+        .update_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "try_collection_eager_tier_reset",
+            (),
+        )
         .expect("eager control should decode");
     let eager_error = eager.expect_err("10,001 rows must exceed one-shot exact admission");
     assert!(matches!(
@@ -702,6 +728,7 @@ fn drive_populated_startup_recovery(
         .pocket_ic()
         .update_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "recover_collection_mutation_scale_store",
             (),
         )

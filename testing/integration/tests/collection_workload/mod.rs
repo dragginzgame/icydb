@@ -44,7 +44,12 @@ fn collection_workload_preserves_results_and_reports_costs() {
         let fixture = install_prebuilt_fixture_canister("sql", module.clone());
         let seeded: Result<(), Error> = fixture
             .pocket_ic()
-            .update_candid(fixture.canister_id(), "seed_collection_workload", (length,))
+            .update_candid(
+                fixture.canister_id(),
+                candid::Principal::anonymous(),
+                "seed_collection_workload",
+                (length,),
+            )
             .expect("seed response");
         seeded.expect("seed succeeds outside the measured messages");
         for (scenario, name) in [
@@ -72,6 +77,7 @@ fn collection_workload_preserves_results_and_reports_costs() {
                     .pocket_ic()
                     .update_candid(
                         fixture.canister_id(),
+                        candid::Principal::anonymous(),
                         "measure_collection_workload",
                         (length, u8::try_from(scenario).unwrap()),
                     )

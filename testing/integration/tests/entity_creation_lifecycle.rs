@@ -46,6 +46,7 @@ fn lifecycle_metrics(fixture: &StandaloneCanisterFixture) -> SchemaLifecycleMetr
         .pocket_ic()
         .query_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "entity_creation_lifecycle_metrics",
             (),
         )
@@ -82,6 +83,7 @@ fn snapshot(fixture: &StandaloneCanisterFixture, label: &str) -> (u64, u64) {
         .pocket_ic()
         .query_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "entity_creation_startup_snapshot",
             (),
         )
@@ -101,7 +103,12 @@ fn seed(wasm: &[u8]) -> (StandaloneCanisterFixture, RowProjectionOutput) {
     for method in ["seed_entity_rename", "seed_entity_creation_target"] {
         let result: Result<(), Error> = fixture
             .pocket_ic()
-            .update_candid(fixture.canister_id(), method, ())
+            .update_candid(
+                fixture.canister_id(),
+                candid::Principal::anonymous(),
+                method,
+                (),
+            )
             .expect("source seeding should decode");
         result.expect("fixed source rows should seed");
     }
@@ -158,7 +165,12 @@ fn assert_rows(fixture: &StandaloneCanisterFixture, rows: &RowProjectionOutput, 
     }
     let result: Result<(), Error> = fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "check_entity_rename_bindings", ())
+        .query_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "check_entity_rename_bindings",
+            (),
+        )
         .expect("old generated bindings should decode");
     result.expect("old generated bindings should remain valid");
 }

@@ -30,7 +30,7 @@ fn query_sql(
 ) -> Result<SqlQueryResult, Error> {
     let result: Result<SqlQueryResult, Error> = fixture
         .pocket_ic()
-        .query_candid_as(
+        .query_candid(
             fixture.canister_id(),
             caller,
             "icydb_query",
@@ -46,7 +46,7 @@ fn query_schema(
 ) -> Result<Vec<EntitySchemaDescription>, Error> {
     fixture
         .pocket_ic()
-        .query_candid_as(fixture.canister_id(), caller, "icydb_schema", ())
+        .query_candid(fixture.canister_id(), caller, "icydb_schema", ())
         .expect("schema response should decode")
 }
 
@@ -58,7 +58,7 @@ fn set_policy(
 ) -> bool {
     fixture
         .pocket_ic()
-        .update_candid_as(fixture.canister_id(), caller, method, (enabled,))
+        .update_candid(fixture.canister_id(), caller, method, (enabled,))
         .expect("application policy update should decode")
 }
 

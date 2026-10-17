@@ -65,7 +65,12 @@ pub fn startup_watchdog_perf_snapshot(
 ) -> StartupWatchdogPerfSnapshot {
     fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "startup_watchdog_perf_snapshot", ())
+        .query_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "startup_watchdog_perf_snapshot",
+            (),
+        )
         .expect("startup watchdog performance snapshot should decode")
 }
 
@@ -78,7 +83,12 @@ pub fn startup_watchdog_perf_snapshot(
 pub fn startup_watchdog_armed(fixture: &StandaloneCanisterFixture) -> bool {
     fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "startup_watchdog_armed", ())
+        .query_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "startup_watchdog_armed",
+            (),
+        )
         .expect("startup watchdog scheduling state should decode")
 }
 
@@ -95,6 +105,7 @@ pub fn advance_startup_watchdog_until_ready(fixture: &StandaloneCanisterFixture)
             .pocket_ic()
             .update_candid(
                 fixture.canister_id(),
+                candid::Principal::anonymous(),
                 "initialize_startup_observation_fixture",
                 (),
             )
@@ -154,12 +165,13 @@ pub fn install_prebuilt_fixture_canister_without_startup_delivery(
         .unwrap_or_else(|error| panic!("fixture canister should be supported: {error}"));
     StandaloneCanisterFixture::try_install(
         start_fixture_pocket_ic(),
-        InstallSpec::new(
+        InstallSpec {
             wasm,
-            candid::encode_args(()).expect("encode empty init args"),
-            FIXTURE_INSTALL_CYCLES,
-        )
-        .label(canister_name),
+            init_bytes: candid::encode_args(()).expect("encode empty init args"),
+            cycles: FIXTURE_INSTALL_CYCLES,
+            install_sender: None,
+            label: Some(canister_name.into()),
+        },
     )
     .unwrap_or_else(|error| panic!("install {canister_name} fixture: {error}"))
 }
@@ -218,12 +230,13 @@ fn install_fixture_canister_with_options_and_optional_progress(
 
     let fixture = StandaloneCanisterFixture::try_install(
         start_fixture_pocket_ic(),
-        InstallSpec::new(
+        InstallSpec {
             wasm,
-            candid::encode_args(()).expect("encode empty init args"),
-            FIXTURE_INSTALL_CYCLES,
-        )
-        .label(canister_name),
+            init_bytes: candid::encode_args(()).expect("encode empty init args"),
+            cycles: FIXTURE_INSTALL_CYCLES,
+            install_sender: None,
+            label: Some(canister_name.into()),
+        },
     )
     .unwrap_or_else(|error| panic!("install {canister_name} fixture: {error}"));
     if let Some(label) = progress_label {
@@ -272,12 +285,22 @@ pub fn deliver_fixture_startup_watchdog(pic: &PocketIc) {
 /// Panics if the reset or load calls fail to decode or return fixture errors.
 pub fn reset_icydb_fixtures(pic: &PocketIc, canister_id: Principal) {
     let reset: Result<(), Error> = pic
-        .update_candid(canister_id, "icydb_fixtures_reset", ())
+        .update_candid(
+            canister_id,
+            candid::Principal::anonymous(),
+            "icydb_fixtures_reset",
+            (),
+        )
         .expect("icydb_fixtures_reset should decode");
     reset.expect("icydb_fixtures_reset should succeed");
 
     let load: Result<(), Error> = pic
-        .update_candid(canister_id, "icydb_fixtures_load", ())
+        .update_candid(
+            canister_id,
+            candid::Principal::anonymous(),
+            "icydb_fixtures_load",
+            (),
+        )
         .expect("icydb_fixtures_load should decode");
     load.expect("icydb_fixtures_load should succeed");
 }

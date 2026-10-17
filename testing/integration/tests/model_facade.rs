@@ -9,12 +9,13 @@ fn single_package_model_survives_install_write_and_upgrade() {
     let wasm = std::fs::read(std::env::var("ICYDB_MODEL_FACADE_WASM").unwrap()).unwrap();
     let fixture = StandaloneCanisterFixture::try_install(
         icydb_testing_integration::start_fixture_pocket_ic(),
-        InstallSpec::new(
-            wasm.clone(),
-            candid::encode_args(()).unwrap(),
-            10_000_000_000_000,
-        )
-        .label("model_facade"),
+        InstallSpec {
+            wasm: wasm.clone(),
+            init_bytes: candid::encode_args(()).unwrap(),
+            cycles: 10_000_000_000_000,
+            install_sender: None,
+            label: Some("model_facade".into()),
+        },
     )
     .unwrap_or_else(|error| panic!("install model-facade fixture: {error}"));
     let before_startup = fixture.pocket_ic().cycle_balance(fixture.canister_id());
@@ -30,14 +31,24 @@ fn single_package_model_survives_install_write_and_upgrade() {
     );
     let rank: Result<Option<u64>, String> = fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "profile_rank", ())
+        .query_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "profile_rank",
+            (),
+        )
         .unwrap();
     assert_eq!(rank.unwrap(), None);
     for sample in 0..3 {
         let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
         let instructions: Result<u64, String> = fixture
             .pocket_ic()
-            .update_candid(fixture.canister_id(), "open_database", ())
+            .update_candid(
+                fixture.canister_id(),
+                candid::Principal::anonymous(),
+                "open_database",
+                (),
+            )
             .unwrap();
         let cycles = before - fixture.pocket_ic().cycle_balance(fixture.canister_id());
         println!(
@@ -48,7 +59,12 @@ fn single_package_model_survives_install_write_and_upgrade() {
     let before_write = fixture.pocket_ic().cycle_balance(fixture.canister_id());
     let write: Result<(), String> = fixture
         .pocket_ic()
-        .update_candid(fixture.canister_id(), "insert_profile", (19_u64,))
+        .update_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "insert_profile",
+            (19_u64,),
+        )
         .unwrap();
     write.unwrap();
     println!(
@@ -57,7 +73,12 @@ fn single_package_model_survives_install_write_and_upgrade() {
     );
     let rank: Result<Option<u64>, String> = fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "profile_rank", ())
+        .query_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "profile_rank",
+            (),
+        )
         .unwrap();
     assert_eq!(rank.unwrap(), Some(19));
     let before_upgrade = fixture.pocket_ic().cycle_balance(fixture.canister_id());
@@ -82,7 +103,12 @@ fn single_package_model_survives_install_write_and_upgrade() {
     );
     let rank: Result<Option<u64>, String> = fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "profile_rank", ())
+        .query_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "profile_rank",
+            (),
+        )
         .unwrap();
     assert_eq!(rank.unwrap(), Some(19));
 }

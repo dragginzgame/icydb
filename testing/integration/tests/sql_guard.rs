@@ -47,7 +47,7 @@ fn guarded_sql_authorizes_one_reader_and_preserves_the_read_only_lane() {
     ] {
         let allowed: Result<SqlQueryResult, Error> = fixture
             .pocket_ic()
-            .query_candid_as(
+            .query_candid(
                 fixture.canister_id(),
                 reader,
                 "icydb_query",
@@ -59,7 +59,7 @@ fn guarded_sql_authorizes_one_reader_and_preserves_the_read_only_lane() {
 
     let absent_schema = fixture
         .pocket_ic()
-        .query_candid_as::<Result<Vec<EntitySchemaDescription>, Error>, _>(
+        .query_candid::<Result<Vec<EntitySchemaDescription>, Error>, _>(
             fixture.canister_id(),
             reader,
             "icydb_schema",
@@ -72,7 +72,7 @@ fn guarded_sql_authorizes_one_reader_and_preserves_the_read_only_lane() {
 
     let denied: Result<SqlQueryResult, Error> = fixture
         .pocket_ic()
-        .query_candid_as(
+        .query_candid(
             fixture.canister_id(),
             outsider,
             "icydb_query",
@@ -88,6 +88,7 @@ fn guarded_sql_authorizes_one_reader_and_preserves_the_read_only_lane() {
         .pocket_ic()
         .query_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "icydb_query",
             ("SHOW ENTITIES".to_string(),),
         )
@@ -101,7 +102,7 @@ fn guarded_sql_authorizes_one_reader_and_preserves_the_read_only_lane() {
 
     let mutation: Result<SqlQueryResult, Error> = fixture
         .pocket_ic()
-        .query_candid_as(
+        .query_candid(
             fixture.canister_id(),
             reader,
             "icydb_query",
@@ -125,7 +126,7 @@ fn guarded_sql_rejects_anonymous_before_application_code_and_propagates_guard_tr
 
     let anonymous: Result<SqlQueryResult, Error> = fixture
         .pocket_ic()
-        .query_candid_as(
+        .query_candid(
             fixture.canister_id(),
             Principal::anonymous(),
             "icydb_query",
@@ -139,7 +140,7 @@ fn guarded_sql_rejects_anonymous_before_application_code_and_propagates_guard_tr
 
     let trapped = fixture
         .pocket_ic()
-        .query_candid_as::<Result<SqlQueryResult, Error>, _>(
+        .query_candid::<Result<SqlQueryResult, Error>, _>(
             fixture.canister_id(),
             principal(44),
             "icydb_query",
@@ -153,7 +154,7 @@ fn guarded_sql_local_authorization_cost_stays_below_frozen_ceilings() {
     let fixture = install_fixture_canister("sql_guard");
     let cost: Result<ReadAuthorizationCostResult, Error> = fixture
         .pocket_ic()
-        .query_candid_as(
+        .query_candid(
             fixture.canister_id(),
             principal(42),
             "read_authorization_cost",

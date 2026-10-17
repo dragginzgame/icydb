@@ -47,6 +47,7 @@ fn maximum_dormant_retirement_and_store_scan_fit_the_reserved_callback_headroom(
         .pocket_ic()
         .update_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "measure_dormant_convergence_candidate",
             (),
         )

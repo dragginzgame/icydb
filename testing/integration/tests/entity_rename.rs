@@ -52,7 +52,12 @@ fn artifacts() -> &'static (Vec<u8>, Vec<u8>) {
 fn update_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {
     fixture
         .pocket_ic()
-        .update_candid(fixture.canister_id(), "icydb_update", (sql.to_string(),))
+        .update_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "icydb_update",
+            (sql.to_string(),),
+        )
         .expect("SQL update response should decode")
 }
 
@@ -69,6 +74,7 @@ fn measured_rows(
         .pocket_ic()
         .query_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "measure_sql_query_instructions",
             (sql.to_string(),),
         )
@@ -105,7 +111,12 @@ fn assert_rows(fixture: &StandaloneCanisterFixture) {
 fn assert_bindings(fixture: &StandaloneCanisterFixture) {
     let result: Result<(), Error> = fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "check_entity_rename_bindings", ())
+        .query_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "check_entity_rename_bindings",
+            (),
+        )
         .expect("typed binding check should decode");
     result.expect("generated bindings should decode the exact populated rows");
 }
@@ -132,7 +143,12 @@ fn assert_constraints(fixture: &StandaloneCanisterFixture) {
     let catalog_before = measured_catalog(fixture, "before-rejected-deletes");
     let deletes: Result<Vec<Error>, Error> = fixture
         .pocket_ic()
-        .update_candid(fixture.canister_id(), "check_entity_rename_deletes", ())
+        .update_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "check_entity_rename_deletes",
+            (),
+        )
         .expect("delete checks should decode");
     let deletes = deletes.expect("both deletes should reject");
     assert_eq!(deletes.len(), 2);
@@ -174,6 +190,7 @@ fn measured_catalog(fixture: &StandaloneCanisterFixture, label: &str) -> EntityS
         .pocket_ic()
         .query_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "measure_accepted_schema_read_instructions",
             ("CatalogItem".to_string(),),
         )
@@ -206,7 +223,12 @@ fn rehearse(restart_before: bool) {
     projection(&fixture, SOURCE_ROWS);
     let seeded: Result<(), Error> = fixture
         .pocket_ic()
-        .update_candid(fixture.canister_id(), "seed_entity_rename", ())
+        .update_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "seed_entity_rename",
+            (),
+        )
         .expect("seed response should decode");
     seeded.expect("fixed rows should insert");
     assert_bindings(&fixture);
