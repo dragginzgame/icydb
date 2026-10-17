@@ -109,7 +109,6 @@ fn historical_error(cause: &BootstrapAdmissionError) -> Option<Error> {
     let facts = match cause {
         BootstrapAdmissionError::Pool(cause) => pool_id_facts(cause),
         BootstrapAdmissionError::Unknown(_)
-        | BootstrapAdmissionError::Retired(_)
         | BootstrapAdmissionError::Duplicate(_)
         | BootstrapAdmissionError::TooManyDeclarations => vec![],
         BootstrapAdmissionError::Declarations(cause) => return declaration_error(cause),

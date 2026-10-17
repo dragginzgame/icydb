@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 - Align CI and read-admission checks with current endpoint ownership, private
   dependency fetching and browser validation.
+- Align bootstrap diagnostics with Memory 0.48's admission errors.
 - Adopt IC Build 0.14 typed Cargo selections and checked batch builds for Wasm
   artifact generation.
 - Add native browser contracts and installed endpoint qualification; prepare
