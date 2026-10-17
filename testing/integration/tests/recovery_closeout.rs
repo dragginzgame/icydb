@@ -276,7 +276,13 @@ fn retry_convergence_row(fixture: &StandaloneCanisterFixture, id: i32) {
 fn upgrade_with_wasm(fixture: &StandaloneCanisterFixture, wasm: Vec<u8>) {
     fixture
         .pocket_ic()
-        .upgrade_canister(fixture.canister_id(), wasm, Vec::new(), None)
+        .upgrade_canister(
+            fixture.canister_id(),
+            wasm,
+            icydb::wire::encode_post_upgrade_arguments(())
+                .expect("unit post-upgrade arguments should encode"),
+            None,
+        )
         .expect("current sql-perf Wasm should upgrade");
 
     // Finish the first entropy request while the retry is still in the future.
@@ -1291,7 +1297,12 @@ fn explicit_reinstall_recreates_clean_current_state() {
     let wasm = current_sql_perf_wasm();
     fixture
         .pocket_ic()
-        .reinstall_canister(fixture.canister_id(), wasm, Vec::new(), None)
+        .reinstall_canister(
+            fixture.canister_id(),
+            wasm,
+            icydb::wire::encode_init_arguments(()).expect("unit init arguments should encode"),
+            None,
+        )
         .expect("explicit reinstall should recreate the current database");
     advance_startup_watchdog_until_ready(&fixture);
     assert_count(

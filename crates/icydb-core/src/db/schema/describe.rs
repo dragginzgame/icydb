@@ -3024,12 +3024,14 @@ mod tests {
             entity: "AcceptedMaximum".to_string(),
             columns: vec![valid; super::MAX_SQL_COMPACT_COLUMN_ROWS],
         };
-        let first = icydb_schema::wire::encode_one(&maximum)
-            .expect("accepted maximum should encode to bounded Wire");
-        let second = icydb_schema::wire::encode_one(&maximum)
-            .expect("accepted maximum should encode deterministically");
-        assert_eq!(first, second);
-        assert_eq!(first.len(), 9_737_853);
+        assert!(matches!(
+            icydb_schema::wire::encoded_len(&maximum),
+            Err(icydb_schema::wire::Error::Limit),
+        ));
+        assert!(matches!(
+            icydb_schema::wire::encode_one(&maximum),
+            Err(icydb_schema::wire::Error::Limit),
+        ));
 
         let relation = EntityRelationDescription::new(
             "owner_id".to_string(),
@@ -3070,13 +3072,16 @@ mod tests {
             entity: accepted.entity_name().to_string(),
             columns,
         };
-        let encoded_output = icydb_schema::wire::encode_one(&output)
-            .expect("reachable accepted compact output should encode");
-        assert_eq!(encoded_output.len(), 3_693_116);
+        let encoded_len = icydb_schema::wire::encoded_len(&output)
+            .expect("reachable accepted compact output should admit allocation-free Wire sizing");
         assert!(
-            encoded_output.len() > IC_QUERY_REPLY_BYTES,
+            encoded_len > IC_QUERY_REPLY_BYTES,
             "a valid accepted schema must exercise the generated endpoint reply guard",
         );
+        assert!(matches!(
+            icydb_schema::wire::encode_one(&output),
+            Err(icydb_schema::wire::Error::Limit),
+        ));
     }
 
     #[test]

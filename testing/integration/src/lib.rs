@@ -122,8 +122,8 @@ pub fn advance_startup_watchdog_until_ready(fixture: &StandaloneCanisterFixture)
 ///
 /// # Panics
 ///
-/// Panics if the canister name is unsupported, PocketIC cannot start, or
-/// installation fails.
+/// Panics if the canister name is unsupported, PocketIC cannot start, unit
+/// lifecycle arguments cannot be encoded, or installation fails.
 #[must_use]
 pub fn install_prebuilt_fixture_canister(
     canister_name: &str,
@@ -142,8 +142,8 @@ pub fn install_prebuilt_fixture_canister(
 ///
 /// # Panics
 ///
-/// Panics if the canister name is unsupported, PocketIC cannot start, or
-/// installation fails.
+/// Panics if the canister name is unsupported, PocketIC cannot start, unit
+/// lifecycle arguments cannot be encoded, or installation fails.
 #[must_use]
 pub fn install_prebuilt_fixture_canister_without_startup_delivery(
     canister_name: &str,
@@ -155,7 +155,8 @@ pub fn install_prebuilt_fixture_canister_without_startup_delivery(
         start_fixture_pocket_ic(),
         InstallSpec {
             wasm,
-            init_bytes: Vec::new(),
+            init_bytes: icydb::wire::encode_init_arguments(())
+                .expect("unit init arguments should encode"),
             cycles: FIXTURE_INSTALL_CYCLES,
             install_sender: None,
             label: Some(canister_name.to_string()),
@@ -165,12 +166,12 @@ pub fn install_prebuilt_fixture_canister_without_startup_delivery(
 }
 
 /// Build one supported canister and install it into a fresh standalone fixture
-/// with empty init args.
+/// with unit init arguments encoded through the lifecycle Wire contract.
 ///
 /// # Panics
 ///
-/// Panics if the canister cannot be built, the built WASM cannot be read, or
-/// installation fails.
+/// Panics if the canister cannot be built, the built WASM cannot be read, unit
+/// lifecycle arguments cannot be encoded, or installation fails.
 #[must_use]
 pub fn install_fixture_canister(canister_name: &str) -> StandaloneCanisterFixture {
     let fixture = install_fixture_canister_without_startup_delivery(canister_name);
@@ -186,8 +187,8 @@ pub fn install_fixture_canister(canister_name: &str) -> StandaloneCanisterFixtur
 ///
 /// # Panics
 ///
-/// Panics if the canister cannot be built, the built WASM cannot be read, or
-/// installation fails.
+/// Panics if the canister cannot be built, the built WASM cannot be read, unit
+/// lifecycle arguments cannot be encoded, or installation fails.
 #[must_use]
 pub fn install_fixture_canister_without_startup_delivery(
     canister_name: &str,
@@ -220,7 +221,8 @@ fn install_fixture_canister_with_options_and_optional_progress(
         start_fixture_pocket_ic(),
         InstallSpec {
             wasm,
-            init_bytes: Vec::new(),
+            init_bytes: icydb::wire::encode_init_arguments(())
+                .expect("unit init arguments should encode"),
             cycles: FIXTURE_INSTALL_CYCLES,
             install_sender: None,
             label: Some(canister_name.to_string()),
@@ -287,11 +289,12 @@ pub fn reset_icydb_fixtures(pic: &PocketIc, canister_id: Principal) {
 ///
 /// # Panics
 ///
-/// Panics if the canister cannot be built, the built WASM cannot be read, or
-/// PocketIC rejects the upgrade.
+/// Panics if the canister cannot be built, the built WASM cannot be read, unit
+/// lifecycle arguments cannot be encoded, or PocketIC rejects the upgrade.
 pub fn upgrade_fixture_canister(pic: &PocketIc, canister_id: Principal, canister_name: &str) {
     let wasm = local_fixture_wasm_bytes(canister_name);
-    let args = Vec::new();
+    let args = icydb::wire::encode_post_upgrade_arguments(())
+        .expect("unit post-upgrade arguments should encode");
 
     pic.upgrade_canister(canister_id, wasm, args, None)
         .unwrap_or_else(|err| panic!("{canister_name} canister upgrade should succeed: {err}"));

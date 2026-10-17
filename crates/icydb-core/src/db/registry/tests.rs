@@ -383,6 +383,8 @@ fn committed_key_open_refuses_drifted_ids_without_changing_storage() {
         );
         assert_eq!(runtime.committed_allocations().unwrap(), commitment);
         assert_eq!(runtime.memory_allocations().unwrap(), before);
+        // Reopening the committed key requires releasing its exclusive handle.
+        drop(memory);
         let memory = crate::db::registry::open_committed_memory(KEY, id).unwrap();
         let mut bytes = [0; 8];
         memory.read(0, &mut bytes);

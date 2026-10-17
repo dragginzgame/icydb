@@ -1747,9 +1747,9 @@ dependencies = [
 
 [[package]]
 name = "ic-memory"
-version = "0.48.0"
+version = "0.48.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec7b6e2c9b66ef226f0637d5f1577f1fc570ca5d391c67a53c41d9e5b6943093"
+checksum = "4cfe7354ba5f3d1f5e816189e5a00e4517787626d02055b0efc7e8f2a79a4b11"
 dependencies = [
  "ciborium",
  "ic-stable-structures",

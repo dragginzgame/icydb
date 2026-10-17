@@ -372,7 +372,7 @@ fn sql_returning_bounds_reject_before_mutation_and_preserve_field_order() {
 
     let session = initialize().__with_sql_returning_response_len(returning_result_len);
     insert_row(&session, 1, "before", "group-a");
-    let replacement = "x".repeat(512);
+    let replacement = "x".repeat(128);
     let sql =
         format!("UPDATE PlannerRow SET common = '{replacement}' WHERE id = 1 RETURNING common, id");
     let dispatch = sql_statement_dispatch(&sql).unwrap();
@@ -446,7 +446,7 @@ fn sql_delete_returning_bounds_reject_before_mutation() {
     };
     use icydb_diagnostic_code::{DiagnosticDetail, SqlWriteBoundaryCode};
     let session = initialize().__with_sql_returning_response_len(returning_result_len);
-    let replacement = "x".repeat(512);
+    let replacement = "x".repeat(128);
     insert_row(&session, 1, &replacement, "group-a");
     let output = crate::db::RowProjectionOutput {
         entity: ENTITY_NAME.into(),

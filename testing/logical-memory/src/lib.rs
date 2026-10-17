@@ -35,6 +35,8 @@ fn pause_delivery() {
 
 #[cfg(feature = "test-admin-api")]
 fn step() -> Result<bool, icydb::Error> {
+    // Manual driving must request the entropy normally owned by the watchdog.
+    canic_icydb::request_boot_entropy(icydb::db::provide_boot_entropy);
     let result = icydb::db::with_request_execution(
         __icydb_generated::__icydb_startup_driver_attempt_for_tests,
     );
@@ -142,20 +144,21 @@ const FRAME_BYTES: usize = 13;
 const PAYLOAD_OFFSET: u64 = FRAME_OFFSET + FRAME_BYTES as u64;
 const MAX_FIXTURE_CONTROL_BYTES: usize = 64 * 1024;
 
-fn control() -> RuntimeMemory<DefaultMemoryImpl> {
-    icydb::__macro::open_memory(CONTROL_KEY).unwrap()
+fn control<R>(inspect: impl FnOnce(&RuntimeMemory<DefaultMemoryImpl>) -> R) -> R {
+    icydb::__macro::with_selected_commit_memory(CONTROL_KEY, inspect).unwrap()
 }
 
 fn control_frame() -> Vec<u8> {
-    let memory = control();
-    let mut header = [0; FRAME_BYTES];
-    memory.read(FRAME_OFFSET, &mut header);
-    assert_eq!(&header[..5], b"IDCS\x01");
-    let length = u32::from_be_bytes(header[5..9].try_into().unwrap()) as usize;
-    assert!(length <= MAX_FIXTURE_CONTROL_BYTES);
-    let mut frame = vec![0; FRAME_BYTES + length];
-    memory.read(FRAME_OFFSET, &mut frame);
-    frame
+    control(|memory| {
+        let mut header = [0; FRAME_BYTES];
+        memory.read(FRAME_OFFSET, &mut header);
+        assert_eq!(&header[..5], b"IDCS\x01");
+        let length = u32::from_be_bytes(header[5..9].try_into().unwrap()) as usize;
+        assert!(length <= MAX_FIXTURE_CONTROL_BYTES);
+        let mut frame = vec![0; FRAME_BYTES + length];
+        memory.read(FRAME_OFFSET, &mut frame);
+        frame
+    })
 }
 icydb_testing_wasm_helpers::export_wire!(
     query,
@@ -175,29 +178,30 @@ fn capture_last_marker() -> Vec<u8> {
     let empty = control_frame();
     assert_eq!(&empty[empty.len() - 4..], &[0; 4]);
     let payload_length = empty.len() - FRAME_BYTES;
-    let memory = control();
-    let mut marker_header = [0; 5];
-    memory.read(PAYLOAD_OFFSET + payload_length as u64, &mut marker_header);
-    assert_eq!(marker_header[0], 1);
-    let marker_length = 5 + u32::from_le_bytes(marker_header[1..].try_into().unwrap()) as usize;
-    assert!(payload_length + marker_length <= MAX_FIXTURE_CONTROL_BYTES);
-    let mut frame = empty;
-    let marker_offset = frame.len();
-    frame.resize(marker_offset + marker_length, 0);
-    memory.read(
-        PAYLOAD_OFFSET + payload_length as u64,
-        &mut frame[marker_offset..],
-    );
-    frame[marker_offset - 4..marker_offset]
-        .copy_from_slice(&u32::try_from(marker_length).unwrap().to_le_bytes());
-    frame[5..9].copy_from_slice(
-        &u32::try_from(payload_length + marker_length)
-            .unwrap()
-            .to_be_bytes(),
-    );
-    let checksum = crc32c(&frame[FRAME_BYTES..]);
-    frame[9..13].copy_from_slice(&checksum.to_be_bytes());
-    frame
+    control(|memory| {
+        let mut marker_header = [0; 5];
+        memory.read(PAYLOAD_OFFSET + payload_length as u64, &mut marker_header);
+        assert_eq!(marker_header[0], 1);
+        let marker_length = 5 + u32::from_le_bytes(marker_header[1..].try_into().unwrap()) as usize;
+        assert!(payload_length + marker_length <= MAX_FIXTURE_CONTROL_BYTES);
+        let mut frame = empty;
+        let marker_offset = frame.len();
+        frame.resize(marker_offset + marker_length, 0);
+        memory.read(
+            PAYLOAD_OFFSET + payload_length as u64,
+            &mut frame[marker_offset..],
+        );
+        frame[marker_offset - 4..marker_offset]
+            .copy_from_slice(&u32::try_from(marker_length).unwrap().to_le_bytes());
+        frame[5..9].copy_from_slice(
+            &u32::try_from(payload_length + marker_length)
+                .unwrap()
+                .to_be_bytes(),
+        );
+        let checksum = crc32c(&frame[FRAME_BYTES..]);
+        frame[9..13].copy_from_slice(&checksum.to_be_bytes());
+        frame
+    })
 }
 
 // Test-only raw frame restoration through the committed control capability.
@@ -214,7 +218,7 @@ fn restore_control_frame(frame: Vec<u8>) {
         u32::from_be_bytes(frame[9..13].try_into().unwrap()),
         crc32c(&frame[FRAME_BYTES..])
     );
-    control().write(FRAME_OFFSET, &frame);
+    control(|memory| memory.write(FRAME_OFFSET, &frame));
     pause_delivery();
 }
 icydb_testing_wasm_helpers::export_wire!(update, "restore_control_frame", RestoreControlFrame, restore_control_frame, (frame: Vec<u8>), ());

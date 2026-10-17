@@ -180,7 +180,6 @@ pub mod __macro {
         execute_generated_storage_report,
     };
     pub use crate::guards::{authorize_schema_read, authorize_sql_read};
-    pub use icydb_core::db::open_memory;
     #[cfg(feature = "sql")]
     pub use icydb_core::db::sql_statement_dispatch;
     pub use icydb_core::db::{
@@ -190,6 +189,7 @@ pub mod __macro {
         StoreAllocationIdentities, StoreAllocationIdentity, StoreRegistry,
         StoreRuntimeStorageCapabilities, validate_entity_key_bytes_buffer,
     };
+    pub use icydb_core::db::{open_memory, with_selected_commit_memory};
     pub use icydb_core::error::{ErrorClass, ErrorOrigin, InternalError};
     pub use icydb_core::traits::{CanisterKind, Path};
     pub use icydb_core::value::Value;

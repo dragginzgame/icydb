@@ -85,6 +85,29 @@ pub(in crate::db) fn commit_memory_handle(
     })
 }
 
+/// Borrow the selected database's existing control lease for internal frame IO.
+///
+/// The key must match the current checked commit selection. The synchronous
+/// borrow cannot escape; callers must not create independent cached trees.
+///
+/// # Errors
+/// Returns a store error for an absent or mismatched selection, or a failed lease.
+///
+/// # Panics
+/// Propagates panics raised by the caller's callback.
+#[doc(hidden)]
+pub fn with_selected_commit_memory<R>(
+    stable_key: &str,
+    access: impl FnOnce(&RuntimeMemory<DefaultMemoryImpl>) -> R,
+) -> Result<R, InternalError> {
+    let allocation = current_commit_memory_allocation()?;
+    if allocation.stable_key != stable_key {
+        return Err(InternalError::store_internal());
+    }
+    let memory = commit_memory_handle(allocation)?;
+    Ok(access(&memory))
+}
+
 ///
 /// TESTS
 ///
@@ -92,6 +115,7 @@ pub(in crate::db) fn commit_memory_handle(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ic_stable_structures::Memory as _;
 
     #[test]
     fn current_commit_selection_can_switch_databases_and_return() {
@@ -108,5 +132,33 @@ mod tests {
             select_commit_memory_allocation(allocation.memory_id, allocation.stable_key);
             assert_eq!(current_commit_memory_allocation().unwrap(), allocation);
         }
+    }
+
+    #[test]
+    fn selected_control_borrow_keeps_the_live_lease_and_refuses_another_key() {
+        const KEY: &str = "icydb.test.borrowed.commit.control.v1";
+        select_commit_memory_allocation(93, KEY);
+        let owner = commit_memory_handle(current_commit_memory_allocation().unwrap()).unwrap();
+        owner.as_ref().grow(1).unwrap();
+        owner.write(0, b"retained");
+        let bytes = with_selected_commit_memory(KEY, |memory| {
+            let mut bytes = [0; 8];
+            memory.read(0, &mut bytes);
+            bytes
+        })
+        .unwrap();
+        assert_eq!(&bytes, b"retained");
+
+        let called = Cell::new(false);
+        assert!(
+            with_selected_commit_memory("icydb.test.other.commit.control.v1", |_| {
+                called.set(true);
+            })
+            .is_err()
+        );
+        assert!(!called.get());
+        let mut retained = [0; 8];
+        owner.read(0, &mut retained);
+        assert_eq!(&retained, b"retained");
     }
 }
