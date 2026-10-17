@@ -26,8 +26,8 @@ use crate::sql_harness::{
 };
 use ic_principal::Principal;
 use ic_testkit::pic::{
-    CachedPocketIcBaselinePool, CachedPocketIcBaselinePoolGuard, FixtureRecipeId,
-    SnapshotRestoreFunding, StandaloneCanisterFixture, StandaloneCanisterRecipe,
+    CachedPocketIcBaselinePool, CachedPocketIcBaselinePoolGuard, SnapshotRestoreFunding,
+    StandaloneCanisterFixture, StandaloneCanisterRecipe,
 };
 use ic_testkit::pocket_ic::PocketIc;
 use icydb::{
@@ -118,32 +118,25 @@ type SqlFixtureRecipe = StandaloneCanisterRecipe<fn() -> io::Result<StandaloneCa
 // preserve-funding policy; lifecycle tests continue to own fresh installations.
 fn sql_fixture_pool(
     capacity: NonZeroUsize,
-    identity: &str,
     build: fn() -> io::Result<StandaloneCanisterFixture>,
 ) -> CachedPocketIcBaselinePool<SqlFixtureRecipe> {
     CachedPocketIcBaselinePool::new(
         capacity,
-        StandaloneCanisterRecipe::new(
-            FixtureRecipeId::try_new(identity).unwrap(),
-            SnapshotRestoreFunding::Preserve,
-            build,
-        ),
+        StandaloneCanisterRecipe::new(SnapshotRestoreFunding::Preserve, build),
     )
 }
 
 static SQL_FIXTURE_POOL: LazyLock<CachedPocketIcBaselinePool<SqlFixtureRecipe>> =
     LazyLock::new(|| {
-        sql_fixture_pool(SQL_FIXTURE_POOL_CAPACITY, "icydb.sql", || {
+        sql_fixture_pool(SQL_FIXTURE_POOL_CAPACITY, || {
             Ok(install_fixture_canister("sql"))
         })
     });
 static SQL_BOUNDED_FIXTURE_POOL: LazyLock<CachedPocketIcBaselinePool<SqlFixtureRecipe>> =
     LazyLock::new(|| {
-        sql_fixture_pool(
-            SQL_BOUNDED_FIXTURE_POOL_CAPACITY,
-            "icydb.sql-bounded",
-            || Ok(install_fixture_canister("sql_bounded")),
-        )
+        sql_fixture_pool(SQL_BOUNDED_FIXTURE_POOL_CAPACITY, || {
+            Ok(install_fixture_canister("sql_bounded"))
+        })
     });
 
 fn install_sql_canister_fixture() -> CachedPocketIcBaselinePoolGuard<'static, SqlFixtureRecipe> {
@@ -177,11 +170,9 @@ fn reset_sql_fixtures(pic: &PocketIc, canister_id: Principal) {
 
 #[test]
 fn sql_fixture_pool_restores_captured_rows_before_reuse() {
-    let pool = sql_fixture_pool(
-        NonZeroUsize::new(1).unwrap(),
-        "icydb.sql-reuse-control",
-        || Ok(install_fixture_canister("sql")),
-    );
+    let pool = sql_fixture_pool(NonZeroUsize::new(1).unwrap(), || {
+        Ok(install_fixture_canister("sql"))
+    });
     let (first, outcome) = pool.acquire().expect("first lease should install");
     assert!(matches!(
         outcome.disposition,

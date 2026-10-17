@@ -358,7 +358,7 @@ dependencies = [
 name = "canister_audit_codec_wire_query"
 version = "0.276.0"
 dependencies = [
- "ic-wire 0.3.5",
+ "ic-wire 0.4.0",
  "icydb-testing-codec-query",
 ]
 
@@ -436,7 +436,7 @@ version = "0.276.0"
 dependencies = [
  "canic-icydb",
  "ic-cdk",
- "ic-wire 0.3.5",
+ "ic-wire 0.4.0",
  "ic0",
  "icydb",
  "icydb-testing-audit-one-simple-fixtures",
@@ -1881,11 +1881,11 @@ dependencies = [
 
 [[package]]
 name = "ic-wire"
-version = "0.3.5"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb3bc971f306b38b3bee4df99b9d970c622190c7c681faa432154097a1d70e7c"
+checksum = "e3ed8a8b4bba8bb5cb77f8207f93d0f0b4e803a712647e6e269260c12d702f64"
 dependencies = [
- "ic-wire-derive 0.3.5",
+ "ic-wire-derive 0.4.0",
  "postcard",
  "serde",
 ]
@@ -1902,9 +1902,9 @@ dependencies = [
 
 [[package]]
 name = "ic-wire-derive"
-version = "0.3.5"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e68b37b555bb3832ac0a8cd263d1fc996f99a660585341e5860a9386ecb9ec8"
+checksum = "effe94533b808155317259619b34fe638a32bf24eb462400cab9ef3ad5cf398f"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2020,7 +2020,7 @@ version = "0.276.0"
 dependencies = [
  "canic-icydb",
  "ic-memory",
- "ic-wire 0.3.5",
+ "ic-wire 0.4.0",
  "ic_principal",
  "icydb-core",
  "icydb-diagnostic-code",
@@ -2125,7 +2125,7 @@ dependencies = [
  "crc32fast",
  "data-encoding",
  "ethnum",
- "ic-wire 0.3.5",
+ "ic-wire 0.4.0",
  "ic_principal",
  "proptest",
  "serde",
@@ -2205,7 +2205,7 @@ dependencies = [
  "ic-host-tools",
  "ic-metrics",
  "ic-wire 0.2.2",
- "ic-wire 0.3.5",
+ "ic-wire 0.4.0",
  "icydb",
  "icydb-core",
  "icydb-schema",
@@ -2247,7 +2247,7 @@ dependencies = [
  "blake3",
  "ic-host-artifacts 0.27.1",
  "ic-testkit",
- "ic-wire 0.3.5",
+ "ic-wire 0.4.0",
  "ic_principal",
  "icydb",
  "icydb-testing-audit-sql-perf-fixtures",
@@ -2335,7 +2335,7 @@ name = "icydb-testing-wasm-helpers"
 version = "0.276.0"
 dependencies = [
  "canic-icydb",
- "ic-wire 0.3.5",
+ "ic-wire 0.4.0",
  "icydb",
  "icydb-model",
  "icydb-schema",

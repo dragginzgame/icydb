@@ -25,8 +25,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### 🔧 Changed
 
-- Align CI, release and endpoint fixtures, and read-admission checks with current
-  tooling, dependency fetching, browser validation and endpoint ownership.
+- Align validation and test fixtures with current tooling, endpoint ownership,
+  private dependency fetching and browser validation.
 - Align bootstrap diagnostics with Memory 0.48's admission errors.
 - Adopt registry IC Host 0.27 and Shared Tooling 0.23; restore CLI table
   qualification, consolidate scanner ownership and explicitly select IC tools.
