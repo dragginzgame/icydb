@@ -230,6 +230,7 @@ fn load_convergence_debt(
         .pocket_ic()
         .update_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "load_convergence_closeout_debt",
             (first_id,),
         )
@@ -265,6 +266,7 @@ fn retry_convergence_row(fixture: &StandaloneCanisterFixture, id: i32) {
         .pocket_ic()
         .update_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "retry_convergence_closeout_row",
             (id,),
         )
@@ -308,7 +310,12 @@ fn query_total_only(
 ) -> SqlQueryResult {
     let result: Result<SqlQueryPerfResult, Error> = fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), method, (sql.to_string(),))
+        .query_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            method,
+            (sql.to_string(),),
+        )
         .expect("total-only query should decode");
     result.expect("total-only query should succeed").result
 }
@@ -328,6 +335,7 @@ fn user_count_with_perf(fixture: &StandaloneCanisterFixture, sql: &str) -> SqlQu
         .pocket_ic()
         .query_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "query_user_with_perf",
             (sql.to_string(),),
         )
@@ -340,6 +348,7 @@ fn token_count_with_perf(fixture: &StandaloneCanisterFixture, sql: &str) -> SqlQ
         .pocket_ic()
         .query_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "query_token_with_perf",
             (sql.to_string(),),
         )
@@ -409,6 +418,7 @@ fn mutate_cardinality_index(
         .pocket_ic()
         .update_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "mutate_cardinality_closeout_index",
             (present, expected_version, next_version),
         )
@@ -450,7 +460,12 @@ fn assert_user_index_count(fixture: &StandaloneCanisterFixture) {
 fn startup_observation(fixture: &StandaloneCanisterFixture) -> StartupObservationPerfResult {
     let observed: Result<StartupObservationPerfResult, icydb::db::StartupFailure> = fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "measure_startup_observation", ())
+        .query_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "measure_startup_observation",
+            (),
+        )
         .expect("startup observation should decode");
     observed.expect("current-form startup observation should remain readable")
 }
@@ -474,6 +489,7 @@ fn populated_cardinality_build_upgrade_maintenance_and_slot_reuse_close_cleanly(
         .pocket_ic()
         .update_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "load_joint_three_index_boundary_fixture",
             (),
         )
@@ -592,6 +608,7 @@ fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
         .pocket_ic()
         .update_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "load_cardinality_tiebreak_fixture",
             (),
         )
@@ -634,6 +651,7 @@ fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
         .pocket_ic()
         .query_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "query_cardinality_tiebreak_live_page_with_perf",
             (None::<String>,),
         )
@@ -652,6 +670,7 @@ fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
         .pocket_ic()
         .query_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "query_cardinality_tiebreak_live_page_with_perf",
             (Some(
                 continuation
@@ -688,6 +707,7 @@ fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
         .pocket_ic()
         .query_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "query_cardinality_tiebreak_live_page_with_perf",
             (continuation.take(),),
         )
@@ -700,6 +720,7 @@ fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
         .pocket_ic()
         .query_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "query_cardinality_tiebreak_live_page_with_perf",
             (None::<String>,),
         )
@@ -725,6 +746,7 @@ fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
             .pocket_ic()
             .query_candid(
                 fixture.canister_id(),
+                candid::Principal::anonymous(),
                 "query_cardinality_tiebreak_live_page_with_perf",
                 (Some(cursor),),
             )
@@ -749,6 +771,7 @@ fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
         .pocket_ic()
         .update_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "warm_user_query_with_perf",
             (SELECTIVE_SQL.to_string(),),
         )
@@ -763,6 +786,7 @@ fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
         .pocket_ic()
         .update_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "warm_user_query_with_perf",
             (SELECTIVE_SQL.to_string(),),
         )
@@ -814,6 +838,7 @@ fn exact_cardinality_tiebreak_maximum_ic_shapes_remain_bounded() {
         .pocket_ic()
         .update_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "load_joint_fanout_boundary_fixture",
             (),
         )
@@ -846,6 +871,7 @@ fn exact_cardinality_tiebreak_maximum_ic_shapes_remain_bounded() {
         .pocket_ic()
         .update_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "load_cardinality_probe_boundary_fixture",
             (),
         )
@@ -894,6 +920,7 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
         .pocket_ic()
         .update_candid(
             populated.canister_id(),
+            candid::Principal::anonymous(),
             "load_joint_three_index_boundary_fixture",
             (),
         )
@@ -1037,6 +1064,7 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
         .pocket_ic()
         .query_candid(
             populated.canister_id(),
+            candid::Principal::anonymous(),
             "query_user_with_perf",
             ("SELECT COUNT(*) FROM PerfAuditUser".to_string(),),
         )
@@ -1142,6 +1170,7 @@ fn complete_batch_recovery_trap_rolls_back_and_the_canonical_watchdog_retries() 
         .pocket_ic()
         .update_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "load_joint_three_index_boundary_fixture",
             (),
         )
@@ -1155,6 +1184,7 @@ fn complete_batch_recovery_trap_rolls_back_and_the_canonical_watchdog_retries() 
 
     let trapped = fixture.pocket_ic().update_candid::<Result<(), Error>, _>(
         fixture.canister_id(),
+        candid::Principal::anonymous(),
         "trap_after_complete_startup_recovery",
         (),
     );
@@ -1172,6 +1202,7 @@ fn complete_batch_recovery_trap_rolls_back_and_the_canonical_watchdog_retries() 
         .pocket_ic()
         .update_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "initialize_startup_observation_fixture",
             (),
         )
@@ -1186,7 +1217,12 @@ fn complete_batch_recovery_trap_rolls_back_and_the_canonical_watchdog_retries() 
     advance_startup_watchdog_until_ready(&fixture);
     let watchdog: StartupWatchdogPerfSnapshot = fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "startup_watchdog_perf_snapshot", ())
+        .query_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "startup_watchdog_perf_snapshot",
+            (),
+        )
         .expect("watchdog closeout snapshot should decode");
     // Recovery may separate required replay from the schema handoff. Check
     // completed, classified callbacks and the bounded retry outcome rather
@@ -1257,6 +1293,7 @@ AND stage IN ('Draft', 'Review', 'Hold', 'Minted', 'Frozen', 'Burned', \
         .pocket_ic()
         .update_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "load_token_scale_fixture",
             (2_048_u32,),
         )
@@ -1286,6 +1323,7 @@ fn explicit_reinstall_recreates_clean_current_state() {
         .pocket_ic()
         .update_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "load_journaled_reentry_probe_fixture",
             (),
         )

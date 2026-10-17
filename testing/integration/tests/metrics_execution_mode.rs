@@ -20,7 +20,12 @@ fn metrics_activity(fixture: &StandaloneCanisterFixture) -> u64 {
 fn report(fixture: &StandaloneCanisterFixture) -> MetricsReport {
     let report: Result<MetricsReport, Error> = fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "icydb_metrics", ())
+        .query_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "icydb_metrics",
+            (),
+        )
         .expect("metrics response should decode");
     report.expect("public metrics endpoint should succeed")
 }
@@ -28,7 +33,12 @@ fn report(fixture: &StandaloneCanisterFixture) -> MetricsReport {
 fn reset_metrics(fixture: &StandaloneCanisterFixture) {
     let reset: Result<(), Error> = fixture
         .pocket_ic()
-        .update_candid(fixture.canister_id(), "icydb_metrics_reset", ())
+        .update_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "icydb_metrics_reset",
+            (),
+        )
         .expect("metrics reset should decode");
     reset.expect("controller metrics reset should succeed");
 }
@@ -108,6 +118,7 @@ fn canonical_debt_conserves_across_writes_reset_fold_and_upgrade() {
         .pocket_ic()
         .update_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "seed_convergence_metrics_backlog",
             (),
         )
@@ -135,6 +146,7 @@ fn call_generated_query(fixture: &StandaloneCanisterFixture) {
         .pocket_ic()
         .query_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "icydb_query",
             (QUERY_SQL.to_string(),),
         )
@@ -145,6 +157,7 @@ fn call_generated_query(fixture: &StandaloneCanisterFixture) {
 fn trap_metrics_query(fixture: &StandaloneCanisterFixture) {
     let call = fixture.pocket_ic().query_candid::<Result<(), Error>, _>(
         fixture.canister_id(),
+        candid::Principal::anonymous(),
         "audit_metrics_query_trap",
         (),
     );
@@ -158,7 +171,12 @@ fn query_execution_records_nothing_and_cannot_contaminate_later_methods() {
 
     let reset: Result<(), Error> = fixture
         .pocket_ic()
-        .update_candid(fixture.canister_id(), "icydb_metrics_reset", ())
+        .update_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "icydb_metrics_reset",
+            (),
+        )
         .expect("metrics reset response should decode");
     reset.expect("controller metrics reset should succeed");
 
@@ -176,7 +194,12 @@ fn query_execution_records_nothing_and_cannot_contaminate_later_methods() {
     trap_metrics_query(&fixture);
     let update: Result<(), Error> = fixture
         .pocket_ic()
-        .update_candid(fixture.canister_id(), "icydb_fixtures_reset", ())
+        .update_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "icydb_fixtures_reset",
+            (),
+        )
         .expect("generated fixture-reset response should decode");
     update.expect("update after a trapped query should succeed");
     assert!(

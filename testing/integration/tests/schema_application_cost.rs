@@ -26,6 +26,7 @@ fn query_probe_result(
         .pocket_ic()
         .query_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "measure_schema_application_query",
             (),
         )
@@ -41,6 +42,7 @@ fn update_probe(fixture: &StandaloneCanisterFixture) -> SchemaApplicationPerfRes
         .pocket_ic()
         .update_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "measure_schema_application_update",
             (),
         )
@@ -51,7 +53,12 @@ fn update_probe(fixture: &StandaloneCanisterFixture) -> SchemaApplicationPerfRes
 fn startup_observation(fixture: &StandaloneCanisterFixture) -> StartupObservationPerfResult {
     let result: Result<StartupObservationPerfResult, icydb::db::StartupFailure> = fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "measure_startup_observation", ())
+        .query_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "measure_startup_observation",
+            (),
+        )
         .expect("startup observation should decode");
     result.expect("startup observation should not fail")
 }
@@ -64,6 +71,7 @@ fn accepted_schema_read(
         .pocket_ic()
         .query_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "measure_accepted_schema_read_instructions",
             (entity.to_string(),),
         )
@@ -74,7 +82,12 @@ fn accepted_schema_read(
 fn application_startup_contract(fixture: &StandaloneCanisterFixture) -> ApplicationStartupSnapshot {
     fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "application_startup_contract", ())
+        .query_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "application_startup_contract",
+            (),
+        )
         .expect("application startup contract should decode")
 }
 
@@ -90,6 +103,7 @@ fn inject_application_startup_failure(fixture: &StandaloneCanisterFixture) {
         .pocket_ic()
         .update_candid::<(), _>(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "observe_application_startup_for_tests",
             (Result::<icydb::db::DatabaseStartupState, StartupFailureInput>::Err(failure),),
         )
@@ -232,6 +246,7 @@ fn startup_observation_is_bounded_before_after_readiness_and_upgrade() {
         .pocket_ic()
         .update_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "initialize_startup_observation_fixture",
             (),
         )

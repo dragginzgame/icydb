@@ -67,6 +67,7 @@ fn qualify_scenario(module: &[u8], count: u32, chunk: u32, individual: bool, rej
         .pocket_ic()
         .update_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "seed_batch_workload",
             (count, reject_last),
         )
@@ -95,6 +96,7 @@ fn qualify_scenario(module: &[u8], count: u32, chunk: u32, individual: bool, rej
             .pocket_ic()
             .update_candid(
                 fixture.canister_id(),
+                candid::Principal::anonymous(),
                 "measure_batch_workload",
                 (start, length, individual),
             )

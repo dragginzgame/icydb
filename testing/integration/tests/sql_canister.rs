@@ -333,7 +333,12 @@ fn bound_null_functions_match_literals_in_non_test_wasm() {
     let canister_id = *fixture.metadata();
     reset_sql_fixtures(pic, canister_id);
     let results: Vec<Result<SqlQueryResult, Error>> = pic
-        .query_candid(canister_id, "check_bound_sql_null_parity", ())
+        .query_candid(
+            canister_id,
+            candid::Principal::anonymous(),
+            "check_bound_sql_null_parity",
+            (),
+        )
         .expect("fixed binding probe should decode");
     assert_eq!(results.len(), 25);
     for (index, pair) in results[..22].as_chunks::<2>().0.iter().enumerate() {
@@ -358,7 +363,12 @@ fn sql_canister_schema_endpoint_exposes_exact_diagnostic_identity() {
     let pic = fixture.pocket_ic();
     let canister_id = *fixture.metadata();
     let response: Result<Vec<EntitySchemaDescription>, Error> = pic
-        .query_candid(canister_id, "icydb_schema", ())
+        .query_candid(
+            canister_id,
+            candid::Principal::anonymous(),
+            "icydb_schema",
+            (),
+        )
         .expect("schema endpoint response should decode");
     let report = response.expect("controller schema endpoint should succeed");
     assert!(
@@ -527,7 +537,12 @@ fn identity_closeout_reports_one_row_and_maximum_batch_instruction_costs() {
     let canister_id = *fixture.metadata();
     let stable_before = stable_memory_fingerprint(pic, canister_id);
     let result: Result<IdentityCloseoutPerfResult, Error> = pic
-        .update_candid(canister_id, "measure_identity_closeout_perf", ())
+        .update_candid(
+            canister_id,
+            candid::Principal::anonymous(),
+            "measure_identity_closeout_perf",
+            (),
+        )
         .expect("Identity closeout perf result should decode");
     let result = result.expect("Identity closeout perf endpoint should succeed");
 
@@ -599,7 +614,12 @@ fn application_behavior_reports_separate_and_composed_instruction_costs() {
     let pic = fixture.pocket_ic();
     let canister_id = *fixture.metadata();
     let result: Result<ApplicationBehaviorPerfResult, String> = pic
-        .query_candid(canister_id, "measure_application_behavior_perf", ())
+        .query_candid(
+            canister_id,
+            candid::Principal::anonymous(),
+            "measure_application_behavior_perf",
+            (),
+        )
         .expect("application behavior perf result should decode");
     let result = result.expect("application behavior perf endpoint should succeed");
 
@@ -623,7 +643,12 @@ fn application_behavior_reports_separate_and_composed_instruction_costs() {
 
 fn seed_oversized_sql_group_name(pic: &PocketIc, canister_id: Principal) {
     let result: Result<(), Error> = pic
-        .update_candid(canister_id, "seed_oversized_sql_group_name", ())
+        .update_candid(
+            canister_id,
+            candid::Principal::anonymous(),
+            "seed_oversized_sql_group_name",
+            (),
+        )
         .expect("oversized SQL group-name seed call should decode");
 
     result.expect("oversized SQL group-name seed should succeed");
@@ -634,8 +659,13 @@ fn query_sql_endpoint(
     canister_id: Principal,
     sql: &str,
 ) -> Result<SqlQueryResult, Error> {
-    pic.query_candid(canister_id, "icydb_query", (sql.to_string(),))
-        .expect("sql query canister call should decode")
+    pic.query_candid(
+        canister_id,
+        candid::Principal::anonymous(),
+        "icydb_query",
+        (sql.to_string(),),
+    )
+    .expect("sql query canister call should decode")
 }
 
 fn measure_query_sql(
@@ -645,6 +675,7 @@ fn measure_query_sql(
 ) -> SqlExecutionInstructionResult {
     pic.query_candid(
         canister_id,
+        candid::Principal::anonymous(),
         "measure_sql_query_instructions",
         (sql.to_string(),),
     )
@@ -664,8 +695,13 @@ fn query_numeric_types(
 }
 
 fn ddl_sql(pic: &PocketIc, canister_id: Principal, sql: &str) -> Result<SqlQueryResult, Error> {
-    pic.update_candid(canister_id, "icydb_ddl", (sql.to_string(),))
-        .expect("sql DDL canister call should decode")
+    pic.update_candid(
+        canister_id,
+        candid::Principal::anonymous(),
+        "icydb_ddl",
+        (sql.to_string(),),
+    )
+    .expect("sql DDL canister call should decode")
 }
 
 fn measure_ddl_sql(
@@ -675,6 +711,7 @@ fn measure_ddl_sql(
 ) -> SqlExecutionInstructionResult {
     pic.update_candid(
         canister_id,
+        candid::Principal::anonymous(),
         "measure_sql_ddl_admission_instructions",
         (sql.to_string(),),
     )
@@ -688,6 +725,7 @@ fn measure_mutation_sql(
 ) -> SqlExecutionInstructionResult {
     pic.update_candid(
         canister_id,
+        candid::Principal::anonymous(),
         "measure_trusted_sql_exact_update_instructions",
         (sql.to_string(),),
     )
@@ -702,6 +740,7 @@ fn measure_accepted_schema_read(
     let result: Result<AcceptedSchemaReadInstructionResult, Error> = pic
         .query_candid(
             canister_id,
+            candid::Principal::anonymous(),
             "measure_accepted_schema_read_instructions",
             (entity.to_string(),),
         )
@@ -760,13 +799,23 @@ fn reference_unknown_order_field_survives_real_canister_and_leaves_stable_bytes_
 }
 
 fn update_sql(pic: &PocketIc, canister_id: Principal, sql: &str) -> Result<SqlQueryResult, Error> {
-    pic.update_candid(canister_id, "icydb_update", (sql.to_string(),))
-        .expect("sql update canister call should decode")
+    pic.update_candid(
+        canister_id,
+        candid::Principal::anonymous(),
+        "icydb_update",
+        (sql.to_string(),),
+    )
+    .expect("sql update canister call should decode")
 }
 
 fn expect_integrity_sql(pic: &PocketIc, canister_id: Principal, sql: &str) -> IntegrityCheckResult {
     let result: Result<IntegrityCheckResult, SqlIntegrityError> = pic
-        .update_candid(canister_id, "icydb_integrity", (sql.to_string(),))
+        .update_candid(
+            canister_id,
+            candid::Principal::anonymous(),
+            "icydb_integrity",
+            (sql.to_string(),),
+        )
         .expect("integrity canister call should decode");
 
     result.expect("integrity canister call should succeed")
@@ -3680,7 +3729,12 @@ fn sql_canister_ddl_endpoint_publishes_empty_drop_column() {
     let canister_id = *fixture.metadata();
     reset_sql_fixtures(pic, canister_id);
     let reset: Result<(), Error> = pic
-        .update_candid(canister_id, "icydb_fixtures_reset", ())
+        .update_candid(
+            canister_id,
+            candid::Principal::anonymous(),
+            "icydb_fixtures_reset",
+            (),
+        )
         .expect("fixture reset should decode");
     reset.expect("fixture rows should be removed");
     let mut schema_version = DdlSchemaVersion::initial();
@@ -3932,7 +3986,7 @@ fn sql_canister_integrity_endpoint_executes_controller_gated_quick_check() {
 
     let outsider = Principal::self_authenticating([7_u8; 32]);
     let rejected: Result<IntegrityCheckResult, SqlIntegrityError> = pic
-        .update_candid_as(
+        .update_candid(
             canister_id,
             outsider,
             "icydb_integrity",
@@ -3968,7 +4022,7 @@ fn source_declared_controller_endpoints_authorize_before_private_handlers() {
     );
 
     let query: Result<SqlQueryResult, Error> = pic
-        .query_candid_as(
+        .query_candid(
             canister_id,
             outsider,
             "icydb_query",
@@ -3979,7 +4033,7 @@ fn source_declared_controller_endpoints_authorize_before_private_handlers() {
 
     for method in ["icydb_ddl", "icydb_update"] {
         let result: Result<SqlQueryResult, Error> = pic
-            .update_candid_as(
+            .update_candid(
                 canister_id,
                 outsider,
                 method,
@@ -3990,13 +4044,13 @@ fn source_declared_controller_endpoints_authorize_before_private_handlers() {
     }
     for method in ["icydb_fixtures_reset", "icydb_fixtures_load"] {
         let result: Result<(), Error> = pic
-            .update_candid_as(canister_id, outsider, method, ())
+            .update_candid(canister_id, outsider, method, ())
             .expect("non-controller fixture response should decode");
         assert_eq!(result, Err(sql_error.clone()), "{method}");
     }
 
     let metrics: Result<MetricsReport, Error> = pic
-        .query_candid_as(canister_id, outsider, "icydb_metrics", ())
+        .query_candid(canister_id, outsider, "icydb_metrics", ())
         .expect("public metrics response should decode");
     assert!(
         metrics.is_ok(),
@@ -4004,18 +4058,18 @@ fn source_declared_controller_endpoints_authorize_before_private_handlers() {
     );
 
     let metrics_reset: Result<(), Error> = pic
-        .update_candid_as(canister_id, outsider, "icydb_metrics_reset", ())
+        .update_candid(canister_id, outsider, "icydb_metrics_reset", ())
         .expect("non-controller metrics reset response should decode");
     assert_eq!(metrics_reset, Err(operational_error.clone()));
     let snapshot: Result<StorageReport, Error> = pic
-        .query_candid_as(canister_id, outsider, "icydb_snapshot", ())
+        .query_candid(canister_id, outsider, "icydb_snapshot", ())
         .expect("non-controller snapshot response should decode");
     assert_eq!(
         snapshot.expect_err("a non-controller snapshot must fail before its handler"),
         operational_error,
     );
     let schema: Result<Vec<EntitySchemaDescription>, Error> = pic
-        .query_candid_as(canister_id, outsider, "icydb_schema", ())
+        .query_candid(canister_id, outsider, "icydb_schema", ())
         .expect("non-controller schema response should decode");
     assert_eq!(schema, Err(schema_error));
 }
@@ -5591,7 +5645,12 @@ fn sql_canister_update_endpoint_admits_primary_key_update_only() {
     // Reset uses ordinary trusted DELETE lowering, so this also verifies
     // deletion of populated rows under the generated memory configuration.
     let reset: Result<(), Error> = pic
-        .update_candid(canister_id, "icydb_fixtures_reset", ())
+        .update_candid(
+            canister_id,
+            candid::Principal::anonymous(),
+            "icydb_fixtures_reset",
+            (),
+        )
         .expect("populated fixture reset should decode");
     reset.expect("populated rows should delete");
     let deleted = expect_projection(

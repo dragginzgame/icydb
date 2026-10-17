@@ -16,7 +16,12 @@ fn application_owned_sql_syntax_survives_queries_and_rebuilds_after_upgrade() {
     for _ in 0..3 {
         let rows: u32 = fixture
             .pocket_ic()
-            .query_candid(fixture.canister_id(), "query_one_entity_sql", ())
+            .query_candid(
+                fixture.canister_id(),
+                candid::Principal::anonymous(),
+                "query_one_entity_sql",
+                (),
+            )
             .expect("domain query reply");
         assert_eq!(
             rows, 0,
@@ -32,7 +37,12 @@ fn application_owned_sql_syntax_survives_queries_and_rebuilds_after_upgrade() {
     for _ in 0..3 {
         let rows: u32 = fixture
             .pocket_ic()
-            .query_candid(fixture.canister_id(), "query_one_entity_sql", ())
+            .query_candid(
+                fixture.canister_id(),
+                candid::Principal::anonymous(),
+                "query_one_entity_sql",
+                (),
+            )
             .expect("post-upgrade domain query reply");
         assert_eq!(rows, 0);
     }
@@ -44,7 +54,12 @@ fn audited_typed_query_row_count(
 ) -> Result<u32, u16> {
     fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), method, ())
+        .query_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            method,
+            (),
+        )
         .expect("typed query endpoint response should decode")
 }
 
@@ -65,6 +80,7 @@ fn query_only_typed_and_dynamic_canisters_execute_without_sql() {
         .pocket_ic()
         .query_candid(
             ten_entity_fixture.canister_id(),
+            candid::Principal::anonymous(),
             "query_ten_entity_typed_rows",
             (),
         )
@@ -172,12 +188,14 @@ fn reachable_entity_audit_pair_exercises_the_shared_operation_mix() {
             let response = if operation <= 1 {
                 fixture.pocket_ic().query_candid(
                     fixture.canister_id(),
+                    candid::Principal::anonymous(),
                     method,
                     (selected_entity, operation),
                 )
             } else {
                 fixture.pocket_ic().update_candid(
                     fixture.canister_id(),
+                    candid::Principal::anonymous(),
                     method,
                     (selected_entity, operation),
                 )
@@ -210,7 +228,12 @@ fn repeated_dynamic_point_query_instruction_measurement() {
     ] {
         let ((executions, failures, rows, local_instructions),): ((u16, u16, u32, u64),) = fixture
             .pocket_ic()
-            .query_candid(fixture.canister_id(), method, (200_u16,))
+            .query_candid(
+                fixture.canister_id(),
+                candid::Principal::anonymous(),
+                method,
+                (200_u16,),
+            )
             .expect("repeated dynamic-query measurement should decode");
 
         assert_eq!(executions, 200);
@@ -253,7 +276,12 @@ fn native_exact_key_batch_instruction_measurement() {
     ] {
         let ((items, failures, rows, local_instructions),): ((u16, u16, u32, u64),) = fixture
             .pocket_ic()
-            .query_candid(fixture.canister_id(), method, (requested_items, distinct))
+            .query_candid(
+                fixture.canister_id(),
+                candid::Principal::anonymous(),
+                method,
+                (requested_items, distinct),
+            )
             .expect("exact-key instruction measurement should decode");
 
         assert_eq!(items, requested_items);

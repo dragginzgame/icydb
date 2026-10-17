@@ -25,7 +25,12 @@ fn generated_snapshot_reports_allocation_totals_without_mutation() {
     let before = fixture.pocket_ic().get_stable_memory(fixture.canister_id());
     let response: Result<StorageReport, Error> = fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "icydb_snapshot", ())
+        .query_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "icydb_snapshot",
+            (),
+        )
         .unwrap();
     let report = response.unwrap();
     let allocations = report.memory_allocations().unwrap();
@@ -60,12 +65,17 @@ fn generated_snapshot_reports_allocation_totals_without_mutation() {
 
     let repeated: Result<StorageReport, Error> = fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "icydb_snapshot", ())
+        .query_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "icydb_snapshot",
+            (),
+        )
         .unwrap();
     assert_eq!(repeated.unwrap().memory_allocations(), Some(allocations));
     let denied: Result<StorageReport, Error> = fixture
         .pocket_ic()
-        .query_candid_as(
+        .query_candid(
             fixture.canister_id(),
             Principal::self_authenticating([42; 32]),
             "icydb_snapshot",

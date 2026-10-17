@@ -82,6 +82,7 @@ fn full_catalogue_rows_preserve_values_and_report_costs() {
                 .pocket_ic()
                 .update_candid(
                     fixture.canister_id(),
+                    candid::Principal::anonymous(),
                     "seed_catalog_workload",
                     (start, 16_u32),
                 )
@@ -117,7 +118,12 @@ fn full_catalogue_rows_preserve_values_and_report_costs() {
                 let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
                 let sample: CatalogWorkloadSample = fixture
                     .pocket_ic()
-                    .update_candid(fixture.canister_id(), "measure_catalog_workload", (staged,))
+                    .update_candid(
+                        fixture.canister_id(),
+                        candid::Principal::anonymous(),
+                        "measure_catalog_workload",
+                        (staged,),
+                    )
                     .expect("measurement reply");
                 let cycles = before
                     .checked_sub(fixture.pocket_ic().cycle_balance(fixture.canister_id()))
@@ -162,7 +168,12 @@ fn check_catalog_labels(pic: &PocketIc, canister_id: Principal, count: u32) {
         }
         let before = pic.cycle_balance(canister_id);
         let sample: CatalogLabelSample = pic
-            .update_candid(canister_id, "measure_catalog_labels", (selected,))
+            .update_candid(
+                canister_id,
+                candid::Principal::anonymous(),
+                "measure_catalog_labels",
+                (selected,),
+            )
             .expect("label measurement reply");
         let cycles = before
             .checked_sub(pic.cycle_balance(canister_id))

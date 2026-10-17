@@ -30,6 +30,7 @@ fn shared_watchdog_survives_instruction_exhaustion() {
         .pocket_ic()
         .update_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "startup_timer_probe_arm_exhaustion",
             (),
         )
@@ -62,14 +63,24 @@ fn shared_watchdog_survives_instruction_exhaustion() {
 fn snapshot(fixture: &StandaloneCanisterFixture) -> TimerProbeSnapshot {
     fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "startup_timer_probe_snapshot", ())
+        .query_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "startup_timer_probe_snapshot",
+            (),
+        )
         .expect("timer probe snapshot should decode")
 }
 
 fn start(fixture: &StandaloneCanisterFixture) -> bool {
     fixture
         .pocket_ic()
-        .update_candid(fixture.canister_id(), "startup_timer_probe_start", ())
+        .update_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "startup_timer_probe_start",
+            (),
+        )
         .expect("timer probe start should decode")
 }
 
@@ -103,7 +114,12 @@ fn shared_watchdog_survives_trap_and_upgrade() {
 
     let trap_at: u64 = fixture
         .pocket_ic()
-        .update_candid(fixture.canister_id(), "startup_timer_probe_arm_trap", ())
+        .update_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "startup_timer_probe_arm_trap",
+            (),
+        )
         .expect("trap arming should decode");
     advance_timer_round(&fixture, Duration::from_secs(1));
     let trapped = snapshot(&fixture);
@@ -143,7 +159,12 @@ fn shared_watchdog_survives_trap_and_upgrade() {
 
     fixture
         .pocket_ic()
-        .update_candid::<(), _>(fixture.canister_id(), "startup_timer_probe_stop", ())
+        .update_candid::<(), _>(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "startup_timer_probe_stop",
+            (),
+        )
         .expect("timer probe stop should decode");
     let stopped = snapshot(&fixture);
     assert!(!stopped.watchdog_registered);

@@ -20,15 +20,30 @@ fn typed_explain_matches_sql_reports_and_instruction_gate() {
     for kind in 0..3_u8 {
         let typed_samples: TypedSamples = typed
             .pocket_ic()
-            .query_candid(typed.canister_id(), "measure_typed_explain", (kind,))
+            .query_candid(
+                typed.canister_id(),
+                candid::Principal::anonymous(),
+                "measure_typed_explain",
+                (kind,),
+            )
             .unwrap();
         let sql_samples: Samples = sql
             .pocket_ic()
-            .query_candid(sql.canister_id(), "measure_sql_explain", (kind,))
+            .query_candid(
+                sql.canister_id(),
+                candid::Principal::anonymous(),
+                "measure_sql_explain",
+                (kind,),
+            )
             .unwrap();
         let mixed_samples: TypedSamples = mixed
             .pocket_ic()
-            .query_candid(mixed.canister_id(), "measure_typed_explain", (kind,))
+            .query_candid(
+                mixed.canister_id(),
+                candid::Principal::anonymous(),
+                "measure_typed_explain",
+                (kind,),
+            )
             .unwrap();
         let typed_samples = typed_samples.expect("typed explain succeeds");
         let sql_samples = sql_samples.expect("SQL explain succeeds");
@@ -64,7 +79,12 @@ fn typed_explain_matches_sql_reports_and_instruction_gate() {
     }
     let rows: Result<u32, u16> = mixed
         .pocket_ic()
-        .query_candid(mixed.canister_id(), "retained_sql_read", ())
+        .query_candid(
+            mixed.canister_id(),
+            candid::Principal::anonymous(),
+            "retained_sql_read",
+            (),
+        )
         .unwrap();
     assert_eq!(rows.unwrap(), 0);
     assert!(
@@ -83,11 +103,21 @@ fn typed_explain_before_after_instruction_comparison() {
     for kind in 0..3_u8 {
         let before: TypedSamples = before
             .pocket_ic()
-            .query_candid(before.canister_id(), "measure_typed_explain", (kind,))
+            .query_candid(
+                before.canister_id(),
+                candid::Principal::anonymous(),
+                "measure_typed_explain",
+                (kind,),
+            )
             .unwrap();
         let after: TypedSamples = after
             .pocket_ic()
-            .query_candid(after.canister_id(), "measure_typed_explain", (kind,))
+            .query_candid(
+                after.canister_id(),
+                candid::Principal::anonymous(),
+                "measure_typed_explain",
+                (kind,),
+            )
             .unwrap();
         let before = before.unwrap();
         let after = after.unwrap();
@@ -114,6 +144,7 @@ fn typed_explain_before_after_instruction_comparison() {
             .pocket_ic()
             .query_candid(
                 before.canister_id(),
+                candid::Principal::anonymous(),
                 "measure_exact_key_batch",
                 (items, true),
             )
@@ -122,6 +153,7 @@ fn typed_explain_before_after_instruction_comparison() {
             .pocket_ic()
             .query_candid(
                 after.canister_id(),
+                candid::Principal::anonymous(),
                 "measure_exact_key_batch",
                 (items, true),
             )

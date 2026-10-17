@@ -34,6 +34,7 @@ fn schema_application_update(fixture: &StandaloneCanisterFixture) -> SchemaAppli
         .pocket_ic()
         .update_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "measure_schema_application_update",
             (),
         )
@@ -46,6 +47,7 @@ fn schema_application_query(fixture: &StandaloneCanisterFixture) -> SchemaApplic
         .pocket_ic()
         .query_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "measure_schema_application_query",
             (),
         )
@@ -58,6 +60,7 @@ fn query_user(fixture: &StandaloneCanisterFixture) -> SqlQueryResult {
         .pocket_ic()
         .query_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "query_user",
             ("SELECT id, name, age FROM PerfAuditUser ORDER BY id".to_string(),),
         )
@@ -70,6 +73,7 @@ fn query_user_instructions(fixture: &StandaloneCanisterFixture) -> SqlTotalOnlyP
         .pocket_ic()
         .query_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "query_user_with_perf",
             ("SELECT id, name, age FROM PerfAuditUser ORDER BY id".to_string(),),
         )

@@ -64,28 +64,48 @@ struct LifecycleCompositionSnapshot {
 fn snapshot(fixture: &StandaloneCanisterFixture) -> LifecycleCompositionSnapshot {
     fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "lifecycle_composition_snapshot", ())
+        .query_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "lifecycle_composition_snapshot",
+            (),
+        )
         .expect("lifecycle composition snapshot should decode")
 }
 
 fn database_probe(fixture: &StandaloneCanisterFixture) -> Result<bool, icydb::Error> {
     fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "lifecycle_database_probe", ())
+        .query_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "lifecycle_database_probe",
+            (),
+        )
         .expect("lifecycle database probe should decode")
 }
 
 fn insert_probe_row(fixture: &StandaloneCanisterFixture) -> Result<Ulid, icydb::Error> {
     fixture
         .pocket_ic()
-        .update_candid(fixture.canister_id(), "lifecycle_insert_probe_row", ())
+        .update_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "lifecycle_insert_probe_row",
+            (),
+        )
         .expect("lifecycle probe-row insert should decode")
 }
 
 fn probe_row_exists(fixture: &StandaloneCanisterFixture, id: Ulid) -> Result<bool, icydb::Error> {
     fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "lifecycle_probe_row_exists", (id,))
+        .query_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            "lifecycle_probe_row_exists",
+            (id,),
+        )
         .expect("lifecycle probe-row query should decode")
 }
 
@@ -136,7 +156,10 @@ fn advance_until_active(fixture: &StandaloneCanisterFixture) -> LifecycleComposi
 }
 
 const fn install_code_retry_policy() -> RetryPolicy {
-    RetryPolicy::new(INSTALL_CODE_RETRY_LIMIT, INSTALL_CODE_COOLDOWN)
+    RetryPolicy {
+        max_attempts: INSTALL_CODE_RETRY_LIMIT,
+        cooldown: INSTALL_CODE_COOLDOWN,
+    }
 }
 
 fn upgrade_with_retry(

@@ -75,6 +75,7 @@ fn sample_page(
         .pocket_ic()
         .update_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "measure_seek_intersection_page",
             (children, descending, residual, wide, limit, continuation),
         )
@@ -97,7 +98,7 @@ fn assert_explain(
     } else {
         ""
     };
-    let explain: Result<SqlQueryResult, Error> = fixture.pocket_ic().query_candid(fixture.canister_id(), "query_user", (
+    let explain: Result<SqlQueryResult, Error> = fixture.pocket_ic().query_candid(fixture.canister_id(), candid::Principal::anonymous(), "query_user", (
         format!("EXPLAIN EXECUTION SELECT id FROM PerfAuditStreamingRow WHERE lane_a = 0 AND lane_b = 0{third} ORDER BY id {direction}"),
     )).expect("EXPLAIN should decode");
     let SqlQueryResult::Explain { explain, .. } = explain.expect("EXPLAIN should execute") else {
@@ -155,6 +156,7 @@ fn measure_sql(
             .pocket_ic()
             .update_candid(
                 fixture.canister_id(),
+                candid::Principal::anonymous(),
                 "warm_user_query_with_perf",
                 (sql.clone(),),
             )
@@ -216,6 +218,7 @@ fn dense_selection_wasm_cost_matrix() {
                 .pocket_ic()
                 .update_candid(
                     fixture.canister_id(),
+                    candid::Principal::anonymous(),
                     "load_seek_intersection_fixture",
                     (case, start),
                 )
@@ -320,6 +323,7 @@ fn run_wasm_cost_cases(cases: &[u8]) {
                 .pocket_ic()
                 .update_candid(
                     fixture.canister_id(),
+                    candid::Principal::anonymous(),
                     "load_seek_intersection_fixture",
                     (case, start),
                 )

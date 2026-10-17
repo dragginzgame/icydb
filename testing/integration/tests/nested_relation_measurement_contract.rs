@@ -43,6 +43,7 @@ fn measure_phase(
         .pocket_ic()
         .update_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "measure_relation_calibration",
             (base, count, phase),
         )
@@ -64,6 +65,7 @@ fn call_phase(
         .pocket_ic()
         .update_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "measure_relation_calibration",
             (base, count, phase),
         )
@@ -158,6 +160,7 @@ fn controlled_actors_exercise_the_frozen_direct_relation_flow() {
                 .pocket_ic()
                 .update_candid(
                     fixture.canister_id(),
+                    candid::Principal::anonymous(),
                     "exercise_relation_flow",
                     (operation,),
                 )
@@ -183,6 +186,7 @@ fn shallow_actor_exercises_every_single_valued_nested_relation_flow() {
             .pocket_ic()
             .update_candid(
                 fixture.canister_id(),
+                candid::Principal::anonymous(),
                 "exercise_shallow_relation_flow",
                 (operation,),
             )
@@ -206,6 +210,7 @@ fn repeated_actor_exercises_every_collection_nested_relation_flow() {
             .pocket_ic()
             .update_candid(
                 fixture.canister_id(),
+                candid::Principal::anonymous(),
                 "exercise_repeated_relation_flow",
                 (operation,),
             )
@@ -228,6 +233,7 @@ fn repeated_actor_charges_raw_occurrences_before_deduplication() {
         .pocket_ic()
         .update_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "commit_repeated_relation_boundary",
             (
                 40_000_i32,
@@ -242,6 +248,7 @@ fn repeated_actor_charges_raw_occurrences_before_deduplication() {
         .pocket_ic()
         .update_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "commit_repeated_relation_boundary",
             (
                 40_001_i32,
@@ -264,6 +271,7 @@ fn direct_relation_stable_tree_calibration_retains_required_message_headroom() {
         .pocket_ic()
         .query_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "measure_relation_traversal",
             (
                 u8::try_from(MAX_NESTED_RELATION_PATH_STEPS)

@@ -59,7 +59,12 @@ fn query_perf(
 ) -> SqlQueryPerfResult {
     let result: Result<SqlQueryPerfResult, Error> = fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), method, (sql.to_string(),))
+        .query_candid(
+            fixture.canister_id(),
+            candid::Principal::anonymous(),
+            method,
+            (sql.to_string(),),
+        )
         .unwrap_or_else(|error| panic!("{method} should decode: {error}"));
 
     result.unwrap_or_else(|error| panic!("{method} should execute: {error}"))
@@ -76,6 +81,7 @@ fn sql_perf_reports_total_instructions_for_query_warmup_and_loop_execution() {
         .pocket_ic()
         .update_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "warm_user_query_with_perf",
             (sql.to_string(),),
         )
@@ -85,6 +91,7 @@ fn sql_perf_reports_total_instructions_for_query_warmup_and_loop_execution() {
         .pocket_ic()
         .query_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "query_user_loop_with_perf",
             (sql.to_string(), 8_u32),
         )
@@ -213,6 +220,7 @@ fn journaled_traversal_wasm_cost_matrix(family: &str, sql_for: fn(&str, u32) -> 
         .pocket_ic()
         .update_candid(
             fixture.canister_id(),
+            candid::Principal::anonymous(),
             "load_user_scale_fixture",
             (2_048_u32,),
         )
@@ -247,6 +255,7 @@ fn journaled_traversal_wasm_cost_matrix(family: &str, sql_for: fn(&str, u32) -> 
                         .pocket_ic()
                         .update_candid(
                             fixture.canister_id(),
+                            candid::Principal::anonymous(),
                             "warm_user_query_with_perf",
                             (sql.clone(),),
                         )
@@ -308,6 +317,7 @@ fn grouped_heap_wasm_cost_matrix() {
                 .pocket_ic()
                 .update_candid(
                     fixture.canister_id(),
+                    candid::Principal::anonymous(),
                     "warm_user_query_with_perf",
                     (sql.to_string(),),
                 )
@@ -392,6 +402,7 @@ fn preparation_wasm_cost_matrix() {
                 .pocket_ic()
                 .update_candid(
                     fixture.canister_id(),
+                    candid::Principal::anonymous(),
                     "warm_user_query_with_perf",
                     (sql.clone(),),
                 )
@@ -410,6 +421,7 @@ fn preparation_wasm_cost_matrix() {
                     .pocket_ic()
                     .update_candid(
                         fixture.canister_id(),
+                        candid::Principal::anonymous(),
                         "warm_user_query_with_perf",
                         (sql.clone(),),
                     )
@@ -425,6 +437,7 @@ fn preparation_wasm_cost_matrix() {
                     .pocket_ic()
                     .update_candid(
                         fixture.canister_id(),
+                        candid::Principal::anonymous(),
                         "measure_typed_filter_preparation",
                         (shape, terms),
                     )
@@ -467,6 +480,7 @@ fn arithmetic_wasm_cost_matrix() {
                     .pocket_ic()
                     .update_candid(
                         fixture.canister_id(),
+                        candid::Principal::anonymous(),
                         "warm_user_query_with_perf",
                         (sql.clone(),),
                     )
@@ -519,6 +533,7 @@ fn case_admission_wasm_cost_matrix() {
                     .pocket_ic()
                     .update_candid(
                         fixture.canister_id(),
+                        candid::Principal::anonymous(),
                         "warm_user_query_with_perf",
                         (sql.clone(),),
                     )
@@ -568,6 +583,7 @@ fn aggregate_wasm_cost_matrix() {
                     .pocket_ic()
                     .update_candid(
                         fixture.canister_id(),
+                        candid::Principal::anonymous(),
                         "warm_user_query_with_perf",
                         (sql.clone(),),
                     )
@@ -614,6 +630,7 @@ fn aggregate_phase_wasm_cost_matrix() {
                     .pocket_ic()
                     .update_candid(
                         fixture.canister_id(),
+                        candid::Principal::anonymous(),
                         "warm_user_query_with_perf",
                         (sql.clone(),),
                     )
@@ -680,6 +697,7 @@ fn identifier_wasm_cost_matrix() {
                 .pocket_ic()
                 .update_candid(
                     fixture.canister_id(),
+                    candid::Principal::anonymous(),
                     "warm_user_query_with_perf",
                     (sql.clone(),),
                 )
@@ -734,6 +752,7 @@ fn projection_alias_wasm_cost_matrix() {
                     .pocket_ic()
                     .update_candid(
                         fixture.canister_id(),
+                        candid::Principal::anonymous(),
                         "warm_user_query_with_perf",
                         (sql.clone(),),
                     )
@@ -785,6 +804,7 @@ fn grouped_having_wasm_cost_matrix() {
                     .pocket_ic()
                     .update_candid(
                         fixture.canister_id(),
+                        candid::Principal::anonymous(),
                         "warm_user_query_with_perf",
                         (sql.clone(),),
                     )

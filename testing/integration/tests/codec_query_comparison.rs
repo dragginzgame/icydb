@@ -43,7 +43,13 @@ fn install(label: &str, wasm: Vec<u8>) -> StandaloneCanisterFixture {
     // Neither actor exports init; no Candid argument encoder participates.
     StandaloneCanisterFixture::try_install(
         start_fixture_pocket_ic(),
-        InstallSpec::new(wasm, Vec::new(), 100_000_000_000_000).label(label),
+        InstallSpec {
+            wasm,
+            init_bytes: Vec::new(),
+            cycles: 100_000_000_000_000,
+            install_sender: None,
+            label: Some(label.into()),
+        },
     )
     .unwrap()
 }
