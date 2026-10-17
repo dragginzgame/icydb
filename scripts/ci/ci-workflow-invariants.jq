@@ -11,6 +11,10 @@ def needs_list:
 def needs_are($expected):
   (.needs | needs_list | sort | unique) == ($expected | sort | unique);
 def run_text: .run // "";
+# The composite action owns private dependency admission and locked fetching.
+def fetches_locked_workspace:
+  .uses == "./.github/actions/fetch-workspace"
+  and .if == null and (.["continue-on-error"] // false) == false;
 # Native-only lanes select the complete common roster without Testkit's server
 # extension; live lanes must explicitly select the existing product owner.
 def admits_server_tools:
@@ -48,7 +52,7 @@ require(has("permissions") and (.permissions != null);
 # Only the central CI workflow owns these product-specific topology rules.
 (select($file == ".github/workflows/ci.yml") |
   . as $ci |
-  (["dependency_msrv", "static", "rust", "macos_host", "check", "wasm_size_report", "release"][] as $job |
+  (["dependency_msrv", "static", "rust", "macos_host", "wire_browser", "check", "wasm_size_report", "release"][] as $job |
     require($ci.jobs | has($job); "CI is missing the \($job) validation job")),
   # Installation alone does not override rust-toolchain.toml. The executable
   # gate compares the selected compiler with the public manifest's own floor.
@@ -69,7 +73,7 @@ require(has("permissions") and (.permissions != null);
   (.jobs.dependency_msrv.steps as $steps |
     range(0; ($steps | length)) as $index |
     select($steps[$index] | run_text | test("^\\s*bash scripts/ci/check-public-msrv\\.sh\\s*$")) |
-    require(any($steps[0:$index][]; run_text | test("^\\s*make\\s+fetch\\s*$"));
+    require(any($steps[0:$index][]; fetches_locked_workspace);
       "public MSRV requires earlier locked cache preparation")),
   # Server setup is selected by lane; each lane must retain its matching body.
   ([["core", "ci-core"], ["workspace", "ci-workspace"],
@@ -91,7 +95,7 @@ require(has("permissions") and (.permissions != null);
       and (.["continue-on-error"] // false) == false
       and (run_text | test("^\\s*rustup target add wasm32-unknown-unknown\\s*$")));
       "workspace and Tier B require earlier Wasm target installation that stops on failure")),
-  require(.jobs.check | needs_are(["static", "rust", "macos_host"]);
+  require(.jobs.check | needs_are(["static", "rust", "macos_host", "wire_browser"]);
     "terminal check must aggregate every validation lane"),
   require(.jobs.wasm_size_report | needs_are([]);
     "Wasm evidence must run independently from validation"),
@@ -142,7 +146,5 @@ require(has("permissions") and (.permissions != null);
     range(0; ($steps | length)) as $index |
     select($steps[$index] | run_text |
       test("\\bmake\\s+(install-tools|install-testkit)\\b")) |
-    require(any($steps[0:$index][];
-      .if == null and (.["continue-on-error"] // false) == false
-      and (run_text | test("^\\s*make\\s+fetch\\s*$")));
-      "Rust tool checks require an earlier unconditional make fetch step that stops on failure")))
+    require(any($steps[0:$index][]; fetches_locked_workspace);
+      "Rust tool checks require an earlier unconditional workspace fetch action that stops on failure")))
