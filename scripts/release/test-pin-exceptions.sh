@@ -18,6 +18,8 @@ PIN_FIXTURE_MKTEMP="$(command -v mktemp)"
 PIN_FIXTURE_SYSTEM_TMP="$fixture/native-temp"
 mkdir "$PIN_FIXTURE_SYSTEM_TMP"
 cp "$ROOT/scripts/ci/"{bump-version.sh,next-release-version.sh,sync-release-surface-version.sh} "$fixture/scripts/ci/"
+# Shared version admission and lock rewriting retain their declared companions.
+cp "$ROOT/scripts/ci/"{validate-release-inputs.pl,StableVersion.pm} "$fixture/scripts/ci/"
 cp "$ROOT/scripts/ci/rewrite-local-lock-versions.pl" "$fixture/scripts/ci/"
 cp "$ROOT/scripts/ci/read-cargo-workspace-version.sh" "$fixture/scripts/ci/"
 cp "$ROOT/scripts/release/pin-exceptions.jq" "$fixture/scripts/release/"
