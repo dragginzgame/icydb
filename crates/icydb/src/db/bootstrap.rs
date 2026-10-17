@@ -20,45 +20,44 @@ use ic_memory::{
     ic_stable_structures::DefaultMemoryImpl,
 };
 
-/// Ensure that the bound host memory runtime contains one database authority.
+/// Verify one database's declarations against the explicitly bound host runtime.
+/// This never constructs backing memory or invokes a pool provider.
+#[doc(hidden)]
+pub fn verify_memory_runtime(
+    authority: &str,
+    requirements: &SealedDeclarationSnapshot,
+) -> Result<(), DatabaseBootstrapError> {
+    let runtime = memory_runtime().ok_or(MemoryRuntimeBindingError::NotBootstrapped)?;
+    runtime.verify_authority(requirements, authority)?;
+    Ok(())
+}
+
+/// Construct and bind memory for a database that owns the complete stable backing.
 ///
-/// This bootstraps an uninitialized runtime and otherwise adopts its committed
-/// allocations without reasserting a bootstrap policy. Adoption succeeds only
-/// when every explicit requirement of this generated database authority
-/// appears exactly in the committed allocation capability.
-/// The supplied bucket size governs only IcyDB-owned bootstrap; an existing
-/// committed host runtime owns its policy and bucket size. Unbootstrapped
-/// persisted memory must match the requested size, without resizing or fallback.
-/// Cold bootstrap obtains the explicit final host pool from `pool`; adoption
-/// never invokes that provider or reasserts its grants and exclusions.
+/// Call only from the standalone lifecycle root, before database access. Composed
+/// hosts bootstrap their complete component set and call `bind_memory_runtime`
+/// instead. An existing binding is refused before evaluating the pool provider.
 ///
 /// # Panics
-/// Panics if the caller's pool provider panics during cold bootstrap.
+/// Backing IO and the caller's pool provider can panic.
 #[doc(hidden)]
-pub fn ensure_default_memory_manager(
-    authority: &str,
+pub fn bootstrap_standalone_memory_runtime(
     requirements: &SealedDeclarationSnapshot,
     bucket_size_pages: u16,
     pool: impl FnOnce() -> Result<MemoryAllocationPool, MemoryAllocationPoolError>,
 ) -> Result<(), DatabaseBootstrapError> {
-    let runtime = if let Some(runtime) = memory_runtime() {
-        runtime
-    } else {
-        let config = MemoryManagerConfig::new(bucket_size_pages)?;
-        let pool = pool()?;
-        // The host callback may bind its own runtime. Observe that authority
-        // before constructing another manager for the same backing memory.
-        if let Some(runtime) = memory_runtime() {
-            runtime
-        } else {
-            let mut runtime = MemoryRuntime::new_with_config(DefaultMemoryImpl::default(), config)?;
-            runtime.bootstrap(requirements, &pool, &DatabaseMemoryPolicy)?;
-            let runtime = Rc::new(runtime);
-            bind_memory_runtime(Rc::clone(&runtime))?;
-            runtime
-        }
-    };
-    runtime.verify_authority(requirements, authority)?;
+    if memory_runtime().is_some() {
+        return Err(MemoryRuntimeBindingError::AlreadyBound.into());
+    }
+    let config = MemoryManagerConfig::new(bucket_size_pages)?;
+    let pool = pool()?;
+    // A provider describes grants only. Binding a runtime is a separate host action.
+    if memory_runtime().is_some() {
+        return Err(MemoryRuntimeBindingError::AlreadyBound.into());
+    }
+    let mut runtime = MemoryRuntime::new_with_config(DefaultMemoryImpl::default(), config)?;
+    runtime.bootstrap(requirements, &pool, &DatabaseMemoryPolicy)?;
+    bind_memory_runtime(Rc::new(runtime))?;
     Ok(())
 }
 
@@ -226,7 +225,7 @@ mod tests {
     }
 
     #[test]
-    fn configured_bootstrap_selects_fresh_buckets_and_is_idempotent() {
+    fn standalone_bootstrap_selects_fresh_buckets_and_verification_is_read_only() {
         for pages in [4, 16, 128] {
             std::thread::spawn(move || {
                 assert!(memory_runtime().is_none());
@@ -234,14 +233,12 @@ mod tests {
                     icydb_core::db::open_memory("icydb.bootstrap_adoption_test.commit.control.v1"),
                     Err(RuntimeOpenError::NotBootstrapped)
                 ));
-                ensure_default_memory_manager(TEST_AUTHORITY, &requirements(), pages, pool)
-                    .unwrap();
+                bootstrap_standalone_memory_runtime(&requirements(), pages, pool).unwrap();
                 let runtime = memory_runtime().unwrap();
                 let committed = runtime.committed_allocations().unwrap().clone();
                 let before = runtime.memory_allocation_summary().unwrap();
                 assert_eq!(before.bucket_size_pages, pages);
-                ensure_default_memory_manager(TEST_AUTHORITY, &requirements(), pages, pool)
-                    .unwrap();
+                verify_memory_runtime(TEST_AUTHORITY, &requirements()).unwrap();
                 assert_eq!(runtime.committed_allocations().unwrap(), &committed);
                 assert_eq!(runtime.memory_allocation_summary().unwrap(), before);
             })
@@ -251,21 +248,30 @@ mod tests {
     }
 
     #[test]
-    fn adopts_runtime_bound_during_pool_callback_before_constructing_memory() {
-        ensure_default_memory_manager(TEST_AUTHORITY, &requirements(), 4, || {
-            ensure_default_memory_manager(TEST_AUTHORITY, &requirements(), 16, pool).unwrap();
-            pool()
-        })
-        .unwrap();
+    fn verification_requires_an_explicit_host_binding() {
+        let error = verify_memory_runtime(TEST_AUTHORITY, &requirements()).unwrap_err();
+        assert!(matches!(
+            error,
+            DatabaseBootstrapError::Binding(MemoryRuntimeBindingError::NotBootstrapped)
+        ));
+        assert!(memory_runtime().is_none());
+    }
+
+    #[test]
+    fn standalone_refuses_an_existing_host_before_calling_the_pool_provider() {
+        bootstrap_standalone_memory_runtime(&requirements(), 16, pool).unwrap();
         let runtime = memory_runtime().unwrap();
-        assert_eq!(
-            runtime
-                .memory_allocation_summary()
-                .unwrap()
-                .bucket_size_pages,
-            16
-        );
-        assert_eq!(runtime.committed_allocations().unwrap().generation(), 1);
+        let before = runtime.memory_allocation_summary().unwrap();
+        let error = bootstrap_standalone_memory_runtime(&requirements(), 4, || {
+            panic!("a bound host must not evaluate a standalone pool provider")
+        })
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            DatabaseBootstrapError::Binding(MemoryRuntimeBindingError::AlreadyBound)
+        ));
+        assert!(Rc::ptr_eq(&memory_runtime().unwrap(), &runtime));
+        assert_eq!(runtime.memory_allocation_summary().unwrap(), before);
     }
 
     #[test]
@@ -310,12 +316,11 @@ mod tests {
 
     #[test]
     fn unknown_host_authority_rejects_without_changing_committed_allocations() {
-        ensure_default_memory_manager(TEST_AUTHORITY, &requirements(), 16, pool).unwrap();
+        bootstrap_standalone_memory_runtime(&requirements(), 16, pool).unwrap();
         let runtime = memory_runtime().unwrap();
         let committed = runtime.committed_allocations().unwrap().clone();
         let before = runtime.memory_allocation_summary().unwrap();
-        let error =
-            ensure_default_memory_manager("icydb.unknown", &requirements(), 4, pool).unwrap_err();
+        let error = verify_memory_runtime("icydb.unknown", &requirements()).unwrap_err();
         let public = crate::Error::from(error.clone());
         assert_eq!(
             public.code(),
@@ -331,7 +336,7 @@ mod tests {
                 if authority == "icydb.unknown")));
         assert_eq!(runtime.committed_allocations().unwrap(), &committed);
         assert_eq!(runtime.memory_allocation_summary().unwrap(), before);
-        ensure_default_memory_manager(TEST_AUTHORITY, &requirements(), 4, pool).unwrap();
+        verify_memory_runtime(TEST_AUTHORITY, &requirements()).unwrap();
     }
 
     #[test]
@@ -362,11 +367,8 @@ mod tests {
         assert_eq!(policy.preparation_calls.get(), 1);
         let runtime = Rc::new(runtime);
         bind_memory_runtime(Rc::clone(&runtime)).unwrap();
-        ensure_default_memory_manager(TEST_AUTHORITY, &requirements(), 4, || {
-            panic!("adoption must not invoke pool provider")
-        })
-        .unwrap();
-        ensure_default_memory_manager(TEST_AUTHORITY, &requirements(), 4, pool).unwrap();
+        verify_memory_runtime(TEST_AUTHORITY, &requirements()).unwrap();
+        verify_memory_runtime(TEST_AUTHORITY, &requirements()).unwrap();
         assert_eq!(policy.preparation_calls.get(), 1);
         assert_eq!(
             runtime.committed_allocations().unwrap().generation(),

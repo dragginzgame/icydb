@@ -26,6 +26,7 @@ pub(super) fn extend_pool(
 fn generated_memory_admission_errors_match_startup_and_db() {
     if let Ok(case) = std::env::var(CASE_ENV) {
         if case == "fresh_allowed" {
+            crate::bootstrap_standalone_memory(crate::icydb_memory_pool).unwrap();
             crate::__icydb_generated::__drive_native_database_for_tests().unwrap();
             assert_eq!(
                 crate::startup_state().unwrap(),
@@ -34,7 +35,8 @@ fn generated_memory_admission_errors_match_startup_and_db() {
             assert!(with_request_execution(|| icydb::db!()).is_ok());
             return;
         }
-        let failure = crate::startup_state().unwrap_err();
+        let cause = crate::bootstrap_standalone_memory(crate::icydb_memory_pool).unwrap_err();
+        let failure = icydb::db::__startup_bootstrap_failure(cause);
         let code = match case.as_str() {
             "excluded_pool" | "missing_grant" => {
                 ErrorCode::RUNTIME_BOUNDARY_MEMORY_ALLOCATION_RESOLUTION_FAILED
@@ -46,13 +48,10 @@ fn generated_memory_admission_errors_match_startup_and_db() {
             failure.kind(),
             icydb::db::StartupFailureKind::DatabaseControl
         );
-        for _ in 0..2 {
-            let access = with_request_execution(|| icydb::db!()).err().unwrap();
-            assert_eq!(&access, failure.error());
-            assert_eq!(crate::startup_state().unwrap_err(), failure);
-            assert_eq!(failure.diagnostic(), access.diagnostic());
-            assert_eq!(failure.facts(), access.facts());
-        }
+        // Failed standalone bootstrap publishes no authority. Database access
+        // independently refuses the missing host binding without retrying bootstrap.
+        assert!(with_request_execution(|| icydb::db!()).is_err());
+        assert!(crate::startup_state().is_err());
         let wire = candid::encode_one(&failure).unwrap();
         assert_eq!(
             candid::decode_one::<StartupFailure>(&wire).unwrap(),

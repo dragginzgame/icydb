@@ -28,6 +28,7 @@ fn read_one() {
 
 #[test]
 fn public_headroom_stops_between_reads_and_preserves_exhaustion_facts() {
+    crate::bootstrap_standalone_memory(crate::icydb_memory_pool).unwrap();
     crate::__icydb_generated::__drive_native_database_for_tests().unwrap();
     with_request_execution_root(|root| {
         let session = crate::db().unwrap();
@@ -133,6 +134,7 @@ fn public_headroom_stops_between_reads_and_preserves_exhaustion_facts() {
 
 #[test]
 fn retained_sessions_observe_their_owner_after_root_drop_and_during_other_requests() {
+    crate::bootstrap_standalone_memory(crate::icydb_memory_pool).unwrap();
     crate::__icydb_generated::__drive_native_database_for_tests().unwrap();
     let retained = with_request_execution_root(|root| {
         let first = crate::db().unwrap();
@@ -182,6 +184,7 @@ impl Future for YieldOnce {
 
 #[test]
 fn interleaved_async_polls_share_nested_work_but_isolate_request_headroom() {
+    crate::bootstrap_standalone_memory(crate::icydb_memory_pool).unwrap();
     crate::__icydb_generated::__drive_native_database_for_tests().unwrap();
     let mut first = Box::pin(with_request_execution_async(async {
         let session = crate::db().unwrap();

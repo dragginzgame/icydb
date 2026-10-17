@@ -17,7 +17,7 @@ mod startup;
 // Public facade-owned response/session surfaces.
 pub use bootstrap::DatabaseBootstrapError;
 #[doc(hidden)]
-pub use bootstrap::ensure_default_memory_manager;
+pub use bootstrap::{bootstrap_standalone_memory_runtime, verify_memory_runtime};
 pub use ic_memory::{
     MemoryAllocationPool, MemoryAllocationPoolError, MemoryAuthority, MemoryDeclarationError,
     MemoryRequest, SchemaMetadata, SealedDeclarationSnapshot,

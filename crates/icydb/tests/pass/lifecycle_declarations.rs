@@ -9,6 +9,18 @@ mod __icydb_generated {
     pub(crate) fn __icydb_startup_post_upgrade() {}
 }
 
+fn icydb_memory_pool()
+-> Result<icydb::db::MemoryAllocationPool, icydb::db::MemoryAllocationPoolError> {
+    icydb::db::MemoryAllocationPool::new(vec![], vec![])
+}
+
+fn bootstrap_standalone_memory(
+    pool: impl FnOnce() -> Result<icydb::db::MemoryAllocationPool, icydb::db::MemoryAllocationPoolError>,
+) -> Result<(), icydb::db::DatabaseBootstrapError> {
+    let _ = pool()?;
+    Ok(())
+}
+
 #[derive(CandidType, Deserialize)]
 struct InitArgs {
     seed: u64,

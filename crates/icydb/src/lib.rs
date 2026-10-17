@@ -176,8 +176,9 @@ pub use icydb_diagnostic_code::ErrorCode;
 #[doc(hidden)]
 pub mod __macro {
     pub use crate::db::{
-        TypedEntityDescriptor, TypedFieldDescriptor, TypedFieldType, ensure_default_memory_manager,
-        execute_generated_storage_report,
+        TypedEntityDescriptor, TypedFieldDescriptor, TypedFieldType,
+        bootstrap_standalone_memory_runtime, execute_generated_storage_report,
+        verify_memory_runtime,
     };
     pub use crate::guards::{authorize_schema_read, authorize_sql_read};
     pub use icydb_core::db::open_memory;
@@ -267,10 +268,12 @@ macro_rules! build_canister {
 
 /// Include the generated private actor module emitted by [`build_canister!`].
 ///
-/// The final host must define `icydb_memory_pool() ->
+/// A standalone host must define `icydb_memory_pool() ->
 /// Result<icydb::db::MemoryAllocationPool, icydb::db::MemoryAllocationPoolError>`.
-/// Cold bootstrap uses this explicit pool's namespace grants and physical
-/// exclusions. An already committed host is adopted without invoking the provider.
+/// Standalone lifecycle bootstrap uses this pool's grants and exclusions.
+/// Participant hosts explicitly bind their committed runtime with
+/// `db::bind_memory_runtime` before invoking the participant. Database access
+/// verifies that binding and never creates a memory manager.
 /// Permanent component keys never choose IDs or grant their own namespace.
 /// The generated public `icydb_memory_requests()` factory returns all database
 /// requests without opening stores. A composed host combines those requests with
@@ -288,11 +291,14 @@ macro_rules! build_canister {
 ///
 /// #[ic_cdk::init]
 /// fn init() {
+///     // The host bootstraps all components and binds its runtime first.
+///     host::bootstrap_and_bind_memory();
 ///     crate::__icydb_lifecycle_participant::init();
 /// }
 ///
 /// #[ic_cdk::post_upgrade]
 /// fn post_upgrade() {
+///     host::bootstrap_and_bind_memory();
 ///     crate::__icydb_lifecycle_participant::post_upgrade();
 /// }
 /// ```
@@ -446,11 +452,15 @@ macro_rules! __icydb_start_lifecycle {
     () => {
         #[$crate::__reexports::ic_cdk::init(hidden = true)]
         fn __icydb_startup_init() {
+            crate::bootstrap_standalone_memory(crate::icydb_memory_pool)
+                .unwrap_or_else(|error| $crate::__reexports::ic_cdk::trap(&error.to_string()));
             crate::__icydb_generated::__icydb_startup_init();
         }
 
         #[$crate::__reexports::ic_cdk::post_upgrade(hidden = true)]
         fn __icydb_startup_post_upgrade() {
+            crate::bootstrap_standalone_memory(crate::icydb_memory_pool)
+                .unwrap_or_else(|error| $crate::__reexports::ic_cdk::trap(&error.to_string()));
             crate::__icydb_generated::__icydb_startup_post_upgrade();
         }
     };
@@ -461,12 +471,16 @@ macro_rules! __icydb_start_lifecycle {
     ) => {
         #[$crate::__reexports::ic_cdk::init]
         fn __icydb_startup_init($($init_arg: $init_ty),*) {
+            crate::bootstrap_standalone_memory(crate::icydb_memory_pool)
+                .unwrap_or_else(|error| $crate::__reexports::ic_cdk::trap(&error.to_string()));
             crate::__icydb_generated::__icydb_startup_init();
             let (): () = $crate::db::with_request_execution(|| ($init)($($init_arg),*));
         }
 
         #[$crate::__reexports::ic_cdk::post_upgrade]
         fn __icydb_startup_post_upgrade($($upgrade_arg: $upgrade_ty),*) {
+            crate::bootstrap_standalone_memory(crate::icydb_memory_pool)
+                .unwrap_or_else(|error| $crate::__reexports::ic_cdk::trap(&error.to_string()));
             crate::__icydb_generated::__icydb_startup_post_upgrade();
             let (): () = $crate::db::with_request_execution(
                 || ($post_upgrade)($($upgrade_arg),*)
@@ -507,7 +521,7 @@ macro_rules! __icydb_start_actor {
             reason = "minimal downstream canisters may use only a subset of generated actor conveniences"
         )]
         use __icydb_generated::{db, db_with_request_root, startup_state};
-        pub use __icydb_generated::icydb_memory_requests;
+        pub use __icydb_generated::{bootstrap_standalone_memory, icydb_memory_requests};
     };
 }
 

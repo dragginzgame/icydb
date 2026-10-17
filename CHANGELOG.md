@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### ⚠️ Breaking
 
+- Database access verifies an explicitly bound host runtime. Participant hosts
+  bind their committed runtime before startup; standalone lifecycle exports
+  explicitly bootstrap before driving the database. Pool providers only supply
+  grants, and ordinary database access never constructs a memory manager.
+
 - Remove arbitrary-precision integer fields and values, compact scalar tags,
   require affected databases and serialized artifacts to be recreated, and trial
   IC Wire with an installed audit query and a Candid-free codec comparison.

@@ -132,8 +132,8 @@ internal faults retain E23, with runtime origin. No unbounded upstream error tex
 namespace, authority or stable-key strings enter the public error record.
 
 The host grants permanent namespaces and excludes unmanaged physical IDs in
-one checked allocation pool. Supply it before cold startup seals the linked
-declaration snapshot:
+one checked allocation pool. A standalone lifecycle root uses this provider
+before database startup:
 
 ```rust,ignore
 fn icydb_memory_pool() -> Result<icydb::db::MemoryAllocationPool, icydb::db::MemoryAllocationPoolError> {
@@ -146,7 +146,9 @@ fn icydb_memory_pool() -> Result<icydb::db::MemoryAllocationPool, icydb::db::Mem
 
 The final host grants namespaces through one checked allocation pool. All owners
 share eligible free IDs; unmanaged physical memory requires explicit exclusions.
-The provider is not invoked when adopting an already committed host. Keep the
+Participant hosts do not need this provider: bootstrap the complete composition,
+then call `icydb::db::bind_memory_runtime` before the IcyDB participant. Ordinary
+database access only verifies the binding. Keep the
 same keys and bucket geometry during upgrades; existing assignments remain.
 See [compact diagnostics](diagnostics.md) for offline code
 and fact interpretation.
@@ -203,7 +205,9 @@ Native libtests do not run IC lifecycle hooks or timer callbacks. Generated
 canister crates expose the test-only Rust helper
 `crate::__icydb_generated::__drive_native_database_for_tests()` to drive the
 same startup and online-convergence owner, then check ordinary admission.
-Call it before the first database access and periodically **between simulated
+First call `bootstrap_standalone_memory(icydb_memory_pool)` once in standalone
+test setup, or explicitly bind the composed host runtime. Call the driver before
+the first database access and periodically **between simulated
 messages**, not just once during setup. Wrap each simulated message in
 `icydb::db::with_request_execution` so requests retain their normal budgets.
 

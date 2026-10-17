@@ -228,6 +228,7 @@ fn run_deferred_database_work() -> ic_timers::OnceRunResult {
 
 #[ic_cdk::init]
 fn application_init() {
+    bootstrap_standalone_memory(icydb_memory_pool).expect("standalone fixture bootstrap");
     begin_lifecycle(LifecycleHook::Init);
     let start = call_context_instruction_counter();
     crate::__icydb_lifecycle_participant::init();
@@ -237,6 +238,7 @@ fn application_init() {
 
 #[ic_cdk::post_upgrade]
 fn application_post_upgrade(trap_after_participant: Option<bool>) {
+    bootstrap_standalone_memory(icydb_memory_pool).expect("standalone fixture bootstrap");
     begin_lifecycle(LifecycleHook::PostUpgrade);
     let start = call_context_instruction_counter();
     crate::__icydb_lifecycle_participant::post_upgrade();
