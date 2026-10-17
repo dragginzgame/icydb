@@ -5,7 +5,7 @@ error: no rules expected `,`
   |                                       ^ no rules expected this token in macro call
   |
 note: while trying to match `participant`
- --> $WORKSPACE/.cache/cargo/icydb/git/checkouts/canic-a5eca58db9c0a3b8/f569b0c/crates/canic-icydb/src/lifecycle/mod.rs
+ --> $WORKSPACE/.cache/cargo/icydb/git/checkouts/canic-a5eca58db9c0a3b8/1491dd9/crates/canic-icydb/src/lifecycle/mod.rs
   |
   |     ($database:path; participant) => {
   |                      ^^^^^^^^^^^

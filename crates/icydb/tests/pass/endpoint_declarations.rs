@@ -3,6 +3,7 @@
     expect(clippy::missing_const_for_fn, clippy::unnecessary_wraps)
 )]
 
+#[cfg(feature = "metrics")]
 use canic_icydb::__private::cdk as __icydb_host_sdk;
 use icydb as __icydb_facade;
 
