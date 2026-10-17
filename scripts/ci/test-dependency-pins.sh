@@ -55,33 +55,38 @@ reject() {
 }
 check || { cat "$FIXTURE/output" >&2; exit 1; }
 
-# The current worktree owns declarations; tracked deletions need no index edit.
-mkdir -p "$consumer/retired crate"
-cat > "$consumer/retired crate/Cargo.toml" <<'TOML'
-[package]
-name = "retired-fixture"
-version = "0.1.0"
-[workspace]
-[lib]
-path = "../src/lib.rs"
-[dependencies]
-example = "*"
-TOML
-cp "$consumer/retired crate/Cargo.toml" "$FIXTURE/retired.toml"
-cp "$consumer/Cargo.lock" "$consumer/retired crate/Cargo.lock"
-cp "$FIXTURE/base.yml" "$consumer/.github/workflows/retired.yml"
-git -C "$consumer" add -- 'retired crate/Cargo.toml' 'retired crate/Cargo.lock' .github/workflows/retired.yml
-cp "$consumer/.git/index" "$FIXTURE/deletion-index"
-rm "$consumer/retired crate/Cargo.toml" "$consumer/.github/workflows/retired.yml"
+# Git inventory includes nested workflow names with spaces. Failed inventories,
+# including plausible partial output, must refuse and clean their scratch input.
+mkdir -p "$consumer/.github/workflows/nested" "$FIXTURE/inventory-bin" "$FIXTURE/inventory-tmp"
+cp "$FIXTURE/base.yml" "$consumer/.github/workflows/nested/pinned workflow.yml"
 check || { cat "$FIXTURE/output" >&2; exit 1; }
-cmp "$FIXTURE/deletion-index" "$consumer/.git/index"
-cp "$FIXTURE/retired.toml" "$consumer/retired crate/Cargo.toml"
-reject cargo-range
-rm "$consumer/retired crate/Cargo.toml"
-ln -s missing.toml "$consumer/retired crate/Cargo.toml"
-reject 'metadata must be a regular file'
-rm "$consumer/retired crate/Cargo.toml"
-check || { cat "$FIXTURE/output" >&2; exit 1; }
+printf 'jobs: {test: {steps: [{uses: "owner/action@main"}]}}\n' \
+    > "$consumer/.github/workflows/nested/unpinned workflow.yaml"
+reject action-ref
+rm "$consumer/.github/workflows/nested/unpinned workflow.yaml"
+PINS_FIXTURE_GIT="$(command -v git)"
+export PINS_FIXTURE_GIT
+cat > "$FIXTURE/inventory-bin/git" <<'GIT'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == ls-files ]]; then
+    if [[ "${PINS_FIXTURE_PARTIAL:-0}" == 1 ]]; then
+        printf '%s\0' '.github/workflows/nested/pinned workflow.yml'
+    fi
+    echo 'injected workflow inventory failure' >&2
+    exit 2
+fi
+exec "$PINS_FIXTURE_GIT" "$@"
+GIT
+chmod +x "$FIXTURE/inventory-bin/git"
+for partial in 0 1; do
+    status=0
+    PATH="$FIXTURE/inventory-bin:$PATH" TMPDIR="$FIXTURE/inventory-tmp" \
+        PINS_FIXTURE_PARTIAL="$partial" check || status=$?
+    [[ "$status" == 2 ]] || exit 1
+    grep -Fq 'injected workflow inventory failure' "$FIXTURE/output"
+    [[ -z "$(find "$FIXTURE/inventory-tmp" -mindepth 1 -print)" ]] || exit 1
+done
 
 # Full Git revs work in inline and ordinary TOML tables; floating choices fail.
 cat >> "$consumer/Cargo.toml" <<'TOML'

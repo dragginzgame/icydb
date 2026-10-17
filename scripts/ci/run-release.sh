@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/check-make-execution.sh scripts/ci/next-release-version.sh scripts/ci/check-release-tag.sh
+# Shared companions: scripts/ci/check-make-execution.sh scripts/ci/next-release-version.sh scripts/ci/check-release-tag.sh scripts/ci/validate-release-inputs.pl
 set -euo pipefail
 
 # Canonical ordering and Git effects; consumer targets own metadata and gates.
@@ -106,8 +106,10 @@ read_plan() {
         release-pr-plan-1) saved_delivery='pr' ;;
         *) fail 'release plan identity is invalid' ;;
     esac
-    [[ "$saved_candidate" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ && "$1" == "$state_root/$saved_candidate.plan" ]] || fail 'release plan identity is invalid'
-    [[ "$saved_source" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ && "$saved_date" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ && "$saved_destination" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]] || fail 'release plan source/date/destination is invalid'
+    perl "$runner_dir/validate-release-inputs.pl" version "$saved_candidate" >/dev/null || fail 'release plan identity is invalid'
+    [[ "$1" == "$state_root/$saved_candidate.plan" ]] || fail 'release plan identity is invalid'
+    [[ "$saved_source" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ && "$saved_destination" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]] || fail 'release plan source/date/destination is invalid'
+    perl "$runner_dir/validate-release-inputs.pl" date "$saved_date" >/dev/null || fail "release plan date is invalid"
     [[ "$(bash "$(dirname "${BASH_SOURCE[0]}")/next-release-version.sh" "$saved_previous" "$saved_kind")" == "$saved_candidate" ]] || fail 'release plan increment is invalid'
     case "$saved_phase" in
         preflight|validate|prepare|stage|commit|complete) ;;
@@ -159,7 +161,7 @@ select_release() {
     validation_source=""
     followup=no
     if [[ "$mode" == resume ]]; then
-        [[ "$requested_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || usage
+        perl "$runner_dir/validate-release-inputs.pl" version "$requested_version" >/dev/null || usage
         plan="$state_root/$requested_version.plan"
     else
         # Select saved intent before reading possibly bumped metadata. Recovery uses
@@ -200,6 +202,7 @@ select_release() {
         previous="$("$make_bin" --no-print-directory -s release-version)"
         candidate="$(bash "$(dirname "${BASH_SOURCE[0]}")/next-release-version.sh" "$previous" "$kind")"
         release_date="$(date -u +%F)"
+        perl "$runner_dir/validate-release-inputs.pl" date "$release_date" >/dev/null || fail "release date is invalid"
         source="$(git rev-parse --verify HEAD)"
         plan="$state_root/$candidate.plan"
         # Validation has no release mutations to resume. Retain its old identity as

@@ -27,11 +27,15 @@ Each row specifies executable, exact
 version, native host and archive SHA-256. The digests were read from the official
 GitHub release asset metadata on 2026-10-06; the Binaryen 133 archive digests
 were checked against downloaded bytes for all three host mappings on 2026-10-10.
+ICP CLI 1.7.0 digests were reviewed against official release-asset metadata on
+2026-10-17; all other selections are unchanged. Native installer/check results
+remain source-bound qualification, separate from asset availability
+([#268 — Adopt ICP CLI 1.7.0](https://github.com/dragginzgame/shared-tooling/issues/268)).
 
 | Executable | Default version | Official release |
 | --- | --- | --- |
 | `quill` | 0.5.4 | [Quill](https://github.com/dfinity/quill/releases/tag/v0.5.4) |
-| `icp` | 1.6.0 | [ICP CLI](https://github.com/dfinity/icp-cli/releases/tag/v1.6.0) |
+| `icp` | 1.7.0 | [ICP CLI](https://github.com/dfinity/icp-cli/releases/tag/v1.7.0) |
 | `didc` | 0.6.2 | [Candid tools](https://github.com/dfinity/candid/releases/tag/didc-v0.6.2) |
 | `ic-wasm` | 0.11.1 | [ic-wasm](https://github.com/dfinity/ic-wasm/releases/tag/0.11.1) |
 | `wasm-opt` | 133 | [Binaryen](https://github.com/WebAssembly/binaryen/releases/tag/version_133) |
@@ -96,14 +100,14 @@ when the checkout already references a verified generation in that slot.
 The installed hash receipt detects accidental byte changes; it is not a signed
 attestation against an attacker who can rewrite the checkout and receipts.
 The reviewed archive hashes and snapshot provenance establish admitted inputs.
-The native CI matrix exercises installation, version execution and a Wasm
-optimization/execution smoke on the three declared hosts. With the common IC
-set and the pinned frontend Node runtime already prepared, run
-`bash scripts/ci/qualify-wasm-opt.sh /absolute/path/to/new-evidence-directory`
-for the same offline smoke. It retains inputs and outputs and checks `-O3`,
-`-Os` and `-Oz` behavior against an unoptimized module using Node's WebAssembly
-engine. It exercises branches, integer boundaries and an IC-style reply import;
-it is not a real canister deployment or product acceptance test.
+The native CI matrix exercises installation, archive integrity, version execution
+and offline reuse on the three declared hosts. Semantic optimizer qualification
+is owned by [IC Build](https://github.com/dragginzgame/ic-build/pull/62): its native
+matrix runs real `-O3`, `-Os` and `-Oz` transforms through retained artifact
+transactions, checks repaired cache reuse and executes the transferred Wasm oracle.
+Run its local `scripts/ci/qualify-wasm-opt.sh` with an explicitly admitted optimizer
+and a new absolute evidence directory. The former Shared qualification command
+is removed; this does not replace product canister/deployment acceptance.
 Product build and deployment qualification stay with consumers;
 PocketIC compatibility and server admission belong to Testkit.
 

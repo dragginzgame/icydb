@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/verify-file-checksum.sh scripts/ci/verify-evidence-checksums.sh scripts/ci/ic-tool-pins.awk scripts/dev/tool-store.sh ci/ic-tools.tsv
+# Shared companions: scripts/ci/verify-file-checksum.sh scripts/ci/verify-evidence-checksums.sh scripts/ci/ic-tool-pins.awk scripts/dev/tool-store.sh scripts/dev/host-platform.sh ci/ic-tools.tsv
 set -euo pipefail
 
 ROOT="${BASH_SOURCE[0]}"
@@ -37,11 +37,11 @@ pins="${pins:-$ROOT/ci/ic-tools.tsv}"
 pins_name="${pins##*/}"
 pins="$(cd -P "${pins%/*}" && printf '%s/.' "$PWD")"
 pins="${pins%/.}/$pins_name"
-platform="$(uname -s):$(uname -m)"
+platform="$(bash "$ROOT/scripts/dev/host-platform.sh")"
 case "$platform" in
-    Linux:x86_64|Linux:amd64) host=linux-x86_64; target=x86_64-unknown-linux-gnu; os=linux; arch=x86_64 ;;
-    Darwin:x86_64|Darwin:amd64) host=darwin-x86_64; target=x86_64-apple-darwin; os=macos; arch=x86_64 ;;
-    Darwin:arm64|Darwin:aarch64) host=darwin-arm64; target=aarch64-apple-darwin; os=macos; arch=arm64 ;;
+    Linux:x86_64) host=linux-x86_64; target=x86_64-unknown-linux-gnu; os=linux; arch=x86_64 ;;
+    Darwin:x86_64) host=darwin-x86_64; target=x86_64-apple-darwin; os=macos; arch=x86_64 ;;
+    Darwin:arm64) host=darwin-arm64; target=aarch64-apple-darwin; os=macos; arch=arm64 ;;
     *) echo "no complete pinned IC toolset for this host: $platform; use a supported Linux x86-64 or macOS x86-64/ARM64 host" >&2; exit 1 ;;
 esac
 

@@ -19,6 +19,9 @@ for script in check-make-execution.sh run-validation-targets.sh run-icydb-valida
   install-ci-tool.sh install-icydb-actionlint.sh verify-file-checksum.sh; do
   cp "$ROOT/scripts/ci/$script" "$FIXTURE/scripts/ci/"
 done
+# The shared CI installer owns platform observation and bounded downloading.
+mkdir -p "$FIXTURE/scripts/dev"
+cp "$ROOT/scripts/dev/"{host-platform.sh,tool-store.sh} "$FIXTURE/scripts/dev/"
 
 cat > "$FIXTURE/Makefile" <<'MAKE'
 .PHONY: pass fail-one fail-two nested
@@ -548,7 +551,7 @@ for script in check-make-execution.sh invariant-common.sh check-dependency-graph
   check-executor-no-production-panics.sh test-invariant-scanners.sh; do
   cp "$ROOT/scripts/ci/$script" "$native/scripts/ci/"
 done
-cp "$ROOT/"{Cargo.toml,Cargo.lock,.shared-rust-source.snapshot} "$native/"
+cp "$ROOT/"{Cargo.toml,Cargo.lock,.shared-tooling.snapshot} "$native/"
 for owner in executor commit journal startup; do
   mkdir -p "$native/crates/icydb-core/src/db/$owner"
   printf 'fn production() {}\n' > "$native/crates/icydb-core/src/db/$owner/probe.rs"

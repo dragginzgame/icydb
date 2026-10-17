@@ -18,15 +18,16 @@ use std::{
 };
 
 use ic_build::artifacts::{
-    ArtifactCacheBatchFailure, ArtifactCacheBatchReport, ArtifactCacheOutcome,
-    ArtifactCachePrunePolicy, ArtifactCacheSpec, LabeledArtifactCacheSpec, LabeledWasmBuildSpec,
+    ArtifactCacheBatchFailure, ArtifactCacheBatchReport, ArtifactCacheOutcome, ArtifactCacheSpec,
+    CacheRetentionLimits, LabeledArtifactCacheSpec, LabeledWasmBuildSpec,
     SharedIncrementalTargetMaintenanceConfig, SharedIncrementalTargetMaintenanceFailureMode,
-    SharedIncrementalTargetPrunePolicy, WasmBuildBatchConfig, WasmBuildBatchContractError,
-    WasmBuildBatchProgressEvent, WasmBuildBatchReport, WasmBuildOutcome, WasmBuildProgressConfig,
-    WasmBuildProgressEvent, WasmBuildSpec, build_artifact_caches_batch,
-    build_wasm_canisters_cached_batch, build_wasm_canisters_cached_with_progress,
+    WasmBuildBatchConfig, WasmBuildBatchContractError, WasmBuildBatchProgressEvent,
+    WasmBuildBatchReport, WasmBuildOutcome, WasmBuildProgressConfig, WasmBuildProgressEvent,
+    WasmBuildSpec, build_artifact_caches_batch, build_wasm_canisters_cached_batch,
+    build_wasm_canisters_cached_with_progress,
 };
 use ic_build::cargo::selection::CargoSelection;
+use ic_host_process::child::{CleanupPolicy, OwnedChild};
 
 const CACHE_TRACE_ENV: &str = "ICYDB_CANISTER_CACHE_TRACE";
 const POST_LINK_CACHE_NAMESPACE: &str = "icydb-canister-wasm";
@@ -90,11 +91,14 @@ pub(crate) fn build_cached_cargo_wasm(
         true,
     );
 
-    let outcome =
-        build_wasm_canisters_cached_with_progress(&spec, wasm_build_progress_config(), |event| {
-            report_wasm_build_progress(request.context, event);
-        })
-        .map_err(|error| format!("cached Cargo Wasm build failed: {error}"))?;
+    let outcome = build_wasm_canisters_cached_with_progress(
+        &spec,
+        wasm_build_progress_config(),
+        |event| report_wasm_build_progress(request.context, event),
+        // Observed Cargo builds own their group through observer unwind.
+        |command| OwnedChild::spawn(command, CleanupPolicy::KillAndWait),
+    )
+    .map_err(|error| format!("cached Cargo Wasm build failed: {error}"))?;
     report_shared_target_maintenance_failure(request.context, &outcome);
     Ok(outcome)
 }
@@ -132,6 +136,7 @@ pub(crate) fn build_cached_cargo_wasm_batch(
         specs,
         batch_config,
         Some((wasm_build_progress_config(), &mut observer)),
+        |command| OwnedChild::spawn(command, CleanupPolicy::KillAndWait),
     )?;
     for entry in report.outcomes() {
         if let Some(outcome) = entry.outcome() {
@@ -187,10 +192,11 @@ pub(crate) fn cache_post_link_wasm(
         .pop()
         .ok_or_else(|| "post-link artifact batch omitted its single entry".to_owned())?;
     entry.into_parts().2.map_err(|failure| match failure {
-        ArtifactCacheBatchFailure::Cache { source, .. } => {
+        ArtifactCacheBatchFailure::Preparation { source, .. }
+        | ArtifactCacheBatchFailure::Commit { source, .. } => {
             format!("post-link artifact cache failed: {source}")
         }
-        ArtifactCacheBatchFailure::Build {
+        ArtifactCacheBatchFailure::Callback {
             source,
             cleanup_error,
             ..
@@ -338,14 +344,14 @@ fn wasm_build_progress_config() -> WasmBuildProgressConfig {
         .with_cargo_output(false)
 }
 
-const fn artifact_cache_prune_policy() -> ArtifactCachePrunePolicy {
-    ArtifactCachePrunePolicy::new()
+const fn artifact_cache_prune_policy() -> CacheRetentionLimits {
+    CacheRetentionLimits::new()
         .with_max_age(CACHE_MAX_AGE)
         .with_max_size_bytes(CACHE_MAX_BYTES)
 }
 
-const fn shared_incremental_target_prune_policy() -> SharedIncrementalTargetPrunePolicy {
-    SharedIncrementalTargetPrunePolicy::new()
+const fn shared_incremental_target_prune_policy() -> CacheRetentionLimits {
+    CacheRetentionLimits::new()
         .with_max_age(CACHE_MAX_AGE)
         .with_max_size_bytes(SHARED_INCREMENTAL_TARGET_MAX_BYTES)
 }

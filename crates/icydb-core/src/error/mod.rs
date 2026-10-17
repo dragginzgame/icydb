@@ -1631,6 +1631,36 @@ impl InternalError {
         Self::new(ErrorClass::Unsupported, ErrorOrigin::Index)
     }
 
+    /// Reject a complete encoded index key with bounded accepted-index evidence.
+    pub(crate) fn index_key_exceeds_max_size_at(
+        entity_tag: u64,
+        physical_generation: u64,
+        actual_length: usize,
+        limit: usize,
+    ) -> Self {
+        Self::with_diagnostic_facts(
+            ErrorClass::Unsupported,
+            ErrorOrigin::Index,
+            None,
+            vec![
+                (diagnostic_code::DiagnosticFactTag::EntityTag, entity_tag),
+                (
+                    diagnostic_code::DiagnosticFactTag::PhysicalGeneration,
+                    physical_generation,
+                ),
+                (
+                    diagnostic_code::DiagnosticFactTag::ComponentKind,
+                    diagnostic_code::DiagnosticComponentKind::IndexKey.raw(),
+                ),
+                (
+                    diagnostic_code::DiagnosticFactTag::ActualLength,
+                    actual_length as u64,
+                ),
+                (diagnostic_code::DiagnosticFactTag::Limit, limit as u64),
+            ],
+        )
+    }
+
     /// Construct the canonical index-key component size-limit unsupported error.
     pub(crate) fn index_component_exceeds_max_size_at(
         entity_tag: u64,

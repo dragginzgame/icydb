@@ -20,9 +20,6 @@ tasks/code-audit.md
 tasks/tooling-duplication.md
 tasks/maintenance-prompt.md
 tasks/local-schedule.md
-tasks/systemd/shared-tooling-maintenance.service
-tasks/systemd/shared-tooling-maintenance.timer
-scripts/dev/run-maintenance.sh
 audits/README.md
 audits/ic-canister-applications.md
 audits/code-hygiene.md
@@ -36,6 +33,8 @@ scripts/ci/release-pr.sh
 scripts/ci/check-make-execution.sh
 scripts/ci/check-release-source.sh
 scripts/ci/next-release-version.sh
+scripts/ci/validate-release-inputs.pl
+scripts/ci/StableVersion.pm
 scripts/ci/finalize-release-changelog.awk
 scripts/ci/check-dependency-pins.sh
 scripts/ci/dependency-pins.jq
@@ -59,5 +58,6 @@ scripts/ci/verify-file-checksum.sh
 scripts/ci/verify-shared-tooling-snapshot.sh
 docs/tag-maintenance.md
 scripts/distribution/governance-files.txt
+scripts/distribution/maintenance-files.txt
 docs/tool-catalog-bindings.md
 docs/cargo-publication.md

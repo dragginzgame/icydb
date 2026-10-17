@@ -20,6 +20,16 @@ fixture_create() {
     printf '%s\n' "${directory%/.}"
 }
 
+# Replay caller-selected existing logs without replacing the saved failure status.
+fixture_replay_logs() {
+    local log
+    for log in "$@"; do
+        if [[ -f "$log" ]]; then cat -- "$log" >&2 || :; fi
+    done
+    # Diagnostics are best effort and must not replace a caller's saved status.
+    return 0
+}
+
 # Completion admission only; callers retain evidence and cleanup policy.
 fixture_completion_status() {
     [[ $# == 2 ]] || return 2

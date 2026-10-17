@@ -17,10 +17,8 @@ cargo_build_init
 key="$(
     {
         printf '%s\n' "$build_identity" "${ImageOS:-}" "${ImageVersion:-}"
-        # Never execute a catalog during inspection. Only normalize the plain
-        # assignments we can prove literal; executable/ambiguous catalogs retain
-        # their complete bytes so a hidden selection change cannot share a key.
-        perl "$ROOT/scripts/ci/tool-catalog-records.pl" cargo-cache "$1" || exit $?
+        # Cache the same admitted records used by installation and inspection.
+        perl "$ROOT/scripts/ci/tool-catalog-records.pl" rust "$1" || exit $?
         for file in scripts/ci/cargo-tool-cache-key.sh scripts/ci/tool-catalog-records.pl \
             scripts/dev/install-rust-tools.sh scripts/dev/tool-store.sh \
             scripts/ci/verify-file-checksum.sh; do

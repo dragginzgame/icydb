@@ -28,6 +28,12 @@ this contract; the [release contract](../docs/releases.md) owns release executio
 - Keep implementation inventories, internal paths, test names, footprint tables
   and long examples out of root summaries unless needed to explain a public
   contract or required action. Move useful detail to the linked minor-line notes.
+  Neither root nor detailed notes should inventory moved, renamed or edited
+  functions and types. Summarize refactoring by its outcome. Mention specific
+  symbols only when needed to explain a meaningful API change or consumer action.
+  The maintainer-only [symbol report](change-reporting.md#symbol-changes) lists
+  genuinely created and deleted declarations; keep that inventory out of release
+  notes rather than relocating it into a detail file.
   Include a small representative example when it makes a newly supported
   command, query or configuration clearer; do not invent examples for cleanup.
 - Describe supported behavior and measured effects accurately. Do not present

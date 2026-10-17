@@ -28,3 +28,8 @@ its consumers and required focused qualification. Distinguish estimated removabl
 lines from measured removals; include the cost of shared replacements and adapters.
 Coordinate through owning issues and preserve active work. This task does not
 edit siblings, replace snapshots or promise a reduction before implementation.
+
+For repeated test dispatch, apply the
+[consumer qualification selection](../docs/consuming-snapshots.md#consumer-qualification-selection).
+Distinguish upstream implementation cases from actual consumer wiring and native
+acceptance before proposing removal; retain each required proof at its owner.

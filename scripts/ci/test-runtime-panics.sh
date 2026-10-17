@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/check-runtime-panics.rs docs/rust-source-checks.md
+# Shared companions: scripts/ci/check-runtime-panics.rs scripts/ci/fixture-lifecycle.sh docs/rust-source-checks.md
 set -euo pipefail
 
 [[ "$#" -eq 1 && "$1" == /* && -x "$1" ]] || {
@@ -7,19 +7,11 @@ set -euo pipefail
   exit 2
 }
 checker="$1"
-scratch="$(mktemp -d "${TMPDIR:-/tmp}/runtime-panics.XXXXXX")"
-complete=false
-cleanup() {
-  local status=$?
-  [[ "$complete" == true || "$status" != 0 ]] || status=1
-  if [[ "$status" -eq 0 ]]; then
-    rm -rf "$scratch"
-  else
-    echo "Runtime scanner fixture retained: $scratch" >&2
-  fi
-  exit "$status"
-}
-trap cleanup EXIT
+# shellcheck source=scripts/ci/fixture-lifecycle.sh
+source "${BASH_SOURCE[0]%/*}/fixture-lifecycle.sh"
+scratch="$(fixture_create "${TMPDIR:-/tmp}/runtime-panics.XXXXXX")"
+fixture_complete=false
+trap 'fixture_finish "$?" "$scratch" "Runtime scanner fixture retained"' EXIT
 executor="$scratch/source"
 mkdir -p "$executor"
 cases=0
@@ -88,6 +80,20 @@ printf 'fn production() { let _ = format!("{}", value.unwrap()); }\n' > "$execut
 check production-inside-macro 1 "$checker" "$executor/production.rs"
 printf 'macro_rules! runtime { () => { panic!("fixture"); }; }\n' > "$executor/production.rs"
 check production-macro-template 1 "$checker" "$executor/production.rs"
+for pattern in 'outer!(value.unwrap::<u32>());' \
+  'outer!(value.r#expect::<Result<Vec<u32>, Error>>("reason"));' \
+  'outer!(value.unwrap::<fn() -> u32>());'; do
+  printf 'fn production() { %s }\n' "$pattern" > "$executor/production.rs"
+  check "macro-generic-method-$cases" 1 "$checker" "$executor/production.rs"
+done
+printf 'fn production() { outer!(value.unwrap::<u32>, value.expect < 3); }\n' > "$executor/production.rs"
+check macro-method-reference 0 "$checker" "$executor/production.rs"
+for pattern in 'value.r#unwrap();' 'value.r#expect("reason");' 'r#panic!("reason");' \
+  'std::r#assert!(false);' 'format!("{}", value.r#unwrap());' \
+  'outer!(r#panic!("reason"));'; do
+  printf 'fn production() { %s }\n' "$pattern" > "$executor/production.rs"
+  check "raw-identifier-$cases" 1 "$checker" "$executor/production.rs"
+done
 printf '#[cfg(all(feature = "sql", test))]\nfn test() { panic!("fixture"); }\n' > "$executor/production.rs"
 check reordered-test-cfg 0 "$checker" "$executor/production.rs"
 printf '#[cfg(not(not(test)))]\nfn test() { panic!("fixture"); }\n' > "$executor/production.rs"
@@ -110,5 +116,5 @@ check test-only-trait-item 0 "$checker" "$executor/production.rs"
 printf 'fn production() { value.unwrap(); }\n' > "$executor/production.rs"
 check diagnostic 1 "$checker" "$executor/production.rs"
 grep -F "$executor/production.rs:1:" "$scratch/diagnostic.stderr" > /dev/null
-complete=true
+fixture_complete=true
 printf '[OK] Shared runtime scanner fixtures passed (%s cases).\n' "$cases"

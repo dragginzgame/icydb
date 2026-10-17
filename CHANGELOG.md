@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### ⚠️ Breaking
 
+- Cap complete encoded secondary-index keys at 512 bytes; reject oversized keys
+  before mutation. Recreate index stores and regenerate continuations after
+  retaining required backups and recovery/export access.
 - Adopt Toko Studios' source-available license 1.1 for newly covered material;
   preserve prior Apache-2.0/MIT grants and notices, and remove superseded
   standalone Apache license files.
@@ -25,8 +28,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Align CI and read-admission checks with current endpoint ownership, private
   dependency fetching and browser validation.
 - Align bootstrap diagnostics with Memory 0.48's admission errors.
-- Adopt IC Build 0.14 typed Cargo selections and checked batch builds for Wasm
-  artifact generation.
+- Adopt registry IC Host 0.27 and Shared Tooling 0.23; restore CLI table
+  qualification, consolidate scanner ownership and explicitly select IC tools.
+- Adopt IC Build 0.16 with explicit Cargo custody and inherited flags for
+  checked Wasm artifact generation.
 - Add native browser contracts and installed endpoint qualification; prepare
   scoped private IC Wire fetching in CI, requiring owner-provisioned App secrets.
 - Share native RPC and browser encoding with IC Wire, move SQL terminal reports

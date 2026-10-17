@@ -795,6 +795,7 @@ fn recovery_reorigining_preserves_fact_schema_families() {
         InternalError::query_stale_accepted_schema_revision(1, Some(2)),
         InternalError::index_key_field_count_exceeds_max(1, 2, 5, 4),
         InternalError::index_component_exceeds_max_size_at(1, 2, 3, 513, 512),
+        InternalError::index_key_exceeds_max_size_at(1, 2, 513, 512),
         InternalError::convergence_backlog_pressure(DiagnosticBacklogResource::Batches, 64, 1, 64),
         InternalError::persisted_row_slot_count_mismatch(1, 2, 3),
     ];

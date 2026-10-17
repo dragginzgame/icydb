@@ -32,8 +32,13 @@ impl From<CompactStoreKeyEncodeError> for IndexKeyEncodeError {
 }
 
 impl From<IndexKeyEncodeError> for InternalError {
-    fn from(_err: IndexKeyEncodeError) -> Self {
-        Self::index_invariant()
+    fn from(err: IndexKeyEncodeError) -> Self {
+        match err {
+            IndexKeyEncodeError::SegmentTooLarge => Self::index_unsupported(),
+            IndexKeyEncodeError::EmptySegment
+            | IndexKeyEncodeError::InvalidPrimaryKey
+            | IndexKeyEncodeError::TooManyComponents => Self::index_invariant(),
+        }
     }
 }
 

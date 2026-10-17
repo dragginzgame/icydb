@@ -23,12 +23,12 @@ done
 
 # The copied gate independently verifies the shared scanner source. Copy its
 # authoritative manifest closure instead of maintaining another payload roster.
-cp "$ROOT/.shared-rust-source.snapshot" "$scratch/.shared-rust-source.snapshot"
+cp "$ROOT/.shared-tooling.snapshot" "$scratch/.shared-tooling.snapshot"
 shared_records="$(bash "$ROOT/scripts/ci/verify-shared-tooling-snapshot.sh" \
-  --read-manifest "$ROOT/.shared-rust-source.snapshot")"
+  --read-manifest "$ROOT/.shared-tooling.snapshot")"
 while IFS=$'\t' read -r kind _digest _mode shared_path; do
   [[ "$kind" == file ]] || continue
-  mkdir -p "$scratch/${shared_path%/*}"
+  mkdir -p "$(dirname "$scratch/$shared_path")"
   cp "$ROOT/$shared_path" "$scratch/$shared_path"
 done <<< "$shared_records"
 

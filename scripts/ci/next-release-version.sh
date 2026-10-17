@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
+# Shared companions: scripts/ci/validate-release-inputs.pl
 set -euo pipefail
 
 [[ $# -eq 2 ]] || { echo 'usage: next-release-version.sh X.Y.Z patch|minor|major' >&2; exit 2; }
 version="$1"
 kind="$2"
-[[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || exit 2
-IFS=. read -r major minor patch <<<"$version"
+parts="$(perl "$(dirname "${BASH_SOURCE[0]}")/validate-release-inputs.pl" version "$version")" || exit 2
+IFS=$'\t' read -r major minor patch <<<"$parts"
 maximum_component=9223372036854775807
 for component in "$major" "$minor" "$patch"; do
     # Bound arithmetic before Bash converts a decimal to a signed integer.

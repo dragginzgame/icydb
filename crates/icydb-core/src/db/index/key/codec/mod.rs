@@ -240,7 +240,10 @@ impl IndexKey {
         prefix: &[C],
         sentinel: PrefixBoundSentinel,
     ) -> Result<RawIndexStoreKey, IndexKeyEncodeError> {
-        let capacity = Self::raw_prefix_bound_capacity(index_len, prefix, sentinel);
+        let (capacity, suffix_lengths) = Self::raw_prefix_bound_layout(index_len, prefix, sentinel);
+        if capacity > Self::MAX_STORED_SIZE_USIZE {
+            return Err(IndexKeyEncodeError::SegmentTooLarge);
+        }
         let mut bytes = Vec::with_capacity(capacity);
         bytes.push(index_key_kind_to_store_key_kind(key_kind).tag());
         bytes.extend_from_slice(&index_id.to_bytes());
@@ -251,18 +254,10 @@ impl IndexKey {
         for component in prefix {
             push_segment(&mut bytes, component.as_ref())?;
         }
-        for _ in prefix.len()..index_len {
-            push_repeated_segment(
-                &mut bytes,
-                sentinel.component_len(),
-                sentinel.component_byte(),
-            )?;
+        for length in suffix_lengths.iter().take(index_len - prefix.len()) {
+            push_repeated_segment(&mut bytes, *length, sentinel.component_byte())?;
         }
-        push_repeated_segment(
-            &mut bytes,
-            sentinel.primary_key_len(),
-            sentinel.primary_key_byte(),
-        )?;
+        push_segment(&mut bytes, &[sentinel.component_byte()])?;
         Ok(RawIndexStoreKey::from_persisted_bytes(bytes))
     }
 
@@ -271,28 +266,26 @@ impl IndexKey {
         index_len: usize,
         prefix: &[C],
     ) -> usize {
-        Self::raw_prefix_bound_capacity(index_len, prefix, PrefixBoundSentinel::Low).saturating_add(
-            Self::raw_prefix_bound_capacity(index_len, prefix, PrefixBoundSentinel::High),
-        )
+        Self::raw_prefix_bound_layout(index_len, prefix, PrefixBoundSentinel::Low)
+            .0
+            .saturating_add(
+                Self::raw_prefix_bound_layout(index_len, prefix, PrefixBoundSentinel::High).0,
+            )
     }
 
-    fn raw_prefix_bound_capacity<C: AsRef<[u8]>>(
+    fn raw_prefix_bound_layout<C: AsRef<[u8]>>(
         index_len: usize,
         prefix: &[C],
         sentinel: PrefixBoundSentinel,
-    ) -> usize {
+    ) -> (usize, [usize; MAX_INDEX_FIELDS]) {
         let suffix_count = index_len.saturating_sub(prefix.len());
-        let suffix_len = sentinel.component_len();
-        let primary_key_len = sentinel.primary_key_len();
-        let mut capacity = KEY_PREFIX_SIZE
-            + (suffix_count * (SEGMENT_LEN_SIZE + suffix_len))
-            + SEGMENT_LEN_SIZE
-            + primary_key_len;
+        let mut capacity =
+            KEY_PREFIX_SIZE + (suffix_count * (SEGMENT_LEN_SIZE + 1)) + SEGMENT_LEN_SIZE + 1;
         for component in prefix {
             capacity = capacity.saturating_add(SEGMENT_LEN_SIZE + component.as_ref().len());
         }
 
-        capacity
+        bound_sentinel_layout(capacity, suffix_count, sentinel)
     }
 
     fn raw_component_range_bound_with_kind<C: AsRef<[u8]>, B: AsRef<[u8]>>(
@@ -303,7 +296,8 @@ impl IndexKey {
         bound: &Bound<B>,
         side: RangeBoundSide,
     ) -> Result<RawIndexStoreKey, IndexKeyEncodeError> {
-        let capacity = Self::raw_component_range_bound_capacity(index_len, prefix, bound, side)?;
+        let (capacity, suffix_lengths) =
+            Self::raw_component_range_bound_layout(index_len, prefix, bound, side)?;
         let suffix_count = index_len.saturating_sub(prefix.len()).saturating_sub(1);
         let exclusive = matches!(bound, Bound::Excluded(_));
         let mut bytes = Vec::with_capacity(capacity);
@@ -316,21 +310,19 @@ impl IndexKey {
         for component in prefix {
             push_segment(&mut bytes, component.as_ref())?;
         }
-        push_component_bound_segment(&mut bytes, bound, side.unbounded_sentinel())?;
-        for _ in 0..suffix_count {
+        push_component_bound_segment(
+            &mut bytes,
+            bound,
+            side.unbounded_sentinel(),
+            suffix_lengths[0],
+        )?;
+        let first_suffix = usize::from(matches!(bound, Bound::Unbounded));
+        for length in suffix_lengths.iter().skip(first_suffix).take(suffix_count) {
             let sentinel = side.suffix_sentinel(exclusive);
-            push_repeated_segment(
-                &mut bytes,
-                sentinel.component_len(),
-                sentinel.component_byte(),
-            )?;
+            push_repeated_segment(&mut bytes, *length, sentinel.component_byte())?;
         }
         let pk_sentinel = side.primary_key_sentinel(exclusive);
-        push_repeated_segment(
-            &mut bytes,
-            pk_sentinel.primary_key_len(),
-            pk_sentinel.primary_key_byte(),
-        )?;
+        push_segment(&mut bytes, &[pk_sentinel.component_byte()])?;
         Ok(RawIndexStoreKey::from_persisted_bytes(bytes))
     }
 
@@ -341,43 +333,48 @@ impl IndexKey {
         lower: &Bound<B>,
         upper: &Bound<B>,
     ) -> Result<usize, IndexKeyEncodeError> {
-        Self::raw_component_range_bound_capacity(index_len, prefix, lower, RangeBoundSide::Lower)?
-            .checked_add(Self::raw_component_range_bound_capacity(
-                index_len,
-                prefix,
-                upper,
-                RangeBoundSide::Upper,
-            )?)
+        Self::raw_component_range_bound_layout(index_len, prefix, lower, RangeBoundSide::Lower)?
+            .0
+            .checked_add(
+                Self::raw_component_range_bound_layout(
+                    index_len,
+                    prefix,
+                    upper,
+                    RangeBoundSide::Upper,
+                )?
+                .0,
+            )
             .ok_or(IndexKeyEncodeError::SegmentTooLarge)
     }
 
-    fn raw_component_range_bound_capacity<C: AsRef<[u8]>, B: AsRef<[u8]>>(
+    fn raw_component_range_bound_layout<C: AsRef<[u8]>, B: AsRef<[u8]>>(
         index_len: usize,
         prefix: &[C],
         bound: &Bound<B>,
         side: RangeBoundSide,
-    ) -> Result<usize, IndexKeyEncodeError> {
+    ) -> Result<(usize, [usize; MAX_INDEX_FIELDS]), IndexKeyEncodeError> {
         let range_slot = prefix.len();
-        let exclusive = matches!(bound, Bound::Excluded(_));
-        let suffix_len = side.suffix_sentinel(exclusive).component_len();
         let suffix_count = index_len.saturating_sub(range_slot).saturating_sub(1);
-        let primary_key_len = side.primary_key_sentinel(exclusive).primary_key_len();
-        let mut capacity = KEY_PREFIX_SIZE
-            + SEGMENT_LEN_SIZE
-            + primary_key_len
-            + (suffix_count * (SEGMENT_LEN_SIZE + suffix_len));
+        let mut capacity =
+            KEY_PREFIX_SIZE + SEGMENT_LEN_SIZE + 1 + (suffix_count * (SEGMENT_LEN_SIZE + 1));
         for component in prefix {
             capacity = capacity
                 .checked_add(SEGMENT_LEN_SIZE + component.as_ref().len())
                 .ok_or(IndexKeyEncodeError::SegmentTooLarge)?;
         }
         capacity = capacity
-            .checked_add(
-                SEGMENT_LEN_SIZE + component_bound_encoded_len(bound, side.unbounded_sentinel()),
-            )
+            .checked_add(SEGMENT_LEN_SIZE + component_bound_encoded_len(bound))
             .ok_or(IndexKeyEncodeError::SegmentTooLarge)?;
+        if capacity > Self::MAX_STORED_SIZE_USIZE {
+            return Err(IndexKeyEncodeError::SegmentTooLarge);
+        }
 
-        Ok(capacity)
+        let unknown_components = suffix_count + usize::from(matches!(bound, Bound::Unbounded));
+        Ok(bound_sentinel_layout(
+            capacity,
+            unknown_components,
+            side.suffix_sentinel(matches!(bound, Bound::Excluded(_))),
+        ))
     }
 
     pub(crate) fn try_from_raw(raw: &RawIndexStoreKey) -> Result<Self, IndexKeyDecodeError> {
@@ -471,33 +468,35 @@ enum PrefixBoundSentinel {
 }
 
 impl PrefixBoundSentinel {
-    const fn component_len(self) -> usize {
-        match self {
-            Self::Low => 1,
-            Self::High => IndexKey::MAX_COMPONENT_SIZE,
-        }
-    }
-
     const fn component_byte(self) -> u8 {
         match self {
             Self::Low => 0,
             Self::High => 0xFF,
         }
     }
+}
 
-    const fn primary_key_len(self) -> usize {
-        match self {
-            Self::Low => 1,
-            Self::High => IndexKey::MAX_PK_SIZE,
+// Give the first unknown component as much of the remaining complete-key budget
+// as it can hold. A larger equal-prefix component or suffix cannot fit in a
+// stored key. This brackets opaque system components too, without assuming a
+// scalar tag. Primary-key sentinels need one byte: every canonical kind is < 0xFF.
+fn bound_sentinel_layout(
+    minimum_capacity: usize,
+    component_count: usize,
+    sentinel: PrefixBoundSentinel,
+) -> (usize, [usize; MAX_INDEX_FIELDS]) {
+    let mut lengths = [1; MAX_INDEX_FIELDS];
+    let mut capacity = minimum_capacity;
+    if matches!(sentinel, PrefixBoundSentinel::High) {
+        let mut remaining = IndexKey::MAX_STORED_SIZE_USIZE.saturating_sub(capacity);
+        for length in lengths.iter_mut().take(component_count) {
+            let extra = remaining.min(IndexKey::MAX_COMPONENT_SIZE - 1);
+            *length += extra;
+            remaining -= extra;
+            capacity += extra;
         }
     }
-
-    const fn primary_key_byte(self) -> u8 {
-        match self {
-            Self::Low => 0,
-            Self::High => 0xFF,
-        }
-    }
+    (capacity, lengths)
 }
 
 #[derive(Clone, Copy)]
@@ -546,12 +545,9 @@ fn validate_component_bound<B: AsRef<[u8]>>(bound: &Bound<B>) -> Result<(), Inde
     }
 }
 
-fn component_bound_encoded_len<B: AsRef<[u8]>>(
-    bound: &Bound<B>,
-    unbounded_sentinel: PrefixBoundSentinel,
-) -> usize {
+fn component_bound_encoded_len<B: AsRef<[u8]>>(bound: &Bound<B>) -> usize {
     match bound {
-        Bound::Unbounded => unbounded_sentinel.component_len(),
+        Bound::Unbounded => 1,
         Bound::Included(component) | Bound::Excluded(component) => component.as_ref().len(),
     }
 }
@@ -560,13 +556,12 @@ fn push_component_bound_segment<B: AsRef<[u8]>>(
     bytes: &mut Vec<u8>,
     bound: &Bound<B>,
     unbounded_sentinel: PrefixBoundSentinel,
+    unbounded_len: usize,
 ) -> Result<(), IndexKeyEncodeError> {
     match bound {
-        Bound::Unbounded => push_repeated_segment(
-            bytes,
-            unbounded_sentinel.component_len(),
-            unbounded_sentinel.component_byte(),
-        ),
+        Bound::Unbounded => {
+            push_repeated_segment(bytes, unbounded_len, unbounded_sentinel.component_byte())
+        }
         Bound::Included(component) | Bound::Excluded(component) => {
             push_segment(bytes, component.as_ref())
         }
@@ -581,7 +576,6 @@ fn push_repeated_segment(
     if len == 0 {
         return Err(IndexKeyEncodeError::EmptySegment);
     }
-
     let len_u16 = u16::try_from(len).map_err(|_| IndexKeyEncodeError::SegmentTooLarge)?;
     bytes.extend_from_slice(&len_u16.to_be_bytes());
     let new_len = bytes
@@ -589,7 +583,6 @@ fn push_repeated_segment(
         .checked_add(len)
         .ok_or(IndexKeyEncodeError::SegmentTooLarge)?;
     bytes.resize(new_len, byte);
-
     Ok(())
 }
 

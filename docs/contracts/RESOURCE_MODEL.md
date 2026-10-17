@@ -123,6 +123,26 @@ by 64 (with a minimum of one), and the total cap is that count multiplied by
 the group limit with saturating arithmetic. Live-memory and request/execution
 caps also apply and can reject before either count cap is reached.
 
+### Secondary-Index Key Budget
+
+Every complete encoded secondary-index key is limited to **512 bytes** by the
+[key taxonomy](../../crates/icydb-core/src/db/key_taxonomy.rs). The budget includes
+the index-kind and physical-identity prefix, all component length prefixes and
+payloads, and the length-prefixed row primary key. It applies to user and system
+indexes; four fields and a 254-byte primary-key suffix remain structural maxima,
+with their combined encoding subject to the same 512-byte budget.
+
+The largest single component is 487 encoded bytes, possible only with one
+component and a one-byte primary key. Wider primary identities or more fields
+leave less component space. Oversized indexed values fail before mutation;
+encoding never truncates or hashes them. Ordinary non-indexed values retain
+their own field and request limits. Query bounds share the complete-key cap;
+wildcard lengths are derived from the remaining key space.
+
+The persisted stable-map key bound is part of the storage contract. Retain the
+previous binary and required backup/export access before explicitly recreating
+index stores and discarding continuations from the wider-key contract.
+
 ### Request And Execution Budgets
 
 | Authority | Scope and responsibility | Compiled owner |

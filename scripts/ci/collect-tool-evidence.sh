@@ -18,7 +18,7 @@ case "$mode" in full|compact) ;; *) echo 'unknown evidence selection' >&2; exit 
 diagnostics="$(cd -P "$diagnostics" && printf '%s/.' "$PWD")"
 diagnostics="${diagnostics%/.}"
 # These receipt names belong to this invocation; never replace older evidence.
-for name in selections.nul selection.log selection-status; do
+for name in selections.nul selection.log selection-status archive-status; do
     [[ ! -e "$diagnostics/$name" && ! -L "$diagnostics/$name" ]] || exit 2
 done
 selection=("$mode" "$repository" "$diagnostics")
@@ -32,14 +32,35 @@ if [[ "$status" != 0 ]]; then
     echo 'Tool evidence collection incomplete; retaining admitted local evidence and diagnostics.' >&2
 fi
 inputs=("$@")
-while IFS= read -r -d '' selected_root && IFS= read -r -d '' selected_path; do
-    inputs+=("$selected_root" "$selected_path")
-done < "$diagnostics/selections.nul"
+if [[ "$status" == 0 ]]; then
+    while IFS= read -r -d '' selected_root && IFS= read -r -d '' selected_path; do
+        inputs+=("$selected_root" "$selected_path")
+    done < "$diagnostics/selections.nul"
+else
+    # A failing producer cannot admit its partial physical-store selections.
+    # Archive local references without following them, plus original diagnostics.
+    if [[ ! -L "$repository/.tools" && -d "$repository/.tools" ]]; then
+        if [[ ! -L "$repository/.tools/rust" && -d "$repository/.tools/rust" ]]; then
+            inputs+=("$repository" .tools/rust)
+        fi
+        for candidate in "$repository"/.tools/host "$repository"/.tools/ic \
+            "$repository"/.tools/host-set.* "$repository"/.tools/ic-set.*; do
+            [[ -e "$candidate" || -L "$candidate" ]] || continue
+            inputs+=("$repository" "${candidate#"$repository"/}")
+        done
+    fi
+fi
 # Preserve the caller-owned diagnostic directory alongside admitted payloads.
 if [[ "$status" != 0 || -d "$diagnostics/host" || -d "$diagnostics/ic" ]]; then
     inputs+=("${diagnostics%/*}" "${diagnostics##*/}")
 fi
 if [[ ${#inputs[@]} != 0 ]]; then
-    bash "$root/scripts/ci/archive-evidence.sh" "$output" "${inputs[@]}" || exit 2
+    archive_status=0
+    printf '0\n' > "$diagnostics/archive-status"
+    bash "$root/scripts/ci/archive-evidence.sh" "$output" "${inputs[@]}" || archive_status=$?
+    if [[ "$archive_status" != 0 ]]; then
+        printf '%s\n' "$archive_status" > "$diagnostics/archive-status"
+        exit 2
+    fi
 fi
 [[ "$status" == 0 ]] || exit 1

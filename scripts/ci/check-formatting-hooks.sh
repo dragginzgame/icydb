@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
+# Shared companions: scripts/ci/select-rust-formatting-sources.sh scripts/ci/fixture-lifecycle.sh
 set -euo pipefail
 
 # Consumer-owned Make code is reviewed executable input, not sandboxed code.
 if [[ $# -lt 4 ]]; then
-    echo 'usage: check-formatting-hooks.sh ROOT RUST_PATH MANIFEST_PATH {UNSORTED_MANIFEST|--no-dependency-tables} [OVERLAY_PATH ...]' >&2
+    echo 'usage: check-formatting-hooks.sh ROOT RUST_PATH MANIFEST_PATH {UNSORTED_MANIFEST|--no-dependency-tables} [--rust-sources] [OVERLAY_PATH ...]' >&2
     exit 2
 fi
 root="$1"
@@ -12,6 +13,8 @@ root="$(cd -P "$root" && printf '%s/.' "$PWD")"
 root="${root%/.}"
 rust="$2"; manifest="$3"; unsorted="$4"
 shift 4
+rust_sources=false
+if [[ "${1:-}" == --rust-sources ]]; then rust_sources=true; shift; fi
 perturb_manifest=true
 if [[ "$unsorted" == --no-dependency-tables ]]; then
     perturb_manifest=false
@@ -35,19 +38,15 @@ unset VALIDATION_REPOSITORY_ROOT VALIDATION_RUNNER_SNAPSHOT_PATH
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_NAMESPACE
 export CARGO_NET_OFFLINE=true RUSTUP_AUTO_INSTALL=0
 # Disposable adoption checkouts reuse the consumer's explicitly prepared tools.
-export PATH="$root/.tools/host/bin:$root/.tools/ic/bin:$root/.tools/rust/common/bin:$PATH"
-fixture="$(mktemp -d "${TMPDIR:-/tmp}/formatting-adoption.XXXXXX")"
-fixture="$(cd -P "$fixture" && printf '%s/.' "$PWD")"
-fixture="${fixture%/.}"
+export PATH="$root/.tools/host/bin:$root/.tools/rust/common/bin:$PATH"
+script_dir="${BASH_SOURCE[0]}"
+[[ "$script_dir" == /* ]] || script_dir="$PWD/$script_dir"
+script_dir="${script_dir%/*}"
+# shellcheck source=scripts/ci/fixture-lifecycle.sh
+source "$script_dir/fixture-lifecycle.sh"
+fixture="$(fixture_create "${TMPDIR:-/tmp}/formatting-adoption.XXXXXX")"
 fixture_complete=false
-finish() {
-    local status=$?
-    [[ "$fixture_complete" == true || "$status" != 0 ]] || status=1
-    if [[ "$status" == 0 ]]; then rm -rf "$fixture";
-    else echo "Formatting adoption evidence retained: $fixture" >&2; fi
-    exit "$status"
-}
-trap finish EXIT
+trap 'fixture_finish "$?" "$fixture" "Formatting adoption evidence retained"' EXIT
 # Hooks and formatters change directories inside the disposable checkout.
 # Keep their temporary files under the caller's selected physical parent.
 export TMPDIR="${fixture%/*}"
@@ -71,6 +70,20 @@ if LC_ALL=C grep -Ev '^100(644|755) ' "$fixture/entries" > "$fixture/unsupported
     echo 'formatting adoption requires regular tracked files' >&2; exit 1
 fi
 git checkout-index --all
+if [[ "$rust_sources" == true ]]; then
+    bash "$root/scripts/ci/select-rust-formatting-sources.sh" "$root" > "$fixture/rust-sources"
+    while IFS= read -r -d '' path; do
+        if [[ -e "$root/$path" ]]; then
+            parent=.
+            [[ "$path" != */* ]] || parent="${path%/*}"
+            mkdir -p "$parent"
+            cp -p "$root/$path" "$path"
+            git --literal-pathspecs add -- "$path"
+        else
+            git --literal-pathspecs rm --ignore-unmatch -- "$path" > /dev/null
+        fi
+    done < "$fixture/rust-sources"
+fi
 for path in "$rust" "$manifest" Makefile .githooks/pre-commit scripts/dev/install-git-hooks.sh scripts/ci/check-make-execution.sh "$@"; do
     parent=.
     [[ "$path" != */* ]] || parent="${path%/*}"
@@ -141,12 +154,12 @@ tree="$(git write-tree)"
 reject_hook
 cmp "$fixture/sorted-manifest" "$manifest"
 new_case installer
-bash scripts/dev/install-git-hooks.sh > .git/install.log 2>&1
+bash scripts/dev/install-git-hooks.sh --consumer "$PWD" > .git/install.log 2>&1
 [[ "$(git config --local --get core.hooksPath)" == .githooks ]] || exit 1
 ln -s "$PWD" "$fixture/alias"
-(cd "$fixture/alias"; bash scripts/dev/install-git-hooks.sh) >> .git/install.log 2>&1
+(cd "$fixture/alias"; bash scripts/dev/install-git-hooks.sh --consumer "$PWD") >> .git/install.log 2>&1
 git config --local core.hooksPath existing-hooks
-if bash scripts/dev/install-git-hooks.sh > .git/conflict.log 2>&1; then exit 1; fi
+if bash scripts/dev/install-git-hooks.sh --consumer "$PWD" > .git/conflict.log 2>&1; then exit 1; fi
 [[ "$(git config --local --get core.hooksPath)" == existing-hooks ]] || exit 1
 echo 'Consumer formatting, preservation and hook installation checks passed'
 if [[ "$perturb_manifest" == true ]]; then echo 'Dependency sorting perturbation passed'; fi

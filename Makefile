@@ -26,8 +26,10 @@
 # via `make -C "$$ROOT"` and share a single source of truth.
 ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 override SHARED_TOOLING_ROOT := $(ROOT_DIR)
-LOCAL_TOOL_INSTALL_TARGETS := install-testkit
-LOCAL_TOOL_CHECK_TARGETS := testkit-check
+LOCAL_TOOL_INSTALL_TARGETS := install-ic-tools install-testkit
+LOCAL_TOOL_CHECK_TARGETS := ic-tools-check testkit-check
+# IC executables are an explicit IcyDB selection under the shared baseline.
+export PATH := $(ROOT_DIR)/.tools/ic/bin:$(PATH)
 # IcyDB owns derive ordering; shared targets own admission and formatter output.
 FORMAT_WRITE_COMMAND = bash -ec '"$$1" sort-derives; "$$1" sort --workspace; "$$1" fmt --all' -- "$(FORMAT_CARGO)"
 FORMAT_CHECK_COMMAND = bash -ec '"$$1" sort-derives --check; "$$1" sort --workspace --check; "$$1" fmt --all -- --check' -- "$(FORMAT_CARGO)"

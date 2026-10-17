@@ -1,5 +1,5 @@
 name: Retain failed validation and installer evidence
-# Shared companions: scripts/ci/collect-tool-evidence.sh
+# Shared companions: scripts/ci/collect-tool-evidence.sh scripts/ci/formatting-evidence.sh
 description: One collection contract for ordinary failures and hosted retention qualification.
 inputs:
   name:
@@ -7,10 +7,12 @@ inputs:
     required: true
   temp-root:
     description: Absolute root containing validation logs and portable-fixtures.
-    required: true
   repository-root:
     description: Absolute checkout root containing retained tool candidates.
-    required: true
+  prepared-archive:
+    description: Absolute caller-prepared archive path; pair with collection-log to upload existing files without collecting tools again.
+  collection-log:
+    description: Absolute original collection log path; uploaded even when the prepared archive is missing.
   compact-successful-tools:
     description: Recheck complete active toolsets and retain their pins/check evidence instead of bulky payloads; failed and unselected sets stay full.
     default: 'false'
@@ -20,7 +22,7 @@ inputs:
     description: Absolute IC pin exception for compact checking; defaults to this action's snapshot ci/ic-tools.tsv.
 outputs:
   collection-complete:
-    description: Whether shared tool evidence selection completed without an admission failure.
+    description: Whether shared collection completed, or both caller-prepared files were available; prepared contents remain caller-qualified.
     value: ${{ steps.archive.outputs.collection-complete }}
   artifact-id:
     description: Uploaded artifact identity, used for the hosted round-trip check.
@@ -32,9 +34,11 @@ runs:
   using: composite
   steps:
     - id: archive
-      if: ${{ !cancelled() }}
+      if: ${{ always() && (inputs.prepared-archive != '' || inputs.collection-log != '' || !cancelled()) }}
       shell: bash
       env:
+        EVIDENCE_PREPARED_ARCHIVE: ${{ inputs.prepared-archive }}
+        EVIDENCE_COLLECTION_LOG: ${{ inputs.collection-log }}
         EVIDENCE_TEMP_ROOT: ${{ inputs.temp-root }}
         EVIDENCE_REPOSITORY_ROOT: ${{ inputs.repository-root }}
         EVIDENCE_ACTION_ROOT: ${{ github.action_path }}
@@ -42,18 +46,41 @@ runs:
         EVIDENCE_HOST_VERSIONS: ${{ inputs.host-versions }}
         EVIDENCE_IC_PINS: ${{ inputs.ic-pins }}
       run: |
+        if [[ -n "${EVIDENCE_PREPARED_ARCHIVE:-}" || -n "${EVIDENCE_COLLECTION_LOG:-}" ]]; then
+          # Inputs are literal paths, never commands, globs or multiline output.
+          paths=()
+          complete=true
+          for path in "$EVIDENCE_PREPARED_ARCHIVE" "$EVIDENCE_COLLECTION_LOG"; do
+            [[ "$path" == /* && "$path" != *$'\n'* && "$path" != *$'\r'* &&
+               "$path" != *\** && "$path" != *\?* && "$path" != *\[* ]] || exit 2
+            if [[ -f "$path" && ! -L "$path" ]]; then paths+=("$path")
+            else complete=false; fi
+          done
+          [[ "$EVIDENCE_PREPARED_ARCHIVE" != "$EVIDENCE_COLLECTION_LOG" ]] || exit 2
+          printf 'collection-complete=%s\n' "$complete" >> "$GITHUB_OUTPUT"
+          if [[ ${#paths[@]} != 0 ]]; then
+            { printf 'path<<EVIDENCE_PATHS\n'; printf '%s\n' "${paths[@]}"; printf 'EVIDENCE_PATHS\n'; } >> "$GITHUB_OUTPUT"
+          fi
+          exit 0
+        fi
         temp_root="$EVIDENCE_TEMP_ROOT"
         repository_root="$EVIDENCE_REPOSITORY_ROOT"
+        [[ -n "$temp_root" && -n "$repository_root" ]] || {
+          echo 'temp-root and repository-root are required when collecting evidence' >&2
+          exit 2
+        }
         [[ "$temp_root" == /* ]] || temp_root="$PWD/$temp_root"
         [[ "$repository_root" == /* ]] || repository_root="$PWD/$repository_root"
         [[ -d "$temp_root" && -d "$repository_root" ]] || exit 1
         inputs=()
         shopt -s nullglob
         for path in "$temp_root/portable-regression.log" "$temp_root/portable-fixtures" \
-            "$temp_root"/tools-*.log "$temp_root"/host-tools-*.log "$temp_root"/ic-tools-*.log "$temp_root"/rust-tools-*.log \
-            "$temp_root"/formatting.*; do
+            "$temp_root"/tools-*.log "$temp_root"/host-tools-*.log "$temp_root"/ic-tools-*.log "$temp_root"/rust-tools-*.log; do
           if [[ -e "$path" || -L "$path" ]]; then inputs+=("$temp_root" "${path#"$temp_root/"}"); fi
         done
+        source "$EVIDENCE_ACTION_ROOT/../../../scripts/ci/formatting-evidence.sh"
+        select_formatting_evidence "$temp_root"
+        inputs+=(${formatting_evidence[@]+"${formatting_evidence[@]}"})
         case "${EVIDENCE_COMPACT:-false}" in
           false) selection=(full) ;;
           true) selection=(compact) ;;
@@ -75,15 +102,16 @@ runs:
           printf 'path=%s\n' "$(cat "${archive%/*}/archive-path")" >> "$GITHUB_OUTPUT"
         fi
     - id: upload
-      if: ${{ !cancelled() && steps.archive.outputs.path != '' }}
-      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      if: ${{ always() && steps.archive.outputs.path != '' && (inputs.prepared-archive != '' || inputs.collection-log != '' || !cancelled()) }}
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: ${{ inputs.name }}
         path: ${{ steps.archive.outputs.path }}
+        compression-level: 0
         retention-days: 14
         if-no-files-found: error
     - id: completeness
-      if: ${{ !cancelled() && steps.archive.outputs.collection-complete == 'false' }}
+      if: ${{ always() && steps.archive.outputs.collection-complete == 'false' && (inputs.prepared-archive != '' || inputs.collection-log != '' || !cancelled()) }}
       shell: bash
       run: |
         echo 'Evidence collection was incomplete; see the retained selection diagnostics.' >&2

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/verify-file-checksum.sh scripts/dev/tool-store.sh scripts/dev/cargo-tool-build.sh ci/tool-versions.env
+# Shared companions: scripts/ci/verify-file-checksum.sh scripts/ci/tool-catalog-records.pl scripts/dev/tool-store.sh scripts/dev/cargo-tool-build.sh ci/tool-versions.env
 set -euo pipefail
 
 ROOT="$0"
@@ -98,20 +98,17 @@ if [[ -n "$package$selected_version$lockfile$kind$target$profile" ]]; then
         [[ "$lockfile" == /* ]] || lockfile="$consumer/$lockfile"
         selected_version="$(read_locked_version)" || exit $?
     fi
-    tool_names=("$target")
-    tool_versions=("$selected_version")
-else
-    # Reviewed executable configuration, just like the host-tool versions file.
-    # shellcheck source=/dev/null
-    source "$versions_file"
-    tool_names=(cargo-sort cargo-sort-derives candid-extractor)
-    tool_versions=("${SHARED_TOOLING_CARGO_SORT_VERSION:-}" "${SHARED_TOOLING_CARGO_SORT_DERIVES_VERSION:-}" "${SHARED_TOOLING_CANDID_EXTRACTOR_VERSION:-}")
-fi
-for version in "${tool_versions[@]}"; do
-    [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+    [[ "$selected_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
         echo 'Rust tools require exact stable versions' >&2; exit 2;
     }
-done
+else
+    records="$(perl "$ROOT/scripts/ci/tool-catalog-records.pl" rust "$versions_file")"
+    tool_names=() tool_versions=()
+    while IFS=$'\t' read -r tool version _ _; do
+        tool_names+=("$(printf '%s' "$tool" | tr '[:upper:]_' '[:lower:]-')")
+        tool_versions+=("$version")
+    done <<< "$records"
+fi
 install_root="$selection_consumer/.tools/rust"
 export RUSTUP_AUTO_INSTALL=0
 # shellcheck source=scripts/dev/tool-store.sh

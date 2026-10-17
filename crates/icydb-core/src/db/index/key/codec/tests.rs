@@ -40,6 +40,16 @@ fn key_with(kind: IndexKeyKind, id: IndexId, components: Vec<Vec<u8>>, pk: Vec<u
     }
 }
 
+fn maximum_size_key(component_byte: u8, primary_byte: u8) -> IndexKey {
+    // 20 framing bytes + 5 two-byte lengths + 4*57 component bytes + 254 PK bytes.
+    key_with(
+        IndexKeyKind::User,
+        index_id(),
+        vec![vec![component_byte; 57]; MAX_INDEX_FIELDS],
+        vec![primary_byte; IndexKey::MAX_PK_SIZE],
+    )
+}
+
 fn expected_index_id_entity_email_bytes() -> Vec<u8> {
     // Intentionally freeze the fixed `(EntityTag, ordinal, generation)` layout.
     let mut out = Vec::new();
@@ -76,15 +86,8 @@ fn index_key_encoding_enforces_segment_and_component_bounds() {
         assert_eq!(key.to_raw(), Err(expected));
     }
 
-    let key = key_with(
-        IndexKeyKind::User,
-        index_id(),
-        vec![vec![1; IndexKey::MAX_COMPONENT_SIZE]; MAX_INDEX_FIELDS],
-        IndexKey::wildcard_high_pk(),
-    );
-    let raw = key
-        .to_raw()
-        .expect("maximum-size sentinel key should encode");
+    let key = maximum_size_key(1, 0xff);
+    let raw = key.to_raw().expect("maximum-size key should encode");
     assert_eq!(IndexKey::try_from_raw(&raw).unwrap(), key);
 }
 
@@ -1049,9 +1052,9 @@ fn index_prefix_scan_bounds_are_consistent_with_key_encoding() {
         "prefix envelope lower wildcard component must stay low sentinel",
     );
     assert_eq!(
-        end_second_component.len(),
-        IndexKey::MAX_COMPONENT_SIZE,
-        "prefix envelope upper wildcard component must stay max-width sentinel",
+        end_raw.as_bytes().len(),
+        512,
+        "the high wildcard must consume only the remaining complete-key budget",
     );
     assert!(
         end_second_component.iter().all(|byte| *byte == 0xFF),
@@ -1337,13 +1340,9 @@ fn index_key_maximum_composite_primary_suffix_roundtrips_and_stays_within_bounds
 
 #[test]
 fn index_key_maximum_raw_size_matches_stable_storage_bound() {
-    let key = key_with(
-        IndexKeyKind::User,
-        index_id(),
-        vec![vec![1; IndexKey::MAX_COMPONENT_SIZE]; MAX_INDEX_FIELDS],
-        vec![0xff; crate::db::key_taxonomy::COMPOSITE_PRIMARY_KEY_MAX_SIZE],
-    );
+    let key = maximum_size_key(1, 0xff);
     let raw = key.to_raw().expect("maximum current key must encode");
+    assert_eq!(raw.as_bytes().len(), 512);
     assert_eq!(raw.as_bytes().len(), IndexKey::MAX_STORED_SIZE_USIZE);
     assert_eq!(IndexKey::try_from_raw(&raw).unwrap(), key);
     assert_eq!(
@@ -1933,15 +1932,7 @@ fn index_key_float_nan_policy_and_zero_canonicalization_are_frozen() {
 
 #[test]
 fn index_key_size_bound_enforcement_accepts_max_and_rejects_over_max() {
-    let components = (0..MAX_INDEX_FIELDS)
-        .map(|_| vec![0xAB; IndexKey::MAX_COMPONENT_SIZE])
-        .collect::<Vec<_>>();
-    let key = key_with(
-        IndexKeyKind::User,
-        index_id(),
-        components,
-        vec![0xCD; IndexKey::MAX_PK_SIZE],
-    );
+    let mut key = maximum_size_key(0xAB, 0xCD);
     let raw = key.to_raw().expect("test index key should encode");
 
     assert_eq!(raw.as_bytes().len(), IndexKey::MAX_STORED_SIZE_USIZE);
@@ -1954,9 +1945,101 @@ fn index_key_size_bound_enforcement_accepts_max_and_rejects_over_max() {
         raw.as_bytes()
     );
 
+    key.components[0].push(0xAB);
+    assert_eq!(
+        key.to_raw(),
+        Err(super::IndexKeyEncodeError::SegmentTooLarge)
+    );
+    assert!(
+        encode_index_store_key(
+            IndexStoreKeyKind::User,
+            index_id(),
+            key.components.iter().map(Vec::as_slice),
+            &key.primary_key,
+        )
+        .is_err()
+    );
+
+    // Preserve a structurally complete 513-byte frame, rather than just appending junk.
     let mut over_max = raw.as_bytes().to_vec();
-    over_max.push(0x00);
-    decode_must_fail_corrupted(over_max, "over-max key bytes should be rejected");
+    over_max[KEY_PREFIX_SIZE..KEY_PREFIX_SIZE + 2].copy_from_slice(&58_u16.to_be_bytes());
+    over_max.insert(KEY_PREFIX_SIZE + 2, 0xAB);
+    assert_eq!(over_max.len(), 513);
+    assert!(RawIndexStoreKey::from_bytes(&over_max).is_err());
+    decode_must_fail_corrupted(over_max, "over-budget complete frame should be rejected");
+}
+
+#[test]
+fn index_key_maximum_text_keeps_prefix_and_range_bounds_within_512_bytes() {
+    let component = encode_component(&Value::Text("x".repeat(484)));
+    let key = key_with(
+        IndexKeyKind::User,
+        index_id(),
+        vec![component.clone()],
+        compact_pk(PrimaryKeyComponent::Unit),
+    );
+    let raw = key.to_raw().unwrap();
+    assert_eq!(raw.as_bytes().len(), 512);
+    let (low, high) = key.raw_bounds_for_all_components().unwrap();
+    assert!(low < raw && raw < high);
+    assert_eq!(low.as_bytes().len(), 512);
+    assert_eq!(high.as_bytes().len(), 512);
+    for (lower, upper) in [
+        (
+            RangeBound::Included(component.clone()),
+            RangeBound::Included(component.clone()),
+        ),
+        (
+            RangeBound::Unbounded,
+            RangeBound::Included(component.clone()),
+        ),
+        (RangeBound::Included(component), RangeBound::Unbounded),
+    ] {
+        let (lower, upper) = IndexKey::raw_bounds_for_prefix_component_range_with_kind(
+            &index_id(),
+            IndexKeyKind::User,
+            1,
+            &[] as &[Vec<u8>],
+            &lower,
+            &upper,
+        )
+        .unwrap();
+        assert!(in_range(&raw, &lower, &upper));
+        for bound in [&lower, &upper] {
+            assert!(RawIndexStoreKey::bound_backing_bytes(bound) <= 512);
+        }
+    }
+    let too_wide = vec![vec![1; 250], vec![2; 250]];
+    assert_eq!(
+        IndexKey::raw_bounds_for_prefix_with_kind(&index_id(), IndexKeyKind::User, 2, &too_wide),
+        Err(super::IndexKeyEncodeError::SegmentTooLarge)
+    );
+}
+
+#[test]
+fn opaque_component_prefix_bounds_respect_complete_key_budget() {
+    for kind in [IndexKeyKind::User, IndexKeyKind::System] {
+        let components = vec![vec![0xFF; 4], vec![0xFF; 481]];
+        let key = key_with(
+            kind,
+            index_id(),
+            components.clone(),
+            compact_pk(PrimaryKeyComponent::Unit),
+        );
+        let raw = key.to_raw().unwrap();
+        assert_eq!(raw.as_bytes().len(), 512);
+        for prefix_len in 0..=components.len() {
+            let (low, high) = IndexKey::raw_bounds_for_prefix_with_kind(
+                &index_id(),
+                kind,
+                2,
+                &components[..prefix_len],
+            )
+            .unwrap();
+            assert!(low <= raw && raw < high);
+            assert!(low.as_bytes().len() <= 512 && high.as_bytes().len() <= 512);
+        }
+    }
 }
 
 #[test]

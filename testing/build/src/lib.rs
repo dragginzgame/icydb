@@ -480,7 +480,7 @@ pub fn build_fixture_variant_wasm_with_profile(
         label,
         ConfiguredCanisterBuild {
             selection,
-            encoded_rustflags: combined_encoded_rustflags(&[]),
+            encoded_rustflags: None,
             final_deployable: target
                 .join("icydb-final")
                 .join(profile.as_str())
@@ -546,7 +546,13 @@ fn configure_canister_build(
     } else {
         Vec::new()
     };
-    let encoded_rustflags = combined_encoded_rustflags(&extra_rustflags);
+    let inherited_encoded = env::var("CARGO_ENCODED_RUSTFLAGS").ok();
+    let inherited_ordinary = env::var("RUSTFLAGS").ok();
+    let encoded_rustflags = combined_encoded_rustflags(
+        inherited_encoded.as_deref(),
+        inherited_ordinary.as_deref(),
+        &extra_rustflags,
+    );
 
     Ok(ConfiguredCanisterBuild {
         selection,
@@ -875,10 +881,9 @@ fn finish_maintained_canister_builds(
         failures.extend(post_link_report.failures().filter_map(|entry| {
             entry.failure().map(|failure| {
                 format!(
-                    "post-link [{}] {} failed during {} after {:?}: {}",
+                    "post-link [{}] {} failed after {:?}: {}",
                     entry.index(),
                     entry.label(),
-                    failure.phase(),
                     entry.entry_elapsed(),
                     failure,
                 )

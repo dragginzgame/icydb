@@ -1,8 +1,8 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `08b6a6ae4e1ea39140f42eebd692a506c4e08c09`
-(Shared 0.13.3 plus the reviewed fixture-probe extension). Root
+at reviewed revision `0b351cd2ba2bcd8927b783a5fec89afc8013f708`
+(Shared Tooling 0.23.0). Root
 [AGENTS.md](../../AGENTS.md) is the local overlay. The shared approved layout
 retains existing canister, schema and testing packages in their
 restored directories, in the single root workspace and lockfile; no new package
@@ -15,15 +15,11 @@ these rules.
 
 ### Structural Rust scanner source
 
-The additive [.shared-rust-source.snapshot](../../.shared-rust-source.snapshot)
-selects only Shared Tooling's panic scanner, semantic fixtures and compilation
-guide at reviewed commit `48f546ad4671351bba45f89fb007a2c42be521e1`
-([Shared #225 — Rust panic scanner](https://github.com/dragginzgame/shared-tooling/issues/225),
-[PR #226](https://github.com/dragginzgame/shared-tooling/pull/226)). This is the
-reviewed contribution commit, not a claim of a released scanner API. The root governance/tool snapshot above remains unchanged. Both selections use
-the same unchanged verifier bytes; the panic gate verifies the additive source
-before compilation. A later full adoption can consolidate these roots through
-the existing exporter ownership handover.
+The root [.shared-tooling.snapshot](../../.shared-tooling.snapshot) now owns the
+panic scanner, semantic fixtures and compilation guide alongside the governance
+and tooling payloads. Canonical exporter takeover verified the earlier additive
+snapshot's source, hashes and modes before retiring its receipt. The panic gate
+and its copied-source fixtures verify the consolidated manifest.
 
 Private `testing/source-checks/` compiles the shared source under the existing
 workspace and selected lockfile. It depends only on Syn/proc-macro2, with no
@@ -31,6 +27,35 @@ database, Build, Testkit or PocketIC edge. IcyDB retains source-root discovery,
 required nonempty inventories and actual production scans. Shared owns syntax,
 macro, cfg and parser regressions; its source has no independent installed tool
 or dependency selection.
+
+### Selected Shared Tooling 0.23.0 and IC Host 0.27.1 — 2026-10-17
+
+The committed-source exporter selects Shared Tooling
+`0b351cd2ba2bcd8927b783a5fec89afc8013f708`, verified against upstream main.
+The preview retains existing roots and consolidates the structural scanner's
+additive snapshot. Common host/Cargo pins are unchanged. IcyDB explicitly selects
+IC setup/check targets and its IC PATH; the reviewed IC catalog advances ICP CLI
+from 1.6.0 to 1.7.0. Testkit retains PocketIC setup and lifecycle ownership.
+Existing tools, failed logs and release evidence remain retained.
+
+All five direct Host dependencies select registry 0.27.1. Its published Text
+archive identifies source `c8cd434586c7cde97677938fbdcf8fb4bff4a54c` and exports
+the dynamic bordered renderer required by the CLI. Existing-parent durable
+publication remains available in Host FS. The concurrent maintainer selection
+of Build 0.16 converges on Host 0.27.1; no source override or local rendering
+fallback is added. Testkit 0.52 retains its upstream Host 0.26.2 dependencies.
+The build adapter supplies inherited flags and observed Cargo process-group
+custody explicitly, shares retention limits and projects typed cache failures.
+
+Linux qualification passes strict all-target lint for CLI/build/scanner,
+188 CLI cases, 22 build-library cases, 50 shared scanner cases and 26 local
+scanner-boundary cases. Snapshot integrity, dependency pins, real formatting
+hooks, workstation and Make dispatch, 74 workflow-policy cases, post-link
+invariants, release-adapter/receipt/lock/note fixtures, 126 evidence-retention
+cases and the production runtime panic scan pass. Explicit tool setup and
+separate offline admission pass with the new IC pin. This selection does not
+run the full workspace/release gate. Native macOS and raw Wasm/IC
+cycle/instruction effects remain unmeasured; no IC network lifecycle action runs.
 
 ### Selected IC Build 0.5.0 — 2026-10-15
 

@@ -74,6 +74,9 @@ pub(in crate::db) fn admit_index_prefix_bounds<C: AsRef<[u8]>>(
         return Err(InternalError::query_executor_invariant());
     }
     let capacity = IndexKey::raw_prefix_bounds_retained_capacity(index_len, prefix);
+    if capacity > 2 * IndexKey::MAX_STORED_SIZE_USIZE {
+        return Err(InternalError::index_unsupported());
+    }
     admit_raw_bound_capacity(capacity, budget)
 }
 
@@ -210,7 +213,7 @@ pub(in crate::db) fn raw_keys_for_component_prefix_with_kind<C: AsRef<[u8]>>(
     prefix: &[C],
 ) -> Result<(RawIndexStoreKey, RawIndexStoreKey), IndexRangeBoundEncodeError> {
     IndexKey::raw_bounds_for_prefix_with_kind(index_id, key_kind, index_len, prefix)
-        .map_err(|_| IndexRangeBoundEncodeError::RawKey)
+        .map_err(|error| IndexRangeBoundEncodeError::Construction(error.into()))
 }
 
 ///
@@ -238,7 +241,7 @@ fn raw_bounds_for_encoded_index_component_range(
         &lower_component,
         &upper_component,
     )
-    .map_err(|_| IndexRangeBoundEncodeError::RawKey)?;
+    .map_err(|error| IndexRangeBoundEncodeError::Construction(error.into()))?;
     admit_raw_bound_capacity(capacity, budget).map_err(IndexRangeBoundEncodeError::Construction)?;
     IndexKey::raw_bounds_for_prefix_component_range_with_kind(
         index_id,
@@ -248,7 +251,7 @@ fn raw_bounds_for_encoded_index_component_range(
         &lower_component,
         &upper_component,
     )
-    .map_err(|_| IndexRangeBoundEncodeError::RawKey)
+    .map_err(|error| IndexRangeBoundEncodeError::Construction(error.into()))
 }
 
 /// Lower one ordered range after its equality prefix has already been encoded

@@ -1066,6 +1066,17 @@ fn runtime_unsupported_schema(fact_count: usize, fact_at: &impl Fn(usize) -> (u8
             &[
                 DiagnosticFactTag::EntityTag,
                 DiagnosticFactTag::PhysicalGeneration,
+                DiagnosticFactTag::ComponentKind,
+                DiagnosticFactTag::ActualLength,
+                DiagnosticFactTag::Limit,
+            ],
+        ) && fact_at(2).1 == DiagnosticComponentKind::IndexKey.raw())
+        || (tags_match(
+            fact_count,
+            fact_at,
+            &[
+                DiagnosticFactTag::EntityTag,
+                DiagnosticFactTag::PhysicalGeneration,
                 DiagnosticFactTag::ComponentIndex,
                 DiagnosticFactTag::ComponentKind,
                 DiagnosticFactTag::ActualLength,

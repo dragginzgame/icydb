@@ -8,7 +8,7 @@ cd "$ROOT"
 source "$ROOT/scripts/ci/invariant-common.sh"
 require_rg "critical runtime no-production-panics invariant"
 bash "$ROOT/scripts/ci/verify-shared-tooling-snapshot.sh" \
-  --consumer "$ROOT" --manifest .shared-rust-source.snapshot
+  --consumer "$ROOT" --manifest .shared-tooling.snapshot
 
 # Require each inventory independently, including ignored recovery sources.
 # Syn excludes complete test-only items; shell never approximates Rust braces.

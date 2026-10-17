@@ -141,8 +141,9 @@ Consumer choices described in those guides remain subject to this baseline.
   Rust, type-declaration and documentation added/removed/net metrics, with explicit
   zeroes or unavailable evidence. Keep Git line churn separate from semantic
   deletion counts. In the final Codex app handoff, use **symbol changes** with
-  separately counted genuine deletions, moves and renames; an edited declaration
-  is not a deletion. Keep the detailed inventory in that handoff only. Ordinary
+  genuinely created and deleted functions, methods and types only. Omit moved,
+  renamed and edited declaration inventories and counts; retained identities are
+  not creations or deletions. Keep the compact inventory in that handoff only. Ordinary
   public API removal and consumer-action documentation stays at its normal owner.
 - Complete changelog maintenance under the [common changelog rules](rules/changelogs.md)
   as part of the coherent batch, including automatically selecting and maintaining
@@ -213,6 +214,14 @@ Consumer choices described in those guides remain subject to this baseline.
   Keep reviewed snapshots intact. If the pinned baseline still requires that
   cadence, record a scoped maintainer-approved exception until a reviewed
   snapshot containing this policy is adopted, then retire the redundant exception.
+- Shared Tooling owns regression tests for its implementation. Consumers qualify
+  snapshot integrity, their actual callers and product contracts, and applicable
+  native tool behavior. Adopting shared code does not require replaying its full
+  producer regression matrix in every consumer gate. Retain an upstream fixture
+  when it supplies a named consumer proof that is otherwise missing; review that
+  proof before retiring any dispatch. Follow the
+  [consumer qualification selection](docs/consuming-snapshots.md#consumer-qualification-selection)
+  when changing test rosters; this does not automatically change existing gates.
 - Check for active builds before compilation or source mutation. Do not change
   source under active validation or compete for its build lock. Use the owning
   repository's build directory; preserve unrelated artifacts.
@@ -308,6 +317,40 @@ Consumer choices described in those guides remain subject to this baseline.
   Cleanup requires explicit scope and authority. Tools may clean temporary files
   they own; they must not erase consumer artifacts or the only retained evidence.
 
+## IC stable-memory governance
+
+- Production stable stores in `dragginzgame` IC applications and components must
+  use memory handles issued by `ic-memory` after successful admission and durable
+  allocation commitment. Stable keys and their retained memory-ID assignments
+  belong to `ic-memory`; store formats, schema admission and data semantics stay
+  with their storage owners.
+- Application and component code must not independently assign memory IDs,
+  construct `MemoryManager` instances, or read/write unmanaged stable memory.
+  The host integration supplies raw backing memory to its owned `ic-memory`
+  runtime; it must not retain an alternate store-access path or create another
+  manager over that backing. Raw backing access and manager construction belong
+  to that integration boundary and `ic-memory` internals.
+- Production storage integration entry points must require checked runtime
+  handles and preserve validation and persistence before opening stores.
+  Generic storage engines may accept the upstream `Memory` trait, but accepting
+  that trait alone does not enforce allocation governance. Their production
+  callers must supply `ic-memory::RuntimeMemory` through the checked integration.
+- `ic-storage` is a collection layer; it does not replace allocation governance.
+  Its production integrations must use `ic-memory` handles. Selecting it as the
+  standard collection implementation is a separate product decision, qualified
+  at the affected consumers. An upstream collection using checked runtime memory
+  can preserve allocation safety; a replacement collection using unmanaged
+  memory cannot claim that protection.
+- Review actual handle construction and access, including dependency re-exports.
+  Importing `Memory`, `Storable` or an upstream collection is not itself a bypass;
+  neither an import-path rule nor a direct-dependency ban proves this invariant.
+- Raw-memory infrastructure internals, isolated tests and benchmarks may use
+  scoped unmanaged memory. Document the owning boundary and purpose; such
+  evidence does not qualify a production integration. Other production bypasses
+  require a maintainer-approved exception naming the scope, reason and safety
+  qualification. Adopt this rule through a reviewed snapshot or revision-bound
+  reference; policy adoption alone does not prove consumer implementation.
+
 ## Rust workspaces and portable tooling
 
 - Directory names for repositories, workspaces, tooling and operational inputs
@@ -320,13 +363,15 @@ Consumer choices described in those guides remain subject to this baseline.
 - Provide [local developer setup](docs/local-setup.md) through explicit
   `make install-tools` and offline `make tools-check`, following the
   [required tool inventory](docs/local-setup.md#required-tool-inventory).
-  Every repository prepares the same common host, IC and Cargo-tool sets,
-  including tools it does not currently use. The host set includes pinned jq,
+  Every repository prepares the same common host and Cargo-tool sets. IC
+  executables are product selections through the existing ordered local target
+  lists; repositories without an IC executable caller need not install them.
+  The host set includes pinned jq,
   Mike Farah yq, ripgrep with PCRE2 and cloc under `.tools/host/bin`; the Cargo
   set includes cargo-sort, cargo-sort-derives and candid-extractor under
   `.tools/rust/common/bin`. Common and selected Cargo tools share versioned-slot
   receipt and byte admission; common PATH activation requires the complete set.
-  Aggregates run host, IC and Rust steps in order, stopping on
+  Aggregates run host and Rust steps, then selected product tools, stopping on
   failure. Consumer-specific setup/check targets extend the ordered lists in
   `make/tools.mk`, not unordered aggregate prerequisites. Make/CI callers select
   their own checkout's local paths; document interactive shell PATH setup,
@@ -352,7 +397,7 @@ Consumer choices described in those guides remain subject to this baseline.
   bundles without storing new executable copies in the checkout. This does not
   authorize deleting
   existing installations or replacing them with a mutable sibling PATH.
-- Provide the [common local IC executable setup](docs/ic-tools.md) through
+- Repositories using IC executables select the [local IC setup](docs/ic-tools.md) through
   `make install-ic-tools` and offline `make ic-tools-check`. Keep the common tool
   names available under the checkout's `.tools/ic/bin`, with one reviewed pin
   matrix and explicit installation. Consumers own version qualification and

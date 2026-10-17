@@ -52,9 +52,10 @@ change.
 ## Cleanup reporting
 
 Apply the [canonical reporting contract](../../rules/change-reporting.md): separate
-genuine deletions, moves and renames under **symbol changes**, with counts and
-exact identities. Keep edited declarations distinct and keep the full inventory
-only in the final Codex app handoff. Physical line churn and semantic deletion
+genuinely created and deleted functions, methods and types under **symbol changes**,
+with counts and compactly grouped identities. Omit inventories and counts for
+moves, renames and edits; summarize structural cleanup by outcome. Keep the
+created/deleted inventory only in the final Codex app handoff. Physical line churn and semantic deletion
 counts answer different questions; neither substitutes for the other. The same
 rule owns the required Rust/type/documentation metrics and their counting units.
 

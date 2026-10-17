@@ -14,6 +14,23 @@ sets `SHARED_TOOLING_RUST := 0` before the include; it still prepares the comple
 common toolset, but does not expose Rust formatting or hook installation.
 The include preserves the consumer's default goal, even when declared later.
 Parsing it never installs tools, activates hooks or starts a release.
+
+To restrict release delivery, set `RELEASE_DELIVERY_POLICY` before the include
+to a consumer-owned regular data file containing `direct`, `pr`, or both, one
+per line. The common include refuses unsupported selections when a standard
+release command or metadata hook is requested as a Make goal. Unset selection defaults to direct; an explicit
+empty selection refuses. Unrelated goals do not read the policy. Without a policy
+file, the existing direct/PR contract is unchanged. `SHARED_RELEASE_TARGETS`
+provides the canonical command/hook roster for consumer declarations.
+
+Standalone metadata entrypoints call
+`bash scripts/ci/check-release-delivery.sh "$policy_file" "${RELEASE_DELIVERY-direct}"`
+before effects, using that same file; never source it as shell code. An empty
+file-path argument admits the standard direct/PR set. File selection and delivery
+choice remain consumer-owned; this helper grants no release or merge authority.
+Make admission resolves the helper beside the selected include, independently of
+runtime `SHARED_TOOLING_ROOT` overrides. Keep its snapshot companion selected.
+
 Selecting `make/consumer.mk` as a snapshot entrypoint includes the common
 installers, common pin catalogs and default LOC helper through their declared
 dependencies. Product pin exceptions remain consumer-owned; optional fleet
@@ -34,6 +51,11 @@ consumer adoption uses `consumer.mk` instead of including the same modules twice
 Shared Tooling itself selects the non-Rust profile. Its source checkout has no
 consumer snapshot to verify; `shared-tooling-check` is for adopted copies.
 
+Since 0.16.0, `cloc-tooling` and its `CLOC_PARENT` input belong to Shared Tooling's
+own Makefile. They are not exported by the consumer include. Use the central
+command or the explicitly selected reporter described in the
+[fleet report adoption guidance](consuming-snapshots.md#local-ic-tool-adoption).
+
 ## Keep product policy local
 
 Keep build, test, publication, deployment, cleanup, validation gates and release
@@ -50,7 +72,7 @@ Add prerequisites and target-specific environment to common targets when the
 consumer needs stronger admission; do not define a second recipe. For example:
 
 ```make
-release-patch release-minor release-major release-resume: release-delivery-check
+release-patch release-minor release-major release-resume: local-release-preflight
 release-patch release-minor release-major release-resume: export LOCAL_RELEASE_PREPARE := 1
 format-tools-check: local-formatter-check
 ```
@@ -154,3 +176,52 @@ No old public command is removed by this addition. Any later retirement must
 identify callers and actual replacement coverage before selecting a breaking
 Shared Tooling release. Consumer library adoption is normally contributor tooling
 work, not a reason to bump the library's minor version.
+
+## Hosted preparation and disposable fixtures
+
+Shared Tooling's producer fixtures own exhaustive Make flag aliases, inherited
+and replaced flags, and common-tool preflight/install/check failure permutations.
+Consumers can use `make_probe_target_admission` from
+`scripts/ci/make-adapter-probes.sh` to exercise each actual target with the four
+unsafe behaviors (`-i`, `-n`, `-t`, `-q`), requiring status 2 and no recorded
+effects. Keep local target rosters, effect stubs, parallel descriptor checks,
+diagnostic selection and recovery-state custody at the consumer. The full
+execution-mode matrix lives in the producer fixture; it is not exported.
+The common-tool action fixture executes the actual shared Make aggregates with
+only installer leaves substituted; it admits phase order, failure stopping,
+stdout/stderr retention and PATH publication. No tools are installed by it.
+
+The optional `.github/actions/prepare-common-tools` action runs `make install-tools`
+then `make tools-check`, retaining complete `tools-install.log` and `tools-check.log`
+under `RUNNER_TEMP`. It appends common host/Cargo executable directories to
+`GITHUB_PATH` only after both commands succeed. Selected IC consumers publish
+their admitted `.tools/ic/bin` separately. Consumers own compiler setup,
+Make's ordered local extensions, caches and product gates. The action requires
+an existing checkout, `RUNNER_TEMP` and `GITHUB_PATH`; it does not select a compiler.
+
+Use `bash scripts/ci/prepare-script-fixture.sh SOURCE EXISTING-FIXTURE ROOT...`
+for Make fixtures too. Select `make/consumer.mk` for the consumer interface,
+`make/tools.mk` for tool aggregates or `make/release.mk` for release routing.
+Their declared companions supply the complete closure. Apply local Makefiles,
+catalogs and leaf stubs after preparation; callers retain assertions and evidence.
+The former `prepare-make-fixture.sh` command is removed.
+
+## Reusing fixture exit qualification
+
+`scripts/ci/fixture-retention-probes.sh` owns the common failure injections,
+status comparisons and retained-evidence checks. Consumers keep source rosters,
+working directories and domain-specific diagnostic assertions.
+`fixture_probe_exits` includes cleanup refusal alongside command, early-exit,
+completion and incomplete-run cases; callers need not append `cleanup-failure`.
+Existing
+`FIXTURE_PROBE_ROOT_VARIABLE` / `FIXTURE_PROBE_DIRECTORY_VARIABLE` selections may
+be paired with `FIXTURE_PROBE_COMPLETION_VARIABLE` (default `fixture_complete`)
+and `FIXTURE_PROBE_TEMPORARY_ROOT` (default the probe root). Variable names are
+admitted as shell identifiers before child execution. Relative and aliased scratch
+roots are checked against their physical directory; a caller using RUNNER_TEMP
+selects that environment explicitly too. On success `fixture_probe_retained`
+contains the checked physical path for any caller-owned diagnostic comparison.
+Selected assertion probes preserve a function context for return-based guards.
+Repeated exit probes require a fresh receipt from each child; earlier retained
+directories remain available when a later child fails during initialization.
+No consumer fixture body is run by these prefix-only probes.
