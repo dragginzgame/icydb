@@ -17,7 +17,8 @@ export PIN_FIXTURE_MKTEMP PIN_FIXTURE_SYSTEM_TMP
 PIN_FIXTURE_MKTEMP="$(command -v mktemp)"
 PIN_FIXTURE_SYSTEM_TMP="$fixture/native-temp"
 mkdir "$PIN_FIXTURE_SYSTEM_TMP"
-cp "$ROOT/scripts/ci/"{bump-version.sh,next-release-version.sh,sync-release-surface-version.sh} "$fixture/scripts/ci/"
+cp "$ROOT/scripts/ci/"{bump-version.sh,next-release-version.sh} "$fixture/scripts/ci/"
+cp "$ROOT/scripts/release/render-candidate.sh" "$fixture/scripts/release/"
 cp "$ROOT/scripts/ci/rewrite-local-lock-versions.pl" "$fixture/scripts/ci/"
 cp "$ROOT/scripts/ci/read-cargo-workspace-version.sh" "$fixture/scripts/ci/"
 cp "$ROOT/scripts/release/pin-exceptions.jq" "$fixture/scripts/release/"
@@ -27,8 +28,8 @@ cp "$ROOT/Cargo.toml" "$fixture/"
 previous="$(bash "$ROOT/scripts/ci/read-cargo-workspace-version.sh" --stable "$fixture/Cargo.toml")"
 release="$(bash "$ROOT/scripts/ci/next-release-version.sh" "$previous" patch)"
 packages="$(jq '[.[] | select(.subject | startswith("icydb")) | .subject]' "$fixture/ci/dependency-pinning-exceptions.json")"
-jq -n --arg version "$previous" --argjson names "$packages" \
-  '{workspace_members:$names, packages:[$names[] | {id:.,name:.,version:$version}]}' > "$fixture/metadata.json"
+jq -n --arg version "$previous" --argjson names "$packages" --arg root "$fixture" \
+  '{workspace_members:$names, packages:[$names[] | {id:.,name:.,version:$version,manifest_path:($root+"/crates/"+.+"/Cargo.toml")}]}' > "$fixture/metadata.json"
 printf 'version = 3\n' > "$fixture/Cargo.lock"
 jq -r '.packages[] | "\n[[package]]\nname = \"\(.name)\"\nversion = \"\(.version)\""' "$fixture/metadata.json" >> "$fixture/Cargo.lock"
 printf '\n[[package]]\nname = "external"\nversion = "%s"\nsource = "registry+fixture"\nchecksum = "fixed"\n' "$previous" >> "$fixture/Cargo.lock"
@@ -51,12 +52,6 @@ case "$1" in
   metadata)
     if [[ -n "${METADATA_TRACE:-}" ]]; then printf 'metadata\n' >> "$METADATA_TRACE"; fi
     cat metadata.json
-    ;;
-  set-version)
-    if [[ "$2" == --help ]]; then exit 0; fi
-    [[ "$2" == --workspace && "$4" == --offline ]]
-    awk -v version="$3" '/^\[workspace.package\]/ { section=1 } /^\[/ && $0!="[workspace.package]" { section=0 } section && $1=="version" {$0="version = \"" version "\""} {print}' Cargo.toml > updated.toml
-    cat updated.toml > Cargo.toml
     ;;
   *) exit 99 ;;
 esac
@@ -111,6 +106,28 @@ for rejection in read mismatch; do
   cmp "$fixture/original.lock" "$fixture/Cargo.lock"
   cmp "$fixture/before.json" "$fixture/ci/dependency-pinning-exceptions.json"
 done
+# Complete-looking output with a nonzero editor status never publishes metadata.
+export REAL_METADATA_EDITOR="$IC_BUILD_RELEASE_METADATA"
+cat > "$fixture/bin/failed-editor" <<'EDITOR'
+#!/usr/bin/env bash
+set -euo pipefail
+"$REAL_METADATA_EDITOR" "$@"
+if [[ "$3" == "$FAILED_OPERATION" ]]; then exit 23; fi
+EDITOR
+chmod +x "$fixture/bin/failed-editor"
+for operation in manifest lock; do
+  if (
+    cd "$fixture"
+    CARGO_HOME="$fixture/cargo" CARGO_TARGET_DIR="$fixture/target" \
+      RELEASE_VERSION="$release" PATH="$fixture/bin:$PATH" FAILED_OPERATION="$operation" \
+      IC_BUILD_RELEASE_METADATA="$fixture/bin/failed-editor" bash scripts/ci/bump-version.sh patch
+  ) > "$fixture/failed-$operation" 2>&1; then
+    echo 'failed renderer published a candidate' >&2; exit 1
+  fi
+  cmp "$fixture/original.toml" "$fixture/Cargo.toml"
+  cmp "$fixture/original.lock" "$fixture/Cargo.lock"
+  cmp "$fixture/before.json" "$fixture/ci/dependency-pinning-exceptions.json"
+done
 (
   cd "$fixture"
   RELEASE_VERSION="$previous" RELEASE_DATE=2026-10-06 METADATA_TRACE="$fixture/metadata-trace" \
@@ -122,6 +139,9 @@ done
   CARGO_HOME="$fixture/cargo" CARGO_TARGET_DIR="$fixture/target" \
     RELEASE_VERSION="$release" PATH="$fixture/bin:$PATH" bash scripts/ci/bump-version.sh patch
 ) > "$fixture/output" 2>&1 || { cat "$fixture/output" >&2; exit 1; }
+
+# Prose stays outside automatic version editing.
+cmp "$fixture/original-readme" "$fixture/README.md"
 
 # The candidate admission projection must predict exactly the prepared bytes.
 jq --arg previous "$previous" --arg release "$release" --argjson packages "$packages" \
@@ -156,12 +176,9 @@ if (
   exit 1
 fi
 cmp "$fixture/original.lock" "$fixture/Cargo.lock"
-retained=0
-for input in "$fixture/retained"/*; do
-  [[ -d "$input" && -f "$input/new-lock" && ! -s "$input/new-lock" ]]
-  cmp "$fixture/original.lock" "$input/Cargo.lock"
-  retained=$((retained + 1))
-done
-[[ "$retained" == 1 ]]
+cmp "$fixture/original.toml" "$fixture/Cargo.toml"
+cmp "$fixture/before.json" "$fixture/ci/dependency-pinning-exceptions.json"
+cmp "$fixture/original-readme" "$fixture/README.md"
+[[ -n "$(find "$fixture/retained" -type f -name metadata.json -print)" ]]
 echo 'release pin exceptions follow preparation and admission; oracle, reasons and external lock selections preserved'
 fixture_complete=true

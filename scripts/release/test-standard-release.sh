@@ -48,6 +48,7 @@ if [[ "$1" == scripts/ci/release-candidate-receipt.sh ]]; then
     [[ "$CARGO_HOME" == "$EXPECTED_CARGO_HOME" ]]
 fi
 printf '%s\n' "$*" >> "$EVENTS"
+if [[ "$1" == scripts/release/render-candidate.sh && "${FAIL_RENDERER_CHECK:-0}" == 1 ]]; then exit 31; fi
 [[ "${FAIL_RUNNER:-0}" == 0 ]]
 STUB
 chmod +x "$fixture/bin/bash"
@@ -175,13 +176,13 @@ MAKE
 chmod +x "$fixture/bin/cargo" "$fixture/bin/make"
 export REAL_MAKE="$real_make"
 export ROOT_MAKEFILE="$root/Makefile"
-for stage in success fetch setup check; do
+for stage in renderer success fetch setup check; do
     : > "$EVENTS"
     rm -f "$CACHE_READY" "$SELECTED_READY"
     status=0
-    fail_fetch=0 fail_setup=0 fail_check=0
-    case "$stage" in fetch) fail_fetch=1 ;; setup) fail_setup=1 ;; check) fail_check=1 ;; esac
-    CARGO_NET_OFFLINE=false PATH="$fixture/bin:$PATH" FAIL_FETCH="$fail_fetch" FAIL_SETUP="$fail_setup" FAIL_CHECK="$fail_check" "$real_make" --no-print-directory -j4 -f "$root/Makefile" \
+    fail_fetch=0 fail_setup=0 fail_check=0 fail_renderer=0
+    case "$stage" in renderer) fail_renderer=1 ;; fetch) fail_fetch=1 ;; setup) fail_setup=1 ;; check) fail_check=1 ;; esac
+    CARGO_NET_OFFLINE=false PATH="$fixture/bin:$PATH" FAIL_RENDERER_CHECK="$fail_renderer" FAIL_FETCH="$fail_fetch" FAIL_SETUP="$fail_setup" FAIL_CHECK="$fail_check" "$real_make" --no-print-directory -j4 -f "$root/Makefile" \
         release-preflight "MAKE=$fixture/bin/make" \
         RELEASE_SOURCE=1111111111111111111111111111111111111111 \
         RELEASE_VERSION=0.1.1 RELEASE_DATE=2026-10-05 \
@@ -191,8 +192,14 @@ for stage in success fetch setup check; do
             release-verify "MAKE=$fixture/bin/make" "RELEASE_TMP_DIR=$fixture/release-tmp" \
             >> "$fixture/output" 2>&1 || status=$?
     fi
+    printf '%s\n' 'scripts/release/render-candidate.sh --check' > "$fixture/expected"
+    if [[ "$stage" == renderer ]]; then
+        [[ "$status" != 0 ]]
+        cmp "$fixture/expected" "$EVENTS"
+        continue
+    fi
     printf '%s\n' 'scripts/ci/release-candidate-receipt.sh verify-tested-tree 1111111111111111111111111111111111111111' \
-        'cargo fetch --locked' > "$fixture/expected"
+        'cargo fetch --locked' >> "$fixture/expected"
     if [[ "$stage" != fetch ]]; then printf 'selected Testkit setup\n' >> "$fixture/expected"; fi
     if [[ "$stage" == success || "$stage" == check ]]; then printf 'selected Testkit check\n' >> "$fixture/expected"; fi
     if [[ "$stage" == success ]]; then
@@ -216,7 +223,8 @@ for ready in prepared missing; do
         RELEASE_SOURCE=1111111111111111111111111111111111111111 \
         RELEASE_VERSION=0.1.1 RELEASE_DATE=2026-10-05 \
         "RELEASE_TMP_DIR=$fixture/release-tmp" > "$fixture/output" 2>&1 || status=$?
-    printf '%s\n' 'scripts/ci/release-candidate-receipt.sh verify-tested-tree 1111111111111111111111111111111111111111' \
+    printf '%s\n' 'scripts/release/render-candidate.sh --check' \
+        'scripts/ci/release-candidate-receipt.sh verify-tested-tree 1111111111111111111111111111111111111111' \
         'cargo fetch --locked' 'selected Testkit check' > "$fixture/expected"
     cmp "$fixture/expected" "$EVENTS"
     if [[ "$ready" == prepared ]]; then [[ "$status" == 0 ]]; else [[ "$status" != 0 ]]; fi

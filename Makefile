@@ -377,7 +377,7 @@ security-check:
 	@echo "This target is informational only; no local script runs."
 
 check-versioning: security-check
-	+@$(CARGO_WORK_ENV) cargo set-version --help >/dev/null
+	@bash scripts/release/render-candidate.sh --check
 	@$(MAKE) --no-print-directory version >/dev/null
 	@$(MAKE) --no-print-directory help >/dev/null
 	@echo "Versioning tooling checks passed."
@@ -580,6 +580,7 @@ release-preflight release-prepare-version release-prepared-check release-commit-
 release-version:
 	+@$(CARGO_WORK_ENV) YQ="$(YQ)" bash scripts/ci/read-cargo-workspace-version.sh --stable "$(CURDIR)/Cargo.toml"
 release-preflight:
+	@bash scripts/release/render-candidate.sh --check
 	@awk -v version="$(RELEASE_VERSION)" -v date="$(RELEASE_DATE)" \
 		-f scripts/ci/finalize-release-changelog.awk CHANGELOG.md >/dev/null
 	+@bash scripts/ci/release-candidate-receipt.sh verify-tested-tree "$(RELEASE_SOURCE)"

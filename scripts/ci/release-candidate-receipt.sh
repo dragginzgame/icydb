@@ -25,72 +25,16 @@ is_release_note_path() {
     esac
 }
 
-validate_version() {
-    local version="$1"
-
-    if [[ ! "$version" =~ ^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$ ]]; then
-        echo "Invalid workspace version: $version" >&2
-        exit 1
-    fi
-}
-
 validate_transition() {
-    local bump="$1"
-    local candidate_version="$2"
-    local release_version="$3"
-    local candidate_major candidate_minor candidate_patch expected_version
-
-    validate_version "$candidate_version"
-    validate_version "$release_version"
-    IFS=. read -r candidate_major candidate_minor candidate_patch <<< "$candidate_version"
-
-    case "$bump" in
-        patch)
-            expected_version="$candidate_major.$candidate_minor.$((10#$candidate_patch + 1))"
-            ;;
-        minor)
-            expected_version="$candidate_major.$((10#$candidate_minor + 1)).0"
-            ;;
-        major)
-            expected_version="$((10#$candidate_major + 1)).0.0"
-            ;;
-        *)
-            usage
-            ;;
-    esac
-
-    if [[ "$release_version" != "$expected_version" ]]; then
-        echo "Expected $bump transition $candidate_version -> $expected_version; found $release_version" >&2
+    local bump="$1" previous="$2" release="$3" expected
+    expected="$(bash "$SCRIPT_DIR/next-release-version.sh" "$previous" "$bump")"
+    [[ "$release" == "$expected" ]] || {
+        echo "Expected $bump transition $previous -> $expected; found $release" >&2
         exit 1
-    fi
+    }
 }
 
-# A subshell confines temporary-input cleanup to this projection. The shared
-# transformer accepts a regular file and remains the only lockfile rewrite owner.
-project_release_surface() (
-    local path="$1" previous="$2" release="$3"
-    if [[ "$path" == ci/dependency-pinning-exceptions.json ]]; then
-        jq --arg previous "$previous" --arg release "$release" \
-            --argjson packages "$(printf '%s\n' "$RELEASE_PACKAGE_NAMES" | jq -Rn '[inputs | select(length > 0)]')" \
-            -f "$SCRIPT_DIR/../release/pin-exceptions.jq"
-        return
-    fi
-    if [[ "$path" != Cargo.lock ]]; then
-        sed "s/${previous//./\\.}/$release/g"
-        return
-    fi
-    local input package
-    local -a packages=()
-    input="$(mktemp "${TMPDIR:-/tmp}/release-lock-projection.XXXXXX")" || exit 1
-    trap 'rm -f "$input"' EXIT
-    cat > "$input" || exit 1
-    while IFS= read -r package; do
-        [[ -z "$package" ]] || packages[${#packages[@]}]="$package"
-    done <<< "$RELEASE_PACKAGE_NAMES"
-    perl "$SCRIPT_DIR/rewrite-local-lock-versions.pl" "$input" "$previous" "$release" "${packages[@]}"
-)
-
-validate_changed_paths() {
+validate_changed_paths() (
     local diff_mode="$1"
     local base="$2"
     local head="${3:-}"
@@ -115,19 +59,12 @@ validate_changed_paths() {
             ;;
     esac
 
-    RELEASE_PACKAGE_NAMES="$(
-        cargo metadata --manifest-path "$ROOT_DIR/Cargo.toml" --locked --offline --no-deps --format-version 1 |
-        perl -MJSON::PP -0777 -e '
-            my $release = shift @ARGV;
-            my $metadata = decode_json(<>);
-            my %members = map { $_ => 1 } @{$metadata->{workspace_members}};
-            my @names = map { $_->{name} }
-                grep { $members{$_->{id}} && $_->{version} eq $release }
-                @{$metadata->{packages}};
-            die "no workspace package identity at release version\n" unless @names;
-            print join("\n", @names), "\n";
-        ' "$release_version"
-    )"
+    local projection
+    projection="$(mktemp -d "${TMPDIR:-/tmp}/release-candidate-projection.XXXXXX")"
+    local status=0
+    trap 'status=$?; if [[ "$status" == 0 ]]; then rm -rf "$projection"; else echo "Candidate projection retained: $projection" >&2; fi' EXIT
+    cargo metadata --manifest-path "$ROOT_DIR/Cargo.toml" --locked --offline --no-deps --format-version 1 > "$projection/metadata.json"
+    "${command[@]}" > "$projection/paths"
     while IFS= read -r -d '' path; do
         if is_release_note_path "$path"; then
             continue
@@ -141,34 +78,21 @@ validate_changed_paths() {
                 ;;
         esac
 
+        git -C "$ROOT_DIR" show "$base:$path" > "$projection/original"
+        ICYDB_RELEASE_ROOT="$ROOT_DIR" bash "$SCRIPT_DIR/../release/render-candidate.sh" \
+            "$path" "$projection/original" "$candidate_version" "$release_version" "$projection/metadata.json" > "$projection/expected"
         case "$diff_mode" in
-            working)
-                if ! cmp -s \
-                    <(git -C "$ROOT_DIR" show "$base:$path" | project_release_surface "$path" "$candidate_version" "$release_version") \
-                    "$ROOT_DIR/$path"; then
-                    echo "Release transition contains non-version changes in: $path" >&2
-                    exit 1
-                fi
-                ;;
-            staged)
-                if ! cmp -s \
-                    <(git -C "$ROOT_DIR" show "$base:$path" | project_release_surface "$path" "$candidate_version" "$release_version") \
-                    <(git -C "$ROOT_DIR" show ":$path"); then
-                    echo "Release transition contains non-version changes in: $path" >&2
-                    exit 1
-                fi
-                ;;
-            commits)
-                if ! cmp -s \
-                    <(git -C "$ROOT_DIR" show "$base:$path" | project_release_surface "$path" "$candidate_version" "$release_version") \
-                    <(git -C "$ROOT_DIR" show "$head:$path"); then
-                    echo "Release transition contains non-version changes in: $path" >&2
-                    exit 1
-                fi
-                ;;
+            working) cp "$ROOT_DIR/$path" "$projection/actual" ;;
+            staged) git -C "$ROOT_DIR" show ":$path" > "$projection/actual" ;;
+            commits) git -C "$ROOT_DIR" show "$head:$path" > "$projection/actual" ;;
         esac
-    done < <("${command[@]}")
-}
+        cmp -s "$projection/expected" "$projection/actual" || {
+            echo "Release transition contains non-version changes in: $path" >&2
+            exit 1
+        }
+
+    done < "$projection/paths"
+)
 
 verify_only_staged_release_notes() {
     local path
@@ -285,7 +209,6 @@ receipt_for_current_version() {
     local current_version
 
     current_version="$(bash "$VERSION_READER" --stable "$ROOT_DIR/Cargo.toml")" || exit 1
-    validate_version "$current_version"
     printf '%s/v%s.candidate\n' "$RELEASE_RECEIPT_DIR" "$current_version"
 }
 
@@ -378,7 +301,6 @@ verify_commit() {
         exit 1
     }
     current_version="$(bash "$SCRIPT_DIR/../release/read-committed-version.sh" "$ROOT_DIR" "$release_commit")" || exit 1
-    validate_version "$current_version"
     receipt="$RELEASE_RECEIPT_DIR/v$current_version.candidate"
     if [[ ! -f "$receipt" ]]; then
         echo "No release candidate receipt for the current version" >&2

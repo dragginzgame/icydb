@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   require affected databases and serialized artifacts to be recreated, and trial
   IC Wire with an installed audit query and a Candid-free codec comparison.
 
+### 🔧 Changed
+
+- Prepare and verify release metadata through one IC Build candidate renderer;
+  retain dependency selections and leave README examples to normal maintenance.
+  Release tooling requires an explicitly prepared metadata editor.
+
 See [detailed notes](docs/changelog/0.277.md).
 
 ## [0.276.0] - 2026-10-16
