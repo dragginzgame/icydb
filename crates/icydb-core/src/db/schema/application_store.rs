@@ -611,7 +611,7 @@ mod tests {
         testing::test_memory,
         types::EntityTag,
     };
-    use ic_memory::ic_stable_structures::RestrictedMemory;
+    use ic_stable_structures::RestrictedMemory;
     use icydb_schema::{
         ExpectedAcceptedHead, ExpectedSchemaFingerprint, MAX_SCHEMA_SUBMISSION_KEY_BYTES,
         SchemaProposalDigest, SchemaSubmissionKey, TargetDatabaseIdentity, TargetStoreIdentity,
@@ -717,8 +717,11 @@ mod tests {
     }
 
     fn empty_store(memory_id: u8) -> SchemaApplicationStore {
-        SchemaApplicationStore::open(RestrictedMemory::new(test_memory(memory_id), 0..2_048))
-            .expect("application store should initialize")
+        SchemaApplicationStore::open(RestrictedMemory::new(
+            std::rc::Rc::new(test_memory(memory_id)),
+            0..2_048,
+        ))
+        .expect("application store should initialize")
     }
 
     fn rewrite_application_payload(encoded: &[u8], rewrite: impl FnOnce(&mut Vec<u8>)) -> Vec<u8> {
@@ -903,7 +906,7 @@ mod tests {
         let insert = SchemaApplicationRecordOp::insert(&pending).expect("insert should prepare");
         let replace =
             SchemaApplicationRecordOp::replace(&pending, &applied).expect("replace should prepare");
-        let memory = RestrictedMemory::new(test_memory(220), 0..128);
+        let memory = RestrictedMemory::new(std::rc::Rc::new(test_memory(220)), 0..128);
         let mut store =
             SchemaApplicationStore::open(memory.clone()).expect("store should initialize");
 

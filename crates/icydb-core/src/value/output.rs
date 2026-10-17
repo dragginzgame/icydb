@@ -5,7 +5,7 @@ use crate::{
     },
     value::PublicValue,
 };
-use candid::{CandidType, types::Serializer};
+
 use serde::{Deserialize, Deserializer};
 
 #[cfg(test)]
@@ -169,23 +169,6 @@ impl OutputValue {
     }
 }
 
-impl CandidType for OutputValue {
-    fn ty() -> candid::types::Type {
-        PublicValue::ty()
-    }
-
-    fn _ty() -> candid::types::Type {
-        PublicValue::_ty()
-    }
-
-    fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
-    where
-        S: Serializer,
-    {
-        self.0.idl_serialize(serializer)
-    }
-}
-
 impl<'de> Deserialize<'de> for OutputValue {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -209,6 +192,12 @@ impl From<Value> for OutputValue {
 #[must_use]
 pub fn render_output_value_text(value: &OutputValue) -> String {
     value.as_public().render_text()
+}
+
+impl serde::Serialize for OutputValue {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serde::Serialize::serialize(&self.0, serializer)
+    }
 }
 
 #[cfg(test)]

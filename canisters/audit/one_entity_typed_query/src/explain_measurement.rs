@@ -1,4 +1,4 @@
-//! Fixed application-owned workloads; never accepts SQL or query syntax over Candid.
+//! Fixed application-owned workloads; never accepts SQL or query syntax over the Wire endpoint.
 
 #[cfg(feature = "typed-explain-measurement")]
 use icydb::{
@@ -9,7 +9,6 @@ use icydb::{
 use icydb_testing_audit_one_simple_fixtures::one_simple::OneSimpleEntity01;
 
 #[cfg(feature = "typed-explain-measurement")]
-#[ic_cdk::query]
 fn measure_typed_explain(kind: u8) -> Result<Vec<(u64, u64, String, u64)>, u16> {
     icydb::db::with_request_execution(|| {
         let database = crate::db().map_err(|error| error.code().raw())?;
@@ -41,9 +40,10 @@ fn measure_typed_explain(kind: u8) -> Result<Vec<(u64, u64, String, u64)>, u16> 
         Ok(results)
     })
 }
+#[cfg(feature = "typed-explain-measurement")]
+icydb_testing_wasm_helpers::export_wire!(query, "measure_typed_explain", MeasureTypedExplain, measure_typed_explain, (kind: u8), Result<Vec<(u64, u64, String, u64)>, u16>);
 
 #[cfg(feature = "sql-explain-measurement")]
-#[ic_cdk::query]
 fn measure_sql_explain(kind: u8) -> Result<Vec<(u64, u64, String)>, u16> {
     icydb::db::with_request_execution(|| {
         let database = crate::db().map_err(|error| error.code().raw())?;
@@ -69,10 +69,11 @@ fn measure_sql_explain(kind: u8) -> Result<Vec<(u64, u64, String)>, u16> {
         Ok(results)
     })
 }
+#[cfg(feature = "sql-explain-measurement")]
+icydb_testing_wasm_helpers::export_wire!(query, "measure_sql_explain", MeasureSqlExplain, measure_sql_explain, (kind: u8), Result<Vec<(u64, u64, String)>, u16>);
 
 // Retain a real SQL operation in mixed subjects, not just an unused feature.
 #[cfg(all(feature = "sql", not(feature = "sql-explain-measurement")))]
-#[ic_cdk::query]
 fn retained_sql_read() -> Result<u32, u16> {
     icydb::db::with_request_execution(|| {
         let database = crate::db().map_err(|error| error.code().raw())?;
@@ -85,3 +86,5 @@ fn retained_sql_read() -> Result<u32, u16> {
         }
     })
 }
+#[cfg(all(feature = "sql", not(feature = "sql-explain-measurement")))]
+icydb_testing_wasm_helpers::export_wire!(query, "retained_sql_read", RetainedSqlRead, retained_sql_read, (), Result<u32, u16>);

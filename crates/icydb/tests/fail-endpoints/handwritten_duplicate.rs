@@ -1,3 +1,6 @@
+use icydb as __icydb_facade;
+use canic_icydb::__private::cdk as __icydb_host_sdk;
+
 mod __icydb_generated {
     pub(crate) const __ICYDB_START_BINDING: () = ();
 
@@ -9,11 +12,11 @@ mod __icydb_generated {
     }
 }
 
-icydb::endpoints! {
+canic_icydb::endpoints! {
     icydb_schema(authorization = public);
 }
 
-#[icydb::__reexports::ic_cdk::query(name = "icydb_schema")]
+#[canic_icydb::__private::cdk::query(crate = "canic_icydb::__private::cdk", name = "icydb_schema", manual_reply = true, hidden = true)]
 fn handwritten_icydb_schema() {}
 
 fn main() {}

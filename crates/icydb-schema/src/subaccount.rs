@@ -1,7 +1,7 @@
 //! Canonical fixed-width subaccount atom.
 
 use crate::{Principal, SchemaContractError};
-use candid::CandidType;
+
 use serde::{Deserialize, Deserializer, Serialize, de::Error as DeError};
 use std::fmt::{self, Display};
 
@@ -11,7 +11,7 @@ use std::fmt::{self, Display};
 
 type SubaccountBytes = [u8; 32];
 
-#[derive(CandidType, Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 /// A canonical 32-byte ICRC account subaccount.
 pub struct Subaccount(SubaccountBytes);
 
@@ -71,8 +71,8 @@ impl<'de> Deserialize<'de> for Subaccount {
     where
         D: Deserializer<'de>,
     {
-        // Candid validates nat8 elements through sequence ingress. Read into a
-        // fixed array and inspect at most one excess byte before rejecting.
+        // Read into a fixed array and inspect at most one excess byte before
+        // rejecting an oversized payload.
         struct SubaccountBytesVisitor;
 
         impl<'de> serde::de::Visitor<'de> for SubaccountBytesVisitor {
@@ -188,7 +188,7 @@ mod tests {
     }
 
     #[test]
-    fn binary_serde_and_candid_preserve_exact_subaccount_bytes() {
+    fn binary_serde_and_wire_preserve_exact_subaccount_bytes() {
         for byte in [0, 23, 24, 128, 255] {
             let value = Subaccount::from_array([byte; 32]);
             let mut encoded = Vec::new();
@@ -205,10 +205,13 @@ mod tests {
             assert_eq!(json, serde_json::to_string(&value.to_array()).unwrap());
             assert_eq!(serde_json::from_str::<Subaccount>(&json).unwrap(), value);
 
-            let candid = candid::encode_one(value).unwrap();
-            assert_eq!(candid, candid::encode_one(value.to_array()).unwrap());
-            assert_eq!(candid.len(), 42);
-            assert_eq!(candid::decode_one::<Subaccount>(&candid).unwrap(), value);
+            let wire = crate::wire::encode_one(value).unwrap();
+            assert_eq!(
+                wire,
+                crate::wire::encode_one(serde_bytes::Bytes::new(&value.to_array())).unwrap()
+            );
+            assert_eq!(wire.len(), 33);
+            assert_eq!(crate::wire::decode_one::<Subaccount>(&wire).unwrap(), value);
 
             let batch = vec![value; 1_000];
             encoded.clear();
@@ -224,14 +227,16 @@ mod tests {
     #[test]
     fn binary_subaccount_ingress_enforces_width_and_byte_elements() {
         for len in [0, 31, 33, 1_024] {
-            let wire = candid::encode_one(vec![0_u8; len]).unwrap();
-            assert!(candid::decode_one::<Subaccount>(&wire).is_err());
+            let wire = crate::wire::encode_one(vec![0_u8; len]).unwrap();
+            assert!(crate::wire::decode_one::<Subaccount>(&wire).is_err());
             let mut encoded = Vec::new();
             ciborium::into_writer(&serde_bytes::Bytes::new(&vec![0; len]), &mut encoded).unwrap();
             assert!(ciborium::from_reader::<Subaccount, _>(encoded.as_slice()).is_err());
         }
-        let wire = candid::encode_one(vec![0_u16; 32]).unwrap();
-        assert!(candid::decode_one::<Subaccount>(&wire).is_err());
+        // Postcard carries values without source integer-type tags: use a value
+        // outside the byte domain rather than zero, which also encodes as u8.
+        let wire = crate::wire::encode_one(vec![256_u16; 32]).unwrap();
+        assert!(crate::wire::decode_one::<Subaccount>(&wire).is_err());
 
         let mut encoded = Vec::new();
         ciborium::into_writer(&Subaccount::MAX, &mut encoded).unwrap();
@@ -253,9 +258,13 @@ mod tests {
             );
             let json = serde_json::to_string(&account).unwrap();
             assert_eq!(serde_json::from_str::<Account>(&json).unwrap(), account);
-            let candid = candid::encode_one(account).unwrap();
-            assert_eq!(candid, candid::encode_one(account.to_icrc_type()).unwrap());
-            assert_eq!(candid::decode_one::<Account>(&candid).unwrap(), account);
+            let wire = crate::wire::encode_one(account).unwrap();
+            // Native account projection is the ordered owner/optional-bytes pair.
+            assert_eq!(
+                wire,
+                crate::wire::encode_one((account.owner(), subaccount)).unwrap()
+            );
+            assert_eq!(crate::wire::decode_one::<Account>(&wire).unwrap(), account);
         }
     }
 }

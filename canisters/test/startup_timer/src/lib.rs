@@ -1,14 +1,12 @@
 //! Real-canister timer semantics probe for startup-recovery design evidence.
 
-// Read IC counter 1 through the CDK; native Candid builds use its
+// Read IC counter 1 through the CDK; native builds use its
 // unsupported host binding and provide no IC measurement evidence.
 #[cfg(not(target_arch = "wasm32"))]
 use ic_cdk::api::call_context_instruction_counter;
 #[cfg(target_arch = "wasm32")]
 use ic_cdk::api::call_context_instruction_counter;
 
-use candid::CandidType;
-use ic_cdk::{query, update};
 use ic_timers::{
     AfterCompletionDecision, AfterCompletionRegistration, AfterCompletionRunResult, TimerCadence,
     TimerCompletion, TimerIdentity, TimerSchedule, TimerStart, WatchdogDecision,
@@ -37,7 +35,7 @@ thread_local! {
     static EXHAUST_AT: Cell<Option<u64>> = const { Cell::new(None) };
 }
 
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 struct TimerProbeSnapshot {
     watchdog_registered: bool,
     application_registered: bool,
@@ -79,7 +77,6 @@ fn record_callback(
     });
 }
 
-#[update]
 fn startup_timer_probe_start() -> bool {
     if WATCHDOG_TIMER.with_borrow(Option::is_some) {
         return false;
@@ -144,8 +141,15 @@ fn startup_timer_probe_start() -> bool {
     APPLICATION_TIMER.with_borrow_mut(|slot| *slot = Some(application));
     true
 }
+icydb_testing_wasm_helpers::export_wire!(
+    update,
+    "startup_timer_probe_start",
+    StartupTimerProbeStart,
+    startup_timer_probe_start,
+    (),
+    bool
+);
 
-#[update]
 fn startup_timer_probe_stop() {
     WATCHDOG_TIMER.with_borrow_mut(|slot| {
         if let Some(registration) = slot.take()
@@ -162,22 +166,43 @@ fn startup_timer_probe_stop() {
         }
     });
 }
+icydb_testing_wasm_helpers::export_wire!(
+    update,
+    "startup_timer_probe_stop",
+    StartupTimerProbeStop,
+    startup_timer_probe_stop,
+    (),
+    ()
+);
 
-#[update]
 fn startup_timer_probe_arm_trap() -> u64 {
     let trap_at = ic_cdk::api::time().saturating_add(WATCHDOG_INTERVAL_NANOS);
     TRAP_AT.with(|slot| slot.set(Some(trap_at)));
     trap_at
 }
+icydb_testing_wasm_helpers::export_wire!(
+    update,
+    "startup_timer_probe_arm_trap",
+    StartupTimerProbeArmTrap,
+    startup_timer_probe_arm_trap,
+    (),
+    u64
+);
 
-#[update]
 fn startup_timer_probe_arm_exhaustion() -> u64 {
     let exhaust_at = ic_cdk::api::time().saturating_add(WATCHDOG_INTERVAL_NANOS);
     EXHAUST_AT.with(|slot| slot.set(Some(exhaust_at)));
     exhaust_at
 }
+icydb_testing_wasm_helpers::export_wire!(
+    update,
+    "startup_timer_probe_arm_exhaustion",
+    StartupTimerProbeArmExhaustion,
+    startup_timer_probe_arm_exhaustion,
+    (),
+    u64
+);
 
-#[query]
 fn startup_timer_probe_snapshot() -> TimerProbeSnapshot {
     TimerProbeSnapshot {
         watchdog_registered: timer_is_scheduled(&watchdog_identity()),
@@ -192,6 +217,14 @@ fn startup_timer_probe_snapshot() -> TimerProbeSnapshot {
         exhaust_at: EXHAUST_AT.with(Cell::get),
     }
 }
+icydb_testing_wasm_helpers::export_wire!(
+    query,
+    "startup_timer_probe_snapshot",
+    StartupTimerProbeSnapshot,
+    startup_timer_probe_snapshot,
+    (),
+    TimerProbeSnapshot
+);
 
 fn timer_cadence() -> TimerCadence {
     match TimerCadence::new(WATCHDOG_INTERVAL) {
@@ -221,6 +254,3 @@ fn timer_is_scheduled(identity: &TimerIdentity) -> bool {
         .and_then(|snapshot| snapshot.next_deadline_ns())
         .is_some()
 }
-
-#[cfg(feature = "candid-export")]
-ic_cdk::export_candid!();

@@ -2,6 +2,9 @@
 
 extern crate self as guard_application;
 
+use icydb as __icydb_facade;
+use canic_icydb::__private::cdk as __icydb_host_sdk;
+
 mod __icydb_generated {
     pub(crate) const __ICYDB_START_BINDING: () = ();
 
@@ -69,7 +72,7 @@ const _: icydb::ReadAuthorizationGuard = reexported_guard;
 const _: icydb::ReadAuthorizationGuard = inferred;
 const _: icydb::ReadAuthorizationGuard = inferred::<icydb::ReadAuthorizationContext>;
 
-icydb::endpoints! {
+canic_icydb::endpoints! {
     // Route every accepted Rust path form through the production macro grammar.
     // The declarations are disabled to avoid duplicate exported methods; the
     // exact function-pointer coercions above remain active and type-checked.

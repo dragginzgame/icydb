@@ -1,0 +1,13 @@
+{
+  "name": "icydb-wire-browser-qualification",
+  "private": true,
+  "type": "module",
+  "packageManager": "npm@12.2.0",
+  "engines": { "node": "24.21.0", "npm": "12.2.0" },
+  "scripts": {
+    "check": "node check.mjs",
+    "prepare-browser": "playwright install chromium"
+  },
+  "dependencies": { "@icp-sdk/core": "6.1.1" },
+  "devDependencies": { "esbuild": "0.28.2", "playwright": "1.64.1", "typescript": "7.0.2" }
+}

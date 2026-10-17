@@ -1,6 +1,7 @@
 use crate::db::{MemoryRuntimeBindingError, bind_memory_runtime, memory_runtime};
 use crate::testing::{run_isolated, test_memory_runtime};
-use ic_memory::{MemoryManagerConfig, MemoryRuntime, ic_stable_structures::DefaultMemoryImpl};
+use ic_memory::{MemoryManagerConfig, MemoryRuntime};
+use ic_stable_structures::DefaultMemoryImpl;
 use std::rc::Rc;
 
 #[test]

@@ -1,6 +1,5 @@
 [workspace]
 members = [
-    "canisters/audit/codec_candid_query",
     "canisters/audit/codec_wire_query",
     "canisters/audit/default_empty",
     "canisters/audit/default_empty_metrics",
@@ -26,6 +25,7 @@ members = [
     "canisters/test/sql_bounded",
     "canisters/test/sql_guard",
     "canisters/test/startup_timer",
+    "canisters/test/wire_rollback",
     "crates/icydb",
     "crates/icydb-cli",
     "crates/icydb-core",
@@ -64,14 +64,13 @@ version = "0.276.0"
 authors = ["borovan <84897664+borovan@users.noreply.github.com>"]
 description = "IcyDB — A schema-first typed query engine and persistence runtime for Internet Computer canisters"
 categories = ["database", "web-programming", "wasm"]
-license = "Apache-2.0 OR MIT"
+license-file = "LICENSE"
 repository = "https://github.com/dragginzgame/icydb"
 
 [workspace.dependencies]
 base64 = { version = "0.23.1", default-features = false, features = ["std"] }
 blake3 = "1.8.5"
-candid = "0.10"
-canister_audit_codec_wire_query = { path = "canisters/audit/codec_wire_query" }
+canic-icydb = { git = "https://github.com/dragginzgame/canic", rev = "1491dd9ee4e858b4f47a4deba7e3cb4ab4a2b895" }
 ciborium = "0.2"
 clap = { version = "4.6.1", default-features = false, features = [
     "derive",
@@ -82,28 +81,29 @@ clap = { version = "4.6.1", default-features = false, features = [
     "usage",
 ] }
 convert_case = "0.12"
+crc32fast = "1.5"
 ctor = "1.0.0"
 darling = "0.24"
-derive_more = { version = "2.0", default-features = false, features = [
-    "add",
-    "add_assign",
-] }
+data-encoding = "2.9"
 ethnum = { version = "1.5.3", default-features = false }
 getrandom = "0.4"
-ic-build = "0.11"
+ic-build = "0.15"
 ic-cdk = "0.20.3"
-ic-host-artifacts = { version = "0.23", default-features = false }
-ic-host-fs = "0.23"
-ic-host-process = "0.23"
-ic-host-text = "0.23"
-ic-host-tools = { version = "0.23", default-features = false }
-ic-memory = "0.44"
-ic-metrics = "0.11"
-ic-testkit = "0.50"
-ic-timers = "0.25"
-ic-wire = { git = "https://github.com/dragginzgame/ic-wire.git", rev = "66e1f0c5bdced1579573999c8928a697f6135425" }
+ic-host-artifacts = { version = "0.26", default-features = false }
+ic-host-fs = "0.26"
+ic-host-process = "0.26"
+ic-host-text = "0.26"
+ic-host-tools = "0.26"
+ic-memory = "0.48"
+ic-metrics = "0.13"
+ic-stable-structures = "0.7.2"
+ic-testkit = "0.51"
+ic-timers = "0.27"
+ic-wire = "0.3.4"
+# Browser-only runtime support awaits publication of IC Wire PR #1.
+ic-wire-browser = { package = "ic-wire", git = "https://github.com/dragginzgame/ic-wire.git", rev = "0622057b2722d968951e9a6737ead0073d54abcf", features = ["typescript"] }
 ic0 = "1.2"
-icrc-ledger-types = "0.2.0"
+ic_principal = "0.1.5"
 icydb = { path = "crates/icydb", version = "=0.276.0", default-features = false }
 icydb-core = { path = "crates/icydb-core", version = "=0.276.0" }
 icydb-diagnostic-code = { path = "crates/icydb-diagnostic-code", version = "=0.276.0" }
@@ -125,7 +125,6 @@ icydb-testing-test-sql-fixtures = { path = "schema/test/sql" }
 icydb-testing-wasm-helpers = { path = "testing/wasm-helpers" }
 # Renamed-dependency fixtures exercise generated imports under caller-selected names.
 model_api = { package = "icydb-model", path = "crates/icydb-model" }
-num-bigint = "0.4"
 proc-macro-crate = "3.5.0"
 proc-macro2 = "1.0"
 proptest = "1.9.0"
@@ -138,8 +137,9 @@ rusqlite = { version = "=0.40.2", default-features = false, features = [
     "functions",
     "load_extension",
 ] }
-rustyline = "18.0"
+rustyline = "19.0"
 serde = { version = "1.0", default-features = false }
+serde-reflection = "0.6.0"
 serde_bytes = "0.11"
 serde_json = "1.0"
 # Keep sha2 aligned with the canister runtime stack to avoid duplicate 0.10/0.11

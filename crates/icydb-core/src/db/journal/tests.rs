@@ -30,7 +30,7 @@ use crate::{
     testing::{test_memory, test_memory_with_backing},
     types::EntityTag,
 };
-use ic_memory::ic_stable_structures::{Memory, Storable, VectorMemory};
+use ic_stable_structures::{Memory, Storable, VectorMemory};
 use icydb_schema::SchemaMigrationPlanDigest;
 use sha2::{Digest, Sha256};
 use std::{borrow::Cow, mem::size_of};
@@ -1143,8 +1143,8 @@ fn completed_entity_revision_authority_fails_closed_on_missing_or_drifted_tags()
 
 #[test]
 fn access_state_revision_is_durable_and_not_a_journal_batch() {
-    let memory = test_memory(253);
-    let mut store = JournalTailStore::init(memory.clone());
+    let memory = crate::testing::test_memory_owner(253);
+    let mut store = JournalTailStore::init(memory.open());
     assert_eq!(
         store
             .access_state_revision()
@@ -1160,7 +1160,7 @@ fn access_state_revision_is_durable_and_not_a_journal_batch() {
     assert_eq!(store.len(), 0);
 
     drop(store);
-    let reopened = JournalTailStore::init(memory);
+    let reopened = JournalTailStore::init(memory.open());
     assert_eq!(
         reopened
             .access_state_revision()
@@ -1934,9 +1934,9 @@ fn journal_tail_tiny_append_stays_within_one_memory_manager_bucket() {
 #[test]
 fn entity_revision_metadata_stays_bounded_at_the_accepted_entity_limit() {
     fn revision_pages(entity_count: usize, memory_id: u8) -> (u64, u64) {
-        let journal_memory = test_memory(memory_id);
-        let observation = journal_memory.clone();
-        let mut store = JournalTailStore::init(journal_memory);
+        let journal_memory = crate::testing::test_memory_owner(memory_id);
+        let observation = &journal_memory;
+        let mut store = JournalTailStore::init(journal_memory.open());
         store
             .initialize_current_tail_control()
             .expect("current tail control should initialize");
@@ -1986,7 +1986,7 @@ fn entity_revision_metadata_stays_bounded_at_the_accepted_entity_limit() {
 fn journal_tail_chunk_storable_bound_caps_raw_tail_value_bytes() {
     assert_eq!(
         RawJournalChunk::BOUND,
-        ic_memory::ic_stable_structures::storable::Bound::Bounded {
+        ic_stable_structures::storable::Bound::Bounded {
             max_size: JOURNAL_TAIL_CHUNK_BYTES,
             is_fixed_size: false,
         }

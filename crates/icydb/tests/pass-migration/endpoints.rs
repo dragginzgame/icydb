@@ -1,13 +1,10 @@
 #![expect(clippy::missing_const_for_fn, clippy::unnecessary_wraps)]
 
+use canic_icydb::__private::cdk as __icydb_host_sdk;
+use icydb as __icydb_facade;
+
 mod __icydb_generated {
     pub(crate) const __ICYDB_START_BINDING: () = ();
-
-    pub(crate) mod endpoint_authorization {
-        pub(crate) fn require_operational_controller() -> Result<(), icydb::Error> {
-            Ok(())
-        }
-    }
 
     pub(crate) mod endpoint_handlers {
         pub(crate) fn schema_migrate(
@@ -24,7 +21,7 @@ mod __icydb_generated {
     }
 }
 
-icydb::endpoints! {
+canic_icydb::endpoints! {
     icydb_schema_migrate;
     icydb_schema_migration;
 }

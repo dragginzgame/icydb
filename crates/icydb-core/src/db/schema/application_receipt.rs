@@ -8,7 +8,7 @@ use crate::db::codec::{
     write_hash_u64,
 };
 use crate::error::{ConstraintValidationFindingOutput, InternalError};
-use candid::CandidType;
+
 use icydb_schema::{
     ExpectedAcceptedHead, SchemaProposalDigest, SchemaSubmissionKey, TargetDatabaseIdentity,
     TargetStoreIdentity,
@@ -25,7 +25,9 @@ pub(in crate::db::schema) const MAX_SCHEMA_CHANGE_ACTIVATIONS: usize = 512;
 /// Opaque identity for one admitted resumable schema change.
 ///
 
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+    serde::Serialize, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd,
+)]
 #[serde(transparent)]
 pub struct SchemaChangeJobId([u8; 32]);
 
@@ -57,7 +59,7 @@ impl SchemaChangeJobId {
 /// Queryable resumable work attached to a pending schema receipt.
 ///
 
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct SchemaChangeJob {
     id: SchemaChangeJobId,
 }
@@ -80,7 +82,7 @@ impl SchemaChangeJob {
 /// Public phase of the canonical proof owned by one schema-change job.
 ///
 
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum SchemaChangeValidationPhase {
     /// Classify every historical row and capture the completed-domain revision.
     Forward,
@@ -94,7 +96,7 @@ pub enum SchemaChangeValidationPhase {
 /// Result of one bounded schema-change continuation call.
 ///
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum SchemaChangeProgressStatus {
     /// The durable validation job was created.
     Started,
@@ -133,7 +135,7 @@ pub enum SchemaChangeProgressStatus {
 /// Durable application receipt paired with one derived bounded progress result.
 ///
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct SchemaChangeProgress {
     receipt: SchemaChangeReceipt,
     status: SchemaChangeProgressStatus,
@@ -166,7 +168,7 @@ impl SchemaChangeProgress {
 /// Durable terminal or resumable outcome of one admitted proposal.
 ///
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum SchemaChangeOutcome {
     /// The exact proposal was already reflected by the accepted head.
     NoOp {
@@ -198,7 +200,7 @@ pub enum SchemaChangeOutcome {
 /// Durable idempotency and result record for one schema submission.
 ///
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct SchemaChangeReceipt {
     database_identity: TargetDatabaseIdentity,
     submission_key: SchemaSubmissionKey,

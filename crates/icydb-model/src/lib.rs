@@ -80,7 +80,7 @@ pub mod prelude {
         node::{MacroNode, ValidateNode, VisitableNode},
         visit::Visitor,
     };
-    pub use candid::CandidType;
+
     pub use serde::{Deserialize, Serialize};
 }
 
@@ -131,7 +131,7 @@ pub mod schema {
 /// Dependencies intentionally exposed to generated model code.
 #[doc(hidden)]
 pub mod __reexports {
-    pub use candid;
+
     #[cfg(not(target_arch = "wasm32"))]
     pub use ctor;
     pub use icydb_model_macros;

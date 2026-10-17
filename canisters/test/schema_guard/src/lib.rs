@@ -1,6 +1,6 @@
 //! One-entity generated schema authorization evidence canister.
 
-// Read IC counter 1 through the CDK; native Candid builds use its
+// Read IC counter 1 through the CDK; native builds use its
 // unsupported host binding and provide no IC measurement evidence.
 #[cfg(feature = "guarded-schema")]
 #[cfg(not(target_arch = "wasm32"))]
@@ -12,10 +12,8 @@ use ic_cdk::api::call_context_instruction_counter;
 #[cfg(feature = "guarded-schema")]
 use std::cell::Cell;
 
-use candid::CandidType;
 #[cfg(feature = "guarded-schema")]
-use candid::Principal;
-use ic_cdk::query;
+use ic_principal::Principal;
 #[cfg(feature = "guarded-schema")]
 use icydb::{
     ReadAuthorizationContext, ReadAuthorizationDecision, ReadAuthorizationSurface,
@@ -34,9 +32,9 @@ fn icydb_memory_pool()
     )
 }
 
-icydb::start!();
+canic_icydb::start!(icydb);
 
-icydb::endpoints! {
+canic_icydb::endpoints! {
     #[cfg(not(feature = "guarded-schema"))]
     icydb_schema(authorization = controller);
     #[cfg(feature = "guarded-schema")]
@@ -73,7 +71,7 @@ fn schema_read_guard(context: ReadAuthorizationContext) -> ReadAuthorizationDeci
     allowlist(context, &[principal(42)])
 }
 
-#[derive(CandidType)]
+#[derive(serde::Deserialize, serde::Serialize)]
 struct ReadAuthorizationCostResult {
     caller_instructions: u64,
     helper_instructions: u64,
@@ -92,7 +90,7 @@ fn maximum_allowlist_guard(context: ReadAuthorizationContext) -> ReadAuthorizati
 }
 
 /// Measure the canonical local schema authorization seam without altering it.
-#[query]
+
 #[cfg_attr(not(feature = "guarded-schema"), allow(clippy::missing_const_for_fn))]
 #[allow(clippy::unnecessary_wraps)]
 fn read_authorization_cost() -> Result<ReadAuthorizationCostResult, icydb::Error> {
@@ -151,6 +149,4 @@ fn read_authorization_cost() -> Result<ReadAuthorizationCostResult, icydb::Error
         helper_allowed: false,
     })
 }
-
-#[cfg(feature = "candid-export")]
-ic_cdk::export_candid!();
+icydb_testing_wasm_helpers::export_wire!(query, "read_authorization_cost", ReadAuthorizationCost, read_authorization_cost, (), Result<ReadAuthorizationCostResult, icydb::Error>);

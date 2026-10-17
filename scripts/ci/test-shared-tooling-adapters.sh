@@ -258,8 +258,8 @@ for lane in build-canister-local build-canister-production; do
     CANISTER=default_empty > "$native/$lane.log" 2>&1
 done
 printf '%s\n' \
-  'run --locked -p icydb-testing-build --bin build_fixture_canister -- default_empty --build-profile local --profile debug --candid-export on' \
-  'run --locked -p icydb-testing-build --bin build_fixture_canister -- default_empty --build-profile production --profile wasm-release --candid-export on' \
+  'run --locked -p icydb-testing-build --bin build_fixture_canister -- default_empty --build-profile local --profile debug' \
+  'run --locked -p icydb-testing-build --bin build_fixture_canister -- default_empty --build-profile production --profile wasm-release' \
   > "$native/expected-arguments"
 cmp "$native/expected-arguments" "$CI_CARGO_ARGUMENT_TRACE"
 mkdir "$native/doc-bin"
@@ -286,7 +286,7 @@ PATH="$native/bin:$PATH" make --no-print-directory -C "$native" -j2 build-canist
 # Follow the real size/audit shell chain to its first Cargo child. A controlled
 # builder failure must reach Make after descriptor admission and leave existing
 # artifact bytes intact. No synthetic report claims product qualification.
-for tool in ic-wasm wasm-opt candid-extractor twiggy; do
+for tool in ic-wasm wasm-opt twiggy; do
   printf '#!/usr/bin/env bash\nexit 0\n' > "$native/bin/$tool"
   chmod +x "$native/bin/$tool"
 done

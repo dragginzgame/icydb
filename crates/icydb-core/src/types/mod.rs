@@ -42,7 +42,7 @@ pub use unit::*;
 // Notes
 // - Display for fixed‑point types prints normalized decimal (human‑readable),
 //   not raw atomics.
-// - Ulid uses exactly 16 bytes in Candid/binary Serde and canonical text in
+// - Ulid uses exactly 16 bytes in Wire/binary Serde and canonical text in
 //   human-readable Serde.
 
 pub type Bool = bool;

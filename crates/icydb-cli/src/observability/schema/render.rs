@@ -1,6 +1,6 @@
 //! Module: schema report rendering.
 //! Responsibility: render accepted schema reports into CLI tables.
-//! Does not own: endpoint calls, Candid decoding, or endpoint publication.
+//! Does not own: endpoint calls, Wire decoding, or endpoint publication.
 //! Boundary: receives decoded schema descriptions and returns user-facing text.
 
 use icydb::db::{

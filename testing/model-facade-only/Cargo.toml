@@ -5,7 +5,7 @@ edition = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 publish = false
-license = { workspace = true }
+license-file = { workspace = true }
 description = "Compile contract for model authoring through the IcyDB facade"
 repository = { workspace = true }
 authors = { workspace = true }
@@ -14,8 +14,9 @@ authors = { workspace = true }
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-candid = { workspace = true }
+canic-icydb = { workspace = true }
 ic-cdk = { workspace = true }
+icydb-testing-wasm-helpers = { workspace = true }
 runtime_api = { workspace = true, default-features = true }
 
 [build-dependencies]

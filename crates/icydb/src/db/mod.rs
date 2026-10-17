@@ -20,7 +20,7 @@ pub use bootstrap::DatabaseBootstrapError;
 pub use bootstrap::ensure_default_memory_manager;
 pub use ic_memory::{
     MemoryAllocationPool, MemoryAllocationPoolError, MemoryAuthority, MemoryDeclarationError,
-    MemoryRequest, SchemaMetadata, SealedDeclarationSnapshot,
+    MemoryRequest, SealedDeclarationSnapshot,
 };
 pub use icydb_core::db::encode_hex_lower;
 pub use icydb_core::db::{
@@ -61,6 +61,7 @@ pub use session::{
     TypedWriteAdapter, TypedWriteBatchResult, TypedWriteBatchResults, TypedWriteHandle, WriteCell,
     with_request_execution, with_request_execution_async, with_request_execution_root,
 };
+pub use startup::provide_boot_entropy;
 pub use startup::{
     __clear_generated_startup_failure, __install_startup_recovery_wakeup,
     __observe_generated_startup_state, __record_generated_schema_startup_failure,

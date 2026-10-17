@@ -39,7 +39,11 @@ jobs:
           workspaces: |
             . -> target
           cache-targets: "false"
-      - run: make fetch
+      - name: Fetch locked workspace dependencies
+        uses: ./.github/actions/fetch-workspace
+        with:
+          app-id: ${{ secrets.IC_WIRE_APP_ID }}
+          private-key: ${{ secrets.IC_WIRE_APP_PRIVATE_KEY }}
       - name: Check the declared public MSRV
         run: bash scripts/ci/check-public-msrv.sh
 
@@ -78,9 +82,13 @@ jobs:
           make tools-check LOCAL_TOOL_CHECK_TARGETS= > "$RUNNER_TEMP/tools-check.log" 2>&1
           printf '%s\n' "$GITHUB_WORKSPACE/.tools/host/bin" \
             "$GITHUB_WORKSPACE/.tools/ic/bin" "$GITHUB_WORKSPACE/.tools/rust/common/bin" >> "$GITHUB_PATH"
+      - name: Fetch locked workspace dependencies
+        uses: ./.github/actions/fetch-workspace
+        with:
+          app-id: ${{ secrets.IC_WIRE_APP_ID }}
+          private-key: ${{ secrets.IC_WIRE_APP_PRIVATE_KEY }}
       - name: Prepare locked Testkit CLI for substitute-server fixtures
         run: |
-          cargo fetch --locked
           bash scripts/ci/testkit-runner.sh
           bash scripts/ci/testkit-runner.sh --check
       - name: Run static validation with complete feedback
@@ -148,8 +156,11 @@ jobs:
           key: icydb-tier-b-wasm-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_CURRENT }}-${{ github.sha }}
           restore-keys: |
             icydb-tier-b-wasm-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_CURRENT }}-
-      - name: Prepare locked workspace cache
-        run: make fetch
+      - name: Fetch locked workspace dependencies
+        uses: ./.github/actions/fetch-workspace
+        with:
+          app-id: ${{ secrets.IC_WIRE_APP_ID }}
+          private-key: ${{ secrets.IC_WIRE_APP_PRIVATE_KEY }}
       - name: Install pinned local tools
         run: |
           make install-tools LOCAL_TOOL_INSTALL_TARGETS= > "$RUNNER_TEMP/tools-install.log" 2>&1
@@ -202,6 +213,11 @@ jobs:
           toolchain: ${{ env.RUST_CURRENT }}
           components: rustfmt, clippy
           targets: wasm32-unknown-unknown
+      - name: Fetch locked workspace dependencies
+        uses: ./.github/actions/fetch-workspace
+        with:
+          app-id: ${{ secrets.IC_WIRE_APP_ID }}
+          private-key: ${{ secrets.IC_WIRE_APP_PRIVATE_KEY }}
       - name: Install native workstation prerequisites and tools
         run: make install-dev
       - name: Expose installed tool directories
@@ -252,11 +268,60 @@ jobs:
           repository-root: ${{ github.workspace }}
           compact-successful-tools: 'true'
 
+  wire_browser:
+    runs-on: ubuntu-24.04
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_INCREMENTAL: '0'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # v1
+        with:
+          toolchain: ${{ env.RUST_CURRENT }}
+          components: clippy
+          targets: wasm32-unknown-unknown
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.21.0'
+      - name: Prepare exact browser tooling
+        run: |
+          npm install --global npm@12.2.0 --ignore-scripts
+          npm --prefix testing/wire-browser ci --ignore-scripts
+          testing/wire-browser/node_modules/.bin/playwright install --with-deps chromium
+      - name: Fetch locked workspace dependencies
+        uses: ./.github/actions/fetch-workspace
+        with:
+          app-id: ${{ secrets.IC_WIRE_APP_ID }}
+          private-key: ${{ secrets.IC_WIRE_APP_PRIVATE_KEY }}
+      - name: Prepare governed IC tools and Testkit server
+        run: |
+          make install-tools
+          printf '%s\n' "$GITHUB_WORKSPACE/.tools/host/bin" \
+            "$GITHUB_WORKSPACE/.tools/ic/bin" "$GITHUB_WORKSPACE/.tools/rust/common/bin" >> "$GITHUB_PATH"
+      - name: Lint native browser contract owners
+        run: |
+          cargo clippy --locked -p icydb-testing-build --example wire_bindings -- -D warnings
+          cargo clippy --locked -p icydb-testing-integration --test query_canister -- -D warnings
+      - name: Qualify installed browser endpoints
+        run: make test-wire-browser
+      - name: Retain browser qualification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: wire-browser-${{ github.run_attempt }}
+          path: |
+            target/wire-browser/contracts.json
+            target/wire-browser/vectors.mjs
+            target/wire-browser/installed-report.json
+          if-no-files-found: ignore
+
   # Preserve the existing required-check identity while the independent lanes
   # finish in parallel and report their own complete failure sets.
   check:
     if: always()
-    needs: [static, rust, macos_host]
+    needs: [static, rust, macos_host, wire_browser]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -265,10 +330,12 @@ jobs:
           RUST_RESULT: ${{ needs.rust.result }}
           STATIC_RESULT: ${{ needs.static.result }}
           MACOS_RESULT: ${{ needs.macos_host.result }}
+          WIRE_BROWSER_RESULT: ${{ needs.wire_browser.result }}
         run: |
           test "$STATIC_RESULT" = "success"
           test "$RUST_RESULT" = "success"
           test "$MACOS_RESULT" = "success"
+          test "$WIRE_BROWSER_RESULT" = "success"
 
   wasm_size_report:
     runs-on: ubuntu-24.04
@@ -289,7 +356,11 @@ jobs:
           workspaces: |
             . -> target
           cache-targets: "false"
-      - run: cargo fetch --locked
+      - name: Fetch locked workspace dependencies
+        uses: ./.github/actions/fetch-workspace
+        with:
+          app-id: ${{ secrets.IC_WIRE_APP_ID }}
+          private-key: ${{ secrets.IC_WIRE_APP_PRIVATE_KEY }}
       - name: Check shared SQL source in both Wasm profiles
         run: |
           cargo check --locked --target wasm32-unknown-unknown \
@@ -297,7 +368,7 @@ jobs:
             --no-default-features --features sql
           cargo check --locked --target wasm32-unknown-unknown \
             -p canister_test_sql -p canister_test_sql_bounded \
-            --no-default-features --features local-sql-query,test-admin-api,candid-export
+            --no-default-features --features local-sql-query,test-admin-api
       - name: Install pinned local tools
         run: |
           make install-tools LOCAL_TOOL_INSTALL_TARGETS= > "$RUNNER_TEMP/tools-install.log" 2>&1
@@ -336,11 +407,9 @@ jobs:
         run: |
           mkdir -p artifacts
           cp release-input/default_empty.wasm-release.final-deployable.wasm artifacts/default_empty.wasm
-          cp release-input/default_empty.wasm-release.did artifacts/default_empty.did
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: wasm-artifacts
           path: |
             artifacts/default_empty.wasm
-            artifacts/default_empty.did
           if-no-files-found: error

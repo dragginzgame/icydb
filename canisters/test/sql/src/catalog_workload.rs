@@ -3,8 +3,6 @@
 use crate::{
     typed_adapter_fixture_error, typed_fixture_invariant_error, typed_operation_fixture_error,
 };
-use candid::CandidType;
-use ic_cdk::update;
 use icydb::{
     db::{
         DynamicQuery, StructuralPatch, TypedRowAdapter, WriteCell,
@@ -16,7 +14,7 @@ use icydb::{
 };
 use icydb_testing_test_sql_fixtures::sql::{SqlTestCatalogItem, SqlTestCollectionProbe};
 
-#[derive(CandidType)]
+#[derive(serde::Deserialize, serde::Serialize)]
 pub(crate) struct CatalogWorkloadRow {
     id: u64,
     key: String,
@@ -26,7 +24,7 @@ pub(crate) struct CatalogWorkloadRow {
     capacity: u64,
 }
 
-#[derive(CandidType)]
+#[derive(serde::Deserialize, serde::Serialize)]
 struct CatalogWorkloadPlacement {
     shape: Vec<u8>,
     points: Vec<(u64, u64)>,
@@ -34,7 +32,7 @@ struct CatalogWorkloadPlacement {
     enabled: bool,
 }
 
-#[derive(CandidType)]
+#[derive(serde::Deserialize, serde::Serialize)]
 pub(crate) struct CatalogWorkloadSample {
     result: Result<Vec<CatalogWorkloadRow>, icydb::Error>,
     total_instructions: u64,
@@ -44,14 +42,14 @@ pub(crate) struct CatalogWorkloadSample {
     pages: u32,
 }
 
-#[derive(CandidType)]
+#[derive(serde::Deserialize, serde::Serialize)]
 pub(crate) struct CatalogLabel {
     id: u64,
     key: String,
     name: String,
 }
 
-#[derive(CandidType)]
+#[derive(serde::Deserialize, serde::Serialize)]
 pub(crate) struct CatalogLabelSample {
     result: Result<Vec<CatalogLabel>, icydb::Error>,
     instructions: u64,
@@ -80,7 +78,6 @@ fn decode_label(values: Vec<OutputValue>) -> Result<CatalogLabel, icydb::Error> 
     Ok(CatalogLabel { id, key, name })
 }
 
-#[update]
 fn measure_catalog_labels(selected: bool) -> CatalogLabelSample {
     let mut sample = CatalogLabelSample {
         result: Err(typed_fixture_invariant_error()),
@@ -153,6 +150,7 @@ fn measure_catalog_labels(selected: bool) -> CatalogLabelSample {
     });
     sample
 }
+icydb_testing_wasm_helpers::export_wire!(update, "measure_catalog_labels", MeasureCatalogLabels, measure_catalog_labels, (selected: bool), CatalogLabelSample);
 
 fn record(fields: Vec<(&str, InputValue)>) -> InputValue {
     InputValue::map(
@@ -163,7 +161,6 @@ fn record(fields: Vec<(&str, InputValue)>) -> InputValue {
     )
 }
 
-#[update]
 fn seed_catalog_workload(start: u32, count: u32) -> Result<(), icydb::Error> {
     with_request_execution(|| {
         if count != 16 || !start.is_multiple_of(16) || start > 112 {
@@ -260,8 +257,8 @@ fn seed_catalog_workload(start: u32, count: u32) -> Result<(), icydb::Error> {
         Ok(())
     })
 }
+icydb_testing_wasm_helpers::export_wire!(update, "seed_catalog_workload", SeedCatalogWorkload, seed_catalog_workload, (start: u32, count: u32), Result<(), icydb::Error>);
 
-#[update]
 fn measure_catalog_workload(staged: bool) -> CatalogWorkloadSample {
     let mut sample = CatalogWorkloadSample {
         result: Err(typed_fixture_invariant_error()),
@@ -357,3 +354,4 @@ fn measure_catalog_workload(staged: bool) -> CatalogWorkloadSample {
     });
     sample
 }
+icydb_testing_wasm_helpers::export_wire!(update, "measure_catalog_workload", MeasureCatalogWorkload, measure_catalog_workload, (staged: bool), CatalogWorkloadSample);

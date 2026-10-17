@@ -48,9 +48,9 @@ pub(super) fn load_schema_report(
     canister: &str,
 ) -> Result<Vec<icydb::db::EntitySchemaDescription>, String> {
     require_created_canister(environment, canister)?;
-    let candid_bytes = call_query(environment, canister, SCHEMA_ENDPOINT.method(), ())?;
+    let wire_bytes = call_query(environment, canister, SCHEMA_ENDPOINT.method(), ())?;
     decode_endpoint_result(
-        &candid_bytes,
+        &wire_bytes,
         "schema",
         environment,
         canister,

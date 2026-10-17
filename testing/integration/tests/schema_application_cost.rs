@@ -1,9 +1,10 @@
-use candid::{CandidType, Principal};
-use ic_testkit::pic::{CandidCallExt as _, StandaloneCanisterFixture};
+use ic_principal::Principal;
+use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb_testing_audit_sql_perf_fixtures::contracts::{
     AcceptedSchemaReadInstructionResult, ApplicationStartupHook, ApplicationStartupSnapshot,
     SchemaApplicationPerfResult, StartupObservationPerfResult,
 };
+use icydb_testing_integration::WireCallExt as _;
 use icydb_testing_integration::{
     install_fixture_canister, install_fixture_canister_without_startup_delivery,
     upgrade_fixture_canister,
@@ -11,9 +12,9 @@ use icydb_testing_integration::{
 
 use std::time::Duration;
 
-const TIMER_EXECUTOR_METHOD: &str = "<ic-cdk internal> timer_executor";
+const TIMER_EXECUTOR_METHOD: &str = "<ic-timers internal> dispatch";
 
-#[derive(CandidType)]
+#[derive(serde::Deserialize, serde::Serialize)]
 struct StartupFailureInput {
     kind: icydb::db::StartupFailureKind,
     diagnostic: icydb::Error,
@@ -24,7 +25,7 @@ fn query_probe_result(
 ) -> Result<SchemaApplicationPerfResult, icydb::Error> {
     fixture
         .pocket_ic()
-        .query_candid(
+        .query_wire(
             fixture.canister_id(),
             "measure_schema_application_query",
             (),
@@ -39,7 +40,7 @@ fn query_probe(fixture: &StandaloneCanisterFixture) -> SchemaApplicationPerfResu
 fn update_probe(fixture: &StandaloneCanisterFixture) -> SchemaApplicationPerfResult {
     let result: Result<SchemaApplicationPerfResult, icydb::Error> = fixture
         .pocket_ic()
-        .update_candid(
+        .update_wire(
             fixture.canister_id(),
             "measure_schema_application_update",
             (),
@@ -51,7 +52,7 @@ fn update_probe(fixture: &StandaloneCanisterFixture) -> SchemaApplicationPerfRes
 fn startup_observation(fixture: &StandaloneCanisterFixture) -> StartupObservationPerfResult {
     let result: Result<StartupObservationPerfResult, icydb::db::StartupFailure> = fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "measure_startup_observation", ())
+        .query_wire(fixture.canister_id(), "measure_startup_observation", ())
         .expect("startup observation should decode");
     result.expect("startup observation should not fail")
 }
@@ -62,7 +63,7 @@ fn accepted_schema_read(
 ) -> AcceptedSchemaReadInstructionResult {
     let result: Result<AcceptedSchemaReadInstructionResult, icydb::Error> = fixture
         .pocket_ic()
-        .query_candid(
+        .query_wire(
             fixture.canister_id(),
             "measure_accepted_schema_read_instructions",
             (entity.to_string(),),
@@ -74,7 +75,7 @@ fn accepted_schema_read(
 fn application_startup_contract(fixture: &StandaloneCanisterFixture) -> ApplicationStartupSnapshot {
     fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "application_startup_contract", ())
+        .query_wire(fixture.canister_id(), "application_startup_contract", ())
         .expect("application startup contract should decode")
 }
 
@@ -88,7 +89,7 @@ fn inject_application_startup_failure(fixture: &StandaloneCanisterFixture) {
     };
     fixture
         .pocket_ic()
-        .update_candid::<(), _>(
+        .update_wire::<(), _>(
             fixture.canister_id(),
             "observe_application_startup_for_tests",
             (Result::<icydb::db::DatabaseStartupState, StartupFailureInput>::Err(failure),),
@@ -188,7 +189,7 @@ fn lifecycle_driver_is_private_and_reconstructable_after_upgrade() {
         fixture.canister_id(),
         Principal::anonymous(),
         TIMER_EXECUTOR_METHOD,
-        0_u64.to_be_bytes().to_vec(),
+        0_u64.to_le_bytes().to_vec(),
     );
     assert!(
         external.is_err(),
@@ -230,7 +231,7 @@ fn startup_observation_is_bounded_before_after_readiness_and_upgrade() {
 
     let pending: Result<(), icydb::Error> = fixture
         .pocket_ic()
-        .update_candid(
+        .update_wire(
             fixture.canister_id(),
             "initialize_startup_observation_fixture",
             (),

@@ -30,7 +30,7 @@ use crate::{
     db::{EntityKey, EntityKeyBytes, EntityKeyBytesError},
     types::Id,
 };
-use candid::CandidType;
+
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::fmt;
@@ -71,7 +71,9 @@ const PROJECTION_DOMAIN_TAG: &[u8] = b"icydb:identity-projection:v1";
 /// This unkeyed mapping preserves cross-entity correlation for equal key bytes.
 /// Enumerable source keys can be matched by projecting candidates.
 #[repr(transparent)]
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+    serde::Serialize, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd,
+)]
 pub struct ProjectedIdentity([u8; 32]);
 
 impl ProjectedIdentity {

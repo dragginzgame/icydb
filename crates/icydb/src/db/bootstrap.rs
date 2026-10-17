@@ -15,10 +15,11 @@ use std::{fmt, rc::Rc, sync::Arc};
 use ic_memory::{
     BootstrapAdmission, MemoryAllocationPool, MemoryAllocationPoolError, MemoryDeclarationError,
     MemoryManagerConfig, MemoryManagerSlot, MemoryResolutionError, MemoryRuntime, PolicyIdentity,
-    PolicyIdentityError, RuntimeAdoptionError, RuntimeBootstrapError, RuntimeBootstrapPolicy,
-    RuntimeConstructionError, SealedDeclarationSnapshot, StableKey,
-    ic_stable_structures::DefaultMemoryImpl,
+    RuntimeAdoptionError, RuntimeBootstrapError, RuntimeBootstrapPolicy, RuntimeConstructionError,
+    SealedDeclarationSnapshot, StableKey,
 };
+
+use ic_memory::DefaultMemoryImpl;
 
 /// Ensure that the bound host memory runtime contains one database authority.
 ///
@@ -67,18 +68,17 @@ struct DatabaseMemoryPolicy;
 
 impl RuntimeBootstrapPolicy for DatabaseMemoryPolicy {
     type Error = MemoryBootstrapAdmissionError;
-
-    fn validate_key(&self, _: &StableKey) -> Result<(), Self::Error> {
-        Ok(())
-    }
-    fn validate_slot(&self, _: &StableKey, _: &MemoryManagerSlot) -> Result<(), Self::Error> {
+    fn validate_allocation(&self, _: &StableKey, _: &MemoryManagerSlot) -> Result<(), Self::Error> {
         Ok(())
     }
     fn prepare_bootstrap(&self, admission: &mut BootstrapAdmission<'_>) -> Result<(), Self::Error> {
         prepare_memory_bootstrap(admission)
     }
-    fn runtime_bootstrap_identity(&self) -> Result<PolicyIdentity, PolicyIdentityError> {
-        PolicyIdentity::new("icydb.logical_memory", 1)
+    fn runtime_bootstrap_identity(&self) -> PolicyIdentity {
+        PolicyIdentity::new([
+            162, 211, 99, 60, 182, 106, 249, 175, 69, 210, 132, 12, 241, 103, 92, 177, 182, 86, 63,
+            5, 157, 250, 84, 228, 24, 141, 250, 92, 126, 87, 89, 68,
+        ])
     }
 }
 
@@ -164,9 +164,8 @@ impl std::error::Error for DatabaseBootstrapError {
 mod tests {
     mod public_failures;
     use super::*;
-    use ic_memory::{
-        MemoryRequest, RuntimeOpenError, SchemaMetadata, ic_stable_structures::VectorMemory,
-    };
+    use ic_memory::VectorMemory;
+    use ic_memory::{MemoryRequest, RuntimeOpenError};
 
     const TEST_AUTHORITY: &str = "icydb.bootstrap_adoption_test";
     fn pool() -> Result<MemoryAllocationPool, MemoryAllocationPoolError> {
@@ -180,18 +179,17 @@ mod tests {
     }
 
     struct ExistingRuntimePolicy {
-        identity_name: &'static str,
         preparation_calls: std::cell::Cell<usize>,
     }
 
     impl RuntimeBootstrapPolicy for ExistingRuntimePolicy {
         type Error = MemoryBootstrapAdmissionError;
 
-        fn validate_key(&self, _: &StableKey) -> Result<(), Self::Error> {
-            Ok(())
-        }
-
-        fn validate_slot(&self, _: &StableKey, _: &MemoryManagerSlot) -> Result<(), Self::Error> {
+        fn validate_allocation(
+            &self,
+            _: &StableKey,
+            _: &MemoryManagerSlot,
+        ) -> Result<(), Self::Error> {
             Ok(())
         }
 
@@ -203,8 +201,8 @@ mod tests {
             prepare_memory_bootstrap(admission)
         }
 
-        fn runtime_bootstrap_identity(&self) -> Result<PolicyIdentity, PolicyIdentityError> {
-            PolicyIdentity::new(self.identity_name, 1)
+        fn runtime_bootstrap_identity(&self) -> PolicyIdentity {
+            PolicyIdentity::new([7; 32])
         }
     }
 
@@ -213,12 +211,8 @@ mod tests {
             ["commit.control", "startup.control", "integrity.progress"]
                 .into_iter()
                 .map(|role| {
-                    MemoryRequest::new(
-                        TEST_AUTHORITY,
-                        &format!("{TEST_AUTHORITY}.{role}.v1"),
-                        SchemaMetadata::default(),
-                    )
-                    .unwrap()
+                    MemoryRequest::new(TEST_AUTHORITY, &format!("{TEST_AUTHORITY}.{role}.v1"))
+                        .unwrap()
                 })
                 .collect(),
         )
@@ -237,7 +231,7 @@ mod tests {
                 ensure_default_memory_manager(TEST_AUTHORITY, &requirements(), pages, pool)
                     .unwrap();
                 let runtime = memory_runtime().unwrap();
-                let committed = runtime.committed_allocations().unwrap().clone();
+                let committed = runtime.committed_allocations().unwrap().to_vec();
                 let before = runtime.memory_allocation_summary().unwrap();
                 assert_eq!(before.bucket_size_pages, pages);
                 ensure_default_memory_manager(TEST_AUTHORITY, &requirements(), pages, pool)
@@ -265,7 +259,7 @@ mod tests {
                 .bucket_size_pages,
             16
         );
-        assert_eq!(runtime.committed_allocations().unwrap().generation(), 1);
+        assert_eq!(runtime.committed_generation().unwrap(), 1);
     }
 
     #[test]
@@ -312,7 +306,7 @@ mod tests {
     fn unknown_host_authority_rejects_without_changing_committed_allocations() {
         ensure_default_memory_manager(TEST_AUTHORITY, &requirements(), 16, pool).unwrap();
         let runtime = memory_runtime().unwrap();
-        let committed = runtime.committed_allocations().unwrap().clone();
+        let committed = runtime.committed_allocations().unwrap().to_vec();
         let before = runtime.memory_allocation_summary().unwrap();
         let error =
             ensure_default_memory_manager("icydb.unknown", &requirements(), 4, pool).unwrap_err();
@@ -337,7 +331,6 @@ mod tests {
     #[test]
     fn adopts_runtime_bootstrapped_by_a_different_policy_and_bucket_size() {
         let policy = ExistingRuntimePolicy {
-            identity_name: "tests.existing-runtime-policy",
             preparation_calls: std::cell::Cell::new(0),
         };
         let mut runtime = MemoryRuntime::new_with_config(
@@ -349,14 +342,12 @@ mod tests {
         let host_pool = pool().unwrap();
         let generation = runtime
             .bootstrap(&declarations, &host_pool, &policy)
-            .unwrap()
-            .generation();
+            .unwrap();
         assert_eq!(policy.preparation_calls.get(), 1);
         assert_eq!(
             runtime
                 .bootstrap(&declarations, &host_pool, &policy)
-                .unwrap()
-                .generation(),
+                .unwrap(),
             generation
         );
         assert_eq!(policy.preparation_calls.get(), 1);
@@ -368,10 +359,7 @@ mod tests {
         .unwrap();
         ensure_default_memory_manager(TEST_AUTHORITY, &requirements(), 4, pool).unwrap();
         assert_eq!(policy.preparation_calls.get(), 1);
-        assert_eq!(
-            runtime.committed_allocations().unwrap().generation(),
-            generation
-        );
+        assert_eq!(runtime.committed_generation().unwrap(), generation);
         assert_eq!(
             runtime
                 .memory_allocation_summary()

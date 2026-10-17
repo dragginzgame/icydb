@@ -5,11 +5,11 @@
 
 mod entity_tags;
 
-use ic_memory::ic_stable_structures::{DefaultMemoryImpl, Memory};
 use ic_memory::{
     MemoryAllocationPool, MemoryAuthority, MemoryManagerConfig, MemoryRequest, MemoryRuntime,
-    RuntimeMemory, SchemaMetadata, SealedDeclarationSnapshot,
+    RuntimeMemory, SealedDeclarationSnapshot,
 };
+use ic_stable_structures::{DefaultMemoryImpl, Memory};
 use std::sync::OnceLock;
 
 pub(crate) use entity_tags::*;
@@ -27,6 +27,43 @@ pub(crate) const fn test_memory_id(id: u8) -> u8 {
         "memory id 255 is reserved for stable-structures internals",
     );
     id
+}
+
+/// One fixture runtime that can reopen an allocation after its lease is dropped.
+pub(crate) struct TestMemoryOwner {
+    runtime: MemoryRuntime<DefaultMemoryImpl>,
+    key: String,
+}
+
+impl TestMemoryOwner {
+    /// Open the fixture's sole lease; an overlapping collection is a test error.
+    pub(crate) fn open(&self) -> RuntimeMemory<DefaultMemoryImpl> {
+        self.runtime
+            .open_memory(&self.key)
+            .expect("prior fixture lease must be released before reopening")
+    }
+
+    /// Observe virtual pages through runtime diagnostics without aliasing a tree.
+    pub(crate) fn size(&self) -> u64 {
+        let id = self
+            .runtime
+            .memory_id(&self.key)
+            .expect("fixture key is committed");
+        self.runtime
+            .memory_allocations()
+            .expect("fixture diagnostics should succeed")
+            .memories[usize::from(id)]
+        .virtual_extent
+        .wasm_pages
+    }
+}
+
+/// Retain the runtime owner when a fixture needs reopen or live page observations.
+pub(crate) fn test_memory_owner(id: u8) -> TestMemoryOwner {
+    TestMemoryOwner {
+        runtime: test_memory_runtime(DefaultMemoryImpl::default(), MemoryManagerConfig::default()),
+        key: format!("icydb.core_tests.slot_{:03}.v1", test_memory_id(id)),
+    }
 }
 
 /// Shared test-only stable memory allocation for in-memory stores.
@@ -58,7 +95,6 @@ pub(crate) fn test_memory_runtime<M: Memory>(
                 MemoryRequest::new(
                     "icydb.core-tests",
                     &format!("icydb.core_tests.slot_{id:03}.v1"),
-                    SchemaMetadata::default(),
                 )
                 .expect("test request should validate")
             })

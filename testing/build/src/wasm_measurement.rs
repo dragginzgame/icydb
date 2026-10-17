@@ -191,7 +191,7 @@ pub const WASM_MEASUREMENT_COMPARISONS: &[WasmComparison] = &[
         baseline: "one_entity_dynamic_query",
         candidate: "one_entity_typed_query",
         disposition: WasmComparisonDisposition::DirectionalOnly,
-        reason: "distinct actor sources differ by public method bodies, typed adapter reachability and IC Wire versus Candid query transport",
+        reason: "distinct actor sources differ by public method bodies, typed adapter reachability and their bounded IC Wire payload projections",
     },
     WasmComparison {
         id: "sql_ingress",

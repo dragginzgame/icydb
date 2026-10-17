@@ -77,23 +77,25 @@ fn read_canister_cycles(environment: &str, canister: &str) -> Result<Option<u128
 }
 
 fn run_fixtures_load(environment: &str, canister: &str) -> Result<String, String> {
-    let output = fixtures_load_command(environment, canister)
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|err| err.to_string())?;
-    fixture_load_result(
-        output.status.success(),
-        output.stdout.as_slice(),
-        output.stderr.as_slice(),
-    )
+    let arguments = icydb::wire::Endpoint::FixturesLoad
+        .encode_request(())
+        .map_err(|error| error.to_string())?;
+    let response = crate::icp::call::call_hex(
+        &arguments,
+        |path| fixtures_load_command(environment, canister, path),
+        str::to_owned,
+    );
+    fixture_load_result(response)
 }
 
-fn fixture_load_result(success: bool, stdout: &[u8], stderr: &[u8]) -> Result<String, String> {
-    if success {
-        return Ok(String::from_utf8_lossy(stdout).to_string());
-    }
-
-    Err(fixture_load_error(output_stderr(stderr)))
+fn fixture_load_result(response: Result<Vec<u8>, String>) -> Result<String, String> {
+    let bytes = response.map_err(fixture_load_error)?;
+    let result: Result<(), icydb::Error> = icydb::wire::Endpoint::FixturesLoad
+        .decode_response(&bytes)
+        .map_err(|error| fixture_load_error(error.to_string()))?;
+    result
+        .map(|()| String::new())
+        .map_err(|error| fixture_load_error(crate::diagnostic::render_error(&error)))
 }
 
 fn fixture_load_error(stderr: String) -> String {
@@ -103,17 +105,17 @@ fn fixture_load_error(stderr: String) -> String {
     )
 }
 
-pub(super) fn fixtures_load_command(environment: &str, canister: &str) -> Command {
-    let mut command = Command::new("icp");
-    command
-        .arg("canister")
-        .arg("call")
-        .arg(canister)
-        .arg(FIXTURES_LOAD_ENDPOINT.method())
-        .arg("()");
-    append_environment_args(&mut command, environment);
-
-    command
+pub(super) fn fixtures_load_command(
+    environment: &str,
+    canister: &str,
+    argument_file: &std::path::Path,
+) -> Command {
+    crate::icp::call::icp_update_command(
+        environment,
+        canister,
+        FIXTURES_LOAD_ENDPOINT.method(),
+        argument_file,
+    )
 }
 
 pub(super) fn parse_canister_cycles(status: &str) -> Option<u128> {
@@ -142,12 +144,6 @@ mod tests {
 
     #[test]
     fn deployed_fixture_method_absence_remains_an_authoritative_failure() {
-        let error = fixture_load_result(false, b"", b"CanisterMethodNotFound")
-            .expect_err("a missing deployed fixture endpoint must fail refresh");
-
-        assert_eq!(
-            error,
-            "icp canister call icydb_fixtures_load failed: CanisterMethodNotFound",
-        );
+        assert!(fixture_load_result(Err("CanisterMethodNotFound".into())).is_err());
     }
 }

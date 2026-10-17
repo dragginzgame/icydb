@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::TypeParseError;
-use candid::{CandidType, types::Serializer as CandidSerializer, types::Type};
+
 use serde::{Deserialize, Deserializer, Serialize};
 use time::{Date as TimeDate, Month, PrimitiveDateTime, Time as TimeOfDay, UtcOffset};
 
@@ -202,23 +202,6 @@ impl Add for Duration {
 impl AddAssign for Duration {
     fn add_assign(&mut self, other: Self) {
         self.0 = self.0.saturating_add(other.0);
-    }
-}
-
-impl CandidType for Duration {
-    fn ty() -> Type {
-        <u64 as CandidType>::ty()
-    }
-
-    fn _ty() -> Type {
-        <u64 as CandidType>::_ty()
-    }
-
-    fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
-    where
-        S: CandidSerializer,
-    {
-        serializer.serialize_nat64(self.0)
     }
 }
 
@@ -447,23 +430,6 @@ impl Add<Duration> for Timestamp {
 impl AddAssign<Duration> for Timestamp {
     fn add_assign(&mut self, duration: Duration) {
         *self = *self + duration;
-    }
-}
-
-impl CandidType for Timestamp {
-    fn ty() -> Type {
-        <i64 as CandidType>::ty()
-    }
-
-    fn _ty() -> Type {
-        <i64 as CandidType>::_ty()
-    }
-
-    fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
-    where
-        S: CandidSerializer,
-    {
-        serializer.serialize_int64(self.0)
     }
 }
 

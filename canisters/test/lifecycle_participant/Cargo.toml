@@ -2,6 +2,7 @@
 name = "canister_test_lifecycle_participant"
 edition = { workspace = true }
 rust-version = { workspace = true }
+license-file = { workspace = true }
 version = { workspace = true }
 publish = false
 
@@ -13,15 +14,16 @@ crate-type = ["cdylib"]
 
 [features]
 default = []
-candid-export = []
 population-seed = []
 
 [dependencies]
-candid = { workspace = true }
+canic-icydb = { workspace = true }
 ic-cdk = { workspace = true }
 ic-timers = { workspace = true }
 icydb = { workspace = true }
 icydb-testing-audit-one-simple-fixtures = { workspace = true }
+icydb-testing-wasm-helpers = { workspace = true }
+serde = { workspace = true }
 
 [build-dependencies]
 icydb = { workspace = true }

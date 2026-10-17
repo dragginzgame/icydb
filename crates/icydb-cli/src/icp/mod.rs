@@ -10,26 +10,26 @@ mod project;
 
 use std::path::Path;
 
-pub(crate) use call::encode_candid_args;
+pub(crate) use call::encode_wire_args;
 
 pub(crate) fn call_query_hex(
     environment: &str,
     canister: &str,
     method: &str,
-    candid_arg: &[u8],
+    wire_arg: &[u8],
     error_message: impl FnOnce(&str) -> String,
 ) -> Result<Vec<u8>, String> {
-    call::call_query_hex(environment, canister, method, candid_arg, error_message)
+    call::call_query_hex(environment, canister, method, wire_arg, error_message)
 }
 
 pub(crate) fn call_update_hex(
     environment: &str,
     canister: &str,
     method: &str,
-    candid_arg: &[u8],
+    wire_arg: &[u8],
     error_message: impl FnOnce(&str) -> String,
 ) -> Result<Vec<u8>, String> {
-    call::call_update_hex(environment, canister, method, candid_arg, error_message)
+    call::call_update_hex(environment, canister, method, wire_arg, error_message)
 }
 
 pub(crate) fn list_canisters(environment: &str) -> Result<(), String> {
@@ -92,8 +92,12 @@ pub(crate) mod test_support {
         call::icp_update_command(environment, canister, method, argument_file)
     }
 
-    pub(crate) fn fixtures_load_command(environment: &str, canister: &str) -> Command {
-        commands::fixtures_load_command(environment, canister)
+    pub(crate) fn fixtures_load_command(
+        environment: &str,
+        canister: &str,
+        argument_file: &std::path::Path,
+    ) -> Command {
+        commands::fixtures_load_command(environment, canister, argument_file)
     }
 
     pub(crate) fn deploy_command(environment: &str, canister: &str) -> Command {

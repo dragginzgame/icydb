@@ -2,8 +2,7 @@
 //! Reuses the migration closeout's build, controller and lifecycle owners.
 
 use super::{migration_command, migration_status, projection, query_sql};
-use candid::CandidType;
-use ic_testkit::pic::{CandidCallExt as _, StandaloneCanisterFixture};
+use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{
     Error, ErrorCode,
     db::{
@@ -12,9 +11,9 @@ use icydb::{
     },
     value::OutputValue,
 };
+use icydb_testing_integration::WireCallExt as _;
 use icydb_testing_integration::fixture_variants::build_entity_rename_fixture_wasms;
 use icydb_testing_integration::install_prebuilt_fixture_canister;
-use serde::Deserialize;
 
 use std::sync::OnceLock;
 
@@ -22,13 +21,13 @@ const SOURCE_ROWS: &str = "SELECT id, key, label, parent_id FROM Item ORDER BY i
 const SUCCESSOR_ROWS: &str = "SELECT id, key, label, parent_id FROM CatalogItem ORDER BY id";
 const HOLDER_ROWS: &str = "SELECT id, item_id FROM Holder ORDER BY id";
 
-#[derive(CandidType, Deserialize)]
+#[derive(serde::Deserialize, serde::Serialize)]
 struct QueryMeasurement {
     result: Result<SqlQueryResult, Error>,
     local_instructions: u64,
 }
 
-#[derive(CandidType, Deserialize)]
+#[derive(serde::Deserialize, serde::Serialize)]
 struct CatalogMeasurement {
     description: EntitySchemaDescription,
     local_instructions: u64,
@@ -52,7 +51,7 @@ fn artifacts() -> &'static (Vec<u8>, Vec<u8>) {
 fn update_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {
     fixture
         .pocket_ic()
-        .update_candid(fixture.canister_id(), "icydb_update", (sql.to_string(),))
+        .update_wire(fixture.canister_id(), "icydb_update", (sql.to_string(),))
         .expect("SQL update response should decode")
 }
 
@@ -67,7 +66,7 @@ fn measured_rows(
     projection(fixture, sql);
     let measured: QueryMeasurement = fixture
         .pocket_ic()
-        .query_candid(
+        .query_wire(
             fixture.canister_id(),
             "measure_sql_query_instructions",
             (sql.to_string(),),
@@ -78,7 +77,7 @@ fn measured_rows(
     else {
         panic!("expected a row projection");
     };
-    let encoded = candid::encode_args((&rows,)).expect("projection should encode");
+    let encoded = icydb::wire::encode_one((&rows,)).expect("projection should encode");
     eprintln!(
         "entity-rename read: label={label} local_instructions={} delivery_cycles={} projection_blake3={}",
         measured.local_instructions,
@@ -105,7 +104,7 @@ fn assert_rows(fixture: &StandaloneCanisterFixture) {
 fn assert_bindings(fixture: &StandaloneCanisterFixture) {
     let result: Result<(), Error> = fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "check_entity_rename_bindings", ())
+        .query_wire(fixture.canister_id(), "check_entity_rename_bindings", ())
         .expect("typed binding check should decode");
     result.expect("generated bindings should decode the exact populated rows");
 }
@@ -132,7 +131,7 @@ fn assert_constraints(fixture: &StandaloneCanisterFixture) {
     let catalog_before = measured_catalog(fixture, "before-rejected-deletes");
     let deletes: Result<Vec<Error>, Error> = fixture
         .pocket_ic()
-        .update_candid(fixture.canister_id(), "check_entity_rename_deletes", ())
+        .update_wire(fixture.canister_id(), "check_entity_rename_deletes", ())
         .expect("delete checks should decode");
     let deletes = deletes.expect("both deletes should reject");
     assert_eq!(deletes.len(), 2);
@@ -172,7 +171,7 @@ fn assert_constraints(fixture: &StandaloneCanisterFixture) {
 fn measured_catalog(fixture: &StandaloneCanisterFixture, label: &str) -> EntitySchemaDescription {
     let measured: Result<CatalogMeasurement, Error> = fixture
         .pocket_ic()
-        .query_candid(
+        .query_wire(
             fixture.canister_id(),
             "measure_accepted_schema_read_instructions",
             ("CatalogItem".to_string(),),
@@ -206,7 +205,7 @@ fn rehearse(restart_before: bool) {
     projection(&fixture, SOURCE_ROWS);
     let seeded: Result<(), Error> = fixture
         .pocket_ic()
-        .update_candid(fixture.canister_id(), "seed_entity_rename", ())
+        .update_wire(fixture.canister_id(), "seed_entity_rename", ())
         .expect("seed response should decode");
     seeded.expect("fixed rows should insert");
     assert_bindings(&fixture);
@@ -216,7 +215,7 @@ fn rehearse(restart_before: bool) {
     assert_eq!(before.phase(), SchemaMigrationPhase::Adopted);
     eprintln!(
         "entity-rename seed call: input_blake3={}",
-        blake3::hash(&candid::encode_args(()).unwrap())
+        blake3::hash(&Vec::new())
     );
 
     upgrade(&fixture, artifacts().1.clone());
@@ -247,7 +246,11 @@ fn rehearse(restart_before: bool) {
     };
     eprintln!(
         "entity-rename advance: input_blake3={}",
-        blake3::hash(&candid::encode_args((&command,)).unwrap())
+        blake3::hash(
+            &icydb::wire::Endpoint::SchemaMigrate
+                .encode_request((&command,))
+                .unwrap()
+        )
     );
     let applied = migration_command(&fixture, command.clone());
     assert_eq!(applied.phase(), SchemaMigrationPhase::Applied);

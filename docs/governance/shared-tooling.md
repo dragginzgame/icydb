@@ -2061,6 +2061,14 @@ macOS qualification remain unperformed.
 
 ## Dependency selection
 
+The current snapshot includes the tracked-deletion repair from
+[Shared Tooling #272](https://github.com/dragginzgame/shared-tooling/pull/272),
+backported onto the previously reviewed 0.13.3 source at
+`55e7fcfabf6f1473cf60b843f33bd3a475f9039e`. Canonical refresh changes only the
+declaration checker and its focused fixture; the other 103 payloads are retained.
+Deleted tracked manifests/workflows are absent declarations, while dangling
+symlinks remain invalid. The gate leaves the consumer index untouched.
+
 The [shared declaration checker](../../scripts/ci/check-dependency-pins.sh) and
 [jq module](../../scripts/ci/dependency-pins.jq) run through
 `make check-dependency-pins` in static CI, native host qualification and the

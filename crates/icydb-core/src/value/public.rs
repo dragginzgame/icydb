@@ -6,17 +6,17 @@ use crate::{
     },
     value::Value,
 };
-use candid::CandidType;
+
 use serde::Deserialize;
 
 /// Canonical recursive value carried by public input and output boundaries.
 ///
 /// `InputValue` and `OutputValue` remain distinct root types. Their recursive
-/// payload is shared here so Candid and Serde derive one value visitor family.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+/// payload is shared here so Wire and Serde derive one value visitor family.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum PublicValue {
     Account(Account),
-    Blob(Vec<u8>),
+    Blob(#[serde(with = "serde_bytes")] Vec<u8>),
     Bool(bool),
     Date(Date),
     Decimal(Decimal),
@@ -162,7 +162,7 @@ impl PublicValue {
 }
 
 /// Enum metadata shared by public input and output values.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct PublicEnumValue {
     variant: String,
     path: Option<String>,

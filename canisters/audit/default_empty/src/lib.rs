@@ -14,7 +14,4 @@ fn icydb_memory_pool()
     )
 }
 
-icydb::start!();
-
-#[cfg(feature = "candid-export")]
-ic_cdk::export_candid!();
+canic_icydb::start!(icydb);

@@ -4,7 +4,7 @@ edition = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 publish = false
-license = { workspace = true }
+license-file = { workspace = true }
 description = "Shared schema and seed fixtures for IcyDB test surfaces"
 repository = { workspace = true }
 authors = { workspace = true }

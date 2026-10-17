@@ -1,4 +1,4 @@
-//! Wire-only actor for the isolated key/count codec comparison.
+//! Wire-only actor for an isolated finite key/count contract.
 
 use ic_wire::{Limits, Method};
 use icydb_testing_codec_query::MAX_FRAME_BYTES;
@@ -6,7 +6,7 @@ use icydb_testing_codec_query::MAX_FRAME_BYTES;
 #[cfg(any(target_arch = "wasm32", test))]
 use icydb_testing_codec_query::{QueryCodecError, row_count};
 
-/// Current contract shared with the comparison's matching Rust caller.
+/// Current bounded key/count contract.
 pub struct CountRows;
 
 impl Method for CountRows {

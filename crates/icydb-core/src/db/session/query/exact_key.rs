@@ -158,10 +158,10 @@ fn validate_logical_result_bytes(
     positions: &[u32],
     budget: &mut HardExecutionBudgetTracker,
 ) -> Result<(), InternalError> {
-    let mut total = candid::encode_one((entity, columns))
+    let mut total = icydb_schema::wire::encode_one((entity, columns))
         .map_err(|_| InternalError::query_executor_invariant())?
         .len();
-    let missing_row_bytes = candid::encode_one(&Option::<Vec<OutputValue>>::None)
+    let missing_row_bytes = icydb_schema::wire::encode_one(&Option::<Vec<OutputValue>>::None)
         .map_err(|_| InternalError::query_executor_invariant())?
         .len();
     let row_bytes = distinct_rows
@@ -170,7 +170,7 @@ fn validate_logical_result_bytes(
             if row.is_none() {
                 return Ok(missing_row_bytes);
             }
-            candid::encode_one(row)
+            icydb_schema::wire::encode_one(row)
                 .map(|bytes| bytes.len())
                 .map_err(|_| InternalError::query_executor_invariant())
         })

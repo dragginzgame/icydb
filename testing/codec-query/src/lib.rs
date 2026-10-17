@@ -1,7 +1,7 @@
-//! Shared workload and raw IC adapter for the isolated codec comparison.
+//! Finite workload and raw IC adapter for the isolated Wire actor.
 //! This fixture owns no database, codec, CDK or simulator lifecycle.
 
-/// Maximum argument/reply bytes admitted by both comparison actors.
+/// Maximum argument/reply bytes admitted by the actor.
 pub const MAX_FRAME_BYTES: usize = 64;
 
 /// Local adapter failure; application results remain ordinary row counts.
@@ -13,7 +13,7 @@ pub enum QueryCodecError {
     Encoding,
 }
 
-/// Count matching keys in the same finite row fixture for both codecs.
+/// Count matching keys in the finite row fixture.
 #[must_use]
 pub fn row_count(key: u64) -> u32 {
     [0, 7, 7, u64::MAX]

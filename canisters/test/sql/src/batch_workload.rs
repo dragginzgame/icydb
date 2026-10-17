@@ -1,8 +1,6 @@
 //! Test-only application batch qualification; no runtime admission policy lives here.
 
 use crate::{enrollment_user_input, typed_fixture_invariant_error, typed_operation_fixture_error};
-use candid::CandidType;
-use ic_cdk::update;
 use icydb::{
     Error,
     db::with_request_execution,
@@ -18,7 +16,7 @@ fn source_id(position: u32) -> Id<SqlTestEnrollmentUser> {
     ))
 }
 
-#[derive(CandidType)]
+#[derive(serde::Deserialize, serde::Serialize)]
 pub(crate) struct BatchWorkloadSample {
     result: Result<(), Error>,
     rejected_at: Option<u32>,
@@ -29,7 +27,7 @@ pub(crate) struct BatchWorkloadSample {
 }
 
 // Setup is a separate message and never part of the measured interval.
-#[update]
+
 fn seed_batch_workload(count: u32, reject_last: bool) -> Result<(), icydb::Error> {
     with_request_execution(|| {
         if count == 0 || count > 128 {
@@ -51,10 +49,11 @@ fn seed_batch_workload(count: u32, reject_last: bool) -> Result<(), icydb::Error
         Ok(())
     })
 }
+icydb_testing_wasm_helpers::export_wire!(update, "seed_batch_workload", SeedBatchWorkload, seed_batch_workload, (count: u32, reject_last: bool), Result<(), icydb::Error>);
 
 // One invocation is one real request scope and one atomic output batch. The
 // host, not this endpoint, owns chunking across separate committed requests.
-#[update]
+
 fn measure_batch_workload(start: u32, count: u32, individual_reads: bool) -> BatchWorkloadSample {
     let total_start = crate::call_context_instruction_counter();
     let mut sample = BatchWorkloadSample {
@@ -122,3 +121,4 @@ fn measure_batch_workload(start: u32, count: u32, individual_reads: bool) -> Bat
         crate::call_context_instruction_counter().saturating_sub(total_start);
     sample
 }
+icydb_testing_wasm_helpers::export_wire!(update, "measure_batch_workload", MeasureBatchWorkload, measure_batch_workload, (start: u32, count: u32, individual_reads: bool), BatchWorkloadSample);

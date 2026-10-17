@@ -5,16 +5,16 @@ edition = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 publish = false
-license = { workspace = true }
+license-file = { workspace = true }
 description = "Integration tests for IcyDB test canisters"
 repository = { workspace = true }
 authors = { workspace = true }
 
 [dependencies]
 blake3 = { workspace = true }
-candid = { workspace = true }
 ic-testkit = { workspace = true }
 ic-wire = { workspace = true }
+ic_principal = { workspace = true }
 icydb = { workspace = true, default-features = true, features = ["metrics", "migration", "sql"] }
 icydb-testing-audit-sql-perf-fixtures = { workspace = true }
 icydb-testing-build = { workspace = true }
@@ -25,9 +25,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 
 [dev-dependencies]
-canister_audit_codec_wire_query = { workspace = true }
 ic-host-artifacts = { workspace = true }
-icydb-testing-codec-query = { workspace = true }
 syn = { workspace = true, features = ["full"] }
 
 [lints]
@@ -64,10 +62,6 @@ path = "tests/schema_guard.rs"
 [[test]]
 name = "query_canister"
 path = "tests/query_canister.rs"
-
-[[test]]
-name = "codec_query_comparison"
-path = "tests/codec_query_comparison.rs"
 
 [[test]]
 name = "schema_application_cost"

@@ -30,6 +30,10 @@ pub(super) fn observe<C: CanisterKind>(
         .map_err(|_| InternalError::store_internal())
         .map(|id| select_commit_memory_allocation(id, C::COMMIT_STABLE_KEY))
         .map_err(database_control_failure)?;
+    // Queries may observe exact debt immediately after an upgrade, before any
+    // entropy-backed recovery page. Rebind the existing exclusive store handles
+    // without opening a database session or mutating persisted controls.
+    stores.with(crate::db::commit::register_runtime_journal_tails_for_backlog);
     let receipt = super::receipt::load::<C>().map_err(database_control_failure)?;
     let format = observe_database_format(stores)
         .map_err(|error| database_control_or_allocation_failure::<C>(receipt.as_ref(), &error))?;

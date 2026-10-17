@@ -23,7 +23,7 @@ use crate::{
     traits::CanisterKind,
 };
 use ic_memory::RuntimeMemory;
-use ic_memory::ic_stable_structures::{DefaultMemoryImpl, Memory};
+use ic_stable_structures::DefaultMemoryImpl;
 
 // Host grants select placement within the dependency's non-governance domain.
 const ALLOCATABLE_MEMORY_ID_MIN: u8 = ic_memory::MEMORY_MANAGER_GOVERNANCE_MAX_ID + 1;
@@ -44,7 +44,7 @@ struct GeneratedStoreProposal {
 
 pub(super) fn ensure_current_convergence_format<C: CanisterKind>(
     db: &Db<C>,
-    control_memory: &RuntimeMemory<DefaultMemoryImpl>,
+    control_memory: &std::rc::Rc<RuntimeMemory<DefaultMemoryImpl>>,
     fresh_database_boot: bool,
     boot_entropy: [u8; 32],
 ) -> Result<(), InternalError> {
@@ -96,13 +96,12 @@ pub(super) fn ensure_current_convergence_format<C: CanisterKind>(
         }
     };
     result?;
-    #[cfg(test)]
-    crate::db::commit::register_runtime_journal_tails_for_backlog(db);
+    db.with_store_registry(crate::db::commit::register_runtime_journal_tails_for_backlog);
     Ok(())
 }
 
 fn initialize_controls(
-    control_memory: &RuntimeMemory<DefaultMemoryImpl>,
+    control_memory: &std::rc::Rc<RuntimeMemory<DefaultMemoryImpl>>,
     incarnation: crate::db::DatabaseIncarnationId,
     cursor_authentication_key: [u8; 32],
     database_commit_sequence: u64,
@@ -138,7 +137,7 @@ fn initialize_controls(
 }
 
 fn reconcile_current_registry(
-    control_memory: &RuntimeMemory<DefaultMemoryImpl>,
+    control_memory: &std::rc::Rc<RuntimeMemory<DefaultMemoryImpl>>,
     incarnation: crate::db::DatabaseIncarnationId,
     cursor_authentication_key: [u8; 32],
     database_commit_sequence: u64,
@@ -307,7 +306,7 @@ fn require_fresh_proposal_roots(proposals: &[GeneratedStoreProposal]) -> Result<
 
 fn require_proposal_roots_fresh(proposal: &GeneratedStoreProposal) -> Result<(), InternalError> {
     for allocation in required_allocations(proposal.allocations)? {
-        if store_memory(allocation)?.size() != 0 {
+        if allocation_pages(allocation)? != 0 {
             return Err(InternalError::store_unsupported());
         }
     }
@@ -334,15 +333,23 @@ fn require_active_current_tail(handle: StoreHandle) -> Result<(), InternalError>
 }
 
 fn require_retirable_tail(entry: &PersistedStoreAllocation) -> Result<(), InternalError> {
-    let journal = entry.journal();
-    let tail = JournalTailStore::init(store_memory_owned(
-        journal.memory_id(),
-        journal.stable_key(),
-    )?);
-    if !tail.validate_current_tail_authority()?.is_empty() {
+    if !retired_journal_tail_control(entry)?.is_empty() {
         return Err(InternalError::store_unsupported());
     }
     Ok(())
+}
+
+// Retired allocations have no generated tree owner in the current installation.
+// Open, validate and release their sole lease; never infer an empty tail from state.
+pub(in crate::db) fn retired_journal_tail_control(
+    entry: &PersistedStoreAllocation,
+) -> Result<crate::db::journal::JournalTailControl, InternalError> {
+    let journal = entry.journal();
+    JournalTailStore::init(store_memory_owned(
+        journal.memory_id(),
+        journal.stable_key(),
+    )?)
+    .validate_current_tail_authority()
 }
 
 fn required_allocations(
@@ -367,23 +374,22 @@ fn required_allocations(
 #[cfg(test)]
 thread_local! {
     static TEST_CONVERGENCE_MEMORIES: std::cell::RefCell<
-        Vec<(u8, String, RuntimeMemory<DefaultMemoryImpl>)>
+        Vec<(u8, String, crate::testing::TestMemoryOwner)>
     > = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 #[cfg(test)]
-fn store_memory(
-    allocation: StoreAllocationIdentity,
-) -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
-    store_memory_owned(allocation.memory_id(), allocation.stable_key())
+fn allocation_pages(allocation: StoreAllocationIdentity) -> Result<u64, InternalError> {
+    TEST_CONVERGENCE_MEMORIES.with_borrow(|memories| {
+        Ok(memories
+            .iter()
+            .find(|(id, key, _)| *id == allocation.memory_id() && key == allocation.stable_key())
+            .map_or(0, |(_, _, owner)| owner.size()))
+    })
 }
 
 #[cfg(not(test))]
-fn store_memory(
-    allocation: StoreAllocationIdentity,
-) -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
-    store_memory_owned(allocation.memory_id(), allocation.stable_key())
-}
+use crate::db::database_format::allocation_pages;
 
 #[cfg(test)]
 fn store_memory_owned(
@@ -396,10 +402,11 @@ fn store_memory_owned(
             .iter()
             .find(|(id, key, _)| *id == memory_id && key == stable_key)
         {
-            return Ok(memory.clone());
+            return Ok(memory.open());
         }
-        let memory = crate::testing::test_memory(memory_id);
-        memories.push((memory_id, stable_key.to_string(), memory.clone()));
+        let owner = crate::testing::test_memory_owner(memory_id);
+        let memory = owner.open();
+        memories.push((memory_id, stable_key.to_string(), owner));
         Ok(memory)
     })
 }
@@ -644,7 +651,7 @@ mod tests {
         let mut registry = maximum_registry();
         canonicalize_store_registry(&mut registry).unwrap();
         validate_persisted_allocation_set::<ConvergenceCanister>(&registry).unwrap();
-        let memory = test_memory(127);
+        let memory = std::rc::Rc::new(test_memory(127));
         super::super::write_current_boot_record(&memory).unwrap();
         let replacement = prepare_commit_control_replacement(
             memory.clone(),
@@ -675,7 +682,7 @@ mod tests {
         );
         assert!(
             prepare_commit_control_replacement(
-                test_memory(126),
+                std::rc::Rc::new(test_memory(126)),
                 crate::db::DatabaseIncarnationId::for_tests(0x73),
                 [0x74; 32],
                 0,
@@ -705,7 +712,7 @@ mod tests {
 
     #[test]
     fn fresh_initialization_publishes_exact_current_controls() {
-        let fresh_control = test_memory(123);
+        let fresh_control = std::rc::Rc::new(test_memory(123));
         let (_root, fresh) = database(&FRESH_REGISTRY);
         ensure_current_convergence_format(&fresh, &fresh_control, true, [0x17; 32]).unwrap();
         let PersistedCommitControlObservation::Current {
@@ -728,7 +735,7 @@ mod tests {
 
     #[test]
     fn current_registry_rejects_debt_retirement_and_never_reuses_retired_quartets() {
-        let control = test_memory(126);
+        let control = std::rc::Rc::new(test_memory(126));
         let (_root, life_a) = database(&LIFE_A_REGISTRY);
         ensure_current_convergence_format(&life_a, &control, true, [0x17; 32]).unwrap();
         let retained = JournalBatch::new_with_database_commit_sequence(
@@ -743,14 +750,51 @@ mod tests {
         ensure_current_convergence_format(&life_a, &control, false, [0x17; 32])
             .expect("current startup must admit a bounded nonempty tail");
 
+        // Simulate removal of the generated store on restart: release its tree
+        // before the retired-allocation reader opens that physical lease.
+        let release_a = || {
+            LIFE_A_JOURNAL.with_borrow_mut(|tail| {
+                *tail = JournalTailStore::init(test_memory(254));
+            });
+        };
+        release_a();
         let (_root, empty) = database(&LIFE_EMPTY_REGISTRY);
         assert!(ensure_current_convergence_format(&empty, &control, false, [0x17; 32]).is_err());
         LIFE_A_JOURNAL.with_borrow_mut(|tail| {
+            *tail = JournalTailStore::init(
+                store_memory_owned(118, "icydb.test.convergence.lifea.journal.v1").unwrap(),
+            );
             let retirement = tail
                 .prepare_batch_retirement(&retained, FoldWatermark::new(JournalSequence::new(1), 1))
                 .unwrap();
             tail.apply_prepared_batch_retirement(retirement);
         });
+        release_a();
+        ensure_current_convergence_format(&empty, &control, false, [0x17; 32]).unwrap();
+
+        // A retired registry row must still validate its physical tail on retry.
+        let unexpected = JournalBatch::new_with_database_commit_sequence(
+            [0x73; 16],
+            [0x74; 16],
+            JournalSequence::new(2),
+            DatabaseCommitSequence::new(2),
+            Vec::new(),
+        )
+        .unwrap();
+        let mut tail = JournalTailStore::init(
+            store_memory_owned(118, "icydb.test.convergence.lifea.journal.v1").unwrap(),
+        );
+        tail.append_batch(&unexpected).unwrap();
+        drop(tail);
+        assert!(ensure_current_convergence_format(&empty, &control, false, [0x17; 32]).is_err());
+        let mut tail = JournalTailStore::init(
+            store_memory_owned(118, "icydb.test.convergence.lifea.journal.v1").unwrap(),
+        );
+        let retirement = tail
+            .prepare_batch_retirement(&unexpected, FoldWatermark::new(JournalSequence::new(2), 2))
+            .unwrap();
+        tail.apply_prepared_batch_retirement(retirement);
+        drop(tail);
         ensure_current_convergence_format(&empty, &control, false, [0x17; 32]).unwrap();
 
         let (_root, life_b) = database(&LIFE_B_REGISTRY);

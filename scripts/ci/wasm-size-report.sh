@@ -83,10 +83,6 @@ if ! command -v wasm-opt >/dev/null 2>&1; then
     exit 1
 fi
 WASM_OPT_BIN="$(command -v wasm-opt)"
-if ! command -v candid-extractor >/dev/null 2>&1; then
-    echo "[wasm-size] missing required tool: candid-extractor" >&2
-    exit 1
-fi
 
 # The wasm size report consumes locally staged canister artifacts under
 # `.icp/local/canisters/<name>/`, but the staging step is owned by
@@ -116,7 +112,6 @@ build_variant() {
         --build-profile production
         --profile "$profile"
         --sql-mode "$sql_mode"
-        --candid-export on
     )
 
     echo "[wasm-size] Building '$canister_name' using profile '$profile' ($sql_variant)"
@@ -130,7 +125,6 @@ build_variant() {
     ICP_DIR="$ROOT/.icp/local/canisters/$canister_name"
     FINAL_WASM="$ICP_DIR/$canister_name.wasm"
     COMPILER_WASM="$ICP_DIR/$canister_name.compiler.wasm"
-    RAW_DID="$ICP_DIR/$canister_name.did"
 
     if [[ ! -f "$FINAL_WASM" ]]; then
         echo "[wasm-size] expected final deployable wasm missing: $FINAL_WASM" >&2
@@ -144,8 +138,6 @@ build_variant() {
     COMPILER_COPY="$out_dir/${stem}.compiler-emitted.wasm"
     FINAL_COPY="$out_dir/${stem}.final-deployable.wasm"
     FINAL_GZ="$out_dir/${stem}.final-deployable.wasm.gz"
-    DID_COPY="$out_dir/${stem}.did"
-    COMPILER_DID="$out_dir/${stem}.compiler-emitted.did"
     COMPILER_INFO="$out_dir/${stem}.compiler-emitted.info.txt"
     FINAL_INFO="$out_dir/${stem}.final-deployable.info.txt"
     REPORT_JSON="$out_dir/${stem}.report.json"
@@ -153,15 +145,6 @@ build_variant() {
 
     cp "$COMPILER_WASM" "$COMPILER_COPY"
     cp "$FINAL_WASM" "$FINAL_COPY"
-    rm -f "$DID_COPY"
-    if [[ -f "$RAW_DID" ]]; then
-        cp "$RAW_DID" "$DID_COPY"
-    fi
-    candid-extractor "$COMPILER_COPY" > "$COMPILER_DID"
-    if ! cmp -s "$COMPILER_DID" "$DID_COPY"; then
-        echo "[wasm-size] Candid drifted between compiler and final Wasm for '$canister_name'" >&2
-        exit 1
-    fi
     gzip -n -9 -c "$FINAL_COPY" > "$FINAL_GZ"
 
     ic-wasm "$COMPILER_COPY" info > "$COMPILER_INFO"
@@ -172,7 +155,6 @@ build_variant() {
         cargo run -p icydb-testing-build --bin write_wasm_size_report --locked -- \
             --canister "$canister_name" \
             "${build_options[@]}" \
-            --did "$DID_COPY" \
             --compiler-wasm "$COMPILER_COPY" \
             --final-wasm "$FINAL_COPY" \
             --final-gz "$FINAL_GZ" \

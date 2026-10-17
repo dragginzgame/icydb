@@ -15,14 +15,14 @@ use crate::{
 /// Read and print the generated storage snapshot endpoint.
 pub(super) fn run_snapshot_command(target: CanisterTarget) -> Result<(), String> {
     require_created_canister(target.environment(), target.canister_name())?;
-    let candid_bytes = call_query(
+    let wire_bytes = call_query(
         target.environment(),
         target.canister_name(),
         SNAPSHOT_ENDPOINT.method(),
         (),
     )?;
     let report = decode_endpoint_result::<icydb::db::StorageReport>(
-        &candid_bytes,
+        &wire_bytes,
         "snapshot",
         target.environment(),
         target.canister_name(),

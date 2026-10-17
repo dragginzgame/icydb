@@ -125,6 +125,6 @@ impl<C: CanisterKind> DbSession<C> {
 // Raw core sessions return the canonical projection without a facade envelope.
 pub(in crate::db::session) fn encoded_returning_response_len(
     projection: crate::db::RowProjectionOutput,
-) -> candid::Result<usize> {
-    candid::encode_one(projection).map(|bytes| bytes.len())
+) -> Result<usize, icydb_schema::wire::Error> {
+    icydb_schema::wire::encode_one(projection).map(|bytes| bytes.len())
 }

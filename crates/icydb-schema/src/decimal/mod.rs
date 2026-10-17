@@ -105,7 +105,7 @@ pub enum ParseDecimalErrorReason {
 /// Decimal
 ///
 /// Owned fixed-point decimal with an explicit i128 mantissa and base-10 scale.
-/// Candid and Serde encode and decode decimal text in every format.
+/// Wire and Serde encode and decode decimal text in every format.
 ///
 /// Arithmetic saturates at the scale-zero magnitude bounds on overflow,
 /// division by zero resolves to `ZERO`, and

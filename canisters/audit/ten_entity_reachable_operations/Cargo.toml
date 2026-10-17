@@ -2,21 +2,21 @@
 name = "canister_audit_ten_entity_reachable_operations"
 edition = { workspace = true }
 rust-version = { workspace = true }
+license-file = { workspace = true }
 version = { workspace = true }
 publish = false
 
 [package.metadata.cargo-machete]
-ignored = ["candid", "icydb-testing-audit-ten-simple-fixtures"]
+ignored = ["icydb-testing-audit-ten-simple-fixtures"]
 
 [lib]
 crate-type = ["cdylib"]
 
 [features]
 default = []
-candid-export = []
 
 [dependencies]
-candid = { workspace = true }
+canic-icydb = { workspace = true }
 ic-cdk = { workspace = true }
 icydb = { workspace = true }
 icydb-model = { workspace = true }

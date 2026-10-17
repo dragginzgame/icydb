@@ -25,7 +25,7 @@ use crate::{
     error::{ConstraintValuePath, ErrorClass, ErrorOrigin, InternalError},
     traits::CanisterKind,
 };
-use candid::CandidType;
+
 use serde::Deserialize;
 use std::{
     collections::BTreeMap,
@@ -75,7 +75,7 @@ pub(in crate::db) const MAX_INTEGRITY_PATH_BYTES: usize = 4 * 1024;
 /// abort carry only the opaque job identity; private checkpoints never cross
 /// this boundary.
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum IntegrityCheckRequest {
     /// Execute one bounded metadata/control inspection.
     Quick {
@@ -122,7 +122,7 @@ impl IntegrityCheckRequest {
 
 /// Typed result shared by trusted Rust and SQL integrity frontends.
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum IntegrityCheckResult {
     /// Bounded one-call Quick result.
     Quick(QuickIntegrityResult),
@@ -321,7 +321,7 @@ static DATABASE_INCARNATION_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 /// journal revisions. Ordinary reopen preserves it. Any future restore,
 /// replacement, or import lane that can reuse those revisions must mint and
 /// publish a fresh identity before the restored database becomes available.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, serde::Serialize)]
 pub struct DatabaseIncarnationId([u8; 16]);
 
 impl DatabaseIncarnationId {
@@ -367,8 +367,13 @@ impl DatabaseIncarnationId {
 
             let mut hasher = Sha256::new();
             hasher.update(DATABASE_INCARNATION_DOMAIN);
-            hasher.update(ic_cdk::api::canister_self().as_slice());
-            hasher.update(ic_cdk::api::time().to_be_bytes());
+            let mut canister = [0_u8; 29];
+            let canister = canister
+                .get_mut(..ic0::canister_self_size())
+                .ok_or_else(InternalError::database_incarnation_generation_failed)?;
+            ic0::canister_self_copy(canister, 0);
+            hasher.update(canister);
+            hasher.update(ic0::time().to_be_bytes());
             hasher.update(sequence.to_be_bytes());
             let digest = hasher.finalize();
             let mut bytes = [0_u8; 16];
@@ -391,7 +396,7 @@ impl DatabaseIncarnationId {
 }
 
 /// Stable entity identity projected into integrity responses.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct IntegrityEntityIdentity {
     entity_tag: u64,
     entity_path: String,
@@ -445,7 +450,7 @@ impl IntegrityEntityIdentity {
 }
 
 /// Broad machine-readable accepted-authority failure class.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum IntegrityAuthorityClass {
     /// Accepted authority bytes or closure are corrupt.
     Corruption,
@@ -460,7 +465,7 @@ pub enum IntegrityAuthorityClass {
 }
 
 /// Broad machine-readable integrity finding class.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum IntegrityFindingClass {
     /// Accepted or physical bytes are corrupt.
     Corruption,
@@ -472,7 +477,7 @@ pub enum IntegrityFindingClass {
 
 /// Stable semantic family of one integrity finding.
 
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum IntegrityFindingKind {
     /// The physical data key is not a valid current key for its entity interval.
     MalformedDataKey,
@@ -543,7 +548,7 @@ pub enum IntegrityFindingKind {
 
 /// Canonical Deep inspection phase.
 
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum IntegrityPhase {
     /// Bounded accepted metadata and control closure.
     QuickMetadata,
@@ -566,7 +571,9 @@ pub enum IntegrityPhase {
 
 /// Deterministic verifier family within one physical inspection unit.
 
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+    serde::Serialize, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd,
+)]
 pub enum IntegrityVerifierFamily {
     /// Current physical data-key framing and identity.
     DataKey,
@@ -609,7 +616,7 @@ pub enum IntegrityVerifierFamily {
 }
 
 /// Severity of one definite integrity finding.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum IntegritySeverity {
     /// The finding identifies invalid maintained state.
     Error,
@@ -620,7 +627,7 @@ pub enum IntegritySeverity {
 /// One bounded machine-readable integrity finding.
 ///
 /// Raw row payloads and unbounded application values are deliberately absent.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct IntegrityFinding {
     diagnostic_code: u16,
     class: IntegrityFindingClass,
@@ -753,7 +760,7 @@ impl IntegrityFinding {
 }
 
 /// Typed reason that accepted authority could not be inspected.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct IntegrityAuthorityDiagnostic {
     diagnostic_code: u16,
     class: IntegrityAuthorityClass,
@@ -792,7 +799,7 @@ impl IntegrityAuthorityDiagnostic {
 }
 
 /// Typed bounded-resource failure.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct IntegrityResourceDiagnostic {
     diagnostic_code: u16,
 }
@@ -806,7 +813,7 @@ impl IntegrityResourceDiagnostic {
 }
 
 /// Outcome of one bounded Quick integrity inspection.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum QuickIntegrityStatus {
     /// Every bounded Quick family was inspected without findings.
     CompleteClean,
@@ -819,7 +826,7 @@ pub enum QuickIntegrityStatus {
 }
 
 /// Complete result of one bounded accepted-native Quick inspection.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct QuickIntegrityResult {
     entity: IntegrityEntityIdentity,
     database_incarnation_id: DatabaseIncarnationId,
@@ -1111,7 +1118,7 @@ mod tests {
     }
 
     #[test]
-    fn integrity_finding_candid_preserves_targeted_constraint_path() {
+    fn integrity_finding_wire_preserves_targeted_constraint_path() {
         let plan = plan();
         let mut finding = finding(&plan);
         let path = ConstraintValuePath::new(vec![
@@ -1123,9 +1130,10 @@ mod tests {
         finding.constraint_id = Some(7);
         finding.constraint_name = Some("nested_limit".to_string());
 
-        let bytes = candid::encode_one(&finding).expect("integrity finding should encode");
+        let bytes =
+            icydb_schema::wire::encode_one(&finding).expect("integrity finding should encode");
         let decoded: IntegrityFinding =
-            candid::decode_one(&bytes).expect("integrity finding should decode");
+            icydb_schema::wire::decode_one(&bytes).expect("integrity finding should decode");
         assert_eq!(decoded.value_path(), Some(&path));
         assert_eq!(decoded.constraint_id(), Some(7));
         assert_eq!(decoded.constraint_name(), Some("nested_limit"));

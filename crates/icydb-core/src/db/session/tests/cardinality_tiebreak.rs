@@ -351,8 +351,10 @@ fn sql_count_only_writes_preserve_counts_values_and_returning() {
     assert!(projection_rows(&session, "SELECT id FROM PlannerRow WHERE id = 1").is_empty());
 }
 
-fn returning_result_len(output: crate::db::RowProjectionOutput) -> candid::Result<usize> {
-    candid::encode_one(Ok::<_, ()>(output)).map(|bytes| bytes.len())
+fn returning_result_len(
+    output: crate::db::RowProjectionOutput,
+) -> Result<usize, icydb_schema::wire::Error> {
+    icydb_schema::wire::encode_one(Ok::<_, ()>(output)).map(|bytes| bytes.len())
 }
 
 #[test]

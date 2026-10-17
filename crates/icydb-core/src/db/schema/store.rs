@@ -55,7 +55,7 @@ use crate::{
     types::EntityTag,
 };
 use ic_memory::RuntimeMemory;
-use ic_memory::ic_stable_structures::{
+use ic_stable_structures::{
     BTreeMap as StableBTreeMap, DefaultMemoryImpl, Storable, storable::Bound as StorableBound,
 };
 use sha2::Digest;

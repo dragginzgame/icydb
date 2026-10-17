@@ -115,8 +115,8 @@ fn identity_field_remap_preserves_exhaustion_in_heap_publication() {
 
 #[test]
 fn identity_field_remap_replays_before_canonical_fold() {
-    let memory = test_memory(227);
-    let mut store = SchemaStore::init_journaled(memory.clone());
+    let memory = crate::testing::test_memory_owner(227);
+    let mut store = SchemaStore::init_journaled(memory.open());
     publish_initial(&mut store);
     let (range, advance) = exhausted_range();
     store.fold_identity_range_advance(range, advance).unwrap();
@@ -131,7 +131,8 @@ fn identity_field_remap_replays_before_canonical_fold() {
     assert_exhausted(&store, advance);
     let old_key = RawSchemaKey::from_identity_state(ENTITY, FieldId::new(2));
     assert!(store.get_canonical_raw_value(&old_key).unwrap().is_some());
-    let mut reopened = SchemaStore::init_journaled(memory);
+    drop(store);
+    let mut reopened = SchemaStore::init_journaled(memory.open());
     reopened
         .apply_journaled_accepted_schema_candidate(
             test_database_incarnation(),

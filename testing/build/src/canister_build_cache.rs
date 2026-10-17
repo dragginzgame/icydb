@@ -24,9 +24,9 @@ use ic_build::artifacts::{
     SharedIncrementalTargetPrunePolicy, WasmBuildBatchConfig, WasmBuildBatchContractError,
     WasmBuildBatchProgressEvent, WasmBuildBatchReport, WasmBuildOutcome, WasmBuildProgressConfig,
     WasmBuildProgressEvent, WasmBuildSpec, build_artifact_caches_batch,
-    build_wasm_canisters_cached_batch_with_config_and_progress,
-    build_wasm_canisters_cached_with_progress,
+    build_wasm_canisters_cached_batch, build_wasm_canisters_cached_with_progress,
 };
+use ic_build::cargo::selection::CargoSelection;
 
 const CACHE_TRACE_ENV: &str = "ICYDB_CANISTER_CACHE_TRACE";
 const POST_LINK_CACHE_NAMESPACE: &str = "icydb-canister-wasm";
@@ -53,14 +53,14 @@ pub(crate) struct CargoWasmCacheRequest<'a> {
     pub(crate) workspace_root: &'a Path,
     pub(crate) target_dir: &'a Path,
     pub(crate) packages: &'a [&'a str],
-    pub(crate) arguments: &'a [OsString],
+    pub(crate) selection: &'a CargoSelection,
     pub(crate) encoded_rustflags: Option<&'a str>,
 }
 
 pub(crate) struct CargoWasmBatchEntry<'a> {
     pub(crate) context: &'a str,
     pub(crate) package: &'a str,
-    pub(crate) arguments: &'a [OsString],
+    pub(crate) selection: &'a CargoSelection,
     pub(crate) encoded_rustflags: Option<&'a str>,
 }
 
@@ -85,7 +85,7 @@ pub(crate) fn build_cached_cargo_wasm(
         request.workspace_root,
         request.target_dir,
         request.packages,
-        request.arguments,
+        request.selection,
         request.encoded_rustflags,
         true,
     );
@@ -113,7 +113,7 @@ pub(crate) fn cargo_wasm_batch_specs(
                     workspace_root,
                     target_dir,
                     &[entry.package],
-                    entry.arguments,
+                    entry.selection,
                     entry.encoded_rustflags,
                     false,
                 ),
@@ -127,15 +127,17 @@ pub(crate) fn build_cached_cargo_wasm_batch(
 ) -> Result<WasmBuildBatchReport, WasmBuildBatchContractError> {
     let batch_config = WasmBuildBatchConfig::new()
         .with_shared_incremental_target_maintenance(shared_incremental_target_maintenance_config());
-    let report = build_wasm_canisters_cached_batch_with_config_and_progress(
+    let mut observer = report_wasm_build_batch_progress;
+    let report = build_wasm_canisters_cached_batch(
         specs,
         batch_config,
-        wasm_build_progress_config(),
-        report_wasm_build_batch_progress,
+        Some((wasm_build_progress_config(), &mut observer)),
     )?;
-    for outcome in report.outcomes() {
-        trace_wasm_build(outcome.label(), outcome.outcome());
-        report_shared_target_maintenance_failure(outcome.label(), outcome.outcome());
+    for entry in report.outcomes() {
+        if let Some(outcome) = entry.outcome() {
+            trace_wasm_build(entry.label(), outcome);
+            report_shared_target_maintenance_failure(entry.label(), outcome);
+        }
     }
     eprintln!("maintained canister cargo_wasm_batch={report}");
     Ok(report)
@@ -145,12 +147,12 @@ fn cargo_wasm_spec(
     workspace_root: &Path,
     target_dir: &Path,
     packages: &[&str],
-    arguments: &[OsString],
+    selection: &CargoSelection,
     encoded_rustflags: Option<&str>,
     integrated_shared_target_maintenance: bool,
 ) -> WasmBuildSpec {
     let mut spec = WasmBuildSpec::new(workspace_root, target_dir, packages)
-        .with_cargo_profile_args(arguments)
+        .with_cargo_selection(selection.clone())
         .with_inherited_env(inherited_build_environment())
         .with_shared_incremental_target(target_dir)
         .with_prune_policy_at_most_every(artifact_cache_prune_policy(), CACHE_MAINTENANCE_INTERVAL);
@@ -209,8 +211,10 @@ pub(crate) fn cache_post_link_wasm_batch(
 ) -> Result<ArtifactCacheBatchReport<String>, String> {
     let report = cache_post_link_wasm_entries(workspace_root, cache_root, entries)?;
 
-    for outcome in report.outcomes() {
-        trace_post_link(outcome.label(), outcome.outcome());
+    for entry in report.outcomes() {
+        if let Some(outcome) = entry.outcome() {
+            trace_post_link(entry.label(), outcome);
+        }
     }
     eprintln!("maintained canister post_link_batch={report}");
 
@@ -384,7 +388,7 @@ mod tests {
 
     use super::{
         ArtifactCacheOutcome, BUILD_PROGRESS_HEARTBEAT_INTERVAL, CACHE_MAINTENANCE_INTERVAL,
-        CACHE_MAX_AGE, CACHE_MAX_BYTES, CargoWasmBatchEntry, CargoWasmCacheRequest,
+        CACHE_MAX_AGE, CACHE_MAX_BYTES, CargoSelection, CargoWasmBatchEntry, CargoWasmCacheRequest,
         EXTRA_BUILD_ENVIRONMENT, PostLinkBatchEntry, PostLinkCacheRequest,
         SHARED_INCREMENTAL_TARGET_MAX_BYTES, SharedIncrementalTargetMaintenanceFailureMode,
         artifact_cache_prune_policy, build_cached_cargo_wasm, build_cached_cargo_wasm_batch,
@@ -446,7 +450,7 @@ mod tests {
             workspace_root: &root,
             target_dir: &target,
             packages: &["cache_flags_probe"],
-            arguments: &[],
+            selection: &CargoSelection::default(),
             encoded_rustflags: Some(&flags),
         })
         .unwrap();
@@ -457,13 +461,13 @@ mod tests {
                 CargoWasmBatchEntry {
                     context: "flags-same",
                     package: "cache_flags_probe",
-                    arguments: &[],
+                    selection: &CargoSelection::default(),
                     encoded_rustflags: Some(&flags),
                 },
                 CargoWasmBatchEntry {
                     context: "flags-changed",
                     package: "cache_flags_probe",
-                    arguments: &[],
+                    selection: &CargoSelection::default(),
                     encoded_rustflags: Some(&changed),
                 },
             ],
@@ -565,7 +569,14 @@ mod tests {
         assert!(single.is_reused());
         assert_eq!(
             single.record().key(),
-            batch.outcomes().next().unwrap().outcome().record().key()
+            batch
+                .outcomes()
+                .next()
+                .unwrap()
+                .outcome()
+                .unwrap()
+                .record()
+                .key()
         );
         fs::write(&input, b"invalid wasm").unwrap();
         assert!(cache_post_link_wasm(&request).is_err());

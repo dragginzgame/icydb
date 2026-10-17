@@ -1,6 +1,6 @@
 //! Module: ICP canister call construction.
 //! Responsibility: build icp-cli canister call commands and decode hex responses.
-//! Does not own: command execution, endpoint selection, or Candid decoding.
+//! Does not own: command execution, endpoint selection, or Wire decoding.
 //! Boundary: exposes reusable call builders and response decoding to CLI command surfaces.
 
 use std::{
@@ -9,15 +9,21 @@ use std::{
     process::{Command, Stdio},
 };
 
-use candid::utils::ArgumentEncoder;
 use ic_host_tools::response::{ResponseError, ResponseFormat, ResponseLimits, decode};
 
 use crate::icp::process::output_stderr;
 
 // Encode the authoritative wire type once. ICP accepts these bytes directly
 // through its binary argument-file format; no text printer supplies types.
-pub(crate) fn encode_candid_args(arguments: impl ArgumentEncoder) -> Result<Vec<u8>, String> {
-    candid::encode_args(arguments).map_err(|error| error.to_string())
+pub(crate) fn encode_wire_args<T: serde::Serialize>(
+    method: &str,
+    arguments: T,
+) -> Result<Vec<u8>, String> {
+    let endpoint = icydb::wire::Endpoint::from_name(method)
+        .ok_or_else(|| format!("unknown IcyDB method '{method}'"))?;
+    endpoint
+        .encode_request(arguments)
+        .map_err(|error| error.to_string())
 }
 
 pub(super) fn icp_query_command(
@@ -128,11 +134,11 @@ pub(super) fn call_query_hex(
     environment: &str,
     canister: &str,
     method: &str,
-    candid_arg: &[u8],
+    wire_arg: &[u8],
     error_message: impl FnOnce(&str) -> String,
 ) -> Result<Vec<u8>, String> {
     call_hex(
-        candid_arg,
+        wire_arg,
         |path| icp_query_command(environment, canister, method, path),
         error_message,
     )
@@ -142,18 +148,18 @@ pub(super) fn call_update_hex(
     environment: &str,
     canister: &str,
     method: &str,
-    candid_arg: &[u8],
+    wire_arg: &[u8],
     error_message: impl FnOnce(&str) -> String,
 ) -> Result<Vec<u8>, String> {
     call_hex(
-        candid_arg,
+        wire_arg,
         |path| icp_update_command(environment, canister, method, path),
         error_message,
     )
 }
 
-fn call_hex(
-    candid_arg: &[u8],
+pub(super) fn call_hex(
+    wire_arg: &[u8],
     build_command: impl FnOnce(&Path) -> Command,
     error_message: impl FnOnce(&str) -> String,
 ) -> Result<Vec<u8>, String> {
@@ -162,7 +168,7 @@ fn call_hex(
     let mut arguments = tempfile::NamedTempFile::new()
         .map_err(|error| format!("create ICP argument file: {error}"))?;
     arguments
-        .write_all(candid_arg)
+        .write_all(wire_arg)
         .map_err(|error| format!("write ICP argument file: {error}"))?;
     let output = build_command(arguments.path())
         .stdin(Stdio::null())

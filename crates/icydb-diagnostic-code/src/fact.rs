@@ -1,7 +1,7 @@
 //! Module: fact
 //!
 //! Responsibility: production-safe numeric diagnostic-fact identities.
-//! Does not own: Candid records, rich labels, prose, or subsystem projections.
+//! Does not own: Wire records, rich labels, prose, or subsystem projections.
 //! Boundary: freezes the numeric vocabulary shared by public errors and host tooling.
 
 use std::fmt;

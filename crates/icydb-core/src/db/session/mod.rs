@@ -52,11 +52,12 @@ pub use sql::{
 pub struct DbSession<C: CanisterKind> {
     db: Db<C>,
     #[cfg(feature = "sql")]
-    sql_returning_response_len: fn(crate::db::RowProjectionOutput) -> candid::Result<usize>,
+    sql_returning_response_len:
+        fn(crate::db::RowProjectionOutput) -> Result<usize, icydb_schema::wire::Error>,
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    /// Select the outward Candid projection envelope for precommit SQL bounds.
+    /// Select the outward Wire projection envelope for precommit SQL bounds.
     ///
     /// The encoder must preserve `RowProjectionOutput`'s value encoding inside
     /// a fixed envelope independent of row contents. The facade installs its
@@ -67,7 +68,7 @@ impl<C: CanisterKind> DbSession<C> {
     #[must_use]
     pub const fn __with_sql_returning_response_len(
         mut self,
-        encode: fn(crate::db::RowProjectionOutput) -> candid::Result<usize>,
+        encode: fn(crate::db::RowProjectionOutput) -> Result<usize, icydb_schema::wire::Error>,
     ) -> Self {
         self.sql_returning_response_len = encode;
         self

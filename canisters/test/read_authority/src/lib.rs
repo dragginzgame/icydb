@@ -2,7 +2,7 @@
 
 use std::cell::Cell;
 
-use candid::Principal;
+use ic_principal::Principal;
 #[cfg(feature = "guarded-reads")]
 use icydb::{
     ReadAuthorizationContext, ReadAuthorizationDecision, ReadAuthorizationSurface,
@@ -25,9 +25,9 @@ fn icydb_memory_pool()
     )
 }
 
-icydb::start!();
+canic_icydb::start!(icydb);
 
-icydb::endpoints! {
+canic_icydb::endpoints! {
     #[cfg(all(feature = "sql", not(feature = "guarded-reads")))]
     icydb_sql_query(introspection = true);
     #[cfg(feature = "guarded-reads")]
@@ -71,7 +71,7 @@ fn schema_read_guard(context: ReadAuthorizationContext) -> ReadAuthorizationDeci
 }
 
 /// Replace the application-owned SQL reader policy immediately.
-#[ic_cdk::update]
+
 fn set_sql_reader_enabled(enabled: bool) -> bool {
     if ic_cdk::api::msg_caller() != principal(ADMIN_SEED) {
         return false;
@@ -80,9 +80,10 @@ fn set_sql_reader_enabled(enabled: bool) -> bool {
     SQL_READER_ENABLED.with(|current| current.set(enabled));
     true
 }
+icydb_testing_wasm_helpers::export_wire!(update, "set_sql_reader_enabled", SetSqlReaderEnabled, set_sql_reader_enabled, (enabled: bool), bool);
 
 /// Replace the application-owned schema reader policy immediately.
-#[ic_cdk::update]
+
 fn set_schema_reader_enabled(enabled: bool) -> bool {
     if ic_cdk::api::msg_caller() != principal(ADMIN_SEED) {
         return false;
@@ -91,6 +92,4 @@ fn set_schema_reader_enabled(enabled: bool) -> bool {
     SCHEMA_READER_ENABLED.with(|current| current.set(enabled));
     true
 }
-
-#[cfg(feature = "candid-export")]
-ic_cdk::export_candid!();
+icydb_testing_wasm_helpers::export_wire!(update, "set_schema_reader_enabled", SetSchemaReaderEnabled, set_schema_reader_enabled, (enabled: bool), bool);

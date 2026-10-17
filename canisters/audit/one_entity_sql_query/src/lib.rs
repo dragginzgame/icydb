@@ -28,10 +28,11 @@ fn icydb_memory_pool()
 }
 
 #[cfg(not(feature = "sql"))]
-icydb::start!();
+canic_icydb::start!(icydb);
 
 #[cfg(feature = "sql")]
-icydb::start! {
+canic_icydb::start! {
+    icydb;
     init() => initialize_application_queries;
     post_upgrade() => initialize_application_queries;
 }
@@ -72,13 +73,18 @@ fn get_row(id: Ulid) -> Result<SqlQueryResult, Error> {
 }
 
 #[cfg(feature = "sql")]
-#[ic_cdk::query]
 fn query_one_entity_sql() -> u32 {
     match get_row(Ulid::MIN) {
         Ok(SqlQueryResult::Projection(output)) => output.row_count,
         _ => u32::MAX,
     }
 }
-
-#[cfg(feature = "candid-export")]
-ic_cdk::export_candid!();
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(
+    query,
+    "query_one_entity_sql",
+    QueryOneEntitySql,
+    query_one_entity_sql,
+    (),
+    u32
+);

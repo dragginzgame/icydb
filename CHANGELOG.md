@@ -9,9 +9,28 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### ⚠️ Breaking
 
+- Adopt Toko Studios' source-available license 1.1 for newly covered material;
+  preserve prior Apache-2.0/MIT grants and notices, and remove superseded
+  standalone Apache license files.
 - Remove arbitrary-precision integer fields and values, compact scalar tags,
-  require affected databases and serialized artifacts to be recreated, and trial
-  IC Wire with an installed audit query and a Candid-free codec comparison.
+  require affected databases and serialized artifacts to be recreated, and replace
+  IcyDB’s direct Candid and ledger dependencies and generated endpoint contracts
+  with native account handling and IC Wire that rolls back synchronous writes
+  when reply encoding fails. Move IC exports and lifecycle support to the Canic
+  host adapter, removing CDK from the IcyDB library dependency graph and all
+  workspace-owned Candid codecs, exports and artifact tooling.
+
+### 🔧 Changed
+
+- Adopt IC Build 0.14 typed Cargo selections and checked batch builds for Wasm
+  artifact generation.
+- Add native browser contracts and installed endpoint qualification; prepare
+  scoped private IC Wire fetching in CI, requiring owner-provisioned App secrets.
+- Share native RPC and browser encoding with IC Wire, move SQL terminal reports
+  into the CLI, and adopt exclusive storage leases from the selected Memory runtime.
+- Trim unused direct dependencies from libraries, CLI, build tooling and canister
+  fixtures; align the host adapter's timer dependency and accept tracked
+  declaration deletions during dependency checks.
 
 See [detailed notes](docs/changelog/0.277.md).
 

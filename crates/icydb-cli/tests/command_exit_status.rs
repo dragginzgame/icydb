@@ -1,5 +1,5 @@
 //! Exercise SQL, canister and migration outcomes through the actual CLI process.
-//! A local ICP fixture supplies current Candid responses without a live network.
+//! A local ICP fixture supplies current Wire responses without a live network.
 
 #![cfg(unix)]
 
@@ -14,7 +14,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use candid::{CandidType, Encode};
 use icydb::{
     Error, ErrorOrigin,
     db::{
@@ -44,6 +43,10 @@ struct IcpFixture {
 }
 
 impl IcpFixture {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "keep the single executable fixture script with its temporary-path setup"
+    )]
     fn new() -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let directory = std::env::temp_dir().join(format!(
@@ -113,9 +116,18 @@ case "$1:$2" in
       exit 1
     fi
     case "$4" in
+      icydb_query) printf '%s' "$ICP_WIRE_QUERY" ;;
+      icydb_ddl) printf '%s' "$ICP_WIRE_DDL" ;;
+      icydb_update) printf '%s' "$ICP_WIRE_UPDATE" ;;
+      icydb_schema) printf '%s' "$ICP_WIRE_SCHEMA" ;;
+      icydb_schema_migration) printf '%s' "$ICP_WIRE_SCHEMA_MIGRATION" ;;
+      icydb_schema_migrate) printf '%s' "$ICP_WIRE_SCHEMA_MIGRATE" ;;
+      icydb_fixtures_load) printf '%s' "$ICP_WIRE_FIXTURES_LOAD" ;;
+    esac
+    case "$4" in
       icydb_fixtures_load)
         [ "${ICP_FIXTURE_REFRESH_CASE-}" != fixture-failure ] || exit 1
-        printf '%s\n' "$ICP_FIXTURE_RESPONSE"
+        printf '%s\n' "00"
         ;;
       icydb_schema_migration) read -r reply < "$ICP_FIXTURE_DIRECTORY/status"; printf '%s\n' "$reply" ;;
       icydb_schema_migrate)
@@ -150,12 +162,16 @@ esac
         let terminated = self.directory.join("success-argument-terminated.bin");
         fs::write(
             &success,
-            candid::encode_args(("SELECT id FROM Character",)).unwrap(),
+            icydb::wire::Endpoint::Query
+                .encode_request("SELECT id FROM Character")
+                .unwrap(),
         )
         .unwrap();
         fs::write(
             &terminated,
-            candid::encode_args(("SELECT id FROM Character;",)).unwrap(),
+            icydb::wire::Endpoint::Query
+                .encode_request("SELECT id FROM Character;")
+                .unwrap(),
         )
         .unwrap();
         let mut command = Command::new(env!("CARGO_BIN_EXE_icydb"));
@@ -172,6 +188,21 @@ esac
             .env_remove("ICP_FIXTURE_REFRESH_CASE")
             .env_remove("ICP_FIXTURE_TRANSPORT_FAILURE");
 
+        for (name, endpoint) in [
+            ("QUERY", icydb::wire::Endpoint::Query),
+            ("DDL", icydb::wire::Endpoint::Ddl),
+            ("UPDATE", icydb::wire::Endpoint::Update),
+            ("SCHEMA", icydb::wire::Endpoint::Schema),
+            ("SCHEMA_MIGRATION", icydb::wire::Endpoint::SchemaMigration),
+            ("SCHEMA_MIGRATE", icydb::wire::Endpoint::SchemaMigrate),
+            ("FIXTURES_LOAD", icydb::wire::Endpoint::FixturesLoad),
+        ] {
+            let mut prefix = String::new();
+            for byte in endpoint.encode_response(()).unwrap() {
+                write!(&mut prefix, "{byte:02x}").unwrap();
+            }
+            command.env(format!("ICP_WIRE_{name}"), prefix);
+        }
         command
     }
 
@@ -250,13 +281,15 @@ esac
             }
         }
         for bytes in self.call_arguments("icydb_schema_migration") {
-            let request = candid::decode_one::<icydb::db::SchemaMigrationStatusRequest>(&bytes)
+            let request = icydb::wire::Endpoint::SchemaMigration
+                .decode_request::<icydb::db::SchemaMigrationStatusRequest>(&bytes)
                 .expect("CLI status arguments must carry the maintained request type");
             assert_eq!(request.cursor(), None);
         }
         let commands = self.call_arguments("icydb_schema_migrate");
         for bytes in &commands {
-            candid::decode_one::<icydb::db::SchemaMigrationCommand>(bytes)
+            icydb::wire::Endpoint::SchemaMigrate
+                .decode_request::<icydb::db::SchemaMigrationCommand>(bytes)
                 .expect("CLI mutation arguments must carry the maintained command type");
         }
         commands.len()
@@ -326,7 +359,12 @@ fn sql_process_passes_exact_typed_bytes_for_arbitrary_text() {
         fixture.assert_call("icydb_query", true);
         let arguments = fixture.call_arguments("icydb_query");
         assert_eq!(arguments.len(), 1);
-        assert_eq!(candid::decode_one::<String>(&arguments[0]).unwrap(), sql);
+        assert_eq!(
+            icydb::wire::Endpoint::Query
+                .decode_request::<String>(&arguments[0])
+                .unwrap(),
+            sql
+        );
         let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
         for pair in calls.lines().collect::<Vec<_>>().windows(2) {
             if pair[0] == "--args-file" {
@@ -339,8 +377,8 @@ fn sql_process_passes_exact_typed_bytes_for_arbitrary_text() {
     }
 }
 
-fn response_hex<T: CandidType>(response: Result<T, Error>) -> String {
-    let bytes = Encode!(&response).unwrap();
+fn response_hex<T: serde::Serialize>(response: Result<T, Error>) -> String {
+    let bytes = icydb_schema::wire::encode_one(&response).unwrap();
     let mut hex = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
         write!(&mut hex, "{byte:02x}").unwrap();
@@ -793,7 +831,7 @@ fn one_shot_sql_success_keeps_stdout_and_success_status() {
         entity: "Character".into(),
         row_count: 1,
     };
-    let expected = format!("{}\n\n", result.render_text());
+    let expected = "surface=count entity=Character row_count=1\n\n";
     let response = response_hex(Ok(result));
     for (sql, method, query) in STATEMENTS {
         for explicit in [false, true] {
@@ -819,14 +857,13 @@ fn one_shot_sql_null_display_matches_query_and_update_returning() {
         ]],
         row_count: 1,
     });
-    let expected = format!(
-        "{}\n\n",
-        icydb::db::sql::render_projection_display_rows_lines(
-            &["missing".into(), "lower".into(), "upper".into()],
-            &[vec!["NULL".into(), "'null'".into(), "'NULL'".into()]],
-            1,
-        )
-        .join("\n"),
+    let expected = concat!(
+        "+---------+--------+--------+\n",
+        "| missing | lower  | upper  |\n",
+        "+---------+--------+--------+\n",
+        "| NULL    | 'null' | 'NULL' |\n",
+        "+---------+--------+--------+\n\n",
+        "1 row,\n\n",
     );
     let response = response_hex(Ok(result));
     for (sql, method, query) in [
@@ -849,7 +886,7 @@ fn one_shot_sql_null_display_matches_query_and_update_returning() {
 }
 
 #[test]
-fn one_shot_sql_transport_and_invalid_candid_fail_for_every_call_lane() {
+fn one_shot_sql_transport_and_invalid_wire_fail_for_every_call_lane() {
     for (sql, method, query) in STATEMENTS {
         for transport_failure in [false, true] {
             let fixture = IcpFixture::new();
@@ -998,15 +1035,11 @@ fn interactive_sql_continues_to_success_after_endpoint_rejection() {
             .unwrap();
         let output = child.wait_with_output().unwrap();
         assert_eq!(output.status.code(), Some(0));
-        let successful_output = SqlQueryResult::Count {
-            entity: "Character".into(),
-            row_count: 1,
-        }
-        .render_text();
+        let successful_output = "surface=count entity=Character row_count=1";
         assert!(
             String::from_utf8(output.stdout)
                 .unwrap()
-                .contains(&successful_output)
+                .contains(successful_output)
         );
         let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
         assert_eq!(

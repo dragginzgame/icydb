@@ -16,7 +16,7 @@ use crate::{
     types::{Account, Decimal, EntityTag, Float32, Float64, Principal, Subaccount},
     value::Value,
 };
-use ic_memory::ic_stable_structures::Storable;
+use ic_stable_structures::Storable;
 use std::{borrow::Cow, cmp::Ordering, mem::size_of, ops::Bound as RangeBound};
 
 fn index_id() -> IndexId {
@@ -1318,8 +1318,8 @@ fn index_key_maximum_composite_primary_suffix_roundtrips_and_stays_within_bounds
         assert!(low < raw && raw < high);
         // Persist and reopen the current stable index; the suffix must survive
         // canonical storage as well as the heap frame decoders.
-        let memory = crate::testing::test_memory(218);
-        let mut store = crate::db::index::IndexStore::init_journaled(memory.clone());
+        let memory = crate::testing::test_memory_owner(218);
+        let mut store = crate::db::index::IndexStore::init_journaled(memory.open());
         store
             .apply_canonical_entry(
                 raw.clone(),
@@ -1327,7 +1327,7 @@ fn index_key_maximum_composite_primary_suffix_roundtrips_and_stays_within_bounds
             )
             .unwrap();
         drop(store);
-        let reopened = crate::db::index::IndexStore::init_journaled(memory);
+        let reopened = crate::db::index::IndexStore::init_journaled(memory.open());
         assert_eq!(
             reopened.get(&raw),
             Some(crate::db::index::IndexEntryValue::presence())
@@ -1348,7 +1348,7 @@ fn index_key_maximum_raw_size_matches_stable_storage_bound() {
     assert_eq!(IndexKey::try_from_raw(&raw).unwrap(), key);
     assert_eq!(
         RawIndexStoreKey::BOUND,
-        ic_memory::ic_stable_structures::storable::Bound::Bounded {
+        ic_stable_structures::storable::Bound::Bounded {
             max_size: u32::try_from(raw.as_bytes().len()).unwrap(),
             is_fixed_size: false,
         },

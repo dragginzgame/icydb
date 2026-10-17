@@ -13,11 +13,13 @@ thread_local! {
 
 enum BootEntropy {
     Empty,
+    #[cfg(not(target_arch = "wasm32"))]
     Pending,
     Ready([u8; 32]),
 }
 
 impl BootEntropy {
+    #[cfg(not(target_arch = "wasm32"))]
     const fn begin(&mut self) -> bool {
         if matches!(self, Self::Empty) {
             *self = Self::Pending;
@@ -27,6 +29,7 @@ impl BootEntropy {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn finish(&mut self, seed: Option<[u8; 32]>) {
         if matches!(self, Self::Pending) {
             *self = match seed {
@@ -39,14 +42,18 @@ impl BootEntropy {
     const fn seed(&self) -> Option<[u8; 32]> {
         match self {
             Self::Ready(seed) => Some(*seed),
-            Self::Empty | Self::Pending => None,
+            Self::Empty => None,
+            #[cfg(not(target_arch = "wasm32"))]
+            Self::Pending => None,
         }
     }
 }
 
 // Cancellation must release the single-flight claim as well as ordinary errors.
+#[cfg(not(target_arch = "wasm32"))]
 struct EntropyRequest;
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Drop for EntropyRequest {
     fn drop(&mut self) {
         BOOT_ENTROPY.with_borrow_mut(|state| state.finish(None));
@@ -56,10 +63,11 @@ impl Drop for EntropyRequest {
 /// Obtain a secure seed, leaving asynchronous failures to the startup watchdog.
 pub(super) fn require_boot_entropy() -> Result<[u8; 32], InternalError> {
     #[cfg(target_arch = "wasm32")]
-    if !ic_cdk::api::in_replicated_execution() {
+    if ic0::in_replicated_execution() == 0 {
         return Err(InternalError::recovery_pending());
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     if BOOT_ENTROPY.with_borrow_mut(BootEntropy::begin) {
         request_entropy();
     }
@@ -76,22 +84,35 @@ fn request_entropy() {
     BOOT_ENTROPY.with_borrow_mut(|state| state.finish(result));
 }
 
-#[cfg(target_arch = "wasm32")]
-fn request_entropy() {
-    let request = EntropyRequest;
-    ic_cdk::futures::spawn_migratory(async move {
-        let _request = request;
-        let seed = match ic_cdk::call::Call::bounded_wait(
-            candid::Principal::management_canister(),
-            "raw_rand",
-        )
-        .await
-        {
-            Ok(response) => response.candid::<[u8; 32]>().ok(),
-            Err(_) => None,
-        };
-        BOOT_ENTROPY.with_borrow_mut(|state| state.finish(seed));
-    });
+/// Supply the host's secure seed once for this database runtime boot.
+///
+///
+/// The host owns entropy acquisition. Identical retries are idempotent; zero
+/// seeds and attempts to rotate an admitted seed are refused without mutation.
+/// Native callers may use the existing operating-system entropy source instead.
+///
+/// # Errors
+/// Returns an invariant error for an invalid seed or rotation, and pending
+/// admission when invoked outside replicated IC execution.
+pub fn provide_boot_entropy(seed: [u8; 32]) -> Result<(), InternalError> {
+    #[cfg(target_arch = "wasm32")]
+    if ic0::in_replicated_execution() == 0 {
+        return Err(InternalError::recovery_pending());
+    }
+    if seed == [0; 32] {
+        return Err(InternalError::store_invariant());
+    }
+    BOOT_ENTROPY.with_borrow_mut(|state| {
+        if let Some(current) = state.seed() {
+            return if current == seed {
+                Ok(())
+            } else {
+                Err(InternalError::store_invariant())
+            };
+        }
+        *state = BootEntropy::Ready(seed);
+        Ok(())
+    })
 }
 
 /// Bind independent database keys to one unpredictable boot seed.
@@ -104,7 +125,7 @@ pub(super) fn cursor_key(seed: [u8; 32], incarnation: DatabaseIncarnationId) -> 
     hash.finalize().into()
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 /// Simulate a completed entropy request or a still-pending request.
 pub(in crate::db) fn set_boot_entropy_for_tests(seed: Option<[u8; 32]>) {
     BOOT_ENTROPY.with_borrow_mut(|state| {
@@ -112,7 +133,7 @@ pub(in crate::db) fn set_boot_entropy_for_tests(seed: Option<[u8; 32]>) {
     });
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
 
@@ -139,6 +160,18 @@ mod tests {
         drop(EntropyRequest);
         assert!(BOOT_ENTROPY.with_borrow_mut(BootEntropy::begin));
         BOOT_ENTROPY.with_borrow_mut(|state| state.finish(Some([9; 32])));
+    }
+
+    #[test]
+    fn host_entropy_admission_retries_and_refusals_preserve_the_boot_seed() {
+        BOOT_ENTROPY.with_borrow_mut(|state| *state = BootEntropy::Empty);
+        assert!(provide_boot_entropy([0; 32]).is_err());
+        assert!(BOOT_ENTROPY.with_borrow(BootEntropy::seed).is_none());
+        provide_boot_entropy([11; 32]).unwrap();
+        provide_boot_entropy([11; 32]).unwrap();
+        assert!(provide_boot_entropy([12; 32]).is_err());
+        assert!(provide_boot_entropy([0; 32]).is_err());
+        assert_eq!(BOOT_ENTROPY.with_borrow(BootEntropy::seed), Some([11; 32]));
     }
 
     #[test]

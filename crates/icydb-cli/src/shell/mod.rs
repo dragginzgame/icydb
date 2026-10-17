@@ -6,12 +6,11 @@
 mod call;
 mod input;
 mod interactive;
-mod render;
+pub(crate) mod render;
 mod route;
 
 use std::path::PathBuf;
 
-use candid::Decode;
 use icydb::db::sql::SqlQueryResult;
 
 use crate::{
@@ -81,7 +80,7 @@ fn execute_sql(environment: &str, canister: &str, sql: &str) -> Result<String, S
     let endpoint = sql_endpoint(call_kind);
     require_created_canister(environment, canister)?;
 
-    let candid_bytes = match call_kind {
+    let wire_bytes = match call_kind {
         route::SqlShellCallKind::Query => {
             call::icp_query(environment, canister, endpoint.method(), sql)?
         }
@@ -90,7 +89,7 @@ fn execute_sql(environment: &str, canister: &str, sql: &str) -> Result<String, S
         }
     };
 
-    render_sql_response(candid_bytes.as_slice())
+    render_sql_response(endpoint.method(), wire_bytes.as_slice())
 }
 
 const fn sql_endpoint(call_kind: route::SqlShellCallKind) -> Endpoint {
@@ -102,13 +101,15 @@ const fn sql_endpoint(call_kind: route::SqlShellCallKind) -> Endpoint {
 }
 
 // Both call lanes decode the same public envelope and retain typed values until
-// the facade's SQL renderer decides how to display them.
-fn render_sql_response(candid_bytes: &[u8]) -> Result<String, String> {
-    let response = Decode!(candid_bytes, Result<SqlQueryResult, icydb::Error>)
+// the CLI composes a terminal report from SQL display cells.
+fn render_sql_response(method: &str, wire_bytes: &[u8]) -> Result<String, String> {
+    let response = icydb::wire::Endpoint::from_name(method)
+        .ok_or_else(|| format!("unknown IcyDB method '{method}'"))?
+        .decode_response::<Result<SqlQueryResult, icydb::Error>>(wire_bytes)
         .map_err(|err| err.to_string())?;
 
     match response {
-        Ok(result) => Ok(result.render_text()),
+        Ok(result) => Ok(render::render_text(&result)),
         // The one-shot entrypoint and interactive loop own the error prefix and
         // output stream; endpoint failures remain errors until that boundary.
         Err(err) => Err(render_error(&err)),
@@ -151,8 +152,8 @@ pub(crate) mod test_support {
         super::render::finalize_successful_command_output(rendered)
     }
 
-    pub(crate) fn render_sql_response(candid_bytes: &[u8]) -> Result<String, String> {
-        super::render_sql_response(candid_bytes)
+    pub(crate) fn render_sql_response(wire_bytes: &[u8]) -> Result<String, String> {
+        super::render_sql_response("icydb_query", wire_bytes)
     }
 
     pub(crate) fn sql_shell_config_inputs(args: super::SqlArgs) -> SqlShellConfigInputs {

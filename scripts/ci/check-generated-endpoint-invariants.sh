@@ -24,7 +24,7 @@ for source in \
   canisters/test/sql/src/lib.rs \
   canisters/demo/rpg/src/lib.rs
 do
-  if ! rg -q 'icydb::endpoints!\s*\{' "$source"; then
+  if ! rg -q 'canic_icydb::endpoints!\s*\{' "$source"; then
     echo "[ERROR] $source must own one explicit endpoints! block." >&2
     status=1
   fi
@@ -38,34 +38,8 @@ then
   status=1
 fi
 
-# Metrics handlers do not open database sessions. Every other generated
-# handler must enter the default request scope immediately before dispatch so
-# nested zero-argument db!() calls share one aggregate budget.
-database_handler_count="$(
-  rg 'crate::__icydb_generated::endpoint_handlers::' crates/icydb/src/lib.rs \
-    | rg -vc 'crate::__icydb_generated::endpoint_handlers::metrics' \
-    || true
-)"
-if [[ "$database_handler_count" == "0" ]]; then
-  echo "[ERROR] generated database endpoint discovery matched no handlers." >&2
-  status=1
-fi
-unscoped_database_handlers="$(
-  awk '
-    /crate::__icydb_generated::endpoint_handlers::/ &&
-      $0 !~ /crate::__icydb_generated::endpoint_handlers::metrics/ {
-        if (previous !~ /\$crate::db::with_request_execution\(\|\|/) {
-          print FILENAME ":" FNR ":" $0
-        }
-      }
-    { previous = $0 }
-  ' crates/icydb/src/lib.rs
-)"
-if [[ -n "$unscoped_database_handlers" ]]; then
-  echo "[ERROR] every generated database endpoint must enter one default request scope." >&2
-  echo "$unscoped_database_handlers" >&2
-  status=1
-fi
+# Host wrappers and their request scopes belong to canic-icydb. Installed
+# endpoint tests qualify the selected adapter against these native capabilities.
 
 if [[ $status -ne 0 ]]; then
   exit 1

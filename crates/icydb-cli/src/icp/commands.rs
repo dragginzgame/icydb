@@ -167,8 +167,12 @@ pub(super) fn status_command(environment: &str, canister: &str) -> Command {
 }
 
 #[cfg(test)]
-pub(super) fn fixtures_load_command(environment: &str, canister: &str) -> Command {
-    fixtures::fixtures_load_command(environment, canister)
+pub(super) fn fixtures_load_command(
+    environment: &str,
+    canister: &str,
+    argument_file: &std::path::Path,
+) -> Command {
+    fixtures::fixtures_load_command(environment, canister, argument_file)
 }
 
 #[cfg(test)]

@@ -3,7 +3,7 @@
 // Exercise generated handlers and exported wrappers under downstream lint policy.
 #![deny(clippy::needless_pass_by_value)]
 
-// Read IC counter 1 through the CDK; native Candid builds use its
+// Read IC counter 1 through the CDK; native builds use its
 // unsupported host binding and provide no IC measurement evidence.
 #[cfg(feature = "guarded-sql-query")]
 #[cfg(not(target_arch = "wasm32"))]
@@ -15,10 +15,8 @@ use ic_cdk::api::call_context_instruction_counter;
 #[cfg(feature = "guarded-sql-query")]
 use std::cell::Cell;
 
-use candid::CandidType;
 #[cfg(feature = "guarded-sql-query")]
-use candid::Principal;
-use ic_cdk::query;
+use ic_principal::Principal;
 #[cfg(feature = "guarded-sql-query")]
 use icydb::{
     ReadAuthorizationContext, ReadAuthorizationDecision, ReadAuthorizationSurface,
@@ -37,9 +35,9 @@ fn icydb_memory_pool()
     )
 }
 
-icydb::start!();
+canic_icydb::start!(icydb);
 
-icydb::endpoints! {
+canic_icydb::endpoints! {
     #[cfg(all(feature = "sql", not(feature = "guarded-sql-query")))]
     icydb_sql_query(introspection = true);
     #[cfg(feature = "guarded-sql-query")]
@@ -79,7 +77,7 @@ fn sql_read_guard(context: ReadAuthorizationContext) -> ReadAuthorizationDecisio
     allowlist(context, &[principal(42)])
 }
 
-#[derive(CandidType)]
+#[derive(serde::Deserialize, serde::Serialize)]
 struct ReadAuthorizationCostResult {
     caller_instructions: u64,
     helper_instructions: u64,
@@ -98,7 +96,7 @@ fn maximum_allowlist_guard(context: ReadAuthorizationContext) -> ReadAuthorizati
 }
 
 /// Measure the canonical local authorization seam without SQL execution.
-#[query]
+
 #[cfg_attr(
     not(feature = "guarded-sql-query"),
     allow(clippy::missing_const_for_fn)
@@ -162,6 +160,4 @@ fn read_authorization_cost() -> Result<ReadAuthorizationCostResult, icydb::Error
         helper_allowed: false,
     })
 }
-
-#[cfg(feature = "candid-export")]
-ic_cdk::export_candid!();
+icydb_testing_wasm_helpers::export_wire!(query, "read_authorization_cost", ReadAuthorizationCost, read_authorization_cost, (), Result<ReadAuthorizationCostResult, icydb::Error>);

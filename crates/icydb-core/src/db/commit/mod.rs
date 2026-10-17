@@ -32,12 +32,11 @@ mod store;
 
 pub use backlog_admission::ExactBacklogMeasurement;
 
+#[cfg(test)]
+pub(in crate::db) use backlog_admission::BacklogLimits;
+pub(in crate::db) use backlog_admission::register_runtime_journal_tails_for_backlog;
 pub(in crate::db) use backlog_admission::{
     BACKLOG_LIMITS, BacklogAdmission, admit_backlog, current_database_backlog,
-};
-#[cfg(test)]
-pub(in crate::db) use backlog_admission::{
-    BacklogLimits, register_runtime_journal_tails_for_backlog,
 };
 ///
 /// Re-exports
@@ -58,7 +57,6 @@ pub(in crate::db) use marker::{
     CanonicalRowCommitOp, CommitMarker, CommitRowOp, CommitSchemaFingerprint, DatabaseControlOp,
     MAX_COMMIT_BYTES, generate_commit_id, generate_marker_batch_id,
 };
-#[cfg(test)]
 pub(in crate::db) use memory::current_commit_memory_allocation_if_configured;
 pub(in crate::db) use memory::{
     CommitMemoryAllocation, commit_memory_handle, current_commit_memory_allocation,

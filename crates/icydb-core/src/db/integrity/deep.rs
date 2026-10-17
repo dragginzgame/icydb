@@ -1015,7 +1015,7 @@ fn terminal_retention_deadline(now: u64) -> Result<u64, IntegrityJobError> {
     reason = "the shared caller preserves the fallible native clock contract"
 )]
 fn now_nanos() -> Result<u64, IntegrityJobError> {
-    Ok(ic_cdk::api::time())
+    Ok(ic0::time())
 }
 
 #[cfg(not(target_arch = "wasm32"))]

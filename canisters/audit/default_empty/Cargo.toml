@@ -2,23 +2,22 @@
 name = "canister_audit_default_empty"
 edition = { workspace = true }
 rust-version = { workspace = true }
+license-file = { workspace = true }
 version = { workspace = true }
 publish = false
 
 [package.metadata.cargo-machete]
-ignored = ["candid", "icydb-testing-audit-default-empty-fixtures"]
+ignored = ["icydb-testing-audit-default-empty-fixtures"]
 
 [lib]
 crate-type = ["cdylib"]
 
 [features]
 default = []
-candid-export = []
 sql = ["icydb/sql"]
 
 [dependencies]
-candid = { workspace = true }
-ic-cdk = { workspace = true }
+canic-icydb = { workspace = true }
 icydb = { workspace = true }
 icydb-testing-audit-default-empty-fixtures = { workspace = true }
 

@@ -1,0 +1,18 @@
+[
+  {
+    "depth": 256,
+    "id": 3472371254828811092,
+    "method": "icydb_schema_migrate",
+    "nodes": 1048576,
+    "request_bytes": 2097152,
+    "response_bytes": 3145728
+  },
+  {
+    "depth": 256,
+    "id": 3472371254828811093,
+    "method": "icydb_schema_migration",
+    "nodes": 1048576,
+    "request_bytes": 2097152,
+    "response_bytes": 3145728
+  }
+]

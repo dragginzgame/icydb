@@ -13,7 +13,7 @@ use crate::{
     error::ErrorClass,
     types::{EntityTag, Ulid},
 };
-use ic_memory::ic_stable_structures::Storable;
+use ic_stable_structures::Storable;
 use std::ptr;
 
 fn key(id: u128) -> DecodedDataStoreKey {

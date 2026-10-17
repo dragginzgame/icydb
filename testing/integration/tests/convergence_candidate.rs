@@ -1,15 +1,14 @@
 //! Dormant 0.229 convergence-candidate IC instruction evidence.
 
-use candid::CandidType;
-use ic_testkit::pic::{CandidCallExt as _, StandaloneCanisterFixture};
+use ic_testkit::pic::StandaloneCanisterFixture;
+use icydb_testing_integration::WireCallExt as _;
 use icydb_testing_integration::install_fixture_canister;
-use serde::Deserialize;
 
 const ACCEPTED_THREE_INDEX_RECOVERY_INSTRUCTIONS: u64 = 22_067_141_613;
 const CANDIDATE_CALLBACK_LIMIT: u64 = 30_000_000_000;
 const CANDIDATE_CALLBACK_HEAP_LIMIT_BYTES: u64 = 526_532_992;
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 struct ConvergenceCandidatePerfResult {
     effects: u32,
     stores: u32,
@@ -20,22 +19,24 @@ struct ConvergenceCandidatePerfResult {
 }
 
 fn canister_memory_bytes(fixture: &StandaloneCanisterFixture) -> (u64, u64) {
-    fn nat_u64(value: &candid::Nat) -> u64 {
-        match value.0.to_u64_digits().as_slice() {
-            [] => 0,
-            [value] => *value,
-            _ => panic!("canister memory bytes should fit u64"),
-        }
-    }
-
     let status = fixture
         .pocket_ic()
         .canister_status(fixture.canister_id(), None)
         .expect("audit canister status should be available");
 
     (
-        nat_u64(&status.memory_metrics.wasm_memory_size),
-        nat_u64(&status.memory_metrics.stable_memory_size),
+        status
+            .memory_metrics
+            .wasm_memory_size
+            .0
+            .try_into()
+            .expect("IC statistic must fit u64"),
+        status
+            .memory_metrics
+            .stable_memory_size
+            .0
+            .try_into()
+            .expect("IC statistic must fit u64"),
     )
 }
 
@@ -45,7 +46,7 @@ fn maximum_dormant_retirement_and_store_scan_fit_the_reserved_callback_headroom(
     let memory_before = canister_memory_bytes(&fixture);
     let measured: ConvergenceCandidatePerfResult = fixture
         .pocket_ic()
-        .update_candid(
+        .update_wire(
             fixture.canister_id(),
             "measure_dormant_convergence_candidate",
             (),

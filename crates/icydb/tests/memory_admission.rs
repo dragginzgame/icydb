@@ -5,12 +5,13 @@ use std::{cell::Cell, rc::Rc};
 
 use ic_memory::{
     BootstrapAdmission, BootstrapAdmissionError, GenericAllocationPolicy, MemoryAllocationPool,
-    MemoryAuthority, MemoryManagerConfig, MemoryManagerIdRange, MemoryManagerSlot, MemoryRequest,
-    MemoryResolutionError, MemoryRuntime, PolicyIdentity, PolicyIdentityError,
-    RuntimeAdoptionError, RuntimeBootstrapError, RuntimeBootstrapPolicy, RuntimeConstructionError,
-    RuntimeOpenError, SchemaMetadata, SealedDeclarationSnapshot, StableKey,
-    ic_stable_structures::{Memory, VectorMemory},
+    MemoryAuthority, MemoryManagerConfig, MemoryManagerSlot, MemoryRequest, MemoryResolutionError,
+    MemoryRuntime, PolicyIdentity, RuntimeAdoptionError, RuntimeBootstrapError,
+    RuntimeBootstrapPolicy, RuntimeConstructionError, RuntimeOpenError, SealedDeclarationSnapshot,
+    StableKey,
 };
+
+use ic_memory::{Memory, VectorMemory};
 use icydb::db::{MemoryBootstrapAdmissionError, prepare_memory_bootstrap};
 
 #[derive(Default)]
@@ -22,11 +23,7 @@ struct HostPolicy {
 impl RuntimeBootstrapPolicy for HostPolicy {
     type Error = MemoryBootstrapAdmissionError;
 
-    fn validate_key(&self, _: &StableKey) -> Result<(), Self::Error> {
-        Ok(())
-    }
-
-    fn validate_slot(&self, _: &StableKey, _: &MemoryManagerSlot) -> Result<(), Self::Error> {
+    fn validate_allocation(&self, _: &StableKey, _: &MemoryManagerSlot) -> Result<(), Self::Error> {
         Ok(())
     }
     fn prepare_bootstrap(&self, admission: &mut BootstrapAdmission<'_>) -> Result<(), Self::Error> {
@@ -43,13 +40,8 @@ impl RuntimeBootstrapPolicy for HostPolicy {
         prepare_memory_bootstrap(admission)
     }
 
-    fn runtime_bootstrap_identity(&self) -> Result<PolicyIdentity, PolicyIdentityError> {
-        let name = if self.select_historical_controls {
-            "icydb.tests.select_controls_then_admit"
-        } else {
-            "icydb.tests.logical_admission"
-        };
-        PolicyIdentity::new(name, 1)
+    fn runtime_bootstrap_identity(&self) -> PolicyIdentity {
+        PolicyIdentity::new([u8::from(self.select_historical_controls); 32])
     }
 }
 
@@ -58,7 +50,7 @@ fn runtime(backing: &VectorMemory) -> MemoryRuntime<VectorMemory> {
 }
 
 fn request(authority: &str, key: &str) -> MemoryRequest {
-    MemoryRequest::new(authority, key, SchemaMetadata::default()).unwrap()
+    MemoryRequest::new(authority, key).unwrap()
 }
 
 fn requests(namespace: &str, stores: &[&str]) -> Vec<MemoryRequest> {
@@ -158,11 +150,8 @@ fn typed_ledger_and_application_growth_refusal_preserve_authority_and_retry() {
     assert_eq!(*backing.bytes.borrow(), before);
 
     backing.limit.set(32);
-    let committed = runtime
-        .bootstrap(&declarations, &pool(), &policy)
-        .unwrap()
-        .clone();
-    assert_eq!(committed.generation(), 1);
+    let committed = runtime.bootstrap(&declarations, &pool(), &policy).unwrap();
+    assert_eq!(committed, 1);
     let memory = runtime
         .open_memory("icydb.main.store.transfers.data.v1")
         .unwrap();
@@ -176,13 +165,16 @@ fn typed_ledger_and_application_growth_refusal_preserve_authority_and_retry() {
     assert_eq!(memory.size(), 0);
     assert_eq!(*backing.bytes.borrow(), before);
     assert_eq!(runtime.memory_allocation_summary().unwrap(), summary);
-    assert_eq!(runtime.committed_allocations().unwrap(), &committed);
+    assert_eq!(runtime.committed_generation().unwrap(), committed);
 
     backing.limit.set(32);
-    let retry_memory = memory.clone();
-    assert_eq!(retry_memory.grow(1), Ok(0));
+    drop(memory);
+    let memory = runtime
+        .open_memory("icydb.main.store.transfers.data.v1")
+        .unwrap();
+    assert_eq!(memory.grow(1), Ok(0));
     assert_eq!(memory.size(), 1);
-    retry_memory.write(0, b"retained");
+    memory.write(0, b"retained");
     let before = backing.bytes.borrow().clone();
     assert!(matches!(
         memory.grow(u64::from(
@@ -201,16 +193,13 @@ fn typed_ledger_and_application_growth_refusal_preserve_authority_and_retry() {
 }
 
 #[test]
-fn host_adoption_checks_authority_metadata_without_effects() {
+fn host_adoption_checks_authority_without_effects() {
     const KEY: &str = "icydb.main.commit.control.v1";
     let backing = VectorMemory::default();
     let mut runtime = runtime(&backing);
     let policy = HostPolicy::default();
     let declarations = snapshot(&requests("main", &[]));
-    let committed = runtime
-        .bootstrap(&declarations, &pool(), &policy)
-        .unwrap()
-        .clone();
+    let committed = runtime.bootstrap(&declarations, &pool(), &policy).unwrap();
     let before = backing.borrow().clone();
     let summary = runtime.memory_allocation_summary().unwrap();
     runtime
@@ -221,14 +210,6 @@ fn host_adoption_checks_authority_metadata_without_effects() {
         runtime.verify_authority(&foreign, "foreign"),
         Err(RuntimeAdoptionError::AuthorityMismatch { .. })
     ));
-    let metadata =
-        snapshot(&[
-            MemoryRequest::new("icydb.main", KEY, SchemaMetadata::new(Some(1)).unwrap()).unwrap(),
-        ]);
-    assert!(matches!(
-        runtime.verify_authority(&metadata, "icydb.main"),
-        Err(RuntimeAdoptionError::DeclarationMetadataMismatch { .. })
-    ));
     assert!(matches!(
         runtime.verify_authority(&declarations, "absent"),
         Err(RuntimeAdoptionError::UnknownAuthority { .. })
@@ -236,7 +217,7 @@ fn host_adoption_checks_authority_metadata_without_effects() {
     assert_eq!(policy.calls.get(), 1);
     assert_eq!(*backing.borrow(), before);
     assert_eq!(runtime.memory_allocation_summary().unwrap(), summary);
-    assert_eq!(runtime.committed_allocations().unwrap(), &committed);
+    assert_eq!(runtime.committed_generation().unwrap(), committed);
 }
 
 #[test]
@@ -245,15 +226,11 @@ fn fresh_warm_reordered_and_extended_declarations_preserve_existing_assignments(
     let policy = HostPolicy::default();
     let original = snapshot(&requests("main", &["transfers"]));
     let mut first = runtime(&backing);
-    let committed = first.bootstrap(&original, &pool(), &policy).unwrap();
-    let previous = committed.declarations().to_vec();
-    let generation = committed.generation();
+    let generation = first.bootstrap(&original, &pool(), &policy).unwrap();
+    let previous = first.committed_allocations().unwrap().to_vec();
     let before = backing.borrow().clone();
     assert_eq!(
-        first
-            .bootstrap(&original, &pool(), &policy)
-            .unwrap()
-            .generation(),
+        first.bootstrap(&original, &pool(), &policy).unwrap(),
         generation
     );
     assert_eq!(policy.calls.get(), 1);
@@ -264,13 +241,13 @@ fn fresh_warm_reordered_and_extended_declarations_preserve_existing_assignments(
     reordered.extend(requests("other", &[]));
     reordered.reverse();
     let mut second = runtime(&backing);
-    let committed = second
+    second
         .bootstrap(&snapshot(&reordered), &pool(), &policy)
         .unwrap();
     for allocation in &previous {
         assert_eq!(
-            committed.slot_for(allocation.stable_key()),
-            Some(allocation.slot())
+            second.memory_id(allocation.stable_key().as_str()).unwrap(),
+            allocation.slot().id()
         );
     }
     assert_eq!(policy.calls.get(), 2);
@@ -288,12 +265,7 @@ fn store_replacement_selects_only_old_journal_and_preserves_its_debt_bytes() {
     let journal = first.open_memory(JOURNAL).unwrap();
     assert_eq!(journal.grow(1), Ok(0));
     journal.write(0, b"debt");
-    let old_slot = first
-        .committed_allocations()
-        .unwrap()
-        .slot_for(&StableKey::parse(JOURNAL).unwrap())
-        .cloned()
-        .unwrap();
+    let old_slot = first.memory_id(JOURNAL).unwrap();
     drop(journal);
     drop(first);
 
@@ -305,11 +277,8 @@ fn store_replacement_selects_only_old_journal_and_preserves_its_debt_bytes() {
     let committed = second
         .bootstrap(&snapshot(&requests("main", &["new"])), &pool(), &policy)
         .unwrap();
-    assert_eq!(committed.generation(), 2);
-    assert_eq!(
-        committed.slot_for(&StableKey::parse(JOURNAL).unwrap()),
-        Some(&old_slot)
-    );
+    assert_eq!(committed, 2);
+    assert_eq!(second.memory_id(JOURNAL).unwrap(), old_slot);
     let mut debt = [0; 4];
     second.open_memory(JOURNAL).unwrap().read(0, &mut debt);
     assert_eq!(&debt, b"debt");
@@ -368,8 +337,7 @@ fn replacing_namespace_with_a_new_valid_grant_rejects_without_committing_and_can
     let original = snapshot(&requests("main", &["transfers"]));
     let generation = runtime(&backing)
         .bootstrap(&original, &pool(), &policy)
-        .unwrap()
-        .generation();
+        .unwrap();
     let before = backing.borrow().clone();
     let mut recovered = runtime(&backing);
     assert!(matches!(
@@ -383,10 +351,7 @@ fn replacing_namespace_with_a_new_valid_grant_rejects_without_committing_and_can
         Err(RuntimeOpenError::NotBootstrapped)
     ));
     assert_eq!(
-        recovered
-            .bootstrap(&original, &pool(), &policy)
-            .unwrap()
-            .generation(),
+        recovered.bootstrap(&original, &pool(), &policy).unwrap(),
         generation + 1
     );
 }
@@ -493,11 +458,8 @@ fn revoked_historical_journal_grant_is_not_bypassed() {
     let id = first.memory_id("icydb.main.store.old.journal.v1").unwrap();
     drop(first);
     let before = backing.borrow().clone();
-    let revoked = MemoryAllocationPool::new(
-        pool().authorities().to_vec(),
-        vec![MemoryManagerIdRange::new(id, id).unwrap()],
-    )
-    .unwrap();
+    let revoked =
+        MemoryAllocationPool::new(pool().authorities().to_vec(), (id..=id).collect()).unwrap();
     assert!(matches!(
         runtime(&backing).bootstrap(&snapshot(&requests("main", &[])), &revoked, &policy),
         Err(RuntimeBootstrapError::Admission(
@@ -536,16 +498,12 @@ fn exhausted_host_pool_preserves_ledger_and_expansion_preserves_existing_slots()
     let backing = VectorMemory::default();
     let policy = HostPolicy::default();
     let original = snapshot(&requests("main", &["first"]));
-    let cramped = MemoryAllocationPool::new(
-        pool().authorities().to_vec(),
-        vec![MemoryManagerIdRange::new(17, 254).unwrap()],
-    )
-    .unwrap();
-    let previous = runtime(&backing)
-        .bootstrap(&original, &cramped, &policy)
-        .unwrap()
-        .declarations()
-        .to_vec();
+    let cramped =
+        MemoryAllocationPool::new(pool().authorities().to_vec(), (17..=254).collect()).unwrap();
+    let mut first = runtime(&backing);
+    first.bootstrap(&original, &cramped, &policy).unwrap();
+    let previous = first.committed_allocations().unwrap().to_vec();
+    drop(first);
     let before = backing.borrow().clone();
     let current = snapshot(&requests("main", &["first", "second"]));
     let mut recovered = runtime(&backing);
@@ -560,11 +518,13 @@ fn exhausted_host_pool_preserves_ledger_and_expansion_preserves_existing_slots()
         Err(RuntimeOpenError::NotBootstrapped)
     ));
     assert_eq!(*backing.borrow(), before);
-    let committed = recovered.bootstrap(&current, &pool(), &policy).unwrap();
+    recovered.bootstrap(&current, &pool(), &policy).unwrap();
     for allocation in previous {
         assert_eq!(
-            committed.slot_for(allocation.stable_key()),
-            Some(allocation.slot())
+            recovered
+                .memory_id(allocation.stable_key().as_str())
+                .unwrap(),
+            allocation.slot().id()
         );
     }
 }
@@ -581,8 +541,7 @@ fn host_committed_without_historical_journal_cannot_be_repaired_by_warm_admissio
     let mut host = runtime(&backing);
     let generation = host
         .bootstrap(&current, &pool(), &GenericAllocationPolicy)
-        .unwrap()
-        .generation();
+        .unwrap();
     let before = backing.borrow().clone();
     let calls = policy.calls.get();
     assert!(matches!(
@@ -590,10 +549,7 @@ fn host_committed_without_historical_journal_cannot_be_repaired_by_warm_admissio
         Err(RuntimeBootstrapError::PolicyIdentityMismatch { .. })
     ));
     assert_eq!(policy.calls.get(), calls);
-    assert_eq!(
-        host.committed_allocations().unwrap().generation(),
-        generation
-    );
+    assert_eq!(host.committed_generation().unwrap(), generation);
     assert!(matches!(
         host.open_memory(JOURNAL),
         Err(RuntimeOpenError::StableKeyNotCommitted(_))
@@ -628,16 +584,13 @@ fn cold_reopen_with_a_wider_host_pool_preserves_keys_ids_and_payloads() {
     let backing = VectorMemory::default();
     let policy = HostPolicy::default();
     let declarations = snapshot(&requests("main", &["transfers"]));
-    let original_pool = MemoryAllocationPool::new(
-        pool().authorities().to_vec(),
-        vec![MemoryManagerIdRange::new(10, 99).unwrap()],
-    )
-    .unwrap();
+    let original_pool =
+        MemoryAllocationPool::new(pool().authorities().to_vec(), (10..=99).collect()).unwrap();
     let mut original = runtime(&backing);
-    let committed = original
+    original
         .bootstrap(&declarations, &original_pool, &policy)
-        .unwrap()
-        .clone();
+        .unwrap();
+    let committed = original.committed_allocations().unwrap().to_vec();
     let original_id = original.memory_id(KEY).unwrap();
     assert!(original_id >= 100);
     let memory = original.open_memory(KEY).unwrap();
@@ -646,11 +599,13 @@ fn cold_reopen_with_a_wider_host_pool_preserves_keys_ids_and_payloads() {
     drop(memory);
     drop(original);
     let mut reopened = runtime(&backing);
-    let current = reopened.bootstrap(&declarations, &pool(), &policy).unwrap();
-    for allocation in committed.declarations() {
+    reopened.bootstrap(&declarations, &pool(), &policy).unwrap();
+    for allocation in &committed {
         assert_eq!(
-            current.slot_for(allocation.stable_key()),
-            Some(allocation.slot())
+            reopened
+                .memory_id(allocation.stable_key().as_str())
+                .unwrap(),
+            allocation.slot().id()
         );
     }
     assert_eq!(reopened.memory_id(KEY).unwrap(), original_id);

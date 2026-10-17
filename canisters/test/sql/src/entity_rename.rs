@@ -1,9 +1,8 @@
 //! Fixed controls for the populated entity-rename deployment rehearsal.
 
 use crate::{typed_fixture_invariant_error, typed_operation_fixture_error};
-use ic_cdk::{query, update};
+
 use icydb::{
-    __reexports::ic_timers,
     db::{StructuralPatch, WriteCell, with_request_execution},
     metrics::metrics_report,
     traits::EntitySource,
@@ -25,7 +24,7 @@ fn lifecycle_ready() -> Result<bool, icydb::Error> {
 }
 
 /// Observe readiness and cumulative work/scheduler instructions since upgrade.
-#[query]
+
 fn entity_creation_startup_snapshot() -> Result<(bool, u64, u128, u128, u64, u64), icydb::Error> {
     let identity = ic_timers::TimerIdentity::try_new("icydb", "startup", "recovery")
         .map_err(|_| typed_fixture_invariant_error())?;
@@ -45,9 +44,10 @@ fn entity_creation_startup_snapshot() -> Result<(bool, u64, u128, u128, u64, u64
         counters.work_completed(),
     ))
 }
+icydb_testing_wasm_helpers::export_wire!(query, "entity_creation_startup_snapshot", EntityCreationStartupSnapshot, entity_creation_startup_snapshot, (), Result<(bool, u64, u128, u128, u64, u64), icydb::Error>);
 
 /// Measure one generated-schema submission, including lowering and publication.
-#[update]
+
 fn measure_entity_creation_schema_application() -> (
     Result<(), icydb::Error>,
     u64,
@@ -75,9 +75,21 @@ fn measure_entity_creation_schema_application() -> (
         ),
     }
 }
+icydb_testing_wasm_helpers::export_wire!(
+    update,
+    "measure_entity_creation_schema_application",
+    MeasureEntityCreationSchemaApplication,
+    measure_entity_creation_schema_application,
+    (),
+    (
+        Result<(), icydb::Error>,
+        u64,
+        icydb::metrics::SchemaLifecycleMetrics,
+    )
+);
 
 /// Measure a canonical driver page with readiness before/after and quiescence.
-#[update]
+
 fn measure_entity_creation_startup_step() -> (
     Result<(bool, bool, bool), icydb::Error>,
     u64,
@@ -99,16 +111,29 @@ fn measure_entity_creation_startup_step() -> (
         ),
     }
 }
+icydb_testing_wasm_helpers::export_wire!(
+    update,
+    "measure_entity_creation_startup_step",
+    MeasureEntityCreationStartupStep,
+    measure_entity_creation_startup_step,
+    (),
+    (
+        Result<(bool, bool, bool), icydb::Error>,
+        u64,
+        icydb::metrics::SchemaLifecycleMetrics,
+    )
+);
 
 /// Observe fixed schema-owner counters even before ordinary read admission.
-#[query]
+
 fn entity_creation_lifecycle_metrics()
 -> Result<icydb::metrics::SchemaLifecycleMetrics, icydb::Error> {
     Ok(metrics_report()?.schema_lifecycle().clone())
 }
+icydb_testing_wasm_helpers::export_wire!(query, "entity_creation_lifecycle_metrics", EntityCreationLifecycleMetrics, entity_creation_lifecycle_metrics, (), Result<icydb::metrics::SchemaLifecycleMetrics, icydb::Error>);
 
 /// Seed the three fixed rows through ordinary accepted structural writes.
-#[update]
+
 fn seed_entity_rename() -> Result<(), icydb::Error> {
     with_request_execution(|| {
         let session = icydb::db!()?;
@@ -127,9 +152,10 @@ fn seed_entity_rename() -> Result<(), icydb::Error> {
         Ok(())
     })
 }
+icydb_testing_wasm_helpers::export_wire!(update, "seed_entity_rename", SeedEntityRename, seed_entity_rename, (), Result<(), icydb::Error>);
 
 /// Seed an independent relation target for the entity-creation rehearsal.
-#[update]
+
 fn seed_entity_creation_target() -> Result<(), icydb::Error> {
     with_request_execution(|| {
         let session = icydb::db!()?;
@@ -142,9 +168,10 @@ fn seed_entity_creation_target() -> Result<(), icydb::Error> {
         Ok(())
     })
 }
+icydb_testing_wasm_helpers::export_wire!(update, "seed_entity_creation_target", SeedEntityCreationTarget, seed_entity_creation_target, (), Result<(), icydb::Error>);
 
 /// Exercise both reverse-relation delete restrictions without caller-owned SQL.
-#[update]
+
 fn check_entity_rename_deletes() -> Result<Vec<icydb::Error>, icydb::Error> {
     with_request_execution(|| {
         let session = icydb::db!()?;
@@ -159,9 +186,17 @@ fn check_entity_rename_deletes() -> Result<Vec<icydb::Error>, icydb::Error> {
         Ok(errors)
     })
 }
+icydb_testing_wasm_helpers::export_wire!(
+    update,
+    "check_entity_rename_deletes",
+    CheckEntityRenameDeletes,
+    check_entity_rename_deletes,
+    (),
+    Result<Vec<icydb::Error>, icydb::Error>
+);
 
 /// Resolve and decode both generated entities through accepted bindings.
-#[query]
+
 fn check_entity_rename_bindings() -> Result<(), icydb::Error> {
     with_request_execution(|| {
         let session = icydb::db!()?;
@@ -185,3 +220,4 @@ fn check_entity_rename_bindings() -> Result<(), icydb::Error> {
         Ok(())
     })
 }
+icydb_testing_wasm_helpers::export_wire!(query, "check_entity_rename_bindings", CheckEntityRenameBindings, check_entity_rename_bindings, (), Result<(), icydb::Error>);

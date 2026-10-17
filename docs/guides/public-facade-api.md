@@ -8,7 +8,7 @@ admission, storage, or recovery inputs.
 Generated IcyDB endpoints enter one request scope automatically. Manual
 IC-CDK, Canic, and timer entries put `#[icydb::request_execution]` outside the
 framework attribute. Application lifecycle callbacks declared through the
-composed `icydb::start!` form receive that scope automatically after IcyDB has
+composed `canic_icydb::start!` form receive that scope automatically after IcyDB has
 registered its startup watchdog. Zero-argument `db!()` calls in nested helpers
 share its monotonic counters across the whole sync or async invocation.
 Synchronous unit tests use `#[icydb::test]`. The snippets below assume that
@@ -389,7 +389,7 @@ Nested relation leaves retain their declaring composite value's generated
 scalar representation; their accepted rooted relation metadata supplies the
 runtime target contract. Ordinary non-relation key fields and
 composite-relation components retain their declared primitive types. Row
-storage, output, and Candid encoding remain the declared raw key shape. A
+storage, output, and the native Wire projection retain the declared raw key shape. A
 schema-generated primary key is still omitted from its generated insert input
 and cannot be authored through the structural lane.
 

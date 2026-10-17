@@ -14,7 +14,6 @@ use std::{collections::BTreeSet, str::FromStr};
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum TraitKind {
     // rust + third party
-    CandidType,
     Clone,
     Copy,
     Debug,
@@ -91,7 +90,6 @@ impl ApplicationTypeKind {
         baseline: &TraitSet,
     ) -> Option<ConfigurableTraitPolicy> {
         match trait_kind {
-            TraitKind::Serialize => Some(ConfigurableTraitPolicy::OptIn),
             TraitKind::Copy | TraitKind::Hash | TraitKind::Ord | TraitKind::PartialOrd => Some(
                 ConfigurableTraitPolicy::from_baseline(baseline.contains(trait_kind)),
             ),
@@ -187,7 +185,6 @@ impl FromStr for TraitKind {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "CandidType" => Ok(Self::CandidType),
             "Clone" => Ok(Self::Clone),
             "Copy" => Ok(Self::Copy),
             "Debug" => Ok(Self::Debug),
@@ -237,7 +234,7 @@ const DEFAULT_CONFIGURABLE_TYPE_TRAITS: &[TraitKind] =
     &[TraitKind::NormalizeCustom, TraitKind::ValidateCustom];
 
 const REQUIRED_TYPE_TRAITS: &[TraitKind] = &[
-    TraitKind::CandidType,
+    TraitKind::Serialize,
     TraitKind::Clone,
     TraitKind::Debug,
     TraitKind::Deserialize,
@@ -250,7 +247,6 @@ const REQUIRED_TYPE_TRAITS: &[TraitKind] = &[
 ];
 
 const CONFIGURABLE_TYPE_TRAITS: &[TraitKind] = &[
-    TraitKind::Serialize,
     TraitKind::Copy,
     TraitKind::Default,
     TraitKind::Deref,
@@ -303,7 +299,6 @@ impl TraitKind {
             Self::AddAssign => Some(quote!(
                 ::icydb_model::__reexports::icydb_model_macros::AddAssign
             )),
-            Self::CandidType => Some(quote!(::icydb_model::__reexports::candid::CandidType)),
             Self::Clone => Some(quote!(Clone)),
             Self::Copy => Some(quote!(Copy)),
             Self::Debug => Some(quote!(Debug)),
@@ -414,9 +409,6 @@ impl ToTokens for TraitKind {
             }
             Self::Product => quote!(::std::iter::Product).to_tokens(tokens),
             Self::Sum => quote!(::std::iter::Sum).to_tokens(tokens),
-            Self::CandidType => {
-                quote!(::icydb_model::__reexports::candid::CandidType).to_tokens(tokens);
-            }
             Self::Deserialize => {
                 quote!(::icydb_model::__reexports::serde::Deserialize).to_tokens(tokens);
             }
@@ -696,22 +688,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn serialize_is_opt_in_for_generated_application_values() {
+    fn serialize_is_required_for_generated_application_values() {
         let baseline = application_type_trait_set();
-        assert!(!baseline.contains(TraitKind::Serialize));
+        assert!(baseline.contains(TraitKind::Serialize));
         let builder = TraitBuilder {
             add: TraitListMeta(vec![TraitKind::Serialize]),
             remove: TraitListMeta::default(),
         };
         assert!(
             builder
-                .validate_for_type(ApplicationTypeKind::Record, baseline.clone())
-                .is_ok()
-        );
-        assert!(
-            builder
-                .build_for_type(baseline)
-                .contains(TraitKind::Serialize)
+                .validate_for_type(ApplicationTypeKind::Record, baseline)
+                .is_err()
         );
     }
 
@@ -913,8 +900,8 @@ mod tests {
             .copied()
             .collect();
         assert_eq!(REQUIRED_TYPE_TRAITS.len(), 10);
-        assert_eq!(CONFIGURABLE_TYPE_TRAITS.len(), 29);
-        assert_eq!(complete_inventory.len(), 39);
+        assert_eq!(CONFIGURABLE_TYPE_TRAITS.len(), 28);
+        assert_eq!(complete_inventory.len(), 38);
 
         for node_kind in application_nodes {
             for trait_kind in CONFIGURABLE_TYPE_TRAITS {

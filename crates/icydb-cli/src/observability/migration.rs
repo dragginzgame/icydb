@@ -143,14 +143,14 @@ const fn terminal(phase: SchemaMigrationPhase) -> bool {
 
 fn load_status(target: &CanisterTarget) -> Result<SchemaMigrationStatusPage, String> {
     require_created_canister(target.environment(), target.canister_name())?;
-    let candid = call_query(
+    let wire = call_query(
         target.environment(),
         target.canister_name(),
         SCHEMA_MIGRATION_ENDPOINT.method(),
-        (&SchemaMigrationStatusRequest::default(),),
+        SchemaMigrationStatusRequest::default(),
     )?;
     decode_endpoint_result(
-        &candid,
+        &wire,
         "schema migration status",
         target.environment(),
         target.canister_name(),
@@ -208,14 +208,14 @@ fn call_command(
     target: &CanisterTarget,
     command: &RuntimeMigrationCommand,
 ) -> Result<SchemaMigrationStatusPage, String> {
-    let candid = call_update(
+    let wire = call_update(
         target.environment(),
         target.canister_name(),
         SCHEMA_MIGRATE_ENDPOINT.method(),
-        (command,),
+        command,
     )?;
     decode_endpoint_result(
-        &candid,
+        &wire,
         "schema migration",
         target.environment(),
         target.canister_name(),
@@ -282,8 +282,8 @@ fn print_status(status: &SchemaMigrationStatusPage) {
 
 #[cfg(test)]
 mod tests {
-    use crate::icp::encode_candid_args;
-    use candid::Decode;
+    use crate::{icp::encode_wire_args, observability::migration::SCHEMA_MIGRATE_ENDPOINT};
+
     use icydb::db::{ExpectedAcceptedHead, SchemaMigrationCommand, TargetDatabaseIdentity};
     use icydb_schema::{ExpectedSchemaFingerprint, SchemaMigrationPlanDigest};
 
@@ -323,8 +323,14 @@ mod tests {
                     },
                 ] {
                     // The argument carries its own types, without service metadata.
-                    let bytes = encode_candid_args((&command,)).unwrap();
-                    assert_eq!(Decode!(&bytes, SchemaMigrationCommand).unwrap(), command);
+                    let bytes =
+                        encode_wire_args(SCHEMA_MIGRATE_ENDPOINT.method(), &command).unwrap();
+                    assert_eq!(
+                        icydb::wire::Endpoint::SchemaMigrate
+                            .decode_request::<SchemaMigrationCommand>(&bytes)
+                            .unwrap(),
+                        command
+                    );
                 }
             }
         }

@@ -20,7 +20,7 @@ use crate::db::{
     },
 };
 use crate::{error::InternalError, types::EntityTag};
-use candid::CandidType;
+
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{cell::RefCell, thread::LocalKey};
@@ -122,7 +122,7 @@ impl StoreRuntimeStorageMode {
 }
 
 /// Whether a store owns durable allocation identity.
-#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum StoreAllocationIdentityCapability {
     /// Stable allocation identity is present.
     #[default]
@@ -143,7 +143,7 @@ impl StoreAllocationIdentityCapability {
 }
 
 /// Store durability class.
-#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum StoreDurability {
     /// Store contents participate in durable storage semantics.
     #[default]
@@ -164,7 +164,7 @@ impl StoreDurability {
 }
 
 /// Store recovery capability.
-#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum StoreRecoveryCapability {
     /// Store contents can be recovered from canonical stable BTrees plus a
     /// committed journal tail.
@@ -186,7 +186,7 @@ impl StoreRecoveryCapability {
 }
 
 /// Store commit participation class.
-#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum StoreCommitParticipation {
     /// Store mutations participate in the durable commit path.
     #[default]
@@ -207,7 +207,7 @@ impl StoreCommitParticipation {
 }
 
 /// Store schema metadata persistence class.
-#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum StoreSchemaMetadataCapability {
     /// The store-local projection is rebuilt from a durable accepted checkpoint
     /// and does not retain its own schema history.
@@ -398,10 +398,7 @@ impl StoreAllocationIdentity {
 pub(in crate::db) fn open_committed_memory(
     stable_key: &str,
     memory_id: u8,
-) -> Result<
-    ic_memory::RuntimeMemory<ic_memory::ic_stable_structures::DefaultMemoryImpl>,
-    InternalError,
-> {
+) -> Result<ic_memory::RuntimeMemory<ic_stable_structures::DefaultMemoryImpl>, InternalError> {
     let committed_id = memory_runtime()
         .ok_or_else(InternalError::store_internal)?
         .memory_id(stable_key)

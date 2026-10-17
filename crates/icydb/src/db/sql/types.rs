@@ -1,6 +1,6 @@
 //! Module: db::sql::types
 //!
-//! Responsibility: public SQL result and rendering facade.
+//! Responsibility: public native SQL results.
 //! Does not own: SQL parsing, lowering, planning, or execution.
 //! Boundary: converts executed core SQL outputs into endpoint-friendly payloads.
 
@@ -10,24 +10,15 @@ use crate::{
         EntityCatalogDescription, EntityConstraintDescription, MemoryCatalogDescription,
         RowProjectionOutput, SqlDescribeOutput, SqlShowColumnsOutput, SqlShowRelationsOutput,
         StoreCatalogDescription,
-        sql::table_render::{
-            SqlDdlRenderInput, render_constraint_validation_finding_line, render_count_lines,
-            render_describe_output_lines, render_explain_lines, render_grouped_lines,
-            render_query_rows_lines, render_show_columns_lines, render_show_constraints_lines,
-            render_show_entities_lines, render_show_entities_verbose_lines,
-            render_show_indexes_lines, render_show_memory_lines, render_show_relations_lines,
-            render_show_stores_lines, render_show_stores_verbose_lines, render_sql_ddl_lines,
-        },
     },
 };
 
-use candid::CandidType;
 use serde::Deserialize;
 
 const MAX_PUBLIC_SQL_QUERY_REPLY_BYTES: usize = 3 * 1024 * 1024;
 
 #[cfg_attr(doc, doc = "SqlGroupedRowsOutput\n\nStructured grouped SQL payload.")]
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct SqlGroupedRowsOutput {
     pub entity: String,
     pub columns: Vec<String>,
@@ -43,7 +34,7 @@ pub struct SqlGroupedRowsOutput {
     doc,
     doc = "SqlConstraintValidationOutput\n\nTyped progress from one bounded constraint-validation step."
 )]
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct SqlConstraintValidationOutput {
     /// Stable accepted constraint identity.
     pub constraint_id: u32,
@@ -64,7 +55,7 @@ pub struct SqlConstraintValidationOutput {
 }
 
 #[cfg_attr(doc, doc = "SqlQueryResult\n\nUnified SQL endpoint result.")]
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum SqlQueryResult {
     Count {
         entity: String,
@@ -113,27 +104,29 @@ pub enum SqlQueryResult {
 }
 
 impl SqlQueryResult {
-    // Measure the actual wire envelope, including all result/error type arms.
+    // Measure the exact native success payload plus its IC Wire prefix.
     // Core calls this with an empty canonical projection to establish framing.
     pub(in crate::db) fn encoded_returning_response_len(
         projection: RowProjectionOutput,
-    ) -> candid::Result<usize> {
+    ) -> Result<usize, icydb_schema::wire::Error> {
         let response: Result<Self, Error> = Ok(Self::Projection(projection));
-        candid::encode_one(response).map(|bytes| bytes.len())
+        ic_wire::native::encoded_frame_len(&response, icydb_schema::wire::sizing_limits())
     }
 
-    /// Reject a success whose exact public Candid envelope cannot be delivered
+    /// Reject a success whose exact public Wire envelope cannot be delivered
     /// by the deployed IC query boundary.
     #[doc(hidden)]
     pub fn into_deliverable_query_reply(self) -> Result<Self, Error> {
         let response: Result<&Self, Error> = Ok(&self);
-        let encoded = candid::encode_one(response).map_err(|_| {
-            Error::from_kind(
-                ErrorKind::Runtime(RuntimeErrorKind::Internal),
-                ErrorOrigin::Response,
-            )
-        })?;
-        if encoded.len() > MAX_PUBLIC_SQL_QUERY_REPLY_BYTES {
+        let encoded =
+            ic_wire::native::encoded_frame_len(&response, icydb_schema::wire::sizing_limits())
+                .map_err(|_| {
+                    Error::from_kind(
+                        ErrorKind::Runtime(RuntimeErrorKind::Internal),
+                        ErrorOrigin::Response,
+                    )
+                })?;
+        if encoded > MAX_PUBLIC_SQL_QUERY_REPLY_BYTES {
             return Err(Error::from_runtime_boundary(
                 crate::diagnostic::RuntimeBoundaryCode::SqlQueryReplyBytesExceeded,
                 ErrorOrigin::Response,
@@ -142,105 +135,13 @@ impl SqlQueryResult {
 
         Ok(self)
     }
-
-    /// Render this payload into deterministic shell-friendly lines.
-    #[must_use]
-    pub fn render_lines(&self) -> Vec<String> {
-        match self {
-            Self::Count { entity, row_count } => render_count_lines(entity.as_str(), *row_count),
-            Self::Projection(rows) => render_query_rows_lines(rows),
-            Self::Grouped(rows) => render_grouped_lines(rows),
-            Self::Explain { explain, .. } => render_explain_lines(explain.as_str()),
-            Self::Describe(output) => render_describe_output_lines(output),
-            Self::ShowConstraints {
-                entity,
-                constraints,
-            } => render_show_constraints_lines(entity.as_str(), constraints.as_slice()),
-            Self::ShowIndexes { entity, indexes } => {
-                render_show_indexes_lines(entity.as_str(), indexes.as_slice())
-            }
-            Self::ShowColumns(output) => render_show_columns_lines(output),
-            Self::ShowRelations(output) => render_show_relations_lines(output),
-            Self::ShowEntities { entities, verbose } => {
-                if *verbose {
-                    render_show_entities_verbose_lines(entities.as_slice())
-                } else {
-                    render_show_entities_lines(entities.as_slice())
-                }
-            }
-            Self::ShowStores { stores, verbose } => {
-                if *verbose {
-                    render_show_stores_verbose_lines(stores.as_slice())
-                } else {
-                    render_show_stores_lines(stores.as_slice())
-                }
-            }
-            Self::ShowMemory { memory } => render_show_memory_lines(memory.as_slice()),
-            Self::Ddl {
-                entity,
-                mutation_kind,
-                target_index,
-                target_store,
-                field_path,
-                status,
-                rows_scanned,
-                index_keys_written,
-                constraint_validation,
-            } => {
-                let mut lines = render_sql_ddl_lines(SqlDdlRenderInput {
-                    entity: entity.as_str(),
-                    mutation_kind: mutation_kind.as_str(),
-                    target_index: target_index.as_str(),
-                    target_store: target_store.as_str(),
-                    field_path: field_path.as_slice(),
-                    status: status.as_str(),
-                    rows_scanned: *rows_scanned,
-                    index_keys_written: *index_keys_written,
-                });
-                if let Some(validation) = constraint_validation {
-                    lines.extend(
-                        validation
-                            .findings
-                            .iter()
-                            .map(render_constraint_validation_finding_line),
-                    );
-                }
-                lines
-            }
-        }
-    }
-
-    /// Render this payload into one newline-separated display string.
-    #[must_use]
-    pub fn render_text(&self) -> String {
-        self.render_lines().join("\n")
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
-
-    use candid::types::{CandidType, Label, Type, TypeInner};
 
     use super::{MAX_PUBLIC_SQL_QUERY_REPLY_BYTES, SqlQueryResult};
     use crate::{Error, ErrorOrigin};
-
-    fn named_fields(ty: Type, expected_kind: &str) -> BTreeSet<String> {
-        let fields = match ty.as_ref() {
-            TypeInner::Record(fields) if expected_kind == "record" => fields,
-            TypeInner::Variant(fields) if expected_kind == "variant" => fields,
-            other => panic!("expected Candid {expected_kind}, got {other:?}"),
-        };
-
-        fields
-            .iter()
-            .map(|field| match field.id.as_ref() {
-                Label::Named(name) => name.clone(),
-                other => panic!("expected named Candid field, got {other:?}"),
-            })
-            .collect()
-    }
 
     #[test]
     fn returning_frame_counts_match_the_actual_public_response() {
@@ -248,7 +149,6 @@ mod tests {
             db::RowProjectionOutput,
             value::{OutputValue, PublicValue},
         };
-        use candid::ser::ValueSerializer;
 
         for (count, size) in [
             (0, 0),
@@ -272,21 +172,13 @@ mod tests {
             let mut empty = output.clone();
             empty.rows.clear();
             let empty_frame = SqlQueryResult::encoded_returning_response_len(empty).unwrap();
-            let mut values = ValueSerializer::new();
-            output.rows.idl_serialize(&mut values).unwrap();
+            let values_len = icydb_schema::wire::encoded_len(&output.rows).unwrap();
             let candidate: Result<SqlQueryResult, Error> = Ok(SqlQueryResult::Projection(output));
-            let actual = candid::encode_one(candidate).unwrap().len();
+            let actual = icydb_schema::wire::encode_one(candidate).unwrap().len() + 11;
             // The empty vector occupies one byte; the real vector contains its
             // own length prefix and each row's value encoding exactly once.
-            assert_eq!(empty_frame - 1 + values.get_result().len(), actual);
+            assert_eq!(empty_frame - 1 + values_len, actual);
         }
-    }
-
-    #[test]
-    fn sql_query_result_candid_shape_always_contains_explain() {
-        let variants = named_fields(SqlQueryResult::ty(), "variant");
-
-        assert!(variants.contains("Explain"));
     }
 
     #[test]
@@ -299,8 +191,9 @@ mod tests {
         let borrowed: Result<&SqlQueryResult, Error> = Ok(&small);
 
         assert_eq!(
-            candid::encode_one(owned).expect("owned endpoint envelope should encode"),
-            candid::encode_one(borrowed).expect("borrowed endpoint envelope should encode"),
+            icydb_schema::wire::encode_one(owned).expect("owned endpoint envelope should encode"),
+            icydb_schema::wire::encode_one(borrowed)
+                .expect("borrowed endpoint envelope should encode"),
             "the zero-copy guard must measure the exact generated endpoint envelope",
         );
         assert_eq!(
@@ -320,9 +213,8 @@ mod tests {
         };
         let candidate: Result<&SqlQueryResult, Error> = Ok(&oversized);
         assert!(
-            candid::encode_one(candidate)
-                .expect("oversized endpoint candidate should remain fallibly encodable")
-                .len()
+            icydb_schema::wire::encoded_len(&candidate)
+                .expect("oversized endpoint candidate should remain fallibly sizeable")
                 > MAX_PUBLIC_SQL_QUERY_REPLY_BYTES,
         );
 
@@ -335,7 +227,7 @@ mod tests {
         );
         assert_eq!(error.origin(), ErrorOrigin::Response);
         assert!(
-            candid::encode_one(Err::<SqlQueryResult, Error>(error))
+            icydb_schema::wire::encode_one(Err::<SqlQueryResult, Error>(error))
                 .expect("typed oversize error should encode")
                 .len()
                 <= MAX_PUBLIC_SQL_QUERY_REPLY_BYTES,

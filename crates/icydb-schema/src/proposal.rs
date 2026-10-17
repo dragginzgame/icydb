@@ -2,7 +2,6 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use candid::CandidType;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -81,7 +80,7 @@ impl SchemaCapability {
 }
 
 /// Expected accepted-schema head used for optimistic application.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum ExpectedAcceptedHead {
     /// The target database has no accepted schema.
     Empty,

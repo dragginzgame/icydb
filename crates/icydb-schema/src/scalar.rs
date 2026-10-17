@@ -6,7 +6,6 @@
 //! validation.
 //! Boundary: exposes compact scalar-kind capability descriptors and registry order.
 
-use candid::CandidType;
 use serde::{Deserialize, Serialize};
 
 ///
@@ -15,9 +14,7 @@ use serde::{Deserialize, Serialize};
 /// Canonical scalar kind used for shared capability metadata.
 ///
 
-#[derive(
-    CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize,
-)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub enum ScalarKind {
     Account,
     Blob,
@@ -103,7 +100,7 @@ impl ScalarKind {
 /// Capability metadata shared across schema/core layers.
 ///
 
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[expect(clippy::struct_excessive_bools)]
 pub struct ScalarMetadata {
     family: ScalarCoercionFamily,
@@ -172,7 +169,7 @@ impl ScalarMetadata {
 /// Coarse intrinsic family used by downstream coercion and validation policy.
 ///
 
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum ScalarCoercionFamily {
     Numeric,
     Textual,

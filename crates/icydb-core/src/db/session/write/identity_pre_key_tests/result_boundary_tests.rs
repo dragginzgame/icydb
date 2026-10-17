@@ -30,10 +30,10 @@ impl BatchSurface {
     // metadata overhead differs, so payload length alone is not the boundary.
     fn encode_results(self, results: Vec<DynamicMutationResult>) -> Vec<u8> {
         match self {
-            Self::Structural | Self::Typed => candid::encode_one(&results),
+            Self::Structural | Self::Typed => icydb_schema::wire::encode_one(&results),
             Self::SameEntityTyped => {
                 let rows = results.into_iter().flat_map(|result| result.rows).collect();
-                candid::encode_one(DynamicMutationResult {
+                icydb_schema::wire::encode_one(DynamicMutationResult {
                     entity: ENTITY_NAME.to_string(),
                     columns: vec!["id".to_string(), "payload".to_string()],
                     rows,
@@ -93,7 +93,8 @@ impl BatchSurface {
                     let result = session
                         .execute_trusted_same_entity_typed_mutation_batch(binding, mutations)?
                         .expect("accepted typed binding should stay current");
-                    return Ok(candid::encode_one(result).expect("actual response should encode"));
+                    return Ok(icydb_schema::wire::encode_one(result)
+                        .expect("actual response should encode"));
                 }
             }
         };
@@ -168,7 +169,7 @@ fn assert_result_boundary(surface: BatchSurface) {
     let before = stored_row(1).expect("seed row should exist");
     let control_before = database_control_proof_identity().expect("seed commit control");
 
-    // Start near the cap so Candid's variable-length blob prefix has the same
+    // Start near the cap so Wire's variable-length blob prefix has the same
     // width at the exact and cap-plus-one boundaries; verify both encodings.
     let limit = MAX_STRUCTURAL_MUTATION_BATCH_RESULT_BYTES;
     let overhead = surface.encode_results(expected_results(limit)).len() - limit;

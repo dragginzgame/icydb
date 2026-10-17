@@ -33,17 +33,15 @@ fn icydb_memory_pool()
     icydb::db::MemoryAllocationPool::new(grants, exclusions)
 }
 
-icydb::start!();
+canic_icydb::start!(icydb);
 
 // Test-actor probe: measure database opening without executing a row query.
-#[ic_cdk::update]
 fn open_database() -> Result<u64, String> {
     let before = ic_cdk::api::performance_counter(0);
     icydb::db::with_request_execution(|| db().map(|_| ())).map_err(|error| error.to_string())?;
     Ok(ic_cdk::api::performance_counter(0) - before)
 }
 
-#[ic_cdk::update]
 fn insert_profile(rank: u64) -> Result<(), String> {
     icydb::db::with_request_execution(|| {
         let database = db().map_err(|error| error.to_string())?;
@@ -64,7 +62,6 @@ fn insert_profile(rank: u64) -> Result<(), String> {
     })
 }
 
-#[ic_cdk::query]
 fn profile_rank() -> Result<Option<u64>, String> {
     icydb::db::with_request_execution(|| {
         db().map_err(|error| error.to_string())?
@@ -147,3 +144,14 @@ mod tests {
         });
     }
 }
+
+icydb_testing_wasm_helpers::export_wire!(update, "open_database", OpenDatabase, open_database, (), Result<u64, String>);
+icydb_testing_wasm_helpers::export_wire!(update, "insert_profile", InsertProfile, insert_profile, (rank: u64), Result<(), String>);
+icydb_testing_wasm_helpers::export_wire!(
+    query,
+    "profile_rank",
+    ProfileRank,
+    profile_rank,
+    (),
+    Result<Option<u64>, String>
+);

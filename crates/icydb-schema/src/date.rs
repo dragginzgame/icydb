@@ -4,7 +4,7 @@
 //! wire conversion. Database ordering and storage policy remain runtime-owned.
 
 use crate::{Decimal, NumericValue, TypeParseError};
-use candid::CandidType;
+
 use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt::{self, Debug, Display};
 use time::{Date as TimeDate, Duration as TimeDuration, Month};
@@ -19,10 +19,10 @@ use time::{Date as TimeDate, Duration as TimeDuration, Month};
 // Date
 //
 // Represented as days since Unix epoch.
-// Candid uses int32 epoch days; JSON uses ISO-8601 text (`YYYY-MM-DD`).
+// Wire uses int32 epoch days; JSON uses ISO-8601 text (`YYYY-MM-DD`).
 //
 
-#[derive(CandidType, Clone, Copy, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
 pub struct Date(i32);
 
@@ -259,12 +259,12 @@ mod tests {
             assert_eq!(json, format!("\"{date}\""));
             assert_eq!(serde_json::from_str::<Date>(&json).unwrap(), date);
 
-            let candid = candid::encode_one(date).unwrap();
+            let wire = crate::wire::encode_one(date).unwrap();
             assert_eq!(
-                candid,
-                candid::encode_one(date.as_days_since_epoch()).unwrap()
+                wire,
+                crate::wire::encode_one(date.as_days_since_epoch()).unwrap()
             );
-            assert_eq!(candid::decode_one::<Date>(&candid).unwrap(), date);
+            assert_eq!(crate::wire::decode_one::<Date>(&wire).unwrap(), date);
 
             let batch = vec![date; 1_000];
             encoded.clear();
@@ -417,25 +417,25 @@ mod tests {
     }
 
     #[test]
-    fn candid_decode_rejects_out_of_range_epoch_days() {
-        let min =
-            candid::encode_one(Date::MIN.as_days_since_epoch()).expect("minimum day should encode");
-        let max =
-            candid::encode_one(Date::MAX.as_days_since_epoch()).expect("maximum day should encode");
-        let below = candid::encode_one(Date::MIN.as_days_since_epoch() - 1)
+    fn wire_decode_rejects_out_of_range_epoch_days() {
+        let min = crate::wire::encode_one(Date::MIN.as_days_since_epoch())
+            .expect("minimum day should encode");
+        let max = crate::wire::encode_one(Date::MAX.as_days_since_epoch())
+            .expect("maximum day should encode");
+        let below = crate::wire::encode_one(Date::MIN.as_days_since_epoch() - 1)
             .expect("out-of-range day should encode as raw i32");
-        let above = candid::encode_one(Date::MAX.as_days_since_epoch() + 1)
+        let above = crate::wire::encode_one(Date::MAX.as_days_since_epoch() + 1)
             .expect("out-of-range day should encode as raw i32");
 
         assert_eq!(
-            candid::decode_one::<Date>(&min).expect("minimum day should decode"),
+            crate::wire::decode_one::<Date>(&min).expect("minimum day should decode"),
             Date::MIN,
         );
         assert_eq!(
-            candid::decode_one::<Date>(&max).expect("maximum day should decode"),
+            crate::wire::decode_one::<Date>(&max).expect("maximum day should decode"),
             Date::MAX,
         );
-        assert!(candid::decode_one::<Date>(&below).is_err());
-        assert!(candid::decode_one::<Date>(&above).is_err());
+        assert!(crate::wire::decode_one::<Date>(&below).is_err());
+        assert!(crate::wire::decode_one::<Date>(&above).is_err());
     }
 }

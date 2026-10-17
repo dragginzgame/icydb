@@ -1,6 +1,6 @@
 //! Released-package-shaped canister installation without IcyDB configuration.
 
-runtime_api::endpoints! {
+canic_icydb::endpoints! {
     icydb_metrics(authorization = public);
     icydb_schema(authorization = controller);
 }
@@ -17,7 +17,4 @@ fn icydb_memory_pool()
     )
 }
 
-runtime_api::start!();
-
-#[cfg(feature = "candid-export")]
-ic_cdk::export_candid!();
+canic_icydb::start!(runtime_api);

@@ -7,48 +7,31 @@
 mod bootstrap;
 
 use super::*;
-use candid::{
-    Decode, Encode,
-    types::{CandidType, Label, Type, TypeInner},
-};
+
 use ic_memory::RuntimeBootstrapError;
 #[cfg(feature = "sql")]
 use icydb_core::db::{PlanError, QueryExecutionError, ValidateError};
 use icydb_core::error::{ErrorClass as CoreErrorClass, ErrorOrigin as CoreErrorOrigin};
-use serde::Serialize;
 
-#[derive(CandidType, Serialize)]
+#[derive(serde::Serialize)]
 struct DiagnosticFactWire {
     tag: u8,
     value: u64,
 }
 
-#[derive(CandidType, Serialize)]
+#[derive(serde::Serialize)]
 struct QueryFieldDiagnosticWire {
     role: u8,
     field: String,
 }
 
-#[derive(CandidType, Serialize)]
+#[derive(serde::Serialize)]
 struct ErrorWire {
     code: u16,
     class: u8,
     origin: u8,
     facts: Vec<DiagnosticFactWire>,
     query_field: Option<QueryFieldDiagnosticWire>,
-}
-
-fn expect_record_fields(ty: Type) -> Vec<String> {
-    match ty.as_ref() {
-        TypeInner::Record(fields) => fields
-            .iter()
-            .map(|field| match field.id.as_ref() {
-                Label::Named(name) => name.clone(),
-                other => panic!("expected named record field, got {other:?}"),
-            })
-            .collect(),
-        other => panic!("expected candid record, got {other:?}"),
-    }
 }
 
 #[test]
@@ -256,14 +239,15 @@ fn public_error_sql_write_boundary_collapses_detail_to_leaf_code() {
 }
 
 #[test]
-fn exact_count_metadata_diagnostic_survives_public_candid_round_trip() {
+fn exact_count_metadata_diagnostic_survives_public_wire_round_trip() {
     use icydb_diagnostic_code::{Diagnostic, DiagnosticCode, ErrorClass, ErrorCode};
 
     let error = Error::from_diagnostic(Diagnostic::from_code(
         DiagnosticCode::QueryExactCountMetadataUnavailable,
     ));
-    let wire = Encode!(&error).expect("public error should encode");
-    let decoded = Decode!(&wire, Error).expect("public error should decode");
+    let wire = icydb_schema::wire::encode_one(&error).expect("public error should encode");
+    let decoded =
+        icydb_schema::wire::decode_one::<Error>(&wire).expect("public error should decode");
     assert_eq!(
         decoded.code(),
         ErrorCode::QUERY_EXACT_COUNT_METADATA_UNAVAILABLE
@@ -348,8 +332,9 @@ fn query_execute_preserves_runtime_class_and_origin() {
         assert_eq!(facade.code(), expected_kind.diagnostic_code().error_code());
         assert_eq!(facade.origin(), expected_origin);
         assert_eq!(facade.class(), expected_kind.diagnostic_code().class());
-        let bytes = Encode!(&facade).expect("query error should encode");
-        let decoded = Decode!(bytes.as_slice(), Error).expect("query error should decode");
+        let bytes = icydb_schema::wire::encode_one(&facade).expect("query error should encode");
+        let decoded = icydb_schema::wire::decode_one::<Error>(bytes.as_slice())
+            .expect("query error should decode");
         assert_eq!(decoded, facade);
     }
 }
@@ -438,32 +423,8 @@ fn origin_mapping_includes_new_core_domains() {
 }
 
 #[test]
-fn error_struct_candid_shape_is_stable() {
-    let mut fields = expect_record_fields(Error::ty());
-    fields.sort();
-
-    assert_eq!(fields, ["class", "code", "facts", "origin", "query_field"]);
-}
-
-#[test]
-fn diagnostic_fact_candid_shape_is_stable() {
-    let mut fields = expect_record_fields(DiagnosticFact::ty());
-    fields.sort();
-
-    assert_eq!(fields, ["tag", "value"]);
-}
-
-#[test]
-fn query_field_diagnostic_candid_shape_is_stable() {
-    let mut fields = expect_record_fields(QueryFieldDiagnostic::ty());
-    fields.sort();
-
-    assert_eq!(fields, ["field", "role"]);
-}
-
-#[test]
-fn public_error_candid_preserves_bounded_numeric_facts() {
-    let bytes = Encode!(&ErrorWire {
+fn public_error_wire_preserves_bounded_numeric_facts() {
+    let bytes = icydb_schema::wire::encode_one(&ErrorWire {
         code: icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_MUTATION_BATCH_TOO_MANY_ITEMS
             .raw(),
         class: icydb_diagnostic_code::ErrorClass::Unsupported.wire_code(),
@@ -481,7 +442,8 @@ fn public_error_candid_preserves_bounded_numeric_facts() {
         query_field: None,
     })
     .expect("numeric public error facts should encode");
-    let error = Decode!(bytes.as_slice(), Error).expect("numeric public error should decode");
+    let error = icydb_schema::wire::decode_one::<Error>(bytes.as_slice())
+        .expect("numeric public error should decode");
 
     assert_eq!(
         error.code(),
@@ -559,7 +521,7 @@ fn server_side_disallowed_query_field_context_becomes_invariant() {
 
 #[test]
 fn malformed_decoded_query_field_context_preserves_base_error() {
-    let bytes = Encode!(&ErrorWire {
+    let bytes = icydb_schema::wire::encode_one(&ErrorWire {
         code: icydb_diagnostic_code::ErrorCode::QUERY_PLAN.raw(),
         class: icydb_diagnostic_code::ErrorClass::Query.wire_code(),
         origin: icydb_diagnostic_code::ErrorOrigin::Query.wire_code(),
@@ -569,8 +531,9 @@ fn malformed_decoded_query_field_context_preserves_base_error() {
             field: "missing".to_string(),
         }),
     })
-    .expect("malformed client context should encode as raw Candid");
-    let error = Decode!(bytes.as_slice(), Error).expect("base error should remain decodable");
+    .expect("malformed client context should encode as raw Wire");
+    let error = icydb_schema::wire::decode_one::<Error>(bytes.as_slice())
+        .expect("base error should remain decodable");
 
     assert_eq!(error.code(), icydb_diagnostic_code::ErrorCode::QUERY_PLAN);
     assert_eq!(error.facts(), &[]);
@@ -633,7 +596,7 @@ fn malformed_numeric_facts_fail_compactly_at_the_public_facade() {
 }
 
 #[test]
-fn grouped_cursor_policy_facts_survive_public_candid_projection() {
+fn grouped_cursor_policy_facts_survive_public_wire_projection() {
     use icydb_diagnostic_code::{DiagnosticDecodeReason, DiagnosticFactTag};
 
     for reason in [
@@ -654,15 +617,16 @@ fn grouped_cursor_policy_facts_survive_public_candid_projection() {
             icydb_diagnostic_code::ErrorCode::QUERY_INVALID_CONTINUATION_CURSOR
         );
         assert_eq!(error.origin(), ErrorOrigin::Cursor);
-        let bytes = Encode!(&error).expect("cursor rejection should encode");
-        let decoded = Decode!(bytes.as_slice(), Error).expect("cursor rejection should decode");
+        let bytes = icydb_schema::wire::encode_one(&error).expect("cursor rejection should encode");
+        let decoded = icydb_schema::wire::decode_one::<Error>(bytes.as_slice())
+            .expect("cursor rejection should decode");
         assert_eq!(decoded, error);
         assert_eq!(decoded.core_facts().unwrap(), facts);
     }
 }
 
 #[test]
-fn mutation_schema_identity_survives_facade_and_candid() {
+fn mutation_schema_identity_survives_facade_and_wire() {
     use icydb_diagnostic_code::{
         Diagnostic, DiagnosticCode, DiagnosticDetail, DiagnosticFactTag as Tag, RuntimeBoundaryCode,
     };
@@ -685,15 +649,15 @@ fn mutation_schema_identity_survives_facade_and_candid() {
     for length in [6, 7] {
         let error = Error::from_diagnostic_and_facts(diagnostic.clone(), facts[..length].to_vec());
         assert_eq!(error.code(), diagnostic.error_code());
-        let bytes = Encode!(&error).unwrap();
-        let decoded = Decode!(&bytes, Error).unwrap();
+        let bytes = icydb_schema::wire::encode_one(&error).unwrap();
+        let decoded = icydb_schema::wire::decode_one::<Error>(&bytes).unwrap();
         assert_eq!(decoded.code(), diagnostic.error_code());
         assert_eq!(decoded.core_facts().unwrap(), facts[..length]);
     }
 }
 
 #[test]
-fn relation_contract_identity_survives_facade_and_candid() {
+fn relation_contract_identity_survives_facade_and_wire() {
     use icydb_diagnostic_code::{
         Diagnostic, DiagnosticCode, DiagnosticComponentKind, DiagnosticFactTag,
     };
@@ -719,8 +683,10 @@ fn relation_contract_identity_survives_facade_and_candid() {
             error.code(),
             icydb_diagnostic_code::ErrorCode::RUNTIME_INTERNAL
         );
-        let bytes = Encode!(&error).expect("relation diagnostic should encode");
-        let decoded = Decode!(&bytes, Error).expect("relation diagnostic should decode");
+        let bytes =
+            icydb_schema::wire::encode_one(&error).expect("relation diagnostic should encode");
+        let decoded = icydb_schema::wire::decode_one::<Error>(&bytes)
+            .expect("relation diagnostic should decode");
         assert_eq!(
             decoded
                 .core_facts()
@@ -762,8 +728,8 @@ fn database_bootstrap_preserves_typed_cause_until_public_projection() {
 
 #[test]
 fn database_adoption_preserves_typed_cause_until_public_projection() {
-    let cause = ic_memory::RuntimeAdoptionError::DeclarationMetadataMismatch {
-        stable_key: "icydb.main.commit.control.v1".into(),
+    let cause = ic_memory::RuntimeAdoptionError::UnknownAuthority {
+        authority: "icydb.main".into(),
     };
     let bootstrap = crate::db::DatabaseBootstrapError::from(cause.clone());
     assert!(

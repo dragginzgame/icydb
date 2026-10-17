@@ -4,11 +4,11 @@
 //! Boundary: shared dynamic/SQL projection output over accepted public values.
 
 use crate::value::{OutputValue, render_output_value_text};
-use candid::CandidType;
+
 use serde::Deserialize;
 
 /// Row-oriented output from one accepted-schema-driven projection.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct RowProjectionOutput {
     /// Accepted entity name used for the read.
     pub entity: String,
@@ -47,7 +47,7 @@ impl RowProjectionOutput {
 mod tests {
     use super::*;
 
-    #[derive(CandidType)]
+    #[derive(serde::Serialize)]
     struct FrozenRowProjectionOutputWire {
         entity: String,
         columns: Vec<String>,
@@ -56,7 +56,7 @@ mod tests {
     }
 
     #[test]
-    fn row_projection_output_preserves_the_frozen_candid_record_shape() {
+    fn row_projection_output_preserves_the_frozen_wire_record_shape() {
         let current = RowProjectionOutput {
             entity: "example".to_string(),
             columns: vec!["id".to_string()],
@@ -74,8 +74,8 @@ mod tests {
         assert!(current.is_empty());
 
         assert_eq!(
-            candid::encode_one(&current).expect("current row projection should encode"),
-            candid::encode_one(&frozen).expect("frozen row projection should encode"),
+            icydb_schema::wire::encode_one(&current).expect("current row projection should encode"),
+            icydb_schema::wire::encode_one(&frozen).expect("frozen row projection should encode"),
         );
     }
 }

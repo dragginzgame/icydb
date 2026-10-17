@@ -11,15 +11,13 @@ use crate::{
     },
     error::InternalError,
 };
-use ic_memory::{
-    RuntimeMemory,
-    ic_stable_structures::{
-        BTreeMap, DefaultMemoryImpl, Memory, RestrictedMemory, Storable, storable::Bound,
-    },
+use ic_memory::RuntimeMemory;
+use ic_stable_structures::{
+    BTreeMap, DefaultMemoryImpl, Memory, RestrictedMemory, Storable, storable::Bound,
 };
 use std::{borrow::Cow, marker::PhantomData};
 
-pub(super) type ControlMemory = RestrictedMemory<RuntimeMemory<DefaultMemoryImpl>>;
+pub(super) type ControlMemory = RestrictedMemory<std::rc::Rc<RuntimeMemory<DefaultMemoryImpl>>>;
 const CONTROL_START_PAGE: u64 = MAX_COMMIT_BYTES as u64 / 65_536 + 1;
 const CONTROL_END_PAGE: u64 = 4_194_304;
 const HEADER_KEY: [u8; 33] = [0; 33];
@@ -208,7 +206,7 @@ mod tests {
 
     #[test]
     fn namespace_views_share_growth_without_stale_roots_or_cross_family_reads() {
-        let memory = RestrictedMemory::new(test_memory(242), 0..4096);
+        let memory = RestrictedMemory::new(std::rc::Rc::new(test_memory(242)), 0..4096);
         let mut application =
             SchemaControlMap::<[u8; 32]>::open(memory.clone(), ControlRecordFamily::Application)
                 .unwrap();
@@ -241,8 +239,8 @@ mod tests {
 
     #[test]
     fn absent_control_inspection_preserves_marker_region_without_allocating() {
-        let backing = test_memory(241);
-        assert_eq!(backing.grow(1), Ok(0));
+        let backing = std::rc::Rc::new(test_memory(241));
+        assert_eq!(backing.as_ref().grow(1), Ok(0));
         backing.write(0, &[19]);
         let memory = RestrictedMemory::new(backing.clone(), CONTROL_START_PAGE..CONTROL_END_PAGE);
         for family in [
@@ -265,7 +263,7 @@ mod tests {
     #[test]
     fn malformed_control_headers_and_unknown_namespaces_fail_without_reinitializing() {
         for (offset, byte) in [(0, b'X'), (3, 0), (52, b'X'), (55, 0)] {
-            let memory = RestrictedMemory::new(test_memory(243), 0..4096);
+            let memory = RestrictedMemory::new(std::rc::Rc::new(test_memory(243)), 0..4096);
             SchemaControlMap::<[u8; 32]>::open(memory.clone(), ControlRecordFamily::Application)
                 .unwrap();
             memory.write(offset, &[byte]);
@@ -281,7 +279,7 @@ mod tests {
             assert_eq!(observed, [byte]);
         }
         for tag in [0, 3] {
-            let memory = RestrictedMemory::new(test_memory(243), 0..4096);
+            let memory = RestrictedMemory::new(std::rc::Rc::new(test_memory(243)), 0..4096);
             let view = SchemaControlMap::<[u8; 32]>::open(
                 memory.clone(),
                 ControlRecordFamily::Application,
@@ -299,7 +297,7 @@ mod tests {
                 .is_err()
             );
         }
-        let memory = RestrictedMemory::new(test_memory(243), 0..4096);
+        let memory = RestrictedMemory::new(std::rc::Rc::new(test_memory(243)), 0..4096);
         let mut view =
             SchemaControlMap::<[u8; 32]>::open(memory.clone(), ControlRecordFamily::Application)
                 .unwrap();

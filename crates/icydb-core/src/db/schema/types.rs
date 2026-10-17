@@ -269,7 +269,7 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
 /// authority.
 ///
 /// Unlike strict SQL literals, public filter numerics arrive as text so their
-/// Candid shape stays stable across narrow and wide numeric field kinds.
+/// Wire shape stays stable across narrow and wide numeric field kinds.
 pub(in crate::db) fn canonicalize_filter_literal_for_persisted_kind<'a>(
     kind: &AcceptedFieldKind,
     value: &'a Value,

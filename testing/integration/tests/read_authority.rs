@@ -1,15 +1,16 @@
+use icydb_testing_integration::WireCallExt as _;
 use std::{collections::BTreeSet, fs};
 
-use candid::Principal;
 use ic_host_artifacts::artifact::Sha256Digest;
-use ic_testkit::pic::{CandidCallExt as _, StandaloneCanisterFixture};
+use ic_principal::Principal;
+use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{
     Error, ErrorCode,
     db::{EntitySchemaDescription, sql::SqlQueryResult},
 };
 use icydb_testing_build::{
-    CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterWasmProfile,
-    build_canister_with_options, build_fixture_canister_wasm_bytes_with_options,
+    CanisterBuildOptions, CanisterBuildProfile, CanisterWasmProfile, build_canister_with_options,
+    build_fixture_canister_wasm_bytes_with_options,
     canister_artifact::{CanisterMethod, MethodMode, inspect_canister_artifacts},
 };
 use icydb_testing_integration::{deliver_fixture_startup_watchdog, install_fixture_canister};
@@ -30,7 +31,7 @@ fn query_sql(
 ) -> Result<SqlQueryResult, Error> {
     let result: Result<SqlQueryResult, Error> = fixture
         .pocket_ic()
-        .query_candid_as(
+        .query_wire_as(
             fixture.canister_id(),
             caller,
             "icydb_query",
@@ -46,7 +47,7 @@ fn query_schema(
 ) -> Result<Vec<EntitySchemaDescription>, Error> {
     fixture
         .pocket_ic()
-        .query_candid_as(fixture.canister_id(), caller, "icydb_schema", ())
+        .query_wire_as(fixture.canister_id(), caller, "icydb_schema", ())
         .expect("schema response should decode")
 }
 
@@ -58,7 +59,7 @@ fn set_policy(
 ) -> bool {
     fixture
         .pocket_ic()
-        .update_candid_as(fixture.canister_id(), caller, method, (enabled,))
+        .update_wire_as(fixture.canister_id(), caller, method, (enabled,))
         .expect("application policy update should decode")
 }
 
@@ -202,7 +203,7 @@ fn assert_same_release_upgrade(
         "read_authority",
         CanisterBuildOptions::default(),
     );
-    let upgrade_args = candid::encode_args(()).expect("empty upgrade args should encode");
+    let upgrade_args = Vec::new();
     assert_reader_cannot_control(fixture, reader, &upgrade_args);
 
     assert!(set_policy(fixture, admin, "set_sql_reader_enabled", true));
@@ -294,7 +295,6 @@ fn controller_and_guarded_combined_artifacts_preserve_one_bounded_surface() {
             "read_authority",
             CanisterBuildOptions {
                 profile: CanisterWasmProfile::WasmRelease,
-                candid_export: CanisterCandidExportMode::Enabled,
                 build_profile,
                 ..CanisterBuildOptions::default()
             },
@@ -316,16 +316,14 @@ fn controller_and_guarded_combined_artifacts_preserve_one_bounded_surface() {
     ]);
     let [controller_manifest, guarded_manifest] = [&controller_wasm, &guarded_wasm].map(|wasm| {
         let manifest = inspect_canister_artifacts(wasm.as_ref())
-            .expect("Candid and raw Wasm exports should agree");
+            .expect("Wire declarations and raw Wasm exports should agree");
         assert_eq!(manifest.icydb_methods(), expected);
         manifest
     });
 
-    let controller_candid = controller_manifest.candid;
-    let guarded_candid = guarded_manifest.candid;
     assert_eq!(
-        controller_candid, guarded_candid,
-        "guarded reads must not change the complete Candid service",
+        controller_manifest.wire_methods, guarded_manifest.wire_methods,
+        "guarded reads must not change the complete Wire roster",
     );
 
     let controller_bytes = fs::metadata(&controller_wasm)
@@ -336,11 +334,9 @@ fn controller_and_guarded_combined_artifacts_preserve_one_bounded_surface() {
         .len();
     let growth = guarded_bytes.saturating_sub(controller_bytes);
     eprintln!(
-        "combined guarded-read raw Wasm: controller={controller_bytes} guarded={guarded_bytes} growth={growth} controller_hash={} guarded_hash={} candid_bytes={} candid_hash={}",
+        "combined guarded-read raw Wasm: controller={controller_bytes} guarded={guarded_bytes} growth={growth} controller_hash={} guarded_hash={}",
         sha256(&fs::read(&controller_wasm).expect("controller Wasm should read")),
         sha256(&fs::read(&guarded_wasm).expect("guarded Wasm should read")),
-        guarded_candid.len(),
-        sha256(guarded_candid.as_bytes()),
     );
     assert!(growth <= CUMULATIVE_GUARDED_READ_RAW_WASM_GROWTH_CEILING);
 }

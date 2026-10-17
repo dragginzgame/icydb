@@ -1,5 +1,5 @@
 //! Module: diagnostics::memory_allocations
-//! Responsibility: project bounded runtime allocation facts into Candid DTOs.
+//! Responsibility: project bounded runtime allocation facts into Wire DTOs.
 //! Does not own: manager validation, allocation policy, or payload accounting.
 //! Boundary: ic-memory's owned report -> canister-wide storage diagnostics.
 
@@ -7,7 +7,7 @@
 mod tests;
 
 use crate::{db::memory_runtime, error::InternalError};
-use candid::CandidType;
+
 use ic_memory::MemoryAllocationSummary;
 use serde::Deserialize;
 
@@ -15,7 +15,7 @@ use serde::Deserialize;
 ///
 /// The ledger is already included in totals. Virtual extent is addressable
 /// memory, not live payload. Unknown bindings still own physical allocations.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct MemoryAllocations {
     /// Committed runtime generation, absent before allocation bootstrap.
     pub current_generation: Option<u64>,
@@ -61,13 +61,30 @@ pub struct MemoryAllocations {
     pub memories: Vec<MemoryAllocation>,
 }
 
-impl From<ic_memory::MemoryAllocations> for MemoryAllocations {
-    /// Project a report validated by the memory runtime.
-    ///
-    /// # Panics
-    /// Panics if a manually constructed report has inconsistent bucket/extent counts.
-    fn from(report: ic_memory::MemoryAllocations) -> Self {
-        Self {
+impl MemoryAllocations {
+    // Project physical facts and current host labels from the same runtime.
+    // Unbootstrapped bindings stay unknown; retained ledger bytes grant no labels.
+    fn from_runtime<M: ic_memory::Memory>(
+        runtime: &ic_memory::MemoryRuntime<M>,
+    ) -> Result<Self, InternalError> {
+        let report = runtime
+            .memory_allocations()
+            .map_err(|_| InternalError::store_internal())?;
+        let (bindings, pool) = if runtime.is_bootstrapped() {
+            (
+                runtime
+                    .committed_allocations()
+                    .map_err(|_| InternalError::store_internal())?,
+                Some(
+                    runtime
+                        .allocation_pool()
+                        .map_err(|_| InternalError::store_internal())?,
+                ),
+            )
+        } else {
+            (&[][..], None)
+        };
+        Ok(Self {
             current_generation: report.summary.current_generation,
             manager_layout_version: MemoryAllocationSummary::MANAGER_LAYOUT_VERSION,
             bucket_size_pages: report.summary.bucket_size_pages,
@@ -92,15 +109,20 @@ impl From<ic_memory::MemoryAllocations> for MemoryAllocations {
                 .memories
                 .into_iter()
                 .map(|memory| {
-                    MemoryAllocation::from_runtime(memory, report.summary.bucket_size_pages)
+                    MemoryAllocation::from_runtime(
+                        memory,
+                        report.summary.bucket_size_pages,
+                        bindings,
+                        pool,
+                    )
                 })
-                .collect(),
-        }
+                .collect::<Result<_, _>>()?,
+        })
     }
 }
 
 /// Measured extent in 64-KiB Wasm pages and bytes.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct MemoryExtent {
     /// Extent in Wasm pages.
     pub wasm_pages: u64,
@@ -118,7 +140,7 @@ impl From<ic_memory::DiagnosticMemorySize> for MemoryExtent {
 }
 
 /// Current binding of a physical slot; this grants no opening authority.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum MemoryAllocationBinding {
     /// A declaration bound by successful runtime bootstrap.
     Current {
@@ -139,7 +161,7 @@ pub enum MemoryAllocationBinding {
 }
 
 /// Physical accounting for one usable manager slot.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct MemoryAllocation {
     /// Memory-manager slot ID.
     pub memory_manager_id: u8,
@@ -162,29 +184,44 @@ pub struct MemoryAllocation {
 impl MemoryAllocation {
     // Per-slot byte counts require the containing report's measured geometry.
     // Keep that context explicit instead of assuming a default bucket size.
-    fn from_runtime(memory: ic_memory::MemoryAllocation, bucket_size_pages: u16) -> Self {
+    fn from_runtime(
+        memory: ic_memory::MemoryAllocation,
+        bucket_size_pages: u16,
+        bindings: &[ic_memory::AllocationDeclaration],
+        pool: Option<&ic_memory::MemoryAllocationPool>,
+    ) -> Result<Self, InternalError> {
         let allocated_bytes = memory.allocated_bytes(bucket_size_pages);
         let bucket_slack_bytes = memory.bucket_slack_bytes(bucket_size_pages);
-        Self {
+        let binding = if memory.memory_manager_id == ic_memory::MEMORY_MANAGER_LEDGER_ID {
+            MemoryAllocationBinding::Ledger {
+                stable_key: ic_memory::IC_MEMORY_LEDGER_STABLE_KEY.to_string(),
+                owner: ic_memory::IC_MEMORY_AUTHORITY_OWNER.to_string(),
+            }
+        } else if let Some(declaration) = bindings
+            .iter()
+            .find(|binding| binding.slot().id() == memory.memory_manager_id)
+        {
+            let owner = pool
+                .and_then(|pool| pool.authority_for_key(declaration.stable_key()))
+                .ok_or_else(InternalError::store_invariant)?;
+            MemoryAllocationBinding::Current {
+                stable_key: declaration.stable_key().to_string(),
+                owner: owner.to_string(),
+            }
+        } else {
+            MemoryAllocationBinding::Unknown
+        };
+        Ok(Self {
             memory_manager_id: memory.memory_manager_id,
-            binding: match memory.binding {
-                ic_memory::AllocationBinding::Current { stable_key, owner } => {
-                    MemoryAllocationBinding::Current { stable_key, owner }
-                }
-                ic_memory::AllocationBinding::Ledger => MemoryAllocationBinding::Ledger {
-                    stable_key: ic_memory::IC_MEMORY_LEDGER_STABLE_KEY.to_string(),
-                    owner: ic_memory::IC_MEMORY_AUTHORITY_OWNER.to_string(),
-                },
-                ic_memory::AllocationBinding::Unknown => MemoryAllocationBinding::Unknown,
-            },
-            pool_eligible: memory.pool_eligible,
+            binding,
+            pool_eligible: pool.map(|pool| pool.contains(memory.memory_manager_id)),
             virtual_extent: memory.virtual_extent.into(),
             allocated_buckets: memory.allocated_buckets,
             allocated_bytes,
             bucket_slack_bytes,
             // The manager measures addressable capacity, never live payload.
             payload_bytes: None,
-        }
+        })
     }
 }
 
@@ -194,8 +231,5 @@ pub(super) fn collect_memory_allocations() -> Result<Option<MemoryAllocations>, 
     let Some(runtime) = memory_runtime() else {
         return Ok(None);
     };
-    match runtime.memory_allocations() {
-        Ok(report) => Ok(Some(report.into())),
-        Err(_) => Err(InternalError::store_internal()),
-    }
+    MemoryAllocations::from_runtime(runtime.as_ref()).map(Some)
 }

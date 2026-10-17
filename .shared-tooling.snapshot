@@ -2,7 +2,7 @@
 # version	0.13.3
 format	1
 source	https://github.com/dragginzgame/shared-tooling
-revision	08b6a6ae4e1ea39140f42eebd692a506c4e08c09
+revision	55e7fcfabf6f1473cf60b843f33bd3a475f9039e
 # entrypoint	scripts/ci/verify-file-checksum.sh
 # entrypoint	scripts/ci/verify-shared-tooling-snapshot.sh
 # entrypoint	scripts/ci/run-validation-targets.sh
@@ -118,7 +118,7 @@ file	8ebed290dc38497078ebbd1a6bf030ad95cd6968d876612d69bc2f4317df4391	-	rules/gi
 file	d70f32239de9ea0d2d2a3a0eebd2fa862746807cd797f512f95b2e46fc5faa67	x	.githooks/pre-commit
 file	32582e5d76c9e6988f4431a96554ba298e52ddb8a424945c7ea4b98815ec0889	-	rules/agent-maintenance.md
 file	68e60f5edeb6d8b4e5b1e88898a56b70ce5f297a4476cc71e8a724d89b3a61da	-	rules/dependency-pinning.md
-file	de68acd7ba25355c73fa3e9a32cbde5525debf081862c1f1a52eccb4a66c48de	x	scripts/ci/check-dependency-pins.sh
+file	d19ff226703955b9c8ee2c487a25b4328d310d2069cd28d8ca1fd898d7dc3b9e	x	scripts/ci/check-dependency-pins.sh
 file	3d56ca1b0c5952b9534ece61b6754ca39e6ec1980d929f09de3dbd967a0c4977	-	scripts/ci/dependency-pins.jq
 file	0818fe8f557e478dc35861b2d5a198ab8cef6693c38bfeb7e3ef6713f264d540	-	audits/README.md
 file	518d890bf485bef06c316b4cf26ac6bf357ed52bcce995e8d9b1232a103d0ea3	-	audits/code-hygiene.md
@@ -167,7 +167,7 @@ file	59e1a1c641b49879f13dc211fd9081a7ad1d5ee0932dcb9844338a2b8f061afd	-	tasks/ma
 file	b3e5333bf602eee417757d6b99d8efa628dcf57ff3a6db6f5b86d50fa4e1327d	-	tasks/local-schedule.md
 file	d26462d2d6e9c1e991a6f1f45f2a12ce919a29eab987665438af530f51b6fee5	-	tasks/systemd/shared-tooling-maintenance.service
 file	f7b95816164980993403d2d6eae13336db1c476c58217c8e8d356e6d01fe9b27	-	tasks/systemd/shared-tooling-maintenance.timer
-file	d8ecc39468acc086aed40fd7a210e4fed1f068a6d18a9d90ad4ceb54da0d7cc3	x	scripts/ci/test-dependency-pins.sh
+file	cca3c69e42e4efc7c8014c8cf37663464684d7bc6f78f566cdc196ac254df18c	x	scripts/ci/test-dependency-pins.sh
 file	ae47d5db88f4c4b0c8bce9ee94b83edc25ce450daa9df0275971f270439c5d34	-	make/release.mk
 file	394b173e903aeb4d057f57665a0fad17233b677eff1f63d17d81314b3086856b	-	make/rust-format.mk
 file	cebc0fa4ee9944550350a492a3bc1084e28820e2c915e20351c336d87ce0359f	-	make/execution.mk

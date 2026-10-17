@@ -88,6 +88,9 @@ while IFS= read -r -d '' path; do
         action.yml|action.yaml|*/action.yml|*/action.yaml) kind=action; format=yaml ;;
         *) continue ;;
     esac
+    # Git retains unstaged deletions in its index roster. They no longer declare
+    # dependencies; dangling symlinks still reach the invalid-input refusal below.
+    [[ -e "$path" || -L "$path" ]] || continue
     [[ -f "$path" && ! -L "$path" && "$path" != *$'\n'* && "$path" != *$'\t'* ]] || fail "metadata must be a regular file with a single-line path: $path"
     metadata_parent="$ROOT"
     [[ "$path" != */* ]] || metadata_parent="$ROOT/${path%/*}"

@@ -114,11 +114,11 @@ pub fn admit_wasm_optimizer(requested: &Path, current_dir: &Path) -> Result<Admi
             executable: &executable,
             executable_bytes: u64::MAX,
             version_arguments: &[OsString::from("--version")],
-            version_identity: WASM_OPT_VERSION,
         },
         wasm_opt_sha256()?
             .parse()
             .map_err(|error| format!("invalid pinned optimizer digest: {error}"))?,
+        WASM_OPT_VERSION,
         &ExecutionContext {
             current_dir,
             environment: &environment,
@@ -341,8 +341,8 @@ mod tests {
                     executable: &executable,
                     executable_bytes: u64::MAX,
                     version_arguments: &[OsString::from("--version")],
-                    version_identity: "fixture",
                 },
+                "fixture",
                 &ExecutionContext {
                     current_dir: &current_dir,
                     environment: &[],

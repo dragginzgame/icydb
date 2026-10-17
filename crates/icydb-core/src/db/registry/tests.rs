@@ -346,7 +346,7 @@ fn alias_store_registration_reusing_same_store_triplet_is_rejected() {
 
 #[test]
 fn committed_key_open_refuses_drifted_ids_without_changing_storage() {
-    use ic_memory::ic_stable_structures::Memory;
+    use ic_stable_structures::Memory;
 
     // One default runtime on an isolated thread; ordinary store fixtures use
     // their own explicit snapshots without changing this default runtime.
@@ -354,8 +354,7 @@ fn committed_key_open_refuses_drifted_ids_without_changing_storage() {
         const OWNER: &str = "icydb.core_identity";
         const KEY: &str = "icydb.core_identity.control.v1";
         let requests = ic_memory::SealedDeclarationSnapshot::new(vec![
-            ic_memory::MemoryRequest::new(OWNER, KEY, ic_memory::SchemaMetadata::default())
-                .unwrap(),
+            ic_memory::MemoryRequest::new(OWNER, KEY).unwrap(),
         ])
         .unwrap();
         let pool = ic_memory::MemoryAllocationPool::new(
@@ -363,10 +362,9 @@ fn committed_key_open_refuses_drifted_ids_without_changing_storage() {
             vec![],
         )
         .unwrap();
-        let mut runtime = ic_memory::MemoryRuntime::new(
-            ic_memory::ic_stable_structures::DefaultMemoryImpl::default(),
-        )
-        .unwrap();
+        let mut runtime =
+            ic_memory::MemoryRuntime::new(ic_stable_structures::DefaultMemoryImpl::default())
+                .unwrap();
         runtime
             .bootstrap(&requests, &pool, &ic_memory::GenericAllocationPolicy)
             .unwrap();

@@ -410,8 +410,9 @@ their saturating total local instructions, and the largest local instruction
 delta. Report collection must not alter planner, routing, storage, or execution
 semantics.
 
-Entity, schema-owner and journal-fold instruction totals use `u128` and Candid
-`nat`. Individual observations, sample counts and maxima remain `u64`/`nat64`.
+Entity, schema-owner and journal-fold instruction totals use native `u128`.
+Individual observations, sample counts and maxima remain `u64`. The endpoint
+projects these fixed-width numeric domains through bounded native Wire payloads.
 An exact counted window can retain every admitted observation without narrowing
 its accumulated total. Counts and totals still saturate independently at their
 own caps. Recording uses Metrics-owned tracked aggregates. Reports carry sticky
@@ -475,4 +476,4 @@ debt. Upgrade/restart replaces the heap window, so equal numeric IDs across
 those boundaries do not establish comparability. A report collected after
 restart may contain nonzero debt with zero observed appends. Query collection
 records no work and does not reset or advance the window. Regenerate consumers
-for the current Candid report shape; no predecessor-shape fallback is maintained.
+for the current Wire report shape; no predecessor-shape fallback is maintained.

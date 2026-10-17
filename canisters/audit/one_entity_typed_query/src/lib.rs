@@ -5,7 +5,7 @@
 #[cfg(any(feature = "typed-explain-measurement", feature = "sql"))]
 mod explain_measurement;
 
-// Read IC counter 1 through the CDK; native Candid builds use its
+// Read IC counter 1 through the CDK; native builds use its
 // unsupported host binding and provide no IC measurement evidence.
 #[cfg(any(
     feature = "exact-key-measurement",
@@ -40,10 +40,10 @@ fn icydb_memory_pool()
 }
 
 #[cfg(not(feature = "lifecycle-participant"))]
-icydb::start!();
+canic_icydb::start!(icydb);
 
 #[cfg(feature = "lifecycle-participant")]
-icydb::start!(participant);
+canic_icydb::start!(icydb; participant);
 
 #[cfg(feature = "exact-key-measurement")]
 const MAX_EXACT_KEY_MEASUREMENT_ITEMS: u16 = 1_000;
@@ -58,7 +58,6 @@ fn measurement_keys(count: u16, distinct: bool) -> Vec<Id<OneSimpleEntity01>> {
         .collect()
 }
 
-#[ic_cdk::query]
 #[cfg(not(feature = "lifecycle-audit"))]
 fn query_one_entity_typed_rows() -> u32 {
     icydb::db::with_request_execution(|| {
@@ -70,9 +69,18 @@ fn query_one_entity_typed_rows() -> u32 {
             .map_or(0, |row| u32::from(row.is_some()))
     })
 }
+#[cfg(not(feature = "lifecycle-audit"))]
+icydb_testing_wasm_helpers::export_wire!(
+    query,
+    "query_one_entity_typed_rows",
+    QueryOneEntityTypedRows,
+    query_one_entity_typed_rows,
+    (),
+    u32
+);
 
 /// Measure one planner-free batch of distinct missing primary keys.
-#[ic_cdk::query]
+
 #[cfg(feature = "exact-key-measurement")]
 fn measure_exact_key_batch(items: u16, distinct: bool) -> ((u16, u16, u32, u64),) {
     icydb::db::with_request_execution(|| {
@@ -98,9 +106,11 @@ fn measure_exact_key_batch(items: u16, distinct: bool) -> ((u16, u16, u32, u64),
         }
     })
 }
+#[cfg(feature = "exact-key-measurement")]
+icydb_testing_wasm_helpers::export_wire!(query, "measure_exact_key_batch", MeasureExactKeyBatch, measure_exact_key_batch, (items: u16, distinct: bool), ((u16, u16, u32, u64),));
 
 /// Measure the former one-dynamic-query-per-key workload in the same binary.
-#[ic_cdk::query]
+
 #[cfg(feature = "exact-key-measurement")]
 fn measure_dynamic_key_loop(items: u16, distinct: bool) -> ((u16, u16, u32, u64),) {
     icydb::db::with_request_execution(|| {
@@ -127,10 +137,11 @@ fn measure_dynamic_key_loop(items: u16, distinct: bool) -> ((u16, u16, u32, u64)
         ((items, failures, rows, local_instructions),)
     })
 }
+#[cfg(feature = "exact-key-measurement")]
+icydb_testing_wasm_helpers::export_wire!(query, "measure_dynamic_key_loop", MeasureDynamicKeyLoop, measure_dynamic_key_loop, (items: u16, distinct: bool), ((u16, u16, u32, u64),));
 
-#[ic_cdk::query]
 #[cfg(feature = "lifecycle-audit")]
-fn query_one_entity_typed_rows() -> Result<u32, u16> {
+fn query_one_entity_typed_lifecycle_rows() -> Result<u32, u16> {
     icydb::db::with_request_execution(|| {
         let database = db().map_err(|error| error.code().raw())?;
         let row = database
@@ -143,9 +154,8 @@ fn query_one_entity_typed_rows() -> Result<u32, u16> {
         Ok(u32::from(row.is_some()))
     })
 }
-
-#[cfg(feature = "candid-export")]
-ic_cdk::export_candid!();
+#[cfg(feature = "lifecycle-audit")]
+icydb_testing_wasm_helpers::export_wire!(query, "query_one_entity_typed_lifecycle_rows", QueryOneEntityTypedLifecycleRows, query_one_entity_typed_lifecycle_rows, (), Result<u32, u16>);
 
 #[cfg(test)]
 mod tests {

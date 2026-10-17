@@ -25,7 +25,7 @@ use crate::{
     types::EntityTag,
 };
 use ic_memory::RuntimeMemory;
-use ic_memory::ic_stable_structures::{DefaultMemoryImpl, Memory, VectorMemory};
+use ic_stable_structures::{DefaultMemoryImpl, Memory, VectorMemory};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Frozen cumulative limits proved by the convergence candidate.

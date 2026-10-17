@@ -1,13 +1,14 @@
-use candid::{CandidType, Deserialize, Principal};
-use ic_testkit::pic::{CandidCallExt as _, StandaloneCanisterFixture};
+use ic_principal::Principal;
+use ic_testkit::pic::StandaloneCanisterFixture;
+use icydb_testing_integration::WireCallExt as _;
 use icydb_testing_integration::{install_fixture_canister, upgrade_fixture_canister};
 
 use std::time::Duration;
 
-const TIMER_EXECUTOR_METHOD: &str = "<ic-cdk internal> timer_executor";
+const TIMER_EXECUTOR_METHOD: &str = "<ic-timers internal> dispatch";
 const ONE_SECOND_NANOS: u64 = 1_000_000_000;
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 struct TimerProbeSnapshot {
     watchdog_registered: bool,
     application_registered: bool,
@@ -28,7 +29,7 @@ fn shared_watchdog_survives_instruction_exhaustion() {
 
     let exhaust_at: u64 = fixture
         .pocket_ic()
-        .update_candid(
+        .update_wire(
             fixture.canister_id(),
             "startup_timer_probe_arm_exhaustion",
             (),
@@ -62,14 +63,14 @@ fn shared_watchdog_survives_instruction_exhaustion() {
 fn snapshot(fixture: &StandaloneCanisterFixture) -> TimerProbeSnapshot {
     fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "startup_timer_probe_snapshot", ())
+        .query_wire(fixture.canister_id(), "startup_timer_probe_snapshot", ())
         .expect("timer probe snapshot should decode")
 }
 
 fn start(fixture: &StandaloneCanisterFixture) -> bool {
     fixture
         .pocket_ic()
-        .update_candid(fixture.canister_id(), "startup_timer_probe_start", ())
+        .update_wire(fixture.canister_id(), "startup_timer_probe_start", ())
         .expect("timer probe start should decode")
 }
 
@@ -93,17 +94,17 @@ fn shared_watchdog_survives_trap_and_upgrade() {
         fixture.canister_id(),
         Principal::anonymous(),
         TIMER_EXECUTOR_METHOD,
-        0_u64.to_be_bytes().to_vec(),
+        0_u64.to_le_bytes().to_vec(),
     );
     assert!(
         external.is_err(),
-        "the CDK timer executor must reject external ingress"
+        "the timer backend must reject external ingress"
     );
     assert_eq!(snapshot(&fixture), before_external);
 
     let trap_at: u64 = fixture
         .pocket_ic()
-        .update_candid(fixture.canister_id(), "startup_timer_probe_arm_trap", ())
+        .update_wire(fixture.canister_id(), "startup_timer_probe_arm_trap", ())
         .expect("trap arming should decode");
     advance_timer_round(&fixture, Duration::from_secs(1));
     let trapped = snapshot(&fixture);
@@ -143,7 +144,7 @@ fn shared_watchdog_survives_trap_and_upgrade() {
 
     fixture
         .pocket_ic()
-        .update_candid::<(), _>(fixture.canister_id(), "startup_timer_probe_stop", ())
+        .update_wire::<(), _>(fixture.canister_id(), "startup_timer_probe_stop", ())
         .expect("timer probe stop should decode");
     let stopped = snapshot(&fixture);
     assert!(!stopped.watchdog_registered);

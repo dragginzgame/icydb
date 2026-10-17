@@ -2,25 +2,25 @@
 name = "canister_audit_group_path_sql_query"
 edition = { workspace = true }
 rust-version = { workspace = true }
+license-file = { workspace = true }
 version = { workspace = true }
 publish = false
 
 [package.metadata.cargo-machete]
-ignored = ["candid", "icydb-testing-audit-group-path-fixtures"]
+ignored = ["icydb-testing-audit-group-path-fixtures"]
 
 [lib]
 crate-type = ["cdylib"]
 
 [features]
 default = []
-candid-export = []
 sql = ["icydb/sql"]
 
 [dependencies]
-candid = { workspace = true }
-ic-cdk = { workspace = true }
+canic-icydb = { workspace = true }
 icydb = { workspace = true }
 icydb-testing-audit-group-path-fixtures = { workspace = true }
+icydb-testing-wasm-helpers = { workspace = true }
 
 [build-dependencies]
 icydb = { workspace = true }

@@ -3,10 +3,9 @@
 
 mod schema;
 
-use ic_memory::{
-    RuntimeMemory,
-    ic_stable_structures::{DefaultMemoryImpl, Memory},
-};
+use ic_memory::RuntimeMemory;
+
+use ic_memory::{DefaultMemoryImpl, Memory};
 use icydb::{
     db::{DatabaseStartupState, StartupFailure, TypedWriteAdapter as _, WriteCell},
     types::Id,
@@ -23,7 +22,8 @@ fn icydb_memory_pool()
         vec![],
     )
 }
-icydb::start! {
+canic_icydb::start! {
+    icydb;
     init() => pause_delivery;
     post_upgrade() => pause_delivery;
 }
@@ -34,7 +34,6 @@ fn pause_delivery() {
 }
 
 #[cfg(feature = "test-admin-api")]
-#[ic_cdk::update]
 fn step() -> Result<bool, icydb::Error> {
     let result = icydb::db::with_request_execution(
         __icydb_generated::__icydb_startup_driver_attempt_for_tests,
@@ -42,25 +41,32 @@ fn step() -> Result<bool, icydb::Error> {
     pause_delivery();
     result
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(update, "step", Step, step, (), Result<bool, icydb::Error>);
 
-#[ic_cdk::query]
 fn state() -> Result<DatabaseStartupState, StartupFailure> {
     startup_state()
 }
+icydb_testing_wasm_helpers::export_wire!(query, "state", State, state, (), Result<DatabaseStartupState, StartupFailure>);
 
-#[ic_cdk::query]
 fn allocations() -> Vec<(String, u8)> {
     icydb::db::memory_runtime()
         .unwrap()
         .committed_allocations()
         .unwrap()
-        .declarations()
         .iter()
         .map(|allocation| (allocation.stable_key().to_string(), allocation.slot().id()))
         .collect()
 }
+icydb_testing_wasm_helpers::export_wire!(
+    query,
+    "allocations",
+    Allocations,
+    allocations,
+    (),
+    Vec<(String, u8)>
+);
 
-#[ic_cdk::query]
 fn keep_row_exists() -> Result<bool, String> {
     icydb::db::with_request_execution(|| {
         db()?
@@ -69,8 +75,8 @@ fn keep_row_exists() -> Result<bool, String> {
     })
     .map_err(|error| error.to_string())
 }
+icydb_testing_wasm_helpers::export_wire!(query, "keep_row_exists", KeepRowExists, keep_row_exists, (), Result<bool, String>);
 
-#[ic_cdk::update]
 fn insert_keep() -> Vec<u8> {
     icydb::db::with_request_execution(|| {
         let session = db().unwrap();
@@ -85,9 +91,16 @@ fn insert_keep() -> Vec<u8> {
     pause_delivery();
     capture_last_marker()
 }
+icydb_testing_wasm_helpers::export_wire!(
+    update,
+    "insert_keep",
+    InsertKeep,
+    insert_keep,
+    (),
+    Vec<u8>
+);
 
 #[cfg(not(feature = "omit-retiring-store"))]
-#[ic_cdk::query]
 fn retiring_row_exists() -> Result<bool, String> {
     icydb::db::with_request_execution(|| {
         db()?
@@ -96,9 +109,10 @@ fn retiring_row_exists() -> Result<bool, String> {
     })
     .map_err(|error| error.to_string())
 }
+#[cfg(not(feature = "omit-retiring-store"))]
+icydb_testing_wasm_helpers::export_wire!(query, "retiring_row_exists", RetiringRowExists, retiring_row_exists, (), Result<bool, String>);
 
 #[cfg(not(feature = "omit-retiring-store"))]
-#[ic_cdk::update]
 fn insert_retiring() {
     icydb::db::with_request_execution(|| {
         let session = db().unwrap();
@@ -112,6 +126,15 @@ fn insert_retiring() {
     });
     pause_delivery();
 }
+#[cfg(not(feature = "omit-retiring-store"))]
+icydb_testing_wasm_helpers::export_wire!(
+    update,
+    "insert_retiring",
+    InsertRetiring,
+    insert_retiring,
+    (),
+    ()
+);
 
 const CONTROL_KEY: &str = "icydb.logical_fixture.commit.control.v1";
 const FRAME_OFFSET: u64 = 15;
@@ -123,7 +146,6 @@ fn control() -> RuntimeMemory<DefaultMemoryImpl> {
     icydb::__macro::open_memory(CONTROL_KEY).unwrap()
 }
 
-#[ic_cdk::query]
 fn control_frame() -> Vec<u8> {
     let memory = control();
     let mut header = [0; FRAME_BYTES];
@@ -135,6 +157,14 @@ fn control_frame() -> Vec<u8> {
     memory.read(FRAME_OFFSET, &mut frame);
     frame
 }
+icydb_testing_wasm_helpers::export_wire!(
+    query,
+    "control_frame",
+    ControlFrame,
+    control_frame,
+    (),
+    Vec<u8>
+);
 
 // Normal commit clearing shortens the frame and zeroes its marker length; it
 // leaves the prior payload beyond the frame. Capture that exact production
@@ -172,7 +202,7 @@ fn capture_last_marker() -> Vec<u8> {
 
 // Test-only raw frame restoration through the committed control capability.
 // The next operation is an upgrade, which discards all in-memory marker hints.
-#[ic_cdk::update]
+
 fn restore_control_frame(frame: Vec<u8>) {
     assert!((FRAME_BYTES..=MAX_FIXTURE_CONTROL_BYTES).contains(&frame.len()));
     assert_eq!(&frame[..5], b"IDCS\x01");
@@ -187,6 +217,7 @@ fn restore_control_frame(frame: Vec<u8>) {
     control().write(FRAME_OFFSET, &frame);
     pause_delivery();
 }
+icydb_testing_wasm_helpers::export_wire!(update, "restore_control_frame", RestoreControlFrame, restore_control_frame, (frame: Vec<u8>), ());
 
 fn crc32c(bytes: &[u8]) -> u32 {
     let mut crc = !0_u32;

@@ -1,4 +1,3 @@
-use candid::CandidType;
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::TypeParseError;
@@ -19,18 +18,16 @@ where
 }
 
 #[test]
-fn time_atoms_keep_primitive_candid_wires() {
+fn time_atoms_keep_primitive_wire_shapes() {
     let duration = Duration::from_millis(12_345);
     let timestamp = Timestamp::from_millis(-12_345);
-    let candid = candid::encode_args((duration, timestamp)).expect("time atoms should encode");
-    let primitive = candid::encode_args((duration.as_millis(), timestamp.as_millis()))
+    let wire = crate::wire::encode_one((duration, timestamp)).expect("time atoms should encode");
+    let primitive = crate::wire::encode_one((duration.as_millis(), timestamp.as_millis()))
         .expect("primitive time wires should encode");
     let decoded: (Duration, Timestamp) =
-        candid::decode_args(&candid).expect("time atoms should decode");
+        crate::wire::decode_one(&wire).expect("time atoms should decode");
 
-    assert_eq!(Duration::ty(), u64::ty());
-    assert_eq!(Timestamp::ty(), i64::ty());
-    assert_eq!(candid, primitive);
+    assert_eq!(wire, primitive);
     assert_eq!(decoded, (duration, timestamp));
 }
 

@@ -1,9 +1,8 @@
 //! Public source-migration command and status contracts.
 //!
-//! This module owns the bounded Candid surface only. Planning, publication,
+//! This module owns the bounded Wire surface only. Planning, publication,
 //! recovery, and controller authorization remain separate authorities.
 
-use candid::CandidType;
 use icydb_schema::{
     EntitySourceKey, ExpectedAcceptedHead, SchemaMigrationPlanDigest, TargetDatabaseIdentity,
 };
@@ -13,7 +12,7 @@ const MAX_SCHEMA_MIGRATION_STATUS_CURSOR_BYTES: usize = 256;
 pub(in crate::db::schema) const MAX_SCHEMA_MIGRATION_FINDINGS_PER_PAGE: usize = 64;
 
 /// One controller-authorized source-migration operation.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum SchemaMigrationCommand {
     /// Adopt an exact existing version-1 generated schema without changing it.
     Adopt {
@@ -46,7 +45,7 @@ pub enum SchemaMigrationCommand {
 }
 
 /// Bounded status-page request. Cursors are opaque engine-owned bytes.
-#[derive(CandidType, Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct SchemaMigrationStatusRequest {
     cursor: Option<Vec<u8>>,
 }
@@ -72,7 +71,7 @@ impl SchemaMigrationStatusRequest {
 }
 
 /// Current source-migration lifecycle phase.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum SchemaMigrationPhase {
     /// Existing generated entities have not been adopted into lineage authority.
     Unadopted,
@@ -103,7 +102,7 @@ pub enum SchemaMigrationPhase {
 }
 
 /// One canonical declared entity-version transition.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct SchemaMigrationEntityTransition {
     entity: EntitySourceKey,
     from_version: Option<u32>,
@@ -143,7 +142,7 @@ impl SchemaMigrationEntityTransition {
 }
 
 /// Typed migration validation-finding family.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum SchemaMigrationFindingKind {
     /// A closed transform failed on one accepted row.
     Transform,
@@ -158,7 +157,7 @@ pub enum SchemaMigrationFindingKind {
 }
 
 /// One bounded accepted-ID migration finding.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct SchemaMigrationFinding {
     kind: SchemaMigrationFindingKind,
     entity_tag: u64,
@@ -198,7 +197,7 @@ impl SchemaMigrationFinding {
 }
 
 /// Terminal proof for one adopted or applied source transition.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct SchemaMigrationReceipt {
     database_identity: TargetDatabaseIdentity,
     plan_digest: Option<SchemaMigrationPlanDigest>,
@@ -247,7 +246,7 @@ impl SchemaMigrationReceipt {
 }
 
 /// One bounded page of deployed source-migration status.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct SchemaMigrationStatusPage {
     database_identity: TargetDatabaseIdentity,
     accepted_head: ExpectedAcceptedHead,

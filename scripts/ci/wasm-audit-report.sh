@@ -157,7 +157,6 @@ validate_capture() {
         and (.provenance.cargo_target_dir | nonempty)
         and (.provenance.rust_toolchain | nonempty)
         and .pipeline.build_profile == "production"
-        and .pipeline.candid_metadata == "enabled"
         and .pipeline.post_link_transform == "binaryen-133-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v1"
         and .pipeline.final_deployable_stage == "binaryen_oz_wasm"
         and .pipeline.path_remapping == "workspace=/w;cargo-registry=/c;rust-library=/r"

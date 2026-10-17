@@ -22,7 +22,7 @@ cargo run --manifest-path "$ROOT/Cargo.toml" \
     --locked \
     --package icydb-testing-build \
     --bin build_fixture_canister \
-    -- "$CAN" --build-profile local --profile debug --candid-export on
+    -- "$CAN" --build-profile local --profile debug
 if [ -n "${ICP_WASM_OUTPUT_PATH:-}" ]; then
     mkdir -p "$(dirname "$ICP_WASM_OUTPUT_PATH")"
     cp -f "$WASM_TARGET" "$ICP_WASM_OUTPUT_PATH"

@@ -259,9 +259,9 @@ fn assert_capacity_rejection_is_abortable(bytes: usize) {
     );
     assert!(!rejected.findings()[0].primary_key().is_empty());
     // Both the public wire and the durable record retain the new classification.
-    let wire = candid::encode_one(&rejected).unwrap();
+    let wire = icydb_schema::wire::encode_one(&rejected).unwrap();
     assert_eq!(
-        candid::decode_one::<SchemaMigrationStatusPage>(&wire).unwrap(),
+        icydb_schema::wire::decode_one::<SchemaMigrationStatusPage>(&wire).unwrap(),
         rejected
     );
     forget_recovered_domain_for_tests(&db).unwrap();

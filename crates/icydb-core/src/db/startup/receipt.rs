@@ -3,8 +3,8 @@
 //! Does not own: failure classification, recovery progress, or publication policy.
 //! Boundary: typed failure and maintained binding -> one 2,048-byte stable control cell.
 
-use ic_memory::ic_stable_structures::{DefaultMemoryImpl, Memory};
 use ic_memory::{RuntimeMemory, StableKey};
+use ic_stable_structures::{DefaultMemoryImpl, Memory};
 use icydb_diagnostic_code::{
     DiagnosticFactTag, ErrorCode, ErrorOrigin, MAX_PUBLIC_DIAGNOSTIC_FACTS,
     validate_raw_diagnostic_fact_schema,
@@ -548,7 +548,7 @@ fn read_binding_key(reader: &mut ByteReader<'_>) -> Result<String, InternalError
 #[cfg(test)]
 thread_local! {
     static TEST_STARTUP_MEMORIES: RefCell<
-        Vec<(u8, &'static str, RuntimeMemory<DefaultMemoryImpl>)>
+        Vec<(u8, &'static str, crate::testing::TestMemoryOwner)>
     > = const { RefCell::new(Vec::new()) };
 }
 
@@ -561,10 +561,11 @@ pub(in crate::db) fn startup_memory<C: CanisterKind>()
         if let Some((_, _, memory)) = memories.iter().find(|(memory_id, stable_key, _)| {
             *memory_id == id && *stable_key == C::STARTUP_STABLE_KEY
         }) {
-            return Ok(memory.clone());
+            return Ok(memory.open());
         }
-        let memory = crate::testing::test_memory(id);
-        memories.push((id, C::STARTUP_STABLE_KEY, memory.clone()));
+        let owner = crate::testing::test_memory_owner(id);
+        let memory = owner.open();
+        memories.push((id, C::STARTUP_STABLE_KEY, owner));
         Ok(memory)
     })
 }
@@ -578,7 +579,7 @@ fn primitive_decode_error(_: ByteDecodeError) -> InternalError {
 mod tests {
     use super::*;
     use crate::traits::Path;
-    use ic_memory::ic_stable_structures::VectorMemory;
+    use ic_stable_structures::VectorMemory;
 
     struct ReceiptCanister;
 
@@ -617,7 +618,8 @@ mod tests {
     #[test]
     fn receipt_growth_refusal_preserves_empty_control_and_manager_metadata() {
         use crate::testing::test_memory_runtime;
-        use ic_memory::{MemoryManagerConfig, ic_stable_structures::RestrictedMemory};
+        use ic_memory::MemoryManagerConfig;
+        use ic_stable_structures::RestrictedMemory;
 
         let backing = VectorMemory::default();
         let runtime = test_memory_runtime(

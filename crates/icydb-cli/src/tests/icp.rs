@@ -151,7 +151,7 @@ fn icp_update_command_targets_environment_without_query_flag() {
 
 #[test]
 fn fixtures_load_command_targets_fixed_generated_endpoint() {
-    let command = fixtures_load_command("demo", "demo_rpg");
+    let command = fixtures_load_command("demo", "demo_rpg", std::path::Path::new("arguments.bin"));
     let args = command
         .get_args()
         .map(|arg| arg.to_string_lossy().into_owned())
@@ -165,7 +165,12 @@ fn fixtures_load_command_targets_fixed_generated_endpoint() {
             "call",
             "demo_rpg",
             "icydb_fixtures_load",
-            "()",
+            "--args-file",
+            "arguments.bin",
+            "--args-format",
+            "bin",
+            "--output",
+            "hex",
             "--environment",
             "demo",
         ],

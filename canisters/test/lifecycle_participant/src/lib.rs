@@ -1,6 +1,6 @@
 //! Framework-neutral lifecycle-participant composition evidence canister.
 
-// Read IC counter 1 through the CDK; native Candid builds use its
+// Read IC counter 1 through the CDK; native builds use its
 // unsupported host binding and provide no IC measurement evidence.
 #[cfg(not(target_arch = "wasm32"))]
 use ic_cdk::api::call_context_instruction_counter;
@@ -9,7 +9,6 @@ use ic_cdk::api::call_context_instruction_counter;
 
 use std::{cell::RefCell, time::Duration};
 
-use candid::CandidType;
 use icydb::{
     db::TypedOperationError,
     types::{Id, Ulid},
@@ -33,23 +32,23 @@ fn icydb_memory_pool()
     )
 }
 
-icydb::start!(participant);
+canic_icydb::start!(icydb; participant);
 
 const APPLICATION_STARTUP_RETRY: Duration = Duration::from_secs(1);
 
-#[derive(CandidType, Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 enum LifecycleHook {
     Init,
     PostUpgrade,
 }
 
-#[derive(CandidType, Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 enum ApplicationActivationState {
     Prepared,
     Active,
 }
 
-#[derive(CandidType, Clone, Debug)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 struct LifecycleCompositionSnapshot {
     hook: LifecycleHook,
     activation: ApplicationActivationState,
@@ -226,7 +225,7 @@ fn run_deferred_database_work() -> ic_timers::OnceRunResult {
     }
 }
 
-#[ic_cdk::init]
+#[canic_icydb::__private::native_entry(init, name = "", sdk = crate::__icydb_host_sdk)]
 fn application_init() {
     begin_lifecycle(LifecycleHook::Init);
     let start = call_context_instruction_counter();
@@ -235,7 +234,6 @@ fn application_init() {
     complete_synchronous_lifecycle(participant_instructions);
 }
 
-#[ic_cdk::post_upgrade]
 fn application_post_upgrade(trap_after_participant: Option<bool>) {
     begin_lifecycle(LifecycleHook::PostUpgrade);
     let start = call_context_instruction_counter();
@@ -247,7 +245,16 @@ fn application_post_upgrade(trap_after_participant: Option<bool>) {
     complete_synchronous_lifecycle(participant_instructions);
 }
 
-#[ic_cdk::query]
+#[canic_icydb::__private::native_entry(post_upgrade, name = "", sdk = crate::__icydb_host_sdk)]
+fn __application_post_upgrade_export() {
+    let bytes = canic_icydb::read_arguments(icydb::wire::MAX_REQUEST_BYTES)
+        .unwrap_or_else(|| ic_cdk::trap("lifecycle argument admission failed"));
+    let (trap_after_participant,): (Option<bool>,) =
+        icydb::wire::decode_post_upgrade_arguments(&bytes)
+            .unwrap_or_else(|_| ic_cdk::trap("invalid lifecycle Wire arguments"));
+    application_post_upgrade(trap_after_participant);
+}
+
 fn lifecycle_composition_snapshot() -> LifecycleCompositionSnapshot {
     COMPOSITION.with(|slot| {
         let Ok(snapshot) = slot.try_borrow() else {
@@ -256,16 +263,23 @@ fn lifecycle_composition_snapshot() -> LifecycleCompositionSnapshot {
         snapshot.clone()
     })
 }
+icydb_testing_wasm_helpers::export_wire!(
+    query,
+    "lifecycle_composition_snapshot",
+    LifecycleCompositionSnapshot,
+    lifecycle_composition_snapshot,
+    (),
+    LifecycleCompositionSnapshot
+);
 
-#[ic_cdk::query]
 fn lifecycle_database_probe() -> Result<bool, icydb::Error> {
     icydb::db::with_request_execution(|| {
         let _database = db()?;
         Ok(true)
     })
 }
+icydb_testing_wasm_helpers::export_wire!(query, "lifecycle_database_probe", LifecycleDatabaseProbe, lifecycle_database_probe, (), Result<bool, icydb::Error>);
 
-#[ic_cdk::update]
 #[cfg(feature = "population-seed")]
 fn lifecycle_insert_probe_row() -> Result<Ulid, icydb::Error> {
     icydb::db::with_request_execution(|| {
@@ -289,8 +303,9 @@ fn lifecycle_insert_probe_row() -> Result<Ulid, icydb::Error> {
         Ok(*id)
     })
 }
+#[cfg(feature = "population-seed")]
+icydb_testing_wasm_helpers::export_wire!(update, "lifecycle_insert_probe_row", LifecycleInsertProbeRow, lifecycle_insert_probe_row, (), Result<Ulid, icydb::Error>);
 
-#[ic_cdk::query]
 fn lifecycle_probe_row_exists(id: Ulid) -> Result<bool, icydb::Error> {
     icydb::db::with_request_execution(|| {
         let database = db()?;
@@ -303,6 +318,4 @@ fn lifecycle_probe_row_exists(id: Ulid) -> Result<bool, icydb::Error> {
         }
     })
 }
-
-#[cfg(feature = "candid-export")]
-ic_cdk::export_candid!();
+icydb_testing_wasm_helpers::export_wire!(query, "lifecycle_probe_row_exists", LifecycleProbeRowExists, lifecycle_probe_row_exists, (id: Ulid), Result<bool, icydb::Error>);

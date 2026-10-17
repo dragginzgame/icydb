@@ -1,5 +1,15 @@
 error[E0433]: too many leading `super` keywords within `crate`
- --> tests/fail-guards/super.rs:4:65
+ --> tests/fail-guards/super.rs:7:65
   |
-4 |     icydb_sql_query(introspection = true, authorization = guard(super::policy::guard));
+7 |     icydb_sql_query(introspection = true, authorization = guard(super::policy::guard));
   |                                                                 ^^^^^ this `super` would go above the crate root
+  |
+help: consider importing this module
+  |
+3 + use crate::policy;
+  |
+help: if you import `policy`, refer to it directly
+  |
+7 -     icydb_sql_query(introspection = true, authorization = guard(super::policy::guard));
+7 +     icydb_sql_query(introspection = true, authorization = guard(policy::guard));
+  |

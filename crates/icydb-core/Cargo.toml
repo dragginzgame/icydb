@@ -3,7 +3,7 @@ name = "icydb-core"
 edition = { workspace = true }
 rust-version = "1.91.0"
 version = { workspace = true }
-license = { workspace = true }
+license-file = { workspace = true }
 description = { workspace = true }
 repository = { workspace = true }
 authors = { workspace = true }
@@ -22,10 +22,10 @@ getrandom = { workspace = true }
 
 [dependencies]
 base64 = { workspace = true }
-candid = { workspace = true }
-ic-cdk = { workspace = true }
 ic-memory = { workspace = true }
 ic-metrics.workspace = true
+ic-stable-structures = { workspace = true }
+ic0 = { workspace = true }
 icydb-diagnostic-code = { workspace = true }
 icydb-schema = { workspace = true }
 rand_chacha = { workspace = true }

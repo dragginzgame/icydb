@@ -10,9 +10,9 @@ only in Wasm artifacts that need to adopt or advance a migration, and declare
 both maintained controller endpoints in source:
 
 ```rust
-icydb::start!();
+canic_icydb::start!(icydb);
 
-icydb::endpoints! {
+canic_icydb::endpoints! {
     icydb_schema_migration;
     icydb_schema_migrate;
 }

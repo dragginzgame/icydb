@@ -15,7 +15,6 @@ mod error;
 mod expression;
 mod fragment;
 
-mod integer_wire;
 mod key;
 mod migration;
 mod naming;
@@ -31,6 +30,8 @@ mod subaccount;
 mod time_atoms;
 mod u256;
 mod unit;
+
+pub mod wire;
 
 pub use account::*;
 pub use atom::*;

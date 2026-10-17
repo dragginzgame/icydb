@@ -2,7 +2,7 @@
 
 .PHONY: help version tags package publish release-clean \
         test test-unit test-integration-feedback test-durability test-documentation \
-        test-canister-artifact-contract test-sql-canister-matrix \
+        test-canister-artifact-contract test-sql-canister-matrix check-wire-browser test-wire-browser \
         test-sql-tier-c-shard test-sql-tier-c-merge \
         test-sql-tier-c-replay \
         build-canister-local build-canister-production \
@@ -118,6 +118,8 @@ help:
 	@echo "                  Build and inspect all 34 independent production/local canister artifacts"
 	@echo "  test-sql-canister-matrix"
 	@echo "                  Run the live generated SQL canister endpoint matrix"
+	@echo "  check-wire-browser  Check native/browser frames with prepared Node tools"
+	@echo "  test-wire-browser   Qualify all generated endpoint families in Chromium"
 	@echo "  test-sql-tier-c-shard TIER_C_SHARD=0"
 	@echo "                  Run one exact native Tier C correctness shard (0 through 7)"
 	@echo "  test-sql-tier-c-merge"
@@ -263,6 +265,14 @@ test-canister-artifact-contract:
 		production_and_local_source_declarations_match_the_frozen_endpoint_policy \
 		-- --ignored --exact --nocapture
 
+check-wire-browser:
+	+$(CARGO_WORK_ENV) node testing/wire-browser/check.mjs
+
+test-wire-browser:
+	+$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test --locked -p icydb-testing-integration \
+		--test query_canister native_wire_browser_qualifies_the_installed_endpoint_roster \
+		-- --ignored --exact --nocapture
+
 test-sql-canister-matrix:
 	+$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast -p icydb-testing-integration --test sql_canister -- --nocapture
 
@@ -299,13 +309,13 @@ build-canister-local:
 	@test -n "$(CANISTER)" || { echo "CANISTER must name one maintained canister" >&2; exit 1; }
 	+$(CARGO_WORK_ENV) cargo run --locked -p icydb-testing-build \
 		--bin build_fixture_canister -- "$(CANISTER)" --build-profile local \
-		--profile debug --candid-export on
+		--profile debug
 
 build-canister-production:
 	@test -n "$(CANISTER)" || { echo "CANISTER must name one maintained canister" >&2; exit 1; }
 	+$(CARGO_WORK_ENV) cargo run --locked -p icydb-testing-build \
 		--bin build_fixture_canister -- "$(CANISTER)" --build-profile production \
-		--profile wasm-release --candid-export on
+		--profile wasm-release
 
 wasm-size-report:
 	+$(CARGO_WORK_ENV) bash scripts/ci/wasm-size-report.sh $(SIZE_REPORT_ARGS)

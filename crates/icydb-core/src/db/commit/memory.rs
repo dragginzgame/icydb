@@ -7,17 +7,17 @@
 use crate::db::registry::open_committed_memory;
 use crate::error::InternalError;
 use ic_memory::RuntimeMemory;
-use ic_memory::ic_stable_structures::DefaultMemoryImpl;
-use std::cell::Cell;
-#[cfg(test)]
-use std::cell::RefCell;
+use ic_stable_structures::DefaultMemoryImpl;
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
 
 thread_local! {
     static CURRENT_COMMIT_STORE_ALLOCATION: Cell<Option<CommitMemoryAllocation>> =
         const { Cell::new(None) };
-    #[cfg(test)]
-    static TEST_COMMIT_MEMORIES: RefCell<
-        Vec<(CommitMemoryAllocation, RuntimeMemory<DefaultMemoryImpl>)>
+    static COMMIT_MEMORIES: RefCell<
+        Vec<(CommitMemoryAllocation, Rc<RuntimeMemory<DefaultMemoryImpl>>)>
     > = const { RefCell::new(Vec::new()) };
 }
 
@@ -40,7 +40,6 @@ pub(in crate::db) fn current_commit_memory_allocation()
     })
 }
 
-#[cfg(test)]
 pub(in crate::db) fn current_commit_memory_allocation_if_configured()
 -> Option<CommitMemoryAllocation> {
     CURRENT_COMMIT_STORE_ALLOCATION.with(Cell::get)
@@ -59,33 +58,31 @@ pub(in crate::db) fn select_commit_memory_allocation(memory_id: u8, stable_key: 
     CURRENT_COMMIT_STORE_ALLOCATION.with(|cell| cell.set(Some(allocation)));
 }
 
-/// Open the configured commit-marker memory slot through the shared memory API.
-#[cfg(test)]
+/// Share the sole physical lease for this database's raw control regions.
+///
+/// Control-frame IO has no cached tree metadata. Schema namespace views reload
+/// their tree on each operation; no independent long-lived tree may use this lease.
 pub(in crate::db) fn commit_memory_handle(
     allocation: CommitMemoryAllocation,
-) -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
-    TEST_COMMIT_MEMORIES.with(|memories| {
-        let mut memories = memories.borrow_mut();
+) -> Result<Rc<RuntimeMemory<DefaultMemoryImpl>>, InternalError> {
+    COMMIT_MEMORIES.with(|memories| {
+        let mut memories = memories
+            .try_borrow_mut()
+            .map_err(|_| InternalError::store_invariant())?;
         if let Some((_, memory)) = memories
             .iter()
             .find(|(existing, _)| *existing == allocation)
         {
-            return Ok(memory.clone());
+            return Ok(Rc::clone(memory));
         }
-
+        #[cfg(test)]
         let memory = crate::testing::test_memory(allocation.memory_id);
-        memories.push((allocation, memory.clone()));
+        #[cfg(not(test))]
+        let memory = open_committed_memory(allocation.stable_key, allocation.memory_id)?;
+        let memory = Rc::new(memory);
+        memories.push((allocation, Rc::clone(&memory)));
         Ok(memory)
     })
-}
-
-/// Open the configured commit-marker memory slot through the shared memory API.
-#[cfg(not(test))]
-pub(in crate::db) fn commit_memory_handle(
-    allocation: CommitMemoryAllocation,
-) -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
-    open_committed_memory(allocation.stable_key, allocation.memory_id)
-        .map_err(|_| InternalError::store_internal())
 }
 
 ///

@@ -1,9 +1,9 @@
 //! Module: shell canister calls.
-//! Responsibility: build shell SQL Candid arguments, run ICP calls, and preserve failure context.
+//! Responsibility: build shell SQL Wire arguments, run ICP calls, and preserve failure context.
 //! Does not own: SQL routing, response decoding, or final shell rendering.
 //! Boundary: exposes shell-call wire helpers to the shell runner.
 
-use crate::icp::{call_query_hex, call_update_hex, encode_candid_args};
+use crate::icp::{call_query_hex, call_update_hex, encode_wire_args};
 
 pub(super) fn icp_query(
     environment: &str,
@@ -11,12 +11,12 @@ pub(super) fn icp_query(
     method: &str,
     sql: &str,
 ) -> Result<Vec<u8>, String> {
-    let candid_arg = encode_candid_args((sql,))?;
+    let wire_arg = encode_wire_args(method, sql)?;
     call_query_hex(
         environment,
         canister,
         method,
-        &candid_arg,
+        &wire_arg,
         sql_call_error_mapper("query", environment, canister, method),
     )
 }
@@ -27,12 +27,12 @@ pub(super) fn icp_update(
     method: &str,
     sql: &str,
 ) -> Result<Vec<u8>, String> {
-    let candid_arg = encode_candid_args((sql,))?;
+    let wire_arg = encode_wire_args(method, sql)?;
     call_update_hex(
         environment,
         canister,
         method,
-        &candid_arg,
+        &wire_arg,
         sql_call_error_mapper("DDL", environment, canister, method),
     )
 }

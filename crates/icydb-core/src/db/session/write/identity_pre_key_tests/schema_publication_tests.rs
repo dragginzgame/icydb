@@ -11,7 +11,7 @@ use crate::db::{
     index::IndexState,
     schema::enum_catalog::AcceptedSchemaRootSelection,
 };
-use ic_memory::ic_stable_structures::Storable;
+use ic_stable_structures::Storable;
 
 type Entries = Vec<(Vec<u8>, Vec<u8>)>;
 

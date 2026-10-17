@@ -1,109 +1,91 @@
-//! Independent Candid field/type expectations for the shared audit wire records.
+//! Independent finite-value and field-order controls for native audit records.
 
 use crate::contracts::{
-    AcceptedSchemaReadInstructionResult, ApplicationStartupHook, ApplicationStartupSnapshot,
-    SchemaApplicationPerfResult, StartupObservationPerfResult, StartupWatchdogPerfSnapshot,
+    ApplicationStartupHook, ApplicationStartupSnapshot, SchemaApplicationPerfResult,
+    StartupObservationPerfResult, StartupWatchdogPerfSnapshot,
 };
-use candid::{
-    CandidType,
-    types::{Field, Label, Type, TypeInner},
+use icydb::{
+    db::DatabaseStartupState,
+    wire::{decode_one, encode_one},
 };
 
-// Spell wire widths independently of the Rust records so moving both endpoints
-// onto one declaration does not make an accidental contract change invisible.
-fn record(fields: &[(&str, Type)]) -> Type {
-    let mut fields = fields
-        .iter()
-        .map(|(name, ty)| Field {
-            id: Label::Named((*name).to_string()).into(),
-            ty: ty.clone(),
-        })
-        .collect::<Vec<_>>();
-    fields.sort_by_key(|field| field.id.get_id());
-    TypeInner::Record(fields).into()
-}
-
 #[test]
-fn schema_and_startup_observation_wire_shapes_are_unchanged() {
+fn schema_and_startup_records_preserve_native_field_order() {
+    let schema = SchemaApplicationPerfResult {
+        local_instructions: u64::MAX,
+        reconcile_checks: 17,
+        first_create: 2,
+        exact_match: 15,
+    };
+    let bytes = encode_one(&schema).unwrap();
     assert_eq!(
-        SchemaApplicationPerfResult::ty(),
-        record(&[
-            ("local_instructions", TypeInner::Nat64.into()),
-            ("reconcile_checks", TypeInner::Nat64.into()),
-            ("first_create", TypeInner::Nat64.into()),
-            ("exact_match", TypeInner::Nat64.into()),
-        ])
+        bytes,
+        encode_one((u64::MAX, 17_u64, 2_u64, 15_u64)).unwrap()
     );
     assert_eq!(
-        StartupObservationPerfResult::ty(),
-        record(&[
-            ("state", icydb::db::DatabaseStartupState::ty()),
-            ("local_instructions", TypeInner::Nat64.into()),
-        ])
+        decode_one::<SchemaApplicationPerfResult>(&bytes).unwrap(),
+        schema
     );
+    let startup = StartupObservationPerfResult {
+        state: DatabaseStartupState::Ready,
+        local_instructions: 1_u64 << 40,
+    };
     assert_eq!(
-        AcceptedSchemaReadInstructionResult::ty(),
-        record(&[
-            ("description", icydb::db::EntitySchemaDescription::ty()),
-            ("local_instructions", TypeInner::Nat64.into()),
-        ])
+        encode_one(&startup).unwrap(),
+        encode_one((DatabaseStartupState::Ready, 1_u64 << 40)).unwrap()
     );
 }
 
 #[test]
-fn watchdog_wire_shape_preserves_unbounded_nat_totals_and_optional_samples() {
-    let optional_sample: Type = TypeInner::Opt(TypeInner::Nat64.into()).into();
+fn watchdog_totals_preserve_u128_and_optional_samples() {
+    let snapshot = StartupWatchdogPerfSnapshot {
+        scheduler_samples: 1,
+        scheduler_total_instructions: u128::MAX,
+        scheduler_maximum_instructions: Some(u64::MAX),
+        work_samples: 2,
+        work_total_instructions: 1_u128 << 100,
+        work_latest_instructions: None,
+        work_maximum_instructions: Some(3),
+        work_started: 4,
+        work_completed: 5,
+        succeeded: 6,
+        no_work: 7,
+        retryable_failures: 8,
+        invariant_failures: 9,
+    };
+    let bytes = encode_one(&snapshot).unwrap();
     assert_eq!(
-        StartupWatchdogPerfSnapshot::ty(),
-        record(&[
-            ("scheduler_samples", TypeInner::Nat64.into()),
-            ("scheduler_total_instructions", TypeInner::Nat.into()),
-            ("scheduler_maximum_instructions", optional_sample.clone()),
-            ("work_samples", TypeInner::Nat64.into()),
-            ("work_total_instructions", TypeInner::Nat.into()),
-            ("work_latest_instructions", optional_sample.clone()),
-            ("work_maximum_instructions", optional_sample),
-            ("work_started", TypeInner::Nat64.into()),
-            ("work_completed", TypeInner::Nat64.into()),
-            ("succeeded", TypeInner::Nat64.into()),
-            ("no_work", TypeInner::Nat64.into()),
-            ("retryable_failures", TypeInner::Nat64.into()),
-            ("invariant_failures", TypeInner::Nat64.into()),
-        ])
+        decode_one::<StartupWatchdogPerfSnapshot>(&bytes).unwrap(),
+        snapshot
     );
+    for length in 0..bytes.len() {
+        assert!(decode_one::<StartupWatchdogPerfSnapshot>(&bytes[..length]).is_err());
+    }
+    let mut trailing = bytes;
+    trailing.push(0);
+    assert!(decode_one::<StartupWatchdogPerfSnapshot>(&trailing).is_err());
 }
 
 #[test]
-fn application_startup_wire_shape_preserves_hooks_and_failure() {
-    let mut hooks = vec![
-        Field {
-            id: Label::Named("Init".into()).into(),
-            ty: TypeInner::Null.into(),
-        },
-        Field {
-            id: Label::Named("PostUpgrade".into()).into(),
-            ty: TypeInner::Null.into(),
-        },
-    ];
-    hooks.sort_by_key(|field| field.id.get_id());
+fn application_startup_preserves_hook_and_readiness_fields() {
+    assert_eq!(encode_one(ApplicationStartupHook::Init).unwrap(), [0]);
     assert_eq!(
-        ApplicationStartupHook::ty(),
-        TypeInner::Variant(hooks).into()
+        encode_one(ApplicationStartupHook::PostUpgrade).unwrap(),
+        [1]
     );
+    let snapshot = ApplicationStartupSnapshot {
+        hook: ApplicationStartupHook::PostUpgrade,
+        engine_registered_before_hook: true,
+        observations: u32::MAX,
+        recovering_observations: 2,
+        ready_observations: 3,
+        restorations: 4,
+        retry_scheduled: false,
+        failure: None,
+    };
+    let bytes = encode_one(&snapshot).unwrap();
     assert_eq!(
-        ApplicationStartupSnapshot::ty(),
-        record(&[
-            ("hook", ApplicationStartupHook::ty()),
-            ("engine_registered_before_hook", TypeInner::Bool.into()),
-            ("observations", TypeInner::Nat32.into()),
-            ("recovering_observations", TypeInner::Nat32.into()),
-            ("ready_observations", TypeInner::Nat32.into()),
-            ("restorations", TypeInner::Nat32.into()),
-            ("retry_scheduled", TypeInner::Bool.into()),
-            (
-                "failure",
-                TypeInner::Opt(icydb::db::StartupFailure::ty()).into()
-            ),
-        ])
+        decode_one::<ApplicationStartupSnapshot>(&bytes).unwrap(),
+        snapshot
     );
 }

@@ -2,6 +2,7 @@
 name = "icydb-testing-audit-sql-perf-fixtures"
 edition = { workspace = true }
 rust-version = { workspace = true }
+license-file = { workspace = true }
 version = { workspace = true }
 publish = false
 description = "Dedicated SQL perf audit schema fixture crate"
@@ -10,7 +11,6 @@ description = "Dedicated SQL perf audit schema fixture crate"
 ignored = ["icydb"]
 
 [dependencies]
-candid = { workspace = true }
 icydb = { workspace = true }
 icydb-model = { workspace = true }
 icydb-testing-wasm-helpers = { workspace = true }

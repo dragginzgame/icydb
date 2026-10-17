@@ -32,7 +32,7 @@ require_text \
     'whole-fleet Cargo validation must retain stable caller labels across batch reports.'
 require_text \
     testing/build/src/lib.rs \
-    'failure.timings(),' \
+    'entry.failure_details(),' \
     'whole-fleet Cargo failures must retain partial phase timings.'
 require_text \
     testing/build/src/lib.rs \
@@ -40,7 +40,7 @@ require_text \
     'the two-profile artifact contract must use the checked Cargo batch owner.'
 require_text \
     testing/build/src/canister_build_cache.rs \
-    'let report = build_wasm_canisters_cached_batch_with_config_and_progress(' \
+    'let report = build_wasm_canisters_cached_batch(' \
     'whole-fleet profile readers must retain checked input resolution and collect-all failures.'
 require_text \
     testing/build/src/canister_build_cache.rs \

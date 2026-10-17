@@ -21,14 +21,14 @@ pub(super) fn run_metrics_command(args: MetricsArgs) -> Result<(), String> {
         return run_metrics_reset(target);
     }
 
-    let candid_bytes = call_query(
+    let wire_bytes = call_query(
         target.environment(),
         target.canister_name(),
         METRICS_ENDPOINT.method(),
         (),
     )?;
     let report = decode_endpoint_result::<icydb::metrics::MetricsReport>(
-        &candid_bytes,
+        &wire_bytes,
         "metrics",
         target.environment(),
         target.canister_name(),
@@ -39,14 +39,14 @@ pub(super) fn run_metrics_command(args: MetricsArgs) -> Result<(), String> {
 }
 
 fn run_metrics_reset(target: &CanisterTarget) -> Result<(), String> {
-    let candid_bytes = call_update(
+    let wire_bytes = call_update(
         target.environment(),
         target.canister_name(),
         METRICS_RESET_ENDPOINT.method(),
         (),
     )?;
     decode_endpoint_result::<()>(
-        &candid_bytes,
+        &wire_bytes,
         "metrics reset",
         target.environment(),
         target.canister_name(),
