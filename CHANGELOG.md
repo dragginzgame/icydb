@@ -22,7 +22,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### 🔧 Changed
 
-- Align CI policy checks with private dependency fetching and browser validation.
+- Align CI and read-admission checks with current endpoint ownership, private
+  dependency fetching and browser validation.
 - Adopt IC Build 0.14 typed Cargo selections and checked batch builds for Wasm
   artifact generation.
 - Add native browser contracts and installed endpoint qualification; prepare

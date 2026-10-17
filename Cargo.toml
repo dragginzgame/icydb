@@ -97,7 +97,7 @@ ic-host-tools = "0.26"
 ic-memory = "0.48"
 ic-metrics = "0.13"
 ic-stable-structures = "0.7.2"
-ic-testkit = "0.51"
+ic-testkit = "0.52"
 ic-timers = "0.27"
 ic-wire = "0.3.4"
 # Browser-only runtime support awaits publication of IC Wire PR #1.

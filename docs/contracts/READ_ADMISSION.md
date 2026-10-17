@@ -174,6 +174,10 @@ for grouped execution.
 
 ## Generated SQL Query Surface
 
+The Canic `canic_icydb::endpoints!` adapter owns IC exports and caller
+authorization. IcyDB generates the private trusted SQL dispatch capability;
+the adapter authorizes callers before entering that capability.
+
 The `icydb_sql_query` declaration exports `icydb_query` and requires an explicit
 `introspection = true` or `introspection = false` literal. It remains
 controller-gated when it omits an authorization choice. A declaration may
