@@ -441,7 +441,7 @@ Consumer choices described in those guides remain subject to this baseline.
 - Rust repositories adopt the [standard formatting hook](rules/git-hooks.md):
   `make install-hooks` enables a reviewed repository-local pre-commit hook that
   auto-formats and refreshes only selected files, rejects partial staging and
-  preserves unrelated working edits. Formatting includes `cargo sort --workspace`
+  preserves unrelated working edits. Formatting includes `cargo sort --workspace --grouped`
   for root and child manifests before Rust formatting. Keep matching `fmt-check`
   sorting and Rust checks in CI and release gates;
   hook activation and independent formatting qualification are separate checks.

@@ -18,20 +18,19 @@ No step depends on a local draft, sibling working tree or `/tmp` proposal.
 1. Identify the actual production packages and supported target/feature
    combinations from the consumer's build and deployment entrypoints. Review
    member normal, build, development and target-specific dependency tables.
-   Apply the [canonical role labels](../rules/cargo-dependencies.md#dependency-roles-and-deployment-checks):
-   `Production dependencies` and `Tests and tooling only`. Entries shared by
-   production and tests belong in production; the catalog remains one owner.
-   Use `Production packages` and `Tests and tooling packages` for member notes.
-2. Inline comments can retain the default global ordering. For blank-separated
-   groups, configure both formatting commands before including the shared Make
-   files (retain any additional consumer formatting steps):
-
-   ```makefile
-   FORMAT_WRITE_COMMAND = bash -ec '"$$1" sort --workspace --grouped; "$$1" fmt --all' -- "$(FORMAT_CARGO)"
-   FORMAT_CHECK_COMMAND = bash -ec '"$$1" sort --workspace --grouped --check; "$$1" fmt --all -- --check' -- "$(FORMAT_CARGO)"
-   include make/consumer.mk
-   ```
-
+   Split the root dependency catalog into two sections with the
+   [canonical comment headers](../rules/cargo-dependencies.md#dependency-roles-and-deployment-checks):
+   `# Production dependencies` and `# Tests and tooling only`. Put each header
+   once above its section, with a blank line between sections; remove repeated
+   role annotations after individual dependencies. Entries shared by production
+   and tests belong in production; the catalog remains one owner. These headers
+   belong only in `[workspace.dependencies]`, never in `[workspace]`, `members`
+   or other tables. Remove role headers added outside the dependency catalog.
+2. The shared formatting defaults preserve those sections with grouped sorting.
+   Remove local `FORMAT_WRITE_COMMAND`/`FORMAT_CHECK_COMMAND` overrides that only
+   repeat root-workspace Cargo sort and rustfmt. Keep complete paired adapters
+   for additional work such as derive sorting, nested workspaces or frontend
+   formatting; retain grouped sorting in those adapters.
    Use the same grouped policy in independent/nested-workspace formatters and
    all existing release adapter calls. Change `--manifest-order` to
    `--manifest-order-grouped` in current, commit-preparation and committed-source
@@ -45,12 +44,12 @@ No step depends on a local draft, sibling working tree or `/tmp` proposal.
    deployment. Reuse the consumer's existing dependency-policy check to enforce
    any test-only exclusions, including transitive paths. If that enforcement is
    missing, record the remaining consumer work explicitly: Shared's sorter and
-   metadata helper do not enforce role annotations. A passing snapshot or format
+   metadata helper do not enforce role classifications. A passing snapshot or format
    check must not be reported as automated deployment admission.
 
 Report baseline/snapshot adoption, formatting activation and deployment
 enforcement separately. To request the complete change, say: "Adopt Shared
-Tooling 0.24.0, including dependency-role annotations and matching formatting and
+Tooling with two comment-headed dependency sections and matching formatting and
 release checks; qualify the deployment dependency boundary and report any
 remaining enforcement gaps." Registry publication remains a separate fact;
 neither role labels nor cached build success establishes it.

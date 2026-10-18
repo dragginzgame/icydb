@@ -49,7 +49,7 @@ requirements with IC Timers' verification-before-execution checks and IC Metrics
 retained provisioning evidence. Exact default versions match the inspected
 consumers; Quill is added from the official release. Platform digests and release
 sources are recorded in [IC tools](ic-tools.md). This is setup orchestration.
-The current [capability owners](../README.md#capability-ownership) separate
+The current [capability owners](https://github.com/dragginzgame/shared-tooling/blob/main/README.md#capability-ownership) separate
 executable provisioning here, host primitives/IC interpretation in IC Host
 Tooling, and build/Candid extraction orchestration in IC Build. The inspected
 historical provisioning requirements above retain their original attribution.

@@ -46,10 +46,19 @@ script_dir="${script_dir%/*}"
 source "$script_dir/fixture-lifecycle.sh"
 fixture="$(fixture_create "${TMPDIR:-/tmp}/formatting-adoption.XXXXXX")"
 fixture_complete=false
-trap 'fixture_finish "$?" "$fixture" "Formatting adoption evidence retained"' EXIT
+finish() {
+    local status=$?
+    fixture_completion_status "$status" "$fixture_complete" || status=$?
+    if [[ "$status" != 0 ]]; then
+        fixture_replay_logs "$fixture"/*.log "$fixture"/formatting.* "$fixture"/*/.git/*.log
+    fi
+    fixture_finish "$status" "$fixture" "Formatting adoption evidence retained"
+}
+trap finish EXIT
 # Hooks and formatters change directories inside the disposable checkout.
-# Keep their temporary files under the caller's selected physical parent.
-export TMPDIR="${fixture%/*}"
+# Keep nested scratch and expected formatter-failure logs inside this fixture;
+# a caller's RUNNER_TEMP and unrelated evidence remain outside its custody.
+export TMPDIR="$fixture" RUNNER_TEMP="$fixture"
 mkdir "$fixture/templates"
 export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TEMPLATE_DIR="$fixture/templates"
 objects="$(git -C "$root" rev-parse --git-path objects && printf '.')"

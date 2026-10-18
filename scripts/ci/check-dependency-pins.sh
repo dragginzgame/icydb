@@ -88,6 +88,14 @@ while IFS= read -r -d '' path; do
         action.yml|action.yaml|*/action.yml|*/action.yaml) kind=action; format=yaml ;;
         *) continue ;;
     esac
+    # Git retains unstaged deletions. Skip only observed absence, preserving
+    # refusal when permissions or invalid parents prevent metadata inspection.
+    metadata_state="$(perl -MErrno=ENOENT -e '
+        if (lstat($ARGV[0])) { print "present\n"; }
+        elsif ($! == ENOENT) { print "absent\n"; }
+        else { die "cannot inspect metadata $ARGV[0]: $!\n"; }
+    ' "$path")" || fail "cannot inspect metadata: $path"
+    [[ "$metadata_state" != absent ]] || continue
     [[ -f "$path" && ! -L "$path" && "$path" != *$'\n'* && "$path" != *$'\t'* ]] || fail "metadata must be a regular file with a single-line path: $path"
     metadata_parent="$ROOT"
     [[ "$path" != */* ]] || metadata_parent="$ROOT/${path%/*}"

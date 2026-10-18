@@ -15,8 +15,8 @@ the independent, non-mutating formatting gate.
 - Every Rust repository provides `make fmt` and `make fmt-check`. Both cover the
   same maintained Rust workspaces, including standalone nested workspaces,
   examples or harnesses with their own manifests. Following IcyDB and Canic,
-  `fmt` runs `cargo sort --workspace` before `cargo fmt --all` for each workspace;
-  `fmt-check` uses `cargo sort --workspace --check` and
+  `fmt` runs `cargo sort --workspace --grouped` before `cargo fmt --all` for each workspace;
+  `fmt-check` uses `cargo sort --workspace --grouped --check` and
   `cargo fmt --all -- --check`. This sorts the root and every member's Cargo.toml,
   including members under `crates/`, `apps/` and approved layout trees, the root
   dependency catalog and inherited child tables. Explicitly cover
@@ -33,14 +33,14 @@ the independent, non-mutating formatting gate.
   versions, workspace inheritance, comments and selected lockfiles; it is not a
   dependency upgrade or release bump. See the
   [cargo-sort documentation](https://github.com/DevinR528/cargo-sort).
-- If a consumer separates dependency-role groups with blank lines, use
+- Preserve the two comment-headed dependency-role sections with
   `cargo sort --workspace --grouped` for writing and add `--check` for checking.
   Apply the same selection to hooks, CI and selected-source release checks;
-  the default shared commands do not select grouped mode. Use the
+  the shared defaults already select grouped mode. Use the
   [dependency role labels](cargo-dependencies.md#dependency-roles-and-deployment-checks)
-  rather than ambiguous `Published`/`Unpublished` catalog headings. Inline role
-  comments also work with the default global ordering. Sorting checks order;
-  it does not verify dependency roles or registry publication.
+  as section headers, with no repeated role annotation after each dependency.
+  Sorting checks order; it does not verify dependency roles or registry
+  publication.
 - Additional formatting steps, such as derive sorting, may
   belong in those targets. They must have matching non-mutating checks, preserve
   dependency/version selections and work from tracked inputs in an isolated
@@ -103,12 +103,12 @@ created beneath `RUNNER_TEMP`, otherwise `TMPDIR` or `/tmp`; only its own succes
 temporary log is removed. The shared failure collector includes `formatting.*`.
 
 When a recipe calls a tool available only through a Makefile-exported `PATH`,
-use `env tool ...` (for example, `env cargo sort --workspace`) or an explicit
+use `env tool ...` (for example, `env cargo sort --workspace --grouped`) or an explicit
 executable path. Apple's system Make can resolve a bare recipe command using
 its original process PATH, even though the recipe receives the updated PATH.
 Do not rely on an unrelated global installation to make the recipe work.
 
-For a separate `testing/` workspace, also run `cargo sort --workspace testing`
+For a separate `testing/` workspace, also run `cargo sort --workspace --grouped testing`
 before `cargo fmt --manifest-path testing/Cargo.toml --all`, with their `--check`
 equivalents in `fmt-check`. Pass one workspace root per `cargo sort --workspace`
 invocation. `cargo-sort` owns its ordering and TOML rendering; do not add a second
@@ -158,8 +158,8 @@ selected tracked lockfile, for example:
 
 ```make
 PRETTIER_VERSION = $(shell jq -er '.packages["node_modules/prettier"].version' frontend/package-lock.json)
-FORMAT_WRITE_COMMAND = bash -ec 'cargo sort --workspace; cargo fmt --all; bash scripts/dev/format-frontend.sh --write frontend'
-FORMAT_CHECK_COMMAND = bash -ec 'cargo sort --workspace --check; cargo fmt --all -- --check; bash scripts/dev/format-frontend.sh --check frontend'
+FORMAT_WRITE_COMMAND = bash -ec 'cargo sort --workspace --grouped; cargo fmt --all; bash scripts/dev/format-frontend.sh --write frontend'
+FORMAT_CHECK_COMMAND = bash -ec 'cargo sort --workspace --grouped --check; cargo fmt --all -- --check; bash scripts/dev/format-frontend.sh --check frontend'
 include make/consumer.mk
 fmt fmt-check: export PRETTIER_VERSION := $(PRETTIER_VERSION)
 ```

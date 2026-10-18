@@ -204,5 +204,5 @@ as part of baseline adoption.
 
 This script owns executable provisioning. Build and Candid extraction orchestration
 belong to IC Build; host primitives and IC interpretation belong to IC Host
-Tooling. See the [capability boundary](../README.md#capability-ownership).
+Tooling. See the [capability boundary](https://github.com/dragginzgame/shared-tooling/blob/main/README.md#capability-ownership).
 Consumer orchestration, credentials, destinations and measurement policy remain local.

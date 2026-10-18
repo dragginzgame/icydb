@@ -9,8 +9,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### 🔧 Changed
 
-- Adopt Shared Tooling 0.24.0 with dependency-role labels and matching grouped
+- Adopt Shared Tooling 0.24.1 with dependency-role labels and matching grouped
   formatting, release checks and direct dependency enforcement.
+  Fix release validation when its temporary directory is inside the checkout.
 - Use IC Platform for Principal identity and supported runtime calls; remove all
   direct Candid, CDK-family and raw-ABI dependencies.
 - Bind Wasm reports to retained build observations and remove redundant compiler

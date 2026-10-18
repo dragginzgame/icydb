@@ -92,7 +92,9 @@ installations, logs and build artifacts during adoption.
 
 ## Custom formatting without replacement recipes
 
-By default Rust formatting sorts the root Cargo workspace and runs rustfmt.
+By default Rust formatting sorts the root Cargo workspace with `--grouped` and
+runs rustfmt. Blank-separated dependency sections are preserved without local
+command overrides. Remove overrides that only repeat that standard sequence.
 Repositories with independent workspaces, derive policies or frontend formatting
 set **both** complete commands before the include:
 

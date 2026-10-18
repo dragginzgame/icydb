@@ -1,8 +1,8 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `cab12cd3dfa4fdb34846b25397f0d72881bb9ae0`
-(Shared Tooling 0.24.0). Root
+at reviewed revision `6230989d9f4dc090af4e80283eda4aee75f67bfd`
+(Shared Tooling 0.24.1). Root
 [AGENTS.md](../../AGENTS.md) is the local overlay. The shared approved layout
 retains existing canister, schema and testing packages in their
 restored directories, in the single root workspace and lockfile; no new package
@@ -12,6 +12,18 @@ remain local; standard release commands follow the shared contract. A sibling ch
 these rules.
 
 ## Ownership and provenance
+
+### Release fixture correction in Shared Tooling 0.24.1
+
+Release validation selects scratch under the checkout's `.cache/release-tmp`.
+The 0.24.0 copier rejected every descendant fixture before exercising the release
+adapters. The canonical 0.24.1 copier permits nested scratch only after checking
+the complete copy plan for selected-input collisions and aliased outputs,
+including hard links; source equality and ancestor destinations still refuse.
+The snapshot was previewed and refreshed from the clean, committed 0.24.1 source
+without changing local temporary-directory selection or copying policy downstream.
+Consumer formatting retains its required derive sorting alongside grouped Cargo
+formatting; other pending work and retained failure evidence are preserved.
 
 ### Current capability boundary
 
