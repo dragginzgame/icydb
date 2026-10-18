@@ -33,6 +33,7 @@ check() {
   # mismatch must terminate explicitly before it can count as a completed case.
   if [[ "$expected" == pass && "$status" != 0 || "$expected" != pass && "$status" == 0 ]]; then
     printf 'Workflow case %s expected %s, observed status %s\n' "$name" "$expected" "$status" >&2
+    cat "$fixture/$name.log" >&2
     exit 1
   fi
   count=$((count + 1))
@@ -144,6 +145,27 @@ check fail incomplete-common-admission
 reset
 mutate '.jobs.rust.steps |= map(select(.uses != "./.github/actions/retain-failure-evidence"))'
 check fail missing-tooling-failure-retention
+reset
+mutate '(.jobs.wasm_size_report.steps[] | select(.name == "Install pinned local tools") | .run) |= sub("make install-ic-tools"; "true")'
+check fail missing-wasm-ic-preparation
+reset
+mutate '(.jobs.wasm_size_report.steps[] | select(.name == "Install pinned local tools") | .run) |= sub("make ic-tools-check"; "true")'
+check fail missing-wasm-ic-admission
+reset
+mutate '.jobs.rust.steps |= map(select(.name != "Prepare governed IC tools for live canister builds"))'
+check fail missing-live-ic-preparation
+reset
+mutate '(.jobs.rust.steps[] | select(.name == "Prepare governed IC tools for live canister builds")).if = "matrix.lane == '\''workspace'\''"'
+check fail live-ic-preparation-wrong-lane
+reset
+mutate '(.jobs.rust.steps[] | select(.name == "Prepare governed IC tools for live canister builds")).continue-on-error = true'
+check fail ignored-live-ic-preparation
+reset
+mutate '(.jobs.rust.steps[] | select(.name == "Prepare governed IC tools for live canister builds") | .run) |= sub("make ic-tools-check"; "true")'
+check fail missing-live-ic-admission
+reset
+mutate '.jobs.rust.steps |= (map(select(.name != "Prepare governed IC tools for live canister builds")) + [.[] | select(.name == "Prepare governed IC tools for live canister builds")])'
+check fail late-live-ic-preparation
 reset
 mutate '.jobs.rust.steps |= map(select(.name != "Prepare locked Testkit CLI and server for live tests"))'
 check fail missing-live-server-preparation
