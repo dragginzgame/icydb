@@ -7,14 +7,16 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.277.1]
 
+### 🔧 Changed
+
 - Adopt Shared Tooling 0.24.0 with dependency-role labels and matching grouped
-  formatting and release checks; document deployment dependency enforcement gaps.
-- Adopt registry IC Platform 0.1.10 for Principal identity and supported runtime
-  calls; remove all direct Candid, CDK-family and raw-ABI dependencies.
+  formatting, release checks and direct dependency enforcement.
+- Use IC Platform for Principal identity and supported runtime calls; remove all
+  direct Candid, CDK-family and raw-ABI dependencies.
 - Bind Wasm reports to retained build observations and remove redundant compiler
   probes and intermediate ICP staging from measurement.
-- Use published IC Storage for stable collections, shared control regions and
-  codecs; remove the final direct stable-structures dependency.
+- Adopt IC Storage 0.5.4 for stable collections, shared control regions and
+  codecs; remove the final direct stable-structures dependency without moving data.
 
 See [detailed notes](docs/changelog/0.277.md).
 
