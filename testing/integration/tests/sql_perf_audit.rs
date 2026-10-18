@@ -70,7 +70,7 @@ fn sql_perf_reports_total_instructions_for_query_warmup_and_loop_execution() {
     let sql = "SELECT COUNT(*) FROM PerfAuditUser";
 
     let cold = query_perf(&fixture, "query_user_with_perf", sql);
-    let warmed: Result<SqlQueryPerfResult, Error> = fixture
+    let warmed: Result<SqlQueryPhasePerfResult, Error> = fixture
         .pocket_ic()
         .update_wire(
             fixture.canister_id(),
@@ -93,6 +93,14 @@ fn sql_perf_reports_total_instructions_for_query_warmup_and_loop_execution() {
     assert_eq!(cold.result, looped.result);
     assert!(cold.instructions > 0);
     assert!(warmed.instructions > 0);
+    assert!(warmed.entry <= warmed.request_ready);
+    assert!(warmed.request_ready <= warmed.session_ready);
+    assert!(warmed.session_ready <= warmed.query_complete);
+    assert!(warmed.query_complete <= warmed.request_complete);
+    assert_eq!(
+        warmed.instructions,
+        warmed.query_complete - warmed.request_ready
+    );
     assert!(looped.instructions > 0);
 }
 
@@ -242,7 +250,7 @@ fn journaled_traversal_wasm_cost_matrix(family: &str, sql_for: fn(&str, u32) -> 
                 for repeat in 0..2 {
                     settle_measurement_rounds(&fixture);
                     let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
-                    let sample: Result<SqlQueryPerfResult, Error> = fixture
+                    let sample: Result<SqlQueryPhasePerfResult, Error> = fixture
                         .pocket_ic()
                         .update_wire(
                             fixture.canister_id(),
@@ -303,7 +311,7 @@ fn grouped_heap_wasm_cost_matrix() {
         for phase in ["compile", "hit", "repeat"] {
             settle_measurement_rounds(&fixture);
             let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
-            let sample: Result<SqlQueryPerfResult, Error> = fixture
+            let sample: Result<SqlQueryPhasePerfResult, Error> = fixture
                 .pocket_ic()
                 .update_wire(
                     fixture.canister_id(),
@@ -387,7 +395,7 @@ fn preparation_wasm_cost_matrix() {
             let balance = || fixture.pocket_ic().cycle_balance(fixture.canister_id());
             settle_measurement_rounds(&fixture);
             let before = balance();
-            let warmed: Result<SqlQueryPerfResult, Error> = fixture
+            let warmed: Result<SqlQueryPhasePerfResult, Error> = fixture
                 .pocket_ic()
                 .update_wire(
                     fixture.canister_id(),
@@ -405,7 +413,7 @@ fn preparation_wasm_cost_matrix() {
             for repeat in 0..3 {
                 settle_measurement_rounds(&fixture);
                 let before = balance();
-                let warm: Result<SqlQueryPerfResult, Error> = fixture
+                let warm: Result<SqlQueryPhasePerfResult, Error> = fixture
                     .pocket_ic()
                     .update_wire(
                         fixture.canister_id(),
@@ -462,7 +470,7 @@ fn arithmetic_wasm_cost_matrix() {
             for phase in ["compile", "hit"] {
                 settle_measurement_rounds(&fixture);
                 let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
-                let sample: Result<SqlQueryPerfResult, Error> = fixture
+                let sample: Result<SqlQueryPhasePerfResult, Error> = fixture
                     .pocket_ic()
                     .update_wire(
                         fixture.canister_id(),
@@ -514,7 +522,7 @@ fn case_admission_wasm_cost_matrix() {
             for phase in ["compile", "hit"] {
                 settle_measurement_rounds(&fixture);
                 let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
-                let sample: Result<SqlQueryPerfResult, Error> = fixture
+                let sample: Result<SqlQueryPhasePerfResult, Error> = fixture
                     .pocket_ic()
                     .update_wire(
                         fixture.canister_id(),
@@ -563,7 +571,7 @@ fn aggregate_wasm_cost_matrix() {
             for phase in ["compile", "hit"] {
                 settle_measurement_rounds(&fixture);
                 let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
-                let sample: Result<SqlQueryPerfResult, Error> = fixture
+                let sample: Result<SqlQueryPhasePerfResult, Error> = fixture
                     .pocket_ic()
                     .update_wire(
                         fixture.canister_id(),
@@ -780,7 +788,7 @@ fn grouped_having_wasm_cost_matrix() {
             for phase in ["compile", "hit"] {
                 settle_measurement_rounds(&fixture);
                 let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
-                let sample: Result<SqlQueryPerfResult, Error> = fixture
+                let sample: Result<SqlQueryPhasePerfResult, Error> = fixture
                     .pocket_ic()
                     .update_wire(
                         fixture.canister_id(),

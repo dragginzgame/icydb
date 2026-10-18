@@ -30,7 +30,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Share the dedicated grouped count reducer across direct and scalar-path keys,
   retaining instruction budgets and canonical null, equality and cursor rules.
 - Align validation and test fixtures with current tooling, selected dependencies,
-  key and reply budgets, exclusive memory handles, endpoint ownership and features.
+  key and reply budgets, exclusive memory handles, endpoint ownership, lifecycle
+  envelopes, audit reply layouts and features.
 - Align bootstrap diagnostics with Memory 0.48's admission errors.
 - Adopt registry IC Host 0.27 and Shared Tooling 0.23; restore CLI table
   qualification, consolidate scanner ownership and explicitly select IC tools.

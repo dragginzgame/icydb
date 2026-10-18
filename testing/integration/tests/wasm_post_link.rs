@@ -153,7 +153,13 @@ fn canonical_post_link_wasm_is_deterministic_and_upgrade_safe() {
 
     fixture
         .pocket_ic()
-        .upgrade_canister(fixture.canister_id(), final_deployable, Vec::new(), None)
+        .upgrade_canister(
+            fixture.canister_id(),
+            final_deployable,
+            icydb::wire::encode_post_upgrade_arguments(())
+                .expect("unit post-upgrade arguments should encode"),
+            None,
+        )
         .expect("compiler-to-post-link upgrade should succeed");
     deliver_fixture_startup_watchdog(fixture.pocket_ic());
 

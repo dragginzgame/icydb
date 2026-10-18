@@ -1,6 +1,6 @@
 //! Frozen current-path evidence, reusable for a matched production candidate.
 
-use super::{SqlQueryPerfResult, preparation_measurement_wasm, settle_measurement_rounds};
+use super::{SqlQueryPhasePerfResult, preparation_measurement_wasm, settle_measurement_rounds};
 use ic_host_artifacts::artifact::Sha256Digest;
 use icydb::{
     Error,
@@ -149,7 +149,7 @@ fn measure_sql(
     for repeat in 0..2 {
         settle_measurement_rounds(fixture);
         let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
-        let sample: Result<SqlQueryPerfResult, Error> = fixture
+        let sample: Result<SqlQueryPhasePerfResult, Error> = fixture
             .pocket_ic()
             .update_wire(
                 fixture.canister_id(),
