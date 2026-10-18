@@ -14,7 +14,7 @@ use crate::{
 };
 
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
-use serde::{Deserialize, Deserializer, de::Error as _};
+use serde::Deserialize;
 use std::borrow::Cow;
 
 /// Serialized frontend-safe filter literal payload.
@@ -250,8 +250,8 @@ impl StateOperator {
 /// and lowers onto planner-owned boolean expressions at the intent boundary.
 /// Supplied expressions must decode successfully even inside a Wire optional
 /// argument; an invalid predicate must never become an absent filter.
+/// Decode untrusted bytes through IC Wire's bounded native codec before lowering.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
-#[serde(remote = "Self")]
 pub enum FilterExpr {
     /// A constant boolean predicate.
     Constant(bool),
@@ -662,20 +662,6 @@ impl FilterExpr {
     }
 }
 
-impl<'de> Deserialize<'de> for FilterExpr {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        // Keep the derived visitor on this canonical enum, but make its failures
-        // terminal: Wire otherwise recovers subtype errors in opt as None.
-        // The contextual error also prevents Wire from reclassifying a bare
-        // subtype diagnostic as recoverable through serde::de::Error::custom.
-        Self::deserialize(deserializer)
-            .map_err(|error| D::Error::custom(format_args!("invalid filter expression: {error}")))
-    }
-}
-
 fn lower_field_value_compare(
     operator: CompareOperator,
     schema: &SchemaInfo,
@@ -894,12 +880,6 @@ fn binary_expr(
     })
 }
 
-impl serde::Serialize for FilterExpr {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        Self::serialize(self, serializer)
-    }
-}
-
 ///
 /// TESTS
 ///
@@ -926,7 +906,7 @@ mod tests {
             },
         },
         types::{Date, Duration, Subaccount, Timestamp},
-        value::Value,
+        value::{PublicValue, Value},
     };
 
     fn lower_filter(filter: &FilterExpr, schema: &SchemaInfo) -> Expr {
@@ -1528,6 +1508,57 @@ mod tests {
             icydb_schema::wire::decode_one::<Option<FilterExpr>>(&encoded)
                 .expect("absent filter should decode"),
             None,
+        );
+    }
+
+    #[test]
+    fn recursive_filter_wire_refuses_depth_before_materializing_the_input() {
+        // The native format carries Not as tag 2 and Constant(true) as [0, 1].
+        // Build hostile bytes directly so encoder admission cannot hide a decode gap.
+        let shallow = FilterExpr::Not(Box::new(FilterExpr::Constant(true)));
+        assert_eq!(icydb_schema::wire::encode_one(&shallow).unwrap(), [2, 0, 1]);
+        let mut nested = vec![2; icydb_schema::wire::MAX_DEPTH + 1];
+        nested.extend_from_slice(&[0, 1]);
+        assert!(matches!(
+            icydb_schema::wire::decode_one::<FilterExpr>(&nested),
+            Err(icydb_schema::wire::Error::Limit),
+        ));
+        nested.insert(0, 1); // Some must not recover the rejected predicate as None.
+        assert!(matches!(
+            icydb_schema::wire::decode_one::<Option<FilterExpr>>(&nested),
+            Err(icydb_schema::wire::Error::Limit),
+        ));
+
+        assert_eq!(
+            icydb_schema::wire::encode_one(FilterValue::List(vec![FilterValue::Null])).unwrap(),
+            [3, 1, 2],
+        );
+        let mut nested = [3, 1].repeat(icydb_schema::wire::MAX_DEPTH + 1);
+        nested.push(2);
+        assert!(matches!(
+            icydb_schema::wire::decode_one::<FilterValue>(&nested),
+            Err(icydb_schema::wire::Error::Limit),
+        ));
+
+        assert_eq!(
+            icydb_schema::wire::encode_one(PublicValue::List(vec![PublicValue::Null])).unwrap(),
+            [11, 1, 13],
+        );
+        let mut nested = [11, 1].repeat(icydb_schema::wire::MAX_DEPTH + 1);
+        nested.push(13);
+        assert!(matches!(
+            icydb_schema::wire::decode_one::<PublicValue>(&nested),
+            Err(icydb_schema::wire::Error::Limit),
+        ));
+
+        let mut admitted = FilterExpr::Constant(true);
+        for _ in 0..64 {
+            admitted = FilterExpr::Not(Box::new(admitted));
+        }
+        let bytes = icydb_schema::wire::encode_one(&admitted).unwrap();
+        assert_eq!(
+            icydb_schema::wire::decode_one::<FilterExpr>(&bytes).unwrap(),
+            admitted,
         );
     }
 

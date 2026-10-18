@@ -19,6 +19,13 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Adopt IC Storage 0.5.4 for stable collections, shared control regions and
   codecs; remove the final direct stable-structures dependency without moving data.
 
+### 🩹 Fixed
+
+- Size exact-key results without allocating encoded row buffers, preserving the
+  separate logical-result and endpoint-delivery limits.
+- Remove the obsolete filter error wrapper while retaining bounded Wire decoding
+  and rejection of malformed optional predicates.
+
 See [detailed notes](docs/changelog/0.277.md).
 
 ## [0.277.0] - 2026-10-18

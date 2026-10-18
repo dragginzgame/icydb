@@ -158,20 +158,19 @@ fn validate_logical_result_bytes(
     positions: &[u32],
     budget: &mut HardExecutionBudgetTracker,
 ) -> Result<(), InternalError> {
-    let mut total = icydb_schema::wire::encode_one((entity, columns))
-        .map_err(|_| InternalError::query_executor_invariant())?
-        .len();
-    let missing_row_bytes = icydb_schema::wire::encode_one(&Option::<Vec<OutputValue>>::None)
-        .map_err(|_| InternalError::query_executor_invariant())?
-        .len();
+    // Logical result admission has its own limit; transport delivery limits do
+    // not belong in this allocation-free sizing pass.
+    let mut total = icydb_schema::wire::encoded_len(&(entity, columns))
+        .map_err(|_| InternalError::query_executor_invariant())?;
+    let missing_row_bytes = icydb_schema::wire::encoded_len(&Option::<Vec<OutputValue>>::None)
+        .map_err(|_| InternalError::query_executor_invariant())?;
     let row_bytes = distinct_rows
         .iter()
         .map(|row| {
             if row.is_none() {
                 return Ok(missing_row_bytes);
             }
-            icydb_schema::wire::encode_one(row)
-                .map(|bytes| bytes.len())
+            icydb_schema::wire::encoded_len(row)
                 .map_err(|_| InternalError::query_executor_invariant())
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -525,6 +524,42 @@ mod tests {
                 > MAX_TYPED_EXACT_KEY_BATCH_RESULT_BYTES as u64,
             "rejected result work remains charged even when the exact-key boundary is returned",
         );
+    }
+
+    #[test]
+    fn exact_key_result_sizing_uses_the_logical_limit_above_transport_size() {
+        for payload_bytes in [
+            icydb_schema::wire::MAX_REPLY_BYTES + 1,
+            MAX_TYPED_EXACT_KEY_BATCH_RESULT_BYTES,
+        ] {
+            let columns = ["payload".to_string()];
+            let rows = [Some(vec![OutputValue::text("x".repeat(payload_bytes))])];
+            let expected = icydb_schema::wire::encoded_len(&("Large", columns.as_slice())).unwrap()
+                + icydb_schema::wire::encoded_len(&rows[0]).unwrap();
+            let mut budget = HardExecutionBudgetTracker::new(
+                &EXACT_KEY_HARD_BUDGET,
+                HardExecutionContext::new(
+                    DiagnosticExecutionBudgetScope::Execution,
+                    DiagnosticExecutionLane::PublicRead,
+                    1,
+                ),
+            );
+            let result = validate_logical_result_bytes("Large", &columns, &rows, &[0], &mut budget);
+            if expected <= MAX_TYPED_EXACT_KEY_BATCH_RESULT_BYTES {
+                result.expect("native result admission is independent of transport delivery");
+            } else {
+                assert_byte_bound(
+                    result.expect_err("logical overflow must retain its typed boundary"),
+                    icydb_diagnostic_code::RuntimeBoundaryCode::ExactKeyBatchResultBytesExceeded,
+                    expected,
+                    MAX_TYPED_EXACT_KEY_BATCH_RESULT_BYTES,
+                );
+            }
+            assert_eq!(
+                budget.observed(DiagnosticExecutionBudgetResource::ResultBytes),
+                expected as u64,
+            );
+        }
     }
 
     #[test]

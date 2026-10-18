@@ -1568,9 +1568,9 @@ dependencies = [
 
 [[package]]
 name = "ic-build"
-version = "0.17.6"
+version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9bb1f84823467432a477ed2e48e301b0fe310e0227e11acfe710f0cf335af8f1"
+checksum = "a746945b51515800a3051b2f8dc3794215035bbcc8cfe6b952f9673dc289dc74"
 dependencies = [
  "cargo_metadata",
  "ic-host-artifacts",
@@ -1582,6 +1582,7 @@ dependencies = [
  "sha2",
  "thiserror 2.0.18",
  "toml 1.1.8+spec-1.1.0",
+ "toml_edit 0.25.17+spec-1.1.0",
 ]
 
 [[package]]
@@ -1761,15 +1762,15 @@ checksum = "94a6dd4a177309ae7261375b68966e3f4445d32ae173a831e4136f52f15654a1"
 
 [[package]]
 name = "ic-metrics"
-version = "0.14.3"
+version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dac61137e8b7a67d649f475bdff907b278168292fe4bf103578293d1fb842651"
+checksum = "23aaf066e17070c30de460ebd986b92f3b45c708639678255bdae436b0d023f7"
 
 [[package]]
 name = "ic-platform"
-version = "0.1.13"
+version = "0.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e937488147ba2b73dc880310da72f2c819352fb94f922e5edd79a0f95c2b6f2c"
+checksum = "03c2300b6d347bc1c19ba35fcf4c31069134aefe1d4ec5bf7b5a8dfbc411285f"
 dependencies = [
  "candid",
  "candid_parser",
@@ -1783,9 +1784,9 @@ dependencies = [
 
 [[package]]
 name = "ic-platform-macros"
-version = "0.1.13"
+version = "0.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8eb491cbff9e4aa3ba3604a981232bba0494e7603d4bd6872f3d381f06b969f"
+checksum = "059cc35f51bbb884b19a986626ddf428ce53abf96f56a145dfa3cbe1f1cd8cc4"
 dependencies = [
  "darling 0.23.0",
  "proc-macro2",
@@ -1821,7 +1822,7 @@ dependencies = [
  "ic-host-artifacts",
  "ic-host-fs",
  "ic-host-process",
- "ic-metrics 0.14.3",
+ "ic-metrics 0.14.4",
  "ic-platform",
  "libc",
  "pocket-ic",
@@ -1862,9 +1863,9 @@ dependencies = [
 
 [[package]]
 name = "ic-wire"
-version = "0.4.2"
+version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "017cc899cdaf3de5f4294749484a1c5172dcc150f3de134dcc6d853579569eb6"
+checksum = "f5f81fa5f7be767885a3f1909f8482ad8f99d9c0b72d6d0415ec9b1092fdd82a"
 dependencies = [
  "ic-wire-derive",
  "postcard",
@@ -1874,9 +1875,9 @@ dependencies = [
 
 [[package]]
 name = "ic-wire-derive"
-version = "0.4.2"
+version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6daad5bbd0ae12d49f0dc3a5b5b466fb998bd32ecca615b58b679707c5b12df"
+checksum = "c2d4d14fdd8a9ac755b0c0d5fccf3aa2f51d3397a076fe53f335369d25ac3e77"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2027,7 +2028,7 @@ dependencies = [
  "base64 0.23.1",
  "getrandom 0.4.3",
  "ic-memory",
- "ic-metrics 0.14.3",
+ "ic-metrics 0.14.4",
  "ic-platform",
  "ic-storage",
  "icydb-diagnostic-code",
@@ -2175,7 +2176,7 @@ dependencies = [
  "ic-host-fs",
  "ic-host-process",
  "ic-host-tools",
- "ic-metrics 0.14.3",
+ "ic-metrics 0.14.4",
  "ic-wire",
  "icydb",
  "icydb-core",
@@ -4078,6 +4079,7 @@ dependencies = [
  "indexmap",
  "toml_datetime 1.1.2+spec-1.1.0",
  "toml_parser",
+ "toml_writer",
  "winnow 1.0.4",
 ]
 

@@ -75,7 +75,12 @@ Depth measures nesting, not the number of siblings in a flat `AND`, `OR` or
 
 These are input-content limits, not a complete bound on heap allocation,
 rendering, SQL parsing or endpoint deserialization. Endpoint authorization and
-decoder limits remain the application's responsibility.
+decoder limits remain the application's responsibility. IcyDB's native Wire
+contracts select byte, allocation, node and depth limits before Serde visitors
+materialize input. Use the bounded native codec for exported filter/value DTOs;
+direct use of an arbitrary Serde decoder does not inherit those limits. Unknown
+or malformed predicates inside an optional input reject rather than becoming
+an absent filter.
 
 ## Preparation And Accepted Metadata
 
