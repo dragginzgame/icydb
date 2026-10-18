@@ -5,6 +5,12 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.277.1]
+
+- Use Testkit's published simulated-time/tick operation for startup and timer
+  qualification, preserving caller-selected batches and readiness policy.
+  See [detailed notes](docs/changelog/0.277.md).
+
 ## [0.277.0] - 2026-10-18
 
 ### ⚠️ Breaking

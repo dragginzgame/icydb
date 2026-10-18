@@ -1,5 +1,5 @@
 use ic_principal::Principal;
-use ic_testkit::pic::StandaloneCanisterFixture;
+use ic_testkit::pic::{StandaloneCanisterFixture, advance_and_tick};
 use icydb_testing_audit_sql_perf_fixtures::contracts::{
     AcceptedSchemaReadInstructionResult, ApplicationStartupHook, ApplicationStartupSnapshot,
     SchemaApplicationPerfResult, StartupObservationPerfResult,
@@ -112,10 +112,7 @@ fn advance_watchdog(fixture: &StandaloneCanisterFixture) {
 }
 
 fn advance_watchdog_by(fixture: &StandaloneCanisterFixture, duration: Duration) {
-    fixture.pocket_ic().advance_time(duration);
-    for _ in 0..4 {
-        fixture.pocket_ic().tick();
-    }
+    advance_and_tick(fixture.pocket_ic(), duration, 4);
 }
 
 #[test]

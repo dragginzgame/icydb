@@ -17,7 +17,10 @@ use std::time::Duration;
 
 use ic_principal::Principal;
 use ic_testkit::{
-    pic::{InstallSpec, PocketIcInstance, PocketIcStartupConfig, StandaloneCanisterFixture},
+    pic::{
+        InstallSpec, PocketIcInstance, PocketIcStartupConfig, StandaloneCanisterFixture,
+        advance_and_tick,
+    },
     pocket_ic::{PocketIc, PocketIcBuilder},
 };
 use icydb::{Error, ErrorCode};
@@ -28,12 +31,12 @@ use icydb_testing_build::{
 };
 
 const FIXTURE_INSTALL_CYCLES: u128 = 100_000_000_000_000;
-const FIXTURE_STARTUP_MESSAGE_COMPLETION_TICKS: usize = 4;
+const FIXTURE_STARTUP_MESSAGE_COMPLETION_TICKS: u32 = 4;
 const POCKET_IC_INSTANCE_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 // A production watchdog callback may consume its full 30-billion-instruction
 // allocation under deterministic time slicing. The maintained timer-
 // exhaustion proof uses this same zero-time completion envelope.
-const WATCHDOG_MESSAGE_COMPLETION_TICKS: usize = 24;
+const WATCHDOG_MESSAGE_COMPLETION_TICKS: u32 = 24;
 
 /// Maximum watchdog deliveries in the frozen normal convergence residual proof.
 ///
@@ -47,9 +50,7 @@ pub fn deliver_startup_watchdog_message(pic: &PocketIc) {
     // Normal progress schedules zero-delay successor messages. These bounded
     // ticks let PocketIC deliver them and finish deterministic time slicing
     // without admitting a cadence-backed retry.
-    for _ in 0..WATCHDOG_MESSAGE_COMPLETION_TICKS {
-        pic.tick();
-    }
+    advance_and_tick(pic, Duration::ZERO, WATCHDOG_MESSAGE_COMPLETION_TICKS);
 }
 
 /// Decode the SQL audit canister's canonical startup-watchdog evidence.
@@ -261,10 +262,11 @@ pub fn deliver_fixture_startup_watchdog(pic: &PocketIc) {
     // so they cannot finish startup after its first entropy-pending result.
     // Keep setup bounded for both install and upgrade.
     for _ in 0..8 {
-        pic.advance_time(Duration::from_secs(1));
-        for _ in 0..FIXTURE_STARTUP_MESSAGE_COMPLETION_TICKS {
-            pic.tick();
-        }
+        advance_and_tick(
+            pic,
+            Duration::from_secs(1),
+            FIXTURE_STARTUP_MESSAGE_COMPLETION_TICKS,
+        );
     }
 }
 
