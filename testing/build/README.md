@@ -19,7 +19,9 @@ no forwarding APIs at the retired integration build paths.
 Tracking: [IcyDB #361](https://github.com/dragginzgame/icydb/issues/361).
 
 The host-only `wire_bindings` example describes the twelve maintained native
-endpoint contracts and emits browser types, metadata and exact Rust frames.
+endpoint contracts and emits metadata and exact Rust frames. IC Wire's shared
+`typescript::generate_registry` renders browser types and method objects; IcyDB
+retains reflection, identities, resource limits and native scalar constraints.
 Its reflection dependencies are development-only; it does not change runtime
 payloads or library dependencies. See [browser qualification](../wire-browser/README.md).
 

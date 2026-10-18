@@ -99,7 +99,7 @@ ic-metrics = "0.13"
 ic-stable-structures = "0.7.2"
 ic-testkit = "0.53"
 ic-timers = "0.27"
-ic-wire = "0.4"
+ic-wire = "0.4.1"
 ic0 = "1.2"
 ic_principal = "0.1.5"
 icydb = { path = "crates/icydb", version = "=0.277.0", default-features = false }

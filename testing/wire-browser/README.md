@@ -47,11 +47,14 @@ Repeated query bytes are stable; updates have their existing database semantics.
 
 ## Shared codec ownership
 
-Registry IC Wire 0.4 supplies `typescript::RUNTIME`; generated browser files
-copy that exact dependency payload from the same package used by native Rust. IcyDB retains concrete Serde metadata,
-endpoint identities, its 32,768-value/32-level allowances and native scalar rules.
-`native-runtime.ts` only binds the shared codec to IcyDB's Decimal validator.
-The finite IC Wire generator still refuses opaque native Rust metadata.
+Registry IC Wire 0.4.1 or newer supplies `typescript::generate_registry` and
+`typescript::RUNTIME` from the same package used by native Rust. The shared
+emitter owns type rendering, name/reference validation and typed method objects;
+generated browser files copy its exact runtime payload. IcyDB retains concrete
+Serde reflection, endpoint identities, its 32,768-value/32-level allowances and
+native scalar rules. `native-runtime.ts` binds the shared codec to IcyDB's Decimal
+validator. The native-registry emitter consumes this explicit metadata; the finite
+Wire generator still refuses opaque native Rust types.
 
 ## Admission and scope
 
