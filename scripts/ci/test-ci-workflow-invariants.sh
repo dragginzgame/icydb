@@ -69,10 +69,10 @@ reset
 mutate '(.jobs.dependency_msrv.steps[] | select(.run == "bash scripts/ci/check-public-msrv.sh")).if = "github.event_name == '\''pull_request'\''"'
 check fail conditional-msrv-gate
 reset
-mutate '.jobs.dependency_msrv.steps |= map(select(.uses != "./.github/actions/fetch-workspace"))'
+mutate '.jobs.dependency_msrv.steps |= map(select(.run != "cargo fetch --locked"))'
 check fail missing-msrv-cache-preparation
 reset
-mutate '.jobs.dependency_msrv.steps |= (map(select(.uses != "./.github/actions/fetch-workspace")) + [.[] | select(.uses == "./.github/actions/fetch-workspace")])'
+mutate '.jobs.dependency_msrv.steps |= (map(select(.run != "cargo fetch --locked")) + [.[] | select(.run == "cargo fetch --locked")])'
 check fail late-msrv-cache-preparation
 reset
 mutate '(.jobs.macos_host.steps[] | select(has("run")) | .run) |= sub("make check-portable-automation"; "make help")'
@@ -109,19 +109,22 @@ reset
 mutate '(.jobs.rust.steps[] | select(.env.MAKE_TARGET == "${{ matrix.make_target }}")) |= del(.env.MAKE_TARGET)'
 check fail missing-matrix-make-target
 reset
-mutate '.jobs.rust.steps |= map(select(.uses != "./.github/actions/fetch-workspace"))'
+mutate '.jobs.rust.steps |= map(select(.run != "cargo fetch --locked"))'
 check fail missing-locked-cache-preparation
 reset
-mutate '.jobs.rust.steps |= (map(select(.uses != "./.github/actions/fetch-workspace")) + [.[] | select(.uses == "./.github/actions/fetch-workspace")])'
+mutate '(.jobs.rust.steps[] | select(.run == "cargo fetch --locked")).run = "cargo fetch"'
+check fail unlocked-cache-preparation
+reset
+mutate '.jobs.rust.steps |= (map(select(.run != "cargo fetch --locked")) + [.[] | select(.run == "cargo fetch --locked")])'
 check fail cache-preparation-after-offline-check
 reset
-mutate '(.jobs.rust.steps[] | select(.uses == "./.github/actions/fetch-workspace")).if = "github.event_name == '\''pull_request'\''"'
+mutate '(.jobs.rust.steps[] | select(.run == "cargo fetch --locked")).if = "github.event_name == '\''pull_request'\''"'
 check fail conditional-cache-preparation
 reset
-mutate '(.jobs.rust.steps[] | select(.uses == "./.github/actions/fetch-workspace")).continue-on-error = true'
+mutate '(.jobs.rust.steps[] | select(.run == "cargo fetch --locked")).continue-on-error = true'
 check fail ignored-cache-preparation-failure
 reset
-mutate '(.jobs.rust.steps[] | select(.uses == "./.github/actions/fetch-workspace")) as $fetch | .jobs.rust.steps |= map(select(.uses != "./.github/actions/fetch-workspace")) | .jobs.static.steps += [$fetch]'
+mutate '(.jobs.rust.steps[] | select(.run == "cargo fetch --locked")) as $fetch | .jobs.rust.steps |= map(select(.run != "cargo fetch --locked")) | .jobs.static.steps += [$fetch]'
 check fail cache-preparation-wrong-job
 reset
 mutate '.jobs.static.steps |= map(select(.name != "Prepare locked Testkit CLI for substitute-server fixtures"))'

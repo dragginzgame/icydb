@@ -55,6 +55,17 @@ struct SqlQueryPerfResult {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+struct SqlQueryPhasePerfResult {
+    result: SqlQueryResult,
+    instructions: u64,
+    entry: u64,
+    request_ready: u64,
+    session_ready: u64,
+    query_complete: u64,
+    request_complete: u64,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 struct LiveQueryPagePerfOutput {
     page: LiveQueryPageOutput,
     instructions: u64,
@@ -377,7 +388,7 @@ fn assert_within_cardinality_hot_path_gate(candidate: u64, baseline: u64, label:
 }
 
 fn maximum_cardinality_probe_sql() -> String {
-    const VALUE_BYTES: usize = 4_000;
+    const VALUE_BYTES: usize = 150;
 
     let value = |ordinal: u8| {
         let prefix = format!("p{ordinal:02}");
@@ -747,7 +758,7 @@ fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
     assert_eq!(ready_row_count, cursor_rows);
     assert_eq!(ready_rows, fallback_rows);
 
-    let exact: Result<SqlQueryPerfResult, Error> = fixture
+    let exact: Result<SqlQueryPhasePerfResult, Error> = fixture
         .pocket_ic()
         .update_wire(
             fixture.canister_id(),
@@ -761,7 +772,7 @@ fn exact_cardinality_tiebreak_improves_selective_work_and_survives_upgrade() {
         exact.instructions < fallback.instructions,
         "the production-shaped selective route must repay its bounded planning work",
     );
-    let warm_exact: Result<SqlQueryPerfResult, Error> = fixture
+    let warm_exact: Result<SqlQueryPhasePerfResult, Error> = fixture
         .pocket_ic()
         .update_wire(
             fixture.canister_id(),
@@ -878,7 +889,7 @@ fn exact_cardinality_tiebreak_maximum_ic_shapes_remain_bounded() {
     );
 
     println!(
-        "0.236 maximum tie-break: candidates=64 candidate_instructions={} probes=256 probe_instructions={} probe_value_bytes=3072000",
+        "0.236 maximum tie-break: candidates=64 candidate_instructions={} probes=256 probe_instructions={} probe_value_bytes=115200",
         maximum_candidates.instructions, maximum_probes.instructions,
     );
 }

@@ -21,9 +21,9 @@ use crate::{
                         GroupIndexBucket, compare_grouped_boundary_values,
                         find_matching_group_index_in_bucket, group_key_matches_path_group_values,
                         group_key_matches_row_view, group_key_matches_single_group_value,
-                        materialize_path_group_key, resolve_group_field_value,
-                        stable_hash_group_values_from_row_view, stable_hash_path_group_values,
-                        stable_hash_single_group_value,
+                        materialize_ordered_path_group_key, materialize_path_group_key,
+                        resolve_group_field_value, stable_hash_group_values_from_row_view,
+                        stable_hash_path_group_values, stable_hash_single_group_value,
                     },
                 },
             },
@@ -349,23 +349,8 @@ impl OrderedGroupedAggregateFold {
         direction: Direction,
         visit_closed_group: impl FnOnce(GroupedFinalizeGroup) -> Result<bool, InternalError>,
     ) -> Result<bool, GroupError> {
-        let incoming_key = if let [field] = group_fields {
-            let group_value = row_view
-                .predecoded_single_group_path_value()
-                .map_or_else(|| resolve_group_field_value(row_view, field), Ok)
-                .map_err(GroupError::from)?
-                .clone();
-            if field.has_identity_group_canonical_form() {
-                GroupKey::from_single_canonical_group_value(group_value)
-                    .map_err(GroupError::from)?
-            } else {
-                GroupKey::from_single_group_value(group_value).map_err(GroupError::from)?
-            }
-        } else {
-            let hash =
-                stable_hash_path_group_values(row_view, group_fields).map_err(GroupError::from)?;
-            materialize_path_group_key(row_view, group_fields, hash).map_err(GroupError::from)?
-        };
+        let incoming_key =
+            materialize_ordered_path_group_key(row_view, group_fields).map_err(GroupError::from)?;
         self.ingest_group_key(
             execution_context,
             data_key,

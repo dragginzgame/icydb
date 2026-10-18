@@ -26,18 +26,6 @@ pub const ENTITY_SCALE_ADDED_ENTITIES: u64 = 9;
 /// post-link optimizer.
 pub const MINIMUM_POST_LINK_RAW_REDUCTION_BASIS_POINTS: u16 = 700;
 
-/// Minimum final code-section reduction required from the prepared-page slice.
-pub const MINIMUM_PREPARED_PAGE_CODE_REDUCTION_BYTES: u64 = 32 * 1024;
-
-/// Minimum final raw-Wasm reduction required from the compact basic-metrics slice.
-pub const MINIMUM_BASIC_METRICS_RAW_REDUCTION_BYTES: u64 = 32 * 1024;
-
-/// Absolute instruction increase that participates in the material-regression gate.
-pub const MATERIAL_INSTRUCTION_REGRESSION: u64 = 250_000;
-
-/// Relative instruction increase that participates in the material-regression gate.
-pub const MATERIAL_INSTRUCTION_REGRESSION_BASIS_POINTS: u16 = 300;
-
 /// A finalized raw-Wasm entity-scale measurement exceeded its maintained ceiling.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct EntityScaleWasmBudgetExceeded {
@@ -380,10 +368,6 @@ mod tests {
                 .map(|comparison| comparison.disposition),
             Some(WasmComparisonDisposition::Attributable)
         );
-        assert_eq!(MINIMUM_PREPARED_PAGE_CODE_REDUCTION_BYTES, 32_768);
-        assert_eq!(MINIMUM_BASIC_METRICS_RAW_REDUCTION_BYTES, 32_768);
-        assert_eq!(MATERIAL_INSTRUCTION_REGRESSION, 250_000);
-        assert_eq!(MATERIAL_INSTRUCTION_REGRESSION_BASIS_POINTS, 300);
     }
 
     #[test]

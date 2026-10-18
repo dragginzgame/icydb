@@ -3,16 +3,15 @@
 //! Does not own: CLI argument parsing or observability payload decoding.
 //! Boundary: test-only assertions over process command arguments and parser helpers.
 
+use icydb::wire::Endpoint;
+
 use std::path::Path;
 
-use crate::{
-    endpoint::{SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT},
-    icp::test_support::{
-        build_command, canister_status_id_command, canister_status_json_command, deploy_command,
-        fixtures_load_command, hex_response_bytes, icp_query_command, icp_update_command,
-        install_upgrade_command, parse_canister_cycles, parse_manifest_canisters,
-        parse_manifest_environment_network, status_command, top_up_command,
-    },
+use crate::icp::test_support::{
+    build_command, canister_status_id_command, canister_status_json_command, deploy_command,
+    fixtures_load_command, hex_response_bytes, icp_query_command, icp_update_command,
+    install_upgrade_command, parse_canister_cycles, parse_manifest_canisters,
+    parse_manifest_environment_network, status_command, top_up_command,
 };
 
 #[test]
@@ -87,7 +86,7 @@ fn icp_query_command_targets_environment_and_hex_query_output() {
     let command = icp_query_command(
         "demo",
         "demo_rpg",
-        SQL_QUERY_ENDPOINT.method(),
+        Endpoint::Query.name(),
         Path::new("arguments.bin"),
     );
     let args = command
@@ -121,7 +120,7 @@ fn icp_update_command_targets_environment_without_query_flag() {
     let command = icp_update_command(
         "demo",
         "demo_rpg",
-        SQL_DDL_ENDPOINT.method(),
+        Endpoint::Ddl.name(),
         Path::new("arguments.bin"),
     );
     let args = command

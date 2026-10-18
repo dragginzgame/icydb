@@ -66,11 +66,10 @@ query-shape rejection as the same condition. This terminal never starts a scan
 automatically. Before removing an application-owned bounded count path, qualify
 metadata availability for the application's actual tables and lifecycle.
 
-## Public Endpoint Template
+## Public Handler and Wire Export
 
 ```rust
 #[icydb::request_execution]
-#[ic_cdk::query]
 fn active_users(continuation: Option<String>) -> Result<LivePage<User>, String> {
     db!()
         .map_err(|error| error.to_string())?
@@ -83,8 +82,17 @@ fn active_users(continuation: Option<String>) -> Result<LivePage<User>, String> 
 }
 ```
 
-The endpoint must authorize the caller before entering IcyDB and establish
-exactly one request boundary. Nested helpers use `db!()` without an argument
+This is a plain Rust handler. The application mounts it with
+`canic_icydb::wire_endpoint!` and `canic_icydb::serve_raw`, using an application-owned
+method identity and bounded `ic_wire::native::decode_request` / `encode_response`
+callbacks. The [compiled typed-query actor](../../canisters/audit/one_entity_typed_query/src/lib.rs)
+and [fixture export helper](../../testing/wasm-helpers/src/fixture_wire.rs) demonstrate
+that composition; the helper's method roster and identities are test fixtures,
+not an application dependency. A Candid-generating SDK query attribute does not
+encode this native contract.
+
+The host export must authorize the caller before invoking the handler and
+establish exactly one request boundary. Nested helpers use `db!()` without an argument
 and share that request's counters. Async endpoints use the same attribute:
 IcyDB installs the scope only while their future is polled and retains its
 counters across `.await`. The endpoint must still enforce its final

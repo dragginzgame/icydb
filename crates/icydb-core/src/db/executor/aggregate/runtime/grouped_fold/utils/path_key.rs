@@ -43,6 +43,24 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn resolve_group_f
         .unwrap_or(&Value::Null))
 }
 
+/// Materialize an ordered path tuple through the same canonical key owner for
+/// count and generic reducers. Single identity leaves avoid tuple revalidation.
+pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn materialize_ordered_path_group_key(
+    row_view: &RowView,
+    group_fields: &[GroupField],
+) -> Result<GroupKey, InternalError> {
+    if let [field] = group_fields {
+        let value = resolve_group_field_value(row_view, field)?.clone();
+        return if field.has_identity_group_canonical_form() {
+            GroupKey::from_single_canonical_group_value(value)
+        } else {
+            GroupKey::from_single_group_value(value)
+        };
+    }
+    let hash = stable_hash_path_group_values(row_view, group_fields)?;
+    materialize_path_group_key(row_view, group_fields, hash)
+}
+
 /// Hash one virtual path-aware group tuple without materializing a value vector.
 pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn stable_hash_path_group_values(
     row_view: &RowView,

@@ -13,6 +13,47 @@ these rules.
 
 ## Ownership and provenance
 
+### Current capability boundary
+
+IcyDB owns accepted-schema authority, query planning and execution, storage/key
+formats, recovery semantics, its public database facade and application-model
+code generation. Its CLI and test actors are consumers of that implementation.
+The main public entry points are the `icydb` facade (`db`, `model`, `types`,
+`value`, `wire` and host-only `build`), the independently published schema/model
+and diagnostic packages, and the `icydb` CLI. Applications explicitly mount
+`canic_icydb::start!` and `canic_icydb::endpoints!` for IC exports.
+
+| Capability | Canonical owner | IcyDB integration retained |
+| --- | --- | --- |
+| IC endpoint exports, lifecycle composition and startup timer hosting | Canic's `canic-icydb` adapter | Private generated database handlers, explicit adapter mounting and installed boundary tests |
+| Native payload/envelope encoding, sizing and TypeScript codec runtime | IC Wire | Endpoint identities, concrete Serde metadata, byte/resource policy and scalar validation |
+| Allocation admission and exclusive memory leases | IC Memory | Database logical keys, host grant declarations and storage-role bindings |
+| Collection implementation | IC Stable Structures | Database-owned codecs, indexes and transactions over admitted memory |
+| Counter/aggregate arithmetic | IC Metrics | Database phase/entity attribution, report selection and resets |
+| Cargo/Wasm acquisition and retained artifact caches | IC Build | Actor recipes, optimizer/interface policy and report budgets |
+| Hash/file/process/text primitives | IC Host Tooling | Product artifact admission, tool pins and CLI presentation |
+| PocketIC setup, admission, browser gateway and server/instance lifecycle | IC Testkit | Test scenarios, fixture identities and native Wire calls |
+| Shared installers, release plumbing and structural scanner | Shared Tooling snapshots | Local Make inputs, release metadata adapters and runtime source inventories |
+
+The manifests and selected source packages establish these boundaries. Available
+sibling repositories were read as supporting evidence, including their dirty
+and pending work; they are not implicit dependencies. The selected Wire 0.4.0
+archive includes the browser runtime, so its earlier Git-only copy and private
+fetch action are retired. The browser keeps its concrete Decimal adapter, and
+IcyDB keeps lifecycle/recovery integration fixtures: these supply consumer policy
+and qualification rather than another codec, timer runtime or simulator owner.
+Canic's adapter deliberately has no IcyDB dependency; facade compile fixtures
+therefore still qualify real generated handlers, feature gates and guard types
+against the selected adapter rather than a fake database API.
+`ic-query` is an independent read-only network explorer, not the owner of IcyDB's
+SQL shell. The bounded project-local ICP manifest reader still serves local-cycle
+policy; no replacement project-discovery interface was verified in Host.
+
+Entries below record earlier source-bound adoption evidence. Their dependency
+versions and remaining prerequisites do not override the current manifests or
+establish qualification of later inputs. Native macOS/hosted CI remains separate
+from Linux consumer checks.
+
 ### Structural Rust scanner source
 
 The root [.shared-tooling.snapshot](../../.shared-tooling.snapshot) now owns the

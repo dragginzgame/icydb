@@ -22,6 +22,7 @@ use crate::{
                 },
                 dispatch::{GroupedCountKeyPath, GroupedCountProbeKind},
                 generic::OrderedGroupedPageSelection,
+                utils::materialize_ordered_path_group_key,
             },
             runtime::grouped_output::finalize_grouped_output,
             value_reducer::finalize_count,
@@ -42,6 +43,10 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) use ingest::materi
 
 // Execute grouped `COUNT(*)` through a dedicated fold path that keeps only one
 // canonical grouped-count map instead of the generic grouped reducer stack.
+#[expect(
+    clippy::too_many_lines,
+    reason = "keep count-state admission and finalization around the four statically selected ingest shapes"
+)]
 pub(super) fn execute_single_grouped_count_fold_stage(
     route: &GroupedRouteStage,
     stream: &mut GroupedStreamStage,
@@ -81,9 +86,12 @@ pub(super) fn execute_single_grouped_count_fold_stage(
     match key_path {
         GroupedCountKeyPath::DirectSingleField { group_field_index } => {
             while let Some(data_key) = resolved.key_stream_mut().next_key()? {
-                let group_value =
-                    row_runtime.read_single_group_value(consistency, &data_key, group_field_index);
-                let Some(group_value) = group_value? else {
+                let Some(group_value) = row_runtime.read_single_group_value(
+                    consistency,
+                    &data_key,
+                    group_field_index,
+                )?
+                else {
                     continue;
                 };
                 filtered_rows = filtered_rows.saturating_add(1);
@@ -118,6 +126,29 @@ pub(super) fn execute_single_grouped_count_fold_stage(
                 &mut filtered_rows,
                 GroupedCountState::increment_row_owned_group_key,
             )?;
+        }
+        GroupedCountKeyPath::RowView {
+            probe_kind: GroupedCountProbeKind::PathAware,
+        } => {
+            let Some(fields) = route.group_fields().as_path_aware() else {
+                return Err(InternalError::query_executor_invariant());
+            };
+            while let Some(data_key) = resolved.key_stream_mut().next_key()? {
+                let Some(row_view) = row_runtime.read_row_view(consistency, &data_key)? else {
+                    continue;
+                };
+                if let Some(program) = effective_runtime_filter_program
+                    && !row_view.eval_filter_program(program)?
+                {
+                    continue;
+                }
+                grouped_counts.increment_row_path_group_probe(
+                    &row_view,
+                    fields,
+                    grouped_execution_context,
+                )?;
+                filtered_rows = filtered_rows.saturating_add(1);
+            }
         }
     }
 
@@ -166,9 +197,12 @@ fn execute_ordered_grouped_count_fold_stage(
     match key_path {
         GroupedCountKeyPath::DirectSingleField { group_field_index } => {
             while let Some(data_key) = resolved.key_stream_mut().next_key()? {
-                let group_value =
-                    row_runtime.read_single_group_value(consistency, &data_key, group_field_index);
-                let Some(group_value) = group_value? else {
+                let Some(group_value) = row_runtime.read_single_group_value(
+                    consistency,
+                    &data_key,
+                    group_field_index,
+                )?
+                else {
                     continue;
                 };
                 let group_key = GroupKey::from_single_canonical_group_value(group_value)?;
@@ -186,9 +220,6 @@ fn execute_ordered_grouped_count_fold_stage(
             }
         }
         GroupedCountKeyPath::RowView { .. } => {
-            let Some(group_fields) = route.group_fields().as_direct() else {
-                return Err(InternalError::query_executor_invariant());
-            };
             while let Some(data_key) = resolved.key_stream_mut().next_key()? {
                 let row_view = row_runtime.read_row_view(consistency, &data_key);
                 let Some(row_view) = row_view? else {
@@ -199,7 +230,13 @@ fn execute_ordered_grouped_count_fold_stage(
                 {
                     continue;
                 }
-                let group_key = materialize_group_key_from_row_view(&row_view, group_fields, None)?;
+                let group_key = if let Some(fields) = route.group_fields().as_direct() {
+                    materialize_group_key_from_row_view(&row_view, fields, None)?
+                } else if let Some(fields) = route.group_fields().as_path_aware() {
+                    materialize_ordered_path_group_key(&row_view, fields)?
+                } else {
+                    return Err(InternalError::query_executor_invariant());
+                };
                 early_scan_stop = apply_ordered_count_row(
                     &mut transitions,
                     grouped_execution_context,

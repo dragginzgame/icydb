@@ -11,12 +11,11 @@ mod route;
 
 use std::path::PathBuf;
 
-use icydb::db::sql::SqlQueryResult;
+use icydb::{db::sql::SqlQueryResult, wire::Endpoint};
 
 use crate::{
     cli::{SqlArgs, SqlShellFields},
     diagnostic::render_error,
-    endpoint::{Endpoint, SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT, SQL_UPDATE_ENDPOINT},
     icp::require_created_canister,
 };
 
@@ -82,21 +81,21 @@ fn execute_sql(environment: &str, canister: &str, sql: &str) -> Result<String, S
 
     let wire_bytes = match call_kind {
         route::SqlShellCallKind::Query => {
-            call::icp_query(environment, canister, endpoint.method(), sql)?
+            call::icp_query(environment, canister, endpoint.name(), sql)?
         }
         route::SqlShellCallKind::Ddl | route::SqlShellCallKind::Update => {
-            call::icp_update(environment, canister, endpoint.method(), sql)?
+            call::icp_update(environment, canister, endpoint.name(), sql)?
         }
     };
 
-    render_sql_response(endpoint.method(), wire_bytes.as_slice())
+    render_sql_response(endpoint.name(), wire_bytes.as_slice())
 }
 
 const fn sql_endpoint(call_kind: route::SqlShellCallKind) -> Endpoint {
     match call_kind {
-        route::SqlShellCallKind::Query => SQL_QUERY_ENDPOINT,
-        route::SqlShellCallKind::Ddl => SQL_DDL_ENDPOINT,
-        route::SqlShellCallKind::Update => SQL_UPDATE_ENDPOINT,
+        route::SqlShellCallKind::Query => Endpoint::Query,
+        route::SqlShellCallKind::Ddl => Endpoint::Ddl,
+        route::SqlShellCallKind::Update => Endpoint::Update,
     }
 }
 

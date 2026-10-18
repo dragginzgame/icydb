@@ -100,8 +100,6 @@ ic-stable-structures = "0.7.2"
 ic-testkit = "0.53"
 ic-timers = "0.27"
 ic-wire = "0.4"
-# Browser-only runtime support awaits publication of IC Wire PR #1.
-ic-wire-browser = { package = "ic-wire", git = "https://github.com/dragginzgame/ic-wire.git", rev = "0622057b2722d968951e9a6737ead0073d54abcf", features = ["typescript"] }
 ic0 = "1.2"
 ic_principal = "0.1.5"
 icydb = { path = "crates/icydb", version = "=0.276.0", default-features = false }

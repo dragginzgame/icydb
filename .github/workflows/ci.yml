@@ -40,10 +40,7 @@ jobs:
             . -> target
           cache-targets: "false"
       - name: Fetch locked workspace dependencies
-        uses: ./.github/actions/fetch-workspace
-        with:
-          app-id: ${{ secrets.IC_WIRE_APP_ID }}
-          private-key: ${{ secrets.IC_WIRE_APP_PRIVATE_KEY }}
+        run: cargo fetch --locked
       - name: Check the declared public MSRV
         run: bash scripts/ci/check-public-msrv.sh
 
@@ -83,10 +80,7 @@ jobs:
           printf '%s\n' "$GITHUB_WORKSPACE/.tools/host/bin" \
             "$GITHUB_WORKSPACE/.tools/ic/bin" "$GITHUB_WORKSPACE/.tools/rust/common/bin" >> "$GITHUB_PATH"
       - name: Fetch locked workspace dependencies
-        uses: ./.github/actions/fetch-workspace
-        with:
-          app-id: ${{ secrets.IC_WIRE_APP_ID }}
-          private-key: ${{ secrets.IC_WIRE_APP_PRIVATE_KEY }}
+        run: cargo fetch --locked
       - name: Prepare locked Testkit CLI for substitute-server fixtures
         run: |
           bash scripts/ci/testkit-runner.sh
@@ -157,10 +151,7 @@ jobs:
           restore-keys: |
             icydb-tier-b-wasm-v1-${{ runner.os }}-${{ runner.arch }}-${{ env.RUST_CURRENT }}-
       - name: Fetch locked workspace dependencies
-        uses: ./.github/actions/fetch-workspace
-        with:
-          app-id: ${{ secrets.IC_WIRE_APP_ID }}
-          private-key: ${{ secrets.IC_WIRE_APP_PRIVATE_KEY }}
+        run: cargo fetch --locked
       - name: Install pinned local tools
         run: |
           make install-tools LOCAL_TOOL_INSTALL_TARGETS= > "$RUNNER_TEMP/tools-install.log" 2>&1
@@ -214,10 +205,7 @@ jobs:
           components: rustfmt, clippy
           targets: wasm32-unknown-unknown
       - name: Fetch locked workspace dependencies
-        uses: ./.github/actions/fetch-workspace
-        with:
-          app-id: ${{ secrets.IC_WIRE_APP_ID }}
-          private-key: ${{ secrets.IC_WIRE_APP_PRIVATE_KEY }}
+        run: cargo fetch --locked
       - name: Install native workstation prerequisites and tools
         run: make install-dev
       - name: Expose installed tool directories
@@ -291,10 +279,7 @@ jobs:
           npm --prefix testing/wire-browser ci --ignore-scripts
           testing/wire-browser/node_modules/.bin/playwright install --with-deps chromium
       - name: Fetch locked workspace dependencies
-        uses: ./.github/actions/fetch-workspace
-        with:
-          app-id: ${{ secrets.IC_WIRE_APP_ID }}
-          private-key: ${{ secrets.IC_WIRE_APP_PRIVATE_KEY }}
+        run: cargo fetch --locked
       - name: Prepare governed IC tools and Testkit server
         run: |
           make install-tools
@@ -357,10 +342,7 @@ jobs:
             . -> target
           cache-targets: "false"
       - name: Fetch locked workspace dependencies
-        uses: ./.github/actions/fetch-workspace
-        with:
-          app-id: ${{ secrets.IC_WIRE_APP_ID }}
-          private-key: ${{ secrets.IC_WIRE_APP_PRIVATE_KEY }}
+        run: cargo fetch --locked
       - name: Check shared SQL source in both Wasm profiles
         run: |
           cargo check --locked --target wasm32-unknown-unknown \

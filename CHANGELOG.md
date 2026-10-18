@@ -25,6 +25,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### 🔧 Changed
 
+- Use registry IC Wire for browser generation, remove obsolete private fetch
+  credentials, and consolidate CLI method selection with the native contract.
+- Share the dedicated grouped count reducer across direct and scalar-path keys,
+  retaining instruction budgets and canonical null, equality and cursor rules.
 - Align validation and test fixtures with current tooling, selected dependencies,
   key and reply budgets, exclusive memory handles, endpoint ownership and features.
 - Align bootstrap diagnostics with Memory 0.48's admission errors.

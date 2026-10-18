@@ -11,9 +11,10 @@ def needs_list:
 def needs_are($expected):
   (.needs | needs_list | sort | unique) == ($expected | sort | unique);
 def run_text: .run // "";
-# The composite action owns private dependency admission and locked fetching.
+# Cargo owns fetching the selected registry/public Git graph; preparation must
+# precede offline callers and stop the lane on failure.
 def fetches_locked_workspace:
-  .uses == "./.github/actions/fetch-workspace"
+  (run_text | test("^\\s*cargo\\s+fetch\\s+--locked\\s*$"))
   and .if == null and (.["continue-on-error"] // false) == false;
 # Native-only lanes select the complete common roster without Testkit's server
 # extension; live lanes must explicitly select the existing product owner.
@@ -147,4 +148,4 @@ require(has("permissions") and (.permissions != null);
     select($steps[$index] | run_text |
       test("\\bmake\\s+(install-tools|install-testkit)\\b")) |
     require(any($steps[0:$index][]; fetches_locked_workspace);
-      "Rust tool checks require an earlier unconditional workspace fetch action that stops on failure")))
+      "Rust tool checks require an earlier unconditional workspace fetch command that stops on failure")))

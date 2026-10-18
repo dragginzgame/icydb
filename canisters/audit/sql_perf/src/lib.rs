@@ -701,7 +701,8 @@ const CARDINALITY_TIEBREAK_FIXTURE_ROWS: i32 = 10_001;
 #[cfg(feature = "test-admin-api")]
 const CARDINALITY_TIEBREAK_LOAD_BATCH_ROWS: i32 = 2_048;
 #[cfg(feature = "test-admin-api")]
-const CARDINALITY_PROBE_VALUE_BYTES: usize = 4_000;
+// Three text components plus the fourth scalar and key framing fit 512 bytes.
+const CARDINALITY_PROBE_VALUE_BYTES: usize = 150;
 #[cfg(feature = "sql")]
 const STREAMING_EXECUTION_WIDE_PAYLOAD_BYTES: &[usize] = &[300 * 1_024, 150 * 1_024, 40 * 1_024];
 

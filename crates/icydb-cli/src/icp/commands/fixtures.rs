@@ -3,17 +3,14 @@
 //! Does not own: generic canister lifecycle commands or project discovery.
 //! Boundary: exposes fixture command construction and cycle parsing to the ICP command owner.
 
+use icydb::wire::Endpoint;
+
 use std::process::{Command, Stdio};
 
-use crate::{
-    endpoint::FIXTURES_LOAD_ENDPOINT,
-    icp::{
-        commands::append_environment_args,
-        process::{
-            CanisterStatusOutput, canister_status_command, output_stderr, run_external_command,
-        },
-        project::environment_targets_local,
-    },
+use crate::icp::{
+    commands::append_environment_args,
+    process::{CanisterStatusOutput, canister_status_command, output_stderr, run_external_command},
+    project::environment_targets_local,
 };
 
 const LOCAL_FIXTURE_CYCLES_TOP_UP_AMOUNT: &str = "100t";
@@ -101,7 +98,7 @@ fn fixture_load_result(response: Result<Vec<u8>, String>) -> Result<String, Stri
 fn fixture_load_error(stderr: String) -> String {
     format!(
         "icp canister call {} failed: {stderr}",
-        FIXTURES_LOAD_ENDPOINT.method(),
+        Endpoint::FixturesLoad.name(),
     )
 }
 
@@ -113,7 +110,7 @@ pub(super) fn fixtures_load_command(
     crate::icp::call::icp_update_command(
         environment,
         canister,
-        FIXTURES_LOAD_ENDPOINT.method(),
+        Endpoint::FixturesLoad.name(),
         argument_file,
     )
 }

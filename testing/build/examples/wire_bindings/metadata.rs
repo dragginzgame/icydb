@@ -214,10 +214,7 @@ pub(super) fn write(out: &Path, types: &Registry, methods: &[Value]) -> Result<(
         out.join("native-runtime.ts"),
         include_str!("../../../wire-browser/native-runtime.ts"),
     )?;
-    fs::write(
-        out.join("wire-runtime.ts"),
-        ic_wire_browser::typescript::RUNTIME,
-    )?;
+    fs::write(out.join("wire-runtime.ts"), ic_wire::typescript::RUNTIME)?;
     fs::write(
         out.join("contracts.json"),
         serde_json::to_vec_pretty(&json!({"types":types,"methods":methods}))?,

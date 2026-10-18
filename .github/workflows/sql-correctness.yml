@@ -40,10 +40,7 @@ jobs:
             . -> target/icydb
           cache-targets: "false"
       - name: Fetch locked workspace dependencies
-        uses: ./.github/actions/fetch-workspace
-        with:
-          app-id: ${{ secrets.IC_WIRE_APP_ID }}
-          private-key: ${{ secrets.IC_WIRE_APP_PRIVATE_KEY }}
+        run: cargo fetch --locked
       - name: Execute exact native Tier C shard
         run: make test-sql-tier-c-shard TIER_C_SHARD=${{ matrix.shard }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -78,10 +75,7 @@ jobs:
           path: artifacts/correctness/sql_tier_c
           merge-multiple: true
       - name: Fetch locked workspace dependencies
-        uses: ./.github/actions/fetch-workspace
-        with:
-          app-id: ${{ secrets.IC_WIRE_APP_ID }}
-          private-key: ${{ secrets.IC_WIRE_APP_PRIVATE_KEY }}
+        run: cargo fetch --locked
       - name: Merge all eight native receipts
         run: make test-sql-tier-c-merge
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

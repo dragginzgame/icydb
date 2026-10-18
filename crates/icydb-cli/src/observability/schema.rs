@@ -5,10 +5,11 @@
 
 mod render;
 
+use icydb::wire::Endpoint;
+
 use crate::{
     cli::{CanisterTarget, DiagnosticArtifactArgs, DiagnosticSourceMetadataArgs},
     diagnostic::artifact::DiagnosticSchemaArtifact,
-    endpoint::SCHEMA_ENDPOINT,
     icp::require_created_canister,
     observability::{call_query, decode_endpoint_result},
 };
@@ -48,13 +49,13 @@ pub(super) fn load_schema_report(
     canister: &str,
 ) -> Result<Vec<icydb::db::EntitySchemaDescription>, String> {
     require_created_canister(environment, canister)?;
-    let wire_bytes = call_query(environment, canister, SCHEMA_ENDPOINT.method(), ())?;
+    let wire_bytes = call_query(environment, canister, Endpoint::Schema.name(), ())?;
     decode_endpoint_result(
         &wire_bytes,
         "schema",
         environment,
         canister,
-        SCHEMA_ENDPOINT.method(),
+        Endpoint::Schema.name(),
     )
 }
 

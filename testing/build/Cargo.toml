@@ -26,7 +26,7 @@ serde_json = { workspace = true }
 [dev-dependencies]
 ic-host-fs = { workspace = true, features = ["test-support"] }
 ic-host-process = { workspace = true, features = ["test-support"] }
-ic-wire-browser = { workspace = true }
+ic-wire = { workspace = true, features = ["typescript"] }
 icydb-core = { workspace = true, features = ["metrics", "migration", "sql"] }
 serde-reflection = { workspace = true }
 

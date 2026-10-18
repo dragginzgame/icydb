@@ -358,7 +358,7 @@ dependencies = [
 name = "canister_audit_codec_wire_query"
 version = "0.276.0"
 dependencies = [
- "ic-wire 0.4.0",
+ "ic-wire",
  "icydb-testing-codec-query",
 ]
 
@@ -436,7 +436,7 @@ version = "0.276.0"
 dependencies = [
  "canic-icydb",
  "ic-cdk",
- "ic-wire 0.4.0",
+ "ic-wire",
  "ic0",
  "icydb",
  "icydb-testing-audit-one-simple-fixtures",
@@ -1834,34 +1834,14 @@ dependencies = [
 
 [[package]]
 name = "ic-wire"
-version = "0.2.2"
-source = "git+https://github.com/dragginzgame/ic-wire.git?rev=0622057b2722d968951e9a6737ead0073d54abcf#0622057b2722d968951e9a6737ead0073d54abcf"
-dependencies = [
- "ic-wire-derive 0.2.2",
- "postcard",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "ic-wire"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3ed8a8b4bba8bb5cb77f8207f93d0f0b4e803a712647e6e269260c12d702f64"
 dependencies = [
- "ic-wire-derive 0.4.0",
+ "ic-wire-derive",
  "postcard",
  "serde",
-]
-
-[[package]]
-name = "ic-wire-derive"
-version = "0.2.2"
-source = "git+https://github.com/dragginzgame/ic-wire.git?rev=0622057b2722d968951e9a6737ead0073d54abcf#0622057b2722d968951e9a6737ead0073d54abcf"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
+ "serde_json",
 ]
 
 [[package]]
@@ -1984,7 +1964,7 @@ version = "0.276.0"
 dependencies = [
  "canic-icydb",
  "ic-memory",
- "ic-wire 0.4.0",
+ "ic-wire",
  "ic_principal",
  "icydb-core",
  "icydb-diagnostic-code",
@@ -2089,7 +2069,7 @@ dependencies = [
  "crc32fast",
  "data-encoding",
  "ethnum",
- "ic-wire 0.4.0",
+ "ic-wire",
  "ic_principal",
  "proptest",
  "serde",
@@ -2168,8 +2148,7 @@ dependencies = [
  "ic-host-process",
  "ic-host-tools",
  "ic-metrics",
- "ic-wire 0.2.2",
- "ic-wire 0.4.0",
+ "ic-wire",
  "icydb",
  "icydb-core",
  "icydb-schema",
@@ -2211,7 +2190,7 @@ dependencies = [
  "blake3",
  "ic-host-artifacts",
  "ic-testkit",
- "ic-wire 0.4.0",
+ "ic-wire",
  "ic_principal",
  "icydb",
  "icydb-testing-audit-sql-perf-fixtures",
@@ -2299,7 +2278,7 @@ name = "icydb-testing-wasm-helpers"
 version = "0.276.0"
 dependencies = [
  "canic-icydb",
- "ic-wire 0.4.0",
+ "ic-wire",
  "icydb",
  "icydb-model",
  "icydb-schema",
