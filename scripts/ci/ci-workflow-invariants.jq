@@ -126,6 +126,19 @@ require(has("permissions") and (.permissions != null);
       and .with["temp-root"] == "${{ runner.temp }}"
       and .with["repository-root"] == "${{ github.workspace }}");
       "\($job) requires shared tooling failure retention")),
+  # IC build/report tools are separate from both common tools and Testkit's server.
+  # Credit only explicit setup/admission before the lane's actual caller.
+  ([["rust", "matrix.lane == 'tier-b'"], ["wasm_size_report", null]][] as $selection |
+    $selection[0] as $job | .jobs[$job].steps as $steps |
+    require(any(range(0; ($steps | length)); . as $index |
+      ($steps[$index] | .if == $selection[1]
+        and (.["continue-on-error"] // false) == false
+        and (run_text | test("(?m)^[ \\t]*make[ \\t]+install-ic-tools[ \\t]+>"))
+        and (run_text | test("(?m)^[ \\t]*make[ \\t]+ic-tools-check[ \\t]+>")))
+      and any($steps[$index + 1:][];
+        if $job == "rust" then .env.MAKE_TARGET == "${{ matrix.make_target }}"
+        else run_text | contains("bash scripts/ci/wasm-size-report.sh") end));
+      "\($job) requires governed IC tool setup and offline admission before its build/report caller")),
   # Real server setup belongs to the matrix lane that executes live canisters.
   require(any(.jobs.rust.steps[]?;
     .if == "matrix.lane == 'tier-b'" and (.["continue-on-error"] // false) == false

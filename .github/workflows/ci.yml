@@ -358,8 +358,10 @@ jobs:
             --no-default-features --features local-sql-query,test-admin-api
       - name: Install pinned local tools
         run: |
-          make install-tools LOCAL_TOOL_INSTALL_TARGETS=install-ic-tools > "$RUNNER_TEMP/tools-install.log" 2>&1
-          make tools-check LOCAL_TOOL_CHECK_TARGETS=ic-tools-check > "$RUNNER_TEMP/tools-check.log" 2>&1
+          make install-tools LOCAL_TOOL_INSTALL_TARGETS= > "$RUNNER_TEMP/tools-install.log" 2>&1
+          make tools-check LOCAL_TOOL_CHECK_TARGETS= > "$RUNNER_TEMP/tools-check.log" 2>&1
+          make install-ic-tools > "$RUNNER_TEMP/tools-ic-install.log" 2>&1
+          make ic-tools-check > "$RUNNER_TEMP/tools-ic-check.log" 2>&1
           printf '%s\n' "$GITHUB_WORKSPACE/.tools/host/bin" \
             "$GITHUB_WORKSPACE/.tools/ic/bin" "$GITHUB_WORKSPACE/.tools/rust/common/bin" >> "$GITHUB_PATH"
       - name: Report default-empty and request-future-scale wasm sizes
