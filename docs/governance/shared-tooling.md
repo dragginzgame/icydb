@@ -2920,3 +2920,22 @@ direct conversion was incorrect; the correction and remaining owner-level
 projection gap are on [Host #14](https://github.com/dragginzgame/ic-host-tooling/issues/14#issuecomment-6035787706).
 Named optimizer staging and observed-identity extractor admission still await
 Host #8/#11. No upstream or sibling files were edited.
+
+## Consumer tooling qualification
+
+Shared Tooling owns the generic Rust installer and dependency-pin refusal
+matrices. Their substitute catalogs/manifests do not qualify IcyDB's selections.
+The snapshot revision is unchanged; unused fixture roots retire through the
+canonical exporter. `check-portable-automation` retains the actual adapters:
+
+| Consumer obligation | Retained proof |
+| --- | --- |
+| Setup command order, arguments and Rust tool selection | `scripts/ci/test-workstation-setup.sh` and `scripts/ci/test-shared-tooling-adapters.sh` |
+| Actual dependency declarations and lock inventory | `make check-dependency-pins` and `scripts/ci/test-cargo-metadata-adoption.sh` |
+| Testkit CLI and borrowed-server command wiring | `scripts/ci/test-testkit-tooling.sh` and `scripts/ci/test-pocketic-server-wrapper.sh` |
+| Hook preservation | `scripts/ci/test-pre-commit.sh` |
+| Release receipts, refusals and publication | Existing `scripts/release/test-standard-release.sh`, `test-receipt-callbacks.sh`, `test-pin-exceptions.sh` and `scripts/ci/test-publish-workspace.sh` |
+| Failure evidence and fixture completion | `scripts/ci/test-tooling-fixture-completion.sh` and existing validation-adapter checks |
+
+Prepared-tool admission and all supported native host/product lanes remain.
+Linux source/fixture checks do not establish native macOS qualification.

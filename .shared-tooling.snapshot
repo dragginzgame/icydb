@@ -60,7 +60,6 @@ revision	0b351cd2ba2bcd8927b783a5fec89afc8013f708
 # entrypoint	scripts/ci/test-tool-commands.sh
 # entrypoint	audits/ic-canister-applications.md
 # entrypoint	scripts/dev/install-rust-tools.sh
-# entrypoint	scripts/ci/test-rust-tools.sh
 # entrypoint	rules/contributions.md
 # entrypoint	tasks/README.md
 # entrypoint	tasks/cargo-machete.md
@@ -75,7 +74,6 @@ revision	0b351cd2ba2bcd8927b783a5fec89afc8013f708
 # entrypoint	tasks/local-schedule.md
 # entrypoint	tasks/systemd/shared-tooling-maintenance.service
 # entrypoint	tasks/systemd/shared-tooling-maintenance.timer
-# entrypoint	scripts/ci/test-dependency-pins.sh
 # entrypoint	make/release.mk
 # entrypoint	make/rust-format.mk
 # entrypoint	make/execution.mk
@@ -153,7 +151,6 @@ file	73006393ac5e5185b4513f176893753368b18809bb257b04e09cf24babcd7755	-	make/too
 file	067f1b90cd58d7b64c8d51a4572f04220545cdb78eae0d630ef7a3d5e5ded8fa	x	scripts/ci/test-tool-commands.sh
 file	94a934651d5cb0c6f77fa429df277856dbda4c1a7441b2b8563e678c416258f6	-	audits/ic-canister-applications.md
 file	78f050658162944c5843fb8d35e7a11eef0df51b47c0df396b11b997e9153af7	x	scripts/dev/install-rust-tools.sh
-file	fe50c4cd86328e4dbd67f2b458d6f6966658cc1cad0c5b2beac7505f5d70615c	x	scripts/ci/test-rust-tools.sh
 file	d0dfd0f1badd08513aa9bbb0285968e1aefda4160b6164591f5068ab763b3faa	-	rules/contributions.md
 file	40268196f193f767ca0ecabecde1d81554eba0a77681bd71f292a5f55716f8bb	-	tasks/README.md
 file	eb2419a5762a3cb02f25811d93becb6b18ca520df0bc3448ea35dfa187a034b4	-	tasks/cargo-machete.md
@@ -168,7 +165,6 @@ file	59e1a1c641b49879f13dc211fd9081a7ad1d5ee0932dcb9844338a2b8f061afd	-	tasks/ma
 file	4b7f6297fe1729e75fe7fb100f0f44baa4a958764b0dcde360fb25e31ea21175	-	tasks/local-schedule.md
 file	d26462d2d6e9c1e991a6f1f45f2a12ce919a29eab987665438af530f51b6fee5	-	tasks/systemd/shared-tooling-maintenance.service
 file	f7b95816164980993403d2d6eae13336db1c476c58217c8e8d356e6d01fe9b27	-	tasks/systemd/shared-tooling-maintenance.timer
-file	8c846d043d9e3e9d890bfb0d6707bffd7b0ad144073a3435b28ea68b1ca74c48	x	scripts/ci/test-dependency-pins.sh
 file	cadaefaea8553889397ab2b87bb644afa8e9abbf7476c937df6f91099903dee6	-	make/release.mk
 file	394b173e903aeb4d057f57665a0fad17233b677eff1f63d17d81314b3086856b	-	make/rust-format.mk
 file	cebc0fa4ee9944550350a492a3bc1084e28820e2c915e20351c336d87ce0359f	-	make/execution.mk
@@ -204,12 +200,11 @@ file	eeeca9e6e7b92b888fd6547733d6136f0e7e9859d37c983f8048e60551a15c39	-	scripts/
 file	c10514df9c63541c1e86633c6311d9448d06426cd33b93e4dd289e743fc2e4c6	-	scripts/ci/select-rust-formatting-sources.sh
 file	6eb261f79ff2780422a75e018b091bb119f552a1d155504acacefb7e2e290ba0	x	scripts/dev/gh-ci.sh
 file	d866bd1ae0bf5c5d22120c3427857968eba86cbc2affa310951f76742e339116	x	scripts/ci/check-pipe-jobserver.pl
-file	3ad0b620211487ee580898374dfbc98ee44b77f8db06e1ac3ebe2866f5b06903	x	scripts/ci/cargo-tool-cache-key.sh
-file	50875aa80c211f8f5fded06bf75c7a9fc1fc99aac7590480de9be17d4753bf7f	x	scripts/ci/select-tool-evidence.sh
-file	5be336cb3e8045b2d2d536542a94944b376ee812b03f786a90b9d962ab697f13	x	scripts/ci/archive-evidence.sh
 file	1b01f4b482fb85986d1ffab592626ccbfec187ac7a5133ab946b0acd51a18381	-	scripts/ci/check-release-delivery.sh
 file	9976e6cd4e60bfa86298f4b4209f5ffde0651105feef208a9c5ea9c90a432f2d	x	scripts/dev/install-git-hooks.sh
 file	ad65666b8b34e4967cecff3cfc97038dbc5dfbce146ac57316add2b380310ae1	x	scripts/ci/collect-tool-evidence.sh
 file	d517344568e02a638cd19b99bfbcc63f000a0cf1df7b7713f901f52518b1e2ee	x	scripts/ci/formatting-evidence.sh
 file	8994d04728c484fe391bcec508c95e0cf1d407afc900d5f46e18a408950848fc	-	scripts/ci/check-runtime-panics.rs
 file	d6be805319db9983943c154eae93984a29ce06634ed90329c82536eeb610059e	-	docs/rust-source-checks.md
+file	50875aa80c211f8f5fded06bf75c7a9fc1fc99aac7590480de9be17d4753bf7f	x	scripts/ci/select-tool-evidence.sh
+file	5be336cb3e8045b2d2d536542a94944b376ee812b03f786a90b9d962ab697f13	x	scripts/ci/archive-evidence.sh

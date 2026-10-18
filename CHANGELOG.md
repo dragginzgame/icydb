@@ -5,6 +5,14 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.277.1]
+
+### 🔧 Changed
+
+- Keep generic Rust-tool and dependency-pin regression matrices at Shared
+  Tooling. Consumer checks retain actual setup, catalog/lock admission, hook,
+  release and evidence behavior; dependency selections are unchanged.
+
 ## [0.277.0] - 2026-10-18
 
 ### ⚠️ Breaking
