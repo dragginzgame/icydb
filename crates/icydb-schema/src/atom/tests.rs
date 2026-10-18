@@ -1,4 +1,4 @@
-use super::{Blob, Ulid};
+use super::{Blob, Principal, PrincipalDecodeError, PrincipalError, Ulid};
 use crate::{MAX_PROPOSAL_LITERAL_BYTES, ScalarLiteral, SchemaContractError};
 
 #[test]
@@ -112,4 +112,41 @@ fn blob_proposal_literals_retain_their_dedicated_bound() {
         oversized.validate(),
         Err(SchemaContractError::InvalidLiteral),
     );
+}
+
+#[test]
+fn principal_platform_identity_preserves_native_wire_bytes() {
+    for bytes in [vec![], vec![4], vec![0xAB; 29]] {
+        let platform = ic_platform::Principal::from_slice(&bytes);
+        let value = Principal::from(platform);
+        let recovered: ic_platform::Principal = value.into();
+        assert_eq!(recovered, platform);
+        assert_eq!(value.as_slice(), bytes);
+        assert_eq!(Principal::from_text(&platform.to_text()), Ok(value));
+
+        let encoded = crate::wire::encode_one(value).expect("principal should encode");
+        let mut expected = vec![u8::try_from(bytes.len()).expect("principal length fits one byte")];
+        expected.extend_from_slice(&bytes);
+        assert_eq!(encoded, expected);
+        assert_eq!(
+            crate::wire::decode_one::<Principal>(&encoded).expect("principal should decode"),
+            value,
+        );
+    }
+}
+
+#[test]
+fn principal_platform_adoption_retains_text_and_byte_rejection() {
+    assert_eq!(
+        Principal::from_text("invalid principal text"),
+        Err(PrincipalError::InvalidText),
+    );
+    let oversized = [0xAB; 30];
+    assert_eq!(
+        Principal::try_from_bytes(&oversized),
+        Err(PrincipalDecodeError::TooLarge { len: 30 }),
+    );
+    let encoded = crate::wire::encode_one(serde_bytes::Bytes::new(&oversized))
+        .expect("oversized bytes should encode independently of Principal");
+    assert!(crate::wire::decode_one::<Principal>(&encoded).is_err());
 }

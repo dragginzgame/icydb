@@ -346,7 +346,7 @@ fn alias_store_registration_reusing_same_store_triplet_is_rejected() {
 
 #[test]
 fn committed_key_open_refuses_drifted_ids_without_changing_storage() {
-    use ic_stable_structures::Memory;
+    use ic_memory::Memory;
 
     // One default runtime on an isolated thread; ordinary store fixtures use
     // their own explicit snapshots without changing this default runtime.
@@ -363,8 +363,7 @@ fn committed_key_open_refuses_drifted_ids_without_changing_storage() {
         )
         .unwrap();
         let mut runtime =
-            ic_memory::MemoryRuntime::new(ic_stable_structures::DefaultMemoryImpl::default())
-                .unwrap();
+            ic_memory::MemoryRuntime::new(ic_memory::DefaultMemoryImpl::default()).unwrap();
         runtime
             .bootstrap(&requests, &pool, &ic_memory::GenericAllocationPolicy)
             .unwrap();

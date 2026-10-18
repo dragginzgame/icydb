@@ -38,7 +38,7 @@ icydb_testing_wasm_helpers::export_wire!(update, "check_created_quest_target_del
 /// Insert a new row through accepted structural authority, including named values.
 
 fn write_created_quest(id: u64, item_id: u64, code: u64) -> EntityCreationMeasurement {
-    let start = crate::call_context_instruction_counter();
+    let start = ic_platform::ic0::performance_counter(1);
     let result = with_request_execution(|| {
         let session = icydb::db!()?;
         let patch = StructuralPatch::new()
@@ -61,7 +61,7 @@ fn write_created_quest(id: u64, item_id: u64, code: u64) -> EntityCreationMeasur
     });
     EntityCreationMeasurement {
         result,
-        local_instructions: crate::call_context_instruction_counter().saturating_sub(start),
+        local_instructions: ic_platform::ic0::performance_counter(1).saturating_sub(start),
     }
 }
 icydb_testing_wasm_helpers::export_wire!(update, "write_created_quest", WriteCreatedQuest, write_created_quest, (id: u64, item_id: u64, code: u64), EntityCreationMeasurement);
@@ -69,7 +69,7 @@ icydb_testing_wasm_helpers::export_wire!(update, "write_created_quest", WriteCre
 /// Decode the added record and enum through the generated entity's accepted binding.
 
 fn check_created_quest() -> EntityCreationMeasurement {
-    let start = crate::call_context_instruction_counter();
+    let start = ic_platform::ic0::performance_counter(1);
     let result = with_request_execution(|| {
         let row = icydb::db!()?
             .get::<Quest>(Id::from_key(7))
@@ -86,7 +86,7 @@ fn check_created_quest() -> EntityCreationMeasurement {
     });
     EntityCreationMeasurement {
         result,
-        local_instructions: crate::call_context_instruction_counter().saturating_sub(start),
+        local_instructions: ic_platform::ic0::performance_counter(1).saturating_sub(start),
     }
 }
 icydb_testing_wasm_helpers::export_wire!(

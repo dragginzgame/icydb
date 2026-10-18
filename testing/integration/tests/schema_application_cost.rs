@@ -1,4 +1,4 @@
-use ic_principal::Principal;
+use ic_platform::Principal;
 use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb_testing_audit_sql_perf_fixtures::contracts::{
     AcceptedSchemaReadInstructionResult, ApplicationStartupHook, ApplicationStartupSnapshot,

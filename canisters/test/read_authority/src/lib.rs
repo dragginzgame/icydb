@@ -2,7 +2,7 @@
 
 use std::cell::Cell;
 
-use ic_principal::Principal;
+use ic_platform::Principal;
 #[cfg(feature = "guarded-reads")]
 use icydb::{
     ReadAuthorizationContext, ReadAuthorizationDecision, ReadAuthorizationSurface,
@@ -73,7 +73,7 @@ fn schema_read_guard(context: ReadAuthorizationContext) -> ReadAuthorizationDeci
 /// Replace the application-owned SQL reader policy immediately.
 
 fn set_sql_reader_enabled(enabled: bool) -> bool {
-    if ic_cdk::api::msg_caller() != principal(ADMIN_SEED) {
+    if ic_platform::cdk::api::msg_caller() != principal(ADMIN_SEED) {
         return false;
     }
 
@@ -85,7 +85,7 @@ icydb_testing_wasm_helpers::export_wire!(update, "set_sql_reader_enabled", SetSq
 /// Replace the application-owned schema reader policy immediately.
 
 fn set_schema_reader_enabled(enabled: bool) -> bool {
-    if ic_cdk::api::msg_caller() != principal(ADMIN_SEED) {
+    if ic_platform::cdk::api::msg_caller() != principal(ADMIN_SEED) {
         return false;
     }
 

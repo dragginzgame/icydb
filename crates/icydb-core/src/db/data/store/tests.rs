@@ -9,7 +9,7 @@ use crate::{
     },
     testing::{test_memory, test_memory_with_backing},
 };
-use ic_stable_structures::{Memory, VectorMemory};
+use ic_memory::{Memory, VectorMemory};
 use std::ops::Bound;
 
 const SINGLE_MEMORY_MANAGER_BUCKET_PAGES: u64 = 128;

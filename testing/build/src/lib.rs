@@ -57,11 +57,23 @@ impl FixtureCanister {
 pub struct BuiltCanisterArtifacts {
     compiler_emitted: PathBuf,
     final_deployable: PathBuf,
-    _cargo: WasmBuildRecord,
+    cargo: WasmBuildRecord,
     post_link: Option<ArtifactCacheRecord>,
 }
 
 impl BuiltCanisterArtifacts {
+    /// Return the retained Cargo record, including its observed build facts.
+    #[must_use]
+    pub const fn cargo(&self) -> &WasmBuildRecord {
+        &self.cargo
+    }
+
+    /// Return the compiler artifact while this owner retains its cache entry.
+    #[must_use]
+    pub fn compiler_emitted(&self) -> &Path {
+        &self.compiler_emitted
+    }
+
     fn from_cargo(record: WasmBuildRecord) -> Result<Self, String> {
         let [path] = record.artifacts() else {
             return Err("canister build must retain exactly one compiler artifact".to_owned());
@@ -69,7 +81,7 @@ impl BuiltCanisterArtifacts {
         Ok(Self {
             compiler_emitted: path.clone(),
             final_deployable: path.clone(),
-            _cargo: record,
+            cargo: record,
             post_link: None,
         })
     }

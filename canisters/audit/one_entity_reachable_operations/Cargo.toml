@@ -17,7 +17,7 @@ default = []
 
 [dependencies]
 canic-icydb = { workspace = true }
-ic-cdk = { workspace = true }
+ic-platform = { workspace = true, features = ["ic0"] }
 icydb = { workspace = true }
 icydb-model = { workspace = true }
 icydb-testing-audit-one-simple-fixtures = { workspace = true }

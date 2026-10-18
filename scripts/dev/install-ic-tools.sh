@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/verify-file-checksum.sh scripts/ci/verify-evidence-checksums.sh scripts/ci/ic-tool-pins.awk scripts/dev/tool-store.sh scripts/dev/host-platform.sh ci/ic-tools.tsv
+# Shared companions: scripts/ci/verify-file-checksum.sh scripts/ci/verify-evidence-checksums.sh scripts/ci/tool-catalog-records.pl scripts/dev/tool-store.sh scripts/dev/host-platform.sh ci/ic-tools.tsv
 set -euo pipefail
 
 ROOT="${BASH_SOURCE[0]}"
@@ -45,12 +45,8 @@ case "$platform" in
     *) echo "no complete pinned IC toolset for this host: $platform; use a supported Linux x86-64 or macOS x86-64/ARM64 host" >&2; exit 1 ;;
 esac
 
-validate_pins() {
-    awk -v records=1 -f "$ROOT/scripts/ci/ic-tool-pins.awk" "$1" | LC_ALL=C sort || {
-        echo 'invalid or incomplete IC tool pin matrix' >&2; return 1;
-    }
-}
-selected_records="$(validate_pins "$pins")"
+catalog_reader="$ROOT/scripts/ci/tool-catalog-records.pl"
+selected_records="$(perl "$catalog_reader" ic "$pins")"
 # Platform and catalog admission only: no installed tools, downloads or writes.
 [[ "$preflight" == false ]] || exit 0
 # shellcheck source=scripts/dev/tool-store.sh
@@ -95,7 +91,7 @@ verify_bundle() (
     for receipt in pins.tsv host files.sha256; do
         [[ -f "$receipt" && ! -L "$receipt" ]] || exit 1
     done
-    installed_records="$(validate_pins pins.tsv)" || exit 1
+    installed_records="$(perl "$catalog_reader" ic pins.tsv)" || exit 1
     [[ "$selected_records" == "$installed_records" ]] || exit 1
     [[ "$(cat host)" == "$host" ]] || exit 1
     # Receipts may name only physical payloads under this bundle, never external
@@ -118,7 +114,7 @@ verify_bundle() (
     # Authenticate against publisher-pinned archives too: a changed binary plus
     # an edited local receipt must not become reusable across repositories.
     while IFS=$'\t' read -r tool version selected_host digest || [[ -n "$tool" ]]; do
-        [[ "$tool" != \#* && "$selected_host" == "$host" ]] || continue
+        [[ "$selected_host" == "$host" ]] || continue
         ic_asset
         archive="$PWD/downloads/$tool/$asset"
         [[ ! -L downloads && ! -L "downloads/$tool" && -f "$archive" && ! -L "$archive" ]] || exit 1
@@ -134,13 +130,13 @@ verify_bundle() (
                     tar -xOzf "$archive" "$member/$file" | cmp -s - "$file" || exit 1
                 done < files.sha256 ;;
         esac
-    done < pins.tsv
+    done <<< "$installed_records"
     while IFS=$'\t' read -r tool version selected_host digest || [[ -n "$tool" ]]; do
-        [[ "$tool" != \#* && "$selected_host" == "$host" ]] || continue
+        [[ "$selected_host" == "$host" ]] || continue
         # Each executable must have a checksum before any version execution.
         awk -v file="bin/$tool" '$2 == file { n++ } END { if (n != 1) exit 1 }' files.sha256 || exit 1
         version_check "$PWD/bin/$tool" "$tool" "$version" || exit 1
-    done < pins.tsv
+    done <<< "$installed_records"
 )
 
 tool_root="$consumer/.tools"
@@ -159,10 +155,11 @@ if [[ -z "$stage" ]]; then
 fi
 mkdir "$stage/bin" "$stage/lib" "$stage/downloads"
 cp "$pins" "$stage/pins.tsv"
-validate_pins "$stage/pins.tsv" >/dev/null
+staged_records="$(perl "$catalog_reader" ic "$stage/pins.tsv")"
+[[ "$staged_records" == "$selected_records" ]] || { echo 'IC tool pins changed before staging' >&2; exit 1; }
 printf '%s\n' "$host" > "$stage/host"
 while IFS=$'\t' read -r tool version selected_host digest || [[ -n "$tool" ]]; do
-    [[ "$tool" != \#* && "$selected_host" == "$host" ]] || continue
+    [[ "$selected_host" == "$host" ]] || continue
     scratch="$stage/downloads/$tool"
     mkdir "$scratch"
     ic_asset
@@ -183,8 +180,7 @@ while IFS=$'\t' read -r tool version selected_host digest || [[ -n "$tool" ]]; d
             cp -R "$scratch/$member/lib/." "$stage/lib/" ;;
     esac
     chmod 0755 "$stage/bin/$tool"
-    version_check "$stage/bin/$tool" "$tool" "$version"
-done < "$stage/pins.tsv"
+done <<< "$staged_records"
 
 # Keep runtime libraries beside bin (required by native macOS Binaryen).
 # Record installed bytes for offline verification before future execution.

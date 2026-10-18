@@ -15,7 +15,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 canic-icydb = { workspace = true }
-ic-cdk = { workspace = true }
+ic-platform = { workspace = true, features = ["ic0"] }
 icydb-testing-wasm-helpers = { workspace = true }
 runtime_api = { workspace = true, default-features = true }
 

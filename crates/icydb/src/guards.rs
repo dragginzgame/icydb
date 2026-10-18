@@ -4,7 +4,7 @@
 //! application concerns. This module owns only synchronous caller/surface decisions
 //! before IcyDB request construction.
 
-use ic_principal::Principal;
+use ic_platform::Principal;
 
 use crate::{Error, ErrorOrigin, diagnostic::RuntimeBoundaryCode};
 

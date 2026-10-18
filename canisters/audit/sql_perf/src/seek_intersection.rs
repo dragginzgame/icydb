@@ -145,11 +145,11 @@ fn measure_seek_intersection_page(
     if let Some(limit) = limit {
         request = request.limit(limit);
     }
-    let start = crate::call_context_instruction_counter();
+    let start = ic_platform::ic0::performance_counter(1);
     let page = icydb::db::with_request_execution(|| {
         db()?.execute_trusted_live_page(&request, continuation.as_deref())
     })?;
-    let instructions = crate::call_context_instruction_counter().saturating_sub(start);
+    let instructions = ic_platform::ic0::performance_counter(1).saturating_sub(start);
     let ids = page
         .rows
         .iter()

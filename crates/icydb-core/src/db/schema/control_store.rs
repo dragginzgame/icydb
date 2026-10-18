@@ -11,14 +11,14 @@ use crate::{
     },
     error::InternalError,
 };
-use ic_memory::RuntimeMemory;
-use ic_stable_structures::{
-    BTreeMap, DefaultMemoryImpl, Memory, RestrictedMemory, Storable, storable::Bound,
-};
-use std::{borrow::Cow, marker::PhantomData};
+#[cfg(test)]
+use ic_memory::Memory;
+use ic_memory::{DefaultMemoryImpl, RuntimeMemory};
+use ic_storage::adapter::{BTreeMapRegion, Storable, storable::Bound};
+use std::{borrow::Cow, marker::PhantomData, rc::Rc};
 
-pub(super) type ControlMemory = RestrictedMemory<std::rc::Rc<RuntimeMemory<DefaultMemoryImpl>>>;
-const CONTROL_START_PAGE: u64 = MAX_COMMIT_BYTES as u64 / 65_536 + 1;
+pub(super) type ControlMemory = Rc<RuntimeMemory<DefaultMemoryImpl>>;
+pub(super) const CONTROL_START_PAGE: u64 = MAX_COMMIT_BYTES as u64 / 65_536 + 1;
 const CONTROL_END_PAGE: u64 = 4_194_304;
 const HEADER_KEY: [u8; 33] = [0; 33];
 const HEADER_MAGIC: &[u8; 8] = b"ICYSCMAP";
@@ -52,7 +52,7 @@ impl Storable for SchemaControlBytes {
 
 /// A fixed namespace view, not an independent allocator or cached authority.
 pub(super) struct SchemaControlMap<K> {
-    memory: ControlMemory,
+    map: BTreeMapRegion<[u8; 33], SchemaControlBytes, DefaultMemoryImpl>,
     family: ControlRecordFamily,
     key: PhantomData<K>,
 }
@@ -65,14 +65,18 @@ impl<K: Copy + From<[u8; 32]> + Into<[u8; 32]>> SchemaControlMap<K> {
         if let Some(map) = Self::open_existing(memory.clone(), family)? {
             return Ok(map);
         }
-        let mut map = BTreeMap::init(memory.clone());
+        let mut map = BTreeMapRegion::<[u8; 33], SchemaControlBytes>::new(
+            memory,
+            CONTROL_START_PAGE..CONTROL_END_PAGE,
+        );
+        map.initialize();
         let mut header = Vec::with_capacity(HEADER_BYTES);
         header.extend_from_slice(HEADER_MAGIC);
         header.push(HEADER_VERSION);
         header.extend_from_slice(&crc32c(&header).to_le_bytes());
         map.insert(HEADER_KEY, SchemaControlBytes(header));
         Ok(Self {
-            memory,
+            map,
             family,
             key: PhantomData,
         })
@@ -82,20 +86,23 @@ impl<K: Copy + From<[u8; 32]> + Into<[u8; 32]>> SchemaControlMap<K> {
         memory: ControlMemory,
         family: ControlRecordFamily,
     ) -> Result<Option<Self>, InternalError> {
-        if memory.size() == 0 {
+        let map = BTreeMapRegion::<[u8; 33], SchemaControlBytes>::new(
+            memory,
+            CONTROL_START_PAGE..CONTROL_END_PAGE,
+        );
+        if map.allocated_pages() == 0 {
             return Ok(None);
         }
         // Reject malformed framing before the upstream infallible tree loader.
         let mut header = [0; 4];
-        memory.read(0, &mut header);
+        map.read(0, &mut header);
         if header != *b"BTR\x02" {
             return Err(InternalError::store_corruption());
         }
-        memory.read(52, &mut header);
+        map.read(52, &mut header);
         if header != *b"BTA\x01" {
             return Err(InternalError::store_corruption());
         }
-        let map = BTreeMap::<[u8; 33], SchemaControlBytes, _>::load(memory.clone());
         let header = map
             .get(&HEADER_KEY)
             .ok_or_else(InternalError::store_corruption)?;
@@ -120,16 +127,10 @@ impl<K: Copy + From<[u8; 32]> + Into<[u8; 32]>> SchemaControlMap<K> {
             return Err(InternalError::store_corruption());
         }
         Ok(Some(Self {
-            memory,
+            map,
             family,
             key: PhantomData,
         }))
-    }
-
-    // Views may coexist across record owners. Never retain a tree's cached
-    // root/allocator metadata across a mutation through another namespace.
-    fn current_map(&self) -> BTreeMap<[u8; 33], SchemaControlBytes, ControlMemory> {
-        BTreeMap::load(self.memory.clone())
     }
 
     fn storage_key(&self, key: K) -> [u8; 33] {
@@ -148,47 +149,35 @@ impl<K: Copy + From<[u8; 32]> + Into<[u8; 32]>> SchemaControlMap<K> {
     }
 
     pub(super) fn get(&self, key: &K) -> Option<SchemaControlBytes> {
-        self.current_map().get(&self.storage_key(*key))
+        self.map.get(&self.storage_key(*key))
     }
-    // Preserve the owner's exclusive mutation boundary over shared stable memory.
-    #[expect(clippy::needless_pass_by_ref_mut)]
     pub(super) fn insert(&mut self, key: K, value: SchemaControlBytes) {
-        self.current_map().insert(self.storage_key(key), value);
+        self.map.insert(self.storage_key(key), value);
     }
-    #[expect(clippy::needless_pass_by_ref_mut)]
     pub(super) fn remove(&mut self, key: &K) -> Option<SchemaControlBytes> {
-        self.current_map().remove(&self.storage_key(*key))
+        self.map.remove(&self.storage_key(*key))
     }
     pub(super) fn len(&self) -> u64 {
-        self.current_map()
+        self.map
             .keys_range(self.range())
             .fold(0, |count, _| count + 1)
     }
     pub(super) fn keys(&self) -> impl Iterator<Item = K> {
-        self.current_map()
-            .keys_range(self.range())
-            .map(|stored| {
-                let mut key = [0; 32];
-                key.copy_from_slice(&stored[1..]);
-                K::from(key)
-            })
-            .collect::<Vec<_>>()
-            .into_iter()
+        self.map.keys_range(self.range()).map(|stored| {
+            let mut key = [0; 32];
+            key.copy_from_slice(&stored[1..]);
+            K::from(key)
+        })
     }
 
     #[cfg(test)]
-    #[expect(clippy::needless_pass_by_ref_mut)]
     pub(super) fn corrupt_header_for_tests(&mut self) {
-        self.current_map()
-            .insert(HEADER_KEY, SchemaControlBytes(vec![0xff]));
+        self.map.insert(HEADER_KEY, SchemaControlBytes(vec![0xff]));
     }
 }
 
 pub(super) fn control_memory() -> Result<ControlMemory, InternalError> {
-    Ok(RestrictedMemory::new(
-        commit_memory_handle(current_commit_memory_allocation()?)?,
-        CONTROL_START_PAGE..CONTROL_END_PAGE,
-    ))
+    commit_memory_handle(current_commit_memory_allocation()?)
 }
 
 #[cfg(test)]
@@ -202,11 +191,14 @@ pub(in crate::db) fn corrupt_schema_control_header_for_tests() -> Result<(), Int
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::test_memory;
+    use crate::testing::{test_memory, test_memory_owner};
 
     #[test]
     fn namespace_views_share_growth_without_stale_roots_or_cross_family_reads() {
-        let memory = RestrictedMemory::new(std::rc::Rc::new(test_memory(242)), 0..4096);
+        let owner = test_memory_owner(242);
+        let memory = Rc::new(owner.open());
+        memory.as_ref().grow(1).unwrap();
+        memory.write(0, b"retained frame");
         let mut application =
             SchemaControlMap::<[u8; 32]>::open(memory.clone(), ControlRecordFamily::Application)
                 .unwrap();
@@ -228,21 +220,37 @@ mod tests {
         }
         assert_eq!(application.len(), 0);
         assert_eq!(checkpoint.len(), 40);
-        assert!(memory.size() <= 3);
+        assert!(memory.size() <= CONTROL_START_PAGE + 3);
+        let mut frame = [0; 14];
+        memory.read(0, &mut frame);
+        assert_eq!(&frame, b"retained frame");
         let reopened =
             SchemaControlMap::<[u8; 32]>::open_existing(memory, ControlRecordFamily::Checkpoint)
                 .unwrap()
                 .unwrap();
         assert_eq!(reopened.len(), 40);
         assert_eq!(reopened.get(&[3; 32]).unwrap().0, vec![4; 40]);
+        drop(application);
+        drop(checkpoint);
+        drop(reopened);
+        // Every region view retains the same exclusive lease; dropping the
+        // last view must release it before the admitted allocation reopens.
+        let reopened = SchemaControlMap::<[u8; 32]>::open_existing(
+            Rc::new(owner.open()),
+            ControlRecordFamily::Checkpoint,
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(reopened.len(), 40);
+        assert_eq!(reopened.get(&[3; 32]).unwrap().0, vec![4; 40]);
     }
 
     #[test]
     fn absent_control_inspection_preserves_marker_region_without_allocating() {
-        let backing = std::rc::Rc::new(test_memory(241));
+        let backing = Rc::new(test_memory(241));
         assert_eq!(backing.as_ref().grow(1), Ok(0));
         backing.write(0, &[19]);
-        let memory = RestrictedMemory::new(backing.clone(), CONTROL_START_PAGE..CONTROL_END_PAGE);
+        let memory = backing.clone();
         for family in [
             ControlRecordFamily::Application,
             ControlRecordFamily::Checkpoint,
@@ -263,9 +271,10 @@ mod tests {
     #[test]
     fn malformed_control_headers_and_unknown_namespaces_fail_without_reinitializing() {
         for (offset, byte) in [(0, b'X'), (3, 0), (52, b'X'), (55, 0)] {
-            let memory = RestrictedMemory::new(std::rc::Rc::new(test_memory(243)), 0..4096);
+            let memory = Rc::new(test_memory(243));
             SchemaControlMap::<[u8; 32]>::open(memory.clone(), ControlRecordFamily::Application)
                 .unwrap();
+            let offset = CONTROL_START_PAGE * 65_536 + offset;
             memory.write(offset, &[byte]);
             assert!(
                 SchemaControlMap::<[u8; 32]>::open(
@@ -279,8 +288,8 @@ mod tests {
             assert_eq!(observed, [byte]);
         }
         for tag in [0, 3] {
-            let memory = RestrictedMemory::new(std::rc::Rc::new(test_memory(243)), 0..4096);
-            let view = SchemaControlMap::<[u8; 32]>::open(
+            let memory = Rc::new(test_memory(243));
+            let mut view = SchemaControlMap::<[u8; 32]>::open(
                 memory.clone(),
                 ControlRecordFamily::Application,
             )
@@ -288,7 +297,7 @@ mod tests {
             let mut key = [0; 33];
             key[0] = tag;
             key[32] = 1;
-            view.current_map().insert(key, SchemaControlBytes(vec![0]));
+            view.map.insert(key, SchemaControlBytes(vec![0]));
             assert!(
                 SchemaControlMap::<[u8; 32]>::open_existing(
                     memory,
@@ -297,7 +306,7 @@ mod tests {
                 .is_err()
             );
         }
-        let memory = RestrictedMemory::new(std::rc::Rc::new(test_memory(243)), 0..4096);
+        let memory = Rc::new(test_memory(243));
         let mut view =
             SchemaControlMap::<[u8; 32]>::open(memory.clone(), ControlRecordFamily::Application)
                 .unwrap();

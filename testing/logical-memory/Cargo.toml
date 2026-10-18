@@ -17,8 +17,8 @@ omit-retiring-store = []
 
 [dependencies]
 canic-icydb = { workspace = true }
-ic-cdk = { workspace = true }
 ic-memory = { workspace = true }
+ic-platform = { workspace = true, features = ["ic0"] }
 icydb = { workspace = true, default-features = true }
 icydb-testing-wasm-helpers = { workspace = true }
 

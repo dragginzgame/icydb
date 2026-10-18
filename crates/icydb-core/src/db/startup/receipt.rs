@@ -3,8 +3,7 @@
 //! Does not own: failure classification, recovery progress, or publication policy.
 //! Boundary: typed failure and maintained binding -> one 2,048-byte stable control cell.
 
-use ic_memory::{RuntimeMemory, StableKey};
-use ic_stable_structures::{DefaultMemoryImpl, Memory};
+use ic_memory::{DefaultMemoryImpl, Memory, RuntimeMemory, StableKey};
 use icydb_diagnostic_code::{
     DiagnosticFactTag, ErrorCode, ErrorOrigin, MAX_PUBLIC_DIAGNOSTIC_FACTS,
     validate_raw_diagnostic_fact_schema,
@@ -579,7 +578,7 @@ fn primitive_decode_error(_: ByteDecodeError) -> InternalError {
 mod tests {
     use super::*;
     use crate::traits::Path;
-    use ic_stable_structures::VectorMemory;
+    use ic_memory::VectorMemory;
 
     struct ReceiptCanister;
 
@@ -617,13 +616,15 @@ mod tests {
 
     #[test]
     fn receipt_growth_refusal_preserves_empty_control_and_manager_metadata() {
-        use crate::testing::test_memory_runtime;
+        use crate::testing::{GrowthLimitedMemory, test_memory_runtime};
         use ic_memory::MemoryManagerConfig;
-        use ic_stable_structures::RestrictedMemory;
 
         let backing = VectorMemory::default();
         let runtime = test_memory_runtime(
-            RestrictedMemory::new(backing.clone(), 0..2),
+            GrowthLimitedMemory {
+                backing: backing.clone(),
+                maximum_pages: 2,
+            },
             MemoryManagerConfig::new(1).unwrap(),
         );
         let memory = runtime.open_memory("icydb.core_tests.slot_237.v1").unwrap();

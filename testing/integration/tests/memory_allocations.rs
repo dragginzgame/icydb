@@ -1,6 +1,6 @@
 //! Controller-only allocation reporting through the generated snapshot endpoint.
 
-use ic_principal::Principal;
+use ic_platform::Principal;
 use icydb::{
     Error, ErrorOrigin,
     db::{MemoryAllocationBinding, StorageReport},

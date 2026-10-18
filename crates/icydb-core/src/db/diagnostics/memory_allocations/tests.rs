@@ -8,8 +8,7 @@ use crate::{
     testing::{run_isolated, test_memory_runtime},
     types::EntityTag,
 };
-use ic_memory::{MemoryManagerConfig, MemoryRuntime};
-use ic_stable_structures::{Memory, VectorMemory};
+use ic_memory::{Memory, MemoryManagerConfig, MemoryRuntime, VectorMemory};
 
 fn assert_accounting(report: &MemoryAllocations) {
     assert_eq!(report.memories.len(), 255);
@@ -42,7 +41,7 @@ fn assert_accounting(report: &MemoryAllocations) {
 }
 
 // Numeric observers must retain detailed accounting without materializing ID rows.
-fn assert_numeric_summary<M: ic_stable_structures::Memory>(
+fn assert_numeric_summary<M: ic_memory::Memory>(
     runtime: &MemoryRuntime<M>,
     detailed: &MemoryAllocations,
 ) {

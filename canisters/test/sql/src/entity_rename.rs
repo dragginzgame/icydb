@@ -53,7 +53,7 @@ fn measure_entity_creation_schema_application() -> (
     u64,
     icydb::metrics::SchemaLifecycleMetrics,
 ) {
-    let start = crate::call_context_instruction_counter();
+    let start = ic_platform::ic0::performance_counter(1);
     let result = with_request_execution(|| {
         let session = icydb::db::DbSession::new(crate::__icydb_generated::core_db()?);
         session
@@ -65,7 +65,7 @@ fn measure_entity_creation_schema_application() -> (
             )
             .map(|_receipt| ())
     });
-    let instructions = crate::call_context_instruction_counter().saturating_sub(start);
+    let instructions = ic_platform::ic0::performance_counter(1).saturating_sub(start);
     match metrics_report() {
         Ok(report) => (result, instructions, report.schema_lifecycle().clone()),
         Err(error) => (
@@ -95,13 +95,13 @@ fn measure_entity_creation_startup_step() -> (
     u64,
     icydb::metrics::SchemaLifecycleMetrics,
 ) {
-    let start = crate::call_context_instruction_counter();
+    let start = ic_platform::ic0::performance_counter(1);
     let result = with_request_execution(|| {
         let ready_before = lifecycle_ready()?;
         let terminal = crate::__icydb_generated::__icydb_startup_driver_attempt_for_tests()?;
         Ok((ready_before, lifecycle_ready()?, terminal))
     });
-    let instructions = crate::call_context_instruction_counter().saturating_sub(start);
+    let instructions = ic_platform::ic0::performance_counter(1).saturating_sub(start);
     match metrics_report() {
         Ok(report) => (result, instructions, report.schema_lifecycle().clone()),
         Err(error) => (

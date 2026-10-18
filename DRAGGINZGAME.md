@@ -368,9 +368,11 @@ Consumer choices described in those guides remain subject to this baseline.
   lists; repositories without an IC executable caller need not install them.
   The host set includes pinned jq,
   Mike Farah yq, ripgrep with PCRE2 and cloc under `.tools/host/bin`; the Cargo
-  set includes cargo-sort, cargo-sort-derives and candid-extractor under
+  set includes cargo-sort and cargo-sort-derives under
   `.tools/rust/common/bin`. Common and selected Cargo tools share versioned-slot
   receipt and byte admission; common PATH activation requires the complete set.
+  Candid extractor selection belongs to products that extract declarations, using
+  the selected Cargo-tool interface and publishing its admitted path explicitly.
   Aggregates run host and Rust steps, then selected product tools, stopping on
   failure. Consumer-specific setup/check targets extend the ordered lists in
   `make/tools.mk`, not unordered aggregate prerequisites. Make/CI callers select

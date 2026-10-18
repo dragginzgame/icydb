@@ -15,7 +15,7 @@ pub use wire::WireCallExt;
 
 use std::time::Duration;
 
-use ic_principal::Principal;
+use ic_platform::Principal;
 use ic_testkit::{
     pic::{InstallSpec, PocketIcInstance, PocketIcStartupConfig, StandaloneCanisterFixture},
     pocket_ic::{PocketIc, PocketIcBuilder},

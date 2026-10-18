@@ -1783,7 +1783,7 @@ mod physical_polling_tests {
         },
         types::EntityTag,
     };
-    use ic_stable_structures::Storable;
+    use ic_storage::adapter::Storable;
     use icydb_diagnostic_code::{
         DiagnosticDetail, DiagnosticExecutionBudgetScope, DiagnosticExecutionLane,
         DiagnosticFactTag, RuntimeBoundaryCode,

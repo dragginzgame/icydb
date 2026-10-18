@@ -21,7 +21,7 @@ use crate::{
     testing::test_memory,
     types::EntityTag,
 };
-use ic_stable_structures::Memory;
+use ic_memory::Memory;
 
 #[test]
 fn marker_presence_hint_tracks_publication_clear_and_allocation_switches() {
@@ -111,13 +111,15 @@ fn public_metrics_propagates_unavailable_and_corrupt_controls_instead_of_zero() 
 
 #[test]
 fn control_capacity_refusal_preserves_existing_frame_bytes() {
-    use crate::testing::test_memory_runtime;
-    use ic_memory::MemoryManagerConfig;
-    use ic_stable_structures::{RestrictedMemory, VectorMemory};
+    use crate::testing::{GrowthLimitedMemory, test_memory_runtime};
+    use ic_memory::{MemoryManagerConfig, VectorMemory};
 
     let backing = VectorMemory::default();
     let runtime = test_memory_runtime(
-        RestrictedMemory::new(backing.clone(), 0..4),
+        GrowthLimitedMemory {
+            backing: backing.clone(),
+            maximum_pages: 4,
+        },
         MemoryManagerConfig::new(1).unwrap(),
     );
     let memory = runtime.open_memory("icydb.core_tests.slot_233.v1").unwrap();

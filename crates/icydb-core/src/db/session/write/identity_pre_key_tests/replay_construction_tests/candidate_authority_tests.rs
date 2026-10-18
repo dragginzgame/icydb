@@ -11,7 +11,7 @@ use crate::db::{
     relation::RelationCommitBudget,
     schema::AcceptedSchemaFingerprint,
 };
-use ic_stable_structures::Storable;
+use ic_storage::adapter::Storable;
 
 const CANDIDATE_GENERATION: u64 = 9;
 

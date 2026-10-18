@@ -85,7 +85,7 @@ fn dynamic_wire_row_count(fixture: &StandaloneCanisterFixture) -> u32 {
         .pocket_ic()
         .query_call(
             fixture.canister_id(),
-            ic_principal::Principal::anonymous(),
+            ic_platform::Principal::anonymous(),
             DynamicRowsQuery::NAME,
             request.into_bytes(),
         )
@@ -137,7 +137,7 @@ fn dynamic_query_wire_endpoint_rejects_other_bytes_and_survives_upgrade() {
                 .pocket_ic()
                 .query_call(
                     fixture.canister_id(),
-                    ic_principal::Principal::anonymous(),
+                    ic_platform::Principal::anonymous(),
                     DynamicRowsQuery::NAME,
                     bytes,
                 )
@@ -304,7 +304,7 @@ fn generated_metrics_endpoint_uses_only_wire_and_survives_invalid_requests_and_u
                 .pocket_ic()
                 .query_call(
                     fixture.canister_id(),
-                    ic_principal::Principal::anonymous(),
+                    ic_platform::Principal::anonymous(),
                     endpoint.name(),
                     bytes
                 )
@@ -348,7 +348,7 @@ fn wire_reply_encoding_failure_rolls_back_mutations_and_retries() {
     let call = |bytes| {
         fixture.pocket_ic().update_call(
             fixture.canister_id(),
-            ic_principal::Principal::anonymous(),
+            ic_platform::Principal::anonymous(),
             "wire_rollback_apply",
             bytes,
         )
@@ -409,7 +409,7 @@ fn native_wire_browser_qualifies_the_installed_endpoint_roster() {
         .unwrap();
     assert!(identity.status.success());
     let caller =
-        ic_principal::Principal::from_text(String::from_utf8(identity.stdout).unwrap().trim())
+        ic_platform::Principal::from_text(String::from_utf8(identity.stdout).unwrap().trim())
             .unwrap();
     let wasm = icydb_testing_build::build_fixture_variant_wasm_with_profile(
         "canister_test_sql",
@@ -441,7 +441,7 @@ fn native_wire_browser_qualifies_the_installed_endpoint_roster() {
         .set_controllers(
             fixture.canister_id(),
             None,
-            vec![ic_principal::Principal::anonymous(), caller],
+            vec![ic_platform::Principal::anonymous(), caller],
         )
         .unwrap();
     let (mut instance, canister) = fixture.into_parts();

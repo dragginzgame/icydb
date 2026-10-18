@@ -12,9 +12,9 @@ authors = { workspace = true }
 
 [dependencies]
 blake3 = { workspace = true }
+ic-platform = { workspace = true }
 ic-testkit = { workspace = true }
 ic-wire = { workspace = true }
-ic_principal = { workspace = true }
 icydb = { workspace = true, default-features = true, features = ["metrics", "migration", "sql"] }
 icydb-testing-audit-sql-perf-fixtures = { workspace = true }
 icydb-testing-build = { workspace = true }

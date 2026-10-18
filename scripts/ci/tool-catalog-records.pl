@@ -1,8 +1,10 @@
 #!/usr/bin/env perl
-# Shared companions: scripts/ci/ic-tool-pins.awk
+# Shared companions: scripts/ci/ic-tool-pins.awk scripts/ci/StableVersion.pm
 use strict;
 use warnings;
 use FindBin qw($RealBin);
+use lib $RealBin;
+use StableVersion qw(stable);
 
 # One literal data contract for installation, inspection and cache identity.
 my ($kind, $path, $selected) = @ARGV;
@@ -10,7 +12,7 @@ my ($kind, $path, $selected) = @ARGV;
     && (!defined($selected) || $selected =~ /\A[A-Za-z0-9_-]+\z/)
     or die "usage: tool-catalog-records.pl host|rust|ic|ci CATALOG [TOOL]\n";
 if ($kind eq 'ic') {
-    open my $rows, '-|', 'awk', '-v', 'records=1', '-f', "$RealBin/ic-tool-pins.awk", '--', $path
+    open my $rows, '-|', 'awk', '-f', "$RealBin/ic-tool-pins.awk", '--', $path
         or die "cannot run IC pin parser: $!\n";
     my @records = <$rows>;
     close $rows or die "invalid IC catalog: $path\n";
@@ -29,14 +31,13 @@ for my $line (split /\n/, $bytes) {
         && !exists $pins{$1}) { $invalid = 1; last; }
     $pins{$1} = $2;
 }
-my @rust = qw(CARGO_SORT CARGO_SORT_DERIVES CANDID_EXTRACTOR);
-my $stable = qr/(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)/;
+my @rust = qw(CARGO_SORT CARGO_SORT_DERIVES);
 die "unresolved nonliteral/duplicate catalog: $path\n" if $invalid;
 my %ci_hosts = (ACTIONLINT => 'LINUX_AMD64', SHELLCHECK => 'LINUX_X86_64', GITLEAKS => 'LINUX_X64');
 my @records;
 for my $tool ($kind eq 'rust' ? @rust : $kind eq 'ci' ? sort keys %ci_hosts : qw(JQ YQ RIPGREP CLOC)) {
     my $version = $pins{"SHARED_TOOLING_${tool}_VERSION"};
-    defined($version) && ($version =~ /\A$stable\z/ || ($tool eq 'CLOC' && $version =~ /\A[0-9]+\.[0-9]+\z/))
+    defined($version) && (stable($version) || ($tool eq 'CLOC' && $version =~ /\A[0-9]+\.[0-9]+\z/))
         or die "missing/invalid $tool version in $path\n";
     if ($kind eq 'rust') { push @records, "$tool\t$version\tall\t-\n"; next; }
     if ($kind eq 'ci') {

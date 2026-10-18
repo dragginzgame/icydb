@@ -212,9 +212,9 @@ Preserve any consumer post-run reconciliation when adopting; a prerequisites-onl
 conversion does not reproduce an operation that previously followed the runner.
 The include does not select PR delivery, add validation or metadata adapters,
 publish packages, or clean artifacts. Keep those contracts explicit. Include
-`make/release.mk`, `make/execution.mk`, `scripts/ci/check-make-execution.sh`
-and `scripts/ci/check-release-delivery.sh`
-in the extra inputs to `check-release-commands.sh` when testing
+`make/release.mk` (or `make/consumer.mk` for the complete common interface)
+as a root input to `check-release-commands.sh`; its declared companion closure
+supplies the execution probe, delivery checker and other dependencies when testing
 an adopting Makefile with the runner at `scripts/ci/run-release.sh`. That smoke
 checker binds `SHARED_TOOLING_ROOT` to its disposable checkout, overriding parent
 environment and ordinary Makefile assignments. It substitutes the root runner;
@@ -732,7 +732,8 @@ partial-upload recovery, and release execution never invokes it implicitly.
 The Makefile pattern specifies a contract; adding this document does not install
 helpers or prove consumer adoption. Consumers implement or align their targets,
 vendor a clean reviewed Shared Tooling revision with this document,
-`scripts/ci/run-release.sh`, `scripts/ci/next-release-version.sh` and any selected
+`scripts/ci/run-release.sh`, `scripts/ci/validate-release-inputs.pl`, its
+`StableVersion.pm` companion and any selected
 changelog helper, together with `scripts/ci/check-make-execution.sh`, in the
 [governance snapshot](consuming-snapshots.md), and qualify the workflow on their
 declared Linux and macOS hosts. PR adopters also include `scripts/ci/release-pr.sh`,
@@ -852,7 +853,12 @@ prints its exact spelling. Both refuse extra whitespace, CR/LF and malformed
 values, perform no file IO and select no release effects. Consumer adapters can
 use this same grammar at each saved-input/receipt boundary.
 
-The shell increment helper retains its narrower signed arithmetic headroom;
-admission of a u64 version is not permission to increment it through Bash.
+`next-version X.Y.Z patch|minor|major` calculates the next version with exact
+decimal arithmetic and the same u64 component ceiling. Only the incremented
+component needs headroom; lower components reset to zero for minor/major bumps.
+Overflow, invalid inputs and unsupported increments produce no candidate.
+The public `next-release-version.sh X.Y.Z patch|minor|major` entrypoint delegates
+to this calculation and returns exit 2 for invalid inputs; existing adapters do
+not need an invocation change.
 The runner admits generated and retained dates before dispatching release
 callbacks. Consumers still own metadata, selected identity, receipts and replay.

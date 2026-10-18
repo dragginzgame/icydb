@@ -2,12 +2,9 @@
 //! One-entity dynamic-query canister used for wasm-footprint attribution.
 //!
 
-// Read IC counter 1 through the CDK; native builds use its
-// unsupported host binding and provide no IC measurement evidence.
-#[cfg(not(target_arch = "wasm32"))]
-use ic_cdk::api::call_context_instruction_counter;
-#[cfg(target_arch = "wasm32")]
-use ic_cdk::api::call_context_instruction_counter;
+// IC counter 1 preserves the call-context sample boundary through Platform.
+// Native system calls provide no IC measurement evidence.
+use ic_platform::ic0::performance_counter;
 
 use ic_wire::{Method, ResponseBytes, decode_request, encode_response};
 use icydb::{
@@ -37,14 +34,17 @@ const MAX_REPEATED_QUERIES: u16 = 1_000;
 
 // The Canic adapter exports this raw IC Wire method.
 fn query_one_entity_dynamic_rows() {
-    // Admission precedes the CDK's argument copy and all database work.
-    if ic0::msg_arg_data_size() > DynamicRowsQuery::REQUEST_LIMITS.bytes {
-        ic_cdk::api::msg_reject("dynamic row query request limit");
+    // Admission precedes argument allocation/copy and all database work.
+    if ic_platform::ic0::msg_arg_data_size() > DynamicRowsQuery::REQUEST_LIMITS.bytes {
+        ic_platform::ic0::msg_reject(b"dynamic row query request limit");
         return;
     }
-    match dynamic_rows_reply(&ic_cdk::api::msg_arg_data(), dynamic_row_count) {
-        Ok(reply) => ic_cdk::api::msg_reply(reply.as_bytes()),
-        Err(error) => ic_cdk::api::msg_reject(error.to_string()),
+    match dynamic_rows_reply(&ic_platform::cdk::api::msg_arg_data(), dynamic_row_count) {
+        Ok(reply) => {
+            ic_platform::ic0::msg_reply_data_append(reply.as_bytes());
+            ic_platform::ic0::msg_reply();
+        }
+        Err(error) => ic_platform::ic0::msg_reject(error.to_string().as_bytes()),
     }
 }
 
@@ -92,14 +92,14 @@ fn measure_repeated_point_queries(repetitions: u16) -> ((u16, u16, u32, u64),) {
             DynamicQuery::new("OneSimpleEntity01").filter(FieldRef::new("id").eq(Ulid::MIN));
         let mut failures = 0_u16;
         let mut rows = 0_u32;
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         for _ in 0..executions {
             match database.execute_trusted_live_page(&request, None) {
                 Ok(output) => rows = rows.saturating_add(output.row_count),
                 Err(_) => failures = failures.saturating_add(1),
             }
         }
-        let local_instructions = call_context_instruction_counter().saturating_sub(start);
+        let local_instructions = performance_counter(1).saturating_sub(start);
 
         ((executions, failures, rows, local_instructions),)
     })
@@ -116,7 +116,7 @@ fn measure_parameterized_point_queries(repetitions: u16) -> ((u16, u16, u32, u64
         };
         let mut failures = 0_u16;
         let mut rows = 0_u32;
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         for value in 0..executions {
             let request = DynamicQuery::new("OneSimpleEntity01")
                 .filter(FieldRef::new("id").eq(Ulid::from_u128(u128::from(value))));
@@ -125,7 +125,7 @@ fn measure_parameterized_point_queries(repetitions: u16) -> ((u16, u16, u32, u64
                 Err(_) => failures = failures.saturating_add(1),
             }
         }
-        let local_instructions = call_context_instruction_counter().saturating_sub(start);
+        let local_instructions = performance_counter(1).saturating_sub(start);
 
         ((executions, failures, rows, local_instructions),)
     })
@@ -145,14 +145,14 @@ fn measure_repeated_scan_queries(repetitions: u16) -> ((u16, u16, u32, u64),) {
             .limit(1);
         let mut failures = 0_u16;
         let mut rows = 0_u32;
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         for _ in 0..executions {
             match database.execute_trusted_live_page(&request, None) {
                 Ok(output) => rows = rows.saturating_add(output.row_count),
                 Err(_) => failures = failures.saturating_add(1),
             }
         }
-        let local_instructions = call_context_instruction_counter().saturating_sub(start);
+        let local_instructions = performance_counter(1).saturating_sub(start);
 
         ((executions, failures, rows, local_instructions),)
     })
@@ -174,14 +174,14 @@ fn measure_repeated_grouped_queries(repetitions: u16) -> ((u16, u16, u32, u64),)
             .limit(1);
         let mut failures = 0_u16;
         let mut rows = 0_u32;
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         for _ in 0..executions {
             match database.execute_trusted_dynamic_grouped_query(&request) {
                 Ok(output) => rows = rows.saturating_add(output.row_count),
                 Err(_) => failures = failures.saturating_add(1),
             }
         }
-        let local_instructions = call_context_instruction_counter().saturating_sub(start);
+        let local_instructions = performance_counter(1).saturating_sub(start);
 
         ((executions, failures, rows, local_instructions),)
     })

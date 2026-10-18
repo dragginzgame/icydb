@@ -29,10 +29,8 @@ use crate::{
     traits::CanisterKind,
 };
 
-use ic_memory::RuntimeMemory;
-use ic_stable_structures::{
-    BTreeMap as StableBTreeMap, DefaultMemoryImpl, Storable, storable::Bound,
-};
+use ic_memory::{DefaultMemoryImpl, RuntimeMemory};
+use ic_storage::adapter::{StableBTreeMap, Storable, storable::Bound};
 use serde::Deserialize;
 use sha2::Digest;
 use std::borrow::Cow;
@@ -318,7 +316,7 @@ pub(super) struct ProgressScanPage {
 }
 
 pub(in crate::db) struct InspectionProgressStore {
-    map: StableBTreeMap<ProgressRecordKey, ProgressRecordBytes, RuntimeMemory<DefaultMemoryImpl>>,
+    map: StableBTreeMap<ProgressRecordKey, ProgressRecordBytes, DefaultMemoryImpl>,
 }
 
 impl InspectionProgressStore {
@@ -611,7 +609,7 @@ impl InspectionProgressStore {
         let mut mutation_count = 0_u64;
         let mut retained_record_bytes = 0_u64;
 
-        for entry in self.map.iter() {
+        for entry in &self.map {
             let key = *entry.key();
             if key == PROGRESS_HEADER_KEY {
                 continue;
@@ -748,7 +746,7 @@ impl InspectionProgressStore {
 
     fn owner_job_count(&self, owner: &IntegrityJobOwner) -> Result<u64, IntegrityJobError> {
         let mut count = 0_u64;
-        for entry in self.map.iter() {
+        for entry in &self.map {
             if *entry.key() == PROGRESS_HEADER_KEY {
                 continue;
             }

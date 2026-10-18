@@ -295,6 +295,8 @@ common_paths() {
 check_common_links() {
     common_paths || return 1
     [[ -L "$install_root/common" ]] || return 1
+    local entries=("$install_root/common/bin/"*)
+    [[ "${#entries[@]}" == "${#tool_names[@]}" ]] || return 1
     local index link expected
     for index in "${!tool_names[@]}"; do
         link="$install_root/common/bin/${tool_names[$index]}"

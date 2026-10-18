@@ -262,7 +262,12 @@ tab-separated tool, version, host and digest records. Rust records use `all` and
 `-` for host and digest. Optional tool selection filters only after the entire
 selected group is admitted; an unknown tool refuses without partial output.
 CI records normalize asset-specific host spellings to `LINUX_AMD64`.
+Canonical stable-version grammar comes from `StableVersion.pm`; CLOC retains
+its two-component version allowance. Catalog admission adds no release u64 bound.
 Callers select records directly; the former raw `values` projection is removed.
+The IC admission backend, `ic-tool-pins.awk`, always emits the complete validated
+matrix. It has no version-only or validation-only output mode. Select individual
+tools through `tool-catalog-records.pl ic CATALOG TOOL` after matrix admission.
 For example, obtain the formatter pin without recreating catalog variables:
 
 ```bash
@@ -353,14 +358,17 @@ roster; snapshot-relative links must exist in the adopted file set.
 bash scripts/ci/check-release-commands.sh /path/to/repo tool-versions.env
 ```
 
-The root's Makefile is copied into a temporary checkout without Git metadata.
-Additional arguments select reviewed, repository-relative files needed while
-Make parses that copy. For example, Canic includes `tool-versions.env`; IcyDB
-reads `scripts/ci/actionlint-checksums.tsv`. No files are implicitly discovered
-or sourced from siblings. The copied Makefile must call
+The root's Makefile and explicit additional roots are copied into a temporary
+checkout without Git metadata through `prepare-script-fixture.sh`, including
+their declared companion closure. All selected inputs must be present regular
+files with safe parents. Select the Make include roots and let their declarations
+carry dependencies; consumer-owned parse-time inputs still need explicit roots
+or companion declarations. No sibling discovery occurs. The copied Makefile must call
 `scripts/ci/run-release.sh` relative to its fixture checkout (directly or through
 Bash). That path contains a substitute that records exact arguments and returns
-a chosen status. GNU Make and Bash are prerequisites.
+a chosen status. The runner is replaced after copying and before any Make
+execution. GNU Make and Bash are prerequisites; include the preparer and its
+declaration reader when refreshing a manually selected checker snapshot.
 
 The checker exercises patch/minor/major routing, resume with an explicit version,
 explicit remote/branch propagation, runner success and failure propagation,
@@ -398,24 +406,17 @@ evidence; a preflight observation is not a lock or an upload receipt.
 
 ## Exact crates.io version observation
 
-```sh
-status=0
-bash scripts/ci/check-crates-io-version.sh my-crate 0.1.2 || status=$?
-case "$status" in
-    0) echo 'Already present' ;;
-    1) echo 'Absent; the caller may consider separately authorized publication' ;;
-    2) echo 'Observation unavailable or invalid; stop' >&2; exit 2 ;;
-esac
-```
-
-The default Bash/curl helper accepts one crate name and one canonical stable `X.Y.Z`
-version. Prerelease/build versions, leading-zero components, malformed names and
-extra arguments are rejected. Its exit contract is **0 present (HTTP 200),
+The helper accepts one crate name and one canonical stable `X.Y.Z` version.
+The status-only command uses Bash and curl to observe HTTP presence without
+creating retained metadata. Reconciliation callers select `--metadata NEW-DIRECTORY`
+and prepare jq and curl 8.4.0+ before invocation.
+Prerelease/build versions, leading-zero components, malformed names and extra
+arguments are rejected. Its exit contract is **0 present,
 1 absent (HTTP 404), 2 unavailable or invalid**. Transport failure wins over any
-HTTP-looking output; rate limits, authorization failures, server failures and
-unexpected responses are unavailable. Diagnostics go to stderr; stdout is empty.
-Call it in a conditional or capture its status as above when using `set -e`.
-Never use a blanket nonzero test to decide that publication is safe.
+HTTP-looking output. Metadata mode additionally validates the response identity,
+checksum and yank flag; status-only presence does not establish archive equivalence.
+Handle all three statuses. Never use a blanket
+nonzero test to decide that publication is safe.
 
 One request targets the fixed crates.io API, with HTTPS-only redirects, a
 10-second connection timeout and 30-second total timeout. It disables implicit
@@ -427,8 +428,7 @@ an inconclusive result must stop that flow rather than trigger publication.
 
 ### Retained exact metadata
 
-Consumers needing package identity and checksum facts can select the same helper's
-additive metadata mode:
+Each observation retains package identity and checksum facts:
 
 ```sh
 status=0
@@ -441,7 +441,6 @@ case "$status" in
 esac
 ```
 
-`--metadata NEW-DIRECTORY` additionally requires prepared jq and curl 8.4.0+.
 The directory's parent must exist; an existing directory, file or symlink is
 rejected before a request, so a retry cannot overwrite or reuse earlier evidence.
 The helper creates it with private permissions and retains `request.url`,
@@ -452,7 +451,7 @@ alone is not evidence of a completed observation. Callers select a fresh path
 for every attempt and must check the exit status.
 
 The body limit is 1 MiB, enforced during transfer and checked again before JSON
-parsing. The curl floor is specific to metadata mode because
+parsing. The curl floor is required because
 [older curl cannot enforce this limit without a known response size](https://curl.se/docs/manpage.html#--max-filesize).
 Only HTTP 200 containing exactly one JSON object with the exact requested crate
 and version, a 64-character lowercase SHA-256 checksum and a boolean `yanked`
@@ -725,6 +724,11 @@ finalizer rejects non-increasing previous/target pairs itself.
 
 The optional host-side `failure_evidence.py` provides non-extracting archive
 indexing/regular reads and independent compact Shared tool receipt verification.
+`verify_compact_tools` selects a nonempty set of `host`, `ic`, or both from the
+caller's `tool_pins` keys. Every selected bundle requires its caller pins, fresh
+check log and managed compact selection; unknown or empty selections refuse.
+IC selection additionally requires matching installer pins, native host and
+checksum receipts. Unselected bundles remain diagnostics and are not qualified.
 Consumers keep source/job/run identity and product assertions. The Python helper
 is selected only by download-verification consumers, not native shell setup.
 Run `python3 scripts/ci/test-failure-evidence.py` on the download-verification
@@ -917,7 +921,15 @@ the supplied marker. `RUN/tmp` must exist. The helper publishes
 
 `collect-native-diagnostics.sh CHECKOUT EVIDENCE OUTPUT FORMAT-ROOT TOOLS-OUTCOME
 HOST-PINS IC-PINS NAME...` archives only the supplied existing top-level files
-and writes its SHA-256 before collecting failed tools or formatter logs.
+and writes its SHA-256 before collecting failed tools or formatter logs. The
+`OUTPUT.sha256` sidecar contains exactly one lowercase digest and LF, with no
+filename. Verify the explicitly selected archive through the checksum owner:
+
+```bash
+bash scripts/ci/verify-file-checksum.sh sha256 "$(cat "$archive.sha256")" "$archive"
+```
+
+This replaces the filename-bearing sidecar contract; update `shasum -c` callers.
 Names cannot traverse directories; the scratch tree is never implicitly selected.
 The helper uses the existing tool/formatter owners and returns 0 on success,
 the tool collector's nonfatal status on partial collection, or 2 on fatal
@@ -961,6 +973,16 @@ policy and prepare the Cargo tool; this check performs no installation or
 manifest mutation. Other check callers remain unchanged. The flag is rejected
 for `prepare` and `check-graph`. Scripts from the selected export are never run.
 
+For intentionally separated dependency groups, use `--manifest-order-grouped`
+instead. It adds `--grouped` to the same read-only Cargo sort check, retaining
+alphabetical order within each group. Both options require `check` and include
+`--check`; neither rewrites the workspace nor the selected release export.
+Current and committed-source checks must select the same ordering policy as
+the consumer's formatter and hook. The flag does not change those callers or
+verify dependency roles. Follow the
+[dependency-role adoption checklist](consuming-snapshots.md#dependency-role-adoption-in-0240)
+when selecting grouped mode.
+
 ## Hosted qualification admission and evidence parents
 
 `qualify-hosted-failure.sh` owns stage/manual-dispatch admission, selected-checkout
@@ -1002,6 +1024,8 @@ still qualify the complete upload/download boundary.
 
 `check-release-changelog.sh VERSION PREVIOUS DATE CHANGELOG` admits a regular
 changelog with the canonical candidate selector before any setup or mutation.
+Version components and Gregorian dates use `validate-release-inputs.pl`, including
+its u64 component bounds. Invalid scalar inputs exit 2 before changelog reading.
 It writes no temporary/output file, preserves failed reader/selector status and
 keeps empty notes advisory. Coordinated metadata preparation remains the writer;
 consumer source, tag, impact and release authority stay local. Focused coverage

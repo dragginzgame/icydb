@@ -230,7 +230,7 @@ cmp "$fixture/expected" "$TOOL_COMMAND_LOG"
 mkdir -p "$snapshot/scripts/ci" "$snapshot/ci" "$consumer/ci" "$fixture/bin"
 cp "$ROOT/scripts/dev/install-ic-tools.sh" "$ROOT/scripts/dev/install-rust-tools.sh" "$snapshot/scripts/dev/"
 cp "$ROOT/scripts/dev/"{tool-store.sh,cargo-tool-build.sh,host-platform.sh} "$snapshot/scripts/dev/"
-cp "$ROOT/scripts/ci/"{ic-tool-pins.awk,verify-file-checksum.sh,tool-catalog-records.pl} "$snapshot/scripts/ci/"
+cp "$ROOT/scripts/ci/"{ic-tool-pins.awk,verify-file-checksum.sh,tool-catalog-records.pl,StableVersion.pm} "$snapshot/scripts/ci/"
 cp "$ROOT/ci/ic-tools.tsv" "$ROOT/ci/tool-versions.env" "$snapshot/ci/"
 cat > "$fixture/bin/uname" <<'SCRIPT'
 #!/usr/bin/env bash

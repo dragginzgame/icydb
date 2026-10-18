@@ -1,11 +1,8 @@
 //! One shared operation harness for all controlled relation-cost actors.
 
-// Read IC counter 1 through the CDK; native builds use its
-// unsupported host binding and provide no IC measurement evidence.
-#[cfg(not(target_arch = "wasm32"))]
-use ic_cdk::api::call_context_instruction_counter;
-#[cfg(target_arch = "wasm32")]
-use ic_cdk::api::call_context_instruction_counter;
+// IC counter 1 preserves the call-context sample boundary through Platform.
+// Native system calls provide no IC measurement evidence.
+use ic_platform::ic0::performance_counter;
 
 use icydb::{
     db::{DbSession, StructuralMutation, StructuralPatch, WriteCell},
@@ -107,9 +104,9 @@ fn delete(entity: &str, id: i32) -> StructuralMutation {
 }
 
 fn measured<T>(operation: impl FnOnce() -> T) -> (T, u64) {
-    let start = call_context_instruction_counter();
+    let start = performance_counter(1);
     let result = operation();
-    let instructions = call_context_instruction_counter().saturating_sub(start);
+    let instructions = performance_counter(1).saturating_sub(start);
     (result, instructions)
 }
 

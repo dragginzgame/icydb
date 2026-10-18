@@ -12,8 +12,8 @@ authors = { workspace = true }
 crc32fast = { workspace = true }
 data-encoding = { workspace = true }
 ethnum = { workspace = true }
+ic-platform = { workspace = true }
 ic-wire = { workspace = true }
-ic_principal = { workspace = true }
 serde = { workspace = true }
 serde_bytes = { workspace = true }
 sha2 = { workspace = true }

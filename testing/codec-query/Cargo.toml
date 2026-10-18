@@ -7,7 +7,7 @@ version = { workspace = true }
 publish = false
 
 [dependencies]
-ic0 = { workspace = true }
+ic-platform = { workspace = true, features = ["ic0"] }
 
 [lints]
 workspace = true

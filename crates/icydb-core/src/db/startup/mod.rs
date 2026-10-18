@@ -203,7 +203,7 @@ mod tests {
         traits::Path,
         types::EntityTag,
     };
-    use ic_stable_structures::Memory;
+    use ic_memory::Memory;
     use icydb_diagnostic_code::{ErrorCode, ErrorOrigin as DiagnosticOrigin};
     use icydb_schema::{SchemaProposalDigest, SchemaSubmissionKey};
     use std::cell::RefCell;

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/run-release.sh scripts/ci/next-release-version.sh scripts/ci/finalize-release-changelog.awk scripts/ci/fixture-lifecycle.sh
+# Shared companions: scripts/ci/run-release.sh scripts/ci/validate-release-inputs.pl scripts/ci/finalize-release-changelog.awk scripts/ci/fixture-lifecycle.sh
 set -euo pipefail
 
 # This fixture owns its Make controls; production admission is tested below.
@@ -242,7 +242,7 @@ new_fixture() {
 # Seed saved intent, including preparation-free records from early attempts.
 early_plan() {
     local kind="$1" candidate phase="$2" destination
-    candidate="$(bash "$ROOT/scripts/ci/next-release-version.sh" "$(cat version)" "$kind")"
+    candidate="$(perl "$ROOT/scripts/ci/validate-release-inputs.pl" next-version "$(cat version)" "$kind")"
     destination="$(git remote get-url --push --all origin | git hash-object --stdin)"
     mkdir -p .release-state
     printf '%s\n' release-plan-1 "$kind" "$(cat version)" "$candidate" 2026-10-05 \
@@ -474,7 +474,7 @@ for kind in patch minor major; do
         echo eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee > 'head'
         if [[ "$metadata" == bumped ]]; then printf '%s\n' "$candidate" > version; fi
         base="$(cat version)"
-        next="$(bash "$ROOT/scripts/ci/next-release-version.sh" "$base" "$kind")"
+        next="$(perl "$ROOT/scripts/ci/validate-release-inputs.pl" next-version "$base" "$kind")"
         # Explicit resume never changes its saved version or reuses old validation.
         expect_failure resume "$candidate" origin main
         grep -F 'phase: prepare' output >/dev/null
@@ -948,11 +948,11 @@ for selected_date in 2026-10-06 2026-10-07; do
         -f "$ROOT/scripts/ci/finalize-release-changelog.awk" CHANGELOG.md > prepared 2>/dev/null; then exit 1; fi
 done
 
-[[ "$(bash "$ROOT/scripts/ci/next-release-version.sh" 9.8.7 patch)" == 9.8.8 ]] || exit 1
-[[ "$(bash "$ROOT/scripts/ci/next-release-version.sh" 9.8.7 minor)" == 9.9.0 ]] || exit 1
-[[ "$(bash "$ROOT/scripts/ci/next-release-version.sh" 9.8.7 major)" == 10.0.0 ]] || exit 1
-for version in 01.2.3 1.2.3-beta 1.2 9223372036854775807.0.0; do
-    if bash "$ROOT/scripts/ci/next-release-version.sh" "$version" patch > /dev/null 2>&1; then exit 1; fi
+[[ "$(perl "$ROOT/scripts/ci/validate-release-inputs.pl" next-version 9.8.7 patch)" == 9.8.8 ]] || exit 1
+[[ "$(perl "$ROOT/scripts/ci/validate-release-inputs.pl" next-version 9.8.7 minor)" == 9.9.0 ]] || exit 1
+[[ "$(perl "$ROOT/scripts/ci/validate-release-inputs.pl" next-version 9.8.7 major)" == 10.0.0 ]] || exit 1
+for version in 01.2.3 1.2.3-beta 1.2 18446744073709551616.0.0; do
+    if perl "$ROOT/scripts/ci/validate-release-inputs.pl" next-version "$version" patch > /dev/null 2>&1; then exit 1; fi
 done
 # Preserve exact note ownership beyond binary64 precision and across lengths.
 for components in '9007199254740992 9007199254740993 9007199254740991' \

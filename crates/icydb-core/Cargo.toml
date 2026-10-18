@@ -24,8 +24,8 @@ getrandom = { workspace = true }
 base64 = { workspace = true }
 ic-memory = { workspace = true }
 ic-metrics.workspace = true
-ic-stable-structures = { workspace = true }
-ic0 = { workspace = true }
+ic-platform = { workspace = true, features = ["ic0"] }
+ic-storage = { workspace = true }
 icydb-diagnostic-code = { workspace = true }
 icydb-schema = { workspace = true }
 rand_chacha = { workspace = true }

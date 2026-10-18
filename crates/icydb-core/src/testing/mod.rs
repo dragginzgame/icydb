@@ -6,15 +6,49 @@
 mod entity_tags;
 
 use ic_memory::{
-    MemoryAllocationPool, MemoryAuthority, MemoryManagerConfig, MemoryRequest, MemoryRuntime,
-    RuntimeMemory, SealedDeclarationSnapshot,
+    DefaultMemoryImpl, Memory, MemoryAllocationPool, MemoryAuthority, MemoryManagerConfig,
+    MemoryRequest, MemoryRuntime, RuntimeMemory, SealedDeclarationSnapshot, VectorMemory,
 };
-use ic_stable_structures::{DefaultMemoryImpl, Memory};
 use std::sync::OnceLock;
 
 pub(crate) use entity_tags::*;
 
 pub(crate) const RESERVED_INTERNAL_MEMORY_ID: u8 = u8::MAX;
+
+/// Test backing that refuses growth above a fixed physical extent.
+///
+/// Only injects backing exhaustion into IcyDB's frame-write admission tests;
+/// allocation and collection behavior still belongs to Memory and Storage.
+pub(crate) struct GrowthLimitedMemory {
+    pub(crate) backing: VectorMemory,
+    pub(crate) maximum_pages: u64,
+}
+
+impl Memory for GrowthLimitedMemory {
+    fn grow(&self, pages: u64) -> i64 {
+        if self
+            .size()
+            .checked_add(pages)
+            .is_none_or(|total| total > self.maximum_pages)
+        {
+            return -1;
+        }
+
+        self.backing.grow(pages)
+    }
+
+    fn read(&self, offset: u64, dst: &mut [u8]) {
+        self.backing.read(offset, dst);
+    }
+
+    fn size(&self) -> u64 {
+        self.backing.size()
+    }
+
+    fn write(&self, offset: u64, src: &[u8]) {
+        self.backing.write(offset, src);
+    }
+}
 
 /// Return a validated test memory id.
 ///

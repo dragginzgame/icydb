@@ -33,6 +33,14 @@ the independent, non-mutating formatting gate.
   versions, workspace inheritance, comments and selected lockfiles; it is not a
   dependency upgrade or release bump. See the
   [cargo-sort documentation](https://github.com/DevinR528/cargo-sort).
+- If a consumer separates dependency-role groups with blank lines, use
+  `cargo sort --workspace --grouped` for writing and add `--check` for checking.
+  Apply the same selection to hooks, CI and selected-source release checks;
+  the default shared commands do not select grouped mode. Use the
+  [dependency role labels](cargo-dependencies.md#dependency-roles-and-deployment-checks)
+  rather than ambiguous `Published`/`Unpublished` catalog headings. Inline role
+  comments also work with the default global ordering. Sorting checks order;
+  it does not verify dependency roles or registry publication.
 - Additional formatting steps, such as derive sorting, may
   belong in those targets. They must have matching non-mutating checks, preserve
   dependency/version selections and work from tracked inputs in an isolated

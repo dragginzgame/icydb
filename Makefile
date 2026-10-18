@@ -31,8 +31,8 @@ LOCAL_TOOL_CHECK_TARGETS := ic-tools-check testkit-check
 # IC executables are an explicit IcyDB selection under the shared baseline.
 export PATH := $(ROOT_DIR)/.tools/ic/bin:$(PATH)
 # IcyDB owns derive ordering; shared targets own admission and formatter output.
-FORMAT_WRITE_COMMAND = bash -ec '"$$1" sort-derives; "$$1" sort --workspace; "$$1" fmt --all' -- "$(FORMAT_CARGO)"
-FORMAT_CHECK_COMMAND = bash -ec '"$$1" sort-derives --check; "$$1" sort --workspace --check; "$$1" fmt --all -- --check' -- "$(FORMAT_CARGO)"
+FORMAT_WRITE_COMMAND = bash -ec '"$$1" sort-derives; "$$1" sort --workspace --grouped; "$$1" fmt --all' -- "$(FORMAT_CARGO)"
+FORMAT_CHECK_COMMAND = bash -ec '"$$1" sort-derives --check; "$$1" sort --workspace --grouped --check; "$$1" fmt --all -- --check' -- "$(FORMAT_CARGO)"
 include $(ROOT_DIR)/make/consumer.mk
 
 # Keep workspace cargo state repo-local so sibling repos compiling on the same
@@ -442,6 +442,7 @@ check-invariants:
 	bash scripts/release/test-finalize-notes.sh
 	bash scripts/ci/check-deployment-inventory-invariants.sh
 	+$(CARGO_WORK_ENV) bash scripts/ci/check-dependency-graph-invariants.sh
+	+$(CARGO_WORK_ENV) bash scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$(ROOT_DIR)"
 	+$(CARGO_WORK_ENV) bash scripts/ci/check-executor-no-production-panics.sh
 	bash scripts/ci/check-generated-endpoint-invariants.sh
 	bash scripts/ci/check-index-range-spec-invariants.sh
@@ -614,6 +615,8 @@ release-commit-check:
 	+@bash scripts/ci/release-candidate-receipt.sh verify-staged
 release-committed-check:
 	+@bash scripts/ci/release-candidate-receipt.sh verify-commit
+	+@RELEASE_COMMIT="$${RELEASE_COMMIT:-$$(git rev-parse --verify HEAD)}" \
+		YQ="$(YQ)" bash scripts/ci/cargo-release-metadata.sh check icydb --manifest-order-grouped
 release-tagged-check:
 	+@bash scripts/ci/record-release-gate-receipt.sh
 release-push-check:

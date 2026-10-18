@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::db::sql_shared::MAX_SQL_EXPR_DEPTH;
-use ic_stable_structures::Storable;
+use ic_storage::adapter::Storable;
 
 fn partial_index_snapshot(sql: &str) -> PersistedSchemaSnapshot {
     let base = identity_snapshot(STORE_PATH, false);

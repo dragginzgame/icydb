@@ -6,8 +6,7 @@
 #[cfg(not(test))]
 use crate::db::registry::open_committed_memory;
 use crate::error::InternalError;
-use ic_memory::RuntimeMemory;
-use ic_stable_structures::DefaultMemoryImpl;
+use ic_memory::{DefaultMemoryImpl, RuntimeMemory};
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
@@ -115,7 +114,7 @@ pub fn with_selected_commit_memory<R>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ic_stable_structures::Memory as _;
+    use ic_memory::Memory as _;
 
     #[test]
     fn current_commit_selection_can_switch_databases_and_return() {

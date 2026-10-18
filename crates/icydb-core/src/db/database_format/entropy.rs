@@ -63,7 +63,7 @@ impl Drop for EntropyRequest {
 /// Obtain a secure seed, leaving asynchronous failures to the startup watchdog.
 pub(super) fn require_boot_entropy() -> Result<[u8; 32], InternalError> {
     #[cfg(target_arch = "wasm32")]
-    if ic0::in_replicated_execution() == 0 {
+    if ic_platform::ic0::in_replicated_execution() == 0 {
         return Err(InternalError::recovery_pending());
     }
 
@@ -96,7 +96,7 @@ fn request_entropy() {
 /// admission when invoked outside replicated IC execution.
 pub fn provide_boot_entropy(seed: [u8; 32]) -> Result<(), InternalError> {
     #[cfg(target_arch = "wasm32")]
-    if ic0::in_replicated_execution() == 0 {
+    if ic_platform::ic0::in_replicated_execution() == 0 {
         return Err(InternalError::recovery_pending());
     }
     if seed == [0; 32] {

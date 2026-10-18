@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/check-make-execution.sh scripts/ci/next-release-version.sh scripts/ci/check-release-tag.sh scripts/ci/validate-release-inputs.pl
+# Shared companions: scripts/ci/check-make-execution.sh scripts/ci/check-release-tag.sh scripts/ci/validate-release-inputs.pl
 set -euo pipefail
 
 # Canonical ordering and Git effects; consumer targets own metadata and gates.
@@ -110,7 +110,7 @@ read_plan() {
     [[ "$1" == "$state_root/$saved_candidate.plan" ]] || fail 'release plan identity is invalid'
     [[ "$saved_source" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ && "$saved_destination" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]] || fail 'release plan source/date/destination is invalid'
     perl "$runner_dir/validate-release-inputs.pl" date "$saved_date" >/dev/null || fail "release plan date is invalid"
-    [[ "$(bash "$(dirname "${BASH_SOURCE[0]}")/next-release-version.sh" "$saved_previous" "$saved_kind")" == "$saved_candidate" ]] || fail 'release plan increment is invalid'
+    [[ "$(perl "$(dirname "${BASH_SOURCE[0]}")/validate-release-inputs.pl" next-version "$saved_previous" "$saved_kind")" == "$saved_candidate" ]] || fail 'release plan increment is invalid'
     case "$saved_phase" in
         preflight|validate|prepare|stage|commit|complete) ;;
         tag|push) [[ "$saved_delivery" == direct ]] || fail 'release phase conflicts with delivery' ;;
@@ -200,7 +200,7 @@ select_release() {
     else
         kind="$mode"
         previous="$("$make_bin" --no-print-directory -s release-version)"
-        candidate="$(bash "$(dirname "${BASH_SOURCE[0]}")/next-release-version.sh" "$previous" "$kind")"
+        candidate="$(perl "$(dirname "${BASH_SOURCE[0]}")/validate-release-inputs.pl" next-version "$previous" "$kind")"
         release_date="$(date -u +%F)"
         perl "$runner_dir/validate-release-inputs.pl" date "$release_date" >/dev/null || fail "release date is invalid"
         source="$(git rev-parse --verify HEAD)"

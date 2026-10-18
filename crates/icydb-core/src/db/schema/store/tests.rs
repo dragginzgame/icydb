@@ -48,7 +48,7 @@ use crate::{
     types::EntityTag,
 };
 
-use ic_stable_structures::{Storable, storable::Bound};
+use ic_storage::adapter::{Storable, storable::Bound};
 use std::{borrow::Cow, convert::Infallible};
 
 fn overlay_position(sequence: u64) -> JournalOverlayPosition {

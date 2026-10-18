@@ -398,7 +398,7 @@ impl StoreAllocationIdentity {
 pub(in crate::db) fn open_committed_memory(
     stable_key: &str,
     memory_id: u8,
-) -> Result<ic_memory::RuntimeMemory<ic_stable_structures::DefaultMemoryImpl>, InternalError> {
+) -> Result<ic_memory::RuntimeMemory<ic_memory::DefaultMemoryImpl>, InternalError> {
     let committed_id = memory_runtime()
         .ok_or_else(InternalError::store_internal)?
         .memory_id(stable_key)

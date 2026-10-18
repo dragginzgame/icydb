@@ -39,7 +39,7 @@ different support scopes require an explicitly approved exception.
 | System bootstrap | Bash, Git, GNU Make, curl, CA certificates, tar, gzip, xz, Perl, a SHA-256 implementation and standard Unix utilities | Host package manager; see [bootstrap prerequisites](#bootstrap-prerequisites) |
 | Common host tools | `jq`, Mike Farah `yq`, `rg` with PCRE2, `cloc` | `make install-host-tools`; offline `make host-tools-check`; `.tools/host/bin` |
 | Optional product IC tools | `quill`, `icp`, `didc`, `ic-wasm`, `wasm-opt` | `make install-ic-tools`; offline `make ic-tools-check`; `.tools/ic/bin` |
-| Common Cargo tools | `cargo-sort`, `cargo-sort-derives`, `candid-extractor` | `make install-rust-tools`; offline `make rust-tools-check`; `.tools/rust/common/bin`. All repositories prepare a declared Rust/Cargo toolchain and native build prerequisites first. |
+| Common Cargo tools | `cargo-sort`, `cargo-sort-derives` | `make install-rust-tools`; offline `make rust-tools-check`; `.tools/rust/common/bin`. All repositories prepare a declared Rust/Cargo toolchain and native build prerequisites first. |
 | Rust development | rustfmt and product compilation targets | Consumer toolchain setup and the [formatter prerequisite check](verification-helpers.md#formatter-prerequisites) |
 | Workflow-specific tools | ShellCheck, actionlint, Gitleaks, authenticated `gh`, Node/SDKs and other tools used by that repository | Explicit consumer setup; declare the tools required by each workflow |
 
@@ -49,7 +49,7 @@ before removing corruption-workaround markers. The selected 0.14.1 formatter
 requires Rust 1.88 or newer to build; consumer library MSRVs stay independently owned.
 Tool availability and version checks do not establish semantic preservation.
 
-`make install-tools` and `make tools-check` cover the seven common host/Cargo executables,
+`make install-tools` and `make tools-check` cover the common host/Cargo executables,
 regardless of the repository's implementation language. The five IC executables
 are optional product tools; their standalone setup/check targets remain available.
 Setup does not install a Rust toolchain or authenticate GitHub. Product and workflow-specific
@@ -284,7 +284,7 @@ PocketIC consumers additionally use their selected IC Testkit CLI's explicit
 
 After preparing the consumer's declared Rust/Cargo toolchain and compilation
 prerequisites, use `make install-rust-tools` and offline `make rust-tools-check`.
-The shared helper installs cargo-sort, cargo-sort-derives and candid-extractor
+The shared helper installs cargo-sort and cargo-sort-derives
 into shared build-identity slots and exposes the complete set at `.tools/rust/common/bin`, using their exact versions from
 [ci/tool-versions.env](../ci/tool-versions.env) and Cargo's `--locked` installation.
 Preflight selects the consumer's prepared compiler, including explicit Rustup
@@ -297,6 +297,12 @@ relative `--lockfile` paths retain their consumer-relative meaning.
 the snapshot's `ci/tool-versions.env`, independently of `HOST_TOOL_VERSIONS`.
 Keep qualified version exceptions in that selected catalog,
 and remove duplicate consumer constants when adopting the shared pins.
+
+Candid extraction is a product-selected tool. Consumers that extract declarations
+own its pin, explicit installation/check target and PATH selection through the
+[selected Cargo tool interface](#consumer-selected-cargo-tools). Common setup does
+not install it. Qualify that selection before adopting the narrower common set;
+retained installation slots are not deleted.
 
 The complete common aggregate includes this set in every repository, including
 non-Rust repositories. The narrow commands remain useful for explicit retries
@@ -390,7 +396,7 @@ This example is a caller selection, not a new fleet-wide package pin. Consumers
 own package versions, profiles, compiler selection, explicit executable overrides
 and product qualification. Use `--bin NAME` for a published binary. This mode
 does not install the formatter bundle or read its versions catalog; `make
-install-rust-tools` prepares the three common tools through this same engine.
+install-rust-tools` prepares the common formatter tools through this same engine.
 
 For a tool selected by a consumer lockfile, replace `--version` with `--lockfile`:
 

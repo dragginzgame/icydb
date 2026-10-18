@@ -51,6 +51,8 @@ fi
 printf '%s\n' "$*" >> "$EVENTS"
 if [[ "$*" == 'scripts/ci/release-candidate-receipt.sh verify-commit' ]]; then
     [[ "${FAIL_CANDIDATE:-0}" == 0 ]]
+elif [[ "$*" == 'scripts/ci/cargo-release-metadata.sh check icydb --manifest-order-grouped' ]]; then
+    [[ "$RELEASE_COMMIT" == "${EXPECTED_METADATA_COMMIT:?}" && "${FAIL_METADATA:-0}" == 0 ]]
 else
     exec "$REAL_BASH" "$@"
 fi
@@ -124,7 +126,11 @@ cmp "$fixture/expected" "$EVENTS"
 saved_commit="$HEAD_COMMIT"
 export HEAD_COMMIT="$OTHER_COMMIT"
 export RELEASE_COMMIT="$saved_commit"
-run_callback pass release-committed-check
+EXPECTED_METADATA_COMMIT="$saved_commit" run_callback pass release-committed-check
+printf '%s\n' 'scripts/ci/release-candidate-receipt.sh verify-commit' \
+    'scripts/ci/cargo-release-metadata.sh check icydb --manifest-order-grouped' > "$fixture/expected"
+cmp "$fixture/expected" "$EVENTS"
+EXPECTED_METADATA_COMMIT="$saved_commit" FAIL_METADATA=1 run_callback fail release-committed-check
 run_callback pass release-tagged-check
 [[ "$(cat "$RELEASE_RECEIPT_DIR/v0.1.1.commit")" == "$saved_commit" ]]
 run_callback pass release-push-check

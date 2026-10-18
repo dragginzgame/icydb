@@ -84,11 +84,9 @@ if ! command -v wasm-opt >/dev/null 2>&1; then
 fi
 WASM_OPT_BIN="$(command -v wasm-opt)"
 
-# The wasm size report consumes locally staged canister artifacts under
-# `.icp/local/canisters/<name>/`, but the staging step is owned by
-# `build_fixture_canister` and does not require `icp` or a live local replica.
-# Keep this script independent from the local ICP environment so CI can run
-# wasm-size measurements without provisioning replica tooling it never uses.
+# The report process retains the IC Build record through artifact publication
+# and records the recipe/compiler observations attached to that exact acquisition.
+# Measurement needs neither ICP staging nor a live replica.
 
 if sql_variants_output="$(wasm_report_sql_variants "$sql_variants_mode" yes)"; then
     read -r -a sql_variants <<< "${sql_variants_output//$'\n'/ }"
@@ -115,26 +113,6 @@ build_variant() {
     )
 
     echo "[wasm-size] Building '$canister_name' using profile '$profile' ($sql_variant)"
-    (
-        cd "$ROOT"
-        cargo run -p icydb-testing-build --bin build_fixture_canister --locked -- \
-            "$canister_name" \
-            "${build_options[@]}"
-    )
-
-    ICP_DIR="$ROOT/.icp/local/canisters/$canister_name"
-    FINAL_WASM="$ICP_DIR/$canister_name.wasm"
-    COMPILER_WASM="$ICP_DIR/$canister_name.compiler.wasm"
-
-    if [[ ! -f "$FINAL_WASM" ]]; then
-        echo "[wasm-size] expected final deployable wasm missing: $FINAL_WASM" >&2
-        exit 1
-    fi
-    if [[ ! -f "$COMPILER_WASM" ]]; then
-        echo "[wasm-size] expected compiler-emitted wasm missing: $COMPILER_WASM" >&2
-        exit 1
-    fi
-
     COMPILER_COPY="$out_dir/${stem}.compiler-emitted.wasm"
     FINAL_COPY="$out_dir/${stem}.final-deployable.wasm"
     FINAL_GZ="$out_dir/${stem}.final-deployable.wasm.gz"
@@ -142,13 +120,6 @@ build_variant() {
     FINAL_INFO="$out_dir/${stem}.final-deployable.info.txt"
     REPORT_JSON="$out_dir/${stem}.report.json"
     SUMMARY_MD="$out_dir/${stem}.summary.md"
-
-    cp "$COMPILER_WASM" "$COMPILER_COPY"
-    cp "$FINAL_WASM" "$FINAL_COPY"
-    gzip -n -9 -c "$FINAL_COPY" > "$FINAL_GZ"
-
-    ic-wasm "$COMPILER_COPY" info > "$COMPILER_INFO"
-    ic-wasm "$FINAL_COPY" info > "$FINAL_INFO"
 
     (
         cd "$ROOT"

@@ -16,7 +16,7 @@ use crate::{
     types::{Account, Decimal, EntityTag, Float32, Float64, Principal, Subaccount},
     value::Value,
 };
-use ic_stable_structures::Storable;
+use ic_storage::adapter::Storable;
 use std::{borrow::Cow, cmp::Ordering, mem::size_of, ops::Bound as RangeBound};
 
 fn index_id() -> IndexId {
@@ -1347,7 +1347,7 @@ fn index_key_maximum_raw_size_matches_stable_storage_bound() {
     assert_eq!(IndexKey::try_from_raw(&raw).unwrap(), key);
     assert_eq!(
         RawIndexStoreKey::BOUND,
-        ic_stable_structures::storable::Bound::Bounded {
+        ic_storage::adapter::storable::Bound::Bounded {
             max_size: u32::try_from(raw.as_bytes().len()).unwrap(),
             is_fixed_size: false,
         },

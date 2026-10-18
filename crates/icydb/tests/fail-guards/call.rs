@@ -7,7 +7,7 @@ canic_icydb::endpoints! {
     icydb_sql_query(
         introspection = true,
         authorization = guard(policy::guard(icydb::ReadAuthorizationContext {
-            caller: ic_principal::Principal::anonymous(),
+            caller: ic_platform::Principal::anonymous(),
             surface: icydb::ReadAuthorizationSurface::Sql,
         })),
     );

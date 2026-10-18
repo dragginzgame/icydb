@@ -86,7 +86,7 @@ All source, observation, manifest and catalog inputs stay inside the consumer.
 
 IC uses the canonical IC matrix parser, comparing tool/version/host/digest rows.
 Host compares jq, yq, ripgrep and cloc versions and all their supported-host
-digests. Rust compares the three common Cargo executable versions. Host and Rust
+digests. Rust compares the common formatter executable versions. Host and Rust
 are independent even when stored in one environment file: a host override never
 implicitly selects Rust. Installation, freshness inspection and the Cargo cache
 key use this same literal parser. Nonliteral or duplicate assignments refuse;

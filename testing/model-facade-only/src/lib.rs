@@ -37,9 +37,9 @@ canic_icydb::start!(icydb);
 
 // Test-actor probe: measure database opening without executing a row query.
 fn open_database() -> Result<u64, String> {
-    let before = ic_cdk::api::performance_counter(0);
+    let before = ic_platform::ic0::performance_counter(0);
     icydb::db::with_request_execution(|| db().map(|_| ())).map_err(|error| error.to_string())?;
-    Ok(ic_cdk::api::performance_counter(0) - before)
+    Ok(ic_platform::ic0::performance_counter(0) - before)
 }
 
 fn insert_profile(rank: u64) -> Result<(), String> {

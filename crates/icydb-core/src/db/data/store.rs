@@ -14,8 +14,8 @@ use crate::{
     },
     types::EntityTag,
 };
-use ic_memory::RuntimeMemory;
-use ic_stable_structures::{BTreeMap as StableBTreeMap, DefaultMemoryImpl};
+use ic_memory::{DefaultMemoryImpl, RuntimeMemory};
+use ic_storage::adapter::StableBTreeMap;
 #[cfg(test)]
 use std::cell::Cell;
 use std::collections::{BTreeMap as HeapBTreeMap, BTreeSet};
@@ -52,7 +52,7 @@ pub struct DataStore {
 enum DataStoreBackend {
     Heap(HeapBTreeMap<RawDataStoreKey, RawRow>),
     Journaled {
-        canonical: StableBTreeMap<RawDataStoreKey, RawRow, RuntimeMemory<DefaultMemoryImpl>>,
+        canonical: StableBTreeMap<RawDataStoreKey, RawRow, DefaultMemoryImpl>,
         live: HeapBTreeMap<RawDataStoreKey, RawRow>,
         tombstones: BTreeSet<RawDataStoreKey>,
         positions: PositionedOverlayMetadata<RawDataStoreKey>,

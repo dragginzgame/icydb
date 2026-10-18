@@ -24,6 +24,8 @@ cp "$ROOT/scripts/ci/rewrite-local-lock-versions.pl" "$fixture/scripts/ci/"
 cp "$ROOT/scripts/ci/read-cargo-workspace-version.sh" "$fixture/scripts/ci/"
 cp "$ROOT/scripts/release/pin-exceptions.jq" "$fixture/scripts/release/"
 cp "$ROOT/scripts/release/check-metadata.sh" "$fixture/scripts/release/"
+bash "$ROOT/scripts/ci/prepare-script-fixture.sh" "$ROOT" "$fixture" \
+  scripts/ci/cargo-release-metadata.sh
 cp "$ROOT/ci/dependency-pinning-exceptions.json" "$fixture/ci/"
 cp "$ROOT/Cargo.toml" "$fixture/"
 previous="$(bash "$ROOT/scripts/ci/read-cargo-workspace-version.sh" --stable "$fixture/Cargo.toml")"
@@ -50,6 +52,7 @@ case "$1" in
     [[ "${FAIL_VERSION_READ:-0}" == 0 ]] || exit 7
     printf '%s\n' "$PWD/Cargo.toml"
     ;;
+  sort) [[ "$*" == "sort --workspace --check --grouped" ]] ;;
   metadata)
     if [[ -n "${METADATA_TRACE:-}" ]]; then printf 'metadata\n' >> "$METADATA_TRACE"; fi
     cat metadata.json

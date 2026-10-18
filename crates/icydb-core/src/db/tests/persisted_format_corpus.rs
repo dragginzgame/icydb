@@ -25,7 +25,8 @@ use crate::{
     },
     types::EntityTag,
 };
-use ic_stable_structures::{Memory, Storable, VectorMemory};
+use ic_memory::{Memory, VectorMemory};
+use ic_storage::adapter::Storable;
 use icydb_diagnostic_code::{DiagnosticDecodeReason, DiagnosticFactTag};
 use std::borrow::Cow;
 

@@ -22,8 +22,7 @@ use crate::{
     error::InternalError,
     traits::CanisterKind,
 };
-use ic_memory::RuntimeMemory;
-use ic_stable_structures::DefaultMemoryImpl;
+use ic_memory::{DefaultMemoryImpl, RuntimeMemory};
 
 // Host grants select placement within the dependency's non-governance domain.
 const ALLOCATABLE_MEMORY_ID_MIN: u8 = ic_memory::MEMORY_MANAGER_GOVERNANCE_MAX_ID + 1;

@@ -30,7 +30,7 @@ canic_icydb::start! {
 
 // Pause the IC delivery mechanism, not the generated driver or its budgets.
 fn pause_delivery() {
-    ic_cdk::api::global_timer_set(0);
+    ic_platform::ic0::global_timer_set(0);
 }
 
 #[cfg(feature = "test-admin-api")]

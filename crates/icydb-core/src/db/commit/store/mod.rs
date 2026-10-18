@@ -37,8 +37,7 @@ use crate::{
     },
     error::InternalError,
 };
-use ic_memory::RuntimeMemory;
-use ic_stable_structures::{DefaultMemoryImpl, Memory};
+use ic_memory::{DefaultMemoryImpl, Memory, RuntimeMemory};
 use sha2::{Digest, Sha256};
 use std::cell::RefCell;
 

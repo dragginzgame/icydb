@@ -387,6 +387,15 @@ printf '#!/usr/bin/env bash\nset -euo pipefail\ncargo set-version --help\n' > "$
 printf '#!/usr/bin/env bash\nset -euo pipefail\ncargo locate-project --workspace --message-format plain --manifest-path "$PWD/Cargo.toml"\n' \
   > "$native/scripts/ci/release-candidate-receipt.sh"
 cp "$native/scripts/ci/release-candidate-receipt.sh" "$native/scripts/ci/record-release-gate-receipt.sh"
+# This fixture owns Cargo environment/jobserver transport only. The real
+# selected-source metadata semantics are qualified in test-cargo-metadata-adoption.
+cat > "$native/scripts/ci/cargo-release-metadata.sh" <<'METADATA'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$*" == 'check icydb --manifest-order-grouped' ]]
+cargo sort --workspace --check --grouped
+cargo metadata --locked --offline --format-version 1 >/dev/null
+METADATA
 # Git inventory is real, with no commits; the receipt command above models only
 # its Cargo transport, while the dedicated receipt fixture owns its semantics.
 git -C "$native" init --quiet
@@ -402,18 +411,23 @@ for lane in version release-version check-versioning check-dependency-pins \
     printf '## [0.1.1] - 2026-10-10\n' > "$native/CHANGELOG.md"
   fi
   cp "$native/CHANGELOG.md" "$native/docs/changelog/0.1.md"
+  metadata_selection=()
+  if [[ "$lane" == release-committed-check ]]; then
+    metadata_selection=(RELEASE_COMMIT=1111111111111111111111111111111111111111)
+  fi
   PATH="$native/bin:$PATH" make --no-print-directory -C "$native" -j2 "$lane" \
+    ${metadata_selection[@]+"${metadata_selection[@]}"} \
     RELEASE_VERSION=0.1.1 RELEASE_PREVIOUS=0.1.0 RELEASE_KIND=patch RELEASE_DATE=2026-10-10 \
     RELEASE_SOURCE=1111111111111111111111111111111111111111 \
     > "$native/$lane.log" 2>&1
 done
 printf '%s\n' 'locate-project default' 'locate-project default' \
   'set-version default' 'locate-project default' 'locate-project default' \
-  'locate-project default' 'metadata default' 'locate-project default' \
-  'locate-project default' 'metadata default' 'locate-project default' \
-  'locate-project default' 'locate-project default' 'locate-project default' \
+  'locate-project default' 'sort default' 'metadata default' 'locate-project default' \
+  'locate-project default' 'sort default' 'metadata default' 'locate-project default' \
+  'locate-project default' 'locate-project default' 'sort default' 'metadata default' 'locate-project default' \
   'set-version default' 'sort default' 'fmt default' 'sort-derives default' \
-  'sort default' 'fmt default' 'locate-project default' 'metadata default' \
+  'sort default' 'fmt default' 'locate-project default' 'sort default' 'metadata default' \
   'locate-project default' 'locate-project default' > "$native/expected-trace"
 cmp "$native/expected-trace" "$CI_CARGO_TRACE"
 for failure in early metadata; do

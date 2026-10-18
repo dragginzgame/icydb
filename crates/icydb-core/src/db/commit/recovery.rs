@@ -67,7 +67,7 @@ use crate::{
     traits::CanisterKind,
     types::EntityTag,
 };
-use ic_stable_structures::Storable;
+use ic_storage::adapter::Storable;
 use std::{
     cell::RefCell,
     collections::{BTreeMap, BTreeSet},
@@ -1346,7 +1346,7 @@ fn prepare_folded_journal_batch_completion(
 
 #[cfg(target_arch = "wasm32")]
 fn trap_validated_journal_apply_contradiction(_error: InternalError) -> ! {
-    ic0::trap(b"validated journal application contradicted its complete preflight")
+    ic_platform::ic0::trap(b"validated journal application contradicted its complete preflight")
 }
 
 #[cfg(not(target_arch = "wasm32"))]

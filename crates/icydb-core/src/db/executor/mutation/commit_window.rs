@@ -702,7 +702,7 @@ fn enforce_preflighted_apply(result: Result<(), InternalError>) -> Result<(), In
 
 #[cfg(all(not(test), target_arch = "wasm32"))]
 fn trap_preflighted_commit_apply_contradiction(_error: InternalError) -> ! {
-    ic0::trap(b"preflighted commit application contradicted its complete preflight")
+    ic_platform::ic0::trap(b"preflighted commit application contradicted its complete preflight")
 }
 
 #[cfg(all(not(test), not(target_arch = "wasm32")))]

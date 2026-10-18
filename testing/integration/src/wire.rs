@@ -1,6 +1,6 @@
 //! Native callers for the maintained raw Wire fixture contracts.
 
-use ic_principal::Principal;
+use ic_platform::Principal;
 use ic_testkit::pocket_ic::PocketIc;
 use icydb_testing_wasm_helpers::fixture_wire;
 use serde::{Serialize, de::DeserializeOwned};

@@ -435,9 +435,8 @@ name = "canister_audit_one_entity_dynamic_query"
 version = "0.277.0"
 dependencies = [
  "canic-icydb",
- "ic-cdk",
+ "ic-platform",
  "ic-wire",
- "ic0",
  "icydb",
  "icydb-testing-audit-one-simple-fixtures",
  "icydb-testing-wasm-helpers",
@@ -448,7 +447,7 @@ name = "canister_audit_one_entity_reachable_operations"
 version = "0.277.0"
 dependencies = [
  "canic-icydb",
- "ic-cdk",
+ "ic-platform",
  "icydb",
  "icydb-model",
  "icydb-testing-audit-one-simple-fixtures",
@@ -470,7 +469,7 @@ name = "canister_audit_one_entity_typed_query"
 version = "0.277.0"
 dependencies = [
  "canic-icydb",
- "ic-cdk",
+ "ic-platform",
  "icydb",
  "icydb-testing-audit-one-simple-fixtures",
  "icydb-testing-wasm-helpers",
@@ -491,7 +490,7 @@ name = "canister_audit_sql_perf"
 version = "0.277.0"
 dependencies = [
  "canic-icydb",
- "ic-cdk",
+ "ic-platform",
  "ic-timers",
  "icydb",
  "icydb-testing-audit-sql-perf-fixtures",
@@ -504,7 +503,7 @@ name = "canister_audit_ten_entity_reachable_operations"
 version = "0.277.0"
 dependencies = [
  "canic-icydb",
- "ic-cdk",
+ "ic-platform",
  "icydb",
  "icydb-model",
  "icydb-testing-audit-ten-simple-fixtures",
@@ -535,7 +534,7 @@ name = "canister_test_lifecycle_participant"
 version = "0.277.0"
 dependencies = [
  "canic-icydb",
- "ic-cdk",
+ "ic-platform",
  "ic-timers",
  "icydb",
  "icydb-testing-audit-one-simple-fixtures",
@@ -548,8 +547,8 @@ name = "canister_test_logical_memory"
 version = "0.277.0"
 dependencies = [
  "canic-icydb",
- "ic-cdk",
  "ic-memory",
+ "ic-platform",
  "icydb",
  "icydb-testing-wasm-helpers",
 ]
@@ -559,8 +558,7 @@ name = "canister_test_read_authority"
 version = "0.277.0"
 dependencies = [
  "canic-icydb",
- "ic-cdk",
- "ic_principal",
+ "ic-platform",
  "icydb",
  "icydb-testing-audit-one-simple-fixtures",
  "icydb-testing-wasm-helpers",
@@ -571,8 +569,7 @@ name = "canister_test_schema_guard"
 version = "0.277.0"
 dependencies = [
  "canic-icydb",
- "ic-cdk",
- "ic_principal",
+ "ic-platform",
  "icydb",
  "icydb-testing-audit-one-simple-fixtures",
  "icydb-testing-wasm-helpers",
@@ -593,7 +590,7 @@ name = "canister_test_sql"
 version = "0.277.0"
 dependencies = [
  "canic-icydb",
- "ic-cdk",
+ "ic-platform",
  "ic-timers",
  "icydb",
  "icydb-model",
@@ -607,7 +604,7 @@ name = "canister_test_sql_bounded"
 version = "0.277.0"
 dependencies = [
  "canic-icydb",
- "ic-cdk",
+ "ic-platform",
  "ic-timers",
  "icydb",
  "icydb-model",
@@ -621,8 +618,7 @@ name = "canister_test_sql_guard"
 version = "0.277.0"
 dependencies = [
  "canic-icydb",
- "ic-cdk",
- "ic_principal",
+ "ic-platform",
  "icydb",
  "icydb-testing-audit-one-simple-fixtures",
  "icydb-testing-wasm-helpers",
@@ -634,7 +630,7 @@ name = "canister_test_startup_timer"
 version = "0.277.0"
 dependencies = [
  "canic-icydb",
- "ic-cdk",
+ "ic-platform",
  "ic-timers",
  "icydb-testing-wasm-helpers",
  "serde",
@@ -1572,19 +1568,19 @@ dependencies = [
 
 [[package]]
 name = "ic-build"
-version = "0.16.0"
+version = "0.17.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58ac679cfe8af31edee5c2f78606af757f17dbff4bcb11a98e5902694dc55e20"
+checksum = "9bb1f84823467432a477ed2e48e301b0fe310e0227e11acfe710f0cf335af8f1"
 dependencies = [
  "cargo_metadata",
  "ic-host-artifacts",
  "ic-host-fs",
  "ic-host-process",
- "libc",
  "rustix",
  "serde",
  "serde_json",
  "sha2",
+ "thiserror 2.0.18",
  "toml 1.1.8+spec-1.1.0",
 ]
 
@@ -1667,9 +1663,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-artifacts"
-version = "0.27.1"
+version = "0.27.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3675e2ebd50b1cf3e19433e084babcc28b7f15051d2ac5e39a21e993ae02b17b"
+checksum = "084e1515b33acfcc64e75bb730b5bdf65869e619ee64513efa423d30fc6d6099"
 dependencies = [
  "flate2",
  "leb128",
@@ -1679,9 +1675,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-fs"
-version = "0.27.1"
+version = "0.27.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71e55487dcfcfb001f080d69b262a6a645f5569ad6a10a69ec26002dffab1f3a"
+checksum = "c32654120b530ced534af7fca1cf979df573b5addcf3af59cfebbde63b58f555"
 dependencies = [
  "ic-host-artifacts",
  "rustix",
@@ -1690,9 +1686,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-process"
-version = "0.27.1"
+version = "0.27.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f728a69a2b6b5276f7c03e3af599a91ac731f88728ab206295bdd1b61a5e6c0b"
+checksum = "6a139f4beff95d0b843b6ce9d542fb1e1d62537341d2ffb10bed531cee93a485"
 dependencies = [
  "command-fds",
  "ic-host-artifacts",
@@ -1703,21 +1699,21 @@ dependencies = [
 
 [[package]]
 name = "ic-host-text"
-version = "0.27.1"
+version = "0.27.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "131a734c66f59cc7fa470ed7e0af0d6b6cc64be5feca3e7b948fa741f6a267ba"
+checksum = "6336d5c1f57e07ea815ca3229bb96fba81482ad50649b9c038067812b2e49e54"
 dependencies = [
  "unicode-width 0.2.2",
 ]
 
 [[package]]
 name = "ic-host-tools"
-version = "0.27.1"
+version = "0.27.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a330af75c503982f66fe962f33c034263a7b97ff1e3d42880f1d5954ea676097"
+checksum = "141728fe83c99276ae9aa6ca8f5b13ac0425dd41d7debe6648ec6cfc90ac23ab"
 dependencies = [
- "candid_parser",
  "ic-host-artifacts",
+ "ic-platform",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -1747,9 +1743,9 @@ dependencies = [
 
 [[package]]
 name = "ic-memory"
-version = "0.48.1"
+version = "0.48.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4cfe7354ba5f3d1f5e816189e5a00e4517787626d02055b0efc7e8f2a79a4b11"
+checksum = "6ba61d83eea200c980b5e0f9a4747ded4137deb7ffee630b482cc726e5d1fad7"
 dependencies = [
  "ciborium",
  "ic-stable-structures",
@@ -1764,6 +1760,40 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94a6dd4a177309ae7261375b68966e3f4445d32ae173a831e4136f52f15654a1"
 
 [[package]]
+name = "ic-metrics"
+version = "0.14.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dac61137e8b7a67d649f475bdff907b278168292fe4bf103578293d1fb842651"
+
+[[package]]
+name = "ic-platform"
+version = "0.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e0ab384614a5d8fe251bc2c27c508263d4001d776edf31382b5b985a1a4ced2d"
+dependencies = [
+ "candid",
+ "candid_parser",
+ "ic-cdk",
+ "ic-cdk-executor",
+ "ic-platform-macros",
+ "ic0",
+ "ic_principal",
+ "serde",
+]
+
+[[package]]
+name = "ic-platform-macros"
+version = "0.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b5de9771169e34ca8da9bbb04c9c6196b1d2de8d2d0d21bc79d5921984ce6be"
+dependencies = [
+ "darling 0.23.0",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "ic-stable-structures"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1773,33 +1803,31 @@ dependencies = [
 ]
 
 [[package]]
-name = "ic-testkit"
-version = "0.53.0"
+name = "ic-storage"
+version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "29cd42ff0eb6236e623d315ff48f059f499c3d6a4de58c9b20cd0389ed619447"
+checksum = "b20256db7b158944c090d2c58028401f61ce846cd885e1accef3fde44d78d3d7"
 dependencies = [
- "candid",
- "ic-cdk",
+ "ic-memory",
+ "ic-stable-structures",
+]
+
+[[package]]
+name = "ic-testkit"
+version = "0.54.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a49a99670baf7b563b83a667912bd9720a70e15aa54da44da1f814f6a2cc4a1"
+dependencies = [
  "ic-host-artifacts",
  "ic-host-fs",
  "ic-host-process",
- "ic-metrics",
- "ic-testkit-candid",
+ "ic-metrics 0.14.3",
+ "ic-platform",
  "libc",
  "pocket-ic",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
-]
-
-[[package]]
-name = "ic-testkit-candid"
-version = "0.53.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6fdb699d6add3d24dcf85952b2836f115f9e8a5667150871da77291843a07f23"
-dependencies = [
- "candid",
- "serde",
 ]
 
 [[package]]
@@ -1809,7 +1837,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5c3ae34e473a4d289592586db51da5d06f1d3d70089f43af5f7c6613378282e9"
 dependencies = [
  "ic-cdk-executor",
- "ic-metrics",
+ "ic-metrics 0.13.4",
  "ic0",
  "thiserror 2.0.18",
 ]
@@ -1834,9 +1862,9 @@ dependencies = [
 
 [[package]]
 name = "ic-wire"
-version = "0.4.0"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3ed8a8b4bba8bb5cb77f8207f93d0f0b4e803a712647e6e269260c12d702f64"
+checksum = "017cc899cdaf3de5f4294749484a1c5172dcc150f3de134dcc6d853579569eb6"
 dependencies = [
  "ic-wire-derive",
  "postcard",
@@ -1846,9 +1874,9 @@ dependencies = [
 
 [[package]]
 name = "ic-wire-derive"
-version = "0.4.0"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "effe94533b808155317259619b34fe638a32bf24eb462400cab9ef3ad5cf398f"
+checksum = "f6daad5bbd0ae12d49f0dc3a5b5b466fb998bd32ecca615b58b679707c5b12df"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1964,8 +1992,8 @@ version = "0.277.0"
 dependencies = [
  "canic-icydb",
  "ic-memory",
+ "ic-platform",
  "ic-wire",
- "ic_principal",
  "icydb-core",
  "icydb-diagnostic-code",
  "icydb-model",
@@ -1999,9 +2027,9 @@ dependencies = [
  "base64 0.23.1",
  "getrandom 0.4.3",
  "ic-memory",
- "ic-metrics",
- "ic-stable-structures",
- "ic0",
+ "ic-metrics 0.14.3",
+ "ic-platform",
+ "ic-storage",
  "icydb-diagnostic-code",
  "icydb-schema",
  "icydb-testing-sql-generator",
@@ -2069,8 +2097,8 @@ dependencies = [
  "crc32fast",
  "data-encoding",
  "ethnum",
+ "ic-platform",
  "ic-wire",
- "ic_principal",
  "proptest",
  "serde",
  "serde_bytes",
@@ -2104,7 +2132,7 @@ name = "icydb-testing-audit-nested-relation-fixtures"
 version = "0.277.0"
 dependencies = [
  "canic-icydb",
- "ic-cdk",
+ "ic-platform",
  "icydb",
  "icydb-model",
  "icydb-testing-wasm-helpers",
@@ -2147,7 +2175,7 @@ dependencies = [
  "ic-host-fs",
  "ic-host-process",
  "ic-host-tools",
- "ic-metrics",
+ "ic-metrics 0.14.3",
  "ic-wire",
  "icydb",
  "icydb-core",
@@ -2162,7 +2190,7 @@ dependencies = [
 name = "icydb-testing-codec-query"
 version = "0.277.0"
 dependencies = [
- "ic0",
+ "ic-platform",
 ]
 
 [[package]]
@@ -2189,9 +2217,9 @@ version = "0.277.0"
 dependencies = [
  "blake3",
  "ic-host-artifacts",
+ "ic-platform",
  "ic-testkit",
  "ic-wire",
- "ic_principal",
  "icydb",
  "icydb-testing-audit-sql-perf-fixtures",
  "icydb-testing-build",
@@ -2208,8 +2236,8 @@ name = "icydb-testing-model-facade-only"
 version = "0.277.0"
 dependencies = [
  "canic-icydb",
- "ic-cdk",
  "ic-memory",
+ "ic-platform",
  "icydb",
  "icydb-testing-wasm-helpers",
  "serde_json",

@@ -1,7 +1,7 @@
 use icydb_testing_integration::WireCallExt as _;
 use std::{collections::BTreeSet, fs};
 
-use ic_principal::Principal;
+use ic_platform::Principal;
 use icydb::{
     Error, ErrorCode,
     db::{EntitySchemaDescription, sql::SqlQueryResult},

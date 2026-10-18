@@ -46,6 +46,50 @@ exact constraints, immutable Git revisions, lockfiles and external path inputs.
   automatic pre-commit formatting and independent CI/release checks; ordering
   must preserve the catalog and every inherited selection.
 
+## Dependency roles and deployment checks
+
+When annotating the root catalog, use `Production dependencies` and
+`Tests and tooling only`. These describe use within this workspace, not whether
+a dependency's selected version has been published to a registry. Use
+`Production packages` and `Tests and tooling packages` for member annotations.
+
+- A production dependency is needed by a production package through normal or
+  build dependencies, including supported optional features and targets. Put an
+  entry used by both production and tests in the production category. Build
+  dependencies belong here even though their code need not enter the artifact.
+- Tests and tooling entries are used only through development dependencies or
+  non-production packages. A package can be published elsewhere and still serve
+  only this role here. Workspace membership and `package.publish` do not prove
+  deployment use or successful registry publication.
+- Keep one catalog and child inheritance. Annotations do not select dependencies;
+  Cargo's manifests and resolved graph remain authoritative. Preserve annotations
+  through the [formatting contract](git-hooks.md), with matching write/check
+  behavior if a consumer selects Cargo sort's grouped mode.
+
+Before deployment, inspect the production package's locked graph with the same
+target and feature selection as its build. For example, for a default-feature
+Wasm package, replacing `production-package` with its actual package name:
+
+```bash
+cargo tree --locked -p production-package --target wasm32-unknown-unknown --edges normal,build
+```
+
+Add the build's `--no-default-features` and `--features` selections when used.
+Check that tests/tooling-only entries do not enter this graph as dependencies,
+including through transitive dependencies; exclude the selected root package
+itself and account for renamed dependency identities. A check for one deployment
+does not establish every supported feature/target combination.
+The existing direct-dependency boundary checker can enforce package ownership
+rules, but does not check transitive reachability or these comment labels.
+
+[Cargo tree](https://doc.rust-lang.org/cargo/commands/cargo-tree.html) is an
+inspection aid, not an exact compilation trace. Automated deployment admission
+belongs with the consumer's build: enforce its dependency exclusions, retain the
+successful locked build evidence, and bind the inspected source, lockfile,
+target/features and final artifact digest to the bytes deployed. Registry
+availability is separate evidence; a cached offline build or a `version` beside
+`path` does not establish that the selected source is a live registry package.
+
 ## Cargo network policy
 
 - Authorized development, tests and validation include preparing missing sources
@@ -231,10 +275,10 @@ Root `Cargo.toml`:
 
 ```toml
 [workspace.dependencies]
-serde = "1"
-tempfile = "3"
-cc = "1"
-rustix = { version = "1", features = ["fs"] }
+cc = "1" # Production dependencies: native build support.
+rustix = { version = "1", features = ["fs"] } # Production dependencies.
+serde = "1" # Production dependencies.
+tempfile = "3" # Tests and tooling only.
 ```
 
 Child `Cargo.toml`:

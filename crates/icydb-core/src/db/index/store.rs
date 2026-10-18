@@ -18,8 +18,8 @@ use crate::db::{
     },
 };
 
-use ic_memory::RuntimeMemory;
-use ic_stable_structures::{BTreeMap as StableBTreeMap, DefaultMemoryImpl};
+use ic_memory::{DefaultMemoryImpl, RuntimeMemory};
+use ic_storage::adapter::StableBTreeMap;
 use serde::Deserialize;
 #[cfg(test)]
 use std::cell::Cell;
@@ -93,8 +93,7 @@ pub struct IndexStore {
 pub(super) enum IndexStoreBackend {
     Heap(HeapBTreeMap<RawIndexStoreKey, IndexEntryValue>),
     Journaled {
-        canonical:
-            StableBTreeMap<RawIndexStoreKey, IndexEntryValue, RuntimeMemory<DefaultMemoryImpl>>,
+        canonical: StableBTreeMap<RawIndexStoreKey, IndexEntryValue, DefaultMemoryImpl>,
         live: HeapBTreeMap<RawIndexStoreKey, IndexEntryValue>,
         tombstones: BTreeSet<RawIndexStoreKey>,
         positions: PositionedOverlayMetadata<RawIndexStoreKey>,
@@ -913,7 +912,7 @@ mod tests {
         testing::test_memory,
         types::EntityTag,
     };
-    use ic_stable_structures::Storable;
+    use ic_storage::adapter::Storable;
     use std::{borrow::Cow, convert::Infallible};
 
     fn raw_key(value: u8) -> RawIndexStoreKey {

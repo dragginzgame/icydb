@@ -11,7 +11,7 @@ authors = { workspace = true }
 
 [dependencies]
 ic-build = { workspace = true }
-ic-host-artifacts = { workspace = true, features = ["wasm"] }
+ic-host-artifacts = { workspace = true, features = ["gzip", "wasm"] }
 ic-host-fs = { workspace = true }
 ic-host-process = { workspace = true }
 ic-host-tools = { workspace = true, features = ["ic-interface"] }

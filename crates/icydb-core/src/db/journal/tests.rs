@@ -30,7 +30,8 @@ use crate::{
     testing::{test_memory, test_memory_with_backing},
     types::EntityTag,
 };
-use ic_stable_structures::{Memory, Storable, VectorMemory};
+use ic_memory::{Memory, VectorMemory};
+use ic_storage::adapter::Storable;
 use icydb_schema::SchemaMigrationPlanDigest;
 use sha2::{Digest, Sha256};
 use std::{borrow::Cow, mem::size_of};
@@ -1986,7 +1987,7 @@ fn entity_revision_metadata_stays_bounded_at_the_accepted_entity_limit() {
 fn journal_tail_chunk_storable_bound_caps_raw_tail_value_bytes() {
     assert_eq!(
         RawJournalChunk::BOUND,
-        ic_stable_structures::storable::Bound::Bounded {
+        ic_storage::adapter::storable::Bound::Bounded {
             max_size: JOURNAL_TAIL_CHUNK_BYTES,
             is_fixed_size: false,
         }

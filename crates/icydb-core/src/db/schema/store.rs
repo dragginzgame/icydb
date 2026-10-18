@@ -54,10 +54,8 @@ use crate::{
     error::InternalError,
     types::EntityTag,
 };
-use ic_memory::RuntimeMemory;
-use ic_stable_structures::{
-    BTreeMap as StableBTreeMap, DefaultMemoryImpl, Storable, storable::Bound as StorableBound,
-};
+use ic_memory::{DefaultMemoryImpl, RuntimeMemory};
+use ic_storage::adapter::{StableBTreeMap, Storable, storable::Bound as StorableBound};
 use sha2::Digest;
 use std::borrow::Cow;
 #[cfg(test)]
@@ -655,7 +653,7 @@ struct AcceptedSchemaBundleCache {
 enum SchemaStoreBackend {
     Heap(StdBTreeMap<RawSchemaKey, RawSchemaValue>),
     Journaled {
-        canonical: StableBTreeMap<RawSchemaKey, RawSchemaValue, RuntimeMemory<DefaultMemoryImpl>>,
+        canonical: StableBTreeMap<RawSchemaKey, RawSchemaValue, DefaultMemoryImpl>,
         live: StdBTreeMap<RawSchemaKey, RawSchemaValue>,
         tombstones: BTreeSet<RawSchemaKey>,
         positions: PositionedOverlayMetadata<RawSchemaKey>,
@@ -3777,7 +3775,7 @@ impl SchemaStore {
     }
 
     fn visit_journaled_raw_value_range<E>(
-        canonical: &StableBTreeMap<RawSchemaKey, RawSchemaValue, RuntimeMemory<DefaultMemoryImpl>>,
+        canonical: &StableBTreeMap<RawSchemaKey, RawSchemaValue, DefaultMemoryImpl>,
         live: &StdBTreeMap<RawSchemaKey, RawSchemaValue>,
         tombstones: &BTreeSet<RawSchemaKey>,
         bounds: (RangeBound<RawSchemaKey>, RangeBound<RawSchemaKey>),

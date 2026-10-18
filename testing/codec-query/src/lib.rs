@@ -25,16 +25,16 @@ pub fn row_count(key: u64) -> u32 {
 #[cfg(target_arch = "wasm32")]
 pub fn serve_query(handler: fn(&[u8]) -> Result<Vec<u8>, QueryCodecError>) {
     let mut buffer = [0; MAX_FRAME_BYTES];
-    let Some(request) = buffer.get_mut(..ic0::msg_arg_data_size()) else {
-        ic0::msg_reject(b"codec query request limit");
+    let Some(request) = buffer.get_mut(..ic_platform::ic0::msg_arg_data_size()) else {
+        ic_platform::ic0::msg_reject(b"codec query request limit");
         return;
     };
-    ic0::msg_arg_data_copy(request, 0);
+    ic_platform::ic0::msg_arg_data_copy(request, 0);
     match handler(request) {
         Ok(reply) if reply.len() <= MAX_FRAME_BYTES => {
-            ic0::msg_reply_data_append(&reply);
-            ic0::msg_reply();
+            ic_platform::ic0::msg_reply_data_append(&reply);
+            ic_platform::ic0::msg_reply();
         }
-        Ok(_) | Err(_) => ic0::msg_reject(b"codec query rejected"),
+        Ok(_) | Err(_) => ic_platform::ic0::msg_reject(b"codec query rejected"),
     }
 }

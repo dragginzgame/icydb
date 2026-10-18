@@ -45,12 +45,15 @@ and composed declarations own both lifecycle exports. Application-owned
 lifecycle exports require participant mode.
 
 If the application or an independent framework must own the complete IC
-lifecycle root, select participant mode instead:
+lifecycle root, select participant mode and invoke these plain hooks from its
+native lifecycle exports. The [compiled composition fixture](../../canisters/test/lifecycle_participant/src/lib.rs)
+uses Canic exports and bounded Wire post-upgrade argument decoding. Platform
+0.1.10 provides lifecycle entrypoint macros, while IcyDB's supported composition
+continues to use Canic as the host owner:
 
 ```rust,ignore
 canic_icydb::start!(icydb; participant);
 
-#[ic_cdk::init]
 fn application_init() {
     restore_ingress_local_state();
     crate::__icydb_lifecycle_participant::init();
@@ -58,7 +61,6 @@ fn application_init() {
     schedule_deferred_database_readiness_work();
 }
 
-#[ic_cdk::post_upgrade]
 fn application_post_upgrade() {
     restore_ingress_local_state();
     crate::__icydb_lifecycle_participant::post_upgrade();

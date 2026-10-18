@@ -5,22 +5,14 @@
 #[cfg(any(feature = "typed-explain-measurement", feature = "sql"))]
 mod explain_measurement;
 
-// Read IC counter 1 through the CDK; native builds use its
-// unsupported host binding and provide no IC measurement evidence.
+// IC counter 1 preserves the call-context sample boundary through Platform.
+// Native system calls provide no IC measurement evidence.
 #[cfg(any(
     feature = "exact-key-measurement",
     feature = "typed-explain-measurement",
     feature = "sql-explain-measurement"
 ))]
-#[cfg(not(target_arch = "wasm32"))]
-use ic_cdk::api::call_context_instruction_counter;
-#[cfg(any(
-    feature = "exact-key-measurement",
-    feature = "typed-explain-measurement",
-    feature = "sql-explain-measurement"
-))]
-#[cfg(target_arch = "wasm32")]
-use ic_cdk::api::call_context_instruction_counter;
+use ic_platform::ic0::performance_counter;
 
 use icydb::types::{Id, Ulid};
 #[cfg(feature = "exact-key-measurement")]
@@ -89,9 +81,9 @@ fn measure_exact_key_batch(items: u16, distinct: bool) -> ((u16, u16, u32, u64),
         let Ok(database) = db() else {
             return ((0, 1, 0, 0),);
         };
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let result = database.get_many::<OneSimpleEntity01>(&keys);
-        let local_instructions = call_context_instruction_counter().saturating_sub(start);
+        let local_instructions = performance_counter(1).saturating_sub(start);
         match result {
             Ok(rows) => {
                 let found = rows.iter().filter(|row| row.is_some()).count();
@@ -121,7 +113,7 @@ fn measure_dynamic_key_loop(items: u16, distinct: bool) -> ((u16, u16, u32, u64)
         };
         let mut failures = 0_u16;
         let mut rows = 0_u32;
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         for key in keys {
             let request =
                 DynamicQuery::new("OneSimpleEntity01").filter(FieldRef::new("id").eq(key.key()));
@@ -132,7 +124,7 @@ fn measure_dynamic_key_loop(items: u16, distinct: bool) -> ((u16, u16, u32, u64)
                 Err(_) => failures = failures.saturating_add(1),
             }
         }
-        let local_instructions = call_context_instruction_counter().saturating_sub(start);
+        let local_instructions = performance_counter(1).saturating_sub(start);
 
         ((items, failures, rows, local_instructions),)
     })

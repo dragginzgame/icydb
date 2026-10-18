@@ -1,19 +1,15 @@
 //! One-entity generated schema authorization evidence canister.
 
-// Read IC counter 1 through the CDK; native builds use its
-// unsupported host binding and provide no IC measurement evidence.
+// IC counter 1 preserves the call-context sample boundary through Platform.
+// Native system calls provide no IC measurement evidence.
 #[cfg(feature = "guarded-schema")]
-#[cfg(not(target_arch = "wasm32"))]
-use ic_cdk::api::call_context_instruction_counter;
-#[cfg(feature = "guarded-schema")]
-#[cfg(target_arch = "wasm32")]
-use ic_cdk::api::call_context_instruction_counter;
+use ic_platform::ic0::performance_counter;
 
 #[cfg(feature = "guarded-schema")]
 use std::cell::Cell;
 
 #[cfg(feature = "guarded-schema")]
-use ic_principal::Principal;
+use ic_platform::Principal;
 #[cfg(feature = "guarded-schema")]
 use icydb::{
     ReadAuthorizationContext, ReadAuthorizationDecision, ReadAuthorizationSurface,
@@ -54,10 +50,10 @@ fn principal(seed: u8) -> Principal {
 #[cfg(feature = "guarded-schema")]
 fn schema_read_guard(context: ReadAuthorizationContext) -> ReadAuthorizationDecision {
     if context.caller == Principal::anonymous() {
-        ic_cdk::trap("anonymous caller reached the application schema guard");
+        ic_platform::ic0::trap(b"anonymous caller reached the application schema guard");
     }
     if context.caller == principal(44) {
-        ic_cdk::trap("intentional application schema guard trap");
+        ic_platform::ic0::trap(b"intentional application schema guard trap");
     }
     if context.surface != ReadAuthorizationSurface::Schema {
         return ReadAuthorizationDecision::Deny;
@@ -96,9 +92,9 @@ fn maximum_allowlist_guard(context: ReadAuthorizationContext) -> ReadAuthorizati
 fn read_authorization_cost() -> Result<ReadAuthorizationCostResult, icydb::Error> {
     #[cfg(feature = "guarded-schema")]
     {
-        let start = call_context_instruction_counter();
-        let caller = ic_cdk::api::msg_caller();
-        let caller_instructions = call_context_instruction_counter().saturating_sub(start);
+        let start = performance_counter(1);
+        let caller = ic_platform::cdk::api::msg_caller();
+        let caller_instructions = performance_counter(1).saturating_sub(start);
 
         let context = ReadAuthorizationContext {
             caller,
@@ -106,24 +102,24 @@ fn read_authorization_cost() -> Result<ReadAuthorizationCostResult, icydb::Error
         };
         let mut readers = [Principal::anonymous(); MAX_READ_AUTHORIZATION_ALLOWLIST_PRINCIPALS];
         readers[MAX_READ_AUTHORIZATION_ALLOWLIST_PRINCIPALS - 1] = caller;
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let helper_decision = allowlist(context, &readers);
-        let helper_instructions = call_context_instruction_counter().saturating_sub(start);
+        let helper_instructions = performance_counter(1).saturating_sub(start);
 
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let guard_decision = maximum_allowlist_guard(context);
-        let guard_instructions = call_context_instruction_counter().saturating_sub(start);
+        let guard_instructions = performance_counter(1).saturating_sub(start);
 
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         icydb::__macro::authorize_schema_read(caller, maximum_allowlist_guard)?;
-        let authorization_instructions = call_context_instruction_counter().saturating_sub(start);
+        let authorization_instructions = performance_counter(1).saturating_sub(start);
         let wrapper_instructions = authorization_instructions.saturating_sub(guard_instructions);
 
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let schema_result = icydb::db::with_request_execution(|| {
             crate::__icydb_generated::endpoint_handlers::schema()
         });
-        let schema_instructions = call_context_instruction_counter().saturating_sub(start);
+        let schema_instructions = performance_counter(1).saturating_sub(start);
         schema_result?;
 
         Ok(ReadAuthorizationCostResult {

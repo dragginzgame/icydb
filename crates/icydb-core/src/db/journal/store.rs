@@ -16,10 +16,8 @@ use crate::{
     error::{ErrorClass, InternalError},
     types::EntityTag,
 };
-use ic_memory::RuntimeMemory;
-use ic_stable_structures::{
-    BTreeMap as StableBTreeMap, DefaultMemoryImpl, Storable, storable::Bound as StorableBound,
-};
+use ic_memory::{DefaultMemoryImpl, RuntimeMemory};
+use ic_storage::adapter::{StableBTreeMap, Storable, storable::Bound as StorableBound};
 use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::ops::Bound::{Included, Unbounded};
@@ -391,7 +389,7 @@ impl FoldWatermark {
 /// start at sequence `1`; the entity-revision authority checks exact chunk coverage.
 ///
 pub struct JournalTailStore {
-    map: StableBTreeMap<JournalTailKey, RawJournalChunk, RuntimeMemory<DefaultMemoryImpl>>,
+    map: StableBTreeMap<JournalTailKey, RawJournalChunk, DefaultMemoryImpl>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]

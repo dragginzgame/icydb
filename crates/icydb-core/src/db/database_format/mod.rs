@@ -17,11 +17,9 @@ use crate::{
     },
     error::{InternalError, RecoveryFormatMarkerError},
 };
+use ic_memory::Memory;
 #[cfg(test)]
-use ic_memory::RuntimeMemory;
-#[cfg(test)]
-use ic_stable_structures::DefaultMemoryImpl;
-use ic_stable_structures::Memory;
+use ic_memory::{DefaultMemoryImpl, RuntimeMemory};
 use std::cell::RefCell;
 
 #[cfg(all(test, feature = "sql", not(target_arch = "wasm32")))]

@@ -172,7 +172,7 @@ required to run setup. Make targets and CI select this same local tool set.
 | Local IC tool setup | Bash 3.2+, `curl`, `tar`, xz/gzip, Perl, and a SHA-256 implementation; see [IC tools](ic-tools.md) |
 | Nonempty Cargo test helper | Cargo with normal libtest summaries, `awk`, and `tee` |
 | Exact release-tag checker | Git and the caller's selected exact commit/version |
-| Exact crates.io observation | Bash/curl for presence; metadata mode additionally requires jq and curl 8.4.0+ for bounded downloads |
+| Exact crates.io observation | Bash, jq and curl 8.4.0+; mandatory retained metadata with bounded downloads |
 | `scripts/ci/run-sccache.sh` | An absolute executable file selected through `SCCACHE_BIN` |
 | Snapshot verification | A SHA-256 implementation |
 | Snapshot refresh | Git, a clean Shared Tooling checkout, and a SHA-256 implementation |
@@ -196,7 +196,7 @@ cmp. The selected native binary must report PCRE2 support. All four Linux/macOS
 architecture mappings have substitute fixtures; only native execution qualifies
 the corresponding official binary. See [local setup](local-setup.md).
 
-The complete setup/check aggregates include the three pinned Cargo tools on
+The complete setup/check aggregates include the pinned Cargo formatter tools on
 every repository. A prepared Rust/Cargo toolchain and native build prerequisites
 are therefore required even for non-Rust consumers. The native regression jobs
 run the complete aggregate on Linux x86-64 and both macOS architectures; narrower
@@ -247,7 +247,7 @@ selected fixtures, offline prerequisites and outstanding extraction boundaries.
 
 ## Installer-capable platforms
 
-The actionlint, Gitleaks, ShellCheck and yq installers contain asset mappings for
+The CI actionlint, Gitleaks and ShellCheck installers, and the host-tool yq installer, contain asset mappings for
 Linux and Darwin on x86-64 and ARM64. Branches not exercised by the repository's
 installer-download CI are install-capable, not support claims.
 

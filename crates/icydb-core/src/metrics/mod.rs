@@ -116,7 +116,7 @@ impl<'entity> EntityMetricsSpan<'entity> {
 
 #[cfg(all(feature = "metrics", target_arch = "wasm32"))]
 fn metrics_are_durable() -> bool {
-    ic0::in_replicated_execution() != 0
+    ic_platform::ic0::in_replicated_execution() != 0
 }
 
 #[cfg(all(feature = "metrics", not(target_arch = "wasm32")))]

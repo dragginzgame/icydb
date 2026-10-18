@@ -12,7 +12,7 @@ use crate::{
     types::EntityTag,
     value::Value,
 };
-use ic_stable_structures::Storable;
+use ic_storage::adapter::Storable;
 use std::{borrow::Cow, cell::Cell, ops::Bound};
 
 fn scalar_scan_key(value: i64, suffix: u64) -> RawIndexStoreKey {

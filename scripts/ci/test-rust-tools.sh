@@ -142,7 +142,7 @@ fi
 printf '#!%s\n' "$BASH" > "$destination/bin/$target"
 printf 'printf "probe\\n" >> %q\n' "$fixture/probes" >> "$destination/bin/$target"
 case "$package" in
-    cargo-sort|cargo-sort-derives|candid-extractor)
+    cargo-sort|cargo-sort-derives)
         printf 'printf "%%s\\n" %q\n' "$package $version" >> "$destination/bin/$target" ;;
     *) echo 'exit 97' >> "$destination/bin/$target" ;;
 esac
@@ -170,7 +170,6 @@ installer="$ROOT/scripts/dev/install-rust-tools.sh"
 cat > "$fixture/versions" <<'PINS'
 SHARED_TOOLING_CARGO_SORT_VERSION=99.1.0
 SHARED_TOOLING_CARGO_SORT_DERIVES_VERSION=99.2.0
-SHARED_TOOLING_CANDID_EXTRACTOR_VERSION=99.3.0
 PINS
 source_package() {
     local name="$1" version="$2"
@@ -178,7 +177,7 @@ source_package() {
     printf 'version = 3\n[[package]]\nname = "%s"\nversion = "%s"\n' "$name" "$version" > "$fixture/source/$name-$version/Cargo.lock"
     tar -czf "$fixture/assets/$name-$version.crate" -C "$fixture/source" "$name-$version"
 }
-for pair in 'cargo-sort 99.1.0' 'cargo-sort-derives 99.2.0' 'candid-extractor 99.3.0' 'sample 1.2.3' 'sample 2.0.0'; do
+for pair in 'cargo-sort 99.1.0' 'cargo-sort-derives 99.2.0' 'sample 1.2.3' 'sample 2.0.0'; do
     read -r name version <<< "$pair"; source_package "$name" "$version"
 done
 refuse() {
@@ -196,7 +195,7 @@ refuse common --check
 [[ ! -e "$SHARED_TOOLING_STORE" && ! -e "$consumer/.tools" ]] || exit 1
 # Admit the complete default group before probing the compiler or touching tools.
 for value in '' '01.2.3' '1.2.3-beta.1'; do
-    sed "s/SHARED_TOOLING_CANDID_EXTRACTOR_VERSION=.*/SHARED_TOOLING_CANDID_EXTRACTOR_VERSION=$value/" \
+    sed "s/SHARED_TOOLING_CARGO_SORT_DERIVES_VERSION=.*/SHARED_TOOLING_CARGO_SORT_DERIVES_VERSION=$value/" \
         "$fixture/versions" > "$fixture/invalid-versions"
     refuse common --versions "$fixture/invalid-versions" --preflight
     [[ ! -e "$SHARED_TOOLING_STORE" && ! -e "$consumer/.tools" && ! -e "$fixture/builds" ]] || exit 1
@@ -228,7 +227,7 @@ fi
 # The CI cache key shares the installer identity and performs no setup. Exercise
 # changes in a private copy so no production source is modified by qualification.
 mkdir -p "$fixture/cache-source/scripts/dev" "$fixture/cache-source/scripts/ci" "$fixture/cache-source/ci"
-for file in scripts/ci/cargo-tool-cache-key.sh scripts/ci/tool-catalog-records.pl scripts/ci/verify-file-checksum.sh \
+for file in scripts/ci/cargo-tool-cache-key.sh scripts/ci/tool-catalog-records.pl scripts/ci/StableVersion.pm scripts/ci/verify-file-checksum.sh \
     scripts/dev/cargo-tool-build.sh scripts/dev/tool-store.sh scripts/dev/install-rust-tools.sh; do
     cp "$ROOT/$file" "$fixture/cache-source/$file"
 done
@@ -252,7 +251,7 @@ refuse bash "$cache_owner" "$cache_pins"
 # CR in a shell assignment is part of its value, not harmless whitespace.
 awk '{ printf "%s\r\n", $0 }' "$fixture/versions" > "$cache_pins"
 refuse bash "$cache_owner" "$cache_pins"
-for pin in CARGO_SORT CARGO_SORT_DERIVES CANDID_EXTRACTOR; do
+for pin in CARGO_SORT CARGO_SORT_DERIVES; do
     sed "s/SHARED_TOOLING_${pin}_VERSION=.*/SHARED_TOOLING_${pin}_VERSION=98.0.0/" "$fixture/versions" > "$cache_pins"
     [[ "$(bash "$cache_owner" "$cache_pins")" != "$cache_before" ]] || exit 1
 done
@@ -267,7 +266,7 @@ for opaque in 'touch "$CACHE_KEY_SIDE_EFFECT"' 'export RUSTUP_TOOLCHAIN=nightly'
     [[ ! -e "$fixture/unexpected-cache-effect" ]] || exit 1
 done
 cp "$fixture/versions" "$cache_pins"
-for file in scripts/dev/cargo-tool-build.sh scripts/dev/install-rust-tools.sh; do
+for file in scripts/dev/cargo-tool-build.sh scripts/dev/install-rust-tools.sh scripts/ci/StableVersion.pm; do
     printf '\n# Changed cache input\n' >> "$fixture/cache-source/$file"
     [[ "$(bash "$cache_owner" "$cache_pins")" != "$cache_before" ]] || exit 1
     cp "$ROOT/$file" "$fixture/cache-source/$file"
@@ -329,9 +328,18 @@ refuse bash "$cache_owner" "$cache_pins"
 mkdir -p "$consumer/.tools/rust/previous/installed/build"
 printf 'old local evidence\n' > "$consumer/.tools/rust/previous/installed/build/payload"
 RUSTFLAGS=invalid RUSTC_WRAPPER=/missing UNMODELLED_SECRET=must-not-propagate common
-[[ "$(wc -l < "$fixture/builds")" -eq 3 ]] || exit 1
+[[ "$(wc -l < "$fixture/builds")" -eq 2 ]] || exit 1
 common --check
 first_binary="$(perl -MCwd=abs_path -e 'print abs_path(shift)' "$consumer/.tools/rust/common/bin/cargo-sort")"
+# A previously broader bundle remains retained, but cannot keep selecting an
+# unrelated tool through the current common PATH. Rebuild only the link set.
+previous_common="$(readlink "$consumer/.tools/rust/common")"
+ln -s "$first_binary" "$consumer/.tools/rust/$previous_common/bin/previous-extractor"
+refuse common --check
+common
+[[ -L "$consumer/.tools/rust/$previous_common/bin/previous-extractor" &&
+   ! -e "$consumer/.tools/rust/common/bin/previous-extractor" &&
+   "$(wc -l < "$fixture/builds")" -eq 2 ]] || exit 1
 (
     # shellcheck disable=SC2031 # Reapply the override independently for this subshell.
     export CARGO_HOME="$fixture/user-cargo"
@@ -340,7 +348,7 @@ first_binary="$(perl -MCwd=abs_path -e 'print abs_path(shift)' "$consumer/.tools
     for mode in setup check; do
         if [[ "$mode" == setup ]]; then refuse common; else refuse common --check; fi
         [[ "$(readlink "$consumer/.tools/rust/common")" == "$before" && ! -e "$consumer/.tools/rust/common.lock" ]] || exit 1
-        [[ "$(wc -l < "$fixture/builds")" -eq 3 ]] || exit 1
+        [[ "$(wc -l < "$fixture/builds")" -eq 2 ]] || exit 1
     done
 )
 # A real staged hook uses these receipts without installing into its export.
@@ -350,7 +358,7 @@ cp "$ROOT/.githooks/pre-commit" "$consumer/.githooks/"
 for file in check-make-execution verify-file-checksum; do
     cp "$ROOT/scripts/ci/$file.sh" "$consumer/scripts/ci/"
 done
-cp "$ROOT/scripts/ci/tool-catalog-records.pl" "$consumer/scripts/ci/"
+cp "$ROOT/scripts/ci/"{tool-catalog-records.pl,StableVersion.pm} "$consumer/scripts/ci/"
 for file in install-rust-tools cargo-tool-build tool-store; do
     cp "$ROOT/scripts/dev/$file.sh" "$consumer/scripts/dev/"
 done
@@ -421,7 +429,7 @@ git -C "$consumer" add rust-toolchain.toml
 refuse hook
 grep -F 'unprepared staged compiler' "$fixture/refused.log" >/dev/null
 git -C "$consumer" rm -qf rust-toolchain.toml
-[[ "$(wc -l < "$fixture/builds")" -eq 3 ]]
+[[ "$(wc -l < "$fixture/builds")" -eq 2 ]]
 mkdir "$fixture/export"
 SHARED_TOOLING_FORMAT_WORKTREE="$fixture/export" SHARED_TOOLING_FORMAT_TOOLS_FROM="$consumer" \
     refuse bash "$installer" --consumer "$fixture/export" --versions "$fixture/versions"
@@ -446,7 +454,7 @@ grep -F "tool store installation locked: $held_slot/install.lock" "$fixture/held
 if grep -F 'blocked root activation' "$fixture/held.err"; then exit 1; fi
 cmp "$held_slot/install.lock/owner" "$fixture/foreign-owner"
 [[ "$(readlink "$consumer/.tools/rust/common")" == "$old_common" && "$(readlink "$held_slot/current")" == "$old_current" ]] || exit 1
-[[ "$(wc -l < "$fixture/builds")" -eq 3 ]] || exit 1
+[[ "$(wc -l < "$fixture/builds")" -eq 2 ]] || exit 1
 find "$consumer/.tools/rust" "$held_slot" -print | sort > "$fixture/after-held"
 cmp "$fixture/before-held" "$fixture/after-held"
 rm "$held_slot/install.lock/owner"
@@ -461,17 +469,17 @@ tar -xzf "$fixture/cargo-tools-cache.tar.gz" -C "$SHARED_TOOLING_STORE"
 consumer="$fixture/b"
 touch "$fixture/no-info"
 CARGO_NET_OFFLINE=true common
-[[ "$(wc -l < "$fixture/builds")" -eq 3 && "$(perl -MCwd=abs_path -e 'print abs_path(shift)' "$consumer/.tools/rust/common/bin/cargo-sort")" == "$first_binary" ]] || exit 1
+[[ "$(wc -l < "$fixture/builds")" -eq 2 && "$(perl -MCwd=abs_path -e 'print abs_path(shift)' "$consumer/.tools/rust/common/bin/cargo-sort")" == "$first_binary" ]] || exit 1
 [[ -z "$(find "$consumer/.tools" -type f)" ]] || exit 1
 common --check
 # New compiler identity selects new payloads; the first checkout stays pinned.
 printf 'fixture rustc changed\n' > "$fixture/compiler-version"
 refuse common --check
 common
-[[ "$(wc -l < "$fixture/builds")" -eq 6 && "$(perl -MCwd=abs_path -e 'print abs_path(shift)' "$fixture/a/.tools/rust/common/bin/cargo-sort")" == "$first_binary" ]] || exit 1
+[[ "$(wc -l < "$fixture/builds")" -eq 4 && "$(perl -MCwd=abs_path -e 'print abs_path(shift)' "$fixture/a/.tools/rust/common/bin/cargo-sort")" == "$first_binary" ]] || exit 1
 printf 'fixture rustc\n' > "$fixture/compiler-version"
 common
-[[ "$(wc -l < "$fixture/builds")" -eq 6 ]] || exit 1
+[[ "$(wc -l < "$fixture/builds")" -eq 4 ]] || exit 1
 rm "$fixture/no-info"
 # Selected product executables are verified without executing them.
 selected_args=(--consumer "$consumer" --package sample --version 1.2.3 --example prepare --profile debug)
@@ -629,7 +637,7 @@ SHARED_TOOLING_STORE="$fixture/store-link" refuse common --check
 # Mutate only disposable sources; the real admission, retention and activation run.
 mkdir -p "$fixture/tool-source/scripts/dev" "$fixture/tool-source/scripts/ci"
 cp "$ROOT/scripts/dev/"{install-rust-tools,cargo-tool-build,tool-store}.sh "$fixture/tool-source/scripts/dev/"
-cp "$ROOT/scripts/ci/"{verify-file-checksum.sh,tool-catalog-records.pl} "$fixture/tool-source/scripts/ci/"
+cp "$ROOT/scripts/ci/"{verify-file-checksum.sh,tool-catalog-records.pl,StableVersion.pm} "$fixture/tool-source/scripts/ci/"
 cp "$fixture/compiler-version" "$fixture/original-compiler"
 before="$(readlink "$consumer/.tools/rust/common")"
 source_package cargo-sort 99.1.2
