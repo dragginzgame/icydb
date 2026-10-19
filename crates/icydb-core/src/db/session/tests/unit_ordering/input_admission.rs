@@ -848,3 +848,31 @@ fn query_input_admission_precedes_lowering_on_public_trusted_and_warm_reads() {
         1
     );
 }
+
+#[test]
+fn oversized_index_literals_refuse_as_unsupported_without_changing_rows() {
+    use crate::error::{ErrorClass, ErrorOrigin};
+
+    let session = initialize();
+    seed_singleton(&session);
+    let before = sql_rows(&session, "SELECT label FROM Singleton");
+    for size in [513, 4_100, 5_000] {
+        let literal = "a".repeat(size);
+        for predicate in [
+            format!("label = '{literal}'"),
+            format!("label > '{literal}'"),
+            format!("label IN ('singleton', '{literal}')"),
+        ] {
+            let sql = format!("SELECT label FROM Singleton WHERE {predicate}");
+            for _ in 0..2 {
+                let error = session.execute_trusted_sql_query(&sql).unwrap_err();
+                let QueryError::Execute(error) = error else {
+                    panic!("expected classified execution refusal");
+                };
+                assert_eq!(error.as_internal().class(), ErrorClass::Unsupported);
+                assert_eq!(error.as_internal().origin(), ErrorOrigin::Index);
+            }
+        }
+    }
+    assert_eq!(sql_rows(&session, "SELECT label FROM Singleton"), before);
+}
