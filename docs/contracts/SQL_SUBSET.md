@@ -853,6 +853,12 @@ The admitted single-entity naming surface is:
 - schema-qualified entity names such as `public.Customer`
 - one optional single-table alias, with or without `AS`
 
+Field qualification removes one complete entity or alias prefix from the path
+root. An inner matching segment never qualifies the enclosing record path:
+`owner.Customer.id` remains a record path. With alias `c`, `c.c.name` refers to
+record path `c.name`; the qualifier is not stripped again during expression
+normalization. The same rule applies to read and mutation expressions.
+
 Unquoted entity names resolve against accepted catalog display names using
 ASCII case-insensitive matching. For example, `DESCRIBE customer` resolves an
 accepted entity authored as `Customer`, and metadata continues to report the

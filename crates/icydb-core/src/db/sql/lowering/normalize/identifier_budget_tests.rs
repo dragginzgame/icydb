@@ -34,7 +34,7 @@ fn run<T>(
 }
 
 #[test]
-fn owned_path_matching_keeps_longest_tail_policy_without_new_backing() {
+fn owned_path_matching_keeps_longest_root_scope_without_new_backing() {
     for (head, tail, scopes, expected_head, expected_tail) in [
         (
             "a",
@@ -43,7 +43,13 @@ fn owned_path_matching_keeps_longest_tail_policy_without_new_backing() {
             "c",
             vec!["name"],
         ),
-        ("other", vec!["b", "name"], vec!["public.b"], "name", vec![]),
+        (
+            "other",
+            vec!["b", "name"],
+            vec!["public.b"],
+            "other",
+            vec!["b", "name"],
+        ),
         (
             "profile",
             vec!["address", "city"],
@@ -51,9 +57,15 @@ fn owned_path_matching_keeps_longest_tail_policy_without_new_backing() {
             "profile",
             vec!["address", "city"],
         ),
-        ("app.users", vec!["name"], vec!["users"], "name", vec![]),
-        ("a.b", vec!["x.y", "z"], vec!["y"], "z", vec![]),
-        ("u", vec!["", "name"], vec![""], "name", vec![]),
+        (
+            "app.users",
+            vec!["name"],
+            vec!["users"],
+            "app.users",
+            vec!["name"],
+        ),
+        ("a.b", vec!["x.y", "z"], vec!["y"], "a.b", vec!["x.y", "z"]),
+        ("u", vec!["", "name"], vec![""], "u", vec!["", "name"]),
         ("é", vec!["名"], vec!["é"], "名", vec![]),
         ("é", vec!["名"], vec!["É"], "é", vec!["名"]),
     ] {

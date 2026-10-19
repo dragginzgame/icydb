@@ -46,6 +46,13 @@ pub fn request_execution(
 }
 
 /// Declare a synchronous unit test with the production request boundary.
+///
+/// The entire test body shares one aggregate request budget. Nested
+/// `icydb::db::with_request_execution` calls reuse that budget; they do not
+/// start separate simulated messages or reset counters.
+///
+/// For a test that simulates multiple IC messages, use plain `#[test]` and
+/// wrap each message separately in `icydb::db::with_request_execution`.
 #[proc_macro_attribute]
 pub fn test(
     args: proc_macro::TokenStream,

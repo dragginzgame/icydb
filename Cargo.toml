@@ -73,8 +73,6 @@ repository = "https://github.com/dragginzgame/icydb"
 [workspace.dependencies]
 # Production dependencies
 base64 = { version = "0.23.1", default-features = false, features = ["std"] }
-# Also required transitively by production IC Wire; schema tests use it directly.
-ciborium = "0.2"
 clap = { version = "4.6.1", default-features = false, features = [
     "derive",
     "env",
@@ -110,7 +108,7 @@ proc-macro2 = "1.0"
 quote = "1.0"
 rand_chacha = "0.10"
 remain = "0.2"
-rustyline = "19.0"
+rustyline = { version = "19.0", default-features = false, features = ["with-file-history"] }
 serde = { version = "1.0", default-features = false }
 serde_bytes = "0.11"
 serde_json = "1.0"
@@ -130,7 +128,7 @@ xxhash-rust = { version = "0.8.15", default-features = false, features = [
 # Tests and tooling only
 blake3 = "1.8.5"
 canic-icydb = { git = "https://github.com/dragginzgame/canic", rev = "1491dd9ee4e858b4f47a4deba7e3cb4ab4a2b895" }
-ic-build = "0.18"
+ic-build = "0.19"
 ic-host-process = "0.27"
 ic-testkit = "0.54"
 ic-timers = "0.27"
@@ -157,6 +155,7 @@ rusqlite = { version = "=0.40.2", default-features = false, features = [
     "load_extension",
 ] }
 serde-reflection = "0.6.0"
+serde_cbor = "0.11"
 trybuild = "1.0"
 
 # ---------------------

@@ -33,6 +33,7 @@ check() {
   # mismatch must terminate explicitly before it can count as a completed case.
   if [[ "$expected" == pass && "$status" != 0 || "$expected" != pass && "$status" == 0 ]]; then
     printf 'Workflow case %s expected %s, observed status %s\n' "$name" "$expected" "$status" >&2
+    cat "$fixture/$name.log" >&2
     exit 1
   fi
   count=$((count + 1))
@@ -144,6 +145,30 @@ check fail incomplete-common-admission
 reset
 mutate '.jobs.rust.steps |= map(select(.uses != "./.github/actions/retain-failure-evidence"))'
 check fail missing-tooling-failure-retention
+reset
+mutate '(.jobs.wasm_size_report.steps[] | select(.name == "Install pinned local tools") | .run) |= sub("make install-ic-tools"; "true")'
+check fail missing-wasm-ic-preparation
+reset
+mutate '(.jobs.wasm_size_report.steps[] | select(.name == "Install pinned local tools") | .run) |= sub("make ic-tools-check"; "true")'
+check fail missing-wasm-ic-admission
+reset
+mutate '.jobs.rust.steps |= map(select(.name != "Prepare governed IC tools for canister builds"))'
+check fail missing-build-ic-preparation
+reset
+mutate '(.jobs.rust.steps[] | select(.name == "Prepare governed IC tools for canister builds")).if = "matrix.lane == '\''workspace'\''"'
+check fail ic-preparation-missing-tier-b
+reset
+mutate '(.jobs.rust.steps[] | select(.name == "Prepare governed IC tools for canister builds")).if = "matrix.lane == '\''tier-b'\''"'
+check fail ic-preparation-missing-workspace
+reset
+mutate '(.jobs.rust.steps[] | select(.name == "Prepare governed IC tools for canister builds")).continue-on-error = true'
+check fail ignored-build-ic-preparation
+reset
+mutate '(.jobs.rust.steps[] | select(.name == "Prepare governed IC tools for canister builds") | .run) |= sub("make ic-tools-check"; "true")'
+check fail missing-build-ic-admission
+reset
+mutate '.jobs.rust.steps |= (map(select(.name != "Prepare governed IC tools for canister builds")) + [.[] | select(.name == "Prepare governed IC tools for canister builds")])'
+check fail late-build-ic-preparation
 reset
 mutate '.jobs.rust.steps |= map(select(.name != "Prepare locked Testkit CLI and server for live tests"))'
 check fail missing-live-server-preparation

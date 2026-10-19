@@ -769,15 +769,15 @@ fn decimal_text_transports_preserve_values_and_measured_sizes() {
             values,
         );
         let mut encoded = Vec::new();
-        ciborium::ser::into_writer(&value, &mut encoded).expect("CBOR should encode");
+        serde_cbor::to_writer(&mut encoded, &value).expect("CBOR should encode");
         assert_eq!(encoded.len(), binary);
         assert_eq!(
-            ciborium::de::from_reader::<String, _>(encoded.as_slice())
+            serde_cbor::from_slice::<String>(encoded.as_slice())
                 .expect("CBOR should contain decimal text"),
             text,
         );
         assert_eq!(
-            ciborium::de::from_reader::<Decimal, _>(encoded.as_slice())
+            serde_cbor::from_slice::<Decimal>(encoded.as_slice())
                 .expect("CBOR should decode the decimal"),
             value,
         );

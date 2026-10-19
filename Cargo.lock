@@ -671,9 +671,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.8.0"
+version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6651c9ed80effdc7db0ff72512157f901af5e3549e341e24b1dd4887d836d838"
+checksum = "877bf67ac8e52449eb2f9e98a344ea163beb70dd1f9eebe3cc5357dcfeaee4df"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -1168,12 +1168,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "endian-type"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "869b0adbda23651a9c5c0c3d270aac9fcb52e8622a8f2b17e57802d7791962f2"
-
-[[package]]
 name = "equivalent"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1239,9 +1233,9 @@ checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 
 [[package]]
 name = "find-msvc-tools"
-version = "0.1.14"
+version = "0.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aedcfb3409746eddb02b9e19ebda1c3394f759a152e48ee875a0844d1b955484"
+checksum = "1c66915cc5391097de7a2b0b972e8505aa33c0df401fd3a6811dbdb32881ba48"
 
 [[package]]
 name = "fixedbitset"
@@ -1459,15 +1453,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "home"
-version = "0.5.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc627f471c528ff0c4a49e1d5e60450c8f6461dd6d10ba9dcd3a61d3dff7728d"
-dependencies = [
- "windows-sys 0.61.2",
-]
-
-[[package]]
 name = "http"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1568,9 +1553,9 @@ dependencies = [
 
 [[package]]
 name = "ic-build"
-version = "0.18.0"
+version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a746945b51515800a3051b2f8dc3794215035bbcc8cfe6b952f9673dc289dc74"
+checksum = "6f0b54a64c09394cf5714516fe778844b57ace78a59c8ddd7b12037bb9f056a1"
 dependencies = [
  "cargo_metadata",
  "ic-host-artifacts",
@@ -1768,9 +1753,9 @@ checksum = "23aaf066e17070c30de460ebd986b92f3b45c708639678255bdae436b0d023f7"
 
 [[package]]
 name = "ic-platform"
-version = "0.1.14"
+version = "0.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "03c2300b6d347bc1c19ba35fcf4c31069134aefe1d4ec5bf7b5a8dfbc411285f"
+checksum = "f8e25f723e4b0f6db0e4b0a61beef7117c3e67066f7f5c717a82a43265e60b99"
 dependencies = [
  "candid",
  "candid_parser",
@@ -1784,9 +1769,9 @@ dependencies = [
 
 [[package]]
 name = "ic-platform-macros"
-version = "0.1.14"
+version = "0.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "059cc35f51bbb884b19a986626ddf428ce53abf96f56a145dfa3cbe1f1cd8cc4"
+checksum = "56d397481ad66aaf2931b42cbc59e2fb41c0be7e5e89b78658f958dda721c7e4"
 dependencies = [
  "darling 0.23.0",
  "proc-macro2",
@@ -2094,7 +2079,6 @@ dependencies = [
 name = "icydb-schema"
 version = "0.277.1"
 dependencies = [
- "ciborium",
  "crc32fast",
  "data-encoding",
  "ethnum",
@@ -2103,6 +2087,7 @@ dependencies = [
  "proptest",
  "serde",
  "serde_bytes",
+ "serde_cbor",
  "serde_json",
  "sha2",
  "thiserror 2.0.18",
@@ -2648,15 +2633,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
 
 [[package]]
-name = "nibble_vec"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77a5d83df9f36fe23f0c3648c6bbb8b0298bb5f1939c8f2704431371f4b84d43"
-dependencies = [
- "smallvec",
-]
-
-[[package]]
 name = "nix"
 version = "0.31.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3074,16 +3050,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
-name = "radix_trie"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b4431027dcd37fc2a73ef740b5f233aa805897935b8bce0195e41bbf9a3289a"
-dependencies = [
- "endian-type",
- "nibble_vec",
-]
-
-[[package]]
 name = "rand"
 version = "0.10.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3387,12 +3353,10 @@ checksum = "56e1d6bd81c2d5feafd2419138df9183c45a10a492c4e873b8b0acb8eb2b549e"
 dependencies = [
  "bitflags",
  "clipboard-win",
- "home",
  "libc",
  "log",
  "memchr",
  "nix",
- "radix_trie",
  "unicode-segmentation",
  "unicode-width 0.2.2",
  "utf8parse",

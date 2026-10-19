@@ -6,7 +6,7 @@ use super::{Duration, Timestamp};
 
 fn cbor_bytes<T: Serialize>(value: &T) -> Vec<u8> {
     let mut bytes = Vec::new();
-    ciborium::into_writer(value, &mut bytes).expect("value should CBOR-encode");
+    serde_cbor::to_writer(&mut bytes, value).expect("value should CBOR-encode");
     bytes
 }
 
@@ -14,7 +14,7 @@ fn cbor_round_trip<T>(value: &T) -> T
 where
     T: DeserializeOwned + Serialize,
 {
-    ciborium::from_reader(cbor_bytes(value).as_slice()).expect("value should CBOR-decode")
+    serde_cbor::from_slice(cbor_bytes(value).as_slice()).expect("value should CBOR-decode")
 }
 
 #[test]
@@ -47,8 +47,8 @@ fn binary_time_atoms_reject_human_readable_text_forms() {
     let duration = cbor_bytes(&"2s");
     let timestamp = cbor_bytes(&"1969-12-31T23:59:59.999Z");
 
-    assert!(ciborium::from_reader::<Duration, _>(duration.as_slice()).is_err());
-    assert!(ciborium::from_reader::<Timestamp, _>(timestamp.as_slice()).is_err());
+    assert!(serde_cbor::from_slice::<Duration>(duration.as_slice()).is_err());
+    assert!(serde_cbor::from_slice::<Timestamp>(timestamp.as_slice()).is_err());
 }
 
 #[test]

@@ -7,42 +7,49 @@
 ///
 /// Normalize one possibly-qualified identifier against one SQL entity scope.
 ///
-/// If `identifier` starts with an entity/alias scope followed by one direct
-/// field or record path, this removes only that scope prefix. Otherwise it
-/// falls back to direct qualifier matching and preserves the original input
-/// when no scope candidate matches.
+/// Remove a complete entity/alias scope at the start of a field or record path,
+/// trying candidates in their supplied order with ASCII case-insensitive matching.
+/// Inner path segments never qualify the path; preserve the input when no
+/// root-anchored scope matches.
 ///
 
 #[must_use]
 pub fn normalize_identifier_to_scope(mut identifier: String, entity_scope: &[String]) -> String {
     for candidate in entity_scope {
-        let prefix_len = candidate.len();
-        if identifier.len() > prefix_len
-            && identifier
-                .get(..prefix_len)
-                .is_some_and(|prefix| prefix.eq_ignore_ascii_case(candidate))
-            && identifier.as_bytes().get(prefix_len) == Some(&b'.')
-        {
-            // The checked prefix and ASCII separator establish a UTF-8 boundary.
-            // Reuse owned backing rather than allocating another suffix string.
-            identifier.drain(..=prefix_len);
-            return identifier;
-        }
+        let Some(count) = matching_scope_prefix_len(identifier.split('.'), candidate) else {
+            continue;
+        };
+        // Whole segments plus their ASCII separators establish a UTF-8 boundary.
+        // Reuse owned backing rather than allocating another suffix string.
+        let prefix_len = identifier
+            .split('.')
+            .take(count)
+            .map(|part| part.len() + 1)
+            .sum::<usize>();
+        identifier.drain(..prefix_len);
+        break;
     }
-
-    let Some((qualifier, _)) = split_qualified_identifier(identifier.as_str()) else {
-        return identifier;
-    };
-    if !entity_scope
-        .iter()
-        .any(|candidate| identifiers_tail_match(candidate.as_str(), qualifier))
-    {
-        return identifier;
-    }
-
-    let prefix_len = qualifier.len() + 1;
-    identifier.drain(..prefix_len);
     identifier
+}
+
+// Shared scope authority for string identifiers and parser-owned path segments.
+// Require a remaining field and compare from the root; a matching tail alone
+// cannot establish that an arbitrary record prefix is an entity qualifier.
+pub(in crate::db) fn matching_scope_prefix_len<'a>(
+    mut path: impl Iterator<Item = &'a str>,
+    candidate: &str,
+) -> Option<usize> {
+    let mut count = 0;
+    for part in candidate.split('.') {
+        if !path
+            .next()
+            .is_some_and(|segment| segment.eq_ignore_ascii_case(part))
+        {
+            return None;
+        }
+        count += 1;
+    }
+    path.next().map(|_| count)
 }
 
 /// Split one qualified identifier into `(qualifier, leaf)` on the last `.`.
@@ -90,14 +97,14 @@ mod tests {
         for (identifier, scopes, expected) in [
             ("u.profile.rank", vec!["u"], "profile.rank"),
             ("U.profile.rank", vec!["u"], "profile.rank"),
-            ("other.Users.name", vec!["public.Users"], "name"),
+            ("other.Users.name", vec!["public.Users"], "other.Users.name"),
             ("Users.名", vec!["Users"], "名"),
             ("é.名", vec!["é"], "名"),
             ("é.name", vec!["x"], "é.name"),
             ("u.", vec!["u"], ""),
             (".name", vec!["users"], ".name"),
             ("name", vec!["users"], "name"),
-            // Direct prefix matching retains the existing candidate-order rule.
+            // Retain the public utility's supplied candidate order.
             ("a.b.name", vec!["a", "a.b"], "b.name"),
         ] {
             let input = identifier.to_string();
@@ -108,6 +115,14 @@ mod tests {
             assert_eq!(output, expected);
             assert_eq!(output.as_ptr(), pointer);
             assert_eq!(output.capacity(), capacity);
+        }
+    }
+
+    #[test]
+    fn scope_reduction_preserves_inner_entity_and_alias_segments() {
+        let scopes = vec!["app.Account".into(), "Account".into(), "s".into()];
+        for path in ["owner.account.id", "owner.s.id", "other.Account.id"] {
+            assert_eq!(normalize_identifier_to_scope(path.into(), &scopes), path);
         }
     }
 

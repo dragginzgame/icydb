@@ -48,14 +48,14 @@ fn ulid_wire_requires_byte_elements() {
 fn ulid_binary_serde_round_trip_uses_a_byte_string() {
     for value in [Ulid::MIN, Ulid::from_u128(42), Ulid::MAX] {
         let mut encoded = Vec::new();
-        ciborium::into_writer(&value, &mut encoded).expect("ULID should encode");
-        let wire: ciborium::Value =
-            ciborium::from_reader(encoded.as_slice()).expect("wire should decode");
+        serde_cbor::to_writer(&mut encoded, &value).expect("ULID should encode");
+        let wire: serde_cbor::Value =
+            serde_cbor::from_slice(encoded.as_slice()).expect("wire should decode");
 
-        assert_eq!(wire, ciborium::Value::Bytes(value.to_bytes().to_vec()));
+        assert_eq!(wire, serde_cbor::Value::Bytes(value.to_bytes().to_vec()));
         assert_eq!(encoded.len(), 17);
         assert_eq!(
-            ciborium::from_reader::<Ulid, _>(encoded.as_slice()).expect("ULID should decode"),
+            serde_cbor::from_slice::<Ulid>(encoded.as_slice()).expect("ULID should decode"),
             value,
         );
     }
@@ -65,12 +65,12 @@ fn ulid_binary_serde_round_trip_uses_a_byte_string() {
 fn ulid_binary_serde_enforces_width_for_bytes_and_sequences() {
     for len in [0, 15, 16, 17, 1_024] {
         for wire in [
-            ciborium::Value::Bytes(vec![0; len]),
-            ciborium::Value::Array(vec![ciborium::Value::Integer(0.into()); len]),
+            serde_cbor::Value::Bytes(vec![0; len]),
+            serde_cbor::Value::Array(vec![serde_cbor::Value::Integer(0); len]),
         ] {
             let mut encoded = Vec::new();
-            ciborium::into_writer(&wire, &mut encoded).expect("wire should encode");
-            let decoded = ciborium::from_reader::<Ulid, _>(encoded.as_slice());
+            serde_cbor::to_writer(&mut encoded, &wire).expect("wire should encode");
+            let decoded = serde_cbor::from_slice::<Ulid>(encoded.as_slice());
             if len == 16 {
                 assert_eq!(decoded.expect("exact width should decode"), Ulid::MIN);
             } else {

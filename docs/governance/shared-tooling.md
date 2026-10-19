@@ -62,6 +62,26 @@ against the selected adapter rather than a fake database API.
 SQL shell. The bounded project-local ICP manifest reader still serves local-cycle
 policy; no replacement project-discovery interface was verified in Host.
 
+### Consumer tooling qualification
+
+Shared Tooling owns the generic Rust-installer and dependency-pin refusal
+matrices. IcyDB selects its actual tools and qualifies their integration here.
+The unused generic fixture roots and cache-key companion are retired through
+the canonical exporter at the same recorded 0.24.1 revision.
+
+| Consumer obligation | Retained proof |
+| --- | --- |
+| Setup ordering, arguments and Rust tool selection | `scripts/ci/test-workstation-setup.sh` and `scripts/ci/test-shared-tooling-adapters.sh` |
+| Actual dependency declarations and lock inventory | `make check-dependency-pins` and `scripts/ci/test-cargo-metadata-adoption.sh` |
+| Testkit CLI and borrowed-server wiring | `scripts/ci/test-testkit-tooling.sh` and `scripts/ci/test-pocketic-server-wrapper.sh` |
+| Hook preservation | `scripts/ci/test-pre-commit.sh` |
+| Release receipts, refusals and publication | Existing release-adapter and publication fixtures in `check-portable-automation` |
+| Failure evidence and fixture completion | `scripts/ci/test-tooling-fixture-completion.sh` and validation-adapter fixtures |
+
+Prepared-tool admission and supported native host/product lanes remain selected.
+Shared host documentation describes producer fixtures that need not be vendored
+by every consumer. Linux fixture results do not qualify native macOS.
+
 Entries below record earlier source-bound adoption evidence. Their dependency
 versions and remaining prerequisites do not override the current manifests or
 establish qualification of later inputs. Native macOS/hosted CI remains separate
@@ -436,9 +456,13 @@ members use the corresponding package labels. The seven published implementation
 and CLI packages are production. Canister/schema fixtures and private `testing/`
 packages remain tests/tooling even when their audit recipe calls a feature set
 “production.” Production includes normal/build edges on supported targets,
-including procedural macros, native model generation and the host CLI. Ciborium
-is also needed transitively by production Wire. Renamed test aliases of IcyDB
-and Model do not make those canonical production package identities test-only.
+including procedural macros, native model generation and the host CLI. CBOR
+compatibility tests use `serde_cbor` only as a development dependency. Ciborium
+remains a production dependency of IC Memory for its retained ledger; IC Wire
+does not require it. Complete removal is tracked by
+[IC Memory #124](https://github.com/dragginzgame/ic-memory/issues/124).
+Renamed test aliases of IcyDB and Model do not make those
+canonical production package identities test-only.
 
 Formatting and check mode both select grouped manifest ordering while retaining
 derive sorting and rustfmt. Release preparation and commit preparation use the

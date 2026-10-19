@@ -158,6 +158,11 @@ jobs:
           make tools-check LOCAL_TOOL_CHECK_TARGETS= > "$RUNNER_TEMP/tools-check.log" 2>&1
           printf '%s\n' "$GITHUB_WORKSPACE/.tools/host/bin" \
             "$GITHUB_WORKSPACE/.tools/ic/bin" "$GITHUB_WORKSPACE/.tools/rust/common/bin" >> "$GITHUB_PATH"
+      - name: Prepare governed IC tools for canister builds
+        if: matrix.lane == 'workspace' || matrix.lane == 'tier-b'
+        run: |
+          make install-ic-tools > "$RUNNER_TEMP/tools-ic-install.log" 2>&1
+          make ic-tools-check > "$RUNNER_TEMP/tools-ic-check.log" 2>&1
       - name: Prepare locked Testkit CLI and server for live tests
         if: matrix.lane == 'tier-b'
         run: |
@@ -216,8 +221,10 @@ jobs:
       - name: Qualify portable automation with system Bash
         run: |
           export PATH="/bin:/usr/bin:/usr/sbin:/sbin:$PATH"
-          # Give portable fixtures one spelling of macOS's aliased temp directory.
-          TMPDIR="$(cd "${TMPDIR:-/tmp}" && pwd -P)"
+          # Use the directory already collected by shared failure retention.
+          # Anchor macOS's aliased temporary root before fixtures allocate paths.
+          mkdir -p "$RUNNER_TEMP/portable-fixtures"
+          TMPDIR="$(cd "$RUNNER_TEMP/portable-fixtures" && pwd -P)"
           export TMPDIR
           /bin/bash --version
           make check-portable-automation
@@ -355,6 +362,8 @@ jobs:
         run: |
           make install-tools LOCAL_TOOL_INSTALL_TARGETS= > "$RUNNER_TEMP/tools-install.log" 2>&1
           make tools-check LOCAL_TOOL_CHECK_TARGETS= > "$RUNNER_TEMP/tools-check.log" 2>&1
+          make install-ic-tools > "$RUNNER_TEMP/tools-ic-install.log" 2>&1
+          make ic-tools-check > "$RUNNER_TEMP/tools-ic-check.log" 2>&1
           printf '%s\n' "$GITHUB_WORKSPACE/.tools/host/bin" \
             "$GITHUB_WORKSPACE/.tools/ic/bin" "$GITHUB_WORKSPACE/.tools/rust/common/bin" >> "$GITHUB_PATH"
       - name: Report default-empty and request-future-scale wasm sizes

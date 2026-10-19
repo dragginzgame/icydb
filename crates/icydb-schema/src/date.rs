@@ -243,15 +243,15 @@ mod tests {
         let today = Date::try_new(2026, 9, 12).unwrap();
         for (date, width) in [(Date::EPOCH, 1), (today, 3), (Date::MIN, 5), (Date::MAX, 5)] {
             let mut encoded = Vec::new();
-            ciborium::into_writer(&date, &mut encoded).unwrap();
+            serde_cbor::to_writer(&mut encoded, &date).unwrap();
             assert_eq!(encoded.len(), width);
-            let wire: ciborium::Value = ciborium::from_reader(encoded.as_slice()).unwrap();
+            let wire: serde_cbor::Value = serde_cbor::from_slice(encoded.as_slice()).unwrap();
             assert_eq!(
                 wire,
-                ciborium::Value::Integer(date.as_days_since_epoch().into())
+                serde_cbor::Value::Integer(date.as_days_since_epoch().into())
             );
             assert_eq!(
-                ciborium::from_reader::<Date, _>(encoded.as_slice()).unwrap(),
+                serde_cbor::from_slice::<Date>(encoded.as_slice()).unwrap(),
                 date
             );
 
@@ -268,10 +268,10 @@ mod tests {
 
             let batch = vec![date; 1_000];
             encoded.clear();
-            ciborium::into_writer(&batch, &mut encoded).unwrap();
+            serde_cbor::to_writer(&mut encoded, &batch).unwrap();
             assert_eq!(encoded.len(), 3 + 1_000 * width);
             assert_eq!(
-                ciborium::from_reader::<Vec<Date>, _>(encoded.as_slice()).unwrap(),
+                serde_cbor::from_slice::<Vec<Date>>(encoded.as_slice()).unwrap(),
                 batch
             );
         }
@@ -286,8 +286,8 @@ mod tests {
             i64::MAX,
         ] {
             let mut encoded = Vec::new();
-            ciborium::into_writer(&day, &mut encoded).unwrap();
-            assert!(ciborium::from_reader::<Date, _>(encoded.as_slice()).is_err());
+            serde_cbor::to_writer(&mut encoded, &day).unwrap();
+            assert!(serde_cbor::from_slice::<Date>(encoded.as_slice()).is_err());
         }
     }
 

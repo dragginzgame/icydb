@@ -194,6 +194,12 @@ The plan must account exactly for the predecessor-to-successor difference.
 There is no implicit rename matching, source-key override, version gap,
 application callback, SQL migration language, or compatibility alias.
 
+Checked numeric casts preserve NULL when the candidate field is nullable. A
+required target reports `NullSource` for a NULL source; use an explicit coalesce
+when replacing NULL with a value. Non-NULL casts retain their sign, range and
+exact-precision checks regardless of target nullability. Validation rejects a
+failing cast before rewriting accepted rows.
+
 ## Deploy And Run
 
 ### Entity rename with inbound relations

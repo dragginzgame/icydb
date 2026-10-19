@@ -41,7 +41,11 @@ for source in scripts/ci/test-workstation-setup.sh scripts/ci/test-testkit-tooli
       FIXTURE_PROBE_DIRECTORY_VARIABLE=TEST_ROOT ;;
   esac
   for failure in nounset command nonzero premature completed failed-completion diagnostic; do
-    fixture_probe_exit "$ROOT/$source" "$fixture" "$ROOT" "${source##*/}" "$failure" || exit 1
+    if ! fixture_probe_exit "$ROOT/$source" "$fixture" "$ROOT" "${source##*/}" "$failure"; then
+      printf 'Fixture completion failed: %s (%s)\n' "$source" "$failure" >&2
+      fixture_replay_logs "$fixture/${source##*/}-$failure.log"
+      exit 1
+    fi
     cases=$((cases + 1))
   done
 done

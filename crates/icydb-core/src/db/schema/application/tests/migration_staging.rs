@@ -6,7 +6,8 @@ use crate::{
         DynamicQuery, FieldRef, RequestExecutionRoot, SqlStatementResult,
         index::{IndexEntryValue, RawIndexStoreKey},
         schema::{
-            SchemaApplicationTarget, SchemaMigrationCommand, SchemaMigrationPhase, migrate_schema,
+            SchemaApplicationTarget, SchemaMigrationCommand, SchemaMigrationFindingKind,
+            SchemaMigrationPhase, migrate_schema,
         },
     },
     value::OutputValue,
@@ -17,7 +18,11 @@ fn source(value: &str) -> FieldSourceKey {
     FieldSourceKey::try_new(value).unwrap()
 }
 
-fn proposal(target: &SchemaApplicationTarget, current: bool) -> SchemaProposal {
+fn proposal(
+    target: &SchemaApplicationTarget,
+    current: bool,
+    value_nullable: bool,
+) -> SchemaProposal {
     let entity = EntitySourceKey::try_new("StagingItem").unwrap();
     let value_name = if current { "w_value" } else { "w_old" };
     let fields = [
@@ -37,7 +42,7 @@ fn proposal(target: &SchemaApplicationTarget, current: bool) -> SchemaProposal {
         FieldFragment::new(
             name(field),
             FieldType::Scalar(kind),
-            false,
+            field == value_name && value_nullable,
             FieldInsertPolicy::Required,
             None,
         )
@@ -52,7 +57,7 @@ fn proposal(target: &SchemaApplicationTarget, current: bool) -> SchemaProposal {
         )
         .unwrap(),
     ];
-    if current {
+    if current && !value_nullable {
         indexes.push(
             IndexFragment::try_new(
                 name("value_unique"),
@@ -224,7 +229,7 @@ fn assert_staging_preserves_retained_writes(validate: bool, restart: bool) {
     let root = RequestExecutionRoot::__new_runtime_root();
     let db = Db::<MigrationExecutionCanister>::new(&MIGRATION_EXECUTION_REGISTRY, root.scope());
     drive_startup_recovery_to_completion(&db);
-    let initial = proposal(&schema_application_target(&db).unwrap(), false);
+    let initial = proposal(&schema_application_target(&db).unwrap(), false, false);
     apply_schema(&db, &initial).unwrap();
     let session =
         DbSession::<MigrationExecutionCanister>::new(&MIGRATION_EXECUTION_REGISTRY, &root);
@@ -240,7 +245,7 @@ fn assert_staging_preserves_retained_writes(validate: bool, restart: bool) {
         .unwrap()
         .with_borrow(JournalTailStore::fold_watermark)
         .unwrap();
-    let next = proposal(&schema_application_target(&db).unwrap(), true);
+    let next = proposal(&schema_application_target(&db).unwrap(), true, false);
     let advance = || SchemaMigrationCommand::Advance {
         expected_database: next.target_database(),
         expected_head: next.expected_head().clone(),
@@ -324,4 +329,121 @@ fn validation_staging_preserves_retained_writes_and_online_fold() {
 #[test]
 fn validation_staging_preserves_retained_writes_and_restart() {
     assert_staging_preserves_retained_writes(true, true);
+}
+
+// Read both the NULL and numeric row through the accepted runtime catalog.
+fn assert_nullable_cast_rows(session: &DbSession<MigrationExecutionCanister>, current: bool) {
+    let field = if current { "w_value" } else { "w_old" };
+    for (id, expected) in [
+        (1, OutputValue::null()),
+        (
+            2,
+            if current {
+                OutputValue::nat64(7)
+            } else {
+                OutputValue::int64(7)
+            },
+        ),
+    ] {
+        let page = session
+            .execute_trusted_live_page(
+                &DynamicQuery::new("StagingItem")
+                    .select([field])
+                    .filter(FieldRef::new("id").eq(InputValue::nat64(id))),
+                None,
+            )
+            .unwrap();
+        assert_eq!(page.rows, vec![vec![expected]]);
+    }
+}
+
+// Nullability comes from the candidate field, independently of the cast domain.
+fn assert_checked_cast_target_nullability(target_nullable: bool) {
+    let root = RequestExecutionRoot::__new_runtime_root();
+    let db = Db::<MigrationExecutionCanister>::new(&MIGRATION_EXECUTION_REGISTRY, root.scope());
+    drive_startup_recovery_to_completion(&db);
+    let initial = proposal(&schema_application_target(&db).unwrap(), false, true);
+    apply_schema(&db, &initial).unwrap();
+    let session = DbSession::new(&MIGRATION_EXECUTION_REGISTRY, &root);
+    for (id, value) in [(1, InputValue::null()), (2, InputValue::int64(7))] {
+        session
+            .execute_trusted_dynamic_mutation(&DynamicMutation::Insert {
+                entity: "StagingItem".into(),
+                patch: DynamicStructuralPatch::new(vec![
+                    ("id".into(), DynamicWriteCell::Value(InputValue::nat64(id))),
+                    (
+                        "status".into(),
+                        DynamicWriteCell::Value(InputValue::nat64(id * 10)),
+                    ),
+                    ("w_old".into(), DynamicWriteCell::Value(value)),
+                ]),
+            })
+            .unwrap();
+    }
+    drive_startup_recovery_to_completion(&db);
+    assert_nullable_cast_rows(&session, false);
+    let next = proposal(
+        &schema_application_target(&db).unwrap(),
+        true,
+        target_nullable,
+    );
+    let mut terminal = None;
+    for step in 0..32 {
+        let page = migrate_schema(
+            &db,
+            &next,
+            SchemaMigrationCommand::Advance {
+                expected_database: next.target_database(),
+                expected_head: next.expected_head().clone(),
+                expected_plan: next.migration().unwrap().digest(),
+                acknowledged_finding_page: None,
+            },
+        )
+        .unwrap_or_else(|error| panic!("migration step {step}: {error:?}"));
+        if matches!(
+            page.phase(),
+            SchemaMigrationPhase::Applied | SchemaMigrationPhase::Rejected
+        ) {
+            terminal = Some(page);
+            break;
+        }
+    }
+    let terminal = terminal.expect("migration must terminate");
+    if target_nullable {
+        assert_eq!(terminal.phase(), SchemaMigrationPhase::Applied);
+        assert!(terminal.findings().is_empty());
+        assert_eq!(terminal.rows_rewritten(), 2);
+    } else {
+        assert_eq!(terminal.phase(), SchemaMigrationPhase::Rejected);
+        assert_eq!(terminal.rows_rewritten(), 0);
+        assert_eq!(terminal.findings().len(), 1);
+        assert_eq!(
+            terminal.findings()[0].kind(),
+            SchemaMigrationFindingKind::Transform
+        );
+        let aborted = migrate_schema(
+            &db,
+            &next,
+            SchemaMigrationCommand::Abort {
+                expected_database: next.target_database(),
+                expected_head: next.expected_head().clone(),
+                expected_plan: next.migration().unwrap().digest(),
+            },
+        )
+        .unwrap();
+        assert_eq!(aborted.phase(), SchemaMigrationPhase::Aborted);
+    }
+    forget_recovered_domain_for_tests(&db).unwrap();
+    drive_startup_recovery_to_completion(&db);
+    assert_nullable_cast_rows(&session, target_nullable);
+}
+
+#[test]
+fn checked_cast_nullable_target_preserves_null_and_numeric_rows_across_restart() {
+    assert_checked_cast_target_nullability(true);
+}
+
+#[test]
+fn checked_cast_required_target_rejects_null_without_rewriting_source_rows() {
+    assert_checked_cast_target_nullability(false);
 }

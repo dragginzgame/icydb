@@ -5,6 +5,30 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.277.2]
+
+### 🔧 Changed
+
+- Remove the direct Ciborium dependency; retain binary Serde coverage with
+  test-only `serde_cbor`.
+- Trim unused SQL editor features and keep integration-only dependencies out
+  of the support library's normal dependency declarations.
+- Update IC Build to 0.19 and IC Platform to 0.1.15.
+- Keep generic installer and dependency-policy fixtures with Shared Tooling;
+  retain IcyDB's setup, release and dependency integration checks.
+
+### 🩹 Fixed
+
+- Preserve NULL values during checked numeric migrations into nullable fields
+  ([#205](https://github.com/dragginzgame/icydb/issues/205)).
+- Preserve nested SQL paths when an inner segment matches the entity or alias,
+  and reduce a qualifier once across reads and writes
+  ([#107 — SQL scope normalization targets the wrong field](https://github.com/dragginzgame/icydb/issues/107)).
+- Prepare the declared IC tools before CI canister builds and Wasm reports,
+  and retain portable-fixture diagnostics. See [detailed notes](docs/changelog/0.277.md).
+- Clarify separate request budgets for native multi-message tests
+  ([#177](https://github.com/dragginzgame/icydb/issues/177)).
+
 ## [0.277.1] - 2026-10-18
 
 ### 🔧 Changed

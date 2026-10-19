@@ -179,6 +179,117 @@ fn plain_field_normalization_keeps_its_owned_string() {
 }
 
 #[test]
+fn scoped_select_preserves_record_paths_with_inner_scope_names() {
+    for path in ["owner.account.id", "owner.s.id", "other.Account.id"] {
+        let sql = format!(
+            "SELECT {path} FROM app.Account s WHERE {path} = 5 GROUP BY {path} \
+             HAVING {path} = 5 ORDER BY {path}"
+        );
+        let SqlStatement::Select(statement) = parse_sql(&sql).unwrap() else {
+            panic!("SELECT");
+        };
+        // An unrelated scope supplies the same local path without a colliding
+        // entity or alias. Compare all consumers after parser-shape lowering.
+        let mut reference = statement.clone();
+        reference.entity = "Different".into();
+        reference.table_alias = None;
+        let reference = crate::db::query::preparation::with_preparation_work(|work| {
+            super::normalize_select_statement_to_expected_entity(reference, "Different", work)
+        })
+        .unwrap();
+        let normalized = crate::db::query::preparation::with_preparation_work(|work| {
+            super::normalize_select_statement_to_expected_entity(statement, "Account", work)
+        })
+        .unwrap();
+        assert_eq!(normalized.projection, reference.projection, "{path}");
+        assert_eq!(normalized.predicate, reference.predicate, "{path}");
+        assert_eq!(normalized.group_by, reference.group_by, "{path}");
+        assert_eq!(normalized.having, reference.having, "{path}");
+        assert_eq!(normalized.order_by, reference.order_by, "{path}");
+    }
+}
+
+#[test]
+fn scope_qualification_is_reduced_once_for_every_expression_surface() {
+    for (qualifier, local) in [
+        ("s", "s.id"),
+        ("Account", "Account.id"),
+        ("app.Account", "Account.id"),
+    ] {
+        for condition in ["= 5", "IS NULL", "IS NOT NULL"] {
+            let qualified = format!("{qualifier}.{local}");
+            let normalize = |path: &str, entity: &str, alias: &str| {
+                let sql = format!(
+                    "SELECT {path} FROM {entity} {alias} WHERE {path} {condition} \
+                     GROUP BY {path} HAVING {path} {condition} ORDER BY {path}"
+                );
+                let SqlStatement::Select(statement) = parse_sql(&sql).unwrap() else {
+                    panic!("SELECT");
+                };
+                crate::db::query::preparation::with_preparation_work(|work| {
+                    super::normalize_select_statement_to_expected_entity(statement, entity, work)
+                })
+                .unwrap()
+            };
+            let actual = normalize(&qualified, "app.Account", "s");
+            let mut expected = normalize(local, "Different", "z");
+            expected.entity.clone_from(&actual.entity);
+            assert_eq!(actual, expected, "{qualified} {condition}");
+        }
+    }
+}
+
+#[test]
+fn scoped_writes_preserve_paths_in_predicates_values_order_and_returning() {
+    for (input, local) in [
+        ("owner.account.id", "owner.account.id"),
+        ("owner.s.id", "owner.s.id"),
+        ("s.owner.s.id", "owner.s.id"),
+        ("s.s.id", "s.id"),
+        ("app.Account.Account.id", "Account.id"),
+    ] {
+        for update in [false, true] {
+            let normalize = |path: &str, entity: &str, alias: &str| {
+                let prefix = if update {
+                    format!("UPDATE {entity} {alias} SET marker = {path}")
+                } else {
+                    format!("DELETE FROM {entity} {alias}")
+                };
+                let sql = format!(
+                    "{prefix} WHERE {path} IS NOT NULL ORDER BY {path} LIMIT 1 RETURNING {path}"
+                );
+                crate::db::query::preparation::with_preparation_work(|work| {
+                    match parse_sql(&sql).unwrap() {
+                        SqlStatement::Update(statement) => {
+                            super::normalize_update_statement_to_expected_entity(
+                                statement, entity, work,
+                            )
+                            .map(SqlStatement::Update)
+                        }
+                        SqlStatement::Delete(statement) => {
+                            super::normalize_delete_statement_to_expected_entity(
+                                statement, entity, work,
+                            )
+                            .map(SqlStatement::Delete)
+                        }
+                        _ => panic!("write statement"),
+                    }
+                })
+                .unwrap()
+            };
+            let actual = normalize(input, "app.Account", "s");
+            let mut expected = normalize(local, "Different", "z");
+            match &mut expected {
+                SqlStatement::Update(statement) => statement.entity = "app.Account".into(),
+                SqlStatement::Delete(statement) => statement.entity = "app.Account".into(),
+                _ => panic!("write statement"),
+            }
+            assert_eq!(actual, expected, "{input}");
+        }
+    }
+}
+
+#[test]
 fn local_scalar_select_is_already_local_canonical() {
     let statement = SqlSelectStatement {
         entity: "PerfAuditUser".to_string(),

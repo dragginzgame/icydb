@@ -418,9 +418,7 @@ check-portable-automation: shared-tooling-check
 	bash scripts/ci/test-gh-ci.sh
 	bash scripts/ci/test-shared-tooling-adapters.sh
 	bash scripts/ci/test-workstation-setup.sh
-	bash scripts/ci/test-rust-tools.sh
 	bash scripts/ci/test-cargo-metadata-adoption.sh
-	bash scripts/ci/test-dependency-pins.sh
 	bash scripts/ci/test-testkit-tooling.sh
 	bash scripts/ci/test-pocketic-server-wrapper.sh
 	bash scripts/ci/test-ci-workflow-invariants.sh

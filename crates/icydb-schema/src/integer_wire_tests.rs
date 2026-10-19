@@ -36,9 +36,9 @@ fn public_128_bit_integers_use_compact_native_wire_values() {
     }
 }
 
-fn cbor_bytes<T: serde::Serialize + ?Sized>(value: &T) -> Vec<u8> {
+fn cbor_bytes<T: serde::Serialize>(value: &T) -> Vec<u8> {
     let mut bytes = Vec::new();
-    ciborium::ser::into_writer(value, &mut bytes).expect("the value should encode as CBOR");
+    serde_cbor::to_writer(&mut bytes, value).expect("the value should encode as CBOR");
     bytes
 }
 
@@ -48,7 +48,7 @@ where
 {
     let bytes = cbor_bytes(&value);
     assert_eq!(
-        ciborium::de::from_reader::<T, _>(bytes.as_slice()).expect("CBOR should round-trip"),
+        serde_cbor::from_slice::<T>(bytes.as_slice()).expect("CBOR should round-trip"),
         value,
     );
     let json = serde_json::to_string(&value).expect("JSON should encode");
@@ -71,8 +71,7 @@ where
     let bytes = cbor_bytes(&values);
     assert_eq!(bytes.len(), 3 + 1_000 * expected_size);
     assert_eq!(
-        ciborium::de::from_reader::<Vec<T>, _>(bytes.as_slice())
-            .expect("the batch should round-trip"),
+        serde_cbor::from_slice::<Vec<T>>(bytes.as_slice()).expect("the batch should round-trip"),
         values,
     );
 }
@@ -100,11 +99,11 @@ fn u256_binary_ingress_rejects_malformed_and_overwide_bodies() {
         let body = vec![0_u8; len];
         let encoded = cbor_bytes(&body);
         assert_eq!(
-            ciborium::de::from_reader::<U256, _>(encoded.as_slice()).is_ok(),
+            serde_cbor::from_slice::<U256>(encoded.as_slice()).is_ok(),
             len == 32
         );
         for end in 0..encoded.len() {
-            assert!(ciborium::de::from_reader::<U256, _>(&encoded[..end]).is_err());
+            assert!(serde_cbor::from_slice::<U256>(&encoded[..end]).is_err());
         }
     }
 }

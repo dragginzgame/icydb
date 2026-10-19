@@ -214,6 +214,9 @@ same startup and online-convergence owner, then check ordinary admission.
 Call it before the first database access and periodically **between simulated
 messages**, not just once during setup. Wrap each simulated message in
 `icydb::db::with_request_execution` so requests retain their normal budgets.
+Use plain `#[test]` for this multi-message simulation. Do not enclose it in
+`#[icydb::test]` or one outer request wrapper: nested wrappers reuse the
+active budget, so the whole simulation would count as one request.
 
 The maintained native fixture advances the driver every sixteen writes and
 after its final write, and verifies 129 committed rows. Sixteen is a fixture
