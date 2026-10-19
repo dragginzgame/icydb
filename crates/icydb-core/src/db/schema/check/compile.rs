@@ -1227,10 +1227,8 @@ pub(super) fn exact_numeric_is_zero(value: &Value) -> Option<bool> {
         Value::Decimal(value) => Some(value.is_zero()),
         Value::Int64(value) => Some(*value == 0),
         Value::Int128(value) => Some(*value == 0),
-        Value::IntBig(value) => Some(value == &crate::types::IntBig::default()),
         Value::Nat64(value) => Some(*value == 0),
         Value::Nat128(value) => Some(*value == 0),
-        Value::NatBig(value) => Some(value == &crate::types::NatBig::default()),
         Value::Account(_)
         | Value::Blob(_)
         | Value::Bool(_)
@@ -1272,16 +1270,8 @@ pub(super) fn exact_numeric_is_multiple(value: &Value, divisor: &Value) -> Optio
             }
             value.checked_rem(*divisor).map(|remainder| remainder == 0)
         }
-        (Value::IntBig(value), Value::IntBig(divisor)) => {
-            let quotient = value.clone() / divisor.clone();
-            Some(&(quotient * divisor.clone()) == value)
-        }
         (Value::Nat64(value), Value::Nat64(divisor)) => Some(value % divisor == 0),
         (Value::Nat128(value), Value::Nat128(divisor)) => Some(value % divisor == 0),
-        (Value::NatBig(value), Value::NatBig(divisor)) => {
-            let quotient = value.clone() / divisor.clone();
-            Some(&(quotient * divisor.clone()) == value)
-        }
         _ => None,
     }
 }

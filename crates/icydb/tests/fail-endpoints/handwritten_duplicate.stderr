@@ -1,9 +1,9 @@
 error: symbol `canister_query.icydb_schema` is already defined
-  --> tests/fail-endpoints/handwritten_duplicate.rs:12:1
+  --> tests/fail-endpoints/handwritten_duplicate.rs:15:1
    |
-12 | / icydb::endpoints! {
-13 | |     icydb_schema(authorization = public);
-14 | | }
+15 | / canic_icydb::endpoints! {
+16 | |     icydb_schema(authorization = public);
+17 | | }
    | |_^
    |
-   = note: this error originates in the attribute macro `$crate::__reexports::ic_cdk::query` which comes from the expansion of the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)
+   = note: this error originates in the attribute macro `$crate::__private::native_entry` which comes from the expansion of the macro `canic_icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)

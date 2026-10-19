@@ -217,14 +217,8 @@ impl SqlSurfaceTokens {
             )]
             pub(crate) fn __icydb_endpoint_handler_sql_integrity(
                 sql: String,
+                owner: ::icydb::db::IntegrityJobOwner,
             ) -> Result<::icydb::db::IntegrityCheckResult, ::icydb::db::SqlIntegrityError> {
-                let caller = ::icydb::__reexports::ic_cdk::api::msg_caller();
-                let owner =
-                    ::icydb::db::IntegrityJobOwner::new(caller.to_text()).map_err(|error| {
-                        ::icydb::db::SqlIntegrityError::Integrity(
-                            ::icydb::db::IntegrityCheckError::Job(error),
-                        )
-                    })?;
                 let session = db().map_err(|error| {
                     ::icydb::db::SqlIntegrityError::Integrity(
                         ::icydb::db::IntegrityCheckError::Database(error),

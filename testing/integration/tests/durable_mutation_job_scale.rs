@@ -1,7 +1,5 @@
 //! Collection-scale durable mutation-job composition and upgrade evidence.
 
-use candid::CandidType;
-use ic_testkit::pic::CandidCallExt as _;
 use icydb::{
     Error,
     db::{
@@ -10,6 +8,10 @@ use icydb::{
     },
     diagnostic::{DiagnosticDetail, SqlWriteBoundaryCode},
 };
+use icydb_testing_audit_sql_perf_fixtures::contracts::{
+    ApplicationStartupHook, ApplicationStartupSnapshot,
+};
+use icydb_testing_integration::WireCallExt as _;
 use icydb_testing_integration::{
     deliver_startup_watchdog_message,
     durable_mutation_job_contract::{
@@ -21,7 +23,6 @@ use icydb_testing_integration::{
     },
     install_fixture_canister, upgrade_fixture_canister,
 };
-use serde::Deserialize;
 
 use std::time::Duration;
 
@@ -34,7 +35,7 @@ const fn minimum_physical_scan_advances(rows: u32) -> u32 {
         / DURABLE_MUTATION_JOB_FORWARD_KEY_LIMIT
 }
 
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 enum MutationScaleJob {
     Tier,
     Scoring,
@@ -49,7 +50,7 @@ impl MutationScaleJob {
     }
 }
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 struct MutationScaleLoadEvidence {
     first_id: u32,
     last_id: u32,
@@ -57,7 +58,7 @@ struct MutationScaleLoadEvidence {
     unrelated_rows_loaded: u32,
 }
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 struct MutationScaleFixtureFacts {
     token_collection: u32,
     token_default: u32,
@@ -69,7 +70,7 @@ struct MutationScaleFixtureFacts {
     scoring_other_stale: u32,
 }
 
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 enum MutationScaleFact {
     TokenCollection,
     TokenDefault,
@@ -81,35 +82,17 @@ enum MutationScaleFact {
     ScoringOtherStale,
 }
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 struct MutationScaleAdvancePerfResult {
     receipt: MutationJobAdvanceReceipt,
     local_instructions: u64,
 }
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 struct MutationScaleRecoveryEvidence {
     complete: bool,
     warmed_rows: u32,
     local_instructions: u64,
-}
-
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-enum ApplicationStartupHook {
-    Init,
-    PostUpgrade,
-}
-
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-struct ApplicationStartupSnapshot {
-    hook: ApplicationStartupHook,
-    engine_registered_before_hook: bool,
-    observations: u32,
-    recovering_observations: u32,
-    ready_observations: u32,
-    restorations: u32,
-    retry_scheduled: bool,
-    failure: Option<icydb::db::StartupFailure>,
 }
 
 struct MutationScaleStartupEvidence {
@@ -255,7 +238,7 @@ fn load_scale_fixture(fixture: &ic_testkit::pic::StandaloneCanisterFixture) {
         let row_count = LOAD_PAGE_ROWS.min(DURABLE_MUTATION_JOB_FIXTURE_ROWS - first_id + 1);
         let evidence: Result<MutationScaleLoadEvidence, Error> = fixture
             .pocket_ic()
-            .update_candid(
+            .update_wire(
                 fixture.canister_id(),
                 "load_collection_mutation_scale_page",
                 (first_id, row_count),
@@ -286,7 +269,7 @@ fn scale_facts(fixture: &ic_testkit::pic::StandaloneCanisterFixture) -> Mutation
     let count = |fact| {
         let count: Result<u32, Error> = fixture
             .pocket_ic()
-            .query_candid(
+            .query_wire(
                 fixture.canister_id(),
                 "collection_mutation_scale_fact",
                 (fact,),
@@ -311,7 +294,7 @@ fn application_startup_contract(
 ) -> ApplicationStartupSnapshot {
     fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "application_startup_contract", ())
+        .query_wire(fixture.canister_id(), "application_startup_contract", ())
         .expect("application startup contract should decode")
 }
 
@@ -338,7 +321,7 @@ fn accepted_schema_descriptions(
 ) -> Vec<EntitySchemaDescription> {
     let descriptions: Result<Vec<EntitySchemaDescription>, Error> = fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "accepted_schema_descriptions", ())
+        .query_wire(fixture.canister_id(), "accepted_schema_descriptions", ())
         .expect("accepted schema descriptions should decode");
     descriptions.expect("accepted schema descriptions should remain available")
 }
@@ -346,7 +329,7 @@ fn accepted_schema_descriptions(
 fn query_count(fixture: &ic_testkit::pic::StandaloneCanisterFixture, sql: &str) -> u64 {
     let response: Result<SqlQueryResult, Error> = fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "query_user", (sql.to_string(),))
+        .query_wire(fixture.canister_id(), "query_user", (sql.to_string(),))
         .expect("scale SQL count should decode");
     let SqlQueryResult::Projection(projection) = response.expect("scale SQL count should succeed")
     else {
@@ -370,7 +353,7 @@ fn assert_populated_authority(
 ) {
     let descriptions = accepted_schema_descriptions(fixture);
     let accepted_schema_after_upgrade =
-        candid::encode_one(descriptions.clone()).expect("accepted schema should encode");
+        icydb::wire::encode_one(descriptions.clone()).expect("accepted schema should encode");
     assert_eq!(
         accepted_schema_after_upgrade,
         accepted_schema_before_upgrade
@@ -423,7 +406,7 @@ fn start_scale_job(
 ) -> MutationJobState {
     let state: Result<MutationJobState, MutationJobError> = fixture
         .pocket_ic()
-        .update_candid(
+        .update_wire(
             fixture.canister_id(),
             "start_collection_mutation_scale_job",
             (job,),
@@ -438,7 +421,7 @@ fn scale_job_state(
 ) -> Result<MutationJobState, MutationJobError> {
     fixture
         .pocket_ic()
-        .update_candid(
+        .update_wire(
             fixture.canister_id(),
             "collection_mutation_scale_job_state",
             (job,),
@@ -453,7 +436,7 @@ fn advance_scale_job(
 ) -> Result<MutationScaleAdvancePerfResult, MutationJobError> {
     fixture
         .pocket_ic()
-        .update_candid(
+        .update_wire(
             fixture.canister_id(),
             "advance_collection_mutation_scale_job",
             (job, sequence, format!("{}-{sequence}", job.label())),
@@ -544,7 +527,7 @@ fn acknowledge_scale_job(
     for _ in 0..2 {
         let result: Result<(), MutationJobError> = fixture
             .pocket_ic()
-            .update_candid(
+            .update_wire(
                 fixture.canister_id(),
                 "acknowledge_collection_mutation_scale_job",
                 (job, sequence),
@@ -582,7 +565,7 @@ fn prove_eager_control_is_bounded(
 ) {
     let eager: Result<SqlQueryResult, Error> = fixture
         .pocket_ic()
-        .update_candid(fixture.canister_id(), "try_collection_eager_tier_reset", ())
+        .update_wire(fixture.canister_id(), "try_collection_eager_tier_reset", ())
         .expect("eager control should decode");
     let eager_error = eager.expect_err("10,001 rows must exceed one-shot exact admission");
     assert!(matches!(
@@ -715,7 +698,7 @@ fn drive_populated_startup_recovery(
     icydb_testing_integration::advance_startup_watchdog_until_ready(fixture);
     let observation: Result<MutationScaleRecoveryEvidence, Error> = fixture
         .pocket_ic()
-        .update_candid(
+        .update_wire(
             fixture.canister_id(),
             "recover_collection_mutation_scale_store",
             (),
@@ -745,8 +728,9 @@ fn recover_active_tier_job(
     let recovery_state = start_scale_job(fixture, MutationScaleJob::Tier);
     let scoring_scheduler_state = scale_job_state(fixture, MutationScaleJob::Scoring)
         .expect("completed scoring phase should remain durably scheduled");
-    let accepted_schema_before_upgrade = candid::encode_one(accepted_schema_descriptions(fixture))
-        .expect("accepted schema should encode before upgrade");
+    let accepted_schema_before_upgrade =
+        icydb::wire::encode_one(accepted_schema_descriptions(fixture))
+            .expect("accepted schema should encode before upgrade");
     let stable_bytes_before_upgrade = canister_stable_memory_bytes(fixture);
     upgrade_fixture_canister(fixture.pocket_ic(), fixture.canister_id(), "sql_perf");
     assert!(

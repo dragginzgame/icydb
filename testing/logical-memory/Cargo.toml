@@ -3,6 +3,7 @@ name = "canister_test_logical_memory"
 build = "src/build.rs"
 edition = { workspace = true }
 rust-version = { workspace = true }
+license-file = { workspace = true }
 version = { workspace = true }
 publish = false
 
@@ -15,10 +16,11 @@ test-admin-api = []
 omit-retiring-store = []
 
 [dependencies]
-candid = { workspace = true }
-ic-cdk = { workspace = true }
+canic-icydb = { workspace = true }
 ic-memory = { workspace = true }
+ic-platform = { workspace = true, features = ["ic0"] }
 icydb = { workspace = true, default-features = true }
+icydb-testing-wasm-helpers = { workspace = true }
 
 [build-dependencies]
 icydb = { workspace = true, default-features = true }

@@ -181,19 +181,18 @@ export TEST_POLICY_TRACE="$FIXTURE/policy-trace"
 command make --no-print-directory -C "$FIXTURE" > "$FIXTURE/default-goal"
 [[ ! -s "$TEST_TRACE" ]]
 command make --no-print-directory -j4 -C "$FIXTURE" install-tools > "$FIXTURE/dispatch"
-printf '%s\n' "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv --preflight" \
-  "install-rust-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --preflight" \
+printf '%s\n' "install-rust-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --preflight" \
   "install-host-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env" \
-  "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv" \
   "install-rust-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env" \
+  "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv" \
   "testkit-runner.sh" \
   "ic-testkit-server setup --directory $FIXTURE/.tools/ic-testkit-server" > "$FIXTURE/expected"
 cmp "$FIXTURE/expected" "$TEST_TRACE"
 : > "$TEST_TRACE"
 command make --no-print-directory -j4 -C "$FIXTURE" tools-check > "$FIXTURE/offline"
 printf '%s\n' "install-host-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --check" \
-  "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv --check" \
   "install-rust-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --check" \
+  "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv --check" \
   "testkit-runner.sh --check" \
   "ic-testkit-server check --directory $FIXTURE/.tools/ic-testkit-server" > "$FIXTURE/expected"
 cmp "$FIXTURE/expected" "$TEST_TRACE"
@@ -209,7 +208,7 @@ status=0
 # Use an external environment command so Bash 3.2 captures the failed child,
 # rather than exiting at an assignment preceding the command builtin.
 env TEST_INSTALL_FAIL=1 make --no-print-directory -C "$FIXTURE" install-tools > "$FIXTURE/failed-dispatch" 2>&1 || status=$?
-[[ "$status" != 0 && "$(wc -l < "$TEST_TRACE")" -eq 3 ]]
+[[ "$status" != 0 && "$(wc -l < "$TEST_TRACE")" -eq 2 ]]
 
 # IcyDB's raw optimizer admission is independent of shared archive provisioning.
 # Check consumer ordering with a harmless executable; no real optimizer runs.

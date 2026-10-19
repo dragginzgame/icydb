@@ -3,16 +3,15 @@
 //! Does not own: schema reconciliation, endpoint publication, or generic ICP command construction.
 //! Boundary: exposes the schema show command and test-covered report rendering through observability.
 
-use candid::Decode;
-
 mod render;
+
+use icydb::wire::Endpoint;
 
 use crate::{
     cli::{CanisterTarget, DiagnosticArtifactArgs, DiagnosticSourceMetadataArgs},
     diagnostic::artifact::DiagnosticSchemaArtifact,
-    endpoint::SCHEMA_ENDPOINT,
     icp::require_created_canister,
-    observability::call_query,
+    observability::{call_query, decode_endpoint_result},
 };
 
 /// Read and print the generated accepted-schema endpoint.
@@ -50,27 +49,14 @@ pub(super) fn load_schema_report(
     canister: &str,
 ) -> Result<Vec<icydb::db::EntitySchemaDescription>, String> {
     require_created_canister(environment, canister)?;
-    let candid_bytes = call_query(environment, canister, SCHEMA_ENDPOINT.method(), "()")?;
-    let response = decode_schema_report(candid_bytes.as_slice())?;
-    response.map_err(|err| {
-        crate::observability::method_error(
-            "schema",
-            environment,
-            canister,
-            SCHEMA_ENDPOINT.method(),
-            crate::diagnostic::render_error(&err).as_str(),
-        )
-    })
-}
-
-pub(super) fn decode_schema_report(
-    candid_bytes: &[u8],
-) -> Result<Result<Vec<icydb::db::EntitySchemaDescription>, icydb::Error>, String> {
-    Decode!(
-        candid_bytes,
-        Result<Vec<icydb::db::EntitySchemaDescription>, icydb::Error>
+    let wire_bytes = call_query(environment, canister, Endpoint::Schema.name(), ())?;
+    decode_endpoint_result(
+        &wire_bytes,
+        "schema",
+        environment,
+        canister,
+        Endpoint::Schema.name(),
     )
-    .map_err(|err| err.to_string())
 }
 
 pub(super) fn render_schema_report(report: &[icydb::db::EntitySchemaDescription]) -> String {

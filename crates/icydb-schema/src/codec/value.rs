@@ -1,10 +1,10 @@
 use crate::{
     Account, Blob, ConstraintSourceKey, Date, Decimal, Duration, EntitySourceKey, FieldSourceKey,
-    FieldType, Float32, Float64, IndexSourceKey, IntBig, MAX_PROPOSAL_LITERAL_BYTES,
+    FieldType, Float32, Float64, IndexSourceKey, MAX_PROPOSAL_LITERAL_BYTES,
     MAX_SCHEMA_FIELD_TYPE_DEPTH, MAX_SCHEMA_NAME_BYTES, MAX_SOURCE_CHECK_INSTRUCTIONS,
-    MAX_SOURCE_KEY_BYTES, NatBig, Principal, RelationSourceKey, RuleSourceKey, ScalarLiteral,
-    ScalarType, SchemaContractError, SchemaName, SourceCheckExpr, SourceCheckInstruction,
-    SourceRuleOperation, Subaccount, Timestamp, TypeSourceKey, U256, Ulid, Unit,
+    MAX_SOURCE_KEY_BYTES, Principal, RelationSourceKey, RuleSourceKey, ScalarLiteral, ScalarType,
+    SchemaContractError, SchemaName, SourceCheckExpr, SourceCheckInstruction, SourceRuleOperation,
+    Subaccount, Timestamp, TypeSourceKey, U256, Ulid, Unit,
 };
 
 use super::wire::{WireReader, WireWriter};
@@ -128,17 +128,9 @@ pub(super) fn encode_scalar_type(
             writer.push_u8(4)?;
             writer.push_u32(scale)?;
         }
-        ScalarType::IntBig { max_bytes } => {
-            writer.push_u8(13)?;
-            writer.push_u32(max_bytes)?;
-        }
         ScalarType::Text { max_len } => {
-            writer.push_u8(16)?;
+            writer.push_u8(15)?;
             encode_optional_u32(writer, max_len)?;
-        }
-        ScalarType::NatBig { max_bytes } => {
-            writer.push_u8(23)?;
-            writer.push_u32(max_bytes)?;
         }
         scalar => writer.push_u8(match scalar {
             ScalarType::Account => 0,
@@ -152,22 +144,20 @@ pub(super) fn encode_scalar_type(
             ScalarType::Int32 => 10,
             ScalarType::Int64 => 11,
             ScalarType::Int128 => 12,
-            ScalarType::Principal => 14,
-            ScalarType::Subaccount => 15,
-            ScalarType::Timestamp => 17,
-            ScalarType::Nat8 => 18,
-            ScalarType::Nat16 => 19,
-            ScalarType::Nat32 => 20,
-            ScalarType::Nat64 => 21,
-            ScalarType::Nat128 => 22,
-            ScalarType::Ulid => 24,
-            ScalarType::Unit => 25,
-            ScalarType::U256 => 26,
-            ScalarType::Blob { .. }
-            | ScalarType::Decimal { .. }
-            | ScalarType::IntBig { .. }
-            | ScalarType::Text { .. }
-            | ScalarType::NatBig { .. } => return Err(SchemaContractError::Encode),
+            ScalarType::Principal => 13,
+            ScalarType::Subaccount => 14,
+            ScalarType::Timestamp => 16,
+            ScalarType::Nat8 => 17,
+            ScalarType::Nat16 => 18,
+            ScalarType::Nat32 => 19,
+            ScalarType::Nat64 => 20,
+            ScalarType::Nat128 => 21,
+            ScalarType::Ulid => 22,
+            ScalarType::Unit => 23,
+            ScalarType::U256 => 24,
+            ScalarType::Blob { .. } | ScalarType::Decimal { .. } | ScalarType::Text { .. } => {
+                return Err(SchemaContractError::Encode);
+            }
         })?,
     }
     Ok(())
@@ -194,26 +184,20 @@ pub(super) fn decode_scalar_type(
         10 => ScalarType::Int32,
         11 => ScalarType::Int64,
         12 => ScalarType::Int128,
-        13 => ScalarType::IntBig {
-            max_bytes: reader.read_u32()?,
-        },
-        14 => ScalarType::Principal,
-        15 => ScalarType::Subaccount,
-        16 => ScalarType::Text {
+        13 => ScalarType::Principal,
+        14 => ScalarType::Subaccount,
+        15 => ScalarType::Text {
             max_len: decode_optional_u32(reader)?,
         },
-        17 => ScalarType::Timestamp,
-        18 => ScalarType::Nat8,
-        19 => ScalarType::Nat16,
-        20 => ScalarType::Nat32,
-        21 => ScalarType::Nat64,
-        22 => ScalarType::Nat128,
-        23 => ScalarType::NatBig {
-            max_bytes: reader.read_u32()?,
-        },
-        24 => ScalarType::Ulid,
-        25 => ScalarType::Unit,
-        26 => ScalarType::U256,
+        16 => ScalarType::Timestamp,
+        17 => ScalarType::Nat8,
+        18 => ScalarType::Nat16,
+        19 => ScalarType::Nat32,
+        20 => ScalarType::Nat64,
+        21 => ScalarType::Nat128,
+        22 => ScalarType::Ulid,
+        23 => ScalarType::Unit,
+        24 => ScalarType::U256,
         _ => return Err(SchemaContractError::Decode),
     };
     value.validate()?;
@@ -287,43 +271,33 @@ pub(super) fn encode_literal(
             writer.push_u8(9)?;
             writer.push_i128(*value)?;
         }
-        ScalarLiteral::IntBig(value) => {
-            writer.push_u8(10)?;
-            let (negative, magnitude) = value.to_sign_and_magnitude_bytes();
-            writer.push_bool(negative)?;
-            writer.push_bytes(&magnitude)?;
-        }
         ScalarLiteral::Nat(value) => {
-            writer.push_u8(11)?;
+            writer.push_u8(10)?;
             writer.push_u128(*value)?;
         }
-        ScalarLiteral::NatBig(value) => {
-            writer.push_u8(12)?;
-            writer.push_bytes(&value.to_magnitude_bytes())?;
-        }
         ScalarLiteral::Principal(value) => {
-            writer.push_u8(13)?;
+            writer.push_u8(11)?;
             encode_principal(writer, *value)?;
         }
         ScalarLiteral::Subaccount(value) => {
-            writer.push_u8(14)?;
+            writer.push_u8(12)?;
             writer.push_raw(&value.to_bytes())?;
         }
         ScalarLiteral::Text(value) => {
-            writer.push_u8(15)?;
+            writer.push_u8(13)?;
             writer.push_string(value)?;
         }
         ScalarLiteral::Timestamp(value) => {
-            writer.push_u8(16)?;
+            writer.push_u8(14)?;
             writer.push_i64(value.as_millis())?;
         }
         ScalarLiteral::Ulid(value) => {
-            writer.push_u8(17)?;
+            writer.push_u8(15)?;
             writer.push_raw(&value.to_bytes())?;
         }
-        ScalarLiteral::Unit(_) => writer.push_u8(18)?,
+        ScalarLiteral::Unit(_) => writer.push_u8(16)?,
         ScalarLiteral::U256(value) => {
-            writer.push_u8(19)?;
+            writer.push_u8(17)?;
             writer.push_raw(&value.to_be_bytes())?;
         }
     }
@@ -368,25 +342,17 @@ pub(super) fn decode_literal(
                 .map_err(|_| SchemaContractError::Decode)?,
         ),
         9 => ScalarLiteral::Int(reader.read_i128()?),
-        10 => {
-            let negative = reader.read_bool()?;
-            let magnitude = reader.read_bytes(MAX_PROPOSAL_LITERAL_BYTES)?;
-            ScalarLiteral::IntBig(IntBig::from_sign_and_magnitude_bytes(negative, magnitude))
-        }
-        11 => ScalarLiteral::Nat(reader.read_u128()?),
-        12 => ScalarLiteral::NatBig(NatBig::from_magnitude_bytes(
-            reader.read_bytes(MAX_PROPOSAL_LITERAL_BYTES)?,
-        )),
-        13 => ScalarLiteral::Principal(decode_principal(reader)?),
-        14 => ScalarLiteral::Subaccount(Subaccount::from_array(reader.read_array()?)),
-        15 => ScalarLiteral::Text(reader.read_string(MAX_PROPOSAL_LITERAL_BYTES)?),
-        16 => ScalarLiteral::Timestamp(Timestamp::from_millis(reader.read_i64()?)),
-        17 => ScalarLiteral::Ulid(
+        10 => ScalarLiteral::Nat(reader.read_u128()?),
+        11 => ScalarLiteral::Principal(decode_principal(reader)?),
+        12 => ScalarLiteral::Subaccount(Subaccount::from_array(reader.read_array()?)),
+        13 => ScalarLiteral::Text(reader.read_string(MAX_PROPOSAL_LITERAL_BYTES)?),
+        14 => ScalarLiteral::Timestamp(Timestamp::from_millis(reader.read_i64()?)),
+        15 => ScalarLiteral::Ulid(
             Ulid::try_from_bytes(&reader.read_array::<16>()?)
                 .map_err(|_| SchemaContractError::Decode)?,
         ),
-        18 => ScalarLiteral::Unit(Unit),
-        19 => ScalarLiteral::U256(U256::from_be_bytes(reader.read_array()?)),
+        16 => ScalarLiteral::Unit(Unit),
+        17 => ScalarLiteral::U256(U256::from_be_bytes(reader.read_array()?)),
         _ => return Err(SchemaContractError::Decode),
     };
     value.validate()?;

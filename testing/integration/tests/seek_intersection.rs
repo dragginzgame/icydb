@@ -1,18 +1,16 @@
 //! Frozen current-path evidence, reusable for a matched production candidate.
 
-use super::{SqlQueryPerfResult, preparation_measurement_wasm, settle_measurement_rounds};
-use candid::CandidType;
+use super::{SqlQueryPhasePerfResult, preparation_measurement_wasm, settle_measurement_rounds};
 use ic_host_artifacts::artifact::Sha256Digest;
-use ic_testkit::pic::CandidCallExt as _;
 use icydb::{
     Error,
     db::{ScalarPageWork, sql::SqlQueryResult},
     value::OutputValue,
 };
+use icydb_testing_integration::WireCallExt as _;
 use icydb_testing_integration::install_prebuilt_fixture_canister;
-use serde::Deserialize;
 
-#[derive(CandidType, Debug, Deserialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 struct IntersectionPageSample {
     ids: Vec<i32>,
     continuation: Option<String>,
@@ -73,7 +71,7 @@ fn sample_page(
     let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
     let sample: Result<IntersectionPageSample, Error> = fixture
         .pocket_ic()
-        .update_candid(
+        .update_wire(
             fixture.canister_id(),
             "measure_seek_intersection_page",
             (children, descending, residual, wide, limit, continuation),
@@ -97,7 +95,7 @@ fn assert_explain(
     } else {
         ""
     };
-    let explain: Result<SqlQueryResult, Error> = fixture.pocket_ic().query_candid(fixture.canister_id(), "query_user", (
+    let explain: Result<SqlQueryResult, Error> = fixture.pocket_ic().query_wire(fixture.canister_id(), "query_user", (
         format!("EXPLAIN EXECUTION SELECT id FROM PerfAuditStreamingRow WHERE lane_a = 0 AND lane_b = 0{third} ORDER BY id {direction}"),
     )).expect("EXPLAIN should decode");
     let SqlQueryResult::Explain { explain, .. } = explain.expect("EXPLAIN should execute") else {
@@ -151,9 +149,9 @@ fn measure_sql(
     for repeat in 0..2 {
         settle_measurement_rounds(fixture);
         let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
-        let sample: Result<SqlQueryPerfResult, Error> = fixture
+        let sample: Result<SqlQueryPhasePerfResult, Error> = fixture
             .pocket_ic()
-            .update_candid(
+            .update_wire(
                 fixture.canister_id(),
                 "warm_user_query_with_perf",
                 (sql.clone(),),
@@ -214,7 +212,7 @@ fn dense_selection_wasm_cost_matrix() {
         for start in (0..rows).step_by(4) {
             let loaded: Result<u32, Error> = fixture
                 .pocket_ic()
-                .update_candid(
+                .update_wire(
                     fixture.canister_id(),
                     "load_seek_intersection_fixture",
                     (case, start),
@@ -318,7 +316,7 @@ fn run_wasm_cost_cases(cases: &[u8]) {
         for start in (0..160_u16).step_by(4) {
             let loaded: Result<u32, Error> = fixture
                 .pocket_ic()
-                .update_candid(
+                .update_wire(
                     fixture.canister_id(),
                     "load_seek_intersection_fixture",
                     (case, start),

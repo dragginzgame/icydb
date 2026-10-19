@@ -39,7 +39,8 @@ jobs:
           workspaces: |
             . -> target/icydb
           cache-targets: "false"
-      - run: cargo fetch --locked
+      - name: Fetch locked workspace dependencies
+        run: cargo fetch --locked
       - name: Execute exact native Tier C shard
         run: make test-sql-tier-c-shard TIER_C_SHARD=${{ matrix.shard }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -73,7 +74,8 @@ jobs:
           pattern: sql-tier-c-native-shard-*
           path: artifacts/correctness/sql_tier_c
           merge-multiple: true
-      - run: cargo fetch --locked
+      - name: Fetch locked workspace dependencies
+        run: cargo fetch --locked
       - name: Merge all eight native receipts
         run: make test-sql-tier-c-merge
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

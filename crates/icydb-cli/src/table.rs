@@ -1,5 +1,5 @@
 //! Module: CLI table rendering.
-//! Responsibility: apply CLI indentation and line endings to Host-rendered tables.
+//! Responsibility: apply shared CLI section, indentation and line ending conventions.
 //! Does not own: width calculation, terminal escaping or report contents.
 //! Boundary: report cells -> plain CLI presentation.
 
@@ -28,4 +28,22 @@ pub(crate) fn append_indented_table<const N: usize>(
         output.push_str(line);
         output.push('\n');
     }
+}
+
+// Reports share title and empty-state presentation; Host still owns table cells.
+pub(crate) fn append_report_section<const N: usize>(
+    output: &mut String,
+    title: &str,
+    headers: &[&str; N],
+    rows: &[[String; N]],
+    alignments: &[ColumnAlign; N],
+) {
+    output.push_str(title);
+    output.push('\n');
+    if rows.is_empty() {
+        output.push_str("  None\n");
+        return;
+    }
+
+    append_indented_table(output, "  ", headers, rows, alignments);
 }

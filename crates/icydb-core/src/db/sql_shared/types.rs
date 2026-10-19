@@ -157,8 +157,6 @@ pub(crate) enum SqlExpectedToken {
     LParen,
     RParen,
     #[cfg(feature = "sql")]
-    Eq,
-    #[cfg(feature = "sql")]
     UpdateAssignmentEq,
     #[cfg(feature = "sql")]
     UpdateAssignment,
@@ -209,7 +207,6 @@ pub(crate) enum SqlIdentifierKeyword {
     Deep,
     Integrity,
     Into,
-    MaxBytes,
     Quick,
     Schema,
     Set,
@@ -230,7 +227,6 @@ impl SqlIdentifierKeyword {
             "DEEP" => Self::Deep,
             "INTEGRITY" => Self::Integrity,
             "INTO" => Self::Into,
-            "max_bytes" => Self::MaxBytes,
             "QUICK" => Self::Quick,
             "SCHEMA" => Self::Schema,
             "SET" => Self::Set,
@@ -304,7 +300,6 @@ pub(crate) enum SqlIntegerLiteralClause {
     ExpectSchemaVersion,
     IntegrityPageSequence,
     Limit,
-    MaxBytes,
     Offset,
     SetSchemaVersion,
 }

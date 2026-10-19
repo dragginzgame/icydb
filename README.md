@@ -25,7 +25,7 @@
 ![Dependency MSRV](https://img.shields.io/badge/dependency%20MSRV-1.91.0-blue.svg)
 ![Development Toolchain](https://img.shields.io/badge/development%20rustc-stable-4c1.svg)
 [![CI](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml/badge.svg)](https://github.com/dragginzgame/icydb/actions/workflows/ci.yml)
-[![License: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)](LICENSE-APACHE)
+[![License: Toko Studios 1.1](https://img.shields.io/badge/license-Toko%20Studios%201.1-blue)](LICENSE)
 
 IcyDB is a database toolkit for applications running on the Internet Computer.
 It helps developers describe the information their application stores, save
@@ -42,7 +42,7 @@ records, marketplace listings and relationships between records. Its queries
 are deliberately predictable and resource-limited to fit the Internet
 Computer's execution environment.
 
-Current workspace version: `0.275.0`
+Current workspace version: `0.277.2`
 
 > **Before using IcyDB:** IcyDB is still before version 1.0. Ordinary supported
 > schema changes can use explicit migrations, but some IcyDB upgrades may change
@@ -105,10 +105,10 @@ Use the same release for runtime and host-side model generation:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.275.0" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.277.2" }
 
 [build-dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.275.0" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.277.2" }
 ```
 
 The default feature set includes structural, typed, and dynamic reads and writes.
@@ -270,5 +270,14 @@ release notes retain historical evidence and do not replace current contracts.
 
 ## License
 
-Licensed under either [Apache License 2.0](LICENSE-APACHE) or
-[MIT](LICENSE-MIT), at your option.
+Licensed under the [Toko Studios Source Available License — Verifiable ICP Burn,
+Version 1.1](LICENSE). This is a source-available license, not an OSI-approved
+open-source license.
+
+Material previously offered under Apache License 2.0 or
+[MIT](LICENSE-MIT) retains its applicable prior grants. The license includes the
+original MIT notice. Third-party material retains its own license terms.
+
+Contributors must have authority to grant the relevant rights and expressly
+offer covered contributions under these terms, including the permanent Toko
+Studios organization exception and patent grants in sections 7 and 11.

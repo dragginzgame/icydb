@@ -3,8 +3,6 @@
 use crate::{
     typed_adapter_fixture_error, typed_fixture_invariant_error, typed_operation_fixture_error,
 };
-use candid::CandidType;
-use ic_cdk::update;
 use icydb::{
     db::{
         DynamicQuery, StructuralPatch, TypedRowAdapter, WriteCell,
@@ -16,7 +14,7 @@ use icydb::{
 };
 use icydb_testing_test_sql_fixtures::sql::{SqlTestCatalogItem, SqlTestCollectionProbe};
 
-#[derive(CandidType)]
+#[derive(serde::Deserialize, serde::Serialize)]
 pub(crate) struct CatalogWorkloadRow {
     id: u64,
     key: String,
@@ -26,7 +24,7 @@ pub(crate) struct CatalogWorkloadRow {
     capacity: u64,
 }
 
-#[derive(CandidType)]
+#[derive(serde::Deserialize, serde::Serialize)]
 struct CatalogWorkloadPlacement {
     shape: Vec<u8>,
     points: Vec<(u64, u64)>,
@@ -34,7 +32,7 @@ struct CatalogWorkloadPlacement {
     enabled: bool,
 }
 
-#[derive(CandidType)]
+#[derive(serde::Deserialize, serde::Serialize)]
 pub(crate) struct CatalogWorkloadSample {
     result: Result<Vec<CatalogWorkloadRow>, icydb::Error>,
     total_instructions: u64,
@@ -44,14 +42,14 @@ pub(crate) struct CatalogWorkloadSample {
     pages: u32,
 }
 
-#[derive(CandidType)]
+#[derive(serde::Deserialize, serde::Serialize)]
 pub(crate) struct CatalogLabel {
     id: u64,
     key: String,
     name: String,
 }
 
-#[derive(CandidType)]
+#[derive(serde::Deserialize, serde::Serialize)]
 pub(crate) struct CatalogLabelSample {
     result: Result<Vec<CatalogLabel>, icydb::Error>,
     instructions: u64,
@@ -80,7 +78,6 @@ fn decode_label(values: Vec<OutputValue>) -> Result<CatalogLabel, icydb::Error> 
     Ok(CatalogLabel { id, key, name })
 }
 
-#[update]
 fn measure_catalog_labels(selected: bool) -> CatalogLabelSample {
     let mut sample = CatalogLabelSample {
         result: Err(typed_fixture_invariant_error()),
@@ -89,7 +86,7 @@ fn measure_catalog_labels(selected: bool) -> CatalogLabelSample {
     };
     sample.result = with_request_execution(|| {
         let session = icydb::db!()?;
-        let start = crate::call_context_instruction_counter();
+        let start = ic_platform::ic0::performance_counter(1);
         let mut labels = Vec::new();
         let mut continuation = None;
         for _ in 0..4 {
@@ -148,11 +145,12 @@ fn measure_catalog_labels(selected: bool) -> CatalogLabelSample {
         if continuation.is_some() {
             return Err(typed_fixture_invariant_error());
         }
-        sample.instructions = crate::call_context_instruction_counter() - start;
+        sample.instructions = ic_platform::ic0::performance_counter(1) - start;
         Ok(labels)
     });
     sample
 }
+icydb_testing_wasm_helpers::export_wire!(update, "measure_catalog_labels", MeasureCatalogLabels, measure_catalog_labels, (selected: bool), CatalogLabelSample);
 
 fn record(fields: Vec<(&str, InputValue)>) -> InputValue {
     InputValue::map(
@@ -163,7 +161,6 @@ fn record(fields: Vec<(&str, InputValue)>) -> InputValue {
     )
 }
 
-#[update]
 fn seed_catalog_workload(start: u32, count: u32) -> Result<(), icydb::Error> {
     with_request_execution(|| {
         if count != 16 || !start.is_multiple_of(16) || start > 112 {
@@ -260,8 +257,8 @@ fn seed_catalog_workload(start: u32, count: u32) -> Result<(), icydb::Error> {
         Ok(())
     })
 }
+icydb_testing_wasm_helpers::export_wire!(update, "seed_catalog_workload", SeedCatalogWorkload, seed_catalog_workload, (start: u32, count: u32), Result<(), icydb::Error>);
 
-#[update]
 fn measure_catalog_workload(staged: bool) -> CatalogWorkloadSample {
     let mut sample = CatalogWorkloadSample {
         result: Err(typed_fixture_invariant_error()),
@@ -273,11 +270,11 @@ fn measure_catalog_workload(staged: bool) -> CatalogWorkloadSample {
     };
     sample.result = with_request_execution(|| {
         let session = icydb::db!()?;
-        let start = crate::call_context_instruction_counter();
+        let start = ic_platform::ic0::performance_counter(1);
         let mut rows = Vec::new();
         let mut continuation = None;
         for _ in 0..4 {
-            let page_start = crate::call_context_instruction_counter();
+            let page_start = ic_platform::ic0::performance_counter(1);
             let (page_rows, next) = if staged {
                 // Same owners as Query::execute_live_page, with counters at its
                 // existing boundaries; this is not a separate executor.
@@ -290,11 +287,11 @@ fn measure_catalog_workload(staged: bool) -> CatalogWorkloadSample {
                         .order_by(asc(SqlTestCatalogItem::KEY))
                         .limit(257),
                 );
-                let bound = crate::call_context_instruction_counter();
+                let bound = ic_platform::ic0::performance_counter(1);
                 let page = cursor
                     .execute_page(continuation.as_deref())
                     .map_err(typed_operation_fixture_error)?;
-                let executed = crate::call_context_instruction_counter();
+                let executed = ic_platform::ic0::performance_counter(1);
                 let rows = page
                     .rows
                     .map(|row| {
@@ -302,7 +299,7 @@ fn measure_catalog_workload(staged: bool) -> CatalogWorkloadSample {
                             .map_err(typed_adapter_fixture_error)
                     })
                     .collect::<Result<Vec<_>, _>>()?;
-                let adapted = crate::call_context_instruction_counter();
+                let adapted = ic_platform::ic0::performance_counter(1);
                 sample.binding_instructions += bound - page_start;
                 sample.page_instructions += executed - bound;
                 sample.adapter_instructions += adapted - executed;
@@ -331,7 +328,7 @@ fn measure_catalog_workload(staged: bool) -> CatalogWorkloadSample {
         if continuation.is_some() {
             return Err(typed_fixture_invariant_error());
         }
-        sample.total_instructions = crate::call_context_instruction_counter() - start;
+        sample.total_instructions = ic_platform::ic0::performance_counter(1) - start;
         // Transport shaping is outside the query interval. Every returned
         // field is independently checked by the host, including nested bytes.
         Ok(rows
@@ -357,3 +354,4 @@ fn measure_catalog_workload(staged: bool) -> CatalogWorkloadSample {
     });
     sample
 }
+icydb_testing_wasm_helpers::export_wire!(update, "measure_catalog_workload", MeasureCatalogWorkload, measure_catalog_workload, (staged: bool), CatalogWorkloadSample);

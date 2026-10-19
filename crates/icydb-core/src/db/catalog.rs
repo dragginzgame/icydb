@@ -3,7 +3,6 @@
 //! Does not own: schema validation, query planning, or runtime store policy.
 //! Boundary: projects accepted entity and registered-store metadata for callers.
 
-use candid::CandidType;
 use serde::Deserialize;
 
 ///
@@ -41,7 +40,7 @@ impl EntityCatalogCounts {
     doc,
     doc = "EntityCatalogDescription\n\nRuntime catalog entry for one accepted entity."
 )]
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct EntityCatalogDescription {
     entity_name: String,
     entity_path: String,
@@ -134,7 +133,7 @@ impl EntityCatalogDescription {
     doc,
     doc = "StoreCatalogDescription\n\nRuntime catalog entry for one registered store."
 )]
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct StoreCatalogDescription {
     store_path: String,
     storage: String,
@@ -173,7 +172,7 @@ impl StoreCatalogDescription {
     doc,
     doc = "MemoryCatalogDescription\n\nRuntime catalog entry for one stable-memory allocation."
 )]
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct MemoryCatalogDescription {
     tag: String,
     memory_id: u8,

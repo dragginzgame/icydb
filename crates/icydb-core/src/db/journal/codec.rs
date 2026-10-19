@@ -6,7 +6,10 @@
 use crate::db::index::{IndexKey, IndexKeyKind, RawIndexStoreKey};
 use crate::{
     db::{
-        codec::{ByteDecodeError, ByteReader, MAX_ROW_BYTES},
+        codec::{
+            ByteDecodeError, ByteReader, MAX_ROW_BYTES,
+            writer::{ByteEncodeError, write_len_prefixed_bytes_le, write_len_u32_le},
+        },
         commit::{CommitSchemaFingerprint, MAX_COMMIT_BYTES},
         data::{DecodedDataStoreKey, RawDataStoreKey},
         integrity::DatabaseIncarnationId,
@@ -20,7 +23,7 @@ use crate::{
     error::InternalError,
     types::EntityTag,
 };
-use ic_memory::ic_stable_structures::{Storable, storable::Bound};
+use ic_storage::adapter::{Storable, storable::Bound};
 #[cfg(any(test, feature = "migration"))]
 use icydb_schema::SchemaMigrationPlanDigest;
 use sha2::{Digest, Sha256};
@@ -547,7 +550,7 @@ pub(in crate::db) fn encode_journal_batch(batch: &JournalBatch) -> Result<Vec<u8
     let mut encoded = Vec::with_capacity(total_len);
     encoded.extend_from_slice(&JOURNAL_BATCH_MAGIC);
     encoded.push(JOURNAL_BATCH_FORMAT_VERSION_CURRENT);
-    write_len_u32(&mut encoded, payload_len)?;
+    write_len_u32_le(&mut encoded, payload_len).map_err(primitive_encode_error)?;
     write_journal_batch_payload(&mut encoded, batch)?;
     let fingerprint = journal_batch_fingerprint(encoded.as_slice())?;
     encoded[JOURNAL_BATCH_FINGERPRINT_OFFSET..JOURNAL_BATCH_FIXED_HEADER_BYTES]
@@ -809,7 +812,7 @@ fn write_journal_batch_payload(
     out.extend_from_slice(&batch.commit_marker_id);
     out.extend_from_slice(&batch.journal_sequence.get().to_le_bytes());
     out.extend_from_slice(&batch.database_commit_sequence.get().to_le_bytes());
-    write_len_u32(out, batch.records.len())?;
+    write_len_u32_le(out, batch.records.len()).map_err(primitive_encode_error)?;
     out.extend_from_slice(&[0; JOURNAL_BATCH_FINGERPRINT_BYTES]);
     for record in &batch.records {
         write_journal_record(out, record)?;
@@ -831,9 +834,11 @@ fn write_journal_record(out: &mut Vec<u8>, record: &JournalRecord) -> Result<(),
             schema_fingerprint,
         } => {
             out.push(JOURNAL_RECORD_ROW_PUT);
-            write_len_prefixed_bytes(out, entity_path.as_bytes())?;
-            write_len_prefixed_bytes(out, primary_key.as_bytes())?;
-            write_len_prefixed_bytes(out, row_bytes)?;
+            write_len_prefixed_bytes_le(out, entity_path.as_bytes())
+                .map_err(primitive_encode_error)?;
+            write_len_prefixed_bytes_le(out, primary_key.as_bytes())
+                .map_err(primitive_encode_error)?;
+            write_len_prefixed_bytes_le(out, row_bytes).map_err(primitive_encode_error)?;
             out.extend_from_slice(schema_fingerprint);
         }
         JournalRecord::RowDelete {
@@ -842,8 +847,10 @@ fn write_journal_record(out: &mut Vec<u8>, record: &JournalRecord) -> Result<(),
             schema_fingerprint,
         } => {
             out.push(JOURNAL_RECORD_ROW_DELETE);
-            write_len_prefixed_bytes(out, entity_path.as_bytes())?;
-            write_len_prefixed_bytes(out, primary_key.as_bytes())?;
+            write_len_prefixed_bytes_le(out, entity_path.as_bytes())
+                .map_err(primitive_encode_error)?;
+            write_len_prefixed_bytes_le(out, primary_key.as_bytes())
+                .map_err(primitive_encode_error)?;
             out.extend_from_slice(schema_fingerprint);
         }
         JournalRecord::AcceptedSchemaPublish {
@@ -853,10 +860,12 @@ fn write_journal_record(out: &mut Vec<u8>, record: &JournalRecord) -> Result<(),
             schema_root_bytes,
         } => {
             out.push(JOURNAL_RECORD_ACCEPTED_SCHEMA_PUBLISH);
-            write_len_prefixed_bytes(out, store_path.as_bytes())?;
+            write_len_prefixed_bytes_le(out, store_path.as_bytes())
+                .map_err(primitive_encode_error)?;
             out.extend_from_slice(&expected_revision.get().to_le_bytes());
-            write_len_prefixed_bytes(out, schema_bundle_bytes)?;
-            write_len_prefixed_bytes(out, schema_root_bytes)?;
+            write_len_prefixed_bytes_le(out, schema_bundle_bytes)
+                .map_err(primitive_encode_error)?;
+            write_len_prefixed_bytes_le(out, schema_root_bytes).map_err(primitive_encode_error)?;
         }
         JournalRecord::AcceptedSchemaIndexDelete {
             store_path,
@@ -865,7 +874,8 @@ fn write_journal_record(out: &mut Vec<u8>, record: &JournalRecord) -> Result<(),
             keys,
         } => {
             out.push(JOURNAL_RECORD_ACCEPTED_SCHEMA_INDEX_DELETE);
-            write_len_prefixed_bytes(out, store_path.as_bytes())?;
+            write_len_prefixed_bytes_le(out, store_path.as_bytes())
+                .map_err(primitive_encode_error)?;
             out.extend_from_slice(&entity_tag.value().to_le_bytes());
             out.extend_from_slice(accepted_after_fingerprint);
             write_index_key_chunk(out, keys)?;
@@ -877,7 +887,8 @@ fn write_journal_record(out: &mut Vec<u8>, record: &JournalRecord) -> Result<(),
             keys,
         } => {
             out.push(JOURNAL_RECORD_ACCEPTED_SCHEMA_INDEX_PUT);
-            write_len_prefixed_bytes(out, store_path.as_bytes())?;
+            write_len_prefixed_bytes_le(out, store_path.as_bytes())
+                .map_err(primitive_encode_error)?;
             out.extend_from_slice(&entity_tag.value().to_le_bytes());
             out.extend_from_slice(accepted_after_fingerprint);
             write_index_key_chunk(out, keys)?;
@@ -889,10 +900,11 @@ fn write_journal_record(out: &mut Vec<u8>, record: &JournalRecord) -> Result<(),
             job_bytes,
         } => {
             out.push(JOURNAL_RECORD_CONSTRAINT_VALIDATION_JOB_PUT);
-            write_len_prefixed_bytes(out, store_path.as_bytes())?;
+            write_len_prefixed_bytes_le(out, store_path.as_bytes())
+                .map_err(primitive_encode_error)?;
             out.extend_from_slice(&entity_tag.value().to_le_bytes());
             out.extend_from_slice(&constraint_id.get().to_le_bytes());
-            write_len_prefixed_bytes(out, job_bytes)?;
+            write_len_prefixed_bytes_le(out, job_bytes).map_err(primitive_encode_error)?;
         }
         JournalRecord::ConstraintValidationJobDelete {
             store_path,
@@ -900,7 +912,8 @@ fn write_journal_record(out: &mut Vec<u8>, record: &JournalRecord) -> Result<(),
             constraint_id,
         } => {
             out.push(JOURNAL_RECORD_CONSTRAINT_VALIDATION_JOB_DELETE);
-            write_len_prefixed_bytes(out, store_path.as_bytes())?;
+            write_len_prefixed_bytes_le(out, store_path.as_bytes())
+                .map_err(primitive_encode_error)?;
             out.extend_from_slice(&entity_tag.value().to_le_bytes());
             out.extend_from_slice(&constraint_id.get().to_le_bytes());
         }
@@ -911,10 +924,11 @@ fn write_journal_record(out: &mut Vec<u8>, record: &JournalRecord) -> Result<(),
             key,
         } => {
             out.push(JOURNAL_RECORD_CONSTRAINT_VALIDATION_INDEX_PUT);
-            write_len_prefixed_bytes(out, store_path.as_bytes())?;
+            write_len_prefixed_bytes_le(out, store_path.as_bytes())
+                .map_err(primitive_encode_error)?;
             out.extend_from_slice(&entity_tag.value().to_le_bytes());
             out.extend_from_slice(&constraint_id.get().to_le_bytes());
-            write_len_prefixed_bytes(out, key.as_bytes())?;
+            write_len_prefixed_bytes_le(out, key.as_bytes()).map_err(primitive_encode_error)?;
         }
         JournalRecord::IdentityRangeAdvance { range } => {
             let owner = range.owner();
@@ -935,9 +949,11 @@ fn write_journal_record(out: &mut Vec<u8>, record: &JournalRecord) -> Result<(),
             plan_digest,
         } => {
             out.push(JOURNAL_RECORD_SCHEMA_MIGRATION_ROW_PUT);
-            write_len_prefixed_bytes(out, store_path.as_bytes())?;
-            write_len_prefixed_bytes(out, primary_key.as_bytes())?;
-            write_len_prefixed_bytes(out, row_bytes)?;
+            write_len_prefixed_bytes_le(out, store_path.as_bytes())
+                .map_err(primitive_encode_error)?;
+            write_len_prefixed_bytes_le(out, primary_key.as_bytes())
+                .map_err(primitive_encode_error)?;
+            write_len_prefixed_bytes_le(out, row_bytes).map_err(primitive_encode_error)?;
             out.extend_from_slice(schema_fingerprint);
             out.extend_from_slice(&plan_digest.to_bytes());
         }
@@ -948,8 +964,9 @@ fn write_journal_record(out: &mut Vec<u8>, record: &JournalRecord) -> Result<(),
             plan_digest,
         } => {
             out.push(JOURNAL_RECORD_SCHEMA_MIGRATION_INDEX_PUT);
-            write_len_prefixed_bytes(out, store_path.as_bytes())?;
-            write_len_prefixed_bytes(out, key.as_bytes())?;
+            write_len_prefixed_bytes_le(out, store_path.as_bytes())
+                .map_err(primitive_encode_error)?;
+            write_len_prefixed_bytes_le(out, key.as_bytes()).map_err(primitive_encode_error)?;
             out.extend_from_slice(&plan_digest.to_bytes());
         }
     }
@@ -961,9 +978,9 @@ fn write_index_key_chunk(
     out: &mut Vec<u8>,
     keys: &[RawIndexStoreKey],
 ) -> Result<(), InternalError> {
-    write_len_u32(out, keys.len())?;
+    write_len_u32_le(out, keys.len()).map_err(primitive_encode_error)?;
     for key in keys {
-        write_len_prefixed_bytes(out, key.as_bytes())?;
+        write_len_prefixed_bytes_le(out, key.as_bytes()).map_err(primitive_encode_error)?;
     }
     Ok(())
 }
@@ -1867,20 +1884,6 @@ fn journal_batch_fingerprint(bytes: &[u8]) -> Result<[u8; 32], InternalError> {
     Ok(hasher.finalize().into())
 }
 
-fn write_len_u32(out: &mut Vec<u8>, len: usize) -> Result<(), InternalError> {
-    let len = u32::try_from(len).map_err(|_| InternalError::store_unsupported())?;
-    out.extend_from_slice(&len.to_le_bytes());
-
-    Ok(())
-}
-
-fn write_len_prefixed_bytes(out: &mut Vec<u8>, bytes: &[u8]) -> Result<(), InternalError> {
-    write_len_u32(out, bytes.len())?;
-    out.extend_from_slice(bytes);
-
-    Ok(())
-}
-
 fn read_utf8_path(reader: &mut ByteReader<'_>) -> Result<String, InternalError> {
     let path = reader
         .read_len_prefixed_bytes_le()
@@ -1898,4 +1901,8 @@ fn journal_batch_corruption() -> InternalError {
 // This codec retains its domain classification for every primitive failure.
 fn primitive_decode_error(_: ByteDecodeError) -> InternalError {
     journal_batch_corruption()
+}
+
+fn primitive_encode_error(_: ByteEncodeError) -> InternalError {
+    InternalError::store_unsupported()
 }

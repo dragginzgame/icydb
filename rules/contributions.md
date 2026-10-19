@@ -7,6 +7,13 @@ commits and PRs using their normal repository or fork permissions; no agent or
 special baseline exception is required. Repository reviews, required checks and
 branch protections continue to apply.
 
+For repositories that adopt an approved contributor agreement, verify executed
+acceptance and rights-holder authority before merging covered contributions.
+Follow the canonical [CLA and relicensing guidance](https://github.com/dragginzgame/shared-tooling/blob/main/docs/licenses.md#contributor-agreements-and-relicensing).
+A PR, DCO sign-off or agent-generated checkbox does not establish a signed CLA;
+agents must not sign on another person's or entity's behalf. Publishing an
+agreement does not establish acceptance or configure fleet-wide signing checks.
+
 ## User-owned Git and release flow
 
 The user owns staging, commits, version changes, tags, pushes and release

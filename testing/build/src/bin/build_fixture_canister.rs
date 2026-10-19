@@ -4,8 +4,8 @@
 //! Boundary: turns CLI input into typed build options.
 
 use icydb_testing_build::{
-    CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
-    CanisterWasmProfile, stage_canister_for_icp_with_options,
+    CanisterBuildOptions, CanisterBuildProfile, CanisterSqlMode, CanisterWasmProfile,
+    stage_canister_for_icp_with_options,
 };
 
 fn main() {
@@ -14,20 +14,14 @@ fn main() {
         Err(err) => {
             eprintln!("{err}");
             eprintln!(
-                "usage: build_fixture_canister [canister] [--build-profile local|production] [--profile debug|release|wasm-release|wasm-attribution] [--sql-mode on|off] [--candid-export auto|on|off]"
+                "usage: build_fixture_canister [canister] [--build-profile local|production] [--profile debug|release|wasm-release|wasm-attribution] [--sql-mode on|off]"
             );
             std::process::exit(2);
         }
     };
 
     match stage_canister_for_icp_with_options(canister_name.as_str(), options) {
-        Ok((wasm_path, did_path)) => {
-            println!("staged wasm: {}", wasm_path.display());
-            match did_path {
-                Some(did_path) => println!("staged did:  {}", did_path.display()),
-                None => println!("staged did:  unavailable"),
-            }
-        }
+        Ok(wasm_path) => println!("staged wasm: {}", wasm_path.display()),
         Err(err) => {
             eprintln!("{err}");
             std::process::exit(1);
@@ -61,12 +55,6 @@ fn parse_args(
                     .next()
                     .ok_or_else(|| "--sql-mode requires a value".to_string())?;
                 options.sql_mode = CanisterSqlMode::parse(value.as_str())?;
-            }
-            "--candid-export" => {
-                let value = args
-                    .next()
-                    .ok_or_else(|| "--candid-export requires a value".to_string())?;
-                options.candid_export = CanisterCandidExportMode::parse(value.as_str())?;
             }
             "--help" | "-h" => {
                 return Err(

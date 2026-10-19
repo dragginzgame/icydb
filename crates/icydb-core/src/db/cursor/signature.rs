@@ -3,7 +3,7 @@
 //! Does not own: cursor token decode policy or planner continuation validation.
 //! Boundary: carries and displays the fixed-width semantic signature used by cursor checks.
 
-use crate::db::codec::hex::encode_hex_lower;
+use crate::db::encode_hex_lower;
 use std::fmt;
 
 ///

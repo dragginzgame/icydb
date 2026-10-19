@@ -193,7 +193,7 @@ mod tests {
         let actual_text = encode_cursor(encoded.as_slice());
         assert_eq!(
             actual_text,
-            "SUNZUQECAAAAQUJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCAAAAAAQAAAADEQAAAAh0ZW5hbnQtYRMAAAAAAAAABwIBp2ZeQqt2M_2TvLKxtK1MwqxxuE6pibmG6QJed1Y5DCA"
+            "SUNZUQECAAAAQUJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCAAAAAAQAAAADEAAAAAh0ZW5hbnQtYRIAAAAAAAAABwIByPNC9-MoQ1d1PvanJFh8hhhkwfVLDtfKsmICPrPS6b0"
         );
     }
 
@@ -207,7 +207,7 @@ mod tests {
         let actual_text = encode_cursor(encoded.as_slice());
         assert_eq!(
             actual_text,
-            "SUNZUQECAAAAQUJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCAQAAAAQAAAADEQAAAAh0ZW5hbnQtYRMAAAAAAAAABwIB2W1H9yxSBjTresq7nG7jmBmt80WXelhXjQTrxNbUc48",
+            "SUNZUQECAAAAQUJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCAQAAAAQAAAADEAAAAAh0ZW5hbnQtYRIAAAAAAAAABwIB0y5zMwR2lTzClppGLZVpr_a4ENOD443LPJnrQIxC8Kc",
             "grouped continuation token DESC wire encoding must remain stable",
         );
     }
@@ -260,21 +260,19 @@ mod tests {
 
     #[test]
     fn compact_grouped_cursor_round_trips_and_measures_external_bytes() {
-        use crate::{db::cursor::decode_cursor, types::NatBig};
-        use num_bigint::BigUint;
+        use crate::db::cursor::decode_cursor;
 
-        let magnitude = (BigUint::from(1_u8) << 256_usize) - BigUint::from(1_u8);
         let token = GroupedContinuationToken::new_with_direction(
             ContinuationSignature::from_bytes([0x42; 32]),
-            vec![Value::NatBig(NatBig::from_biguint(magnitude))],
+            vec![Value::U256(crate::types::U256::MAX)],
             Direction::Desc,
             4,
         );
         for _ in 0..1000 {
             let bytes = token.encode(&MAC_KEY).unwrap();
             let text = encode_cursor(&bytes);
-            assert_eq!(bytes.len(), 120);
-            assert_eq!(text.len(), 160);
+            assert_eq!(bytes.len(), 116);
+            assert_eq!(text.len(), 155);
             let decoded =
                 GroupedContinuationToken::decode(&decode_cursor(&text).unwrap(), &MAC_KEY).unwrap();
             assert_eq!(decoded.last_group_key(), token.last_group_key());

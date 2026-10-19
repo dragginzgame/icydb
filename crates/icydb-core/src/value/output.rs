@@ -1,11 +1,11 @@
 use crate::{
     types::{
-        Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
-        Timestamp, U256, Ulid,
+        Account, Date, Decimal, Duration, Float32, Float64, Principal, Subaccount, Timestamp, U256,
+        Ulid,
     },
     value::PublicValue,
 };
-use candid::{CandidType, types::Serializer};
+
 use serde::{Deserialize, Deserializer};
 
 #[cfg(test)]
@@ -96,12 +96,6 @@ impl OutputValue {
         Self(PublicValue::Int128(value))
     }
 
-    /// Build an unbounded signed integer output value.
-    #[must_use]
-    pub const fn int_big(value: IntBig) -> Self {
-        Self(PublicValue::IntBig(value))
-    }
-
     /// Build a recursive list output value.
     #[must_use]
     pub const fn list(values: Vec<PublicValue>) -> Self {
@@ -156,12 +150,6 @@ impl OutputValue {
         Self(PublicValue::Nat128(value))
     }
 
-    /// Build an unbounded natural output value.
-    #[must_use]
-    pub const fn nat_big(value: NatBig) -> Self {
-        Self(PublicValue::NatBig(value))
-    }
-
     /// Build a ULID output value.
     #[must_use]
     pub const fn ulid(value: Ulid) -> Self {
@@ -178,23 +166,6 @@ impl OutputValue {
     #[must_use]
     pub const fn u256(value: U256) -> Self {
         Self(PublicValue::U256(value))
-    }
-}
-
-impl CandidType for OutputValue {
-    fn ty() -> candid::types::Type {
-        PublicValue::ty()
-    }
-
-    fn _ty() -> candid::types::Type {
-        PublicValue::_ty()
-    }
-
-    fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
-    where
-        S: Serializer,
-    {
-        self.0.idl_serialize(serializer)
     }
 }
 
@@ -221,6 +192,12 @@ impl From<Value> for OutputValue {
 #[must_use]
 pub fn render_output_value_text(value: &OutputValue) -> String {
     value.as_public().render_text()
+}
+
+impl serde::Serialize for OutputValue {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serde::Serialize::serialize(&self.0, serializer)
+    }
 }
 
 #[cfg(test)]

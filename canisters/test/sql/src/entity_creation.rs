@@ -1,8 +1,7 @@
 //! Fixed structural writes and generated typed reads for added named values.
 
 use crate::{typed_fixture_invariant_error, typed_operation_fixture_error};
-use candid::CandidType;
-use ic_cdk::{query, update};
+
 use icydb::{
     db::{StructuralPatch, WriteCell, with_request_execution},
     traits::EntitySource,
@@ -17,14 +16,14 @@ use icydb_testing_test_sql_fixtures::entity_rename::Item as RelationTarget;
 
 /// Local instruction interval around one complete fixture request.
 
-#[derive(CandidType)]
+#[derive(serde::Deserialize, serde::Serialize)]
 pub struct EntityCreationMeasurement {
     result: Result<(), icydb::Error>,
     local_instructions: u64,
 }
 
 /// Exercise the new entity's reverse relation through a fixed trusted delete.
-#[update]
+
 fn check_created_quest_target_delete() -> Result<icydb::Error, icydb::Error> {
     with_request_execution(|| {
         let sql = format!("DELETE FROM {} WHERE id = 3", RelationTarget::ENTITY);
@@ -34,11 +33,12 @@ fn check_created_quest_target_delete() -> Result<icydb::Error, icydb::Error> {
         }
     })
 }
+icydb_testing_wasm_helpers::export_wire!(update, "check_created_quest_target_delete", CheckCreatedQuestTargetDelete, check_created_quest_target_delete, (), Result<icydb::Error, icydb::Error>);
 
 /// Insert a new row through accepted structural authority, including named values.
-#[update]
+
 fn write_created_quest(id: u64, item_id: u64, code: u64) -> EntityCreationMeasurement {
-    let start = crate::call_context_instruction_counter();
+    let start = ic_platform::ic0::performance_counter(1);
     let result = with_request_execution(|| {
         let session = icydb::db!()?;
         let patch = StructuralPatch::new()
@@ -61,14 +61,15 @@ fn write_created_quest(id: u64, item_id: u64, code: u64) -> EntityCreationMeasur
     });
     EntityCreationMeasurement {
         result,
-        local_instructions: crate::call_context_instruction_counter().saturating_sub(start),
+        local_instructions: ic_platform::ic0::performance_counter(1).saturating_sub(start),
     }
 }
+icydb_testing_wasm_helpers::export_wire!(update, "write_created_quest", WriteCreatedQuest, write_created_quest, (id: u64, item_id: u64, code: u64), EntityCreationMeasurement);
 
 /// Decode the added record and enum through the generated entity's accepted binding.
-#[query]
+
 fn check_created_quest() -> EntityCreationMeasurement {
-    let start = crate::call_context_instruction_counter();
+    let start = ic_platform::ic0::performance_counter(1);
     let result = with_request_execution(|| {
         let row = icydb::db!()?
             .get::<Quest>(Id::from_key(7))
@@ -85,6 +86,14 @@ fn check_created_quest() -> EntityCreationMeasurement {
     });
     EntityCreationMeasurement {
         result,
-        local_instructions: crate::call_context_instruction_counter().saturating_sub(start),
+        local_instructions: ic_platform::ic0::performance_counter(1).saturating_sub(start),
     }
 }
+icydb_testing_wasm_helpers::export_wire!(
+    query,
+    "check_created_quest",
+    CheckCreatedQuest,
+    check_created_quest,
+    (),
+    EntityCreationMeasurement
+);

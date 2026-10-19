@@ -10,7 +10,7 @@ use crate::{
     types::{GenerateKey, Subaccount},
     value::Value,
 };
-use candid::CandidType;
+
 use serde::{Deserialize, de::Deserializer};
 use std::{
     fmt,
@@ -173,27 +173,6 @@ where
 // Wire / view integration
 // ----------------------------------------------------------------------
 
-impl<E> CandidType for Id<E>
-where
-    E: EntityKey,
-    E::Key: CandidType,
-{
-    fn ty() -> candid::types::Type {
-        <E::Key as CandidType>::ty()
-    }
-
-    fn _ty() -> candid::types::Type {
-        <E::Key as CandidType>::_ty()
-    }
-
-    fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
-    where
-        S: candid::types::Serializer,
-    {
-        self.key.idl_serialize(serializer)
-    }
-}
-
 // ----------------------------------------------------------------------
 // Standard trait impls
 // ----------------------------------------------------------------------
@@ -309,6 +288,15 @@ where
     }
 }
 
+impl<E: EntityKey> serde::Serialize for Id<E>
+where
+    E::Key: serde::Serialize,
+{
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serde::Serialize::serialize(&self.key, serializer)
+    }
+}
+
 // ----------------------------------------------------------------------
 // Tests
 // ----------------------------------------------------------------------
@@ -320,7 +308,6 @@ mod tests {
         db::{EntityKey, PrimaryKeyEncode},
         value::Value,
     };
-    use candid::CandidType;
 
     #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
     struct TestEntity;
@@ -354,12 +341,11 @@ mod tests {
     }
 
     #[test]
-    fn candid_type_is_owned_by_the_wrapped_entity_key() {
-        assert_eq!(Id::<TestEntity>::ty(), u64::ty());
+    fn wire_type_is_owned_by_the_wrapped_entity_key() {
         assert_eq!(
-            candid::encode_one(Id::<TestEntity>::from_key(42))
+            icydb_schema::wire::encode_one(Id::<TestEntity>::from_key(42))
                 .expect("typed identity should encode"),
-            candid::encode_one(42_u64).expect("raw entity key should encode"),
+            icydb_schema::wire::encode_one(42_u64).expect("raw entity key should encode"),
         );
     }
 

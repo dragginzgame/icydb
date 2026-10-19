@@ -21,7 +21,7 @@ use crate::{
     testing::test_memory,
     types::EntityTag,
 };
-use ic_memory::ic_stable_structures::Memory;
+use ic_memory::Memory;
 
 #[test]
 fn marker_presence_hint_tracks_publication_clear_and_allocation_switches() {
@@ -111,15 +111,15 @@ fn public_metrics_propagates_unavailable_and_corrupt_controls_instead_of_zero() 
 
 #[test]
 fn control_capacity_refusal_preserves_existing_frame_bytes() {
-    use crate::testing::test_memory_runtime;
-    use ic_memory::{
-        MemoryManagerConfig,
-        ic_stable_structures::{RestrictedMemory, VectorMemory},
-    };
+    use crate::testing::{GrowthLimitedMemory, test_memory_runtime};
+    use ic_memory::{MemoryManagerConfig, VectorMemory};
 
     let backing = VectorMemory::default();
     let runtime = test_memory_runtime(
-        RestrictedMemory::new(backing.clone(), 0..4),
+        GrowthLimitedMemory {
+            backing: backing.clone(),
+            maximum_pages: 4,
+        },
         MemoryManagerConfig::new(1).unwrap(),
     );
     let memory = runtime.open_memory("icydb.core_tests.slot_233.v1").unwrap();
@@ -206,7 +206,7 @@ fn maximal_mutation_progress_operation() -> MutationProgressRecordOp {
 
 #[test]
 fn commit_control_slot_rejects_corrupt_magic() {
-    let store = super::CommitStore::init(test_memory(233));
+    let store = super::CommitStore::init(std::rc::Rc::new(test_memory(233)));
     let mut malformed = super::CommitStore::encode_raw_control_slot_for_tests(Vec::new())
         .expect("current empty commit-control slot should encode");
     malformed[0] = b'X';
@@ -406,7 +406,7 @@ fn persisted_marker_retains_exact_journal_envelopes_for_live_append() {
         encode_journal_batch(&second_batch).expect("second journal batch should encode");
     let marker = CommitMarker::from_parts(marker_id, vec![journal_batch, second_batch])
         .expect("marker-bound journal batch should build");
-    let store = super::CommitStore::init(test_memory(235));
+    let store = super::CommitStore::init(std::rc::Rc::new(test_memory(235)));
 
     let persisted = store
         .set_if_empty(&marker)
@@ -428,7 +428,7 @@ fn persisted_marker_retains_exact_journal_envelopes_for_live_append() {
 
 #[test]
 fn marker_publication_owns_one_database_sequence_without_consuming_rejections() {
-    let store = super::CommitStore::init(test_memory(224));
+    let store = super::CommitStore::init(std::rc::Rc::new(test_memory(224)));
     let first_marker_id = [0xB1; 16];
     let first = JournalBatch::new_with_database_commit_sequence(
         [0xB2; 16],
@@ -564,7 +564,7 @@ fn commit_marker_rejects_oversized_stored_payload_as_corruption() {
 
 #[test]
 fn clear_verified_rejects_malformed_control_slot() {
-    let store = super::CommitStore::init(test_memory(232));
+    let store = super::CommitStore::init(std::rc::Rc::new(test_memory(232)));
     let mut malformed = super::CommitStore::encode_raw_control_slot_for_tests(Vec::new())
         .expect("current empty commit-control slot should encode");
     let marker_length_offset = malformed.len() - size_of::<u32>();
@@ -582,7 +582,7 @@ fn clear_verified_rejects_malformed_control_slot() {
 
 #[test]
 fn commit_slot_writes_and_clears_preserve_database_boot_record() {
-    let memory = test_memory(231);
+    let memory = std::rc::Rc::new(test_memory(231));
     let store = super::CommitStore::init(memory.clone());
     let mut boot_before = [0_u8; crate::db::database_format::DATABASE_BOOT_RECORD_BYTES];
     memory.read(0, &mut boot_before);
@@ -599,7 +599,7 @@ fn commit_slot_writes_and_clears_preserve_database_boot_record() {
 
 #[test]
 fn cursor_key_replacement_preserves_pending_marker_and_reopens() {
-    let memory = test_memory(231);
+    let memory = std::rc::Rc::new(test_memory(231));
     let store = super::CommitStore::init(memory.clone());
     let marker = CommitMarker {
         id: [0xB7; 16],
@@ -630,7 +630,7 @@ fn cursor_key_replacement_preserves_pending_marker_and_reopens() {
 
 #[test]
 fn commit_marker_transitions_preserve_database_incarnation() {
-    let store = super::CommitStore::init(test_memory(227));
+    let store = super::CommitStore::init(std::rc::Rc::new(test_memory(227)));
     let incarnation_before = store
         .database_incarnation_id()
         .expect("current control slot should carry an incarnation");
@@ -701,7 +701,7 @@ fn commit_marker_transitions_preserve_database_incarnation() {
 
 #[test]
 fn ordinary_reopen_preserves_database_incarnation() {
-    let memory = test_memory(225);
+    let memory = std::rc::Rc::new(test_memory(225));
     let first = super::CommitStore::init(memory.clone());
     let incarnation = first
         .database_incarnation_id()
@@ -729,7 +729,7 @@ fn ordinary_reopen_preserves_database_incarnation() {
 
 #[test]
 fn database_control_rejects_zero_incarnation() {
-    let store = super::CommitStore::init(test_memory(226));
+    let store = super::CommitStore::init(std::rc::Rc::new(test_memory(226)));
     let mut control_slot = super::CommitStore::encode_raw_control_slot_for_tests(Vec::new())
         .expect("current empty commit-control slot should encode");
     control_slot[5..21].fill(0);
@@ -745,7 +745,7 @@ fn database_control_rejects_zero_incarnation() {
 
 #[test]
 fn database_control_rejects_zero_cursor_authentication_key() {
-    let store = super::CommitStore::init(test_memory(234));
+    let store = super::CommitStore::init(std::rc::Rc::new(test_memory(234)));
     let mut control_slot = super::CommitStore::encode_raw_control_slot_for_tests(Vec::new())
         .expect("current empty commit-control slot should encode");
     control_slot[21..53].fill(0);
@@ -761,7 +761,7 @@ fn database_control_rejects_zero_cursor_authentication_key() {
 
 #[test]
 fn database_control_frame_checksum_corruption_fails_closed() {
-    let memory = test_memory(230);
+    let memory = std::rc::Rc::new(test_memory(230));
     let store = super::CommitStore::init(memory.clone());
     let checksum_offset = super::DATABASE_CONTROL_SLOT_FRAME_OFFSET
         + super::DATABASE_CONTROL_SLOT_FRAME_CHECKSUM_OFFSET as u64;
@@ -780,7 +780,7 @@ fn database_control_frame_checksum_corruption_fails_closed() {
 
 #[test]
 fn database_control_frame_future_version_fails_closed() {
-    let memory = test_memory(229);
+    let memory = std::rc::Rc::new(test_memory(229));
     let store = super::CommitStore::init(memory.clone());
     let version_offset = super::DATABASE_CONTROL_SLOT_FRAME_OFFSET
         + super::DATABASE_CONTROL_SLOT_FRAME_MAGIC.len() as u64;
@@ -799,7 +799,7 @@ fn database_control_frame_future_version_fails_closed() {
 
 #[test]
 fn commit_control_slot_future_version_fails_closed() {
-    let store = super::CommitStore::init(test_memory(228));
+    let store = super::CommitStore::init(std::rc::Rc::new(test_memory(228)));
     let mut control_slot = super::CommitStore::encode_raw_control_slot_for_tests(Vec::new())
         .expect("current empty commit-control slot should encode");
     control_slot[4] = control_slot[4].saturating_add(1);

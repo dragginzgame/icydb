@@ -1,8 +1,6 @@
 //! Test-only collection query measurement through the maintained session API.
 
 use crate::typed_fixture_invariant_error;
-use candid::CandidType;
-use ic_cdk::update;
 use icydb::{
     Error,
     db::{
@@ -15,14 +13,14 @@ use icydb::{
 
 const ENTITY: &str = "SqlTestCollectionProbe";
 
-#[derive(CandidType)]
+#[derive(serde::Deserialize, serde::Serialize)]
 pub(crate) struct CollectionWorkloadSample {
     result: Result<Vec<Vec<OutputValue>>, Error>,
     query_instructions: u64,
 }
 
 // Installation and seed are deliberately separate from measured query messages.
-#[update]
+
 fn seed_collection_workload(length: u32) -> Result<(), icydb::Error> {
     with_request_execution(|| {
         if !matches!(length, 16 | 256 | 1_024) {
@@ -47,10 +45,11 @@ fn seed_collection_workload(length: u32) -> Result<(), icydb::Error> {
         Ok(())
     })
 }
+icydb_testing_wasm_helpers::export_wire!(update, "seed_collection_workload", SeedCollectionWorkload, seed_collection_workload, (length: u32), Result<(), icydb::Error>);
 
 // Fixed scenarios keep SQL parsing and query construction outside the measured
 // interval. No collection-specific runtime implementation is introduced here.
-#[update]
+
 fn measure_collection_workload(length: u32, scenario: u8) -> CollectionWorkloadSample {
     let mut query_instructions = 0;
     let result = with_request_execution(|| {
@@ -77,9 +76,9 @@ fn measure_collection_workload(length: u32, scenario: u8) -> CollectionWorkloadS
             .select(fields)
             .limit(1);
         let session = icydb::db!()?;
-        let start = crate::call_context_instruction_counter();
+        let start = ic_platform::ic0::performance_counter(1);
         let result = session.execute_trusted_live_page(&query, None);
-        query_instructions = crate::call_context_instruction_counter().saturating_sub(start);
+        query_instructions = ic_platform::ic0::performance_counter(1).saturating_sub(start);
         result.map(|page| page.rows)
     });
     CollectionWorkloadSample {
@@ -87,3 +86,4 @@ fn measure_collection_workload(length: u32, scenario: u8) -> CollectionWorkloadS
         query_instructions,
     }
 }
+icydb_testing_wasm_helpers::export_wire!(update, "measure_collection_workload", MeasureCollectionWorkload, measure_collection_workload, (length: u32, scenario: u8), CollectionWorkloadSample);

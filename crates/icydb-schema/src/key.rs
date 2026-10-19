@@ -2,7 +2,6 @@
 
 use std::fmt::{self, Display, Formatter};
 
-use candid::CandidType;
 use serde::{Deserialize, Deserializer, Serialize, de::Error as DeError};
 use sha2::{Digest, Sha256};
 
@@ -64,23 +63,6 @@ macro_rules! source_key {
         impl Display for $name {
             fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
                 formatter.write_str(self.as_str())
-            }
-        }
-
-        impl CandidType for $name {
-            fn ty() -> candid::types::Type {
-                <String as CandidType>::ty()
-            }
-
-            fn _ty() -> candid::types::Type {
-                <String as CandidType>::_ty()
-            }
-
-            fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
-            where
-                S: candid::types::Serializer,
-            {
-                serializer.serialize_text(self.as_str())
             }
         }
 
@@ -175,23 +157,6 @@ impl<'de> Deserialize<'de> for SchemaName {
     }
 }
 
-impl CandidType for SchemaName {
-    fn ty() -> candid::types::Type {
-        <String as CandidType>::ty()
-    }
-
-    fn _ty() -> candid::types::Type {
-        <String as CandidType>::_ty()
-    }
-
-    fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
-    where
-        S: candid::types::Serializer,
-    {
-        serializer.serialize_text(self.as_str())
-    }
-}
-
 /// Caller-generated immutable schema-submission key.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub struct SchemaSubmissionKey(String);
@@ -224,38 +189,11 @@ impl<'de> Deserialize<'de> for SchemaSubmissionKey {
     }
 }
 
-impl CandidType for SchemaSubmissionKey {
-    fn ty() -> candid::types::Type {
-        <String as CandidType>::ty()
-    }
-
-    fn _ty() -> candid::types::Type {
-        <String as CandidType>::_ty()
-    }
-
-    fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
-    where
-        S: candid::types::Serializer,
-    {
-        serializer.serialize_text(self.as_str())
-    }
-}
-
 macro_rules! opaque_token {
     ($name:ident, $doc:literal) => {
         #[doc = $doc]
         #[derive(
-            CandidType,
-            Clone,
-            Copy,
-            Debug,
-            Deserialize,
-            Eq,
-            Hash,
-            Ord,
-            PartialEq,
-            PartialOrd,
-            Serialize,
+            Serialize, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd,
         )]
         #[serde(transparent)]
         pub struct $name([u8; 32]);
@@ -303,7 +241,6 @@ opaque_token!(
 
 #[cfg(test)]
 mod tests {
-    use candid::CandidType;
 
     use super::{
         ConstraintSourceKey, EntitySourceKey, FieldSourceKey, IndexSourceKey, RelationSourceKey,
@@ -311,17 +248,25 @@ mod tests {
     };
 
     #[test]
-    fn text_backed_keys_delegate_their_candid_type() {
-        let text = String::ty();
-
-        assert_eq!(EntitySourceKey::ty(), text);
-        assert_eq!(FieldSourceKey::ty(), text);
-        assert_eq!(TypeSourceKey::ty(), text);
-        assert_eq!(ConstraintSourceKey::ty(), text);
-        assert_eq!(IndexSourceKey::ty(), text);
-        assert_eq!(RelationSourceKey::ty(), text);
-        assert_eq!(RuleSourceKey::ty(), text);
-        assert_eq!(SchemaName::ty(), text);
-        assert_eq!(SchemaSubmissionKey::ty(), text);
+    fn text_backed_keys_delegate_their_wire_type() {
+        macro_rules! check {
+            ($($ty:ty),* $(,)?) => { $(
+                let value = <$ty>::try_new("sample").unwrap();
+                let bytes = crate::wire::encode_one(&value).unwrap();
+                assert_eq!(bytes, crate::wire::encode_one("sample").unwrap());
+                assert_eq!(crate::wire::decode_one::<$ty>(&bytes).unwrap(), value);
+            )* };
+        }
+        check!(
+            EntitySourceKey,
+            FieldSourceKey,
+            TypeSourceKey,
+            ConstraintSourceKey,
+            IndexSourceKey,
+            RelationSourceKey,
+            RuleSourceKey,
+            SchemaName,
+            SchemaSubmissionKey
+        );
     }
 }

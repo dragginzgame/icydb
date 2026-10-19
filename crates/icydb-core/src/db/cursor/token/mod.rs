@@ -5,7 +5,6 @@
 //! Boundary: defines the current token payloads consumed by cursor
 //! encode/decode boundaries.
 
-mod bytes;
 mod codec;
 mod error;
 mod grouped;

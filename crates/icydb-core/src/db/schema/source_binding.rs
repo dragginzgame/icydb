@@ -3,6 +3,7 @@
 //! Does not own: accepted structural semantics, accepted-ID allocation, proposal lowering, or publication.
 //! Boundary: immutable proposal source keys <-> existing store-local accepted identities.
 
+use crate::db::codec::BoundedByteWriter;
 use std::collections::{BTreeMap, BTreeSet};
 
 use icydb_schema::{
@@ -16,7 +17,7 @@ use crate::{
         ConstraintActivationKind, ConstraintId, FieldId, PersistedSchemaSnapshot, RelationId,
         SchemaIndexId,
         composite_catalog::{AcceptedCompositeShape, CompositeFieldId, CompositeTypeId},
-        wire::{SchemaWireReader, SchemaWireWriter},
+        wire::SchemaWireReader,
     },
     error::InternalError,
     types::EntityTag,
@@ -35,7 +36,7 @@ const ACCEPTED_SOURCE_BINDING_HEADER_BYTES: usize = 42;
 const MAX_ACCEPTED_SOURCE_BINDING_BYTES: usize = 2 * 1024 * 1024;
 const TYPE_ENUM: u8 = 0;
 const TYPE_COMPOSITE: u8 = 1;
-type BindingWriter = SchemaWireWriter<MAX_ACCEPTED_SOURCE_BINDING_BYTES>;
+type BindingWriter = BoundedByteWriter<MAX_ACCEPTED_SOURCE_BINDING_BYTES>;
 type BindingReader<'a> = SchemaWireReader<'a>;
 
 ///

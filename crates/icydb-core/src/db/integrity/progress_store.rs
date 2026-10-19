@@ -3,6 +3,8 @@
 //! Does not own: inspected database state, commit markers, journals, or advancement semantics.
 //! Boundary: current-form job codec -> physically separate stable BTreeMap allocation.
 
+#[cfg(not(test))]
+use crate::db::open_memory;
 use crate::{
     db::{
         codec::{finalize_hash_sha256, new_hash_sha256_prefixed},
@@ -26,13 +28,9 @@ use crate::{
     error::InternalError,
     traits::CanisterKind,
 };
-use candid::CandidType;
-use ic_memory::RuntimeMemory;
-use ic_memory::ic_stable_structures::{
-    BTreeMap as StableBTreeMap, DefaultMemoryImpl, Storable, storable::Bound,
-};
-#[cfg(not(test))]
-use ic_memory::open_default_memory_manager_memory;
+
+use ic_memory::{DefaultMemoryImpl, RuntimeMemory};
+use ic_storage::adapter::{StableBTreeMap, Storable, storable::Bound};
 use serde::Deserialize;
 use sha2::Digest;
 use std::borrow::Cow;
@@ -60,7 +58,7 @@ const PROGRESS_JOBS_INTEGRITY_RESERVATION: u64 =
 const MAX_PROGRESS_JOBS_PER_OWNER: u64 = 8;
 
 /// Stable family of one retained record in the shared progress allocation.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum ProgressJobFamily {
     /// Engine-owned Deep integrity inspection.
     Integrity,
@@ -71,7 +69,7 @@ pub enum ProgressJobFamily {
 }
 
 /// Bounded normalized lifecycle of one retained progress record.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum ProgressJobLifecycle {
     /// More work may advance.
     Active,
@@ -88,7 +86,7 @@ pub enum ProgressJobLifecycle {
 }
 
 /// One privacy-bounded retained-record inventory entry.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct ProgressJobInventoryRecord {
     /// Durable progress family.
     pub family: ProgressJobFamily,
@@ -101,7 +99,7 @@ pub struct ProgressJobInventoryRecord {
 }
 
 /// Complete bounded inventory of the shared excluded progress allocation.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct ProgressJobInventory {
     /// Total retained records across all families.
     pub retained_count: u64,
@@ -318,7 +316,7 @@ pub(super) struct ProgressScanPage {
 }
 
 pub(in crate::db) struct InspectionProgressStore {
-    map: StableBTreeMap<ProgressRecordKey, ProgressRecordBytes, RuntimeMemory<DefaultMemoryImpl>>,
+    map: StableBTreeMap<ProgressRecordKey, ProgressRecordBytes, DefaultMemoryImpl>,
 }
 
 impl InspectionProgressStore {
@@ -611,7 +609,7 @@ impl InspectionProgressStore {
         let mut mutation_count = 0_u64;
         let mut retained_record_bytes = 0_u64;
 
-        for entry in self.map.iter() {
+        for entry in &self.map {
             let key = *entry.key();
             if key == PROGRESS_HEADER_KEY {
                 continue;
@@ -748,7 +746,7 @@ impl InspectionProgressStore {
 
     fn owner_job_count(&self, owner: &IntegrityJobOwner) -> Result<u64, IntegrityJobError> {
         let mut count = 0_u64;
-        for entry in self.map.iter() {
+        for entry in &self.map {
             if *entry.key() == PROGRESS_HEADER_KEY {
                 continue;
             }
@@ -1086,7 +1084,7 @@ fn progress_memory<C: CanisterKind>() -> Result<RuntimeMemory<DefaultMemoryImpl>
     let resolved_id = C::integrity_progress_memory_id().map_err(|_| IntegrityJobError::Internal)?;
     thread_local! {
         static MEMORIES: RefCell<
-            Vec<(u8, &'static str, RuntimeMemory<DefaultMemoryImpl>)>
+            Vec<(u8, &'static str, crate::testing::TestMemoryOwner)>
         > = const { RefCell::new(Vec::new()) };
     }
 
@@ -1096,14 +1094,11 @@ fn progress_memory<C: CanisterKind>() -> Result<RuntimeMemory<DefaultMemoryImpl>
             .iter()
             .find(|(id, key, _)| *id == resolved_id && *key == C::INTEGRITY_PROGRESS_STABLE_KEY)
         {
-            return Ok(memory.clone());
+            return Ok(memory.open());
         }
-        let memory = crate::testing::test_memory(resolved_id);
-        memories.push((
-            resolved_id,
-            C::INTEGRITY_PROGRESS_STABLE_KEY,
-            memory.clone(),
-        ));
+        let owner = crate::testing::test_memory_owner(resolved_id);
+        let memory = owner.open();
+        memories.push((resolved_id, C::INTEGRITY_PROGRESS_STABLE_KEY, owner));
         Ok(memory)
     })
 }
@@ -1111,8 +1106,7 @@ fn progress_memory<C: CanisterKind>() -> Result<RuntimeMemory<DefaultMemoryImpl>
 #[cfg(not(test))]
 fn progress_memory<C: CanisterKind>() -> Result<RuntimeMemory<DefaultMemoryImpl>, IntegrityJobError>
 {
-    open_default_memory_manager_memory(C::INTEGRITY_PROGRESS_STABLE_KEY)
-        .map_err(|_| IntegrityJobError::Internal)
+    open_memory(C::INTEGRITY_PROGRESS_STABLE_KEY).map_err(|_| IntegrityJobError::Internal)
 }
 
 #[cfg(test)]
@@ -1128,7 +1122,6 @@ mod tests {
         },
         testing::test_memory,
     };
-    use ic_memory::ic_stable_structures::Memory;
 
     fn current_resumable_record() -> ResumableJobRecord {
         let proof = ReadSetRevisionProof::from_parts(
@@ -1640,8 +1633,8 @@ mod tests {
     fn progress_stable_growth_is_measured_at_reservation_boundaries() {
         const STABLE_PAGE_BYTES: u64 = 65_536;
 
-        let memory = test_memory(249);
-        let mut store = InspectionProgressStore::open(memory.clone())
+        let memory = crate::testing::test_memory_owner(249);
+        let mut store = InspectionProgressStore::open(memory.open())
             .expect("isolated progress store should open");
         let mut bytes_at_fifty_five = 0;
         let mut bytes_at_fifty_six = 0;

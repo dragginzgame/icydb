@@ -12,9 +12,7 @@ use crate::{
             parser::{SqlExpr, SqlExprBinaryOp},
         },
     },
-    types::{
-        Date, Decimal, Duration, Float32 as F32, Float64 as F64, IntBig, NatBig, Timestamp, U256,
-    },
+    types::{Date, Decimal, Duration, Float32 as F32, Float64 as F64, Timestamp, U256},
     value::Value,
 };
 use icydb_diagnostic_code::{DiagnosticDetail, QueryProjectionCode};
@@ -32,10 +30,8 @@ fn arithmetic_preserves_all_dynamic_numeric_families_and_operators() {
     let values = [
         Value::Int64(-3),
         Value::Int128(-3),
-        Value::IntBig(IntBig::from(-3)),
         Value::Nat64(3),
         Value::Nat128(3),
-        Value::NatBig(NatBig::from(3_u64)),
         Value::U256(U256::from(3_u64)),
         Value::Decimal(Decimal::new(123, 2)),
         Value::Float32(F32::try_new(1.25).unwrap()),

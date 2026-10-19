@@ -14,13 +14,11 @@ mod decimal;
 mod error;
 mod expression;
 mod fragment;
-mod int_big;
-mod integer_wire;
+
 mod key;
-mod leb128;
 mod migration;
 mod naming;
-mod nat_big;
+
 mod numeric_value;
 mod proposal;
 mod rule;
@@ -33,6 +31,8 @@ mod time_atoms;
 mod u256;
 mod unit;
 
+pub mod wire;
+
 pub use account::*;
 pub use atom::*;
 pub use bounds::*;
@@ -43,11 +43,9 @@ pub use decimal::*;
 pub use error::*;
 pub use expression::*;
 pub use fragment::*;
-pub use int_big::*;
 pub use key::*;
 pub use migration::*;
 pub use naming::*;
-pub use nat_big::*;
 pub use numeric_value::*;
 pub use proposal::*;
 pub use rule::*;
@@ -58,7 +56,7 @@ pub use u256::*;
 pub use unit::*;
 
 #[cfg(test)]
-mod big_integer_tests;
+mod tests;
 
 #[cfg(test)]
-mod tests;
+mod integer_wire_tests;

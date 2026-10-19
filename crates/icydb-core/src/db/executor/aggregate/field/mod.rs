@@ -118,7 +118,6 @@ impl AggregateFieldValueContract {
                 Self::exact(Runtime::Int64)
             }
             Accepted::Int128 => Self::exact(Runtime::Int128),
-            Accepted::IntBig { .. } => Self::exact(Runtime::IntBig),
             Accepted::Principal => Self::exact(Runtime::Principal),
             Accepted::Subaccount => Self::exact(Runtime::Subaccount),
             Accepted::Text { .. } => Self::exact(Runtime::Text),
@@ -127,7 +126,6 @@ impl AggregateFieldValueContract {
                 Self::exact(Runtime::Nat64)
             }
             Accepted::Nat128 => Self::exact(Runtime::Nat128),
-            Accepted::NatBig { .. } => Self::exact(Runtime::NatBig),
             Accepted::Ulid => Self::exact(Runtime::Ulid),
             Accepted::Unit => Self::exact(Runtime::Unit),
             Accepted::U256 => Self::exact(Runtime::U256),

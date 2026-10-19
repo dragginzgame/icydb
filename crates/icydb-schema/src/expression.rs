@@ -3,8 +3,8 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    Account, Blob, Date, Decimal, Duration, FieldSourceKey, Float32, Float64, IntBig,
-    MAX_PROPOSAL_LITERAL_BYTES, MAX_SOURCE_CHECK_INSTRUCTIONS, NatBig, Principal, ScalarKind,
+    Account, Blob, Date, Decimal, Duration, FieldSourceKey, Float32, Float64,
+    MAX_PROPOSAL_LITERAL_BYTES, MAX_SOURCE_CHECK_INSTRUCTIONS, Principal, ScalarKind,
     SchemaContractError, Subaccount, Timestamp, TypeSourceKey, U256, Ulid, Unit,
 };
 
@@ -36,12 +36,8 @@ pub enum ScalarLiteral {
     Float64(Float64),
     /// Signed fixed-width integer.
     Int(i128),
-    /// Bounded canonical signed big-endian integer bytes.
-    IntBig(IntBig),
     /// Unsigned fixed-width integer.
     Nat(u128),
-    /// Bounded canonical unsigned big-endian integer bytes.
-    NatBig(NatBig),
     /// Fixed-width unsigned 256-bit integer.
     U256(U256),
     /// Principal value.
@@ -73,9 +69,7 @@ impl ScalarLiteral {
             Self::Float32(_) => ScalarKind::Float32,
             Self::Float64(_) => ScalarKind::Float64,
             Self::Int(_) => ScalarKind::Int128,
-            Self::IntBig(_) => ScalarKind::IntBig,
             Self::Nat(_) => ScalarKind::Nat128,
-            Self::NatBig(_) => ScalarKind::NatBig,
             Self::U256(_) => ScalarKind::U256,
             Self::Principal(_) => ScalarKind::Principal,
             Self::Subaccount(_) => ScalarKind::Subaccount,
@@ -86,18 +80,12 @@ impl ScalarLiteral {
         }
     }
 
-    pub(crate) fn validate(&self) -> Result<(), SchemaContractError> {
+    pub(crate) const fn validate(&self) -> Result<(), SchemaContractError> {
         match self {
             Self::Blob(value) if value.len() > MAX_PROPOSAL_LITERAL_BYTES => {
                 Err(SchemaContractError::InvalidLiteral)
             }
             Self::Text(value) if value.len() > MAX_PROPOSAL_LITERAL_BYTES => {
-                Err(SchemaContractError::InvalidLiteral)
-            }
-            Self::IntBig(value) if value.leb128_len() > MAX_PROPOSAL_LITERAL_BYTES as u64 => {
-                Err(SchemaContractError::InvalidLiteral)
-            }
-            Self::NatBig(value) if value.leb128_len() > MAX_PROPOSAL_LITERAL_BYTES as u64 => {
                 Err(SchemaContractError::InvalidLiteral)
             }
             _ => Ok(()),

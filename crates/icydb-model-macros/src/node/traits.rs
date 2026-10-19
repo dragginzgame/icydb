@@ -100,11 +100,6 @@ pub trait HasMacro: HasSchema + HasTraits + HasType + ToTokens {
                 if matches!(derive_tr, TraitKind::Deserialize) {
                     has_serde_deserialize = true;
                 }
-                if matches!(derive_tr, TraitKind::CandidType) {
-                    attrs.push(quote!(
-                        #[candid_path("::icydb_model::__reexports::candid")]
-                    ));
-                }
                 derive_traits.push(path);
             }
         }

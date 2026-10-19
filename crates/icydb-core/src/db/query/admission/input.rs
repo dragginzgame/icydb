@@ -179,8 +179,6 @@ impl QueryInputBudget {
         match value {
             Value::Text(text) => self.payload(text.len()),
             Value::Blob(blob) => self.payload(blob.len()),
-            Value::IntBig(value) => self.big_payload(value.magnitude_bits()),
-            Value::NatBig(value) => self.big_payload(value.magnitude_bits()),
             Value::List(values) => {
                 for value in values {
                     self.value(value, depth + 1)?;
@@ -219,13 +217,6 @@ impl QueryInputBudget {
             | Value::Ulid(_)
             | Value::Unit => Ok(()),
         }
-    }
-
-    fn big_payload(&mut self, bits: u64) -> Result<(), QueryReadAdmissionCode> {
-        self.payload(
-            usize::try_from(bits.div_ceil(8))
-                .map_err(|_| QueryReadAdmissionCode::InputBytesExceeded)?,
-        )
     }
 }
 

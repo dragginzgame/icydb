@@ -14,6 +14,7 @@ mod batch_workload;
 mod catalog_workload;
 mod collection_workload;
 
+use icydb_testing_integration::WireCallExt as _;
 use std::{collections::BTreeSet, io, num::NonZeroUsize, sync::LazyLock};
 
 use crate::sql_harness::{
@@ -23,11 +24,10 @@ use crate::sql_harness::{
     RouteFamily, RouteOutcome, RouteReason, RowOrder, ScenarioMetadata, StatementFamily,
     ValueTypeFamily, WindowSpec, correctness_verdict,
 };
-use candid::{CandidType, Principal};
+use ic_platform::Principal;
 use ic_testkit::pic::{
-    BaselinePoolOutcome, CachedPocketIcBaselinePool, CachedPocketIcBaselinePoolGuard,
-    CandidCallExt as _, FixtureRecipeId, SnapshotRestoreFunding, StandaloneCanisterFixture,
-    StandaloneCanisterRecipe,
+    CachedPocketIcBaselinePool, CachedPocketIcBaselinePoolGuard, SnapshotRestoreFunding,
+    StandaloneCanisterFixture, StandaloneCanisterRecipe,
 };
 use ic_testkit::pocket_ic::PocketIc;
 use icydb::{
@@ -52,9 +52,8 @@ use icydb_testing_sqlite_reference::{
     SqliteReferenceResult, SqliteReferenceRowOrder, SqliteReferenceScenario, SqliteReferenceValue,
     SqliteReferenceWindow, execute_sqlite_reference_scenario, required_sqlite_reference_scenarios,
 };
-use serde::Deserialize;
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 struct IdentityCloseoutPerfResult {
     caller_nat64_instructions: u64,
     generated_nat64_instructions: u64,
@@ -70,7 +69,7 @@ struct IdentityCloseoutPerfResult {
     atomic_typed_enrollment_instructions: u64,
 }
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 struct ApplicationBehaviorPerfResult {
     normalize_instructions: u64,
     validate_instructions: u64,
@@ -81,13 +80,13 @@ struct ApplicationBehaviorPerfResult {
     iterations: u32,
 }
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 struct SqlExecutionInstructionResult {
     result: Result<SqlQueryResult, Error>,
     local_instructions: u64,
 }
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 struct AcceptedSchemaReadInstructionResult {
     description: EntitySchemaDescription,
     local_instructions: u64,
@@ -119,32 +118,25 @@ type SqlFixtureRecipe = StandaloneCanisterRecipe<fn() -> io::Result<StandaloneCa
 // preserve-funding policy; lifecycle tests continue to own fresh installations.
 fn sql_fixture_pool(
     capacity: NonZeroUsize,
-    identity: &str,
     build: fn() -> io::Result<StandaloneCanisterFixture>,
 ) -> CachedPocketIcBaselinePool<SqlFixtureRecipe> {
     CachedPocketIcBaselinePool::new(
         capacity,
-        StandaloneCanisterRecipe::new(
-            FixtureRecipeId::try_new(identity).unwrap(),
-            SnapshotRestoreFunding::Preserve,
-            build,
-        ),
+        StandaloneCanisterRecipe::new(SnapshotRestoreFunding::Preserve, build),
     )
 }
 
 static SQL_FIXTURE_POOL: LazyLock<CachedPocketIcBaselinePool<SqlFixtureRecipe>> =
     LazyLock::new(|| {
-        sql_fixture_pool(SQL_FIXTURE_POOL_CAPACITY, "icydb.sql", || {
+        sql_fixture_pool(SQL_FIXTURE_POOL_CAPACITY, || {
             Ok(install_fixture_canister("sql"))
         })
     });
 static SQL_BOUNDED_FIXTURE_POOL: LazyLock<CachedPocketIcBaselinePool<SqlFixtureRecipe>> =
     LazyLock::new(|| {
-        sql_fixture_pool(
-            SQL_BOUNDED_FIXTURE_POOL_CAPACITY,
-            "icydb.sql-bounded",
-            || Ok(install_fixture_canister("sql_bounded")),
-        )
+        sql_fixture_pool(SQL_BOUNDED_FIXTURE_POOL_CAPACITY, || {
+            Ok(install_fixture_canister("sql_bounded"))
+        })
     });
 
 fn install_sql_canister_fixture() -> CachedPocketIcBaselinePoolGuard<'static, SqlFixtureRecipe> {
@@ -178,13 +170,14 @@ fn reset_sql_fixtures(pic: &PocketIc, canister_id: Principal) {
 
 #[test]
 fn sql_fixture_pool_restores_captured_rows_before_reuse() {
-    let pool = sql_fixture_pool(
-        NonZeroUsize::new(1).unwrap(),
-        "icydb.sql-reuse-control",
-        || Ok(install_fixture_canister("sql")),
-    );
+    let pool = sql_fixture_pool(NonZeroUsize::new(1).unwrap(), || {
+        Ok(install_fixture_canister("sql"))
+    });
     let (first, outcome) = pool.acquire().expect("first lease should install");
-    assert!(matches!(outcome, BaselinePoolOutcome::Built { .. }));
+    assert!(matches!(
+        outcome.disposition,
+        ic_testkit::pic::BaselinePoolDisposition::Built
+    ));
     let canister_id = *first.metadata();
     let before = query_sql(
         first.pocket_ic(),
@@ -205,7 +198,10 @@ fn sql_fixture_pool_restores_captured_rows_before_reuse() {
     drop(first);
 
     let (reused, outcome) = pool.acquire().expect("second lease should restore");
-    assert!(matches!(outcome, BaselinePoolOutcome::Restored { .. }));
+    assert!(matches!(
+        outcome.disposition,
+        ic_testkit::pic::BaselinePoolDisposition::Restored
+    ));
     assert_eq!(*reused.metadata(), canister_id);
     assert_eq!(
         query_sql(
@@ -226,8 +222,8 @@ fn sql_fixture_pool_restores_captured_rows_before_reuse() {
 fn returning_selected_cells_wasm_cost_matrix() {
     use ic_host_artifacts::artifact::Sha256Digest;
     use icydb_testing_build::{
-        CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
-        CanisterWasmProfile, build_canister_with_options,
+        CanisterBuildOptions, CanisterBuildProfile, CanisterSqlMode, CanisterWasmProfile,
+        build_canister_with_options,
     };
     use icydb_testing_integration::install_prebuilt_fixture_canister;
 
@@ -236,7 +232,6 @@ fn returning_selected_cells_wasm_cost_matrix() {
         CanisterBuildOptions {
             profile: CanisterWasmProfile::WasmRelease,
             sql_mode: CanisterSqlMode::Enabled,
-            candid_export: CanisterCandidExportMode::Enabled,
             build_profile: CanisterBuildProfile::LocalTest,
         },
     )
@@ -315,7 +310,9 @@ fn returning_selected_cells_wasm_cost_matrix() {
                         value.to_string()
                     }]])
                 );
-                let response = candid::encode_one(&sample.result).unwrap();
+                let response = icydb::wire::Endpoint::Query
+                    .encode_response(&sample.result)
+                    .unwrap();
                 println!(
                     "returning_cost wide={wide} shape={shape} repeat={repeat} instructions={} cycles={cycles} response_sha256={}",
                     sample.local_instructions,
@@ -333,7 +330,7 @@ fn bound_null_functions_match_literals_in_non_test_wasm() {
     let canister_id = *fixture.metadata();
     reset_sql_fixtures(pic, canister_id);
     let results: Vec<Result<SqlQueryResult, Error>> = pic
-        .query_candid(canister_id, "check_bound_sql_null_parity", ())
+        .query_wire(canister_id, "check_bound_sql_null_parity", ())
         .expect("fixed binding probe should decode");
     assert_eq!(results.len(), 25);
     for (index, pair) in results[..22].as_chunks::<2>().0.iter().enumerate() {
@@ -358,7 +355,7 @@ fn sql_canister_schema_endpoint_exposes_exact_diagnostic_identity() {
     let pic = fixture.pocket_ic();
     let canister_id = *fixture.metadata();
     let response: Result<Vec<EntitySchemaDescription>, Error> = pic
-        .query_candid(canister_id, "icydb_schema", ())
+        .query_wire(canister_id, "icydb_schema", ())
         .expect("schema endpoint response should decode");
     let report = response.expect("controller schema endpoint should succeed");
     assert!(
@@ -402,10 +399,6 @@ fn sql_canister_schema_endpoint_exposes_exact_diagnostic_identity() {
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "keep the end-to-end boundary assertions together with explicit Testkit call identity"
-)]
 fn sql_canister_compact_introspection_is_shared_typed_and_bounded() {
     let fixture = install_sql_canister_fixture();
     let pic = fixture.pocket_ic();
@@ -476,26 +469,6 @@ fn sql_canister_compact_introspection_is_shared_typed_and_bounded() {
         &[SqlColumnExtra::Identity, SqlColumnExtra::Generated],
     );
 
-    let rendered = SqlQueryResult::Describe(SqlDescribeOutput::Compact {
-        entity,
-        columns: columns.clone(),
-    })
-    .render_lines();
-    assert_eq!(
-        rendered
-            .iter()
-            .filter(|line| {
-                line.split('|')
-                    .map(str::trim)
-                    .filter(|cell| !cell.is_empty())
-                    .eq(["name", "type", "nullable", "key", "default", "extra"])
-            })
-            .count(),
-        1,
-        "compact DESCRIBE renders exactly one table",
-    );
-    assert!(!rendered.iter().any(|line| line.starts_with("entity:")));
-
     let from = query_sql(pic, canister_id, "SHOW RELATIONS FROM SqlTestUser")
         .expect("SHOW RELATIONS FROM should succeed");
     let in_form = query_sql(pic, canister_id, "SHOW RELATIONS IN SqlTestUser")
@@ -527,7 +500,7 @@ fn identity_closeout_reports_one_row_and_maximum_batch_instruction_costs() {
     let canister_id = *fixture.metadata();
     let stable_before = stable_memory_fingerprint(pic, canister_id);
     let result: Result<IdentityCloseoutPerfResult, Error> = pic
-        .update_candid(canister_id, "measure_identity_closeout_perf", ())
+        .update_wire(canister_id, "measure_identity_closeout_perf", ())
         .expect("Identity closeout perf result should decode");
     let result = result.expect("Identity closeout perf endpoint should succeed");
 
@@ -599,7 +572,7 @@ fn application_behavior_reports_separate_and_composed_instruction_costs() {
     let pic = fixture.pocket_ic();
     let canister_id = *fixture.metadata();
     let result: Result<ApplicationBehaviorPerfResult, String> = pic
-        .query_candid(canister_id, "measure_application_behavior_perf", ())
+        .query_wire(canister_id, "measure_application_behavior_perf", ())
         .expect("application behavior perf result should decode");
     let result = result.expect("application behavior perf endpoint should succeed");
 
@@ -623,7 +596,7 @@ fn application_behavior_reports_separate_and_composed_instruction_costs() {
 
 fn seed_oversized_sql_group_name(pic: &PocketIc, canister_id: Principal) {
     let result: Result<(), Error> = pic
-        .update_candid(canister_id, "seed_oversized_sql_group_name", ())
+        .update_wire(canister_id, "seed_oversized_sql_group_name", ())
         .expect("oversized SQL group-name seed call should decode");
 
     result.expect("oversized SQL group-name seed should succeed");
@@ -634,7 +607,7 @@ fn query_sql_endpoint(
     canister_id: Principal,
     sql: &str,
 ) -> Result<SqlQueryResult, Error> {
-    pic.query_candid(canister_id, "icydb_query", (sql.to_string(),))
+    pic.query_wire(canister_id, "icydb_query", (sql.to_string(),))
         .expect("sql query canister call should decode")
 }
 
@@ -643,7 +616,7 @@ fn measure_query_sql(
     canister_id: Principal,
     sql: &str,
 ) -> SqlExecutionInstructionResult {
-    pic.query_candid(
+    pic.query_wire(
         canister_id,
         "measure_sql_query_instructions",
         (sql.to_string(),),
@@ -664,7 +637,7 @@ fn query_numeric_types(
 }
 
 fn ddl_sql(pic: &PocketIc, canister_id: Principal, sql: &str) -> Result<SqlQueryResult, Error> {
-    pic.update_candid(canister_id, "icydb_ddl", (sql.to_string(),))
+    pic.update_wire(canister_id, "icydb_ddl", (sql.to_string(),))
         .expect("sql DDL canister call should decode")
 }
 
@@ -673,7 +646,7 @@ fn measure_ddl_sql(
     canister_id: Principal,
     sql: &str,
 ) -> SqlExecutionInstructionResult {
-    pic.update_candid(
+    pic.update_wire(
         canister_id,
         "measure_sql_ddl_admission_instructions",
         (sql.to_string(),),
@@ -686,7 +659,7 @@ fn measure_mutation_sql(
     canister_id: Principal,
     sql: &str,
 ) -> SqlExecutionInstructionResult {
-    pic.update_candid(
+    pic.update_wire(
         canister_id,
         "measure_trusted_sql_exact_update_instructions",
         (sql.to_string(),),
@@ -700,7 +673,7 @@ fn measure_accepted_schema_read(
     entity: &str,
 ) -> AcceptedSchemaReadInstructionResult {
     let result: Result<AcceptedSchemaReadInstructionResult, Error> = pic
-        .query_candid(
+        .query_wire(
             canister_id,
             "measure_accepted_schema_read_instructions",
             (entity.to_string(),),
@@ -760,13 +733,13 @@ fn reference_unknown_order_field_survives_real_canister_and_leaves_stable_bytes_
 }
 
 fn update_sql(pic: &PocketIc, canister_id: Principal, sql: &str) -> Result<SqlQueryResult, Error> {
-    pic.update_candid(canister_id, "icydb_update", (sql.to_string(),))
+    pic.update_wire(canister_id, "icydb_update", (sql.to_string(),))
         .expect("sql update canister call should decode")
 }
 
 fn expect_integrity_sql(pic: &PocketIc, canister_id: Principal, sql: &str) -> IntegrityCheckResult {
     let result: Result<IntegrityCheckResult, SqlIntegrityError> = pic
-        .update_candid(canister_id, "icydb_integrity", (sql.to_string(),))
+        .update_wire(canister_id, "icydb_integrity", (sql.to_string(),))
         .expect("integrity canister call should decode");
 
     result.expect("integrity canister call should succeed")
@@ -3680,7 +3653,7 @@ fn sql_canister_ddl_endpoint_publishes_empty_drop_column() {
     let canister_id = *fixture.metadata();
     reset_sql_fixtures(pic, canister_id);
     let reset: Result<(), Error> = pic
-        .update_candid(canister_id, "icydb_fixtures_reset", ())
+        .update_wire(canister_id, "icydb_fixtures_reset", ())
         .expect("fixture reset should decode");
     reset.expect("fixture rows should be removed");
     let mut schema_version = DdlSchemaVersion::initial();
@@ -3932,7 +3905,7 @@ fn sql_canister_integrity_endpoint_executes_controller_gated_quick_check() {
 
     let outsider = Principal::self_authenticating([7_u8; 32]);
     let rejected: Result<IntegrityCheckResult, SqlIntegrityError> = pic
-        .update_candid_as(
+        .update_wire_as(
             canister_id,
             outsider,
             "icydb_integrity",
@@ -3968,7 +3941,7 @@ fn source_declared_controller_endpoints_authorize_before_private_handlers() {
     );
 
     let query: Result<SqlQueryResult, Error> = pic
-        .query_candid_as(
+        .query_wire_as(
             canister_id,
             outsider,
             "icydb_query",
@@ -3979,7 +3952,7 @@ fn source_declared_controller_endpoints_authorize_before_private_handlers() {
 
     for method in ["icydb_ddl", "icydb_update"] {
         let result: Result<SqlQueryResult, Error> = pic
-            .update_candid_as(
+            .update_wire_as(
                 canister_id,
                 outsider,
                 method,
@@ -3990,13 +3963,13 @@ fn source_declared_controller_endpoints_authorize_before_private_handlers() {
     }
     for method in ["icydb_fixtures_reset", "icydb_fixtures_load"] {
         let result: Result<(), Error> = pic
-            .update_candid_as(canister_id, outsider, method, ())
+            .update_wire_as(canister_id, outsider, method, ())
             .expect("non-controller fixture response should decode");
         assert_eq!(result, Err(sql_error.clone()), "{method}");
     }
 
     let metrics: Result<MetricsReport, Error> = pic
-        .query_candid_as(canister_id, outsider, "icydb_metrics", ())
+        .query_wire_as(canister_id, outsider, "icydb_metrics", ())
         .expect("public metrics response should decode");
     assert!(
         metrics.is_ok(),
@@ -4004,18 +3977,18 @@ fn source_declared_controller_endpoints_authorize_before_private_handlers() {
     );
 
     let metrics_reset: Result<(), Error> = pic
-        .update_candid_as(canister_id, outsider, "icydb_metrics_reset", ())
+        .update_wire_as(canister_id, outsider, "icydb_metrics_reset", ())
         .expect("non-controller metrics reset response should decode");
     assert_eq!(metrics_reset, Err(operational_error.clone()));
     let snapshot: Result<StorageReport, Error> = pic
-        .query_candid_as(canister_id, outsider, "icydb_snapshot", ())
+        .query_wire_as(canister_id, outsider, "icydb_snapshot", ())
         .expect("non-controller snapshot response should decode");
     assert_eq!(
         snapshot.expect_err("a non-controller snapshot must fail before its handler"),
         operational_error,
     );
     let schema: Result<Vec<EntitySchemaDescription>, Error> = pic
-        .query_candid_as(canister_id, outsider, "icydb_schema", ())
+        .query_wire_as(canister_id, outsider, "icydb_schema", ())
         .expect("non-controller schema response should decode");
     assert_eq!(schema, Err(schema_error));
 }
@@ -5591,7 +5564,7 @@ fn sql_canister_update_endpoint_admits_primary_key_update_only() {
     // Reset uses ordinary trusted DELETE lowering, so this also verifies
     // deletion of populated rows under the generated memory configuration.
     let reset: Result<(), Error> = pic
-        .update_candid(canister_id, "icydb_fixtures_reset", ())
+        .update_wire(canister_id, "icydb_fixtures_reset", ())
         .expect("populated fixture reset should decode");
     reset.expect("populated rows should delete");
     let deleted = expect_projection(

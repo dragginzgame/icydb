@@ -1,14 +1,17 @@
 #!/usr/bin/env perl
+# Shared companions: scripts/ci/StableVersion.pm
 use strict;
 use warnings;
+use FindBin qw($RealBin);
+use lib $RealBin;
+use StableVersion qw(stable);
 
 # Cargo owns TOML and dependency resolution. This transforms Cargo-generated
 # lockfiles without reserializing or resolving their external selections.
 @ARGV >= 4 or die "usage: rewrite-local-lock-versions.pl LOCKFILE PREVIOUS CANDIDATE PACKAGE...\n";
 my ($path, $previous, $candidate, @packages) = @ARGV;
 for ($previous, $candidate) {
-    /\A(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\z/
-        or die "expected canonical stable version\n";
+    stable($_) or die "expected canonical stable version\n";
 }
 $previous ne $candidate or die "previous and candidate must differ\n";
 my %selected;

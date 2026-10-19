@@ -34,9 +34,6 @@ pub(in crate::db) enum AcceptedFieldKind {
     Int32,
     Int64,
     Int128,
-    IntBig {
-        max_bytes: u32,
-    },
     Principal,
     Subaccount,
     Text {
@@ -48,9 +45,6 @@ pub(in crate::db) enum AcceptedFieldKind {
     Nat32,
     Nat64,
     Nat128,
-    NatBig {
-        max_bytes: u32,
-    },
     U256,
     Ulid,
     Unit,
@@ -91,7 +85,6 @@ impl AcceptedFieldKind {
         let next_depth = depth.saturating_add(1);
         match self {
             Self::Decimal { scale } => *scale <= icydb_schema::Decimal::max_supported_scale(),
-            Self::IntBig { max_bytes } | Self::NatBig { max_bytes } => *max_bytes != 0,
             Self::Relation { key_kind, .. } | Self::List(key_kind) | Self::Set(key_kind) => {
                 key_kind.has_valid_local_shape_at(next_depth)
             }
@@ -169,11 +162,9 @@ impl AcceptedFieldKind {
             | Self::Decimal { .. }
             | Self::Enum { .. }
             | Self::Int128
-            | Self::IntBig { .. }
             | Self::List(_)
             | Self::Map { .. }
             | Self::Nat128
-            | Self::NatBig { .. }
             | Self::Set(_) => LeafCodec::Structural,
         }
     }
@@ -210,7 +201,6 @@ impl AcceptedFieldKind {
             | Self::Int32
             | Self::Int64
             | Self::Int128
-            | Self::IntBig { .. }
             | Self::Principal
             | Self::Subaccount
             | Self::Text { .. }
@@ -220,7 +210,6 @@ impl AcceptedFieldKind {
             | Self::Nat32
             | Self::Nat64
             | Self::Nat128
-            | Self::NatBig { .. }
             | Self::U256
             | Self::Ulid
             | Self::Unit => false,
@@ -248,7 +237,6 @@ impl AcceptedFieldKind {
             | Self::Int32
             | Self::Int64
             | Self::Int128
-            | Self::IntBig { .. }
             | Self::Map { .. }
             | Self::Principal
             | Self::Subaccount
@@ -259,7 +247,6 @@ impl AcceptedFieldKind {
             | Self::Nat32
             | Self::Nat64
             | Self::Nat128
-            | Self::NatBig { .. }
             | Self::U256
             | Self::Ulid
             | Self::Unit => false,
@@ -290,7 +277,6 @@ impl AcceptedFieldKind {
             | Self::Int32
             | Self::Int64
             | Self::Int128
-            | Self::IntBig { .. }
             | Self::Principal
             | Self::Subaccount
             | Self::Text { .. }
@@ -300,7 +286,6 @@ impl AcceptedFieldKind {
             | Self::Nat32
             | Self::Nat64
             | Self::Nat128
-            | Self::NatBig { .. }
             | Self::U256
             | Self::Ulid
             | Self::Unit => false,
@@ -324,7 +309,6 @@ Self::Int16 => [],
 Self::Int32 => [],
 Self::Int64 => [],
 Self::Int128 => [],
-Self::IntBig{max_bytes} => [max_bytes],
 Self::Principal => [],
 Self::Subaccount => [],
 Self::Text{max_len} => [max_len],
@@ -334,7 +318,6 @@ Self::Nat16 => [],
 Self::Nat32 => [],
 Self::Nat64 => [],
 Self::Nat128 => [],
-Self::NatBig{max_bytes} => [max_bytes],
 Self::U256 => [],
 Self::Ulid => [],
 Self::Unit => [],

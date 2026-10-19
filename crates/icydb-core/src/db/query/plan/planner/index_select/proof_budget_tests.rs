@@ -184,13 +184,11 @@ fn prefix_successor_admission_is_cumulative_and_follows_lower_proof() {
 #[test]
 fn payload_comparison_keeps_numeric_strict_semantics_and_admits_repeated_work() {
     use crate::{
-        types::{Decimal, Float64, IntBig, NatBig},
+        types::{Decimal, Float64},
         value::ValueEnum,
     };
     let values = [
         Value::Text("λ".repeat(16)),
-        Value::IntBig(i128::MIN.to_string().parse::<IntBig>().unwrap()),
-        Value::NatBig(u128::MAX.to_string().parse::<NatBig>().unwrap()),
         Value::Enum(ValueEnum::test_payload(1, 2, Value::Text("nested".into()))),
         Value::Map(vec![(
             Value::List(vec![Value::Text("key".into())]),

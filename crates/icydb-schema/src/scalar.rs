@@ -6,7 +6,6 @@
 //! validation.
 //! Boundary: exposes compact scalar-kind capability descriptors and registry order.
 
-use candid::CandidType;
 use serde::{Deserialize, Serialize};
 
 ///
@@ -15,9 +14,7 @@ use serde::{Deserialize, Serialize};
 /// Canonical scalar kind used for shared capability metadata.
 ///
 
-#[derive(
-    CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize,
-)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 pub enum ScalarKind {
     Account,
     Blob,
@@ -30,14 +27,12 @@ pub enum ScalarKind {
     Float64,
     Int,
     Int128,
-    IntBig,
     Principal,
     Subaccount,
     Text,
     Timestamp,
     Nat,
     Nat128,
-    NatBig,
     U256,
     Ulid,
     Unit,
@@ -105,7 +100,7 @@ impl ScalarKind {
 /// Capability metadata shared across schema/core layers.
 ///
 
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[expect(clippy::struct_excessive_bools)]
 pub struct ScalarMetadata {
     family: ScalarCoercionFamily,
@@ -174,7 +169,7 @@ impl ScalarMetadata {
 /// Coarse intrinsic family used by downstream coercion and validation policy.
 ///
 
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum ScalarCoercionFamily {
     Numeric,
     Textual,
@@ -186,14 +181,14 @@ pub enum ScalarCoercionFamily {
 }
 
 /// Ordered list of all scalar kinds in registry order.
-pub const ALL_SCALAR_KINDS: [ScalarKind; 22] = scalar_kind_registry!(all_kinds_from_registry);
+pub const ALL_SCALAR_KINDS: [ScalarKind; 20] = scalar_kind_registry!(all_kinds_from_registry);
 
 #[cfg(test)]
 mod tests {
     use super::{ALL_SCALAR_KINDS, ScalarKind};
     use std::collections::HashSet;
 
-    const EXPECTED_SCALAR_KINDS: [ScalarKind; 22] = [
+    const EXPECTED_SCALAR_KINDS: [ScalarKind; 20] = [
         ScalarKind::Account,
         ScalarKind::Blob,
         ScalarKind::Bool,
@@ -205,14 +200,12 @@ mod tests {
         ScalarKind::Float64,
         ScalarKind::Int,
         ScalarKind::Int128,
-        ScalarKind::IntBig,
         ScalarKind::Principal,
         ScalarKind::Subaccount,
         ScalarKind::Text,
         ScalarKind::Timestamp,
         ScalarKind::Nat,
         ScalarKind::Nat128,
-        ScalarKind::NatBig,
         ScalarKind::U256,
         ScalarKind::Ulid,
         ScalarKind::Unit,
@@ -325,14 +318,12 @@ mod tests {
             | ScalarKind::Float64
             | ScalarKind::Int
             | ScalarKind::Int128
-            | ScalarKind::IntBig
             | ScalarKind::Principal
             | ScalarKind::Subaccount
             | ScalarKind::Text
             | ScalarKind::Timestamp
             | ScalarKind::Nat
             | ScalarKind::Nat128
-            | ScalarKind::NatBig
             | ScalarKind::U256
             | ScalarKind::Ulid
             | ScalarKind::Unit => {}

@@ -765,10 +765,8 @@ pub(in crate::db) fn identity_kind_maximum(kind: &AcceptedFieldKind) -> Option<u
         | AcceptedFieldKind::Int32
         | AcceptedFieldKind::Int64
         | AcceptedFieldKind::Int128
-        | AcceptedFieldKind::IntBig { .. }
         | AcceptedFieldKind::List(_)
         | AcceptedFieldKind::Map { .. }
-        | AcceptedFieldKind::NatBig { .. }
         | AcceptedFieldKind::Principal
         | AcceptedFieldKind::Relation { .. }
         | AcceptedFieldKind::Set(_)

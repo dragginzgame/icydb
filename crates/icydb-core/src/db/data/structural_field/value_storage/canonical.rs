@@ -17,9 +17,9 @@ use crate::{
                 encode::{
                     push_account_payload, push_date_payload, push_decimal_payload,
                     push_duration_payload, push_float32_payload, push_float64_payload,
-                    push_int_big_payload, push_int128_payload, push_nat_big_payload,
-                    push_nat128_payload, push_principal_payload, push_subaccount_payload,
-                    push_timestamp_payload, push_u256_payload, push_ulid_payload,
+                    push_int128_payload, push_nat128_payload, push_principal_payload,
+                    push_subaccount_payload, push_timestamp_payload, push_u256_payload,
+                    push_ulid_payload,
                 },
                 skip::skip_value_storage_scalar,
                 tags::VALUE_BINARY_TAG_ENUM,
@@ -72,7 +72,6 @@ fn push_canonical_value_storage(
         CanonicalValue::Float64(value) => push_float64_payload(out, *value),
         CanonicalValue::Int64(value) => push_binary_int64(out, *value),
         CanonicalValue::Int128(value) => push_int128_payload(out, *value),
-        CanonicalValue::IntBig(value) => push_int_big_payload(out, value),
         CanonicalValue::List(items) => {
             push_binary_list_len(out, items.len());
             for item in items {
@@ -93,7 +92,6 @@ fn push_canonical_value_storage(
         CanonicalValue::Timestamp(value) => push_timestamp_payload(out, *value),
         CanonicalValue::Nat64(value) => push_binary_nat64(out, *value),
         CanonicalValue::Nat128(value) => push_nat128_payload(out, *value),
-        CanonicalValue::NatBig(value) => push_nat_big_payload(out, value),
         CanonicalValue::Ulid(value) => push_ulid_payload(out, *value),
         CanonicalValue::Unit => push_binary_unit(out),
         CanonicalValue::U256(value) => push_u256_payload(out, *value),
@@ -284,7 +282,7 @@ mod tests {
 
     use super::*;
     use crate::db::schema::MAX_ACCEPTED_RECURSIVE_DEPTH;
-    use crate::types::{Decimal, IntBig, NatBig};
+    use crate::types::Decimal;
     use crate::value::{
         CanonicalEnumBody, CanonicalEnumValue, EnumTypeId, EnumVariantId, ValueEnum,
     };
@@ -360,11 +358,9 @@ mod tests {
 
     #[test]
     fn canonical_value_storage_round_trips_shared_structural_binary_payloads() {
-        let values = [
-            CanonicalValue::Decimal(Decimal::from_i128_with_scale(12_345, 2)),
-            CanonicalValue::IntBig(IntBig::from(-123_456_789_i64)),
-            CanonicalValue::NatBig(NatBig::from(987_654_321_u64)),
-        ];
+        let values = [CanonicalValue::Decimal(Decimal::from_i128_with_scale(
+            12_345, 2,
+        ))];
 
         for value in values {
             let encoded = encode_canonical_value_storage_bytes(&value)

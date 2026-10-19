@@ -5,11 +5,10 @@ use crate::{
         data::{DecodedDataStoreKey, RawRow},
         key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
     },
-    testing::test_memory_runtime,
+    testing::{run_isolated, test_memory_runtime},
     types::EntityTag,
 };
-use ic_memory::ic_stable_structures::VectorMemory;
-use ic_memory::{MemoryManagerConfig, MemoryRuntime};
+use ic_memory::{Memory, MemoryManagerConfig, MemoryRuntime, VectorMemory};
 
 fn assert_accounting(report: &MemoryAllocations) {
     assert_eq!(report.memories.len(), 255);
@@ -42,40 +41,59 @@ fn assert_accounting(report: &MemoryAllocations) {
 }
 
 // Numeric observers must retain detailed accounting without materializing ID rows.
-fn assert_numeric_summary<M: ic_memory::ic_stable_structures::Memory>(
+fn assert_numeric_summary<M: ic_memory::Memory>(
     runtime: &MemoryRuntime<M>,
     detailed: &MemoryAllocations,
 ) {
     let summary = runtime.memory_allocation_summary().unwrap();
     assert_eq!(summary.current_generation, detailed.current_generation);
     assert_eq!(
-        summary.physical_extent.bytes,
+        summary.physical_extent.bytes(),
         detailed.physical_extent.bytes
     );
-    assert_eq!(summary.virtual_extent.bytes, detailed.virtual_extent.bytes);
     assert_eq!(
-        summary.allocated_bucket_bytes,
+        summary.virtual_extent.bytes(),
+        detailed.virtual_extent.bytes
+    );
+    assert_eq!(
+        summary.allocated_bucket_bytes(),
         detailed.allocated_bucket_bytes
     );
-    assert_eq!(summary.bucket_slack_bytes, detailed.bucket_slack_bytes);
+    assert_eq!(summary.bucket_slack_bytes(), detailed.bucket_slack_bytes);
     assert_eq!(
-        summary.unknown_binding.allocated_bytes,
+        summary
+            .unknown_binding
+            .allocated_bytes(summary.bucket_size_pages),
         detailed.unknown_binding_bytes
     );
     assert_eq!(
-        summary.current_binding.allocated_bytes + summary.ledger_binding.allocated_bytes,
+        summary
+            .current_binding
+            .allocated_bytes(summary.bucket_size_pages)
+            + summary
+                .ledger_binding
+                .allocated_bytes(summary.bucket_size_pages),
         detailed.known_binding_bytes
     );
     assert_eq!(
-        summary.current_binding.bucket_slack_bytes
-            + summary.ledger_binding.bucket_slack_bytes
-            + summary.unknown_binding.bucket_slack_bytes,
+        summary
+            .current_binding
+            .bucket_slack_bytes(summary.bucket_size_pages)
+            + summary
+                .ledger_binding
+                .bucket_slack_bytes(summary.bucket_size_pages)
+            + summary
+                .unknown_binding
+                .bucket_slack_bytes(summary.bucket_size_pages),
         detailed.bucket_slack_bytes
     );
-    assert_eq!(summary.metadata_bytes_read, detailed.metadata_bytes_read);
-    assert!(summary.metadata_bytes_read <= 34_848);
     assert_eq!(
-        usize::from(summary.memories_measured),
+        ic_memory::MemoryAllocationSummary::METADATA_BYTES_READ,
+        detailed.metadata_bytes_read
+    );
+    assert!(detailed.metadata_bytes_read <= 34_848);
+    assert_eq!(
+        usize::from(ic_memory::MemoryAllocationSummary::MEMORIES_MEASURED),
         detailed.memories.len()
     );
 }
@@ -92,7 +110,7 @@ fn bucket_trial(pages: u16) -> (MemoryAllocations, MemoryAllocations) {
     let index = IndexStore::init_journaled(open(101));
     let schema = SchemaStore::init_journaled(open(102));
     let journal = JournalTailStore::init(open(103));
-    let empty: MemoryAllocations = runtime.memory_allocations().unwrap().into();
+    let empty: MemoryAllocations = MemoryAllocations::from_runtime(&runtime).unwrap();
 
     // Cross the 16-page bucket boundary with canonical row writes. This is a
     // storage/accounting fixture, not an end-to-end transaction cost model.
@@ -107,7 +125,7 @@ fn bucket_trial(pages: u16) -> (MemoryAllocations, MemoryAllocations) {
             .unwrap();
     }
     let before = backing.borrow().clone();
-    let populated: MemoryAllocations = runtime.memory_allocations().unwrap().into();
+    let populated: MemoryAllocations = MemoryAllocations::from_runtime(&runtime).unwrap();
     assert_eq!(*backing.borrow(), before);
     assert_eq!(populated.current_generation, empty.current_generation);
     assert_eq!(populated.bucket_size_pages, pages);
@@ -115,29 +133,34 @@ fn bucket_trial(pages: u16) -> (MemoryAllocations, MemoryAllocations) {
     assert_accounting(&empty);
     assert_accounting(&populated);
 
-    // The current Candid shape preserves ledger, known and unknown rows along
+    // The current Wire shape preserves ledger, known and unknown rows along
     // with unavailable payload occupancy; the DTO is never allocation authority.
     let report = StorageReport {
         memory_allocations: Some(populated.clone()),
         ..StorageReport::default()
     };
-    let bytes = candid::encode_one(report).unwrap();
-    let decoded: StorageReport = candid::decode_one(&bytes).unwrap();
+    let bytes = icydb_schema::wire::encode_one(report).unwrap();
+    let decoded: StorageReport = icydb_schema::wire::decode_one(&bytes).unwrap();
     assert_eq!(decoded.memory_allocations(), Some(&populated));
     assert!(matches!(
         populated.memories[0].binding,
         MemoryAllocationBinding::Ledger { .. }
     ));
-    assert!(matches!(
+    assert_eq!(
         populated.memories[100].binding,
-        MemoryAllocationBinding::Current { .. }
-    ));
+        MemoryAllocationBinding::Current {
+            stable_key: "icydb.core_tests.slot_100.v1".to_string(),
+            owner: "icydb.core-tests".to_string(),
+        }
+    );
+    assert_eq!(populated.memories[100].pool_eligible, Some(true));
+    assert_eq!(populated.memories[0].pool_eligible, Some(false));
 
     drop((data, index, schema, journal, runtime));
     // Reopening without bootstrap has physical allocations but no current
     // application bindings. Preserve those bytes as unknown, not free.
     let reopened = MemoryRuntime::new(backing.clone()).unwrap();
-    let unknown: MemoryAllocations = reopened.memory_allocations().unwrap().into();
+    let unknown: MemoryAllocations = MemoryAllocations::from_runtime(&reopened).unwrap();
     assert_numeric_summary(&reopened, &unknown);
     assert_accounting(&unknown);
     assert!(unknown.unknown_binding_bytes > 0);
@@ -147,6 +170,7 @@ fn bucket_trial(pages: u16) -> (MemoryAllocations, MemoryAllocations) {
         unknown.memories[100].binding,
         MemoryAllocationBinding::Unknown
     ));
+    assert_eq!(unknown.memories[100].pool_eligible, None);
     drop(reopened);
     let other_pages = if pages == 16 { 128 } else { 16 };
     assert!(matches!(
@@ -172,7 +196,7 @@ fn bucket_trial(pages: u16) -> (MemoryAllocations, MemoryAllocations) {
 }
 
 #[test]
-fn fresh_bucket_trial_preserves_accounting_and_current_candid_shape() {
+fn fresh_bucket_trial_preserves_accounting_and_current_wire_shape() {
     let (default_empty, default_populated) = bucket_trial(128);
     let (small_empty, small_populated) = bucket_trial(16);
     assert_eq!(default_empty.virtual_extent, small_empty.virtual_extent);
@@ -189,4 +213,17 @@ fn fresh_bucket_trial_preserves_accounting_and_current_candid_shape() {
 fn absent_default_runtime_diagnostics_do_not_construct_memory() {
     assert!(collect_memory_allocations().unwrap().is_none());
     assert!(collect_memory_allocations().unwrap().is_none());
+}
+
+#[test]
+fn bound_runtime_diagnostics_distinguish_corruption_from_absence() {
+    run_isolated(|| {
+        assert!(collect_memory_allocations().unwrap().is_none());
+        let backing = VectorMemory::default();
+        let runtime = test_memory_runtime(backing.clone(), MemoryManagerConfig::new(1).unwrap());
+        crate::db::bind_memory_runtime(std::rc::Rc::new(runtime)).unwrap();
+        assert!(collect_memory_allocations().unwrap().is_some());
+        backing.write(0, b"BAD");
+        assert!(collect_memory_allocations().is_err());
+    });
 }

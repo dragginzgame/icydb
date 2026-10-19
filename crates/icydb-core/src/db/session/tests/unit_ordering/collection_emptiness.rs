@@ -11,7 +11,7 @@ fn with_stored_operand(
     check: impl FnOnce(DbSession<TestCanister>) + Send + 'static,
 ) {
     // Each shape gets a fresh accepted catalog and request state before any write.
-    std::thread::spawn(move || {
+    crate::testing::run_isolated(move || {
         let session = initialize();
         publish_operand_schema(&session, kind);
         session
@@ -24,9 +24,7 @@ fn with_stored_operand(
             )
             .expect("accepted stored operand");
         check(session);
-    })
-    .join()
-    .expect("collection predicate fixture");
+    });
 }
 
 #[test]

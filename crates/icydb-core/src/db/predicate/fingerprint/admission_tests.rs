@@ -16,8 +16,8 @@ use crate::{
         resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
     },
     types::{
-        Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
-        Timestamp, U256, Ulid,
+        Account, Date, Decimal, Duration, Float32, Float64, Principal, Subaccount, Timestamp, U256,
+        Ulid,
     },
     value::{Value, ValueEnum},
 };
@@ -67,12 +67,6 @@ fn values() -> Vec<Value> {
         Value::Text("İΣé\0".repeat(1024)),
         Value::Text(String::new()),
         Value::Blob(vec![255; 4096]),
-        Value::IntBig(IntBig::from_bigint(
-            -(num_bigint::BigInt::from(1) << 4096usize),
-        )),
-        Value::NatBig(NatBig::from_biguint(
-            num_bigint::BigUint::from(1u8) << 4096usize,
-        )),
         Value::Enum(ValueEnum::test_unit(1, 2)),
         Value::Enum(ValueEnum::test_payload(
             1,

@@ -2,8 +2,7 @@
 
 use super::*;
 use crate::types::{
-    Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
-    Timestamp, Ulid,
+    Account, Date, Decimal, Duration, Float32, Float64, Principal, Subaccount, Timestamp, Ulid,
 };
 use icydb_diagnostic_code::DiagnosticCode;
 use std::slice;
@@ -49,7 +48,7 @@ fn sql_multiplication_reads_padded_decimal_fields() {
 #[test]
 fn sql_integral_decimal_literals_match_dynamic_comparisons_and_stored_writes() {
     for scale in [0, 8, 28] {
-        std::thread::spawn(move || {
+        crate::testing::run_isolated(move || {
             let session = initialize();
             publish_operand_schema(&session, AcceptedFieldKind::Decimal { scale });
             session
@@ -142,17 +141,11 @@ fn sql_integral_decimal_literals_match_dynamic_comparisons_and_stored_writes() {
                     }
                 }
             }
-        })
-        .join()
-        .unwrap();
+        });
     }
 }
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "bounded stored-write, integer-family and SQL/dynamic read parity matrix"
-)]
 fn sql_bare_wide_integers_match_typed_stored_writes_and_reads() {
     for (kind, values) in [
         (
@@ -166,24 +159,8 @@ fn sql_bare_wide_integers_match_typed_stored_writes_and_reads() {
             AcceptedFieldKind::Int128,
             vec![InputValue::int128(i128::MIN), InputValue::int128(i128::MAX)],
         ),
-        (
-            AcceptedFieldKind::IntBig { max_bytes: 32 },
-            vec![
-                InputValue::int_big(IntBig::from_bigint(i128::MIN.into())),
-                InputValue::int_big(IntBig::from_bigint(i128::MAX.into())),
-            ],
-        ),
-        (
-            AcceptedFieldKind::NatBig { max_bytes: 32 },
-            vec![
-                InputValue::nat_big(NatBig::from_biguint((u128::from(u64::MAX) + 1).into())),
-                InputValue::nat_big(NatBig::from_biguint(
-                    u128::try_from(i128::MAX).unwrap().into(),
-                )),
-            ],
-        ),
     ] {
-        std::thread::spawn(move || {
+        crate::testing::run_isolated(move || {
             let session = initialize();
             publish_operand_schema(&session, kind);
             session
@@ -196,16 +173,10 @@ fn sql_bare_wide_integers_match_typed_stored_writes_and_reads() {
                 )
                 .unwrap();
             for input in values {
-                // Author plain integer SQL; arbitrary-precision Display uses grouping.
+                // Author plain integer SQL at the declared fixed-width boundary.
                 let integer = match input.as_public() {
                     crate::value::PublicValue::Int128(value) => value.to_string(),
                     crate::value::PublicValue::Nat128(value) => value.to_string(),
-                    crate::value::PublicValue::IntBig(value) => {
-                        value.to_i128().unwrap().to_string()
-                    }
-                    crate::value::PublicValue::NatBig(value) => {
-                        value.to_u128().unwrap().to_string()
-                    }
                     _ => panic!("expected wide integer fixture"),
                 };
                 session
@@ -262,9 +233,7 @@ fn sql_bare_wide_integers_match_typed_stored_writes_and_reads() {
                     }
                 }
             }
-        })
-        .join()
-        .unwrap();
+        });
     }
 }
 
@@ -310,24 +279,8 @@ fn bound_scalar_families_match_structural_reads_of_stored_values() {
         ),
         (AcceptedFieldKind::Int64, InputValue::int64(-3)),
         (AcceptedFieldKind::Int128, InputValue::int128(i128::MAX)),
-        (
-            AcceptedFieldKind::IntBig { max_bytes: 64 },
-            InputValue::int_big(
-                "170141183460469231731687303715884105727"
-                    .parse::<IntBig>()
-                    .expect("integer"),
-            ),
-        ),
         (AcceptedFieldKind::Nat64, InputValue::nat64(3)),
         (AcceptedFieldKind::Nat128, InputValue::nat128(u128::MAX)),
-        (
-            AcceptedFieldKind::NatBig { max_bytes: 64 },
-            InputValue::nat_big(
-                "340282366920938463463374607431768211455"
-                    .parse::<NatBig>()
-                    .expect("natural"),
-            ),
-        ),
         (AcceptedFieldKind::U256, InputValue::u256(U256::MAX)),
         (
             AcceptedFieldKind::Text { max_len: None },
@@ -345,9 +298,7 @@ fn bound_scalar_families_match_structural_reads_of_stored_values() {
     for (kind, input) in cases {
         // Each accepted schema gets a fresh thread-local registry and cache,
         // rather than replacing storage beneath a retained runtime root.
-        std::thread::spawn(move || assert_stored_operand_parity(kind, input))
-            .join()
-            .expect("scalar parity case");
+        crate::testing::run_isolated(move || assert_stored_operand_parity(kind, input));
     }
 }
 
@@ -495,7 +446,7 @@ fn assert_stored_decimal_expression(
 ) {
     // Each accepted scale owns fresh storage; repeated requests qualify
     // cold/warm compiled plans without replacing a retained schema root.
-    std::thread::spawn(move || {
+    crate::testing::run_isolated(move || {
         let session = initialize();
         publish_operand_schema(&session, AcceptedFieldKind::Decimal { scale });
         session
@@ -526,9 +477,7 @@ fn assert_stored_decimal_expression(
                 Err(expected) => assert_eq!(result.unwrap_err().diagnostic_code(), expected),
             }
         }
-    })
-    .join()
-    .unwrap();
+    });
 }
 
 #[test]
@@ -575,7 +524,7 @@ fn sql_remainder_decimal_scale_alignment_preserves_stored_results() {
     ] {
         // Fresh accepted storage per scale; repeated requests cover cold/warm
         // plans while reading the maintained padded decimal field encoding.
-        std::thread::spawn(move || {
+        crate::testing::run_isolated(move || {
             let session = initialize();
             publish_operand_schema(&session, AcceptedFieldKind::Decimal { scale });
             session
@@ -617,9 +566,7 @@ fn sql_remainder_decimal_scale_alignment_preserves_stored_results() {
                 };
                 assert_eq!(rows, vec![vec![OutputValue::null(), OutputValue::null()]]);
             }
-        })
-        .join()
-        .unwrap();
+        });
     }
 }
 

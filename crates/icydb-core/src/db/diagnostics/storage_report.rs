@@ -6,7 +6,6 @@
 use crate::{
     db::{
         Db,
-        codec::hex::encode_hex_lower,
         data::{DecodedDataStoreKey, StoreVisit},
         diagnostics::{
             DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, IndexStoreSnapshotStats,
@@ -14,6 +13,7 @@ use crate::{
             StoreSnapshotSchemaMetadata, StoreSnapshotStorageMode,
             memory_allocations::collect_memory_allocations,
         },
+        encode_hex_lower,
         index::{IndexKey, IndexStoreVisit},
         registry::{StoreAllocationIdentity, StoreRuntimeStorageMode},
         runtime_entity_catalog::AcceptedRuntimeEntity,

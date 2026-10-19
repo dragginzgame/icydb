@@ -4,14 +4,15 @@
 //! Boundary: token-owned bounded wire encoding that avoids generic serde
 //! serialization on the cursor runtime path.
 
+use crate::db::codec::writer::{
+    checked_len_u32, write_len_prefixed_bytes_be, write_string_be, write_u32_be, write_u64_be,
+};
+
 use crate::{
     db::{
         codec::ByteReader,
         cursor::{
             ContinuationSignature, CursorBoundary, CursorBoundarySlot,
-            token::bytes::{
-                checked_len_u32, write_len_prefixed_bytes, write_string, write_u32, write_u64,
-            },
             token::scalar::{
                 MAX_SCALAR_CURSOR_LOGICAL_BOUNDARY_BYTES, MAX_SCALAR_CURSOR_ORDER_TERMS,
             },
@@ -81,7 +82,7 @@ pub(in crate::db::cursor::token) fn encode_grouped_token(
     // Build the payload before sealing it with the shared authenticated envelope.
     out.extend_from_slice(&signature.into_bytes());
     write_direction(&mut out, direction);
-    write_u32(&mut out, initial_offset);
+    write_u32_be(&mut out, initial_offset);
 
     // Encode the grouped continuation key tuple under the same value bounds.
     write_value_slice(&mut out, last_group_key)?;
@@ -119,7 +120,7 @@ fn encode_authenticated_payload(
     out.extend_from_slice(TOKEN_WIRE_MAGIC);
     out.push(TOKEN_WIRE_VERSION);
     out.push(variant);
-    write_u32(&mut out, payload_len);
+    write_u32_be(&mut out, payload_len);
     out.extend_from_slice(payload);
     let mac = hmac_sha256(mac_key, out.as_slice());
     out.extend_from_slice(&mac);
@@ -215,22 +216,22 @@ fn write_scalar_payload(out: &mut Vec<u8>, token: &ScalarPageToken) -> Result<()
     out.extend_from_slice(&token.signature().into_bytes());
     let authority = token.authority();
     out.extend_from_slice(&authority.database_incarnation());
-    write_u64(out, authority.accepted_root_revision());
+    write_u64_be(out, authority.accepted_root_revision());
     out.push(authority.accepted_root_fingerprint_method());
     out.extend_from_slice(&authority.accepted_root_fingerprint());
     out.extend_from_slice(&authority.accepted_entity_fingerprint());
-    write_u64(out, authority.entity_tag().value());
+    write_u64_be(out, authority.entity_tag().value());
     out.push(SCALAR_ROUTE_PIN_LAYOUT_CURRENT);
     write_optional_cardinality_route_pin(out, token.route_pin(), authority.entity_tag())?;
 
     let window = token.window();
-    write_u32(out, window.initial_offset());
+    write_u32_be(out, window.initial_offset());
     write_optional_u32(out, window.total_limit());
-    write_u64(out, window.envelope_profile_identity());
+    write_u64_be(out, window.envelope_profile_identity());
 
-    write_u32(out, checked_len_u32(token.order_terms().len())?);
+    write_u32_be(out, checked_len_u32(token.order_terms().len())?);
     for term in token.order_terms() {
-        write_string(out, term.identity())?;
+        write_string_be(out, term.identity())?;
         out.push(match term.direction() {
             OrderDirection::Asc => ORDER_DIRECTION_ASC,
             OrderDirection::Desc => ORDER_DIRECTION_DESC,
@@ -242,8 +243,8 @@ fn write_scalar_payload(out: &mut Vec<u8>, token: &ScalarPageToken) -> Result<()
     write_optional_boundary(out, progress.last_emitted_logical())?;
     write_optional_bytes(out, progress.last_consumed_physical())?;
     write_optional_bytes(out, progress.unconsumed_lookahead())?;
-    write_u64(out, progress.matching_rows_skipped());
-    write_u64(out, progress.rows_emitted());
+    write_u64_be(out, progress.matching_rows_skipped());
+    write_u64_be(out, progress.rows_emitted());
     Ok(())
 }
 
@@ -372,7 +373,7 @@ fn write_optional_u32(out: &mut Vec<u8>, value: Option<u32>) {
     match value {
         Some(value) => {
             out.push(1);
-            write_u32(out, value);
+            write_u32_be(out, value);
         }
         None => out.push(0),
     }
@@ -390,7 +391,7 @@ fn write_optional_bytes(out: &mut Vec<u8>, value: Option<&[u8]>) -> Result<(), T
     match value {
         Some(value) => {
             out.push(1);
-            write_len_prefixed_bytes(out, value)?;
+            write_len_prefixed_bytes_be(out, value)?;
         }
         None => out.push(0),
     }
@@ -414,7 +415,7 @@ fn write_optional_boundary(
         return Ok(());
     };
     out.push(1);
-    write_u32(out, checked_len_u32(boundary.slots.len())?);
+    write_u32_be(out, checked_len_u32(boundary.slots.len())?);
     let start = out.len();
     for slot in &boundary.slots {
         match slot {
@@ -513,11 +514,11 @@ mod tests {
         let key = [0x55; 32];
         let mut payload = vec![0x42; 32];
         payload.push(0); // ascending
-        write_u32(&mut payload, 0); // offset
-        write_u32(&mut payload, 1); // one group key
+        write_u32_be(&mut payload, 0); // offset
+        write_u32_be(&mut payload, 1); // one group key
         for _ in 0..129 {
             payload.push(12); // list
-            write_u32(&mut payload, 1);
+            write_u32_be(&mut payload, 1);
         }
         payload.push(14); // null leaf exceeds the maximum depth
         let wire = encode_authenticated_payload(&payload, TOKEN_VARIANT_GROUPED, &key).unwrap();

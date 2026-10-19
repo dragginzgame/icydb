@@ -53,16 +53,6 @@ pub(in crate::db) fn encoded_value_capacity(
             }
         }
         Value::Blob(blob) => bytes = bytes.saturating_add(blob.len() as u64),
-        Value::IntBig(integer) => {
-            // Exact signed length may inspect trailing zero limbs. Admit that
-            // scan before sizing, not after an unbounded metadata helper.
-            budget.charge(
-                Resource::PredicateExpressionSteps,
-                integer.magnitude_bits().div_ceil(32),
-            )?;
-            bytes = bytes.saturating_add(integer.leb128_len());
-        }
-        Value::NatBig(integer) => bytes = bytes.saturating_add(integer.leb128_len()),
         Value::Account(_) => bytes = bytes.saturating_add(ENCODING_NODE_BYTES),
         Value::List(items) => {
             for item in items {

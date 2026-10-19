@@ -33,6 +33,7 @@ check() {
   # mismatch must terminate explicitly before it can count as a completed case.
   if [[ "$expected" == pass && "$status" != 0 || "$expected" != pass && "$status" == 0 ]]; then
     printf 'Workflow case %s expected %s, observed status %s\n' "$name" "$expected" "$status" >&2
+    cat "$fixture/$name.log" >&2
     exit 1
   fi
   count=$((count + 1))
@@ -69,10 +70,10 @@ reset
 mutate '(.jobs.dependency_msrv.steps[] | select(.run == "bash scripts/ci/check-public-msrv.sh")).if = "github.event_name == '\''pull_request'\''"'
 check fail conditional-msrv-gate
 reset
-mutate '.jobs.dependency_msrv.steps |= map(select(.run != "make fetch"))'
+mutate '.jobs.dependency_msrv.steps |= map(select(.run != "cargo fetch --locked"))'
 check fail missing-msrv-cache-preparation
 reset
-mutate '.jobs.dependency_msrv.steps |= (map(select(.run != "make fetch")) + [{"run": "make fetch"}])'
+mutate '.jobs.dependency_msrv.steps |= (map(select(.run != "cargo fetch --locked")) + [.[] | select(.run == "cargo fetch --locked")])'
 check fail late-msrv-cache-preparation
 reset
 mutate '(.jobs.macos_host.steps[] | select(has("run")) | .run) |= sub("make check-portable-automation"; "make help")'
@@ -109,19 +110,22 @@ reset
 mutate '(.jobs.rust.steps[] | select(.env.MAKE_TARGET == "${{ matrix.make_target }}")) |= del(.env.MAKE_TARGET)'
 check fail missing-matrix-make-target
 reset
-mutate '.jobs.rust.steps |= map(select(.run != "make fetch"))'
+mutate '.jobs.rust.steps |= map(select(.run != "cargo fetch --locked"))'
 check fail missing-locked-cache-preparation
 reset
-mutate '.jobs.rust.steps |= (map(select(.run != "make fetch")) + [{"run": "make fetch"}])'
+mutate '(.jobs.rust.steps[] | select(.run == "cargo fetch --locked")).run = "cargo fetch"'
+check fail unlocked-cache-preparation
+reset
+mutate '.jobs.rust.steps |= (map(select(.run != "cargo fetch --locked")) + [.[] | select(.run == "cargo fetch --locked")])'
 check fail cache-preparation-after-offline-check
 reset
-mutate '(.jobs.rust.steps[] | select(.run == "make fetch")).if = "github.event_name == '\''pull_request'\''"'
+mutate '(.jobs.rust.steps[] | select(.run == "cargo fetch --locked")).if = "github.event_name == '\''pull_request'\''"'
 check fail conditional-cache-preparation
 reset
-mutate '(.jobs.rust.steps[] | select(.run == "make fetch")).continue-on-error = true'
+mutate '(.jobs.rust.steps[] | select(.run == "cargo fetch --locked")).continue-on-error = true'
 check fail ignored-cache-preparation-failure
 reset
-mutate '.jobs.rust.steps |= map(select(.run != "make fetch")) | .jobs.static.steps += [{"run": "make fetch"}]'
+mutate '(.jobs.rust.steps[] | select(.run == "cargo fetch --locked")) as $fetch | .jobs.rust.steps |= map(select(.run != "cargo fetch --locked")) | .jobs.static.steps += [$fetch]'
 check fail cache-preparation-wrong-job
 reset
 mutate '.jobs.static.steps |= map(select(.name != "Prepare locked Testkit CLI for substitute-server fixtures"))'
@@ -141,6 +145,30 @@ check fail incomplete-common-admission
 reset
 mutate '.jobs.rust.steps |= map(select(.uses != "./.github/actions/retain-failure-evidence"))'
 check fail missing-tooling-failure-retention
+reset
+mutate '(.jobs.wasm_size_report.steps[] | select(.name == "Install pinned local tools") | .run) |= sub("make install-ic-tools"; "true")'
+check fail missing-wasm-ic-preparation
+reset
+mutate '(.jobs.wasm_size_report.steps[] | select(.name == "Install pinned local tools") | .run) |= sub("make ic-tools-check"; "true")'
+check fail missing-wasm-ic-admission
+reset
+mutate '.jobs.rust.steps |= map(select(.name != "Prepare governed IC tools for canister builds"))'
+check fail missing-build-ic-preparation
+reset
+mutate '(.jobs.rust.steps[] | select(.name == "Prepare governed IC tools for canister builds")).if = "matrix.lane == '\''workspace'\''"'
+check fail ic-preparation-missing-tier-b
+reset
+mutate '(.jobs.rust.steps[] | select(.name == "Prepare governed IC tools for canister builds")).if = "matrix.lane == '\''tier-b'\''"'
+check fail ic-preparation-missing-workspace
+reset
+mutate '(.jobs.rust.steps[] | select(.name == "Prepare governed IC tools for canister builds")).continue-on-error = true'
+check fail ignored-build-ic-preparation
+reset
+mutate '(.jobs.rust.steps[] | select(.name == "Prepare governed IC tools for canister builds") | .run) |= sub("make ic-tools-check"; "true")'
+check fail missing-build-ic-admission
+reset
+mutate '.jobs.rust.steps |= (map(select(.name != "Prepare governed IC tools for canister builds")) + [.[] | select(.name == "Prepare governed IC tools for canister builds")])'
+check fail late-build-ic-preparation
 reset
 mutate '.jobs.rust.steps |= map(select(.name != "Prepare locked Testkit CLI and server for live tests"))'
 check fail missing-live-server-preparation
@@ -168,8 +196,15 @@ reset
 perl -pi -e 'if (!$done && s/persist-credentials: false/persist-credentials: true # persist-credentials: false/) { $done=1 }' "$subject"
 check fail credentials-comment
 reset
-mutate '.jobs.check.needs = ["rust", "static", "macos_host"]'
+mutate '.jobs.check.needs = ["wire_browser", "rust", "static", "macos_host"]'
 check pass reordered-needs
+reset
+mutate 'del(.jobs.wire_browser)'
+check fail missing-browser-lane
+reset
+mutate '.jobs.check.needs = ["rust", "static", "macos_host"]'
+check fail missing-browser-result-dependency
+reset
 # Serialize the same workflow as quoted JSON, a valid YAML representation.
 "$YQ" -o json '.' "$subject" > "$fixture/quoted"
 mv "$fixture/quoted" "$subject"

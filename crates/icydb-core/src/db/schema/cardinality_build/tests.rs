@@ -16,7 +16,6 @@ use crate::{
     },
     testing::test_memory,
 };
-use ic_memory::ic_stable_structures::Memory;
 
 fn allocations() -> StoreAllocationIdentities {
     StoreAllocationIdentities::new_journaled(
@@ -209,10 +208,10 @@ fn accepted_user_index_authority_covers_every_non_empty_component_prefix() {
 #[test]
 fn populated_rows_resume_exclusively_across_reopen_and_preserve_exact_totals() {
     let entity = EntityTag::new(7);
-    let data_memory = test_memory(190);
-    let index_memory = test_memory(191);
-    let schema_memory = test_memory(192);
-    let mut data = DataStore::init_journaled(data_memory.clone());
+    let data_memory = crate::testing::test_memory_owner(190);
+    let index_memory = crate::testing::test_memory_owner(191);
+    let schema_memory = crate::testing::test_memory_owner(192);
+    let mut data = DataStore::init_journaled(data_memory.open());
     for value in 0..=MAX_CARDINALITY_BUILD_SOURCE_ENTRIES_PER_PAGE {
         data.fold_recovered_journal_put(
             row_key(entity, value),
@@ -223,8 +222,8 @@ fn populated_rows_resume_exclusively_across_reopen_and_preserve_exact_totals() {
         )
         .expect("canonical row should seed");
     }
-    let index = IndexStore::init_journaled(index_memory.clone());
-    let mut schema = SchemaStore::init_journaled(schema_memory.clone());
+    let index = IndexStore::init_journaled(index_memory.open());
+    let mut schema = SchemaStore::init_journaled(schema_memory.open());
     let authority = authority([entity], [], 0);
 
     assert!(matches!(
@@ -250,9 +249,9 @@ fn populated_rows_resume_exclusively_across_reopen_and_preserve_exact_totals() {
     drop(index);
     drop(schema);
 
-    let data = DataStore::init_journaled(data_memory);
-    let index = IndexStore::init_journaled(index_memory);
-    let mut schema = SchemaStore::init_journaled(schema_memory);
+    let data = DataStore::init_journaled(data_memory.open());
+    let index = IndexStore::init_journaled(index_memory.open());
+    let mut schema = SchemaStore::init_journaled(schema_memory.open());
     let final_row_page = advance_cardinality_build_page(&data, &index, &mut schema, &authority)
         .expect("exclusive row checkpoint should resume after reopen");
     let CardinalityBuildPageOutcome::Advanced { phase, totals, .. } = final_row_page else {
@@ -290,8 +289,8 @@ fn populated_rows_resume_exclusively_across_reopen_and_preserve_exact_totals() {
 fn distinct_entity_counts_stay_within_the_frozen_physical_growth_bound() {
     let data_memory = test_memory(196);
     let index_memory = test_memory(197);
-    let schema_memory = test_memory(198);
-    let schema_measurement = schema_memory.clone();
+    let schema_memory = crate::testing::test_memory_owner(198);
+    let schema_measurement = &schema_memory;
     let mut data = DataStore::init_journaled(data_memory);
     let mut entities = BTreeSet::new();
     for value in 1..=MAX_CARDINALITY_BUILD_SOURCE_ENTRIES_PER_PAGE {
@@ -304,7 +303,7 @@ fn distinct_entity_counts_stay_within_the_frozen_physical_growth_bound() {
         .expect("canonical distinct-entity row should seed");
     }
     let index = IndexStore::init_journaled(index_memory);
-    let mut schema = SchemaStore::init_journaled(schema_memory);
+    let mut schema = SchemaStore::init_journaled(schema_memory.open());
     let baseline_bytes = schema_measurement.size() * 65_536;
     let authority = authority(entities, [], 0);
 
@@ -347,8 +346,8 @@ fn distinct_entity_counts_stay_within_the_frozen_physical_growth_bound() {
 fn repeated_maximum_shape_reuses_both_count_slots_at_fixed_physical_high_water() {
     let data_memory = test_memory(202);
     let index_memory = test_memory(203);
-    let schema_memory = test_memory(204);
-    let schema_measurement = schema_memory.clone();
+    let schema_memory = crate::testing::test_memory_owner(204);
+    let schema_measurement = &schema_memory;
     let mut data = DataStore::init_journaled(data_memory);
     let mut entities = BTreeSet::new();
     for value in 1..=MAX_CARDINALITY_BUILD_SOURCE_ENTRIES_PER_PAGE {
@@ -361,7 +360,7 @@ fn repeated_maximum_shape_reuses_both_count_slots_at_fixed_physical_high_water()
         .expect("canonical maximum-shape row should seed");
     }
     let index = IndexStore::init_journaled(index_memory);
-    let mut schema = SchemaStore::init_journaled(schema_memory);
+    let mut schema = SchemaStore::init_journaled(schema_memory.open());
 
     drive_generation_to_ready(
         &data,
@@ -478,12 +477,12 @@ fn accepted_present_indexes_count_every_prefix_and_exclude_other_domains() {
 fn maximum_fanout_index_pages_resume_exclusively_at_the_prefix_gate() {
     let entity = EntityTag::new(10);
     let accepted = IndexId::new_with_generation(entity, 1, 7);
-    let data_memory = test_memory(193);
-    let index_memory = test_memory(194);
-    let schema_memory = test_memory(195);
-    let schema_measurement = schema_memory.clone();
-    let data = DataStore::init_journaled(data_memory.clone());
-    let mut index = IndexStore::init_journaled(index_memory.clone());
+    let data_memory = crate::testing::test_memory_owner(193);
+    let index_memory = crate::testing::test_memory_owner(194);
+    let schema_memory = crate::testing::test_memory_owner(195);
+    let schema_measurement = &schema_memory;
+    let data = DataStore::init_journaled(data_memory.open());
+    let mut index = IndexStore::init_journaled(index_memory.open());
     for value in 0..=MAX_CARDINALITY_BUILD_SOURCE_ENTRIES_PER_PAGE {
         let raw = index_key(
             accepted,
@@ -495,7 +494,7 @@ fn maximum_fanout_index_pages_resume_exclusively_at_the_prefix_gate() {
             .apply_canonical_entry(raw, Some(IndexEntryValue::presence_only()))
             .expect("canonical maximum-fanout entry should seed");
     }
-    let mut schema = SchemaStore::init_journaled(schema_memory.clone());
+    let mut schema = SchemaStore::init_journaled(schema_memory.open());
     let baseline_bytes = schema_measurement.size() * 65_536;
     let authority = authority([entity], [(accepted, MAX_INDEX_FIELDS)], 0);
 
@@ -521,9 +520,9 @@ fn maximum_fanout_index_pages_resume_exclusively_at_the_prefix_gate() {
     drop(index);
     drop(schema);
 
-    let data = DataStore::init_journaled(data_memory);
-    let index = IndexStore::init_journaled(index_memory);
-    let mut schema = SchemaStore::init_journaled(schema_memory);
+    let data = DataStore::init_journaled(data_memory.open());
+    let index = IndexStore::init_journaled(index_memory.open());
+    let mut schema = SchemaStore::init_journaled(schema_memory.open());
     let complete = advance_cardinality_build_page(&data, &index, &mut schema, &authority)
         .expect("exclusive index checkpoint should resume after reopen");
     let CardinalityBuildPageOutcome::CandidateComplete { totals, .. } = complete else {
@@ -735,9 +734,9 @@ fn cached_live_root_without_canonical_root_cannot_authorize_a_build() {
 #[test]
 fn verified_domain_reuse_preserves_restart_counts_and_watermark_rebuilds() {
     let entity = EntityTag::new(7);
-    let memory = test_memory(200);
+    let memory = crate::testing::test_memory_owner(200);
     let (mut data, index, _) = initialized_stores();
-    let mut schema = SchemaStore::init_journaled(memory.clone());
+    let mut schema = SchemaStore::init_journaled(memory.open());
     let candidate = accepted_entity_candidate(AcceptedSchemaRevision::INITIAL, entity);
     schema
         .publish_accepted_schema_candidate(
@@ -761,7 +760,7 @@ fn verified_domain_reuse_preserves_restart_counts_and_watermark_rebuilds() {
         .expect("bounded build should advance");
     }
     drop(schema);
-    let mut schema = SchemaStore::init_journaled(memory);
+    let mut schema = SchemaStore::init_journaled(memory.open());
     // Restart discards the heap cache while retaining the exact durable cursor.
     let cold = canonical_authority(&schema, FoldWatermark::initial());
     assert_eq!(cold.source(), initial.source());

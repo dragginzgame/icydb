@@ -2,12 +2,9 @@
 //! Ten-entity reachable-operation canister used for Wasm specialization auditing.
 //!
 
-// Read IC counter 1 through the CDK; native Candid builds use its
-// unsupported host binding and provide no IC measurement evidence.
-#[cfg(not(target_arch = "wasm32"))]
-use ic_cdk::api::call_context_instruction_counter;
-#[cfg(target_arch = "wasm32")]
-use ic_cdk::api::call_context_instruction_counter;
+// IC counter 1 preserves the call-context sample boundary through Platform.
+// Native system calls provide no IC measurement evidence.
+use ic_platform::ic0::performance_counter;
 
 use icydb::db::{TypedAdapterError, TypedOperationError};
 use icydb_testing_audit_ten_simple_fixtures::ten_simple::{
@@ -34,7 +31,7 @@ fn icydb_memory_pool()
     )
 }
 
-icydb::start!();
+canic_icydb::start!(icydb);
 
 #[icydb_model::record(fields(field(name = "label", value(item(prim = "Text", max_len = 64)))))]
 pub struct UnboundReachableInput {}
@@ -97,7 +94,7 @@ macro_rules! dispatch_entity {
 
 fn exercise_reachable_entity_operation(entity: u8, operation: u8) -> ((u32, u64),) {
     icydb::db::with_request_execution(|| {
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let result = match (db(), entity, operation) {
             (Ok(database), 0, 7) => u32::from(unbound_structural_input_rejects(&database)),
             (Ok(database), _, _) => dispatch_entity!(
@@ -188,26 +185,23 @@ fn exercise_reachable_entity_operation(entity: u8, operation: u8) -> ((u32, u64)
             ),
             (Err(_), _, _) => 0,
         };
-        let instructions = call_context_instruction_counter().saturating_sub(start);
+        let instructions = performance_counter(1).saturating_sub(start);
         ((result, instructions),)
     })
 }
 
-#[ic_cdk::query]
 fn exercise_reachable_entity_read(entity: u8, operation: u8) -> ((u32, u64),) {
     if operation > 1 {
         return ((0, 0),);
     }
     exercise_reachable_entity_operation(entity, operation)
 }
+icydb_testing_wasm_helpers::export_wire!(query, "exercise_reachable_entity_read", ExerciseReachableEntityRead, exercise_reachable_entity_read, (entity: u8, operation: u8), ((u32, u64),));
 
-#[ic_cdk::update]
 fn exercise_reachable_entity_write(entity: u8, operation: u8) -> ((u32, u64),) {
     if !(2..=7).contains(&operation) {
         return ((0, 0),);
     }
     exercise_reachable_entity_operation(entity, operation)
 }
-
-#[cfg(feature = "candid-export")]
-ic_cdk::export_candid!();
+icydb_testing_wasm_helpers::export_wire!(update, "exercise_reachable_entity_write", ExerciseReachableEntityWrite, exercise_reachable_entity_write, (entity: u8, operation: u8), ((u32, u64),));

@@ -68,14 +68,19 @@ lane does not bypass them. They are separate from the public row/access policy
 above and from resource charges for work performed during preparation.
 
 Node accounting includes expression/value nodes and authored names, not just
-predicates. Payload accounting includes names, strings, blobs and big-integer
-magnitude bytes. SQL admission also accounts for effective parameter copies.
+predicates. Payload accounting includes names, strings and blobs. SQL admission
+also accounts for effective parameter copies.
 Depth measures nesting, not the number of siblings in a flat `AND`, `OR` or
 `IN`; a wide flat query can instead reach the node or payload ceiling.
 
 These are input-content limits, not a complete bound on heap allocation,
 rendering, SQL parsing or endpoint deserialization. Endpoint authorization and
-decoder limits remain the application's responsibility.
+decoder limits remain the application's responsibility. IcyDB's native Wire
+contracts select byte, allocation, node and depth limits before Serde visitors
+materialize input. Use the bounded native codec for exported filter/value DTOs;
+direct use of an arbitrary Serde decoder does not inherit those limits. Unknown
+or malformed predicates inside an optional input reject rather than becoming
+an absent filter.
 
 ## Preparation And Accepted Metadata
 
@@ -173,6 +178,10 @@ Group keys and aggregates define grouped output, so `.select(...)` is rejected
 for grouped execution.
 
 ## Generated SQL Query Surface
+
+The Canic `canic_icydb::endpoints!` adapter owns IC exports and caller
+authorization. IcyDB generates the private trusted SQL dispatch capability;
+the adapter authorizes callers before entering that capability.
 
 The `icydb_sql_query` declaration exports `icydb_query` and requires an explicit
 `introspection = true` or `introspection = false` literal. It remains

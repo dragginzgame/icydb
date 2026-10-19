@@ -1080,9 +1080,7 @@ fn membership_values_are_predicate_admissible(target: &Expr, values: &[Value]) -
 
 const fn compare_literal_coercion(op: CompareOp, value: &Value) -> CoercionId {
     match value {
-        Value::Text(_) | Value::Nat64(_) | Value::Nat128(_) | Value::NatBig(_) => {
-            CoercionId::Strict
-        }
+        Value::Text(_) | Value::Nat64(_) | Value::Nat128(_) => CoercionId::Strict,
         Value::Float32(_) | Value::Float64(_) | Value::Decimal(_) => {
             if op.is_ordering_family() {
                 CoercionId::NumericWiden

@@ -176,10 +176,9 @@ whitespace, for example `SELECT price * 1 e3 FROM Product`, or use `AS e3`.
 This restriction does not apply inside strings, hex blob literals or typed
 `U256` string literals.
 
-Strict field binding for `int128`, `nat128`, `int_big` and `nat_big` accepts
+Strict field binding for `int128` and `nat128` accepts
 bare integers exactly within the parser's signed 128-bit range, including
-integers above `u64::MAX`. Unsigned fields reject negative values, and big-integer
-fields enforce their accepted byte limit. Decimal-point spellings such as
+integers above `u64::MAX`. Unsigned fields reject negative values. Decimal-point spellings such as
 `1.0` remain Decimal literals and are rejected for these integer fields.
 For values beyond the bare-literal range, use a quoted decimal integer at these
 field boundaries, for example `balance = '340282366920938463463374607431768211455'`
@@ -515,11 +514,8 @@ an explicit LIMIT; it does not issue grouped continuations. See
 `docs/contracts/GROUP-BY.md` for the maintained ordering boundary.
 
 `ADD COLUMN` accepts a single `NULL` or `NOT NULL` modifier and a literal
-`DEFAULT` before or after it; omission makes the field nullable. Wide integer
-types accept `int_big(max_bytes=N)` or `nat_big(max_bytes=N)`, with the positive
-byte bound admitted by the accepted type contract; bare forms use the default
-bound. Other type heads do not gain support
-merely because the parser can retain a `max_bytes` modifier.
+`DEFAULT` before or after it; omission makes the field nullable. Integer types
+have fixed widths; column type names take no `max_bytes` modifier.
 
 Repeated or conflicting `NULL`/`NOT NULL` modifiers are rejected during parsing,
 including when a `DEFAULT` separates them. A second declaration cannot override
@@ -857,6 +853,12 @@ The admitted single-entity naming surface is:
 - schema-qualified entity names such as `public.Customer`
 - one optional single-table alias, with or without `AS`
 
+Field qualification removes one complete entity or alias prefix from the path
+root. An inner matching segment never qualifies the enclosing record path:
+`owner.Customer.id` remains a record path. With alias `c`, `c.c.name` refers to
+record path `c.name`; the qualifier is not stripped again during expression
+normalization. The same rule applies to read and mutation expressions.
+
 Unquoted entity names resolve against accepted catalog display names using
 ASCII case-insensitive matching. For example, `DESCRIBE customer` resolves an
 accepted entity authored as `Customer`, and metadata continues to report the
@@ -921,9 +923,7 @@ aggregate results merely because the source field is integral.
 
 Decimal uses a bounded i128 mantissa. Numeric inputs outside its representable
 domain report a numeric non-representability error; running-sum overflow reports
-a numeric overflow error. NatBig and IntBig do not participate in Decimal
-coercion, even at small magnitudes: SUM/AVG over their non-NULL values report
-numeric non-representability. Storage support does not imply aggregation support.
+a numeric overflow error. Storage support does not imply aggregation support.
 Decimal addition, subtraction and multiplication round half away from zero to
 the greatest scale that fits the i128 mantissa. Addition/subtraction start at the
 greater operand scale; multiplication is capped at 28 fractional places. Integer
@@ -1126,7 +1126,7 @@ Field-to-field ordering and each field-bound range comparison use numeric
 widening when both fields support numeric coercion. Otherwise, they require
 the same SQL-comparable scalar kind with ordering support and compare strictly.
 This includes text, date, duration, principal, subaccount, account, ulid, boolean,
-`U256`, `IntBig`, and `NatBig`. NULL operands retain SQL UNKNOWN semantics;
+and `U256`. NULL operands retain SQL UNKNOWN semantics;
 collections and incompatible scalar pairs are rejected before execution.
 
 The residual-expression lane also admits supported scalar expressions as text

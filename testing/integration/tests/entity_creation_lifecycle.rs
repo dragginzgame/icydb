@@ -1,9 +1,11 @@
 //! Matched lifecycle envelopes; no instruction-to-cycle conversion is assumed.
 
 use super::{migration_status, projection};
-use ic_testkit::pic::{CandidCallExt as _, StandaloneCanisterFixture};
+use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{Error, ErrorCode, db::RowProjectionOutput, metrics::SchemaLifecycleMetrics};
-use icydb_testing_build::{CanisterWasmProfile, build_entity_creation_lifecycle_fixture_wasms};
+use icydb_testing_build::CanisterWasmProfile;
+use icydb_testing_integration::WireCallExt as _;
+use icydb_testing_integration::fixture_variants::build_entity_creation_lifecycle_fixture_wasms;
 use icydb_testing_integration::{
     deliver_fixture_startup_watchdog, deliver_startup_watchdog_message,
     install_prebuilt_fixture_canister,
@@ -11,22 +13,15 @@ use icydb_testing_integration::{
 
 const ROWS: &str = "SELECT id, key, label, parent_id FROM Item ORDER BY id";
 
-// Measurement endpoints return three Candid arguments. The fixture's ordinary
-// update helper decodes one argument and is therefore unsuitable here.
+// Tuple payloads use the same complete Wire reply as other fixture methods.
 fn measured_update<T>(fixture: &StandaloneCanisterFixture, method: &str) -> T
 where
-    T: for<'de> candid::utils::ArgumentDecoder<'de>,
+    T: serde::Serialize + serde::de::DeserializeOwned,
 {
-    let bytes = fixture
+    fixture
         .pocket_ic()
-        .update_call(
-            fixture.canister_id(),
-            candid::Principal::anonymous(),
-            method,
-            candid::encode_args(()).expect("empty arguments should encode"),
-        )
-        .expect("measurement update should succeed");
-    candid::decode_args(&bytes).expect("measurement arguments should decode")
+        .update_wire(fixture.canister_id(), method, ())
+        .expect("measurement response should decode")
 }
 
 fn cycles(fixture: &StandaloneCanisterFixture) -> u128 {
@@ -43,7 +38,7 @@ fn report_cycles(fixture: &StandaloneCanisterFixture, before: u128, label: &str)
 fn lifecycle_metrics(fixture: &StandaloneCanisterFixture) -> SchemaLifecycleMetrics {
     let result: Result<SchemaLifecycleMetrics, Error> = fixture
         .pocket_ic()
-        .query_candid(
+        .query_wire(
             fixture.canister_id(),
             "entity_creation_lifecycle_metrics",
             (),
@@ -79,7 +74,7 @@ fn report_lifecycle(metrics: &SchemaLifecycleMetrics, label: &str) {
 fn snapshot(fixture: &StandaloneCanisterFixture, label: &str) -> (u64, u64) {
     let result: Result<(bool, u64, u128, u128, u64, u64), Error> = fixture
         .pocket_ic()
-        .query_candid(
+        .query_wire(
             fixture.canister_id(),
             "entity_creation_startup_snapshot",
             (),
@@ -100,7 +95,7 @@ fn seed(wasm: &[u8]) -> (StandaloneCanisterFixture, RowProjectionOutput) {
     for method in ["seed_entity_rename", "seed_entity_creation_target"] {
         let result: Result<(), Error> = fixture
             .pocket_ic()
-            .update_candid(fixture.canister_id(), method, ())
+            .update_wire(fixture.canister_id(), method, ())
             .expect("source seeding should decode");
         result.expect("fixed source rows should seed");
     }
@@ -115,12 +110,7 @@ fn raw_upgrade(fixture: &StandaloneCanisterFixture, wasm: &[u8], label: &str) {
     let before = cycles(fixture);
     fixture
         .pocket_ic()
-        .upgrade_canister(
-            fixture.canister_id(),
-            wasm.to_vec(),
-            candid::encode_args(()).expect("empty args should encode"),
-            None,
-        )
+        .upgrade_canister(fixture.canister_id(), wasm.to_vec(), Vec::new(), None)
         .expect("matched upgrade should succeed");
     report_cycles(fixture, before, &format!("{label}/upgrade-api"));
     snapshot(fixture, &format!("{label}/after-upgrade-api"));
@@ -157,7 +147,7 @@ fn assert_rows(fixture: &StandaloneCanisterFixture, rows: &RowProjectionOutput, 
     }
     let result: Result<(), Error> = fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "check_entity_rename_bindings", ())
+        .query_wire(fixture.canister_id(), "check_entity_rename_bindings", ())
         .expect("old generated bindings should decode");
     result.expect("old generated bindings should remain valid");
 }

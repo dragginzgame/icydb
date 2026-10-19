@@ -1,19 +1,22 @@
-use crate::types::{
-    Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
-    Timestamp, U256, Ulid,
+use crate::{
+    codec::hex::encode_hex_lower,
+    types::{
+        Account, Date, Decimal, Duration, Float32, Float64, Principal, Subaccount, Timestamp, U256,
+        Ulid,
+    },
+    value::Value,
 };
-use crate::value::Value;
-use candid::CandidType;
+
 use serde::Deserialize;
 
 /// Canonical recursive value carried by public input and output boundaries.
 ///
 /// `InputValue` and `OutputValue` remain distinct root types. Their recursive
-/// payload is shared here so Candid and Serde derive one value visitor family.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+/// payload is shared here so Wire and Serde derive one value visitor family.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum PublicValue {
     Account(Account),
-    Blob(Vec<u8>),
+    Blob(#[serde(with = "serde_bytes")] Vec<u8>),
     Bool(bool),
     Date(Date),
     Decimal(Decimal),
@@ -24,7 +27,6 @@ pub enum PublicValue {
     #[serde(rename = "Int")]
     Int64(i64),
     Int128(i128),
-    IntBig(IntBig),
     List(Vec<Self>),
     Map(Vec<(Self, Self)>),
     Null,
@@ -35,7 +37,6 @@ pub enum PublicValue {
     #[serde(rename = "Nat")]
     Nat64(u64),
     Nat128(u128),
-    NatBig(NatBig),
     Ulid(Ulid),
     Unit,
     U256(U256),
@@ -57,7 +58,6 @@ impl PublicValue {
             Self::Float64(value) => value.to_string(),
             Self::Int64(value) => value.to_string(),
             Self::Int128(value) => value.to_string(),
-            Self::IntBig(value) => value.to_string(),
             Self::List(items) => render_list_value(items),
             Self::Map(entries) => render_map_value(entries),
             Self::Null => "null".to_string(),
@@ -67,7 +67,6 @@ impl PublicValue {
             Self::Timestamp(value) => value.as_millis().to_string(),
             Self::Nat64(value) => value.to_string(),
             Self::Nat128(value) => value.to_string(),
-            Self::NatBig(value) => value.to_string(),
             Self::Ulid(value) => value.to_string(),
             Self::Unit => "()".to_string(),
             Self::U256(value) => value.to_string(),
@@ -87,7 +86,6 @@ impl PublicValue {
             Self::Float64(value) => Value::Float64(value),
             Self::Int64(value) => Value::Int64(value),
             Self::Int128(value) => Value::Int128(value),
-            Self::IntBig(value) => Value::IntBig(value),
             Self::List(values) => Value::List(
                 values
                     .into_iter()
@@ -113,7 +111,6 @@ impl PublicValue {
             Self::Timestamp(value) => Value::Timestamp(value),
             Self::Nat64(value) => Value::Nat64(value),
             Self::Nat128(value) => Value::Nat128(value),
-            Self::NatBig(value) => Value::NatBig(value),
             Self::Ulid(value) => Value::Ulid(value),
             Self::Unit => Value::Unit,
             Self::U256(value) => Value::U256(value),
@@ -133,7 +130,6 @@ impl PublicValue {
             Value::Float64(value) => Self::Float64(*value),
             Value::Int64(value) => Self::Int64(*value),
             Value::Int128(value) => Self::Int128(*value),
-            Value::IntBig(value) => Self::IntBig(value.clone()),
             Value::List(values) => Self::List(
                 values
                     .iter()
@@ -158,7 +154,6 @@ impl PublicValue {
             Value::Timestamp(value) => Self::Timestamp(*value),
             Value::Nat64(value) => Self::Nat64(*value),
             Value::Nat128(value) => Self::Nat128(*value),
-            Value::NatBig(value) => Self::NatBig(value.clone()),
             Value::Ulid(value) => Self::Ulid(*value),
             Value::Unit => Self::Unit,
             Value::U256(value) => Self::U256(*value),
@@ -167,7 +162,7 @@ impl PublicValue {
 }
 
 /// Enum metadata shared by public input and output values.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct PublicEnumValue {
     variant: String,
     path: Option<String>,
@@ -246,17 +241,6 @@ impl PublicEnumValue {
 fn render_blob_value(bytes: &[u8]) -> String {
     let mut rendered = String::from("0x");
     rendered.push_str(encode_hex_lower(bytes).as_str());
-    rendered
-}
-
-fn encode_hex_lower(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-
-    let mut rendered = String::with_capacity(bytes.len().saturating_mul(2));
-    for byte in bytes {
-        rendered.push(char::from(HEX[usize::from(byte >> 4)]));
-        rendered.push(char::from(HEX[usize::from(byte & 0x0f)]));
-    }
     rendered
 }
 

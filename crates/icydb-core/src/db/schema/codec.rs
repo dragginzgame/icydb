@@ -9,14 +9,13 @@ mod index;
 mod index_predicate;
 mod mapping;
 
+use crate::db::codec::BoundedByteWriter;
 use crate::{
     db::schema::{
         AcceptedConstraintCatalog, ConstraintIdAllocator, FieldId, PersistedSchemaSnapshot,
         RelationIdAllocator, RowLayoutVersion, SchemaFieldSlot, SchemaRowLayout,
-        SchemaSnapshotAcceptanceError, SchemaVersion,
-        enum_catalog::MAX_SCHEMA_STORE_PATH_BYTES,
-        validate_schema_snapshot_acceptance,
-        wire::{SchemaWireReader, SchemaWireWriter},
+        SchemaSnapshotAcceptanceError, SchemaVersion, enum_catalog::MAX_SCHEMA_STORE_PATH_BYTES,
+        validate_schema_snapshot_acceptance, wire::SchemaWireReader,
     },
     error::InternalError,
 };
@@ -32,7 +31,7 @@ const SCHEMA_SNAPSHOT_FORMAT_VERSION: u8 = 1;
 /// Maximum canonical bytes for one persisted entity-schema snapshot.
 pub(in crate::db) const MAX_SCHEMA_SNAPSHOT_BYTES: u32 = 512 * 1024;
 
-type SnapshotWriter = SchemaWireWriter<{ MAX_SCHEMA_SNAPSHOT_BYTES as usize }>;
+type SnapshotWriter = BoundedByteWriter<{ MAX_SCHEMA_SNAPSHOT_BYTES as usize }>;
 type SnapshotReader<'a> = SchemaWireReader<'a>;
 
 const MAX_NAME_BYTES: usize = icydb_schema::MAX_SCHEMA_NAME_BYTES;

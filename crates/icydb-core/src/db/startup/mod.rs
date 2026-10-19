@@ -7,14 +7,13 @@ mod driver;
 mod observe;
 pub(in crate::db) mod receipt;
 
-use candid::CandidType;
 use icydb_diagnostic_code::{Diagnostic, DiagnosticFactTag, MAX_PUBLIC_DIAGNOSTIC_FACTS};
 use serde::Deserialize;
 
 use crate::{db::StoreRegistry, error::InternalError, traits::CanisterKind};
 
 /// Current generated-database startup readiness.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum DatabaseStartupState {
     /// Recovery controls are complete and the generated schema is reconciled.
     Ready,
@@ -35,7 +34,7 @@ pub enum GeneratedStartupDriverStep {
 }
 
 /// Closed owner of one terminal startup failure.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum StartupFailureKind {
     /// Database boot, incarnation, or commit-control failure.
     DatabaseControl,
@@ -204,7 +203,7 @@ mod tests {
         traits::Path,
         types::EntityTag,
     };
-    use ic_memory::ic_stable_structures::Memory;
+    use ic_memory::Memory;
     use icydb_diagnostic_code::{ErrorCode, ErrorOrigin as DiagnosticOrigin};
     use icydb_schema::{SchemaProposalDigest, SchemaSubmissionKey};
     use std::cell::RefCell;
@@ -560,7 +559,7 @@ mod tests {
             current_commit_memory_allocation().expect("commit allocation should resolve"),
         )
         .expect("commit memory should open");
-        assert_eq!(memory.grow(1), Ok(0));
+        assert_eq!(memory.as_ref().grow(1), Ok(0));
         memory.write(0, b"NOTICYDBCONTROL");
 
         let failure = observe_generated_startup_state::<CorruptCanister>(
@@ -589,7 +588,7 @@ mod tests {
             CorruptCanister::COMMIT_STABLE_KEY,
         );
         let memory = commit_memory_handle(current_commit_memory_allocation().unwrap()).unwrap();
-        assert_eq!(memory.grow(1), Ok(0));
+        assert_eq!(memory.as_ref().grow(1), Ok(0));
         assert_eq!(
             observe_generated_startup_state::<CorruptCanister>(&CORRUPT_STORES, SUBMISSION),
             Ok(DatabaseStartupState::Recovering),

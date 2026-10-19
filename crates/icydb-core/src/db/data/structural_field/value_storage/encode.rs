@@ -5,10 +5,7 @@
 
 use crate::{
     db::data::structural_field::{
-        binary::{
-            push_binary_bytes, push_binary_int_big_payload, push_binary_nat_big_payload,
-            push_binary_null, push_binary_tag,
-        },
+        binary::{push_binary_bytes, push_binary_null, push_binary_tag},
         typed::{
             encode_account_payload_bytes, encode_decimal_payload_bytes,
             encode_duration_payload_millis, encode_float32_payload_bytes,
@@ -19,15 +16,15 @@ use crate::{
         value_storage::tags::{
             VALUE_BINARY_TAG_ACCOUNT, VALUE_BINARY_TAG_DATE, VALUE_BINARY_TAG_DECIMAL,
             VALUE_BINARY_TAG_DURATION, VALUE_BINARY_TAG_FLOAT32, VALUE_BINARY_TAG_FLOAT64,
-            VALUE_BINARY_TAG_INT_BIG, VALUE_BINARY_TAG_INT128, VALUE_BINARY_TAG_NAT_BIG,
-            VALUE_BINARY_TAG_NAT128, VALUE_BINARY_TAG_PRINCIPAL, VALUE_BINARY_TAG_SUBACCOUNT,
-            VALUE_BINARY_TAG_TIMESTAMP, VALUE_BINARY_TAG_U256, VALUE_BINARY_TAG_ULID,
+            VALUE_BINARY_TAG_INT128, VALUE_BINARY_TAG_NAT128, VALUE_BINARY_TAG_PRINCIPAL,
+            VALUE_BINARY_TAG_SUBACCOUNT, VALUE_BINARY_TAG_TIMESTAMP, VALUE_BINARY_TAG_U256,
+            VALUE_BINARY_TAG_ULID,
         },
     },
     error::InternalError,
     types::{
-        Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
-        Timestamp, U256, Ulid,
+        Account, Date, Decimal, Duration, Float32, Float64, Principal, Subaccount, Timestamp, U256,
+        Ulid,
     },
 };
 
@@ -145,22 +142,6 @@ pub(super) fn push_ulid_payload(out: &mut Vec<u8>, value: Ulid) {
 fn push_fixed_payload(out: &mut Vec<u8>, tag: u8, payload: &[u8]) {
     push_binary_tag(out, tag);
     out.extend_from_slice(payload);
-}
-
-// Encode one binary `Value::IntBig` sign and minimal magnitude.
-pub(super) fn push_int_big_payload(out: &mut Vec<u8>, value: &IntBig) {
-    let (is_negative, digits) = value.sign_and_u32_digits();
-
-    push_binary_tag(out, VALUE_BINARY_TAG_INT_BIG);
-    push_binary_int_big_payload(out, is_negative, digits);
-}
-
-// Encode one binary `Value::NatBig` minimal magnitude.
-pub(super) fn push_nat_big_payload(out: &mut Vec<u8>, value: &NatBig) {
-    let digits = value.u32_digits();
-
-    push_binary_tag(out, VALUE_BINARY_TAG_NAT_BIG);
-    push_binary_nat_big_payload(out, digits);
 }
 
 pub(super) fn push_u256_payload(out: &mut Vec<u8>, value: U256) {

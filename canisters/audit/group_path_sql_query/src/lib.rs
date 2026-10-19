@@ -3,7 +3,6 @@
 //!
 
 #[cfg(feature = "sql")]
-use ic_cdk::{query, update};
 #[cfg(feature = "sql")]
 use icydb::{
     ErrorCode, ErrorOrigin,
@@ -23,7 +22,7 @@ fn icydb_memory_pool()
     )
 }
 
-icydb::start!();
+canic_icydb::start!(icydb);
 
 #[cfg(feature = "sql")]
 const ENTITY: &str = "GroupPathAuditRow";
@@ -71,7 +70,6 @@ fn fixture_patch(id: i32) -> StructuralPatch {
 
 /// Reset and load the frozen deterministic comparison rows.
 #[cfg(feature = "sql")]
-#[update]
 fn load_group_path_fixture(row_count: u32) -> Result<u32, icydb::Error> {
     icydb::db::with_request_execution(|| {
         if row_count == 0 || row_count > MAX_FIXTURE_ROWS {
@@ -100,27 +98,29 @@ fn load_group_path_fixture(row_count: u32) -> Result<u32, icydb::Error> {
         Ok(inserted)
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "load_group_path_fixture", LoadGroupPathFixture, load_group_path_fixture, (row_count: u32), Result<u32, icydb::Error>);
 
 /// Execute one mutation statement for fixture control.
 #[cfg(feature = "sql")]
-#[update]
 fn mutate_group_path(sql: String) -> Result<SqlQueryResult, icydb::Error> {
     icydb::db::with_request_execution(|| db()?.execute_trusted_sql_mutation(sql.as_str()))
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "mutate_group_path", MutateGroupPath, mutate_group_path, (sql: String), Result<SqlQueryResult, icydb::Error>);
 
 /// Execute one admin DDL statement for fixed nested-index setup.
 #[cfg(feature = "sql")]
-#[update]
 fn ddl_group_path(sql: String) -> Result<SqlQueryResult, icydb::Error> {
     icydb::db::with_request_execution(|| db()?.execute_admin_sql_ddl(sql.as_str()))
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "ddl_group_path", DdlGroupPath, ddl_group_path, (sql: String), Result<SqlQueryResult, icydb::Error>);
 
 /// Execute one direct or record-path comparison query.
 #[cfg(feature = "sql")]
-#[query]
 fn query_group_path(sql: String) -> Result<SqlQueryResult, icydb::Error> {
     icydb::db::with_request_execution(|| db()?.execute_trusted_sql_query(sql.as_str()))
 }
-
-#[cfg(feature = "candid-export")]
-ic_cdk::export_candid!();
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(query, "query_group_path", QueryGroupPath, query_group_path, (sql: String), Result<SqlQueryResult, icydb::Error>);

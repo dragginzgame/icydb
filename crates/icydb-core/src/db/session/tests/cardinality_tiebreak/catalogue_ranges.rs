@@ -111,7 +111,7 @@ fn complete_nat16_catalogue_range_preserves_empty_order_overflow_and_resume() {
         for count in [0, 64, 65, 128, 129] {
             // Startup control retains accepted authority across live-store
             // replacement. Isolate each fixture's complete thread-local state.
-            std::thread::spawn(move || {
+            crate::testing::run_isolated(move || {
                 let expected = seed_catalogue(count, unique);
                 for descending in [false, true] {
                     let query = catalogue_query(descending);
@@ -142,9 +142,7 @@ fn complete_nat16_catalogue_range_preserves_empty_order_overflow_and_resume() {
                         assert_eq!(sentinel.len() > 64, count > 64);
                     }
                 }
-            })
-            .join()
-            .unwrap();
+            });
         }
     }
 }

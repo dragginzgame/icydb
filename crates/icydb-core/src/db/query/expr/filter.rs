@@ -5,17 +5,16 @@
 
 use crate::{
     db::{
-        QueryError,
-        codec::hex::encode_hex_lower,
+        QueryError, encode_hex_lower,
         query::plan::expr::{BinaryOp, Expr, FieldId, Function, UnaryOp},
         query::preparation::PreparationWork,
         schema::SchemaInfo,
     },
     value::{InputValue, PublicValue, Value},
 };
-use candid::CandidType;
+
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
-use serde::{Deserialize, Deserializer, de::Error as _};
+use serde::Deserialize;
 use std::borrow::Cow;
 
 /// Serialized frontend-safe filter literal payload.
@@ -23,7 +22,7 @@ use std::borrow::Cow;
 /// This keeps the public filter wire surface narrow and string-backed while
 /// the intent boundary still rehydrates typed runtime values from schema.
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum FilterValue {
     String(String),
     Bool(bool),
@@ -80,14 +79,12 @@ impl FilterValue {
                 PublicValue::Float64(value) => FilterValue::String(value.to_string()),
                 PublicValue::Int64(value) => FilterValue::String(value.to_string()),
                 PublicValue::Int128(value) => FilterValue::String(value.to_string()),
-                PublicValue::IntBig(value) => FilterValue::String(value.to_string()),
                 PublicValue::Map(value) => FilterValue::String(format!("{value:?}")),
                 PublicValue::Principal(value) => FilterValue::String(value.to_string()),
                 PublicValue::Subaccount(value) => FilterValue::String(value.to_string()),
                 PublicValue::Timestamp(value) => FilterValue::String(value.to_string()),
                 PublicValue::Nat64(value) => FilterValue::String(value.to_string()),
                 PublicValue::Nat128(value) => FilterValue::String(value.to_string()),
-                PublicValue::NatBig(value) => FilterValue::String(value.to_string()),
                 PublicValue::Ulid(value) => FilterValue::String(value.to_string()),
                 PublicValue::U256(value) => FilterValue::String(value.to_string()),
             }
@@ -107,7 +104,7 @@ where
 }
 
 /// Boolean junction applied to a group of filter expressions.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum JunctionOperator {
     /// Every child expression must match.
     And,
@@ -125,7 +122,7 @@ impl JunctionOperator {
 }
 
 /// Comparison between one field and one literal value.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum CompareOperator {
     /// Exact equality.
     Eq,
@@ -157,7 +154,7 @@ impl CompareOperator {
 }
 
 /// Comparison between two fields.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum FieldCompareOperator {
     /// Exact equality.
     Eq,
@@ -187,7 +184,7 @@ impl FieldCompareOperator {
 }
 
 /// Membership operation applied to one field and a set of literal values.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum SetOperator {
     /// Match any listed value.
     In,
@@ -202,7 +199,7 @@ impl SetOperator {
 }
 
 /// Collection or text-matching operation applied to one field and literal.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum CollectionOperator {
     /// Match a collection containing the literal value.
     Contains,
@@ -221,7 +218,7 @@ pub enum CollectionOperator {
 }
 
 /// Presence or emptiness operation applied to one field.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum StateOperator {
     /// Match a present null value.
     IsNull,
@@ -251,10 +248,10 @@ impl StateOperator {
 ///
 /// This is the shared frontend-facing filter input model for fluent callers
 /// and lowers onto planner-owned boolean expressions at the intent boundary.
-/// Supplied expressions must decode successfully even inside a Candid optional
+/// Supplied expressions must decode successfully even inside a Wire optional
 /// argument; an invalid predicate must never become an absent filter.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
-#[serde(remote = "Self")]
+/// Decode untrusted bytes through IC Wire's bounded native codec before lowering.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum FilterExpr {
     /// A constant boolean predicate.
     Constant(bool),
@@ -665,20 +662,6 @@ impl FilterExpr {
     }
 }
 
-impl<'de> Deserialize<'de> for FilterExpr {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        // Keep the derived visitor on this canonical enum, but make its failures
-        // terminal: Candid otherwise recovers subtype errors in opt as None.
-        // The contextual error also prevents Candid from reclassifying a bare
-        // subtype diagnostic as recoverable through serde::de::Error::custom.
-        Self::deserialize(deserializer)
-            .map_err(|error| D::Error::custom(format_args!("invalid filter expression: {error}")))
-    }
-}
-
 fn lower_field_value_compare(
     operator: CompareOperator,
     schema: &SchemaInfo,
@@ -923,7 +906,7 @@ mod tests {
             },
         },
         types::{Date, Duration, Subaccount, Timestamp},
-        value::Value,
+        value::{PublicValue, Value},
     };
 
     fn lower_filter(filter: &FilterExpr, schema: &SchemaInfo) -> Expr {
@@ -1420,7 +1403,7 @@ mod tests {
     }
 
     #[test]
-    fn grouped_filter_candid_round_trips_every_supported_operation() {
+    fn grouped_filter_wire_round_trips_every_supported_operation() {
         let value = FilterValue::String("value".to_string());
         let comparisons = [
             CompareOperator::Eq,
@@ -1503,44 +1486,97 @@ mod tests {
         ])));
 
         for filter in filters {
-            let encoded = candid::encode_one(&filter).expect("filter should encode");
-            let decoded = candid::decode_one::<FilterExpr>(&encoded).expect("filter should decode");
+            let encoded = icydb_schema::wire::encode_one(&filter).expect("filter should encode");
+            let decoded = icydb_schema::wire::decode_one::<FilterExpr>(&encoded)
+                .expect("filter should decode");
             assert_eq!(decoded, filter);
 
             let optional = Some(filter);
-            let encoded = candid::encode_one(&optional).expect("optional filter should encode");
-            let decoded = candid::decode_one::<Option<FilterExpr>>(&encoded)
+            let encoded =
+                icydb_schema::wire::encode_one(&optional).expect("optional filter should encode");
+            let decoded = icydb_schema::wire::decode_one::<Option<FilterExpr>>(&encoded)
                 .expect("supplied filter should decode");
             assert_eq!(decoded, optional);
         }
     }
 
     #[test]
-    fn optional_filter_candid_preserves_explicit_absence() {
-        let encoded =
-            candid::encode_one(Option::<FilterExpr>::None).expect("absent filter should encode");
+    fn optional_filter_wire_preserves_explicit_absence() {
+        let encoded = icydb_schema::wire::encode_one(Option::<FilterExpr>::None)
+            .expect("absent filter should encode");
         assert_eq!(
-            candid::decode_one::<Option<FilterExpr>>(&encoded)
+            icydb_schema::wire::decode_one::<Option<FilterExpr>>(&encoded)
                 .expect("absent filter should decode"),
             None,
         );
     }
 
     #[test]
-    fn optional_filter_candid_rejects_unknown_expression_family() {
-        #[derive(candid::CandidType)]
+    fn recursive_filter_wire_refuses_depth_before_materializing_the_input() {
+        // The native format carries Not as tag 2 and Constant(true) as [0, 1].
+        // Build hostile bytes directly so encoder admission cannot hide a decode gap.
+        let shallow = FilterExpr::Not(Box::new(FilterExpr::Constant(true)));
+        assert_eq!(icydb_schema::wire::encode_one(&shallow).unwrap(), [2, 0, 1]);
+        let mut nested = vec![2; icydb_schema::wire::MAX_DEPTH + 1];
+        nested.extend_from_slice(&[0, 1]);
+        assert!(matches!(
+            icydb_schema::wire::decode_one::<FilterExpr>(&nested),
+            Err(icydb_schema::wire::Error::Limit),
+        ));
+        nested.insert(0, 1); // Some must not recover the rejected predicate as None.
+        assert!(matches!(
+            icydb_schema::wire::decode_one::<Option<FilterExpr>>(&nested),
+            Err(icydb_schema::wire::Error::Limit),
+        ));
+
+        assert_eq!(
+            icydb_schema::wire::encode_one(FilterValue::List(vec![FilterValue::Null])).unwrap(),
+            [3, 1, 2],
+        );
+        let mut nested = [3, 1].repeat(icydb_schema::wire::MAX_DEPTH + 1);
+        nested.push(2);
+        assert!(matches!(
+            icydb_schema::wire::decode_one::<FilterValue>(&nested),
+            Err(icydb_schema::wire::Error::Limit),
+        ));
+
+        assert_eq!(
+            icydb_schema::wire::encode_one(PublicValue::List(vec![PublicValue::Null])).unwrap(),
+            [11, 1, 13],
+        );
+        let mut nested = [11, 1].repeat(icydb_schema::wire::MAX_DEPTH + 1);
+        nested.push(13);
+        assert!(matches!(
+            icydb_schema::wire::decode_one::<PublicValue>(&nested),
+            Err(icydb_schema::wire::Error::Limit),
+        ));
+
+        let mut admitted = FilterExpr::Constant(true);
+        for _ in 0..64 {
+            admitted = FilterExpr::Not(Box::new(admitted));
+        }
+        let bytes = icydb_schema::wire::encode_one(&admitted).unwrap();
+        assert_eq!(
+            icydb_schema::wire::decode_one::<FilterExpr>(&bytes).unwrap(),
+            admitted,
+        );
+    }
+
+    #[test]
+    fn optional_filter_wire_rejects_unknown_expression_family() {
+        #[derive(serde::Serialize)]
         enum InvalidFilter {
             Unsupported,
         }
 
-        let encoded = candid::encode_one(Some(InvalidFilter::Unsupported))
+        let encoded = icydb_schema::wire::encode_one(Some(InvalidFilter::Unsupported))
             .expect("invalid fixture should encode");
-        assert!(candid::decode_one::<Option<FilterExpr>>(&encoded).is_err());
+        assert!(icydb_schema::wire::decode_one::<Option<FilterExpr>>(&encoded).is_err());
     }
 
     #[test]
-    fn optional_filter_candid_rejects_malformed_current_payloads() {
-        #[derive(candid::CandidType)]
+    fn optional_filter_wire_rejects_malformed_current_payloads() {
+        #[derive(serde::Serialize)]
         enum InvalidFilter {
             Constant(String),
             Compare {
@@ -1569,8 +1605,9 @@ mod tests {
             },
         ];
         for filter in invalid {
-            let encoded = candid::encode_one(Some(filter)).expect("invalid fixture should encode");
-            assert!(candid::decode_one::<Option<FilterExpr>>(&encoded).is_err());
+            let encoded = icydb_schema::wire::encode_one(Some(filter))
+                .expect("invalid fixture should encode");
+            assert!(icydb_schema::wire::decode_one::<Option<FilterExpr>>(&encoded).is_err());
         }
     }
 

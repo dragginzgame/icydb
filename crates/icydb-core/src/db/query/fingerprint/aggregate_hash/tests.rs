@@ -23,7 +23,7 @@ use icydb_diagnostic_code::{
 fn formatted_aggregate() -> AggregateExpr {
     AggregateExpr::from_expression_input(
         AggregateKind::Sum,
-        Expr::Literal(Value::NatBig("18446744073709551616".parse().unwrap())),
+        Expr::Literal(Value::Nat128("18446744073709551616".parse().unwrap())),
     )
     .with_filter_expr(Expr::Literal(Value::Text("quote's λ".into())))
 }
@@ -69,7 +69,7 @@ fn planned_aggregates_preserve_target_input_filter_and_distinct_framing() {
         (
             formatted_aggregate(),
             None,
-            Some("18_446_744_073_709_551_616"),
+            Some("18446744073709551616"),
             Some("'quote''s λ'"),
             false,
         ),
@@ -233,7 +233,7 @@ fn aggregate_label_failure_prevents_grouped_continuation_publication() {
             DiagnosticFactTag::BudgetResource,
             Resource::TemporaryBytes.raw(),
         )));
-        assert_eq!(rejected.observed(Resource::TemporaryBytes), 28);
+        assert_eq!(rejected.observed(Resource::TemporaryBytes), 32);
         let measured = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         let expected = build(&measured).unwrap().unwrap().continuation_signature();
         let exact = measured.observed(Resource::TemporaryBytes);

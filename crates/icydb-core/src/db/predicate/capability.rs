@@ -603,7 +603,6 @@ mod tests {
             predicate::{CoercionId, CoercionSpec, CompareOp, ExecutableComparePredicate},
             schema::PersistedIndexExpressionOp,
         },
-        types::{IntBig, NatBig},
         value::Value,
     };
     use std::borrow::Cow;
@@ -638,7 +637,6 @@ mod tests {
             Value::Null,
             Value::Unit,
             Value::Nat64(1),
-            Value::IntBig(IntBig::from(-256)),
             Value::List(vec![]),
             Value::List(vec![Value::Text(String::new()), Value::Text("ÄBC".into())]),
             Value::List(vec![Value::Text("ÄBC".into()), Value::Null]),
@@ -738,8 +736,6 @@ mod tests {
         };
         let values = [
             Value::Text("x".repeat(4096)),
-            Value::IntBig(IntBig::from(-256)),
-            Value::NatBig(NatBig::from(256u64)),
             Value::Null,
             Value::List(vec![Value::Text("member".into())]),
         ];

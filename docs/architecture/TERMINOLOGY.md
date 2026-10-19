@@ -14,19 +14,15 @@ User-facing persisted field contracts use explicit schema labels:
 
 - `int8`, `int16`, `int32`, `int64`, `int128`
 - `nat8`, `nat16`, `nat32`, `nat64`, `nat128`
-- `int_big(max_bytes=N)`
-- `nat_big(max_bytes=N)`
+- `u256`
 
-These labels describe persisted schema and storage contracts. `int_big` and
-`nat_big` are bounded big-integer contracts; `max_bytes` is part of the schema
-contract.
+These labels describe fixed-width persisted integer contracts.
 
 Ordinary records, tuples, and newtypes are exact nominal composites. There is
 no open-ended persisted field contract.
 
 In Rust schema declarations and derive internals, use the matching enum variant
-names such as `Primitive::IntBig`, `Primitive::NatBig`, `FieldKind::IntBig`,
-and `FieldKind::NatBig`.
+names such as `Primitive::Int128`, `Primitive::Nat128` and `Primitive::U256`.
 
 ## Constraint Vocabulary
 
@@ -62,16 +58,13 @@ Runtime algebraic values carry execution payloads:
 - `Value::Nat64`
 - `Value::Int128`
 - `Value::Nat128`
-- `Value::IntBig`
-- `Value::NatBig`
+- `Value::U256`
 
 These are runtime carriers, not user-facing schema labels. Comments, docs, and
 diagnostics that mention them near schema language should qualify them with
 `Value::`.
 
-`types::IntBig` and `types::NatBig` are arbitrary-precision Rust wrappers used
-by runtime values. When those wrappers cross a schema or storage boundary for
-`int_big` or `nat_big`, the field's `max_bytes` bound applies.
+Runtime integer carriers have fixed numeric ranges.
 
 ## Planner Vocabulary
 

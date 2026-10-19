@@ -7,7 +7,6 @@ fn primitive_item(primitive: Primitive) -> Item {
         None,
         None,
         None,
-        None,
         &[],
         &[],
         false,
@@ -18,7 +17,6 @@ fn relation_item(primitive: Primitive, target: &'static str) -> Item {
     Item::new(
         ItemTarget::Primitive(primitive),
         Some(target),
-        None,
         None,
         None,
         &[],

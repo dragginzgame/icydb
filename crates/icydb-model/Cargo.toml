@@ -3,13 +3,12 @@ name = "icydb-model"
 edition = { workspace = true }
 rust-version = "1.91.0"
 version = { workspace = true }
-license = { workspace = true }
+license-file = { workspace = true }
 description = "IcyDB application-model authoring, validation, and code generation"
 repository = { workspace = true }
 authors = { workspace = true }
 
 [dependencies]
-candid = { workspace = true }
 convert_case = { workspace = true }
 icydb-model-macros = { workspace = true }
 icydb-schema = { workspace = true }

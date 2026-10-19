@@ -3,11 +3,11 @@
 //! Does not own: parsing logic or semantic key construction.
 //! Boundary: consumed by codec encode/decode helpers.
 
-use crate::{
-    MAX_INDEX_FIELDS,
-    db::{
-        index::{IndexId, key::codec::IndexKey},
-        key_taxonomy::COMPOSITE_PRIMARY_KEY_MAX_SIZE,
+use crate::db::{
+    index::{IndexId, key::codec::IndexKey},
+    key_taxonomy::{
+        COMPOSITE_PRIMARY_KEY_MAX_SIZE, INDEX_COMPONENT_MAX_SIZE, INDEX_KEY_MAX_SIZE,
+        INDEX_KEY_PREFIX_SIZE,
     },
 };
 
@@ -15,20 +15,17 @@ pub(super) const KEY_KIND_TAG_SIZE: usize = 1;
 pub(super) const COMPONENT_COUNT_SIZE: usize = 1;
 pub(super) const SEGMENT_LEN_SIZE: usize = 2;
 pub(super) const INDEX_ID_SIZE: usize = IndexId::STORED_SIZE_USIZE;
-pub(super) const KEY_PREFIX_SIZE: usize = KEY_KIND_TAG_SIZE + INDEX_ID_SIZE + COMPONENT_COUNT_SIZE;
+pub(super) const KEY_PREFIX_SIZE: usize = INDEX_KEY_PREFIX_SIZE;
 
 #[expect(clippy::cast_possible_truncation)]
 impl IndexKey {
-    pub(crate) const MAX_COMPONENT_SIZE: usize = 4 * 1024;
+    pub(crate) const MAX_COMPONENT_SIZE: usize = INDEX_COMPONENT_MAX_SIZE;
     pub(crate) const MAX_PK_SIZE: usize = COMPOSITE_PRIMARY_KEY_MAX_SIZE;
 
     const MIN_SEGMENT_SIZE: usize = 1;
 
     /// Maximum on-disk size in bytes (stable, protocol-level bound)
-    pub(crate) const MAX_STORED_SIZE_BYTES: u64 = (KEY_PREFIX_SIZE
-        + (MAX_INDEX_FIELDS * (SEGMENT_LEN_SIZE + Self::MAX_COMPONENT_SIZE))
-        + (SEGMENT_LEN_SIZE + Self::MAX_PK_SIZE))
-        as u64;
+    pub(crate) const MAX_STORED_SIZE_BYTES: u64 = INDEX_KEY_MAX_SIZE as u64;
 
     /// Maximum in-memory size (for bounds checks)
     pub(crate) const MAX_STORED_SIZE_USIZE: usize = Self::MAX_STORED_SIZE_BYTES as usize;
@@ -47,6 +44,7 @@ impl IndexKey {
 
     #[must_use]
     pub(crate) fn wildcard_high_pk() -> Vec<u8> {
-        vec![0xFF; Self::MAX_PK_SIZE]
+        // Every canonical scalar/composite primary-key tag is strictly below 0xFF.
+        vec![0xFF]
     }
 }

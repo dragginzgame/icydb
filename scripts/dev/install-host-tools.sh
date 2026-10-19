@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/verify-file-checksum.sh scripts/dev/tool-store.sh ci/tool-versions.env
+# Shared companions: scripts/ci/verify-file-checksum.sh scripts/ci/tool-catalog-records.pl scripts/dev/tool-store.sh scripts/dev/host-platform.sh ci/tool-versions.env
 set -euo pipefail
 
 # Explicit local provisioning of the complete common host-tool set.
@@ -28,53 +28,46 @@ consumer="$(cd -P "$consumer" && printf '%s/.' "$PWD")"
 consumer="${consumer%/.}"
 case "$consumer" in *$'\n'*|*$'\r'*) echo 'resolved consumer path contains CR/LF' >&2; exit 1 ;; esac
 versions="${versions:-$ROOT/ci/tool-versions.env}"
-# This reviewed shell file is code, just like the consumer's Makefile.
-# shellcheck disable=SC1090
-source "$versions"
-case "$(uname -s):$(uname -m)" in
-    Linux:x86_64|Linux:amd64) host=LINUX_AMD64; yq_platform=linux_amd64; jq_platform=linux-amd64 ;;
-    Linux:aarch64|Linux:arm64) host=LINUX_ARM64; yq_platform=linux_arm64; jq_platform=linux-arm64 ;;
-    Darwin:x86_64|Darwin:amd64) host=DARWIN_AMD64; yq_platform=darwin_amd64; jq_platform=macos-amd64 ;;
-    Darwin:arm64|Darwin:aarch64) host=DARWIN_ARM64; yq_platform=darwin_arm64; jq_platform=macos-arm64 ;;
-    *) echo 'unsupported host-tool platform' >&2; exit 1 ;;
+records="$(perl "$ROOT/scripts/ci/tool-catalog-records.pl" host "$versions")"
+platform="$(bash "$ROOT/scripts/dev/host-platform.sh")"
+case "$platform" in
+    Linux:x86_64) host=LINUX_AMD64; yq_platform=linux_amd64; jq_platform=linux-amd64 ;;
+    Linux:arm64) host=LINUX_ARM64; yq_platform=linux_arm64; jq_platform=linux-arm64 ;;
+    Darwin:x86_64) host=DARWIN_AMD64; yq_platform=darwin_amd64; jq_platform=macos-amd64 ;;
+    Darwin:arm64) host=DARWIN_ARM64; yq_platform=darwin_arm64; jq_platform=macos-arm64 ;;
 esac
-for tool in JQ YQ RIPGREP; do
-    version_key="SHARED_TOOLING_${tool}_VERSION"
-    digest_key="SHARED_TOOLING_${tool}_SHA256_$host"
-    [[ "${!version_key}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "${!digest_key}" =~ ^[0-9a-f]{64}$ ]] || {
-        echo "invalid $tool version or checksum" >&2; exit 1;
-    }
-done
-[[ "${SHARED_TOOLING_CLOC_VERSION:-}" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ &&
-   "${SHARED_TOOLING_CLOC_SHA256:-}" =~ ^[0-9a-f]{64}$ ]] || {
-    echo 'invalid CLOC version or checksum' >&2; exit 1;
-}
+while IFS=$'\t' read -r tool version selected_host digest; do
+    [[ "$selected_host" == "$host" || "$selected_host" == all ]] || continue
+    case "$tool" in
+        JQ) jq_version="$version"; jq_digest="$digest" ;;
+        YQ) yq_version="$version"; yq_digest="$digest" ;;
+        RIPGREP) rg_version="$version"; rg_digest="$digest" ;;
+        CLOC) cloc_version="$version"; cloc_digest="$digest" ;;
+    esac
+done <<< "$records"
 case "$host" in
     LINUX_AMD64) rg_target=x86_64-unknown-linux-musl ;;
     LINUX_ARM64) rg_target=aarch64-unknown-linux-musl ;;
     DARWIN_AMD64) rg_target=x86_64-apple-darwin ;;
     DARWIN_ARM64) rg_target=aarch64-apple-darwin ;;
 esac
-rg_member="ripgrep-$SHARED_TOOLING_RIPGREP_VERSION-$rg_target/rg"
-rg_digest_key="SHARED_TOOLING_RIPGREP_SHA256_$host"
-jq_digest_key="SHARED_TOOLING_JQ_SHA256_$host"
-yq_digest_key="SHARED_TOOLING_YQ_SHA256_$host"
+rg_member="ripgrep-$rg_version-$rg_target/rg"
 # shellcheck source=scripts/dev/tool-store.sh
 source "$ROOT/scripts/dev/tool-store.sh"
-tool_store_init host "$host $SHARED_TOOLING_JQ_VERSION ${!jq_digest_key} $SHARED_TOOLING_YQ_VERSION ${!yq_digest_key} $SHARED_TOOLING_RIPGREP_VERSION ${!rg_digest_key} $SHARED_TOOLING_CLOC_VERSION $SHARED_TOOLING_CLOC_SHA256"
+tool_store_init host "$host $jq_version $jq_digest $yq_version $yq_digest $rg_version $rg_digest $cloc_version $cloc_digest"
 tool_failure() {
-    local tool="$1" path="$2" reason="$3" actual="${4-not-probed}" version_key
+    local tool="$1" path="$2" reason="$3" actual="${4-not-probed}" expected_version
     case "$tool" in
-        jq) version_key=SHARED_TOOLING_JQ_VERSION ;;
-        yq) version_key=SHARED_TOOLING_YQ_VERSION ;;
-        rg) version_key=SHARED_TOOLING_RIPGREP_VERSION ;;
-        cloc) version_key=SHARED_TOOLING_CLOC_VERSION ;;
+        jq) expected_version="$jq_version" ;;
+        yq) expected_version="$yq_version" ;;
+        rg) expected_version="$rg_version" ;;
+        cloc) expected_version="$cloc_version" ;;
     esac
     printf 'host tool check failed: tool=%s expected=%s path=%s reason=%s actual=%q\nRun make install-host-tools in %s, then make host-tools-check\n' \
-        "$tool" "${!version_key}" "$path" "$reason" "$actual" "$consumer" >&2
+        "$tool" "$expected_version" "$path" "$reason" "$actual" "$consumer" >&2
 }
 verify() {
-    local directory="$1" output tool digest_key expected status
+    local directory="$1" output tool expected_digest expected status
     [[ -d "$directory" && ! -L "$directory" && ! -L "$directory/bin" ]] || {
         tool_failure jq "$directory/bin/jq" missing-or-invalid-bundle; return 1;
     }
@@ -86,18 +79,18 @@ verify() {
     # Authenticate every selected payload before executing any of the tools.
     for tool in jq yq cloc; do
         case "$tool" in
-            jq) digest_key="$jq_digest_key" ;;
-            yq) digest_key="$yq_digest_key" ;;
-            cloc) digest_key=SHARED_TOOLING_CLOC_SHA256 ;;
+            jq) expected_digest="$jq_digest" ;;
+            yq) expected_digest="$yq_digest" ;;
+            cloc) expected_digest="$cloc_digest" ;;
         esac
-        bash "$ROOT/scripts/ci/verify-file-checksum.sh" sha256 "${!digest_key}" "$directory/bin/$tool" >&2 || {
+        bash "$ROOT/scripts/ci/verify-file-checksum.sh" sha256 "$expected_digest" "$directory/bin/$tool" >&2 || {
             tool_failure "$tool" "$directory/bin/$tool" authentication-failed; return 1;
         }
     done
     [[ -f "$directory/ripgrep.tar.gz" && ! -L "$directory/ripgrep.tar.gz" ]] || {
         tool_failure rg "$directory/bin/rg" missing-or-invalid-archive; return 1;
     }
-    bash "$ROOT/scripts/ci/verify-file-checksum.sh" sha256 "${!rg_digest_key}" "$directory/ripgrep.tar.gz" >&2 || {
+    bash "$ROOT/scripts/ci/verify-file-checksum.sh" sha256 "$rg_digest" "$directory/ripgrep.tar.gz" >&2 || {
         tool_failure rg "$directory/bin/rg" archive-authentication-failed; return 1;
     }
     # Compare with the authenticated archive before executing installed bytes.
@@ -106,10 +99,10 @@ verify() {
     }
     for tool in jq yq cloc rg; do
         case "$tool" in
-            jq) expected="jq-$SHARED_TOOLING_JQ_VERSION" ;;
-            yq) expected="yq (https://github.com/mikefarah/yq/) version v$SHARED_TOOLING_YQ_VERSION" ;;
-            cloc) expected="$SHARED_TOOLING_CLOC_VERSION" ;;
-            rg) expected="ripgrep $SHARED_TOOLING_RIPGREP_VERSION" ;;
+            jq) expected="jq-$jq_version" ;;
+            yq) expected="yq (https://github.com/mikefarah/yq/) version v$yq_version" ;;
+            cloc) expected="$cloc_version" ;;
+            rg) expected="ripgrep $rg_version" ;;
         esac
         if output="$("$directory/bin/$tool" --version)"; then :; else
             status=$?
@@ -149,18 +142,18 @@ fi
 mkdir "$stage/bin"
 for tool in jq yq; do
     case "$tool" in
-        jq) url="https://github.com/jqlang/jq/releases/download/jq-$SHARED_TOOLING_JQ_VERSION/jq-$jq_platform" ;;
-        yq) url="https://github.com/mikefarah/yq/releases/download/v$SHARED_TOOLING_YQ_VERSION/yq_$yq_platform" ;;
+        jq) url="https://github.com/jqlang/jq/releases/download/jq-$jq_version/jq-$jq_platform" ;;
+        yq) url="https://github.com/mikefarah/yq/releases/download/v$yq_version/yq_$yq_platform" ;;
     esac
     tool_store_download "$url" "$stage/bin/$tool"
     chmod 0755 "$stage/bin/$tool"
 done
 tool_store_download \
-    "https://github.com/AlDanial/cloc/releases/download/v$SHARED_TOOLING_CLOC_VERSION/cloc-$SHARED_TOOLING_CLOC_VERSION.pl" "$stage/bin/cloc"
+    "https://github.com/AlDanial/cloc/releases/download/v$cloc_version/cloc-$cloc_version.pl" "$stage/bin/cloc"
 chmod 0755 "$stage/bin/cloc"
 tool_store_download \
-    "https://github.com/BurntSushi/ripgrep/releases/download/$SHARED_TOOLING_RIPGREP_VERSION/ripgrep-$SHARED_TOOLING_RIPGREP_VERSION-$rg_target.tar.gz" "$stage/ripgrep.tar.gz"
-bash "$ROOT/scripts/ci/verify-file-checksum.sh" sha256 "${!rg_digest_key}" "$stage/ripgrep.tar.gz"
+    "https://github.com/BurntSushi/ripgrep/releases/download/$rg_version/ripgrep-$rg_version-$rg_target.tar.gz" "$stage/ripgrep.tar.gz"
+bash "$ROOT/scripts/ci/verify-file-checksum.sh" sha256 "$rg_digest" "$stage/ripgrep.tar.gz"
 tar -xOzf "$stage/ripgrep.tar.gz" "$rg_member" > "$stage/bin/rg"
 chmod 0755 "$stage/bin/rg"
 verify "$stage"

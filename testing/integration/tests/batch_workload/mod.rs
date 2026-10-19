@@ -1,19 +1,18 @@
 //! End-to-end batch evidence over the existing retained SQL fixture actor.
 
 use crate::{expect_projection, query_sql};
-use candid::{CandidType, Principal};
 use ic_host_artifacts::artifact::Sha256Digest;
-use ic_testkit::pic::CandidCallExt as _;
+use ic_platform::Principal;
 use ic_testkit::pocket_ic::PocketIc;
 use icydb::{Error, types::Ulid};
 use icydb_testing_build::{
-    CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
-    CanisterWasmProfile, build_canister_with_options,
+    CanisterBuildOptions, CanisterBuildProfile, CanisterSqlMode, CanisterWasmProfile,
+    build_canister_with_options,
 };
+use icydb_testing_integration::WireCallExt as _;
 use icydb_testing_integration::install_prebuilt_fixture_canister;
-use serde::Deserialize;
 
-#[derive(CandidType, Debug, Deserialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 struct BatchWorkloadSample {
     result: Result<(), Error>,
     rejected_at: Option<u32>,
@@ -65,7 +64,7 @@ fn qualify_scenario(module: &[u8], count: u32, chunk: u32, individual: bool, rej
     let fixture = install_prebuilt_fixture_canister("sql", module.to_vec());
     let seeded: Result<(), Error> = fixture
         .pocket_ic()
-        .update_candid(
+        .update_wire(
             fixture.canister_id(),
             "seed_batch_workload",
             (count, reject_last),
@@ -93,7 +92,7 @@ fn qualify_scenario(module: &[u8], count: u32, chunk: u32, individual: bool, rej
         let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
         let sample: BatchWorkloadSample = fixture
             .pocket_ic()
-            .update_candid(
+            .update_wire(
                 fixture.canister_id(),
                 "measure_batch_workload",
                 (start, length, individual),
@@ -156,7 +155,6 @@ fn application_batch_workload_preserves_results_and_reports_costs() {
         CanisterBuildOptions {
             profile: CanisterWasmProfile::WasmRelease,
             sql_mode: CanisterSqlMode::Enabled,
-            candid_export: CanisterCandidExportMode::Enabled,
             build_profile: CanisterBuildProfile::LocalTest,
         },
     )

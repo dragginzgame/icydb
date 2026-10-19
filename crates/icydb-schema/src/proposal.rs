@@ -2,7 +2,6 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use candid::CandidType;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -81,7 +80,7 @@ impl SchemaCapability {
 }
 
 /// Expected accepted-schema head used for optimistic application.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub enum ExpectedAcceptedHead {
     /// The target database has no accepted schema.
     Empty,
@@ -975,13 +974,11 @@ const fn exact_numeric_scalar(scalar: ScalarType) -> bool {
             | ScalarType::Int32
             | ScalarType::Int64
             | ScalarType::Int128
-            | ScalarType::IntBig { .. }
             | ScalarType::Nat8
             | ScalarType::Nat16
             | ScalarType::Nat32
             | ScalarType::Nat64
             | ScalarType::Nat128
-            | ScalarType::NatBig { .. }
     )
 }
 
@@ -996,13 +993,11 @@ const fn numeric_scalar(scalar: ScalarType) -> bool {
             | ScalarType::Int32
             | ScalarType::Int64
             | ScalarType::Int128
-            | ScalarType::IntBig { .. }
             | ScalarType::Nat8
             | ScalarType::Nat16
             | ScalarType::Nat32
             | ScalarType::Nat64
             | ScalarType::Nat128
-            | ScalarType::NatBig { .. }
             | ScalarType::U256
     )
 }

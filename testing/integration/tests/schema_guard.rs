@@ -1,21 +1,20 @@
+use icydb_testing_integration::WireCallExt as _;
 use std::{collections::BTreeSet, fs};
 
-use candid::{CandidType, Principal};
-use ic_testkit::pic::CandidCallExt as _;
+use ic_platform::Principal;
 use icydb::{Error, ErrorCode, db::EntitySchemaDescription};
 use icydb_testing_build::{
-    CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterWasmProfile,
-    build_canister_with_options, build_fixture_canister_wasm_bytes_with_options,
+    CanisterBuildOptions, CanisterBuildProfile, CanisterWasmProfile, build_canister_with_options,
+    build_fixture_canister_wasm_bytes_with_options,
     canister_artifact::{CanisterMethod, MethodMode, inspect_canister_artifacts},
 };
 use icydb_testing_integration::{install_fixture_canister, install_prebuilt_fixture_canister};
-use serde::Deserialize;
 
 const WRAPPER_INSTRUCTION_CEILING: u64 = 5_000_000;
 const ALLOWLIST_INSTRUCTION_CEILING: u64 = 1_000_000;
 const GUARDED_SCHEMA_RAW_WASM_GROWTH_CEILING: u64 = 128 * 1024;
 
-#[derive(CandidType, Debug, Deserialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 struct ReadAuthorizationCostResult {
     caller_instructions: u64,
     helper_instructions: u64,
@@ -36,7 +35,7 @@ fn query_schema(
 ) -> Result<Vec<EntitySchemaDescription>, Error> {
     fixture
         .pocket_ic()
-        .query_candid_as(fixture.canister_id(), caller, "icydb_schema", ())
+        .query_wire_as(fixture.canister_id(), caller, "icydb_schema", ())
         .expect("schema response should decode")
 }
 
@@ -57,7 +56,7 @@ fn public_controller_and_guarded_schema_modes_preserve_distinct_authority() {
     let controller = install_prebuilt_fixture_canister("schema_guard", production_wasm);
     let controller_schema: Result<Vec<EntitySchemaDescription>, Error> = controller
         .pocket_ic()
-        .query_candid(controller.canister_id(), "icydb_schema", ())
+        .query_wire(controller.canister_id(), "icydb_schema", ())
         .expect("controller schema response should decode");
     assert!(
         !controller_schema
@@ -83,7 +82,7 @@ fn public_controller_and_guarded_schema_modes_preserve_distinct_authority() {
     );
     let guarded_controller: Result<Vec<EntitySchemaDescription>, Error> = guarded
         .pocket_ic()
-        .query_candid(guarded.canister_id(), "icydb_schema", ())
+        .query_wire(guarded.canister_id(), "icydb_schema", ())
         .expect("guarded controller denial should decode");
     assert_eq!(
         guarded_controller
@@ -92,7 +91,7 @@ fn public_controller_and_guarded_schema_modes_preserve_distinct_authority() {
         ErrorCode::RUNTIME_BOUNDARY_SCHEMA_SURFACE_POLICY_DENIED,
     );
 
-    let absent_sql = guarded.pocket_ic().query_candid_as::<Result<(), Error>, _>(
+    let absent_sql = guarded.pocket_ic().query_wire_as::<Result<(), Error>, _>(
         guarded.canister_id(),
         principal(42),
         "icydb_query",
@@ -117,7 +116,7 @@ fn guarded_schema_rejects_anonymous_before_application_code_and_propagates_guard
 
     let trapped = fixture
         .pocket_ic()
-        .query_candid_as::<Result<Vec<EntitySchemaDescription>, Error>, _>(
+        .query_wire_as::<Result<Vec<EntitySchemaDescription>, Error>, _>(
             fixture.canister_id(),
             principal(44),
             "icydb_schema",
@@ -131,7 +130,7 @@ fn guarded_schema_local_authorization_cost_stays_below_frozen_ceilings() {
     let fixture = install_fixture_canister("schema_guard");
     let cost: Result<ReadAuthorizationCostResult, Error> = fixture
         .pocket_ic()
-        .query_candid_as(
+        .query_wire_as(
             fixture.canister_id(),
             principal(42),
             "read_authorization_cost",
@@ -172,7 +171,6 @@ fn guarded_and_controller_schema_artifacts_keep_one_identical_public_surface() {
             "schema_guard",
             CanisterBuildOptions {
                 profile: CanisterWasmProfile::WasmRelease,
-                candid_export: CanisterCandidExportMode::Enabled,
                 build_profile,
                 ..CanisterBuildOptions::default()
             },
@@ -188,14 +186,13 @@ fn guarded_and_controller_schema_artifacts_keep_one_identical_public_surface() {
     }]);
     let [controller_manifest, guarded_manifest] = [&controller_wasm, &guarded_wasm].map(|wasm| {
         let manifest = inspect_canister_artifacts(wasm.as_ref())
-            .expect("Candid and raw Wasm exports should agree");
+            .expect("protocol declarations and raw Wasm exports should agree");
         assert_eq!(manifest.icydb_methods(), expected);
         manifest
     });
-
     assert_eq!(
-        controller_manifest.candid, guarded_manifest.candid,
-        "guarded schema must not change the complete Candid service",
+        controller_manifest.wire_methods, guarded_manifest.wire_methods,
+        "guarded schema must preserve the complete Wire surface",
     );
 
     let controller_bytes = fs::metadata(&controller_wasm)

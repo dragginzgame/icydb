@@ -15,7 +15,7 @@ use crate::{
             key::ordered::encode_canonical_index_component,
             key::{IndexId, IndexKey, IndexKeyEncodeError, IndexKeyKind, OrderedValueEncodeError},
         },
-        key_taxonomy::PrimaryKeyValue,
+        key_taxonomy::{PrimaryKeyValue, index_store_key_encoded_len},
         resource::construction::ConstructionBudget,
         schema::{
             AcceptedFieldKind, AcceptedValueAdmissionContract, PersistedIndexExpressionOp,
@@ -527,10 +527,16 @@ fn build_user_index_key_from_components<T>(
     }
 
     let mut components = Vec::with_capacity(component_count);
-    for (component_index, item) in items.iter().enumerate() {
+    for item in items {
         let Some(component) = component_bytes(item)? else {
             return Ok(None);
         };
+        components.push(component);
+    }
+    // An omitted nullable component produces no index entry. Apply key-byte
+    // limits only after membership is established, so earlier text remains an
+    // ordinary row value when a later component omits this sparse key.
+    for (component_index, component) in components.iter().enumerate() {
         if component.len() > IndexKey::MAX_COMPONENT_SIZE {
             return Err(InternalError::index_component_exceeds_max_size_at(
                 index_id.entity_tag().value(),
@@ -540,14 +546,24 @@ fn build_user_index_key_from_components<T>(
                 IndexKey::MAX_COMPONENT_SIZE,
             ));
         }
-        components.push(component);
     }
 
+    let primary_key = IndexKey::compact_primary_key_value_bytes(primary_key)?;
+    let encoded_len =
+        index_store_key_encoded_len(components.iter().map(Vec::as_slice), primary_key.len());
+    if encoded_len > IndexKey::MAX_STORED_SIZE_USIZE {
+        return Err(InternalError::index_key_exceeds_max_size_at(
+            index_id.entity_tag().value(),
+            index_id.generation(),
+            encoded_len,
+            IndexKey::MAX_STORED_SIZE_USIZE,
+        ));
+    }
     Ok(Some(IndexKey {
         key_kind: IndexKeyKind::User,
         index_id,
         components,
-        primary_key: IndexKey::compact_primary_key_value_bytes(primary_key)?,
+        primary_key,
     }))
 }
 
@@ -590,6 +606,39 @@ fn encode_value_index_component_ref(value: &Value) -> Result<Option<Vec<u8>>, In
 mod assembly_tests {
     use super::*;
     use crate::db::key_taxonomy::PrimaryKeyComponent;
+
+    #[test]
+    fn complete_user_key_budget_counts_framing_and_primary_identity() {
+        let id = IndexId::new_with_generation(EntityTag::new(23), 2, 5);
+        let primary_key = PrimaryKeyComponent::Nat64(7).into();
+        for second_size in [277, 278] {
+            let result = build_user_index_key_from_components(
+                id,
+                &primary_key,
+                &[200, second_size],
+                |size| Ok(Some(vec![17; *size])),
+            );
+            if second_size == 277 {
+                assert_eq!(
+                    result.unwrap().unwrap().to_raw().unwrap().as_bytes().len(),
+                    512
+                );
+            } else {
+                let error = result.unwrap_err();
+                let expected = InternalError::index_key_exceeds_max_size_at(23, 5, 513, 512);
+                assert_eq!(error.diagnostic(), expected.diagnostic());
+                assert_eq!(error.diagnostic_facts(), expected.diagnostic_facts());
+                assert_eq!(error.class(), crate::error::ErrorClass::Unsupported);
+                assert!(
+                    icydb_diagnostic_code::validate_known_diagnostic_fact_schema(
+                        error.diagnostic().error_code(),
+                        &error.diagnostic_facts()
+                    )
+                    .is_ok()
+                );
+            }
+        }
+    }
 
     #[test]
     fn user_key_limits_preserve_typed_diagnostics() {
@@ -669,6 +718,22 @@ mod assembly_tests {
         .unwrap();
         assert!(absent.is_none());
         assert_eq!(calls, 2);
+
+        for items in [
+            [Value::Text("x".repeat(1024)), Value::Null],
+            [Value::Null, Value::Text("x".repeat(1024))],
+        ] {
+            assert!(
+                build_user_index_key_from_components(
+                    id,
+                    &primary_key,
+                    &items,
+                    encode_value_index_component_ref
+                )
+                .unwrap()
+                .is_none()
+            );
+        }
     }
 }
 

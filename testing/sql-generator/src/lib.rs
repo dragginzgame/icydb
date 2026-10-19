@@ -10,6 +10,7 @@ mod error;
 mod failure;
 mod fixture;
 mod generator;
+mod minimize;
 mod model;
 mod mutation;
 mod replay;

@@ -137,7 +137,7 @@ pub(in crate::db) fn admit_query_index_component(
     budget.charge(Resource::PredicateExpressionSteps, capacity as u64)
 }
 
-// Capacity discovery reads only scalar metadata, not text bytes or bigint limbs.
+// Capacity discovery reads only scalar metadata, not text bytes.
 // Escaping and decimal digits use conservative bounds; no sizing buffer is built.
 fn component_capacity(value: &Value) -> Result<usize, OrderedValueEncodeError> {
     let payload = match value {
@@ -159,21 +159,6 @@ fn component_capacity(value: &Value) -> Result<usize, OrderedValueEncodeError> {
             .and_then(|len| len.checked_add(2))
             .ok_or(OrderedValueEncodeError::SegmentTooLarge)?,
         Value::Principal(principal) => principal.as_slice().len() + 1,
-        Value::IntBig(value) => {
-            let bytes = value.magnitude_bits().div_ceil(8);
-            let bytes =
-                u16::try_from(bytes).map_err(|_| OrderedValueEncodeError::SegmentTooLarge)?;
-            if bytes == 0 {
-                1
-            } else {
-                usize::from(bytes) + 3
-            }
-        }
-        Value::NatBig(value) => {
-            let bytes = u16::try_from(value.magnitude_bits().div_ceil(8))
-                .map_err(|_| OrderedValueEncodeError::SegmentTooLarge)?;
-            usize::from(bytes) + 2
-        }
         Value::Null => return Err(OrderedValueEncodeError::NullNotIndexable),
         Value::Blob(_) | Value::Enum(_) | Value::List(_) | Value::Map(_) => {
             return Err(OrderedValueEncodeError::UnsupportedValueKind);
@@ -288,7 +273,6 @@ fn encode_component_payload(
             Ok(())
         }
         Value::Int128(v) => v.encode_ordered(out),
-        Value::IntBig(v) => normalize::push_signed_big_integer_payload(out, v),
         Value::Null => Err(OrderedValueEncodeError::NullNotIndexable),
         Value::Principal(v) => {
             segments::push_principal_payload(out, v)?;
@@ -308,7 +292,6 @@ fn encode_component_payload(
             Ok(())
         }
         Value::Nat128(v) => v.encode_ordered(out),
-        Value::NatBig(v) => normalize::push_unsigned_big_integer_payload(out, v),
         Value::Ulid(v) => {
             out.extend_from_slice(&v.to_bytes());
             Ok(())

@@ -8,7 +8,6 @@
 #[cfg(test)]
 mod tests;
 
-use candid::CandidType;
 use icydb_diagnostic_code as diagnostic_code;
 use serde::Deserialize;
 use std::fmt;
@@ -1632,6 +1631,36 @@ impl InternalError {
         Self::new(ErrorClass::Unsupported, ErrorOrigin::Index)
     }
 
+    /// Reject a complete encoded index key with bounded accepted-index evidence.
+    pub(crate) fn index_key_exceeds_max_size_at(
+        entity_tag: u64,
+        physical_generation: u64,
+        actual_length: usize,
+        limit: usize,
+    ) -> Self {
+        Self::with_diagnostic_facts(
+            ErrorClass::Unsupported,
+            ErrorOrigin::Index,
+            None,
+            vec![
+                (diagnostic_code::DiagnosticFactTag::EntityTag, entity_tag),
+                (
+                    diagnostic_code::DiagnosticFactTag::PhysicalGeneration,
+                    physical_generation,
+                ),
+                (
+                    diagnostic_code::DiagnosticFactTag::ComponentKind,
+                    diagnostic_code::DiagnosticComponentKind::IndexKey.raw(),
+                ),
+                (
+                    diagnostic_code::DiagnosticFactTag::ActualLength,
+                    actual_length as u64,
+                ),
+                (diagnostic_code::DiagnosticFactTag::Limit, limit as u64),
+            ],
+        )
+    }
+
     /// Construct the canonical index-key component size-limit unsupported error.
     pub(crate) fn index_component_exceeds_max_size_at(
         entity_tag: u64,
@@ -1887,7 +1916,7 @@ impl std::error::Error for InternalError {}
 /// the diagnostic identity.
 ///
 
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum ConstraintValuePathComponent {
     /// Persisted root field whose admitted value was traversed.
     RootField { field_id: u32 },
@@ -1954,7 +1983,7 @@ impl fmt::Display for ConstraintValuePathComponent {
 /// Bounded typed path to the first deterministic failing value occurrence.
 ///
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct ConstraintValuePath {
     components: Vec<ConstraintValuePathComponent>,
 }
@@ -1993,7 +2022,7 @@ impl fmt::Display for ConstraintValuePath {
 /// accepted fingerprint and immutable numeric identities.
 ///
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct ConstraintValidationFindingOutput {
     accepted_schema_fingerprint: [u8; 16],
     entity_tag: u64,

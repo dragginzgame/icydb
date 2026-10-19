@@ -105,7 +105,6 @@ fn signed_lookup_admission_requires_exact_positive_scalar_operands() {
             }
             for kind in [
                 AcceptedFieldKind::Int128,
-                AcceptedFieldKind::IntBig { max_bytes: 128 },
                 AcceptedFieldKind::Nat64,
                 AcceptedFieldKind::Float64,
                 AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Int64)),

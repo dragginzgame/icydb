@@ -171,7 +171,7 @@ impl<C: CanisterKind> DbSession<C> {
     /// Execute one explicit source-migration operation for an exact proposal.
     ///
     /// This is the Rust capability used by generated and handwritten
-    /// controller endpoints; calling it does not export a Candid method.
+    /// controller endpoints; calling it does not export a Wire method.
     #[cfg(feature = "migration")]
     pub fn migrate_schema(
         &self,
@@ -183,7 +183,7 @@ impl<C: CanisterKind> DbSession<C> {
 
     /// Return one bounded source-migration status page for an exact proposal.
     ///
-    /// Calling this Rust capability does not export a Candid method.
+    /// Calling this Rust capability does not export a Wire method.
     #[cfg(feature = "migration")]
     pub fn schema_migration_status(
         &self,

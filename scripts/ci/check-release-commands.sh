@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Shared companions: scripts/ci/prepare-script-fixture.sh
 set -euo pipefail
 
 # Execute a reviewed Makefile copy in an isolated fixture with a substitute runner.
@@ -18,7 +19,6 @@ for input in "$@"; do
         ''|/*|..|../*|*/../*|*/..|./*|*/./*|*/.|Makefile|scripts/ci/run-release.sh)
             echo "invalid fixture input: $input" >&2; exit 2 ;;
     esac
-    [[ -f "$root/$input" ]] || { echo "missing fixture input: $input" >&2; exit 2; }
 done
 # Independent test checkout: never inherit parent release selections or identity.
 unset MAKEFLAGS MFLAGS MAKEOVERRIDES GNUMAKEFLAGS MAKEFILES
@@ -39,11 +39,11 @@ fixture="$(cd -P "$fixture" && printf '%s/.' "$PWD")"
 fixture="${fixture%/.}"
 # Make's nested admission probe runs after cd; retain the same physical temp parent.
 export TMPDIR="${fixture%/*}"
-cp "$root/Makefile" "$fixture/Makefile"
-for input in "$@"; do
-    mkdir -p "$fixture/$(dirname "$input")"
-    cp "$root/$input" "$fixture/$input"
-done
+helper="${BASH_SOURCE[0]}"
+[[ "$helper" == /* ]] || helper="$PWD/$helper"
+bash "${helper%/*}/prepare-script-fixture.sh" "$root" "$fixture" Makefile "$@"
+# The copier never executes payloads. Replace the admitted runner before Make
+# can evaluate the selected consumer code, including parse-time expressions.
 mkdir -p "$fixture/scripts/ci"
 cat > "$fixture/scripts/ci/run-release.sh" <<'STUB'
 #!/usr/bin/env bash

@@ -58,14 +58,8 @@ fn numeric_literal_kind(
     Ok(match input {
         Value::Int64(_) => crate::db::schema::AcceptedFieldKind::Int64,
         Value::Int128(_) => crate::db::schema::AcceptedFieldKind::Int128,
-        Value::IntBig(_) => crate::db::schema::AcceptedFieldKind::IntBig {
-            max_bytes: crate::db::schema::MAX_SCHEMA_SNAPSHOT_BYTES,
-        },
         Value::Nat64(_) => crate::db::schema::AcceptedFieldKind::Nat64,
         Value::Nat128(_) => crate::db::schema::AcceptedFieldKind::Nat128,
-        Value::NatBig(_) => crate::db::schema::AcceptedFieldKind::NatBig {
-            max_bytes: crate::db::schema::MAX_SCHEMA_SNAPSHOT_BYTES,
-        },
         Value::Decimal(value) => crate::db::schema::AcceptedFieldKind::Decimal {
             scale: value.scale(),
         },

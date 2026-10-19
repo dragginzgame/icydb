@@ -3,22 +3,16 @@
 // Exercise generated handlers and exported wrappers under downstream lint policy.
 #![deny(clippy::needless_pass_by_value)]
 
-// Read IC counter 1 through the CDK; native Candid builds use its
-// unsupported host binding and provide no IC measurement evidence.
+// IC counter 1 preserves the call-context sample boundary through Platform.
+// Native system calls provide no IC measurement evidence.
 #[cfg(feature = "guarded-sql-query")]
-#[cfg(not(target_arch = "wasm32"))]
-use ic_cdk::api::call_context_instruction_counter;
-#[cfg(feature = "guarded-sql-query")]
-#[cfg(target_arch = "wasm32")]
-use ic_cdk::api::call_context_instruction_counter;
+use ic_platform::ic0::performance_counter;
 
 #[cfg(feature = "guarded-sql-query")]
 use std::cell::Cell;
 
-use candid::CandidType;
 #[cfg(feature = "guarded-sql-query")]
-use candid::Principal;
-use ic_cdk::query;
+use ic_platform::Principal;
 #[cfg(feature = "guarded-sql-query")]
 use icydb::{
     ReadAuthorizationContext, ReadAuthorizationDecision, ReadAuthorizationSurface,
@@ -37,9 +31,9 @@ fn icydb_memory_pool()
     )
 }
 
-icydb::start!();
+canic_icydb::start!(icydb);
 
-icydb::endpoints! {
+canic_icydb::endpoints! {
     #[cfg(all(feature = "sql", not(feature = "guarded-sql-query")))]
     icydb_sql_query(introspection = true);
     #[cfg(feature = "guarded-sql-query")]
@@ -62,10 +56,10 @@ fn principal(seed: u8) -> Principal {
 #[cfg(feature = "guarded-sql-query")]
 fn sql_read_guard(context: ReadAuthorizationContext) -> ReadAuthorizationDecision {
     if context.caller == Principal::anonymous() {
-        ic_cdk::trap("anonymous caller reached the application SQL guard");
+        ic_platform::ic0::trap(b"anonymous caller reached the application SQL guard");
     }
     if context.caller == principal(44) {
-        ic_cdk::trap("intentional application SQL guard trap");
+        ic_platform::ic0::trap(b"intentional application SQL guard trap");
     }
     if context.surface != ReadAuthorizationSurface::Sql {
         return ReadAuthorizationDecision::Deny;
@@ -79,7 +73,7 @@ fn sql_read_guard(context: ReadAuthorizationContext) -> ReadAuthorizationDecisio
     allowlist(context, &[principal(42)])
 }
 
-#[derive(CandidType)]
+#[derive(serde::Deserialize, serde::Serialize)]
 struct ReadAuthorizationCostResult {
     caller_instructions: u64,
     helper_instructions: u64,
@@ -98,7 +92,7 @@ fn maximum_allowlist_guard(context: ReadAuthorizationContext) -> ReadAuthorizati
 }
 
 /// Measure the canonical local authorization seam without SQL execution.
-#[query]
+
 #[cfg_attr(
     not(feature = "guarded-sql-query"),
     allow(clippy::missing_const_for_fn)
@@ -107,9 +101,9 @@ fn maximum_allowlist_guard(context: ReadAuthorizationContext) -> ReadAuthorizati
 fn read_authorization_cost() -> Result<ReadAuthorizationCostResult, icydb::Error> {
     #[cfg(feature = "guarded-sql-query")]
     {
-        let start = call_context_instruction_counter();
-        let caller = ic_cdk::api::msg_caller();
-        let caller_instructions = call_context_instruction_counter().saturating_sub(start);
+        let start = performance_counter(1);
+        let caller = ic_platform::cdk::api::msg_caller();
+        let caller_instructions = performance_counter(1).saturating_sub(start);
 
         let context = ReadAuthorizationContext {
             caller,
@@ -117,26 +111,26 @@ fn read_authorization_cost() -> Result<ReadAuthorizationCostResult, icydb::Error
         };
         let mut readers = [Principal::anonymous(); MAX_READ_AUTHORIZATION_ALLOWLIST_PRINCIPALS];
         readers[MAX_READ_AUTHORIZATION_ALLOWLIST_PRINCIPALS - 1] = caller;
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let helper_decision = allowlist(context, &readers);
-        let helper_instructions = call_context_instruction_counter().saturating_sub(start);
+        let helper_instructions = performance_counter(1).saturating_sub(start);
 
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let guard_decision = maximum_allowlist_guard(context);
-        let guard_instructions = call_context_instruction_counter().saturating_sub(start);
+        let guard_instructions = performance_counter(1).saturating_sub(start);
 
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         icydb::__macro::authorize_sql_read(caller, maximum_allowlist_guard)?;
-        let authorization_instructions = call_context_instruction_counter().saturating_sub(start);
+        let authorization_instructions = performance_counter(1).saturating_sub(start);
         let wrapper_instructions = authorization_instructions.saturating_sub(guard_instructions);
 
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let query_result = icydb::db::with_request_execution(|| {
             crate::__icydb_generated::endpoint_handlers::sql_query::<true>(
                 "SHOW ENTITIES".to_string(),
             )
         });
-        let query_instructions = call_context_instruction_counter().saturating_sub(start);
+        let query_instructions = performance_counter(1).saturating_sub(start);
         query_result?;
 
         Ok(ReadAuthorizationCostResult {
@@ -162,6 +156,4 @@ fn read_authorization_cost() -> Result<ReadAuthorizationCostResult, icydb::Error
         helper_allowed: false,
     })
 }
-
-#[cfg(feature = "candid-export")]
-ic_cdk::export_candid!();
+icydb_testing_wasm_helpers::export_wire!(query, "read_authorization_cost", ReadAuthorizationCost, read_authorization_cost, (), Result<ReadAuthorizationCostResult, icydb::Error>);

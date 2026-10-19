@@ -47,7 +47,11 @@ impl GroupedCountKeyPath {
             };
         }
         Self::RowView {
-            probe_kind: GroupedCountProbeKind::for_group_fields(direct_group_fields),
+            probe_kind: if route.group_fields().as_path_aware().is_some() {
+                GroupedCountProbeKind::PathAware
+            } else {
+                GroupedCountProbeKind::for_group_fields(direct_group_fields)
+            },
         }
     }
 }
@@ -65,6 +69,7 @@ impl GroupedCountKeyPath {
 pub(super) enum GroupedCountProbeKind {
     Borrowed,
     Owned,
+    PathAware,
 }
 
 impl GroupedCountProbeKind {

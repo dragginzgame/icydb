@@ -213,7 +213,6 @@ pub(in crate::db::schema) fn accepted_rule_target_is_reachable(
             | AcceptedFieldKind::Int32
             | AcceptedFieldKind::Int64
             | AcceptedFieldKind::Int128
-            | AcceptedFieldKind::IntBig { .. }
             | AcceptedFieldKind::Principal
             | AcceptedFieldKind::Subaccount
             | AcceptedFieldKind::Text { .. }
@@ -223,7 +222,6 @@ pub(in crate::db::schema) fn accepted_rule_target_is_reachable(
             | AcceptedFieldKind::Nat32
             | AcceptedFieldKind::Nat64
             | AcceptedFieldKind::Nat128
-            | AcceptedFieldKind::NatBig { .. }
             | AcceptedFieldKind::Ulid
             | AcceptedFieldKind::Unit
             | AcceptedFieldKind::U256
@@ -317,13 +315,11 @@ pub(in crate::db::schema) const fn accepted_rule_exact_numeric_kind_is_supported
             | AcceptedFieldKind::Int32
             | AcceptedFieldKind::Int64
             | AcceptedFieldKind::Int128
-            | AcceptedFieldKind::IntBig { .. }
             | AcceptedFieldKind::Nat8
             | AcceptedFieldKind::Nat16
             | AcceptedFieldKind::Nat32
             | AcceptedFieldKind::Nat64
             | AcceptedFieldKind::Nat128
-            | AcceptedFieldKind::NatBig { .. }
     )
 }
 
@@ -340,13 +336,11 @@ pub(in crate::db::schema) const fn accepted_rule_numeric_kind_is_supported(
             | AcceptedFieldKind::Int32
             | AcceptedFieldKind::Int64
             | AcceptedFieldKind::Int128
-            | AcceptedFieldKind::IntBig { .. }
             | AcceptedFieldKind::Nat8
             | AcceptedFieldKind::Nat16
             | AcceptedFieldKind::Nat32
             | AcceptedFieldKind::Nat64
             | AcceptedFieldKind::Nat128
-            | AcceptedFieldKind::NatBig { .. }
             | AcceptedFieldKind::U256
     )
 }

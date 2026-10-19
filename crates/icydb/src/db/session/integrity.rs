@@ -6,13 +6,12 @@
 
 use crate::{db::session::DbSession, error::Error, traits::CanisterKind};
 
-use candid::CandidType;
 use icydb_core as core;
 use serde::Deserialize;
 
 /// Public failure from one trusted typed integrity request.
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum IntegrityCheckError {
     /// Accepted authority or physical execution failed.
     Database(Error),
@@ -30,7 +29,7 @@ pub enum IntegrityCheckError {
 /// integrity controller failures shared with the Rust request surface.
 
 #[cfg(feature = "sql")]
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum SqlIntegrityError {
     /// The canonical integrity controller rejected or could not execute the request.
     Integrity(IntegrityCheckError),

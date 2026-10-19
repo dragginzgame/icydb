@@ -62,7 +62,6 @@ pub(in crate::db) fn decode_structural_field_by_accepted_kind_bytes(
         | AcceptedFieldKind::Int32
         | AcceptedFieldKind::Int64
         | AcceptedFieldKind::Int128
-        | AcceptedFieldKind::IntBig { .. }
         | AcceptedFieldKind::Principal
         | AcceptedFieldKind::Subaccount
         | AcceptedFieldKind::Text { .. }
@@ -72,7 +71,6 @@ pub(in crate::db) fn decode_structural_field_by_accepted_kind_bytes(
         | AcceptedFieldKind::Nat32
         | AcceptedFieldKind::Nat64
         | AcceptedFieldKind::Nat128
-        | AcceptedFieldKind::NatBig { .. }
         | AcceptedFieldKind::Ulid
         | AcceptedFieldKind::Unit
         | AcceptedFieldKind::U256 => Err(FieldDecodeError::new()),
@@ -130,7 +128,6 @@ pub(in crate::db) fn validate_structural_field_by_accepted_kind_bytes(
         | AcceptedFieldKind::Int32
         | AcceptedFieldKind::Int64
         | AcceptedFieldKind::Int128
-        | AcceptedFieldKind::IntBig { .. }
         | AcceptedFieldKind::Principal
         | AcceptedFieldKind::Subaccount
         | AcceptedFieldKind::Text { .. }
@@ -140,7 +137,6 @@ pub(in crate::db) fn validate_structural_field_by_accepted_kind_bytes(
         | AcceptedFieldKind::Nat32
         | AcceptedFieldKind::Nat64
         | AcceptedFieldKind::Nat128
-        | AcceptedFieldKind::NatBig { .. }
         | AcceptedFieldKind::Ulid
         | AcceptedFieldKind::Unit
         | AcceptedFieldKind::U256 => Err(FieldDecodeError::new()),
@@ -194,7 +190,6 @@ fn encode_accepted_binary_field_into(
         | AcceptedFieldKind::Int32
         | AcceptedFieldKind::Int64
         | AcceptedFieldKind::Int128
-        | AcceptedFieldKind::IntBig { .. }
         | AcceptedFieldKind::Principal
         | AcceptedFieldKind::Subaccount
         | AcceptedFieldKind::Text { .. }
@@ -204,7 +199,6 @@ fn encode_accepted_binary_field_into(
         | AcceptedFieldKind::Nat32
         | AcceptedFieldKind::Nat64
         | AcceptedFieldKind::Nat128
-        | AcceptedFieldKind::NatBig { .. }
         | AcceptedFieldKind::Ulid
         | AcceptedFieldKind::Unit
         | AcceptedFieldKind::U256 => Err(InternalError::persisted_row_encode_internal()),

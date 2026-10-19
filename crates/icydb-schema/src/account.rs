@@ -1,18 +1,19 @@
 //! Canonical account atom without storage authority.
 
+#[cfg(test)]
+mod tests;
+
 use std::{
     fmt::{self, Display, Formatter},
     str::FromStr,
 };
 
-use candid::CandidType;
-use icrc_ledger_types::icrc1::account::Account as LedgerAccount;
 use serde::{Deserialize, Serialize};
 
 use crate::{Principal, Subaccount};
 
 /// Canonical ICRC account atom.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct Account {
     owner: Principal,
     subaccount: Option<Subaccount>,
@@ -20,6 +21,9 @@ pub struct Account {
 
 impl Account {
     const PRINCIPAL_MAX_LEN: usize = Principal::MAX_LENGTH_IN_BYTES as usize;
+    // A maximum principal occupies 63 text bytes, followed by '-', seven
+    // checksum characters, '.', and at most 64 subaccount hex digits.
+    const MAX_TEXT_LEN: usize = 136;
     const TAG_SUBACCOUNT: u8 = 0x80;
 
     /// Construct from convertible owner and optional subaccount values.
@@ -51,13 +55,14 @@ impl Account {
         self.subaccount
     }
 
-    /// Convert to the upstream ICRC account type.
-    #[must_use]
-    pub fn to_icrc_type(self) -> LedgerAccount {
-        LedgerAccount {
-            owner: self.owner.into(),
-            subaccount: self.subaccount.map(|value| value.to_array()),
-        }
+    // ICRC-1 text uses the CRC-32 of owner || subaccount in unpadded base32.
+    fn checksum(owner: Principal, subaccount: Subaccount) -> String {
+        let mut hasher = crc32fast::Hasher::new();
+        hasher.update(owner.as_slice());
+        hasher.update(subaccount.as_slice());
+        data_encoding::BASE32_NOPAD
+            .encode(&hasher.finalize().to_be_bytes())
+            .to_ascii_lowercase()
     }
 
     #[expect(clippy::cast_possible_truncation)]
@@ -72,22 +77,17 @@ impl Account {
 
 impl Display for Account {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        Display::fmt(&self.to_icrc_type(), formatter)
-    }
-}
-
-impl From<Account> for LedgerAccount {
-    fn from(value: Account) -> Self {
-        value.to_icrc_type()
-    }
-}
-
-impl From<LedgerAccount> for Account {
-    fn from(value: LedgerAccount) -> Self {
-        Self {
-            owner: value.owner.into(),
-            subaccount: value.subaccount.map(Subaccount::from_array),
-        }
+        let Some(subaccount) = self.subaccount.filter(|value| *value != Subaccount::MIN) else {
+            return Display::fmt(&self.owner, formatter);
+        };
+        let hex = subaccount.to_string();
+        write!(
+            formatter,
+            "{}-{}.{}",
+            self.owner,
+            Self::checksum(self.owner, subaccount),
+            hex.trim_start_matches('0')
+        )
     }
 }
 
@@ -104,9 +104,34 @@ impl FromStr for Account {
     type Err = String;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
-        LedgerAccount::from_str(input)
-            .map(Self::from)
-            .map_err(|error| error.to_string())
+        if input.len() > Self::MAX_TEXT_LEN || !input.is_ascii() {
+            return Err("invalid account text width or alphabet".into());
+        }
+        let Some((prefix, hex)) = input.split_once('.') else {
+            return input
+                .parse::<Principal>()
+                .map(Self::from)
+                .map_err(|error| error.to_string());
+        };
+        let (owner, checksum) = prefix
+            .rsplit_once('-')
+            .filter(|(_, checksum)| checksum.len() == 7)
+            .ok_or("missing account checksum")?;
+        if hex.is_empty() || hex.len() > 64 || hex.starts_with('0') {
+            return Err("invalid account subaccount width or leading zero".into());
+        }
+        let owner = owner
+            .parse::<Principal>()
+            .map_err(|error| error.to_string())?;
+        // Left padding admits odd hex widths without allocating from input length.
+        let mut padded = [b'0'; 64];
+        padded[64 - hex.len()..].copy_from_slice(hex.as_bytes());
+        let hex = std::str::from_utf8(&padded).map_err(|error| error.to_string())?;
+        let subaccount = Subaccount::from_hex(hex).map_err(|error| error.to_string())?;
+        if checksum != Self::checksum(owner, subaccount) {
+            return Err("invalid account checksum".into());
+        }
+        Ok(Self::from_owner_and_subaccount(owner, Some(subaccount)))
     }
 }
 

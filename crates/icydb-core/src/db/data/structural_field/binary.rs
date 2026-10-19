@@ -13,7 +13,6 @@ use crate::db::data::structural_field::{
     typed::{decode_decimal_payload_bytes, encode_decimal_payload_bytes},
 };
 use crate::types::Decimal;
-use num_bigint::{BigInt, BigUint, Sign as BigIntSign};
 
 pub(super) const TAG_NULL: u8 = 0x00;
 pub(super) const TAG_UNIT: u8 = 0x01;
@@ -111,56 +110,6 @@ pub(super) fn push_binary_map_len(out: &mut Vec<u8>, len: usize) {
 /// Append the fixed Decimal payload inside one generic byte-string frame.
 pub(super) fn push_binary_decimal_payload(out: &mut Vec<u8>, value: Decimal) {
     push_binary_bytes(out, &encode_decimal_payload_bytes(value));
-}
-
-/// Append the canonical Structural Binary signed big-integer byte payload.
-pub(super) fn push_binary_int_big_payload(
-    out: &mut Vec<u8>,
-    is_negative: bool,
-    digits: impl DoubleEndedIterator<Item = u32> + ExactSizeIterator,
-) {
-    push_binary_big_integer_bytes(out, Some(is_negative), digits);
-}
-
-/// Append the canonical Structural Binary unsigned big-integer byte payload.
-pub(super) fn push_binary_nat_big_payload(
-    out: &mut Vec<u8>,
-    digits: impl DoubleEndedIterator<Item = u32> + ExactSizeIterator,
-) {
-    push_binary_big_integer_bytes(out, None, digits);
-}
-
-// Emit one minimal little-endian magnitude directly from the atom's borrowed
-// limbs. Signed values carry one sign byte inside the same byte-string frame;
-// the existing generic byte walker therefore owns all length/skip boundaries.
-fn push_binary_big_integer_bytes(
-    out: &mut Vec<u8>,
-    negative: Option<bool>,
-    mut digits: impl DoubleEndedIterator<Item = u32> + ExactSizeIterator,
-) {
-    let high = digits.next_back();
-    let high_len = high.map_or(0, |digit| {
-        (u32::BITS - digit.leading_zeros()).div_ceil(8) as usize
-    });
-    let magnitude_len = digits.len().saturating_mul(4).saturating_add(high_len);
-    let payload_len = magnitude_len.saturating_add(usize::from(negative.is_some()));
-    out.push(TAG_BYTES);
-    out.extend_from_slice(&structural_binary_len(payload_len).to_be_bytes());
-    if let Some(negative) = negative {
-        out.push(if magnitude_len == 0 {
-            0
-        } else if negative {
-            2
-        } else {
-            1
-        });
-    }
-    for digit in digits {
-        out.extend_from_slice(&digit.to_le_bytes());
-    }
-    if let Some(high) = high {
-        out.extend_from_slice(&high.to_le_bytes()[..high_len]);
-    }
 }
 
 // Structural values are admitted under smaller runtime bounds before reaching
@@ -277,40 +226,6 @@ pub(super) fn decode_binary_required_u64(raw_bytes: &[u8]) -> Result<u64, FieldD
 /// Decode the fixed Decimal payload from its complete byte-string frame.
 pub(super) fn decode_binary_decimal_payload(raw_bytes: &[u8]) -> Result<Decimal, FieldDecodeError> {
     decode_decimal_payload_bytes(decode_binary_required_bytes(raw_bytes)?)
-}
-
-/// Decode one canonical signed magnitude after validating its complete frame.
-pub(super) fn decode_binary_int_big_payload(raw_bytes: &[u8]) -> Result<BigInt, FieldDecodeError> {
-    let payload = decode_binary_required_bytes(raw_bytes)?;
-    let (&sign, magnitude) = payload.split_first().ok_or_else(FieldDecodeError::new)?;
-    validate_binary_big_integer_magnitude(magnitude)?;
-    let sign = match (sign, magnitude.is_empty()) {
-        (0, true) => BigIntSign::NoSign,
-        (1, false) => BigIntSign::Plus,
-        (2, false) => BigIntSign::Minus,
-        _ => return Err(FieldDecodeError::new()),
-    };
-
-    Ok(BigInt::from_bytes_le(sign, magnitude))
-}
-
-/// Decode one canonical unsigned magnitude after validating its complete frame.
-pub(super) fn decode_binary_nat_big_payload(raw_bytes: &[u8]) -> Result<BigUint, FieldDecodeError> {
-    let magnitude = decode_binary_required_bytes(raw_bytes)?;
-    validate_binary_big_integer_magnitude(magnitude)?;
-
-    Ok(BigUint::from_bytes_le(magnitude))
-}
-
-// Zero has no magnitude bytes; every nonzero magnitude has a nonzero high byte.
-// Check canonicality before allocating a bigint so normalization cannot hide
-// malformed persisted bytes or create multiple encodings for the same value.
-fn validate_binary_big_integer_magnitude(magnitude: &[u8]) -> Result<(), FieldDecodeError> {
-    if magnitude.last() == Some(&0) {
-        return Err(FieldDecodeError::new());
-    }
-
-    Ok(())
 }
 
 // Validate one complete Structural Binary scalar and return its parsed root.

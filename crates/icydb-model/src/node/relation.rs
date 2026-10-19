@@ -11,7 +11,6 @@ pub(crate) struct RelationComponentContract<'a> {
     target: &'a ItemTarget,
     scale: Option<u32>,
     max_len: Option<u32>,
-    max_bytes: Option<u32>,
 }
 
 impl<'a> RelationComponentContract<'a> {
@@ -24,7 +23,6 @@ impl<'a> RelationComponentContract<'a> {
             target: item.target(),
             scale: item.scale(),
             max_len: item.max_len(),
-            max_bytes: item.max_bytes(),
         }
     }
 
@@ -38,10 +36,6 @@ impl<'a> RelationComponentContract<'a> {
 
     pub(crate) const fn max_len(&self) -> Option<u32> {
         self.max_len
-    }
-
-    pub(crate) const fn max_bytes(&self) -> Option<u32> {
-        self.max_bytes
     }
 
     pub(crate) fn mismatches(self, other: Self) -> bool {
@@ -259,18 +253,16 @@ impl RelationEdge {
         if expected.mismatches(actual) {
             err!(
                 errs,
-                "relation edge '{}' component {index} type mismatch: local field '{}' has ({:?}, scale={:?}, max_len={:?}, max_bytes={:?}); target field '{}' requires ({:?}, scale={:?}, max_len={:?}, max_bytes={:?})",
+                "relation edge '{}' component {index} type mismatch: local field '{}' has ({:?}, scale={:?}, max_len={:?}); target field '{}' requires ({:?}, scale={:?}, max_len={:?})",
                 self.name(),
                 local_name,
                 actual.target(),
                 actual.scale(),
                 actual.max_len(),
-                actual.max_bytes(),
                 target_name,
                 expected.target(),
                 expected.scale(),
                 expected.max_len(),
-                expected.max_bytes(),
             );
         }
     }
@@ -296,25 +288,18 @@ mod tests {
             None,
             None,
             None,
-            None,
             &[],
             &[],
             false,
         )
     }
 
-    fn item_with_metadata(
-        primitive: Primitive,
-        scale: Option<u32>,
-        max_len: Option<u32>,
-        max_bytes: Option<u32>,
-    ) -> Item {
+    fn item_with_metadata(primitive: Primitive, scale: Option<u32>, max_len: Option<u32>) -> Item {
         Item::new(
             ItemTarget::Primitive(primitive),
             None,
             scale,
             max_len,
-            max_bytes,
             &[],
             &[],
             false,
@@ -548,16 +533,16 @@ mod tests {
     #[test]
     fn relation_edge_rejects_non_admissible_target_primary_key_component() {
         let source_fields =
-            Box::leak(vec![field("author_score", Primitive::IntBig)].into_boxed_slice());
-        let target_fields = Box::leak(vec![field("score", Primitive::IntBig)].into_boxed_slice());
+            Box::leak(vec![field("author_score", Primitive::Float64)].into_boxed_slice());
+        let target_fields = Box::leak(vec![field("score", Primitive::Float64)].into_boxed_slice());
         let source = entity(
-            "schema_relation_edge_rejects_int_big_target",
+            "schema_relation_edge_rejects_float64_target",
             "Post",
             &["author_score"],
             source_fields,
         );
         let target = entity(
-            "schema_relation_edge_rejects_int_big_target",
+            "schema_relation_edge_rejects_float64_target",
             "User",
             &["score"],
             target_fields,
@@ -565,11 +550,11 @@ mod tests {
 
         let err = RelationEdge::new(
             "author",
-            "schema_relation_edge_rejects_int_big_target::User",
+            "schema_relation_edge_rejects_float64_target::User",
             &["author_score"],
         )
         .validate_against_entities(&source, &target)
-        .expect_err("int_big target primary key component should reject");
+        .expect_err("float64 target primary key component should reject");
 
         assert!(
             err.messages()
@@ -682,17 +667,14 @@ mod tests {
 
     #[test]
     fn relation_edge_component_contract_preserves_bounds() {
-        let expected = field_with_item(
-            "body",
-            item_with_metadata(Primitive::Text, None, Some(64), None),
-        );
+        let expected = field_with_item("body", item_with_metadata(Primitive::Text, None, Some(64)));
         let same = field_with_item(
             "body_copy",
-            item_with_metadata(Primitive::Text, None, Some(64), None),
+            item_with_metadata(Primitive::Text, None, Some(64)),
         );
         let wrong = field_with_item(
             "body_short",
-            item_with_metadata(Primitive::Text, None, Some(32), None),
+            item_with_metadata(Primitive::Text, None, Some(32)),
         );
 
         let expected = RelationComponentContract::from_field(&expected);

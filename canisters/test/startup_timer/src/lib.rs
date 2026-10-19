@@ -1,14 +1,9 @@
 //! Real-canister timer semantics probe for startup-recovery design evidence.
 
-// Read IC counter 1 through the CDK; native Candid builds use its
-// unsupported host binding and provide no IC measurement evidence.
-#[cfg(not(target_arch = "wasm32"))]
-use ic_cdk::api::call_context_instruction_counter;
-#[cfg(target_arch = "wasm32")]
-use ic_cdk::api::call_context_instruction_counter;
+// IC counter 1 preserves the call-context sample boundary through Platform.
+// Native system calls provide no IC measurement evidence.
+use ic_platform::ic0::performance_counter;
 
-use candid::CandidType;
-use ic_cdk::{query, update};
 use ic_timers::{
     AfterCompletionDecision, AfterCompletionRegistration, AfterCompletionRunResult, TimerCadence,
     TimerCompletion, TimerIdentity, TimerSchedule, TimerStart, WatchdogDecision,
@@ -37,7 +32,7 @@ thread_local! {
     static EXHAUST_AT: Cell<Option<u64>> = const { Cell::new(None) };
 }
 
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 struct TimerProbeSnapshot {
     watchdog_registered: bool,
     application_registered: bool,
@@ -54,7 +49,7 @@ struct TimerProbeSnapshot {
 #[inline(never)]
 fn exhaust_message_instructions() -> ! {
     loop {
-        std::hint::black_box(ic_cdk::api::performance_counter(0));
+        std::hint::black_box(performance_counter(0));
     }
 }
 
@@ -63,29 +58,28 @@ fn record_callback(
     instructions: &'static std::thread::LocalKey<Cell<u64>>,
     times: &'static std::thread::LocalKey<RefCell<Vec<u64>>>,
 ) {
-    let start = call_context_instruction_counter();
+    let start = performance_counter(1);
     callbacks.with(|count| count.set(count.get().saturating_add(1)));
     times.with_borrow_mut(|observed| {
         if observed.len() < MAX_RECORDED_CALLBACKS {
-            observed.push(ic_cdk::api::time());
+            observed.push(ic_platform::ic0::time());
         }
     });
     instructions.with(|count| {
         count.set(
-            call_context_instruction_counter()
+            performance_counter(1)
                 .saturating_sub(start)
                 .saturating_add(count.get()),
         );
     });
 }
 
-#[update]
 fn startup_timer_probe_start() -> bool {
     if WATCHDOG_TIMER.with_borrow(Option::is_some) {
         return false;
     }
     if initialize_runtime().is_err() {
-        ic_cdk::trap("startup timer probe runtime initialization failed");
+        ic_platform::ic0::trap(b"startup timer probe runtime initialization failed");
     }
     let cadence = timer_cadence();
 
@@ -96,14 +90,14 @@ fn startup_timer_probe_start() -> bool {
             initial: Some(TimerSchedule::After(WATCHDOG_INTERVAL)),
         },
         |_context| {
-            let now = ic_cdk::api::time();
+            let now = ic_platform::ic0::time();
             let should_trap = TRAP_AT.with(|trap_at| {
                 trap_at.get().is_some_and(|start| {
                     now >= start && now < start.saturating_add(WATCHDOG_INTERVAL_NANOS)
                 })
             });
             if should_trap {
-                ic_cdk::trap("startup watchdog trap probe");
+                ic_platform::ic0::trap(b"startup watchdog trap probe");
             }
             let should_exhaust = EXHAUST_AT.with(|at| {
                 at.get().is_some_and(|start| {
@@ -117,7 +111,7 @@ fn startup_timer_probe_start() -> bool {
             WatchdogRunResult::new(TimerCompletion::success(1), WatchdogDecision::Continue)
         },
     ) else {
-        ic_cdk::trap("startup watchdog registration failed");
+        ic_platform::ic0::trap(b"startup watchdog registration failed");
     };
     WATCHDOG_TIMER.with_borrow_mut(|slot| *slot = Some(watchdog));
 
@@ -139,45 +133,73 @@ fn startup_timer_probe_start() -> bool {
             )
         },
     ) else {
-        ic_cdk::trap("application timer registration failed");
+        ic_platform::ic0::trap(b"application timer registration failed");
     };
     APPLICATION_TIMER.with_borrow_mut(|slot| *slot = Some(application));
     true
 }
+icydb_testing_wasm_helpers::export_wire!(
+    update,
+    "startup_timer_probe_start",
+    StartupTimerProbeStart,
+    startup_timer_probe_start,
+    (),
+    bool
+);
 
-#[update]
 fn startup_timer_probe_stop() {
     WATCHDOG_TIMER.with_borrow_mut(|slot| {
         if let Some(registration) = slot.take()
             && registration.unregister().is_err()
         {
-            ic_cdk::trap("startup watchdog removal failed");
+            ic_platform::ic0::trap(b"startup watchdog removal failed");
         }
     });
     APPLICATION_TIMER.with_borrow_mut(|slot| {
         if let Some(registration) = slot.take()
             && registration.unregister().is_err()
         {
-            ic_cdk::trap("application timer removal failed");
+            ic_platform::ic0::trap(b"application timer removal failed");
         }
     });
 }
+icydb_testing_wasm_helpers::export_wire!(
+    update,
+    "startup_timer_probe_stop",
+    StartupTimerProbeStop,
+    startup_timer_probe_stop,
+    (),
+    ()
+);
 
-#[update]
 fn startup_timer_probe_arm_trap() -> u64 {
-    let trap_at = ic_cdk::api::time().saturating_add(WATCHDOG_INTERVAL_NANOS);
+    let trap_at = ic_platform::ic0::time().saturating_add(WATCHDOG_INTERVAL_NANOS);
     TRAP_AT.with(|slot| slot.set(Some(trap_at)));
     trap_at
 }
+icydb_testing_wasm_helpers::export_wire!(
+    update,
+    "startup_timer_probe_arm_trap",
+    StartupTimerProbeArmTrap,
+    startup_timer_probe_arm_trap,
+    (),
+    u64
+);
 
-#[update]
 fn startup_timer_probe_arm_exhaustion() -> u64 {
-    let exhaust_at = ic_cdk::api::time().saturating_add(WATCHDOG_INTERVAL_NANOS);
+    let exhaust_at = ic_platform::ic0::time().saturating_add(WATCHDOG_INTERVAL_NANOS);
     EXHAUST_AT.with(|slot| slot.set(Some(exhaust_at)));
     exhaust_at
 }
+icydb_testing_wasm_helpers::export_wire!(
+    update,
+    "startup_timer_probe_arm_exhaustion",
+    StartupTimerProbeArmExhaustion,
+    startup_timer_probe_arm_exhaustion,
+    (),
+    u64
+);
 
-#[query]
 fn startup_timer_probe_snapshot() -> TimerProbeSnapshot {
     TimerProbeSnapshot {
         watchdog_registered: timer_is_scheduled(&watchdog_identity()),
@@ -192,25 +214,33 @@ fn startup_timer_probe_snapshot() -> TimerProbeSnapshot {
         exhaust_at: EXHAUST_AT.with(Cell::get),
     }
 }
+icydb_testing_wasm_helpers::export_wire!(
+    query,
+    "startup_timer_probe_snapshot",
+    StartupTimerProbeSnapshot,
+    startup_timer_probe_snapshot,
+    (),
+    TimerProbeSnapshot
+);
 
 fn timer_cadence() -> TimerCadence {
     match TimerCadence::new(WATCHDOG_INTERVAL) {
         Ok(cadence) => cadence,
-        Err(_) => ic_cdk::trap("startup timer probe cadence is invalid"),
+        Err(_) => ic_platform::ic0::trap(b"startup timer probe cadence is invalid"),
     }
 }
 
 fn watchdog_identity() -> TimerIdentity {
     match TimerIdentity::try_new("icydb", "startup-probe", "watchdog") {
         Ok(identity) => identity,
-        Err(_) => ic_cdk::trap("startup watchdog identity is invalid"),
+        Err(_) => ic_platform::ic0::trap(b"startup watchdog identity is invalid"),
     }
 }
 
 fn application_identity() -> TimerIdentity {
     match TimerIdentity::try_new("icydb", "startup-probe", "application") {
         Ok(identity) => identity,
-        Err(_) => ic_cdk::trap("application timer identity is invalid"),
+        Err(_) => ic_platform::ic0::trap(b"application timer identity is invalid"),
     }
 }
 
@@ -221,6 +251,3 @@ fn timer_is_scheduled(identity: &TimerIdentity) -> bool {
         .and_then(|snapshot| snapshot.next_deadline_ns())
         .is_some()
 }
-
-#[cfg(feature = "candid-export")]
-ic_cdk::export_candid!();

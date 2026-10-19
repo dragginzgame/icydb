@@ -23,7 +23,7 @@ use crate::{
             enum_catalog::{ValueAdmissionBudget, ValueAdmissionError},
         },
     },
-    types::{IntBig, NatBig, NumericValue},
+    types::NumericValue,
     value::{InputValue, Value, canonicalize_value_set},
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
@@ -458,13 +458,11 @@ fn normalize_value_for_accepted_kind(
         | AcceptedFieldKind::Int32
         | AcceptedFieldKind::Int64
         | AcceptedFieldKind::Int128
-        | AcceptedFieldKind::IntBig { .. }
         | AcceptedFieldKind::Nat8
         | AcceptedFieldKind::Nat16
         | AcceptedFieldKind::Nat32
         | AcceptedFieldKind::Nat64
-        | AcceptedFieldKind::Nat128
-        | AcceptedFieldKind::NatBig { .. } => {
+        | AcceptedFieldKind::Nat128 => {
             normalize_numeric_value_for_accepted_kind(value, expected_kind, coercion, op, work)
         }
         AcceptedFieldKind::Account
@@ -523,10 +521,8 @@ fn normalize_numeric_value_for_accepted_kind(
     let target = match expected_kind {
         AcceptedFieldKind::Int64 => Some(PredicateNumericTarget::Int64),
         AcceptedFieldKind::Int128 => Some(PredicateNumericTarget::Int128),
-        AcceptedFieldKind::IntBig { .. } => Some(PredicateNumericTarget::IntBig),
         AcceptedFieldKind::Nat64 => Some(PredicateNumericTarget::Nat64),
         AcceptedFieldKind::Nat128 => Some(PredicateNumericTarget::Nat128),
-        AcceptedFieldKind::NatBig { .. } => Some(PredicateNumericTarget::NatBig),
         _ => None,
     };
     normalize_numeric_value_for_target(value, target, coercion, op, work)
@@ -536,10 +532,8 @@ fn normalize_numeric_value_for_accepted_kind(
 enum PredicateNumericTarget {
     Int64,
     Int128,
-    IntBig,
     Nat64,
     Nat128,
-    NatBig,
 }
 
 fn normalize_numeric_value_for_target(
@@ -562,14 +556,6 @@ fn normalize_numeric_value_for_target(
         return work.copy_value(value);
     }
 
-    // Decimal conversion is fixed-width. A successful bigint result is at most
-    // 128 bits; allow small-Vec limb backing before constructing it.
-    if matches!(
-        target,
-        Some(PredicateNumericTarget::IntBig | PredicateNumericTarget::NatBig)
-    ) {
-        work.charge(Resource::TemporaryBytes, 64)?;
-    }
     let normalized = match target {
         Some(PredicateNumericTarget::Int64) => value
             .to_numeric_decimal()
@@ -579,10 +565,6 @@ fn normalize_numeric_value_for_target(
             .to_numeric_decimal()
             .and_then(<i128 as NumericValue>::try_from_decimal)
             .map(Value::Int128),
-        Some(PredicateNumericTarget::IntBig) => value
-            .to_numeric_decimal()
-            .and_then(<IntBig as NumericValue>::try_from_decimal)
-            .map(Value::IntBig),
         Some(PredicateNumericTarget::Nat64) => value
             .to_numeric_decimal()
             .and_then(<u64 as NumericValue>::try_from_decimal)
@@ -591,10 +573,6 @@ fn normalize_numeric_value_for_target(
             .to_numeric_decimal()
             .and_then(<u128 as NumericValue>::try_from_decimal)
             .map(Value::Nat128),
-        Some(PredicateNumericTarget::NatBig) => value
-            .to_numeric_decimal()
-            .and_then(<NatBig as NumericValue>::try_from_decimal)
-            .map(Value::NatBig),
         None => None,
     };
 

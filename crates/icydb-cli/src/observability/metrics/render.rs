@@ -1,6 +1,6 @@
 //! Module: metrics report rendering.
 //! Responsibility: render canonical journal debt and one execution-cost window.
-//! Does not own: endpoint calls, Candid decoding, or endpoint publication.
+//! Does not own: endpoint calls, Wire decoding, or endpoint publication.
 
 use icydb::metrics::{EntityMetrics, MetricsReport};
 
@@ -114,8 +114,8 @@ mod tests {
 
     #[test]
     fn metrics_report_displays_producer_overflow_quality() {
-        let wire = candid::encode_one(MetricsReport::default()).unwrap();
-        let report: MetricsReport = candid::decode_one(&wire).unwrap();
+        let wire = icydb_schema::wire::encode_one(MetricsReport::default()).unwrap();
+        let report: MetricsReport = icydb_schema::wire::decode_one(&wire).unwrap();
         let rendered = render_metrics_report(&report);
         assert_eq!(
             rendered
@@ -134,9 +134,9 @@ mod tests {
         samples_saturated: bool,
         total_saturated: bool,
     ) -> EntityMetrics {
-        // Use complete producer-projected state through the real Candid decoder;
+        // Use complete producer-projected state through the real Wire decoder;
         // the renderer consumes the admitted mean instead of redoing arithmetic.
-        #[derive(candid::CandidType)]
+        #[derive(serde::Serialize)]
         struct ReportEntity {
             path: &'static str,
             hits: u64,
@@ -146,7 +146,7 @@ mod tests {
             total_saturated: bool,
             instructions_mean: Option<u128>,
         }
-        let encoded = candid::encode_one(ReportEntity {
+        let encoded = icydb_schema::wire::encode_one(ReportEntity {
             path: "app.Entity",
             hits,
             instructions_total: total,
@@ -156,7 +156,7 @@ mod tests {
             instructions_mean: mean,
         })
         .expect("encode report entity");
-        candid::decode_one(&encoded).expect("decode report entity")
+        icydb_schema::wire::decode_one(&encoded).expect("decode report entity")
     }
 
     #[test]

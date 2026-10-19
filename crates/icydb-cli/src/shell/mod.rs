@@ -6,18 +6,16 @@
 mod call;
 mod input;
 mod interactive;
-mod render;
+pub(crate) mod render;
 mod route;
 
 use std::path::PathBuf;
 
-use candid::Decode;
-use icydb::db::sql::SqlQueryResult;
+use icydb::{db::sql::SqlQueryResult, wire::Endpoint};
 
 use crate::{
     cli::{SqlArgs, SqlShellFields},
     diagnostic::render_error,
-    endpoint::{Endpoint, SQL_DDL_ENDPOINT, SQL_QUERY_ENDPOINT, SQL_UPDATE_ENDPOINT},
     icp::require_created_canister,
 };
 
@@ -81,35 +79,36 @@ fn execute_sql(environment: &str, canister: &str, sql: &str) -> Result<String, S
     let endpoint = sql_endpoint(call_kind);
     require_created_canister(environment, canister)?;
 
-    let escaped_sql = call::candid_escape_string(sql);
-    let candid_bytes = match call_kind {
+    let wire_bytes = match call_kind {
         route::SqlShellCallKind::Query => {
-            call::icp_query(environment, canister, endpoint.method(), &escaped_sql)?
+            call::icp_query(environment, canister, endpoint.name(), sql)?
         }
         route::SqlShellCallKind::Ddl | route::SqlShellCallKind::Update => {
-            call::icp_update(environment, canister, endpoint.method(), &escaped_sql)?
+            call::icp_update(environment, canister, endpoint.name(), sql)?
         }
     };
 
-    render_sql_response(candid_bytes.as_slice())
+    render_sql_response(endpoint.name(), wire_bytes.as_slice())
 }
 
 const fn sql_endpoint(call_kind: route::SqlShellCallKind) -> Endpoint {
     match call_kind {
-        route::SqlShellCallKind::Query => SQL_QUERY_ENDPOINT,
-        route::SqlShellCallKind::Ddl => SQL_DDL_ENDPOINT,
-        route::SqlShellCallKind::Update => SQL_UPDATE_ENDPOINT,
+        route::SqlShellCallKind::Query => Endpoint::Query,
+        route::SqlShellCallKind::Ddl => Endpoint::Ddl,
+        route::SqlShellCallKind::Update => Endpoint::Update,
     }
 }
 
 // Both call lanes decode the same public envelope and retain typed values until
-// the facade's SQL renderer decides how to display them.
-fn render_sql_response(candid_bytes: &[u8]) -> Result<String, String> {
-    let response = Decode!(candid_bytes, Result<SqlQueryResult, icydb::Error>)
+// the CLI composes a terminal report from SQL display cells.
+fn render_sql_response(method: &str, wire_bytes: &[u8]) -> Result<String, String> {
+    let response = icydb::wire::Endpoint::from_name(method)
+        .ok_or_else(|| format!("unknown IcyDB method '{method}'"))?
+        .decode_response::<Result<SqlQueryResult, icydb::Error>>(wire_bytes)
         .map_err(|err| err.to_string())?;
 
     match response {
-        Ok(result) => Ok(result.render_text()),
+        Ok(result) => Ok(render::render_text(&result)),
         // The one-shot entrypoint and interactive loop own the error prefix and
         // output stream; endpoint failures remain errors until that boundary.
         Err(err) => Err(render_error(&err)),
@@ -148,16 +147,12 @@ pub(crate) mod test_support {
         super::route::sql_shell_call_kind(sql)
     }
 
-    pub(crate) fn candid_escape_string(sql: &str) -> String {
-        super::call::candid_escape_string(sql)
-    }
-
     pub(crate) fn finalize_successful_command_output(rendered: &str) -> String {
         super::render::finalize_successful_command_output(rendered)
     }
 
-    pub(crate) fn render_sql_response(candid_bytes: &[u8]) -> Result<String, String> {
-        super::render_sql_response(candid_bytes)
+    pub(crate) fn render_sql_response(wire_bytes: &[u8]) -> Result<String, String> {
+        super::render_sql_response("icydb_query", wire_bytes)
     }
 
     pub(crate) fn sql_shell_config_inputs(args: super::SqlArgs) -> SqlShellConfigInputs {

@@ -13,9 +13,9 @@ use crate::cli::{
     CanisterTarget, DiagnosticArtifactArgs, DiagnosticSourceMetadataArgs, MetricsArgs,
     SchemaMigrationCommand,
 };
-use crate::icp::{call_query_hex, call_update_hex};
+use crate::icp::{call_query_hex, call_update_hex, encode_wire_args};
 
-pub(crate) use render::render_hex_lower;
+use serde::de::DeserializeOwned;
 
 pub(crate) fn run_metrics_command(args: MetricsArgs) -> Result<(), String> {
     metrics::run_metrics_command(args)
@@ -54,13 +54,13 @@ fn call_query(
     environment: &str,
     canister: &str,
     method: &str,
-    candid_arg: &str,
+    arguments: impl serde::Serialize,
 ) -> Result<Vec<u8>, String> {
     call_query_hex(
         environment,
         canister,
         method,
-        candid_arg,
+        &encode_wire_args(method, arguments)?,
         call_error_mapper("query", environment, canister, method),
     )
 }
@@ -69,13 +69,13 @@ fn call_update(
     environment: &str,
     canister: &str,
     method: &str,
-    candid_arg: &str,
+    arguments: impl serde::Serialize,
 ) -> Result<Vec<u8>, String> {
     call_update_hex(
         environment,
         canister,
         method,
-        candid_arg,
+        &encode_wire_args(method, arguments)?,
         call_error_mapper("update", environment, canister, method),
     )
 }
@@ -89,21 +89,28 @@ fn call_error_mapper<'a>(
     move |stderr| method_error(label, environment, canister, method, stderr)
 }
 
-fn endpoint_result_error(
+// Wire shape failures retain their decoder diagnostic. A successfully decoded
+// endpoint error gains the same target context and rich facts in every command.
+pub(crate) fn decode_endpoint_result<T: serde::Serialize + DeserializeOwned>(
+    bytes: &[u8],
     label: &str,
-    target: &CanisterTarget,
+    environment: &str,
+    canister: &str,
     method: &str,
-    err: icydb::Error,
-) -> String {
-    let detail = crate::diagnostic::render_error(&err);
-
-    method_error(
-        label,
-        target.environment(),
-        target.canister_name(),
-        method,
-        detail.as_str(),
-    )
+) -> Result<T, String> {
+    let response = icydb::wire::Endpoint::from_name(method)
+        .ok_or_else(|| format!("unknown IcyDB method '{method}'"))?
+        .decode_response::<Result<T, icydb::Error>>(bytes)
+        .map_err(|error| error.to_string())?;
+    response.map_err(|error| {
+        method_error(
+            label,
+            environment,
+            canister,
+            method,
+            &crate::diagnostic::render_error(&error),
+        )
+    })
 }
 
 fn method_error(
@@ -132,30 +139,6 @@ pub(crate) mod test_support {
         detail: &str,
     ) -> String {
         base_method_error(label, environment, canister, method, detail)
-    }
-
-    pub(crate) fn decode_metrics_report(
-        candid_bytes: &[u8],
-    ) -> Result<Result<icydb::metrics::MetricsReport, icydb::Error>, String> {
-        metrics::decode_metrics_report(candid_bytes)
-    }
-
-    pub(crate) fn decode_metrics_reset_response(
-        candid_bytes: &[u8],
-    ) -> Result<Result<(), icydb::Error>, String> {
-        metrics::decode_metrics_reset_response(candid_bytes)
-    }
-
-    pub(crate) fn decode_schema_report(
-        candid_bytes: &[u8],
-    ) -> Result<Result<Vec<icydb::db::EntitySchemaDescription>, icydb::Error>, String> {
-        schema::decode_schema_report(candid_bytes)
-    }
-
-    pub(crate) fn decode_snapshot_report(
-        candid_bytes: &[u8],
-    ) -> Result<Result<icydb::db::StorageReport, icydb::Error>, String> {
-        snapshot::decode_snapshot_report(candid_bytes)
     }
 
     pub(crate) fn render_field_list(fields: &[String]) -> String {

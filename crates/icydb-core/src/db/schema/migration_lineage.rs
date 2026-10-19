@@ -3,6 +3,7 @@
 //! This module owns the bounded current lineage value. The generalized
 //! database-control map owns its reserved key and publication.
 
+use crate::db::codec::BoundedByteWriter;
 use std::collections::BTreeMap;
 
 use icydb_schema::{
@@ -10,10 +11,7 @@ use icydb_schema::{
 };
 
 use crate::{
-    db::{
-        database_format::crc32c,
-        schema::wire::{SchemaWireReader, SchemaWireWriter},
-    },
+    db::{database_format::crc32c, schema::wire::SchemaWireReader},
     error::InternalError,
     types::EntityTag,
 };
@@ -25,7 +23,7 @@ const LINEAGE_VERSION: u8 = 1;
 const LINEAGE_HEADER_BYTES: usize = 8 + 1 + 4 + 4;
 const LINEAGE_CHECKSUM_BYTES: usize = 4;
 
-type LineageWriter = SchemaWireWriter<MAX_ENTITY_SOURCE_LINEAGE_BYTES>;
+type LineageWriter = BoundedByteWriter<MAX_ENTITY_SOURCE_LINEAGE_BYTES>;
 type LineageReader<'a> = SchemaWireReader<'a>;
 
 /// Positive accepted source version for one generated-owned entity.

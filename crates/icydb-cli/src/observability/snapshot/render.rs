@@ -1,6 +1,6 @@
 //! Module: snapshot report rendering.
 //! Responsibility: render generated storage snapshot reports into CLI tables.
-//! Does not own: endpoint calls, Candid decoding, or endpoint publication.
+//! Does not own: endpoint calls, Wire decoding, or endpoint publication.
 //! Boundary: receives decoded storage reports and returns user-facing text.
 
 use icydb::db::{
@@ -9,7 +9,7 @@ use icydb::db::{
 };
 use std::fmt::Write as _;
 
-use crate::table::{ColumnAlign, append_indented_table};
+use crate::table::{ColumnAlign, append_report_section};
 
 pub(super) fn render_snapshot_report(report: &StorageReport) -> String {
     let mut output = String::new();
@@ -111,7 +111,7 @@ fn append_memory_allocations(output: &mut String, report: &MemoryAllocations) {
             ]
         })
         .collect::<Vec<_>>();
-    append_indented_table(
+    append_report_section(
         output,
         "  ",
         &[
@@ -213,7 +213,7 @@ fn entity_storage_row(path: &str, store: &str, entries: u64, memory_bytes: u64) 
 }
 
 fn append_data_store_table(output: &mut String, rows: &[[String; 13]]) {
-    append_snapshot_table(
+    append_report_section(
         output,
         "data stores",
         &[
@@ -251,7 +251,7 @@ fn append_data_store_table(output: &mut String, rows: &[[String; 13]]) {
 }
 
 fn append_index_store_table(output: &mut String, rows: &[[String; 16]]) {
-    append_snapshot_table(
+    append_report_section(
         output,
         "index stores",
         &[
@@ -295,7 +295,7 @@ fn append_index_store_table(output: &mut String, rows: &[[String; 16]]) {
 }
 
 fn append_schema_store_table(output: &mut String, rows: &[[String; 12]]) {
-    append_snapshot_table(
+    append_report_section(
         output,
         "schema stores",
         &[
@@ -331,7 +331,7 @@ fn append_schema_store_table(output: &mut String, rows: &[[String; 12]]) {
 }
 
 fn append_entity_table(output: &mut String, rows: &[[String; 4]]) {
-    append_snapshot_table(
+    append_report_section(
         output,
         "entities",
         &["entity", "store", "entries", "bytes"],
@@ -343,21 +343,4 @@ fn append_entity_table(output: &mut String, rows: &[[String; 4]]) {
             ColumnAlign::Right,
         ],
     );
-}
-
-fn append_snapshot_table<const N: usize>(
-    output: &mut String,
-    title: &str,
-    headers: &[&str; N],
-    rows: &[[String; N]],
-    alignments: &[ColumnAlign; N],
-) {
-    output.push_str(title);
-    output.push('\n');
-    if rows.is_empty() {
-        output.push_str("  None\n");
-        return;
-    }
-
-    append_indented_table(output, "  ", headers, rows, alignments);
 }

@@ -1,3 +1,3 @@
-icydb::start!(participant,);
+canic_icydb::start!(icydb; participant,);
 
 fn main() {}

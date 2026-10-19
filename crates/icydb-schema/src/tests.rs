@@ -3,15 +3,15 @@ use crate::{
     DeclaredEntityVersion, Duration, EntityFragment, EntityMigration, EntitySourceKey,
     EntityStoreAssignment, EnumTypeFragment, EnumVariantFragment, ExpectedAcceptedHead,
     ExpectedSchemaFingerprint, FieldFragment, FieldInsertPolicy, FieldSourceKey, FieldType,
-    Float32, Float64, IntBig, MAX_SCHEMA_FIELD_TYPE_DEPTH, MAX_SCHEMA_PROPOSAL_BYTES,
-    MAX_SOURCE_KEY_BYTES, NamedTypeFragment, NatBig, ProposalContractVersion, RecordFieldFragment,
-    RecordTypeFragment, RelationDeleteAction, RelationFragment, RelationSourceFragment,
-    RuleSourceKey, ScalarLiteral, ScalarType, SchemaCapability, SchemaContractError,
-    SchemaFragment, SchemaMigrationPlan, SchemaMigrationRename, SchemaName, SchemaProposal,
-    SchemaRemoval, SchemaSubmissionKey, SourceCheckExpr, SourceCheckInstruction,
-    SourceRuleOperation, Subaccount, TargetDatabaseIdentity, TargetStoreIdentity,
-    TargetedRuleFragment, Timestamp, TupleElementFragment, TypeSourceKey, U256, Ulid, Unit,
-    decode_schema_fragment, decode_schema_proposal, encode_schema_fragment, encode_schema_proposal,
+    Float32, Float64, MAX_SCHEMA_FIELD_TYPE_DEPTH, MAX_SCHEMA_PROPOSAL_BYTES, MAX_SOURCE_KEY_BYTES,
+    NamedTypeFragment, ProposalContractVersion, RecordFieldFragment, RecordTypeFragment,
+    RelationDeleteAction, RelationFragment, RelationSourceFragment, RuleSourceKey, ScalarLiteral,
+    ScalarType, SchemaCapability, SchemaContractError, SchemaFragment, SchemaMigrationPlan,
+    SchemaMigrationRename, SchemaName, SchemaProposal, SchemaRemoval, SchemaSubmissionKey,
+    SourceCheckExpr, SourceCheckInstruction, SourceRuleOperation, Subaccount,
+    TargetDatabaseIdentity, TargetStoreIdentity, TargetedRuleFragment, Timestamp,
+    TupleElementFragment, TypeSourceKey, U256, Ulid, Unit, decode_schema_fragment,
+    decode_schema_proposal, encode_schema_fragment, encode_schema_proposal,
 };
 
 fn source<T>(value: &str, constructor: impl FnOnce(String) -> Result<T, SchemaContractError>) -> T {
@@ -596,7 +596,6 @@ fn exact_scalar_field_types_roundtrip_without_width_or_bound_loss() {
         ScalarType::Int32,
         ScalarType::Int64,
         ScalarType::Int128,
-        ScalarType::IntBig { max_bytes: 257 },
         ScalarType::Principal,
         ScalarType::Subaccount,
         ScalarType::Text { max_len: None },
@@ -607,7 +606,6 @@ fn exact_scalar_field_types_roundtrip_without_width_or_bound_loss() {
         ScalarType::Nat32,
         ScalarType::Nat64,
         ScalarType::Nat128,
-        ScalarType::NatBig { max_bytes: 263 },
         ScalarType::Ulid,
         ScalarType::Unit,
         ScalarType::U256,
@@ -675,26 +673,6 @@ fn exact_scalar_defaults_reject_values_outside_the_declared_contract() {
         ),
         Err(SchemaContractError::LiteralTypeMismatch),
     );
-    let signed_big = IntBig::from(128_i64);
-    let signed_len = u32::try_from(signed_big.to_leb128().len()).expect("fixture length fits");
-    assert!(
-        entity_with_default(
-            FieldType::Scalar(ScalarType::IntBig {
-                max_bytes: signed_len,
-            }),
-            ScalarLiteral::IntBig(signed_big.clone()),
-        )
-        .is_ok()
-    );
-    assert_eq!(
-        entity_with_default(
-            FieldType::Scalar(ScalarType::IntBig {
-                max_bytes: signed_len - 1,
-            }),
-            ScalarLiteral::IntBig(signed_big),
-        ),
-        Err(SchemaContractError::LiteralTypeMismatch),
-    );
     assert_eq!(
         entity_with_default(
             FieldType::Scalar(ScalarType::Decimal { scale: 1 }),
@@ -716,7 +694,9 @@ fn invalid_exact_scalar_field_shapes_reject_before_composition() {
         Err(SchemaContractError::InvalidFieldType),
     );
     assert_eq!(
-        record_with_field(FieldType::Scalar(ScalarType::NatBig { max_bytes: 0 })),
+        record_with_field(FieldType::Scalar(ScalarType::Decimal {
+            scale: Decimal::max_supported_scale() + 1
+        })),
         Err(SchemaContractError::InvalidFieldType),
     );
 }
@@ -734,11 +714,7 @@ fn unsigned_identity_generation_requires_the_sole_exact_primary_key() {
             .expect("exact unsigned identity primary key should admit");
     }
 
-    for scalar in [
-        ScalarType::Int64,
-        ScalarType::NatBig { max_bytes: 16 },
-        ScalarType::Text { max_len: Some(64) },
-    ] {
+    for scalar in [ScalarType::Int64, ScalarType::Text { max_len: Some(64) }] {
         assert_eq!(
             entity_with_field(FieldType::Scalar(scalar), FieldInsertPolicy::Generated,),
             Err(SchemaContractError::InvalidFieldPolicy),
@@ -1146,9 +1122,7 @@ fn proposal_literals_preserve_every_canonical_scalar_atom() {
         ScalarLiteral::Float32(Float32::try_new(1.25).expect("float should admit")),
         ScalarLiteral::Float64(Float64::try_new(-2.5).expect("float should admit")),
         ScalarLiteral::Int(-7),
-        ScalarLiteral::IntBig(IntBig::from(-8_i64)),
         ScalarLiteral::Nat(10),
-        ScalarLiteral::NatBig(NatBig::from(11_u64)),
         ScalarLiteral::Principal(principal),
         ScalarLiteral::Subaccount(Subaccount::from_array([12; 32])),
         ScalarLiteral::Text("canonical".to_string()),
@@ -1197,28 +1171,6 @@ fn proposal_literals_preserve_every_canonical_scalar_atom() {
 }
 
 #[test]
-fn big_integer_operator_completion_uses_exact_values() {
-    let signed_product: IntBig = [IntBig::from(-2_i64), IntBig::from(3_i64)]
-        .into_iter()
-        .product();
-    assert_eq!(signed_product, IntBig::from(-6_i64));
-    assert_eq!(
-        std::iter::empty::<IntBig>().product::<IntBig>(),
-        IntBig::from(1_i64)
-    );
-    assert_eq!(-IntBig::from(-7_i64), IntBig::from(7_i64));
-
-    let unsigned_product: NatBig = [NatBig::from(4_u64), NatBig::from(5_u64)]
-        .into_iter()
-        .product();
-    assert_eq!(unsigned_product, NatBig::from(20_u64));
-    assert_eq!(
-        std::iter::empty::<NatBig>().product::<NatBig>(),
-        NatBig::from(1_u64)
-    );
-}
-
-#[test]
 fn proposal_digest_has_a_fixed_current_form_vector() {
     assert_eq!(
         proposal("users", false)
@@ -1226,8 +1178,8 @@ fn proposal_digest_has_a_fixed_current_form_vector() {
             .expect("proposal should hash")
             .to_bytes(),
         [
-            76, 58, 235, 226, 68, 243, 207, 94, 246, 93, 1, 94, 122, 148, 211, 81, 101, 70, 1, 24,
-            17, 137, 110, 164, 125, 210, 42, 249, 23, 59, 240, 207,
+            166, 100, 221, 241, 154, 254, 128, 252, 29, 108, 56, 176, 167, 71, 80, 95, 213, 251,
+            56, 25, 2, 50, 170, 60, 186, 242, 200, 251, 116, 253, 185, 252,
         ],
     );
 }

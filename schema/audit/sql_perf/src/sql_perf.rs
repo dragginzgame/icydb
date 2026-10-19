@@ -49,32 +49,6 @@ pub struct PerfAuditJournaledStore {}
 )]
 pub struct PerfAuditUser {}
 
-/// Empty-table preparation fixture for bounded arbitrary-precision literals.
-#[entity(store = "PerfAuditStore",
-    version = 1,
-    pk(fields = ["id"]),
-    fields(
-        field(name = "id", value(item(prim = "Int32"))),
-        field(name = "signed", value(item(prim = "IntBig"))),
-        field(name = "unsigned", value(item(prim = "NatBig")))
-    )
-)]
-pub struct PerfAuditBigLiteral {}
-
-/// Wide scalar fixture whose LEB128 field bound admits both sides of the
-/// 4-KiB binary index-component edge (LEB128 carries seven magnitude bits per byte).
-/// The original big-literal fixture retains its default 256-byte field bound.
-#[entity(store = "PerfAuditStore",
-    version = 1,
-    pk(fields = ["id"]),
-    fields(
-        field(name = "id", value(item(prim = "Int32"))),
-        field(name = "signed", value(item(prim = "IntBig", max_bytes = 8192))),
-        field(name = "unsigned", value(item(prim = "NatBig", max_bytes = 8192)))
-    )
-)]
-pub struct PerfAuditIndexedBigInteger {}
-
 ///
 /// PerfAuditMaxFanout
 ///
@@ -171,7 +145,7 @@ pub struct PerfAuditMaxFanout {}
 ///
 /// Audit-only 0.236 shape exercising 16 structurally tied three-component
 /// branch candidates with 16 prefixes each, exactly filling the 256-probe
-/// policy and approaching the cumulative lowered-byte envelope.
+/// policy with values that fit the complete 512-byte index-key budget.
 ///
 
 #[entity(store = "PerfAuditFanoutStore",

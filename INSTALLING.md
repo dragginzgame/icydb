@@ -49,14 +49,22 @@ explains how to adapt it.
 
 ## Explicit Endpoint Declarations
 
-`icydb::start!()` installs private runtime wiring and never creates a public
-Candid method. Declare each maintained public IcyDB method explicitly in the
+Add the separately owned `canic-icydb` host adapter to the canister dependencies.
+IcyDB's libraries expose native database and byte contracts; the adapter owns IC
+exports, controller context, startup scheduling and secure entropy acquisition.
+Requests, replies and composed lifecycle arguments use bounded IC Wire bytes.
+Builds stage compiler and deployable Wasm files; callers use the native contract
+instead of interface discovery.
+It uses the consumer's IcyDB binding and creates no framework memory runtime.
+
+`canic_icydb::start!(icydb)` installs private runtime wiring and never creates a public
+method. Declare each maintained public IcyDB method explicitly in the
 canister source:
 
 ```rust
-icydb::start!();
+canic_icydb::start!(icydb);
 
-icydb::endpoints! {
+canic_icydb::endpoints! {
     #[cfg(feature = "local-sql-query")]
     icydb_sql_query(introspection = true);
     icydb_ddl;
@@ -96,9 +104,9 @@ fn load_fixtures() -> Result<(), icydb::Error> {
     Ok(())
 }
 
-icydb::start!();
+canic_icydb::start!(icydb);
 
-icydb::endpoints! {
+canic_icydb::endpoints! {
     #[cfg(feature = "local-sql-query")]
     icydb_sql_query(introspection = true);
     #[cfg(feature = "test-admin-api")]
@@ -114,12 +122,12 @@ that Wasm. No IcyDB TOML file or target environment variable participates in
 endpoint selection.
 
 Readonly SQL is controller-gated by default. Its declaration keyword is
-`icydb_sql_query`; the exported Candid method is `icydb_query`. Declare the
+`icydb_sql_query`; the exported Wire method is `icydb_query`. Declare the
 required `introspection = true` or `introspection = false` literal first,
 followed by the optional application guard in this order:
 
 ```rust
-icydb::endpoints! {
+canic_icydb::endpoints! {
     icydb_sql_query(
         introspection = false,
         authorization = guard(sql_read_guard),
@@ -340,8 +348,7 @@ export PATH="$PWD/.tools/host/bin:$PWD/.tools/ic/bin:$PWD/.tools/rust/common/bin
 
 Run this from the repository root after `make install-tools`. The shared
 installer selects release executables; neither npm nor Cargo installs a second
-ICP/ic-wasm copy. Cargo still owns IcyDB-specific tools such as candid-extractor
-and Twiggy. Workstation setup verifies tools before enabling the formatting hook;
+ICP/ic-wasm copy. Cargo still owns IcyDB-specific tools such as Twiggy. Workstation setup verifies tools before enabling the formatting hook;
 it cannot change its parent shell's environment.
 
 ### SQL Evidence Commands

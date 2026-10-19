@@ -7,7 +7,6 @@ use crate::{
         QueryError, RequestExecutionRoot, query::preparation::PreparationWork,
         test_support::request_with_limit,
     },
-    types::{IntBig, NatBig},
     value::{Value, ValueEnum},
 };
 use icydb_diagnostic_code::{
@@ -25,20 +24,10 @@ fn admit(value: &Value, root: &RequestExecutionRoot) -> Result<(), QueryError> {
 }
 
 #[test]
-fn comparison_extent_covers_bytes_limbs_and_nested_nodes_without_backing() {
+fn comparison_extent_covers_bytes_and_nested_nodes_without_backing() {
     for (value, bytes, visits) in [
         (Value::Text("λx".into()), 3, 2),
         (Value::Blob(vec![1, 2, 3]), 3, 2),
-        (
-            Value::IntBig(i128::MIN.to_string().parse::<IntBig>().unwrap()),
-            16,
-            2,
-        ),
-        (
-            Value::NatBig(u128::MAX.to_string().parse::<NatBig>().unwrap()),
-            16,
-            2,
-        ),
         (
             Value::List(vec![Value::Text("a".into()), Value::Blob(vec![2, 3])]),
             3,

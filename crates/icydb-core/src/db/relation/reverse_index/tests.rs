@@ -532,7 +532,7 @@ fn reverse_relation_keys_encode_full_composite_target_primary_key_identity() {
             .expect("composite target identity should produce reverse index bounds");
 
     assert!(
-        raw.as_bytes() >= bounds.0.as_bytes() && raw.as_bytes() < bounds.1.as_bytes(),
+        raw >= bounds.0 && raw < bounds.1,
         "reverse bounds should cover the full composite target identity"
     );
 }

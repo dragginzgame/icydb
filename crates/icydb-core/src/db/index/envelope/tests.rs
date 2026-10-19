@@ -15,7 +15,7 @@ use crate::{
     error::{ErrorClass, ErrorOrigin},
     value::Value,
 };
-use ic_memory::ic_stable_structures::Storable;
+use ic_storage::adapter::Storable;
 use proptest::prelude::*;
 use std::{borrow::Cow, cmp::Ordering, ops::Bound};
 

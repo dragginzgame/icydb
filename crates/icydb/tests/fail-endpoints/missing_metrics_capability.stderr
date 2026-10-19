@@ -1,29 +1,37 @@
 error: endpoint declaration `icydb_metrics` requires the `icydb/metrics` Cargo feature
- --> tests/fail-endpoints/missing_metrics_capability.rs:6:5
-  |
-6 | /     icydb::endpoints! {
-7 | |         icydb_metrics(authorization = public);
-8 | |     }
-  | |_____^
-  |
-  = note: this error originates in the macro `$crate::__icydb_with_metrics_endpoint` which comes from the expansion of the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)
+  --> tests/fail-endpoints/missing_metrics_capability.rs:9:5
+   |
+ 9 | /     canic_icydb::endpoints! {
+10 | |         icydb_metrics(authorization = public);
+11 | |     }
+   | |_____^
+   |
+   = note: this error originates in the macro `crate::__icydb_facade::__icydb_with_metrics_endpoint` which comes from the expansion of the macro `canic_icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error: endpoint declaration `icydb_metrics` requires the `icydb/metrics` Cargo feature
-  --> tests/fail-endpoints/missing_metrics_capability.rs:12:5
+  --> tests/fail-endpoints/missing_metrics_capability.rs:15:5
    |
-12 | /     icydb::endpoints! {
-13 | |         icydb_metrics(authorization = controller);
-14 | |     }
+15 | /     canic_icydb::endpoints! {
+16 | |         icydb_metrics(authorization = controller);
+17 | |     }
    | |_____^
    |
-   = note: this error originates in the macro `$crate::__icydb_with_metrics_endpoint` which comes from the expansion of the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)
+   = note: this error originates in the macro `crate::__icydb_facade::__icydb_with_metrics_endpoint` which comes from the expansion of the macro `canic_icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error: endpoint declaration `icydb_metrics_reset` requires the `icydb/metrics` Cargo feature
-  --> tests/fail-endpoints/missing_metrics_capability.rs:18:5
+  --> tests/fail-endpoints/missing_metrics_capability.rs:21:5
    |
-18 | /     icydb::endpoints! {
-19 | |         icydb_metrics_reset;
-20 | |     }
+21 | /     canic_icydb::endpoints! {
+22 | |         icydb_metrics_reset;
+23 | |     }
    | |_____^
    |
-   = note: this error originates in the macro `$crate::__icydb_with_metrics_endpoint` which comes from the expansion of the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)
+   = note: this error originates in the macro `crate::__icydb_facade::__icydb_with_metrics_endpoint` which comes from the expansion of the macro `canic_icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unused import: `canic_icydb::__private::cdk as __icydb_host_sdk`
+ --> tests/fail-endpoints/missing_metrics_capability.rs:2:5
+  |
+2 | use canic_icydb::__private::cdk as __icydb_host_sdk;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default

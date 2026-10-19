@@ -450,17 +450,6 @@ fn fatal_errors_admit_fixed_128_bit_primary_keys() {
 }
 
 #[test]
-fn fatal_errors_reject_big_integer_primary_keys() {
-    for primitive in [Primitive::IntBig, Primitive::NatBig] {
-        let mut entity =
-            entity_with_fields_and_indexes(vec![primitive_field("id", primitive)], vec![]);
-        assert!(!entity.fatal_errors().is_empty());
-        entity.fields.fields[0].value.item.primitive = Some(Primitive::Nat64);
-        assert!(entity.fatal_errors().is_empty());
-    }
-}
-
-#[test]
 fn fatal_errors_report_missing_ordered_primary_key_field() {
     let mut entity = entity_with_fields_and_indexes(vec![scalar_field("id")], vec![]);
     entity.primary_key.fields = vec![format_ident!("id"), format_ident!("tenant_id")];

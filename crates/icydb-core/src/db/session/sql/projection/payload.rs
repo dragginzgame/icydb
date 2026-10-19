@@ -8,10 +8,13 @@
 use crate::{
     db::{
         QueryError,
-        schema::{AcceptedEnumCatalog, output_value_from_runtime},
-        session::{query::StructuralProjectionPayload, sql::SqlStatementResult},
+        schema::AcceptedEnumCatalog,
+        session::{
+            query::StructuralProjectionPayload, response::output_row_from_runtime,
+            sql::SqlStatementResult,
+        },
     },
-    value::{OutputValue, Value},
+    value::Value,
 };
 
 /// Adapt one query-owned structural projection payload into the public SQL
@@ -45,7 +48,7 @@ pub(in crate::db::session::sql) fn sql_projection_statement_result_from_value_ro
         fixed_scales,
         rows: rows
             .into_iter()
-            .map(|row| sql_output_row_from_value_row(catalog, row))
+            .map(|row| output_row_from_runtime(catalog, row))
             .collect::<Result<Vec<_>, _>>()?,
         row_count,
     })
@@ -64,7 +67,7 @@ pub(in crate::db::session::sql) fn sql_projection_statement_result_from_fallible
 ) -> Result<SqlStatementResult, QueryError> {
     let rows = rows
         .into_iter()
-        .map(|row| row.and_then(|row| sql_output_row_from_value_row(catalog, row)))
+        .map(|row| row.and_then(|row| output_row_from_runtime(catalog, row)))
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(SqlStatementResult::Projection {
@@ -73,17 +76,4 @@ pub(in crate::db::session::sql) fn sql_projection_statement_result_from_fallible
         rows,
         row_count,
     })
-}
-
-// Move one structural SQL value row into the outward value representation used
-// by shared SQL statement results.
-fn sql_output_row_from_value_row(
-    catalog: &AcceptedEnumCatalog,
-    row: Vec<Value>,
-) -> Result<Vec<OutputValue>, QueryError> {
-    row.into_iter()
-        .map(|value| {
-            output_value_from_runtime(catalog, value).map_err(|_error| QueryError::invariant())
-        })
-        .collect()
 }

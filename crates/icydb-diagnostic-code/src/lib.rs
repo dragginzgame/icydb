@@ -1,9 +1,9 @@
 //! Module: lib
 //! Responsibility: compact diagnostic identity and public numeric error-code mapping.
-//! Does not own: rich diagnostic prose, Candid wire types, or runtime error construction.
+//! Does not own: rich diagnostic prose, Wire wire types, or runtime error construction.
 //! Boundary: maps rich internal diagnostic categories to stable compact public codes.
 //!
-//! This crate intentionally contains no rich diagnostic prose or Candid wire
+//! This crate intentionally contains no rich diagnostic prose or Wire wire
 //! types. Production canister builds collapse diagnostics to numeric wire
 //! codes before they cross the public canister boundary. `Debug` output is
 //! numeric for the same reason: host tooling can recover labels from the code
@@ -188,7 +188,7 @@ impl fmt::Debug for DiagnosticCode {
 ///
 /// Stable numeric public error identity.
 ///
-/// The public Candid `icydb::Error` stores this value as `nat16` so canister
+/// The public Wire `icydb::Error` stores this value as native `u16` so canister
 /// interfaces do not retain rich diagnostic enum labels. Rich diagnostics can
 /// still be reconstructed by host-side tooling from this leaf code. Before
 /// 1.0.0, the code space is hard-cut to a single compact sequential range.
@@ -343,7 +343,7 @@ impl ErrorOrigin {
     /// Recover a diagnostic origin from its compact public wire code.
     ///
     /// Unknown origin codes fail closed to `Runtime`, matching the public
-    /// boundary behavior used by the Candid facade.
+    /// boundary behavior used by the Wire facade.
     #[must_use]
     pub const fn from_wire_code(code: u8) -> Self {
         match Self::from_known_wire_code(code) {

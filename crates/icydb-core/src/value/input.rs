@@ -1,12 +1,12 @@
 use crate::{
     db::EntityKey,
     types::{
-        Account, Blob, Date, Decimal, Duration, Float32, Float64, Id, IntBig, NatBig, Principal,
-        Subaccount, Timestamp, U256, Ulid, Unit,
+        Account, Blob, Date, Decimal, Duration, Float32, Float64, Id, Principal, Subaccount,
+        Timestamp, U256, Ulid, Unit,
     },
     value::{PublicEnumValue, PublicValue, Value},
 };
-use candid::{CandidType, types::Serializer};
+
 use serde::{Deserialize, Deserializer};
 
 //
@@ -100,12 +100,6 @@ impl InputValue {
         Self(PublicValue::Int128(value))
     }
 
-    /// Build an unbounded signed integer input value.
-    #[must_use]
-    pub const fn int_big(value: IntBig) -> Self {
-        Self(PublicValue::IntBig(value))
-    }
-
     /// Build a recursive list from caller-authored input values.
     ///
     /// The owned root wrappers move into the shared recursive kernel without
@@ -179,12 +173,6 @@ impl InputValue {
         Self(PublicValue::Nat128(value))
     }
 
-    /// Build an unbounded natural input value.
-    #[must_use]
-    pub const fn nat_big(value: NatBig) -> Self {
-        Self(PublicValue::NatBig(value))
-    }
-
     /// Build a ULID input value.
     #[must_use]
     pub const fn ulid(value: Ulid) -> Self {
@@ -235,23 +223,6 @@ impl InputValue {
     /// Lift a runtime value without canonical enum IDs into authored input.
     pub(crate) fn try_from_runtime_non_enum(value: &Value) -> Option<Self> {
         PublicValue::try_from_runtime_non_enum(value).map(Self)
-    }
-}
-
-impl CandidType for InputValue {
-    fn ty() -> candid::types::Type {
-        PublicValue::ty()
-    }
-
-    fn _ty() -> candid::types::Type {
-        PublicValue::_ty()
-    }
-
-    fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
-    where
-        S: Serializer,
-    {
-        self.0.idl_serialize(serializer)
     }
 }
 
@@ -352,21 +323,9 @@ impl From<Float64> for InputValue {
     }
 }
 
-impl From<IntBig> for InputValue {
-    fn from(value: IntBig) -> Self {
-        Self(PublicValue::IntBig(value))
-    }
-}
-
 impl From<i128> for InputValue {
     fn from(value: i128) -> Self {
         Self(PublicValue::Int128(value))
-    }
-}
-
-impl From<NatBig> for InputValue {
-    fn from(value: NatBig) -> Self {
-        Self(PublicValue::NatBig(value))
     }
 }
 
@@ -485,6 +444,12 @@ macro_rules! impl_input_value_nat {
 
 impl_input_value_int!(i8, i16, i32, i64);
 impl_input_value_nat!(u8, u16, u32, u64);
+
+impl serde::Serialize for InputValue {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serde::Serialize::serialize(&self.0, serializer)
+    }
+}
 
 ///
 /// TESTS

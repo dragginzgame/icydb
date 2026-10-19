@@ -544,8 +544,6 @@ fn validate_literal_for_field(
         | Primitive::Blob
         | Primitive::Date
         | Primitive::Duration
-        | Primitive::IntBig
-        | Primitive::NatBig
         | Primitive::Principal
         | Primitive::Subaccount
         | Primitive::Timestamp

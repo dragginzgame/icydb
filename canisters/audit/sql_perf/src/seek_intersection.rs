@@ -1,8 +1,6 @@
 //! Bounded live-intersection qualification using the maintained streaming entity.
 
 use crate::{db, insert_fixture_rows, query_validate_error, reset_perf_fixtures};
-use candid::CandidType;
-use ic_cdk::update;
 use icydb::{
     Error,
     db::{
@@ -16,7 +14,7 @@ use icydb_testing_audit_sql_perf_fixtures::sql_perf::PerfAuditStreamingRow;
 
 /// Compact audit receipt. Payload projection is executed inside the sample,
 /// then discarded before reply encoding to stay below the IC response limit.
-#[derive(CandidType)]
+#[derive(serde::Deserialize, serde::Serialize)]
 pub(crate) struct IntersectionPageSample {
     ids: Vec<i32>,
     continuation: Option<String>,
@@ -55,7 +53,7 @@ const fn dense_case_contains(case: u8, id: i32) -> bool {
 /// Load one four-row batch for bounded intersection and crossover workloads.
 /// Cases 0–6 retain the original sparse/dense populations. Cases 7–19 vary
 /// density, row width, population and placement. Setup is outside cost windows.
-#[update]
+
 fn load_seek_intersection_fixture(case: u8, start: u16) -> Result<u32, Error> {
     let Some((rows, payload_bytes)) = fixture_shape(case) else {
         return Err(query_validate_error());
@@ -110,10 +108,11 @@ fn load_seek_intersection_fixture(case: u8, start: u16) -> Result<u32, Error> {
         Ok(4)
     })
 }
+icydb_testing_wasm_helpers::export_wire!(update, "load_seek_intersection_fixture", LoadSeekIntersectionFixture, load_seek_intersection_fixture, (case: u8, start: u16), Result<u32, Error>);
 
 /// Measure a real engine-issued page. Inputs select a fixed audit workload;
 /// they do not alter planner admission, physical routes or page budgets.
-#[update]
+
 fn measure_seek_intersection_page(
     children: u8,
     descending: bool,
@@ -146,11 +145,11 @@ fn measure_seek_intersection_page(
     if let Some(limit) = limit {
         request = request.limit(limit);
     }
-    let start = crate::call_context_instruction_counter();
+    let start = ic_platform::ic0::performance_counter(1);
     let page = icydb::db::with_request_execution(|| {
         db()?.execute_trusted_live_page(&request, continuation.as_deref())
     })?;
-    let instructions = crate::call_context_instruction_counter().saturating_sub(start);
+    let instructions = ic_platform::ic0::performance_counter(1).saturating_sub(start);
     let ids = page
         .rows
         .iter()
@@ -168,3 +167,4 @@ fn measure_seek_intersection_page(
         instructions,
     })
 }
+icydb_testing_wasm_helpers::export_wire!(update, "measure_seek_intersection_page", MeasureSeekIntersectionPage, measure_seek_intersection_page, (children: u8, descending: bool, residual: bool, wide: bool, limit: Option<u32>, continuation: Option<String>), Result<IntersectionPageSample, Error>);

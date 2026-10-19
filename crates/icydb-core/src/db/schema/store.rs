@@ -54,10 +54,8 @@ use crate::{
     error::InternalError,
     types::EntityTag,
 };
-use ic_memory::RuntimeMemory;
-use ic_memory::ic_stable_structures::{
-    BTreeMap as StableBTreeMap, DefaultMemoryImpl, Storable, storable::Bound as StorableBound,
-};
+use ic_memory::{DefaultMemoryImpl, RuntimeMemory};
+use ic_storage::adapter::{StableBTreeMap, Storable, storable::Bound as StorableBound};
 use sha2::Digest;
 use std::borrow::Cow;
 #[cfg(test)]
@@ -655,7 +653,7 @@ struct AcceptedSchemaBundleCache {
 enum SchemaStoreBackend {
     Heap(StdBTreeMap<RawSchemaKey, RawSchemaValue>),
     Journaled {
-        canonical: StableBTreeMap<RawSchemaKey, RawSchemaValue, RuntimeMemory<DefaultMemoryImpl>>,
+        canonical: StableBTreeMap<RawSchemaKey, RawSchemaValue, DefaultMemoryImpl>,
         live: StdBTreeMap<RawSchemaKey, RawSchemaValue>,
         tombstones: BTreeSet<RawSchemaKey>,
         positions: PositionedOverlayMetadata<RawSchemaKey>,
@@ -3777,7 +3775,7 @@ impl SchemaStore {
     }
 
     fn visit_journaled_raw_value_range<E>(
-        canonical: &StableBTreeMap<RawSchemaKey, RawSchemaValue, RuntimeMemory<DefaultMemoryImpl>>,
+        canonical: &StableBTreeMap<RawSchemaKey, RawSchemaValue, DefaultMemoryImpl>,
         live: &StdBTreeMap<RawSchemaKey, RawSchemaValue>,
         tombstones: &BTreeSet<RawSchemaKey>,
         bounds: (RangeBound<RawSchemaKey>, RangeBound<RawSchemaKey>),
@@ -4035,10 +4033,6 @@ fn hash_accepted_field_kind(hasher: &mut sha2::Sha256, kind: &AcceptedFieldKind)
         AcceptedFieldKind::Int32 => write_hash_tag_u8(hasher, 12),
         AcceptedFieldKind::Int64 => write_hash_tag_u8(hasher, 13),
         AcceptedFieldKind::Int128 => write_hash_tag_u8(hasher, 14),
-        AcceptedFieldKind::IntBig { max_bytes } => {
-            write_hash_tag_u8(hasher, 15);
-            write_hash_u32(hasher, *max_bytes);
-        }
         AcceptedFieldKind::Principal => write_hash_tag_u8(hasher, 16),
         AcceptedFieldKind::Subaccount => write_hash_tag_u8(hasher, 17),
         AcceptedFieldKind::Text { max_len } => {
@@ -4051,10 +4045,6 @@ fn hash_accepted_field_kind(hasher: &mut sha2::Sha256, kind: &AcceptedFieldKind)
         AcceptedFieldKind::Nat32 => write_hash_tag_u8(hasher, 22),
         AcceptedFieldKind::Nat64 => write_hash_tag_u8(hasher, 23),
         AcceptedFieldKind::Nat128 => write_hash_tag_u8(hasher, 24),
-        AcceptedFieldKind::NatBig { max_bytes } => {
-            write_hash_tag_u8(hasher, 25);
-            write_hash_u32(hasher, *max_bytes);
-        }
         AcceptedFieldKind::Ulid => write_hash_tag_u8(hasher, 26),
         AcceptedFieldKind::Unit => write_hash_tag_u8(hasher, 27),
         AcceptedFieldKind::Relation {

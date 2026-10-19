@@ -5,7 +5,7 @@
 
 use crate::{
     GeneratedMutationSequence, SqlGeneratorError, SqlGeneratorErrorKind,
-    replay::canonical_json_bytes,
+    replay::{canonical_json_bytes, decode_replay_json, encode_bounded_replay},
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
@@ -482,24 +482,11 @@ impl MutationReplayRecord {
     /// Returns a typed replay error for invalid state, serialization failure, or artifact overflow.
     pub fn to_canonical_json(&self) -> Result<Vec<u8>, SqlGeneratorError> {
         self.validate()?;
-        let bytes = canonical_json_bytes(self)?;
-        let byte_count = u32::try_from(bytes.len()).map_err(|_| {
-            SqlGeneratorError::new(
-                SqlGeneratorErrorKind::Budget,
-                "canonical mutation replay exceeds u32 byte accounting",
-            )
-        })?;
-        if byte_count > self.original_sequence.budgets().max_artifact_bytes() {
-            return Err(SqlGeneratorError::new(
-                SqlGeneratorErrorKind::Budget,
-                format!(
-                    "canonical mutation replay has {byte_count} bytes, exceeding its {}-byte budget",
-                    self.original_sequence.budgets().max_artifact_bytes(),
-                ),
-            ));
-        }
-
-        Ok(bytes)
+        encode_bounded_replay(
+            self,
+            self.original_sequence.budgets().max_artifact_bytes(),
+            "mutation",
+        )
     }
 
     /// Decode exactly one canonical current-version mutation replay record.
@@ -508,13 +495,7 @@ impl MutationReplayRecord {
     ///
     /// Returns a typed replay error for malformed, stale, non-canonical, or inconsistent input.
     pub fn from_canonical_json(bytes: &[u8]) -> Result<Self, SqlGeneratorError> {
-        let record = serde_json::from_slice::<Self>(bytes).map_err(|source| {
-            SqlGeneratorError::with_json_source(
-                SqlGeneratorErrorKind::CanonicalReplay,
-                "failed to decode canonical mutation replay",
-                source,
-            )
-        })?;
+        let record: Self = decode_replay_json(bytes, "mutation")?;
         if record.format_version != MUTATION_REPLAY_FORMAT_VERSION {
             return Err(SqlGeneratorError::new(
                 SqlGeneratorErrorKind::CanonicalReplay,
@@ -525,7 +506,12 @@ impl MutationReplayRecord {
             ));
         }
         record.validate()?;
-        if record.to_canonical_json()? != bytes {
+        if encode_bounded_replay(
+            &record,
+            record.original_sequence.budgets().max_artifact_bytes(),
+            "mutation",
+        )? != bytes
+        {
             return Err(SqlGeneratorError::new(
                 SqlGeneratorErrorKind::CanonicalReplay,
                 "mutation replay input is not canonical JSON",

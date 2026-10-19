@@ -5,7 +5,7 @@
 
 use crate::{
     GeneratedMutationSequence, MutationMismatchSignature, MutationObservedOutcome,
-    MutationReplayRecord, SqlGeneratorError,
+    MutationReplayRecord, SqlGeneratorError, minimize::minimize,
 };
 
 ///
@@ -108,45 +108,22 @@ where
     original_sequence.validate()?;
     signature.validate()?;
     let budgets = original_sequence.budgets();
-    let mut minimized_sequence = original_sequence.clone();
-    let mut shrink_candidates_attempted = 0_u32;
-    let mut evaluations = 0_u32;
+    let (minimized_sequence, minimization_complete, evaluations) = minimize(
+        original_sequence,
+        budgets.max_shrink_candidates(),
+        budgets.max_evaluations(),
+        shrink_candidates,
+        |candidate| Ok(evaluate(candidate)?.as_ref() == Some(signature)),
+    )?;
 
-    loop {
-        let candidates = shrink_candidates(&minimized_sequence);
-        let mut accepted_candidate = None;
-        for candidate in candidates {
-            if shrink_candidates_attempted >= budgets.max_shrink_candidates()
-                || evaluations >= budgets.max_evaluations()
-            {
-                return Ok(MutationShrinkReport {
-                    original_sequence: original_sequence.clone(),
-                    minimized_sequence,
-                    signature: signature.clone(),
-                    minimization_complete: false,
-                    shrink_candidates_attempted,
-                    evaluations,
-                });
-            }
-            shrink_candidates_attempted = shrink_candidates_attempted.saturating_add(1);
-            evaluations = evaluations.saturating_add(1);
-            if evaluate(&candidate)?.as_ref() == Some(signature) {
-                accepted_candidate = Some(candidate);
-                break;
-            }
-        }
-        let Some(candidate) = accepted_candidate else {
-            return Ok(MutationShrinkReport {
-                original_sequence: original_sequence.clone(),
-                minimized_sequence,
-                signature: signature.clone(),
-                minimization_complete: true,
-                shrink_candidates_attempted,
-                evaluations,
-            });
-        };
-        minimized_sequence = candidate;
-    }
+    Ok(MutationShrinkReport {
+        original_sequence: original_sequence.clone(),
+        minimized_sequence,
+        signature: signature.clone(),
+        minimization_complete,
+        shrink_candidates_attempted: evaluations,
+        evaluations,
+    })
 }
 
 fn shrink_candidates(sequence: &GeneratedMutationSequence) -> Vec<GeneratedMutationSequence> {

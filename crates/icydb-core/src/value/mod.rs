@@ -13,7 +13,6 @@ mod canonical_enum;
 mod cleanup;
 mod coercion;
 mod compare;
-pub(crate) mod decimal;
 pub(crate) mod format;
 mod hash;
 mod input;
@@ -67,7 +66,6 @@ const VALUE_WIRE_VARIANT_LABELS: &[&str] = &[
     "Float64",
     "Int",
     "Int128",
-    "IntBig",
     "List",
     "Map",
     "Null",
@@ -77,7 +75,6 @@ const VALUE_WIRE_VARIANT_LABELS: &[&str] = &[
     "Timestamp",
     "Nat",
     "Nat128",
-    "NatBig",
     "Ulid",
     "Unit",
     "U256",
@@ -97,7 +94,6 @@ enum ValueWireVariant {
     Float64,
     Int64,
     Int128,
-    IntBig,
     List,
     Map,
     Null,
@@ -107,7 +103,6 @@ enum ValueWireVariant {
     Timestamp,
     Nat64,
     Nat128,
-    NatBig,
     Ulid,
     Unit,
     U256,
@@ -128,7 +123,6 @@ impl ValueWireVariant {
             "Float64" => Some(Self::Float64),
             "Int" => Some(Self::Int64),
             "Int128" => Some(Self::Int128),
-            "IntBig" => Some(Self::IntBig),
             "List" => Some(Self::List),
             "Map" => Some(Self::Map),
             "Null" => Some(Self::Null),
@@ -138,7 +132,6 @@ impl ValueWireVariant {
             "Timestamp" => Some(Self::Timestamp),
             "Nat" => Some(Self::Nat64),
             "Nat128" => Some(Self::Nat128),
-            "NatBig" => Some(Self::NatBig),
             "Ulid" => Some(Self::Ulid),
             "Unit" => Some(Self::Unit),
             "U256" => Some(Self::U256),
@@ -183,7 +176,6 @@ pub enum Value {
     Float64(Float64),
     Int64(i64),
     Int128(i128),
-    IntBig(IntBig),
     /// Ordered list of values.
     /// Used for many-cardinality transport.
     /// List order is preserved for normalization and fingerprints.
@@ -202,7 +194,6 @@ pub enum Value {
     Timestamp(Timestamp),
     Nat64(u64),
     Nat128(u128),
-    NatBig(NatBig),
     Ulid(Ulid),
     Unit,
     U256(U256),
@@ -222,7 +213,6 @@ impl fmt::Debug for Value {
             Self::Float64(value) => f.debug_tuple("Float64").field(value).finish(),
             Self::Int64(value) => f.debug_tuple("Int64").field(value).finish(),
             Self::Int128(value) => f.debug_tuple("Int128").field(value).finish(),
-            Self::IntBig(value) => f.debug_tuple("IntBig").field(value).finish(),
             Self::List(value) => f.debug_tuple("List").field(value).finish(),
             Self::Map(value) => f.debug_tuple("Map").field(value).finish(),
             Self::Null => f.write_str("Null"),
@@ -232,7 +222,6 @@ impl fmt::Debug for Value {
             Self::Timestamp(value) => f.debug_tuple("Timestamp").field(value).finish(),
             Self::Nat64(value) => f.debug_tuple("Nat64").field(value).finish(),
             Self::Nat128(value) => f.debug_tuple("Nat128").field(value).finish(),
-            Self::NatBig(value) => f.debug_tuple("NatBig").field(value).finish(),
             Self::Ulid(value) => f.debug_tuple("Ulid").field(value).finish(),
             Self::Unit => f.write_str("Unit"),
             Self::U256(value) => f.debug_tuple("U256").field(value).finish(),
@@ -376,7 +365,6 @@ impl_from_for! {
     i32        => Int64,
     i64        => Int64,
     i128       => Int128,
-    IntBig     => IntBig,
     Principal  => Principal,
     Subaccount => Subaccount,
     &str       => Text,
@@ -387,7 +375,6 @@ impl_from_for! {
     u32        => Nat64,
     u64        => Nat64,
     u128       => Nat128,
-    NatBig     => NatBig,
     Ulid       => Ulid,
     U256       => U256,
 }
@@ -526,7 +513,6 @@ Self::Float32(field_0) => [field_0],
 Self::Float64(field_0) => [field_0],
 Self::Int64(field_0) => [field_0],
 Self::Int128(field_0) => [field_0],
-Self::IntBig(field_0) => [field_0],
 Self::List(field_0) => [field_0],
 Self::Map(field_0) => [field_0],
 Self::Null => [],
@@ -536,7 +522,6 @@ Self::Text(field_0) => [field_0],
 Self::Timestamp(field_0) => [field_0],
 Self::Nat64(field_0) => [field_0],
 Self::Nat128(field_0) => [field_0],
-Self::NatBig(field_0) => [field_0],
 Self::Ulid(field_0) => [field_0],
 Self::Unit => [],
 Self::U256(field_0) => [field_0],

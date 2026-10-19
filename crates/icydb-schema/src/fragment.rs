@@ -56,11 +56,6 @@ pub enum ScalarType {
     Int64,
     /// Signed 128-bit integer.
     Int128,
-    /// Arbitrary-precision signed integer with an encoded-byte bound.
-    IntBig {
-        /// Maximum canonical encoded bytes.
-        max_bytes: u32,
-    },
     /// Principal.
     Principal,
     /// Fixed-width subaccount.
@@ -82,11 +77,6 @@ pub enum ScalarType {
     Nat64,
     /// Unsigned 128-bit integer.
     Nat128,
-    /// Arbitrary-precision unsigned integer with an encoded-byte bound.
-    NatBig {
-        /// Maximum canonical encoded bytes.
-        max_bytes: u32,
-    },
     /// Fixed-width unsigned 256-bit integer.
     U256,
     /// ULID.
@@ -110,14 +100,12 @@ impl ScalarType {
             Self::Float64 => ScalarKind::Float64,
             Self::Int8 | Self::Int16 | Self::Int32 | Self::Int64 => ScalarKind::Int,
             Self::Int128 => ScalarKind::Int128,
-            Self::IntBig { .. } => ScalarKind::IntBig,
             Self::Principal => ScalarKind::Principal,
             Self::Subaccount => ScalarKind::Subaccount,
             Self::Text { .. } => ScalarKind::Text,
             Self::Timestamp => ScalarKind::Timestamp,
             Self::Nat8 | Self::Nat16 | Self::Nat32 | Self::Nat64 => ScalarKind::Nat,
             Self::Nat128 => ScalarKind::Nat128,
-            Self::NatBig { .. } => ScalarKind::NatBig,
             Self::U256 => ScalarKind::U256,
             Self::Ulid => ScalarKind::Ulid,
             Self::Unit => ScalarKind::Unit,
@@ -127,9 +115,6 @@ impl ScalarType {
     pub(crate) const fn validate(self) -> Result<(), SchemaContractError> {
         match self {
             Self::Decimal { scale } if scale > Decimal::max_supported_scale() => {
-                Err(SchemaContractError::InvalidFieldType)
-            }
-            Self::IntBig { max_bytes: 0 } | Self::NatBig { max_bytes: 0 } => {
                 Err(SchemaContractError::InvalidFieldType)
             }
             _ => Ok(()),
@@ -162,16 +147,10 @@ impl ScalarType {
             (Self::Int16, ScalarLiteral::Int(value)) => i16::try_from(*value).is_ok(),
             (Self::Int32, ScalarLiteral::Int(value)) => i32::try_from(*value).is_ok(),
             (Self::Int64, ScalarLiteral::Int(value)) => i64::try_from(*value).is_ok(),
-            (Self::IntBig { max_bytes }, ScalarLiteral::IntBig(value)) => {
-                value.leb128_len() <= u64::from(max_bytes)
-            }
             (Self::Nat8, ScalarLiteral::Nat(value)) => u8::try_from(*value).is_ok(),
             (Self::Nat16, ScalarLiteral::Nat(value)) => u16::try_from(*value).is_ok(),
             (Self::Nat32, ScalarLiteral::Nat(value)) => u32::try_from(*value).is_ok(),
             (Self::Nat64, ScalarLiteral::Nat(value)) => u64::try_from(*value).is_ok(),
-            (Self::NatBig { max_bytes }, ScalarLiteral::NatBig(value)) => {
-                value.leb128_len() <= u64::from(max_bytes)
-            }
             (Self::Decimal { scale }, ScalarLiteral::Decimal(value)) => {
                 decimal_fits_scale(*value, scale)
             }

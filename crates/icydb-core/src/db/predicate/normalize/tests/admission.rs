@@ -1,58 +1,14 @@
 use crate::{
     db::{
-        predicate::{
-            CoercionId, CoercionSpec, CompareOp,
-            normalize::{
-                admission::admit_enum_input_construction, normalize_value_for_accepted_kind,
-            },
-        },
-        query::preparation::PreparationWork,
-        schema::AcceptedFieldKind,
-        test_support::request_with_limit,
+        predicate::normalize::admission::admit_enum_input_construction,
+        query::preparation::PreparationWork, test_support::request_with_limit,
     },
-    types::{IntBig, NatBig},
     value::{Value, ValueEnum},
 };
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource as Resource, DiagnosticExecutionLane as Lane,
     DiagnosticFactTag,
 };
-
-#[test]
-fn bigint_numeric_output_is_admitted_before_conversion() {
-    for (kind, expected) in [
-        (
-            AcceptedFieldKind::IntBig { max_bytes: 128 },
-            Value::IntBig(IntBig::from(7)),
-        ),
-        (
-            AcceptedFieldKind::NatBig { max_bytes: 128 },
-            Value::NatBig(NatBig::from(7_u32)),
-        ),
-    ] {
-        for limit in [0, 63, 64] {
-            let root = request_with_limit(Resource::TemporaryBytes, limit);
-            let result = PreparationWork::run(&root.scope(), Lane::PublicRead, |work| {
-                normalize_value_for_accepted_kind(
-                    "number",
-                    &Value::Int64(7),
-                    &kind,
-                    &CoercionSpec::new(CoercionId::Strict),
-                    CompareOp::Eq,
-                    work,
-                )
-            });
-            if limit == 64 {
-                assert_eq!(result.unwrap(), expected);
-            } else {
-                assert!(result.unwrap_err().diagnostic_facts().contains(&(
-                    DiagnosticFactTag::BudgetResource,
-                    Resource::TemporaryBytes.raw()
-                )));
-            }
-        }
-    }
-}
 
 #[test]
 fn enum_input_preflight_covers_nested_payloads_and_preserves_canonical_detection() {
@@ -78,12 +34,6 @@ fn enum_input_preflight_covers_nested_payloads_and_preserves_canonical_detection
                 Value::Text("v".into()),
             )]),
             true,
-        ),
-        (
-            Value::NatBig(NatBig::from_biguint(
-                num_bigint::BigUint::from(1_u8) << 4096_usize,
-            )),
-            false,
         ),
     ] {
         for resource in [

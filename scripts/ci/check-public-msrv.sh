@@ -32,10 +32,10 @@ CARGO_TARGET_DIR="$(jq -er '.target_directory' "$scratch/workspace.json")"
 export CARGO_TARGET_DIR
 facade_path="$(jq -n --arg path "$ROOT/crates/icydb" '$path')"
 fixture_path="$(jq -n --arg path "$ROOT/crates/icydb/tests/pass/endpoint_msrv.rs" '$path')"
-candid_requirement="$(jq -er '.packages[] | select(.name == "icydb") |
-  .dependencies[] | select(.name == "candid") | .req' "$scratch/workspace.json")"
-cdk_requirement="$(jq -er '.packages[] | select(.name == "icydb") |
-  .dependencies[] | select(.name == "ic-cdk") | .req' "$scratch/workspace.json")"
+adapter_source="$(jq -er '.packages[] | select(.name == "icydb") |
+  .dependencies[] | select(.name == "canic-icydb") | .source |
+  capture("^git\\+(?<url>[^?]+)\\?rev=(?<rev>[^#]+)") |
+  "{ git = \"" + .url + "\", rev = \"" + .rev + "\" }"' "$scratch/workspace.json")"
 for dependency in icydb runtime_api; do
   consumer="$scratch/$dependency"
   mkdir -p "$consumer/src"
@@ -53,8 +53,7 @@ migration = ["$dependency/migration"]
 metrics = ["$dependency/metrics"]
 [dependencies]
 $dependency = { package = "icydb", path = $facade_path, default-features = false }
-candid = "$candid_requirement"
-ic-cdk = "$cdk_requirement"
+canic-icydb = $adapter_source
 [workspace]
 TOML
   if [[ "$dependency" == icydb ]]; then

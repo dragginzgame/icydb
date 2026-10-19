@@ -294,16 +294,12 @@ fn accepted_composite_catalog_local_kind_shape_agrees_across_construction_and_co
     let enums = empty_enum_catalog();
     for (leaf, valid) in [
         (AcceptedFieldKind::Decimal { scale: u32::MAX }, false),
-        (AcceptedFieldKind::IntBig { max_bytes: 0 }, false),
-        (AcceptedFieldKind::NatBig { max_bytes: 0 }, false),
         (
             AcceptedFieldKind::Decimal {
                 scale: icydb_schema::Decimal::max_supported_scale(),
             },
             true,
         ),
-        (AcceptedFieldKind::IntBig { max_bytes: 1 }, true),
-        (AcceptedFieldKind::NatBig { max_bytes: 1 }, true),
     ] {
         for kind in [
             leaf.clone(),

@@ -233,8 +233,8 @@ fn persisted_schema_snapshot_encoding_is_canonical() {
         2, 0, 0, 0, 18, 95, 95, 105, 99, 121, 100, 98, 95, 110, 111, 116, 95, 110, 117, 108, 108,
         95, 49, 1, 2, 0, 0, 0, 1, 0, 0, 0, 3, 0, 0, 0, 18, 95, 95, 105, 99, 121, 100, 98, 95, 110,
         111, 116, 95, 110, 117, 108, 108, 95, 50, 1, 2, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0,
-        0, 1, 0, 0, 0, 2, 105, 100, 0, 0, 26, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 1, 13,
-        0, 0, 0, 2, 0, 0, 0, 5, 115, 99, 111, 114, 101, 0, 1, 23, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1, 0,
+        0, 1, 0, 0, 0, 2, 105, 100, 0, 0, 24, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 1, 13,
+        0, 0, 0, 2, 0, 0, 0, 5, 115, 99, 111, 114, 101, 0, 1, 22, 0, 0, 0, 0, 0, 0, 0, 0, 2, 1, 0,
         0, 0, 1, 48, 2, 0, 0, 0, 2, 16, 32, 0, 0, 1, 1, 1, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0,
     ];
@@ -372,16 +372,6 @@ fn persisted_schema_snapshot_rejects_invalid_local_field_contracts() {
             AcceptedFieldKind::Decimal {
                 scale: icydb_schema::Decimal::max_supported_scale().saturating_add(1),
             },
-            FieldStorageDecode::ByKind,
-            LeafCodec::Structural,
-        ),
-        single_field_contract_snapshot(
-            AcceptedFieldKind::IntBig { max_bytes: 0 },
-            FieldStorageDecode::ByKind,
-            LeafCodec::Structural,
-        ),
-        single_field_contract_snapshot(
-            AcceptedFieldKind::NatBig { max_bytes: 0 },
             FieldStorageDecode::ByKind,
             LeafCodec::Structural,
         ),
@@ -1154,58 +1144,6 @@ fn persisted_schema_snapshot_round_trips_encoded_default_payload() {
     assert_eq!(
         decoded.fields()[0].insert_default().slot_payload(),
         Some(default_payload.as_slice())
-    );
-}
-
-#[test]
-fn persisted_schema_snapshot_round_trips_big_integer_max_bytes_contracts() {
-    let snapshot = PersistedSchemaSnapshot::new(
-        SchemaVersion::initial(),
-        "entities::BigNumbers".to_string(),
-        "BigNumbers".to_string(),
-        FieldId::new(1),
-        SchemaRowLayout::initial(vec![
-            (FieldId::new(1), SchemaFieldSlot::new(0)),
-            (FieldId::new(2), SchemaFieldSlot::new(1)),
-        ]),
-        vec![
-            PersistedFieldSnapshot::new_initial(
-                FieldId::new(1),
-                "signed".to_string(),
-                SchemaFieldSlot::new(0),
-                AcceptedFieldKind::IntBig { max_bytes: 384 },
-                Vec::new(),
-                false,
-                SchemaInsertDefault::None,
-                FieldStorageDecode::ByKind,
-                LeafCodec::Structural,
-            ),
-            PersistedFieldSnapshot::new_initial(
-                FieldId::new(2),
-                "unsigned".to_string(),
-                SchemaFieldSlot::new(1),
-                AcceptedFieldKind::NatBig { max_bytes: 512 },
-                Vec::new(),
-                false,
-                SchemaInsertDefault::None,
-                FieldStorageDecode::ByKind,
-                LeafCodec::Structural,
-            ),
-        ],
-    );
-
-    let encoded = encode_persisted_schema_snapshot(&snapshot)
-        .expect("schema snapshot should encode bounded big integers");
-    let decoded = decode_persisted_schema_snapshot(&encoded)
-        .expect("schema snapshot should decode bounded big integers");
-
-    assert_eq!(
-        decoded.fields()[0].kind(),
-        &AcceptedFieldKind::IntBig { max_bytes: 384 },
-    );
-    assert_eq!(
-        decoded.fields()[1].kind(),
-        &AcceptedFieldKind::NatBig { max_bytes: 512 },
     );
 }
 

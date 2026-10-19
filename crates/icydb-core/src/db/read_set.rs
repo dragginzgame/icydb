@@ -12,7 +12,7 @@ use crate::{
     },
     error::InternalError,
 };
-use candid::CandidType;
+
 use serde::Deserialize;
 use std::{error::Error as StdError, fmt};
 
@@ -28,7 +28,9 @@ pub const MAX_READ_SET_PROOF_BYTES: usize = 8 * 1024;
 const MAX_READ_SET_PROOF_BYTES_U32: u32 = 8 * 1024;
 
 /// Opaque canonical identity of one registered physical store.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+    serde::Serialize, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd,
+)]
 pub struct ReadSetStoreIdentity([u8; 32]);
 
 impl ReadSetStoreIdentity {
@@ -50,7 +52,7 @@ impl ReadSetStoreIdentity {
 }
 
 /// One physical store's row and access-state revisions.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct ReadSetStoreRevision {
     store: ReadSetStoreIdentity,
     data_revision: u64,
@@ -90,7 +92,7 @@ impl ReadSetStoreRevision {
 }
 
 /// Canonical bounded proof for every physical source store in one exhaustive job.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct ReadSetRevisionProof {
     database_incarnation: [u8; 16],
     accepted_root_revision: u64,
@@ -244,7 +246,7 @@ impl ReadSetRevisionProof {
 }
 
 /// Typed failure while capturing or validating an exhaustive source proof.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum ReadSetRevisionError {
     /// No participating physical store was supplied.
     Empty,

@@ -1,9 +1,8 @@
 //! Module: db::startup
 //! Responsibility: public startup-readiness and bounded failure facade.
 //! Does not own: recovery execution, persistence, or watchdog registration.
-//! Boundary: core startup observation -> application-facing Candid-capable value.
+//! Boundary: core startup observation -> application-facing Wire-capable value.
 
-use candid::CandidType;
 use serde::Deserialize;
 
 use crate::{Error, db::DatabaseBootstrapError};
@@ -12,8 +11,20 @@ use crate::{Error, db::DatabaseBootstrapError};
 pub use icydb_core::db::GeneratedStartupDriverStep;
 pub use icydb_core::db::{DatabaseStartupState, StartupFailureKind};
 
+/// Admit the host's secure 32-byte seed for this runtime boot.
+///
+/// Call from replicated execution before driving database startup. Exact retries
+/// are idempotent; replacing an admitted seed is refused. The host owns secure
+/// entropy acquisition, asynchronous retries and lifecycle scheduling.
+///
+/// # Errors
+/// Returns an error for an all-zero seed, a changed seed, or a non-replicated IC call.
+pub fn provide_boot_entropy(seed: [u8; 32]) -> Result<(), Error> {
+    icydb_core::db::provide_boot_entropy(seed).map_err(Into::into)
+}
+
 /// Bounded terminal failure returned by generated startup observation.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct StartupFailure {
     kind: StartupFailureKind,
     diagnostic: Error,
@@ -123,22 +134,19 @@ pub const fn __startup_recovery_pending() -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use candid::{Decode, Encode};
 
     #[test]
-    fn bucket_mismatch_startup_failure_preserves_pages_through_candid() {
+    fn bucket_mismatch_startup_failure_preserves_pages_through_wire() {
         for (persisted, requested) in [(128, 16), (16, 4), (4, 128)] {
-            let cause = ic_memory::RuntimeBootstrapError::State(
-                ic_memory::RuntimeStateError::Construction(
-                    ic_memory::RuntimeConstructionError::BucketSizeMismatch {
-                        persisted,
-                        requested,
-                    },
-                ),
-            );
+            let cause = ic_memory::RuntimeConstructionError::BucketSizeMismatch {
+                persisted,
+                requested,
+            };
             let failure = __startup_bootstrap_failure(DatabaseBootstrapError::from(cause));
-            let bytes = Encode!(&failure).expect("bucket mismatch should encode");
-            let decoded = Decode!(&bytes, StartupFailure).expect("bucket mismatch should decode");
+            let bytes =
+                icydb_schema::wire::encode_one(&failure).expect("bucket mismatch should encode");
+            let decoded = icydb_schema::wire::decode_one::<StartupFailure>(&bytes)
+                .expect("bucket mismatch should decode");
             assert_eq!(decoded, failure);
             assert_eq!(decoded.kind(), StartupFailureKind::DatabaseControl);
             assert_eq!(
@@ -163,7 +171,7 @@ mod tests {
     }
 
     #[test]
-    fn public_startup_failure_candid_shape_round_trips_exactly() {
+    fn public_startup_failure_wire_shape_round_trips_exactly() {
         let failure = StartupFailure {
             kind: StartupFailureKind::JournalRecovery,
             diagnostic: Error::from_runtime_boundary(
@@ -171,9 +179,10 @@ mod tests {
                 crate::ErrorOrigin::Recovery,
             ),
         };
-        let bytes = Encode!(&failure).expect("startup failure should encode");
-        let decoded =
-            Decode!(bytes.as_slice(), StartupFailure).expect("startup failure should decode");
+        let bytes =
+            icydb_schema::wire::encode_one(&failure).expect("startup failure should encode");
+        let decoded = icydb_schema::wire::decode_one::<StartupFailure>(bytes.as_slice())
+            .expect("startup failure should decode");
         assert_eq!(decoded, failure);
         assert_eq!(decoded.kind(), StartupFailureKind::JournalRecovery);
         assert_eq!(

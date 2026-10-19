@@ -582,8 +582,6 @@ fn validate_database_default_shape(default: &Arg, value: &Value) -> Result<(), S
             Primitive::Date
             | Primitive::Decimal
             | Primitive::Duration
-            | Primitive::IntBig
-            | Primitive::NatBig
             | Primitive::U256
             | Primitive::Timestamp,
             Arg::Number(_) | Arg::String(_),
@@ -683,13 +681,11 @@ const fn primitive_default_type_names(primitive: Primitive) -> &'static [&'stati
         Primitive::Duration => &["Duration", "u64"],
         Primitive::Float32 => &["Float32", "f32"],
         Primitive::Float64 => &["Float64", "f64"],
-        Primitive::IntBig => &["IntBig"],
         Primitive::Int8 => &["Int8", "i8"],
         Primitive::Int16 => &["Int16", "i16"],
         Primitive::Int32 => &["Int32", "i32"],
         Primitive::Int64 => &["Int64", "i64"],
         Primitive::Int128 => &["Int128", "i128"],
-        Primitive::NatBig => &["NatBig"],
         Primitive::Nat8 => &["Nat8", "u8"],
         Primitive::Nat16 => &["Nat16", "u16"],
         Primitive::Nat32 => &["Nat32", "u32"],
@@ -713,13 +709,11 @@ const fn primitive_supports_zero_literal(primitive: Primitive) -> bool {
             | Primitive::Duration
             | Primitive::Float32
             | Primitive::Float64
-            | Primitive::IntBig
             | Primitive::Int8
             | Primitive::Int16
             | Primitive::Int32
             | Primitive::Int64
             | Primitive::Int128
-            | Primitive::NatBig
             | Primitive::Nat8
             | Primitive::Nat16
             | Primitive::Nat32

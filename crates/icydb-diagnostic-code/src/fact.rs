@@ -1,7 +1,7 @@
 //! Module: fact
 //!
 //! Responsibility: production-safe numeric diagnostic-fact identities.
-//! Does not own: Candid records, rich labels, prose, or subsystem projections.
+//! Does not own: Wire records, rich labels, prose, or subsystem projections.
 //! Boundary: freezes the numeric vocabulary shared by public errors and host tooling.
 
 use std::fmt;
@@ -1060,6 +1060,17 @@ fn runtime_conflict_schema(fact_count: usize, fact_at: &impl Fn(usize) -> (u8, u
 
 fn runtime_unsupported_schema(fact_count: usize, fact_at: &impl Fn(usize) -> (u8, u64)) -> bool {
     fact_count == 0
+        || (tags_match(
+            fact_count,
+            fact_at,
+            &[
+                DiagnosticFactTag::EntityTag,
+                DiagnosticFactTag::PhysicalGeneration,
+                DiagnosticFactTag::ComponentKind,
+                DiagnosticFactTag::ActualLength,
+                DiagnosticFactTag::Limit,
+            ],
+        ) && fact_at(2).1 == DiagnosticComponentKind::IndexKey.raw())
         || (tags_match(
             fact_count,
             fact_at,

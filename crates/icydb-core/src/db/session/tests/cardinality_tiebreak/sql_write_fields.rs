@@ -4,6 +4,43 @@ use super::*;
 use crate::db::{MutationJobError, MutationJobId, QueryError, schema::ValidateError};
 
 #[test]
+fn sql_scope_paths_never_retarget_unknown_record_paths_to_primary_keys() {
+    let session = initialize();
+    insert_row(&session, 1, "before", "group-a");
+    let read = "SELECT id, common FROM PlannerRow ORDER BY id";
+    let before = projection_rows(&session, read);
+    for path in ["owner.PlannerRow.id", "owner.p.id"] {
+        for sql in [
+            format!("SELECT {path} FROM PlannerRow p"),
+            format!("SELECT id FROM PlannerRow p WHERE {path} = 1"),
+            format!("UPDATE PlannerRow p SET common = 'changed' WHERE {path} = 1"),
+            format!("DELETE FROM PlannerRow p WHERE {path} = 1"),
+        ] {
+            let result = if sql.starts_with("SELECT ") {
+                session.execute_trusted_sql_query(&sql)
+            } else if sql.starts_with("UPDATE ") {
+                session.execute_trusted_sql_exact_update(&sql, 1)
+            } else {
+                session.execute_trusted_sql_mutation(&sql)
+            };
+            let error = result.expect_err(&sql);
+            let unknown = match &error {
+                QueryError::Validate(error) => matches!(
+                    error.as_ref(), ValidateError::UnknownField { field }
+                    if field == "owner" || field == path
+                ),
+                QueryError::Plan(_) => error
+                    .query_field_context()
+                    .is_some_and(|(_, field)| field == "owner" || field == path),
+                _ => false,
+            };
+            assert!(unknown, "{sql}: {error:?}");
+            assert_eq!(projection_rows(&session, read), before);
+        }
+    }
+}
+
+#[test]
 fn sql_write_fields_validate_public_update_plans_against_the_same_catalog() {
     use crate::db::{
         query::preparation::with_preparation_work,

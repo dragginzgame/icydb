@@ -5,22 +5,14 @@
 #[cfg(any(feature = "typed-explain-measurement", feature = "sql"))]
 mod explain_measurement;
 
-// Read IC counter 1 through the CDK; native Candid builds use its
-// unsupported host binding and provide no IC measurement evidence.
+// IC counter 1 preserves the call-context sample boundary through Platform.
+// Native system calls provide no IC measurement evidence.
 #[cfg(any(
     feature = "exact-key-measurement",
     feature = "typed-explain-measurement",
     feature = "sql-explain-measurement"
 ))]
-#[cfg(not(target_arch = "wasm32"))]
-use ic_cdk::api::call_context_instruction_counter;
-#[cfg(any(
-    feature = "exact-key-measurement",
-    feature = "typed-explain-measurement",
-    feature = "sql-explain-measurement"
-))]
-#[cfg(target_arch = "wasm32")]
-use ic_cdk::api::call_context_instruction_counter;
+use ic_platform::ic0::performance_counter;
 
 use icydb::types::{Id, Ulid};
 #[cfg(feature = "exact-key-measurement")]
@@ -40,10 +32,10 @@ fn icydb_memory_pool()
 }
 
 #[cfg(not(feature = "lifecycle-participant"))]
-icydb::start!();
+canic_icydb::start!(icydb);
 
 #[cfg(feature = "lifecycle-participant")]
-icydb::start!(participant);
+canic_icydb::start!(icydb; participant);
 
 #[cfg(feature = "exact-key-measurement")]
 const MAX_EXACT_KEY_MEASUREMENT_ITEMS: u16 = 1_000;
@@ -58,7 +50,6 @@ fn measurement_keys(count: u16, distinct: bool) -> Vec<Id<OneSimpleEntity01>> {
         .collect()
 }
 
-#[ic_cdk::query]
 #[cfg(not(feature = "lifecycle-audit"))]
 fn query_one_entity_typed_rows() -> u32 {
     icydb::db::with_request_execution(|| {
@@ -70,9 +61,18 @@ fn query_one_entity_typed_rows() -> u32 {
             .map_or(0, |row| u32::from(row.is_some()))
     })
 }
+#[cfg(not(feature = "lifecycle-audit"))]
+icydb_testing_wasm_helpers::export_wire!(
+    query,
+    "query_one_entity_typed_rows",
+    QueryOneEntityTypedRows,
+    query_one_entity_typed_rows,
+    (),
+    u32
+);
 
 /// Measure one planner-free batch of distinct missing primary keys.
-#[ic_cdk::query]
+
 #[cfg(feature = "exact-key-measurement")]
 fn measure_exact_key_batch(items: u16, distinct: bool) -> ((u16, u16, u32, u64),) {
     icydb::db::with_request_execution(|| {
@@ -81,9 +81,9 @@ fn measure_exact_key_batch(items: u16, distinct: bool) -> ((u16, u16, u32, u64),
         let Ok(database) = db() else {
             return ((0, 1, 0, 0),);
         };
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let result = database.get_many::<OneSimpleEntity01>(&keys);
-        let local_instructions = call_context_instruction_counter().saturating_sub(start);
+        let local_instructions = performance_counter(1).saturating_sub(start);
         match result {
             Ok(rows) => {
                 let found = rows.iter().filter(|row| row.is_some()).count();
@@ -98,9 +98,11 @@ fn measure_exact_key_batch(items: u16, distinct: bool) -> ((u16, u16, u32, u64),
         }
     })
 }
+#[cfg(feature = "exact-key-measurement")]
+icydb_testing_wasm_helpers::export_wire!(query, "measure_exact_key_batch", MeasureExactKeyBatch, measure_exact_key_batch, (items: u16, distinct: bool), ((u16, u16, u32, u64),));
 
 /// Measure the former one-dynamic-query-per-key workload in the same binary.
-#[ic_cdk::query]
+
 #[cfg(feature = "exact-key-measurement")]
 fn measure_dynamic_key_loop(items: u16, distinct: bool) -> ((u16, u16, u32, u64),) {
     icydb::db::with_request_execution(|| {
@@ -111,7 +113,7 @@ fn measure_dynamic_key_loop(items: u16, distinct: bool) -> ((u16, u16, u32, u64)
         };
         let mut failures = 0_u16;
         let mut rows = 0_u32;
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         for key in keys {
             let request =
                 DynamicQuery::new("OneSimpleEntity01").filter(FieldRef::new("id").eq(key.key()));
@@ -122,15 +124,16 @@ fn measure_dynamic_key_loop(items: u16, distinct: bool) -> ((u16, u16, u32, u64)
                 Err(_) => failures = failures.saturating_add(1),
             }
         }
-        let local_instructions = call_context_instruction_counter().saturating_sub(start);
+        let local_instructions = performance_counter(1).saturating_sub(start);
 
         ((items, failures, rows, local_instructions),)
     })
 }
+#[cfg(feature = "exact-key-measurement")]
+icydb_testing_wasm_helpers::export_wire!(query, "measure_dynamic_key_loop", MeasureDynamicKeyLoop, measure_dynamic_key_loop, (items: u16, distinct: bool), ((u16, u16, u32, u64),));
 
-#[ic_cdk::query]
 #[cfg(feature = "lifecycle-audit")]
-fn query_one_entity_typed_rows() -> Result<u32, u16> {
+fn query_one_entity_typed_lifecycle_rows() -> Result<u32, u16> {
     icydb::db::with_request_execution(|| {
         let database = db().map_err(|error| error.code().raw())?;
         let row = database
@@ -143,9 +146,8 @@ fn query_one_entity_typed_rows() -> Result<u32, u16> {
         Ok(u32::from(row.is_some()))
     })
 }
-
-#[cfg(feature = "candid-export")]
-ic_cdk::export_candid!();
+#[cfg(feature = "lifecycle-audit")]
+icydb_testing_wasm_helpers::export_wire!(query, "query_one_entity_typed_lifecycle_rows", QueryOneEntityTypedLifecycleRows, query_one_entity_typed_lifecycle_rows, (), Result<u32, u16>);
 
 #[cfg(test)]
 mod tests {
@@ -441,11 +443,7 @@ mod tests {
 
     #[test]
     fn owned_scalar_decode_preserves_buffers_values_and_shape_errors() {
-        use icydb::{
-            model::TypedOutputValue,
-            types::{Blob, IntBig, NatBig},
-            value::PublicValue,
-        };
+        use icydb::{model::TypedOutputValue, types::Blob, value::PublicValue};
 
         crate::__icydb_generated::__drive_native_database_for_tests()
             .expect("native startup should complete");
@@ -458,21 +456,6 @@ mod tests {
             assert_eq!(blob.as_bytes(), &[42; 1024]);
             assert_eq!(blob.as_bytes().as_ptr(), pointer);
 
-            let signed: IntBig = "-12345678901234567890123456789012345678901234567890"
-                .parse()
-                .unwrap();
-            let unsigned: NatBig = "12345678901234567890123456789012345678901234567890"
-                .parse()
-                .unwrap();
-            assert_eq!(
-                IntBig::decode_typed_output(&binding, PublicValue::IntBig(signed.clone())).unwrap(),
-                signed
-            );
-            assert_eq!(
-                NatBig::decode_typed_output(&binding, PublicValue::NatBig(unsigned.clone()))
-                    .unwrap(),
-                unsigned
-            );
             assert_eq!(
                 u8::decode_typed_output(&binding, PublicValue::Nat64(255)),
                 Ok(255)

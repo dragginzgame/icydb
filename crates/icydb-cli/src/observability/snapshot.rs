@@ -3,51 +3,34 @@
 //! Does not own: stable-memory inspection, endpoint publication, or generic ICP command construction.
 //! Boundary: exposes the snapshot command and test-covered report rendering through observability.
 
-use candid::Decode;
-
 mod render;
+
+use icydb::wire::Endpoint;
 
 use crate::{
     cli::CanisterTarget,
-    endpoint::SNAPSHOT_ENDPOINT,
     icp::require_created_canister,
-    observability::{call_query, endpoint_result_error},
+    observability::{call_query, decode_endpoint_result},
 };
 
 /// Read and print the generated storage snapshot endpoint.
 pub(super) fn run_snapshot_command(target: CanisterTarget) -> Result<(), String> {
     require_created_canister(target.environment(), target.canister_name())?;
-    let candid_bytes = call_query(
+    let wire_bytes = call_query(
         target.environment(),
         target.canister_name(),
-        SNAPSHOT_ENDPOINT.method(),
-        "()",
+        Endpoint::Snapshot.name(),
+        (),
     )?;
-    let response = decode_snapshot_report(candid_bytes.as_slice())?;
-
-    match response {
-        Ok(report) => {
-            print!("{}", render_snapshot_report(&report));
-
-            Ok(())
-        }
-        Err(err) => Err(endpoint_result_error(
-            "snapshot",
-            &target,
-            SNAPSHOT_ENDPOINT.method(),
-            err,
-        )),
-    }
-}
-
-pub(super) fn decode_snapshot_report(
-    candid_bytes: &[u8],
-) -> Result<Result<icydb::db::StorageReport, icydb::Error>, String> {
-    Decode!(
-        candid_bytes,
-        Result<icydb::db::StorageReport, icydb::Error>
-    )
-    .map_err(|err| err.to_string())
+    let report = decode_endpoint_result::<icydb::db::StorageReport>(
+        &wire_bytes,
+        "snapshot",
+        target.environment(),
+        target.canister_name(),
+        Endpoint::Snapshot.name(),
+    )?;
+    print!("{}", render_snapshot_report(&report));
+    Ok(())
 }
 
 pub(super) fn render_snapshot_report(report: &icydb::db::StorageReport) -> String {

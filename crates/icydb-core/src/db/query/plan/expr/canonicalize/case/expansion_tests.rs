@@ -201,34 +201,6 @@ fn condition_copy_allowance_covers_owned_shapes_and_fails_before_clone() {
 }
 
 #[test]
-fn big_integer_copy_allowance_covers_initialized_limbs_not_retained_capacity() {
-    for value in [
-        Value::IntBig("9".repeat(90).parse().unwrap()),
-        Value::NatBig("9".repeat(90).parse().unwrap()),
-    ] {
-        let bits = match &value {
-            Value::IntBig(value) => value.magnitude_bits(),
-            Value::NatBig(value) => value.magnitude_bits(),
-            _ => unreachable!(),
-        };
-        let arms = [CaseWhenArm::new(Expr::Literal(value), field("yes"))];
-        let admitted = with_preparation_work(|work| admit_expansion(&arms, &field("no"), work))
-            .unwrap()
-            .unwrap();
-        let root = root(128 * 1024 * 1024);
-        PreparationWork::run(&root.scope(), DiagnosticExecutionLane::PublicRead, |work| {
-            admitted.condition_copies[0].charge(work)
-        })
-        .unwrap();
-        assert!(
-            root.observed(Resource::TemporaryBytes)
-                >= size_of::<Expr>() as u64 + bits.div_ceil(64) * 8
-        );
-        assert_eq!(root.observed(Resource::NestedValueSteps), 1);
-    }
-}
-
-#[test]
 fn copy_exhaustion_discards_the_intermediate_and_retries_cannot_reset_charges() {
     let root = root(0);
     let mut observed = 0;

@@ -138,6 +138,58 @@ fn seed_profiles(session: &DbSession<TestCanister>) {
     }
 }
 
+#[test]
+fn qualified_record_paths_preserve_reads_and_writes_when_alias_names_the_record() {
+    let session = initialize_profiles();
+    let read = "SELECT id, profile.rank FROM PlannerRow ORDER BY id";
+    let expected = projection_rows(&session, read);
+    for alias in ["p", "profile", "PlannerRow"] {
+        let sql = format!(
+            "SELECT {alias}.id, {alias}.profile.rank FROM PlannerRow {alias} ORDER BY {alias}.id"
+        );
+        for _ in 0..2 {
+            assert_eq!(projection_rows(&session, &sql), expected);
+        }
+        for condition in ["= 5", "IS NULL", "IS NOT NULL"] {
+            assert_eq!(
+                projection_rows(
+                    &session,
+                    &format!(
+                        "SELECT {alias}.id FROM PlannerRow {alias} WHERE {alias}.profile.rank {condition} ORDER BY {alias}.id"
+                    )
+                ),
+                projection_rows(
+                    &session,
+                    &format!(
+                        "SELECT id FROM PlannerRow WHERE profile.rank {condition} ORDER BY id"
+                    )
+                ),
+            );
+        }
+    }
+    let result = session.execute_trusted_sql_exact_update(
+        "UPDATE PlannerRow profile SET marker = profile.profile.rank + 1 WHERE profile.profile.rank = 5 RETURNING profile.id, profile.marker",
+        1,
+    ).unwrap();
+    let SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("UPDATE RETURNING");
+    };
+    assert_eq!(rows, [vec![OutputValue::nat64(2), OutputValue::nat64(6)]]);
+    let result = session
+        .execute_trusted_sql_mutation(
+            "DELETE FROM PlannerRow profile WHERE profile.profile.rank = 7 RETURNING profile.id",
+        )
+        .unwrap();
+    let SqlStatementResult::Projection { rows, .. } = result else {
+        panic!("DELETE RETURNING");
+    };
+    assert_eq!(rows, [3, 4].map(|id| vec![OutputValue::nat64(id)]));
+    assert_eq!(
+        projection_rows(&session, "SELECT id FROM PlannerRow ORDER BY id"),
+        [1, 2, 5, 6].map(|id| vec![OutputValue::nat64(id)])
+    );
+}
+
 pub(super) fn structural_select(session: &DbSession<TestCanister>, sql: &str) -> StructuralQuery {
     let catalog = session
         .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))

@@ -46,8 +46,6 @@ impl dyn ConstructionBudget + '_ {
         let bytes = match value {
             Value::Text(text) => text.len() as u64,
             Value::Blob(blob) => blob.len() as u64,
-            Value::IntBig(integer) => integer.magnitude_bits().div_ceil(64).saturating_mul(8),
-            Value::NatBig(integer) => integer.magnitude_bits().div_ceil(64).saturating_mul(8),
             Value::List(values) => {
                 for value in values {
                     self.admit_value_comparison(value)?;

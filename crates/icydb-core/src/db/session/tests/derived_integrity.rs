@@ -32,7 +32,7 @@ use crate::{
     types::EntityTag,
     value::InputValue,
 };
-use ic_memory::ic_stable_structures::Storable;
+use ic_storage::adapter::Storable;
 use std::{borrow::Cow, cell::RefCell, collections::BTreeMap};
 
 const STORE: &str = "tests::DerivedIntegrityStore";

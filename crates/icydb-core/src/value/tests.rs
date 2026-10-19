@@ -5,15 +5,15 @@
 use crate::types::GenerateKey;
 use crate::{
     types::{
-        Account, Date, Decimal, Duration, Float32 as F32, Float64 as F64, IntBig, NatBig,
-        Principal, Subaccount, Timestamp, U256, Ulid,
+        Account, Date, Decimal, Duration, Float32 as F32, Float64 as F64, Principal, Subaccount,
+        Timestamp, U256, Ulid,
     },
     value::{
         CoercionFamily, InputValue, OutputValue, PublicValue, SchemaInvariantError, TextMode,
         Value, ValueEnum, canonicalize_value_set, hash_value,
     },
 };
-use candid::CandidType;
+
 use std::{cmp::Ordering, collections::BTreeSet};
 
 // ---- helpers -----------------------------------------------------------
@@ -44,18 +44,19 @@ fn ulid_public_value_carriers_roundtrip_binary_scalars_and_collections() {
             InputValue::ulid(value),
             InputValue::list(vec![InputValue::ulid(value), InputValue::null()]),
         ] {
-            let encoded = candid::encode_one(&input).expect("ULID input should encode");
-            let decoded =
-                candid::decode_one::<InputValue>(&encoded).expect("ULID input should decode");
+            let encoded = icydb_schema::wire::encode_one(&input).expect("ULID input should encode");
+            let decoded = icydb_schema::wire::decode_one::<InputValue>(&encoded)
+                .expect("ULID input should decode");
             assert_eq!(decoded, input);
 
             let output = OutputValue::from_public(input.into_public());
             assert_eq!(
-                candid::encode_one(&output).expect("ULID output should encode"),
+                icydb_schema::wire::encode_one(&output).expect("ULID output should encode"),
                 encoded,
             );
             assert_eq!(
-                candid::decode_one::<OutputValue>(&encoded).expect("ULID output should decode"),
+                icydb_schema::wire::decode_one::<OutputValue>(&encoded)
+                    .expect("ULID output should decode"),
                 output,
             );
         }
@@ -63,28 +64,30 @@ fn ulid_public_value_carriers_roundtrip_binary_scalars_and_collections() {
 }
 
 #[test]
-fn u256_public_value_carriers_roundtrip_candid_nat_boundaries() {
+fn u256_public_value_carriers_roundtrip_fixed_width_boundaries() {
     for value in [U256::MIN, U256::ONE, U256::MAX] {
         let input = InputValue::u256(value);
-        let input_bytes = candid::encode_one(&input).expect("U256 input should Candid-encode");
+        let input_bytes =
+            icydb_schema::wire::encode_one(&input).expect("U256 input should Wire-encode");
         assert_eq!(
-            candid::decode_one::<InputValue>(&input_bytes)
-                .expect("U256 input should Candid-decode"),
+            icydb_schema::wire::decode_one::<InputValue>(&input_bytes)
+                .expect("U256 input should Wire-decode"),
             input,
         );
 
         let output = OutputValue::u256(value);
-        let output_bytes = candid::encode_one(&output).expect("U256 output should Candid-encode");
+        let output_bytes =
+            icydb_schema::wire::encode_one(&output).expect("U256 output should Wire-encode");
         assert_eq!(
-            candid::decode_one::<OutputValue>(&output_bytes)
-                .expect("U256 output should Candid-decode"),
+            icydb_schema::wire::decode_one::<OutputValue>(&output_bytes)
+                .expect("U256 output should Wire-decode"),
             output,
         );
     }
 }
 
 #[test]
-fn public_value_root_wrappers_share_one_candid_shape() {
+fn public_value_root_wrappers_share_one_wire_shape() {
     let input = InputValue::map(vec![
         (
             InputValue::text("state".to_string()),
@@ -95,15 +98,7 @@ fn public_value_root_wrappers_share_one_candid_shape() {
         (InputValue::text("missing".to_string()), InputValue::null()),
         (
             InputValue::text("wide integers".to_string()),
-            InputValue::list(vec![
-                InputValue::int_big(IntBig::from_bigint(
-                    -(num_bigint::BigInt::from(1_u8) << 256_usize),
-                )),
-                InputValue::nat_big(NatBig::from_biguint(
-                    num_bigint::BigUint::from(1_u8) << 256_usize,
-                )),
-                InputValue::u256(U256::MAX),
-            ]),
+            InputValue::list(vec![InputValue::u256(U256::MAX)]),
         ),
         (
             InputValue::text("decimal".to_string()),
@@ -128,24 +123,24 @@ fn public_value_root_wrappers_share_one_candid_shape() {
     let value = input.as_public().clone();
     let output = OutputValue::from_public(value.clone());
 
-    assert_eq!(InputValue::ty(), PublicValue::ty());
-    assert_eq!(OutputValue::ty(), PublicValue::ty());
     assert_eq!(
-        candid::encode_one(&input).expect("input wrapper should encode"),
-        candid::encode_one(&value).expect("public kernel should encode"),
+        icydb_schema::wire::encode_one(&input).expect("input wrapper should encode"),
+        icydb_schema::wire::encode_one(&value).expect("public kernel should encode"),
     );
     assert_eq!(
-        candid::encode_one(&output).expect("output wrapper should encode"),
-        candid::encode_one(&value).expect("public kernel should encode"),
+        icydb_schema::wire::encode_one(&output).expect("output wrapper should encode"),
+        icydb_schema::wire::encode_one(&value).expect("public kernel should encode"),
     );
 
-    let encoded = candid::encode_one(&value).expect("public kernel should encode");
+    let encoded = icydb_schema::wire::encode_one(&value).expect("public kernel should encode");
     assert_eq!(
-        candid::decode_one::<InputValue>(&encoded).expect("input wrapper should decode"),
+        icydb_schema::wire::decode_one::<InputValue>(&encoded)
+            .expect("input wrapper should decode"),
         input,
     );
     assert_eq!(
-        candid::decode_one::<OutputValue>(&encoded).expect("output wrapper should decode"),
+        icydb_schema::wire::decode_one::<OutputValue>(&encoded)
+            .expect("output wrapper should decode"),
         output,
     );
 }
@@ -237,9 +232,6 @@ macro_rules! sample_value_for_scalar {
     (Int128) => {
         Value::Int128(123i128)
     };
-    (IntBig) => {
-        Value::IntBig(IntBig::from(99i32))
-    };
     (Principal) => {
         Value::Principal(Principal::from_slice(&[1u8, 2u8, 3u8]))
     };
@@ -257,9 +249,6 @@ macro_rules! sample_value_for_scalar {
     };
     (Nat128) => {
         Value::Nat128(9u128)
-    };
-    (NatBig) => {
-        Value::NatBig(NatBig::from(11u64))
     };
     (U256) => {
         Value::U256(U256::from(13u64))
@@ -349,23 +338,21 @@ fn canonical_tag_and_rank_are_stable() {
         ),
         (Value::Int64(-7), 10),
         (Value::Int128(123i128), 11),
-        (Value::IntBig(IntBig::from(99i32)), 12),
-        (list, 13),
-        (map, 14),
-        (Value::Null, 15),
+        (list, 12),
+        (map, 13),
+        (Value::Null, 14),
         (
             Value::Principal(Principal::from_slice(&[1u8, 2u8, 3u8])),
-            16,
+            15,
         ),
-        (Value::Subaccount(Subaccount::from_array([1u8; 32])), 17),
-        (Value::Text("example".to_string()), 18),
-        (Value::Timestamp(Timestamp::from_secs(1)), 19),
-        (Value::Nat64(7), 20),
-        (Value::Nat128(9u128), 21),
-        (Value::NatBig(NatBig::from(11u64)), 22),
-        (Value::Ulid(Ulid::from_u128(42)), 23),
-        (Value::Unit, 24),
-        (Value::U256(U256::from(13u64)), 25),
+        (Value::Subaccount(Subaccount::from_array([1u8; 32])), 16),
+        (Value::Text("example".to_string()), 17),
+        (Value::Timestamp(Timestamp::from_secs(1)), 18),
+        (Value::Nat64(7), 19),
+        (Value::Nat128(9u128), 20),
+        (Value::Ulid(Ulid::from_u128(42)), 21),
+        (Value::Unit, 22),
+        (Value::U256(U256::from(13u64)), 23),
     ];
 
     for (value, expected_tag) in cases {
@@ -397,7 +384,6 @@ fn canonical_ranks_are_unique_across_value_variants() {
         Value::Float64(F64::try_new(2.5).expect("Float64 sample should be finite")),
         Value::Int64(-7),
         Value::Int128(123i128),
-        Value::IntBig(IntBig::from(99i32)),
         list,
         map,
         Value::Null,
@@ -407,7 +393,6 @@ fn canonical_ranks_are_unique_across_value_variants() {
         Value::Timestamp(Timestamp::from_secs(1)),
         Value::Nat64(7),
         Value::Nat128(9u128),
-        Value::NatBig(NatBig::from(11u64)),
         Value::Ulid(Ulid::from_u128(42)),
         Value::Unit,
         Value::U256(U256::from(13u64)),
@@ -564,22 +549,6 @@ fn cmp_numeric_respects_registry_numeric_coercion_flag() {
             assert!(cmp.is_none(), "value: {value:?}");
         }
     }
-}
-
-#[test]
-fn cmp_numeric_rejects_date_and_value_big_integers() {
-    let date = Value::Date(Date::try_new(2024, 1, 2).expect("valid date"));
-    let int_big = Value::IntBig(IntBig::from(10i32));
-    let nat_big = Value::NatBig(NatBig::from(10u64));
-    let one = Value::Int64(1);
-
-    assert!(!date.supports_numeric_coercion());
-    assert!(!int_big.supports_numeric_coercion());
-    assert!(!nat_big.supports_numeric_coercion());
-
-    assert!(date.cmp_numeric(&one).is_none());
-    assert!(int_big.cmp_numeric(&one).is_none());
-    assert!(nat_big.cmp_numeric(&one).is_none());
 }
 
 #[test]

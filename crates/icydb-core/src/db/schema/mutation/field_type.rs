@@ -1,7 +1,6 @@
 //! Schema-owned SQL DDL field type contract selection.
 
 use crate::db::schema::{AcceptedFieldKind, FieldStorageDecode, LeafCodec, ScalarCodec};
-use icydb_schema::DEFAULT_BIG_INT_MAX_BYTES;
 
 /// Persisted field contract selected for one SQL DDL column type.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -121,45 +120,8 @@ pub(in crate::db) fn resolve_sql_ddl_field_type_contract(
             FieldStorageDecode::ByKind,
             LeafCodec::Scalar(ScalarCodec::Text),
         )),
-        _ => persisted_big_int_contract_for_sql_column_type(&normalized),
+        _ => None,
     }
-}
-
-fn persisted_big_int_contract_for_sql_column_type(
-    normalized: &str,
-) -> Option<SchemaDdlFieldTypeContract> {
-    if let Some(max_bytes) = sql_big_int_type_max_bytes(normalized, "int_big") {
-        return Some(SchemaDdlFieldTypeContract::new(
-            AcceptedFieldKind::IntBig { max_bytes },
-            FieldStorageDecode::ByKind,
-            LeafCodec::Structural,
-        ));
-    }
-
-    sql_big_int_type_max_bytes(normalized, "nat_big").map(|max_bytes| {
-        SchemaDdlFieldTypeContract::new(
-            AcceptedFieldKind::NatBig { max_bytes },
-            FieldStorageDecode::ByKind,
-            LeafCodec::Structural,
-        )
-    })
-}
-
-fn sql_big_int_type_max_bytes(normalized: &str, type_name: &str) -> Option<u32> {
-    if normalized == type_name {
-        return Some(DEFAULT_BIG_INT_MAX_BYTES);
-    }
-
-    let inner = normalized
-        .strip_prefix(type_name)?
-        .strip_prefix("(max_bytes=")?
-        .strip_suffix(')')?;
-    let max_bytes = inner.parse::<u32>().ok()?;
-    if max_bytes == 0 {
-        return None;
-    }
-
-    Some(max_bytes)
 }
 
 #[cfg(test)]

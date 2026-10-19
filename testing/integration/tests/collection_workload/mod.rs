@@ -1,20 +1,18 @@
 //! Collection costs and independent typed results over one retained actor.
 
-use candid::CandidType;
 use ic_host_artifacts::artifact::Sha256Digest;
-use ic_testkit::pic::CandidCallExt as _;
 use icydb::{
     Error,
     value::{OutputValue, PublicValue},
 };
 use icydb_testing_build::{
-    CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
-    CanisterWasmProfile, build_canister_with_options,
+    CanisterBuildOptions, CanisterBuildProfile, CanisterSqlMode, CanisterWasmProfile,
+    build_canister_with_options,
 };
+use icydb_testing_integration::WireCallExt as _;
 use icydb_testing_integration::install_prebuilt_fixture_canister;
-use serde::Deserialize;
 
-#[derive(CandidType, Deserialize)]
+#[derive(serde::Deserialize, serde::Serialize)]
 struct CollectionWorkloadSample {
     result: Result<Vec<Vec<OutputValue>>, Error>,
     query_instructions: u64,
@@ -27,7 +25,6 @@ fn collection_workload_preserves_results_and_reports_costs() {
         CanisterBuildOptions {
             profile: CanisterWasmProfile::WasmRelease,
             sql_mode: CanisterSqlMode::Enabled,
-            candid_export: CanisterCandidExportMode::Enabled,
             build_profile: CanisterBuildProfile::LocalTest,
         },
     )
@@ -44,7 +41,7 @@ fn collection_workload_preserves_results_and_reports_costs() {
         let fixture = install_prebuilt_fixture_canister("sql", module.clone());
         let seeded: Result<(), Error> = fixture
             .pocket_ic()
-            .update_candid(fixture.canister_id(), "seed_collection_workload", (length,))
+            .update_wire(fixture.canister_id(), "seed_collection_workload", (length,))
             .expect("seed response");
         seeded.expect("seed succeeds outside the measured messages");
         for (scenario, name) in [
@@ -70,7 +67,7 @@ fn collection_workload_preserves_results_and_reports_costs() {
                 let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
                 let sample: CollectionWorkloadSample = fixture
                     .pocket_ic()
-                    .update_candid(
+                    .update_wire(
                         fixture.canister_id(),
                         "measure_collection_workload",
                         (length, u8::try_from(scenario).unwrap()),

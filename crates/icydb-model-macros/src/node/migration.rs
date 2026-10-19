@@ -481,8 +481,6 @@ fn parse_literal(list: &syn::MetaList) -> Result<TokenStream, DarlingError> {
                     | "date"
                     | "decimal"
                     | "duration"
-                    | "int_big"
-                    | "nat_big"
                     | "principal"
                     | "subaccount"
                     | "timestamp"

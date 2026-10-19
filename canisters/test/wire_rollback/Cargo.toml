@@ -1,0 +1,18 @@
+[package]
+name = "canister_test_wire_rollback"
+edition = { workspace = true }
+rust-version = { workspace = true }
+license-file = { workspace = true }
+version = { workspace = true }
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+canic-icydb = { workspace = true }
+icydb-testing-wasm-helpers = { workspace = true }
+serde = { workspace = true }
+
+[lints]
+workspace = true

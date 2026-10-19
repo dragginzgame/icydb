@@ -7,7 +7,7 @@ use crate::{
     error::InternalError,
     value::{InputValue, OutputValue},
 };
-use candid::CandidType;
+
 use icydb_schema::{MAX_SOURCE_KEY_BYTES, ScalarType};
 use serde::Deserialize;
 use std::collections::BTreeSet;
@@ -130,7 +130,7 @@ impl DynamicMutation {
 /// Row-oriented result from one accepted-schema-driven structural mutation.
 ///
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct DynamicMutationResult {
     /// Accepted entity name used for the mutation.
     pub entity: String,

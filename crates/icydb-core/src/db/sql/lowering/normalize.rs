@@ -2,7 +2,10 @@ use crate::db::query::preparation::PreparationWork;
 use crate::db::sql::lowering::copy::{copy_field_path_parts, copy_select_item_expr};
 use crate::db::sql::lowering::expr::{charge_storage, copy_text};
 use crate::db::sql::{
-    identifier::{identifier_last_segment, identifiers_tail_match, normalize_identifier_to_scope},
+    identifier::{
+        identifier_last_segment, identifiers_tail_match, matching_scope_prefix_len,
+        normalize_identifier_to_scope,
+    },
     lowering::SqlLoweringError,
     parser::{
         SqlAggregateCall, SqlAssignment, SqlDeleteStatement, SqlExpr, SqlInsertStatement,
@@ -38,9 +41,7 @@ pub(in crate::db::sql::lowering) fn normalize_select_statement_to_expected_entit
         normalize_identifier_list(statement.group_by, entity_scope.as_slice(), work)?;
     statement.predicate = statement
         .predicate
-        .map(|predicate| {
-            adapt_sql_predicate_identifiers_to_scope(predicate, entity_scope.as_slice(), work)
-        })
+        .map(|predicate| normalize_sql_expr_to_scope(predicate, entity_scope.as_slice(), work))
         .transpose()?;
     statement.order_by = normalize_select_order_terms(
         statement.order_by,
@@ -74,9 +75,7 @@ pub(in crate::db::sql::lowering) fn normalize_delete_statement_to_expected_entit
     )?;
     statement.predicate = statement
         .predicate
-        .map(|predicate| {
-            adapt_sql_predicate_identifiers_to_scope(predicate, entity_scope.as_slice(), work)
-        })
+        .map(|predicate| normalize_sql_expr_to_scope(predicate, entity_scope.as_slice(), work))
         .transpose()?;
     statement.order_by = normalize_order_terms(statement.order_by, entity_scope.as_slice(), work)?;
     statement.returning = statement
@@ -125,9 +124,7 @@ pub(in crate::db::sql::lowering) fn normalize_update_statement_to_expected_entit
         normalize_assignments(statement.assignments, entity_scope.as_slice(), work)?;
     statement.predicate = statement
         .predicate
-        .map(|predicate| {
-            adapt_sql_predicate_identifiers_to_scope(predicate, entity_scope.as_slice(), work)
-        })
+        .map(|predicate| normalize_sql_expr_to_scope(predicate, entity_scope.as_slice(), work))
         .transpose()?;
     statement.order_by = normalize_order_terms(statement.order_by, entity_scope.as_slice(), work)?;
     statement.returning = statement
@@ -157,22 +154,6 @@ pub(in crate::db::sql::lowering) fn normalize_having_clauses(
         )?;
     }
     Ok(clauses)
-}
-
-pub(in crate::db::sql::lowering) fn adapt_sql_predicate_identifiers_to_scope(
-    mut predicate: SqlExpr,
-    entity_scope: &[String],
-    work: &PreparationWork<'_>,
-) -> Result<SqlExpr, SqlLoweringError> {
-    if let SqlExpr::NullTest { expr, .. } = &mut predicate
-        && let SqlExpr::Field(field) = expr.as_mut()
-    {
-        // Preserve this surface's existing extra qualifier reduction without
-        // copying the field or replacing its box.
-        *field = normalize_identifier(std::mem::take(field), entity_scope, work)?;
-    }
-
-    SqlIdentifierNormalizer::new(entity_scope, work).normalize_sql_expr(predicate)
 }
 
 // Build one identifier scope used for reducing SQL-qualified field references
@@ -301,7 +282,7 @@ impl<'a, 'request> SqlIdentifierNormalizer<'a, 'request> {
         match &mut expr {
             SqlExpr::Field(field) => {
                 return normalize_field_identifier_expr_to_scope(
-                    normalize_identifier(std::mem::take(field), self.entity_scope, self.work)?,
+                    std::mem::take(field),
                     self.entity_scope,
                     self.work,
                 );
@@ -374,8 +355,9 @@ fn normalize_select_order_terms(
         let original =
             std::mem::replace(&mut term.field, SqlExpr::Literal(crate::value::Value::Null));
         let field = normalize_sql_expr_to_scope(original, entity_scope, work)?;
-        let field = normalize_scalar_aliases(field, projection, projection_aliases, work)?;
-        term.field = normalize_sql_expr_to_scope(field, entity_scope, work)?;
+        // Projection expressions already belong to the local scope. Rewriting
+        // their replacement again can strip a record root that names an alias.
+        term.field = normalize_scalar_aliases(field, projection, projection_aliases, work)?;
     }
     Ok(terms)
 }
@@ -474,7 +456,7 @@ fn normalize_identifier(
     work: &PreparationWork<'_>,
 ) -> Result<String, SqlLoweringError> {
     // The public pure utility remains the matching authority. Charge a byte
-    // allowance for its direct/full/tail comparisons, split and owned compaction
+    // allowance for its root-anchored comparisons, split and owned compaction
     // before calling it; lengths are O(1), and scope visits are charged first.
     work.charge(
         Resource::PredicateExpressionSteps,
@@ -517,33 +499,34 @@ fn normalize_field_path_to_scope(
     entity_scope: &[String],
     work: &PreparationWork<'_>,
 ) -> Result<SqlExpr, SqlLoweringError> {
-    // Full equality implies equal tails, so matching a joined qualifier is
-    // exactly matching its final component. Search longest prefixes first,
-    // without joined strings or a second root-plus-segments vector.
-    for split_at in (1..=segments.len()).rev() {
-        work.charge(Resource::PredicateExpressionSteps, 1)?;
-        let qualifier_tail = if split_at == 1 {
-            &root
-        } else {
-            &segments[split_at - 2]
-        };
-        for candidate in entity_scope {
-            work.charge(
-                Resource::PredicateExpressionSteps,
-                1 + 3 * (candidate.len() as u64 + qualifier_tail.len() as u64),
-            )?;
-            if identifiers_tail_match(candidate, qualifier_tail) {
-                // Charge initialized handle movement before compacting the
-                // retained suffix; String payloads move without being copied.
-                work.charge(
-                    Resource::PredicateExpressionSteps,
-                    (segments.len() as u64).saturating_mul(size_of::<String>() as u64),
-                )?;
-                let retained_root = std::mem::take(&mut segments[split_at - 1]);
-                segments.drain(..split_at);
-                return Ok(sql_field_expr_from_parts(retained_root, segments));
-            }
-        }
+    // Admit the borrowed comparison walk before visiting segments. The shared
+    // matcher needs neither a joined qualifier nor copied string payloads.
+    work.charge(
+        Resource::PredicateExpressionSteps,
+        1 + segments.len() as u64,
+    )?;
+    let path_bytes = root.len() + segments.iter().map(String::len).sum::<usize>();
+    for candidate in entity_scope {
+        work.charge(
+            Resource::PredicateExpressionSteps,
+            1 + 3 * (candidate.len() as u64 + path_bytes as u64),
+        )?;
+    }
+    let path = std::iter::once(root.as_str()).chain(segments.iter().map(String::as_str));
+    let split_at = entity_scope
+        .iter()
+        .filter_map(|candidate| matching_scope_prefix_len(path.clone(), candidate))
+        .max();
+    if let Some(split_at) = split_at {
+        // A match leaves at least one field. Charge handle movement before
+        // compacting the retained suffix; payloads move without being copied.
+        work.charge(
+            Resource::PredicateExpressionSteps,
+            (segments.len() as u64).saturating_mul(size_of::<String>() as u64),
+        )?;
+        let retained_root = std::mem::take(&mut segments[split_at - 1]);
+        segments.drain(..split_at);
+        return Ok(sql_field_expr_from_parts(retained_root, segments));
     }
     Ok(sql_field_expr_from_parts(root, segments))
 }

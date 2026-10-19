@@ -4,7 +4,7 @@ edition = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 publish = false
-license = { workspace = true }
+license-file = { workspace = true }
 description = "Default-empty schema fixture crate for lightweight wasm canister builds"
 repository = { workspace = true }
 authors = { workspace = true }

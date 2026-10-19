@@ -11,7 +11,7 @@ use crate::{
         compare_numeric_eq, compare_numeric_or_strict_order, compare_numeric_order,
         decimal_power_checked, divide_decimal_terms_checked,
     },
-    types::{Decimal, Float64 as F64, IntBig, U256},
+    types::{Decimal, Float64 as F64, U256},
     value::Value,
 };
 use std::cmp::Ordering;
@@ -75,7 +75,6 @@ fn broad_numeric_coercion_matches_value_numeric_decimal_boundary() {
         Value::Decimal(Decimal::new(40, 1)),
         Value::Float64(F64::try_new(4.0).expect("finite float")),
         Value::Text("x".to_string()),
-        Value::IntBig(IntBig::from(4i32)),
     ];
 
     for value in cases {
@@ -133,7 +132,6 @@ fn numeric_or_strict_compare_falls_back_to_strict_for_non_numeric_values() {
 fn numeric_decimal_coercion_rejects_non_coercible_variants() {
     assert!(coerce_numeric_decimal(&Value::Int64(4)).is_some());
     assert!(coerce_numeric_decimal(&Value::Text("x".to_string())).is_none());
-    assert!(coerce_numeric_decimal(&Value::IntBig(IntBig::from(4i32))).is_none());
 }
 
 #[test]

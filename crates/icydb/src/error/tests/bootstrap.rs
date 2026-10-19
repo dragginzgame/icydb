@@ -6,8 +6,8 @@ use crate::{
 };
 use ic_memory::{
     AllocationValidationError, BootstrapAdmissionError, MemoryAllocationPoolError,
-    MemoryDeclarationError, RuntimeAdoptionError, RuntimeBootstrapError, RuntimeOpenError,
-    RuntimeStateError, StableKey,
+    MemoryDeclarationError, RuntimeAdoptionError, RuntimeBootstrapError, RuntimeConstructionError,
+    RuntimeOpenError, StableKey,
 };
 use icydb_diagnostic_code::{DiagnosticFactTag, ErrorCode};
 
@@ -88,9 +88,11 @@ fn memory_bootstrap_roles_and_invalid_declarations_keep_their_identity() {
                 "icydb.main.commit.control.v1".into(),
             ),
         )),
-        RuntimeBootstrapError::Declarations(MemoryDeclarationError::DuplicateRequest {
-            stable_key: StableKey::parse("icydb.main.commit.control.v1").unwrap(),
-        }),
+        RuntimeBootstrapError::Resolution(ic_memory::MemoryResolutionError::Declarations(
+            MemoryDeclarationError::DuplicateRequest {
+                stable_key: StableKey::parse("icydb.main.commit.control.v1").unwrap(),
+            },
+        )),
     ] {
         let error = public(cause);
         assert_eq!(
@@ -112,9 +114,6 @@ fn memory_adoption_requirement_drift_is_a_public_conflict() {
             committed_authority: "host.other".into(),
             requested_authority: "icydb.main".into(),
         },
-        RuntimeAdoptionError::DeclarationMetadataMismatch {
-            stable_key: "icydb.main.commit.control.v1".into(),
-        },
         RuntimeAdoptionError::Open(RuntimeOpenError::StableKeyNotCommitted(
             "icydb.main.commit.control.v1".into(),
         )),
@@ -132,8 +131,10 @@ fn memory_adoption_requirement_drift_is_a_public_conflict() {
 #[test]
 fn memory_bootstrap_internal_failures_retain_internal_classification() {
     for cause in [
-        RuntimeBootstrapError::State(RuntimeStateError::ReentrantAccess),
-        RuntimeBootstrapError::State(RuntimeStateError::Unavailable),
+        RuntimeBootstrapError::StableCellLedgerWriteTooLarge {
+            value_size: usize::MAX,
+        },
+        RuntimeBootstrapError::LedgerGrowth(ic_memory::RuntimeGrowError::ReentrantAccess),
     ] {
         let error = public(cause);
         assert_eq!(error.code(), ErrorCode::RUNTIME_INTERNAL);
@@ -142,7 +143,37 @@ fn memory_bootstrap_internal_failures_retain_internal_classification() {
         assert!(error.facts().is_empty());
     }
     let error = Error::from(DatabaseBootstrapError::from(RuntimeAdoptionError::Open(
-        RuntimeOpenError::State(RuntimeStateError::Unavailable),
+        RuntimeOpenError::NotBootstrapped,
     )));
     assert_eq!(error.code(), ErrorCode::RUNTIME_INTERNAL);
+}
+
+#[test]
+fn memory_construction_and_binding_failures_keep_typed_public_classification() {
+    let error = Error::from(DatabaseBootstrapError::from(
+        RuntimeConstructionError::BucketSizeMismatch {
+            persisted: 128,
+            requested: 16,
+        },
+    ));
+    assert_eq!(
+        error.code(),
+        ErrorCode::RUNTIME_BOUNDARY_MEMORY_BUCKET_SIZE_MISMATCH
+    );
+    assert_eq!(
+        error.core_facts().unwrap(),
+        [
+            (DiagnosticFactTag::Expected, 16),
+            (DiagnosticFactTag::Actual, 128),
+        ]
+    );
+    for cause in [
+        crate::db::MemoryRuntimeBindingError::NotBootstrapped,
+        crate::db::MemoryRuntimeBindingError::AlreadyBound,
+    ] {
+        assert_eq!(
+            Error::from(DatabaseBootstrapError::from(cause)).code(),
+            ErrorCode::RUNTIME_INTERNAL
+        );
+    }
 }

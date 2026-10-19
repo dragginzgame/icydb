@@ -2,10 +2,7 @@
 
 use std::fmt::{self, Write};
 
-use crate::{
-    db::resource::construction::ConstructionBudget, error::InternalError,
-    value::decimal::ValueFormatWriter,
-};
+use crate::{db::resource::construction::ConstructionBudget, error::InternalError};
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
 impl dyn ConstructionBudget + '_ {
@@ -14,7 +11,7 @@ impl dyn ConstructionBudget + '_ {
     /// its fmt::Error; formatting alone never establishes a new budget scope.
     pub(in crate::db) fn render_text(
         &self,
-        render: impl FnOnce(&mut dyn ValueFormatWriter) -> fmt::Result,
+        render: impl FnOnce(&mut dyn std::fmt::Write) -> fmt::Result,
     ) -> Result<String, InternalError> {
         let mut output = ConstructionText {
             budget: self,
@@ -34,20 +31,6 @@ struct ConstructionText<'a> {
     budget: &'a dyn ConstructionBudget,
     text: String,
     error: Option<InternalError>,
-}
-
-impl ValueFormatWriter for ConstructionText<'_> {
-    fn admit_scratch(&mut self, bytes: u64, steps: u64) -> fmt::Result {
-        if self.error.is_some() {
-            return Err(fmt::Error);
-        }
-        let admission = self.budget.admit_format_scratch(bytes, steps);
-        if let Err(error) = admission {
-            self.error = Some(error);
-            return Err(fmt::Error);
-        }
-        Ok(())
-    }
 }
 
 impl Write for ConstructionText<'_> {

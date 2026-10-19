@@ -29,7 +29,6 @@ use crate::{
 };
 use std::fmt::Write;
 
-use candid::CandidType;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
@@ -40,7 +39,7 @@ const MAX_SQL_COMPACT_COLUMN_ROWS: usize =
     icydb_schema::MAX_FRAGMENT_FIELDS * (1 + icydb_schema::MAX_FRAGMENT_FIELDS);
 
 /// Compact accepted index-membership hint for one SQL column row.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum SqlColumnKey {
     /// Accepted primary-key field.
     Primary,
@@ -53,7 +52,7 @@ pub enum SqlColumnKey {
 }
 
 /// Compact accepted insert-default policy for one SQL column row.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum SqlColumnDefault {
     /// Database-owned insert synthesis.
     Auto,
@@ -82,7 +81,7 @@ impl SqlColumnDefault {
 }
 
 /// Closed compact extra-fact vocabulary for one SQL column row.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum SqlColumnExtra {
     /// Accepted Identity generation owns this field.
     Identity,
@@ -93,7 +92,7 @@ pub enum SqlColumnExtra {
 }
 
 /// Compact accepted-schema column projection.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct SqlColumnSummary {
     name: String,
     field_type: String,
@@ -167,7 +166,7 @@ impl SqlColumnSummary {
 }
 
 /// Discriminated public `DESCRIBE` result.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum SqlDescribeOutput {
     /// Conventional compact column table.
     Compact {
@@ -184,7 +183,7 @@ pub enum SqlDescribeOutput {
 }
 
 /// Discriminated public `SHOW COLUMNS` result.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum SqlShowColumnsOutput {
     /// Compact column projection shared with `DESCRIBE`.
     Compact {
@@ -203,7 +202,7 @@ pub enum SqlShowColumnsOutput {
 }
 
 /// Public `SHOW RELATIONS` result.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct SqlShowRelationsOutput {
     entity: String,
     relations: Vec<EntityRelationDescription>,
@@ -238,7 +237,7 @@ impl SqlShowRelationsOutput {
     doc,
     doc = "EntitySchemaDescription\n\nStable describe payload for one entity model."
 )]
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct EntitySchemaDescription {
     pub(crate) entity_path: String,
     pub(crate) entity_name: String,
@@ -388,7 +387,7 @@ impl EntitySchemaDescription {
 
 /// Accepted Identity generator policy, exact unsigned domain, and current
 /// lifetime allocation state for one entity.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct EntityIdentityDescription {
     field: String,
     generator: String,
@@ -491,7 +490,7 @@ pub(in crate::db) fn describe_accepted_identity(
     doc,
     doc = "EntityConstraintDescription\n\nOne accepted structural constraint entry in a describe payload."
 )]
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct EntityConstraintDescription {
     pub(crate) id: u32,
     pub(crate) name: String,
@@ -513,7 +512,7 @@ pub struct EntityConstraintDescription {
 }
 
 /// Current bounded validation-job counters for one activating constraint.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct ConstraintValidationProgressDescription {
     phase: String,
     rows_scanned: u64,
@@ -665,7 +664,7 @@ impl EntityConstraintDescription {
     doc,
     doc = "EntityFieldDescription\n\nOne field entry in a describe payload."
 )]
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct EntityFieldDescription {
     pub(crate) name: String,
     pub(crate) slot: u16,
@@ -889,7 +888,7 @@ impl EntityFieldDescription {
     doc,
     doc = "EntityIndexDescription\n\nOne index entry in a describe payload."
 )]
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct EntityIndexDescription {
     pub(crate) name: String,
     pub(crate) unique: bool,
@@ -938,7 +937,7 @@ impl EntityIndexDescription {
     doc,
     doc = "EntityRelationDescription\n\nOne relation entry in a describe payload."
 )]
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct EntityRelationDescription {
     pub(crate) field: String,
     pub(crate) target_path: String,
@@ -1001,7 +1000,7 @@ impl EntityRelationDescription {
     doc,
     doc = "EntityRelationCardinality\n\nDescribe source multiplicity: List includes list/map-value traversal; Set denotes set-only traversal."
 )]
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum EntityRelationCardinality {
     Single,
     List,
@@ -1780,7 +1779,7 @@ fn push_described_field_row(
 }
 
 // Render accepted nested leaf descriptors. Nested leaves do not own physical
-// row slots, so they always appear with the no-slot sentinel in the Candid DTO.
+// row slots, so they always appear with the no-slot sentinel in the Wire DTO.
 fn describe_persisted_nested_leaves(
     fields: &mut Vec<EntityFieldDescription>,
     nested_leaves: &[PersistedNestedLeafSnapshot],
@@ -1973,13 +1972,6 @@ fn write_length_bounded_field_kind_summary(
     }
 }
 
-fn write_byte_bounded_field_kind_summary(out: &mut String, kind_name: &str, max_bytes: u32) {
-    out.push_str(kind_name);
-    out.push_str("(max_bytes=");
-    out.push_str(&max_bytes.to_string());
-    out.push(')');
-}
-
 ///
 /// RenderedTemporalPayload
 ///
@@ -2095,7 +2087,6 @@ const fn output_value_kind_label(value: &OutputValue) -> &'static str {
         crate::value::PublicValue::Float64(_) => "float64",
         crate::value::PublicValue::Int64(_) => "int64",
         crate::value::PublicValue::Int128(_) => "int128",
-        crate::value::PublicValue::IntBig(_) => "int_big",
         crate::value::PublicValue::List(_) => "list",
         crate::value::PublicValue::Map(_) => "map",
         crate::value::PublicValue::Null => "null",
@@ -2105,7 +2096,6 @@ const fn output_value_kind_label(value: &OutputValue) -> &'static str {
         crate::value::PublicValue::Timestamp(_) => "timestamp",
         crate::value::PublicValue::Nat64(_) => "nat64",
         crate::value::PublicValue::Nat128(_) => "nat128",
-        crate::value::PublicValue::NatBig(_) => "nat_big",
         crate::value::PublicValue::Ulid(_) => "ulid",
         crate::value::PublicValue::Unit => "unit",
         crate::value::PublicValue::U256(_) => "u256",
@@ -2153,9 +2143,6 @@ fn write_persisted_field_kind_summary(
         }
         AcceptedFieldKind::Decimal { scale } => {
             let _ = write!(out, "decimal(scale={scale})");
-        }
-        AcceptedFieldKind::IntBig { max_bytes } => {
-            write_byte_bounded_field_kind_summary(out, "int_big", *max_bytes);
         }
         AcceptedFieldKind::Enum { type_id } => {
             let definition = value_catalog
@@ -2232,9 +2219,6 @@ fn write_persisted_field_kind_summary(
         | AcceptedFieldKind::Ulid
         | AcceptedFieldKind::Unit
         | AcceptedFieldKind::U256 => return Err(InternalError::store_invariant()),
-        AcceptedFieldKind::NatBig { max_bytes } => {
-            write_byte_bounded_field_kind_summary(out, "nat_big", *max_bytes);
-        }
     }
 
     Ok(())
@@ -2267,8 +2251,6 @@ const fn describe_kind_name(kind: &AcceptedFieldKind) -> Option<&'static str> {
         AcceptedFieldKind::Blob { .. }
         | AcceptedFieldKind::Decimal { .. }
         | AcceptedFieldKind::Enum { .. }
-        | AcceptedFieldKind::IntBig { .. }
-        | AcceptedFieldKind::NatBig { .. }
         | AcceptedFieldKind::Text { .. }
         | AcceptedFieldKind::Relation { .. }
         | AcceptedFieldKind::List(_)
@@ -2317,8 +2299,6 @@ mod tests {
         decode_persisted_schema_snapshot, empty_accepted_enum_catalog_for_tests,
         encode_persisted_schema_snapshot,
     };
-
-    use candid::Encode;
 
     const REACHABLE_COMPACT_REPLY_COMPOSITE_FIELDS: usize = icydb_schema::MAX_FRAGMENT_FIELDS;
     const REACHABLE_COMPACT_REPLY_TOP_LEVEL_COMPOSITES: usize = 95;
@@ -3044,10 +3024,14 @@ mod tests {
             entity: "AcceptedMaximum".to_string(),
             columns: vec![valid; super::MAX_SQL_COMPACT_COLUMN_ROWS],
         };
-        let first = Encode!(&maximum).expect("accepted maximum should encode to bounded Candid");
-        let second = Encode!(&maximum).expect("accepted maximum should encode deterministically");
-        assert_eq!(first, second);
-        assert_eq!(first.len(), 9_737_853);
+        assert!(matches!(
+            icydb_schema::wire::encoded_len(&maximum),
+            Err(icydb_schema::wire::Error::Limit),
+        ));
+        assert!(matches!(
+            icydb_schema::wire::encode_one(&maximum),
+            Err(icydb_schema::wire::Error::Limit),
+        ));
 
         let relation = EntityRelationDescription::new(
             "owner_id".to_string(),
@@ -3088,13 +3072,16 @@ mod tests {
             entity: accepted.entity_name().to_string(),
             columns,
         };
-        let encoded_output =
-            Encode!(&output).expect("reachable accepted compact output should encode");
-        assert_eq!(encoded_output.len(), 3_693_116);
+        let encoded_len = icydb_schema::wire::encoded_len(&output)
+            .expect("reachable accepted compact output should admit allocation-free Wire sizing");
         assert!(
-            encoded_output.len() > IC_QUERY_REPLY_BYTES,
+            encoded_len > IC_QUERY_REPLY_BYTES,
             "a valid accepted schema must exercise the generated endpoint reply guard",
         );
+        assert!(matches!(
+            icydb_schema::wire::encode_one(&output),
+            Err(icydb_schema::wire::Error::Limit),
+        ));
     }
 
     #[test]

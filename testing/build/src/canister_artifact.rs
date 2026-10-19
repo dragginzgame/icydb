@@ -3,33 +3,17 @@
 //! Does not own: builds or runtime.
 //! Boundary: checks artifacts against policy.
 
-use std::{collections::BTreeSet, env, ffi::OsString, fs, path::Path, time::Duration};
+use std::{collections::BTreeSet, fs, path::Path};
 
-use crate::wasm_optimizer::format_tool_failure;
-use candid::{
-    CandidType,
-    pretty::candid::compile,
-    types::{FuncMode, Function, Type, TypeInner, internal::TypeContainer},
-};
 use ic_host_artifacts::{
     artifact::ArtifactError,
     wasm::{InspectionLimits, inspect},
 };
 use ic_host_fs::read::read_opened_file;
-use ic_host_process::tool::{
-    AdmittedTool, ExecutionContext, OutputLimit, OutputLimits, VersionSpec, resolve_executable,
-};
-use ic_host_tools::{
-    candid::{
-        extraction::{ExtractionError, extract},
-        service::{self, ServiceLimits},
-    },
-    interface,
-};
-use icydb::{
-    Error,
-    db::{SchemaMigrationCommand, SchemaMigrationStatusPage, SchemaMigrationStatusRequest},
-};
+use ic_host_tools::interface;
+use ic_wire::Method;
+use icydb::wire::Endpoint;
+use icydb_testing_wasm_helpers::wire::DynamicRowsQuery;
 
 pub use ic_host_tools::interface::MethodMode;
 
@@ -149,206 +133,204 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
     MaintainedCanisterPolicy {
         canister: "default_empty",
         package: "canister_audit_default_empty",
-        production_features: &["candid-export", "sql"],
-        local_test_features: &["candid-export", "sql"],
+        production_features: &["sql"],
+        local_test_features: &["sql"],
         production_icydb_methods: NO_METHODS,
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
         canister: "default_empty_metrics",
         package: "canister_audit_default_empty_metrics",
-        production_features: &["candid-export", "sql"],
-        local_test_features: &["candid-export", "sql"],
+        production_features: &["sql"],
+        local_test_features: &["sql"],
         production_icydb_methods: METRICS_METHODS,
         local_test_icydb_methods: METRICS_METHODS,
     },
     MaintainedCanisterPolicy {
         canister: "group_path_sql_query",
         package: "canister_audit_group_path_sql_query",
-        production_features: &["candid-export", "sql"],
-        local_test_features: &["candid-export", "sql"],
+        production_features: &["sql"],
+        local_test_features: &["sql"],
         production_icydb_methods: NO_METHODS,
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
         canister: "nested_relation_none",
         package: "canister_audit_nested_relation_none",
-        production_features: &["candid-export"],
-        local_test_features: &["candid-export"],
+        production_features: &[],
+        local_test_features: &[],
         production_icydb_methods: NO_METHODS,
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
         canister: "nested_relation_direct",
         package: "canister_audit_nested_relation_direct",
-        production_features: &["candid-export"],
-        local_test_features: &["candid-export"],
+        production_features: &[],
+        local_test_features: &[],
         production_icydb_methods: NO_METHODS,
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
         canister: "nested_relation_shallow",
         package: "canister_audit_nested_relation_shallow",
-        production_features: &["candid-export"],
-        local_test_features: &["candid-export"],
+        production_features: &[],
+        local_test_features: &[],
         production_icydb_methods: NO_METHODS,
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
         canister: "nested_relation_repeated",
         package: "canister_audit_nested_relation_repeated",
-        production_features: &["candid-export"],
-        local_test_features: &["candid-export"],
+        production_features: &[],
+        local_test_features: &[],
         production_icydb_methods: NO_METHODS,
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
         canister: "one_entity_dynamic_query",
         package: "canister_audit_one_entity_dynamic_query",
-        production_features: &["candid-export"],
-        local_test_features: &["candid-export"],
+        production_features: &[],
+        local_test_features: &[],
         production_icydb_methods: NO_METHODS,
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
         canister: "one_entity_reachable_operations",
         package: "canister_audit_one_entity_reachable_operations",
-        production_features: &["candid-export"],
-        local_test_features: &["candid-export"],
+        production_features: &[],
+        local_test_features: &[],
         production_icydb_methods: NO_METHODS,
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
         canister: "one_entity_sql_query",
         package: "canister_audit_one_entity_sql_query",
-        production_features: &["candid-export", "sql"],
-        local_test_features: &["candid-export", "sql"],
+        production_features: &["sql"],
+        local_test_features: &["sql"],
         production_icydb_methods: NO_METHODS,
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
         canister: "one_entity_typed_query",
         package: "canister_audit_one_entity_typed_query",
-        production_features: &["candid-export", "u256-audit"],
-        local_test_features: &["candid-export", "lifecycle-audit", "u256-audit"],
+        production_features: &["u256-audit"],
+        local_test_features: &["lifecycle-audit", "u256-audit"],
         production_icydb_methods: NO_METHODS,
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
         canister: "request_future_scale",
         package: "canister_audit_request_future_scale",
-        production_features: &["candid-export"],
-        local_test_features: &["candid-export"],
+        production_features: &[],
+        local_test_features: &[],
         production_icydb_methods: NO_METHODS,
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
         canister: "sql_perf",
         package: "canister_audit_sql_perf",
-        production_features: &["candid-export", "sql"],
-        local_test_features: &["candid-export", "sql", "test-admin-api"],
+        production_features: &["sql"],
+        local_test_features: &["sql", "test-admin-api"],
         production_icydb_methods: NO_METHODS,
         local_test_icydb_methods: SQL_PERF_LOCAL_METHODS,
     },
     MaintainedCanisterPolicy {
         canister: "ten_entity_typed_query",
         package: "canister_audit_ten_entity_typed_query",
-        production_features: &["candid-export"],
-        local_test_features: &["candid-export"],
+        production_features: &[],
+        local_test_features: &[],
         production_icydb_methods: NO_METHODS,
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
         canister: "ten_entity_reachable_operations",
         package: "canister_audit_ten_entity_reachable_operations",
-        production_features: &["candid-export"],
-        local_test_features: &["candid-export"],
+        production_features: &[],
+        local_test_features: &[],
         production_icydb_methods: NO_METHODS,
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
         canister: "sql",
         package: "canister_test_sql",
-        production_features: &["candid-export", "sql"],
-        local_test_features: &["candid-export", "local-sql-query", "test-admin-api"],
+        production_features: &["sql"],
+        local_test_features: &["local-sql-query", "test-admin-api"],
         production_icydb_methods: TEST_SQL_PRODUCTION_METHODS,
         local_test_icydb_methods: TEST_SQL_METHODS,
     },
     MaintainedCanisterPolicy {
         canister: "sql_bounded",
         package: "canister_test_sql_bounded",
-        production_features: &["candid-export", "sql"],
-        local_test_features: &["candid-export", "local-sql-query", "test-admin-api"],
+        production_features: &["sql"],
+        local_test_features: &["local-sql-query", "test-admin-api"],
         production_icydb_methods: TEST_SQL_BOUNDED_PRODUCTION_METHODS,
         local_test_icydb_methods: TEST_SQL_BOUNDED_METHODS,
     },
     MaintainedCanisterPolicy {
         canister: "lifecycle_participant",
         package: "canister_test_lifecycle_participant",
-        production_features: &["candid-export"],
-        local_test_features: &["candid-export", "population-seed"],
+        production_features: &[],
+        local_test_features: &["population-seed"],
         production_icydb_methods: NO_METHODS,
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
         canister: "read_authority",
         package: "canister_test_read_authority",
-        production_features: &["candid-export", "sql"],
-        local_test_features: &["candid-export", "guarded-reads", "sql"],
+        production_features: &["sql"],
+        local_test_features: &["guarded-reads", "sql"],
         production_icydb_methods: TEST_READ_AUTHORITY_METHODS,
         local_test_icydb_methods: TEST_READ_AUTHORITY_METHODS,
     },
     MaintainedCanisterPolicy {
         canister: "schema_guard",
         package: "canister_test_schema_guard",
-        production_features: &["candid-export"],
-        local_test_features: &["candid-export", "guarded-schema"],
+        production_features: &[],
+        local_test_features: &["guarded-schema"],
         production_icydb_methods: TEST_SCHEMA_METHODS,
         local_test_icydb_methods: TEST_SCHEMA_METHODS,
     },
     MaintainedCanisterPolicy {
         canister: "schema_public",
         package: "canister_test_schema_public",
-        production_features: &["candid-export"],
-        local_test_features: &["candid-export"],
+        production_features: &[],
+        local_test_features: &[],
         production_icydb_methods: TEST_SCHEMA_METHODS,
         local_test_icydb_methods: TEST_SCHEMA_METHODS,
     },
     MaintainedCanisterPolicy {
         canister: "sql_guard",
         package: "canister_test_sql_guard",
-        production_features: &["candid-export", "sql"],
-        local_test_features: &["candid-export", "guarded-sql-query", "sql"],
+        production_features: &["sql"],
+        local_test_features: &["guarded-sql-query", "sql"],
         production_icydb_methods: TEST_SQL_GUARD_METHODS,
         local_test_icydb_methods: TEST_SQL_GUARD_METHODS,
     },
     MaintainedCanisterPolicy {
         canister: "startup_timer",
         package: "canister_test_startup_timer",
-        production_features: &["candid-export"],
-        local_test_features: &["candid-export"],
+        production_features: &[],
+        local_test_features: &[],
         production_icydb_methods: NO_METHODS,
         local_test_icydb_methods: NO_METHODS,
     },
     MaintainedCanisterPolicy {
         canister: "demo_rpg",
         package: "canister_demo_rpg",
-        production_features: &["candid-export", "sql"],
-        local_test_features: &["candid-export", "local-sql-query", "test-admin-api"],
+        production_features: &["sql"],
+        local_test_features: &["local-sql-query", "test-admin-api"],
         production_icydb_methods: RPG_PRODUCTION_METHODS,
         local_test_icydb_methods: RPG_LOCAL_METHODS,
     },
 ];
 
-/// Candid and raw-Wasm method manifests for one built actor.
+/// IC Wire declarations and raw-Wasm method manifests for one built actor.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CanisterArtifactManifest {
-    /// Generated Candid carried by the exact inspected Wasm artifact.
-    pub candid: String,
-    /// Methods registered in generated Candid.
-    pub candid_methods: BTreeSet<CanisterMethod>,
+    /// IC Wire methods declared by the artifact's current contract identity.
+    pub wire_methods: BTreeSet<CanisterMethod>,
     /// IC query/update exports present in raw Wasm, including reserved runtime
-    /// self-call entrypoints that are intentionally absent from Candid.
+    /// self-call entrypoints outside the application Wire roster.
     pub wasm_methods: BTreeSet<CanisterMethod>,
 }
 
@@ -364,38 +346,99 @@ impl CanisterArtifactManifest {
     }
 }
 
-/// Inspect one Candid-exporting canister and require Candid/application-Wasm
-/// agreement while retaining reserved CDK runtime exports in the raw manifest.
+/// Inspect one canister and require its IC Wire declarations to
+/// agree with application Wasm exports, retaining reserved timer runtime exports.
 ///
 /// # Errors
 ///
-/// Returns an error for unreadable or malformed Wasm, unavailable Candid
-/// extraction, malformed Candid service declarations, or a method/mode drift
-/// between the two artifacts.
+/// Returns an error for unreadable or malformed Wasm, or a method/mode drift
+/// between declarations and exports, or an unknown/duplicated Wire identity.
 pub fn inspect_canister_artifacts(wasm_path: &Path) -> Result<CanisterArtifactManifest, String> {
     let wasm = read_wasm_artifact(wasm_path)
         .map_err(|error| format!("failed to read {}: {error}", wasm_path.display()))?;
     let wasm_methods = inspect_wasm_methods(&wasm)?;
 
-    let candid = extract_canister_candid(wasm_path)?;
-    let candid_methods = inspect_candid_methods(&candid)?;
-    let application_wasm_methods = candid_visible_wasm_methods(&wasm_methods);
-    if candid_methods != application_wasm_methods {
+    let wire_methods = inspect_wire_methods(&wasm)?;
+    let application_wasm_methods = application_wasm_methods(&wasm_methods);
+    if wire_methods != application_wasm_methods {
         let runtime_methods = wasm_methods
             .difference(&application_wasm_methods)
             .cloned()
             .collect::<BTreeSet<_>>();
         return Err(format!(
-            "Candid/Wasm method drift for {}: Candid {candid_methods:?}, application Wasm {application_wasm_methods:?}, reserved runtime Wasm {runtime_methods:?}",
+            "declaration/Wasm method drift for {}: Wire {wire_methods:?}, application Wasm {application_wasm_methods:?}, reserved runtime Wasm {runtime_methods:?}",
             wasm_path.display()
         ));
     }
 
     Ok(CanisterArtifactManifest {
-        candid,
-        candid_methods,
+        wire_methods,
         wasm_methods,
     })
+}
+
+// Every raw method declares its current identity. Protocol ownership is never
+// inferred from an export's spelling, and undeclared hidden methods reject.
+fn inspect_wire_methods(wasm: &[u8]) -> Result<BTreeSet<CanisterMethod>, String> {
+    let facts = inspect(
+        wasm,
+        InspectionLimits {
+            module_bytes: wasm.len(),
+            sections: wasm.len(),
+            exports: u32::try_from(wasm.len()).unwrap_or(u32::MAX),
+            custom_sections: wasm.len(),
+        },
+    )
+    .map_err(|error| format!("failed to inspect Wire declarations: {error}"))?;
+    let mut methods = BTreeSet::new();
+    let mut identities = BTreeSet::new();
+    for declaration in facts
+        .custom_sections
+        .iter()
+        .filter(|section| section.name == "icydb:wire")
+    {
+        let (chunks, remainder) = declaration.data.as_chunks::<8>();
+        for bytes in chunks {
+            let id = u64::from_le_bytes(*bytes);
+            if !identities.insert(id) {
+                return Err("duplicated IC Wire contract identity".into());
+            }
+            let (name, query) = if let Some(endpoint) = Endpoint::from_id(id) {
+                (
+                    endpoint.name(),
+                    matches!(
+                        endpoint,
+                        Endpoint::Query
+                            | Endpoint::Metrics
+                            | Endpoint::Snapshot
+                            | Endpoint::Schema
+                            | Endpoint::SchemaMigration
+                    ),
+                )
+            } else if id == DynamicRowsQuery::ID {
+                (DynamicRowsQuery::NAME, true)
+            } else {
+                *icydb_testing_wasm_helpers::fixture_wire::METHODS
+                    .iter()
+                    .find(|(name, _)| {
+                        icydb_testing_wasm_helpers::fixture_wire::method_id(name) == id
+                    })
+                    .ok_or("unknown IC Wire contract identity")?
+            };
+            methods.insert(CanisterMethod::new(
+                name,
+                if query {
+                    MethodMode::Query
+                } else {
+                    MethodMode::Update
+                },
+            ));
+        }
+        if !remainder.is_empty() {
+            return Err("invalid IC Wire identity width".into());
+        }
+    }
+    Ok(methods)
 }
 
 /// Read a complete regular Wasm artifact through its selected descriptor.
@@ -418,50 +461,6 @@ pub fn read_wasm_artifact(path: &Path) -> Result<Vec<u8>, ArtifactError> {
 // The setup catalog owns version selection. Capture the installed executable's
 // identity once, then let shared admission/extraction detect changes during use.
 // This is a local installed-tool observation, not an upstream binary digest pin.
-pub(crate) fn extract_canister_candid(wasm_path: &Path) -> Result<String, String> {
-    let current_dir = env::current_dir().map_err(|error| error.to_string())?;
-    let environment = env::vars_os().collect::<Vec<_>>();
-    let context = ExecutionContext {
-        current_dir: &current_dir,
-        environment: &environment,
-    };
-    let search = env::var_os("PATH")
-        .map(|path| env::split_paths(&path).collect::<Vec<_>>())
-        .unwrap_or_default();
-    let executable = resolve_executable(Path::new("candid-extractor"), &current_dir, &search)
-        .map_err(|error| format!("resolve Candid extractor: {error}"))?;
-    let version = include_str!("../../../ci/tool-versions.env")
-        .lines()
-        .find_map(|line| line.strip_prefix("export SHARED_TOOLING_CANDID_EXTRACTOR_VERSION="))
-        .ok_or_else(|| "Candid extractor version is absent from the tool catalog".to_string())?;
-    let limits = OutputLimits {
-        stdout: OutputLimit::Terminate(1024 * 1024),
-        stderr: OutputLimit::Terminate(1024 * 1024),
-        timeout: Some(Duration::from_secs(600)),
-    };
-    let tool = AdmittedTool::admit_version(
-        &VersionSpec {
-            executable: &executable,
-            executable_bytes: u64::MAX,
-            version_arguments: &[OsString::from("--version")],
-            version_identity: &format!("candid-extractor {version}"),
-        },
-        &context,
-        limits,
-    )
-    .map_err(|error| format_tool_failure("Candid extractor admission", &error))?;
-    let source =
-        fs::canonicalize(wasm_path).map_err(|error| format!("resolve Candid source: {error}"))?;
-    let extracted =
-        extract(&tool, &source, &context, u64::MAX, limits).map_err(|error| match error {
-            ExtractionError::Tool(error) => format_tool_failure("Candid extraction", &error),
-            error => format!("Candid extraction: {error}"),
-        })?;
-    // Keep the exact existing artifact/manifest text, rather than adopting
-    // Canic's whitespace normalization as an IcyDB format change.
-    String::from_utf8(extracted.evidence.stdout)
-        .map_err(|error| format!("Candid extractor returned non-UTF-8 output: {error}"))
-}
 
 /// Read IC method exports directly from a raw Wasm module.
 ///
@@ -492,94 +491,36 @@ pub fn inspect_wasm_methods(wasm: &[u8]) -> Result<BTreeSet<CanisterMethod>, Str
         .collect()
 }
 
-/// Read method names and modes from one generated Candid service.
-///
-/// # Errors
-///
-/// Returns an error for invalid Candid, imports, missing service, empty method
-/// names or oneway declarations, which this actor policy does not support.
-pub fn inspect_candid_methods(candid: &str) -> Result<BTreeSet<CanisterMethod>, String> {
-    // Extraction bounds the source; byte-derived ceilings preserve admission for
-    // direct callers. These are not hard parser heap/stack/CPU quotas.
-    service::inspect(
-        candid,
-        ServiceLimits {
-            source_bytes: candid.len(),
-            methods: candid.len(),
-        },
-    )
-    .map_err(|error| format!("failed to inspect Candid service: {error}"))?
-    .into_iter()
-    .map(|method| {
-        if method.name.is_empty() {
-            return Err("Candid method name is empty".to_string());
-        }
-        Ok(CanisterMethod::new(
-            method.name,
-            admitted_method_mode(method.mode)?,
-        ))
-    })
-    .collect()
-}
-
-/// Render the normative 0.218 migration endpoint ABI from public Rust DTOs.
+/// Render the current migration endpoints' Wire identities and resource limits.
 #[must_use]
-pub fn render_schema_migration_endpoint_abi() -> String {
-    let mut container = TypeContainer::new();
-    let methods = vec![
-        endpoint_method::<SchemaMigrationCommand, Result<SchemaMigrationStatusPage, Error>>(
-            &mut container,
-            "icydb_schema_migrate",
-            MethodMode::Update,
-        ),
-        endpoint_method::<SchemaMigrationStatusRequest, Result<SchemaMigrationStatusPage, Error>>(
-            &mut container,
-            "icydb_schema_migration",
-            MethodMode::Query,
-        ),
-    ];
-    let actor: Type = TypeInner::Service(methods).into();
-    format!("{}\n", compile(&container.env, &Some(actor)))
-}
-
-fn endpoint_method<A: CandidType + 'static, R: CandidType>(
-    container: &mut TypeContainer,
-    name: &str,
-    mode: MethodMode,
-) -> (String, Type) {
-    let args = if std::any::TypeId::of::<A>() == std::any::TypeId::of::<()>() {
-        Vec::new()
-    } else {
-        vec![container.add::<A>()]
-    };
-    let mode = match mode {
-        MethodMode::Update => Vec::new(),
-        MethodMode::Query => vec![FuncMode::Query],
-        MethodMode::CompositeQuery => vec![FuncMode::CompositeQuery],
-        MethodMode::Oneway => vec![FuncMode::Oneway],
-    };
-    let function = Function {
-        modes: mode,
-        args,
-        rets: vec![container.add::<R>()],
-    };
-    (name.to_string(), TypeInner::Func(function).into())
+pub fn render_schema_migration_endpoint_contracts() -> String {
+    let contracts: Vec<_> = [Endpoint::SchemaMigrate, Endpoint::SchemaMigration]
+        .into_iter()
+        .map(|endpoint| {
+            serde_json::json!({ "method": endpoint.name(), "id": endpoint.id(),
+            "request_bytes": icydb::wire::MAX_REQUEST_BYTES,
+            "response_bytes": icydb::wire::MAX_REPLY_BYTES,
+            "nodes": icydb_schema::wire::MAX_NODES, "depth": icydb_schema::wire::MAX_DEPTH })
+        })
+        .collect();
+    format!(
+        "{}\n",
+        serde_json::to_string_pretty(&contracts).unwrap_or_default()
+    )
 }
 
 fn admitted_method_mode(mode: MethodMode) -> Result<MethodMode, String> {
     match mode {
         MethodMode::Update | MethodMode::Query | MethodMode::CompositeQuery => Ok(mode),
-        MethodMode::Oneway => {
-            Err("oneway Candid methods are unsupported by actor policy".to_string())
-        }
+        MethodMode::Oneway => Err("oneway methods are unsupported by actor policy".to_string()),
     }
 }
 
-fn candid_visible_wasm_methods(methods: &BTreeSet<CanisterMethod>) -> BTreeSet<CanisterMethod> {
+fn application_wasm_methods(methods: &BTreeSet<CanisterMethod>) -> BTreeSet<CanisterMethod> {
     methods
         .iter()
         .filter(|method| {
-            method.name != "<ic-cdk internal> timer_executor" || method.mode != MethodMode::Update
+            method.name != "<ic-timers internal> dispatch" || method.mode != MethodMode::Update
         })
         .cloned()
         .collect()
@@ -590,10 +531,141 @@ mod tests {
     use std::{collections::BTreeSet, fs};
 
     use super::{
-        CanisterMethod, MAINTAINED_CANISTER_POLICIES, MethodMode, candid_visible_wasm_methods,
-        inspect_candid_methods, inspect_canister_artifacts, inspect_wasm_methods,
-        read_wasm_artifact, render_schema_migration_endpoint_abi,
+        CanisterMethod, MAINTAINED_CANISTER_POLICIES, MethodMode, application_wasm_methods,
+        inspect_canister_artifacts, inspect_wasm_methods, inspect_wire_methods, read_wasm_artifact,
+        render_schema_migration_endpoint_contracts,
     };
+    use ic_host_artifacts::wasm::{CustomSection, encode_custom_section};
+    use ic_wire::Method;
+    use icydb_testing_wasm_helpers::wire::DynamicRowsQuery;
+
+    #[test]
+    fn wire_declarations_require_one_known_current_identity() {
+        let mut wasm = wasm_with_exports(&[("canister_query query_one_entity_dynamic_rows", 0)]);
+        assert!(inspect_wire_methods(&wasm).unwrap().is_empty());
+        let declaration = encode_custom_section(
+            CustomSection {
+                name: "icydb:wire",
+                data: &DynamicRowsQuery::ID.to_le_bytes(),
+            },
+            64,
+        )
+        .unwrap();
+        wasm.extend(&declaration);
+        assert_eq!(
+            inspect_wire_methods(&wasm).unwrap(),
+            BTreeSet::from([CanisterMethod::new(
+                DynamicRowsQuery::NAME,
+                MethodMode::Query
+            ),])
+        );
+        wasm.extend(&declaration);
+        assert!(inspect_wire_methods(&wasm).is_err());
+        let mut unknown = b"\0asm\x01\0\0\0".to_vec();
+        unknown.extend(
+            encode_custom_section(
+                CustomSection {
+                    name: "icydb:wire",
+                    data: &[0; 8],
+                },
+                64,
+            )
+            .unwrap(),
+        );
+        assert!(inspect_wire_methods(&unknown).is_err());
+    }
+
+    #[test]
+    fn wire_declarations_admit_multiple_methods_and_reject_partial_identities() {
+        let mut wasm = wasm_with_exports(&[
+            ("canister_query icydb_metrics", 0),
+            ("canister_update icydb_metrics_reset", 0),
+        ]);
+        let identities = [
+            icydb::wire::Endpoint::Metrics.id().to_le_bytes(),
+            icydb::wire::Endpoint::MetricsReset.id().to_le_bytes(),
+        ]
+        .concat();
+        wasm.extend(
+            encode_custom_section(
+                CustomSection {
+                    name: "icydb:wire",
+                    data: &identities,
+                },
+                64,
+            )
+            .unwrap(),
+        );
+        assert_eq!(
+            inspect_wire_methods(&wasm).unwrap(),
+            BTreeSet::from([
+                CanisterMethod::new("icydb_metrics", MethodMode::Query),
+                CanisterMethod::new("icydb_metrics_reset", MethodMode::Update),
+            ])
+        );
+        wasm.extend(
+            encode_custom_section(
+                CustomSection {
+                    name: "icydb:wire",
+                    data: &[1],
+                },
+                64,
+            )
+            .unwrap(),
+        );
+        assert!(inspect_wire_methods(&wasm).is_err());
+    }
+
+    #[test]
+    fn wire_artifact_agreement_and_publication_preserve_failure_boundaries() {
+        let root = ic_host_fs::testing::create_fixture_directory(
+            &std::env::temp_dir(),
+            "icydb wire publication",
+        )
+        .unwrap();
+        let input = root.join("input.wasm");
+        let mut wasm = wasm_with_exports(&[("canister_query query_one_entity_dynamic_rows", 0)]);
+        fs::write(&input, &wasm).unwrap();
+        assert!(inspect_canister_artifacts(&input).is_err());
+        wasm.extend(
+            encode_custom_section(
+                CustomSection {
+                    name: "icydb:wire",
+                    data: &DynamicRowsQuery::ID.to_le_bytes(),
+                },
+                64,
+            )
+            .unwrap(),
+        );
+        fs::write(&input, &wasm).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&input, fs::Permissions::from_mode(0o640)).unwrap();
+        }
+        let manifest = inspect_canister_artifacts(&input).unwrap();
+        assert_eq!(manifest.wire_methods, manifest.wasm_methods);
+        let staged =
+            crate::stage_canister_artifact_paths(&input, &input, &root.join("staged"), "probe")
+                .unwrap();
+        assert_eq!(fs::read(&staged).unwrap(), wasm);
+        assert_eq!(
+            fs::read(staged.with_file_name("probe.compiler.wasm")).unwrap(),
+            wasm
+        );
+        assert_eq!(fs::read(&input).unwrap(), wasm);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&staged).unwrap().permissions().mode() & 0o777,
+                0o640
+            );
+        }
+        assert!(crate::publish_artifact_copy(&root, &staged).is_err());
+        assert_eq!(fs::read(&staged).unwrap(), wasm);
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn artifact_reads_preserve_complete_regular_files_and_follow_selected_links() {
@@ -627,63 +699,20 @@ mod tests {
     }
 
     #[test]
-    fn candid_inspection_preserves_names_and_modes_through_nested_types() {
-        let candid = r"
-            type Nested = record { value : text; callback : func () -> () };
-            service : {
-                // Comments and nested records do not split declarations.
-                read : (record { nested : Nested }) -> (variant { Ok; Err : text }) query;
-                write : (text) -> (record { nested : record { value : nat64 } });
-                composed : () -> (Nested) composite_query
-            }
-        ";
-
-        let observed = inspect_candid_methods(candid).expect("Candid should inspect");
-        let expected = BTreeSet::from([
-            CanisterMethod::new("composed", MethodMode::CompositeQuery),
-            CanisterMethod::new("read", MethodMode::Query),
-            CanisterMethod::new("write", MethodMode::Update),
-        ]);
-        assert_eq!(observed, expected);
-    }
-
-    #[test]
-    fn candid_inspection_uses_parser_grammar_and_preserves_actor_policy() {
-        let source = r#"/* service : { fake : () -> (); } */
-            type Read = func () -> () query;
-            type Api = service { "read: with space" : Read; };
-            service : () -> Api;
-        "#;
-        assert_eq!(
-            inspect_candid_methods(source).unwrap(),
-            BTreeSet::from([CanisterMethod::new("read: with space", MethodMode::Query),])
-        );
-        for source in [
-            "service : { ping : () -> () oneway }",
-            "service : { \"\" : () -> () }",
-            "service : { read : () -> (Missing) query }",
-            "service : { read : () -> (); read : () -> () query }",
-            "import \"other.did\"; service : {}",
-        ] {
-            assert!(inspect_candid_methods(source).is_err(), "{source}");
-        }
-    }
-
-    #[test]
     fn raw_wasm_inspection_reads_only_ic_function_exports() {
         let wasm = wasm_with_exports(&[
             ("canister_composite_query composed", 0),
             ("canister_query read", 0),
             ("canister_update write", 0),
-            ("canister_update <ic-cdk internal> timer_executor", 0),
-            ("get_candid_pointer", 0),
+            ("canister_update <ic-timers internal> dispatch", 0),
+            ("ordinary_helper", 0),
             ("canister_query not_a_function", 3),
         ]);
 
         let observed = inspect_wasm_methods(&wasm).expect("Wasm should inspect");
         let expected = BTreeSet::from([
             CanisterMethod::new("composed", MethodMode::CompositeQuery),
-            CanisterMethod::new("<ic-cdk internal> timer_executor", MethodMode::Update),
+            CanisterMethod::new("<ic-timers internal> dispatch", MethodMode::Update),
             CanisterMethod::new("read", MethodMode::Query),
             CanisterMethod::new("write", MethodMode::Update),
         ]);
@@ -706,16 +735,16 @@ mod tests {
     }
 
     #[test]
-    fn candid_agreement_excludes_only_reserved_cdk_runtime_exports() {
+    fn declaration_agreement_excludes_only_reserved_timer_runtime_export() {
         let methods = BTreeSet::from([
-            CanisterMethod::new("<ic-cdk internal> timer_executor", MethodMode::Update),
+            CanisterMethod::new("<ic-timers internal> dispatch", MethodMode::Update),
             CanisterMethod::new("<ic-cdk internal> unexpected", MethodMode::Update),
             CanisterMethod::new("read", MethodMode::Query),
             CanisterMethod::new("write", MethodMode::Update),
         ]);
 
         assert_eq!(
-            candid_visible_wasm_methods(&methods),
+            application_wasm_methods(&methods),
             BTreeSet::from([
                 CanisterMethod::new("<ic-cdk internal> unexpected", MethodMode::Update,),
                 CanisterMethod::new("read", MethodMode::Query),
@@ -745,106 +774,11 @@ mod tests {
     }
 
     #[test]
-    fn schema_migration_endpoint_abi_matches_golden() {
+    fn schema_migration_endpoint_contracts_match_golden() {
         assert_eq!(
-            render_schema_migration_endpoint_abi(),
-            include_str!("contracts/0.218/schema-migration-endpoints.did")
+            render_schema_migration_endpoint_contracts(),
+            include_str!("contracts/0.277/schema-migration-endpoints.json")
         );
-    }
-
-    #[test]
-    fn shared_candid_and_publication_preserve_artifacts_and_failure_boundaries() {
-        let root = ic_host_fs::testing::create_fixture_directory(
-            &std::env::temp_dir(),
-            "icydb host staging",
-        )
-        .unwrap();
-        let input = root.join("input.wasm");
-        let directory = root.join("missing parent").join("staged");
-        let text = "service : { icydb_schema : () -> () query; };  \n\n";
-        let bytes = candid_exporting_wasm(text);
-        fs::write(&input, &bytes).unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&input, fs::Permissions::from_mode(0o600)).unwrap();
-        }
-        let manifest = inspect_canister_artifacts(&input).unwrap();
-        assert_eq!(manifest.candid, format!("{text}\n"));
-        assert_eq!(
-            manifest.icydb_methods(),
-            BTreeSet::from([CanisterMethod::new("icydb_schema", MethodMode::Query),])
-        );
-        let (wasm, did) =
-            crate::stage_canister_artifact_paths(&input, &input, &directory, "probe", true)
-                .unwrap();
-        let did = did.unwrap();
-        assert_eq!(fs::read(&wasm).unwrap(), bytes);
-        assert_eq!(
-            fs::read(directory.join("probe.compiler.wasm")).unwrap(),
-            bytes
-        );
-        assert_eq!(fs::read(&did).unwrap(), manifest.candid.as_bytes());
-        assert_eq!(fs::read(&input).unwrap(), bytes);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            assert_eq!(
-                fs::metadata(&wasm).unwrap().permissions().mode() & 0o777,
-                0o600
-            );
-        }
-        assert!(crate::publish_artifact_copy(&root, &wasm).is_err());
-        assert_eq!(fs::read(&wasm).unwrap(), bytes);
-        fs::write(&input, b"\0asm\x01\0\0\0").unwrap();
-        assert!(
-            crate::stage_canister_artifact_paths(&input, &input, &directory, "probe", true)
-                .is_err()
-        );
-        assert_eq!(fs::read(&did).unwrap(), manifest.candid.as_bytes());
-        let (wasm, absent) =
-            crate::stage_canister_artifact_paths(&input, &input, &directory, "probe", false)
-                .unwrap();
-        assert_eq!(fs::read(wasm).unwrap(), b"\0asm\x01\0\0\0");
-        assert!(absent.is_none() && !did.exists());
-        assert_eq!(fs::read_dir(&directory).unwrap().count(), 2);
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    // Real extractor input: an exported memory contains the NUL-terminated DID,
-    // a pointer function returns its address, and the IC query is a separate body.
-    fn candid_exporting_wasm(text: &str) -> Vec<u8> {
-        let mut wasm = b"\0asm\x01\0\0\0".to_vec();
-        for (id, payload) in [
-            (1, vec![2, 0x60, 0, 1, 0x7f, 0x60, 0, 0]),
-            (3, vec![2, 0, 1]),
-            (5, vec![1, 0, 1]),
-        ] {
-            wasm.extend([id, u8::try_from(payload.len()).unwrap()]);
-            wasm.extend(payload);
-        }
-        let mut exports = vec![3];
-        for (name, kind, index) in [
-            ("get_candid_pointer", 0, 0),
-            ("canister_query icydb_schema", 0, 1),
-            ("memory", 2, 0),
-        ] {
-            push_u32_leb(&mut exports, u32::try_from(name.len()).unwrap());
-            exports.extend(name.as_bytes());
-            exports.extend([kind, index]);
-        }
-        wasm.push(7);
-        push_u32_leb(&mut wasm, u32::try_from(exports.len()).unwrap());
-        wasm.extend(exports);
-        wasm.extend([10, 9, 2, 4, 0, 0x41, 0, 0x0b, 2, 0, 0x0b]);
-        let mut data = vec![1, 0, 0x41, 0, 0x0b];
-        push_u32_leb(&mut data, u32::try_from(text.len() + 1).unwrap());
-        data.extend(text.as_bytes());
-        data.push(0);
-        wasm.push(11);
-        push_u32_leb(&mut wasm, u32::try_from(data.len()).unwrap());
-        wasm.extend(data);
-        wasm
     }
 
     fn wasm_with_exports(exports: &[(&str, u8)]) -> Vec<u8> {

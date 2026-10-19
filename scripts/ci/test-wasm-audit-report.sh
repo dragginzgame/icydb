@@ -59,7 +59,7 @@ write_fixture() {
         },
         tools: {ic_wasm_sha256: $digest, wasm_opt_sha256: $digest},
         pipeline: {
-            build_profile: "production", candid_metadata: "enabled",
+            build_profile: "production",
             post_link_transform: "binaryen-133-oz+bulk-memory+sign-ext+nontrapping-float-to-int+one-caller-inline-max-0/v1",
             final_deployable_stage: "binaryen_oz_wasm",
             path_remapping: "workspace=/w;cargo-registry=/c;rust-library=/r"

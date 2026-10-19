@@ -2,7 +2,7 @@
 
 .PHONY: help version tags package publish release-clean \
         test test-unit test-integration-feedback test-durability test-documentation \
-        test-canister-artifact-contract test-sql-canister-matrix \
+        test-canister-artifact-contract test-sql-canister-matrix check-wire-browser test-wire-browser \
         test-sql-tier-c-shard test-sql-tier-c-merge \
         test-sql-tier-c-replay \
         build-canister-local build-canister-production \
@@ -26,11 +26,13 @@
 # via `make -C "$$ROOT"` and share a single source of truth.
 ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 override SHARED_TOOLING_ROOT := $(ROOT_DIR)
-LOCAL_TOOL_INSTALL_TARGETS := install-testkit
-LOCAL_TOOL_CHECK_TARGETS := testkit-check
+LOCAL_TOOL_INSTALL_TARGETS := install-ic-tools install-testkit
+LOCAL_TOOL_CHECK_TARGETS := ic-tools-check testkit-check
+# IC executables are an explicit IcyDB selection under the shared baseline.
+export PATH := $(ROOT_DIR)/.tools/ic/bin:$(PATH)
 # IcyDB owns derive ordering; shared targets own admission and formatter output.
-FORMAT_WRITE_COMMAND = bash -ec '"$$1" sort-derives; "$$1" sort --workspace; "$$1" fmt --all' -- "$(FORMAT_CARGO)"
-FORMAT_CHECK_COMMAND = bash -ec '"$$1" sort-derives --check; "$$1" sort --workspace --check; "$$1" fmt --all -- --check' -- "$(FORMAT_CARGO)"
+FORMAT_WRITE_COMMAND = bash -ec '"$$1" sort-derives; "$$1" sort --workspace --grouped; "$$1" fmt --all' -- "$(FORMAT_CARGO)"
+FORMAT_CHECK_COMMAND = bash -ec '"$$1" sort-derives --check; "$$1" sort --workspace --grouped --check; "$$1" fmt --all -- --check' -- "$(FORMAT_CARGO)"
 include $(ROOT_DIR)/make/consumer.mk
 
 # Keep workspace cargo state repo-local so sibling repos compiling on the same
@@ -118,6 +120,8 @@ help:
 	@echo "                  Build and inspect all 34 independent production/local canister artifacts"
 	@echo "  test-sql-canister-matrix"
 	@echo "                  Run the live generated SQL canister endpoint matrix"
+	@echo "  check-wire-browser  Check native/browser frames with prepared Node tools"
+	@echo "  test-wire-browser   Qualify all generated endpoint families in Chromium"
 	@echo "  test-sql-tier-c-shard TIER_C_SHARD=0"
 	@echo "                  Run one exact native Tier C correctness shard (0 through 7)"
 	@echo "  test-sql-tier-c-merge"
@@ -263,6 +267,14 @@ test-canister-artifact-contract:
 		production_and_local_source_declarations_match_the_frozen_endpoint_policy \
 		-- --ignored --exact --nocapture
 
+check-wire-browser:
+	+$(CARGO_WORK_ENV) node testing/wire-browser/check.mjs
+
+test-wire-browser:
+	+$(IC_TESTKIT_ENV) $(CARGO_WORK_ENV) cargo test --locked -p icydb-testing-integration \
+		--test query_canister native_wire_browser_qualifies_the_installed_endpoint_roster \
+		-- --ignored --exact --nocapture
+
 test-sql-canister-matrix:
 	+$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast -p icydb-testing-integration --test sql_canister -- --nocapture
 
@@ -299,13 +311,13 @@ build-canister-local:
 	@test -n "$(CANISTER)" || { echo "CANISTER must name one maintained canister" >&2; exit 1; }
 	+$(CARGO_WORK_ENV) cargo run --locked -p icydb-testing-build \
 		--bin build_fixture_canister -- "$(CANISTER)" --build-profile local \
-		--profile debug --candid-export on
+		--profile debug
 
 build-canister-production:
 	@test -n "$(CANISTER)" || { echo "CANISTER must name one maintained canister" >&2; exit 1; }
 	+$(CARGO_WORK_ENV) cargo run --locked -p icydb-testing-build \
 		--bin build_fixture_canister -- "$(CANISTER)" --build-profile production \
-		--profile wasm-release --candid-export on
+		--profile wasm-release
 
 wasm-size-report:
 	+$(CARGO_WORK_ENV) bash scripts/ci/wasm-size-report.sh $(SIZE_REPORT_ARGS)
@@ -406,9 +418,7 @@ check-portable-automation: shared-tooling-check
 	bash scripts/ci/test-gh-ci.sh
 	bash scripts/ci/test-shared-tooling-adapters.sh
 	bash scripts/ci/test-workstation-setup.sh
-	bash scripts/ci/test-rust-tools.sh
 	bash scripts/ci/test-cargo-metadata-adoption.sh
-	bash scripts/ci/test-dependency-pins.sh
 	bash scripts/ci/test-testkit-tooling.sh
 	bash scripts/ci/test-pocketic-server-wrapper.sh
 	bash scripts/ci/test-ci-workflow-invariants.sh
@@ -430,6 +440,7 @@ check-invariants:
 	bash scripts/release/test-finalize-notes.sh
 	bash scripts/ci/check-deployment-inventory-invariants.sh
 	+$(CARGO_WORK_ENV) bash scripts/ci/check-dependency-graph-invariants.sh
+	+$(CARGO_WORK_ENV) bash scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$(ROOT_DIR)"
 	+$(CARGO_WORK_ENV) bash scripts/ci/check-executor-no-production-panics.sh
 	bash scripts/ci/check-generated-endpoint-invariants.sh
 	bash scripts/ci/check-index-range-spec-invariants.sh
@@ -602,6 +613,8 @@ release-commit-check:
 	+@bash scripts/ci/release-candidate-receipt.sh verify-staged
 release-committed-check:
 	+@bash scripts/ci/release-candidate-receipt.sh verify-commit
+	+@RELEASE_COMMIT="$${RELEASE_COMMIT:-$$(git rev-parse --verify HEAD)}" \
+		YQ="$(YQ)" bash scripts/ci/cargo-release-metadata.sh check icydb --manifest-order-grouped
 release-tagged-check:
 	+@bash scripts/ci/record-release-gate-receipt.sh
 release-push-check:

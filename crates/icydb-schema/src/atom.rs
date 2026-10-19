@@ -7,7 +7,6 @@ use std::{
     str::FromStr,
 };
 
-use candid::CandidType;
 use serde::{Deserialize, Deserializer, Serialize, de::Error as DeError};
 
 #[cfg(test)]
@@ -49,10 +48,10 @@ pub enum PrincipalEncodeError {
 }
 
 /// Canonical principal atom.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
 #[serde(transparent)]
-pub struct Principal(candid::Principal);
+pub struct Principal(ic_platform::Principal);
 
 impl Principal {
     /// Maximum canonical principal byte length.
@@ -67,7 +66,7 @@ impl Principal {
     /// Return the anonymous principal.
     #[must_use]
     pub const fn anonymous() -> Self {
-        Self(candid::Principal::anonymous())
+        Self(ic_platform::Principal::anonymous())
     }
 
     /// Parse canonical textual principal form.
@@ -76,7 +75,7 @@ impl Principal {
     ///
     /// Returns [`PrincipalError::InvalidText`] for invalid text.
     pub fn from_text(text: &str) -> Result<Self, PrincipalError> {
-        candid::Principal::from_text(text)
+        ic_platform::Principal::from_text(text)
             .map(Self)
             .map_err(|_| PrincipalError::InvalidText)
     }
@@ -89,7 +88,7 @@ impl Principal {
     /// Use [`Principal::try_from_bytes`] for untrusted input.
     #[must_use]
     pub const fn from_slice(bytes: &[u8]) -> Self {
-        Self(candid::Principal::from_slice(bytes))
+        Self(ic_platform::Principal::from_slice(bytes))
     }
 
     /// Borrow canonical principal bytes.
@@ -143,13 +142,13 @@ impl Display for Principal {
     }
 }
 
-impl From<candid::Principal> for Principal {
-    fn from(value: candid::Principal) -> Self {
+impl From<ic_platform::Principal> for Principal {
+    fn from(value: ic_platform::Principal) -> Self {
         Self(value)
     }
 }
 
-impl From<Principal> for candid::Principal {
+impl From<Principal> for ic_platform::Principal {
     fn from(value: Principal) -> Self {
         value.0
     }
@@ -181,7 +180,7 @@ impl TryFrom<&[u8]> for Principal {
 }
 
 /// Engine-neutral binary scalar.
-#[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Blob(Vec<u8>);
 
 impl Blob {
@@ -245,24 +244,7 @@ impl<'de> Deserialize<'de> for Blob {
     where
         D: Deserializer<'de>,
     {
-        Vec::<u8>::deserialize(deserializer).map(Self)
-    }
-}
-
-impl CandidType for Blob {
-    fn ty() -> candid::types::Type {
-        <Vec<u8> as CandidType>::ty()
-    }
-
-    fn _ty() -> candid::types::Type {
-        <Vec<u8> as CandidType>::_ty()
-    }
-
-    fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
-    where
-        S: candid::types::Serializer,
-    {
-        serializer.serialize_blob(self.as_bytes())
+        serde_bytes::ByteBuf::deserialize(deserializer).map(|bytes| Self(bytes.into_vec()))
     }
 }
 
@@ -291,7 +273,7 @@ pub enum UlidDecodeError {
 
 /// Canonical ULID atom without generation authority.
 ///
-/// Candid and binary Serde carry exactly 16 bytes. Human-readable Serde and
+/// Wire and binary Serde carry exactly 16 bytes. Human-readable Serde and
 /// display use canonical 26-character text.
 #[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
@@ -372,64 +354,18 @@ impl FromStr for Ulid {
     }
 }
 
-impl CandidType for Ulid {
-    fn ty() -> candid::types::Type {
-        <Vec<u8> as CandidType>::ty()
-    }
-
-    fn _ty() -> candid::types::Type {
-        <Vec<u8> as CandidType>::_ty()
-    }
-
-    fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
-    where
-        S: candid::types::Serializer,
-    {
-        serializer.serialize_blob(&self.0)
-    }
-}
-
 impl<'de> Deserialize<'de> for Ulid {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        // Sequence decoding checks the Candid element type before reading into
-        // a fixed buffer. Consume at most one excess byte to enforce the width.
-        struct UlidBytesVisitor;
-
-        impl<'de> serde::de::Visitor<'de> for UlidBytesVisitor {
-            type Value = Ulid;
-
-            fn expecting(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-                formatter.write_str("exactly 16 ULID bytes")
-            }
-
-            fn visit_seq<A: serde::de::SeqAccess<'de>>(
-                self,
-                mut sequence: A,
-            ) -> Result<Ulid, A::Error> {
-                let mut bytes = [0; 16];
-                for (index, byte) in bytes.iter_mut().enumerate() {
-                    *byte = sequence
-                        .next_element()?
-                        .ok_or_else(|| A::Error::invalid_length(index, &self))?;
-                }
-                if sequence.next_element::<u8>()?.is_some() {
-                    return Err(A::Error::invalid_length(17, &self));
-                }
-
-                Ok(Ulid::from_bytes(bytes))
-            }
-        }
-
         if deserializer.is_human_readable() {
             return String::deserialize(deserializer)?
                 .parse()
                 .map_err(D::Error::custom);
         }
 
-        deserializer.deserialize_seq(UlidBytesVisitor)
+        deserialize_fixed_bytes(deserializer).map(Self::from_bytes)
     }
 }
 
@@ -467,7 +403,7 @@ pub enum Float32DecodeError {
 }
 
 /// Finite canonical `f32` atom.
-#[derive(CandidType, Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 #[repr(transparent)]
 pub struct Float32(f32);
 
@@ -602,7 +538,7 @@ pub enum Float64DecodeError {
 }
 
 /// Finite canonical `f64` atom.
-#[derive(CandidType, Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 #[repr(transparent)]
 pub struct Float64(f64);
 
@@ -711,4 +647,45 @@ impl TryFrom<&[u8]> for Float64 {
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         Self::try_from_bytes(bytes)
     }
+}
+
+impl Serialize for Blob {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_bytes(self.as_bytes())
+    }
+}
+
+// Fixed atom widths are checked before copying and without allocating a Vec.
+// Reading one excess sequence byte rejects oversized self-describing arrays.
+pub(crate) fn deserialize_fixed_bytes<'de, D: Deserializer<'de>, const N: usize>(
+    deserializer: D,
+) -> Result<[u8; N], D::Error> {
+    struct Fixed<const N: usize>;
+    impl<'de, const N: usize> serde::de::Visitor<'de> for Fixed<N> {
+        type Value = [u8; N];
+        fn expecting(&self, f: &mut Formatter<'_>) -> fmt::Result {
+            write!(f, "exactly {N} bytes")
+        }
+        fn visit_bytes<E: serde::de::Error>(self, bytes: &[u8]) -> Result<Self::Value, E> {
+            bytes
+                .try_into()
+                .map_err(|_| E::invalid_length(bytes.len(), &self))
+        }
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(
+            self,
+            mut values: A,
+        ) -> Result<Self::Value, A::Error> {
+            let mut bytes = [0; N];
+            for (index, byte) in bytes.iter_mut().enumerate() {
+                *byte = values
+                    .next_element()?
+                    .ok_or_else(|| A::Error::invalid_length(index, &self))?;
+            }
+            if values.next_element::<u8>()?.is_some() {
+                return Err(A::Error::invalid_length(N + 1, &self));
+            }
+            Ok(bytes)
+        }
+    }
+    deserializer.deserialize_bytes(Fixed::<N>)
 }

@@ -991,7 +991,6 @@ fn accepted_kind_matches_catalog(
         | AcceptedFieldKind::Int32
         | AcceptedFieldKind::Int64
         | AcceptedFieldKind::Int128
-        | AcceptedFieldKind::IntBig { .. }
         | AcceptedFieldKind::Principal
         | AcceptedFieldKind::Subaccount
         | AcceptedFieldKind::Text { .. }
@@ -1001,7 +1000,6 @@ fn accepted_kind_matches_catalog(
         | AcceptedFieldKind::Nat32
         | AcceptedFieldKind::Nat64
         | AcceptedFieldKind::Nat128
-        | AcceptedFieldKind::NatBig { .. }
         | AcceptedFieldKind::Ulid
         | AcceptedFieldKind::Unit
         | AcceptedFieldKind::Composite { .. }
@@ -1076,7 +1074,6 @@ fn accepted_kind_composites_are_resolved(
         | AcceptedFieldKind::Int32
         | AcceptedFieldKind::Int64
         | AcceptedFieldKind::Int128
-        | AcceptedFieldKind::IntBig { .. }
         | AcceptedFieldKind::Principal
         | AcceptedFieldKind::Subaccount
         | AcceptedFieldKind::Text { .. }
@@ -1086,7 +1083,6 @@ fn accepted_kind_composites_are_resolved(
         | AcceptedFieldKind::Nat32
         | AcceptedFieldKind::Nat64
         | AcceptedFieldKind::Nat128
-        | AcceptedFieldKind::NatBig { .. }
         | AcceptedFieldKind::Ulid
         | AcceptedFieldKind::Unit
         | AcceptedFieldKind::Enum { .. }

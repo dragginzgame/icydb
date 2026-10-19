@@ -409,19 +409,6 @@ mod tests {
     }
 
     #[test]
-    fn relation_primary_key_component_kind_rejects_non_admitted_bigints() {
-        for kind in [
-            AcceptedFieldKind::IntBig { max_bytes: 32 },
-            AcceptedFieldKind::NatBig { max_bytes: 32 },
-            relation_key_kind(AcceptedFieldKind::IntBig { max_bytes: 32 }),
-            relation_key_kind(AcceptedFieldKind::NatBig { max_bytes: 32 }),
-        ] {
-            validate_relation_primary_key_component_kind(&kind)
-                .expect_err("big integer relation primary-key components must reject");
-        }
-    }
-
-    #[test]
     fn accepted_relation_target_authority_rejects_primary_key_arity_drift() {
         let err = validate_accepted_relation_primary_key_kinds(
             &[AcceptedFieldKind::Nat64],

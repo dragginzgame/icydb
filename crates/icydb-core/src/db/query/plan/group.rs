@@ -476,14 +476,10 @@ pub(in crate::db) fn grouped_executor_handoff(
     validate_grouped_projection_layout(&projection_layout)?;
     let grouped_plan_strategy = grouped_plan_strategy(plan, || plan.residual_filter_shape())?
         .ok_or_else(InternalError::planner_executor_invariant)?;
-    let grouped_fold_path = if grouped.group.group_fields.as_path_aware().is_some() {
-        GroupedFoldPath::GenericReducers
-    } else {
-        GroupedFoldPath::from_plan_strategy(
-            grouped_plan_strategy,
-            grouped_aggregate_execution_specs,
-        )
-    };
+    let grouped_fold_path = GroupedFoldPath::from_plan_strategy(
+        grouped_plan_strategy,
+        grouped_aggregate_execution_specs,
+    );
     let grouped_distinct_policy_contract = GroupedDistinctPolicyContract::new(
         match grouped_distinct_admissibility(grouped.scalar.distinct, grouped.having_expr.is_some())
         {

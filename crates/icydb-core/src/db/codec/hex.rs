@@ -1,5 +1,5 @@
 //! Module: db::codec::hex
-//! Responsibility: shared bounded hexadecimal byte encoding and decoding.
+//! Responsibility: bounded hexadecimal byte decoding.
 //! Does not own: domain-specific token validation or decode error taxonomy.
 //! Boundary: pure byte/text primitives reused by DB wire and public-literal surfaces.
 
@@ -25,25 +25,6 @@ pub(in crate::db) fn decode_hex_bounded(input: &[u8], max_bytes: usize) -> Optio
     Some(decoded)
 }
 
-/// Encode bytes as lowercase hexadecimal text.
-#[must_use]
-pub fn encode_hex_lower(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-
-    // Keep common hex emission allocation-bounded and formatting-free.
-    // Formatting each byte with `"{byte:02x}"` is equivalent on the wire, but
-    // it routes through the formatter for every byte on hot cursor/fingerprint
-    // display paths.
-    let mut out = String::with_capacity(bytes.len().saturating_mul(2));
-
-    for byte in bytes {
-        out.push(HEX[(byte >> 4) as usize] as char);
-        out.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-
-    out
-}
-
 /// Decode one ASCII hexadecimal digit without domain-specific admission.
 pub(in crate::db) const fn decode_hex_nibble(byte: u8) -> Option<u8> {
     match byte {
@@ -60,7 +41,7 @@ pub(in crate::db) const fn decode_hex_nibble(byte: u8) -> Option<u8> {
 
 #[cfg(test)]
 mod tests {
-    use crate::db::codec::hex::{decode_hex_bounded, encode_hex_lower};
+    use crate::{codec::hex::encode_hex_lower, db::codec::hex::decode_hex_bounded};
 
     #[test]
     fn decode_hex_bounded_accepts_exact_mixed_case_payloads() {
@@ -91,15 +72,5 @@ mod tests {
         );
         assert_eq!(decode_hex_bounded(&[0xff, b'0'], 1), None);
         assert_eq!(decode_hex_bounded("é".as_bytes(), 1), None);
-    }
-
-    #[test]
-    fn encode_hex_lower_formats_bytes_without_prefix() {
-        assert_eq!(encode_hex_lower(&[0x00, 0x01, 0x0a, 0xff]), "00010aff");
-    }
-
-    #[test]
-    fn encode_hex_lower_handles_empty_input() {
-        assert_eq!(encode_hex_lower(&[]), "");
     }
 }

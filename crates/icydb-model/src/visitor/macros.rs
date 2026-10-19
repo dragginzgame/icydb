@@ -31,8 +31,6 @@ macro_rules! impl_primitive {
         impl $trait for crate::schema::Duration {}
         impl $trait for crate::schema::Float32 {}
         impl $trait for crate::schema::Float64 {}
-        impl $trait for crate::schema::IntBig {}
-        impl $trait for crate::schema::NatBig {}
         impl $trait for crate::schema::Principal {}
         impl $trait for crate::schema::Subaccount {}
         impl $trait for crate::schema::Timestamp {}

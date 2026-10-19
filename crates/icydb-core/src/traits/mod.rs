@@ -6,6 +6,8 @@
 //! visitor traversal, executor policy, or public facade DTO behavior.
 //! Boundary: remaining reusable contracts consumed throughout `icydb-core`.
 
+use crate::db::memory_runtime;
+
 // ============================================================================
 // FOUNDATIONAL KINDS
 // ============================================================================
@@ -31,7 +33,9 @@ pub trait Path {
 pub trait CanisterKind: Path + 'static {
     /// Resolve the commit slot from committed allocation authority.
     fn commit_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
-        ic_memory::default_memory_manager_memory_id(Self::COMMIT_STABLE_KEY)
+        memory_runtime()
+            .ok_or(ic_memory::RuntimeOpenError::NotBootstrapped)?
+            .memory_id(Self::COMMIT_STABLE_KEY)
     }
 
     /// Durable stable-memory allocation key for commit marker storage.
@@ -39,7 +43,9 @@ pub trait CanisterKind: Path + 'static {
 
     /// Resolve the startup slot from committed allocation authority.
     fn startup_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
-        ic_memory::default_memory_manager_memory_id(Self::STARTUP_STABLE_KEY)
+        memory_runtime()
+            .ok_or(ic_memory::RuntimeOpenError::NotBootstrapped)?
+            .memory_id(Self::STARTUP_STABLE_KEY)
     }
 
     /// Durable stable-memory allocation key for startup coordination state.
@@ -47,7 +53,9 @@ pub trait CanisterKind: Path + 'static {
 
     /// Resolve the integrity slot from committed allocation authority.
     fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
-        ic_memory::default_memory_manager_memory_id(Self::INTEGRITY_PROGRESS_STABLE_KEY)
+        memory_runtime()
+            .ok_or(ic_memory::RuntimeOpenError::NotBootstrapped)?
+            .memory_id(Self::INTEGRITY_PROGRESS_STABLE_KEY)
     }
 
     /// Durable stable-memory allocation key for integrity-inspection progress.

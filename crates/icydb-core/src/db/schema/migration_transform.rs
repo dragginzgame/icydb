@@ -76,6 +76,7 @@ enum CompiledMigrationTransform {
         target: FieldId,
         target_slot: SchemaFieldSlot,
         target_kind: AcceptedFieldKind,
+        target_nullable: bool,
     },
     Coalesce {
         source: FieldId,
@@ -246,6 +247,7 @@ impl CompiledMigrationEntityProgram {
                 target,
                 target_slot,
                 target_kind,
+                target_nullable,
             } => {
                 let value = before
                     .required_value_by_contract_cow(usize::from(source_slot.get()))
@@ -254,13 +256,12 @@ impl CompiledMigrationEntityProgram {
                         target_field: *target,
                         reason: PersistedSchemaMigrationTransformReason::ValueContract,
                     })?;
-                let cast = checked_cast_value(value.as_ref(), target_kind).map_err(|reason| {
-                    MigrationTransformFinding {
+                let cast = checked_cast_value(value.as_ref(), target_kind, *target_nullable)
+                    .map_err(|reason| MigrationTransformFinding {
                         source_field: Some(*source),
                         target_field: *target,
                         reason,
-                    }
-                })?;
+                    })?;
                 set_candidate_value(values, *target_slot, cast).map_err(|reason| {
                     MigrationTransformFinding {
                         source_field: Some(*source),
@@ -553,6 +554,7 @@ fn compile_transform(
                 target: target_id,
                 target_slot: target.slot(),
                 target_kind: target.kind().clone(),
+                target_nullable: target.nullable(),
             })
         }
         SchemaMigrationTransform::Coalesce {
@@ -678,9 +680,15 @@ const fn supported_cast_target(kind: &AcceptedFieldKind) -> bool {
 fn checked_cast_value(
     source: &Value,
     target: &AcceptedFieldKind,
+    target_nullable: bool,
 ) -> Result<Value, PersistedSchemaMigrationTransformReason> {
     if matches!(source, Value::Null) {
-        return Err(PersistedSchemaMigrationTransformReason::NullSource);
+        // Project the accepted candidate field's nullability, not its numeric domain.
+        return if target_nullable {
+            Ok(Value::Null)
+        } else {
+            Err(PersistedSchemaMigrationTransformReason::NullSource)
+        };
     }
     if let AcceptedFieldKind::Decimal { scale } = target {
         return checked_cast_to_decimal(source, *scale).map(Value::Decimal);
@@ -828,47 +836,78 @@ mod tests {
 
     #[test]
     fn checked_cast_matrix_is_exact_for_sign_overflow_precision_and_null() {
-        assert_eq!(
-            checked_cast_value(&Value::Int64(-1), &AcceptedFieldKind::Nat8),
-            Err(PersistedSchemaMigrationTransformReason::NegativeToUnsigned),
-        );
-        assert_eq!(
-            checked_cast_value(&Value::Nat64(256), &AcceptedFieldKind::Nat8),
-            Err(PersistedSchemaMigrationTransformReason::Overflow),
-        );
-        assert_eq!(
-            checked_cast_value(
-                &Value::Decimal(icydb_schema::Decimal::from_i128_with_scale(15, 1)),
-                &AcceptedFieldKind::Decimal { scale: 0 },
-            ),
-            Err(PersistedSchemaMigrationTransformReason::PrecisionLoss),
-        );
-        assert_eq!(
-            checked_cast_value(&Value::Null, &AcceptedFieldKind::Int64),
-            Err(PersistedSchemaMigrationTransformReason::NullSource),
-        );
-        assert_eq!(
-            checked_cast_value(&Value::Int64(7), &AcceptedFieldKind::Int128),
-            Ok(Value::Int128(7)),
-        );
-        assert_eq!(
-            checked_cast_value(
-                &Value::Decimal(icydb_schema::Decimal::from_i128_with_scale(150, 2)),
-                &AcceptedFieldKind::Decimal { scale: 1 },
-            ),
-            Ok(Value::Decimal(icydb_schema::Decimal::from_i128_with_scale(
-                15, 1
-            ))),
-        );
+        let targets = [
+            AcceptedFieldKind::Int8,
+            AcceptedFieldKind::Int16,
+            AcceptedFieldKind::Int32,
+            AcceptedFieldKind::Int64,
+            AcceptedFieldKind::Int128,
+            AcceptedFieldKind::Nat8,
+            AcceptedFieldKind::Nat16,
+            AcceptedFieldKind::Nat32,
+            AcceptedFieldKind::Nat64,
+            AcceptedFieldKind::Nat128,
+            AcceptedFieldKind::Decimal { scale: 0 },
+            AcceptedFieldKind::Decimal { scale: 28 },
+        ];
+        for target in targets {
+            assert_eq!(
+                checked_cast_value(&Value::Null, &target, true),
+                Ok(Value::Null)
+            );
+            assert_eq!(
+                checked_cast_value(&Value::Null, &target, false),
+                Err(PersistedSchemaMigrationTransformReason::NullSource),
+            );
+        }
+        // Target nullability must not bypass checks for non-NULL values.
+        for nullable in [false, true] {
+            assert_eq!(
+                checked_cast_value(&Value::Int64(-1), &AcceptedFieldKind::Nat8, nullable),
+                Err(PersistedSchemaMigrationTransformReason::NegativeToUnsigned),
+            );
+            assert_eq!(
+                checked_cast_value(&Value::Nat64(256), &AcceptedFieldKind::Nat8, nullable),
+                Err(PersistedSchemaMigrationTransformReason::Overflow),
+            );
+            assert_eq!(
+                checked_cast_value(
+                    &Value::Decimal(icydb_schema::Decimal::from_i128_with_scale(15, 1)),
+                    &AcceptedFieldKind::Decimal { scale: 0 },
+                    nullable,
+                ),
+                Err(PersistedSchemaMigrationTransformReason::PrecisionLoss),
+            );
+            assert_eq!(
+                checked_cast_value(&Value::Int64(7), &AcceptedFieldKind::Int128, nullable),
+                Ok(Value::Int128(7)),
+            );
+            assert_eq!(
+                checked_cast_value(
+                    &Value::Decimal(icydb_schema::Decimal::from_i128_with_scale(150, 2)),
+                    &AcceptedFieldKind::Decimal { scale: 1 },
+                    nullable,
+                ),
+                Ok(Value::Decimal(icydb_schema::Decimal::from_i128_with_scale(
+                    15, 1
+                ))),
+            );
+        }
     }
 
     #[test]
     fn unsupported_cast_domains_remain_closed() {
         assert!(!supported_cast_source(&AcceptedFieldKind::Timestamp));
         assert!(!supported_cast_target(&AcceptedFieldKind::Float64));
-        assert_eq!(
-            checked_cast_value(&Value::Text("7".to_string()), &AcceptedFieldKind::Int64),
-            Err(PersistedSchemaMigrationTransformReason::ValueContract),
-        );
+        for nullable in [false, true] {
+            assert_eq!(
+                checked_cast_value(
+                    &Value::Text("7".to_string()),
+                    &AcceptedFieldKind::Int64,
+                    nullable
+                ),
+                Err(PersistedSchemaMigrationTransformReason::ValueContract),
+            );
+        }
     }
 }

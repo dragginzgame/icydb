@@ -1,10 +1,9 @@
 use ic_memory::{
-    AllocationBinding, MemoryAllocationPool, MemoryAuthority, MemoryRequest,
-    RuntimeDiagnosticError, RuntimeOpenError, SchemaMetadata, SealedDeclarationSnapshot,
-    committed_allocations, default_memory_manager_memory_allocations,
-    open_default_memory_manager_memory,
+    MemoryAllocationPool, MemoryAuthority, MemoryRequest, RuntimeOpenError,
+    SealedDeclarationSnapshot,
 };
-use icydb::db::ensure_default_memory_manager;
+use icydb::__macro::open_memory;
+use icydb::db::{ensure_default_memory_manager, memory_runtime};
 use icydb::traits::{CanisterKind, Path};
 
 const AUTHORITY: &str = "icydb.ensure_default_memory_manager_test";
@@ -31,25 +30,15 @@ fn ensure_bootstraps_once_then_reuses_committed_allocations() {
         TestCanister::commit_memory_id(),
         Err(RuntimeOpenError::NotBootstrapped)
     ));
+    assert!(memory_runtime().is_none());
     assert!(matches!(
-        default_memory_manager_memory_allocations(),
-        Err(RuntimeDiagnosticError::NotBootstrapped)
-    ));
-    assert!(matches!(
-        committed_allocations(),
+        open_memory(STABLE_KEY),
         Err(RuntimeOpenError::NotBootstrapped)
     ));
     let requirements = SealedDeclarationSnapshot::new(
         ["commit.control", "startup.control", "integrity.progress"]
             .into_iter()
-            .map(|role| {
-                MemoryRequest::new(
-                    AUTHORITY,
-                    &format!("{AUTHORITY}.{role}.v1"),
-                    SchemaMetadata::default(),
-                )
-                .unwrap()
-            })
+            .map(|role| MemoryRequest::new(AUTHORITY, &format!("{AUTHORITY}.{role}.v1")).unwrap())
             .collect(),
     )
     .unwrap();
@@ -61,9 +50,10 @@ fn ensure_bootstraps_once_then_reuses_committed_allocations() {
         )
     })
     .expect("cold ensure should bootstrap the runtime");
-    let generation = committed_allocations()
-        .expect("cold ensure should publish committed allocations")
-        .generation();
+    let generation = memory_runtime()
+        .unwrap()
+        .committed_generation()
+        .expect("cold ensure should publish committed allocations");
 
     ensure_default_memory_manager(AUTHORITY, &requirements, 16, || {
         MemoryAllocationPool::new(
@@ -73,19 +63,19 @@ fn ensure_bootstraps_once_then_reuses_committed_allocations() {
     })
     .expect("repeated ensure should adopt the runtime");
     assert_eq!(
-        committed_allocations()
-            .expect("repeated ensure should preserve committed allocations")
-            .generation(),
+        memory_runtime()
+            .unwrap()
+            .committed_generation()
+            .expect("repeated ensure should preserve committed allocations"),
         generation,
     );
-    open_default_memory_manager_memory(STABLE_KEY).expect("the ensured allocation should open");
+    open_memory(STABLE_KEY).expect("the ensured allocation should open");
     // Unknown keys cannot open or replace committed authority.
     assert!(matches!(
-        open_default_memory_manager_memory("icydb.ensure_default_memory_manager_test.unknown.v1"),
+        open_memory("icydb.ensure_default_memory_manager_test.unknown.v1"),
         Err(RuntimeOpenError::StableKeyNotCommitted(_))
     ));
-    open_default_memory_manager_memory(STABLE_KEY)
-        .expect("rejected opens must not change committed authority");
+    open_memory(STABLE_KEY).expect("rejected opens must not change committed authority");
 
     // Control consumers use the same committed mapping, including host pools
     // below 100. No generated type supplies physical placement constants.
@@ -96,7 +86,9 @@ fn ensure_bootstraps_once_then_reuses_committed_allocations() {
     );
     assert_eq!(TestCanister::startup_memory_id().unwrap(), MEMORY_ID + 2);
 
-    let allocations = default_memory_manager_memory_allocations()
+    let allocations = memory_runtime()
+        .unwrap()
+        .memory_allocations()
         .expect("the ensured runtime should report allocations");
     assert_eq!(allocations.summary.current_generation, Some(generation));
     assert_eq!(allocations.summary.bucket_size_pages, 16);
@@ -105,13 +97,25 @@ fn ensure_bootstraps_once_then_reuses_committed_allocations() {
         .iter()
         .find(|allocation| allocation.memory_manager_id == MEMORY_ID)
         .expect("the ensured slot should be reported");
-    assert!(matches!(
-        &allocation.binding,
-        AllocationBinding::Current { stable_key, owner }
-            if stable_key == STABLE_KEY && owner == AUTHORITY
-    ));
+    let runtime = memory_runtime().unwrap();
+    let binding = runtime
+        .committed_allocations()
+        .unwrap()
+        .iter()
+        .find(|binding| binding.stable_key().as_str() == STABLE_KEY)
+        .unwrap();
+    assert_eq!(binding.slot().id(), allocation.memory_manager_id);
     assert_eq!(
-        default_memory_manager_memory_allocations()
+        runtime
+            .allocation_pool()
+            .unwrap()
+            .authority_for_key(binding.stable_key()),
+        Some(AUTHORITY)
+    );
+    assert_eq!(
+        memory_runtime()
+            .unwrap()
+            .memory_allocations()
             .expect("repeated allocation inspection should succeed"),
         allocations,
     );

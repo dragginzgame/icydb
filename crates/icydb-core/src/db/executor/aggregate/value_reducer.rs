@@ -345,13 +345,11 @@ fn selected_value_should_replace(
     })
 }
 
-// Admission owns the numeric family; values may exceed Decimal's range, and
-// big integers deliberately do not participate in its coercion policy at any
-// magnitude. Keep those domain failures distinct from invalid reducer inputs.
+// Admission owns the numeric family; values may exceed Decimal's range.
+// Keep those domain failures distinct from invalid reducer inputs.
 fn coerce_aggregate_decimal(value: &Value) -> Result<Decimal, InternalError> {
     coerce_numeric_decimal(value).ok_or_else(|| {
-        if value.supports_numeric_coercion() || matches!(value, Value::NatBig(_) | Value::IntBig(_))
-        {
+        if value.supports_numeric_coercion() {
             InternalError::query_numeric_not_representable()
         } else {
             InternalError::query_executor_invariant()

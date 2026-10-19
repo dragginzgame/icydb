@@ -9,13 +9,10 @@ pub struct FacadeCanister {}
 #[store(canister = "FacadeCanister", storage(journaled(key = "main")))]
 pub struct FacadeStore {}
 
-#[record(
-    traits(add(Serialize)),
-    fields(
-        field(name = "rank", value(item(prim = "Nat64"))),
-        field(name = "label", value(item(prim = "Text", max_len = 64)))
-    )
-)]
+#[record(fields(
+    field(name = "rank", value(item(prim = "Nat64"))),
+    field(name = "label", value(item(prim = "Text", max_len = 64)))
+))]
 pub struct FacadeProfile {}
 
 #[entity(

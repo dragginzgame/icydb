@@ -1,0 +1,65 @@
+import { HttpAgent } from '@icp-sdk/core/agent';
+import { Ed25519KeyIdentity } from '@icp-sdk/core/identity';
+import * as contracts from '../../target/wire-browser/icydb.js';
+import { call } from './client.js';
+
+type Frame = { method: string; request: number[]; response: number[] };
+function require(value: unknown, message: string): asserts value {
+  if (!value) throw new Error(message);
+}
+export async function qualify(host: string, canisterId: string) {
+  // Public deterministic identities exist only for this disposable local fixture.
+  const agent = await HttpAgent.create({ host, identity: Ed25519KeyIdentity.generate(new Uint8Array(32).fill(7)), shouldFetchRootKey: true });
+  const frames: Frame[] = [];
+  (globalThis as unknown as { icydbWireFrames: Frame[] }).icydbWireFrames = frames;
+  async function invoke<Q, R>(contract: { methodName: string; mode: 'query' | 'update'; encodeRequest(value: Q): Uint8Array; decodeResponse(bytes: Uint8Array): R; encodeResponse(value: R): Uint8Array }, value: Q): Promise<R> {
+    const request = contract.encodeRequest(value);
+    // Record the actual reply passed to the browser decoder and prove its
+    // canonical re-encoding, rather than synthesizing expected server bytes.
+    return call(agent, canisterId, { ...contract, decodeResponse(bytes: Uint8Array): R {
+      frames.push({ method: contract.methodName, request: Array.from(request), response: Array.from(bytes) });
+      let response: R;
+      try { response = contract.decodeResponse(bytes); }
+      catch (error) { console.error('native reply decode failed', contract.methodName, bytes.length); throw error; }
+      const again = contract.encodeResponse(response);
+      require(again.length === bytes.length && again.every((b, i) => b === bytes[i]), 'canonical browser reply');
+      return response;
+    } }, value);
+  }
+  require('ok' in await invoke(contracts.icydb_fixtures_reset, null), 'reset');
+  require('ok' in await invoke(contracts.icydb_fixtures_load, null), 'load');
+  const sql = 'SELECT COUNT(*) FROM SqlTestUser';
+  function countValue(result: ReturnType<typeof contracts.icydb_query.decodeResponse>): bigint {
+    require('ok' in result && result.ok.tag === 'Projection', 'native COUNT projection');
+    require(result.ok.value.columns[0] === 'COUNT(*)' && result.ok.value.rows.length === 1, 'COUNT column');
+    const value = result.ok.value.rows[0][0];
+    require(value.tag === 'Nat', 'exact COUNT integer');
+    return value.value;
+  }
+  const count = countValue(await invoke(contracts.icydb_query, sql));
+  require(count === 3n, 'native fixture count');
+  require(countValue(await invoke(contracts.icydb_query, sql)) === count, 'query retry');
+  require(frames.at(-1)!.request.every((b, i) => b === frames.at(-2)!.request[i]), 'exact retry bytes');
+  require('err' in await invoke(contracts.icydb_query, 'invalid SQL /* é🦀 */'), 'typed query error');
+  require('err' in await invoke(contracts.icydb_ddl, 'invalid SQL'), 'typed DDL error');
+  require('err' in await invoke(contracts.icydb_update, 'invalid SQL'), 'typed update error');
+  require('err' in await invoke(contracts.icydb_integrity, 'invalid SQL'), 'typed integrity error');
+  require('ok' in await invoke(contracts.icydb_metrics, null), 'metrics');
+  require('ok' in await invoke(contracts.icydb_metrics_reset, null), 'metrics reset');
+  require('ok' in await invoke(contracts.icydb_snapshot, null), 'snapshot');
+  const schema = await invoke(contracts.icydb_schema, null);
+  require('ok' in schema && schema.ok.length > 0, 'accepted schema');
+  const status = await invoke(contracts.icydb_schema_migration, { cursor: null });
+  require('ok' in status, 'migration status');
+  await invoke(contracts.icydb_schema_migrate, { tag: 'Adopt', value: { expected_database: status.ok.database_identity, expected_head: status.ok.accepted_head } });
+  const outsider = await HttpAgent.create({ host, identity: Ed25519KeyIdentity.generate(new Uint8Array(32).fill(8)), shouldFetchRootKey: true });
+  const denied = await call(outsider, canisterId, contracts.icydb_query, sql);
+  require('err' in denied, 'noncontroller query refusal');
+  const request = contracts.icydb_query.encodeRequest(sql);
+  const rejected = await agent.query(canisterId, { methodName: 'icydb_query', arg: new Uint8Array([...request, 0]) });
+  require(rejected.status !== 'replied', 'trailing ingress refusal');
+  const after = await invoke(contracts.icydb_query, sql);
+  require(countValue(after) === count, 'query survives malformed ingress');
+  require(new Set(frames.map(f => f.method)).size === 12, 'complete endpoint roster');
+  return { frames, rows: count.toString(), browser: navigator.userAgent };
+}

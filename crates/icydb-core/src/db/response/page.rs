@@ -1,14 +1,14 @@
 //! Module: response::page
 //! Responsibility: public bounded scalar-page response payloads.
 //! Does not own: cursor validation, planning, or source revision proofs.
-//! Boundary: executor progress -> Candid-safe live page DTO.
+//! Boundary: executor progress -> Wire-safe live page DTO.
 
 use crate::{db::ReadSetRevisionProof, value::OutputValue};
-use candid::CandidType;
+
 use serde::Deserialize;
 
 /// Bounded work observed while producing one scalar page.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct ScalarPageWork {
     /// Exact identity of the operational work envelope used for this page.
     pub envelope_identity: u64,
@@ -22,7 +22,7 @@ pub struct ScalarPageWork {
 ///
 /// A non-null continuation means traversal has not been proven exhausted. The
 /// token is authenticated but not encrypted and must be treated as opaque.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct LiveQueryPageOutput {
     /// Accepted entity name used for the read.
     pub entity: String,
@@ -42,7 +42,7 @@ pub struct LiveQueryPageOutput {
 ///
 /// The returned proof must be persisted beside the continuation and supplied
 /// unchanged on resume. Any participating source change invalidates traversal.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct ExhaustiveQueryPageOutput {
     /// Accepted entity name used for the read.
     pub entity: String,
@@ -107,14 +107,14 @@ impl ExhaustiveQueryPageOutput {
 mod tests {
     use super::*;
 
-    #[derive(CandidType)]
+    #[derive(serde::Serialize)]
     struct FrozenScalarPageWorkWire {
         envelope_identity: u64,
         entries_visited: u64,
         result_rows: u32,
     }
 
-    #[derive(CandidType)]
+    #[derive(serde::Serialize)]
     struct FrozenLiveQueryPageOutputWire {
         entity: String,
         columns: Vec<String>,
@@ -124,17 +124,17 @@ mod tests {
         work: FrozenScalarPageWorkWire,
     }
 
-    #[derive(CandidType)]
+    #[derive(serde::Serialize)]
     struct FrozenReadSetStoreIdentityWire([u8; 32]);
 
-    #[derive(CandidType)]
+    #[derive(serde::Serialize)]
     struct FrozenReadSetStoreRevisionWire {
         store: FrozenReadSetStoreIdentityWire,
         data_revision: u64,
         access_state_revision: u64,
     }
 
-    #[derive(CandidType)]
+    #[derive(serde::Serialize)]
     struct FrozenReadSetRevisionProofWire {
         database_incarnation: [u8; 16],
         accepted_root_revision: u64,
@@ -143,7 +143,7 @@ mod tests {
         stores: Vec<FrozenReadSetStoreRevisionWire>,
     }
 
-    #[derive(CandidType)]
+    #[derive(serde::Serialize)]
     struct FrozenExhaustiveQueryPageOutputWire {
         entity: String,
         columns: Vec<String>,
@@ -155,7 +155,7 @@ mod tests {
     }
 
     #[test]
-    fn live_query_page_output_preserves_its_initial_candid_record_shape() {
+    fn live_query_page_output_preserves_its_initial_wire_record_shape() {
         let current = LiveQueryPageOutput {
             entity: "example".to_string(),
             columns: vec!["id".to_string()],
@@ -185,13 +185,13 @@ mod tests {
         assert!(!current.is_empty());
 
         assert_eq!(
-            candid::encode_one(&current).expect("current live page should encode"),
-            candid::encode_one(&frozen).expect("frozen live page should encode"),
+            icydb_schema::wire::encode_one(&current).expect("current live page should encode"),
+            icydb_schema::wire::encode_one(&frozen).expect("frozen live page should encode"),
         );
     }
 
     #[test]
-    fn exhaustive_query_page_output_freezes_its_initial_candid_record_shape() {
+    fn exhaustive_query_page_output_freezes_its_initial_wire_record_shape() {
         let proof = ReadSetRevisionProof::from_parts(
             [1; 16],
             7,
@@ -250,8 +250,9 @@ mod tests {
         assert!(!current.is_empty());
 
         assert_eq!(
-            candid::encode_one(&current).expect("current exhaustive page should encode"),
-            candid::encode_one(&frozen).expect("frozen exhaustive page should encode"),
+            icydb_schema::wire::encode_one(&current)
+                .expect("current exhaustive page should encode"),
+            icydb_schema::wire::encode_one(&frozen).expect("frozen exhaustive page should encode"),
         );
     }
 }

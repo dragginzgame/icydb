@@ -20,8 +20,9 @@ pub use bootstrap::DatabaseBootstrapError;
 pub use bootstrap::ensure_default_memory_manager;
 pub use ic_memory::{
     MemoryAllocationPool, MemoryAllocationPoolError, MemoryAuthority, MemoryDeclarationError,
-    MemoryRequest, SchemaMetadata, SealedDeclarationSnapshot,
+    MemoryRequest, SealedDeclarationSnapshot,
 };
+pub use icydb_core::db::encode_hex_lower;
 pub use icydb_core::db::{
     CompareProofAndAdvanceError, DynamicQuery, ExactBacklogMeasurement, ExhaustiveQueryPageOutput,
     GroupedQueryOutput, GroupedRow, LiveQueryPageOutput, MAX_MUTATION_JOB_CONTINUATION_BYTES,
@@ -41,6 +42,7 @@ pub use icydb_core::db::{
     ResumableJobState, ResumableJobStatus, RowProjectionOutput, ScalarPageWork,
     TypedBindingContext,
 };
+pub use icydb_core::db::{MemoryRuntimeBindingError, bind_memory_runtime, memory_runtime};
 #[cfg(feature = "migration")]
 pub use icydb_core::db::{
     SchemaMigrationCommand, SchemaMigrationEntityTransition, SchemaMigrationFinding,
@@ -59,6 +61,7 @@ pub use session::{
     TypedWriteAdapter, TypedWriteBatchResult, TypedWriteBatchResults, TypedWriteHandle, WriteCell,
     with_request_execution, with_request_execution_async, with_request_execution_root,
 };
+pub use startup::provide_boot_entropy;
 pub use startup::{
     __clear_generated_startup_failure, __install_startup_recovery_wakeup,
     __observe_generated_startup_state, __record_generated_schema_startup_failure,

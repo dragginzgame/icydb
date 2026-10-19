@@ -7,6 +7,8 @@ cd "$ROOT"
 # shellcheck source=scripts/ci/invariant-common.sh
 source "$ROOT/scripts/ci/invariant-common.sh"
 require_rg "critical runtime no-production-panics invariant"
+bash "$ROOT/scripts/ci/verify-shared-tooling-snapshot.sh" \
+  --consumer "$ROOT" --manifest .shared-tooling.snapshot
 
 # Require each inventory independently, including ignored recovery sources.
 # Syn excludes complete test-only items; shell never approximates Rust braces.
@@ -27,4 +29,4 @@ done
 # Development dependencies are already selected in the root lockfile. Prepare
 # them explicitly with make fetch; validation never downloads or changes them.
 cargo run --locked --offline --quiet --manifest-path "$ROOT/Cargo.toml" \
-  -p icydb-testing-integration --example check_runtime_panics -- "${files[@]}"
+  -p icydb-testing-source-checks --bin check_runtime_panics -- "${files[@]}"

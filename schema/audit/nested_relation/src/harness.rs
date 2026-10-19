@@ -1,11 +1,8 @@
 //! One shared operation harness for all controlled relation-cost actors.
 
-// Read IC counter 1 through the CDK; native Candid builds use its
-// unsupported host binding and provide no IC measurement evidence.
-#[cfg(not(target_arch = "wasm32"))]
-use ic_cdk::api::call_context_instruction_counter;
-#[cfg(target_arch = "wasm32")]
-use ic_cdk::api::call_context_instruction_counter;
+// IC counter 1 preserves the call-context sample boundary through Platform.
+// Native system calls provide no IC measurement evidence.
+use ic_platform::ic0::performance_counter;
 
 use icydb::{
     db::{DbSession, StructuralMutation, StructuralPatch, WriteCell},
@@ -107,9 +104,9 @@ fn delete(entity: &str, id: i32) -> StructuralMutation {
 }
 
 fn measured<T>(operation: impl FnOnce() -> T) -> (T, u64) {
-    let start = call_context_instruction_counter();
+    let start = performance_counter(1);
     let result = operation();
-    let instructions = call_context_instruction_counter().saturating_sub(start);
+    let instructions = performance_counter(1).saturating_sub(start);
     (result, instructions)
 }
 
@@ -425,9 +422,8 @@ pub fn commit_repeated_boundary<C: CanisterKind>(
 #[macro_export]
 macro_rules! define_relation_cost_measurement_actor {
     (@shared) => {
-        ::icydb::start!();
+        ::canic_icydb::start!(icydb);
 
-        #[::ic_cdk::update]
         fn measure_relation_calibration(
             base: i32,
             count: u16,
@@ -439,12 +435,10 @@ macro_rules! define_relation_cost_measurement_actor {
             })
         }
 
-        #[::ic_cdk::query]
         fn measure_relation_traversal(path_steps: u8, references: u16) -> ((u64, u64),) {
             ($crate::harness::measure_traversal(path_steps, references),)
         }
 
-        #[::ic_cdk::update]
         fn exercise_relation_flow(operation: u8) -> ((bool, u64),) {
             ::icydb::db::with_request_execution(|| {
                 let Ok(session) = db() else {
@@ -454,46 +448,48 @@ macro_rules! define_relation_cost_measurement_actor {
             })
         }
 
+
+        ::icydb_testing_wasm_helpers::export_wire!(update, "measure_relation_calibration", MeasureRelationCalibration, measure_relation_calibration, (base: i32, count: u16, phase: u8), Result<u64, ::icydb::Error>);
+        ::icydb_testing_wasm_helpers::export_wire!(query, "measure_relation_traversal", MeasureRelationTraversal, measure_relation_traversal, (path_steps: u8, references: u16), ((u64, u64),));
+        ::icydb_testing_wasm_helpers::export_wire!(update, "exercise_relation_flow", ExerciseRelationFlow, exercise_relation_flow, (operation: u8), ((bool, u64),));
     };
 
     () => {
         $crate::define_relation_cost_measurement_actor!(@shared);
 
-        #[cfg(feature = "candid-export")]
-        ::ic_cdk::export_candid!();
     };
 
     (shallow) => {
         $crate::define_relation_cost_measurement_actor!(@shared);
 
-        #[::ic_cdk::update]
         fn exercise_shallow_relation_flow(operation: u8) -> ((bool, u64),) {
             ::icydb::db::with_request_execution(|| {
                 let Ok(session) = db() else {
                     return ((false, 0),);
-                };
+
+        ::icydb_testing_wasm_helpers::export_wire!(update, "exercise_shallow_relation_flow", ExerciseShallowRelationFlow, exercise_shallow_relation_flow, (operation: u8), ((bool, u64),));
+    };
                 ($crate::harness::exercise_shallow(&session, operation),)
             })
         }
 
-        #[cfg(feature = "candid-export")]
-        ::ic_cdk::export_candid!();
     };
 
     (repeated) => {
         $crate::define_relation_cost_measurement_actor!(@shared);
 
-        #[::ic_cdk::update]
         fn exercise_repeated_relation_flow(operation: u8) -> ((bool, u64),) {
             ::icydb::db::with_request_execution(|| {
                 let Ok(session) = db() else {
                     return ((false, 0),);
-                };
+
+        ::icydb_testing_wasm_helpers::export_wire!(update, "exercise_repeated_relation_flow", ExerciseRepeatedRelationFlow, exercise_repeated_relation_flow, (operation: u8), ((bool, u64),));
+        ::icydb_testing_wasm_helpers::export_wire!(update, "commit_repeated_relation_boundary", CommitRepeatedRelationBoundary, commit_repeated_relation_boundary, (base: i32, references: u16), Result<(), ::icydb::Error>);
+    };
                 ($crate::harness::exercise_repeated(&session, operation),)
             })
         }
 
-        #[::ic_cdk::update]
         fn commit_repeated_relation_boundary(
             base: i32,
             references: u16,
@@ -504,7 +500,5 @@ macro_rules! define_relation_cost_measurement_actor {
             })
         }
 
-        #[cfg(feature = "candid-export")]
-        ::ic_cdk::export_candid!();
     };
 }

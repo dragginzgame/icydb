@@ -167,10 +167,6 @@ fn encode_value_sort_key_into(out: &mut Vec<u8>, value: &Value) {
         Value::Float64(v) => out.extend_from_slice(&v.to_be_bytes()),
         Value::Int64(v) => out.extend_from_slice(&v.to_be_bytes()),
         Value::Int128(v) => out.extend_from_slice(&v.to_be_bytes()),
-        Value::IntBig(v) => {
-            out.extend_from_slice(&v.leb128_len().to_be_bytes());
-            out.extend(v.leb128_bytes());
-        }
         Value::List(items) => {
             push_len_u64(out, items.len());
             for item in items {
@@ -196,10 +192,6 @@ fn encode_value_sort_key_into(out: &mut Vec<u8>, value: &Value) {
         Value::Timestamp(v) => out.extend_from_slice(&v.as_millis().to_be_bytes()),
         Value::Nat64(v) => out.extend_from_slice(&v.to_be_bytes()),
         Value::Nat128(v) => out.extend_from_slice(&v.to_be_bytes()),
-        Value::NatBig(v) => {
-            out.extend_from_slice(&v.leb128_len().to_be_bytes());
-            out.extend(v.leb128_bytes());
-        }
         Value::Ulid(v) => out.extend_from_slice(&v.to_bytes()),
         Value::U256(v) => out.extend_from_slice(&v.to_be_bytes()),
     }

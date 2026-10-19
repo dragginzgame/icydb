@@ -21,8 +21,8 @@ use crate::{
         },
     },
     types::{
-        Account, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal, Subaccount,
-        Timestamp, U256, Ulid,
+        Account, Date, Decimal, Duration, Float32, Float64, Principal, Subaccount, Timestamp, U256,
+        Ulid,
     },
     value::{CoercionFamily, Value},
 };
@@ -248,23 +248,11 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
         AcceptedFieldKindCategory::Scalar(ScalarKind::Int128) => {
             canonicalize_int128_persisted_literal(value)
         }
-        AcceptedFieldKindCategory::Scalar(ScalarKind::IntBig) => {
-            let AcceptedFieldKind::IntBig { max_bytes } = kind else {
-                return None;
-            };
 
-            canonicalize_int_big_persisted_literal(value, *max_bytes)
-        }
         AcceptedFieldKindCategory::Scalar(ScalarKind::Nat128) => {
             canonicalize_nat128_persisted_literal(value)
         }
-        AcceptedFieldKindCategory::Scalar(ScalarKind::NatBig) => {
-            let AcceptedFieldKind::NatBig { max_bytes } = kind else {
-                return None;
-            };
 
-            canonicalize_nat_big_persisted_literal(value, *max_bytes)
-        }
         AcceptedFieldKindCategory::Scalar(ScalarKind::U256) => canonicalize_u256_literal(value),
         AcceptedFieldKindCategory::Scalar(ScalarKind::Principal) => match value {
             Value::Text(inner) => Principal::from_text(inner).ok().map(Value::Principal),
@@ -281,36 +269,13 @@ pub(in crate::db) fn canonicalize_strict_sql_literal_for_persisted_kind(
 /// authority.
 ///
 /// Unlike strict SQL literals, public filter numerics arrive as text so their
-/// Candid shape stays stable across narrow and wide numeric field kinds.
+/// Wire shape stays stable across narrow and wide numeric field kinds.
 pub(in crate::db) fn canonicalize_filter_literal_for_persisted_kind<'a>(
     kind: &AcceptedFieldKind,
     value: &'a Value,
     work: &PreparationWork<'_>,
 ) -> Result<Option<Cow<'a, Value>>, QueryError> {
     work.charge(Resource::NestedValueSteps, 1)?;
-    // Exact big atoms need only a size check. Retain their storage, just like
-    // unchanged text/blob values, rather than cloning before checking a bound.
-    match (kind, value) {
-        (AcceptedFieldKind::IntBig { max_bytes }, Value::IntBig(integer)) => {
-            work.charge(
-                Resource::NestedValueSteps,
-                integer.magnitude_bits().div_ceil(32),
-            )?;
-            return Ok(
-                (integer.leb128_len() <= u64::from(*max_bytes)).then_some(Cow::Borrowed(value))
-            );
-        }
-        (AcceptedFieldKind::NatBig { max_bytes }, Value::NatBig(integer)) => {
-            work.charge(
-                Resource::NestedValueSteps,
-                integer.magnitude_bits().div_ceil(32),
-            )?;
-            return Ok(
-                (integer.leb128_len() <= u64::from(*max_bytes)).then_some(Cow::Borrowed(value))
-            );
-        }
-        _ => {}
-    }
     Ok(match kind {
         AcceptedFieldKind::Relation { key_kind, .. } => {
             canonicalize_filter_literal_for_persisted_kind(key_kind, value, work)?
@@ -401,7 +366,7 @@ fn charge_filter_hex_decode(
 }
 
 /// Materialize a normalized filter literal only when a new container needs an
-/// owned child. Borrowed storage contains unchanged text/blob/big-integer
+/// owned child. Borrowed storage contains unchanged text/blob
 /// scalars or lists composed of borrowed children.
 fn materialize_filter_literal(
     value: Cow<'_, Value>,
@@ -498,13 +463,11 @@ fn canonicalize_filter_scalar_literal(kind: &AcceptedFieldKind, value: &Value) -
         | AcceptedFieldKind::Int32
         | AcceptedFieldKind::Int64
         | AcceptedFieldKind::Int128
-        | AcceptedFieldKind::IntBig { .. }
         | AcceptedFieldKind::Nat8
         | AcceptedFieldKind::Nat16
         | AcceptedFieldKind::Nat32
         | AcceptedFieldKind::Nat64
-        | AcceptedFieldKind::Nat128
-        | AcceptedFieldKind::NatBig { .. } => canonicalize_filter_numeric_literal(kind, value),
+        | AcceptedFieldKind::Nat128 => canonicalize_filter_numeric_literal(kind, value),
         AcceptedFieldKind::Date
         | AcceptedFieldKind::Duration
         | AcceptedFieldKind::Subaccount
@@ -587,12 +550,6 @@ fn canonicalize_filter_numeric_literal(kind: &AcceptedFieldKind, value: &Value) 
             Value::Text(inner) => inner.parse::<i128>().ok().map(Value::Int128),
             _ => None,
         },
-        AcceptedFieldKind::IntBig { max_bytes } => {
-            // Keep filter admission narrower than strict SQL's integer casts.
-            matches!(value, Value::Text(_) | Value::IntBig(_))
-                .then(|| canonicalize_int_big_persisted_literal(value, *max_bytes))
-                .flatten()
-        }
         AcceptedFieldKind::Nat8 => canonicalize_filter_nat(value, u64::from(u8::MAX)),
         AcceptedFieldKind::Nat16 => canonicalize_filter_nat(value, u64::from(u16::MAX)),
         AcceptedFieldKind::Nat32 => canonicalize_filter_nat(value, u64::from(u32::MAX)),
@@ -602,11 +559,6 @@ fn canonicalize_filter_numeric_literal(kind: &AcceptedFieldKind, value: &Value) 
             Value::Text(inner) => inner.parse::<u128>().ok().map(Value::Nat128),
             _ => None,
         },
-        AcceptedFieldKind::NatBig { max_bytes } => {
-            matches!(value, Value::Text(_) | Value::NatBig(_))
-                .then(|| canonicalize_nat_big_persisted_literal(value, *max_bytes))
-                .flatten()
-        }
         AcceptedFieldKind::Account
         | AcceptedFieldKind::Blob { .. }
         | AcceptedFieldKind::Bool
@@ -798,7 +750,6 @@ pub(in crate::db) fn field_type_from_persisted_kind(kind: &AcceptedFieldKind) ->
         | AcceptedFieldKind::Int32
         | AcceptedFieldKind::Int64
         | AcceptedFieldKind::Int128
-        | AcceptedFieldKind::IntBig { .. }
         | AcceptedFieldKind::Principal
         | AcceptedFieldKind::Subaccount
         | AcceptedFieldKind::Text { .. }
@@ -808,7 +759,6 @@ pub(in crate::db) fn field_type_from_persisted_kind(kind: &AcceptedFieldKind) ->
         | AcceptedFieldKind::Nat32
         | AcceptedFieldKind::Nat64
         | AcceptedFieldKind::Nat128
-        | AcceptedFieldKind::NatBig { .. }
         | AcceptedFieldKind::Ulid
         | AcceptedFieldKind::Unit
         | AcceptedFieldKind::U256 => scalar_field_type_from_persisted_kind(kind),
@@ -856,8 +806,6 @@ fn canonicalize_int128_persisted_literal(value: &Value) -> Option<Value> {
         Value::Nat64(inner) => i128::from(*inner),
         Value::Int128(inner) => *inner,
         Value::Nat128(inner) => i128::try_from(*inner).ok()?,
-        Value::IntBig(inner) => inner.to_i128()?,
-        Value::NatBig(inner) => i128::try_from(inner.to_u128()?).ok()?,
         Value::Text(inner) => inner.parse::<i128>().ok()?,
         _ => return None,
     };
@@ -873,47 +821,11 @@ fn canonicalize_nat128_persisted_literal(value: &Value) -> Option<Value> {
         Value::Nat64(inner) => u128::from(*inner),
         Value::Int128(inner) => u128::try_from(*inner).ok()?,
         Value::Nat128(inner) => *inner,
-        Value::IntBig(inner) => inner.to_string().parse::<u128>().ok()?,
-        Value::NatBig(inner) => inner.to_u128()?,
         Value::Text(inner) => inner.parse::<u128>().ok()?,
         _ => return None,
     };
 
     Some(Value::Nat128(value))
-}
-
-fn canonicalize_int_big_persisted_literal(value: &Value, max_bytes: u32) -> Option<Value> {
-    let value = match value {
-        Value::Decimal(inner) => IntBig::from_bigint(inner.scale_to_integer(0)?.into()),
-        Value::Int64(inner) => IntBig::from(*inner),
-        Value::Nat64(inner) => IntBig::from_bigint((*inner).into()),
-        Value::IntBig(inner) => {
-            return (inner.leb128_len() <= u64::from(max_bytes))
-                .then(|| Value::IntBig(inner.clone()));
-        }
-        Value::Text(inner) => inner.parse::<IntBig>().ok()?,
-        _ => return None,
-    };
-
-    (value.leb128_len() <= u64::from(max_bytes)).then_some(Value::IntBig(value))
-}
-
-fn canonicalize_nat_big_persisted_literal(value: &Value, max_bytes: u32) -> Option<Value> {
-    let value = match value {
-        Value::Decimal(inner) => {
-            NatBig::from_biguint(u128::try_from(inner.scale_to_integer(0)?).ok()?.into())
-        }
-        Value::Int64(inner) => NatBig::from(u64::try_from(*inner).ok()?),
-        Value::Nat64(inner) => NatBig::from(*inner),
-        Value::NatBig(inner) => {
-            return (inner.leb128_len() <= u64::from(max_bytes))
-                .then(|| Value::NatBig(inner.clone()));
-        }
-        Value::Text(inner) => inner.parse::<NatBig>().ok()?,
-        _ => return None,
-    };
-
-    (value.leb128_len() <= u64::from(max_bytes)).then_some(Value::NatBig(value))
 }
 
 impl fmt::Display for FieldType {
@@ -1009,14 +921,6 @@ mod tests {
             for (kind, expected) in [
                 (AcceptedFieldKind::Int128, Value::Int128(integer)),
                 (AcceptedFieldKind::Nat128, Value::Nat128(natural)),
-                (
-                    AcceptedFieldKind::IntBig { max_bytes: 32 },
-                    Value::IntBig(IntBig::from_bigint(integer.into())),
-                ),
-                (
-                    AcceptedFieldKind::NatBig { max_bytes: 32 },
-                    Value::NatBig(NatBig::from_biguint(natural.into())),
-                ),
             ] {
                 assert_eq!(
                     input_value_from_strict_sql_literal_for_persisted_kind(&kind, &atom),
@@ -1035,34 +939,22 @@ mod tests {
             }
         }
         let negative = Value::Decimal(Decimal::from_i128_with_scale(i128::MIN, 0));
-        for (kind, expected) in [
-            (AcceptedFieldKind::Int128, Value::Int128(i128::MIN)),
-            (
-                AcceptedFieldKind::IntBig { max_bytes: 32 },
-                Value::IntBig(IntBig::from_bigint(i128::MIN.into())),
+        assert_eq!(
+            input_value_from_strict_sql_literal_for_persisted_kind(
+                &AcceptedFieldKind::Int128,
+                &negative
             ),
-        ] {
-            assert_eq!(
-                input_value_from_strict_sql_literal_for_persisted_kind(&kind, &negative),
-                InputValue::try_from_runtime_non_enum(&expected),
-            );
-        }
-        for kind in [
-            AcceptedFieldKind::Nat128,
-            AcceptedFieldKind::NatBig { max_bytes: 32 },
-            AcceptedFieldKind::IntBig { max_bytes: 1 },
-        ] {
-            assert!(
-                input_value_from_strict_sql_literal_for_persisted_kind(&kind, &negative).is_none()
-            );
-        }
+            Some(InputValue::int128(i128::MIN)),
+        );
+        assert!(
+            input_value_from_strict_sql_literal_for_persisted_kind(
+                &AcceptedFieldKind::Nat128,
+                &negative
+            )
+            .is_none()
+        );
         let positive = Value::Decimal(Decimal::new(128, 0));
-        for kind in [
-            AcceptedFieldKind::IntBig { max_bytes: 1 },
-            AcceptedFieldKind::NatBig { max_bytes: 1 },
-            AcceptedFieldKind::Int64,
-            AcceptedFieldKind::Nat64,
-        ] {
+        for kind in [AcceptedFieldKind::Int64, AcceptedFieldKind::Nat64] {
             assert!(
                 input_value_from_strict_sql_literal_for_persisted_kind(&kind, &positive).is_none()
             );
@@ -1144,7 +1036,6 @@ mod tests {
             AcceptedFieldKind::Int32,
             AcceptedFieldKind::Int64,
             AcceptedFieldKind::Int128,
-            AcceptedFieldKind::IntBig { max_bytes: 8 },
             AcceptedFieldKind::Principal,
             AcceptedFieldKind::Subaccount,
             AcceptedFieldKind::Text { max_len: Some(8) },
@@ -1154,7 +1045,6 @@ mod tests {
             AcceptedFieldKind::Nat32,
             AcceptedFieldKind::Nat64,
             AcceptedFieldKind::Nat128,
-            AcceptedFieldKind::NatBig { max_bytes: 8 },
             AcceptedFieldKind::Ulid,
             AcceptedFieldKind::Unit,
         ];
@@ -1261,31 +1151,6 @@ mod tests {
         assert_eq!(
             canonicalize_strict_sql_literal_for_persisted_kind(
                 &AcceptedFieldKind::Nat128,
-                &Value::Text("-1".to_string()),
-            ),
-            None,
-        );
-    }
-
-    #[test]
-    fn strict_sql_literal_canonicalization_enforces_big_integer_byte_bounds() {
-        assert_eq!(
-            canonicalize_strict_sql_literal_for_persisted_kind(
-                &AcceptedFieldKind::IntBig { max_bytes: 1 },
-                &Value::Text("0".to_string()),
-            ),
-            Some(Value::IntBig(IntBig::from(0_i64))),
-        );
-        assert_eq!(
-            canonicalize_strict_sql_literal_for_persisted_kind(
-                &AcceptedFieldKind::IntBig { max_bytes: 1 },
-                &Value::Text("128".to_string()),
-            ),
-            None,
-        );
-        assert_eq!(
-            canonicalize_strict_sql_literal_for_persisted_kind(
-                &AcceptedFieldKind::NatBig { max_bytes: 1 },
                 &Value::Text("-1".to_string()),
             ),
             None,

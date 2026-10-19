@@ -25,9 +25,9 @@ fn icydb_memory_pool()
     )
 }
 
-icydb::start!();
+canic_icydb::start!(icydb);
 
-icydb::endpoints! {
+canic_icydb::endpoints! {
     #[cfg(feature = "local-sql-query")]
     icydb_sql_query(introspection = true);
     #[cfg(feature = "sql")]
@@ -136,6 +136,3 @@ fn grid_patch(cell: Grid) -> StructuralPatch {
         .field("danger_level", authored(cell.danger_level))
         .field("discovered", authored(cell.discovered))
 }
-
-#[cfg(feature = "candid-export")]
-ic_cdk::export_candid!();

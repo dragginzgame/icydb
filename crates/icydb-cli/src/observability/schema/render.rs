@@ -1,19 +1,16 @@
 //! Module: schema report rendering.
 //! Responsibility: render accepted schema reports into CLI tables.
-//! Does not own: endpoint calls, Candid decoding, or endpoint publication.
+//! Does not own: endpoint calls, Wire decoding, or endpoint publication.
 //! Boundary: receives decoded schema descriptions and returns user-facing text.
 
 use icydb::db::{
     EntityFieldDescription, EntityIndexDescription, EntityRelationDescription,
-    EntitySchemaDescription,
+    EntitySchemaDescription, encode_hex_lower,
 };
 
 use crate::{
-    observability::{
-        render::{render_field_list, yes_no},
-        render_hex_lower,
-    },
-    table::{ColumnAlign, append_indented_table},
+    observability::render::{render_field_list, yes_no},
+    table::{ColumnAlign, append_report_section},
 };
 
 type SchemaEntityRow = [String; 11];
@@ -79,7 +76,7 @@ fn schema_entity_row(entity: &EntitySchemaDescription) -> SchemaEntityRow {
         entity.entity_name().to_string(),
         entity.entity_tag().to_string(),
         entity.accepted_schema_fingerprint_method().to_string(),
-        render_hex_lower(&entity.accepted_schema_fingerprint()),
+        encode_hex_lower(&entity.accepted_schema_fingerprint()),
         entity.fields().len().to_string(),
         entity.indexes().len().to_string(),
         entity.relations().len().to_string(),
@@ -142,7 +139,7 @@ fn schema_relation_row(
 }
 
 fn append_schema_entity_table(output: &mut String, rows: &[SchemaEntityRow]) {
-    append_schema_table(
+    append_report_section(
         output,
         "entities",
         &[
@@ -176,7 +173,7 @@ fn append_schema_entity_table(output: &mut String, rows: &[SchemaEntityRow]) {
 }
 
 fn append_schema_field_table(output: &mut String, rows: &[SchemaFieldRow]) {
-    append_schema_table(
+    append_report_section(
         output,
         "fields",
         &[
@@ -220,7 +217,7 @@ fn append_schema_field_table(output: &mut String, rows: &[SchemaFieldRow]) {
 }
 
 fn append_schema_index_table(output: &mut String, rows: &[SchemaIndexRow]) {
-    append_schema_table(
+    append_report_section(
         output,
         "indexes",
         &["entity", "index", "fields", "unique", "origin"],
@@ -236,7 +233,7 @@ fn append_schema_index_table(output: &mut String, rows: &[SchemaIndexRow]) {
 }
 
 fn append_schema_relation_table(output: &mut String, rows: &[SchemaRelationRow]) {
-    append_schema_table(
+    append_report_section(
         output,
         "relations",
         &["entity", "field", "target", "cardinality"],
@@ -248,21 +245,4 @@ fn append_schema_relation_table(output: &mut String, rows: &[SchemaRelationRow])
             ColumnAlign::Left,
         ],
     );
-}
-
-fn append_schema_table<const N: usize>(
-    output: &mut String,
-    title: &str,
-    headers: &[&str; N],
-    rows: &[[String; N]],
-    alignments: &[ColumnAlign; N],
-) {
-    output.push_str(title);
-    output.push('\n');
-    if rows.is_empty() {
-        output.push_str("  None\n");
-        return;
-    }
-
-    append_indented_table(output, "  ", headers, rows, alignments);
 }

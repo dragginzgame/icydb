@@ -3,16 +3,12 @@
 //! Does not own: cross-kind canonical tagging.
 //! Boundary: internal helper for ordered component encoding.
 
-#[cfg(test)]
-mod tests;
-
 use crate::{
     db::index::key::ordered::{
         NEGATIVE_MARKER, OrderedValueEncodeError, POSITIVE_MARKER, ZERO_MARKER,
-        segments::{encode_segment_len, push_inverted},
-        semantics::ordered_i32_bytes,
+        segments::push_inverted, semantics::ordered_i32_bytes,
     },
-    types::{Decimal, IntBig, NatBig},
+    types::Decimal,
 };
 
 const DECIMAL_DIGIT_BUFFER_LEN: usize = 39;
@@ -74,69 +70,6 @@ fn write_u128_decimal_digits(mut value: u128, out: &mut [u8; DECIMAL_DIGIT_BUFFE
     let len = DECIMAL_DIGIT_BUFFER_LEN.saturating_sub(write_idx);
     out.copy_within(write_idx..DECIMAL_DIGIT_BUFFER_LEN, 0);
     len
-}
-
-/// `Value::IntBig` ordering uses a sign bucket and a binary magnitude.
-pub(super) fn push_signed_big_integer_payload(
-    out: &mut Vec<u8>,
-    value: &IntBig,
-) -> Result<(), OrderedValueEncodeError> {
-    let (negative, digits) = value.sign_and_u32_digits();
-    push_big_integer_magnitude(out, Some(negative), digits)
-}
-
-/// `Value::NatBig` ordering uses byte length followed by big-endian magnitude.
-pub(super) fn push_unsigned_big_integer_payload(
-    out: &mut Vec<u8>,
-    value: &NatBig,
-) -> Result<(), OrderedValueEncodeError> {
-    push_big_integer_magnitude(out, None, value.u32_digits())
-}
-
-// Equal-length big-endian magnitudes compare numerically. Inverting both length
-// and magnitude reverses that order for negatives. Borrowed canonical limbs
-// write directly to the destination without decimal chunks or a magnitude Vec.
-fn push_big_integer_magnitude(
-    out: &mut Vec<u8>,
-    negative: Option<bool>,
-    mut digits: impl DoubleEndedIterator<Item = u32> + ExactSizeIterator,
-) -> Result<(), OrderedValueEncodeError> {
-    let high = digits.next_back();
-    let high_len = high.map_or(0, |digit| {
-        (u32::BITS - digit.leading_zeros()).div_ceil(8) as usize
-    });
-    let len = digits
-        .len()
-        .checked_mul(4)
-        .and_then(|len| len.checked_add(high_len))
-        .ok_or(OrderedValueEncodeError::SegmentTooLarge)?;
-    if negative.is_some() && len == 0 {
-        out.push(ZERO_MARKER);
-        return Ok(());
-    }
-    let length = encode_segment_len(len)?;
-    out.reserve_exact(usize::from(negative.is_some()) + length.len() + len);
-    if let Some(negative) = negative {
-        out.push(if negative {
-            NEGATIVE_MARKER
-        } else {
-            POSITIVE_MARKER
-        });
-    }
-    let mask = if negative == Some(true) { u8::MAX } else { 0 };
-    out.extend(length.map(|byte| byte ^ mask));
-    if let Some(high) = high {
-        // A u32 high limb contributes at most its four initialized bytes.
-        out.extend(
-            high.to_be_bytes()[4 - high_len..]
-                .iter()
-                .map(|byte| byte ^ mask),
-        );
-    }
-    for digit in digits.rev() {
-        out.extend(digit.to_be_bytes().map(|byte| byte ^ mask));
-    }
-    Ok(())
 }
 
 fn decimal_exponent(scale: u32, digit_len: usize) -> Result<i32, OrderedValueEncodeError> {

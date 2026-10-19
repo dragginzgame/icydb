@@ -85,7 +85,7 @@ fn text_reservation_charges_growth_before_mutation() {
 }
 
 #[test]
-fn scalar_formatting_uses_existing_execution_authority_and_preserves_scratch_failure() {
+fn scalar_formatting_uses_existing_execution_authority_and_preserves_output_failure() {
     use crate::db::{
         query::{
             builder::scalar_projection::write_scalar_projection_expr_plan_label, plan::expr::Expr,
@@ -98,14 +98,14 @@ fn scalar_formatting_uses_existing_execution_authority_and_preserves_scratch_fai
     use crate::value::Value;
     use icydb_diagnostic_code::DiagnosticExecutionBudgetScope as Scope;
 
-    let expr = Expr::Literal(Value::NatBig("18446744073709551616".parse().unwrap()));
+    let expr = Expr::Literal(Value::Text("x".repeat(64)));
     let construction = &ExecutionConstructionBudget as &dyn ConstructionBudget;
     assert!(
         construction
             .render_text(|out| write_scalar_projection_expr_plan_label(&expr, out))
             .is_err()
     );
-    for limit in [27, 16_000_000] {
+    for limit in [0, 16_000_000] {
         let result = with_query_execution_budget_for_tests(
             HardExecutionBudget::uniform_for_tests(
                 16_000_000,
@@ -117,20 +117,20 @@ fn scalar_formatting_uses_existing_execution_authority_and_preserves_scratch_fai
                 construction
                     .render_text(|out| {
                         // Even a formatter swallowing its failure cannot turn rejected
-                        // conversion scratch into successful partial output.
+                        // output into successful partial output.
                         let _ = write_scalar_projection_expr_plan_label(&expr, out);
                         Ok(())
                     })
                     .map_err(QueryError::execute)
             },
         );
-        if limit == 27 {
+        if limit == 0 {
             assert!(result.unwrap_err().diagnostic_facts().contains(&(
                 DiagnosticFactTag::BudgetResource,
                 Resource::TemporaryBytes.raw(),
             )));
         } else {
-            assert_eq!(result.unwrap(), "18_446_744_073_709_551_616");
+            assert_eq!(result.unwrap(), format!("'{}'", "x".repeat(64)));
         }
     }
 }

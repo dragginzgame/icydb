@@ -1,0 +1,21 @@
+[package]
+name = "icydb-testing-source-checks"
+edition = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+publish = false
+license-file = { workspace = true }
+description = "Shared development-only structural source checks"
+repository = { workspace = true }
+authors = { workspace = true }
+
+[[bin]]
+name = "check_runtime_panics"
+path = "../../scripts/ci/check-runtime-panics.rs"
+
+[dependencies]
+proc-macro2 = { workspace = true, features = ["span-locations"] }
+syn = { workspace = true, features = ["full", "visit"] }
+
+[lints]
+workspace = true

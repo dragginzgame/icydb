@@ -121,8 +121,8 @@ fn journaled_catalog_effects_do_not_grow_with_cardinality_records() {
         (4_097, CardinalityGenerationState::Building),
         (4_097, CardinalityGenerationState::Ready),
     ] {
-        let memory = test_memory(229);
-        let mut store = SchemaStore::init_journaled(memory.clone());
+        let memory = crate::testing::test_memory_owner(229);
+        let mut store = SchemaStore::init_journaled(memory.open());
         store
             .publish_accepted_schema_candidate(
                 test_database_incarnation(),
@@ -196,7 +196,7 @@ fn journaled_catalog_effects_do_not_grow_with_cardinality_records() {
             assert!(!positions.is_positioned(key));
         }
         drop(store);
-        let reopened = SchemaStore::init_journaled(memory);
+        let reopened = SchemaStore::init_journaled(memory.open());
         assert_cardinality_preserved(&reopened, &entries);
         assert_eq!(
             reopened.canonical_len_for_tests(),

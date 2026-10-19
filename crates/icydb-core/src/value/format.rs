@@ -1,43 +1,18 @@
-//! Compact value labels with admitted decimal scratch. Container recursion stays
-//! on this writer rather than escaping into dependency-owned bigint Debug buffers.
+//! Compact value labels with incremental, fallible output for nested containers.
 
 #[cfg(test)]
 mod tests;
 
-use crate::value::{
-    Value,
-    decimal::{ValueFormatWriter, signed_chunks, unsigned_chunks, visit_digits},
-};
+use crate::value::Value;
 use std::fmt;
 
 /// Preserve compact Value Debug spelling, not alternate/pretty Rust formatting.
-/// The caller owns structural admission and output limits; every arbitrary-size
-/// decimal conversion uses the same upfront scratch/work admission as literals.
+/// The caller owns structural admission and output limits.
 pub(crate) fn write_value_debug(
     value: &Value,
-    out: &mut (impl ValueFormatWriter + ?Sized),
+    out: &mut (impl std::fmt::Write + ?Sized),
 ) -> fmt::Result {
     match value {
-        Value::IntBig(value) => {
-            out.write_str("IntBig(IntBig(Int(")?;
-            let (negative, chunks) =
-                signed_chunks(value, |bytes, steps| out.admit_scratch(bytes, steps))?;
-            if negative {
-                out.write_char('-')?;
-            }
-            visit_digits(&chunks, |digits| {
-                out.write_str(std::str::from_utf8(digits).map_err(|_| fmt::Error)?)
-            })?;
-            out.write_str(")))")
-        }
-        Value::NatBig(value) => {
-            out.write_str("NatBig(NatBig(Nat(")?;
-            let chunks = unsigned_chunks(value, |bytes, steps| out.admit_scratch(bytes, steps))?;
-            visit_digits(&chunks, |digits| {
-                out.write_str(std::str::from_utf8(digits).map_err(|_| fmt::Error)?)
-            })?;
-            out.write_str(")))")
-        }
         Value::List(values) => {
             out.write_str("List([")?;
             for (index, value) in values.iter().enumerate() {
@@ -78,8 +53,8 @@ pub(crate) fn write_value_debug(
             }
             out.write_str(" }))")
         }
-        // Exhaustive scalar fallback: newly added containers or arbitrary-size
-        // numeric families must choose their scratch/recursion owner explicitly.
+        // Exhaustive scalar fallback: new containers must choose their
+        // recursion owner explicitly.
         Value::Account(_)
         | Value::Blob(_)
         | Value::Bool(_)

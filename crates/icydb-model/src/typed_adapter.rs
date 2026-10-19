@@ -8,8 +8,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use icydb_schema::{
-    Account, Blob, Date, Decimal, Duration, Float32, Float64, IntBig, NatBig, Principal,
-    Subaccount, Timestamp, U256, Ulid, Unit,
+    Account, Blob, Date, Decimal, Duration, Float32, Float64, Principal, Subaccount, Timestamp,
+    U256, Ulid, Unit,
 };
 
 #[cfg(test)]
@@ -29,10 +29,8 @@ pub enum TypedScalarValue {
     Float64(Float64),
     Int64(i64),
     Int128(i128),
-    IntBig(IntBig),
     Nat64(u64),
     Nat128(u128),
-    NatBig(NatBig),
     Principal(Principal),
     Subaccount(Subaccount),
     Text(String),
@@ -189,8 +187,6 @@ impl_typed_scalar_value!(
     i32 => Int64,
     i64 => Int64,
     i128 => Int128,
-    IntBig => IntBig,
-    NatBig => NatBig,
     Principal => Principal,
     String => Text,
     Subaccount => Subaccount,

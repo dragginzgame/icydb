@@ -37,8 +37,7 @@ use crate::{
     },
     error::InternalError,
 };
-use ic_memory::RuntimeMemory;
-use ic_memory::ic_stable_structures::{DefaultMemoryImpl, Memory};
+use ic_memory::{DefaultMemoryImpl, Memory, RuntimeMemory};
 use sha2::{Digest, Sha256};
 use std::cell::RefCell;
 
@@ -146,7 +145,7 @@ pub(in crate::db) fn retained_commit_marker_measurement_for_tests()
 ///
 
 pub(super) struct CommitStore {
-    memory: RuntimeMemory<DefaultMemoryImpl>,
+    memory: std::rc::Rc<RuntimeMemory<DefaultMemoryImpl>>,
 }
 
 /// Fully checked marker bytes awaiting pre-publication Gate-2 admission.
@@ -195,7 +194,7 @@ pub(in crate::db) enum PersistedCommitControlObservation {
 
 /// Fully encoded and capacity-preflighted current database-control replacement.
 pub(in crate::db) struct PreparedCommitControlReplacement {
-    memory: RuntimeMemory<DefaultMemoryImpl>,
+    memory: std::rc::Rc<RuntimeMemory<DefaultMemoryImpl>>,
     encoded: Vec<u8>,
     encoded_len: u32,
 }
@@ -214,7 +213,7 @@ impl CommitStore {
     }
 
     /// Open the database control store after format admission.
-    fn open(memory: RuntimeMemory<DefaultMemoryImpl>) -> Result<Self, InternalError> {
+    fn open(memory: std::rc::Rc<RuntimeMemory<DefaultMemoryImpl>>) -> Result<Self, InternalError> {
         validate_current_boot_record(&memory)?;
         let store = Self { memory };
         if store.control_slot_is_uninitialized() {
@@ -226,7 +225,7 @@ impl CommitStore {
 
     /// Initialize one current-format database control store for direct tests.
     #[cfg(test)]
-    fn init(memory: RuntimeMemory<DefaultMemoryImpl>) -> Self {
+    fn init(memory: std::rc::Rc<RuntimeMemory<DefaultMemoryImpl>>) -> Self {
         initialize_current_database_control_for_tests(&memory);
         Self::open(memory).expect("test database control store should initialize")
     }
@@ -543,7 +542,7 @@ impl CommitStore {
 }
 
 pub(in crate::db) fn inspect_persisted_commit_control(
-    memory: RuntimeMemory<DefaultMemoryImpl>,
+    memory: std::rc::Rc<RuntimeMemory<DefaultMemoryImpl>>,
 ) -> Result<PersistedCommitControlObservation, InternalError> {
     validate_current_boot_record(&memory)?;
     let store = CommitStore { memory };
@@ -585,7 +584,7 @@ fn reserve_commit_control_capacity<M: Memory>(
 }
 
 pub(in crate::db) fn prepare_commit_control_replacement(
-    memory: RuntimeMemory<DefaultMemoryImpl>,
+    memory: std::rc::Rc<RuntimeMemory<DefaultMemoryImpl>>,
     incarnation: DatabaseIncarnationId,
     cursor_authentication_key: [u8; 32],
     database_commit_sequence: u64,
@@ -612,7 +611,7 @@ pub(in crate::db) fn prepare_commit_control_replacement(
 
 /// Replace the key within an already validated current control frame.
 pub(in crate::db) fn replace_persisted_cursor_authentication_key(
-    memory: RuntimeMemory<DefaultMemoryImpl>,
+    memory: std::rc::Rc<RuntimeMemory<DefaultMemoryImpl>>,
     key: [u8; 32],
 ) -> Result<(), InternalError> {
     let store = CommitStore { memory };
@@ -644,7 +643,7 @@ pub(in crate::db) fn apply_prepared_commit_control_replacement(
 
 #[cfg(test)]
 pub(in crate::db) fn initialize_current_commit_control_for_tests(
-    memory: RuntimeMemory<DefaultMemoryImpl>,
+    memory: std::rc::Rc<RuntimeMemory<DefaultMemoryImpl>>,
 ) -> Result<(), InternalError> {
     let store = CommitStore {
         memory: memory.clone(),

@@ -3,22 +3,28 @@
 //! Boundary: preserves borrowed and owned ingest paths without route dispatch.
 
 use crate::{
-    db::executor::{
-        aggregate::{
-            EffectiveRuntimeFilterProgram, ExecutionContext, FieldSlot,
-            capability::accepted_field_kind_has_identity_group_canonical_form,
-            runtime::grouped_fold::{
-                count::GroupedCountState,
-                utils::{
-                    GroupIndexBucket, find_matching_group_index,
-                    find_matching_single_group_value_index, stable_hash_group_values_from_row_view,
-                    stable_hash_single_group_value,
+    db::{
+        executor::{
+            aggregate::{
+                EffectiveRuntimeFilterProgram, ExecutionContext, FieldSlot,
+                capability::accepted_field_kind_has_identity_group_canonical_form,
+                runtime::grouped_fold::{
+                    count::GroupedCountState,
+                    utils::{
+                        GroupIndexBucket, find_matching_group_index,
+                        find_matching_group_index_in_bucket,
+                        find_matching_single_group_value_index,
+                        group_key_matches_path_group_values, materialize_path_group_key,
+                        stable_hash_group_values_from_row_view, stable_hash_path_group_values,
+                        stable_hash_single_group_value,
+                    },
                 },
             },
+            group::{GroupKey, StableHash, StableHashMap},
+            pipeline::contracts::{GroupedRouteStage, ResolvedExecutionKeyStream},
+            pipeline::runtime::{RowView, StructuralGroupedRowRuntime},
         },
-        group::{GroupKey, StableHash, StableHashMap},
-        pipeline::contracts::{GroupedRouteStage, ResolvedExecutionKeyStream},
-        pipeline::runtime::{RowView, StructuralGroupedRowRuntime},
+        query::plan::GroupField,
     },
     error::InternalError,
     value::Value,
@@ -104,6 +110,33 @@ impl GroupedCountState {
 
                 Ok(group_key)
             },
+        )
+    }
+
+    // Probe canonical path tuples by reference; allocate a key only for a new
+    // group, preserving collision checks and the shared count admission owner.
+    pub(super) fn increment_row_path_group_probe(
+        &mut self,
+        row_view: &RowView,
+        group_fields: &[GroupField],
+        grouped_execution_context: &mut ExecutionContext,
+    ) -> Result<(), InternalError> {
+        self.increment_borrowed_group_probe(
+            grouped_execution_context,
+            |groups, buckets| {
+                let hash = stable_hash_path_group_values(row_view, group_fields)?;
+                let existing = if let Some(bucket) = buckets.get(&hash) {
+                    find_matching_group_index_in_bucket(
+                        bucket.as_slice(),
+                        |index| groups.get(index).map(|(key, _)| key),
+                        |key| group_key_matches_path_group_values(key, row_view, group_fields),
+                    )?
+                } else {
+                    None
+                };
+                Ok((hash, existing))
+            },
+            |hash| materialize_path_group_key(row_view, group_fields, hash),
         )
     }
 

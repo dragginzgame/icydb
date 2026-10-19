@@ -69,21 +69,6 @@ fn feed_bytes(h: &mut impl ValueHashSink, b: &[u8]) {
     h.update(b);
 }
 
-// Batch borrowed encoded bytes into fixed scratch, never a value-sized buffer.
-fn feed_leb128(h: &mut impl ValueHashSink, bytes: impl Iterator<Item = u8>) {
-    let mut chunk = [0_u8; 64];
-    let mut used = 0;
-    for byte in bytes {
-        chunk[used] = byte;
-        used += 1;
-        if used == chunk.len() {
-            h.update(&chunk);
-            used = 0;
-        }
-    }
-    h.update(&chunk[..used]);
-}
-
 ///
 /// ValueHashWriter
 ///
@@ -179,14 +164,6 @@ pub(crate) fn hash_single_list_identity_canonical_value(
         Value::Float64(value) => feed_bytes(&mut hasher, &value.to_be_bytes()),
         Value::Int64(value) => feed_i64(&mut hasher, *value),
         Value::Int128(value) => feed_i128(&mut hasher, *value),
-        Value::IntBig(value) => {
-            feed_u32(
-                &mut hasher,
-                u32::try_from(value.leb128_len())
-                    .map_err(|_| InternalError::query_executor_invariant())?,
-            );
-            feed_leb128(&mut hasher, value.leb128_bytes());
-        }
         Value::Principal(value) => {
             let raw = value
                 .stored_bytes()
@@ -202,14 +179,6 @@ pub(crate) fn hash_single_list_identity_canonical_value(
         Value::Timestamp(value) => feed_i64(&mut hasher, value.repr()),
         Value::Nat64(value) => feed_u64(&mut hasher, *value),
         Value::Nat128(value) => feed_u128(&mut hasher, *value),
-        Value::NatBig(value) => {
-            feed_u32(
-                &mut hasher,
-                u32::try_from(value.leb128_len())
-                    .map_err(|_| InternalError::query_executor_invariant())?,
-            );
-            feed_leb128(&mut hasher, value.leb128_bytes());
-        }
         Value::Ulid(value) => feed_bytes(&mut hasher, &value.to_bytes()),
         Value::U256(value) => feed_bytes(&mut hasher, &value.to_be_bytes()),
         _ => return Ok(None),
@@ -343,10 +312,6 @@ fn write_to_hasher(value: &Value, h: &mut impl ValueHashSink) -> Result<(), Inte
         Value::Int128(i) => {
             feed_i128(h, *i);
         }
-        Value::IntBig(v) => {
-            feed_u32(h, v.leb128_len() as u32);
-            feed_leb128(h, v.leb128_bytes());
-        }
         Value::List(xs) => {
             feed_u32(h, xs.len() as u32);
             for x in xs {
@@ -381,10 +346,6 @@ fn write_to_hasher(value: &Value, h: &mut impl ValueHashSink) -> Result<(), Inte
         }
         Value::Nat128(u) => {
             feed_u128(h, *u);
-        }
-        Value::NatBig(v) => {
-            feed_u32(h, v.leb128_len() as u32);
-            feed_leb128(h, v.leb128_bytes());
         }
         Value::Ulid(u) => {
             feed_bytes(h, &u.to_bytes());

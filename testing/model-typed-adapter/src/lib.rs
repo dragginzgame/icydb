@@ -200,13 +200,13 @@ mod tests {
     }
 
     #[test]
-    fn typed_id_keeps_the_raw_key_candid_shape() {
+    fn typed_id_keeps_the_raw_key_native_shape() {
         let raw = Ulid::from_bytes([0x35; 16]);
         let typed = Id::<TypedIdentityUser>::from_key(raw);
-        let typed_bytes = model_api::__reexports::candid::encode_one(typed)
-            .expect("typed identity should Candid-encode");
+        let typed_bytes = runtime_api::wire::encode_one(typed)
+            .expect("typed identity should encode as a native payload");
         let raw_bytes =
-            model_api::__reexports::candid::encode_one(raw).expect("raw key should Candid-encode");
+            runtime_api::wire::encode_one(raw).expect("raw key should encode as a native payload");
         assert_eq!(typed_bytes, raw_bytes);
     }
 

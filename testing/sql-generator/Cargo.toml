@@ -2,6 +2,7 @@
 name = "icydb-testing-sql-generator"
 edition = { workspace = true }
 rust-version = { workspace = true }
+license-file = { workspace = true }
 version = { workspace = true }
 publish = false
 description = "Typed deterministic SQL correctness generator for IcyDB tests"

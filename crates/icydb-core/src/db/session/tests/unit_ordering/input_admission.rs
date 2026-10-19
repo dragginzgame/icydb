@@ -3,6 +3,85 @@ use crate::db::query::admission::input::{MAX_QUERY_INPUT_BYTES, MAX_QUERY_INPUT_
 use icydb_diagnostic_code::QueryReadAdmissionCode;
 
 #[test]
+fn secondary_index_512_byte_limit_preserves_rows_and_indexes_on_rejection() {
+    use crate::{db::DynamicMutation, error::ErrorClass};
+
+    let session = initialize();
+    let patch = |label: &str| {
+        DynamicStructuralPatch::new(vec![
+            ("id".into(), DynamicWriteCell::Value(InputValue::unit())),
+            (
+                "label".into(),
+                DynamicWriteCell::Value(InputValue::text(label.to_owned())),
+            ),
+            (
+                "amount".into(),
+                DynamicWriteCell::Value(InputValue::u256(U256::from(2_u64))),
+            ),
+        ])
+    };
+    // A Unit row identity leaves 484 text bytes after all tags and framing.
+    let label = "x".repeat(484);
+    let too_long = "y".repeat(485);
+    let rejected = session
+        .execute_trusted_dynamic_insert_batch(ENTITY_NAME, vec![patch(&too_long)])
+        .unwrap_err();
+    assert_eq!(rejected.class(), ErrorClass::Unsupported);
+    assert!(sql_rows(&session, "SELECT label FROM Singleton").is_empty());
+    session
+        .execute_trusted_dynamic_insert_batch(ENTITY_NAME, vec![patch(&label)])
+        .unwrap();
+
+    for _ in 0..2 {
+        assert_eq!(
+            sql_rows(
+                &session,
+                &format!("SELECT label FROM Singleton WHERE label = '{label}'")
+            ),
+            vec![vec![OutputValue::text(label.clone())]]
+        );
+        assert_eq!(
+            sql_rows(
+                &session,
+                &format!("SELECT label FROM Singleton WHERE label >= '{label}' ORDER BY label")
+            ),
+            vec![vec![OutputValue::text(label.clone())]]
+        );
+    }
+    let rejected = session
+        .execute_trusted_dynamic_mutation(&DynamicMutation::Update {
+            entity: ENTITY_NAME.into(),
+            key: InputValue::unit(),
+            patch: patch(&too_long),
+        })
+        .unwrap_err();
+    assert_eq!(rejected.class(), ErrorClass::Unsupported);
+    assert_eq!(
+        sql_rows(
+            &session,
+            &format!("SELECT label FROM Singleton WHERE label = '{label}'")
+        ),
+        vec![vec![OutputValue::text(label)]]
+    );
+
+    let replacement = "z".repeat(484);
+    session
+        .execute_trusted_dynamic_mutation(&DynamicMutation::Update {
+            entity: ENTITY_NAME.into(),
+            key: InputValue::unit(),
+            patch: patch(&replacement),
+        })
+        .unwrap();
+    assert_eq!(
+        sql_rows(
+            &session,
+            &format!("SELECT label FROM Singleton WHERE label = '{replacement}'")
+        ),
+        vec![vec![OutputValue::text(replacement)]]
+    );
+}
+
+#[test]
 fn grouped_key_clause_reserves_final_representation_before_resolution() {
     use crate::db::{
         RequestExecutionRoot,

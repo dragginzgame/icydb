@@ -4,7 +4,8 @@ use super::*;
 use crate::db::{QueryError, RequestExecutionRoot, test_support::request_with_limit};
 use crate::{
     db::{
-        codec::{hex::encode_hex_lower, new_hash_sha256},
+        codec::new_hash_sha256,
+        encode_hex_lower,
         query::{
             builder::{count, min_by, sum},
             fingerprint::finalize_sha256_digest,
@@ -124,7 +125,7 @@ fn having_hash_preserves_planner_expression_grammar() {
     });
     assert_eq!(
         encode_hex_lower(&finalize_sha256_digest(plan_hash)),
-        "64f640463c5a71b64482db9f7c84d1d3d475331228a01ae93c32d6e392f7648a",
+        "14aa9055cd2b8b8d293526fa70a7bb1e886a691ff2e86acccb9690defdab4c51",
     );
 }
 
@@ -308,7 +309,7 @@ fn having_borrowed_labels_and_absence_need_no_value_or_allocation_budget() {
 fn missing_aggregate_labels_are_admitted_but_matched_slots_need_no_rendering() {
     let aggregate = AggregateExpr::from_expression_input(
         crate::db::query::plan::AggregateKind::Sum,
-        Expr::Literal(Value::NatBig("18446744073709551616".parse().unwrap())),
+        Expr::Literal(Value::Nat128("18446744073709551616".parse().unwrap())),
     )
     .with_filter_expr(Expr::Literal(Value::Text("quote's λ".into())));
     let expr = Expr::Aggregate(aggregate.clone());
@@ -339,7 +340,7 @@ fn missing_aggregate_labels_are_admitted_but_matched_slots_need_no_rendering() {
                     Resource::TemporaryBytes.raw(),
                 ))
         );
-        assert_eq!(rejected.observed(Resource::TemporaryBytes), 28);
+        assert_eq!(rejected.observed(Resource::TemporaryBytes), 32);
 
         let measured = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         let expected = admitted_hash(&expr, &measured, lane).unwrap();
@@ -374,8 +375,6 @@ fn aggregate_slot_comparison_admits_payloads_without_rendering_or_changing_ident
             Value::Text("key".into()),
             Value::Enum(ValueEnum::test_payload(1, 2, Value::Blob(vec![7; 512]))),
         )]),
-        Value::IntBig("-18446744073709551616".parse().unwrap()),
-        Value::NatBig("18446744073709551616".parse().unwrap()),
         Value::Null,
     ])));
     for operand in operands {

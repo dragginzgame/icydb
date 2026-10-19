@@ -2,17 +2,11 @@
 set -euo pipefail
 
 # Opt-in, repository-local setup. Never replace another hook installation.
-root="${BASH_SOURCE[0]}"
+[[ $# == 2 && "$1" == --consumer && -n "$2" ]] || {
+    echo 'usage: install-git-hooks.sh --consumer <repository>' >&2; exit 2;
+}
+root="$2"
 [[ "$root" == /* ]] || root="$PWD/$root"
-root="$(cd -P "${root%/*}/../.." && printf '%s/.' "$PWD")"
-root="${root%/.}"
-if [[ $# != 0 ]]; then
-    [[ $# == 2 && "$1" == --consumer ]] || {
-        echo 'usage: install-git-hooks.sh [--consumer <repository>]' >&2; exit 2;
-    }
-    root="$2"
-    [[ "$root" == /* ]] || root="$PWD/$root"
-fi
 root="$(cd -P "$root" && printf '%s/.' "$PWD")"
 root="${root%/.}"
 cd "$root"

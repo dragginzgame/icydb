@@ -72,9 +72,6 @@ macro_rules! scalar_registry_value_pat {
     (Int128) => {
         $crate::value::Value::Int128(_)
     };
-    (IntBig) => {
-        $crate::value::Value::IntBig(_)
-    };
     (Principal) => {
         $crate::value::Value::Principal(_)
     };
@@ -92,9 +89,6 @@ macro_rules! scalar_registry_value_pat {
     };
     (Nat128) => {
         $crate::value::Value::Nat128(_)
-    };
-    (NatBig) => {
-        $crate::value::Value::NatBig(_)
     };
     (U256) => {
         $crate::value::Value::U256(_)

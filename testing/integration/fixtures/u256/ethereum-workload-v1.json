@@ -3,8 +3,6 @@
   "profile": "icydb-u256-ethereum/0.248/v1",
   "row_count": 2048,
   "controls": {
-    "nat_big_max_bytes": 37,
-    "nat_big_adapter_max_bytes": 37,
     "native_u256_bits": 256
   },
   "entity": {

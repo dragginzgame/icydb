@@ -1,4 +1,4 @@
-use ic_testkit::pic::CandidCallExt as _;
+use icydb_testing_integration::WireCallExt as _;
 use icydb_testing_integration::{
     install_fixture_canister,
     nested_relation_contract::{
@@ -41,7 +41,7 @@ fn measure_phase(
 ) -> u64 {
     let measured: Result<u64, icydb::Error> = fixture
         .pocket_ic()
-        .update_candid(
+        .update_wire(
             fixture.canister_id(),
             "measure_relation_calibration",
             (base, count, phase),
@@ -62,7 +62,7 @@ fn call_phase(
 ) -> Result<u64, icydb::Error> {
     fixture
         .pocket_ic()
-        .update_candid(
+        .update_wire(
             fixture.canister_id(),
             "measure_relation_calibration",
             (base, count, phase),
@@ -156,7 +156,7 @@ fn controlled_actors_exercise_the_frozen_direct_relation_flow() {
         for operation in 0_u8..=6 {
             let ((succeeded, instructions),): ((bool, u64),) = fixture
                 .pocket_ic()
-                .update_candid(
+                .update_wire(
                     fixture.canister_id(),
                     "exercise_relation_flow",
                     (operation,),
@@ -181,7 +181,7 @@ fn shallow_actor_exercises_every_single_valued_nested_relation_flow() {
     for operation in 0_u8..=5 {
         let ((succeeded, instructions),): ((bool, u64),) = fixture
             .pocket_ic()
-            .update_candid(
+            .update_wire(
                 fixture.canister_id(),
                 "exercise_shallow_relation_flow",
                 (operation,),
@@ -204,7 +204,7 @@ fn repeated_actor_exercises_every_collection_nested_relation_flow() {
     for operation in 0_u8..=5 {
         let ((succeeded, instructions),): ((bool, u64),) = fixture
             .pocket_ic()
-            .update_candid(
+            .update_wire(
                 fixture.canister_id(),
                 "exercise_repeated_relation_flow",
                 (operation,),
@@ -226,7 +226,7 @@ fn repeated_actor_charges_raw_occurrences_before_deduplication() {
     let fixture = install_fixture_canister("nested_relation_repeated");
     let exact: Result<(), icydb::Error> = fixture
         .pocket_ic()
-        .update_candid(
+        .update_wire(
             fixture.canister_id(),
             "commit_repeated_relation_boundary",
             (
@@ -240,7 +240,7 @@ fn repeated_actor_charges_raw_occurrences_before_deduplication() {
 
     let over: Result<(), icydb::Error> = fixture
         .pocket_ic()
-        .update_candid(
+        .update_wire(
             fixture.canister_id(),
             "commit_repeated_relation_boundary",
             (
@@ -262,7 +262,7 @@ fn direct_relation_stable_tree_calibration_retains_required_message_headroom() {
     let fixture = install_fixture_canister("nested_relation_direct");
     let ((traversal_checksum, traversal_instructions),): ((u64, u64),) = fixture
         .pocket_ic()
-        .query_candid(
+        .query_wire(
             fixture.canister_id(),
             "measure_relation_traversal",
             (

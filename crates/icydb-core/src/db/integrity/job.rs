@@ -4,7 +4,8 @@
 //! Boundary: Deep controller <-> current-form progress record codec.
 
 use crate::db::{
-    codec::hex::{decode_hex_nibble, encode_hex_lower},
+    codec::hex::decode_hex_nibble,
+    encode_hex_lower,
     integrity::{
         DatabaseIncarnationId, IntegrityAuthorityDiagnostic, IntegrityEntityIdentity,
         IntegrityFinding, IntegrityFindingKind, IntegrityPhase, IntegrityProofVector,
@@ -15,7 +16,7 @@ use crate::db::{
     schema::MAX_ACCEPTED_TARGET_PATH_COMPONENTS,
 };
 use crate::error::{ConstraintValuePath, ConstraintValuePathComponent, InternalError};
-use candid::CandidType;
+
 use icydb_diagnostic_code::{DiagnosticDetail, RuntimeBoundaryCode};
 use serde::Deserialize;
 
@@ -26,7 +27,9 @@ pub(in crate::db) const MAX_INTEGRITY_IN_PROGRESS_PAGES: u64 = u64::MAX - 1;
 
 /// Opaque lookup identity for one retained Deep inspection job.
 
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+    serde::Serialize, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd,
+)]
 pub struct IntegrityJobId([u8; 32]);
 
 impl IntegrityJobId {
@@ -90,7 +93,7 @@ impl IntegrityJobId {
 
 /// Bounded authorization identity persisted with one job.
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct IntegrityJobOwner(String);
 
 impl IntegrityJobOwner {
@@ -125,7 +128,7 @@ impl IntegrityJobOwner {
 
 /// Bounded client idempotency identity for Deep start.
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct IntegritySubmissionKey(String);
 
 impl IntegritySubmissionKey {
@@ -201,7 +204,7 @@ impl IntegrityCheckpoint {
 
 /// Frozen intent that supersedes advancement after the outstanding page is acknowledged.
 
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum IntegrityPendingTerminal {
     /// The inactivity lease elapsed.
     Expired,
@@ -211,7 +214,7 @@ pub enum IntegrityPendingTerminal {
 
 /// Stable terminal meaning of a completed Deep job.
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum IntegrityTerminalOutcome {
     /// Every phase exhausted cleanly under one unchanged proof.
     DeepCompleteClean,
@@ -266,7 +269,7 @@ pub(in crate::db) enum IntegrityJobState {
 
 /// Semantic status carried by one bounded Deep page.
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum DeepIntegrityPageStatus {
     /// More physical work or the final proof check remains.
     InProgress,
@@ -276,7 +279,7 @@ pub enum DeepIntegrityPageStatus {
 
 /// One bounded replayable Deep result page.
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct DeepIntegrityPage {
     pub(super) job_id: IntegrityJobId,
     pub(super) page_sequence: u64,
@@ -340,7 +343,7 @@ impl DeepIntegrityPage {
 
 /// Abort receipt status.
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum IntegrityAbortStatus {
     /// Abort is frozen but cannot replace the outstanding page yet.
     TerminationPending(IntegrityPendingTerminal),
@@ -350,7 +353,7 @@ pub enum IntegrityAbortStatus {
 
 /// One bounded abort/expiry receipt.
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct IntegrityAbortReceipt {
     pub(super) job_id: IntegrityJobId,
     pub(super) page_sequence: u64,
@@ -379,7 +382,7 @@ impl IntegrityAbortReceipt {
 
 /// Persisted receipt body.
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum IntegrityJobReceipt {
     /// Normal start, advancement, or completion page.
     Page(DeepIntegrityPage),
@@ -725,7 +728,7 @@ fn strictly_sorted_unique(values: &[IntegrityVerifierFamily]) -> bool {
 
 /// Typed Deep protocol or progress-record failure.
 
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum IntegrityJobError {
     /// The bounded progress store cannot admit another job.
     CapacityExceeded,
@@ -848,9 +851,9 @@ mod tests {
                 diagnostic.diagnostic_code(),
                 error.diagnostic_code().error_code().raw(),
             );
-            let bytes = candid::encode_one(&outcome).expect("terminal should encode");
+            let bytes = icydb_schema::wire::encode_one(&outcome).expect("terminal should encode");
             let decoded: IntegrityTerminalOutcome =
-                candid::decode_one(&bytes).expect("terminal should decode");
+                icydb_schema::wire::decode_one(&bytes).expect("terminal should decode");
             assert_eq!(decoded, outcome);
             let IntegrityDeepError::Internal(error) = IntegrityDeepError::from_plan_load(error)
             else {
@@ -890,25 +893,26 @@ mod tests {
 
     #[test]
     fn public_job_inputs_revalidate_after_wire_decode() {
-        let owner_bytes =
-            candid::encode_one(IntegrityJobOwner(String::new())).expect("owner should encode");
+        let owner_bytes = icydb_schema::wire::encode_one(IntegrityJobOwner(String::new()))
+            .expect("owner should encode");
         let owner: IntegrityJobOwner =
-            candid::decode_one(&owner_bytes).expect("owner should decode");
+            icydb_schema::wire::decode_one(&owner_bytes).expect("owner should decode");
         assert_eq!(owner.validate(), Err(IntegrityJobError::InvalidOwner));
 
-        let submission_bytes = candid::encode_one(IntegritySubmissionKey(String::new()))
-            .expect("submission key should encode");
-        let submission: IntegritySubmissionKey =
-            candid::decode_one(&submission_bytes).expect("submission key should decode");
+        let submission_bytes =
+            icydb_schema::wire::encode_one(IntegritySubmissionKey(String::new()))
+                .expect("submission key should encode");
+        let submission: IntegritySubmissionKey = icydb_schema::wire::decode_one(&submission_bytes)
+            .expect("submission key should decode");
         assert_eq!(
             submission.validate(),
             Err(IntegrityJobError::InvalidSubmissionKey),
         );
 
         let job_id_bytes =
-            candid::encode_one(IntegrityJobId([0; 32])).expect("job id should encode");
+            icydb_schema::wire::encode_one(IntegrityJobId([0; 32])).expect("job id should encode");
         let job_id: IntegrityJobId =
-            candid::decode_one(&job_id_bytes).expect("job id should decode");
+            icydb_schema::wire::decode_one(&job_id_bytes).expect("job id should decode");
         assert_eq!(job_id.validate(), Err(IntegrityJobError::InvalidJobId),);
     }
 

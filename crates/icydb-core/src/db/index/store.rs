@@ -18,9 +18,8 @@ use crate::db::{
     },
 };
 
-use candid::CandidType;
-use ic_memory::RuntimeMemory;
-use ic_memory::ic_stable_structures::{BTreeMap as StableBTreeMap, DefaultMemoryImpl};
+use ic_memory::{DefaultMemoryImpl, RuntimeMemory};
+use ic_storage::adapter::StableBTreeMap;
 use serde::Deserialize;
 #[cfg(test)]
 use std::cell::Cell;
@@ -57,7 +56,7 @@ fn visit_index_store_entry<E>(
 // Visibility matters because planner-visible indexes must already be complete:
 // the index contents are fully built and query-visible for reads.
 //
-#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum IndexState {
     Building,
     #[default]
@@ -94,8 +93,7 @@ pub struct IndexStore {
 pub(super) enum IndexStoreBackend {
     Heap(HeapBTreeMap<RawIndexStoreKey, IndexEntryValue>),
     Journaled {
-        canonical:
-            StableBTreeMap<RawIndexStoreKey, IndexEntryValue, RuntimeMemory<DefaultMemoryImpl>>,
+        canonical: StableBTreeMap<RawIndexStoreKey, IndexEntryValue, DefaultMemoryImpl>,
         live: HeapBTreeMap<RawIndexStoreKey, IndexEntryValue>,
         tombstones: BTreeSet<RawIndexStoreKey>,
         positions: PositionedOverlayMetadata<RawIndexStoreKey>,
@@ -914,7 +912,7 @@ mod tests {
         testing::test_memory,
         types::EntityTag,
     };
-    use ic_memory::ic_stable_structures::Storable;
+    use ic_storage::adapter::Storable;
     use std::{borrow::Cow, convert::Infallible};
 
     fn raw_key(value: u8) -> RawIndexStoreKey {
@@ -1476,17 +1474,17 @@ mod tests {
 
     #[test]
     fn journaled_index_store_reopens_without_materializing_prefix_cardinality() {
-        let memory = test_memory(94);
+        let memory = crate::testing::test_memory_owner(94);
         let index_id = IndexId::new(EntityTag::new(0xCA7D), 1);
         let collection = b"collection-a".to_vec();
-        let mut store = IndexStore::init_journaled(memory.clone());
+        let mut store = IndexStore::init_journaled(memory.open());
         let key = indexed_raw_key(&index_id, vec![collection.clone()], 1);
         store
             .apply_canonical_entry(key.clone(), Some(IndexEntryValue::presence()))
             .expect("canonical index seed should apply");
         drop(store);
 
-        let mut reopened = IndexStore::init_journaled(memory);
+        let mut reopened = IndexStore::init_journaled(memory.open());
         let bound = Bound::Unbounded;
 
         assert_eq!(reopened.get(&key), Some(IndexEntryValue::presence()));
@@ -1541,10 +1539,10 @@ mod tests {
 
     #[test]
     fn empty_journaled_index_store_retains_exact_prefix_cardinality_without_scanning() {
-        let memory = test_memory(95);
+        let memory = crate::testing::test_memory_owner(95);
         let index_id = IndexId::new(EntityTag::new(0xCA7D), 1);
         let collection = b"collection-a".to_vec();
-        let mut store = IndexStore::init_journaled(memory.clone());
+        let mut store = IndexStore::init_journaled(memory.open());
 
         assert_eq!(
             store.exact_prefix_cardinality(
@@ -1569,7 +1567,7 @@ mod tests {
         );
         drop(store);
 
-        let reopened = IndexStore::init_journaled(memory);
+        let reopened = IndexStore::init_journaled(memory.open());
         assert_eq!(
             reopened.exact_prefix_cardinality(
                 0,

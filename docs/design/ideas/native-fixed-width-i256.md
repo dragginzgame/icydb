@@ -1,6 +1,11 @@
 # Native Fixed-Width `I256`
 
-> **NON-AUTHORITATIVE IDEA — NOT A NUMBERED MINOR OR IMPLEMENTATION PLAN**
+> **HISTORICAL IDEA — SUPERSEDED COMPARISON ASSUMPTIONS**
+>
+> The 0.277 hard cut removes `IntBig` and `NatBig`. The discussion below records
+> the earlier design evidence, not the current supported scalar surface. Any
+> future signed 256-bit proposal must establish new downstream need and compare
+> maintained alternatives. This document does not authorize implementation.
 >
 > Reconsider only when a concrete downstream schema requires signed 256-bit
 > persistence and query semantics that constrained `IntBig` cannot serve well.

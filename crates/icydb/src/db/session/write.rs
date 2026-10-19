@@ -12,7 +12,7 @@ use crate::{
     traits::CanisterKind,
     value::{InputValue, OutputValue, PublicEnumValue, PublicValue},
 };
-use candid::CandidType;
+
 use icydb_core as core;
 use serde::Deserialize;
 use std::{
@@ -30,7 +30,7 @@ pub use icydb_core::db::{TypedEntityDescriptor, TypedFieldDescriptor, TypedField
 /// The database retains the distinction through accepted-policy resolution.
 ///
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum WriteCell<T> {
     /// Supply no authored value for this operation.
     Omitted,
@@ -488,10 +488,8 @@ impl icydb_model::TypedAdapterContext for TypedEntityBinding {
             icydb_model::TypedScalarValue::Float64(value) => PublicValue::Float64(value),
             icydb_model::TypedScalarValue::Int64(value) => PublicValue::Int64(value),
             icydb_model::TypedScalarValue::Int128(value) => PublicValue::Int128(value),
-            icydb_model::TypedScalarValue::IntBig(value) => PublicValue::IntBig(value),
             icydb_model::TypedScalarValue::Nat64(value) => PublicValue::Nat64(value),
             icydb_model::TypedScalarValue::Nat128(value) => PublicValue::Nat128(value),
-            icydb_model::TypedScalarValue::NatBig(value) => PublicValue::NatBig(value),
             icydb_model::TypedScalarValue::Principal(value) => PublicValue::Principal(value),
             icydb_model::TypedScalarValue::Subaccount(value) => PublicValue::Subaccount(value),
             icydb_model::TypedScalarValue::Text(value) => PublicValue::Text(value),
@@ -564,10 +562,8 @@ impl icydb_model::TypedAdapterContext for TypedEntityBinding {
             PublicValue::Float64(value) => icydb_model::TypedScalarValue::Float64(value),
             PublicValue::Int64(value) => icydb_model::TypedScalarValue::Int64(value),
             PublicValue::Int128(value) => icydb_model::TypedScalarValue::Int128(value),
-            PublicValue::IntBig(value) => icydb_model::TypedScalarValue::IntBig(value),
             PublicValue::Nat64(value) => icydb_model::TypedScalarValue::Nat64(value),
             PublicValue::Nat128(value) => icydb_model::TypedScalarValue::Nat128(value),
-            PublicValue::NatBig(value) => icydb_model::TypedScalarValue::NatBig(value),
             PublicValue::Principal(value) => icydb_model::TypedScalarValue::Principal(value),
             PublicValue::Subaccount(value) => icydb_model::TypedScalarValue::Subaccount(value),
             PublicValue::Text(value) => icydb_model::TypedScalarValue::Text(value),
