@@ -4,7 +4,7 @@
 //! Boundary: bounded canonical debt plus one heap-only window of owner observations.
 
 use crate::{metrics::ExecutionMetricsPhase, runtime::now_millis};
-use candid::CandidType;
+
 use ic_metrics::MeasurementAggregate;
 use serde::Deserialize;
 use std::{cell::RefCell, collections::BTreeMap};
@@ -13,7 +13,7 @@ use std::{cell::RefCell, collections::BTreeMap};
 ///
 /// Spans include failed attempts and may nest; totals are not exclusive
 /// accounting and must not be summed or converted to cycles.
-#[derive(CandidType, Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct InstructionMetrics {
     samples: u64,
     instructions_total: u128,
@@ -30,7 +30,7 @@ impl InstructionMetrics {
         self.samples
     }
 
-    /// Wide saturating sum of observed local instructions, encoded as Candid `nat`.
+    /// Wide saturating sum of observed local instructions, encoded as native Wire `u128`.
     #[must_use]
     pub const fn instructions_total(&self) -> u128 {
         self.instructions_total
@@ -78,7 +78,7 @@ impl From<MeasurementAggregate> for InstructionMetrics {
 ///
 /// Only replicated execution records work. Upgrade clears the window and
 /// [`metrics_reset_all`] resets these counters together with entity observations.
-#[derive(CandidType, Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct SchemaLifecycleMetrics {
     lowering: InstructionMetrics,
     publication: InstructionMetrics,
@@ -125,7 +125,7 @@ impl SchemaLifecycleMetrics {
 /// Values count engine batches, records and encoded envelopes. Replay retries do
 /// not append twice. Reset/restart clears these counters, never persisted debt.
 /// Fold instructions may nest inside startup recovery and are not additive costs.
-#[derive(CandidType, Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct ConvergenceMetrics {
     appended: crate::db::ExactBacklogMeasurement,
     retired: crate::db::ExactBacklogMeasurement,
@@ -224,7 +224,7 @@ thread_local! {
 }
 
 /// Cost attributed to one accepted entity during the active metrics window.
-#[derive(CandidType, Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct EntityMetrics {
     path: String,
     hits: u64,
@@ -248,7 +248,7 @@ impl EntityMetrics {
         self.hits
     }
 
-    /// Wide saturating sum of local instructions, encoded as Candid `nat`.
+    /// Wide saturating sum of local instructions, encoded as native Wire `u128`.
     #[must_use]
     pub const fn instructions_total(&self) -> u128 {
         self.instructions_total
@@ -284,7 +284,7 @@ impl EntityMetrics {
 /// Selects a lexical prefix of entity paths before sorting that subset by cost.
 /// This is not a global top-cost report. Counters and window IDs are lost on
 /// upgrade/restart; consumers must treat heap replacement as a discontinuity.
-#[derive(CandidType, Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct MetricsReport {
     window_id: Option<u64>,
     window_start_ms: u64,
@@ -546,8 +546,10 @@ mod tests {
         assert_eq!(report.convergence().appended(), Debt::new(u64::MAX, 6, 8));
         assert_eq!(report.convergence().retired(), Debt::new(1, 2, 3));
         assert_eq!(report.convergence().journal_fold().instructions_total(), 42);
-        let encoded = candid::encode_one(&report).expect("convergence report should encode");
-        let decoded: MetricsReport = candid::decode_one(&encoded).expect("report should decode");
+        let encoded =
+            icydb_schema::wire::encode_one(&report).expect("convergence report should encode");
+        let decoded: MetricsReport =
+            icydb_schema::wire::decode_one(&encoded).expect("report should decode");
         assert_eq!(decoded, report);
         metrics_reset_all();
         let reset = metrics_snapshot(debt);
@@ -582,8 +584,10 @@ mod tests {
         assert_eq!(lifecycle.cardinality().instructions_total(), 34);
         assert_eq!(lifecycle.startup_recovery().instructions_total(), 45);
         assert_eq!(report.total_entities(), 0);
-        let encoded = candid::encode_one(&report).expect("encode observed lifecycle report");
-        let decoded: MetricsReport = candid::decode_one(&encoded).expect("decode lifecycle report");
+        let encoded =
+            icydb_schema::wire::encode_one(&report).expect("encode observed lifecycle report");
+        let decoded: MetricsReport =
+            icydb_schema::wire::decode_one(&encoded).expect("decode lifecycle report");
         assert_eq!(decoded, report);
         metrics_reset_all();
         assert_eq!(
@@ -637,8 +641,8 @@ mod tests {
                 };
             });
             let report = metrics_snapshot(crate::db::ExactBacklogMeasurement::EMPTY);
-            let encoded = candid::encode_one(&report).unwrap();
-            let decoded: MetricsReport = candid::decode_one(&encoded).unwrap();
+            let encoded = icydb_schema::wire::encode_one(&report).unwrap();
+            let decoded: MetricsReport = icydb_schema::wire::decode_one(&encoded).unwrap();
             assert_eq!(decoded, report);
             let entity = &decoded.entities()[0];
             assert_eq!(entity.samples_saturated(), samples_saturated);
@@ -788,7 +792,7 @@ mod tests {
     }
 
     #[test]
-    fn report_round_trips_current_candid_shape() {
+    fn report_round_trips_current_wire_shape() {
         metrics_reset_all();
         for _ in 0..2 {
             record_entity_execution("entity", u64::MAX);
@@ -806,8 +810,9 @@ mod tests {
             report.convergence().journal_fold().instructions_total(),
             total
         );
-        let encoded = candid::encode_one(&report).expect("encode current report");
-        let decoded: MetricsReport = candid::decode_one(&encoded).expect("decode current report");
+        let encoded = icydb_schema::wire::encode_one(&report).expect("encode current report");
+        let decoded: MetricsReport =
+            icydb_schema::wire::decode_one(&encoded).expect("decode current report");
         assert_eq!(decoded, report);
     }
 

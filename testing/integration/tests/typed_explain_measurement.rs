@@ -1,8 +1,8 @@
 //! Matched, explicitly built audit actors; never a wall-clock benchmark.
 
+use icydb_testing_integration::WireCallExt as _;
 use std::{env, fs, path::Path};
 
-use ic_testkit::pic::CandidCallExt as _;
 use icydb_testing_integration::install_prebuilt_fixture_canister;
 
 type Samples = Result<Vec<(u64, u64, String)>, u16>;
@@ -20,15 +20,15 @@ fn typed_explain_matches_sql_reports_and_instruction_gate() {
     for kind in 0..3_u8 {
         let typed_samples: TypedSamples = typed
             .pocket_ic()
-            .query_candid(typed.canister_id(), "measure_typed_explain", (kind,))
+            .query_wire(typed.canister_id(), "measure_typed_explain", (kind,))
             .unwrap();
         let sql_samples: Samples = sql
             .pocket_ic()
-            .query_candid(sql.canister_id(), "measure_sql_explain", (kind,))
+            .query_wire(sql.canister_id(), "measure_sql_explain", (kind,))
             .unwrap();
         let mixed_samples: TypedSamples = mixed
             .pocket_ic()
-            .query_candid(mixed.canister_id(), "measure_typed_explain", (kind,))
+            .query_wire(mixed.canister_id(), "measure_typed_explain", (kind,))
             .unwrap();
         let typed_samples = typed_samples.expect("typed explain succeeds");
         let sql_samples = sql_samples.expect("SQL explain succeeds");
@@ -64,7 +64,7 @@ fn typed_explain_matches_sql_reports_and_instruction_gate() {
     }
     let rows: Result<u32, u16> = mixed
         .pocket_ic()
-        .query_candid(mixed.canister_id(), "retained_sql_read", ())
+        .query_wire(mixed.canister_id(), "retained_sql_read", ())
         .unwrap();
     assert_eq!(rows.unwrap(), 0);
     assert!(
@@ -83,11 +83,11 @@ fn typed_explain_before_after_instruction_comparison() {
     for kind in 0..3_u8 {
         let before: TypedSamples = before
             .pocket_ic()
-            .query_candid(before.canister_id(), "measure_typed_explain", (kind,))
+            .query_wire(before.canister_id(), "measure_typed_explain", (kind,))
             .unwrap();
         let after: TypedSamples = after
             .pocket_ic()
-            .query_candid(after.canister_id(), "measure_typed_explain", (kind,))
+            .query_wire(after.canister_id(), "measure_typed_explain", (kind,))
             .unwrap();
         let before = before.unwrap();
         let after = after.unwrap();
@@ -112,7 +112,7 @@ fn typed_explain_before_after_instruction_comparison() {
         type ExactSample = ((u16, u16, u32, u64),);
         let baseline: ExactSample = before
             .pocket_ic()
-            .query_candid(
+            .query_wire(
                 before.canister_id(),
                 "measure_exact_key_batch",
                 (items, true),
@@ -120,7 +120,7 @@ fn typed_explain_before_after_instruction_comparison() {
             .unwrap();
         let candidate: ExactSample = after
             .pocket_ic()
-            .query_candid(
+            .query_wire(
                 after.canister_id(),
                 "measure_exact_key_batch",
                 (items, true),

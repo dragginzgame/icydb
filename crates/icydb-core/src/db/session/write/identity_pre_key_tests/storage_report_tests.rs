@@ -100,7 +100,7 @@ fn assert_report<C: CanisterKind>(
         }
         assert_eq!(report.corrupted_keys(), corrupted_keys);
         assert_eq!(report.corrupted_entries(), corrupted_entries);
-        let physical = candid::encode_one((
+        let physical = icydb_schema::wire::encode_one((
             report.storage_data(),
             report.storage_index(),
             report.schema_storage(),

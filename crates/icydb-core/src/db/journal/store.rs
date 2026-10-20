@@ -16,10 +16,8 @@ use crate::{
     error::{ErrorClass, InternalError},
     types::EntityTag,
 };
-use ic_memory::RuntimeMemory;
-use ic_memory::ic_stable_structures::{
-    BTreeMap as StableBTreeMap, DefaultMemoryImpl, Storable, storable::Bound as StorableBound,
-};
+use ic_memory::{DefaultMemoryImpl, RuntimeMemory};
+use ic_storage::adapter::{StableBTreeMap, Storable, storable::Bound as StorableBound};
 use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::ops::Bound::{Included, Unbounded};
@@ -391,7 +389,7 @@ impl FoldWatermark {
 /// start at sequence `1`; the entity-revision authority checks exact chunk coverage.
 ///
 pub struct JournalTailStore {
-    map: StableBTreeMap<JournalTailKey, RawJournalChunk, RuntimeMemory<DefaultMemoryImpl>>,
+    map: StableBTreeMap<JournalTailKey, RawJournalChunk, DefaultMemoryImpl>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -2439,8 +2437,8 @@ mod convergence_control_tests {
 
     #[test]
     fn exact_controls_append_replay_retire_and_reopen() {
-        let memory = test_memory(176);
-        let mut store = JournalTailStore::init(memory.clone());
+        let memory = crate::testing::test_memory_owner(176);
+        let mut store = JournalTailStore::init(memory.open());
         store
             .initialize_current_tail_control()
             .expect("empty current control should initialize");
@@ -2488,7 +2486,7 @@ mod convergence_control_tests {
         store.apply_prepared_batch_retirement(retirement);
         drop(store);
 
-        let mut reopened = JournalTailStore::init(memory);
+        let mut reopened = JournalTailStore::init(memory.open());
         let remaining = reopened
             .current_tail_control()
             .expect("control should reopen");

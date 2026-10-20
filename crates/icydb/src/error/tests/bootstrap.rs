@@ -114,9 +114,6 @@ fn memory_adoption_requirement_drift_is_a_public_conflict() {
             committed_authority: "host.other".into(),
             requested_authority: "icydb.main".into(),
         },
-        RuntimeAdoptionError::DeclarationMetadataMismatch {
-            stable_key: "icydb.main.commit.control.v1".into(),
-        },
         RuntimeAdoptionError::Open(RuntimeOpenError::StableKeyNotCommitted(
             "icydb.main.commit.control.v1".into(),
         )),

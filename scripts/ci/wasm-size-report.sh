@@ -83,16 +83,10 @@ if ! command -v wasm-opt >/dev/null 2>&1; then
     exit 1
 fi
 WASM_OPT_BIN="$(command -v wasm-opt)"
-if ! command -v candid-extractor >/dev/null 2>&1; then
-    echo "[wasm-size] missing required tool: candid-extractor" >&2
-    exit 1
-fi
 
-# The wasm size report consumes locally staged canister artifacts under
-# `.icp/local/canisters/<name>/`, but the staging step is owned by
-# `build_fixture_canister` and does not require `icp` or a live local replica.
-# Keep this script independent from the local ICP environment so CI can run
-# wasm-size measurements without provisioning replica tooling it never uses.
+# The report process retains the IC Build record through artifact publication
+# and records the recipe/compiler observations attached to that exact acquisition.
+# Measurement needs neither ICP staging nor a live replica.
 
 if sql_variants_output="$(wasm_report_sql_variants "$sql_variants_mode" yes)"; then
     read -r -a sql_variants <<< "${sql_variants_output//$'\n'/ }"
@@ -116,63 +110,22 @@ build_variant() {
         --build-profile production
         --profile "$profile"
         --sql-mode "$sql_mode"
-        --candid-export on
     )
 
     echo "[wasm-size] Building '$canister_name' using profile '$profile' ($sql_variant)"
-    (
-        cd "$ROOT"
-        cargo run -p icydb-testing-build --bin build_fixture_canister --locked -- \
-            "$canister_name" \
-            "${build_options[@]}"
-    )
-
-    ICP_DIR="$ROOT/.icp/local/canisters/$canister_name"
-    FINAL_WASM="$ICP_DIR/$canister_name.wasm"
-    COMPILER_WASM="$ICP_DIR/$canister_name.compiler.wasm"
-    RAW_DID="$ICP_DIR/$canister_name.did"
-
-    if [[ ! -f "$FINAL_WASM" ]]; then
-        echo "[wasm-size] expected final deployable wasm missing: $FINAL_WASM" >&2
-        exit 1
-    fi
-    if [[ ! -f "$COMPILER_WASM" ]]; then
-        echo "[wasm-size] expected compiler-emitted wasm missing: $COMPILER_WASM" >&2
-        exit 1
-    fi
-
     COMPILER_COPY="$out_dir/${stem}.compiler-emitted.wasm"
     FINAL_COPY="$out_dir/${stem}.final-deployable.wasm"
     FINAL_GZ="$out_dir/${stem}.final-deployable.wasm.gz"
-    DID_COPY="$out_dir/${stem}.did"
-    COMPILER_DID="$out_dir/${stem}.compiler-emitted.did"
     COMPILER_INFO="$out_dir/${stem}.compiler-emitted.info.txt"
     FINAL_INFO="$out_dir/${stem}.final-deployable.info.txt"
     REPORT_JSON="$out_dir/${stem}.report.json"
     SUMMARY_MD="$out_dir/${stem}.summary.md"
-
-    cp "$COMPILER_WASM" "$COMPILER_COPY"
-    cp "$FINAL_WASM" "$FINAL_COPY"
-    rm -f "$DID_COPY"
-    if [[ -f "$RAW_DID" ]]; then
-        cp "$RAW_DID" "$DID_COPY"
-    fi
-    candid-extractor "$COMPILER_COPY" > "$COMPILER_DID"
-    if ! cmp -s "$COMPILER_DID" "$DID_COPY"; then
-        echo "[wasm-size] Candid drifted between compiler and final Wasm for '$canister_name'" >&2
-        exit 1
-    fi
-    gzip -n -9 -c "$FINAL_COPY" > "$FINAL_GZ"
-
-    ic-wasm "$COMPILER_COPY" info > "$COMPILER_INFO"
-    ic-wasm "$FINAL_COPY" info > "$FINAL_INFO"
 
     (
         cd "$ROOT"
         cargo run -p icydb-testing-build --bin write_wasm_size_report --locked -- \
             --canister "$canister_name" \
             "${build_options[@]}" \
-            --did "$DID_COPY" \
             --compiler-wasm "$COMPILER_COPY" \
             --final-wasm "$FINAL_COPY" \
             --final-gz "$FINAL_GZ" \

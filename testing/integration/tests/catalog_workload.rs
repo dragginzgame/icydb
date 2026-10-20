@@ -1,20 +1,19 @@
 //! Matched full-row catalogue measurement; not a Toko Miner deployment.
 
-use candid::{CandidType, Principal};
 use ic_host_artifacts::artifact::Sha256Digest;
-use ic_testkit::pic::CandidCallExt as _;
+use ic_platform::Principal;
 use ic_testkit::pocket_ic::PocketIc;
 use icydb::Error;
 use icydb_testing_build::{
-    CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
-    CanisterWasmProfile, build_canister_with_options,
+    CanisterBuildOptions, CanisterBuildProfile, CanisterSqlMode, CanisterWasmProfile,
+    build_canister_with_options,
 };
+use icydb_testing_integration::WireCallExt as _;
 use icydb_testing_integration::install_prebuilt_fixture_canister;
-use serde::Deserialize;
 
 use std::time::Duration;
 
-#[derive(CandidType, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 struct CatalogWorkloadRow {
     id: u64,
     key: String,
@@ -24,7 +23,7 @@ struct CatalogWorkloadRow {
     capacity: u64,
 }
 
-#[derive(CandidType, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 struct CatalogWorkloadPlacement {
     shape: Vec<u8>,
     points: Vec<(u64, u64)>,
@@ -32,7 +31,7 @@ struct CatalogWorkloadPlacement {
     enabled: bool,
 }
 
-#[derive(CandidType, Deserialize)]
+#[derive(serde::Deserialize, serde::Serialize)]
 struct CatalogWorkloadSample {
     result: Result<Vec<CatalogWorkloadRow>, Error>,
     total_instructions: u64,
@@ -42,14 +41,14 @@ struct CatalogWorkloadSample {
     pages: u32,
 }
 
-#[derive(CandidType, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 struct CatalogLabel {
     id: u64,
     key: String,
     name: String,
 }
 
-#[derive(CandidType, Deserialize)]
+#[derive(serde::Deserialize, serde::Serialize)]
 struct CatalogLabelSample {
     result: Result<Vec<CatalogLabel>, Error>,
     instructions: u64,
@@ -63,7 +62,6 @@ fn full_catalogue_rows_preserve_values_and_report_costs() {
         CanisterBuildOptions {
             profile: CanisterWasmProfile::WasmRelease,
             sql_mode: CanisterSqlMode::Enabled,
-            candid_export: CanisterCandidExportMode::Enabled,
             build_profile: CanisterBuildProfile::LocalTest,
         },
     )
@@ -80,7 +78,7 @@ fn full_catalogue_rows_preserve_values_and_report_costs() {
         for start in (0..count).step_by(16) {
             let seeded: Result<(), Error> = fixture
                 .pocket_ic()
-                .update_candid(
+                .update_wire(
                     fixture.canister_id(),
                     "seed_catalog_workload",
                     (start, 16_u32),
@@ -117,7 +115,7 @@ fn full_catalogue_rows_preserve_values_and_report_costs() {
                 let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
                 let sample: CatalogWorkloadSample = fixture
                     .pocket_ic()
-                    .update_candid(fixture.canister_id(), "measure_catalog_workload", (staged,))
+                    .update_wire(fixture.canister_id(), "measure_catalog_workload", (staged,))
                     .expect("measurement reply");
                 let cycles = before
                     .checked_sub(fixture.pocket_ic().cycle_balance(fixture.canister_id()))
@@ -162,7 +160,7 @@ fn check_catalog_labels(pic: &PocketIc, canister_id: Principal, count: u32) {
         }
         let before = pic.cycle_balance(canister_id);
         let sample: CatalogLabelSample = pic
-            .update_candid(canister_id, "measure_catalog_labels", (selected,))
+            .update_wire(canister_id, "measure_catalog_labels", (selected,))
             .expect("label measurement reply");
         let cycles = before
             .checked_sub(pic.cycle_balance(canister_id))

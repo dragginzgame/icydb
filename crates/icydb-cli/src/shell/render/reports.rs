@@ -1,16 +1,16 @@
-//! Module: db::sql::table_render
+//! Module: shell::render::reports
 //!
-//! Responsibility: public SQL result and rendering facade.
+//! Responsibility: CLI SQL reports and terminal table composition.
 //! Does not own: SQL parsing, lowering, planning, or execution.
-//! Boundary: converts executed core SQL outputs into endpoint-friendly payloads.
+//! Boundary: renders native SQL DTOs through the shared terminal-safe layout owner.
 
-use crate::ConstraintValidationFindingOutput;
-use crate::db::{
+use icydb::ConstraintValidationFindingOutput;
+use icydb::db::{
     EntityCatalogDescription, EntityConstraintDescription, EntityFieldDescription,
     EntitySchemaDescription, MemoryCatalogDescription, RowProjectionOutput, SqlColumnDefault,
     SqlColumnExtra, SqlColumnKey, SqlColumnSummary, SqlDescribeOutput, SqlShowColumnsOutput,
     SqlShowRelationsOutput, StoreCatalogDescription,
-    sql::{SqlGroupedRowsOutput, value_render::render_projection_rows},
+    sql::{SqlGroupedRowsOutput, sql_projection_display_rows},
 };
 use std::fmt::Write as _;
 
@@ -19,7 +19,7 @@ use std::fmt::Write as _;
     doc = "Render one SQL EXPLAIN text payload as endpoint output lines."
 )]
 #[must_use]
-pub fn render_explain_lines(explain: &str) -> Vec<String> {
+pub(crate) fn render_explain_lines(explain: &str) -> Vec<String> {
     let mut lines = vec!["surface=explain".to_string()];
     lines.extend(explain.lines().map(ToString::to_string));
 
@@ -31,7 +31,7 @@ pub fn render_explain_lines(explain: &str) -> Vec<String> {
     doc = "Render one typed `DESCRIBE` payload into deterministic shell output lines."
 )]
 #[must_use]
-pub fn render_describe_lines(description: &EntitySchemaDescription) -> Vec<String> {
+pub(crate) fn render_describe_lines(description: &EntitySchemaDescription) -> Vec<String> {
     let mut lines = Vec::new();
 
     // Phase 1: emit top-level entity identity metadata.
@@ -136,7 +136,7 @@ pub fn render_describe_lines(description: &EntitySchemaDescription) -> Vec<Strin
 
 /// Render one discriminated `DESCRIBE` payload.
 #[must_use]
-pub fn render_describe_output_lines(output: &SqlDescribeOutput) -> Vec<String> {
+pub(crate) fn render_describe_output_lines(output: &SqlDescribeOutput) -> Vec<String> {
     match output {
         SqlDescribeOutput::Compact { columns, .. } => render_compact_column_lines(columns),
         SqlDescribeOutput::Verbose { description } => render_describe_lines(description),
@@ -351,17 +351,11 @@ fn render_describe_field_section(lines: &mut Vec<String>, fields: &[EntityFieldD
 // Render one subsection using the deterministic ASCII table shape shared by
 // DESCRIBE, SHOW, projection, and grouped output.
 fn render_table_section(lines: &mut Vec<String>, headers: &[String], rows: &[Vec<String>]) {
-    let widths = render_table_widths(headers, rows);
-    let separator = render_table_separator(widths.as_slice());
-    lines.push(separator.clone());
-    lines.push(render_table_row(headers, widths.as_slice()));
-    lines.push(separator.clone());
-    for row in rows {
-        lines.push(render_table_row(row.as_slice(), widths.as_slice()));
-    }
-    if !rows.is_empty() {
-        lines.push(separator);
-    }
+    lines.extend(
+        ic_host_text::table::render_bordered(headers, rows)
+            .lines()
+            .map(str::to_owned),
+    );
 }
 
 #[cfg_attr(
@@ -369,7 +363,7 @@ fn render_table_section(lines: &mut Vec<String>, headers: &[String], rows: &[Vec
     doc = "Render one SQL count payload into deterministic shell output lines."
 )]
 #[must_use]
-pub fn render_count_lines(entity: &str, row_count: u32) -> Vec<String> {
+pub(crate) fn render_count_lines(entity: &str, row_count: u32) -> Vec<String> {
     vec![format!(
         "surface=count entity={entity} row_count={row_count}"
     )]
@@ -377,7 +371,7 @@ pub fn render_count_lines(entity: &str, row_count: u32) -> Vec<String> {
 
 #[cfg_attr(doc, doc = "Render one SQL DDL payload into deterministic lines.")]
 #[must_use]
-pub(in crate::db::sql) fn render_sql_ddl_lines(input: SqlDdlRenderInput<'_>) -> Vec<String> {
+pub(super) fn render_sql_ddl_lines(input: SqlDdlRenderInput<'_>) -> Vec<String> {
     vec![format!(
         "surface=ddl entity={} mutation_kind={} target_index={} target_store={} field_path={} status={} rows_scanned={} index_keys_written={}",
         input.entity,
@@ -392,7 +386,7 @@ pub(in crate::db::sql) fn render_sql_ddl_lines(input: SqlDdlRenderInput<'_>) -> 
 }
 
 /// Render one typed constraint finding without reopening schema authority.
-pub(in crate::db::sql) fn render_constraint_validation_finding_line(
+pub(super) fn render_constraint_validation_finding_line(
     finding: &ConstraintValidationFindingOutput,
 ) -> String {
     let value_path = finding
@@ -425,30 +419,30 @@ fn render_hex_bytes(bytes: &[u8]) -> String {
     rendered
 }
 
-const fn error_class_label(class: icydb_diagnostic_code::ErrorClass) -> &'static str {
+const fn error_class_label(class: icydb::diagnostic::ErrorClass) -> &'static str {
     match class {
-        icydb_diagnostic_code::ErrorClass::Conflict => "conflict",
-        icydb_diagnostic_code::ErrorClass::Corruption => "corruption",
-        icydb_diagnostic_code::ErrorClass::IncompatiblePersistedFormat => {
+        icydb::diagnostic::ErrorClass::Conflict => "conflict",
+        icydb::diagnostic::ErrorClass::Corruption => "corruption",
+        icydb::diagnostic::ErrorClass::IncompatiblePersistedFormat => {
             "incompatible_persisted_format"
         }
-        icydb_diagnostic_code::ErrorClass::Internal => "internal",
-        icydb_diagnostic_code::ErrorClass::InvariantViolation => "invariant_violation",
-        icydb_diagnostic_code::ErrorClass::NotFound => "not_found",
-        icydb_diagnostic_code::ErrorClass::Query => "query",
-        icydb_diagnostic_code::ErrorClass::Unsupported => "unsupported",
+        icydb::diagnostic::ErrorClass::Internal => "internal",
+        icydb::diagnostic::ErrorClass::InvariantViolation => "invariant_violation",
+        icydb::diagnostic::ErrorClass::NotFound => "not_found",
+        icydb::diagnostic::ErrorClass::Query => "query",
+        icydb::diagnostic::ErrorClass::Unsupported => "unsupported",
     }
 }
 
-pub(in crate::db::sql) struct SqlDdlRenderInput<'a> {
-    pub(in crate::db::sql) entity: &'a str,
-    pub(in crate::db::sql) mutation_kind: &'a str,
-    pub(in crate::db::sql) target_index: &'a str,
-    pub(in crate::db::sql) target_store: &'a str,
-    pub(in crate::db::sql) field_path: &'a [String],
-    pub(in crate::db::sql) status: &'a str,
-    pub(in crate::db::sql) rows_scanned: u64,
-    pub(in crate::db::sql) index_keys_written: u64,
+pub(super) struct SqlDdlRenderInput<'a> {
+    pub(super) entity: &'a str,
+    pub(super) mutation_kind: &'a str,
+    pub(super) target_index: &'a str,
+    pub(super) target_store: &'a str,
+    pub(super) field_path: &'a [String],
+    pub(super) status: &'a str,
+    pub(super) rows_scanned: u64,
+    pub(super) index_keys_written: u64,
 }
 
 #[cfg_attr(
@@ -456,7 +450,7 @@ pub(in crate::db::sql) struct SqlDdlRenderInput<'a> {
     doc = "Render one `SHOW INDEXES` payload into deterministic shell output lines."
 )]
 #[must_use]
-pub fn render_show_indexes_lines(entity: &str, indexes: &[String]) -> Vec<String> {
+pub(crate) fn render_show_indexes_lines(entity: &str, indexes: &[String]) -> Vec<String> {
     let mut lines = vec![format!(
         "surface=indexes entity={entity} index_count={}",
         indexes.len()
@@ -471,7 +465,7 @@ pub fn render_show_indexes_lines(entity: &str, indexes: &[String]) -> Vec<String
     doc = "Render one `SHOW CONSTRAINTS` payload into deterministic shell output lines."
 )]
 #[must_use]
-pub fn render_show_constraints_lines(
+pub(crate) fn render_show_constraints_lines(
     entity: &str,
     constraints: &[EntityConstraintDescription],
 ) -> Vec<String> {
@@ -485,7 +479,7 @@ pub fn render_show_constraints_lines(
     doc = "Render one `SHOW COLUMNS` payload into deterministic shell output lines."
 )]
 #[must_use]
-pub fn render_show_columns_lines(output: &SqlShowColumnsOutput) -> Vec<String> {
+pub(crate) fn render_show_columns_lines(output: &SqlShowColumnsOutput) -> Vec<String> {
     match output {
         SqlShowColumnsOutput::Compact { columns, .. } => render_compact_column_lines(columns),
         SqlShowColumnsOutput::Verbose { entity, columns } => {
@@ -502,7 +496,7 @@ pub fn render_show_columns_lines(output: &SqlShowColumnsOutput) -> Vec<String> {
 
 /// Render accepted relation facts as one deterministic compact table.
 #[must_use]
-pub fn render_show_relations_lines(output: &SqlShowRelationsOutput) -> Vec<String> {
+pub(crate) fn render_show_relations_lines(output: &SqlShowRelationsOutput) -> Vec<String> {
     let rows = output
         .relations()
         .iter()
@@ -532,7 +526,7 @@ pub fn render_show_relations_lines(output: &SqlShowRelationsOutput) -> Vec<Strin
     doc = "Render one helper-level `SHOW ENTITIES` payload into deterministic lines."
 )]
 #[must_use]
-pub fn render_show_entities_lines(entities: &[EntityCatalogDescription]) -> Vec<String> {
+pub(crate) fn render_show_entities_lines(entities: &[EntityCatalogDescription]) -> Vec<String> {
     let rows = entities
         .iter()
         .map(|entity| {
@@ -572,7 +566,9 @@ pub fn render_show_entities_lines(entities: &[EntityCatalogDescription]) -> Vec<
     doc = "Render one verbose `SHOW ENTITIES` payload with full catalog paths."
 )]
 #[must_use]
-pub fn render_show_entities_verbose_lines(entities: &[EntityCatalogDescription]) -> Vec<String> {
+pub(crate) fn render_show_entities_verbose_lines(
+    entities: &[EntityCatalogDescription],
+) -> Vec<String> {
     let rows = entities
         .iter()
         .map(|entity| {
@@ -614,7 +610,7 @@ pub fn render_show_entities_verbose_lines(entities: &[EntityCatalogDescription])
     doc = "Render one helper-level `SHOW STORES` payload into deterministic lines."
 )]
 #[must_use]
-pub fn render_show_stores_lines(stores: &[StoreCatalogDescription]) -> Vec<String> {
+pub(crate) fn render_show_stores_lines(stores: &[StoreCatalogDescription]) -> Vec<String> {
     let rows = stores
         .iter()
         .map(|store| {
@@ -641,7 +637,7 @@ pub fn render_show_stores_lines(stores: &[StoreCatalogDescription]) -> Vec<Strin
     doc = "Render one verbose `SHOW STORES` payload with full catalog paths."
 )]
 #[must_use]
-pub fn render_show_stores_verbose_lines(stores: &[StoreCatalogDescription]) -> Vec<String> {
+pub(crate) fn render_show_stores_verbose_lines(stores: &[StoreCatalogDescription]) -> Vec<String> {
     let rows = stores
         .iter()
         .map(|store| vec![store.store_path().to_string(), store.storage().to_string()])
@@ -663,7 +659,7 @@ pub fn render_show_stores_verbose_lines(stores: &[StoreCatalogDescription]) -> V
     doc = "Render one helper-level `SHOW MEMORY` payload into deterministic lines."
 )]
 #[must_use]
-pub fn render_show_memory_lines(memory: &[MemoryCatalogDescription]) -> Vec<String> {
+pub(crate) fn render_show_memory_lines(memory: &[MemoryCatalogDescription]) -> Vec<String> {
     let rows = memory
         .iter()
         .map(|entry| {
@@ -698,8 +694,8 @@ fn render_catalog_path_tail(path: &str) -> &str {
 }
 
 #[must_use]
-pub(in crate::db::sql) fn render_query_rows_lines(projection: &RowProjectionOutput) -> Vec<String> {
-    let rows = render_projection_rows(projection.rows.as_slice());
+pub(super) fn render_query_rows_lines(projection: &RowProjectionOutput) -> Vec<String> {
+    let rows = sql_projection_display_rows(projection.rows.as_slice());
 
     render_projection_display_rows_lines(
         projection.columns.as_slice(),
@@ -711,7 +707,7 @@ pub(in crate::db::sql) fn render_query_rows_lines(projection: &RowProjectionOutp
 /// Render one SQL projection payload whose values were already converted to
 /// display text by the caller.
 #[must_use]
-pub fn render_projection_display_rows_lines(
+pub(crate) fn render_projection_display_rows_lines(
     columns: &[String],
     rows: &[Vec<String>],
     row_count: u32,
@@ -736,7 +732,7 @@ pub fn render_projection_display_rows_lines(
     doc = "Render one grouped SQL payload into pretty table lines for shell output."
 )]
 #[must_use]
-pub fn render_grouped_lines(grouped: &SqlGroupedRowsOutput) -> Vec<String> {
+pub(crate) fn render_grouped_lines(grouped: &SqlGroupedRowsOutput) -> Vec<String> {
     // Phase 1: expose the outward continuation cursor on its own line when
     // grouped pagination has more rows.
     let mut lines = Vec::new();
@@ -810,38 +806,4 @@ fn render_grouped_decimal_usize(value: usize) -> String {
     }
 
     rendered
-}
-
-fn render_table_widths(headers: &[String], rows: &[Vec<String>]) -> Vec<usize> {
-    let mut widths = headers.iter().map(String::len).collect::<Vec<_>>();
-    for row in rows {
-        for (index, value) in row.iter().enumerate() {
-            if index >= widths.len() {
-                widths.push(value.len());
-            } else {
-                widths[index] = widths[index].max(value.len());
-            }
-        }
-    }
-
-    widths
-}
-
-fn render_table_separator(widths: &[usize]) -> String {
-    let segments = widths
-        .iter()
-        .map(|width| "-".repeat(width.saturating_add(2)))
-        .collect::<Vec<_>>();
-
-    format!("+{}+", segments.join("+"))
-}
-
-fn render_table_row(cells: &[String], widths: &[usize]) -> String {
-    let mut padded_cells = Vec::with_capacity(widths.len());
-    for (index, width) in widths.iter().copied().enumerate() {
-        let value = cells.get(index).map_or("", String::as_str);
-        padded_cells.push(format!("{value:<width$}"));
-    }
-
-    format!("| {} |", padded_cells.join(" | "))
 }

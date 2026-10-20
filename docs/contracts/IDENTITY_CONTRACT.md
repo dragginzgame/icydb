@@ -55,7 +55,7 @@ Generated write inputs preserve that boundary. An authored scalar primary key
 for entity `E` uses `Id<E>`, and a direct scalar relation targeting `E` uses
 `Id<E>` (or the corresponding optional/many container). The generated adapter
 alone lowers the typed identity to its declared primitive key before accepted
-write admission. This changes neither row storage nor output/Candid key shape.
+write admission. This changes neither row storage nor output/native Wire key shape.
 Composite relation components remain declared primitive component types, and a
 schema-generated primary key remains absent from generated insert input.
 

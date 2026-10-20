@@ -12,11 +12,8 @@ fn icydb_memory_pool()
     )
 }
 
-icydb::start!();
+canic_icydb::start!(icydb);
 
-icydb::endpoints! {
+canic_icydb::endpoints! {
     icydb_schema(authorization = public);
 }
-
-#[cfg(feature = "candid-export")]
-ic_cdk::export_candid!();

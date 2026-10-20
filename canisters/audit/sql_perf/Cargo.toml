@@ -2,6 +2,7 @@
 name = "canister_audit_sql_perf"
 edition = { workspace = true }
 rust-version = { workspace = true }
+license-file = { workspace = true }
 version = { workspace = true }
 publish = false
 
@@ -13,16 +14,16 @@ crate-type = ["cdylib"]
 
 [features]
 default = []
-candid-export = []
 sql = ["icydb/sql"]
 test-admin-api = ["sql"]
 
 [dependencies]
-candid = { workspace = true }
-ic-cdk = { workspace = true }
+canic-icydb = { workspace = true }
+ic-platform = { workspace = true, features = ["ic0"] }
 ic-timers = { workspace = true }
 icydb = { workspace = true }
 icydb-testing-audit-sql-perf-fixtures = { workspace = true }
+icydb-testing-wasm-helpers = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 
 [build-dependencies]

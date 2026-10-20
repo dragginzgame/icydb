@@ -107,7 +107,7 @@ testing, release flow, changelogs, persistence safety, or repo navigation.
 
 - Code must be readable top-down without reverse-engineering intent.
 - Public API items need doc comments.
-- Candid wire surfaces should use plain `//` comments when doc strings would bloat wasm.
+- Endpoint contracts should keep runtime metadata limited to the maintained Wire identities and bounds.
 - Public `struct`, `enum`, and `trait` declarations need useful doc comments.
   Non-trivial private types need comments that explain intent or invariants;
   trivial private implementation types do not require ceremonial prose. The

@@ -1,46 +1,51 @@
 error[E0428]: the name `__IcydbEndpointsRootMarker` is defined multiple times
- --> tests/fail-endpoints/duplicate_block.rs:6:1
+ --> tests/fail-endpoints/duplicate_block.rs:9:1
   |
-5 | icydb::endpoints! {}
-  | -------------------- previous definition of the type `__IcydbEndpointsRootMarker` here
-6 | icydb::endpoints! {}
-  | ^^^^^^^^^^^^^^^^^^^^ `__IcydbEndpointsRootMarker` redefined here
+8 | canic_icydb::endpoints! {}
+  | -------------------------- previous definition of the type `__IcydbEndpointsRootMarker` here
+9 | canic_icydb::endpoints! {}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^ `__IcydbEndpointsRootMarker` redefined here
   |
   = note: `__IcydbEndpointsRootMarker` must be defined only once in the type namespace of this module
-  = note: this error originates in the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)
+  = note: this error originates in the macro `canic_icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0428]: the name `__icydb_endpoints_root_binding` is defined multiple times
- --> tests/fail-endpoints/duplicate_block.rs:6:1
+ --> tests/fail-endpoints/duplicate_block.rs:9:1
   |
-5 | icydb::endpoints! {}
-  | -------------------- previous definition of the value `__icydb_endpoints_root_binding` here
-6 | icydb::endpoints! {}
-  | ^^^^^^^^^^^^^^^^^^^^ `__icydb_endpoints_root_binding` redefined here
+8 | canic_icydb::endpoints! {}
+  | -------------------------- previous definition of the value `__icydb_endpoints_root_binding` here
+9 | canic_icydb::endpoints! {}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^ `__icydb_endpoints_root_binding` redefined here
   |
   = note: `__icydb_endpoints_root_binding` must be defined only once in the value namespace of this module
-  = note: this error originates in the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)
+  = note: this error originates in the macro `canic_icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0428]: the name `__ICYDB_ENDPOINT_DECLARATIONS` is defined multiple times
- --> tests/fail-endpoints/duplicate_block.rs:6:1
+ --> tests/fail-endpoints/duplicate_block.rs:9:1
   |
-5 | icydb::endpoints! {}
-  | -------------------- previous definition of the value `__ICYDB_ENDPOINT_DECLARATIONS` here
-6 | icydb::endpoints! {}
-  | ^^^^^^^^^^^^^^^^^^^^ `__ICYDB_ENDPOINT_DECLARATIONS` redefined here
+8 | canic_icydb::endpoints! {}
+  | -------------------------- previous definition of the value `__ICYDB_ENDPOINT_DECLARATIONS` here
+9 | canic_icydb::endpoints! {}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^ `__ICYDB_ENDPOINT_DECLARATIONS` redefined here
   |
   = note: `__ICYDB_ENDPOINT_DECLARATIONS` must be defined only once in the value namespace of this module
-  = note: this error originates in the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)
+  = note: this error originates in the macro `canic_icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error[E0252]: the name `__icydb_facade` is defined multiple times
- --> tests/fail-endpoints/duplicate_block.rs:6:1
+error[E0428]: the name `__icydb_endpoint_authorization` is defined multiple times
+ --> tests/fail-endpoints/duplicate_block.rs:9:1
   |
-5 | icydb::endpoints! {}
-  | -------------------- previous import of the module `__icydb_facade` here
-6 | icydb::endpoints! {}
-  | ^^^^^^^^^^^^^^^^^^^^
-  | |
-  | `__icydb_facade` reimported here
-  | help: remove unnecessary import
+8 | canic_icydb::endpoints! {}
+  | -------------------------- previous definition of the module `__icydb_endpoint_authorization` here
+9 | canic_icydb::endpoints! {}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^ `__icydb_endpoint_authorization` redefined here
   |
-  = note: `__icydb_facade` must be defined only once in the type namespace of this module
-  = note: this error originates in the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)
+  = note: `__icydb_endpoint_authorization` must be defined only once in the type namespace of this module
+  = note: this error originates in the macro `canic_icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unused import: `canic_icydb::__private::cdk as __icydb_host_sdk`
+ --> tests/fail-endpoints/duplicate_block.rs:2:5
+  |
+2 | use canic_icydb::__private::cdk as __icydb_host_sdk;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default

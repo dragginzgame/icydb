@@ -2,12 +2,9 @@
 //! One-entity dynamic-query canister used for wasm-footprint attribution.
 //!
 
-// Read IC counter 1 through the CDK; native Candid builds use its
-// unsupported host binding and provide no IC measurement evidence.
-#[cfg(not(target_arch = "wasm32"))]
-use ic_cdk::api::call_context_instruction_counter;
-#[cfg(target_arch = "wasm32")]
-use ic_cdk::api::call_context_instruction_counter;
+// IC counter 1 preserves the call-context sample boundary through Platform.
+// Native system calls provide no IC measurement evidence.
+use ic_platform::ic0::performance_counter;
 
 use ic_wire::{Method, ResponseBytes, decode_request, encode_response};
 use icydb::{
@@ -31,33 +28,34 @@ fn icydb_memory_pool()
     )
 }
 
-icydb::start!();
+canic_icydb::start!(icydb);
 
 const MAX_REPEATED_QUERIES: u16 = 1_000;
 
-// Artifact inspection binds this non-Candid export to its shared Method.
-#[cfg(target_arch = "wasm32")]
-#[used]
-#[expect(
-    unsafe_code,
-    reason = "the linker section contains only the shared read-only contract identity"
-)]
-#[unsafe(link_section = "icydb:wire")]
-static DYNAMIC_ROWS_WIRE_CONTRACT_ID: [u8; 8] = DynamicRowsQuery::ID.to_le_bytes();
-
-// Hidden from Candid because this method accepts and returns raw IC Wire.
-#[ic_cdk::query(manual_reply = true, hidden = true)]
+// The Canic adapter exports this raw IC Wire method.
 fn query_one_entity_dynamic_rows() {
-    // Admission precedes the CDK's argument copy and all database work.
-    if ic0::msg_arg_data_size() > DynamicRowsQuery::REQUEST_LIMITS.bytes {
-        ic_cdk::api::msg_reject("dynamic row query request limit");
+    // Admission precedes argument allocation/copy and all database work.
+    if ic_platform::ic0::msg_arg_data_size() > DynamicRowsQuery::REQUEST_LIMITS.bytes {
+        ic_platform::ic0::msg_reject(b"dynamic row query request limit");
         return;
     }
-    match dynamic_rows_reply(&ic_cdk::api::msg_arg_data(), dynamic_row_count) {
-        Ok(reply) => ic_cdk::api::msg_reply(reply.as_bytes()),
-        Err(error) => ic_cdk::api::msg_reject(error.to_string()),
+    match dynamic_rows_reply(&ic_platform::cdk::api::msg_arg_data(), dynamic_row_count) {
+        Ok(reply) => {
+            ic_platform::ic0::msg_reply_data_append(reply.as_bytes());
+            ic_platform::ic0::msg_reply();
+        }
+        Err(error) => ic_platform::ic0::msg_reject(error.to_string().as_bytes()),
     }
 }
+
+canic_icydb::wire_endpoint!(
+    query,
+    "query_one_entity_dynamic_rows",
+    DynamicRowsQuery::ID,
+    {
+        query_one_entity_dynamic_rows();
+    }
+);
 
 fn dynamic_rows_reply(
     request: &[u8],
@@ -83,7 +81,7 @@ fn dynamic_row_count() -> u32 {
 }
 
 /// Measure a bounded run of identical point queries inside one query message.
-#[ic_cdk::query]
+
 fn measure_repeated_point_queries(repetitions: u16) -> ((u16, u16, u32, u64),) {
     icydb::db::with_request_execution(|| {
         let executions = repetitions.min(MAX_REPEATED_QUERIES);
@@ -94,21 +92,22 @@ fn measure_repeated_point_queries(repetitions: u16) -> ((u16, u16, u32, u64),) {
             DynamicQuery::new("OneSimpleEntity01").filter(FieldRef::new("id").eq(Ulid::MIN));
         let mut failures = 0_u16;
         let mut rows = 0_u32;
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         for _ in 0..executions {
             match database.execute_trusted_live_page(&request, None) {
                 Ok(output) => rows = rows.saturating_add(output.row_count),
                 Err(_) => failures = failures.saturating_add(1),
             }
         }
-        let local_instructions = call_context_instruction_counter().saturating_sub(start);
+        let local_instructions = performance_counter(1).saturating_sub(start);
 
         ((executions, failures, rows, local_instructions),)
     })
 }
+icydb_testing_wasm_helpers::export_wire!(query, "measure_repeated_point_queries", MeasureRepeatedPointQueries, measure_repeated_point_queries, (repetitions: u16), ((u16, u16, u32, u64),));
 
 /// Measure point queries with one different key binding per execution.
-#[ic_cdk::query]
+
 fn measure_parameterized_point_queries(repetitions: u16) -> ((u16, u16, u32, u64),) {
     icydb::db::with_request_execution(|| {
         let executions = repetitions.min(MAX_REPEATED_QUERIES);
@@ -117,7 +116,7 @@ fn measure_parameterized_point_queries(repetitions: u16) -> ((u16, u16, u32, u64
         };
         let mut failures = 0_u16;
         let mut rows = 0_u32;
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         for value in 0..executions {
             let request = DynamicQuery::new("OneSimpleEntity01")
                 .filter(FieldRef::new("id").eq(Ulid::from_u128(u128::from(value))));
@@ -126,14 +125,15 @@ fn measure_parameterized_point_queries(repetitions: u16) -> ((u16, u16, u32, u64
                 Err(_) => failures = failures.saturating_add(1),
             }
         }
-        let local_instructions = call_context_instruction_counter().saturating_sub(start);
+        let local_instructions = performance_counter(1).saturating_sub(start);
 
         ((executions, failures, rows, local_instructions),)
     })
 }
+icydb_testing_wasm_helpers::export_wire!(query, "measure_parameterized_point_queries", MeasureParameterizedPointQueries, measure_parameterized_point_queries, (repetitions: u16), ((u16, u16, u32, u64),));
 
 /// Measure a bounded run of empty scans inside one query message.
-#[ic_cdk::query]
+
 fn measure_repeated_scan_queries(repetitions: u16) -> ((u16, u16, u32, u64),) {
     icydb::db::with_request_execution(|| {
         let executions = repetitions.min(MAX_REPEATED_QUERIES);
@@ -145,21 +145,22 @@ fn measure_repeated_scan_queries(repetitions: u16) -> ((u16, u16, u32, u64),) {
             .limit(1);
         let mut failures = 0_u16;
         let mut rows = 0_u32;
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         for _ in 0..executions {
             match database.execute_trusted_live_page(&request, None) {
                 Ok(output) => rows = rows.saturating_add(output.row_count),
                 Err(_) => failures = failures.saturating_add(1),
             }
         }
-        let local_instructions = call_context_instruction_counter().saturating_sub(start);
+        let local_instructions = performance_counter(1).saturating_sub(start);
 
         ((executions, failures, rows, local_instructions),)
     })
 }
+icydb_testing_wasm_helpers::export_wire!(query, "measure_repeated_scan_queries", MeasureRepeatedScanQueries, measure_repeated_scan_queries, (repetitions: u16), ((u16, u16, u32, u64),));
 
 /// Measure grouped declaration preparation and empty execution on warm calls.
-#[ic_cdk::query]
+
 fn measure_repeated_grouped_queries(repetitions: u16) -> ((u16, u16, u32, u64),) {
     icydb::db::with_request_execution(|| {
         let executions = repetitions.min(MAX_REPEATED_QUERIES);
@@ -173,22 +174,21 @@ fn measure_repeated_grouped_queries(repetitions: u16) -> ((u16, u16, u32, u64),)
             .limit(1);
         let mut failures = 0_u16;
         let mut rows = 0_u32;
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         for _ in 0..executions {
             match database.execute_trusted_dynamic_grouped_query(&request) {
                 Ok(output) => rows = rows.saturating_add(output.row_count),
                 Err(_) => failures = failures.saturating_add(1),
             }
         }
-        let local_instructions = call_context_instruction_counter().saturating_sub(start);
+        let local_instructions = performance_counter(1).saturating_sub(start);
 
         ((executions, failures, rows, local_instructions),)
     })
 }
+icydb_testing_wasm_helpers::export_wire!(query, "measure_repeated_grouped_queries", MeasureRepeatedGroupedQueries, measure_repeated_grouped_queries, (repetitions: u16), ((u16, u16, u32, u64),));
 
 // Export after all endpoints so the generated interface includes every method.
-#[cfg(feature = "candid-export")]
-ic_cdk::export_candid!();
 
 #[cfg(test)]
 mod wire_tests {

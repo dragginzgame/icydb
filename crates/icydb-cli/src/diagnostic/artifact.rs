@@ -5,7 +5,6 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs::File,
     io::Write,
     path::Path,
 };
@@ -180,44 +179,21 @@ impl DiagnosticSchemaArtifact {
         }
         #[cfg(unix)]
         {
-            use ic_host_fs::durable::{PublicationMode, WriteOptions, write_at_with};
-            use std::os::fd::AsFd as _;
+            use ic_host_fs::durable::{
+                PublicationMode, WriteOptions, write_existing_parent_validated_with,
+            };
 
-            // Keep directory-required spellings from becoming a different file target.
-            let raw_path = path.as_os_str().as_encoded_bytes();
-            if raw_path.ends_with(b"/") || raw_path.ends_with(b"/.") {
-                return Err(format!(
-                    "diagnostic artifact target requires a directory: '{}'",
-                    path.display()
-                ));
-            }
-
-            let name = path.file_name().ok_or_else(|| {
-                format!(
-                    "diagnostic artifact path has no filename: '{}'",
-                    path.display()
-                )
-            })?;
-            let parent = path
-                .parent()
-                .filter(|parent| !parent.as_os_str().is_empty())
-                .unwrap_or_else(|| Path::new("."));
-            // Retain existing parent/symlink selection and missing-parent refusal.
-            // Publication stays relative to this descriptor; no parents are created.
-            let directory = File::open(parent).map_err(|err| {
-                format!(
-                    "failed to open diagnostic artifact parent '{}': {err}",
-                    parent.display()
-                )
-            })?;
-            write_at_with(
-                directory.as_fd(),
-                name,
+            // Host admits the target and retains its existing parent descriptor;
+            // missing parents are refused and create-only publication never follows
+            // or replaces an occupied final entry.
+            write_existing_parent_validated_with(
+                path,
                 WriteOptions {
                     mode: PublicationMode::CreateNew,
                     permissions: 0o666,
                 },
                 |file| file.write_all(&bytes),
+                |()| Ok(()),
             )
             .map_err(|err| {
                 // Host's display preserves whether the complete output is visible.

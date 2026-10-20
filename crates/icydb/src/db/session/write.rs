@@ -12,7 +12,7 @@ use crate::{
     traits::CanisterKind,
     value::{InputValue, OutputValue, PublicEnumValue, PublicValue},
 };
-use candid::CandidType;
+
 use icydb_core as core;
 use serde::Deserialize;
 use std::{
@@ -30,7 +30,7 @@ pub use icydb_core::db::{TypedEntityDescriptor, TypedFieldDescriptor, TypedField
 /// The database retains the distinction through accepted-policy resolution.
 ///
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum WriteCell<T> {
     /// Supply no authored value for this operation.
     Omitted,

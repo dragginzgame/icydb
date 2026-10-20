@@ -1,7 +1,7 @@
-//! Shared workload and raw IC adapter for the isolated codec comparison.
+//! Finite workload and raw IC adapter for the isolated Wire actor.
 //! This fixture owns no database, codec, CDK or simulator lifecycle.
 
-/// Maximum argument/reply bytes admitted by both comparison actors.
+/// Maximum argument/reply bytes admitted by the actor.
 pub const MAX_FRAME_BYTES: usize = 64;
 
 /// Local adapter failure; application results remain ordinary row counts.
@@ -13,7 +13,7 @@ pub enum QueryCodecError {
     Encoding,
 }
 
-/// Count matching keys in the same finite row fixture for both codecs.
+/// Count matching keys in the finite row fixture.
 #[must_use]
 pub fn row_count(key: u64) -> u32 {
     [0, 7, 7, u64::MAX]
@@ -25,16 +25,16 @@ pub fn row_count(key: u64) -> u32 {
 #[cfg(target_arch = "wasm32")]
 pub fn serve_query(handler: fn(&[u8]) -> Result<Vec<u8>, QueryCodecError>) {
     let mut buffer = [0; MAX_FRAME_BYTES];
-    let Some(request) = buffer.get_mut(..ic0::msg_arg_data_size()) else {
-        ic0::msg_reject(b"codec query request limit");
+    let Some(request) = buffer.get_mut(..ic_platform::ic0::msg_arg_data_size()) else {
+        ic_platform::ic0::msg_reject(b"codec query request limit");
         return;
     };
-    ic0::msg_arg_data_copy(request, 0);
+    ic_platform::ic0::msg_arg_data_copy(request, 0);
     match handler(request) {
         Ok(reply) if reply.len() <= MAX_FRAME_BYTES => {
-            ic0::msg_reply_data_append(&reply);
-            ic0::msg_reply();
+            ic_platform::ic0::msg_reply_data_append(&reply);
+            ic_platform::ic0::msg_reply();
         }
-        Ok(_) | Err(_) => ic0::msg_reject(b"codec query rejected"),
+        Ok(_) | Err(_) => ic_platform::ic0::msg_reject(b"codec query rejected"),
     }
 }

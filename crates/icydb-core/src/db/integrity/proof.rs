@@ -245,12 +245,10 @@ fn allocation_registry_generation() -> Result<u64, InternalError> {
 #[cfg(not(test))]
 fn allocation_registry_generation() -> Result<u64, InternalError> {
     let runtime = memory_runtime().ok_or_else(InternalError::store_internal)?;
-    let allocations = runtime
-        .committed_allocations()
-        .map_err(|_| InternalError::store_internal())?;
-    // The opaque committed capability owns declaration validity and uniqueness.
-    // Integrity retains its exact generation as the read-set authority.
-    Ok(allocations.generation())
+    // The runtime owns declaration validity and its exact committed generation.
+    runtime
+        .committed_generation()
+        .map_err(|_| InternalError::store_internal())
 }
 
 #[cfg(test)]

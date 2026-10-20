@@ -2,6 +2,7 @@
 name = "canister_audit_codec_wire_query"
 edition = { workspace = true }
 rust-version = { workspace = true }
+license-file = { workspace = true }
 version = { workspace = true }
 publish = false
 

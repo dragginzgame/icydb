@@ -18,7 +18,6 @@ TYPED_QUERY="crates/icydb/src/db/query/typed.rs"
 TYPED_SESSION="crates/icydb/src/db/session/mod.rs"
 PREPARED_QUERY="crates/icydb/src/db/session/prepared_query.rs"
 GENERATED_SQL="crates/icydb-model/src/build/actor/db/sql.rs"
-GENERATED_ENDPOINT="crates/icydb-model/src/build/actor/endpoint.rs"
 
 extract_enum_variants() {
   local enum_name="$1"
@@ -103,10 +102,8 @@ require_literal \
   "$PREPARED_QUERY" \
   "accepted binding supplied to exact-key public admission" \
   '.execute_public_exact_key_batch_for_typed_binding(binding.inner(), keys)'
-require_literal \
-  "$GENERATED_ENDPOINT" \
-  "generated query controller gate" \
-  'require_sql_controller'
+# Canic owns endpoint authorization; installed endpoint tests qualify that
+# dependency boundary. This scan retains IcyDB's private trusted SQL handoff.
 require_literal \
   "$GENERATED_SQL" \
   "generated query trusted dispatch" \

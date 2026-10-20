@@ -2,6 +2,7 @@
 name = "icydb-testing-audit-group-path-fixtures"
 edition = { workspace = true }
 rust-version = { workspace = true }
+license-file = { workspace = true }
 version = { workspace = true }
 publish = false
 description = "Frozen scalar record-path grouping comparison schema"

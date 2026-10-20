@@ -31,41 +31,41 @@ This list is derived from the canonical scalar registry's
 value has a canonical storage-key encoding; it does not make every compatible
 primitive a good domain identity.
 
-`U256` is an inline, fixed-width unsigned domain for values from zero through
-`2^256-1`. Its public Candid carrier is `nat`, so generated JavaScript and
-TypeScript clients use `bigint`; IcyDB rejects an admitted value above the
-fixed-width maximum during ingress. Persistence and index keys use IcyDB-owned
-32-byte encodings rather than Candid's variable-length wire representation.
-Database arithmetic is checked, not Ethereum-style wrapping arithmetic.
+`U256` is an inline, fixed-width unsigned domain from zero through `2^256-1`.
+Its native Wire projection is an exact 32-byte big-endian byte string. Human-readable
+Serde, including JSON, uses decimal strings. Negative and oversized values reject.
+Database arithmetic is checked. Row, index and cursor encodings retain their
+separate database-owned contracts.
 
-`Ulid` uses a Candid `blob` (`vec nat8`) containing exactly 16 bytes in
-`Ulid::to_bytes()` order. Generated clients must send and receive those bytes;
-regenerate bindings when adopting this wire contract. Human-readable Serde
-(including JSON), display, and SQL literals use canonical 26-character ULID
-text. Binary Serde uses the same 16-byte byte-string payload as Candid;
-external binary snapshots must be regenerated. Database row and key payloads
-already store ULID bytes and require no recreation for this transport change.
+`Ulid` crosses the Wire boundary as exactly 16 bytes in `Ulid::to_bytes()` order.
+Human-readable Serde, display and SQL literals use canonical 26-character text.
+Binary Serde emits a byte string and validates its exact width before copying.
 
-`Date` uses native Candid `int32` epoch days and ISO `YYYY-MM-DD` text in JSON.
-Binary Serde emits integer epoch days and rejects dates outside years 0000–9999;
-human-readable ingress accepts ISO text. `Subaccount` uses exactly 32 bytes in
-Candid and binary Serde, while JSON retains its 32-element byte array. Binary
-Serde emits a byte string and checks exact length with bounded decoding.
-Regenerate external binary snapshots containing these atoms, including nested
-Accounts. Their custom database/index/cursor encodings stay unchanged; Account
-still reserves its fixed 62-byte database payload.
+`Date` uses signed 32-bit epoch days in Wire/binary Serde and ISO `YYYY-MM-DD`
+text in JSON. Its calendar domain remains years 0000–9999. `Subaccount` uses an
+exact 32-byte byte string in Wire/binary Serde and a 32-element byte array in JSON.
+Account database payloads still reserve their existing fixed 62-byte width.
+`Account` owns its bounded ICRC-1 text representation without a ledger dependency.
+Applications that need external ledger types construct them from `owner()` and
+`subaccount()`; IcyDB provides no upstream ledger conversions.
 
-`Decimal` uses decimal text for both Candid and Serde, including binary Serde
-formats such as CBOR. Clients should submit that same text representation.
-`Int128` uses native Candid `int`; `Nat128` and `U256` use native `nat`.
-Their Rust and database numeric domains remain fixed-width even though Candid's
-integer wire representation is variable-length.
+`Decimal` uses decimal text in Wire and Serde, including CBOR. `Int128` and
+`Nat128` retain fixed-width numeric domains and use Postcard's signed/unsigned
+integer representations. These atoms do not require an arbitrary-precision
+integer adapter in IcyDB.
 
-`U256` uses decimal strings in human-readable Serde (including JSON). Binary
-Serde uses native u64 for representable values; larger values use a byte string
-with marker 1 followed by the minimal little-endian unsigned magnitude.
-Ingress rejects negative values and values above 256 bits. Its public Candid
-shape remains native `nat`; row/index/cursor encodings have separate contracts.
+Generated endpoints use IC Wire method/direction envelopes and bounded native
+Postcard projections. Strings and collections are admitted by complete message
+bytes, allocation, node count and depth. Native callers share the public Rust
+payloads and `icydb::wire::Endpoint`; opaque native projections currently have no
+automatically generated TypeScript schema. Changing a payload layout requires a
+coordinated method-identity change and matching caller updates.
+
+Regenerate external transport and binary-Serde artifacts when adopting this cut.
+Binary Serde for Blob is a byte string and U256 has one exact-width byte shape.
+There is no previous-format reader. This endpoint change does not modify custom
+row/index/cursor encodings; the pending integer-tag hard cut has its own database
+recreation obligations.
 
 Direct row fields declared `Int8`/`Nat8`, `Int16`/`Nat16`, and `Int32`/`Nat32`
 store 1, 2, and 4 little-endian payload bytes respectively, plus the two-byte
@@ -116,14 +116,10 @@ Authored fields use valid Rust `snake_case` identifiers. Required and optional
 single relations end in `_id`; collection relations end in `_ids`. The suffix
 describes relation shape only and grants no authority.
 
-The model compiler rejects the following union of Rust, Candid, and IcyDB
+The model compiler rejects the following union of Rust and IcyDB
 reserved field identifiers:
 
 <!-- icydb-reserved-field-identifiers:start -->
-- Candid: `blob`, `bool`, `composite_query`, `empty`, `float32`, `float64`,
-  `func`, `import`, `int`, `int8`, `int16`, `int32`, `int64`, `nat`, `nat8`,
-  `nat16`, `nat32`, `nat64`, `null`, `oneway`, `opt`, `principal`, `query`,
-  `record`, `reserved`, `service`, `text`, `type`, `variant`, and `vec`.
 - IcyDB scalar labels: `int128` and `nat128`.
 - Rust: `as`, `break`, `const`, `continue`, `crate`, `else`, `enum`, `extern`,
   `false`, `fn`, `for`, `gen`, `if`, `impl`, `in`, `let`, `loop`, `match`,
@@ -260,13 +256,11 @@ the [nested storage contract](../contracts/NESTED_STORAGE.md).
 
 ## Serializing Generated Values Into Application Blobs
 
-Use `traits(add(Serialize))` on a generated value that an application codec
-serializes. `Deserialize` remains generated automatically; `Serialize` is
-opt-in, not a new default for every model.
+Generated application values implement both `Serialize` and `Deserialize`
+automatically; every nested generated value supports the same neutral traits.
 
 ```rust
 #[record(
-    traits(add(Serialize)),
     fields(field(name = "rank", value(item(prim = "Nat64"))))
 )]
 pub struct Profile {}
@@ -276,9 +270,8 @@ let bytes = serde_json::to_vec(&vec![Profile { rank: 7 }])?;
 let profiles: Vec<Profile> = serde_json::from_slice(&bytes)?;
 ```
 
-Use the trait directive, not an outer `#[derive(Serialize)]` on a declaration
-whose fields the model macro generates. Opt in each generated nested value
-that needs serialization too; all contained types must implement the trait.
+Do not add `Serialize` explicitly through a trait directive or an outer derive.
+The model macro owns the generated fields and emits the required serializer.
 The compiler emits the serializer through its existing trait-generation path,
 including when the IcyDB dependency is renamed. No handwritten field inventory
 or direct dependency on IcyDB implementation crates is needed.
@@ -302,7 +295,7 @@ A single canister can keep its declarations in one package:
 canisters/app/Cargo.toml        # [package] build = "src/build.rs"
 canisters/app/src/design/mod.rs # canister, store, entity and named-type declarations
 canisters/app/src/build.rs      # mod design; main calls build_canister!(design::AppCanister)
-canisters/app/src/lib.rs        # mod design; icydb::start!(); application endpoints
+canisters/app/src/lib.rs        # mod design; canic_icydb::start!(icydb); application endpoints
 ```
 
 Put `icydb` in both `[dependencies]` and `[build-dependencies]`. The build
@@ -378,7 +371,7 @@ physical exclusions for unmanaged host memory. All admitted owners share eligibl
 free slots. Namespaces do not reserve an ID range.
 `ic-memory` persists the key-to-ID mapping. The schema does not assign physical
 IDs. Use disjoint namespace grants when composing databases
-or frameworks. `icydb::start!` exposes `icydb_memory_requests() -> Result<Vec<MemoryRequest>,
+or frameworks. `canic_icydb::start!` exposes `icydb_memory_requests() -> Result<Vec<MemoryRequest>,
 MemoryDeclarationError>` at the application root. It describes every permanent
 control and journaled store role before any lazy store opens; heap stores add no
 stable requests. A composed host combines this list with its other components,

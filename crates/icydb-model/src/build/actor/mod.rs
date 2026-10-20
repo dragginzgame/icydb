@@ -5,7 +5,6 @@
 
 mod crate_path;
 mod db;
-mod endpoint;
 
 use std::sync::Arc;
 
@@ -168,11 +167,7 @@ fn hex_bytes(bytes: &[u8]) -> String {
 /// Render private operational capabilities and authorization policies used by
 /// source-declared endpoint wrappers.
 fn generate_endpoint_runtime() -> TokenStream {
-    let authorization = endpoint::emit_endpoint_authorization_helpers();
-
     quote! {
-        #authorization
-
         #[allow(
             unused_imports,
             reason = "downstream endpoint declarations select a feature-dependent handler subset"
@@ -332,7 +327,6 @@ mod tests {
         let surface = compact_tokens(actor_builder().generate());
 
         assert!(surface.contains("pub(crate)modendpoint_handlers"));
-        assert!(surface.contains("pub(crate)modendpoint_authorization"));
         for forbidden in [
             "ic_cdk::query",
             "ic_cdk::update",

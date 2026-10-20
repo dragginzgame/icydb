@@ -1,11 +1,11 @@
 error: no rules expected `,`
- --> tests/fail-lifecycle/participant_malformed.rs:1:26
+ --> tests/fail-lifecycle/participant_malformed.rs:1:39
   |
-1 | icydb::start!(participant,);
-  |                          ^ no rules expected this token in macro call
+1 | canic_icydb::start!(icydb; participant,);
+  |                                       ^ no rules expected this token in macro call
   |
 note: while trying to match `participant`
- --> src/lib.rs
+ --> $WORKSPACE/.cache/cargo/icydb/git/checkouts/canic-a5eca58db9c0a3b8/1491dd9/crates/canic-icydb/src/lifecycle/mod.rs
   |
-  |     (participant) => {
-  |      ^^^^^^^^^^^
+  |     ($database:path; participant) => {
+  |                      ^^^^^^^^^^^

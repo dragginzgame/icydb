@@ -1,8 +1,8 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `08b6a6ae4e1ea39140f42eebd692a506c4e08c09`
-(Shared 0.13.3 plus the reviewed fixture-probe extension). Root
+at reviewed revision `6230989d9f4dc090af4e80283eda4aee75f67bfd`
+(Shared Tooling 0.24.1). Root
 [AGENTS.md](../../AGENTS.md) is the local overlay. The shared approved layout
 retains existing canister, schema and testing packages in their
 restored directories, in the single root workspace and lockfile; no new package
@@ -13,17 +13,155 @@ these rules.
 
 ## Ownership and provenance
 
+### Release fixture correction in Shared Tooling 0.24.1
+
+Release validation selects scratch under the checkout's `.cache/release-tmp`.
+The 0.24.0 copier rejected every descendant fixture before exercising the release
+adapters. The canonical 0.24.1 copier permits nested scratch only after checking
+the complete copy plan for selected-input collisions and aliased outputs,
+including hard links; source equality and ancestor destinations still refuse.
+The snapshot was previewed and refreshed from the clean, committed 0.24.1 source
+without changing local temporary-directory selection or copying policy downstream.
+Consumer formatting retains its required derive sorting alongside grouped Cargo
+formatting; other pending work and retained failure evidence are preserved.
+
+### Current capability boundary
+
+IcyDB owns accepted-schema authority, query planning and execution, storage/key
+formats, recovery semantics, its public database facade and application-model
+code generation. Its CLI and test actors are consumers of that implementation.
+The main public entry points are the `icydb` facade (`db`, `model`, `types`,
+`value`, `wire` and host-only `build`), the independently published schema/model
+and diagnostic packages, and the `icydb` CLI. Applications explicitly mount
+`canic_icydb::start!` and `canic_icydb::endpoints!` for IC exports.
+
+| Capability | Canonical owner | IcyDB integration retained |
+| --- | --- | --- |
+| IC endpoint exports, lifecycle composition and startup timer hosting | Canic's `canic-icydb` adapter | Private generated database handlers, explicit adapter mounting and installed boundary tests |
+| Native payload/envelope encoding, sizing and TypeScript codec runtime | IC Wire | Endpoint identities, concrete Serde metadata, byte/resource policy and scalar validation |
+| Principal identity and Candid/CDK dependency surfaces | IC Platform | Feature-free Principal imports, qualified raw calls and explicit `cdk` selection for fixture runtime helpers; no direct SDK exceptions |
+| Allocation admission and exclusive memory leases | IC Memory | Database logical keys, host grant declarations and storage-role bindings |
+| Governed collections and stable codec interfaces | IC Storage (upstream substrate: IC Stable Structures) | Database-owned codecs, namespaces, indexes, transactions and retained-control admission |
+| Counter/aggregate arithmetic | IC Metrics | Database phase/entity attribution, report selection and resets |
+| Cargo/Wasm acquisition and retained artifact caches | IC Build | Actor recipes, optimizer/interface policy and report budgets |
+| Hash/file/process/text primitives | IC Host Tooling | Product artifact admission, tool pins and CLI presentation |
+| PocketIC setup, admission, browser gateway and server/instance lifecycle | IC Testkit | Test scenarios, fixture identities and native Wire calls |
+| Shared installers, release plumbing and structural scanner | Shared Tooling snapshots | Local Make inputs, release metadata adapters and runtime source inventories |
+
+The manifests and selected source packages establish these boundaries. Available
+sibling repositories were read as supporting evidence, including their dirty
+and pending work; they are not implicit dependencies. The selected Wire 0.4.0
+archive includes the browser runtime, so its earlier Git-only copy and private
+fetch action are retired. The browser keeps its concrete Decimal adapter, and
+IcyDB keeps lifecycle/recovery integration fixtures: these supply consumer policy
+and qualification rather than another codec, timer runtime or simulator owner.
+Canic's adapter deliberately has no IcyDB dependency; facade compile fixtures
+therefore still qualify real generated handlers, feature gates and guard types
+against the selected adapter rather than a fake database API.
+`ic-query` is an independent read-only network explorer, not the owner of IcyDB's
+SQL shell. The bounded project-local ICP manifest reader still serves local-cycle
+policy; no replacement project-discovery interface was verified in Host.
+
+### Consumer tooling qualification
+
+Shared Tooling owns the generic Rust-installer and dependency-pin refusal
+matrices. IcyDB selects its actual tools and qualifies their integration here.
+The unused generic fixture roots and cache-key companion are retired through
+the canonical exporter at the same recorded 0.24.1 revision.
+
+| Consumer obligation | Retained proof |
+| --- | --- |
+| Setup ordering, arguments and Rust tool selection | `scripts/ci/test-workstation-setup.sh` and `scripts/ci/test-shared-tooling-adapters.sh` |
+| Actual dependency declarations and lock inventory | `make check-dependency-pins` and `scripts/ci/test-cargo-metadata-adoption.sh` |
+| Testkit CLI and borrowed-server wiring | `scripts/ci/test-testkit-tooling.sh` and `scripts/ci/test-pocketic-server-wrapper.sh` |
+| Hook preservation | `scripts/ci/test-pre-commit.sh` |
+| Release receipts, refusals and publication | Existing release-adapter and publication fixtures in `check-portable-automation` |
+| Failure evidence and fixture completion | `scripts/ci/test-tooling-fixture-completion.sh` and validation-adapter fixtures |
+
+Prepared-tool admission and supported native host/product lanes remain selected.
+Shared host documentation describes producer fixtures that need not be vendored
+by every consumer. Linux fixture results do not qualify native macOS.
+
+Entries below record earlier source-bound adoption evidence. Their dependency
+versions and remaining prerequisites do not override the current manifests or
+establish qualification of later inputs. Native macOS/hosted CI remains separate
+from Linux consumer checks.
+
+### Selected IC Storage 0.5.4 — 2026-10-18
+
+The latest non-yanked registry release inspected is 0.5.4, source
+`26a639080b000a30fe9179a11c6e6809fceceb80`, archive SHA-256
+`b20256db7b158944c090d2c58028401f61ce846cd885e1accef3fde44d78d3d7`.
+The published archive provides `BTreeMapRegion`, retains MSRV Rust 1.91 and has
+no optional features. The incoming lockfile already selected this release;
+the manifest now requires it and removes core's direct substrate edge. Unrelated
+pending dependency selections and workspace/package versions are preserved.
+
+The region consumes the existing `Rc<RuntimeMemory>` and reloads the tree for
+each operation. IcyDB selects the unchanged `257..4_194_304` page range and
+keeps its framing, CRC, namespace and record-limit checks before accepting
+retained state. The local tree-reloading helper and expired mutation lint
+expectations are removed. No data copy, new allocation, reader fallback or
+format change is needed. [Storage #15](https://github.com/dragginzgame/ic-storage/issues/15)
+records the supplied capability and consumer qualification.
+
+All active collections and codec interfaces now use Storage; backing setup and
+IO use Memory. The two frame-admission refusal fixtures use a small test backing
+that limits growth through Memory's public trait. It injects physical exhaustion
+only; it implements no region, allocator or collection. The direct substrate
+allowlist is empty, including test/build/inactive-target declarations and aliases.
+Upstream Memory and Storage still resolve stable structures 0.7.2 transitively;
+removing direct declarations does not remove its implementation from Wasm.
+
+Focused Linux checks pass 222 consumer tests, with 51 control cases repeated
+after the final iterator cleanup; strict core native library/test and Wasm lint;
+public Rust 1.91 Wasm compilation; formatting; and canonical dependency controls.
+The published archive's old-layout interoperability/cold-reopen test passes on
+its packaged Memory 0.48.0 lock, separately from consumer Memory 0.48.2. A local
+Testkit-owned SQL fixture preserves rows, schema and index creation/deletion
+through repeated upgrades. The concurrent Testkit 0.54.1 selection is preserved;
+canonical CLI setup/check admits PocketIC 16.1.0. Native macOS, installed-IC and
+broad workspace/release gates remain unrun. Raw-Wasm/cycle/instruction deltas
+are unmeasured. Evidence: `target/ic-storage-0.5.4-adoption/`.
+
+### Selected IC Storage 0.5.3 — 2026-10-18
+
+The latest non-yanked registry release inspected is 0.5.3, source
+`249da24992da229464b809d44ffed7f5ab8d4bae`, archive SHA-256
+`c088cc603e89894ef0b03aec48c11df4b10a3025b6224c05539e5de4120abe42`.
+Its MSRV is Rust 1.91 and it has no optional features. The published adapter
+consumes Memory 0.48 exclusive leases and preserves upstream 0.7.2 collection
+bytes, initialization and failure behavior; no sibling checkout supplies APIs.
+
+Data, index, accepted-schema, journal-tail and job-progress maps use
+`ic_storage::adapter::StableBTreeMap`. All stable codec traits and bounds use
+Storage; backing types and IO traits use Memory's published root exports.
+IcyDB retains byte admission, bounded/fallible domain decoding, namespace policy,
+overlays, transactions and recovery. No collection implementation, local
+compatibility facade, extra allocation or alternate format is introduced.
+
+At that qualification, the shared control tree and restricted-memory fixtures
+retained a direct substrate dependency. The missing governed region interface
+was recorded in [Storage #15](https://github.com/dragginzgame/ic-storage/issues/15).
+The 0.5.4 adoption above supersedes that exception. Historical investigation
+drivers remain frozen evidence, not active consumers.
+
+Focused Linux qualification passes 206 storage, codec, recovery and refusal
+tests; strict core library/test and Wasm library lint; the public Rust 1.91 Wasm
+feature combination; grouped formatting; and canonical dependency/alias/disabled
+optional/inactive-target controls. One Testkit-owned local SQL fixture preserves
+rows, accepted schema and index creation/deletion through repeated upgrades.
+Native macOS, installed-IC and broad workspace/release gates were not run.
+Matched raw-Wasm, cycle and instruction deltas are unmeasured. Source-bound
+evidence is retained under `target/ic-storage-0.5.3-adoption/`.
+
 ### Structural Rust scanner source
 
-The additive [.shared-rust-source.snapshot](../../.shared-rust-source.snapshot)
-selects only Shared Tooling's panic scanner, semantic fixtures and compilation
-guide at reviewed commit `48f546ad4671351bba45f89fb007a2c42be521e1`
-([Shared #225 — Rust panic scanner](https://github.com/dragginzgame/shared-tooling/issues/225),
-[PR #226](https://github.com/dragginzgame/shared-tooling/pull/226)). This is the
-reviewed contribution commit, not a claim of a released scanner API. The root governance/tool snapshot above remains unchanged. Both selections use
-the same unchanged verifier bytes; the panic gate verifies the additive source
-before compilation. A later full adoption can consolidate these roots through
-the existing exporter ownership handover.
+The root [.shared-tooling.snapshot](../../.shared-tooling.snapshot) now owns the
+panic scanner, semantic fixtures and compilation guide alongside the governance
+and tooling payloads. Canonical exporter takeover verified the earlier additive
+snapshot's source, hashes and modes before retiring its receipt. The panic gate
+and its copied-source fixtures verify the consolidated manifest.
 
 Private `testing/source-checks/` compiles the shared source under the existing
 workspace and selected lockfile. It depends only on Syn/proc-macro2, with no
@@ -31,6 +169,366 @@ database, Build, Testkit or PocketIC edge. IcyDB retains source-root discovery,
 required nonempty inventories and actual production scans. Shared owns syntax,
 macro, cfg and parser regressions; its source has no independent installed tool
 or dependency selection.
+
+### Selected IC Platform 0.1.10 — 2026-10-18
+
+The latest non-yanked registry release inspected for this adoption is 0.1.10.
+The downloaded facade archive has SHA-256
+`1d3eaa384ad518116caaece25b1aca069473b7010e46e17d2fa23f0a3e1d2898`,
+source `4bf7341023939cda613f814a844142196d0ef374` and MSRV 1.88.
+The paired published `ic-platform-macros` 0.1.10 archive has SHA-256
+`1f1157909c578de096910a18013d49f31772e039417032fe66b8e6639283cd9e`.
+Registry source, features, README and source-bound release notes were inspected;
+no sibling checkout supplies an unpublished dependency.
+
+The published `cdk::api` exports preserve upstream caller Principal construction
+and argument Vec allocation. The read/schema/SQL guard actors and dynamic Wire
+actor select `cdk` and use these exact helpers. Remove their four direct CDK
+declarations and the workspace catalog entry; all Candid/CDK/Principal/raw-ABI
+dependency allowlists are now empty. No convenience wrapper, compatibility
+alias, replacement executor or generated endpoint route is added. Canic retains
+endpoint/lifecycle composition and Wire retains application protocols.
+
+Only those four fixtures select `cdk`. That feature intentionally brings upstream
+Candid, CDK 0.20.3, executor 2.0.0 and IC0 1.2.0; the graph contains one registry
+identity for each runtime. Platform macros 0.1.10 compile as a host proc macro;
+IcyDB continues using Canic's endpoint macros. Principal-only users keep defaults
+disabled, and raw core/codec callers keep the independent `ic0` feature. Their
+normal Wasm graphs contain no Candid, CDK, parser, Agent or Platform macros.
+Native host tooling selects Platform Candid/parser independently. These graph
+observations do not establish final deployed-byte exclusions; [#378](https://github.com/dragginzgame/icydb/issues/378)
+still owns consumer artifact admission. Storage and memory semantics are unchanged.
+
+Strict native/Wasm Clippy passes for all four actors with all their features;
+focused integration Clippy and public Rust 1.91 native/Wasm checks pass too.
+Shared's canonical direct-boundary and alias/normal/build/dev/inactive-target
+controls pass, as do Rust and grouped manifest formatting. The current inputs
+retain Testkit 0.54, Timers 0.27.1 and the incoming Host/Build/Wire selections.
+Testkit's canonical setup prepares its selected CLI and checks PocketIC 16.1.0;
+Testkit owns simulator startup and cleanup.
+
+Four live cases pass: dynamic Wire rejection/reply/upgrade, current least-privilege
+policy through upgrade, and both guard authorization instruction ceilings.
+Each guard's caller probe observes 1,920 IC instructions; these are current spans,
+not matched before/after deltas. The [existing Platform issue](https://github.com/dragginzgame/ic-platform/issues/1#issuecomment-6250256204)
+records the resolved IcyDB exceptions; no new API gap or duplicate issue was found.
+Native macOS, installed IC and broad workspace/release gates remain unqualified.
+Wasm/cycle/instruction deltas are unmeasured. Version-specific evidence is retained
+under `target/ic-platform-0.1.10-adoption/`.
+
+### Selected IC Platform 0.1.9 — 2026-10-18
+
+The latest non-yanked registry release inspected for this adoption is 0.1.9.
+Its actual archive SHA-256 is
+`bdfb66170e95bae421449fbd50e3e2a26196fbd6277ae13556026bf3001974c3`,
+with source `491c63d2d94ffd225d6dd7de35f04c6c4a78ff67` and MSRV 1.88.
+Published source and README provide the required replicated-execution flag,
+reply append and rejection operations under the existing independent `ic0`
+feature, preserving upstream 1.2.0 identities. Remove both direct raw ABI
+consumer declarations and their workspace catalog entry; deny raw ABI
+declarations through the existing canonical dependency policy. Core entropy and
+metrics, and the finite 64-byte codec actor, now use Platform exclusively.
+The dynamic Wire actor uses Platform for exact rejection bytes and ordered
+append/finalize while retaining its existing pre-copy size admission.
+
+Four fixture CDK declarations remain for `msg_caller() -> Principal` and
+`msg_arg_data() -> Vec<u8>`, which the published README explicitly excludes
+from its raw facade. The [existing runtime issue](https://github.com/dragginzgame/ic-platform/issues/1#issuecomment-6249383117)
+records the satisfied raw subset and these remaining consumer requirements;
+no duplicate issue, local convenience wrapper or runtime replacement is added.
+Canic retains exports/lifecycle and IC Wire retains application protocols.
+Storage and memory ownership/semantics are unchanged.
+
+The complete native workspace also enables Platform Candid/parser through IC
+Host 0.27.3. That workspace feature union does not describe deployment units.
+Selected core and finite codec normal Wasm graphs contain no Candid, CDK,
+parser or Agent; the dynamic actor still has Canic's upstream SDK stack.
+The resolved executor and raw system identities remain registry 2.0.0 and
+1.2.0. Declaration and graph checks do not bind transitive admission to final
+deployed bytes; that consumer build integration remains [#378](https://github.com/dragginzgame/icydb/issues/378).
+
+Focused Linux checks pass strict native/Wasm Clippy, public Rust 1.91 native/Wasm
+combined-feature facade compilation, canonical dependency boundaries and
+alias/normal/build/dev/inactive-target controls. Testkit's existing offline check
+admits the selected PocketIC 16.1.0 binary; Testkit owns simulator startup and
+cleanup. The actual dynamic Wire rejection/reply/upgrade test and metrics
+query/trap/subsequent-update isolation test pass. Initial attempts stopped before
+simulator startup because `POCKET_IC_BIN` was unset; configured runs pass.
+Native macOS, installed IC and broad workspace/release gates remain unqualified;
+raw Wasm/cycle/instruction deltas are unmeasured. Evidence is retained under
+`target/ic-platform-0.1.9-adoption/`.
+
+These passing checks used locked Timers 0.27.1. During final qualification the
+workspace selection independently advanced to `ic-timers = "0.28"`, while the
+pinned Canic adapter still requires `^0.27`. Further codec/dynamic native tests
+and the codec actor Wasm check stop at Cargo's `ic-timers-global-timer` links
+conflict. Preserve that incoming migration; these earlier passing checks do not
+qualify the unresolved current graph. This is not a Platform API failure.
+
+### Selected IC Platform 0.1.8 — 2026-10-18
+
+Registry 0.1.8 was published at `2026-10-18T10:15:22Z`. Its archive SHA-256 is
+`4a3adb6d9785133587b854b66b37dfdd8f7945555bdc59b6d0be26995187484d`,
+with source `57fcf8d4f55914dedf0a25e70cec2e8affb3fb82` and MSRV 1.88.
+The new Candid decoder and management history/snapshot/status DTO surfaces are
+not used by IcyDB. Only `ic0` remains enabled; protocols stay on Wire and Canic
+retains exports/lifecycle. The raw module is byte-identical to 0.1.7.
+
+The four direct CDK and two direct raw ABI exceptions remain necessary. A pinned
+standalone Wasm consumer still produces E0432 for `in_replicated_execution`,
+`msg_reject` and `msg_reply_data_append`; no supported replacement is supplied.
+The existing [runtime issue](https://github.com/dragginzgame/ic-platform/issues/1#issuecomment-6248720103)
+records the 0.1.8 reproduction and unchanged acceptance checks. No duplicate
+issue, wrapper or new local platform behavior is introduced.
+
+Focused Linux checks pass native/Wasm Clippy for core/facade/schema, 158 schema
+and four guard tests, Rust 1.91 native/Wasm compilation, 68 locked graph selections,
+canonical boundary and alias/target controls, formatting, snapshot/pins and docs.
+The existing Build 0.17.2 harness API migration remains a simulator qualification
+gap; native macOS, installed IC and broad workspace/release gates remain unqualified.
+No IC network lifecycle action ran, and raw Wasm/cycle/instruction deltas are
+unmeasured. Version-specific evidence is in `target/ic-platform-0.1.8-adoption/`.
+
+### Selected IC Platform 0.1.7 — 2026-10-18
+
+The non-yanked registry 0.1.7 release was published at `2026-10-18T09:51:50Z`.
+The actual archive checksum is
+`84225cc3f79736891da8751103a19dab8d74fd1f15e40d04e61a25ee3c974257`
+with source `726728e4935dcf243369a0200081c3633c890c16` and MSRV 1.88.
+Its root Principal exports and raw `ic0` module are byte-identical to 0.1.6.
+The newly documented raw-CDK method subset does not provide a Platform runtime
+facade; IcyDB already uses Canic exports and IC Wire envelopes. No Candid codec,
+executor, adapter or storage behavior changes in this update. Platform continues
+to select only `ic0`, with default and Candid/parser/executor features disabled.
+
+Four direct CDK dependencies and two direct `ic0` dependencies remain for the
+same published-API gaps recorded below. A standalone Wasm consumer of exactly
+0.1.7 reproduces E0432 for `in_replicated_execution`, `msg_reject` and
+`msg_reply_data_append`. The selected upstream `ic0` 1.2.0 already supplies these
+identities; the Platform roster omits them. The
+[existing runtime issue](https://github.com/dragginzgame/ic-platform/issues/1#issuecomment-6248546306)
+now records the selected archive, exact consumer paths, minimal reproduction and
+acceptance checks. It also retires IcyDB's earlier logging requirement. The
+completed Timers roster in Platform #8 is not reopened, and no duplicate issue
+or local raw-call wrapper is introduced. Host parsing and transitive SDK/Candid
+ownership remain as described below.
+
+Focused Linux qualification passes native/Wasm Clippy for core, facade and schema,
+158 schema and four guard tests, Rust 1.91 native/Wasm combined-feature checks,
+68 locked graph selections, canonical dependency/alias/target controls, formatting,
+snapshot/pin and documentation checks. The independent Build selection advanced
+to 0.17.2 and is preserved; its constructor still requires an explicit environment
+and lacks `with_inherited_env`, so the existing integration-harness migration
+remains necessary. No simulator or IC network lifecycle action ran in this update.
+Native macOS, installed IC and broad workspace/release gates remain unqualified;
+raw Wasm/cycle/instruction deltas are unmeasured. Evidence for this release is
+retained under `target/ic-platform-0.1.7-adoption/`.
+
+### Selected IC Platform 0.1.6 — 2026-10-18
+
+The non-yanked registry release 0.1.6 was published at `2026-10-18T09:30:19Z`.
+The downloaded archive has checksum
+`4c2a6b9c458b47f2913811998a9f6cc49394deaebb9a11e9d0a1bffb6b169cf2`
+and source `d6edec2661f510297c8c9c77c5b9fa01741092e8`; its MSRV remains 1.88.
+Only `ic0` is enabled; Candid, parser, Agent, ledger DTOs and executor features
+remain disabled. The newly published ledger DTO boundary is unused here;
+application protocols remain Wire-owned.
+
+The added `debug_print(&[u8])` export permits removal of the SQL performance
+actor's direct CDK declaration. Its IC log message retains the exact formatted
+UTF-8 bytes, with no added newline; native execution retains standard output
+with its existing newline. Both branches remain inline in the existing handler.
+No logger wrapper, executor or lifecycle owner is introduced.
+
+Four direct CDK consumers remain: the read/schema/SQL guard actors need caller
+conversion, and the dynamic query actor needs argument/reply/reject helpers.
+Core and the finite codec adapter retain two direct raw ABI declarations for
+`in_replicated_execution`, `msg_reject` and `msg_reply_data_append`, which the
+0.1.6 archive still does not export. The existing
+[Platform #1](https://github.com/dragginzgame/ic-platform/issues/1#issuecomment-6248021490)
+requirements apply with the logging requirement now satisfied. The canonical
+Shared dependency policy tightens its SDK exceptions accordingly. Transitive
+Candid/CDK and the deployment-admission enforcement limits described below remain
+separate from these direct declarations. Existing evidence below qualifies its
+recorded versions, not this release.
+
+Focused Linux qualification passes strict native/Wasm Clippy for the affected
+actor, facade and schema, 158 schema tests, four guard tests, Rust 1.91 native/Wasm
+combined-feature compilation, 68 locked graph selections, canonical dependency
+and alias/target controls, formatting, snapshot/pin and documentation checks.
+The unrelated Build 0.17.1 harness blocker recorded below still prevents simulator
+qualification. Native macOS, installed IC, full workspace/release gates and raw
+Wasm/cycle/instruction adoption deltas remain unqualified or unmeasured.
+
+### Selected IC Platform 0.1.5 — 2026-10-18
+
+Cargo and the crates.io sparse index select non-yanked registry 0.1.5, published
+at `2026-10-18T08:51:10Z`. The archive matches checksum
+`ad5262d2a30adfd89b55960da7c9faffb5a68b7cab4c219af5958f1ab2ce8fe4`
+and source `4ecc6f86643d57fc4b12a7dfdf1482728dbe5a5d`.
+Its Rust 1.88 floor is below IcyDB's public 1.91 floor. Registry bytes establish
+the selection; pending sibling APIs are not consumer dependencies.
+
+The catalog disables default features. Principal consumers use the unconditional
+upstream identity; system-call consumers additionally select `ic0`. Candid,
+parser, Agent, certification, management DTO and executor features stay disabled.
+Platform's raw calls re-export the selected `ic0` 1.2.0 functions. CDK 0.20.3's
+clock, timer, performance and trap helpers were checked against those exact calls:
+call-context counter selection remains 1, execution selection remains 0, and
+textual traps retain their exact UTF-8 bytes. Canic retains exports and executor
+contexts; Timers retains scheduling. No new SDK wrapper or executor is added.
+
+Schema Principal, public guard contexts and native callers use Platform while
+retaining the existing bounded scalar, conversions and Serde/Wire formats.
+All six direct Principal declarations and its catalog entry retire. Supported
+raw system calls move to Platform, including clocks, instruction counters, timer
+control, self identity reads and traps. Ten fixture CDK declarations and the
+dynamic query actor's raw ABI declaration retire. System-call imports are the
+only core changes; storage formats, allocation, transaction policy and memory
+ownership are unchanged. Application protocols and lifecycle envelopes use Wire.
+
+Five fixtures retain CDK for APIs absent from the archive: caller-to-Principal
+convenience in the read/schema/SQL guard actors; raw argument/reply/reject helpers
+in the dynamic query actor; and logging in the SQL perf actor. Core retains direct
+`ic0::in_replicated_execution`; the finite codec adapter retains raw reject and
+reply-data append. Published Platform does not export those calls. The remaining
+requirements and acceptance checks are on
+[Platform #1](https://github.com/dragginzgame/ic-platform/issues/1).
+Do not reconstruct high-level SDK helpers locally to hide these dependencies.
+
+The canonical Shared declaration checker reads
+`ci/cargo-dependency-boundaries.json` from the existing invariant gate. It checks
+canonical alias identities across member normal/build/dev, optional and target
+conditions; current exceptions name only the five SDK and two raw ABI consumers.
+Negative consumer controls use successful Cargo metadata before checking disabled
+optional aliases and inactive target build/dev tables. All maintained manifests
+belong to the single root workspace/lockfile; generated model handlers have no
+old direct Candid/CDK paths. Canic owns generated exports. No direct parser or
+Agent implementation exists here to migrate; Host Tools retains native parsing.
+
+**Enforcement limits:** the checker covers listed member dependencies, not unused
+root catalog entries, future unlisted package identities or transitive reachability.
+Those and enabled feature closure need separate inventory/locked graphs. It does not bind deployment admission
+to the final artifact; [#378](https://github.com/dragginzgame/icydb/issues/378)
+tracks that consumer work. Candid/derive 0.10.38 remain through SDK, management
+and Testkit/PocketIC; SDK/macros 0.20.3 and management 0.3.0 remain through Canic;
+SDK and Timers share one registry executor 2.0.0. Host Tools retains native Candid
+Parser 0.4.1. These transitive owners are not migrated by removing local imports.
+Production library isolation does not prove absence from linked actor Wasm.
+
+Initial 0.1.3 and complete 0.1.4 evidence are retained separately under
+`target/ic-platform-adoption/`. Neither is relabelled as 0.1.5 qualification.
+The 0.1.3 PocketIC attempt was interrupted through the Testkit wrapper after a
+new publication was observed; the 0.1.4 guard qualification completed with owner
+cleanup. Final 0.1.5 qualification passes strict native Clippy for core and the
+18 independent consumers, plus Wasm Clippy for core and those consumers,
+158 schema tests including byte/rejection controls,
+four guard unit contracts, both facade compile suites, Rust 1.91 native/Wasm
+combined-feature compilation, 68 locked target/feature graphs, canonical boundary
+and alias/inactive-target controls, grouped format/release fixtures, adapters,
+snapshot/pin checks and documentation checks. Platform enables only `ic0`, and
+the resolved graph retains one registry executor 2.0.0. All 29 actor graphs exclude
+host parser, Build, Testkit and host oracle infrastructure; 36 facade/schema
+graphs are Candid/CDK-free. These observations do not prove final artifact contents.
+
+During final qualification, independent workspace changes selected Build 0.17.1,
+Host 0.27.2 and Memory 0.48.2. Those selections are preserved. The combined
+consumer gate cannot compile `testing/build`: `WasmBuildSpec::new` now requires
+an explicit environment and `with_inherited_env` no longer exists. This separate
+Build migration blocks the integration harness before simulator tests, so the
+completed 0.1.4 guard runs do not qualify 0.1.5's new raw-call paths. No storage
+or memory migration is included. Native macOS, real installed IC and broad
+workspace/release execution remain unqualified; raw Wasm/cycle/instruction
+adoption deltas are unmeasured.
+
+### Selected Shared Tooling 0.24.0 — 2026-10-18
+
+The canonical committed-source exporter selects
+`cab12cd3dfa4fdb34846b25397f0d72881bb9ae0`, matching the available upstream main.
+The root snapshot contains 124 payloads, including the selected-source Cargo
+release metadata checker, dependency-boundary checker and declared companions. Common Rust setup now
+selects only Cargo sort and derive sorting; IcyDB needs no Candid extractor.
+Existing tool installations and release evidence remain retained. Cargo package
+versions, dependency selections and the lockfile are unchanged.
+
+The root catalog labels production dependencies separately from tests/tooling;
+members use the corresponding package labels. The seven published implementation
+and CLI packages are production. Canister/schema fixtures and private `testing/`
+packages remain tests/tooling even when their audit recipe calls a feature set
+“production.” Production includes normal/build edges on supported targets,
+including procedural macros, native model generation and the host CLI. CBOR
+compatibility tests use `serde_cbor` only as a development dependency. Ciborium
+remains a production dependency of IC Memory for its retained ledger; IC Wire
+does not require it. Complete removal is tracked by
+[IC Memory #124](https://github.com/dragginzgame/ic-memory/issues/124).
+Renamed test aliases of IcyDB and Model do not make those
+canonical production package identities test-only.
+
+Formatting and check mode both select grouped manifest ordering while retaining
+derive sorting and rustfmt. Release preparation and commit preparation use the
+same grouped policy through the canonical metadata checker. The committed check
+passes the exact selected release commit; newer working metadata cannot replace
+its manifest, lockfile or root release notes. IcyDB retains its detailed-note,
+pin-exception and tested-transition receipt checks.
+
+**Deployment admission gap ([#378](https://github.com/dragginzgame/icydb/issues/378)):**
+the existing dependency invariant checks coupled
+workspace pins, sensitive duplicate versions and globally banned packages in the
+lockfile. It does not enforce role comments or transitive exclusions against a
+selected deployment graph. Neither formatting nor the metadata checker fills
+that gap. Current graph inspection is evidence for its recorded targets/features,
+not an automated deployment gate or a build/artifact qualification. The fixture
+build/staging path also does not bind a successful exclusion check to the final
+Wasm digest. Recommended follow-up is a consumer-owned exclusion check in the
+existing artifact build flow, bound to its source, lockfile, exact target/features
+and final deployable digest; retain Canic and fixture dependencies intentionally
+needed by actor qualification. This adoption adds no separate policy engine.
+
+Linux qualification passes 79 locked graph inspections: 55 production package,
+feature and target selections, plus all 24 maintained actor production recipes.
+The production checks include all eight facade feature combinations and five
+underlying packages on Wasm, Linux and both macOS target architectures, plus the
+CLI on all three host targets. These are Linux-hosted graph observations; native
+macOS builds and execution remain unqualified. Actor checks
+exclude Build, Testkit and host test/oracle infrastructure while retaining their
+intentional fixtures. Real formatting/hook preservation, unsorted-group refusal,
+current and selected-commit release metadata, release adapters, pin/receipt
+fixtures, selected ShellCheck and snapshot/pin invariants pass. The initial
+formatting perturbation and missing Cargo transport fixture are retained with
+their corrected reruns. Evidence is under `target/shared-024-adoption/`.
+Broad workspace/release execution and native macOS qualification remain
+unselected. Graph inspection does not establish registry availability or a
+successful deployment. No Wasm, cycle or instruction delta is measured and no
+IC network lifecycle operation runs.
+
+### Selected Shared Tooling 0.23.0 and IC Host 0.27.1 — 2026-10-17
+
+The committed-source exporter selects Shared Tooling
+`0b351cd2ba2bcd8927b783a5fec89afc8013f708`, verified against upstream main.
+The preview retains existing roots and consolidates the structural scanner's
+additive snapshot. Common host/Cargo pins are unchanged. IcyDB explicitly selects
+IC setup/check targets and its IC PATH; the reviewed IC catalog advances ICP CLI
+from 1.6.0 to 1.7.0. Testkit retains PocketIC setup and lifecycle ownership.
+Existing tools, failed logs and release evidence remain retained.
+
+All five direct Host dependencies select registry 0.27.1. Its published Text
+archive identifies source `c8cd434586c7cde97677938fbdcf8fb4bff4a54c` and exports
+the dynamic bordered renderer required by the CLI. Existing-parent durable
+publication remains available in Host FS. The concurrent maintainer selection
+of Build 0.16 converges on Host 0.27.1; no source override or local rendering
+fallback is added. Testkit 0.52 retains its upstream Host 0.26.2 dependencies.
+The build adapter supplies inherited flags and observed Cargo process-group
+custody explicitly, shares retention limits and projects typed cache failures.
+
+Linux qualification passes strict all-target lint for CLI/build/scanner,
+188 CLI cases, 22 build-library cases, 50 shared scanner cases and 26 local
+scanner-boundary cases. Snapshot integrity, dependency pins, real formatting
+hooks, workstation and Make dispatch, 74 workflow-policy cases, post-link
+invariants, release-adapter/receipt/lock/note fixtures, 126 evidence-retention
+cases and the production runtime panic scan pass. Explicit tool setup and
+separate offline admission pass with the new IC pin. This selection does not
+run the full workspace/release gate. Native macOS and raw Wasm/IC
+cycle/instruction effects remain unmeasured; no IC network lifecycle action runs.
 
 ### Selected IC Build 0.5.0 — 2026-10-15
 
@@ -2060,6 +2558,14 @@ tests pass. Pin and documentation checks pass. Inputs and logs are retained unde
 macOS qualification remain unperformed.
 
 ## Dependency selection
+
+The current snapshot includes the tracked-deletion repair from
+[Shared Tooling #272](https://github.com/dragginzgame/shared-tooling/pull/272),
+backported onto the previously reviewed 0.13.3 source at
+`55e7fcfabf6f1473cf60b843f33bd3a475f9039e`. Canonical refresh changes only the
+declaration checker and its focused fixture; the other 103 payloads are retained.
+Deleted tracked manifests/workflows are absent declarations, while dangling
+symlinks remain invalid. The gate leaves the consumer index untouched.
 
 The [shared declaration checker](../../scripts/ci/check-dependency-pins.sh) and
 [jq module](../../scripts/ci/dependency-pins.jq) run through

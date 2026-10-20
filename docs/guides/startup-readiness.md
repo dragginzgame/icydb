@@ -22,7 +22,7 @@ tests; tests that inspect lifecycle transitions must drive readiness explicitly.
 Canisters without application lifecycle hooks use the default declaration:
 
 ```rust
-icydb::start!();
+canic_icydb::start!(icydb);
 ```
 
 If the application only needs install or post-upgrade callbacks, declare both
@@ -30,7 +30,8 @@ paths through the composed form and leave those functions free of IC-CDK
 lifecycle attributes:
 
 ```rust,ignore
-icydb::start! {
+canic_icydb::start! {
+    icydb;
     init(args: InitArgs) => application::init;
     post_upgrade() => application::post_upgrade;
 }
@@ -44,12 +45,15 @@ and composed declarations own both lifecycle exports. Application-owned
 lifecycle exports require participant mode.
 
 If the application or an independent framework must own the complete IC
-lifecycle root, select participant mode instead:
+lifecycle root, select participant mode and invoke these plain hooks from its
+native lifecycle exports. The [compiled composition fixture](../../canisters/test/lifecycle_participant/src/lib.rs)
+uses Canic exports and bounded Wire post-upgrade argument decoding. Platform
+0.1.10 provides lifecycle entrypoint macros, while IcyDB's supported composition
+continues to use Canic as the host owner:
 
 ```rust,ignore
-icydb::start!(participant);
+canic_icydb::start!(icydb; participant);
 
-#[ic_cdk::init]
 fn application_init() {
     restore_ingress_local_state();
     crate::__icydb_lifecycle_participant::init();
@@ -57,7 +61,6 @@ fn application_init() {
     schedule_deferred_database_readiness_work();
 }
 
-#[ic_cdk::post_upgrade]
 fn application_post_upgrade() {
     restore_ingress_local_state();
     crate::__icydb_lifecycle_participant::post_upgrade();
@@ -73,11 +76,16 @@ before scheduling any deferred database work; finish other synchronous
 framework reconciliation before the lifecycle message returns. A participant
 trap aborts the complete lifecycle message normally.
 
-The two participant functions are hidden crate-visible Rust functions, not IC
-or Candid methods. Calls after a completed participant are inert, but this is
+The two participant functions are hidden, crate-visible Rust functions with no
+IC export. Calls after a completed participant are inert, but this is
 duplicate safety rather than an invitation to call twice. The IC cannot prove
 that the first in-crate call came from the correct lifecycle phase, so the
 application-owned root remains responsible for exact phase placement.
+
+Composed lifecycle hooks use bounded Wire requests. Encode each hook's argument
+tuple, including `()`, with `icydb::wire::encode_init_arguments` or
+`icydb::wire::encode_post_upgrade_arguments` and supply the resulting raw install
+or upgrade bytes. The plain `start!()` lifecycle roots perform no decoding.
 
 Do not use participant mode merely to attach ordinary application callbacks;
 the composed form above is smaller for that case. Do not claim framework
@@ -210,6 +218,9 @@ test setup, or explicitly bind the composed host runtime. Call the driver before
 the first database access and periodically **between simulated
 messages**, not just once during setup. Wrap each simulated message in
 `icydb::db::with_request_execution` so requests retain their normal budgets.
+Use plain `#[test]` for this multi-message simulation. Do not enclose it in
+`#[icydb::test]` or one outer request wrapper: nested wrappers reuse the
+active budget, so the whole simulation would count as one request.
 
 The maintained native fixture advances the driver every sixteen writes and
 after its final write, and verifies 129 committed rows. Sixteen is a fixture
@@ -234,3 +245,18 @@ with other component requests before sealing Memory’s explicit snapshot. Keep
 `prepare_memory_bootstrap` in the host policy’s preparation hook. Generated
 IcyDB startup checks its own requirements against the committed host once; it
 does not register keys, invoke the pool provider or bootstrap the host again.
+
+## Host entropy admission
+
+The Canic adapter acquires a secure 32-byte boot seed from a replicated timer
+callback and submits it to `icydb::db::provide_boot_entropy`. Startup remains
+pending until admission succeeds. Identical submissions are idempotent; zero
+seeds and rotation during one boot are refused. The adapter retries failed or
+cancelled acquisition without duplicating pending requests. Native execution
+continues to use operating-system entropy. Custom hosts must supply the same
+secure seed contract before driving readiness.
+
+Use `canic_icydb::start!(icydb)` for standalone lifecycle ownership, or its
+participant form under an application-owned lifecycle. This adapter does not
+mount Canic's managed runtime; full managed memory composition remains tracked
+in [Canic #590](https://github.com/dragginzgame/canic/issues/590).

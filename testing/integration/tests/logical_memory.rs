@@ -1,9 +1,10 @@
 //! Generated logical-memory upgrades through the production allocator and driver.
 //! Builds both actors through retained artifacts; no core test-only memory lookup is linked.
 
+use icydb_testing_integration::WireCallExt as _;
 use std::sync::OnceLock;
 
-use ic_testkit::pic::{CandidCallExt as _, InstallSpec, StandaloneCanisterFixture};
+use ic_testkit::pic::{InstallSpec, StandaloneCanisterFixture};
 use icydb::{
     Error, ErrorCode, ErrorOrigin,
     db::{DatabaseStartupState, StartupFailure},
@@ -21,8 +22,14 @@ fn install() -> StandaloneCanisterFixture {
     let wasm = artifacts().0.clone();
     let fixture = StandaloneCanisterFixture::try_install(
         icydb_testing_integration::start_fixture_pocket_ic(),
-        InstallSpec::new(wasm, candid::encode_args(()).unwrap(), 10_000_000_000_000)
-            .label("logical_memory"),
+        InstallSpec {
+            wasm,
+            init_bytes: icydb::wire::encode_init_arguments(())
+                .expect("unit init arguments should encode"),
+            cycles: 10_000_000_000_000,
+            install_sender: None,
+            label: Some("logical_memory".to_string()),
+        },
     )
     .unwrap_or_else(|error| panic!("install logical-memory fixture: {error}"));
     settle(&fixture);
@@ -36,7 +43,7 @@ fn step(fixture: &StandaloneCanisterFixture) -> Result<bool, Error> {
     for _ in 0..32 {
         let result: Result<bool, Error> = fixture
             .pocket_ic()
-            .update_candid(fixture.canister_id(), "step", ())
+            .update_wire(fixture.canister_id(), "step", ())
             .unwrap();
         if !matches!(&result, Err(error) if error.code()
             == ErrorCode::RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING)
@@ -53,7 +60,7 @@ fn settle(fixture: &StandaloneCanisterFixture) {
         if step(fixture).unwrap() {
             let state: Result<DatabaseStartupState, StartupFailure> = fixture
                 .pocket_ic()
-                .query_candid(fixture.canister_id(), "state", ())
+                .query_wire(fixture.canister_id(), "state", ())
                 .unwrap();
             assert_eq!(state.unwrap(), DatabaseStartupState::Ready);
             return;
@@ -68,7 +75,8 @@ fn upgrade(fixture: &StandaloneCanisterFixture, wasm: &[u8]) {
         .upgrade_canister(
             fixture.canister_id(),
             wasm.to_vec(),
-            candid::encode_args(()).unwrap(),
+            icydb::wire::encode_post_upgrade_arguments(())
+                .expect("unit post-upgrade arguments should encode"),
             None,
         )
         .unwrap();
@@ -77,14 +85,14 @@ fn upgrade(fixture: &StandaloneCanisterFixture, wasm: &[u8]) {
 fn control(fixture: &StandaloneCanisterFixture) -> Vec<u8> {
     fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "control_frame", ())
+        .query_wire(fixture.canister_id(), "control_frame", ())
         .unwrap()
 }
 
 fn assert_kept_row(fixture: &StandaloneCanisterFixture) {
     let present: Result<bool, String> = fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "keep_row_exists", ())
+        .query_wire(fixture.canister_id(), "keep_row_exists", ())
         .unwrap();
     assert!(present.unwrap());
 }
@@ -103,17 +111,17 @@ fn empty_omitted_store_retires_without_relocating_survivors() {
     let fixture = install();
     let _: Vec<u8> = fixture
         .pocket_ic()
-        .update_candid(fixture.canister_id(), "insert_keep", ())
+        .update_wire(fixture.canister_id(), "insert_keep", ())
         .unwrap();
     settle(&fixture);
     let before: Vec<(String, u8)> = fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "allocations", ())
+        .query_wire(fixture.canister_id(), "allocations", ())
         .unwrap();
     upgrade(&fixture, &artifacts().1);
     let after: Vec<(String, u8)> = fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "allocations", ())
+        .query_wire(fixture.canister_id(), "allocations", ())
         .unwrap();
     assert_eq!(before.len(), 11);
     assert_eq!(after.len(), 8);
@@ -142,7 +150,7 @@ fn omitted_store_with_journal_debt_rejects_and_original_actor_recovers() {
     let fixture = install();
     fixture
         .pocket_ic()
-        .update_candid::<(), _>(fixture.canister_id(), "insert_retiring", ())
+        .update_wire::<(), _>(fixture.canister_id(), "insert_retiring", ())
         .unwrap();
     let before = control(&fixture);
     upgrade(&fixture, &artifacts().1);
@@ -151,7 +159,7 @@ fn omitted_store_with_journal_debt_rejects_and_original_actor_recovers() {
     settle(&fixture);
     let present: Result<bool, String> = fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "retiring_row_exists", ())
+        .query_wire(fixture.canister_id(), "retiring_row_exists", ())
         .unwrap();
     assert!(present.unwrap());
 }
@@ -161,12 +169,12 @@ fn valid_pending_marker_blocks_registry_change_after_journal_folding() {
     let fixture = install();
     let pending: Vec<u8> = fixture
         .pocket_ic()
-        .update_candid(fixture.canister_id(), "insert_keep", ())
+        .update_wire(fixture.canister_id(), "insert_keep", ())
         .unwrap();
     settle(&fixture);
     fixture
         .pocket_ic()
-        .update_candid::<(), _>(
+        .update_wire::<(), _>(
             fixture.canister_id(),
             "restore_control_frame",
             (pending.clone(),),
@@ -182,7 +190,7 @@ fn valid_pending_marker_blocks_registry_change_after_journal_folding() {
 
     fixture
         .pocket_ic()
-        .update_candid::<(), _>(
+        .update_wire::<(), _>(
             fixture.canister_id(),
             "restore_control_frame",
             (pending.clone(),),

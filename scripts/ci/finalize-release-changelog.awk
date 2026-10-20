@@ -3,6 +3,13 @@
 # A non-consuming separator reads the text whole, including its terminal LF.
 # Supported host awks implement regular-expression RS; no GNU RT dependency.
 BEGIN { RS = "^$" }
+function reject(reason, number) {
+    conflict = 1
+    if (diagnostic == "") {
+        diagnostic = reason
+        offending_line = number
+    }
+}
 function historical(value, a, b, n) {
     if (previous == "") return 0
     split(value, a, "."); split(previous, b, ".")
@@ -29,18 +36,23 @@ function emit(i) {
             first = line
             top = heading
         }
-        if (heading == "## [Draft]") conflict = 1
+        if (heading == "## [Draft]") reject("unnumbered draft heading", line)
         if (line != first && (heading == "## [" version "]" ||
-            index(heading, "## [" version "] - ") == 1)) conflict = 1
+            index(heading, "## [" version "] - ") == 1))
+            reject("duplicate or misplaced selected candidate", line)
         if (heading == "## [" version "] - " date) { finalized++; finalized_line=line }
-        else if (index(heading, "## [" version "] - ") == 1) conflict = 1
+        else if (index(heading, "## [" version "] - ") == 1) {
+            if (heading == "## [" version "] - Unreleased")
+                reject("unsupported pending heading suffix", line)
+            else reject("conflicting selected candidate date or suffix", line)
+        }
         split(heading, fields, " ")
         heading_version = substr(fields[2], 2, length(fields[2])-2)
         if (heading ~ /^## \[[0-9]+\.[0-9]+\.[0-9]+\]$/ &&
             !historical(heading_version)) {
             drafts++
             start = line
-            if (heading != "## [" version "]") conflict = 1
+            if (heading != "## [" version "]") reject("competing pending version", line)
         } else if (start && !finish && line > start && heading ~ /^## /) {
             finish = line
         }
@@ -48,14 +60,25 @@ function emit(i) {
 }
 END {
     # Direct callers must not turn retained previous history into a downgrade.
-    if (previous != "" && historical(version)) conflict = 1
+    if (previous != "" && historical(version))
+        reject("selected version " version " must be greater than previous version " previous, 0)
     if (!first || (top != "## [" version "]" &&
         !(allow_finalized && top == "## [" version "] - " date) &&
         !(previous != "" && (top == "## [" previous "]" ||
-            index(top, "## [" previous "] - ") == 1)))) conflict = 1
+            index(top, "## [" previous "] - ") == 1))))
+        reject("unexpected first release heading", first)
     if (input_error || conflict || drafts > 1 || (finalized &&
         (!allow_finalized || finalized != 1 || drafts || finalized_line != first))) {
-        print "ambiguous or already finalized release candidate" > "/dev/stderr"
+        if (diagnostic == "") {
+            diagnostic = "ambiguous or already finalized release candidate"
+            offending_line = first
+        }
+        print "changelog: " diagnostic > "/dev/stderr"
+        if (offending_line)
+            print "line " offending_line ": " lines[offending_line] > "/dev/stderr"
+        print "expected pending heading: ## [" version "]" > "/dev/stderr"
+        if (allow_finalized)
+            print "exact-date recovery heading: ## [" version "] - " date > "/dev/stderr"
         exit 1
     }
     if (finalized) {

@@ -8,7 +8,7 @@ use crate::shell::test_support::{
     interactive_start_message, is_shell_exit_command, is_shell_help_command, render_sql_response,
     shell_help_text, sql_shell_call_kind,
 };
-use candid::{Decode, Encode};
+
 use icydb::{
     ConstraintValidationFindingOutput,
     db::{
@@ -216,16 +216,15 @@ fn ddl_response_rendering_includes_execution_metrics() {
         index_keys_written: 7,
         constraint_validation: None,
     });
-    let candid_bytes = Encode!(&response).expect("DDL response should encode");
-    let decoded = Decode!(
-        candid_bytes.as_slice(),
-        Result<SqlQueryResult, icydb::Error>
+    let wire_bytes = icydb_schema::wire::encode_one(&response).expect("DDL response should encode");
+    let decoded = icydb_schema::wire::decode_one::<Result<SqlQueryResult, icydb::Error>>(
+        wire_bytes.as_slice(),
     )
     .expect("DDL response should decode")
     .expect("DDL response should succeed");
 
     assert_eq!(
-        decoded.render_text(),
+        crate::shell::render::render_text(&decoded),
         "surface=ddl entity=Character mutation_kind=add_field_path_index target_index=character_level_idx target_store=demo::CharacterStore field_path=level status=published rows_scanned=7 index_keys_written=7",
         "CLI DDL response rendering should surface rebuild metrics from the decoded canister payload",
     );
@@ -244,16 +243,16 @@ fn ddl_no_op_response_rendering_includes_zero_execution_metrics() {
         index_keys_written: 0,
         constraint_validation: None,
     });
-    let candid_bytes = Encode!(&response).expect("no-op DDL response should encode");
-    let decoded = Decode!(
-        candid_bytes.as_slice(),
-        Result<SqlQueryResult, icydb::Error>
+    let wire_bytes =
+        icydb_schema::wire::encode_one(&response).expect("no-op DDL response should encode");
+    let decoded = icydb_schema::wire::decode_one::<Result<SqlQueryResult, icydb::Error>>(
+        wire_bytes.as_slice(),
     )
     .expect("no-op DDL response should decode")
     .expect("no-op DDL response should succeed");
 
     assert_eq!(
-        decoded.render_text(),
+        crate::shell::render::render_text(&decoded),
         "surface=ddl entity=Character mutation_kind=drop_secondary_index target_index=character_missing_idx target_store= field_path= status=no_op rows_scanned=0 index_keys_written=0",
         "CLI DDL response rendering should keep no-op status and zero work metrics visible",
     );
@@ -293,14 +292,14 @@ fn ddl_constraint_validation_page_roundtrips_typed_acknowledgement_state() {
         index_keys_written: 0,
         constraint_validation: Some(expected.clone()),
     });
-    let candid_bytes = Encode!(&response).expect("validation response should encode");
-    let decoded = Decode!(
-        candid_bytes.as_slice(),
-        Result<SqlQueryResult, icydb::Error>
+    let wire_bytes =
+        icydb_schema::wire::encode_one(&response).expect("validation response should encode");
+    let decoded = icydb_schema::wire::decode_one::<Result<SqlQueryResult, icydb::Error>>(
+        wire_bytes.as_slice(),
     )
     .expect("validation response should decode")
     .expect("validation response should succeed");
-    let rendered = decoded.render_text();
+    let rendered = crate::shell::render::render_text(&decoded);
     let SqlQueryResult::Ddl {
         constraint_validation,
         ..
@@ -319,13 +318,13 @@ fn ddl_constraint_validation_page_roundtrips_typed_acknowledgement_state() {
 
 #[test]
 fn projection_shell_text_leaves_footer_without_embedded_trailing_blank_line() {
-    let rendered = SqlQueryResult::Projection(RowProjectionOutput {
-        entity: "Character".to_string(),
-        columns: vec!["name".to_string()],
-        rows: vec![vec![OutputValue::text("alice".to_string())]],
-        row_count: 1,
-    })
-    .render_text();
+    let rendered =
+        crate::shell::render::render_text(&SqlQueryResult::Projection(RowProjectionOutput {
+            entity: "Character".to_string(),
+            columns: vec!["name".to_string()],
+            rows: vec![vec![OutputValue::text("alice".to_string())]],
+            row_count: 1,
+        }));
 
     assert!(
         rendered.ends_with("1 row,"),
@@ -335,13 +334,13 @@ fn projection_shell_text_leaves_footer_without_embedded_trailing_blank_line() {
 
 #[test]
 fn projection_shell_text_renders_null_cells_as_sql_null() {
-    let rendered = SqlQueryResult::Projection(RowProjectionOutput {
-        entity: "Character".to_string(),
-        columns: vec!["nickname".to_string()],
-        rows: vec![vec![OutputValue::null()]],
-        row_count: 1,
-    })
-    .render_text();
+    let rendered =
+        crate::shell::render::render_text(&SqlQueryResult::Projection(RowProjectionOutput {
+            entity: "Character".to_string(),
+            columns: vec!["nickname".to_string()],
+            rows: vec![vec![OutputValue::null()]],
+            row_count: 1,
+        }));
 
     assert!(
         rendered.contains("NULL"),
@@ -355,14 +354,14 @@ fn projection_shell_text_renders_null_cells_as_sql_null() {
 
 #[test]
 fn grouped_shell_text_leaves_footer_without_embedded_trailing_blank_line() {
-    let rendered = SqlQueryResult::Grouped(SqlGroupedRowsOutput {
-        entity: "Character".to_string(),
-        columns: vec!["class_name".to_string(), "COUNT(*)".to_string()],
-        rows: vec![vec!["Bard".to_string(), "5".to_string()]],
-        row_count: 1,
-        next_cursor: None,
-    })
-    .render_text();
+    let rendered =
+        crate::shell::render::render_text(&SqlQueryResult::Grouped(SqlGroupedRowsOutput {
+            entity: "Character".to_string(),
+            columns: vec!["class_name".to_string(), "COUNT(*)".to_string()],
+            rows: vec![vec!["Bard".to_string(), "5".to_string()]],
+            row_count: 1,
+            next_cursor: None,
+        }));
 
     assert!(
         rendered.ends_with("1 row,"),
@@ -372,14 +371,14 @@ fn grouped_shell_text_leaves_footer_without_embedded_trailing_blank_line() {
 
 #[test]
 fn grouped_shell_text_renders_null_cells_as_sql_null() {
-    let rendered = SqlQueryResult::Grouped(SqlGroupedRowsOutput {
-        entity: "Character".to_string(),
-        columns: vec!["class_name".to_string(), "COUNT(*)".to_string()],
-        rows: vec![vec!["NULL".to_string(), "5".to_string()]],
-        row_count: 1,
-        next_cursor: None,
-    })
-    .render_text();
+    let rendered =
+        crate::shell::render::render_text(&SqlQueryResult::Grouped(SqlGroupedRowsOutput {
+            entity: "Character".to_string(),
+            columns: vec!["class_name".to_string(), "COUNT(*)".to_string()],
+            rows: vec![vec!["NULL".to_string(), "5".to_string()]],
+            row_count: 1,
+            next_cursor: None,
+        }));
 
     assert!(
         rendered.contains("NULL"),
@@ -404,8 +403,10 @@ fn sql_response_null_rendering_is_shared_by_query_and_returning() {
         row_count: 1,
     });
     let response: Result<SqlQueryResult, icydb::Error> = Ok(result.clone());
-    let bytes = Encode!(&response).expect("SQL response should encode");
-    let expected = icydb::db::sql::render_projection_display_rows_lines(
+    let bytes = icydb::wire::Endpoint::Query
+        .encode_response(&response)
+        .expect("SQL response should encode");
+    let expected = crate::shell::render::reports::render_projection_display_rows_lines(
         &["missing".into(), "lower".into(), "upper".into()],
         &[vec!["NULL".into(), "'null'".into(), "'NULL'".into()]],
         1,
@@ -430,7 +431,7 @@ fn sql_response_null_rendering_is_shared_by_query_and_returning() {
         assert_eq!(sql_shell_call_kind(sql), Ok(kind), "{sql}");
         assert_eq!(render_sql_response(&bytes), Ok(expected.clone()), "{sql}");
     }
-    assert_eq!(result.render_text(), expected);
+    assert_eq!(crate::shell::render::render_text(&result), expected);
 }
 
 #[test]
@@ -446,9 +447,11 @@ fn sql_response_preserves_preformatted_grouped_cells_and_cursor() {
         row_count: 3,
         next_cursor: Some("opaque-cursor".into()),
     });
-    let expected = result.render_text();
+    let expected = crate::shell::render::render_text(&result);
     let response: Result<SqlQueryResult, icydb::Error> = Ok(result);
-    let bytes = Encode!(&response).expect("grouped response should encode");
+    let bytes = icydb::wire::Endpoint::Query
+        .encode_response(&response)
+        .expect("grouped response should encode");
     assert_eq!(render_sql_response(&bytes), Ok(expected));
 }
 
@@ -462,7 +465,9 @@ fn sql_response_keeps_endpoint_and_decode_failures_as_errors() {
         }),
     ));
     let response: Result<SqlQueryResult, icydb::Error> = Err(error);
-    let bytes = Encode!(&response).expect("endpoint failure should encode");
+    let bytes = icydb::wire::Endpoint::Query
+        .encode_response(&response)
+        .expect("endpoint failure should encode");
     assert!(render_sql_response(&bytes).is_err());
     assert!(render_sql_response(&[]).is_err());
 }

@@ -1,10 +1,13 @@
 include!("common.rs");
 
-icydb::endpoints! {
+use icydb as __icydb_facade;
+use canic_icydb::__private::cdk as __icydb_host_sdk;
+
+canic_icydb::endpoints! {
     icydb_sql_query(
         introspection = true,
         authorization = guard(policy::guard(icydb::ReadAuthorizationContext {
-            caller: candid::Principal::anonymous(),
+            caller: ic_platform::Principal::anonymous(),
             surface: icydb::ReadAuthorizationSurface::Sql,
         })),
     );

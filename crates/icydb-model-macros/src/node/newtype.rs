@@ -176,8 +176,7 @@ const fn primitive_supports_generated_trait(primitive: Primitive, trait_kind: Tr
         TraitKind::Copy => primitive.supports_copy(),
         TraitKind::Hash | TraitKind::Ord | TraitKind::PartialOrd => true,
         TraitKind::NumericValue => primitive.supports_numeric_value(),
-        TraitKind::CandidType
-        | TraitKind::Clone
+        TraitKind::Clone
         | TraitKind::Debug
         | TraitKind::Default
         | TraitKind::Deserialize

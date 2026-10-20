@@ -1,7 +1,7 @@
 use crate::Decimal;
 use crate::decimal::{DEFAULT_DIVISION_SCALE, MAX_SUPPORTED_SCALE, ParseDecimalErrorReason};
-use candid::{CandidType, decode_one, encode_one};
-use num_bigint::{BigInt, Sign};
+
+use ethnum::{I256, U256};
 use proptest::prelude::*;
 use std::str::FromStr;
 
@@ -13,9 +13,7 @@ fn assert_decimal_parse_reason(input: &str, reason: ParseDecimalErrorReason) {
 }
 
 #[test]
-fn decimal_candid_roundtrip() {
-    assert_eq!(Decimal::ty(), String::ty());
-
+fn decimal_wire_roundtrip() {
     let cases = [
         "0",
         "1",
@@ -29,15 +27,15 @@ fn decimal_candid_roundtrip() {
     for s in cases {
         let d1 = Decimal::from_str(s).expect("parse decimal");
 
-        // encode via Candid (should encode as text)
-        let bytes = encode_one(d1).expect("candid encode");
+        // encode via Wire (should encode as text)
+        let bytes = crate::wire::encode_one(d1).expect("wire encode");
 
         // decode back to Decimal
-        let d2: Decimal = decode_one(&bytes).expect("candid decode to Decimal");
+        let d2: Decimal = crate::wire::decode_one(&bytes).expect("wire decode to Decimal");
         assert_eq!(d2, d1, "roundtrip mismatch for {s}");
 
         // also ensure the on-wire representation is text by decoding as String
-        let wire_str: String = decode_one(&bytes).expect("candid decode to String");
+        let wire_str: String = crate::wire::decode_one(&bytes).expect("wire decode to String");
         assert_eq!(wire_str, d1.to_string(), "wire text mismatch for {s}");
     }
 }
@@ -90,12 +88,12 @@ fn decimal_remainder_matches_exact_integer_oracle_at_every_scale_pair() {
             let scale = lhs_scale.max(rhs_scale);
             for lhs_mantissa in [i128::MIN, i128::MAX, -17, 0, 17] {
                 for rhs_mantissa in [i128::MIN, i128::MAX, -3, -1, 1, 3] {
-                    // An arbitrary-precision integer oracle qualifies exact
-                    // results independently of the bounded runtime arithmetic.
+                    // Aligned i128 coefficients occupy fewer than 222 bits,
+                    // so this independent integer remainder is exact.
                     let lhs_integer =
-                        BigInt::from(lhs_mantissa) * BigInt::from(10).pow(scale - lhs_scale);
+                        I256::from(lhs_mantissa) * I256::from(10).pow(scale - lhs_scale);
                     let rhs_integer =
-                        BigInt::from(rhs_mantissa) * BigInt::from(10).pow(scale - rhs_scale);
+                        I256::from(rhs_mantissa) * I256::from(10).pow(scale - rhs_scale);
                     let expected_mantissa = i128::try_from(lhs_integer % rhs_integer).unwrap();
                     let expected = Decimal::from_i128_with_scale(expected_mantissa, scale);
                     let lhs = Decimal::from_i128_with_scale(lhs_mantissa, lhs_scale);
@@ -479,35 +477,40 @@ fn decimal_multiplication_preserves_signed_magnitude_limits() {
     );
 }
 
-// Round an arbitrary-precision rational independently at each candidate scale.
-// This oracle has no bounded intermediate arithmetic or runtime fitting helper.
-fn rounded_ratio_oracle(
-    numerator: &BigInt,
-    denominator: &BigInt,
-    max_scale: u32,
-) -> Option<Decimal> {
-    if denominator == &BigInt::from(0) {
+// Generate quotient digits from scale zero upward, rounding each exact rational
+// independently. Runtime fitting instead starts at the requested scale and fits
+// downward. No runtime arithmetic/fitting helper is used here.
+//
+// Inputs are aligned i128 coefficients (at most 28 decimal shifts) or their
+// sum/difference, all below 2^222 in magnitude. Remainder * 10 stays below 2^226.
+// The quotient stops growing once a rounded coefficient no longer fits i128;
+// its last multiplication by ten is below 2^131. Thus 256 bits suffice even
+// when scaling the entire numerator at once would require more than 256 bits.
+fn rounded_ratio_oracle(numerator: &I256, denominator: &I256, max_scale: u32) -> Option<Decimal> {
+    assert!(max_scale <= MAX_SUPPORTED_SCALE);
+    assert!(numerator.unsigned_abs() < U256::ONE << 222);
+    assert!(denominator.unsigned_abs() < U256::ONE << 222);
+    if *denominator == I256::ZERO {
         return None;
     }
-    for scale in (0..=max_scale).rev() {
-        let scaled = numerator * BigInt::from(10).pow(scale);
-        let quotient = &scaled / denominator;
-        let remainder = &scaled % denominator;
-        let rounded = if &(remainder.magnitude() * 2_u8) >= denominator.magnitude() {
-            quotient
-                + if numerator.sign() == denominator.sign() {
-                    1
-                } else {
-                    -1
-                }
-        } else {
-            quotient
+    let negative = numerator.is_negative() != denominator.is_negative();
+    let denominator = denominator.unsigned_abs();
+    let mut quotient = numerator.unsigned_abs() / denominator;
+    let mut remainder = numerator.unsigned_abs() % denominator;
+    let mut best = None;
+    for scale in 0..=max_scale {
+        let rounded = quotient + U256::from(u8::from(remainder * 2 >= denominator));
+        let magnitude = I256::try_from(rounded).unwrap();
+        let signed = if negative { -magnitude } else { magnitude };
+        let Ok(mantissa) = i128::try_from(signed) else {
+            break;
         };
-        if let Ok(mantissa) = i128::try_from(rounded) {
-            return Some(Decimal::from_i128_with_scale(mantissa, scale));
-        }
+        best = Some(Decimal::from_i128_with_scale(mantissa, scale));
+        remainder *= 10;
+        quotient = quotient * 10 + remainder / denominator;
+        remainder %= denominator;
     }
-    None
+    best
 }
 
 #[test]
@@ -606,15 +609,15 @@ fn decimal_add_sub_div_match_exact_ratio_oracle_at_all_scale_pairs() {
     for lhs_scale in 0..=28 {
         for rhs_scale in 0..=28 {
             let scale = lhs_scale.max(rhs_scale);
-            let denominator = BigInt::from(10).pow(scale);
+            let denominator = I256::from(10).pow(scale);
             for lhs_m in [i128::MIN, i128::MAX, -17, 0, 17] {
                 for rhs_m in [i128::MIN, i128::MAX, -17, 0, 17] {
                     let lhs = Decimal::from_i128_with_scale(lhs_m, lhs_scale);
                     let rhs = Decimal::from_i128_with_scale(rhs_m, rhs_scale);
-                    let lhs_integer = BigInt::from(lhs_m) * BigInt::from(10).pow(scale - lhs_scale);
-                    let rhs_integer = BigInt::from(rhs_m) * BigInt::from(10).pow(scale - rhs_scale);
-                    let sum = &lhs_integer + &rhs_integer;
-                    let difference = &lhs_integer - &rhs_integer;
+                    let lhs_integer = I256::from(lhs_m) * I256::from(10).pow(scale - lhs_scale);
+                    let rhs_integer = I256::from(rhs_m) * I256::from(10).pow(scale - rhs_scale);
+                    let sum = lhs_integer + rhs_integer;
+                    let difference = lhs_integer - rhs_integer;
                     for (exact, checked, primitive, subtract) in [
                         (&sum, lhs.checked_add(rhs), lhs + rhs, false),
                         (&difference, lhs.checked_sub(rhs), lhs - rhs, true),
@@ -625,7 +628,7 @@ fn decimal_add_sub_div_match_exact_ratio_oracle_at_all_scale_pairs() {
                             expected.map(|value| value.parts())
                         );
                         let bound = Decimal::from_i128_with_scale(
-                            if exact.sign() == Sign::Minus {
+                            if exact.is_negative() {
                                 i128::MIN
                             } else {
                                 i128::MAX
@@ -707,10 +710,10 @@ proptest! {
         let out = lhs + rhs;
         let target_scale = lhs_scale.max(rhs_scale);
 
-        let exact = BigInt::from(lhs_m) * BigInt::from(10).pow(target_scale - lhs_scale)
-            + BigInt::from(rhs_m) * BigInt::from(10).pow(target_scale - rhs_scale);
-        let expected = rounded_ratio_oracle(&exact, &BigInt::from(10).pow(target_scale), target_scale);
-        let bound = Decimal::from_i128_with_scale(if exact.sign() == Sign::Minus { i128::MIN } else { i128::MAX }, 0);
+        let exact = I256::from(lhs_m) * I256::from(10).pow(target_scale - lhs_scale)
+            + I256::from(rhs_m) * I256::from(10).pow(target_scale - rhs_scale);
+        let expected = rounded_ratio_oracle(&exact, &I256::from(10).pow(target_scale), target_scale);
+        let bound = Decimal::from_i128_with_scale(if exact.is_negative() { i128::MIN } else { i128::MAX }, 0);
         prop_assert_eq!(lhs.checked_add(rhs), expected);
         prop_assert_eq!(out, expected.unwrap_or(bound));
     }
@@ -741,34 +744,40 @@ proptest! {
 #[test]
 fn decimal_text_transports_preserve_values_and_measured_sizes() {
     for (text, one, batch, binary) in [
-        ("0", 9, 2_011, 2),
-        ("-1", 10, 3_011, 3),
-        ("42.5", 12, 5_011, 5),
-        ("123.45", 14, 7_011, 7),
-        ("0.00000001", 18, 11_011, 11),
-        ("1234567890.123456789", 28, 21_011, 21),
-        ("170141183460469231731687303715884105727", 47, 40_011, 41),
-        ("-170141183460469231731687303715884105728", 48, 41_011, 42),
+        ("0", 2, 2_002, 2),
+        ("-1", 3, 3_002, 3),
+        ("42.5", 5, 5_002, 5),
+        ("123.45", 7, 7_002, 7),
+        ("0.00000001", 11, 11_002, 11),
+        ("1234567890.123456789", 21, 21_002, 21),
+        ("170141183460469231731687303715884105727", 40, 40_002, 41),
+        ("-170141183460469231731687303715884105728", 41, 41_002, 42),
     ] {
         let value: Decimal = text.parse().expect("the decimal should parse");
-        assert_eq!(encode_one(value).expect("Candid should encode").len(), one);
+        assert_eq!(
+            crate::wire::encode_one(value)
+                .expect("Wire should encode")
+                .len(),
+            one
+        );
         let values = vec![value; 1_000];
-        let encoded = encode_one(&values).expect("the decimal batch should encode");
+        let encoded = crate::wire::encode_one(&values).expect("the decimal batch should encode");
         assert_eq!(encoded.len(), batch);
         assert_eq!(
-            decode_one::<Vec<Decimal>>(&encoded).expect("the decimal batch should decode"),
+            crate::wire::decode_one::<Vec<Decimal>>(&encoded)
+                .expect("the decimal batch should decode"),
             values,
         );
         let mut encoded = Vec::new();
-        ciborium::ser::into_writer(&value, &mut encoded).expect("CBOR should encode");
+        serde_cbor::to_writer(&mut encoded, &value).expect("CBOR should encode");
         assert_eq!(encoded.len(), binary);
         assert_eq!(
-            ciborium::de::from_reader::<String, _>(encoded.as_slice())
+            serde_cbor::from_slice::<String>(encoded.as_slice())
                 .expect("CBOR should contain decimal text"),
             text,
         );
         assert_eq!(
-            ciborium::de::from_reader::<Decimal, _>(encoded.as_slice())
+            serde_cbor::from_slice::<Decimal>(encoded.as_slice())
                 .expect("CBOR should decode the decimal"),
             value,
         );

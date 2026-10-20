@@ -1,20 +1,18 @@
+use icydb_testing_integration::WireCallExt as _;
 use std::{env, fs};
 
-use candid::CandidType;
-use ic_testkit::pic::{CandidCallExt as _, StandaloneCanisterFixture};
+use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{Error, db::sql::SqlQueryResult};
 use icydb_testing_audit_sql_perf_fixtures::contracts::SchemaApplicationPerfResult;
 use icydb_testing_build::{
-    CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
-    CanisterWasmProfile, build_fixture_canister_wasm_stages_with_options,
-    wasm_optimizer::optimize_deployable_wasm,
+    CanisterBuildOptions, CanisterBuildProfile, CanisterSqlMode, CanisterWasmProfile,
+    build_fixture_canister_wasm_stages_with_options, wasm_optimizer::optimize_deployable_wasm,
 };
 use icydb_testing_integration::{
     deliver_fixture_startup_watchdog, install_prebuilt_fixture_canister, reset_icydb_fixtures,
 };
-use serde::Deserialize;
 
-#[derive(CandidType, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 struct SqlTotalOnlyPerfResult {
     result: SqlQueryResult,
     instructions: u64,
@@ -24,7 +22,6 @@ const fn wasm_release_test_options() -> CanisterBuildOptions {
     CanisterBuildOptions {
         profile: CanisterWasmProfile::WasmRelease,
         sql_mode: CanisterSqlMode::Enabled,
-        candid_export: CanisterCandidExportMode::Enabled,
         build_profile: CanisterBuildProfile::LocalTest,
     }
 }
@@ -32,7 +29,7 @@ const fn wasm_release_test_options() -> CanisterBuildOptions {
 fn schema_application_update(fixture: &StandaloneCanisterFixture) -> SchemaApplicationPerfResult {
     let result: Result<SchemaApplicationPerfResult, Error> = fixture
         .pocket_ic()
-        .update_candid(
+        .update_wire(
             fixture.canister_id(),
             "measure_schema_application_update",
             (),
@@ -44,7 +41,7 @@ fn schema_application_update(fixture: &StandaloneCanisterFixture) -> SchemaAppli
 fn schema_application_query(fixture: &StandaloneCanisterFixture) -> SchemaApplicationPerfResult {
     let result: Result<SchemaApplicationPerfResult, Error> = fixture
         .pocket_ic()
-        .query_candid(
+        .query_wire(
             fixture.canister_id(),
             "measure_schema_application_query",
             (),
@@ -56,7 +53,7 @@ fn schema_application_query(fixture: &StandaloneCanisterFixture) -> SchemaApplic
 fn query_user(fixture: &StandaloneCanisterFixture) -> SqlQueryResult {
     let result: Result<SqlQueryResult, Error> = fixture
         .pocket_ic()
-        .query_candid(
+        .query_wire(
             fixture.canister_id(),
             "query_user",
             ("SELECT id, name, age FROM PerfAuditUser ORDER BY id".to_string(),),
@@ -68,7 +65,7 @@ fn query_user(fixture: &StandaloneCanisterFixture) -> SqlQueryResult {
 fn query_user_instructions(fixture: &StandaloneCanisterFixture) -> SqlTotalOnlyPerfResult {
     let result: Result<SqlTotalOnlyPerfResult, Error> = fixture
         .pocket_ic()
-        .query_candid(
+        .query_wire(
             fixture.canister_id(),
             "query_user_with_perf",
             ("SELECT id, name, age FROM PerfAuditUser ORDER BY id".to_string(),),
@@ -159,7 +156,8 @@ fn canonical_post_link_wasm_is_deterministic_and_upgrade_safe() {
         .upgrade_canister(
             fixture.canister_id(),
             final_deployable,
-            candid::encode_args(()).expect("empty upgrade args should encode"),
+            icydb::wire::encode_post_upgrade_arguments(())
+                .expect("unit post-upgrade arguments should encode"),
             None,
         )
         .expect("compiler-to-post-link upgrade should succeed");

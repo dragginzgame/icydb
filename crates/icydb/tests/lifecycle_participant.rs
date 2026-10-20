@@ -6,7 +6,7 @@ std::thread_local! {
     static REENTER_ONCE: Cell<bool> = const { Cell::new(true) };
 }
 
-mod __icydb_generated {
+mod __icydb_host {
     pub(crate) fn __icydb_startup_init() {
         if super::REENTER_ONCE.replace(false) {
             crate::__icydb_lifecycle_participant::post_upgrade();
@@ -19,7 +19,7 @@ mod __icydb_generated {
     }
 }
 
-icydb::__icydb_start_participant_lifecycle!();
+canic_icydb::__icydb_start_participant_lifecycle!();
 
 const _: fn() -> () = crate::__icydb_lifecycle_participant::init;
 const _: fn() -> () = crate::__icydb_lifecycle_participant::post_upgrade;

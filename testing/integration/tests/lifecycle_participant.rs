@@ -3,11 +3,11 @@
 //! Does not own: production lifecycle orchestration or fixture canister implementation.
 //! Boundary: exercises installed fixture behavior through PocketIC-facing APIs.
 
+use icydb_testing_integration::WireCallExt as _;
 use std::{collections::BTreeSet, num::NonZeroUsize, time::Duration};
 
-use candid::{CandidType, Deserialize};
 use ic_testkit::{
-    pic::{CandidCallExt as _, CanisterInstallExt, RetryPolicy, StandaloneCanisterFixture},
+    pic::{CanisterInstallExt, RetryPolicy, StandaloneCanisterFixture},
     pocket_ic::{ErrorCode, RejectResponse},
 };
 use icydb::types::Ulid;
@@ -31,19 +31,19 @@ fn production_build_options() -> CanisterBuildOptions {
     }
 }
 
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 enum LifecycleHook {
     Init,
     PostUpgrade,
 }
 
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 enum ApplicationActivationState {
     Prepared,
     Active,
 }
 
-#[derive(CandidType, Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 struct LifecycleCompositionSnapshot {
     hook: LifecycleHook,
     activation: ApplicationActivationState,
@@ -64,28 +64,28 @@ struct LifecycleCompositionSnapshot {
 fn snapshot(fixture: &StandaloneCanisterFixture) -> LifecycleCompositionSnapshot {
     fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "lifecycle_composition_snapshot", ())
+        .query_wire(fixture.canister_id(), "lifecycle_composition_snapshot", ())
         .expect("lifecycle composition snapshot should decode")
 }
 
 fn database_probe(fixture: &StandaloneCanisterFixture) -> Result<bool, icydb::Error> {
     fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "lifecycle_database_probe", ())
+        .query_wire(fixture.canister_id(), "lifecycle_database_probe", ())
         .expect("lifecycle database probe should decode")
 }
 
 fn insert_probe_row(fixture: &StandaloneCanisterFixture) -> Result<Ulid, icydb::Error> {
     fixture
         .pocket_ic()
-        .update_candid(fixture.canister_id(), "lifecycle_insert_probe_row", ())
+        .update_wire(fixture.canister_id(), "lifecycle_insert_probe_row", ())
         .expect("lifecycle probe-row insert should decode")
 }
 
 fn probe_row_exists(fixture: &StandaloneCanisterFixture, id: Ulid) -> Result<bool, icydb::Error> {
     fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "lifecycle_probe_row_exists", (id,))
+        .query_wire(fixture.canister_id(), "lifecycle_probe_row_exists", (id,))
         .expect("lifecycle probe-row query should decode")
 }
 
@@ -136,7 +136,10 @@ fn advance_until_active(fixture: &StandaloneCanisterFixture) -> LifecycleComposi
 }
 
 const fn install_code_retry_policy() -> RetryPolicy {
-    RetryPolicy::new(INSTALL_CODE_RETRY_LIMIT, INSTALL_CODE_COOLDOWN)
+    RetryPolicy {
+        max_attempts: INSTALL_CODE_RETRY_LIMIT,
+        cooldown: INSTALL_CODE_COOLDOWN,
+    }
 }
 
 fn upgrade_with_retry(
@@ -157,7 +160,7 @@ fn upgrade_with_retry(
 }
 
 fn upgrade_with_wasm(fixture: &StandaloneCanisterFixture, wasm: Vec<u8>) {
-    let args = candid::encode_args((Some(false),))
+    let args = icydb::wire::encode_post_upgrade_arguments((Some(false),))
         .expect("non-trapping lifecycle upgrade args should encode");
     upgrade_with_retry(fixture, &wasm, &args)
         .expect("lifecycle participant upgrade should succeed");
@@ -316,8 +319,8 @@ fn trapped_post_upgrade_rolls_back_participation_and_allows_a_clean_retry() {
         .get_stable_memory(fixture.canister_id())
         .len();
 
-    let trap_args =
-        candid::encode_args((Some(true),)).expect("trapping lifecycle upgrade args should encode");
+    let trap_args = icydb::wire::encode_post_upgrade_arguments((Some(true),))
+        .expect("trapping lifecycle upgrade args should encode");
     let failed_upgrade = upgrade_with_retry(&fixture, &production_wasm, &trap_args)
         .expect_err("post-upgrade must propagate a trap after participant execution");
     assert_eq!(
@@ -371,7 +374,7 @@ fn participant_functions_are_absent_from_the_complete_ingress_surface() {
         methods,
         BTreeSet::from([
             CanisterMethod {
-                name: "<ic-cdk internal> timer_executor".to_string(),
+                name: "<ic-timers internal> dispatch".to_string(),
                 mode: MethodMode::Update,
             },
             CanisterMethod {
@@ -403,7 +406,7 @@ fn participant_functions_are_absent_from_the_complete_ingress_surface() {
         production_methods,
         BTreeSet::from([
             CanisterMethod {
-                name: "<ic-cdk internal> timer_executor".to_string(),
+                name: "<ic-timers internal> dispatch".to_string(),
                 mode: MethodMode::Update,
             },
             CanisterMethod {

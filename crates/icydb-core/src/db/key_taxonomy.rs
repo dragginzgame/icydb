@@ -41,7 +41,13 @@ const SUBACCOUNT_SIZE: usize = 32;
 const U256_SIZE: usize = 32;
 const ACCOUNT_SIZE: usize = Account::STORED_SIZE as usize;
 const LENGTH_PREFIX_SIZE: usize = size_of::<u16>();
-const INDEX_COMPONENT_MAX_SIZE: usize = 4 * 1024;
+/// Complete encoded secondary-index key budget, including framing and row identity.
+pub(in crate::db) const INDEX_KEY_MAX_SIZE: usize = 512;
+pub(in crate::db) const INDEX_KEY_PREFIX_SIZE: usize =
+    TAG_SIZE + IndexId::STORED_SIZE_USIZE + TAG_SIZE;
+/// Largest component that can fit with one length-prefixed minimum row identity.
+pub(in crate::db) const INDEX_COMPONENT_MAX_SIZE: usize =
+    INDEX_KEY_MAX_SIZE - INDEX_KEY_PREFIX_SIZE - 2 * LENGTH_PREFIX_SIZE - TAG_SIZE;
 pub(in crate::db) const MAX_PRIMARY_KEY_FIELDS: usize = 4;
 const SCALAR_PRIMARY_KEY_MAX_SIZE: usize = TAG_SIZE + ACCOUNT_SIZE;
 const MAX_ENCODED_PRIMARY_KEY_COMPONENT_SIZE: usize = SCALAR_PRIMARY_KEY_MAX_SIZE;
@@ -948,6 +954,7 @@ impl IndexStoreKey {
     pub(in crate::db) fn try_from_raw_bytes(
         bytes: &[u8],
     ) -> Result<Self, CompactStoreKeyDecodeError> {
+        let _ = decode_raw_index_store_key_segments(bytes)?;
         let mut input = bytes;
 
         let key_kind = take_exact(&mut input, TAG_SIZE)?[0];
@@ -1002,28 +1009,41 @@ impl IndexStoreKey {
     }
 }
 
+/// Count complete framing before allocation; saturation remains an over-budget rejection.
+pub(in crate::db) fn index_store_key_encoded_len<'a>(
+    components: impl Iterator<Item = &'a [u8]>,
+    primary_key_len: usize,
+) -> usize {
+    components.fold(
+        INDEX_KEY_PREFIX_SIZE
+            .saturating_add(LENGTH_PREFIX_SIZE)
+            .saturating_add(primary_key_len),
+        |length, component| {
+            length
+                .saturating_add(LENGTH_PREFIX_SIZE)
+                .saturating_add(component.len())
+        },
+    )
+}
+
 /// Frame borrowed index segments, including range sentinels, without owned intermediates.
-/// Callers own semantic admission; this owner checks the persisted count/length widths.
+/// Callers own semantic admission; this owner checks the complete persisted key budget.
 pub(in crate::db) fn encode_index_store_key<'a>(
     key_kind: IndexStoreKeyKind,
     index_id: IndexId,
     components: impl ExactSizeIterator<Item = &'a [u8]> + Clone,
     primary_key: &[u8],
 ) -> Result<RawIndexStoreKey, CompactStoreKeyEncodeError> {
+    if components.len() > MAX_INDEX_FIELDS {
+        return Err(CompactStoreKeyEncodeError::TooManyIndexComponents);
+    }
     let component_count = u8::try_from(components.len())
         .map_err(|_| CompactStoreKeyEncodeError::TooManyIndexComponents)?;
-    let component_len: usize = components
-        .clone()
-        .map(|component| LENGTH_PREFIX_SIZE + component.len())
-        .sum();
-    let mut bytes = Vec::with_capacity(
-        TAG_SIZE
-            + IndexId::STORED_SIZE_USIZE
-            + TAG_SIZE
-            + component_len
-            + LENGTH_PREFIX_SIZE
-            + primary_key.len(),
-    );
+    let length = index_store_key_encoded_len(components.clone(), primary_key.len());
+    if length > INDEX_KEY_MAX_SIZE {
+        return Err(CompactStoreKeyEncodeError::IndexSegmentTooLarge);
+    }
+    let mut bytes = Vec::with_capacity(length);
     bytes.push(key_kind.tag());
     bytes.extend_from_slice(&index_id.to_bytes());
     bytes.push(component_count);
@@ -1436,6 +1456,9 @@ fn compare_raw_index_store_key_bytes(left: &[u8], right: &[u8]) -> Ordering {
 fn decode_raw_index_store_key_segments(
     bytes: &[u8],
 ) -> Result<BorrowedIndexStoreKeySegments<'_>, CompactStoreKeyDecodeError> {
+    if bytes.len() > INDEX_KEY_MAX_SIZE {
+        return Err(CompactStoreKeyDecodeError::IndexSegmentTooLarge);
+    }
     let mut input = bytes;
 
     let key_kind = take_exact(&mut input, TAG_SIZE)?[0];

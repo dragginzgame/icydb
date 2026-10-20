@@ -10,15 +10,14 @@ pub mod durable_mutation_job_contract;
 pub mod fixture_variants;
 pub mod group_path_contract;
 pub mod nested_relation_contract;
+mod wire;
+pub use wire::WireCallExt;
 
 use std::time::Duration;
 
-use candid::Principal;
+use ic_platform::Principal;
 use ic_testkit::{
-    pic::{
-        CandidCallExt as _, InstallSpec, PocketIcInstance, PocketIcStartupConfig,
-        StandaloneCanisterFixture,
-    },
+    pic::{InstallSpec, PocketIcInstance, PocketIcStartupConfig, StandaloneCanisterFixture},
     pocket_ic::{PocketIc, PocketIcBuilder},
 };
 use icydb::{Error, ErrorCode};
@@ -65,7 +64,7 @@ pub fn startup_watchdog_perf_snapshot(
 ) -> StartupWatchdogPerfSnapshot {
     fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "startup_watchdog_perf_snapshot", ())
+        .query_wire(fixture.canister_id(), "startup_watchdog_perf_snapshot", ())
         .expect("startup watchdog performance snapshot should decode")
 }
 
@@ -78,7 +77,7 @@ pub fn startup_watchdog_perf_snapshot(
 pub fn startup_watchdog_armed(fixture: &StandaloneCanisterFixture) -> bool {
     fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "startup_watchdog_armed", ())
+        .query_wire(fixture.canister_id(), "startup_watchdog_armed", ())
         .expect("startup watchdog scheduling state should decode")
 }
 
@@ -93,7 +92,7 @@ pub fn advance_startup_watchdog_until_ready(fixture: &StandaloneCanisterFixture)
     for delivered in 0..=MAX_NORMAL_CONVERGENCE_WATCHDOG_DELIVERIES {
         let probe: Result<(), Error> = fixture
             .pocket_ic()
-            .update_candid(
+            .update_wire(
                 fixture.canister_id(),
                 "initialize_startup_observation_fixture",
                 (),
@@ -123,8 +122,8 @@ pub fn advance_startup_watchdog_until_ready(fixture: &StandaloneCanisterFixture)
 ///
 /// # Panics
 ///
-/// Panics if the canister name is unsupported, empty init arguments cannot be
-/// encoded, PocketIC cannot start, or installation fails.
+/// Panics if the canister name is unsupported, PocketIC cannot start, unit
+/// lifecycle arguments cannot be encoded, or installation fails.
 #[must_use]
 pub fn install_prebuilt_fixture_canister(
     canister_name: &str,
@@ -143,8 +142,8 @@ pub fn install_prebuilt_fixture_canister(
 ///
 /// # Panics
 ///
-/// Panics if the canister name is unsupported, empty init arguments cannot be
-/// encoded, PocketIC cannot start, or installation fails.
+/// Panics if the canister name is unsupported, PocketIC cannot start, unit
+/// lifecycle arguments cannot be encoded, or installation fails.
 #[must_use]
 pub fn install_prebuilt_fixture_canister_without_startup_delivery(
     canister_name: &str,
@@ -154,23 +153,25 @@ pub fn install_prebuilt_fixture_canister_without_startup_delivery(
         .unwrap_or_else(|error| panic!("fixture canister should be supported: {error}"));
     StandaloneCanisterFixture::try_install(
         start_fixture_pocket_ic(),
-        InstallSpec::new(
+        InstallSpec {
             wasm,
-            candid::encode_args(()).expect("encode empty init args"),
-            FIXTURE_INSTALL_CYCLES,
-        )
-        .label(canister_name),
+            init_bytes: icydb::wire::encode_init_arguments(())
+                .expect("unit init arguments should encode"),
+            cycles: FIXTURE_INSTALL_CYCLES,
+            install_sender: None,
+            label: Some(canister_name.to_string()),
+        },
     )
     .unwrap_or_else(|error| panic!("install {canister_name} fixture: {error}"))
 }
 
 /// Build one supported canister and install it into a fresh standalone fixture
-/// with empty init args.
+/// with unit init arguments encoded through the lifecycle Wire contract.
 ///
 /// # Panics
 ///
-/// Panics if the canister cannot be built, the built WASM cannot be read, empty
-/// init args cannot be encoded, or installation fails.
+/// Panics if the canister cannot be built, the built WASM cannot be read, unit
+/// lifecycle arguments cannot be encoded, or installation fails.
 #[must_use]
 pub fn install_fixture_canister(canister_name: &str) -> StandaloneCanisterFixture {
     let fixture = install_fixture_canister_without_startup_delivery(canister_name);
@@ -186,8 +187,8 @@ pub fn install_fixture_canister(canister_name: &str) -> StandaloneCanisterFixtur
 ///
 /// # Panics
 ///
-/// Panics if the canister cannot be built, the built WASM cannot be read, empty
-/// init args cannot be encoded, or installation fails.
+/// Panics if the canister cannot be built, the built WASM cannot be read, unit
+/// lifecycle arguments cannot be encoded, or installation fails.
 #[must_use]
 pub fn install_fixture_canister_without_startup_delivery(
     canister_name: &str,
@@ -218,12 +219,14 @@ fn install_fixture_canister_with_options_and_optional_progress(
 
     let fixture = StandaloneCanisterFixture::try_install(
         start_fixture_pocket_ic(),
-        InstallSpec::new(
+        InstallSpec {
             wasm,
-            candid::encode_args(()).expect("encode empty init args"),
-            FIXTURE_INSTALL_CYCLES,
-        )
-        .label(canister_name),
+            init_bytes: icydb::wire::encode_init_arguments(())
+                .expect("unit init arguments should encode"),
+            cycles: FIXTURE_INSTALL_CYCLES,
+            install_sender: None,
+            label: Some(canister_name.to_string()),
+        },
     )
     .unwrap_or_else(|error| panic!("install {canister_name} fixture: {error}"));
     if let Some(label) = progress_label {
@@ -272,12 +275,12 @@ pub fn deliver_fixture_startup_watchdog(pic: &PocketIc) {
 /// Panics if the reset or load calls fail to decode or return fixture errors.
 pub fn reset_icydb_fixtures(pic: &PocketIc, canister_id: Principal) {
     let reset: Result<(), Error> = pic
-        .update_candid(canister_id, "icydb_fixtures_reset", ())
+        .update_wire(canister_id, "icydb_fixtures_reset", ())
         .expect("icydb_fixtures_reset should decode");
     reset.expect("icydb_fixtures_reset should succeed");
 
     let load: Result<(), Error> = pic
-        .update_candid(canister_id, "icydb_fixtures_load", ())
+        .update_wire(canister_id, "icydb_fixtures_load", ())
         .expect("icydb_fixtures_load should decode");
     load.expect("icydb_fixtures_load should succeed");
 }
@@ -286,11 +289,12 @@ pub fn reset_icydb_fixtures(pic: &PocketIc, canister_id: Principal) {
 ///
 /// # Panics
 ///
-/// Panics if the canister cannot be built, the built WASM cannot be read, empty
-/// upgrade args cannot be encoded, or PocketIC rejects the upgrade.
+/// Panics if the canister cannot be built, the built WASM cannot be read, unit
+/// lifecycle arguments cannot be encoded, or PocketIC rejects the upgrade.
 pub fn upgrade_fixture_canister(pic: &PocketIc, canister_id: Principal, canister_name: &str) {
     let wasm = local_fixture_wasm_bytes(canister_name);
-    let args = candid::encode_args(()).expect("encode empty upgrade args");
+    let args = icydb::wire::encode_post_upgrade_arguments(())
+        .expect("unit post-upgrade arguments should encode");
 
     pic.upgrade_canister(canister_id, wasm, args, None)
         .unwrap_or_else(|err| panic!("{canister_name} canister upgrade should succeed: {err}"));

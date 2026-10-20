@@ -6,8 +6,10 @@
 mod convergence;
 mod entropy;
 
-#[cfg(not(test))]
-use crate::db::registry::open_committed_memory;
+pub use entropy::provide_boot_entropy;
+
+pub(in crate::db) use convergence::retired_journal_tail_control;
+
 use crate::{
     db::{
         commit::{CommitMemoryAllocation, commit_memory_handle, current_commit_memory_allocation},
@@ -15,11 +17,12 @@ use crate::{
     },
     error::{InternalError, RecoveryFormatMarkerError},
 };
-use ic_memory::RuntimeMemory;
-use ic_memory::ic_stable_structures::{DefaultMemoryImpl, Memory};
+use ic_memory::Memory;
+#[cfg(test)]
+use ic_memory::{DefaultMemoryImpl, RuntimeMemory};
 use std::cell::RefCell;
 
-#[cfg(all(test, feature = "sql"))]
+#[cfg(all(test, feature = "sql", not(target_arch = "wasm32")))]
 pub(in crate::db) use entropy::set_boot_entropy_for_tests;
 
 pub(in crate::db) const DATABASE_BOOT_RECORD_BYTES: usize = 15;
@@ -125,30 +128,24 @@ pub(in crate::db) enum DatabaseFormatObservation {
     Current,
 }
 
-struct StoreRoleMemories<M> {
-    data: M,
-    index: M,
-    schema: M,
-    journal: M,
+struct StoreRoleExtents {
+    pages: [u64; 4],
 }
 
-impl StoreRoleMemories<RuntimeMemory<DefaultMemoryImpl>> {
-    fn open(allocations: StoreAllocationIdentities) -> Result<Self, InternalError> {
+impl StoreRoleExtents {
+    fn observe(allocations: StoreAllocationIdentities) -> Result<Self, InternalError> {
         Ok(Self {
-            data: store_memory_handle(required_allocation(allocations.data())?)?,
-            index: store_memory_handle(required_allocation(allocations.index())?)?,
-            schema: store_memory_handle(required_allocation(allocations.schema())?)?,
-            journal: store_memory_handle(required_allocation(allocations.journal())?)?,
+            pages: [
+                allocation_pages(required_allocation(allocations.data())?)?,
+                allocation_pages(required_allocation(allocations.index())?)?,
+                allocation_pages(required_allocation(allocations.schema())?)?,
+                allocation_pages(required_allocation(allocations.journal())?)?,
+            ],
         })
     }
-}
 
-impl<M: Memory> StoreRoleMemories<M> {
     fn physically_virgin(&self) -> bool {
-        self.data.size() == 0
-            && self.index.size() == 0
-            && self.schema.size() == 0
-            && self.journal.size() == 0
+        self.pages.iter().all(|pages| *pages == 0)
     }
 }
 
@@ -167,8 +164,8 @@ pub(in crate::db) fn ensure_database_format_admitted<C: crate::traits::CanisterK
 
         let boot_entropy = entropy::require_boot_entropy()?;
         let control_memory = commit_memory_handle(allocation)?;
-        let store_roles = open_registered_store_roles(db)?;
-        let fresh = admit_or_initialize_database_format(&control_memory, &store_roles)
+        let store_roles = observe_registered_store_roles(db)?;
+        let fresh = admit_or_initialize_database_format(control_memory.as_ref(), &store_roles)
             .map_err(map_admission_error)?;
         convergence::ensure_current_convergence_format::<C>(
             db,
@@ -217,9 +214,9 @@ pub(in crate::db) fn observe_database_format(
             },
         )),
         BootInspection::Missing => {
-            let roles = open_registered_store_roles_from_registry(stores)?;
+            let roles = observe_registered_store_roles_from_registry(stores)?;
             if control_memory_is_virgin(&control_memory)
-                && roles.iter().all(StoreRoleMemories::physically_virgin)
+                && roles.iter().all(StoreRoleExtents::physically_virgin)
             {
                 Ok(DatabaseFormatObservation::Uninitialized)
             } else {
@@ -236,7 +233,7 @@ pub(in crate::db) fn observe_database_format(
 
 fn admit_or_initialize_database_format<M: Memory>(
     control_memory: &M,
-    store_roles: &[StoreRoleMemories<M>],
+    store_roles: &[StoreRoleExtents],
 ) -> Result<bool, DatabaseFormatAdmissionError> {
     match inspect_boot_record(control_memory)? {
         BootInspection::Present(record)
@@ -252,7 +249,7 @@ fn admit_or_initialize_database_format<M: Memory>(
         }
         BootInspection::Missing
             if control_memory_is_virgin(control_memory)
-                && store_roles.iter().all(StoreRoleMemories::physically_virgin) =>
+                && store_roles.iter().all(StoreRoleExtents::physically_virgin) =>
         {
             Ok(true)
         }
@@ -290,16 +287,16 @@ pub(in crate::db) fn validate_current_boot_record<M: Memory>(
 
 #[cfg(test)]
 pub(in crate::db) fn initialize_current_database_control_for_tests(
-    memory: &RuntimeMemory<DefaultMemoryImpl>,
+    memory: &std::rc::Rc<RuntimeMemory<DefaultMemoryImpl>>,
 ) {
     write_current_boot_record(memory).expect("test database control memory should grow");
     crate::db::commit::initialize_current_commit_control_for_tests(memory.clone())
         .expect("test current commit control should initialize");
 }
 
-fn open_registered_store_roles<C: crate::traits::CanisterKind>(
+fn observe_registered_store_roles<C: crate::traits::CanisterKind>(
     db: &crate::db::Db<C>,
-) -> Result<Vec<StoreRoleMemories<RuntimeMemory<DefaultMemoryImpl>>>, InternalError> {
+) -> Result<Vec<StoreRoleExtents>, InternalError> {
     db.with_store_registry(|registry| {
         registry
             .iter()
@@ -307,14 +304,14 @@ fn open_registered_store_roles<C: crate::traits::CanisterKind>(
                 handle.storage_capabilities().storage_mode()
                     == crate::db::registry::StoreRuntimeStorageMode::Journaled
             })
-            .map(|(_, handle)| StoreRoleMemories::open(handle.allocation_identities()))
+            .map(|(_, handle)| StoreRoleExtents::observe(handle.allocation_identities()))
             .collect()
     })
 }
 
-fn open_registered_store_roles_from_registry(
+fn observe_registered_store_roles_from_registry(
     stores: &'static std::thread::LocalKey<crate::db::registry::StoreRegistry>,
-) -> Result<Vec<StoreRoleMemories<RuntimeMemory<DefaultMemoryImpl>>>, InternalError> {
+) -> Result<Vec<StoreRoleExtents>, InternalError> {
     stores.with(|registry| {
         registry
             .iter()
@@ -322,7 +319,7 @@ fn open_registered_store_roles_from_registry(
                 handle.storage_capabilities().storage_mode()
                     == crate::db::registry::StoreRuntimeStorageMode::Journaled
             })
-            .map(|(_, handle)| StoreRoleMemories::open(handle.allocation_identities()))
+            .map(|(_, handle)| StoreRoleExtents::observe(handle.allocation_identities()))
             .collect()
     })
 }
@@ -442,7 +439,7 @@ fn map_admission_error(error: DatabaseFormatAdmissionError) -> InternalError {
 thread_local! {
     #[cfg(test)]
     static TEST_STORE_ROLE_MEMORIES: RefCell<
-        Vec<(StoreAllocationIdentity, RuntimeMemory<DefaultMemoryImpl>)>
+        Vec<(StoreAllocationIdentity, crate::testing::TestMemoryOwner)>
     > = const { RefCell::new(Vec::new()) };
     // Generated stable-memory stores are thread-local. Admission authority
     // must have the same lifetime so one runtime cannot inherit readiness for
@@ -451,39 +448,40 @@ thread_local! {
         const { RefCell::new(Vec::new()) };
 }
 
+// Extent inspection must not acquire a second lease over an initialized tree.
 #[cfg(test)]
-pub(in crate::db) fn store_memory_handle(
-    allocation: StoreAllocationIdentity,
-) -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
-    TEST_STORE_ROLE_MEMORIES.with(|memories| {
-        let mut memories = memories.borrow_mut();
-        if let Some((_, memory)) = memories
+pub(super) fn allocation_pages(allocation: StoreAllocationIdentity) -> Result<u64, InternalError> {
+    TEST_STORE_ROLE_MEMORIES.with_borrow_mut(|memories| {
+        if let Some((_, owner)) = memories
             .iter()
             .find(|(existing, _)| *existing == allocation)
         {
-            return Ok(memory.clone());
+            return Ok(owner.size());
         }
-
-        let memory = crate::testing::test_memory(allocation.memory_id());
-        memories.push((allocation, memory.clone()));
-        Ok(memory)
+        memories.push((
+            allocation,
+            crate::testing::test_memory_owner(allocation.memory_id()),
+        ));
+        Ok(0)
     })
 }
 
 #[cfg(not(test))]
-pub(in crate::db) fn store_memory_handle(
-    allocation: StoreAllocationIdentity,
-) -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
-    open_committed_memory(allocation.stable_key(), allocation.memory_id())
-        .map_err(|_| InternalError::store_internal())
-}
-
-#[cfg(not(test))]
-pub(in crate::db) fn open_registered_store_memory(
-    memory_id: u8,
-    stable_key: &str,
-) -> Result<RuntimeMemory<DefaultMemoryImpl>, InternalError> {
-    open_committed_memory(stable_key, memory_id).map_err(|_| InternalError::store_internal())
+pub(super) fn allocation_pages(allocation: StoreAllocationIdentity) -> Result<u64, InternalError> {
+    let runtime = crate::db::memory_runtime().ok_or_else(InternalError::store_internal)?;
+    let id = runtime
+        .memory_id(allocation.stable_key())
+        .map_err(|_| InternalError::store_internal())?;
+    if id != allocation.memory_id() {
+        return Err(InternalError::store_invariant());
+    }
+    runtime
+        .memory_allocations()
+        .map_err(|_| InternalError::store_internal())?
+        .memories
+        .get(usize::from(id))
+        .map(|memory| memory.virtual_extent.wasm_pages)
+        .ok_or_else(InternalError::store_invariant)
 }
 
 ///
@@ -509,7 +507,7 @@ mod tests {
         );
         assert_eq!(admit_or_initialize_database_format(&memory, &[]), Ok(true));
         assert_eq!(memory.size(), 0);
-        assert_eq!(memory.grow(1), Ok(0));
+        assert_eq!(memory.as_ref().grow(1), Ok(0));
         assert_eq!(
             observe_database_format(&STORES).unwrap(),
             DatabaseFormatObservation::Uninitialized
@@ -539,7 +537,7 @@ mod tests {
             memory.write(offset, &[0; 3][..bytes.len()]);
         }
 
-        assert_eq!(memory.grow(1), Ok(1));
+        assert_eq!(memory.as_ref().grow(1), Ok(1));
         let error = observe_database_format(&STORES).unwrap_err();
         let admitted = admit_or_initialize_database_format(&memory, &[])
             .map_err(map_admission_error)

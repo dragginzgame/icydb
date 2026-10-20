@@ -2,16 +2,17 @@
 name = "icydb-testing-audit-nested-relation-fixtures"
 edition = { workspace = true }
 rust-version = { workspace = true }
+license-file = { workspace = true }
 version = { workspace = true }
 publish = false
 description = "Controlled nested-relation measurement schemas"
 
 [package.metadata.cargo-machete]
-ignored = ["candid", "icydb"]
+ignored = ["icydb"]
 
 [dependencies]
-candid = { workspace = true }
-ic-cdk = { workspace = true }
+canic-icydb = { workspace = true }
+ic-platform = { workspace = true, features = ["ic0"] }
 icydb = { workspace = true }
 icydb-model = { workspace = true }
 icydb-testing-wasm-helpers = { workspace = true }

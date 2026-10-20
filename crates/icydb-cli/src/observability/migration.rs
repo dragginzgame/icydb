@@ -1,13 +1,15 @@
 //! Deployed-only source-migration command execution and rendering.
 
-use icydb::db::{
-    SchemaMigrationCommand as RuntimeMigrationCommand, SchemaMigrationPhase,
-    SchemaMigrationStatusPage, SchemaMigrationStatusRequest, encode_hex_lower,
+use icydb::{
+    db::{
+        SchemaMigrationCommand as RuntimeMigrationCommand, SchemaMigrationPhase,
+        SchemaMigrationStatusPage, SchemaMigrationStatusRequest, encode_hex_lower,
+    },
+    wire::Endpoint,
 };
 
 use crate::{
     cli::{CanisterTarget, ConfirmedMigrationTarget, SchemaMigrationCommand},
-    endpoint::{SCHEMA_MIGRATE_ENDPOINT, SCHEMA_MIGRATION_ENDPOINT},
     icp::require_created_canister,
     observability::{call_query, call_update, decode_endpoint_result},
 };
@@ -143,18 +145,18 @@ const fn terminal(phase: SchemaMigrationPhase) -> bool {
 
 fn load_status(target: &CanisterTarget) -> Result<SchemaMigrationStatusPage, String> {
     require_created_canister(target.environment(), target.canister_name())?;
-    let candid = call_query(
+    let wire = call_query(
         target.environment(),
         target.canister_name(),
-        SCHEMA_MIGRATION_ENDPOINT.method(),
-        (&SchemaMigrationStatusRequest::default(),),
+        Endpoint::SchemaMigration.name(),
+        SchemaMigrationStatusRequest::default(),
     )?;
     decode_endpoint_result(
-        &candid,
+        &wire,
         "schema migration status",
         target.environment(),
         target.canister_name(),
-        SCHEMA_MIGRATION_ENDPOINT.method(),
+        Endpoint::SchemaMigration.name(),
     )
 }
 
@@ -208,18 +210,18 @@ fn call_command(
     target: &CanisterTarget,
     command: &RuntimeMigrationCommand,
 ) -> Result<SchemaMigrationStatusPage, String> {
-    let candid = call_update(
+    let wire = call_update(
         target.environment(),
         target.canister_name(),
-        SCHEMA_MIGRATE_ENDPOINT.method(),
-        (command,),
+        Endpoint::SchemaMigrate.name(),
+        command,
     )?;
     decode_endpoint_result(
-        &candid,
+        &wire,
         "schema migration",
         target.environment(),
         target.canister_name(),
-        SCHEMA_MIGRATE_ENDPOINT.method(),
+        Endpoint::SchemaMigrate.name(),
     )
 }
 
@@ -282,9 +284,11 @@ fn print_status(status: &SchemaMigrationStatusPage) {
 
 #[cfg(test)]
 mod tests {
-    use crate::icp::encode_candid_args;
-    use candid::Decode;
-    use icydb::db::{ExpectedAcceptedHead, SchemaMigrationCommand, TargetDatabaseIdentity};
+    use crate::icp::encode_wire_args;
+    use icydb::{
+        db::{ExpectedAcceptedHead, SchemaMigrationCommand, TargetDatabaseIdentity},
+        wire::Endpoint,
+    };
     use icydb_schema::{ExpectedSchemaFingerprint, SchemaMigrationPlanDigest};
 
     #[test]
@@ -323,8 +327,13 @@ mod tests {
                     },
                 ] {
                     // The argument carries its own types, without service metadata.
-                    let bytes = encode_candid_args((&command,)).unwrap();
-                    assert_eq!(Decode!(&bytes, SchemaMigrationCommand).unwrap(), command);
+                    let bytes = encode_wire_args(Endpoint::SchemaMigrate.name(), &command).unwrap();
+                    assert_eq!(
+                        icydb::wire::Endpoint::SchemaMigrate
+                            .decode_request::<SchemaMigrationCommand>(&bytes)
+                            .unwrap(),
+                        command
+                    );
                 }
             }
         }

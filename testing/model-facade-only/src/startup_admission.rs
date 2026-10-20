@@ -7,10 +7,7 @@ use runtime_api::{
 
 const CASE_ENV: &str = "ICYDB_FACADE_MEMORY_FAILURE_CASE";
 
-pub(super) fn extend_pool(
-    grants: &mut Vec<ic_memory::MemoryAuthority>,
-    exclusions: &mut Vec<ic_memory::MemoryManagerIdRange>,
-) {
+pub(super) fn extend_pool(grants: &mut Vec<ic_memory::MemoryAuthority>, exclusions: &mut Vec<u8>) {
     let Ok(case) = std::env::var(CASE_ENV) else {
         return;
     };
@@ -18,7 +15,7 @@ pub(super) fn extend_pool(
         grants.clear();
     }
     if case == "excluded_pool" {
-        exclusions.push(ic_memory::MemoryManagerIdRange::new(10, 254).unwrap());
+        exclusions.extend(10..=254);
     }
 }
 
@@ -52,9 +49,9 @@ fn generated_memory_admission_errors_match_startup_and_db() {
         // independently refuses the missing host binding without retrying bootstrap.
         assert!(with_request_execution(|| icydb::db!()).is_err());
         assert!(crate::startup_state().is_err());
-        let wire = candid::encode_one(&failure).unwrap();
+        let wire = runtime_api::wire::encode_one(&failure).unwrap();
         assert_eq!(
-            candid::decode_one::<StartupFailure>(&wire).unwrap(),
+            runtime_api::wire::decode_one::<StartupFailure>(&wire).unwrap(),
             failure
         );
         assert!(icydb::db::memory_runtime().is_none());
@@ -107,14 +104,7 @@ fn component_requests_are_complete_before_open_and_adopt_a_composed_host() {
         );
         assert!(icydb::db::memory_runtime().is_none());
         let mut composed = requests;
-        composed.push(
-            ic_memory::MemoryRequest::new(
-                "host",
-                "host.control.v1",
-                ic_memory::SchemaMetadata::default(),
-            )
-            .unwrap(),
-        );
+        composed.push(ic_memory::MemoryRequest::new("host", "host.control.v1").unwrap());
         let snapshot = ic_memory::SealedDeclarationSnapshot::new(composed).unwrap();
         let pool = ic_memory::MemoryAllocationPool::new(
             vec![
@@ -124,14 +114,11 @@ fn component_requests_are_complete_before_open_and_adopt_a_composed_host() {
             vec![],
         )
         .unwrap();
-        let mut runtime = ic_memory::MemoryRuntime::new(
-            ic_memory::ic_stable_structures::DefaultMemoryImpl::default(),
-        )
-        .unwrap();
+        let mut runtime =
+            ic_memory::MemoryRuntime::new(ic_memory::DefaultMemoryImpl::default()).unwrap();
         let committed = runtime
             .bootstrap(&snapshot, &pool, &ic_memory::GenericAllocationPolicy)
-            .unwrap()
-            .clone();
+            .unwrap();
         let runtime = std::rc::Rc::new(runtime);
         icydb::db::bind_memory_runtime(std::rc::Rc::clone(&runtime)).unwrap();
         crate::__icydb_generated::__drive_native_database_for_tests().unwrap();
@@ -140,7 +127,7 @@ fn component_requests_are_complete_before_open_and_adopt_a_composed_host() {
             icydb::db::DatabaseStartupState::Ready
         );
         assert!(with_request_execution(|| icydb::db!()).is_ok());
-        assert_eq!(runtime.committed_allocations().unwrap(), &committed);
+        assert_eq!(runtime.committed_generation().unwrap(), committed);
         assert!(runtime.open_memory("host.control.v1").is_ok());
     })
     .join()

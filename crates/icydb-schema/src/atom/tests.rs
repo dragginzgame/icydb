@@ -1,62 +1,61 @@
-use super::{Blob, Ulid};
+use super::{Blob, Principal, PrincipalDecodeError, PrincipalError, Ulid};
 use crate::{MAX_PROPOSAL_LITERAL_BYTES, ScalarLiteral, SchemaContractError};
-use candid::CandidType;
 
 #[test]
-fn blob_candid_round_trip_accepts_runtime_values_above_the_proposal_literal_bound() {
+fn blob_wire_round_trip_accepts_runtime_values_above_the_proposal_literal_bound() {
     let blob = Blob::from(vec![0xAB; MAX_PROPOSAL_LITERAL_BYTES + 1]);
-    let encoded = candid::encode_one(&blob).expect("runtime blob should encode");
-    let encoded_bytes =
-        candid::encode_one(blob.as_bytes()).expect("canonical byte vector should encode");
-    let decoded = candid::decode_one::<Blob>(&encoded).expect("runtime blob should decode");
+    let encoded = crate::wire::encode_one(&blob).expect("runtime blob should encode");
+    let encoded_bytes = crate::wire::encode_one(serde_bytes::Bytes::new(blob.as_bytes()))
+        .expect("canonical byte vector should encode");
+    let decoded = crate::wire::decode_one::<Blob>(&encoded).expect("runtime blob should decode");
 
     assert_eq!(encoded, encoded_bytes);
-    assert_eq!(Blob::ty(), Vec::<u8>::ty());
+
     assert_eq!(decoded, blob);
 }
 
 #[test]
-fn ulid_candid_round_trip_uses_exact_binary_bytes() {
-    assert_eq!(Ulid::ty(), Vec::<u8>::ty());
+fn ulid_wire_round_trip_uses_exact_binary_bytes() {
     for value in [Ulid::MIN, Ulid::from_u128(42), Ulid::MAX] {
-        let encoded = candid::encode_one(value).expect("ULID should encode");
-        let bytes = candid::encode_one(value.to_bytes()).expect("bytes should encode");
+        let encoded = crate::wire::encode_one(value).expect("ULID should encode");
+        let bytes = crate::wire::encode_one(serde_bytes::Bytes::new(&value.to_bytes()))
+            .expect("bytes should encode");
 
         assert_eq!(encoded, bytes);
-        assert_eq!(encoded.len(), 26);
+        assert_eq!(encoded.len(), 17);
         assert_eq!(
-            candid::decode_one::<Ulid>(&encoded).expect("ULID should decode"),
+            crate::wire::decode_one::<Ulid>(&encoded).expect("ULID should decode"),
             value,
         );
     }
 }
 
 #[test]
-fn ulid_candid_rejects_non_exact_blob_lengths() {
+fn ulid_wire_rejects_non_exact_blob_lengths() {
     for len in [0, 15, 17, 1_024] {
-        let encoded = candid::encode_one(vec![0_u8; len]).expect("blob should encode");
-        assert!(candid::decode_one::<Ulid>(&encoded).is_err());
+        let encoded = crate::wire::encode_one(vec![0_u8; len]).expect("blob should encode");
+        assert!(crate::wire::decode_one::<Ulid>(&encoded).is_err());
     }
 }
 
 #[test]
-fn ulid_candid_requires_byte_elements() {
-    let encoded = candid::encode_one(vec![0_u16; 16]).expect("numeric vector should encode");
-    assert!(candid::decode_one::<Ulid>(&encoded).is_err());
+fn ulid_wire_requires_byte_elements() {
+    let encoded = crate::wire::encode_one(vec![256_u16; 16]).expect("numeric vector should encode");
+    assert!(crate::wire::decode_one::<Ulid>(&encoded).is_err());
 }
 
 #[test]
 fn ulid_binary_serde_round_trip_uses_a_byte_string() {
     for value in [Ulid::MIN, Ulid::from_u128(42), Ulid::MAX] {
         let mut encoded = Vec::new();
-        ciborium::into_writer(&value, &mut encoded).expect("ULID should encode");
-        let wire: ciborium::Value =
-            ciborium::from_reader(encoded.as_slice()).expect("wire should decode");
+        serde_cbor::to_writer(&mut encoded, &value).expect("ULID should encode");
+        let wire: serde_cbor::Value =
+            serde_cbor::from_slice(encoded.as_slice()).expect("wire should decode");
 
-        assert_eq!(wire, ciborium::Value::Bytes(value.to_bytes().to_vec()));
+        assert_eq!(wire, serde_cbor::Value::Bytes(value.to_bytes().to_vec()));
         assert_eq!(encoded.len(), 17);
         assert_eq!(
-            ciborium::from_reader::<Ulid, _>(encoded.as_slice()).expect("ULID should decode"),
+            serde_cbor::from_slice::<Ulid>(encoded.as_slice()).expect("ULID should decode"),
             value,
         );
     }
@@ -66,12 +65,12 @@ fn ulid_binary_serde_round_trip_uses_a_byte_string() {
 fn ulid_binary_serde_enforces_width_for_bytes_and_sequences() {
     for len in [0, 15, 16, 17, 1_024] {
         for wire in [
-            ciborium::Value::Bytes(vec![0; len]),
-            ciborium::Value::Array(vec![ciborium::Value::Integer(0.into()); len]),
+            serde_cbor::Value::Bytes(vec![0; len]),
+            serde_cbor::Value::Array(vec![serde_cbor::Value::Integer(0); len]),
         ] {
             let mut encoded = Vec::new();
-            ciborium::into_writer(&wire, &mut encoded).expect("wire should encode");
-            let decoded = ciborium::from_reader::<Ulid, _>(encoded.as_slice());
+            serde_cbor::to_writer(&mut encoded, &wire).expect("wire should encode");
+            let decoded = serde_cbor::from_slice::<Ulid>(encoded.as_slice());
             if len == 16 {
                 assert_eq!(decoded.expect("exact width should decode"), Ulid::MIN);
             } else {
@@ -93,12 +92,12 @@ fn ulid_human_readable_serde_round_trip_uses_canonical_text() {
 }
 
 #[test]
-fn ulid_candid_vectors_preserve_binary_values() {
+fn ulid_wire_vectors_preserve_binary_values() {
     let values = vec![Ulid::from_u128(42); 1_000];
-    let encoded = candid::encode_one(&values).expect("ULIDs should encode");
-    assert_eq!(encoded.len(), 17_013);
+    let encoded = crate::wire::encode_one(&values).expect("ULIDs should encode");
+    assert_eq!(encoded.len(), 17_002);
     assert_eq!(
-        candid::decode_one::<Vec<Ulid>>(&encoded).expect("ULIDs should decode"),
+        crate::wire::decode_one::<Vec<Ulid>>(&encoded).expect("ULIDs should decode"),
         values,
     );
 }
@@ -113,4 +112,41 @@ fn blob_proposal_literals_retain_their_dedicated_bound() {
         oversized.validate(),
         Err(SchemaContractError::InvalidLiteral),
     );
+}
+
+#[test]
+fn principal_platform_identity_preserves_native_wire_bytes() {
+    for bytes in [vec![], vec![4], vec![0xAB; 29]] {
+        let platform = ic_platform::Principal::from_slice(&bytes);
+        let value = Principal::from(platform);
+        let recovered: ic_platform::Principal = value.into();
+        assert_eq!(recovered, platform);
+        assert_eq!(value.as_slice(), bytes);
+        assert_eq!(Principal::from_text(&platform.to_text()), Ok(value));
+
+        let encoded = crate::wire::encode_one(value).expect("principal should encode");
+        let mut expected = vec![u8::try_from(bytes.len()).expect("principal length fits one byte")];
+        expected.extend_from_slice(&bytes);
+        assert_eq!(encoded, expected);
+        assert_eq!(
+            crate::wire::decode_one::<Principal>(&encoded).expect("principal should decode"),
+            value,
+        );
+    }
+}
+
+#[test]
+fn principal_platform_adoption_retains_text_and_byte_rejection() {
+    assert_eq!(
+        Principal::from_text("invalid principal text"),
+        Err(PrincipalError::InvalidText),
+    );
+    let oversized = [0xAB; 30];
+    assert_eq!(
+        Principal::try_from_bytes(&oversized),
+        Err(PrincipalDecodeError::TooLarge { len: 30 }),
+    );
+    let encoded = crate::wire::encode_one(serde_bytes::Bytes::new(&oversized))
+        .expect("oversized bytes should encode independently of Principal");
+    assert!(crate::wire::decode_one::<Principal>(&encoded).is_err());
 }

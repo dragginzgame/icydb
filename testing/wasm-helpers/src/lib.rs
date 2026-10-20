@@ -288,3 +288,5 @@ macro_rules! define_simple_audit_entities {
         )+
     };
 }
+
+pub mod fixture_wire;

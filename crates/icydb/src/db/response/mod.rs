@@ -2,7 +2,7 @@
 //!
 //! Responsibility: public database response payloads.
 //! Does not own: query execution, storage mutation, or core response construction.
-//! Boundary: adapts core response shapes to facade-facing Candid-friendly types.
+//! Boundary: adapts core response shapes to facade-facing Wire-friendly types.
 
 // re-exports
 pub use icydb_core::db::GroupedRow;

@@ -4,22 +4,21 @@ edition = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 publish = false
-license = { workspace = true }
+license-file = { workspace = true }
 description = "Maintained canister build and Wasm report tooling for IcyDB"
 repository = { workspace = true }
 authors = { workspace = true }
 
 [dependencies]
-blake3 = { workspace = true }
-candid = { workspace = true }
 ic-build = { workspace = true }
-ic-host-artifacts = { workspace = true, features = ["wasm"] }
+ic-host-artifacts = { workspace = true, features = ["gzip", "wasm"] }
 ic-host-fs = { workspace = true }
 ic-host-process = { workspace = true }
-ic-host-tools = { workspace = true, features = ["candid-extraction", "candid-service", "ic-interface"] }
+ic-host-tools = { workspace = true, features = ["ic-interface"] }
 ic-metrics = { workspace = true }
 ic-wire = { workspace = true }
 icydb = { workspace = true, default-features = true, features = ["metrics", "migration", "sql"] }
+icydb-schema = { workspace = true }
 icydb-testing-wasm-helpers = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
@@ -27,6 +26,9 @@ serde_json = { workspace = true }
 [dev-dependencies]
 ic-host-fs = { workspace = true, features = ["test-support"] }
 ic-host-process = { workspace = true, features = ["test-support"] }
+ic-wire = { workspace = true, features = ["typescript"] }
+icydb-core = { workspace = true, features = ["metrics", "migration", "sql"] }
+serde-reflection = { workspace = true }
 
 [lints]
 workspace = true

@@ -1,0 +1,56 @@
+//! Native RPC resource policy; IC Wire owns the codec and envelopes.
+
+use ic_wire::Limits;
+use serde::{Serialize, de::DeserializeOwned};
+
+pub use ic_wire::Error;
+
+/// Maximum admitted payload traversal nodes.
+pub const MAX_NODES: usize = 1_048_576;
+/// Maximum admitted Serde nesting, including endpoint record/container boundaries.
+/// Allows the 64-level schema contract plus enum, collection and reply wrappers.
+pub const MAX_DEPTH: usize = 256;
+/// Conservative allocation allowance for decoded native payloads.
+pub const MAX_HEAP_BYTES: usize = 256 * 1024 * 1024;
+/// Maximum public reply envelope bytes.
+pub const MAX_REPLY_BYTES: usize = 3 * 1024 * 1024;
+/// Maximum owned endpoint request envelope bytes.
+pub const MAX_REQUEST_BYTES: usize = 2 * 1024 * 1024;
+
+/// Admission allowances for payload or complete frame bytes.
+#[must_use]
+pub const fn limits(bytes: usize) -> Limits {
+    Limits {
+        bytes,
+        allocation: MAX_HEAP_BYTES.saturating_add(bytes),
+        nodes: MAX_NODES,
+        depth: MAX_DEPTH,
+    }
+}
+
+/// Allocation-free sizing policy retaining the same traversal heap allowance.
+///
+/// A size may exceed delivery limits so precommit callers can return the typed
+/// oversized-reply error. No output buffer is allocated under this allowance.
+#[must_use]
+pub const fn sizing_limits() -> Limits {
+    limits(usize::MAX - MAX_HEAP_BYTES)
+}
+
+/// Encode a native payload through IC Wire's bounded codec.
+pub fn encode_one<T: Serialize>(value: T) -> Result<Vec<u8>, Error> {
+    ic_wire::native::encode(&value, limits(MAX_REPLY_BYTES))
+}
+
+/// Decode one complete canonical payload through IC Wire's bounded codec.
+pub fn decode_one<T: Serialize + DeserializeOwned>(bytes: &[u8]) -> Result<T, Error> {
+    ic_wire::native::decode(bytes, limits(MAX_REPLY_BYTES))
+}
+
+/// Measure native payload bytes without allocating output storage.
+pub fn encoded_len<T: Serialize + ?Sized>(value: &T) -> Result<usize, Error> {
+    ic_wire::native::encoded_len(value, sizing_limits())
+}
+
+#[cfg(test)]
+mod tests;

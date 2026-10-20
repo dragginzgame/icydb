@@ -48,7 +48,7 @@ use crate::{
     traits::CanisterKind,
     types::EntityTag,
 };
-use candid::CandidType;
+
 use icydb_schema::{
     ExpectedAcceptedHead, ExpectedSchemaFingerprint, SchemaProposal, SchemaProposalDigest,
     SchemaSubmissionKey, TargetDatabaseIdentity, TargetStoreIdentity,
@@ -121,7 +121,7 @@ thread_local! {
 /// the current database incarnation.
 ///
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct SchemaApplicationStore {
     path: String,
     identity: TargetStoreIdentity,
@@ -149,7 +149,7 @@ impl SchemaApplicationStore {
 /// this exact database-wide accepted head.
 ///
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct SchemaApplicationTarget {
     database_identity: TargetDatabaseIdentity,
     accepted_head: ExpectedAcceptedHead,
@@ -3333,8 +3333,6 @@ mod tests {
         testing::test_memory,
         traits::{CanisterKind, Path},
     };
-    use ic_memory::RuntimeMemory;
-    use ic_memory::ic_stable_structures::DefaultMemoryImpl;
     use icydb_schema::{
         ConstraintFragment, ConstraintSourceKey, DeclaredEntityVersion, EntityFragment,
         EntitySourceKey, EntityStoreAssignment, ExpectedAcceptedHead, ExpectedSchemaFingerprint,
@@ -3442,25 +3440,25 @@ mod tests {
     }
 
     thread_local! {
-        static ABORT_DATA_MEMORY: RuntimeMemory<DefaultMemoryImpl> = test_memory(180);
-        static ABORT_INDEX_MEMORY: RuntimeMemory<DefaultMemoryImpl> = test_memory(181);
-        static ABORT_SCHEMA_MEMORY: RuntimeMemory<DefaultMemoryImpl> = test_memory(182);
-        static ABORT_JOURNAL_MEMORY: RuntimeMemory<DefaultMemoryImpl> = test_memory(183);
+        static ABORT_DATA_MEMORY: crate::testing::TestMemoryOwner = crate::testing::test_memory_owner(180);
+        static ABORT_INDEX_MEMORY: crate::testing::TestMemoryOwner = crate::testing::test_memory_owner(181);
+        static ABORT_SCHEMA_MEMORY: crate::testing::TestMemoryOwner = crate::testing::test_memory_owner(182);
+        static ABORT_JOURNAL_MEMORY: crate::testing::TestMemoryOwner = crate::testing::test_memory_owner(183);
         static ABORT_DATA: RefCell<DataStore> =
             ABORT_DATA_MEMORY.with(|memory| {
-                RefCell::new(DataStore::init_journaled(memory.clone()))
+                RefCell::new(DataStore::init_journaled(memory.open()))
             });
         static ABORT_INDEX: RefCell<IndexStore> =
             ABORT_INDEX_MEMORY.with(|memory| {
-                RefCell::new(IndexStore::init_journaled(memory.clone()))
+                RefCell::new(IndexStore::init_journaled(memory.open()))
             });
         static ABORT_SCHEMA: RefCell<SchemaStore> =
             ABORT_SCHEMA_MEMORY.with(|memory| {
-                RefCell::new(SchemaStore::init_journaled(memory.clone()))
+                RefCell::new(SchemaStore::init_journaled(memory.open()))
             });
         static ABORT_JOURNAL: RefCell<JournalTailStore> =
             ABORT_JOURNAL_MEMORY.with(|memory| {
-                RefCell::new(JournalTailStore::init(memory.clone()))
+                RefCell::new(JournalTailStore::init(memory.open()))
             });
         static ABORT_REGISTRY: StoreRegistry = {
             let mut registry = StoreRegistry::new();
@@ -4893,23 +4891,31 @@ mod tests {
         );
 
         ABORT_DATA.with(|store| {
+            // Drop the crashed collection before reopening its exclusive lease.
+            drop(store.replace(DataStore::init_heap()));
             ABORT_DATA_MEMORY.with(|memory| {
-                *store.borrow_mut() = DataStore::init_journaled(memory.clone());
+                drop(store.replace(DataStore::init_journaled(memory.open())));
             });
         });
         ABORT_INDEX.with(|store| {
+            // Drop the crashed collection before reopening its exclusive lease.
+            drop(store.replace(IndexStore::init_heap()));
             ABORT_INDEX_MEMORY.with(|memory| {
-                *store.borrow_mut() = IndexStore::init_journaled(memory.clone());
+                drop(store.replace(IndexStore::init_journaled(memory.open())));
             });
         });
         ABORT_SCHEMA.with(|store| {
+            // Drop the crashed collection before reopening its exclusive lease.
+            drop(store.replace(SchemaStore::init_heap()));
             ABORT_SCHEMA_MEMORY.with(|memory| {
-                *store.borrow_mut() = SchemaStore::init_journaled(memory.clone());
+                drop(store.replace(SchemaStore::init_journaled(memory.open())));
             });
         });
         ABORT_JOURNAL.with(|store| {
+            // Drop the crashed collection before reopening its exclusive lease.
+            drop(store.replace(JournalTailStore::init(test_memory(254))));
             ABORT_JOURNAL_MEMORY.with(|memory| {
-                *store.borrow_mut() = JournalTailStore::init(memory.clone());
+                drop(store.replace(JournalTailStore::init(memory.open())));
             });
         });
         forget_recovered_domain_for_tests(&db).expect("upgrade should reset recovery ownership");

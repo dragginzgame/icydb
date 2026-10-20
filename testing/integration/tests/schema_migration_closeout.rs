@@ -5,9 +5,10 @@ mod entity_creation;
 mod entity_creation_lifecycle;
 mod entity_rename;
 
+use icydb_testing_integration::WireCallExt as _;
 use std::{sync::OnceLock, time::Duration};
 
-use ic_testkit::pic::{CandidCallExt as _, StandaloneCanisterFixture};
+use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{
     Error,
     db::{
@@ -65,7 +66,7 @@ fn rejected_checked_cast_preserves_source_rows_and_can_abort() {
     let id = &seed.rendered_rows()[0][0];
     let updated: Result<SqlQueryResult, Error> = fixture
         .pocket_ic()
-        .update_candid(
+        .update_wire(
             fixture.canister_id(),
             "icydb_update",
             (format!(
@@ -313,13 +314,13 @@ fn projection(fixture: &StandaloneCanisterFixture, sql: &str) -> RowProjectionOu
 fn load_fixtures(fixture: &StandaloneCanisterFixture) {
     let loaded: Result<(), Error> = fixture
         .pocket_ic()
-        .update_candid(fixture.canister_id(), "icydb_fixtures_load", ())
+        .update_wire(fixture.canister_id(), "icydb_fixtures_load", ())
         .expect("fixture load response should decode");
     loaded.expect("fixture load should succeed");
 }
 
 fn upgrade(fixture: &StandaloneCanisterFixture, wasm: Vec<u8>) {
-    let args = candid::encode_args(()).expect("empty upgrade arguments should encode");
+    let args = Vec::new();
     fixture
         .pocket_ic()
         .upgrade_canister(fixture.canister_id(), wasm, args, None)
@@ -330,7 +331,7 @@ fn upgrade(fixture: &StandaloneCanisterFixture, wasm: Vec<u8>) {
 fn migration_status(fixture: &StandaloneCanisterFixture) -> SchemaMigrationStatusPage {
     let result: Result<SchemaMigrationStatusPage, Error> = fixture
         .pocket_ic()
-        .query_candid(
+        .query_wire(
             fixture.canister_id(),
             "icydb_schema_migration",
             (SchemaMigrationStatusRequest::default(),),
@@ -348,7 +349,7 @@ fn migration_command(
     let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
     let result: Result<SchemaMigrationStatusPage, Error> = fixture
         .pocket_ic()
-        .update_candid(fixture.canister_id(), "icydb_schema_migrate", (command,))
+        .update_wire(fixture.canister_id(), "icydb_schema_migrate", (command,))
         .expect("migration command response should decode");
     let after = fixture.pocket_ic().cycle_balance(fixture.canister_id());
     let status = result.expect("migration command should succeed");
@@ -383,7 +384,7 @@ fn advance(
 fn query_sql(fixture: &StandaloneCanisterFixture, sql: &str) -> Result<SqlQueryResult, Error> {
     let result: Result<SqlQueryResult, Error> = fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "icydb_query", (sql.to_string(),))
+        .query_wire(fixture.canister_id(), "icydb_query", (sql.to_string(),))
         .expect("SQL query response should decode");
     result
 }

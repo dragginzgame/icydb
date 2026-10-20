@@ -1,6 +1,10 @@
 #!/usr/bin/env perl
+# Shared companions: scripts/ci/StableVersion.pm
 use strict;
 use warnings;
+use FindBin qw($RealBin);
+use lib "$RealBin/../ci";
+use StableVersion qw(stable version_cmp);
 use Cwd qw(abs_path);
 use File::Spec;
 use File::Path qw(make_path);
@@ -76,26 +80,24 @@ sub line {
 }
 abs_path(line(git('', 'rev-parse', '--show-toplevel'))) eq $repo
     or die "--repo must select the checkout root\n";
-sub numeric_compare { length($_[0]) <=> length($_[1]) || $_[0] cmp $_[1] }
 sub parts {
-    $_[0] =~ /\Av?($component)\.($component)\.($component)\z/ or return;
-    return ($1, $2, $3);
+    my $version = $_[0];
+    $version =~ s/\Av//;
+    return unless stable($version);
+    return split /\./, $version;
 }
 sub selected {
     my @version = parts($_[0]);
     return 0 unless @version;
-    for my $index (0 .. 2) {
-        return 1 if !defined $limit[$index];
-        my $cmp = numeric_compare($version[$index], $limit[$index]);
-        return $cmp < 0 if $cmp;
-    }
-    return 1;
+    # A minor cutoff admits every patch in that line. Compare just that prefix
+    # by projecting both patches to zero; exact cutoffs retain all components.
+    return version_cmp(join('.', @version), join('.', @limit)) <= 0
+        if defined $limit[2];
+    return version_cmp("$version[0].$version[1].0", "$limit[0].$limit[1].0") <= 0;
 }
 sub ordered {
     return sort {
-        my @a = parts($a); my @b = parts($b);
-        numeric_compare($a[0], $b[0]) || numeric_compare($a[1], $b[1]) ||
-            numeric_compare($a[2], $b[2]) || $a cmp $b
+        version_cmp(join('.', parts($a)), join('.', parts($b))) || $a cmp $b
     } @_;
 }
 sub inventory {

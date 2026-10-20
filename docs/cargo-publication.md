@@ -68,6 +68,47 @@ and provenance state, inspect the lock owner, and explicitly select any fresh
 attempt. A failed invocation is never permission to repeat an upload blindly.
 Status zero reports command completion, not independent registry readback.
 
+## Prepared package provenance
+
+`scripts/ci/check-cargo-package-provenance.sh` checks archives already prepared by
+Cargo, before any upload. The caller supplies a fresh evidence directory, existing
+archive directory, declared source repository, exact commit and each admitted
+package/version with its repository-relative directory:
+
+```bash
+bash scripts/ci/check-cargo-package-provenance.sh \
+  target/publication/provenance-unique target/package "$repository" "$commit" \
+  --package example-library@1.2.3 crates/library \
+  --package example-cli@2.0.0 apps/cli
+```
+
+Use `.` for a package at the repository root. Package versions may differ;
+duplicate names and abnormal relative paths refuse before allocating evidence.
+Directories containing spaces work; CR/LF paths and symlink archives refuse.
+The caller owns archive creation, complete package eligibility, trusted namespace
+custody and exclusion of concurrent archive/evidence replacement. This helper
+does not prepare packages or authorize publication, network access or retries.
+Fetching from an external repository requires the caller's network authority.
+
+Each regular archive must contain exactly one JSON provenance value with the
+selected commit, clean Git state and exact package directory. The helper retains
+the extracted JSON and tar diagnostics, then fetches that commit from the declared
+repository into a fresh bare object store. Its object format matches the admitted
+SHA-1 or SHA-256 identity, independently of ambient Git defaults.
+Inherited Git object/directory overrides
+are cleared so cached objects cannot substitute for retrieval. Failed commands
+refuse even when they print plausible output; the retrieved commit must match.
+Source repository configuration, credentials and transport policy stay caller-owned.
+
+The fresh evidence directory retains NUL-separated `packages` and `paths`, the
+repository/commit `source-request`, per-package `*-vcs.json` and `*-vcs.log`, and
+Git initialization/fetch logs and `source.git`. Only complete success writes
+`source-verified`. Occupied evidence is never overwritten or retried. The caller
+retains its wider admission lock, final source recheck and interruption recovery.
+Select the helper as a snapshot entrypoint; its guide is a declared companion.
+The focused fixture uses real local Git history and archives without external
+network requests; native macOS qualification remains separate.
+
 ## Consumer adoption boundary
 
 Keep existing adapters until their own equivalence checks pass against a reviewed
@@ -76,7 +117,7 @@ copies. Consumers retain these distinct obligations:
 
 | Consumer | Checks and recovery that stay local |
 | --- | --- |
-| Host Tooling | Package allowlist, synchronized versions, licenses, declared registry/repository, actual archive provenance, fresh remote source retrieval, all-feature selection and final source admission. |
+| Host Tooling | Package allowlist, synchronized versions, licenses, declared registry/repository, package preparation, explicit provenance-helper inputs, all-feature selection and final source admission. |
 | Canic | Resume-package admission, tri-state registry observations, selected missing set and final verification of the complete matching set, including predecessors omitted by resume. |
 | IcyDB | Complete publishable-set admission, validation-only mode, resume selection and exact release-receipt qualification before choosing `--no-verify`. |
 | Query | Exact absence versus lookup failure, source admission, library visibility before CLI upload, bounded retry settings and partial-upload reconciliation. |

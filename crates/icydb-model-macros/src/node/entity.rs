@@ -689,19 +689,8 @@ fn composite_primary_key_struct_tokens(
     });
 
     quote! {
-        #[derive(
-            ::icydb_model::__reexports::candid::CandidType,
-            Clone,
-            Copy,
-            Debug,
-            ::icydb_model::__reexports::serde::Deserialize,
-            Eq,
-            PartialEq,
-            Ord,
-            PartialOrd,
-            Hash
-        )]
-        #[candid_path("::icydb_model::__reexports::candid")]
+        #[derive(Clone, Copy, Debug, ::icydb_model::__reexports::serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, ::icydb_model::__reexports::serde::Serialize)]
+
         #[serde(crate = "::icydb_model::__reexports::serde")]
         pub struct #key_ident {
             #(#key_fields),*
@@ -1063,15 +1052,8 @@ fn typed_operation_struct_tokens(
             "`."
         )]
         #[doc = "Generated and managed fields are structurally absent."]
-        #[derive(
-            ::icydb_model::__reexports::candid::CandidType,
-            Clone,
-            Debug,
-            ::icydb_model::__reexports::serde::Deserialize,
-            Eq,
-            PartialEq
-        )]
-        #[candid_path("::icydb_model::__reexports::candid")]
+        #[derive(Clone, Debug, ::icydb_model::__reexports::serde::Deserialize, Eq, PartialEq, ::icydb_model::__reexports::serde::Serialize)]
+
         #[serde(crate = "::icydb_model::__reexports::serde")]
         pub struct #operation_ident {
             #(#primary_key_fields,)*

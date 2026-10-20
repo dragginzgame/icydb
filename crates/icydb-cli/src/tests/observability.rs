@@ -4,7 +4,7 @@
 //! Boundary: test-only assertions over generated canister response shapes and reports.
 
 use crate::observability::decode_endpoint_result;
-use candid::Encode;
+
 use icydb::db::{
     EntityFieldDescription, EntityIndexDescription, EntityRelationCardinality,
     EntityRelationDescription, EntitySchemaDescription,
@@ -19,9 +19,11 @@ use crate::observability::test_support::{
 fn decode_metrics_report_accepts_generated_response_shape() {
     let response: Result<icydb::metrics::MetricsReport, icydb::Error> =
         Ok(icydb::metrics::MetricsReport::default());
-    let candid_bytes = Encode!(&response).expect("metrics response should encode");
+    let wire_bytes = icydb::wire::Endpoint::Metrics
+        .encode_response(&response)
+        .expect("metrics response should encode");
     let decoded = decode_endpoint_result::<icydb::metrics::MetricsReport>(
-        candid_bytes.as_slice(),
+        wire_bytes.as_slice(),
         "metrics",
         "demo",
         "demo_rpg",
@@ -35,10 +37,12 @@ fn decode_metrics_report_accepts_generated_response_shape() {
 #[test]
 fn decode_metrics_reset_response_accepts_generated_response_shape() {
     let response: Result<(), icydb::Error> = Ok(());
-    let candid_bytes = Encode!(&response).expect("metrics reset response should encode");
+    let wire_bytes = icydb::wire::Endpoint::MetricsReset
+        .encode_response(&response)
+        .expect("metrics reset response should encode");
 
     decode_endpoint_result::<()>(
-        candid_bytes.as_slice(),
+        wire_bytes.as_slice(),
         "metrics reset",
         "demo",
         "demo_rpg",
@@ -51,9 +55,11 @@ fn decode_metrics_reset_response_accepts_generated_response_shape() {
 fn decode_snapshot_report_accepts_generated_response_shape() {
     let response: Result<icydb::db::StorageReport, icydb::Error> =
         Ok(icydb::db::StorageReport::default());
-    let candid_bytes = Encode!(&response).expect("snapshot response should encode");
+    let wire_bytes = icydb::wire::Endpoint::Snapshot
+        .encode_response(&response)
+        .expect("snapshot response should encode");
     let decoded = decode_endpoint_result::<icydb::db::StorageReport>(
-        candid_bytes.as_slice(),
+        wire_bytes.as_slice(),
         "snapshot",
         "demo",
         "demo_rpg",
@@ -68,9 +74,11 @@ fn decode_snapshot_report_accepts_generated_response_shape() {
 #[test]
 fn decode_schema_report_accepts_generated_response_shape() {
     let response: Result<Vec<EntitySchemaDescription>, icydb::Error> = Ok(Vec::new());
-    let candid_bytes = Encode!(&response).expect("schema response should encode");
+    let wire_bytes = icydb::wire::Endpoint::Schema
+        .encode_response(&response)
+        .expect("schema response should encode");
     let decoded = decode_endpoint_result::<Vec<EntitySchemaDescription>>(
-        candid_bytes.as_slice(),
+        wire_bytes.as_slice(),
         "schema",
         "demo",
         "demo_rpg",
@@ -83,14 +91,18 @@ fn decode_schema_report_accepts_generated_response_shape() {
 
 #[test]
 fn endpoint_decoder_rejects_malformed_wrong_shape_and_application_errors() {
-    let wrong_shape = Encode!(&42_u64).unwrap();
+    let wrong_shape = icydb::wire::Endpoint::Snapshot
+        .encode_response(42_u64)
+        .unwrap();
     let response: Result<icydb::db::StorageReport, icydb::Error> =
         Err(icydb::Error::from_runtime_boundary(
             icydb::diagnostic::RuntimeBoundaryCode::DatabaseStartupRecoveryPending,
             icydb::ErrorOrigin::Runtime,
         ));
-    let application_error = Encode!(&response).unwrap();
-    for bytes in [b"not Candid".as_slice(), &wrong_shape, &application_error] {
+    let application_error = icydb::wire::Endpoint::Snapshot
+        .encode_response(&response)
+        .unwrap();
+    for bytes in [b"not Wire".as_slice(), &wrong_shape, &application_error] {
         assert!(
             decode_endpoint_result::<icydb::db::StorageReport>(
                 bytes,

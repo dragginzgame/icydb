@@ -145,7 +145,7 @@ pub struct PerfAuditMaxFanout {}
 ///
 /// Audit-only 0.236 shape exercising 16 structurally tied three-component
 /// branch candidates with 16 prefixes each, exactly filling the 256-probe
-/// policy and approaching the cumulative lowered-byte envelope.
+/// policy with values that fit the complete 512-byte index-key budget.
 ///
 
 #[entity(store = "PerfAuditFanoutStore",

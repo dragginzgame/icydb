@@ -125,7 +125,7 @@ membership. A relation source uses its staged final image, and relation target
 lookup sees inserted or updated targets while treating deleted targets as
 absent.
 
-Public value conversion and exact Candid response-size validation complete
+Public value conversion and exact native payload-size validation complete
 before the marker is opened. The current bounds are 4,096 operations, 64
 distinct entities, 16 MiB
 of cumulative encoded keys plus canonical before/after rows, 4 MiB per row,

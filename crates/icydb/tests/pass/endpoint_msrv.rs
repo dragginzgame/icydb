@@ -1,14 +1,10 @@
 // Included by the external MSRV consumer under ordinary and renamed dependencies.
 // Handler stand-ins isolate endpoint expansion; no lifecycle behavior is claimed.
+use runtime_api as __icydb_facade;
+use canic_icydb::__private::cdk as __icydb_host_sdk;
+
 mod __icydb_generated {
     pub(crate) const __ICYDB_START_BINDING: () = ();
-
-    #[cfg(any(feature = "metrics", feature = "migration"))]
-    pub(crate) mod endpoint_authorization {
-        pub(crate) fn require_operational_controller() -> Result<(), runtime_api::Error> {
-            Ok(())
-        }
-    }
 
     pub(crate) mod endpoint_handlers {
         #[cfg(feature = "metrics")]
@@ -41,7 +37,7 @@ fn allow_read(_: runtime_api::ReadAuthorizationContext) -> runtime_api::ReadAuth
     runtime_api::ReadAuthorizationDecision::Allow
 }
 
-runtime_api::endpoints! {
+canic_icydb::endpoints! {
     #[cfg(feature = "metrics")]
     icydb_metrics(authorization = controller);
     #[cfg(feature = "sql")]

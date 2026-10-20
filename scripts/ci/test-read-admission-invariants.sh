@@ -25,7 +25,6 @@ files=(
   crates/icydb/src/db/session/mod.rs
   crates/icydb/src/db/session/prepared_query.rs
   crates/icydb-model/src/build/actor/db/sql.rs
-  crates/icydb-model/src/build/actor/endpoint.rs
 )
 cp --parents "${files[@]}" "$scratch/"
 checker="$scratch/scripts/ci/check-read-admission-invariants.sh"
@@ -62,16 +61,17 @@ sed -i 's/pub enum QueryReadAdmissionCode {/pub enum FixtureDiagnostic {/' "$scr
 expect_failure "missing diagnostic inventory"
 cp "$diagnostics" "$scratch/$diagnostics"
 
-# Each separate exact terminal must retain its public dispatch boundary.
+# Public exact terminals and private trusted SQL retain their dispatch boundaries.
 for target in \
   'crates/icydb/src/db/query/typed.rs:execute_public_typed_exact_count' \
   'crates/icydb/src/db/session/mod.rs:execute_public_exact_count(' \
   'crates/icydb/src/db/session/mod.rs:execute_public_exact_count_for_typed_binding' \
-  'crates/icydb/src/db/session/prepared_query.rs:execute_public_exact_key_batch_for_typed_binding'; do
+  'crates/icydb/src/db/session/prepared_query.rs:execute_public_exact_key_batch_for_typed_binding' \
+  'crates/icydb-model/src/build/actor/db/sql.rs:execute_trusted_sql_query_dispatch'; do
   file="${target%%:*}"
   symbol="${target#*:}"
   sed -i "s/$symbol/fixture_dispatch/g" "$scratch/$file"
-  expect_failure "missing public exact-terminal handoff: $symbol"
+  expect_failure "missing query dispatch handoff: $symbol"
   cp "$file" "$scratch/$file"
 done
 bash "$checker"

@@ -7,7 +7,7 @@ use crate::db::{
     ReadSetRevisionError, ReadSetRevisionProof, ReadSetStoreIdentity, ReadSetStoreRevision,
     codec::{ByteDecodeError, ByteReader},
 };
-use candid::CandidType;
+
 use serde::Deserialize;
 use std::{error::Error as StdError, fmt};
 
@@ -21,7 +21,9 @@ pub const MAX_RESUMABLE_JOB_IDEMPOTENCY_KEY_BYTES: usize = 256;
 pub const MAX_RESUMABLE_JOB_CONTINUATION_BYTES: usize = 16 * 1024;
 
 /// Nonzero application-owned identity for one durable resumable job.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+    serde::Serialize, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd,
+)]
 pub struct ResumableJobId([u8; 32]);
 
 impl ResumableJobId {
@@ -41,7 +43,7 @@ impl ResumableJobId {
 }
 
 /// Bounded application request identity used for lost-response replay.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct ResumableJobIdempotencyKey(String);
 
 impl ResumableJobIdempotencyKey {
@@ -69,7 +71,7 @@ impl ResumableJobIdempotencyKey {
 }
 
 /// Durable lifecycle of one generic application job.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum ResumableJobStatus {
     /// The next expected sequence may advance.
     Active,
@@ -80,7 +82,7 @@ pub enum ResumableJobStatus {
 }
 
 /// Current bounded durable state of one application-owned job.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct ResumableJobState {
     /// Application-owned job identity.
     pub job_id: ResumableJobId,
@@ -97,7 +99,7 @@ pub struct ResumableJobState {
 }
 
 /// Identity and expected sequence for one idempotent advance request.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct ResumableJobAdvanceRequest {
     /// Target application job.
     pub job_id: ResumableJobId,
@@ -124,7 +126,7 @@ impl ResumableJobAdvanceRequest {
 }
 
 /// Bounded temporary next state produced by one synchronous page operation.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct ResumableJobAdvance {
     /// Opaque continuation for the next page, or `None` after exhaustion.
     pub continuation: Option<String>,
@@ -162,7 +164,7 @@ impl ResumableJobAdvance {
 }
 
 /// Outcome committed for one advance request.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum ResumableJobAdvanceStatus {
     /// Candidate continuation and application state committed.
     Advanced,
@@ -171,7 +173,7 @@ pub enum ResumableJobAdvanceStatus {
 }
 
 /// Replayable receipt for one committed advance request.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct ResumableJobAdvanceReceipt {
     /// Sequence named by the request.
     pub request_sequence: u64,
@@ -195,7 +197,7 @@ impl ResumableJobAdvanceReceipt {
 }
 
 /// Typed protocol or persistence failure for generic resumable jobs.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum ResumableJobError {
     /// Job identity was all zeroes.
     InvalidJobId,

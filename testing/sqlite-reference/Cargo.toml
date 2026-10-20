@@ -2,6 +2,7 @@
 name = "icydb-testing-sqlite-reference"
 edition = { workspace = true }
 rust-version = { workspace = true }
+license-file = { workspace = true }
 version = { workspace = true }
 publish = false
 description = "Pinned SQLite reference adapter for IcyDB SQL correctness tests"

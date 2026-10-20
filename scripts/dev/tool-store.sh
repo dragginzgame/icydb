@@ -3,7 +3,7 @@
 # shellcheck disable=SC2154 # Caller owns consumer, tool_root, lock and active.
 # Sourced by installers and evidence selection. No effects until a function is called.
 
-# Only explicit host/IC asset setup retries, inside curl's transient classifier.
+# Explicit host/IC/CI asset setup retries inside curl's transient classifier.
 # The retry window limits new attempts; an in-flight attempt keeps its own cap.
 tool_store_download() {
     curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL \

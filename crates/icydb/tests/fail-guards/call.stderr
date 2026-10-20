@@ -1,10 +1,18 @@
 error: expected one of `!`, `(`, `+`, `::`, or `<`, found `{`
- --> tests/fail-guards/call.rs:6:77
+ --> tests/fail-guards/call.rs:9:77
   |
-6 |         authorization = guard(policy::guard(icydb::ReadAuthorizationContext {
+9 |         authorization = guard(policy::guard(icydb::ReadAuthorizationContext {
   |                                                                             ^ expected one of `!`, `(`, `+`, `::`, or `<`
   |
- ::: src/lib.rs
+ ::: $WORKSPACE/.cache/cargo/icydb/git/checkouts/canic-a5eca58db9c0a3b8/1491dd9/crates/canic-icydb/src/endpoints/mod.rs
   |
   |         authorization = guard($guard:path) $(,)?
   |                               ----------- while parsing argument for this `path` macro fragment
+
+warning: unused import: `canic_icydb::__private::cdk as __icydb_host_sdk`
+ --> tests/fail-guards/call.rs:4:5
+  |
+4 | use canic_icydb::__private::cdk as __icydb_host_sdk;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default

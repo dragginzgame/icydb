@@ -13,13 +13,13 @@ use crate::{
     traits::{CanisterKind, EntityKey},
     types::Id,
 };
-use candid::CandidType;
+
 use icydb_core::db::{AggregateExpr, FilterExpr, OrderTerm, PrimaryKeyEncode, PrimaryKeyValue};
 use serde::Deserialize;
 use std::{error::Error as StdError, fmt, marker::PhantomData};
 
 /// One revision-tolerant bounded typed page.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct LivePage<Row> {
     /// Decoded typed rows returned by this page.
     pub rows: Vec<Row>,
@@ -30,7 +30,7 @@ pub struct LivePage<Row> {
 }
 
 /// One revision-strict bounded typed page.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct ExhaustivePage<Row> {
     /// Decoded typed rows returned by this page.
     pub rows: Vec<Row>,

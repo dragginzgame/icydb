@@ -15,8 +15,8 @@ ifeq ($(origin FORMAT_WRITE_COMMAND),undefined)
 $(error Define both FORMAT_WRITE_COMMAND and FORMAT_CHECK_COMMAND)
 endif
 endif
-FORMAT_WRITE_COMMAND ?= bash -ec '"$$1" sort --workspace; "$$1" fmt --all' -- "$(FORMAT_CARGO)"
-FORMAT_CHECK_COMMAND ?= bash -ec '"$$1" sort --workspace --check; "$$1" fmt --all -- --check' -- "$(FORMAT_CARGO)"
+FORMAT_WRITE_COMMAND ?= bash -ec '"$$1" sort --workspace --grouped; "$$1" fmt --all' -- "$(FORMAT_CARGO)"
+FORMAT_CHECK_COMMAND ?= bash -ec '"$$1" sort --workspace --grouped --check; "$$1" fmt --all -- --check' -- "$(FORMAT_CARGO)"
 ifeq ($(strip $(FORMAT_WRITE_COMMAND)),)
 $(error FORMAT_WRITE_COMMAND must not be empty)
 endif

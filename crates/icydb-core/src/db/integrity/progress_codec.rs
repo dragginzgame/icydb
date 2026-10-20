@@ -1,6 +1,6 @@
 //! Module: db::integrity::progress_codec
 //! Responsibility: bounded direct encoding of the current Deep integrity job payload.
-//! Does not own: the stable-map envelope, checksum, job lifecycle, or public Candid DTOs.
+//! Does not own: the stable-map envelope, checksum, job lifecycle, or public Wire DTOs.
 //! Boundary: invariant-bearing Deep job <-> current big-endian payload bytes.
 
 use crate::{

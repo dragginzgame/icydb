@@ -1,15 +1,11 @@
 //! Framework-neutral lifecycle-participant composition evidence canister.
 
-// Read IC counter 1 through the CDK; native Candid builds use its
-// unsupported host binding and provide no IC measurement evidence.
-#[cfg(not(target_arch = "wasm32"))]
-use ic_cdk::api::call_context_instruction_counter;
-#[cfg(target_arch = "wasm32")]
-use ic_cdk::api::call_context_instruction_counter;
+// IC counter 1 preserves the call-context sample boundary through Platform.
+// Native system calls provide no IC measurement evidence.
+use ic_platform::ic0::performance_counter;
 
 use std::{cell::RefCell, time::Duration};
 
-use candid::CandidType;
 use icydb::{
     db::TypedOperationError,
     types::{Id, Ulid},
@@ -33,23 +29,23 @@ fn icydb_memory_pool()
     )
 }
 
-icydb::start!(participant);
+canic_icydb::start!(icydb; participant);
 
 const APPLICATION_STARTUP_RETRY: Duration = Duration::from_secs(1);
 
-#[derive(CandidType, Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 enum LifecycleHook {
     Init,
     PostUpgrade,
 }
 
-#[derive(CandidType, Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 enum ApplicationActivationState {
     Prepared,
     Active,
 }
 
-#[derive(CandidType, Clone, Debug)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 struct LifecycleCompositionSnapshot {
     hook: LifecycleHook,
     activation: ApplicationActivationState,
@@ -97,7 +93,7 @@ std::thread_local! {
 fn with_composition_mut(update: impl FnOnce(&mut LifecycleCompositionSnapshot)) {
     COMPOSITION.with(|slot| {
         let Ok(mut snapshot) = slot.try_borrow_mut() else {
-            ic_cdk::trap("lifecycle composition state is already mutably borrowed");
+            ic_platform::ic0::trap(b"lifecycle composition state is already mutably borrowed");
         };
         update(&mut snapshot);
     });
@@ -106,7 +102,7 @@ fn with_composition_mut(update: impl FnOnce(&mut LifecycleCompositionSnapshot)) 
 fn begin_lifecycle(hook: LifecycleHook) {
     COMPOSITION.with(|slot| {
         let Ok(mut snapshot) = slot.try_borrow_mut() else {
-            ic_cdk::trap("lifecycle composition state is already mutably borrowed");
+            ic_platform::ic0::trap(b"lifecycle composition state is already mutably borrowed");
         };
         *snapshot = LifecycleCompositionSnapshot::new(hook);
         snapshot.ingress_authority_order = 1;
@@ -134,19 +130,19 @@ fn complete_synchronous_lifecycle(participant_instructions: u64) {
 
 fn engine_startup_watchdog_armed() -> bool {
     let Ok(identity) = ic_timers::TimerIdentity::try_new("icydb", "startup", "recovery") else {
-        ic_cdk::trap("IcyDB startup watchdog identity is invalid");
+        ic_platform::ic0::trap(b"IcyDB startup watchdog identity is invalid");
     };
     match ic_timers::timer_snapshot(&identity) {
         Ok(Some(snapshot)) => snapshot.next_deadline_ns().is_some(),
         Ok(None) => false,
-        Err(_) => ic_cdk::trap("IcyDB startup watchdog observation failed"),
+        Err(_) => ic_platform::ic0::trap(b"IcyDB startup watchdog observation failed"),
     }
 }
 
 fn application_timer_identity() -> ic_timers::TimerIdentity {
     match ic_timers::TimerIdentity::try_new("application", "startup", "readiness") {
         Ok(identity) => identity,
-        Err(_) => ic_cdk::trap("lifecycle composition timer identity is invalid"),
+        Err(_) => ic_platform::ic0::trap(b"lifecycle composition timer identity is invalid"),
     }
 }
 
@@ -158,11 +154,13 @@ fn schedule_deferred_database_work() {
         },
         |_context| async { run_deferred_database_work() },
     ) else {
-        ic_cdk::trap("lifecycle composition timer registration failed");
+        ic_platform::ic0::trap(b"lifecycle composition timer registration failed");
     };
     DEFERRED_REGISTRATION.with(|slot| {
         let Ok(mut retained) = slot.try_borrow_mut() else {
-            ic_cdk::trap("lifecycle composition timer state is already mutably borrowed");
+            ic_platform::ic0::trap(
+                b"lifecycle composition timer state is already mutably borrowed",
+            );
         };
         *retained = Some(registration);
     });
@@ -173,7 +171,7 @@ fn schedule_deferred_database_work() {
 
 fn increment(counter: &mut u32, context: &str) {
     let Some(next) = counter.checked_add(1) else {
-        ic_cdk::trap(context);
+        ic_platform::ic0::trap(context.as_bytes());
     };
     *counter = next;
 }
@@ -226,48 +224,63 @@ fn run_deferred_database_work() -> ic_timers::OnceRunResult {
     }
 }
 
-#[ic_cdk::init]
+#[canic_icydb::__private::native_entry(init, name = "", sdk = crate::__icydb_host_sdk)]
 fn application_init() {
     bootstrap_standalone_memory(icydb_memory_pool).expect("standalone fixture bootstrap");
     begin_lifecycle(LifecycleHook::Init);
-    let start = call_context_instruction_counter();
+    let start = performance_counter(1);
     crate::__icydb_lifecycle_participant::init();
-    let participant_instructions = call_context_instruction_counter().saturating_sub(start);
+    let participant_instructions = performance_counter(1).saturating_sub(start);
     complete_synchronous_lifecycle(participant_instructions);
 }
 
-#[ic_cdk::post_upgrade]
 fn application_post_upgrade(trap_after_participant: Option<bool>) {
     bootstrap_standalone_memory(icydb_memory_pool).expect("standalone fixture bootstrap");
     begin_lifecycle(LifecycleHook::PostUpgrade);
-    let start = call_context_instruction_counter();
+    let start = performance_counter(1);
     crate::__icydb_lifecycle_participant::post_upgrade();
-    let participant_instructions = call_context_instruction_counter().saturating_sub(start);
+    let participant_instructions = performance_counter(1).saturating_sub(start);
     if trap_after_participant.unwrap_or(false) {
-        ic_cdk::trap("lifecycle participant post-upgrade rollback probe");
+        ic_platform::ic0::trap(b"lifecycle participant post-upgrade rollback probe");
     }
     complete_synchronous_lifecycle(participant_instructions);
 }
 
-#[ic_cdk::query]
+#[canic_icydb::__private::native_entry(post_upgrade, name = "", sdk = crate::__icydb_host_sdk)]
+fn __application_post_upgrade_export() {
+    let bytes = canic_icydb::read_arguments(icydb::wire::MAX_REQUEST_BYTES)
+        .unwrap_or_else(|| ic_platform::ic0::trap(b"lifecycle argument admission failed"));
+    let (trap_after_participant,): (Option<bool>,) =
+        icydb::wire::decode_post_upgrade_arguments(&bytes)
+            .unwrap_or_else(|_| ic_platform::ic0::trap(b"invalid lifecycle Wire arguments"));
+    application_post_upgrade(trap_after_participant);
+}
+
 fn lifecycle_composition_snapshot() -> LifecycleCompositionSnapshot {
     COMPOSITION.with(|slot| {
         let Ok(snapshot) = slot.try_borrow() else {
-            ic_cdk::trap("lifecycle composition state is mutably borrowed");
+            ic_platform::ic0::trap(b"lifecycle composition state is mutably borrowed");
         };
         snapshot.clone()
     })
 }
+icydb_testing_wasm_helpers::export_wire!(
+    query,
+    "lifecycle_composition_snapshot",
+    LifecycleCompositionSnapshot,
+    lifecycle_composition_snapshot,
+    (),
+    LifecycleCompositionSnapshot
+);
 
-#[ic_cdk::query]
 fn lifecycle_database_probe() -> Result<bool, icydb::Error> {
     icydb::db::with_request_execution(|| {
         let _database = db()?;
         Ok(true)
     })
 }
+icydb_testing_wasm_helpers::export_wire!(query, "lifecycle_database_probe", LifecycleDatabaseProbe, lifecycle_database_probe, (), Result<bool, icydb::Error>);
 
-#[ic_cdk::update]
 #[cfg(feature = "population-seed")]
 fn lifecycle_insert_probe_row() -> Result<Ulid, icydb::Error> {
     icydb::db::with_request_execution(|| {
@@ -280,19 +293,20 @@ fn lifecycle_insert_probe_row() -> Result<Ulid, icydb::Error> {
         let output =
             db()?.execute_trusted_structural_insert_batch("OneSimpleEntity01", vec![patch])?;
         let Some(id_slot) = output.columns.iter().position(|column| column == "id") else {
-            ic_cdk::trap("lifecycle probe insert omitted its identity column");
+            ic_platform::ic0::trap(b"lifecycle probe insert omitted its identity column");
         };
         let Some(value) = output.rows.first().and_then(|row| row.get(id_slot)) else {
-            ic_cdk::trap("lifecycle probe insert omitted its generated identity");
+            ic_platform::ic0::trap(b"lifecycle probe insert omitted its generated identity");
         };
         let PublicValue::Ulid(id) = value.as_public() else {
-            ic_cdk::trap("lifecycle probe insert omitted its generated identity");
+            ic_platform::ic0::trap(b"lifecycle probe insert omitted its generated identity");
         };
         Ok(*id)
     })
 }
+#[cfg(feature = "population-seed")]
+icydb_testing_wasm_helpers::export_wire!(update, "lifecycle_insert_probe_row", LifecycleInsertProbeRow, lifecycle_insert_probe_row, (), Result<Ulid, icydb::Error>);
 
-#[ic_cdk::query]
 fn lifecycle_probe_row_exists(id: Ulid) -> Result<bool, icydb::Error> {
     icydb::db::with_request_execution(|| {
         let database = db()?;
@@ -300,11 +314,9 @@ fn lifecycle_probe_row_exists(id: Ulid) -> Result<bool, icydb::Error> {
             Ok(row) => Ok(row.is_some()),
             Err(TypedOperationError::Database(error)) => Err(error),
             Err(TypedOperationError::Adapter(_)) => {
-                ic_cdk::trap("lifecycle probe row failed accepted-model decoding")
+                ic_platform::ic0::trap(b"lifecycle probe row failed accepted-model decoding")
             }
         }
     })
 }
-
-#[cfg(feature = "candid-export")]
-ic_cdk::export_candid!();
+icydb_testing_wasm_helpers::export_wire!(query, "lifecycle_probe_row_exists", LifecycleProbeRowExists, lifecycle_probe_row_exists, (id: Ulid), Result<bool, icydb::Error>);

@@ -1,15 +1,11 @@
 //! Canonical fixed-width unsigned 256-bit scalar.
 
-use candid::{CandidType, Nat, types::Serializer, types::Type, types::TypeInner};
 use ethnum::U256 as EthU256;
-use num_bigint::BigUint;
+
 use serde::{Deserialize, Deserializer, Serialize, Serializer as SerdeSerializer};
 use std::{fmt, str::FromStr};
 
-use crate::{
-    Decimal, NumericValue,
-    integer_wire::{self, IntegerWire},
-};
+use crate::{Decimal, NumericValue};
 
 const MAX_DECIMAL_DIGITS: usize = 78;
 const DECIMAL_CHUNK_BASE: u64 = 100_000_000;
@@ -17,8 +13,7 @@ const DECIMAL_CHUNK_WIDTH: usize = 8;
 const DECIMAL_BUFFER_LEN: usize = 80;
 const U128_LOW_U32_MASK: u128 = 0xffff_ffff;
 
-/// Error returned when text or a Candid natural is outside the unsigned
-/// 256-bit domain.
+/// Error returned when decimal text is outside the unsigned 256-bit domain.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ParseU256Error;
 
@@ -32,10 +27,9 @@ impl std::error::Error for ParseU256Error {}
 
 /// IcyDB-owned fixed-width unsigned 256-bit scalar.
 ///
-/// Runtime values are inline and allocation-free. Candid exposes this type as
-/// `nat`; ingress rejects values greater than [`U256::MAX`]. Persistence and
-/// index encodings are owned separately by IcyDB. Human-readable Serde uses
-/// decimal text; binary Serde uses u64 or tagged little-endian magnitude bytes.
+/// Runtime values are inline and allocation-free. Human-readable Serde uses
+/// decimal text; binary Serde uses an exact 32-byte big-endian byte string.
+/// Persistence and index encodings are owned separately by IcyDB.
 #[derive(Clone, Copy, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
 pub struct U256(EthU256);
@@ -114,21 +108,6 @@ impl U256 {
         self.0.checked_rem(rhs.0).map(Self)
     }
 
-    fn from_little_endian_magnitude(bytes: &[u8]) -> Result<Self, ParseU256Error> {
-        if bytes.len() > 32 {
-            return Err(ParseU256Error);
-        }
-        let mut fixed = [0_u8; 32];
-        for (destination, source) in fixed.iter_mut().rev().zip(bytes) {
-            *destination = *source;
-        }
-        Ok(Self::from_be_bytes(fixed))
-    }
-
-    fn to_candid_nat(self) -> Nat {
-        Nat(BigUint::from_bytes_be(&self.to_be_bytes()))
-    }
-
     fn decimal_text(self) -> DecimalText {
         let (high, low) = self.into_words();
         let mut limbs = [
@@ -190,23 +169,6 @@ impl DecimalText {
     }
 }
 
-impl CandidType for U256 {
-    fn ty() -> Type {
-        TypeInner::Nat.into()
-    }
-
-    fn _ty() -> Type {
-        TypeInner::Nat.into()
-    }
-
-    fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_nat(&self.to_candid_nat())
-    }
-}
-
 impl fmt::Debug for U256 {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(self, formatter)
@@ -264,21 +226,12 @@ impl<'de> Deserialize<'de> for U256 {
     where
         D: Deserializer<'de>,
     {
-        integer_wire::deserialize_integer(deserializer)
-    }
-}
-
-impl IntegerWire for U256 {
-    fn from_signed(value: i64) -> Option<Self> {
-        u64::try_from(value).ok().map(Self::from)
-    }
-
-    fn from_unsigned(value: u64) -> Self {
-        Self::from(value)
-    }
-
-    fn from_wire_bytes(value: &[u8]) -> Option<Self> {
-        Self::from_little_endian_magnitude(integer_wire::unsigned_body(value)?).ok()
+        if deserializer.is_human_readable() {
+            return String::deserialize(deserializer)?
+                .parse()
+                .map_err(serde::de::Error::custom);
+        }
+        crate::atom::deserialize_fixed_bytes(deserializer).map(Self::from_be_bytes)
     }
 }
 
@@ -290,19 +243,7 @@ impl Serialize for U256 {
         if serializer.is_human_readable() {
             return serializer.collect_str(self);
         }
-        if let Some(value) = self.to_u128().and_then(|value| u64::try_from(value).ok()) {
-            return serializer.serialize_u64(value);
-        }
-        // Keep this fixed-width atom's binary serialization on the stack.
-        let magnitude = self.0.to_le_bytes();
-        let len = magnitude
-            .iter()
-            .rposition(|byte| *byte != 0)
-            .map_or(1, |index| index + 1);
-        let mut bytes = [0_u8; 33];
-        bytes[0] = 1;
-        bytes[1..=len].copy_from_slice(&magnitude[..len]);
-        serializer.serialize_bytes(&bytes[..=len])
+        serializer.serialize_bytes(&self.to_be_bytes())
     }
 }
 
@@ -310,22 +251,20 @@ impl Serialize for U256 {
 mod tests {
     use super::U256;
     use crate::{Decimal, NumericValue};
-    use candid::{CandidType, decode_one, encode_one};
-    use num_bigint::BigUint;
 
     #[test]
-    fn candid_uses_nat_and_rejects_values_above_maximum() {
-        assert_eq!(U256::ty(), candid::Nat::ty());
-
-        let encoded = encode_one(U256::MAX).expect("U256 should encode");
-        assert_eq!(
-            decode_one::<U256>(&encoded).expect("U256 should decode"),
-            U256::MAX
-        );
-
-        let above = candid::Nat(BigUint::from(1_u8) << 256_usize);
-        let encoded = encode_one(above).expect("Nat should encode");
-        assert!(decode_one::<U256>(&encoded).is_err());
+    fn wire_uses_fixed_width_bytes_and_rejects_wrong_lengths() {
+        let bytes = crate::wire::encode_one(U256::MAX).unwrap();
+        assert_eq!(bytes, [&[32][..], &[0xff; 32][..]].concat());
+        assert_eq!(crate::wire::decode_one::<U256>(&bytes).unwrap(), U256::MAX);
+        for len in [0, 31, 33] {
+            assert!(
+                crate::wire::decode_one::<U256>(
+                    &crate::wire::encode_one(serde_bytes::Bytes::new(&vec![0xff; len])).unwrap()
+                )
+                .is_err()
+            );
+        }
     }
 
     #[test]

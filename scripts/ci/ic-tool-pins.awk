@@ -1,5 +1,5 @@
-# Canonical admission for the common IC matrix. Optional tool projects its version;
-# records emits the validated selection (callers sort it for comparison).
+# Canonical admission for the common IC matrix. Emit all validated records;
+# callers sort them for comparison and own any later selection.
 BEGIN { FS = "\t" }
 /^#/ { next }
 NF != 4 { bad=1; next }
@@ -16,9 +16,5 @@ $1 != "wasm-opt" && $2 !~ /^[0-9]+\.[0-9]+\.[0-9]+$/ { bad=1 }
 }
 END {
     if (bad || count["linux-x86_64"] != 5 || count["darwin-x86_64"] != 5 || count["darwin-arm64"] != 5) exit 1
-    if (tool != "") {
-        if (!(tool in versions)) exit 1
-        print versions[tool]
-    }
-    if (records) for (key in rows) print rows[key]
+    for (key in rows) print rows[key]
 }

@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "canisters/audit/codec_candid_query",
+    # Tests and tooling packages
     "canisters/audit/codec_wire_query",
     "canisters/audit/default_empty",
     "canisters/audit/default_empty_metrics",
@@ -26,6 +26,8 @@ members = [
     "canisters/test/sql_bounded",
     "canisters/test/sql_guard",
     "canisters/test/startup_timer",
+    "canisters/test/wire_rollback",
+    # Production packages
     "crates/icydb",
     "crates/icydb-cli",
     "crates/icydb-core",
@@ -33,6 +35,7 @@ members = [
     "crates/icydb-model",
     "crates/icydb-model-macros",
     "crates/icydb-schema",
+    # Tests and tooling packages
     "schema/audit/default_empty",
     "schema/audit/group_path",
     "schema/audit/nested_relation",
@@ -60,19 +63,16 @@ resolver = "3"
 [workspace.package]
 rust-version = "1.96.0"
 edition = "2024"
-version = "0.276.0"
+version = "0.277.2"
 authors = ["borovan <84897664+borovan@users.noreply.github.com>"]
 description = "IcyDB — A schema-first typed query engine and persistence runtime for Internet Computer canisters"
 categories = ["database", "web-programming", "wasm"]
-license = "Apache-2.0 OR MIT"
+license-file = "LICENSE"
 repository = "https://github.com/dragginzgame/icydb"
 
 [workspace.dependencies]
+# Production dependencies
 base64 = { version = "0.23.1", default-features = false, features = ["std"] }
-blake3 = "1.8.5"
-candid = "0.10"
-canister_audit_codec_wire_query = { path = "canisters/audit/codec_wire_query" }
-ciborium = "0.2"
 clap = { version = "4.6.1", default-features = false, features = [
     "derive",
     "env",
@@ -82,34 +82,56 @@ clap = { version = "4.6.1", default-features = false, features = [
     "usage",
 ] }
 convert_case = "0.12"
+crc32fast = "1.5"
 ctor = "1.0.0"
 darling = "0.24"
-derive_more = { version = "2.0", default-features = false, features = [
-    "add",
-    "add_assign",
-] }
+data-encoding = "2.9"
 ethnum = { version = "1.5.3", default-features = false }
 getrandom = "0.4"
-ic-build = "0.11"
-ic-cdk = "0.20.3"
-ic-host-artifacts = { version = "0.23", default-features = false }
-ic-host-fs = "0.23"
-ic-host-process = "0.23"
-ic-host-text = "0.23"
-ic-host-tools = { version = "0.23", default-features = false }
-ic-memory = "0.44"
-ic-metrics = "0.11"
-ic-testkit = "0.50"
-ic-timers = "0.25"
-ic-wire = { git = "https://github.com/dragginzgame/ic-wire.git", rev = "66e1f0c5bdced1579573999c8928a697f6135425" }
-ic0 = "1.2"
-icrc-ledger-types = "0.2.0"
-icydb = { path = "crates/icydb", version = "=0.276.0", default-features = false }
-icydb-core = { path = "crates/icydb-core", version = "=0.276.0" }
-icydb-diagnostic-code = { path = "crates/icydb-diagnostic-code", version = "=0.276.0" }
-icydb-model = { path = "crates/icydb-model", version = "=0.276.0" }
-icydb-model-macros = { path = "crates/icydb-model-macros", version = "=0.276.0" }
-icydb-schema = { path = "crates/icydb-schema", version = "=0.276.0" }
+ic-host-artifacts = { version = "0.27", default-features = false }
+ic-host-fs = "0.27"
+ic-host-text = "0.27"
+ic-host-tools = "0.27"
+ic-memory = "0.48"
+ic-metrics = "0.14"
+ic-platform = { version = "0.1.10", default-features = false }
+ic-storage = "0.5.4"
+ic-wire = "0.4"
+icydb = { path = "crates/icydb", version = "=0.277.2", default-features = false }
+icydb-core = { path = "crates/icydb-core", version = "=0.277.2" }
+icydb-diagnostic-code = { path = "crates/icydb-diagnostic-code", version = "=0.277.2" }
+icydb-model = { path = "crates/icydb-model", version = "=0.277.2" }
+icydb-model-macros = { path = "crates/icydb-model-macros", version = "=0.277.2" }
+icydb-schema = { path = "crates/icydb-schema", version = "=0.277.2" }
+proc-macro-crate = "3.5.0"
+proc-macro2 = "1.0"
+quote = "1.0"
+rand_chacha = "0.10"
+remain = "0.2"
+rustyline = { version = "19.0", default-features = false, features = ["with-file-history"] }
+serde = { version = "1.0", default-features = false }
+serde_bytes = "0.11"
+serde_json = "1.0"
+# Keep sha2 aligned with the canister runtime stack to avoid duplicate 0.10/0.11
+# digest trees in wasm builds.
+sha2 = "0.10.9"
+syn = "3.0"
+tempfile = "3.27"
+thiserror = "2.0"
+time = { version = "0.3.55", default-features = false }
+# Keep std disabled because IcyDB owns runtime randomness and monotonic generation.
+ulid = { version = "3.0.0", default-features = false }
+xxhash-rust = { version = "0.8.15", default-features = false, features = [
+    "xxh3",
+] }
+
+# Tests and tooling only
+blake3 = "1.8.5"
+canic-icydb = { git = "https://github.com/dragginzgame/canic", rev = "fcc48511ef1beb650ec41a375457ad96a4bdff20" }
+ic-build = "0.19"
+ic-host-process = "0.27"
+ic-testkit = "0.54"
+ic-timers = "0.27"
 icydb-testing-audit-default-empty-fixtures = { path = "schema/audit/default_empty" }
 icydb-testing-audit-group-path-fixtures = { path = "schema/audit/group_path" }
 icydb-testing-audit-nested-relation-fixtures = { path = "schema/audit/nested_relation" }
@@ -125,36 +147,16 @@ icydb-testing-test-sql-fixtures = { path = "schema/test/sql" }
 icydb-testing-wasm-helpers = { path = "testing/wasm-helpers" }
 # Renamed-dependency fixtures exercise generated imports under caller-selected names.
 model_api = { package = "icydb-model", path = "crates/icydb-model" }
-num-bigint = "0.4"
-proc-macro-crate = "3.5.0"
-proc-macro2 = "1.0"
 proptest = "1.9.0"
-quote = "1.0"
-rand_chacha = "0.10"
-remain = "0.2"
 runtime_api = { package = "icydb", path = "crates/icydb", default-features = false }
 rusqlite = { version = "=0.40.2", default-features = false, features = [
     "bundled",
     "functions",
     "load_extension",
 ] }
-rustyline = "18.0"
-serde = { version = "1.0", default-features = false }
-serde_bytes = "0.11"
-serde_json = "1.0"
-# Keep sha2 aligned with the canister runtime stack to avoid duplicate 0.10/0.11
-# digest trees in wasm builds.
-sha2 = "0.10.9"
-syn = "3.0"
-tempfile = "3.27"
-thiserror = "2.0"
-time = { version = "0.3.55", default-features = false }
+serde-reflection = "0.6.0"
+serde_cbor = "0.11"
 trybuild = "1.0"
-# Keep std disabled because IcyDB owns runtime randomness and monotonic generation.
-ulid = { version = "3.0.0", default-features = false }
-xxhash-rust = { version = "0.8.15", default-features = false, features = [
-    "xxh3",
-] }
 
 # ---------------------
 #  CLIPPY CONFIGURATION

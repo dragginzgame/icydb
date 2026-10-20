@@ -3,6 +3,10 @@
     expect(clippy::missing_const_for_fn, clippy::unnecessary_wraps)
 )]
 
+#[cfg(feature = "metrics")]
+use canic_icydb::__private::cdk as __icydb_host_sdk;
+use icydb as __icydb_facade;
+
 mod __icydb_generated {
     pub(crate) const __ICYDB_START_BINDING: () = ();
 
@@ -16,16 +20,9 @@ mod __icydb_generated {
             Ok(())
         }
     }
-
-    #[cfg(feature = "metrics")]
-    pub(crate) mod endpoint_authorization {
-        pub(crate) fn require_operational_controller() -> Result<(), icydb::Error> {
-            Ok(())
-        }
-    }
 }
 
-icydb::endpoints! {
+canic_icydb::endpoints! {
     #[cfg(any())]
     icydb_ddl;
     #[cfg(feature = "metrics")]
@@ -40,7 +37,11 @@ fn attributed_sync_entry() -> u8 {
 }
 
 #[icydb::request_execution]
-#[ic_cdk::query]
+#[canic_icydb::__private::cdk::query(
+    crate = "canic_icydb::__private::cdk",
+    manual_reply = true,
+    hidden = true
+)]
 fn attributed_ic_cdk_entry() -> u8 {
     attributed_sync_entry()
 }

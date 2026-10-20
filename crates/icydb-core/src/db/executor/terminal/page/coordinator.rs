@@ -833,9 +833,14 @@ mod tests {
 
     #[test]
     fn production_unit_rejects_a_route_pull_larger_than_an_empty_page() {
+        // Index reads must fit alongside the worst-case row reservation.
+        let envelope = PageWorkEnvelope::default_scalar().with_limit_for_tests(
+            DiagnosticExecutionBudgetResource::StoredBytesRead,
+            u64::from(MAX_ROW_BYTES),
+        );
         let hard_budget = HardExecutionBudget::uniform_for_tests(u64::MAX, TEST_HEADROOM);
         let result = with_query_execution_budget_for_tests(hard_budget, TEST_CONTEXT, || {
-            with_production_scalar_page_work(PageWorkEnvelope::default_scalar(), || {
+            with_production_scalar_page_work(envelope, || {
                 let _ = begin_production_scalar_page_unit(1_000)?;
                 Ok(())
             })

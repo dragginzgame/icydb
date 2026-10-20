@@ -5,11 +5,8 @@
 #[cfg(test)]
 mod tests;
 
-use candid::CandidType;
-use serde::Deserialize;
-
 /// Exact schema-application work observed inside one IC message.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct SchemaApplicationPerfResult {
     /// Instructions consumed by this observed operation.
     pub local_instructions: u64,
@@ -22,7 +19,7 @@ pub struct SchemaApplicationPerfResult {
 }
 
 /// Pure startup-state work observed inside one IC query message.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct StartupObservationPerfResult {
     /// Observed engine startup state.
     pub state: icydb::db::DatabaseStartupState,
@@ -31,7 +28,7 @@ pub struct StartupObservationPerfResult {
 }
 
 /// Accepted catalog read observed after startup has reopened schema authority.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct AcceptedSchemaReadInstructionResult {
     /// Accepted entity schema returned by the read.
     pub description: icydb::db::EntitySchemaDescription,
@@ -41,7 +38,7 @@ pub struct AcceptedSchemaReadInstructionResult {
 
 /// Canonical instruction and completion evidence returned by the SQL audit
 /// canister's generated startup watchdog.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct StartupWatchdogPerfSnapshot {
     /// Scheduler callbacks observed by the timer runtime.
     pub scheduler_samples: u64,
@@ -72,7 +69,7 @@ pub struct StartupWatchdogPerfSnapshot {
 }
 
 /// Application lifecycle entry that began the current readiness observation.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum ApplicationStartupHook {
     /// Canister initialization.
     Init,
@@ -81,7 +78,7 @@ pub enum ApplicationStartupHook {
 }
 
 /// Application-owned readiness and restoration evidence.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct ApplicationStartupSnapshot {
     /// Lifecycle hook that started this observation.
     pub hook: ApplicationStartupHook,
@@ -99,4 +96,57 @@ pub struct ApplicationStartupSnapshot {
     pub retry_scheduled: bool,
     /// Terminal startup failure, when present.
     pub failure: Option<icydb::db::StartupFailure>,
+}
+
+///
+/// ScalePayloadProfile
+///
+/// Exact blob-payload distribution loaded by one SQL scale fixture.
+/// Owned by the audit canister and returned to the host as fixture evidence.
+///
+
+#[derive(Clone, Copy, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+pub enum ScalePayloadProfile {
+    /// The selected surface has no blob payload fields.
+    #[serde(rename = "not_applicable")]
+    NotApplicable,
+
+    /// Thumbnail lengths cycle through 32/64/128/256 bytes and chunk lengths
+    /// cycle through 256/512/1,024/2,048 bytes.
+    #[serde(rename = "blob_cycle_v1")]
+    BlobCycleV1,
+}
+
+///
+/// ScaleFixtureFacts
+///
+/// Realized deterministic distribution facts for one loaded scale surface.
+/// Owned by the audit canister and validated by the host before sampling.
+///
+
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
+pub struct ScaleFixtureFacts {
+    /// Current hard-cut scale-fixture format version.
+    pub profile_version: u32,
+
+    /// Stable audit surface name loaded into the otherwise-empty canister.
+    pub surface: String,
+
+    /// Exact number of rows constructed and inserted for the surface.
+    pub fixture_rows: u32,
+
+    /// Rows matching the surface's declared impossible predicate.
+    pub zero_match_rows: u32,
+
+    /// Rows matching the surface's declared exact-key predicate.
+    pub one_match_rows: u32,
+
+    /// Rows matching the surface's declared quarter-selectivity predicate.
+    pub quarter_match_rows: u32,
+
+    /// Rows matching the surface's declared all-row predicate.
+    pub all_match_rows: u32,
+
+    /// Exact blob payload distribution, or typed non-applicability.
+    pub payload_profile: ScalePayloadProfile,
 }

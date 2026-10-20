@@ -13,8 +13,8 @@ use crate::cli::{
     CanisterTarget, DiagnosticArtifactArgs, DiagnosticSourceMetadataArgs, MetricsArgs,
     SchemaMigrationCommand,
 };
-use crate::icp::{call_query_hex, call_update_hex, encode_candid_args};
-use candid::{CandidType, utils::ArgumentEncoder};
+use crate::icp::{call_query_hex, call_update_hex, encode_wire_args};
+
 use serde::de::DeserializeOwned;
 
 pub(crate) fn run_metrics_command(args: MetricsArgs) -> Result<(), String> {
@@ -54,13 +54,13 @@ fn call_query(
     environment: &str,
     canister: &str,
     method: &str,
-    arguments: impl ArgumentEncoder,
+    arguments: impl serde::Serialize,
 ) -> Result<Vec<u8>, String> {
     call_query_hex(
         environment,
         canister,
         method,
-        &encode_candid_args(arguments)?,
+        &encode_wire_args(method, arguments)?,
         call_error_mapper("query", environment, canister, method),
     )
 }
@@ -69,13 +69,13 @@ fn call_update(
     environment: &str,
     canister: &str,
     method: &str,
-    arguments: impl ArgumentEncoder,
+    arguments: impl serde::Serialize,
 ) -> Result<Vec<u8>, String> {
     call_update_hex(
         environment,
         canister,
         method,
-        &encode_candid_args(arguments)?,
+        &encode_wire_args(method, arguments)?,
         call_error_mapper("update", environment, canister, method),
     )
 }
@@ -89,17 +89,19 @@ fn call_error_mapper<'a>(
     move |stderr| method_error(label, environment, canister, method, stderr)
 }
 
-// Candid shape failures retain their decoder diagnostic. A successfully decoded
+// Wire shape failures retain their decoder diagnostic. A successfully decoded
 // endpoint error gains the same target context and rich facts in every command.
-pub(crate) fn decode_endpoint_result<T: CandidType + DeserializeOwned>(
+pub(crate) fn decode_endpoint_result<T: serde::Serialize + DeserializeOwned>(
     bytes: &[u8],
     label: &str,
     environment: &str,
     canister: &str,
     method: &str,
 ) -> Result<T, String> {
-    let response =
-        candid::decode_one::<Result<T, icydb::Error>>(bytes).map_err(|error| error.to_string())?;
+    let response = icydb::wire::Endpoint::from_name(method)
+        .ok_or_else(|| format!("unknown IcyDB method '{method}'"))?
+        .decode_response::<Result<T, icydb::Error>>(bytes)
+        .map_err(|error| error.to_string())?;
     response.map_err(|error| {
         method_error(
             label,

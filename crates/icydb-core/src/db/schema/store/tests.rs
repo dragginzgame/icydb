@@ -48,7 +48,7 @@ use crate::{
     types::EntityTag,
 };
 
-use ic_memory::ic_stable_structures::{Storable, storable::Bound};
+use ic_storage::adapter::{Storable, storable::Bound};
 use std::{borrow::Cow, convert::Infallible};
 
 fn overlay_position(sequence: u64) -> JournalOverlayPosition {
@@ -388,7 +388,7 @@ fn raw_schema_control_record_round_trips_opaque_bytes() {
 
 #[test]
 fn cardinality_generation_records_use_reserved_schema_namespaces_and_survive_reopen() {
-    let memory = test_memory(253);
+    let memory = crate::testing::test_memory_owner(253);
     let source = cardinality_source_identity();
     let header = CardinalityGenerationHeader::new(
         CardinalityGenerationId::INITIAL,
@@ -428,7 +428,7 @@ fn cardinality_generation_records_use_reserved_schema_namespaces_and_survive_reo
         &digest.as_bytes()[..15]
     );
 
-    let mut store = SchemaStore::init_journaled(memory.clone());
+    let mut store = SchemaStore::init_journaled(memory.open());
     store
         .insert_canonical_raw_value(header_key, header.encode())
         .expect("generation header should persist");
@@ -442,8 +442,7 @@ fn cardinality_generation_records_use_reserved_schema_namespaces_and_survive_reo
         .insert_canonical_raw_value(building_count_key, count.encode().to_vec())
         .expect("count record should persist");
     drop(store);
-
-    let reopened = SchemaStore::init_journaled(memory);
+    let reopened = SchemaStore::init_journaled(memory.open());
     let reopened_header = reopened
         .get_canonical_raw_value(&header_key)
         .expect("header read should succeed")
@@ -642,7 +641,7 @@ fn ready_cardinality_maintenance_preflights_checked_deltas_and_watermark_publica
 
 #[test]
 fn cardinality_slot_clear_is_bounded_and_installs_the_cursor_only_when_empty() {
-    let memory = test_memory(252);
+    let memory = crate::testing::test_memory_owner(252);
     let source = cardinality_source_identity();
     let header = CardinalityGenerationHeader::new(
         CardinalityGenerationId::INITIAL,
@@ -659,7 +658,7 @@ fn cardinality_slot_clear_is_bounded_and_installs_the_cursor_only_when_empty() {
         CardinalityBuildTotals::default(),
     )
     .expect("initial row cursor should be valid");
-    let mut store = SchemaStore::init_journaled(memory.clone());
+    let mut store = SchemaStore::init_journaled(memory.open());
     store
         .write_cardinality_generation_header(header)
         .expect("Building header should persist");
@@ -710,8 +709,7 @@ fn cardinality_slot_clear_is_bounded_and_installs_the_cursor_only_when_empty() {
         cursor,
     );
     drop(store);
-
-    let reopened = SchemaStore::init_journaled(memory);
+    let reopened = SchemaStore::init_journaled(memory.open());
     assert!(
         reopened
             .cardinality_count_slot_is_empty(CardinalityCountSlot::A)
@@ -733,8 +731,8 @@ fn raw_schema_value_storable_bound_does_not_amplify_stable_btree_nodes() {
 
 #[test]
 fn prepared_catalog_fold_retains_payloads_and_identity_without_early_writes() {
-    let memory = test_memory(229);
-    let mut store = SchemaStore::init_journaled(memory.clone());
+    let memory = crate::testing::test_memory_owner(229);
+    let mut store = SchemaStore::init_journaled(memory.open());
     let initial = empty_accepted_schema_candidate_for_tests(
         "test::PreparedCatalog",
         AcceptedSchemaRevision::INITIAL,
@@ -808,7 +806,8 @@ fn prepared_catalog_fold_retains_payloads_and_identity_without_early_writes() {
             .as_bytes(),
         identity_bytes.as_slice()
     );
-    let reopened = SchemaStore::init_journaled(memory);
+    drop(store);
+    let reopened = SchemaStore::init_journaled(memory.open());
     assert_eq!(
         reopened
             .current_accepted_schema_root()
@@ -891,8 +890,8 @@ fn prepared_catalog_fold_rechecks_root_before_writing_payloads() {
 
 #[test]
 fn journaled_schema_candidate_replay_and_fold_are_idempotent() {
-    let memory = test_memory(229);
-    let mut store = SchemaStore::init_journaled(memory.clone());
+    let memory = crate::testing::test_memory_owner(229);
+    let mut store = SchemaStore::init_journaled(memory.open());
     let initial = empty_accepted_schema_candidate_for_tests(
         "test::JournaledSchemaStore",
         AcceptedSchemaRevision::INITIAL,
@@ -934,7 +933,8 @@ fn journaled_schema_candidate_replay_and_fold_are_idempotent() {
     );
     assert_eq!(store.canonical_len_for_tests(), 2);
 
-    let mut reopened = SchemaStore::init_journaled(memory);
+    drop(store);
+    let mut reopened = SchemaStore::init_journaled(memory.open());
     assert_eq!(
         reopened
             .current_accepted_schema_bundle()
@@ -1320,8 +1320,8 @@ fn journaled_identity_retirement_replays_and_folds_with_schema_publication() {
     );
     let removed =
         empty_accepted_schema_candidate_for_tests(store_path, AcceptedSchemaRevision::new(2));
-    let memory = test_memory(181);
-    let mut store = SchemaStore::init_journaled(memory.clone());
+    let memory = crate::testing::test_memory_owner(181);
+    let mut store = SchemaStore::init_journaled(memory.open());
     store
         .publish_accepted_schema_candidate(
             test_database_incarnation(),
@@ -1352,7 +1352,8 @@ fn journaled_identity_retirement_replays_and_folds_with_schema_publication() {
         IdentityStateLifecycle::Active,
     );
 
-    let mut reopened = SchemaStore::init_journaled(memory);
+    drop(store);
+    let mut reopened = SchemaStore::init_journaled(memory.open());
     reopened
         .apply_journaled_accepted_schema_candidate(
             test_database_incarnation(),
@@ -1742,8 +1743,8 @@ fn schema_store_catalog_metadata_is_absent_without_accepted_entities() {
 
 #[test]
 fn schema_store_catalog_metadata_tracks_selected_bundle_and_cold_reopen() {
-    let memory = test_memory(240);
-    let mut store = SchemaStore::init_journaled(memory.clone());
+    let memory = crate::testing::test_memory_owner(240);
+    let mut store = SchemaStore::init_journaled(memory.open());
     let initial = metadata_schema_snapshot_for_test(SchemaVersion::initial(), "Initial");
     let newer = metadata_schema_snapshot_for_test(SchemaVersion::new(2), "Newer");
     let other = metadata_schema_snapshot_for_test(SchemaVersion::new(3), "Other");
@@ -1788,12 +1789,9 @@ fn schema_store_catalog_metadata_tracks_selected_bundle_and_cold_reopen() {
         updated_metadata.schema_fingerprint(),
         "catalog fingerprint must change when latest accepted schema catalog changes"
     );
-    assert_eq!(
-        SchemaStore::init_journaled(memory.clone())
-            .catalog_metadata()
-            .unwrap(),
-        Some(updated_metadata)
-    );
+    drop(store);
+    let mut store = SchemaStore::init_journaled(memory.open());
+    assert_eq!(store.catalog_metadata().unwrap(), Some(updated_metadata));
     publish_metadata_candidate(
         &mut store,
         AcceptedSchemaRevision::new(2),
@@ -1806,8 +1804,9 @@ fn schema_store_catalog_metadata_tracks_selected_bundle_and_cold_reopen() {
         reduced.schema_fingerprint(),
         updated_metadata.schema_fingerprint()
     );
+    drop(store);
     assert_eq!(
-        SchemaStore::init_journaled(memory)
+        SchemaStore::init_journaled(memory.open())
             .catalog_metadata()
             .unwrap(),
         Some(reduced)

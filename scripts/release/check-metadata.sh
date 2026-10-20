@@ -7,5 +7,5 @@ for path in CHANGELOG.md "docs/changelog/${version%.*}.md"; do
     awk -v heading="## [$version] - ${RELEASE_DATE:?}" \
         '$0 == heading { n++ } END { if (n != 1) exit 1 }' "$path"
 done
-cargo metadata --locked --offline --no-deps --format-version 1 >/dev/null
+bash scripts/ci/cargo-release-metadata.sh check icydb --manifest-order-grouped
 YQ="${YQ:-$PWD/.tools/host/bin/yq}" bash scripts/ci/check-dependency-pins.sh --cargo-inheritance

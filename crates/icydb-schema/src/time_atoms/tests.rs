@@ -1,4 +1,3 @@
-use candid::CandidType;
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::TypeParseError;
@@ -7,7 +6,7 @@ use super::{Duration, Timestamp};
 
 fn cbor_bytes<T: Serialize>(value: &T) -> Vec<u8> {
     let mut bytes = Vec::new();
-    ciborium::into_writer(value, &mut bytes).expect("value should CBOR-encode");
+    serde_cbor::to_writer(&mut bytes, value).expect("value should CBOR-encode");
     bytes
 }
 
@@ -15,22 +14,20 @@ fn cbor_round_trip<T>(value: &T) -> T
 where
     T: DeserializeOwned + Serialize,
 {
-    ciborium::from_reader(cbor_bytes(value).as_slice()).expect("value should CBOR-decode")
+    serde_cbor::from_slice(cbor_bytes(value).as_slice()).expect("value should CBOR-decode")
 }
 
 #[test]
-fn time_atoms_keep_primitive_candid_wires() {
+fn time_atoms_keep_primitive_wire_shapes() {
     let duration = Duration::from_millis(12_345);
     let timestamp = Timestamp::from_millis(-12_345);
-    let candid = candid::encode_args((duration, timestamp)).expect("time atoms should encode");
-    let primitive = candid::encode_args((duration.as_millis(), timestamp.as_millis()))
+    let wire = crate::wire::encode_one((duration, timestamp)).expect("time atoms should encode");
+    let primitive = crate::wire::encode_one((duration.as_millis(), timestamp.as_millis()))
         .expect("primitive time wires should encode");
     let decoded: (Duration, Timestamp) =
-        candid::decode_args(&candid).expect("time atoms should decode");
+        crate::wire::decode_one(&wire).expect("time atoms should decode");
 
-    assert_eq!(Duration::ty(), u64::ty());
-    assert_eq!(Timestamp::ty(), i64::ty());
-    assert_eq!(candid, primitive);
+    assert_eq!(wire, primitive);
     assert_eq!(decoded, (duration, timestamp));
 }
 
@@ -50,8 +47,8 @@ fn binary_time_atoms_reject_human_readable_text_forms() {
     let duration = cbor_bytes(&"2s");
     let timestamp = cbor_bytes(&"1969-12-31T23:59:59.999Z");
 
-    assert!(ciborium::from_reader::<Duration, _>(duration.as_slice()).is_err());
-    assert!(ciborium::from_reader::<Timestamp, _>(timestamp.as_slice()).is_err());
+    assert!(serde_cbor::from_slice::<Duration>(duration.as_slice()).is_err());
+    assert!(serde_cbor::from_slice::<Timestamp>(timestamp.as_slice()).is_err());
 }
 
 #[test]

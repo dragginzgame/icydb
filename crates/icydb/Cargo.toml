@@ -4,7 +4,7 @@ autotests = false
 edition = { workspace = true }
 rust-version = "1.91.0"
 version = { workspace = true }
-license = { workspace = true }
+license-file = { workspace = true }
 description = { workspace = true }
 repository = { workspace = true }
 authors = { workspace = true }
@@ -16,10 +16,9 @@ metrics = ["icydb-core/metrics"]
 migration = ["icydb-core/migration"]
 
 [dependencies]
-candid = { workspace = true }
-ic-cdk = { workspace = true }
 ic-memory = { workspace = true }
-ic-timers = { workspace = true }
+ic-platform = { workspace = true }
+ic-wire = { workspace = true }
 icydb-core = { workspace = true }
 icydb-diagnostic-code = { workspace = true }
 icydb-model = { workspace = true }
@@ -28,6 +27,7 @@ icydb-schema = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]
+canic-icydb = { workspace = true }
 trybuild = { workspace = true }
 
 [[test]]

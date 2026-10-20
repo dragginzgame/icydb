@@ -109,7 +109,6 @@ fn historical_error(cause: &BootstrapAdmissionError) -> Option<Error> {
     let facts = match cause {
         BootstrapAdmissionError::Pool(cause) => pool_id_facts(cause),
         BootstrapAdmissionError::Unknown(_)
-        | BootstrapAdmissionError::Retired(_)
         | BootstrapAdmissionError::Duplicate(_)
         | BootstrapAdmissionError::TooManyDeclarations => vec![],
         BootstrapAdmissionError::Declarations(cause) => return declaration_error(cause),
@@ -123,8 +122,7 @@ fn historical_error(cause: &BootstrapAdmissionError) -> Option<Error> {
 
 fn declaration_error(cause: &MemoryDeclarationError) -> Option<Error> {
     match cause {
-        MemoryDeclarationError::Declaration(_)
-        | MemoryDeclarationError::TooManyDeclarations
+        MemoryDeclarationError::TooManyDeclarations
         | MemoryDeclarationError::DuplicateRequest { .. }
         | MemoryDeclarationError::InvalidAuthority { .. }
         | MemoryDeclarationError::ReservedAuthority { .. }
@@ -140,7 +138,6 @@ fn adoption_error(cause: &RuntimeAdoptionError) -> Option<Error> {
     let facts = match cause {
         RuntimeAdoptionError::UnknownAuthority { .. }
         | RuntimeAdoptionError::AuthorityMismatch { .. }
-        | RuntimeAdoptionError::DeclarationMetadataMismatch { .. }
         | RuntimeAdoptionError::Open(RuntimeOpenError::StableKeyNotCommitted(_)) => vec![],
         _ => return None,
     };

@@ -19,8 +19,9 @@ export PATH="$ROOT/.tools/host/bin:$ROOT/.tools/rust/common/bin:$PATH"
 export CARGO_NET_OFFLINE=true RUSTUP_AUTO_INSTALL=0
 cd "$ROOT"
 
-# Perturb only dependency ordering; the actual manifest sorter must restore it.
-perl -0777 -pe 's/(\[workspace.dependencies\]\n)([A-Za-z0-9_-]+ = [^\n]*\n)([A-Za-z0-9_-]+ = [^\n]*\n)/$1$3$2/ or die "expected adjacent formatter inputs\n"' \
+# Perturb adjacent complete entries below the role heading. The actual sorter
+# must restore ordering without moving comments between dependency identities.
+perl -0777 -pe 's/(\[workspace.dependencies\]\n.*?\n)([A-Za-z0-9_-]+ = (?:"[^\n]*"|\{[^\n]*\})\n)([A-Za-z0-9_-]+ = (?:"[^\n]*"|\{[^\n]*\})\n)/$1$3$2/s or die "expected adjacent formatter inputs\n"' \
   Cargo.toml > "$fixture/unsorted.toml"
 overlays=(Cargo.lock rust-toolchain.toml ci/tool-versions.env ci/icydb-tools.env scripts/ci/check-format-tools.sh scripts/ci/check-make-execution.sh scripts/ci/run-formatting.sh)
 git ls-files --modified --others --exclude-standard -z > "$fixture/working-inputs"
@@ -82,10 +83,10 @@ make --no-print-directory > "$fixture/default-goal.log" 2>&1
 [[ ! -e "$FORMAT_FIXTURE_EVENTS" ]]
 for target in fmt fmt-check; do
   if [[ "$target" == fmt ]]; then
-    derive='sort-derives'; sort='sort --workspace'; format='fmt --all'
+    derive='sort-derives'; sort='sort --workspace --grouped'; format='fmt --all'
     label='Formatting'
   else
-    derive='sort-derives --check'; sort='sort --workspace --check'; format='fmt --all -- --check'
+    derive='sort-derives --check'; sort='sort --workspace --grouped --check'; format='fmt --all -- --check'
     label='Checking formatting'
   fi
   : > "$FORMAT_FIXTURE_EVENTS"

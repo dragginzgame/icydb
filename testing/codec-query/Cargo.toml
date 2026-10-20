@@ -2,11 +2,12 @@
 name = "icydb-testing-codec-query"
 edition = { workspace = true }
 rust-version = { workspace = true }
+license-file = { workspace = true }
 version = { workspace = true }
 publish = false
 
 [dependencies]
-ic0 = { workspace = true }
+ic-platform = { workspace = true, features = ["ic0"] }
 
 [lints]
 workspace = true

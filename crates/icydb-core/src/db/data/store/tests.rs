@@ -9,7 +9,7 @@ use crate::{
     },
     testing::{test_memory, test_memory_with_backing},
 };
-use ic_memory::ic_stable_structures::{Memory, VectorMemory};
+use ic_memory::{Memory, VectorMemory};
 use std::ops::Bound;
 
 const SINGLE_MEMORY_MANAGER_BUCKET_PAGES: u64 = 128;
@@ -17,14 +17,14 @@ const SINGLE_MEMORY_MANAGER_BUCKET_PAGES: u64 = 128;
 #[test]
 fn positioned_publication_preserves_presence_and_cold_warm_cardinality() {
     for materialized in [false, true] {
-        let memory = test_memory(230);
-        let mut store = DataStore::init_journaled(memory.clone());
+        let memory = crate::testing::test_memory_owner(230);
+        let mut store = DataStore::init_journaled(memory.open());
         let key = raw_key(1, 1);
         store
             .fold_recovered_journal_put(key.clone(), raw_row(11))
             .expect("canonical seed");
         drop(store);
-        let mut store = DataStore::init_journaled(memory);
+        let mut store = DataStore::init_journaled(memory.open());
         if materialized {
             store.rebuild_entity_cardinality_from_entries();
         }
@@ -113,8 +113,8 @@ fn seed_heap_store(entries: &[(u64, u64, u8)]) -> DataStore {
 
 #[test]
 fn data_store_emptiness_tracks_visible_keys_across_backings_and_repeated_effects() {
-    let memory = test_memory(226);
-    let mut canonical = DataStore::init_journaled(memory.clone());
+    let memory = crate::testing::test_memory_owner(226);
+    let mut canonical = DataStore::init_journaled(memory.open());
     assert!(canonical.is_empty());
     for id in 1..=2 {
         canonical
@@ -123,7 +123,7 @@ fn data_store_emptiness_tracks_visible_keys_across_backings_and_repeated_effects
     }
     drop(canonical);
     // Reopen without optional cardinality evidence; keys remain the authority.
-    let canonical = DataStore::init_journaled(memory);
+    let canonical = DataStore::init_journaled(memory.open());
     assert_eq!(canonical.exact_entity_count(EntityTag::new(1)), None);
 
     let mut mixed = DataStore::init_journaled(test_memory(227));
@@ -547,8 +547,8 @@ fn data_store_entity_cardinality_ignores_fold_updates_hidden_by_live_overlay() {
 
 #[test]
 fn journaled_data_store_reopens_without_materializing_entity_cardinality() {
-    let memory = test_memory(230);
-    let mut store = DataStore::init_journaled(memory.clone());
+    let memory = crate::testing::test_memory_owner(230);
+    let mut store = DataStore::init_journaled(memory.open());
     store
         .fold_recovered_journal_put(raw_key(1, 1), raw_row(11))
         .expect("canonical seed should fold");
@@ -557,7 +557,7 @@ fn journaled_data_store_reopens_without_materializing_entity_cardinality() {
         .expect("canonical seed should fold");
     drop(store);
 
-    let mut reopened = DataStore::init_journaled(memory);
+    let mut reopened = DataStore::init_journaled(memory.open());
 
     assert!(reopened.contains(&raw_key(1, 1)));
     assert!(reopened.contains(&raw_key(1, 2)));
@@ -589,8 +589,8 @@ fn journaled_data_store_reopens_without_materializing_entity_cardinality() {
 
 #[test]
 fn empty_journaled_data_store_retains_exact_zero_cardinality_without_scanning() {
-    let memory = test_memory(231);
-    let mut store = DataStore::init_journaled(memory.clone());
+    let memory = crate::testing::test_memory_owner(231);
+    let mut store = DataStore::init_journaled(memory.open());
 
     assert_eq!(store.exact_entity_count(EntityTag::new(1)), Some(0));
     store
@@ -599,7 +599,7 @@ fn empty_journaled_data_store_retains_exact_zero_cardinality_without_scanning() 
     assert_eq!(store.exact_entity_count(EntityTag::new(1)), Some(0));
     drop(store);
 
-    let reopened = DataStore::init_journaled(memory);
+    let reopened = DataStore::init_journaled(memory.open());
     assert_eq!(reopened.exact_entity_count(EntityTag::new(1)), Some(0));
 }
 

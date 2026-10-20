@@ -7,7 +7,7 @@
 mod intent;
 
 use crate::db::codec::{ByteDecodeError, ByteReader};
-use candid::CandidType;
+
 use serde::Deserialize;
 use std::{error::Error as StdError, fmt};
 
@@ -36,7 +36,9 @@ pub const MAX_MUTATION_JOB_STEP_ROWS_UPDATED: u64 =
 /// An application must allocate a fresh identity for every logical job. An
 /// identity is never reusable after cancellation, acknowledgement, failure,
 /// or an absent-record response.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+    serde::Serialize, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd,
+)]
 pub struct MutationJobId([u8; 32]);
 
 impl MutationJobId {
@@ -63,7 +65,7 @@ impl MutationJobId {
 }
 
 /// Bounded request identity reused exactly after a lost response.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct MutationJobIdempotencyKey(String);
 
 impl MutationJobIdempotencyKey {
@@ -91,7 +93,7 @@ impl MutationJobIdempotencyKey {
 }
 
 /// Terminal reason why a valid retained mutation job cannot continue safely.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum MutationJobRestartReason {
     /// The accepted schema identity changed after the job started.
     AcceptedSchemaChanged,
@@ -112,7 +114,7 @@ pub enum MutationJobRestartReason {
 }
 
 /// Bounded reason why target mutation execution failed before commit.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum MutationJobTargetFailureReason {
     /// Writer and page-packer staged-byte authorities diverged.
     StagingByteBudgetExceeded,
@@ -121,7 +123,7 @@ pub enum MutationJobTargetFailureReason {
 }
 
 /// Durable lifecycle of one mutation job.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum MutationJobStatus {
     /// One bounded Forward or Verify step may still run.
     Active,
@@ -132,7 +134,7 @@ pub enum MutationJobStatus {
 }
 
 /// Current convergence phase of one mutation job.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum MutationJobPhase {
     /// Scan authoritative keys and converge stale rows.
     Forward,
@@ -141,7 +143,7 @@ pub enum MutationJobPhase {
 }
 
 /// Public bounded state for one retained mutation job.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct MutationJobState {
     /// Application-owned job identity.
     pub job_id: MutationJobId,
@@ -160,7 +162,7 @@ pub struct MutationJobState {
 }
 
 /// Identity and expected sequence for one idempotent bounded advance.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct MutationJobAdvanceRequest {
     /// Target mutation job.
     pub job_id: MutationJobId,
@@ -192,7 +194,7 @@ impl MutationJobAdvanceRequest {
 }
 
 /// Replayable result of one committed bounded advance.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct MutationJobAdvanceReceipt {
     /// Sequence named by the request.
     pub request_sequence: u64,
@@ -215,7 +217,7 @@ pub struct MutationJobAdvanceReceipt {
 }
 
 /// Variable-sized component constrained by the durable record protocol.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum MutationJobPayloadKind {
     /// Canonical accepted mutation intent.
     Intent,
@@ -228,7 +230,7 @@ pub enum MutationJobPayloadKind {
 }
 
 /// Typed mutation-job protocol, lifecycle, or persistence failure.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum MutationJobError {
     /// Job identity was all zeroes.
     InvalidJobId,
@@ -1103,9 +1105,9 @@ mod tests {
     }
 
     #[test]
-    fn public_state_request_receipt_and_error_are_candid_compatible() {
+    fn public_state_request_receipt_and_error_are_wire_compatible() {
         let state = initial_record().state().clone();
-        let request = request(0, "candid-request");
+        let request = request(0, "wire-request");
         let receipt = MutationJobAdvanceReceipt {
             request_sequence: 0,
             committed_sequence: 1,
@@ -1121,27 +1123,31 @@ mod tests {
             MutationJobTargetFailureReason::StagingByteBudgetExceeded,
         );
 
-        let state_bytes = candid::encode_one(&state).expect("mutation state should encode");
-        let request_bytes = candid::encode_one(&request).expect("mutation request should encode");
-        let receipt_bytes = candid::encode_one(&receipt).expect("mutation receipt should encode");
-        let error_bytes = candid::encode_one(&error).expect("mutation error should encode");
+        let state_bytes =
+            icydb_schema::wire::encode_one(&state).expect("mutation state should encode");
+        let request_bytes =
+            icydb_schema::wire::encode_one(&request).expect("mutation request should encode");
+        let receipt_bytes =
+            icydb_schema::wire::encode_one(&receipt).expect("mutation receipt should encode");
+        let error_bytes =
+            icydb_schema::wire::encode_one(&error).expect("mutation error should encode");
         assert_eq!(
-            candid::decode_one::<MutationJobState>(&state_bytes)
+            icydb_schema::wire::decode_one::<MutationJobState>(&state_bytes)
                 .expect("mutation state should decode"),
             state,
         );
         assert_eq!(
-            candid::decode_one::<MutationJobAdvanceRequest>(&request_bytes)
+            icydb_schema::wire::decode_one::<MutationJobAdvanceRequest>(&request_bytes)
                 .expect("mutation request should decode"),
             request,
         );
         assert_eq!(
-            candid::decode_one::<MutationJobAdvanceReceipt>(&receipt_bytes)
+            icydb_schema::wire::decode_one::<MutationJobAdvanceReceipt>(&receipt_bytes)
                 .expect("mutation receipt should decode"),
             receipt,
         );
         assert_eq!(
-            candid::decode_one::<MutationJobError>(&error_bytes)
+            icydb_schema::wire::decode_one::<MutationJobError>(&error_bytes)
                 .expect("mutation error should decode"),
             error,
         );

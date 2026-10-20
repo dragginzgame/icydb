@@ -17,9 +17,8 @@ fn icydb_memory_pool()
     )
 }
 
-icydb::start!();
+canic_icydb::start!(icydb);
 
-#[ic_cdk::query]
 fn query_ten_entity_typed_rows() -> u32 {
     icydb::db::with_request_execution(|| {
         let Ok(database) = db() else {
@@ -30,6 +29,11 @@ fn query_ten_entity_typed_rows() -> u32 {
             .map_or(0, |row| u32::from(row.is_some()))
     })
 }
-
-#[cfg(feature = "candid-export")]
-ic_cdk::export_candid!();
+icydb_testing_wasm_helpers::export_wire!(
+    query,
+    "query_ten_entity_typed_rows",
+    QueryTenEntityTypedRows,
+    query_ten_entity_typed_rows,
+    (),
+    u32
+);

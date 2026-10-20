@@ -2,7 +2,6 @@
 //! Defines the zero-sized unit key/value wrapper used by schemas that need an
 //! explicit empty identity.
 
-use candid::CandidType;
 use serde::{Deserialize, Serialize};
 
 //
@@ -10,17 +9,6 @@ use serde::{Deserialize, Serialize};
 //
 
 #[derive(
-    CandidType,
-    Clone,
-    Copy,
-    Debug,
-    Default,
-    Eq,
-    PartialEq,
-    Hash,
-    Ord,
-    PartialOrd,
-    Deserialize,
-    Serialize,
+    Serialize, Clone, Copy, Debug, Default, Eq, PartialEq, Hash, Ord, PartialOrd, Deserialize,
 )]
 pub struct Unit;

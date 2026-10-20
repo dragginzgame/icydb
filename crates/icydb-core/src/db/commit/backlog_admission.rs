@@ -12,37 +12,26 @@ use crate::{
 };
 
 use super::store::EncodedCommitControlSlot;
-use candid::CandidType;
+
 use serde::Deserialize;
 
-#[cfg(not(test))]
-use crate::db::database_format::open_registered_store_memory;
-
-#[cfg(test)]
-use crate::{
-    db::{
-        Db,
-        commit::{
-            PersistedStoreAllocationState, current_commit_memory_allocation,
-            current_commit_memory_allocation_if_configured,
-        },
-        registry::StoreAllocationIdentity,
+use crate::db::{
+    commit::{
+        PersistedStoreAllocationState, current_commit_memory_allocation,
+        current_commit_memory_allocation_if_configured,
     },
-    traits::CanisterKind,
+    registry::{StoreAllocationIdentity, StoreRegistry},
 };
-#[cfg(test)]
 use std::{cell::RefCell, thread::LocalKey};
 
-#[cfg(test)]
-type TestRuntimeJournalTail = (
+type RuntimeJournalTail = (
     super::memory::CommitMemoryAllocation,
     StoreAllocationIdentity,
     &'static LocalKey<RefCell<JournalTailStore>>,
 );
 
-#[cfg(test)]
 thread_local! {
-    static TEST_RUNTIME_JOURNAL_TAILS: RefCell<Vec<TestRuntimeJournalTail>> =
+    static RUNTIME_JOURNAL_TAILS: RefCell<Vec<RuntimeJournalTail>> =
         const { RefCell::new(Vec::new()) };
 }
 
@@ -50,7 +39,7 @@ thread_local! {
 use crate::db::journal::{decode_journal_batch, encode_journal_batch};
 
 /// Exact database-wide retained or proposed journal contribution.
-#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct ExactBacklogMeasurement {
     batch_count: u64,
     record_count: u64,
@@ -334,36 +323,17 @@ pub(in crate::db) const BACKLOG_LIMITS: BacklogLimits = BacklogLimits::new(
     MAX_COMMIT_BYTES as u64,
 );
 
-/// Sum exact owner-local controls from the bounded persisted registry.
-#[cfg(not(test))]
-pub(in crate::db) fn current_database_backlog() -> Result<ExactBacklogMeasurement, InternalError> {
-    let allocations =
-        super::store::with_commit_store(super::store::CommitStore::persisted_store_allocations)?;
-    let controls = allocations
-        .iter()
-        .map(|allocation| {
-            let journal = allocation.journal();
-            let memory = open_registered_store_memory(journal.memory_id(), journal.stable_key())?;
-            JournalTailStore::init(memory).current_tail_control()
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    ExactBacklogMeasurement::from_tail_controls(&controls)
-}
-
-#[cfg(test)]
-pub(in crate::db) fn register_runtime_journal_tails_for_backlog<C: CanisterKind>(db: &Db<C>) {
+pub(in crate::db) fn register_runtime_journal_tails_for_backlog(registry: &StoreRegistry) {
     let Some(commit_allocation) = current_commit_memory_allocation_if_configured() else {
         return;
     };
-    let tails = db.with_store_registry(|registry| {
-        registry
-            .iter()
-            .filter_map(|(_, handle)| {
-                Some((handle.journal_allocation()?, handle.journal_tail_store()?))
-            })
-            .collect::<Vec<_>>()
-    });
-    TEST_RUNTIME_JOURNAL_TAILS.with(|registered| {
+    let tails = registry
+        .iter()
+        .filter_map(|(_, handle)| {
+            Some((handle.journal_allocation()?, handle.journal_tail_store()?))
+        })
+        .collect::<Vec<_>>();
+    RUNTIME_JOURNAL_TAILS.with(|registered| {
         let mut registered = registered.borrow_mut();
         registered.retain(|(existing, _, _)| *existing != commit_allocation);
         registered.extend(
@@ -374,17 +344,23 @@ pub(in crate::db) fn register_runtime_journal_tails_for_backlog<C: CanisterKind>
     });
 }
 
-#[cfg(test)]
 pub(in crate::db) fn current_database_backlog() -> Result<ExactBacklogMeasurement, InternalError> {
     let commit_allocation = current_commit_memory_allocation()?;
     let allocations =
         super::store::with_commit_store(super::store::CommitStore::persisted_store_allocations)?;
-    let controls = TEST_RUNTIME_JOURNAL_TAILS.with(|registered| {
+    let controls = RUNTIME_JOURNAL_TAILS.with(|registered| {
         let registered = registered.borrow();
         allocations
             .iter()
             .map(|allocation| match allocation.state() {
-                PersistedStoreAllocationState::Retired => Ok(JournalTailControl::empty()),
+                PersistedStoreAllocationState::Retired => {
+                    let control =
+                        crate::db::database_format::retired_journal_tail_control(allocation)?;
+                    if !control.is_empty() {
+                        return Err(InternalError::store_corruption());
+                    }
+                    Ok(control)
+                }
                 PersistedStoreAllocationState::Active => {
                     let identity = allocation.journal();
                     registered
@@ -481,7 +457,7 @@ mod tests {
         )
         .unwrap();
         apply_prepared_commit_control_replacement(replacement);
-        TEST_RUNTIME_JOURNAL_TAILS
+        RUNTIME_JOURNAL_TAILS
             .with_borrow_mut(|tails| tails.push((owner, identities.journal().unwrap(), &TAIL)));
         TAIL.with_borrow_mut(|tail| tail.initialize_current_tail_control().unwrap());
         crate::metrics::metrics_reset_all();
@@ -516,7 +492,7 @@ mod tests {
             retired.convergence().appended(),
             report.convergence().appended()
         );
-        TEST_RUNTIME_JOURNAL_TAILS.with_borrow_mut(Vec::clear);
+        RUNTIME_JOURNAL_TAILS.with_borrow_mut(Vec::clear);
         assert!(
             crate::metrics::metrics_report().is_err(),
             "missing live owner must not report zero"

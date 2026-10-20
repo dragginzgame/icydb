@@ -5,18 +5,103 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.277.0]
+## [0.278.0]
+
+- **Breaking:** database access verifies an explicitly bound runtime instead of
+  constructing memory through a pool callback. Composed hosts bind their committed
+  runtime before participant startup; standalone lifecycle exports explicitly
+  bootstrap before database startup. Generated actors and host adapters must
+  update together. Allocation mappings, stored bytes and journal admission are
+  unchanged. The Canic adapter is selected at the immutable runtime-handoff revision.
+
+[Detailed notes](docs/changelog/0.278.md)
+
+## [0.277.2] - 2026-10-19
+
+### 🔧 Changed
+
+- Remove the direct Ciborium dependency; retain binary Serde coverage with
+  test-only `serde_cbor`.
+- Trim unused SQL editor features and keep integration-only dependencies out
+  of the support library's normal dependency declarations.
+- Update IC Build to 0.19 and IC Platform to 0.1.15.
+- Keep generic installer and dependency-policy fixtures with Shared Tooling;
+  retain IcyDB's setup, release and dependency integration checks.
+
+### 🩹 Fixed
+
+- Preserve NULL values during checked numeric migrations into nullable fields
+  ([#205](https://github.com/dragginzgame/icydb/issues/205)).
+- Preserve nested SQL paths when an inner segment matches the entity or alias,
+  and reduce a qualifier once across reads and writes
+  ([#107 — SQL scope normalization targets the wrong field](https://github.com/dragginzgame/icydb/issues/107)).
+- Prepare the declared IC tools before CI canister builds and Wasm reports,
+  and retain portable-fixture diagnostics. See [detailed notes](docs/changelog/0.277.md).
+- Clarify separate request budgets for native multi-message tests
+  ([#177](https://github.com/dragginzgame/icydb/issues/177)).
+
+## [0.277.1] - 2026-10-18
+
+### 🔧 Changed
+
+- Adopt Shared Tooling 0.24.1 with dependency-role labels and matching grouped
+  formatting, release checks and direct dependency enforcement.
+  Fix release validation when its temporary directory is inside the checkout.
+- Use IC Platform for Principal identity and supported runtime calls; remove all
+  direct Candid, CDK-family and raw-ABI dependencies.
+- Bind Wasm reports to retained build observations and remove redundant compiler
+  probes and intermediate ICP staging from measurement.
+- Adopt IC Storage 0.5.4 for stable collections, shared control regions and
+  codecs; remove the final direct stable-structures dependency without moving data.
+
+### 🩹 Fixed
+
+- Size exact-key results without allocating encoded row buffers, preserving the
+  separate logical-result and endpoint-delivery limits.
+- Remove the obsolete filter error wrapper while retaining bounded Wire decoding
+  and rejection of malformed optional predicates.
+
+See [detailed notes](docs/changelog/0.277.md).
+
+## [0.277.0] - 2026-10-18
 
 ### ⚠️ Breaking
 
-- Database access verifies an explicitly bound host runtime. Participant hosts
-  bind their committed runtime before startup; standalone lifecycle exports
-  explicitly bootstrap before driving the database. Pool providers only supply
-  grants, and ordinary database access never constructs a memory manager.
-
+- Cap complete encoded secondary-index keys at 512 bytes; reject oversized keys
+  before mutation. Recreate index stores and regenerate continuations after
+  retaining required backups and recovery/export access.
+- Adopt Toko Studios' source-available license 1.1 for newly covered material;
+  preserve prior Apache-2.0/MIT grants and notices, and remove superseded
+  standalone Apache license files.
 - Remove arbitrary-precision integer fields and values, compact scalar tags,
-  require affected databases and serialized artifacts to be recreated, and trial
-  IC Wire with an installed audit query and a Candid-free codec comparison.
+  require affected databases and serialized artifacts to be recreated, and replace
+  IcyDB’s direct Candid and ledger dependencies and generated endpoint contracts
+  with native account handling and IC Wire that rolls back synchronous writes
+  when reply encoding fails. Move IC exports and lifecycle support to the Canic
+  host adapter, removing CDK from the IcyDB library dependency graph and all
+  workspace-owned Candid codecs, exports and artifact tooling.
+
+### 🔧 Changed
+
+- Use registry IC Wire for browser generation, remove obsolete private fetch
+  credentials, and consolidate CLI method selection with the native contract.
+- Share the dedicated grouped count reducer across direct and scalar-path keys,
+  retaining instruction budgets and canonical null, equality and cursor rules.
+- Align validation and test fixtures with current tooling, selected dependencies,
+  key and reply budgets, exclusive memory handles, endpoint ownership, lifecycle
+  envelopes, audit reply layouts and features.
+- Align bootstrap diagnostics with Memory 0.48's admission errors.
+- Adopt registry IC Host 0.27 and Shared Tooling 0.23; restore CLI table
+  qualification, consolidate scanner ownership and explicitly select IC tools.
+- Adopt IC Build 0.16 with explicit Cargo custody and inherited flags for
+  checked Wasm artifact generation.
+- Add native browser contracts and installed endpoint qualification; prepare
+  scoped private IC Wire fetching in CI, requiring owner-provisioned App secrets.
+- Share native RPC and browser encoding with IC Wire, move SQL terminal reports
+  into the CLI, and adopt exclusive storage leases from the selected Memory runtime.
+- Trim unused direct dependencies from libraries, CLI, build tooling and canister
+  fixtures; align the host adapter's timer dependency and accept tracked
+  declaration deletions during dependency checks.
 
 See [detailed notes](docs/changelog/0.277.md).
 

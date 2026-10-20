@@ -101,9 +101,9 @@ fn public_headroom_stops_between_reads_and_preserves_exhaustion_facts() {
                 .iter()
                 .any(|fact| fact.tag() == DiagnosticFactTag::QueryShapeFingerprintPrefix.raw())
         );
-        let wire = candid::encode_one(&error).unwrap();
+        let wire = runtime_api::wire::encode_one(&error).unwrap();
         assert_eq!(
-            candid::decode_one::<runtime_api::Error>(&wire).unwrap(),
+            runtime_api::wire::decode_one::<runtime_api::Error>(&wire).unwrap(),
             error
         );
         let failed = session.request_budget();

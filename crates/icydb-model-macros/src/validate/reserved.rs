@@ -7,45 +7,11 @@ use std::{collections::HashSet, sync::LazyLock};
 
 ///
 /// RESERVED_WORDS
-/// basic reserved words list for anything using candid and rust
+/// Reserved Rust and IcyDB schema numeric identifiers.
 ///
 
 static RESERVED_WORDS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     let mut words = Vec::new();
-
-    // candid
-    words.extend([
-        "blob",
-        "bool",
-        "composite_query",
-        "empty",
-        "float32",
-        "float64",
-        "func",
-        "import",
-        "int",
-        "int8",
-        "int16",
-        "int32",
-        "int64",
-        "nat",
-        "nat8",
-        "nat16",
-        "nat32",
-        "nat64",
-        "null",
-        "oneway",
-        "opt",
-        "principal",
-        "query",
-        "record",
-        "reserved",
-        "service",
-        "text",
-        "type",
-        "variant",
-        "vec",
-    ]);
 
     // icydb schema numeric labels
     words.extend(["int128", "nat128"]);

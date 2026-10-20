@@ -1,30 +1,13 @@
 use crate::{TypeParseError, decimal::Decimal};
-use candid::CandidType;
+
 use serde::{Deserialize, Serialize};
-
-impl CandidType for Decimal {
-    fn ty() -> candid::types::Type {
-        <String as CandidType>::ty()
-    }
-
-    fn _ty() -> candid::types::Type {
-        candid::types::TypeInner::Text.into()
-    }
-
-    fn idl_serialize<S>(&self, serializer: S) -> Result<(), S::Error>
-    where
-        S: candid::types::Serializer,
-    {
-        serializer.serialize_text(&self.to_string())
-    }
-}
 
 impl<'de> Deserialize<'de> for Decimal {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
-        // Candid and Serde both emit text, including non-human-readable formats.
+        // Wire and Serde both emit text, including non-human-readable formats.
         let text = String::deserialize(deserializer)?;
         text.parse::<Self>()
             .map_err(|_| serde::de::Error::custom(TypeParseError::InvalidDecimal))

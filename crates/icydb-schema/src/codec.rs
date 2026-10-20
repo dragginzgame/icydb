@@ -1,6 +1,6 @@
 //! Bounded current-form schema authoring transport.
 //!
-//! These bytes are internal build/application artifacts, not Candid endpoint
+//! These bytes are internal build/application artifacts, not Wire endpoint
 //! payloads. Each top-level form has one tagged V1 representation. Pre-1.0
 //! obsolete representations are rejected rather than translated.
 

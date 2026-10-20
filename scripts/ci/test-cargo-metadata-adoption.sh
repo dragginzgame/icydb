@@ -5,7 +5,7 @@ set -euo pipefail
 # Git exports/staging are fixture-only; no commits or dependency resolution occur.
 unset MAKEFLAGS MAKEOVERRIDES MFLAGS GNUMAKEFLAGS
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
-export PATH="$ROOT/.tools/host/bin:$PATH"
+export PATH="$ROOT/.tools/host/bin:$ROOT/.tools/rust/common/bin:$PATH"
 YQ="${YQ:-$ROOT/.tools/host/bin/yq}"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/icydb-cargo-adoption.XXXXXX")"
 fixture_complete=false
@@ -26,7 +26,8 @@ while IFS= read -r -d '' path; do
 done < "$fixture/manifests"
 for path in Cargo.lock Makefile rust-toolchain.toml ci/dependency-pinning-exceptions.json \
   scripts/ci/check-dependency-pins.sh scripts/ci/dependency-pins.jq \
-  scripts/ci/read-cargo-workspace-version.sh scripts/ci/check-dependency-graph-invariants.sh; do
+  scripts/ci/read-cargo-workspace-version.sh scripts/ci/check-dependency-graph-invariants.sh \
+  scripts/ci/check-cargo-dependency-boundaries.sh ci/cargo-dependency-boundaries.json; do
   cp "$ROOT/$path" "$fixture/repo/$path"
 done
 cd "$fixture/repo"
@@ -59,5 +60,107 @@ sed "s/version = { workspace = true }/version = \"$version\"/" "$fixture/member.
 if check; then echo 'independent member version admitted' >&2; exit 1; fi
 cp "$fixture/member.toml" crates/icydb-diagnostic-code/Cargo.toml
 check || { cat "$fixture/check.log" >&2; exit 1; }
-echo 'IcyDB Cargo inheritance gate and retained graph policies passed'
+# Exercise the actual consumer allowlist before injecting a forbidden canonical
+# SDK/substrate identity through aliases, disabled optional features and inactive targets.
+CARGO_HOME="$ROOT/.cache/cargo/icydb" \
+  bash scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$PWD" \
+  > "$fixture/boundaries.log" 2>&1
+cp Cargo.toml "$fixture/catalog.toml"
+for dependency in ic-cdk ic-stable-structures; do
+  cp "$fixture/catalog.toml" Cargo.toml
+  if [[ "$dependency" == ic-cdk ]]; then requirement=0.20.3
+  else requirement=0.7.2; fi
+  printf '\n[workspace.dependencies.boundary_alias]\npackage = "%s"\nversion = "%s"\n' \
+    "$dependency" "$requirement" >> Cargo.toml
+  for section in dependencies 'target."cfg(target_os = \"none\")".build-dependencies' \
+      'target."cfg(target_os = \"none\")".dev-dependencies'; do
+    cp "$fixture/member.toml" crates/icydb-diagnostic-code/Cargo.toml
+    printf '\n[%s.boundary_alias]\nworkspace = true\n' "$section" \
+      >> crates/icydb-diagnostic-code/Cargo.toml
+    if [[ "$section" == dependencies ]]; then
+      printf 'optional = true\n\n[features]\ndisabled-boundary = ["dep:boundary_alias"]\n' \
+        >> crates/icydb-diagnostic-code/Cargo.toml
+    fi
+    # Successful metadata admission proves rejection is from the boundary policy,
+    # rather than a malformed target table or an unavailable dependency.
+    CARGO_HOME="$ROOT/.cache/cargo/icydb" cargo metadata --locked --offline \
+      --no-deps --format-version 1 > "$fixture/injected-metadata.json"
+    jq -e --arg dependency "$dependency" '.packages[] | select(.name == "icydb-diagnostic-code") | .dependencies |
+      any(.name == $dependency and .rename == "boundary_alias")' \
+      "$fixture/injected-metadata.json" > /dev/null
+    if CARGO_HOME="$ROOT/.cache/cargo/icydb" \
+      bash scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$PWD" \
+        > "$fixture/boundary-rejection.log" 2>&1; then
+      echo 'consumer boundary admitted an excluded dependency alias' >&2; exit 1
+    fi
+  done
+done
+cp "$fixture/member.toml" crates/icydb-diagnostic-code/Cargo.toml
+cp "$fixture/catalog.toml" Cargo.toml
+
+# Qualify the selected-source release checker with real Cargo and isolated Git
+# commits. Unused catalog entries expose global-vs-grouped ordering without
+# introducing a registry dependency into this fixture.
+mkdir -p "$fixture/metadata/crates/primary/src"
+cd "$fixture/metadata"
+cat > Cargo.toml <<'MANIFEST'
+[workspace]
+members = ["crates/primary"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+
+[workspace.dependencies]
+# Production dependencies
+zeta = "1"
+zulu = "1"
+
+# Tests and tooling only
+alpha = "1"
+beta = "1"
+MANIFEST
+cat > crates/primary/Cargo.toml <<'MANIFEST'
+[package]
+name = "primary"
+version.workspace = true
+edition = "2024"
+MANIFEST
+printf 'pub struct Primary;\n' > crates/primary/src/lib.rs
+printf '## [0.1.0] - 2026-10-18\n' > CHANGELOG.md
+cargo generate-lockfile --offline > "$fixture/metadata-lock.log" 2>&1
+cp Cargo.toml "$fixture/grouped.toml"
+RELEASE_VERSION=0.1.0 RELEASE_DATE=2026-10-18 \
+  bash "$ROOT/scripts/ci/cargo-release-metadata.sh" check primary --manifest-order-grouped \
+  > "$fixture/current-grouped.log" 2>&1
+# Formatting is stable and retains both role groups, despite global disorder.
+cargo sort --workspace --grouped > "$fixture/grouped-write.log" 2>&1
+cmp "$fixture/grouped.toml" Cargo.toml
+git init --quiet
+git add -- Cargo.toml Cargo.lock CHANGELOG.md crates/primary
+git -c user.name=Fixture -c user.email=fixture@example.invalid -c core.hooksPath=/dev/null -c commit.gpgsign=false \
+  commit --quiet -m 'Grouped release fixture'
+selected="$(git rev-parse HEAD)"
+perl -0777 -pe 's/(zeta = "1"\n)(zulu = "1"\n)/$2$1/ or die "missing group inputs\n"' \
+  "$fixture/grouped.toml" > Cargo.toml
+if RELEASE_VERSION=0.1.0 RELEASE_DATE=2026-10-18 \
+  bash "$ROOT/scripts/ci/cargo-release-metadata.sh" check primary --manifest-order-grouped \
+  > "$fixture/current-unsorted.log" 2>&1; then
+  echo 'release ordering admitted an unsorted role group' >&2; exit 1
+fi
+# The selected commit passes even though the working manifest does not.
+RELEASE_VERSION=0.1.0 RELEASE_DATE=2026-10-18 RELEASE_COMMIT="$selected" \
+  bash "$ROOT/scripts/ci/cargo-release-metadata.sh" check primary --manifest-order-grouped \
+  > "$fixture/committed-grouped.log" 2>&1
+git add -- Cargo.toml
+git -c user.name=Fixture -c user.email=fixture@example.invalid -c core.hooksPath=/dev/null -c commit.gpgsign=false \
+  commit --quiet -m 'Unsorted selected fixture'
+selected="$(git rev-parse HEAD)"
+cp "$fixture/grouped.toml" Cargo.toml
+if RELEASE_VERSION=0.1.0 RELEASE_DATE=2026-10-18 RELEASE_COMMIT="$selected" \
+  bash "$ROOT/scripts/ci/cargo-release-metadata.sh" check primary --manifest-order-grouped \
+  > "$fixture/committed-unsorted.log" 2>&1; then
+  echo 'release ordering read the newer worktree instead of the selected commit' >&2; exit 1
+fi
+echo 'IcyDB Cargo inheritance, grouped ordering and selected-source release policies passed'
 fixture_complete=true

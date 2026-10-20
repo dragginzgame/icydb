@@ -1,24 +1,22 @@
+use icydb_testing_integration::WireCallExt as _;
 use std::{collections::BTreeSet, fs};
 
-use candid::{CandidType, Principal};
-use ic_testkit::pic::CandidCallExt as _;
+use ic_platform::Principal;
 use icydb::{
     Error, ErrorCode,
     db::{EntitySchemaDescription, sql::SqlQueryResult},
 };
 use icydb_testing_build::{
-    CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterWasmProfile,
-    build_canister_with_options,
+    CanisterBuildOptions, CanisterBuildProfile, CanisterWasmProfile, build_canister_with_options,
     canister_artifact::{CanisterMethod, MethodMode, inspect_canister_artifacts},
 };
 use icydb_testing_integration::install_fixture_canister;
-use serde::Deserialize;
 
 const WRAPPER_INSTRUCTION_CEILING: u64 = 5_000_000;
 const ALLOWLIST_INSTRUCTION_CEILING: u64 = 1_000_000;
 const GUARDED_SQL_RAW_WASM_GROWTH_CEILING: u64 = 128 * 1024;
 
-#[derive(CandidType, Debug, Deserialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 struct ReadAuthorizationCostResult {
     caller_instructions: u64,
     helper_instructions: u64,
@@ -47,7 +45,7 @@ fn guarded_sql_authorizes_one_reader_and_preserves_the_read_only_lane() {
     ] {
         let allowed: Result<SqlQueryResult, Error> = fixture
             .pocket_ic()
-            .query_candid_as(
+            .query_wire_as(
                 fixture.canister_id(),
                 reader,
                 "icydb_query",
@@ -59,7 +57,7 @@ fn guarded_sql_authorizes_one_reader_and_preserves_the_read_only_lane() {
 
     let absent_schema = fixture
         .pocket_ic()
-        .query_candid_as::<Result<Vec<EntitySchemaDescription>, Error>, _>(
+        .query_wire_as::<Result<Vec<EntitySchemaDescription>, Error>, _>(
             fixture.canister_id(),
             reader,
             "icydb_schema",
@@ -72,7 +70,7 @@ fn guarded_sql_authorizes_one_reader_and_preserves_the_read_only_lane() {
 
     let denied: Result<SqlQueryResult, Error> = fixture
         .pocket_ic()
-        .query_candid_as(
+        .query_wire_as(
             fixture.canister_id(),
             outsider,
             "icydb_query",
@@ -86,7 +84,7 @@ fn guarded_sql_authorizes_one_reader_and_preserves_the_read_only_lane() {
 
     let controller: Result<SqlQueryResult, Error> = fixture
         .pocket_ic()
-        .query_candid(
+        .query_wire(
             fixture.canister_id(),
             "icydb_query",
             ("SHOW ENTITIES".to_string(),),
@@ -101,7 +99,7 @@ fn guarded_sql_authorizes_one_reader_and_preserves_the_read_only_lane() {
 
     let mutation: Result<SqlQueryResult, Error> = fixture
         .pocket_ic()
-        .query_candid_as(
+        .query_wire_as(
             fixture.canister_id(),
             reader,
             "icydb_query",
@@ -125,7 +123,7 @@ fn guarded_sql_rejects_anonymous_before_application_code_and_propagates_guard_tr
 
     let anonymous: Result<SqlQueryResult, Error> = fixture
         .pocket_ic()
-        .query_candid_as(
+        .query_wire_as(
             fixture.canister_id(),
             Principal::anonymous(),
             "icydb_query",
@@ -139,7 +137,7 @@ fn guarded_sql_rejects_anonymous_before_application_code_and_propagates_guard_tr
 
     let trapped = fixture
         .pocket_ic()
-        .query_candid_as::<Result<SqlQueryResult, Error>, _>(
+        .query_wire_as::<Result<SqlQueryResult, Error>, _>(
             fixture.canister_id(),
             principal(44),
             "icydb_query",
@@ -153,7 +151,7 @@ fn guarded_sql_local_authorization_cost_stays_below_frozen_ceilings() {
     let fixture = install_fixture_canister("sql_guard");
     let cost: Result<ReadAuthorizationCostResult, Error> = fixture
         .pocket_ic()
-        .query_candid_as(
+        .query_wire_as(
             fixture.canister_id(),
             principal(42),
             "read_authorization_cost",
@@ -194,7 +192,6 @@ fn guarded_and_controller_sql_artifacts_keep_one_identical_public_surface() {
             "sql_guard",
             CanisterBuildOptions {
                 profile: CanisterWasmProfile::WasmRelease,
-                candid_export: CanisterCandidExportMode::Enabled,
                 build_profile,
                 ..CanisterBuildOptions::default()
             },
@@ -210,14 +207,14 @@ fn guarded_and_controller_sql_artifacts_keep_one_identical_public_surface() {
     }]);
     let [controller_manifest, guarded_manifest] = [&controller_wasm, &guarded_wasm].map(|wasm| {
         let manifest = inspect_canister_artifacts(wasm.as_ref())
-            .expect("Candid and raw Wasm exports should agree");
+            .expect("Wire declarations and raw Wasm exports should agree");
         assert_eq!(manifest.icydb_methods(), expected);
         manifest
     });
 
     assert_eq!(
-        controller_manifest.candid, guarded_manifest.candid,
-        "guarded SQL must not change the complete Candid service",
+        controller_manifest.wire_methods, guarded_manifest.wire_methods,
+        "guarded SQL must not change the complete Wire roster",
     );
 
     let controller_bytes = fs::metadata(&controller_wasm)

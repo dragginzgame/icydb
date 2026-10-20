@@ -2,13 +2,11 @@
 
 mod seek_intersection;
 
-use candid::CandidType;
-use ic_testkit::pic::CandidCallExt as _;
 use icydb::{Error, db::sql::SqlQueryResult};
+use icydb_testing_integration::WireCallExt as _;
 use icydb_testing_integration::{install_fixture_canister, reset_icydb_fixtures};
-use serde::Deserialize;
 
-#[derive(CandidType, Debug, Deserialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 struct ReadTotalOnlyPerfResult {
     row_count: u32,
     instructions: u64,
@@ -35,13 +33,13 @@ fn settle_measurement_rounds(fixture: &ic_testkit::pic::StandaloneCanisterFixtur
     }
 }
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 struct SqlQueryPerfResult {
     result: SqlQueryResult,
     instructions: u64,
 }
 
-#[derive(CandidType, Debug, Deserialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 struct SqlQueryPhasePerfResult {
     result: SqlQueryResult,
     instructions: u64,
@@ -59,7 +57,7 @@ fn query_perf(
 ) -> SqlQueryPerfResult {
     let result: Result<SqlQueryPerfResult, Error> = fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), method, (sql.to_string(),))
+        .query_wire(fixture.canister_id(), method, (sql.to_string(),))
         .unwrap_or_else(|error| panic!("{method} should decode: {error}"));
 
     result.unwrap_or_else(|error| panic!("{method} should execute: {error}"))
@@ -72,9 +70,9 @@ fn sql_perf_reports_total_instructions_for_query_warmup_and_loop_execution() {
     let sql = "SELECT COUNT(*) FROM PerfAuditUser";
 
     let cold = query_perf(&fixture, "query_user_with_perf", sql);
-    let warmed: Result<SqlQueryPerfResult, Error> = fixture
+    let warmed: Result<SqlQueryPhasePerfResult, Error> = fixture
         .pocket_ic()
-        .update_candid(
+        .update_wire(
             fixture.canister_id(),
             "warm_user_query_with_perf",
             (sql.to_string(),),
@@ -83,7 +81,7 @@ fn sql_perf_reports_total_instructions_for_query_warmup_and_loop_execution() {
     let warmed = warmed.expect("warm SQL measurement should execute");
     let looped: Result<SqlQueryPerfResult, Error> = fixture
         .pocket_ic()
-        .query_candid(
+        .query_wire(
             fixture.canister_id(),
             "query_user_loop_with_perf",
             (sql.to_string(), 8_u32),
@@ -95,6 +93,14 @@ fn sql_perf_reports_total_instructions_for_query_warmup_and_loop_execution() {
     assert_eq!(cold.result, looped.result);
     assert!(cold.instructions > 0);
     assert!(warmed.instructions > 0);
+    assert!(warmed.entry <= warmed.request_ready);
+    assert!(warmed.request_ready <= warmed.session_ready);
+    assert!(warmed.session_ready <= warmed.query_complete);
+    assert!(warmed.query_complete <= warmed.request_complete);
+    assert_eq!(
+        warmed.instructions,
+        warmed.query_complete - warmed.request_ready
+    );
     assert!(looped.instructions > 0);
 }
 
@@ -143,8 +149,8 @@ fn sql_blob_scalar_query_executes_equality_and_octet_length() {
 
 fn preparation_measurement_wasm() -> Vec<u8> {
     use icydb_testing_build::{
-        CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterSqlMode,
-        CanisterWasmProfile, build_canister_with_options,
+        CanisterBuildOptions, CanisterBuildProfile, CanisterSqlMode, CanisterWasmProfile,
+        build_canister_with_options,
     };
     let provided = std::env::var_os("ICYDB_PREPARATION_WASM").map(std::path::PathBuf::from);
     let built = provided.is_none().then(|| {
@@ -153,7 +159,6 @@ fn preparation_measurement_wasm() -> Vec<u8> {
             CanisterBuildOptions {
                 profile: CanisterWasmProfile::WasmRelease,
                 sql_mode: CanisterSqlMode::Enabled,
-                candid_export: CanisterCandidExportMode::Enabled,
                 build_profile: CanisterBuildProfile::LocalTest,
             },
         )
@@ -209,14 +214,15 @@ fn journaled_traversal_wasm_cost_matrix(family: &str, sql_for: fn(&str, u32) -> 
         module.len()
     );
     let fixture = install_prebuilt_fixture_canister("sql_perf", module.clone());
-    let loaded: Result<candid::Reserved, Error> = fixture
-        .pocket_ic()
-        .update_candid(
-            fixture.canister_id(),
-            "load_user_scale_fixture",
-            (2_048_u32,),
-        )
-        .expect("indexed fixture should decode");
+    let loaded: Result<icydb_testing_audit_sql_perf_fixtures::contracts::ScaleFixtureFacts, Error> =
+        fixture
+            .pocket_ic()
+            .update_wire(
+                fixture.canister_id(),
+                "load_user_scale_fixture",
+                (2_048_u32,),
+            )
+            .expect("indexed fixture should decode");
     loaded.expect("indexed fixture should load");
 
     for reopened in [false, true] {
@@ -226,7 +232,8 @@ fn journaled_traversal_wasm_cost_matrix(family: &str, sql_for: fn(&str, u32) -> 
                 .upgrade_canister(
                     fixture.canister_id(),
                     module.clone(),
-                    candid::encode_args(()).unwrap(),
+                    icydb::wire::encode_post_upgrade_arguments(())
+                        .expect("unit post-upgrade arguments should encode"),
                     None,
                 )
                 .expect("same-artifact recovery should succeed");
@@ -243,9 +250,9 @@ fn journaled_traversal_wasm_cost_matrix(family: &str, sql_for: fn(&str, u32) -> 
                 for repeat in 0..2 {
                     settle_measurement_rounds(&fixture);
                     let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
-                    let sample: Result<SqlQueryPerfResult, Error> = fixture
+                    let sample: Result<SqlQueryPhasePerfResult, Error> = fixture
                         .pocket_ic()
-                        .update_candid(
+                        .update_wire(
                             fixture.canister_id(),
                             "warm_user_query_with_perf",
                             (sql.clone(),),
@@ -259,7 +266,7 @@ fn journaled_traversal_wasm_cost_matrix(family: &str, sql_for: fn(&str, u32) -> 
                     assert!(sample.instructions > 0);
                     println!(
                         "journaled_{family}_cost reopened={reopened} direction={direction} limit={limit} repeat={repeat} result={} instructions={} cycles={cycles}",
-                        Sha256Digest::compute(&candid::encode_one(&sample.result).unwrap()),
+                        Sha256Digest::compute(&icydb::wire::encode_one(&sample.result).unwrap()),
                         sample.instructions
                     );
                 }
@@ -304,9 +311,9 @@ fn grouped_heap_wasm_cost_matrix() {
         for phase in ["compile", "hit", "repeat"] {
             settle_measurement_rounds(&fixture);
             let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
-            let sample: Result<SqlQueryPerfResult, Error> = fixture
+            let sample: Result<SqlQueryPhasePerfResult, Error> = fixture
                 .pocket_ic()
-                .update_candid(
+                .update_wire(
                     fixture.canister_id(),
                     "warm_user_query_with_perf",
                     (sql.to_string(),),
@@ -388,9 +395,9 @@ fn preparation_wasm_cost_matrix() {
             let balance = || fixture.pocket_ic().cycle_balance(fixture.canister_id());
             settle_measurement_rounds(&fixture);
             let before = balance();
-            let warmed: Result<SqlQueryPerfResult, Error> = fixture
+            let warmed: Result<SqlQueryPhasePerfResult, Error> = fixture
                 .pocket_ic()
-                .update_candid(
+                .update_wire(
                     fixture.canister_id(),
                     "warm_user_query_with_perf",
                     (sql.clone(),),
@@ -406,9 +413,9 @@ fn preparation_wasm_cost_matrix() {
             for repeat in 0..3 {
                 settle_measurement_rounds(&fixture);
                 let before = balance();
-                let warm: Result<SqlQueryPerfResult, Error> = fixture
+                let warm: Result<SqlQueryPhasePerfResult, Error> = fixture
                     .pocket_ic()
-                    .update_candid(
+                    .update_wire(
                         fixture.canister_id(),
                         "warm_user_query_with_perf",
                         (sql.clone(),),
@@ -423,7 +430,7 @@ fn preparation_wasm_cost_matrix() {
                 let before = balance();
                 let typed: Result<ReadTotalOnlyPerfResult, Error> = fixture
                     .pocket_ic()
-                    .update_candid(
+                    .update_wire(
                         fixture.canister_id(),
                         "measure_typed_filter_preparation",
                         (shape, terms),
@@ -463,9 +470,9 @@ fn arithmetic_wasm_cost_matrix() {
             for phase in ["compile", "hit"] {
                 settle_measurement_rounds(&fixture);
                 let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
-                let sample: Result<SqlQueryPerfResult, Error> = fixture
+                let sample: Result<SqlQueryPhasePerfResult, Error> = fixture
                     .pocket_ic()
-                    .update_candid(
+                    .update_wire(
                         fixture.canister_id(),
                         "warm_user_query_with_perf",
                         (sql.clone(),),
@@ -515,9 +522,9 @@ fn case_admission_wasm_cost_matrix() {
             for phase in ["compile", "hit"] {
                 settle_measurement_rounds(&fixture);
                 let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
-                let sample: Result<SqlQueryPerfResult, Error> = fixture
+                let sample: Result<SqlQueryPhasePerfResult, Error> = fixture
                     .pocket_ic()
-                    .update_candid(
+                    .update_wire(
                         fixture.canister_id(),
                         "warm_user_query_with_perf",
                         (sql.clone(),),
@@ -564,9 +571,9 @@ fn aggregate_wasm_cost_matrix() {
             for phase in ["compile", "hit"] {
                 settle_measurement_rounds(&fixture);
                 let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
-                let sample: Result<SqlQueryPerfResult, Error> = fixture
+                let sample: Result<SqlQueryPhasePerfResult, Error> = fixture
                     .pocket_ic()
-                    .update_candid(
+                    .update_wire(
                         fixture.canister_id(),
                         "warm_user_query_with_perf",
                         (sql.clone(),),
@@ -612,7 +619,7 @@ fn aggregate_phase_wasm_cost_matrix() {
                 let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
                 let sample: Result<SqlQueryPhasePerfResult, Error> = fixture
                     .pocket_ic()
-                    .update_candid(
+                    .update_wire(
                         fixture.canister_id(),
                         "warm_user_query_with_perf",
                         (sql.clone(),),
@@ -678,7 +685,7 @@ fn identifier_wasm_cost_matrix() {
             let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
             let sample: Result<SqlQueryPhasePerfResult, Error> = fixture
                 .pocket_ic()
-                .update_candid(
+                .update_wire(
                     fixture.canister_id(),
                     "warm_user_query_with_perf",
                     (sql.clone(),),
@@ -732,7 +739,7 @@ fn projection_alias_wasm_cost_matrix() {
                 let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
                 let sample: Result<SqlQueryPhasePerfResult, Error> = fixture
                     .pocket_ic()
-                    .update_candid(
+                    .update_wire(
                         fixture.canister_id(),
                         "warm_user_query_with_perf",
                         (sql.clone(),),
@@ -781,9 +788,9 @@ fn grouped_having_wasm_cost_matrix() {
             for phase in ["compile", "hit"] {
                 settle_measurement_rounds(&fixture);
                 let before = fixture.pocket_ic().cycle_balance(fixture.canister_id());
-                let sample: Result<SqlQueryPerfResult, Error> = fixture
+                let sample: Result<SqlQueryPhasePerfResult, Error> = fixture
                     .pocket_ic()
-                    .update_candid(
+                    .update_wire(
                         fixture.canister_id(),
                         "warm_user_query_with_perf",
                         (sql.clone(),),

@@ -32,7 +32,7 @@ Default build settings:
 
 - profile: `wasm-release`
 - build profile: production, `--no-default-features`, exact maintained
-  production features, and Candid metadata enabled
+  production features and Canic-owned IC Wire endpoint metadata
 
 Default target roles:
 
@@ -40,7 +40,7 @@ Default target roles:
   metrics disabled so it measures baseline runtime retention without IC method
   glue.
 - `default_empty_metrics` isolates the generated entity-cost metrics endpoint.
-  It intentionally starts from the empty schema so metrics/Candid/IC method
+  It intentionally starts from the empty schema so metrics/IC Wire/IC method
   retention is not mixed into query runtime growth.
 - The `nested_relation_*` actors isolate no-relation, direct, shallow, and
   repeated relation shapes under a shared operation harness.
@@ -56,9 +56,22 @@ evidence rather than extrapolating from small query fixtures.
 
 Every report carries source revision/tree/dirty state, lockfile identity,
 build and target roots, exact features, Rust identity, `ic-wasm` version/hash,
-the pinned Binaryen version/hash and flags, Candid identity, exports, accepted
+the pinned Binaryen version/hash and flags, exports, accepted
 Wasm features, and final raw artifact identity. Dirty reports remain useful
 locally but cannot become a baseline or satisfy a regression verdict.
+
+The report process acquires and retains the canonical compiler and post-link
+artifacts directly from the build helper. Compiler identity, compilation target,
+exact features and default-feature selection come from IC Build's retained
+observations for that acquisition, including cache reuse. Reporting does not
+probe another compiler or read mutable ICP staging paths. IcyDB still owns
+measurement policy, source/lockfile provenance, endpoint interpretation and
+optimizer qualification. Build environment values and raw compiler probe bytes
+are not serialized. `provenance.rust_toolchain` is a `sha256:<hex>` identity of
+the retained probe bytes; older plain-text identities do not compare equal.
+IC Host encodes the secondary gzip artifact at level 9 with a zero timestamp;
+compressed bytes can differ from older CLI gzip captures, so raw Wasm remains
+the comparison authority.
 
 `WASM-4.0` binds capture to the existing version-1 report provenance. Both
 fresh-build and `--skip-build` runs verify the final Wasm and gzip byte counts
@@ -68,9 +81,9 @@ cannot change the attributed bytes. The requested canister, profile, and SQL
 variant must match the report.
 
 Every actor in a batch must have identical recorded provenance, tools, and
-pipeline identity. Mixed revisions, trees, lockfiles, dirty flags, or build
-environments reject the batch before a summary can claim success. The summary
-uses the recorded source revision/tree/dirty state and lockfile hash, never
+pipeline identity. Mixed recorded revisions, trees, lockfiles, dirty flags or
+compiler identities reject the batch before a summary can claim success. The
+summary uses the recorded source revision/tree/dirty state and lockfile hash, never
 the checkout's current `HEAD`. A dirty flag does not identify uncommitted file
 contents; dirty captures remain non-comparable even when their metadata agrees.
 

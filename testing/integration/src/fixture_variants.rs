@@ -102,9 +102,9 @@ pub fn build_entity_creation_fixture_wasms() -> Result<[Vec<u8>; 4], String> {
     ])
 }
 
-/// Build matched source, unchanged-schema export control and additive actors.
+/// Build matched source, unchanged-schema upgrade control and additive actors.
 ///
-/// The control changes only the existing Candid export feature; all artifacts
+/// The control repeats the source contract without a schema change; all actors
 /// retain the same storage namespace and use the selected canonical profile.
 ///
 /// # Errors
@@ -121,11 +121,11 @@ pub fn build_entity_creation_lifecycle_fixture_wasms(
             "creation-lifecycle-source",
         )?,
         build(
-            "test-admin-api,local-sql-query,entity-rename,candid-export",
+            "test-admin-api,local-sql-query,entity-rename",
             "creation-lifecycle-control",
         )?,
         build(
-            "test-admin-api,local-sql-query,entity-creation,candid-export",
+            "test-admin-api,local-sql-query,entity-creation",
             "creation-lifecycle-additive",
         )?,
     ])

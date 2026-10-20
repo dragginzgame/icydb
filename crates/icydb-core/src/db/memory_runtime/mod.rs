@@ -7,9 +7,7 @@
 #[cfg(test)]
 mod tests;
 
-use ic_memory::{
-    MemoryRuntime, RuntimeMemory, RuntimeOpenError, ic_stable_structures::DefaultMemoryImpl,
-};
+use ic_memory::{DefaultMemoryImpl, MemoryRuntime, RuntimeMemory, RuntimeOpenError};
 use std::{cell::OnceCell, rc::Rc};
 
 thread_local! {

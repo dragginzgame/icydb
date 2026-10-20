@@ -1,6 +1,6 @@
 use ic_memory::{
-    AllocationBinding, MemoryAllocationPool, MemoryAuthority, MemoryRequest, RuntimeOpenError,
-    SchemaMetadata, SealedDeclarationSnapshot,
+    MemoryAllocationPool, MemoryAuthority, MemoryRequest, RuntimeOpenError,
+    SealedDeclarationSnapshot,
 };
 use icydb::__macro::open_memory;
 use icydb::db::{bootstrap_standalone_memory_runtime, memory_runtime, verify_memory_runtime};
@@ -38,14 +38,7 @@ fn standalone_bootstraps_then_composed_access_verifies_committed_allocations() {
     let requirements = SealedDeclarationSnapshot::new(
         ["commit.control", "startup.control", "integrity.progress"]
             .into_iter()
-            .map(|role| {
-                MemoryRequest::new(
-                    AUTHORITY,
-                    &format!("{AUTHORITY}.{role}.v1"),
-                    SchemaMetadata::default(),
-                )
-                .unwrap()
-            })
+            .map(|role| MemoryRequest::new(AUTHORITY, &format!("{AUTHORITY}.{role}.v1")).unwrap())
             .collect(),
     )
     .unwrap();
@@ -59,18 +52,16 @@ fn standalone_bootstraps_then_composed_access_verifies_committed_allocations() {
     .expect("cold ensure should bootstrap the runtime");
     let generation = memory_runtime()
         .unwrap()
-        .committed_allocations()
-        .expect("cold ensure should publish committed allocations")
-        .generation();
+        .committed_generation()
+        .expect("cold ensure should publish committed allocations");
 
     verify_memory_runtime(AUTHORITY, &requirements)
         .expect("explicitly bound runtime should satisfy this database");
     assert_eq!(
         memory_runtime()
             .unwrap()
-            .committed_allocations()
-            .expect("repeated ensure should preserve committed allocations")
-            .generation(),
+            .committed_generation()
+            .expect("repeated ensure should preserve committed allocations"),
         generation,
     );
     open_memory(STABLE_KEY).expect("the ensured allocation should open");
@@ -101,11 +92,21 @@ fn standalone_bootstraps_then_composed_access_verifies_committed_allocations() {
         .iter()
         .find(|allocation| allocation.memory_manager_id == MEMORY_ID)
         .expect("the ensured slot should be reported");
-    assert!(matches!(
-        &allocation.binding,
-        AllocationBinding::Current { stable_key, owner }
-            if stable_key == STABLE_KEY && owner == AUTHORITY
-    ));
+    let runtime = memory_runtime().unwrap();
+    let binding = runtime
+        .committed_allocations()
+        .unwrap()
+        .iter()
+        .find(|binding| binding.stable_key().as_str() == STABLE_KEY)
+        .unwrap();
+    assert_eq!(binding.slot().id(), allocation.memory_manager_id);
+    assert_eq!(
+        runtime
+            .allocation_pool()
+            .unwrap()
+            .authority_for_key(binding.stable_key()),
+        Some(AUTHORITY)
+    );
     assert_eq!(
         memory_runtime()
             .unwrap()

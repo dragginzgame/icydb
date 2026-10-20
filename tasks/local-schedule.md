@@ -8,9 +8,9 @@ The runner also uses the prepared host's Bash, Git and Perl.
 
 ## Linux user timer
 
-Use the reviewed [service](systemd/shared-tooling-maintenance.service) and
-[timer](systemd/shared-tooling-maintenance.timer) with
-[run-maintenance.sh](../scripts/dev/run-maintenance.sh). The timer wakes daily
+Use the reviewed [service](https://github.com/dragginzgame/shared-tooling/blob/main/tasks/systemd/shared-tooling-maintenance.service) and
+[timer](https://github.com/dragginzgame/shared-tooling/blob/main/tasks/systemd/shared-tooling-maintenance.timer) with
+[run-maintenance.sh](https://github.com/dragginzgame/shared-tooling/blob/main/scripts/dev/run-maintenance.sh). The timer wakes daily
 at 09:00 in the host timezone. The helper dispatches an agent on the third UTC
 date after the previous attempt; the first wakeup runs immediately. Comparing
 dates avoids an extra day's delay from small timer jitter or daylight-saving

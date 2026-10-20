@@ -4,7 +4,7 @@
 //! Boundary: grouped DTOs returned by session/query execution APIs.
 
 use crate::value::OutputValue;
-use candid::CandidType;
+
 use serde::Deserialize;
 
 ///
@@ -15,7 +15,7 @@ use serde::Deserialize;
 /// order at the outward API boundary.
 ///
 
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct GroupedRow {
     group_key: Vec<OutputValue>,
     aggregate_values: Vec<OutputValue>,
@@ -51,7 +51,7 @@ impl GroupedRow {
 }
 
 /// One bounded grouped-query page produced by the engine-neutral query lane.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct GroupedQueryOutput {
     /// Accepted entity name used for the read.
     pub entity: String,
@@ -65,18 +65,17 @@ pub struct GroupedQueryOutput {
 
 #[cfg(test)]
 mod tests {
-    use candid::CandidType;
 
     use super::{GroupedQueryOutput, GroupedRow};
     use crate::value::OutputValue;
 
-    #[derive(CandidType)]
+    #[derive(serde::Serialize)]
     struct FrozenGroupedRowWire {
         group_key: Vec<OutputValue>,
         aggregate_values: Vec<OutputValue>,
     }
 
-    #[derive(CandidType)]
+    #[derive(serde::Serialize)]
     struct FrozenGroupedQueryOutputWire {
         entity: String,
         rows: Vec<FrozenGroupedRowWire>,
@@ -85,7 +84,7 @@ mod tests {
     }
 
     #[test]
-    fn grouped_query_output_preserves_its_initial_candid_record_shape() {
+    fn grouped_query_output_preserves_its_initial_wire_record_shape() {
         let current = GroupedQueryOutput {
             entity: "Example".to_string(),
             rows: vec![GroupedRow::new(
@@ -106,8 +105,8 @@ mod tests {
         };
 
         assert_eq!(
-            candid::encode_one(&current).expect("current grouped output should encode"),
-            candid::encode_one(&frozen).expect("frozen grouped output should encode"),
+            icydb_schema::wire::encode_one(&current).expect("current grouped output should encode"),
+            icydb_schema::wire::encode_one(&frozen).expect("frozen grouped output should encode"),
         );
     }
 }

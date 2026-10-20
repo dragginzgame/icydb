@@ -1,0 +1,600 @@
+# Toko Studios Source Available License
+
+## Verifiable ICP Burn — Version 1.1
+
+Copyright (c) 2024 IcyDB Contributors
+
+### 1. Scope, definitions and interpretation
+
+**1.1 Licensed Material.** "Software" means the copyrightable source code,
+documentation, modifications and other material expressly made available under
+this License, whether in source, object, WebAssembly or another form. This
+License applies only to rights the relevant copyright holder is legally
+entitled to grant.
+
+**1.2 Parties.** "You" means any person or legal entity exercising rights
+under this License. "Copyright Holder" means a person or entity controlling
+relevant copyright rights. "Organization" means Toko Studios Ltd, the
+specifically named legal entity, and does not include any other person or
+entity merely because of a relationship with the Organization or a similar
+name.
+
+**1.3 Live Deployment.** A "Live Deployment" is the use of Software to support
+operational workloads on the Internet Computer Protocol or a functional fork
+or adaptation of that protocol. It includes public, private, enterprise,
+sovereign, permissioned and self-hosted environments, whether operated
+commercially or internally.
+
+Isolated development replicas, simulators and test environments used
+exclusively for non-operational development, validation or testing are
+excluded. An environment serving genuine operational workloads is not excluded
+merely because it is described as experimental, internal or a test.
+
+**1.4 Cloud Engine.** A "Cloud Engine" is a Live Deployment using dedicated or
+reserved execution capacity whose node selection, capacity allocation or
+operational control is determined for the benefit of a particular customer,
+enterprise or affiliated group.
+
+This includes environments described as Cloud Engines, sovereign subnets,
+private subnets, dedicated execution environments, enterprise clouds and
+equivalent deployments using the Internet Computer Protocol or a functional
+fork or adaptation.
+
+Classification depends on the actual technical and commercial arrangement, not
+branding, ownership, payment currency, network connectivity or provider
+identity.
+
+An ordinary shared public Internet Computer subnet does not become a Cloud
+Engine merely because its canisters contain private data.
+
+**1.5 Covered Capacity.** "Covered Capacity" means the smallest objectively
+identifiable, separately metered and commercially priced infrastructure
+capacity unit used to host or execute Software in a Cloud Engine.
+
+If an engine is supplied and priced only as an indivisible reservation, the
+entire reservation is Covered Capacity. A smaller allocation may be used only
+where independent metering and genuine resource separation support it.
+
+Artificial partitioning, nominal resource limits, related-party arrangements
+or accounting allocations that do not reflect actual infrastructure use must
+not reduce Covered Capacity.
+
+**1.6 Infrastructure Base.** "Infrastructure Base" means the gross
+consideration payable, or independently determined market value where
+applicable, for Covered Capacity during the relevant accounting period.
+
+It includes reserved nodes, compute, storage, network capacity, bandwidth,
+infrastructure availability commitments and infrastructure provided in kind.
+It includes amounts retained by providers, intermediaries or affiliates,
+without deductions for their operating costs, margins, commissions or profit.
+
+Separately itemized statutory taxes and genuinely separate non-infrastructure
+services are excluded.
+
+Infrastructure Base does not mean application revenue, customer deposits, user
+assets, token supply, enterprise turnover or unrelated infrastructure.
+
+**1.7 Qualifying ICP Burn.** A "Qualifying ICP Burn" is the actual,
+irreversible destruction of native ICP on the canonical Internet Computer
+mainnet through its recognized ICP-to-cycles conversion mechanism.
+
+It must be independently verifiable through the canonical ICP ledger and
+relevant Cycles Minting Canister records, or their official protocol
+successors.
+
+A mere transfer, token lock, staking transaction, wrapped-token destruction,
+simulated burn, locally created resource credit or destruction of cycles
+without verifiable originating ICP destruction is not independently a
+Qualifying ICP Burn.
+
+**1.8 Accounting Period.** An "Accounting Period" is one UTC calendar month,
+including a partial month when deployment begins or ends.
+
+### 2. Grant of rights
+
+Subject to the conditions of this License, each Copyright Holder grants You a
+worldwide, non-exclusive, royalty-free copyright license to:
+
+a. Use, access, inspect, study and reproduce the Software.
+
+b. Modify the Software and create derivative works.
+
+c. Compile, execute, operate and deploy the Software.
+
+d. Distribute, publish, offer for sale and sell copies of the Software,
+including modified copies and compiled binaries.
+
+e. Combine the Software with independently licensed software, including
+proprietary applications, without requiring disclosure of independently
+created application code.
+
+f. Use the Software for commercial, enterprise, research and internal
+purposes.
+
+No payment, royalty or percentage of application revenue is owed to Toko
+Studios Ltd merely for exercising these permissions.
+
+The operational permissions for Live Deployments are expressly conditional on
+Sections 3 through 6, except where the Organization exception in Section 7
+applies.
+
+This is a source-available license. It is not the MIT License, an OSI-approved
+open-source license or a representation that the Software is unrestricted
+open-source software.
+
+### 3. Shared-network deployment requirement
+
+For any Live Deployment that is not a Cloud Engine, permission to operate the
+Software is conditional on all protocol resource credits used to pay the
+deployment's resource charges being funded by Qualifying ICP Burns.
+
+Where resources are charged in cycles, all cycles applied to those charges
+must originate from qualifying mainnet ICP-to-cycles conversion, directly or
+through verifiably funded transfers or pools.
+
+The requirement applies to 100% of resource funding, not to application
+revenue, assets held for users or tokens unrelated to infrastructure
+consumption.
+
+Previously completed Qualifying ICP Burns may satisfy this condition. The
+License does not require a second burn where resource credits have already
+been funded through qualifying conversion.
+
+Credits created exclusively through local simulation, unauthorized local
+issuance or an alternative process without qualifying mainnet ICP backing do
+not satisfy this condition for operational use.
+
+Provider-supplied and pooled cycles are permitted subject to the allocation
+and evidence requirements in Section 5.
+
+### 4. Cloud Engine deployment requirement
+
+**4.1 Minimum burn.** Permission to operate the Software on a Cloud Engine is
+expressly conditional on Qualifying ICP Burns having an independently
+verifiable value of at least twenty percent (20%) of the Infrastructure Base
+attributable to its Covered Capacity.
+
+The threshold applies to gross infrastructure consideration or value, not
+merely the operator's accounting profit or the portion retained as a protocol
+fee.
+
+**4.2 Existing burns.** Qualifying ICP Burns already performed to fund that
+Cloud Engine may count toward this threshold, including qualifying conversions
+performed by an infrastructure provider on the operator's behalf.
+
+No additional burn is required to the extent that eligible, unallocated
+Qualifying ICP Burns already meet the threshold.
+
+Destruction or consumption of cycles alone is not evidence that the
+corresponding ICP burn occurred.
+
+**4.3 Free, discounted and affiliated capacity.** Free capacity, introductory
+discounts, subsidies, internal infrastructure, affiliated-provider
+arrangements and in-kind consideration do not reduce the Infrastructure Base
+below an independently supportable arm's-length value for comparable capacity.
+
+Where comparable capacity is offered at an independently published price, that
+price establishes a minimum reference valuation after reasonable, documented
+adjustments for capacity, geography, availability and service level.
+
+If no reasonably comparable public tariff exists, the operator must obtain a
+written valuation from an independent, appropriately qualified infrastructure
+valuation professional before operational use. The valuation must state its
+assumptions, capacity specification, comparison methodology and applicable
+period.
+
+No discretionary approval from Toko Studios Ltd is required solely to
+establish an independently supported valuation under this clause.
+
+**4.4 Currency conversion.** Infrastructure Base and qualifying burn values
+must be reconciled in Special Drawing Rights (XDR).
+
+Infrastructure amounts denominated in other currencies must be converted using
+independently published rates appropriate to the relevant settlement date.
+
+The value of ICP destroyed through qualifying conversion must be calculated
+using the actual applicable mainnet ICP/XDR conversion rate for that
+conversion.
+
+The operator must disclose the rate, timestamp, source, calculation and
+rounding method used. Private exchange-rate arrangements cannot substitute for
+independently verifiable conversion evidence.
+
+**4.5 Advance coverage.** Before commencing Cloud Engine operational use, the
+operator must establish qualifying burn coverage of at least 20% of the
+Infrastructure Base for the initial prepaid or reserved Covered Capacity.
+
+Additional reserved capacity must be covered before it becomes operational.
+
+Variable or metered infrastructure consumption must remain within a
+documented, prepaid qualifying-burn coverage limit. The operator must obtain
+additional burn coverage before consumption exceeds that limit.
+
+A later reconciliation does not retrospectively authorize operation that
+lacked the required coverage at the time.
+
+**4.6 Monthly reconciliation.** Within thirty (30) days after each Accounting
+Period, the operator must reconcile actual Infrastructure Base, advance burn
+coverage, additional qualifying burns and remaining allocated coverage.
+
+The reconciliation must identify and correct overallocations, valuation
+differences and changes in actual capacity. Surplus qualifying coverage may be
+carried forward only where it is demonstrably unused, specifically allocated
+and not counted elsewhere.
+
+Deployment closure, provider substitution or transfer does not extinguish
+responsibility for earlier unauthorized use or other accrued liabilities.
+
+### 5. Verification, allocation and evidence
+
+**5.1 Public audit trail.** Every Live Deployment must have a publicly
+accessible, independently verifiable evidence record sufficient to establish
+the qualifying resource funding or burn coverage required by this License.
+
+For shared-network deployments, the record may reference verifiable protocol
+funding records and properly reconciled provider pools rather than repeating
+upstream burn transactions.
+
+For Cloud Engines, the record must include:
+
+a. A stable deployment identifier and identification of the applicable Covered
+Capacity.
+
+b. The Accounting Period and applicable capacity specification.
+
+c. The Infrastructure Base, valuation source and calculation methodology.
+
+d. Any relevant currency conversions and rates.
+
+e. Canonical mainnet ICP ledger transaction or block references and evidence
+connecting those transactions to qualifying ICP destruction.
+
+f. The amount and XDR value of each allocated Qualifying ICP Burn.
+
+g. The allocation of burns to the relevant deployment, capacity and Accounting
+Period.
+
+h. An accounting of advance coverage, actual consumption, reconciliation
+adjustments and remaining unused coverage.
+
+**5.2 Publication timing.** Cloud Engine identity, initial valuation, funding
+methodology and initial qualifying burn evidence must be publicly available
+before operational use begins.
+
+Subsequent accounting records must be published within the reconciliation
+deadline established in Section 4.6.
+
+**5.3 Pooled funding.** A provider may fund multiple deployments using pooled
+Qualifying ICP Burns, provided each allocation is independently traceable and
+reconcilable.
+
+The total value allocated from any burn must not exceed its independently
+verified qualifying value. The same value may not be counted more than once.
+
+Provider-generated statements, invoices, screenshots, dashboards and local
+cycle-consumption counters do not, without supporting mainnet evidence,
+establish a Qualifying ICP Burn.
+
+**5.4 Confidentiality and privacy.** Evidence may use stable pseudonymous
+deployment identifiers and may exclude personal information, application
+contents, credentials, trade secrets and other information unnecessary to
+demonstrate compliance.
+
+Redaction, aggregation or pseudonymization must not prevent independent
+verification of qualifying burn totals, relevant capacity valuation,
+allocations or accounting completeness.
+
+**5.5 Record preservation.** Required records must remain accessible for at
+least three (3) years after the Accounting Period to which they relate.
+Corrections must preserve an auditable history of material changes.
+
+### 6. Anti-avoidance and responsibility
+
+You must not knowingly use the Software, including associated host tools,
+management utilities, automation or relay services, to provision, administer
+or operate a Live Deployment that does not satisfy the applicable conditions
+of this License.
+
+The requirements cannot be avoided through contractors, affiliates,
+intermediaries, subsidiaries, proxies, wrappers, forks, renamed deployments,
+modified copies, alternative payment arrangements or artificial infrastructure
+allocations.
+
+Substance prevails over labels and internal accounting classifications.
+
+An ordinary distributor, independent developer or general-purpose service
+provider is not responsible merely because an unrelated third party
+subsequently operates a noncompliant deployment without the distributor's
+knowledge or control.
+
+Nothing in this License imposes an obligation to surveil unrelated third-party
+deployments.
+
+Nothing in this License claims authority to regulate the Internet Computer
+Protocol itself, independently implemented software, or infrastructure not
+using the licensed Software.
+
+### 7. Permanent Organization exception
+
+**7.1 Express grant.** Each Copyright Holder making material available under
+this License expressly grants Toko Studios Ltd a perpetual, worldwide,
+non-exclusive, royalty-free, irrevocable permission, to the
+extent of rights that holder controls, to use, reproduce, modify, distribute
+and commercially exploit that material and to operate products and services
+incorporating it.
+
+This permission includes use on public, private, enterprise, dedicated,
+sovereign and independently operated infrastructure without the deployment,
+burn, valuation, accounting or evidence conditions in Sections 3 through 6.
+
+**7.2 Exercise of permission.** The Organization may exercise its Section 7
+rights directly or through employees and contractors acting solely on its
+behalf and under its authority.
+
+The Organization may distribute the Software and modifications to others, but
+those recipients do not acquire the Organization's exemption merely through
+receipt of the Software or provision of services to the Organization.
+
+An independently operated Live Deployment remains subject to Sections 3
+through 6 unless separately authorized by all relevant rights holders.
+
+The Organization's permission under Section 7 does not itself authorize
+downstream operators to disregard the deployment conditions.
+
+**7.3 Permanence.** The Section 7 grant survives termination of other
+permissions under this License and, to the maximum extent permitted by
+applicable law, subsequent transfer or assignment of the granting holder's
+relevant copyright.
+
+It is an express continuing grant, not a revocable administrative waiver.
+
+**7.4 Limits.** Ownership of shares, investment in the Organization, receipt
+of Software, participation in development, purchase of a product or
+affiliation with the Organization does not independently confer this
+exception.
+
+This exception does not authorize the Organization to disregard independently
+licensed third-party material or rights not controlled by the granting holder.
+
+### 8. Distribution, contributions and existing rights
+
+**8.1 Notices.** Redistributed copies or substantial portions of the Software,
+including binaries, must include this License and all applicable copyright,
+attribution and third-party notices.
+
+Material modifications must be identified prominently.
+
+**8.2 Independent work.** Independently developed application code is not
+required to be disclosed, published or licensed under these terms merely
+because it uses or interoperates with the Software.
+
+**8.3 Prior licenses.** Nothing in this License revokes, restricts or replaces
+rights validly granted for material previously released under another license.
+
+Recipients may continue exercising independently acquired rights under those
+earlier grants according to their terms.
+
+A later release containing additional protectable material under this License
+does not automatically place previously licensed material under more
+restrictive conditions.
+
+**8.4 Third-party material.** Third-party dependencies and independently
+licensed components remain governed by their respective terms. This License
+does not purport to grant rights that the relevant Copyright Holders do not
+control.
+
+**8.5 Contributions.** A proposed contribution does not become covered by this
+License unless the contributor has authority to grant the relevant rights and
+expressly offers the contribution under these terms. Separate contributor
+agreements or documented confirmations of rights may be required.
+
+**8.6 No unrestricted sublicensing.** Distribution of Software does not permit
+You to remove, override or waive this License's deployment conditions for
+material governed exclusively by this License. Recipients receive the
+applicable license directly from the relevant Copyright Holders.
+
+### 9. Independent operation and non-affiliation
+
+References to Internet Computer, ICP, cycles, mainnet, Cloud Engines and
+related protocol terminology are technical descriptions of the infrastructure
+and verification mechanisms referenced by this License.
+
+They do not imply sponsorship, endorsement, affiliation, approval, partnership
+or authorization by any protocol developer, foundation, governance
+organization, infrastructure provider or other third party.
+
+This License imposes conditions solely on the exercise of rights in the
+covered Software.
+
+Neither the License nor a qualifying burn gives Toko Studios Ltd ownership of
+ICP, governance authority over the protocol, a right to receive destroyed
+tokens or authority over independent network participants.
+
+No third party receives a right to collect, redirect or control the qualifying
+burns solely by virtue of this License.
+
+No trademark or trade-name license is granted.
+
+### 10. Noncompliance, suspension and termination
+
+**10.1 Operational conditions.** The qualifying burn and evidence requirements
+are express conditions limiting permission for Live Deployment. They are not
+merely optional reporting commitments.
+
+A Live Deployment without the qualifying burn coverage required at the time of
+operation is outside the permission granted by this License.
+
+**10.2 Suspension.** Permission to operate an affected Live Deployment is
+suspended immediately when qualifying burn coverage is insufficient or when a
+required reconciliation remains incomplete beyond its deadline.
+
+The affected deployment must not resume operational use until the applicable
+requirements have been satisfied.
+
+Subsequent compliance does not retrospectively authorize earlier noncompliant
+operation.
+
+**10.3 Administrative correction.** Where the required qualifying burns
+occurred on time but a record contains an inadvertent documentary error, the
+operator may correct that error within thirty (30) days after discovering it
+or receiving written notice, whichever occurs first.
+
+This correction period does not permit an unbacked deployment, concealment of
+a burn shortfall, deliberate misrepresentation or continued operation
+following a substantive funding failure.
+
+**10.4 Material or deliberate violations.** Deliberate evasion, material
+falsification of evidence or repeated intentional breach terminates the
+responsible operator's permissions under this License in relation to the
+affected use and material.
+
+Reinstatement following such termination requires express written
+authorization from the relevant Copyright Holders.
+
+**10.5 Independent rights.** Termination does not invalidate previously
+acquired rights under independent licenses, the Organization's express rights
+under Section 7, or the permissions of independently compliant recipients.
+
+The remedies and liabilities available to Copyright Holders are determined by
+applicable law. Nothing in this License creates an automatic monetary penalty
+or permits recovery beyond what applicable law allows.
+
+### 11. Patent rights and defensive protection
+
+**11.1 Limited patent grant.**
+
+Subject to the conditions of this License, each Copyright Holder or
+contributor who controls applicable patent rights ("Patent Grantor") grants
+You a worldwide, non-exclusive, royalty-free patent license to make, have
+made, use, offer for sale, sell, import and otherwise transfer the Software.
+
+This grant extends only to patent claims that the Patent Grantor is
+authorized to license and that are necessarily infringed by its covered
+contribution alone or in combination with the Software to which that
+contribution was submitted.
+
+The grant does not extend to independent implementations, unrelated products
+or combinations that infringe patents for reasons unrelated to the covered
+contribution.
+
+All Live Deployment permissions under this patent grant remain subject to
+Sections 3 through 6.
+
+**11.2 Permanent Organization patent rights.**
+
+Each Patent Grantor expressly grants Toko Studios Ltd a perpetual, worldwide,
+non-exclusive, royalty-free, irrevocable and sublicensable license under the
+patent claims described in Section 11.1.
+
+The Organization may exercise those rights in connection with its products,
+services, operations, modifications and commercial activities, without the
+burn, deployment or accounting conditions imposed on other operators.
+
+These rights survive termination of other permissions granted under this
+License and subsequent assignment of the applicable patents, to the extent
+permitted by law.
+
+**11.3 Defensive patent termination.**
+
+If You initiate or direct patent litigation alleging that the Software, a
+covered contribution, or another person's use of the Software as authorized
+by this License infringes a patent controlled by You, all patent permissions
+granted to You under Section 11.1 terminate upon assertion of that claim.
+
+This provision applies to claims initiated indirectly through an entity
+acting under Your direction or control.
+
+It does not apply merely because You challenge a patent's validity or enforce
+patents against unrelated products or technologies.
+
+Termination under this section does not affect the Organization's irrevocable
+rights under Section 11.2 or independently granted rights under another
+license.
+
+**11.4 Reservation of patent rights.**
+
+No patent rights are granted beyond those expressly identified in this
+Section.
+
+Patent ownership remains with the applicable patent holder. Neither
+publication nor distribution of the Software grants rights to implement
+protected inventions independently of the covered Software.
+
+Nothing in this License grants patents belonging to third parties who have
+not authorized such grants.
+
+**11.5 Existing patent licenses.**
+
+This Section does not revoke or diminish patent permissions already acquired
+under earlier valid licenses, including Apache License 2.0.
+
+Each patent grant applies only to patent rights actually controlled by the
+relevant grantor. No contributor is deemed to license patents belonging to
+another person or employer without appropriate authority.
+
+### 12. Disclaimer and limitation of liability
+
+THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTIES OF ANY
+KIND, EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF MERCHANTABILITY, FITNESS FOR
+A PARTICULAR PURPOSE, TITLE, NON-INFRINGEMENT, AVAILABILITY, SECURITY OR
+ACCURACY.
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, NO COPYRIGHT HOLDER OR
+CONTRIBUTOR SHALL BE LIABLE FOR INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL,
+EXEMPLARY OR PUNITIVE DAMAGES ARISING FROM THE SOFTWARE OR ITS USE.
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, NO COPYRIGHT HOLDER OR
+CONTRIBUTOR SHALL BE LIABLE FOR ANY CLAIM, DAMAGE OR OTHER LIABILITY ARISING
+FROM THE SOFTWARE OR ITS USE, WHETHER IN CONTRACT, TORT OR OTHERWISE.
+
+NOTHING IN THIS SECTION EXCLUDES OR LIMITS LIABILITY THAT APPLICABLE LAW DOES
+NOT PERMIT TO BE EXCLUDED OR LIMITED.
+
+### 13. Interpretation and severability
+
+This License grants permissions only to the extent expressly stated and
+legally authorized.
+
+If a provision is held invalid or unenforceable, the remaining provisions
+continue to apply to the extent permitted by law.
+
+The deployment conditions are essential limits on the operational grant.
+Invalidity of a deployment condition must not be interpreted as creating a
+broader unconditional license for the affected operation, to the extent that
+applicable law permits this limitation.
+
+No delay or failure by a Copyright Holder to enforce a provision constitutes a
+permanent waiver.
+
+This License does not restrict uses, exceptions or other rights that
+applicable law does not permit copyright holders to restrict.
+
+**End of Toko Studios Source Available License — Verifiable ICP Burn, Version
+1.1**
+
+Prior-material notice (not an alternative grant for new material)
+
+The following notice is retained for material previously offered under MIT.
+It does not offer later, exclusively source-available contributions under MIT.
+
+MIT License
+
+Copyright (c) 2024 IcyDB Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.

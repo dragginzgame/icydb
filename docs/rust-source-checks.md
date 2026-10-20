@@ -8,10 +8,11 @@ required nonempty directories and application diagnostics.
 
 Compile this snapshot source as a binary target in a consumer-owned private
 package using the consumer's existing workspace and selected lockfile. It needs
+Rust 2024 on Rust 1.88 or newer,
 `proc-macro2` with `span-locations` and `syn` with `full` and `visit` (the consumer
 selects compatible published versions). It needs no product/runtime dependencies
-or separately installed executable. Shared Tooling does not add a Rust package
-or another dependency lockfile for the distributed source.
+or separately installed executable. The distributed source adds no Rust package
+or dependency lockfile to the consumer.
 
 The scanner conservatively excludes items proven absent when `test` is false,
 including nested test-only modules and associated items. Unknown cfg predicates
@@ -23,3 +24,18 @@ Run the shared [semantic fixtures](../scripts/ci/test-runtime-panics.sh) with th
 absolute compiled scanner path as the only argument. Consumer checks retain
 inventory/discovery and one actual-source invocation, rather than copying these
 scanner regressions. Qualify compiler/dependency changes in the consumer.
+The exported lifecycle companion anchors semantic-fixture evidence to its
+physical directory, preserving cleanup and diagnostics if temporary-root aliases
+change during execution.
+
+Shared Tooling's native CI compiles the scanner on Linux and both macOS hosts
+using the producer-only templates and locked graph under `ci/runtime-panics/`.
+This representative graph does not select consumer dependencies. CI explicitly
+prepares Rust 1.88 with Clippy and rustfmt, then runs
+`bash scripts/ci/qualify-runtime-panics.sh 1.88.0 NEW-ABSOLUTE-EVIDENCE-DIRECTORY`.
+The helper requires that compiler to be prepared already; it performs no tool
+installation. Cargo can fetch the exact locked sources; explicit offline settings
+remain authoritative. Compilation, strict Clippy, formatting and semantic logs,
+copied inputs, their checksums and build outputs remain in the selected directory
+on success or failure. Consumer source inventories and actual-source scans remain
+with consumers.

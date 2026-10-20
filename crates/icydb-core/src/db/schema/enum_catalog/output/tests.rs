@@ -109,14 +109,17 @@ fn public_output_moves_heap_payloads_and_preserves_public_wire() {
     ] {
         let expected =
             OutputValue::from_public(PublicValue::try_from_runtime_non_enum(&value).unwrap());
-        let expected_wire = candid::encode_one(&expected).unwrap();
+        let expected_wire = icydb_schema::wire::encode_one(&expected).unwrap();
         let mut before = Vec::new();
         runtime_backing(&value, &mut before);
         let output = output_value_from_runtime(&catalog, value).unwrap();
         let mut after = Vec::new();
         public_backing(output.as_public(), &mut after);
         assert_eq!(output, expected);
-        assert_eq!(candid::encode_one(&output).unwrap(), expected_wire);
+        assert_eq!(
+            icydb_schema::wire::encode_one(&output).unwrap(),
+            expected_wire
+        );
         assert_eq!(before, after);
     }
 }
@@ -144,8 +147,8 @@ fn public_output_moves_enum_payload_and_owns_catalog_labels() {
         assert_eq!(before, after);
         assert_eq!(output, expected);
         assert_eq!(
-            candid::encode_one(&output).unwrap(),
-            candid::encode_one(&expected).unwrap()
+            icydb_schema::wire::encode_one(&output).unwrap(),
+            icydb_schema::wire::encode_one(&expected).unwrap()
         );
         outputs.push(output);
     }

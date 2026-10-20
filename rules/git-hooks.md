@@ -15,8 +15,8 @@ the independent, non-mutating formatting gate.
 - Every Rust repository provides `make fmt` and `make fmt-check`. Both cover the
   same maintained Rust workspaces, including standalone nested workspaces,
   examples or harnesses with their own manifests. Following IcyDB and Canic,
-  `fmt` runs `cargo sort --workspace` before `cargo fmt --all` for each workspace;
-  `fmt-check` uses `cargo sort --workspace --check` and
+  `fmt` runs `cargo sort --workspace --grouped` before `cargo fmt --all` for each workspace;
+  `fmt-check` uses `cargo sort --workspace --grouped --check` and
   `cargo fmt --all -- --check`. This sorts the root and every member's Cargo.toml,
   including members under `crates/`, `apps/` and approved layout trees, the root
   dependency catalog and inherited child tables. Explicitly cover
@@ -33,6 +33,14 @@ the independent, non-mutating formatting gate.
   versions, workspace inheritance, comments and selected lockfiles; it is not a
   dependency upgrade or release bump. See the
   [cargo-sort documentation](https://github.com/DevinR528/cargo-sort).
+- Preserve the two comment-headed dependency-role sections with
+  `cargo sort --workspace --grouped` for writing and add `--check` for checking.
+  Apply the same selection to hooks, CI and selected-source release checks;
+  the shared defaults already select grouped mode. Use the
+  [dependency role labels](cargo-dependencies.md#dependency-roles-and-deployment-checks)
+  as section headers, with no repeated role annotation after each dependency.
+  Sorting checks order; it does not verify dependency roles or registry
+  publication.
 - Additional formatting steps, such as derive sorting, may
   belong in those targets. They must have matching non-mutating checks, preserve
   dependency/version selections and work from tracked inputs in an isolated
@@ -95,12 +103,12 @@ created beneath `RUNNER_TEMP`, otherwise `TMPDIR` or `/tmp`; only its own succes
 temporary log is removed. The shared failure collector includes `formatting.*`.
 
 When a recipe calls a tool available only through a Makefile-exported `PATH`,
-use `env tool ...` (for example, `env cargo sort --workspace`) or an explicit
+use `env tool ...` (for example, `env cargo sort --workspace --grouped`) or an explicit
 executable path. Apple's system Make can resolve a bare recipe command using
 its original process PATH, even though the recipe receives the updated PATH.
 Do not rely on an unrelated global installation to make the recipe work.
 
-For a separate `testing/` workspace, also run `cargo sort --workspace testing`
+For a separate `testing/` workspace, also run `cargo sort --workspace --grouped testing`
 before `cargo fmt --manifest-path testing/Cargo.toml --all`, with their `--check`
 equivalents in `fmt-check`. Pass one workspace root per `cargo sort --workspace`
 invocation. `cargo-sort` owns its ordering and TOML rendering; do not add a second
@@ -150,8 +158,8 @@ selected tracked lockfile, for example:
 
 ```make
 PRETTIER_VERSION = $(shell jq -er '.packages["node_modules/prettier"].version' frontend/package-lock.json)
-FORMAT_WRITE_COMMAND = bash -ec 'cargo sort --workspace; cargo fmt --all; bash scripts/dev/format-frontend.sh --write frontend'
-FORMAT_CHECK_COMMAND = bash -ec 'cargo sort --workspace --check; cargo fmt --all -- --check; bash scripts/dev/format-frontend.sh --check frontend'
+FORMAT_WRITE_COMMAND = bash -ec 'cargo sort --workspace --grouped; cargo fmt --all; bash scripts/dev/format-frontend.sh --write frontend'
+FORMAT_CHECK_COMMAND = bash -ec 'cargo sort --workspace --grouped --check; cargo fmt --all -- --check; bash scripts/dev/format-frontend.sh --check frontend'
 include make/consumer.mk
 fmt fmt-check: export PRETTIER_VERSION := $(PRETTIER_VERSION)
 ```
@@ -196,9 +204,12 @@ See the [Prettier CLI contract](https://prettier.io/docs/cli).
 - Formatting runs in a temporary export of the exact index, using its source,
   manifests, configuration and Make targets. It does not use unstaged working
   versions. It preserves executable lookup through the original checkout's
-  prepared `.tools/host/bin`, `.tools/ic/bin` and `.tools/rust/common/bin`, in that order
+  prepared `.tools/host/bin` and `.tools/rust/common/bin`, in that order
   before the inherited PATH; an interactive shell export is not required for
-  those tools. Prerequisite checks still enforce the selected versions, and
+  those common tools. Products requiring IC formatters explicitly publish their
+  prepared IC PATH or select it in their Make recipes; index exports expose
+  `SHARED_TOOLING_FORMAT_TOOLS_FROM` for the original checkout's tool root.
+  Prerequisite checks still enforce the selected versions, and
   formatting never installs missing tools. It clears inherited Git
   repository/index variables for formatters,
   while preserving the original commit index for its own checks and staging.
@@ -233,7 +244,9 @@ See the [Prettier CLI contract](https://prettier.io/docs/cli).
 ## Installation and adoption
 
 The consumer Make entrypoint supplies `install-hooks` for Rust consumers through
-`scripts/dev/install-git-hooks.sh --consumer <checkout>`. Keep the tracked hook
+`scripts/dev/install-git-hooks.sh --consumer <checkout>`. The destination is
+required; neither invocation location nor installer location selects a checkout.
+Keep the tracked hook
 and its root-layout companions in the consumer, even when the installer itself
 is in a nested snapshot. A focused include can still call that documented helper.
 

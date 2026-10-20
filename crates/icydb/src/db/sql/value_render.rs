@@ -25,7 +25,12 @@ pub(in crate::db::sql) fn sql_projection_output_rows(
         .collect()
 }
 
-pub(in crate::db::sql) fn render_projection_rows(rows: &[Vec<OutputValue>]) -> Vec<Vec<String>> {
+/// Convert typed SQL projection cells to SQL display text.
+///
+/// NULL markers and fixed-scale text retain their SQL semantics. This does not
+/// escape terminal controls, align columns or construct a terminal report.
+#[must_use]
+pub fn sql_projection_display_rows(rows: &[Vec<OutputValue>]) -> Vec<Vec<String>> {
     rows.iter()
         .map(|row| {
             row.iter()

@@ -7,25 +7,13 @@
 #[cfg(feature = "test-admin-api")]
 mod seek_intersection;
 
-// Read IC counter 1 through the CDK; native Candid builds use its
-// unsupported host binding and provide no IC measurement evidence.
+// IC counter 1 preserves the call-context sample boundary through Platform.
+// Native system calls provide no IC measurement evidence.
 #[cfg(feature = "sql")]
-#[cfg(not(target_arch = "wasm32"))]
-use ic_cdk::api::call_context_instruction_counter;
-#[cfg(feature = "sql")]
-#[cfg(target_arch = "wasm32")]
-use ic_cdk::api::call_context_instruction_counter;
-
-#[cfg(all(feature = "test-admin-api", feature = "candid-export"))]
-#[cfg(all(feature = "test-admin-api", feature = "candid-export"))]
-use crate::seek_intersection::IntersectionPageSample;
+use ic_platform::ic0::performance_counter;
 
 #[cfg(feature = "sql")]
-use candid::{CandidType, Deserialize};
 #[cfg(feature = "sql")]
-use ic_cdk::query;
-#[cfg(feature = "sql")]
-use ic_cdk::update;
 #[cfg(feature = "sql")]
 use icydb::types::{Blob, Timestamp, Ulid};
 #[cfg(feature = "sql")]
@@ -76,15 +64,16 @@ fn icydb_memory_pool()
 }
 
 #[cfg(not(feature = "test-admin-api"))]
-icydb::start!();
+canic_icydb::start!(icydb);
 
 #[cfg(feature = "test-admin-api")]
-icydb::start! {
+canic_icydb::start! {
+    icydb;
     init() => application_startup_init;
     post_upgrade() => application_startup_post_upgrade;
 }
 
-icydb::endpoints! {
+canic_icydb::endpoints! {
     #[cfg(feature = "test-admin-api")]
     icydb_fixtures_reset;
     #[cfg(feature = "test-admin-api")]
@@ -96,7 +85,7 @@ icydb::endpoints! {
 // Dedicated audit envelope that preserves the SQL result payload while
 // attaching one total instruction sample for the measured query call or one
 // average sample across a same-call loop.
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg(feature = "sql")]
 struct SqlQueryPerfResult {
     result: SqlQueryResult,
@@ -104,8 +93,8 @@ struct SqlQueryPerfResult {
 }
 
 /// Absolute counter boundaries for the warmed audit endpoint, not a production API.
-/// Entry follows Candid decoding; completion precedes response encoding.
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+/// Entry follows Wire decoding; completion precedes response encoding.
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg(feature = "sql")]
 struct SqlQueryPhasePerfResult {
     result: SqlQueryResult,
@@ -118,7 +107,7 @@ struct SqlQueryPhasePerfResult {
 }
 
 /// Engine-level page-driver facts after accepting or rejecting one decoded page.
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg(feature = "sql")]
 struct LivePageDriverProbe {
     first_id: i64,
@@ -129,21 +118,21 @@ struct LivePageDriverProbe {
     exhausted: bool,
 }
 
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg(feature = "test-admin-api")]
 struct SqlBudgetFallbackPerfResult {
     outcome: Result<SqlQueryResult, Error>,
     instructions: u64,
 }
 
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg(feature = "test-admin-api")]
 struct LiveQueryPagePerfOutput {
     page: LiveQueryPageOutput,
     instructions: u64,
 }
 
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg(feature = "sql")]
 struct ReadTotalOnlyPerfResult {
     row_count: u32,
@@ -151,7 +140,7 @@ struct ReadTotalOnlyPerfResult {
 }
 
 /// Exact admitted debt and retryable pressure observed by the closeout fixture.
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg(feature = "test-admin-api")]
 struct ConvergenceCloseoutDebtFacts {
     admitted_batches: u32,
@@ -162,7 +151,7 @@ struct ConvergenceCloseoutDebtFacts {
 }
 
 /// Closed producer-side evidence for the maximum-index-fanout fixture.
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg(feature = "test-admin-api")]
 struct JointFanoutFixtureFacts {
     rows: u32,
@@ -172,7 +161,7 @@ struct JointFanoutFixtureFacts {
 
 /// Isolated IC instruction evidence for the dormant 0.229 selector and
 /// maximum accepted-index positioned-metadata lifecycle.
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg(feature = "test-admin-api")]
 struct ConvergenceCandidatePerfResult {
     effects: u32,
@@ -291,13 +280,13 @@ fn schedule_application_startup_poll() {
                 },
                 |_context| async { application_startup_poll_result() },
             ) else {
-                ic_cdk::trap("application startup timer registration failed");
+                ic_platform::ic0::trap(b"application startup timer registration failed");
             };
             *registration = Some(created);
             return;
         }
         let Some(registration) = registration.as_ref() else {
-            ic_cdk::trap("application startup timer registration is absent");
+            ic_platform::ic0::trap(b"application startup timer registration is absent");
         };
         if registration
             .ensure_scheduled(ic_timers::TimerSchedule::After(
@@ -305,7 +294,7 @@ fn schedule_application_startup_poll() {
             ))
             .is_err()
         {
-            ic_cdk::trap("application startup timer scheduling failed");
+            ic_platform::ic0::trap(b"application startup timer scheduling failed");
         }
     });
 }
@@ -316,7 +305,7 @@ fn clear_application_startup_poll() {
         if let Some(registration) = timer.borrow().as_ref()
             && registration.cancel().is_err()
         {
-            ic_cdk::trap("application startup timer cancellation failed");
+            ic_platform::ic0::trap(b"application startup timer cancellation failed");
         }
     });
 }
@@ -336,7 +325,7 @@ fn application_startup_poll_result() -> ic_timers::OnceRunResult {
 fn application_startup_timer_identity() -> ic_timers::TimerIdentity {
     match ic_timers::TimerIdentity::try_new("icydb-audit", "startup", "application-poll") {
         Ok(identity) => identity,
-        Err(_) => ic_cdk::trap("application startup timer identity is invalid"),
+        Err(_) => ic_platform::ic0::trap(b"application startup timer identity is invalid"),
     }
 }
 
@@ -349,7 +338,7 @@ fn application_startup_poll_scheduled() -> bool {
         };
         match registration.has_armed_wakeup() {
             Ok(has_wakeup) => has_wakeup,
-            Err(_) => ic_cdk::trap("application startup timer observation failed"),
+            Err(_) => ic_platform::ic0::trap(b"application startup timer observation failed"),
         }
     })
 }
@@ -357,24 +346,24 @@ fn application_startup_poll_scheduled() -> bool {
 #[cfg(feature = "test-admin-api")]
 fn engine_startup_watchdog_armed() -> bool {
     let Ok(identity) = ic_timers::TimerIdentity::try_new("icydb", "startup", "recovery") else {
-        ic_cdk::trap("IcyDB startup watchdog identity is invalid");
+        ic_platform::ic0::trap(b"IcyDB startup watchdog identity is invalid");
     };
     match ic_timers::timer_snapshot(&identity) {
         Ok(Some(snapshot)) => snapshot.next_deadline_ns().is_some(),
         Ok(None) => false,
-        Err(_) => ic_cdk::trap("IcyDB startup watchdog observation failed"),
+        Err(_) => ic_platform::ic0::trap(b"IcyDB startup watchdog observation failed"),
     }
 }
 
 #[cfg(feature = "test-admin-api")]
 fn engine_startup_watchdog_perf_snapshot() -> StartupWatchdogPerfSnapshot {
     let Ok(identity) = ic_timers::TimerIdentity::try_new("icydb", "startup", "recovery") else {
-        ic_cdk::trap("IcyDB startup watchdog identity is invalid");
+        ic_platform::ic0::trap(b"IcyDB startup watchdog identity is invalid");
     };
     let snapshot = match ic_timers::timer_snapshot(&identity) {
         Ok(Some(snapshot)) => snapshot,
-        Ok(None) => ic_cdk::trap("IcyDB startup watchdog snapshot is absent"),
-        Err(_) => ic_cdk::trap("IcyDB startup watchdog observation failed"),
+        Ok(None) => ic_platform::ic0::trap(b"IcyDB startup watchdog snapshot is absent"),
+        Err(_) => ic_platform::ic0::trap(b"IcyDB startup watchdog observation failed"),
     };
     let observability = snapshot.observability();
     let counters = observability.counters();
@@ -417,63 +406,8 @@ fn application_startup_snapshot() -> ApplicationStartupSnapshot {
     })
 }
 
-///
-/// ScalePayloadProfile
-///
-/// Exact blob-payload distribution loaded by one SQL scale fixture.
-/// Owned by the audit canister and returned to the host as fixture evidence.
-///
-
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-#[cfg(feature = "sql")]
-enum ScalePayloadProfile {
-    /// The selected surface has no blob payload fields.
-    #[serde(rename = "not_applicable")]
-    NotApplicable,
-
-    /// Thumbnail lengths cycle through 32/64/128/256 bytes and chunk lengths
-    /// cycle through 256/512/1,024/2,048 bytes.
-    #[serde(rename = "blob_cycle_v1")]
-    BlobCycleV1,
-}
-
-///
-/// ScaleFixtureFacts
-///
-/// Realized deterministic distribution facts for one loaded scale surface.
-/// Owned by the audit canister and validated by the host before sampling.
-///
-
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
-#[cfg(feature = "sql")]
-struct ScaleFixtureFacts {
-    /// Current hard-cut scale-fixture format version.
-    profile_version: u32,
-
-    /// Stable audit surface name loaded into the otherwise-empty canister.
-    surface: String,
-
-    /// Exact number of rows constructed and inserted for the surface.
-    fixture_rows: u32,
-
-    /// Rows matching the surface's declared impossible predicate.
-    zero_match_rows: u32,
-
-    /// Rows matching the surface's declared exact-key predicate.
-    one_match_rows: u32,
-
-    /// Rows matching the surface's declared quarter-selectivity predicate.
-    quarter_match_rows: u32,
-
-    /// Rows matching the surface's declared all-row predicate.
-    all_match_rows: u32,
-
-    /// Exact blob payload distribution, or typed non-applicability.
-    payload_profile: ScalePayloadProfile,
-}
-
 /// Exact deterministic source facts for the streaming executor fixture.
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg(feature = "sql")]
 struct StreamingExecutionFixtureFacts {
     profile_version: u32,
@@ -487,7 +421,7 @@ struct StreamingExecutionFixtureFacts {
     wide_payload_bytes: Vec<u32>,
 }
 
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg(feature = "sql")]
 struct StorageWritePerfResult {
     first_insert_local_instructions: u64,
@@ -498,7 +432,7 @@ struct StorageWritePerfResult {
     read_back_rows: u32,
 }
 
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg(feature = "sql")]
 struct ConstraintActivationPerfResult {
     no_check: StorageWritePerfResult,
@@ -506,7 +440,7 @@ struct ConstraintActivationPerfResult {
     add_check_rows_scanned: u64,
 }
 
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg(feature = "sql")]
 struct SqlWriteMaterializationPerfResult {
     local_instructions: [u64; 4],
@@ -514,7 +448,7 @@ struct SqlWriteMaterializationPerfResult {
 }
 
 /// Focused durable Forward instruction and replay evidence.
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg(feature = "sql")]
 struct MutationJobForwardPerfResult {
     start_local_instructions: u64,
@@ -534,7 +468,7 @@ struct MutationJobForwardPerfResult {
 }
 
 /// Stable Verify completion, revision-drift restart, replay, and acknowledgement evidence.
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg(feature = "sql")]
 struct MutationJobVerifyResult {
     first_verify_keys_scanned: u64,
@@ -556,14 +490,14 @@ struct MutationJobVerifyResult {
     acknowledgement: MutationJobAcknowledgementEvidence,
 }
 
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg(feature = "sql")]
 struct MutationJobReplayEvidence {
     verify_matches: bool,
     terminal_matches: bool,
 }
 
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg(feature = "sql")]
 struct MutationJobAcknowledgementEvidence {
     stale_rejected: bool,
@@ -578,7 +512,7 @@ struct MutationJobCompletionEvidence {
     terminal_receipt: MutationJobAdvanceReceipt,
 }
 
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg(feature = "sql")]
 struct MutationJobStartPerfResult {
     state: MutationJobState,
@@ -587,7 +521,7 @@ struct MutationJobStartPerfResult {
 }
 
 /// One complete shared-progress inventory plus its local operation cost.
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg(feature = "test-admin-api")]
 struct ProgressJobInventoryPerfResult {
     inventory: ProgressJobInventory,
@@ -595,14 +529,14 @@ struct ProgressJobInventoryPerfResult {
 }
 
 /// One sequence-zero cancellation plus its local operation cost.
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg(feature = "test-admin-api")]
 struct MutationJobCancellationPerfResult {
     local_instructions: u64,
 }
 
 /// Fixed application phase in the collection-scale durable fixture.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg(feature = "sql")]
 enum MutationScaleJob {
     Tier,
@@ -631,7 +565,7 @@ impl MutationScaleJob {
 }
 
 /// One bounded fixture-load page completed by one update message.
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg(feature = "sql")]
 struct MutationScaleLoadEvidence {
     first_id: u32,
@@ -641,7 +575,7 @@ struct MutationScaleLoadEvidence {
 }
 
 /// One bounded count-only fact from the scale fixture.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg(feature = "sql")]
 enum MutationScaleFact {
     TokenCollection,
@@ -687,7 +621,7 @@ impl MutationScaleFact {
 }
 
 /// One bounded durable advance plus its canister-local instruction cost.
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg(feature = "sql")]
 struct MutationScaleAdvancePerfResult {
     receipt: MutationJobAdvanceReceipt,
@@ -695,9 +629,8 @@ struct MutationScaleAdvancePerfResult {
 }
 
 /// Guarded target-store recovery measured separately from one bounded advance.
-// The test-admin Candid documentation above is frozen. Patch 4 retains the
-// envelope but makes the observation state-only.
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+// Recovery evidence observes state without advancing recovery.
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg(feature = "sql")]
 struct MutationScaleRecoveryEvidence {
     complete: bool,
@@ -706,7 +639,7 @@ struct MutationScaleRecoveryEvidence {
 }
 
 /// One public integrity result plus its canister-local execution cost.
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg(feature = "sql")]
 struct IntegritySqlPerfResult {
     result: IntegrityCheckResult,
@@ -764,11 +697,12 @@ const CARDINALITY_TIEBREAK_FIXTURE_ROWS: i32 = 10_001;
 #[cfg(feature = "test-admin-api")]
 const CARDINALITY_TIEBREAK_LOAD_BATCH_ROWS: i32 = 2_048;
 #[cfg(feature = "test-admin-api")]
-const CARDINALITY_PROBE_VALUE_BYTES: usize = 4_000;
+// Three text components plus the fourth scalar and key framing fit 512 bytes.
+const CARDINALITY_PROBE_VALUE_BYTES: usize = 150;
 #[cfg(feature = "sql")]
 const STREAMING_EXECUTION_WIDE_PAYLOAD_BYTES: &[usize] = &[300 * 1_024, 150 * 1_024, 40 * 1_024];
 
-#[derive(CandidType, Debug, Deserialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 #[cfg(feature = "sql")]
 enum StreamingExhaustivePageError {
     Database(icydb::Error),
@@ -1025,9 +959,9 @@ fn validate_scale_fixture_rows(row_count: u32) -> Result<i32, icydb::Error> {
 
 #[cfg(feature = "sql")]
 fn query_entity_with_perf(sql: &str) -> Result<SqlQueryPerfResult, icydb::Error> {
-    let start = call_context_instruction_counter();
+    let start = performance_counter(1);
     let result = db()?.execute_trusted_sql_query(sql)?;
-    let instructions = call_context_instruction_counter().saturating_sub(start);
+    let instructions = performance_counter(1).saturating_sub(start);
 
     Ok(SqlQueryPerfResult {
         result,
@@ -1043,14 +977,14 @@ fn query_entity_with_perf_loop(sql: &str, runs: u32) -> Result<SqlQueryPerfResul
 
     let session = icydb::db!()?;
     let mut first_result = None;
-    let start = call_context_instruction_counter();
+    let start = performance_counter(1);
     for _ in 0..runs {
         let result = session.execute_trusted_sql_query(sql)?;
         if first_result.is_none() {
             first_result = Some(result);
         }
     }
-    let instructions = call_context_instruction_counter()
+    let instructions = performance_counter(1)
         .saturating_sub(start)
         .checked_div(u64::from(runs))
         .ok_or_else(invalid_perf_loop_runs_error)?;
@@ -1105,12 +1039,11 @@ fn load_perf_fixtures() -> Result<(), icydb::Error> {
 /// 65,536-key accepted-index shape, while a real fold callback performs only
 /// retirement. It also scans all 16 possible store heads.
 #[cfg(feature = "test-admin-api")]
-#[update]
 fn measure_dormant_convergence_candidate() -> ConvergenceCandidatePerfResult {
     const EFFECTS: u32 = 65_536;
     const STORES: u32 = 16;
 
-    let start = ic_cdk::api::performance_counter(0);
+    let start = performance_counter(0);
     let mut positions = std::collections::BTreeMap::new();
     for target in 0..EFFECTS {
         positions.insert(target, (100_u8, 1_u64));
@@ -1141,7 +1074,7 @@ fn measure_dormant_convergence_candidate() -> ConvergenceCandidatePerfResult {
             .wrapping_add(sequence);
     }
     std::hint::black_box(checksum);
-    let local_instructions = ic_cdk::api::performance_counter(0).saturating_sub(start);
+    let local_instructions = performance_counter(0).saturating_sub(start);
 
     ConvergenceCandidatePerfResult {
         effects: EFFECTS,
@@ -1153,10 +1086,18 @@ fn measure_dormant_convergence_candidate() -> ConvergenceCandidatePerfResult {
         local_instructions,
     }
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(
+    update,
+    "measure_dormant_convergence_candidate",
+    MeasureDormantConvergenceCandidate,
+    measure_dormant_convergence_candidate,
+    (),
+    ConvergenceCandidatePerfResult
+);
 
 /// Load the fixed key-stream/materialization baseline fixture.
 #[cfg(feature = "sql")]
-#[update]
 fn load_streaming_execution_fixture() -> Result<StreamingExecutionFixtureFacts, icydb::Error> {
     icydb::db::with_request_execution(|| {
         let rows = perf_streaming_execution_rows();
@@ -1168,12 +1109,13 @@ fn load_streaming_execution_fixture() -> Result<StreamingExecutionFixtureFacts, 
         Ok(facts)
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "load_streaming_execution_fixture", LoadStreamingExecutionFixture, load_streaming_execution_fixture, (), Result<StreamingExecutionFixtureFacts, icydb::Error>);
 
 /// Load the frozen 10,001-row continuation fixture without attempting to
 /// process it in the same message. The bounded insert batches are setup work;
 /// live and exhaustive traversal happens through separate query calls below.
 #[cfg(feature = "sql")]
-#[update]
 fn load_streaming_execution_continuation_fixture() -> Result<u32, icydb::Error> {
     icydb::db::with_request_execution(|| {
         reset_perf_fixtures()?;
@@ -1189,10 +1131,11 @@ fn load_streaming_execution_continuation_fixture() -> Result<u32, icydb::Error> 
         u32::try_from(STREAMING_EXECUTION_CONTINUATION_ROWS).map_err(|_| query_validate_error())
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "load_streaming_execution_continuation_fixture", LoadStreamingExecutionContinuationFixture, load_streaming_execution_continuation_fixture, (), Result<u32, icydb::Error>);
 
 /// Execute one revision-tolerant page of the frozen 10,001-row fixture.
 #[cfg(feature = "sql")]
-#[query]
 fn query_streaming_execution_live_page(
     continuation: Option<String>,
 ) -> Result<LiveQueryPageOutput, icydb::Error> {
@@ -1205,10 +1148,11 @@ fn query_streaming_execution_live_page(
             .map(icydb::db::LivePageStep::into_page)
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(query, "query_streaming_execution_live_page", QueryStreamingExecutionLivePage, query_streaming_execution_live_page, (continuation: Option<String>), Result<LiveQueryPageOutput, icydb::Error>);
 
 /// Exercise one trusted page-driver step and commit only an accepted decode.
 #[cfg(feature = "sql")]
-#[query]
 fn query_streaming_execution_live_page_driver_probe(
     continuation: Option<String>,
     accept_page: bool,
@@ -1238,10 +1182,11 @@ fn query_streaming_execution_live_page_driver_probe(
         })
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(query, "query_streaming_execution_live_page_driver_probe", QueryStreamingExecutionLivePageDriverProbe, query_streaming_execution_live_page_driver_probe, (continuation: Option<String>, accept_page: bool), Result<LivePageDriverProbe, icydb::Error>);
 
 /// Exercise the public page-driver lane through one admitted exact-key page.
 #[cfg(feature = "sql")]
-#[query]
 fn query_streaming_execution_public_live_page_driver_probe()
 -> Result<LivePageDriverProbe, icydb::Error> {
     icydb::db::with_request_execution(|| {
@@ -1270,10 +1215,11 @@ fn query_streaming_execution_public_live_page_driver_probe()
         })
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(query, "query_streaming_execution_public_live_page_driver_probe", QueryStreamingExecutionPublicLivePageDriverProbe, query_streaming_execution_public_live_page_driver_probe, (), Result<LivePageDriverProbe, icydb::Error>);
 
 /// Execute one revision-strict page of the frozen 10,001-row fixture.
 #[cfg(feature = "sql")]
-#[query]
 fn query_streaming_execution_exhaustive_page(
     continuation: Option<String>,
     proof: Option<ReadSetRevisionProof>,
@@ -1289,24 +1235,27 @@ fn query_streaming_execution_exhaustive_page(
             .map_err(Into::into)
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(query, "query_streaming_execution_exhaustive_page", QueryStreamingExecutionExhaustivePage, query_streaming_execution_exhaustive_page, (continuation: Option<String>, proof: Option<ReadSetRevisionProof>), Result<ExhaustiveQueryPageOutput, StreamingExhaustivePageError>);
 
 /// Measure one fixed page through the 0.236 tied-index cursor fixture.
 #[cfg(feature = "test-admin-api")]
-#[query]
 fn query_cardinality_tiebreak_live_page_with_perf(
     continuation: Option<String>,
 ) -> Result<LiveQueryPagePerfOutput, icydb::Error> {
     icydb::db::with_request_execution(|| {
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let page = db()?.execute_trusted_live_page(
             &cardinality_tiebreak_continuation_query(),
             continuation.as_deref(),
         )?;
-        let instructions = call_context_instruction_counter().saturating_sub(start);
+        let instructions = performance_counter(1).saturating_sub(start);
 
         Ok(LiveQueryPagePerfOutput { page, instructions })
     })
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(query, "query_cardinality_tiebreak_live_page_with_perf", QueryCardinalityTiebreakLivePageWithPerf, query_cardinality_tiebreak_live_page_with_perf, (continuation: Option<String>), Result<LiveQueryPagePerfOutput, icydb::Error>);
 
 #[cfg(feature = "test-admin-api")]
 fn cardinality_tiebreak_continuation_query() -> DynamicQuery {
@@ -1322,7 +1271,6 @@ fn cardinality_tiebreak_continuation_query() -> DynamicQuery {
 
 /// Load the production-shaped common/rare population used by 0.236 evidence.
 #[cfg(feature = "test-admin-api")]
-#[update]
 fn load_cardinality_tiebreak_fixture() -> Result<u32, icydb::Error> {
     icydb::db::with_request_execution(|| {
         reset_perf_fixtures()?;
@@ -1338,6 +1286,8 @@ fn load_cardinality_tiebreak_fixture() -> Result<u32, icydb::Error> {
         u32::try_from(CARDINALITY_TIEBREAK_FIXTURE_ROWS).map_err(|_| query_validate_error())
     })
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(update, "load_cardinality_tiebreak_fixture", LoadCardinalityTiebreakFixture, load_cardinality_tiebreak_fixture, (), Result<u32, icydb::Error>);
 
 #[cfg(feature = "sql")]
 fn streaming_execution_continuation_query() -> DynamicQuery {
@@ -1365,7 +1315,6 @@ fn streaming_execution_page_bounds(page: &LiveQueryPageOutput) -> Result<(i64, i
 
 /// Load only the deterministic user scale surface at one reviewed cardinality.
 #[cfg(feature = "sql")]
-#[update]
 fn load_user_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb::Error> {
     icydb::db::with_request_execution(|| {
         let validated_rows = validate_scale_fixture_rows(row_count)?;
@@ -1387,10 +1336,11 @@ fn load_user_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb::E
         Ok(facts)
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "load_user_scale_fixture", LoadUserScaleFixture, load_user_scale_fixture, (row_count: u32), Result<ScaleFixtureFacts, icydb::Error>);
 
 /// Load a hostile all-unique leading-Int32 distribution for exact DISTINCT evidence.
 #[cfg(feature = "test-admin-api")]
-#[update]
 fn load_user_unique_age_scale_fixture(row_count: u32) -> Result<u32, icydb::Error> {
     icydb::db::with_request_execution(|| {
         let validated_rows = validate_scale_fixture_rows(row_count)?;
@@ -1412,10 +1362,11 @@ fn load_user_unique_age_scale_fixture(row_count: u32) -> Result<u32, icydb::Erro
         Ok(row_count)
     })
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(update, "load_user_unique_age_scale_fixture", LoadUserUniqueAgeScaleFixture, load_user_unique_age_scale_fixture, (row_count: u32), Result<u32, icydb::Error>);
 
 /// Load only the deterministic account scale surface at one reviewed cardinality.
 #[cfg(feature = "sql")]
-#[update]
 fn load_account_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb::Error> {
     icydb::db::with_request_execution(|| {
         let validated_rows = validate_scale_fixture_rows(row_count)?;
@@ -1439,10 +1390,11 @@ fn load_account_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb
         Ok(facts)
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "load_account_scale_fixture", LoadAccountScaleFixture, load_account_scale_fixture, (row_count: u32), Result<ScaleFixtureFacts, icydb::Error>);
 
 /// Load only the deterministic blob scale surface at one reviewed cardinality.
 #[cfg(feature = "sql")]
-#[update]
 fn load_blob_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb::Error> {
     icydb::db::with_request_execution(|| {
         let validated_rows = validate_scale_fixture_rows(row_count)?;
@@ -1464,11 +1416,12 @@ fn load_blob_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb::E
         Ok(facts)
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "load_blob_scale_fixture", LoadBlobScaleFixture, load_blob_scale_fixture, (row_count: u32), Result<ScaleFixtureFacts, icydb::Error>);
 
 /// Load a journaled wide-row surface that crosses both resumable scan and
 /// exact writer-staging page boundaries without approaching the row limit.
 #[cfg(feature = "test-admin-api")]
-#[update]
 fn load_journaled_user_mutation_byte_fixture(row_id: u32) -> Result<u32, icydb::Error> {
     icydb::db::with_request_execution(|| {
         const ROWS: i32 = 20;
@@ -1487,10 +1440,11 @@ fn load_journaled_user_mutation_byte_fixture(row_id: u32) -> Result<u32, icydb::
         Ok(row_id)
     })
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(update, "load_journaled_user_mutation_byte_fixture", LoadJournaledUserMutationByteFixture, load_journaled_user_mutation_byte_fixture, (row_id: u32), Result<u32, icydb::Error>);
 
 /// Load only the deterministic heap-user scale surface at one reviewed cardinality.
 #[cfg(feature = "sql")]
-#[update]
 fn load_heap_user_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb::Error> {
     icydb::db::with_request_execution(|| {
         let validated_rows = validate_scale_fixture_rows(row_count)?;
@@ -1502,10 +1456,11 @@ fn load_heap_user_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icy
         Ok(facts)
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "load_heap_user_scale_fixture", LoadHeapUserScaleFixture, load_heap_user_scale_fixture, (row_count: u32), Result<ScaleFixtureFacts, icydb::Error>);
 
 /// Load only the deterministic journaled-user scale surface at one reviewed cardinality.
 #[cfg(feature = "sql")]
-#[update]
 fn load_journaled_user_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb::Error> {
     icydb::db::with_request_execution(|| {
         let validated_rows = validate_scale_fixture_rows(row_count)?;
@@ -1517,10 +1472,11 @@ fn load_journaled_user_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts
         Ok(facts)
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "load_journaled_user_scale_fixture", LoadJournaledUserScaleFixture, load_journaled_user_scale_fixture, (row_count: u32), Result<ScaleFixtureFacts, icydb::Error>);
 
 /// Load the closed zero-index joint-admission boundary.
 #[cfg(feature = "test-admin-api")]
-#[update]
 fn load_joint_zero_index_boundary_fixture() -> Result<ScaleFixtureFacts, icydb::Error> {
     icydb::db::with_request_execution(|| {
         let rows = perf_scale_journaled_users(
@@ -1533,10 +1489,11 @@ fn load_joint_zero_index_boundary_fixture() -> Result<ScaleFixtureFacts, icydb::
         Ok(facts)
     })
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(update, "load_joint_zero_index_boundary_fixture", LoadJointZeroIndexBoundaryFixture, load_joint_zero_index_boundary_fixture, (), Result<ScaleFixtureFacts, icydb::Error>);
 
 /// Load the closed three-index joint-admission boundary.
 #[cfg(feature = "test-admin-api")]
-#[update]
 fn load_joint_three_index_boundary_fixture() -> Result<ScaleFixtureFacts, icydb::Error> {
     icydb::db::with_request_execution(|| {
         let requested_rows = JOINT_THREE_INDEX_ADMITTED_ROWS;
@@ -1559,10 +1516,11 @@ fn load_joint_three_index_boundary_fixture() -> Result<ScaleFixtureFacts, icydb:
         Ok(facts)
     })
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(update, "load_joint_three_index_boundary_fixture", LoadJointThreeIndexBoundaryFixture, load_joint_three_index_boundary_fixture, (), Result<ScaleFixtureFacts, icydb::Error>);
 
 /// Fill the cumulative batch ceiling with one three-index row per commit.
 #[cfg(feature = "test-admin-api")]
-#[update]
 fn load_convergence_closeout_debt(
     first_id: i32,
 ) -> Result<ConvergenceCloseoutDebtFacts, icydb::Error> {
@@ -1597,17 +1555,19 @@ fn load_convergence_closeout_debt(
         })
     })
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(update, "load_convergence_closeout_debt", LoadConvergenceCloseoutDebt, load_convergence_closeout_debt, (first_id: i32), Result<ConvergenceCloseoutDebtFacts, icydb::Error>);
 
 /// Retry the row rejected by the populated convergence closeout fixture.
 #[cfg(feature = "test-admin-api")]
-#[update]
 fn retry_convergence_closeout_row(id: i32) -> Result<(), icydb::Error> {
     icydb::db::with_request_execution(|| insert_fixture_rows(vec![convergence_closeout_user(id)]))
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(update, "retry_convergence_closeout_row", RetryConvergenceCloseoutRow, retry_convergence_closeout_row, (id: i32), Result<(), icydb::Error>);
 
 /// Load one near-maximum row with maintained derived-index fanout.
 #[cfg(feature = "test-admin-api")]
-#[update]
 fn load_patch1_wide_row_recovery_fixture() -> Result<u32, icydb::Error> {
     icydb::db::with_request_execution(|| {
         reset_perf_fixtures()?;
@@ -1624,6 +1584,8 @@ fn load_patch1_wide_row_recovery_fixture() -> Result<u32, icydb::Error> {
         u32::try_from(PATCH1_WIDE_ROW_PAYLOAD_BYTES).map_err(|_| query_validate_error())
     })
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(update, "load_patch1_wide_row_recovery_fixture", LoadPatch1WideRowRecoveryFixture, load_patch1_wide_row_recovery_fixture, (), Result<u32, icydb::Error>);
 
 #[cfg(feature = "test-admin-api")]
 fn joint_fanout_patches(row_count: u32) -> Result<Vec<StructuralPatch>, icydb::Error> {
@@ -1647,7 +1609,6 @@ fn joint_fanout_patches(row_count: u32) -> Result<Vec<StructuralPatch>, icydb::E
 
 /// Exercise the first rejected 64-secondary-index batch through maintained admission.
 #[cfg(feature = "test-admin-api")]
-#[update]
 fn reject_joint_fanout_over_boundary_fixture() -> Result<u32, icydb::Error> {
     icydb::db::with_request_execution(|| {
         reset_perf_fixtures()?;
@@ -1659,14 +1620,15 @@ fn reject_joint_fanout_over_boundary_fixture() -> Result<u32, icydb::Error> {
         Ok(inserted.affected_rows)
     })
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(update, "reject_joint_fanout_over_boundary_fixture", RejectJointFanoutOverBoundaryFixture, reject_joint_fanout_over_boundary_fixture, (), Result<u32, icydb::Error>);
 
 /// Load one closed batch at the admitted 64-secondary-index fanout boundary.
 #[cfg(feature = "test-admin-api")]
-#[update]
 fn load_joint_fanout_boundary_fixture() -> Result<JointFanoutFixtureFacts, icydb::Error> {
     icydb::db::with_request_execution(|| {
         reset_perf_fixtures()?;
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let inserted = db()?.execute_trusted_structural_insert_batch(
             "PerfAuditMaxFanout",
             joint_fanout_patches(JOINT_FANOUT_ADMITTED_ROWS)?,
@@ -1674,7 +1636,7 @@ fn load_joint_fanout_boundary_fixture() -> Result<JointFanoutFixtureFacts, icydb
         if inserted.affected_rows != JOINT_FANOUT_ADMITTED_ROWS {
             return Err(query_validate_error());
         }
-        let load_local_instructions = call_context_instruction_counter().saturating_sub(start);
+        let load_local_instructions = performance_counter(1).saturating_sub(start);
 
         Ok(JointFanoutFixtureFacts {
             rows: inserted.affected_rows,
@@ -1683,10 +1645,11 @@ fn load_joint_fanout_boundary_fixture() -> Result<JointFanoutFixtureFacts, icydb
         })
     })
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(update, "load_joint_fanout_boundary_fixture", LoadJointFanoutBoundaryFixture, load_joint_fanout_boundary_fixture, (), Result<JointFanoutFixtureFacts, icydb::Error>);
 
 /// Load one row for the 16-candidate by 16-prefix cardinality policy boundary.
 #[cfg(feature = "test-admin-api")]
-#[update]
 fn load_cardinality_probe_boundary_fixture() -> Result<u32, icydb::Error> {
     icydb::db::with_request_execution(|| {
         reset_perf_fixtures()?;
@@ -1719,6 +1682,8 @@ fn load_cardinality_probe_boundary_fixture() -> Result<u32, icydb::Error> {
         Ok(inserted.affected_rows)
     })
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(update, "load_cardinality_probe_boundary_fixture", LoadCardinalityProbeBoundaryFixture, load_cardinality_probe_boundary_fixture, (), Result<u32, icydb::Error>);
 
 #[cfg(feature = "test-admin-api")]
 fn cardinality_probe_value(ordinal: u8) -> String {
@@ -1731,7 +1696,6 @@ fn cardinality_probe_value(ordinal: u8) -> String {
 
 /// Load only the deterministic token scale surface at one reviewed cardinality.
 #[cfg(feature = "sql")]
-#[update]
 fn load_token_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb::Error> {
     icydb::db::with_request_execution(|| {
         let validated_rows = validate_scale_fixture_rows(row_count)?;
@@ -1756,10 +1720,11 @@ fn load_token_scale_fixture(row_count: u32) -> Result<ScaleFixtureFacts, icydb::
         Ok(facts)
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "load_token_scale_fixture", LoadTokenScaleFixture, load_token_scale_fixture, (row_count: u32), Result<ScaleFixtureFacts, icydb::Error>);
 
 /// Return accepted runtime schema descriptions in stable audit-surface order.
 #[cfg(feature = "sql")]
-#[query]
 fn accepted_schema_descriptions() -> Result<Vec<EntitySchemaDescription>, icydb::Error> {
     icydb::db::with_request_execution(|| {
         let session = db()?;
@@ -1778,6 +1743,15 @@ fn accepted_schema_descriptions() -> Result<Vec<EntitySchemaDescription>, icydb:
         ])
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(
+    query,
+    "accepted_schema_descriptions",
+    AcceptedSchemaDescriptions,
+    accepted_schema_descriptions,
+    (),
+    Result<Vec<EntitySchemaDescription>, icydb::Error>
+);
 
 #[cfg(feature = "test-admin-api")]
 fn measure_schema_application() -> Result<SchemaApplicationPerfResult, icydb::Error> {
@@ -1787,14 +1761,14 @@ fn measure_schema_application() -> Result<SchemaApplicationPerfResult, icydb::Er
         icydb::db::ExpectedAcceptedHead::Empty => (1, 0),
         icydb::db::ExpectedAcceptedHead::Exact { .. } => (0, 1),
     };
-    let start = call_context_instruction_counter();
+    let start = performance_counter(1);
     session.apply_generated_schema_fragment(
         crate::__icydb_generated::ICYDB_SCHEMA_FRAGMENT,
         crate::__icydb_generated::ICYDB_SCHEMA_MIGRATION_PLAN,
         crate::__icydb_generated::ICYDB_SCHEMA_SUBMISSION_KEY,
         crate::__icydb_generated::ICYDB_SCHEMA_ENTITY_STORES,
     )?;
-    let local_instructions = call_context_instruction_counter().saturating_sub(start);
+    let local_instructions = performance_counter(1).saturating_sub(start);
 
     Ok(SchemaApplicationPerfResult {
         local_instructions,
@@ -1806,43 +1780,45 @@ fn measure_schema_application() -> Result<SchemaApplicationPerfResult, icydb::Er
 
 /// Measure schema application inside a rollback-scoped query message.
 #[cfg(feature = "test-admin-api")]
-#[query]
 fn measure_schema_application_query() -> Result<SchemaApplicationPerfResult, icydb::Error> {
     icydb::db::with_request_execution(measure_schema_application)
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(query, "measure_schema_application_query", MeasureSchemaApplicationQuery, measure_schema_application_query, (), Result<SchemaApplicationPerfResult, icydb::Error>);
 
 /// Measure and persist schema application through an update message.
 #[cfg(feature = "test-admin-api")]
-#[update]
 fn measure_schema_application_update() -> Result<SchemaApplicationPerfResult, icydb::Error> {
     icydb::db::with_request_execution(measure_schema_application)
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(update, "measure_schema_application_update", MeasureSchemaApplicationUpdate, measure_schema_application_update, (), Result<SchemaApplicationPerfResult, icydb::Error>);
 
 /// Measure the generated pure startup observer without opening a session.
 #[cfg(feature = "test-admin-api")]
-#[query]
 fn measure_startup_observation() -> Result<StartupObservationPerfResult, icydb::db::StartupFailure>
 {
-    let start = call_context_instruction_counter();
+    let start = performance_counter(1);
     let state = startup_state()?;
-    let local_instructions = call_context_instruction_counter().saturating_sub(start);
+    let local_instructions = performance_counter(1).saturating_sub(start);
 
     Ok(StartupObservationPerfResult {
         state,
         local_instructions,
     })
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(query, "measure_startup_observation", MeasureStartupObservation, measure_startup_observation, (), Result<StartupObservationPerfResult, icydb::db::StartupFailure>);
 
 /// Measure one accepted entity-schema read through reopened catalog authority.
 #[cfg(feature = "test-admin-api")]
-#[query]
 fn measure_accepted_schema_read_instructions(
     entity: String,
 ) -> Result<AcceptedSchemaReadInstructionResult, icydb::Error> {
     icydb::db::with_request_execution(|| {
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let description = db()?.try_describe_entity_by_name(entity.as_str())?;
-        let local_instructions = call_context_instruction_counter().saturating_sub(start);
+        let local_instructions = performance_counter(1).saturating_sub(start);
 
         Ok(AcceptedSchemaReadInstructionResult {
             description,
@@ -1850,72 +1826,101 @@ fn measure_accepted_schema_read_instructions(
         })
     })
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(query, "measure_accepted_schema_read_instructions", MeasureAcceptedSchemaReadInstructions, measure_accepted_schema_read_instructions, (entity: String), Result<AcceptedSchemaReadInstructionResult, icydb::Error>);
 
 /// Read instruction evidence from the real generated startup watchdog.
 #[cfg(feature = "test-admin-api")]
-#[query]
 fn startup_watchdog_perf_snapshot() -> StartupWatchdogPerfSnapshot {
     engine_startup_watchdog_perf_snapshot()
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(
+    query,
+    "startup_watchdog_perf_snapshot",
+    StartupWatchdogPerfSnapshot,
+    startup_watchdog_perf_snapshot,
+    (),
+    StartupWatchdogPerfSnapshot
+);
 
 /// Report whether the generated production watchdog retains a scheduled wake-up.
 #[cfg(feature = "test-admin-api")]
-#[query]
 fn startup_watchdog_armed() -> bool {
     engine_startup_watchdog_armed()
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(
+    query,
+    "startup_watchdog_armed",
+    StartupWatchdogArmed,
+    startup_watchdog_armed,
+    (),
+    bool
+);
 
 /// Expose application-owned readiness evidence only in the local audit actor.
 #[cfg(feature = "test-admin-api")]
-#[query]
 fn application_startup_contract() -> ApplicationStartupSnapshot {
     application_startup_snapshot()
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(
+    query,
+    "application_startup_contract",
+    ApplicationStartupContract,
+    application_startup_contract,
+    (),
+    ApplicationStartupSnapshot
+);
 
 /// Feed the application policy one typed observation without changing IcyDB state.
 #[cfg(feature = "test-admin-api")]
-#[update]
 fn observe_application_startup_for_tests(
     observation: Result<icydb::db::DatabaseStartupState, icydb::db::StartupFailure>,
 ) {
     apply_application_startup_observation(observation);
 }
-
-/// Use the predecessor admission path solely to prepare Patch 2 readiness evidence.
-// The test-admin Candid documentation above is frozen. The maintained body now
-// exercises state-only ordinary admission and never initializes recovery.
 #[cfg(feature = "test-admin-api")]
-#[update]
+icydb_testing_wasm_helpers::export_wire!(update, "observe_application_startup_for_tests", ObserveApplicationStartupForTests, observe_application_startup_for_tests, (observation: Result<icydb::db::DatabaseStartupState, icydb::db::StartupFailure>), ());
+
+/// Observe ordinary admission without initializing recovery.
+#[cfg(feature = "test-admin-api")]
 fn initialize_startup_observation_fixture() -> Result<(), icydb::Error> {
-    let start = call_context_instruction_counter();
+    let start = performance_counter(1);
     let result: Result<(), icydb::Error> = icydb::db::with_request_execution(|| {
         let _session = crate::__icydb_generated::db()?;
         Ok(())
     });
-    let local_instructions = call_context_instruction_counter().saturating_sub(start);
+    let local_instructions = performance_counter(1).saturating_sub(start);
     if result.as_ref().is_err_and(|error| {
         error.code() == icydb::ErrorCode::RUNTIME_BOUNDARY_DATABASE_STARTUP_RECOVERY_PENDING
     }) {
-        ic_cdk::println!(
+        let message = format!(
             "icydb_0225_pending_admission local_instructions={local_instructions} ceiling=30000000"
         );
+        #[cfg(target_family = "wasm")]
+        ic_platform::ic0::debug_print(message.as_bytes());
+        #[cfg(not(target_family = "wasm"))]
+        println!("{message}");
     }
     result
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(update, "initialize_startup_observation_fixture", InitializeStartupObservationFixture, initialize_startup_observation_fixture, (), Result<(), icydb::Error>);
 
 /// Trap after one canonical startup-driver attempt reaches required `Ready`.
 ///
 /// Optional cardinality work may keep the shared watchdog active after that
 /// boundary and is deliberately outside this journal-rollback probe.
 #[cfg(feature = "test-admin-api")]
-#[update]
 fn trap_after_complete_startup_recovery() -> Result<(), icydb::Error> {
     let _optional_work_complete = icydb::db::with_request_execution(
         crate::__icydb_generated::__icydb_startup_driver_attempt_for_tests,
     )?;
     match startup_state() {
         Ok(icydb::db::DatabaseStartupState::Ready) => {
-            ic_cdk::trap("intentional complete startup-recovery rollback probe")
+            ic_platform::ic0::trap(b"intentional complete startup-recovery rollback probe")
         }
         Ok(icydb::db::DatabaseStartupState::Recovering) => {
             Err(icydb::db::__startup_recovery_pending())
@@ -1923,12 +1928,13 @@ fn trap_after_complete_startup_recovery() -> Result<(), icydb::Error> {
         Err(failure) => Err(failure.error().clone()),
     }
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(update, "trap_after_complete_startup_recovery", TrapAfterCompleteStartupRecovery, trap_after_complete_startup_recovery, (), Result<(), icydb::Error>);
 
 /// Load a small journaled-only fixture for same-WASM upgrade/reentry
 /// instruction probes. The full SQL perf corpus intentionally remains larger
 /// than this audit budget.
 #[cfg(feature = "sql")]
-#[update]
 fn load_journaled_reentry_probe_fixture() -> Result<(), icydb::Error> {
     icydb::db::with_request_execution(|| {
         reset_perf_fixtures()?;
@@ -1937,10 +1943,11 @@ fn load_journaled_reentry_probe_fixture() -> Result<(), icydb::Error> {
         Ok(())
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "load_journaled_reentry_probe_fixture", LoadJournaledReentryProbeFixture, load_journaled_reentry_probe_fixture, (), Result<(), icydb::Error>);
 
 /// Load the deterministic relation pair used by bounded integrity evidence.
 #[cfg(feature = "sql")]
-#[update]
 fn load_relation_integrity_fixture() -> Result<(), icydb::Error> {
     icydb::db::with_request_execution(|| {
         reset_perf_fixtures()?;
@@ -1950,36 +1957,39 @@ fn load_relation_integrity_fixture() -> Result<(), icydb::Error> {
         Ok(())
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "load_relation_integrity_fixture", LoadRelationIntegrityFixture, load_relation_integrity_fixture, (), Result<(), icydb::Error>);
 
 /// Execute one PerfAuditUser-only SQL query.
 #[cfg(feature = "sql")]
-#[query]
 fn query_user(sql: String) -> Result<SqlQueryResult, icydb::Error> {
     icydb::db::with_request_execution(|| db()?.execute_trusted_sql_query(sql.as_str()))
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(query, "query_user", QueryUser, query_user, (sql: String), Result<SqlQueryResult, icydb::Error>);
 
 /// Execute one PerfAuditUser-only SQL query and attach one local instruction
 /// sample.
 #[cfg(feature = "sql")]
-#[query]
 fn query_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
     icydb::db::with_request_execution(|| query_entity_with_perf(sql.as_str()))
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(query, "query_user_with_perf", QueryUserWithPerf, query_user_with_perf, (sql: String), Result<SqlQueryPerfResult, icydb::Error>);
 
 /// Execute one PerfAuditUser-only SQL query through the update surface so the
 /// canister can persist any warmed in-heap query caches for later query calls.
 #[cfg(feature = "sql")]
-#[update]
 fn warm_user_query_with_perf(sql: String) -> Result<SqlQueryPhasePerfResult, icydb::Error> {
-    let entry = call_context_instruction_counter();
+    let entry = performance_counter(1);
     let mut sample = icydb::db::with_request_execution(|| {
-        let request_ready = call_context_instruction_counter();
+        let request_ready = performance_counter(1);
         let session = db()?;
-        let session_ready = call_context_instruction_counter();
+        let session_ready = performance_counter(1);
         let result = session.execute_trusted_sql_query(sql.as_str())?;
         // Preserve the former call's session-drop boundary inside the read sample.
         drop(session);
-        let query_complete = call_context_instruction_counter();
+        let query_complete = performance_counter(1);
         Ok::<_, icydb::Error>(SqlQueryPhasePerfResult {
             result,
             instructions: query_complete.saturating_sub(request_ready),
@@ -1990,14 +2000,15 @@ fn warm_user_query_with_perf(sql: String) -> Result<SqlQueryPhasePerfResult, icy
             request_complete: 0,
         })
     })?;
-    sample.request_complete = call_context_instruction_counter();
+    sample.request_complete = performance_counter(1);
     Ok(sample)
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "warm_user_query_with_perf", WarmUserQueryWithPerf, warm_user_query_with_perf, (sql: String), Result<SqlQueryPhasePerfResult, icydb::Error>);
 
 /// Measure bounded, application-built filters without passing SQL to preparation.
 /// The update boundary permits separate whole-call cycle measurements in PocketIC.
 #[cfg(feature = "test-admin-api")]
-#[update]
 fn measure_typed_filter_preparation(
     shape: u8,
     terms: u32,
@@ -2006,7 +2017,7 @@ fn measure_typed_filter_preparation(
         return Err(query_validate_error());
     }
     icydb::db::with_request_execution(|| {
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let values = (0..terms).rev().map(i64::from);
         let filter = match shape {
             0 => FilterExpr::and(values.map(|n| FieldRef::new("age").gte(-n)).collect()),
@@ -2019,26 +2030,28 @@ fn measure_typed_filter_preparation(
             .order_by(asc("id"))
             .limit(100);
         let page = db()?.execute_trusted_live_page(&query, None)?;
-        let instructions = call_context_instruction_counter().saturating_sub(start);
+        let instructions = performance_counter(1).saturating_sub(start);
         Ok(ReadTotalOnlyPerfResult {
             row_count: page.row_count,
             instructions,
         })
     })
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(update, "measure_typed_filter_preparation", MeasureTypedFilterPreparation, measure_typed_filter_preparation, (shape: u8, terms: u32), Result<ReadTotalOnlyPerfResult, icydb::Error>);
 
 /// Execute the same PerfAuditUser-only SQL query repeatedly inside one canister
 /// query call and report the per-run average instruction sample.
 #[cfg(feature = "sql")]
-#[query]
 fn query_user_loop_with_perf(sql: String, runs: u32) -> Result<SqlQueryPerfResult, icydb::Error> {
     icydb::db::with_request_execution(|| query_entity_with_perf_loop(sql.as_str(), runs))
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(query, "query_user_loop_with_perf", QueryUserLoopWithPerf, query_user_loop_with_perf, (sql: String, runs: u32), Result<SqlQueryPerfResult, icydb::Error>);
 
 /// Consume most of the request DISTINCT budget, then measure either the exact
 /// candidate's bounded metadata probe plus fallback or the prepared control.
 #[cfg(feature = "test-admin-api")]
-#[query]
 fn query_user_distinct_budget_fallback_with_perf(
     prepared_control: bool,
 ) -> Result<SqlBudgetFallbackPerfResult, icydb::Error> {
@@ -2057,9 +2070,9 @@ fn query_user_distinct_budget_fallback_with_perf(
         } else {
             EXACT_SQL
         };
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let outcome = session.execute_trusted_sql_query(sql);
-        let instructions = call_context_instruction_counter().saturating_sub(start);
+        let instructions = performance_counter(1).saturating_sub(start);
 
         Ok(SqlBudgetFallbackPerfResult {
             outcome,
@@ -2067,10 +2080,11 @@ fn query_user_distinct_budget_fallback_with_perf(
         })
     })
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(query, "query_user_distinct_budget_fallback_with_perf", QueryUserDistinctBudgetFallbackWithPerf, query_user_distinct_budget_fallback_with_perf, (prepared_control: bool), Result<SqlBudgetFallbackPerfResult, icydb::Error>);
 
 /// Exhaust range metadata capacity, then compare exact-probe fallback with prepared execution.
 #[cfg(feature = "test-admin-api")]
-#[query]
 fn query_user_range_budget_fallback_with_perf(
     prepared_control: bool,
 ) -> Result<SqlBudgetFallbackPerfResult, icydb::Error> {
@@ -2091,9 +2105,9 @@ fn query_user_range_budget_fallback_with_perf(
         } else {
             EXACT_SQL
         };
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let outcome = session.execute_trusted_sql_query(sql);
-        let instructions = call_context_instruction_counter().saturating_sub(start);
+        let instructions = performance_counter(1).saturating_sub(start);
 
         Ok(SqlBudgetFallbackPerfResult {
             outcome,
@@ -2101,11 +2115,12 @@ fn query_user_range_budget_fallback_with_perf(
         })
     })
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(query, "query_user_range_budget_fallback_with_perf", QueryUserRangeBudgetFallbackWithPerf, query_user_range_budget_fallback_with_perf, (prepared_control: bool), Result<SqlBudgetFallbackPerfResult, icydb::Error>);
 
 /// Exhaust indexed numeric metadata capacity, then compare exact-probe fallback
 /// with unchanged prepared execution.
 #[cfg(feature = "test-admin-api")]
-#[query]
 fn query_user_numeric_budget_fallback_with_perf(
     prepared_control: bool,
 ) -> Result<SqlBudgetFallbackPerfResult, icydb::Error> {
@@ -2124,9 +2139,9 @@ fn query_user_numeric_budget_fallback_with_perf(
         } else {
             EXACT_SQL
         };
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let outcome = session.execute_trusted_sql_query(sql);
-        let instructions = call_context_instruction_counter().saturating_sub(start);
+        let instructions = performance_counter(1).saturating_sub(start);
 
         Ok(SqlBudgetFallbackPerfResult {
             outcome,
@@ -2134,6 +2149,8 @@ fn query_user_numeric_budget_fallback_with_perf(
         })
     })
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(query, "query_user_numeric_budget_fallback_with_perf", QueryUserNumericBudgetFallbackWithPerf, query_user_numeric_budget_fallback_with_perf, (prepared_control: bool), Result<SqlBudgetFallbackPerfResult, icydb::Error>);
 
 #[cfg(feature = "sql")]
 const fn unexpected_write_perf_count_error(
@@ -2181,12 +2198,12 @@ where
 {
     let session = db()?;
     let first_row = build(base_id, "first-insert", 41);
-    let start = call_context_instruction_counter();
+    let start = performance_counter(1);
     session.execute_trusted_structural_mutation(StructuralMutation::Insert {
         entity: E::ENTITY.to_string(),
         patch: first_row.into_structural_patch(),
     })?;
-    let first_insert_local_instructions = call_context_instruction_counter().saturating_sub(start);
+    let first_insert_local_instructions = performance_counter(1).saturating_sub(start);
 
     let mut steady_insert_total = 0_u64;
     for offset in 0..STORAGE_WRITE_MATRIX_RUNS {
@@ -2196,13 +2213,12 @@ where
             "steady-insert",
             42 + i32::try_from(offset % 7).unwrap_or(0),
         );
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         session.execute_trusted_structural_mutation(StructuralMutation::Insert {
             entity: E::ENTITY.to_string(),
             patch: row.into_structural_patch(),
         })?;
-        steady_insert_total =
-            steady_insert_total.saturating_add(call_context_instruction_counter() - start);
+        steady_insert_total = steady_insert_total.saturating_add(performance_counter(1) - start);
     }
 
     let mut steady_update_total = 0_u64;
@@ -2214,28 +2230,26 @@ where
             51 + i32::try_from(offset % 7).unwrap_or(0),
         );
         let key = row.primary_key_input();
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         session.execute_trusted_structural_mutation(StructuralMutation::Update {
             entity: E::ENTITY.to_string(),
             key,
             patch: row.into_structural_patch(),
         })?;
-        steady_update_total =
-            steady_update_total.saturating_add(call_context_instruction_counter() - start);
+        steady_update_total = steady_update_total.saturating_add(performance_counter(1) - start);
     }
 
     let mut steady_delete_total = 0_u64;
     for offset in 0..STORAGE_WRITE_MATRIX_RUNS {
         let id = base_id + 100 + i32::try_from(offset).unwrap_or(i32::MAX);
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let deleted = session
             .execute_trusted_structural_mutation(StructuralMutation::Delete {
                 entity: E::ENTITY.to_string(),
                 key: id.into(),
             })?
             .affected_rows;
-        steady_delete_total =
-            steady_delete_total.saturating_add(call_context_instruction_counter() - start);
+        steady_delete_total = steady_delete_total.saturating_add(performance_counter(1) - start);
         if deleted != 1 {
             return Err(unexpected_write_perf_count_error(storage_label, 1, deleted));
         }
@@ -2243,7 +2257,7 @@ where
 
     let read_back_id = base_id + 10_000;
     let read_back_row = build(read_back_id, "write-read-back", 73);
-    let start = call_context_instruction_counter();
+    let start = performance_counter(1);
     session.execute_trusted_structural_mutation(StructuralMutation::Insert {
         entity: E::ENTITY.to_string(),
         patch: read_back_row.into_structural_patch(),
@@ -2252,8 +2266,7 @@ where
         "SELECT id FROM {} WHERE id = {read_back_id} LIMIT 1",
         E::ENTITY
     ))?;
-    let write_then_read_back_local_instructions =
-        call_context_instruction_counter().saturating_sub(start);
+    let write_then_read_back_local_instructions = performance_counter(1).saturating_sub(start);
     let read_back_rows = sql_write_result_row_count(&response).ok_or_else(query_validate_error)?;
     if read_back_rows != 1 {
         return Err(unexpected_write_perf_count_error(
@@ -2298,9 +2311,9 @@ fn measure_sql_write_statement(
     sql: &str,
     expected_rows: u32,
 ) -> Result<(u64, u32), icydb::Error> {
-    let start = call_context_instruction_counter();
+    let start = performance_counter(1);
     let result = db()?.execute_trusted_sql_mutation(sql)?;
-    let instructions = call_context_instruction_counter().saturating_sub(start);
+    let instructions = performance_counter(1).saturating_sub(start);
     let row_count = ensure_sql_write_row_count(label, &result, expected_rows)?;
 
     Ok((instructions, row_count))
@@ -2312,9 +2325,9 @@ fn measure_sql_exact_update_statement(
     sql: &str,
     expected_rows: u32,
 ) -> Result<(u64, u32), icydb::Error> {
-    let start = call_context_instruction_counter();
+    let start = performance_counter(1);
     let result = db()?.execute_trusted_sql_exact_update(sql, expected_rows)?;
-    let instructions = call_context_instruction_counter().saturating_sub(start);
+    let instructions = performance_counter(1).saturating_sub(start);
     let row_count = ensure_sql_write_row_count(label, &result, expected_rows)?;
 
     Ok((instructions, row_count))
@@ -2419,7 +2432,6 @@ where
 
 /// Measure the heap typed write path.
 #[cfg(feature = "sql")]
-#[update]
 fn measure_heap_user_write_matrix_perf() -> Result<StorageWritePerfResult, icydb::Error> {
     icydb::db::with_request_execution(|| {
         measure_storage_write_matrix::<PerfAuditHeapUser, _>(
@@ -2429,10 +2441,11 @@ fn measure_heap_user_write_matrix_perf() -> Result<StorageWritePerfResult, icydb
         )
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "measure_heap_user_write_matrix_perf", MeasureHeapUserWriteMatrixPerf, measure_heap_user_write_matrix_perf, (), Result<StorageWritePerfResult, icydb::Error>);
 
 /// Measure the journaled typed write path.
 #[cfg(feature = "sql")]
-#[update]
 fn measure_journaled_user_write_matrix_perf() -> Result<StorageWritePerfResult, icydb::Error> {
     icydb::db::with_request_execution(|| {
         measure_storage_write_matrix::<PerfAuditJournaledUser, _>(
@@ -2442,11 +2455,12 @@ fn measure_journaled_user_write_matrix_perf() -> Result<StorageWritePerfResult, 
         )
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "measure_journaled_user_write_matrix_perf", MeasureJournaledUserWriteMatrixPerf, measure_journaled_user_write_matrix_perf, (), Result<StorageWritePerfResult, icydb::Error>);
 
 /// Measure the matched journaled typed-write path before and after one simple
 /// accepted check, including the exact bounded publication scan.
 #[cfg(feature = "sql")]
-#[update]
 fn measure_journaled_user_constraint_write_perf()
 -> Result<ConstraintActivationPerfResult, icydb::Error> {
     icydb::db::with_request_execution(|| {
@@ -2456,13 +2470,13 @@ fn measure_journaled_user_constraint_write_perf()
             build_perf_audit_journaled_user,
         )?;
 
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let add_result = db()?.execute_admin_sql_ddl(
             "ALTER TABLE PerfAuditJournaledUser ADD CONSTRAINT \
          perf_audit_age_nonnegative CHECK (age >= 0) NOT VALID \
          EXPECT SCHEMA VERSION 1 SET SCHEMA VERSION 2",
         )?;
-        let add_check_local_instructions = call_context_instruction_counter().saturating_sub(start);
+        let add_check_local_instructions = performance_counter(1).saturating_sub(start);
         let SqlQueryResult::Ddl {
             rows_scanned: add_check_rows_scanned,
             ..
@@ -2478,11 +2492,12 @@ fn measure_journaled_user_constraint_write_perf()
         })
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "measure_journaled_user_constraint_write_perf", MeasureJournaledUserConstraintWritePerf, measure_journaled_user_constraint_write_perf, (), Result<ConstraintActivationPerfResult, icydb::Error>);
 
 /// Measure the journaled typed-write path after the preceding audit call has
 /// published its simple accepted check.
 #[cfg(feature = "sql")]
-#[update]
 fn measure_journaled_user_checked_write_perf() -> Result<StorageWritePerfResult, icydb::Error> {
     icydb::db::with_request_execution(|| {
         measure_storage_write_matrix::<PerfAuditJournaledUser, _>(
@@ -2492,10 +2507,11 @@ fn measure_journaled_user_checked_write_perf() -> Result<StorageWritePerfResult,
         )
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "measure_journaled_user_checked_write_perf", MeasureJournaledUserCheckedWritePerf, measure_journaled_user_checked_write_perf, (), Result<StorageWritePerfResult, icydb::Error>);
 
 /// Advance the audit-only journaled check activation to accepted authority.
 #[cfg(feature = "sql")]
-#[update]
 fn validate_journaled_user_perf_check() -> Result<(), icydb::Error> {
     icydb::db::with_request_execution(|| {
         const MAX_VALIDATION_STEPS: usize = 4;
@@ -2519,10 +2535,11 @@ fn validate_journaled_user_perf_check() -> Result<(), icydb::Error> {
         Err(query_validate_error())
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "validate_journaled_user_perf_check", ValidateJournaledUserPerfCheck, validate_journaled_user_perf_check, (), Result<(), icydb::Error>);
 
 /// Measure broad SQL write materialization shapes against heap storage.
 #[cfg(feature = "sql")]
-#[update]
 fn measure_heap_user_sql_write_materialization_perf()
 -> Result<SqlWriteMaterializationPerfResult, icydb::Error> {
     icydb::db::with_request_execution(|| {
@@ -2533,10 +2550,11 @@ fn measure_heap_user_sql_write_materialization_perf()
         )
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "measure_heap_user_sql_write_materialization_perf", MeasureHeapUserSqlWriteMaterializationPerf, measure_heap_user_sql_write_materialization_perf, (), Result<SqlWriteMaterializationPerfResult, icydb::Error>);
 
 /// Measure broad SQL write materialization shapes against journaled storage.
 #[cfg(feature = "sql")]
-#[update]
 fn measure_journaled_user_sql_write_materialization_perf()
 -> Result<SqlWriteMaterializationPerfResult, icydb::Error> {
     icydb::db::with_request_execution(|| {
@@ -2547,6 +2565,8 @@ fn measure_journaled_user_sql_write_materialization_perf()
         )
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "measure_journaled_user_sql_write_materialization_perf", MeasureJournaledUserSqlWriteMaterializationPerf, measure_journaled_user_sql_write_materialization_perf, (), Result<SqlWriteMaterializationPerfResult, icydb::Error>);
 
 #[cfg(feature = "sql")]
 fn mutation_scale_job_id(job: MutationScaleJob) -> Result<MutationJobId, MutationJobError> {
@@ -2582,7 +2602,6 @@ fn mutation_scale_count(sql: &str) -> Result<u32, icydb::Error> {
 
 /// Load one bounded page of the fixed 10,001-row tier and scoring fixture.
 #[cfg(feature = "sql")]
-#[update]
 fn load_collection_mutation_scale_page(
     first_id: u32,
     row_count: u32,
@@ -2621,24 +2640,23 @@ fn load_collection_mutation_scale_page(
         })
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "load_collection_mutation_scale_page", LoadCollectionMutationScalePage, load_collection_mutation_scale_page, (first_id: u32, row_count: u32), Result<MutationScaleLoadEvidence, icydb::Error>);
 
 /// Return one count-only fact without resetting the aggregate request budget.
 #[cfg(feature = "sql")]
-#[query]
 fn collection_mutation_scale_fact(fact: MutationScaleFact) -> Result<u32, icydb::Error> {
     icydb::db::with_request_execution(|| mutation_scale_count(fact.sql()))
 }
-
-/// Advance one engine-owned startup-recovery page after upgrade without
-/// attributing that work to a bounded mutation-job page.
-// The test-admin Candid documentation above is frozen. This method now only
-// observes lifecycle-driven progress; it owns no recovery page.
 #[cfg(feature = "sql")]
-#[update]
+icydb_testing_wasm_helpers::export_wire!(query, "collection_mutation_scale_fact", CollectionMutationScaleFact, collection_mutation_scale_fact, (fact: MutationScaleFact), Result<u32, icydb::Error>);
+
+/// Observe lifecycle-driven startup progress independently of mutation-job work.
+#[cfg(feature = "sql")]
 fn recover_collection_mutation_scale_store() -> Result<MutationScaleRecoveryEvidence, icydb::Error>
 {
     icydb::db::with_request_execution(|| {
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let ready = match startup_state() {
             Ok(icydb::db::DatabaseStartupState::Ready) => true,
             Ok(icydb::db::DatabaseStartupState::Recovering) => false,
@@ -2653,7 +2671,7 @@ fn recover_collection_mutation_scale_store() -> Result<MutationScaleRecoveryEvid
         } else {
             0
         };
-        let local_instructions = call_context_instruction_counter().saturating_sub(start);
+        let local_instructions = performance_counter(1).saturating_sub(start);
 
         Ok(MutationScaleRecoveryEvidence {
             complete: ready,
@@ -2662,10 +2680,11 @@ fn recover_collection_mutation_scale_store() -> Result<MutationScaleRecoveryEvid
         })
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "recover_collection_mutation_scale_store", RecoverCollectionMutationScaleStore, recover_collection_mutation_scale_store, (), Result<MutationScaleRecoveryEvidence, icydb::Error>);
 
 /// Prove that the one-shot 10,001-row assertion is rejected before mutation.
 #[cfg(feature = "sql")]
-#[update]
 fn try_collection_eager_tier_reset() -> Result<SqlQueryResult, icydb::Error> {
     icydb::db::with_request_execution(|| {
         db()?.execute_trusted_sql_exact_update(
@@ -2674,10 +2693,11 @@ fn try_collection_eager_tier_reset() -> Result<SqlQueryResult, icydb::Error> {
         )
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "try_collection_eager_tier_reset", TryCollectionEagerTierReset, try_collection_eager_tier_reset, (), Result<SqlQueryResult, icydb::Error>);
 
 /// Start or exactly replay one fixed collection-scale application phase.
 #[cfg(feature = "sql")]
-#[update]
 fn start_collection_mutation_scale_job(
     job: MutationScaleJob,
 ) -> Result<MutationJobState, MutationJobError> {
@@ -2686,10 +2706,11 @@ fn start_collection_mutation_scale_job(
             .start_trusted_sql_mutation_job(mutation_scale_job_id(job)?, job.sql())
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "start_collection_mutation_scale_job", StartCollectionMutationScaleJob, start_collection_mutation_scale_job, (job: MutationScaleJob), Result<MutationJobState, MutationJobError>);
 
 /// Advance exactly one bounded page of one collection-scale application phase.
 #[cfg(feature = "sql")]
-#[update]
 fn advance_collection_mutation_scale_job(
     job: MutationScaleJob,
     expected_sequence: u64,
@@ -2704,9 +2725,9 @@ fn advance_collection_mutation_scale_job(
             expected_sequence,
             MutationJobIdempotencyKey::new(idempotency_key)?,
         );
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let receipt = session.advance_trusted_mutation_job(&request)?;
-        let local_instructions = call_context_instruction_counter().saturating_sub(start);
+        let local_instructions = performance_counter(1).saturating_sub(start);
 
         Ok(MutationScaleAdvancePerfResult {
             receipt,
@@ -2714,13 +2735,14 @@ fn advance_collection_mutation_scale_job(
         })
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "advance_collection_mutation_scale_job", AdvanceCollectionMutationScaleJob, advance_collection_mutation_scale_job, (job: MutationScaleJob, expected_sequence: u64, idempotency_key: String), Result<MutationScaleAdvancePerfResult, MutationJobError>);
 
 /// Load current count-only public state for one collection-scale application phase.
 /// This audit surface is an update so a post-upgrade call retains the IC's
 /// update headroom while the current guarded-reentry contract recovers a large
 /// journal tail.
 #[cfg(feature = "sql")]
-#[update]
 fn collection_mutation_scale_job_state(
     job: MutationScaleJob,
 ) -> Result<MutationJobState, MutationJobError> {
@@ -2729,10 +2751,11 @@ fn collection_mutation_scale_job_state(
             .mutation_job_state(mutation_scale_job_id(job)?)
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "collection_mutation_scale_job_state", CollectionMutationScaleJobState, collection_mutation_scale_job_state, (job: MutationScaleJob), Result<MutationJobState, MutationJobError>);
 
 /// Acknowledge one terminal scale job; repeating after response loss is safe.
 #[cfg(feature = "sql")]
-#[update]
 fn acknowledge_collection_mutation_scale_job(
     job: MutationScaleJob,
     expected_sequence: u64,
@@ -2742,45 +2765,48 @@ fn acknowledge_collection_mutation_scale_job(
             .acknowledge_mutation_job(mutation_scale_job_id(job)?, expected_sequence)
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "acknowledge_collection_mutation_scale_job", AcknowledgeCollectionMutationScaleJob, acknowledge_collection_mutation_scale_job, (job: MutationScaleJob, expected_sequence: u64), Result<(), MutationJobError>);
 
 /// Cancel one exact unadvanced audit mutation job.
 #[cfg(feature = "test-admin-api")]
-#[update]
 fn cancel_journaled_user_mutation_job(
     job_discriminator: u8,
     expected_sequence: u64,
 ) -> Result<MutationJobCancellationPerfResult, MutationJobError> {
     icydb::db::with_request_execution(|| {
         let session = db().map_err(|_| MutationJobError::Internal)?;
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         session.cancel_unadvanced_mutation_job(
             audit_mutation_job_id(job_discriminator)?,
             expected_sequence,
         )?;
-        let local_instructions = call_context_instruction_counter().saturating_sub(start);
+        let local_instructions = performance_counter(1).saturating_sub(start);
         Ok(MutationJobCancellationPerfResult { local_instructions })
     })
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(update, "cancel_journaled_user_mutation_job", CancelJournaledUserMutationJob, cancel_journaled_user_mutation_job, (job_discriminator: u8, expected_sequence: u64), Result<MutationJobCancellationPerfResult, MutationJobError>);
 
 /// Return the complete bounded shared-progress inventory.
 #[cfg(feature = "test-admin-api")]
-#[update]
 fn progress_job_inventory_perf() -> Result<ProgressJobInventoryPerfResult, MutationJobError> {
     icydb::db::with_request_execution(|| {
         let session = db().map_err(|_| MutationJobError::Internal)?;
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let inventory = session.progress_job_inventory()?;
-        let local_instructions = call_context_instruction_counter().saturating_sub(start);
+        let local_instructions = performance_counter(1).saturating_sub(start);
         Ok(ProgressJobInventoryPerfResult {
             inventory,
             local_instructions,
         })
     })
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(update, "progress_job_inventory_perf", ProgressJobInventoryPerf, progress_job_inventory_perf, (), Result<ProgressJobInventoryPerfResult, MutationJobError>);
 
 /// Measure durable Forward convergence without exposing private intent or continuation bytes.
 #[cfg(feature = "sql")]
-#[update]
 fn measure_journaled_user_mutation_forward_perf()
 -> Result<MutationJobForwardPerfResult, MutationJobError> {
     icydb::db::with_request_execution(|| {
@@ -2791,9 +2817,9 @@ fn measure_journaled_user_mutation_forward_perf()
         let mut job_bytes = [0; 32];
         job_bytes[31] = 73;
         let job_id = MutationJobId::try_from_bytes(job_bytes)?;
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let state = session.start_trusted_sql_mutation_job(job_id, sql)?;
-        let start_local_instructions = call_context_instruction_counter().saturating_sub(start);
+        let start_local_instructions = performance_counter(1).saturating_sub(start);
         let mut sequence = state.sequence;
         let mut forward_local_instructions = Vec::new();
         let mut forward_keys_scanned = 0_u64;
@@ -2807,9 +2833,9 @@ fn measure_journaled_user_mutation_forward_perf()
                 sequence,
                 MutationJobIdempotencyKey::new(format!("forward-{sequence}"))?,
             );
-            let start = call_context_instruction_counter();
+            let start = performance_counter(1);
             let receipt = session.advance_trusted_mutation_job(&request)?;
-            let instructions = call_context_instruction_counter().saturating_sub(start);
+            let instructions = performance_counter(1).saturating_sub(start);
             forward_local_instructions.push(instructions);
             forward_keys_scanned = forward_keys_scanned.saturating_add(receipt.keys_scanned);
             rows_updated = rows_updated.saturating_add(receipt.rows_updated);
@@ -2817,10 +2843,9 @@ fn measure_journaled_user_mutation_forward_perf()
             rows_updated_per_step.push(receipt.rows_updated);
             sequence = receipt.committed_sequence;
             if receipt.phase == MutationJobPhase::Verify {
-                let start = call_context_instruction_counter();
+                let start = performance_counter(1);
                 let replay = session.advance_trusted_mutation_job(&request)?;
-                let replay_local_instructions =
-                    call_context_instruction_counter().saturating_sub(start);
+                let replay_local_instructions = performance_counter(1).saturating_sub(start);
                 let timestamp_groups = match session
                     .execute_trusted_sql_query(
                         "SELECT updated_at, COUNT(*) FROM PerfAuditJournaledUser \
@@ -2880,6 +2905,8 @@ fn measure_journaled_user_mutation_forward_perf()
         Err(MutationJobError::Internal)
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "measure_journaled_user_mutation_forward_perf", MeasureJournaledUserMutationForwardPerf, measure_journaled_user_mutation_forward_perf, (), Result<MutationJobForwardPerfResult, MutationJobError>);
 
 #[cfg(feature = "sql")]
 fn advance_audit_mutation_job_to_verify(
@@ -2922,9 +2949,9 @@ fn complete_audit_mutation_job_after_restart(
             sequence,
             MutationJobIdempotencyKey::new(format!("verify-resume-{sequence}"))?,
         );
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let receipt = session.advance_trusted_mutation_job(&request)?;
-        let local_instructions = call_context_instruction_counter().saturating_sub(start);
+        let local_instructions = performance_counter(1).saturating_sub(start);
         if phase == MutationJobPhase::Verify {
             stable_verify_local_instructions.push(local_instructions);
         }
@@ -3011,9 +3038,9 @@ fn advance_audit_verify_after_unrelated_write(
         sequence,
         MutationJobIdempotencyKey::new(format!("verify-unrelated-{sequence}"))?,
     );
-    let start = call_context_instruction_counter();
+    let start = performance_counter(1);
     let receipt = session.advance_trusted_mutation_job(&request)?;
-    let local_instructions = call_context_instruction_counter().saturating_sub(start);
+    let local_instructions = performance_counter(1).saturating_sub(start);
     if receipt.phase != MutationJobPhase::Verify
         || receipt.status != MutationJobStatus::Active
         || receipt.verify_restarts_total != 0
@@ -3035,9 +3062,9 @@ fn advance_audit_verify_after_target_write(
         sequence,
         MutationJobIdempotencyKey::new(format!("verify-drift-{sequence}"))?,
     );
-    let start = call_context_instruction_counter();
+    let start = performance_counter(1);
     let receipt = session.advance_trusted_mutation_job(&request)?;
-    let local_instructions = call_context_instruction_counter().saturating_sub(start);
+    let local_instructions = performance_counter(1).saturating_sub(start);
     if receipt.phase != MutationJobPhase::Forward
         || receipt.status != MutationJobStatus::Active
         || receipt.verify_restarts_total != 1
@@ -3049,7 +3076,6 @@ fn advance_audit_verify_after_target_write(
 
 /// Exercise stable Verify, unrelated and target writes, replay, and terminal acknowledgement.
 #[cfg(feature = "sql")]
-#[update]
 fn verify_journaled_user_mutation_job_lifecycle()
 -> Result<MutationJobVerifyResult, MutationJobError> {
     icydb::db::with_request_execution(|| {
@@ -3069,19 +3095,17 @@ fn verify_journaled_user_mutation_job_lifecycle()
             sequence,
             MutationJobIdempotencyKey::new(format!("verify-page-{sequence}"))?,
         );
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let first_verify = session.advance_trusted_mutation_job(&first_verify_request)?;
-        let first_verify_local_instructions =
-            call_context_instruction_counter().saturating_sub(start);
+        let first_verify_local_instructions = performance_counter(1).saturating_sub(start);
         if first_verify.phase != MutationJobPhase::Verify
             || first_verify.status != MutationJobStatus::Active
         {
             return Err(MutationJobError::Internal);
         }
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let first_verify_replay = session.advance_trusted_mutation_job(&first_verify_request)?;
-        let verify_replay_local_instructions =
-            call_context_instruction_counter().saturating_sub(start);
+        let verify_replay_local_instructions = performance_counter(1).saturating_sub(start);
         sequence = first_verify.committed_sequence;
 
         let (unrelated_verify, unrelated_verify_local_instructions) =
@@ -3098,24 +3122,22 @@ fn verify_journaled_user_mutation_job_lifecycle()
             terminal_receipt,
         } = complete_audit_mutation_job_after_restart(&session, job_id, sequence)?;
         sequence = terminal_receipt.committed_sequence;
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let terminal_state = session.mutation_job_state(job_id)?;
-        let state_local_instructions = call_context_instruction_counter().saturating_sub(start);
+        let state_local_instructions = performance_counter(1).saturating_sub(start);
         if terminal_state.status != MutationJobStatus::Completed {
             return Err(MutationJobError::Internal);
         }
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let terminal_replay = session.advance_trusted_mutation_job(&terminal_request)?;
-        let terminal_replay_local_instructions =
-            call_context_instruction_counter().saturating_sub(start);
+        let terminal_replay_local_instructions = performance_counter(1).saturating_sub(start);
         let stale_acknowledgement_rejected = matches!(
             session.acknowledge_mutation_job(job_id, sequence.saturating_sub(1)),
             Err(MutationJobError::StaleSequence { .. })
         );
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         session.acknowledge_mutation_job(job_id, sequence)?;
-        let acknowledgement_local_instructions =
-            call_context_instruction_counter().saturating_sub(start);
+        let acknowledgement_local_instructions = performance_counter(1).saturating_sub(start);
         session.acknowledge_mutation_job(job_id, sequence)?;
         let terminal_acknowledged = matches!(
             session.mutation_job_state(job_id),
@@ -3149,10 +3171,11 @@ fn verify_journaled_user_mutation_job_lifecycle()
         })
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "verify_journaled_user_mutation_job_lifecycle", VerifyJournaledUserMutationJobLifecycle, verify_journaled_user_mutation_job_lifecycle, (), Result<MutationJobVerifyResult, MutationJobError>);
 
 /// Start or replay one fixed audit mutation intent without advancing it.
 #[cfg(feature = "sql")]
-#[update]
 fn start_journaled_user_mutation_job(
     job_discriminator: u8,
     intent_discriminator: u8,
@@ -3170,9 +3193,9 @@ fn start_journaled_user_mutation_job(
             6 => "UPDATE PerfAuditMaxFanout SET a = 1001 WHERE id >= 0",
             _ => return Err(MutationJobError::IneligibleIntent),
         };
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let state = session.start_trusted_sql_mutation_job(job_id, sql)?;
-        let local_instructions = call_context_instruction_counter().saturating_sub(start);
+        let local_instructions = performance_counter(1).saturating_sub(start);
         let target_rows_changed = sql_write_result_row_count(&session
             .execute_trusted_sql_query(
                 "SELECT id FROM PerfAuditJournaledUser WHERE name = 'durable-start' ORDER BY id LIMIT 1",
@@ -3186,10 +3209,11 @@ fn start_journaled_user_mutation_job(
         })
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "start_journaled_user_mutation_job", StartJournaledUserMutationJob, start_journaled_user_mutation_job, (job_discriminator: u8, intent_discriminator: u8), Result<MutationJobStartPerfResult, MutationJobError>);
 
 /// Apply one later ordinary write used by the managed-time mutation-job proof.
 #[cfg(feature = "test-admin-api")]
-#[update]
 fn update_journaled_user_after_mutation_job_start() -> Result<u32, icydb::Error> {
     icydb::db::with_request_execution(|| {
         let result = db()?.execute_trusted_sql_exact_update(
@@ -3199,10 +3223,11 @@ fn update_journaled_user_after_mutation_job_start() -> Result<u32, icydb::Error>
         sql_write_result_row_count(&result).ok_or_else(query_validate_error)
     })
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(update, "update_journaled_user_after_mutation_job_start", UpdateJournaledUserAfterMutationJobStart, update_journaled_user_after_mutation_job_start, (), Result<u32, icydb::Error>);
 
 /// Advance one managed-time proof job in exactly one canister message.
 #[cfg(feature = "test-admin-api")]
-#[update]
 fn advance_journaled_user_mutation_job(
     job_discriminator: u8,
     expected_sequence: u64,
@@ -3215,21 +3240,22 @@ fn advance_journaled_user_mutation_job(
             MutationJobIdempotencyKey::new(idempotency_key)?,
         );
         let session = db().map_err(|_| MutationJobError::Internal)?;
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let receipt = session.advance_trusted_mutation_job(&request)?;
-        let local_instructions = call_context_instruction_counter().saturating_sub(start);
+        let local_instructions = performance_counter(1).saturating_sub(start);
         Ok(MutationScaleAdvancePerfResult {
             receipt,
             local_instructions,
         })
     })
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(update, "advance_journaled_user_mutation_job", AdvanceJournaledUserMutationJob, advance_journaled_user_mutation_job, (job_discriminator: u8, expected_sequence: u64, idempotency_key: String), Result<MutationScaleAdvancePerfResult, MutationJobError>);
 
 /// Measure one canonical administrative integrity SQL operation.
 #[cfg(feature = "sql")]
-#[update]
 // This audit endpoint deliberately exposes the canonical typed integrity
-// error. Boxing it would change the generated Candid response contract.
+// error. Boxing it would change the native response contract.
 #[allow(clippy::result_large_err)]
 fn measure_integrity_sql_perf(sql: String) -> Result<IntegritySqlPerfResult, SqlIntegrityError> {
     icydb::db::with_request_execution(|| {
@@ -3237,9 +3263,9 @@ fn measure_integrity_sql_perf(sql: String) -> Result<IntegritySqlPerfResult, Sql
         let owner = IntegrityJobOwner::new("audit::sql-perf")
             .map_err(IntegrityCheckError::Job)
             .map_err(SqlIntegrityError::Integrity)?;
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let result = session.execute_admin_integrity_sql(sql.as_str(), owner)?;
-        let local_instructions = call_context_instruction_counter().saturating_sub(start);
+        let local_instructions = performance_counter(1).saturating_sub(start);
 
         Ok(IntegritySqlPerfResult {
             result,
@@ -3247,22 +3273,26 @@ fn measure_integrity_sql_perf(sql: String) -> Result<IntegritySqlPerfResult, Sql
         })
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "measure_integrity_sql_perf", MeasureIntegritySqlPerf, measure_integrity_sql_perf, (sql: String), Result<IntegritySqlPerfResult, SqlIntegrityError>);
 
 /// Execute one PerfAuditHeapUser-only SQL query and attach one local
 /// instruction sample.
 #[cfg(feature = "sql")]
-#[query]
 fn query_heap_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
     icydb::db::with_request_execution(|| query_entity_with_perf(sql.as_str()))
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(query, "query_heap_user_with_perf", QueryHeapUserWithPerf, query_heap_user_with_perf, (sql: String), Result<SqlQueryPerfResult, icydb::Error>);
 
 /// Execute one PerfAuditJournaledUser-only SQL query and attach one local
 /// instruction sample.
 #[cfg(feature = "sql")]
-#[query]
 fn query_journaled_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
     icydb::db::with_request_execution(|| query_entity_with_perf(sql.as_str()))
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(query, "query_journaled_user_with_perf", QueryJournaledUserWithPerf, query_journaled_user_with_perf, (sql: String), Result<SqlQueryPerfResult, icydb::Error>);
 
 /// Execute the journaled LIMIT 1 shape through an update call. After a
 /// same-WASM upgrade this gives the integration harness one normal guarded
@@ -3270,14 +3300,13 @@ fn query_journaled_user_with_perf(sql: String) -> Result<SqlQueryPerfResult, icy
 // Patch 4 moves recovery into the watchdog envelope. The retained test-admin
 // method measures only the post-ready query path.
 #[cfg(feature = "sql")]
-#[update]
 fn measure_journaled_reentry_perf() -> Result<ReadTotalOnlyPerfResult, icydb::Error> {
     icydb::db::with_request_execution(|| {
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let response = db()?.execute_trusted_sql_query(
             "SELECT id FROM PerfAuditJournaledUser ORDER BY id LIMIT 1",
         )?;
-        let instructions = call_context_instruction_counter().saturating_sub(start);
+        let instructions = performance_counter(1).saturating_sub(start);
         let row_count = sql_write_result_row_count(&response).ok_or_else(query_validate_error)?;
 
         Ok(ReadTotalOnlyPerfResult {
@@ -3286,22 +3315,26 @@ fn measure_journaled_reentry_perf() -> Result<ReadTotalOnlyPerfResult, icydb::Er
         })
     })
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(update, "measure_journaled_reentry_perf", MeasureJournaledReentryPerf, measure_journaled_reentry_perf, (), Result<ReadTotalOnlyPerfResult, icydb::Error>);
 
 /// Execute one PerfAuditBlob-only SQL query and attach one local instruction
 /// sample.
 #[cfg(feature = "sql")]
-#[query]
 fn query_blob_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
     icydb::db::with_request_execution(|| query_entity_with_perf(sql.as_str()))
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(query, "query_blob_with_perf", QueryBlobWithPerf, query_blob_with_perf, (sql: String), Result<SqlQueryPerfResult, icydb::Error>);
 
 /// Execute one PerfAuditToken-only SQL query and attach one local instruction
 /// sample.
 #[cfg(feature = "sql")]
-#[query]
 fn query_token_with_perf(sql: String) -> Result<SqlQueryPerfResult, icydb::Error> {
     icydb::db::with_request_execution(|| query_entity_with_perf(sql.as_str()))
 }
+#[cfg(feature = "sql")]
+icydb_testing_wasm_helpers::export_wire!(query, "query_token_with_perf", QueryTokenWithPerf, query_token_with_perf, (sql: String), Result<SqlQueryPerfResult, icydb::Error>);
 
 #[cfg(feature = "sql")]
 fn scale_fixture_facts(
@@ -4051,7 +4084,7 @@ fn perf_audit_tokens() -> Vec<PerfAuditToken> {
 }
 
 /// Closed producer and recovery facts for one maximum accepted-index publication.
-#[derive(CandidType, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, Eq, PartialEq, serde::Serialize)]
 #[cfg(feature = "test-admin-api")]
 struct PromotionIndexPublicationFacts {
     rows_scanned: u64,
@@ -4061,7 +4094,6 @@ struct PromotionIndexPublicationFacts {
 
 /// Publish or retire the temporary accepted index used by 0.230 closeout evidence.
 #[cfg(feature = "test-admin-api")]
-#[update]
 fn mutate_cardinality_closeout_index(
     present: bool,
     expected_version: u64,
@@ -4082,9 +4114,9 @@ fn mutate_cardinality_closeout_index(
                  EXPECT SCHEMA VERSION {expected_version} SET SCHEMA VERSION {next_version}"
             )
         };
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let result = db()?.execute_admin_sql_ddl(sql.as_str())?;
-        let local_instructions = call_context_instruction_counter().saturating_sub(start);
+        let local_instructions = performance_counter(1).saturating_sub(start);
         let SqlQueryResult::Ddl {
             rows_scanned,
             index_keys_written,
@@ -4105,6 +4137,8 @@ fn mutate_cardinality_closeout_index(
         })
     })
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(update, "mutate_cardinality_closeout_index", MutateCardinalityCloseoutIndex, mutate_cardinality_closeout_index, (present: bool, expected_version: u64, next_version: u64), Result<PromotionIndexPublicationFacts, icydb::Error>);
 
 #[cfg(feature = "test-admin-api")]
 const PROMOTION_INDEX_FIXTURE_ROWS: u32 = 65_536;
@@ -4113,7 +4147,6 @@ const PROMOTION_INDEX_LOAD_PAGE_ROWS: u32 = 4_096;
 
 /// Append one admitted page of the maximum accepted-index promotion fixture.
 #[cfg(feature = "test-admin-api")]
-#[update]
 fn append_promotion_index_fixture_page(first_id: u32, row_count: u32) -> Result<u32, icydb::Error> {
     icydb::db::with_request_execution(|| {
         if first_id == 0 || row_count == 0 || row_count > PROMOTION_INDEX_LOAD_PAGE_ROWS {
@@ -4139,18 +4172,19 @@ fn append_promotion_index_fixture_page(first_id: u32, row_count: u32) -> Result<
         Ok(row_count)
     })
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(update, "append_promotion_index_fixture_page", AppendPromotionIndexFixturePage, append_promotion_index_fixture_page, (first_id: u32, row_count: u32), Result<u32, icydb::Error>);
 
 /// Publish the largest maintained accepted-index key set through ordinary DDL.
 #[cfg(feature = "test-admin-api")]
-#[update]
 fn publish_promotion_index_fixture() -> Result<PromotionIndexPublicationFacts, icydb::Error> {
     icydb::db::with_request_execution(|| {
-        let start = call_context_instruction_counter();
+        let start = performance_counter(1);
         let result = db()?.execute_admin_sql_ddl(
             "CREATE INDEX perf_promotion_name_idx ON PerfAuditJournaledUser (name) \
              EXPECT SCHEMA VERSION 1 SET SCHEMA VERSION 2",
         )?;
-        let local_instructions = call_context_instruction_counter().saturating_sub(start);
+        let local_instructions = performance_counter(1).saturating_sub(start);
         let SqlQueryResult::Ddl {
             rows_scanned,
             index_keys_written,
@@ -4174,6 +4208,8 @@ fn publish_promotion_index_fixture() -> Result<PromotionIndexPublicationFacts, i
         })
     })
 }
+#[cfg(feature = "test-admin-api")]
+icydb_testing_wasm_helpers::export_wire!(update, "publish_promotion_index_fixture", PublishPromotionIndexFixture, publish_promotion_index_fixture, (), Result<PromotionIndexPublicationFacts, icydb::Error>);
 
-#[cfg(feature = "candid-export")]
-ic_cdk::export_candid!();
+#[cfg(feature = "sql")]
+use icydb_testing_audit_sql_perf_fixtures::contracts::{ScaleFixtureFacts, ScalePayloadProfile};

@@ -2,7 +2,7 @@
 //!
 //! Responsibility: public typed error payloads and facade error category mapping.
 //! Does not own: internal error construction or accepted constraint authority.
-//! Boundary: maps core diagnostics to canister-facing Candid error records.
+//! Boundary: maps core diagnostics to canister-facing Wire error records.
 
 mod bootstrap;
 #[cfg(test)]
@@ -10,7 +10,6 @@ mod tests;
 
 use std::fmt;
 
-use candid::CandidType;
 use icydb_core::db::QueryError;
 use icydb_core::error::{ErrorOrigin as CoreErrorOrigin, InternalError};
 use serde::Deserialize;
@@ -29,7 +28,7 @@ pub use icydb_core::error::{
 ///
 /// The leaf error code owns the reason. Facts contain only production-safe
 /// numeric parameters interpreted together with that code.
-#[derive(CandidType, Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct DiagnosticFact {
     tag: u8,
     value: u64,
@@ -61,7 +60,7 @@ impl DiagnosticFact {
 //
 
 /// One bounded rejected query-field reference attached to a planning error.
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct QueryFieldDiagnostic {
     role: u8,
     field: String,
@@ -99,7 +98,7 @@ impl QueryFieldDiagnostic {
 //
 
 #[cfg_attr(doc, doc = "Error\n\nPublic error payload.")]
-#[derive(CandidType, Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub struct Error {
     code: u16,
     class: u8,

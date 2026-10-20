@@ -5,9 +5,10 @@
 
 mod render;
 
+use icydb::wire::Endpoint;
+
 use crate::{
     cli::{CanisterTarget, MetricsArgs},
-    endpoint::{METRICS_ENDPOINT, METRICS_RESET_ENDPOINT},
     icp::require_created_canister,
     observability::{call_query, call_update, decode_endpoint_result},
 };
@@ -21,36 +22,36 @@ pub(super) fn run_metrics_command(args: MetricsArgs) -> Result<(), String> {
         return run_metrics_reset(target);
     }
 
-    let candid_bytes = call_query(
+    let wire_bytes = call_query(
         target.environment(),
         target.canister_name(),
-        METRICS_ENDPOINT.method(),
+        Endpoint::Metrics.name(),
         (),
     )?;
     let report = decode_endpoint_result::<icydb::metrics::MetricsReport>(
-        &candid_bytes,
+        &wire_bytes,
         "metrics",
         target.environment(),
         target.canister_name(),
-        METRICS_ENDPOINT.method(),
+        Endpoint::Metrics.name(),
     )?;
     print!("{}", render_metrics_report(&report));
     Ok(())
 }
 
 fn run_metrics_reset(target: &CanisterTarget) -> Result<(), String> {
-    let candid_bytes = call_update(
+    let wire_bytes = call_update(
         target.environment(),
         target.canister_name(),
-        METRICS_RESET_ENDPOINT.method(),
+        Endpoint::MetricsReset.name(),
         (),
     )?;
     decode_endpoint_result::<()>(
-        &candid_bytes,
+        &wire_bytes,
         "metrics reset",
         target.environment(),
         target.canister_name(),
-        METRICS_RESET_ENDPOINT.method(),
+        Endpoint::MetricsReset.name(),
     )?;
     println!(
         "Reset metrics on canister '{}' in environment '{}'.",

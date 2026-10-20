@@ -1,7 +1,6 @@
 //! Controller-only allocation reporting through the generated snapshot endpoint.
 
-use candid::Principal;
-use ic_testkit::pic::CandidCallExt as _;
+use ic_platform::Principal;
 use icydb::{
     Error, ErrorOrigin,
     db::{MemoryAllocationBinding, StorageReport},
@@ -10,6 +9,7 @@ use icydb::{
 use icydb_testing_build::{
     CanisterBuildOptions, CanisterBuildProfile, build_fixture_canister_wasm_bytes_with_options,
 };
+use icydb_testing_integration::WireCallExt as _;
 use icydb_testing_integration::install_prebuilt_fixture_canister;
 
 #[test]
@@ -25,7 +25,7 @@ fn generated_snapshot_reports_allocation_totals_without_mutation() {
     let before = fixture.pocket_ic().get_stable_memory(fixture.canister_id());
     let response: Result<StorageReport, Error> = fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "icydb_snapshot", ())
+        .query_wire(fixture.canister_id(), "icydb_snapshot", ())
         .unwrap();
     let report = response.unwrap();
     let allocations = report.memory_allocations().unwrap();
@@ -60,12 +60,12 @@ fn generated_snapshot_reports_allocation_totals_without_mutation() {
 
     let repeated: Result<StorageReport, Error> = fixture
         .pocket_ic()
-        .query_candid(fixture.canister_id(), "icydb_snapshot", ())
+        .query_wire(fixture.canister_id(), "icydb_snapshot", ())
         .unwrap();
     assert_eq!(repeated.unwrap().memory_allocations(), Some(allocations));
     let denied: Result<StorageReport, Error> = fixture
         .pocket_ic()
-        .query_candid_as(
+        .query_wire_as(
             fixture.canister_id(),
             Principal::self_authenticating([42; 32]),
             "icydb_snapshot",

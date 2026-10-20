@@ -11,14 +11,19 @@ def needs_list:
 def needs_are($expected):
   (.needs | needs_list | sort | unique) == ($expected | sort | unique);
 def run_text: .run // "";
+# Cargo owns fetching the selected registry/public Git graph; preparation must
+# precede offline callers and stop the lane on failure.
+def fetches_locked_workspace:
+  (run_text | test("^\\s*cargo\\s+fetch\\s+--locked\\s*$"))
+  and .if == null and (.["continue-on-error"] // false) == false;
 # Native-only lanes select the complete common roster without Testkit's server
 # extension; live lanes must explicitly select the existing product owner.
 def admits_server_tools:
   run_text as $run |
   ($run | test("(^|\\s)(install-testkit|testkit-check)(\\s|$)")) or
-  (($run | test("\\binstall-tools\\b")) and
+  (($run | test("(?m)^[ \\t]*make[ \\t]+install-tools([ \\t]|$)")) and
     ($run | test("(?m)^[ \\t]*make[ \\t]+install-tools[ \\t]+LOCAL_TOOL_INSTALL_TARGETS=[ \\t]*(>|$)") | not)) or
-  (($run | test("\\btools-check\\b")) and
+  (($run | test("(?m)^[ \\t]*make[ \\t]+tools-check([ \\t]|$)")) and
     ($run | test("(?m)^[ \\t]*make[ \\t]+tools-check[ \\t]+LOCAL_TOOL_CHECK_TARGETS=[ \\t]*(>|$)") | not));
 
 # One object and an explicit permission owner are required in every workflow.
@@ -48,7 +53,7 @@ require(has("permissions") and (.permissions != null);
 # Only the central CI workflow owns these product-specific topology rules.
 (select($file == ".github/workflows/ci.yml") |
   . as $ci |
-  (["dependency_msrv", "static", "rust", "macos_host", "check", "wasm_size_report", "release"][] as $job |
+  (["dependency_msrv", "static", "rust", "macos_host", "wire_browser", "check", "wasm_size_report", "release"][] as $job |
     require($ci.jobs | has($job); "CI is missing the \($job) validation job")),
   # Installation alone does not override rust-toolchain.toml. The executable
   # gate compares the selected compiler with the public manifest's own floor.
@@ -69,7 +74,7 @@ require(has("permissions") and (.permissions != null);
   (.jobs.dependency_msrv.steps as $steps |
     range(0; ($steps | length)) as $index |
     select($steps[$index] | run_text | test("^\\s*bash scripts/ci/check-public-msrv\\.sh\\s*$")) |
-    require(any($steps[0:$index][]; run_text | test("^\\s*make\\s+fetch\\s*$"));
+    require(any($steps[0:$index][]; fetches_locked_workspace);
       "public MSRV requires earlier locked cache preparation")),
   # Server setup is selected by lane; each lane must retain its matching body.
   ([["core", "ci-core"], ["workspace", "ci-workspace"],
@@ -91,7 +96,7 @@ require(has("permissions") and (.permissions != null);
       and (.["continue-on-error"] // false) == false
       and (run_text | test("^\\s*rustup target add wasm32-unknown-unknown\\s*$")));
       "workspace and Tier B require earlier Wasm target installation that stops on failure")),
-  require(.jobs.check | needs_are(["static", "rust", "macos_host"]);
+  require(.jobs.check | needs_are(["static", "rust", "macos_host", "wire_browser"]);
     "terminal check must aggregate every validation lane"),
   require(.jobs.wasm_size_report | needs_are([]);
     "Wasm evidence must run independently from validation"),
@@ -121,6 +126,20 @@ require(has("permissions") and (.permissions != null);
       and .with["temp-root"] == "${{ runner.temp }}"
       and .with["repository-root"] == "${{ github.workspace }}");
       "\($job) requires shared tooling failure retention")),
+  # IC build/report tools are separate from both common tools and Testkit's server.
+  # Credit only explicit setup/admission before the lane's actual caller.
+  ([["rust", "matrix.lane == 'workspace' || matrix.lane == 'tier-b'"],
+    ["wasm_size_report", null]][] as $selection |
+    $selection[0] as $job | .jobs[$job].steps as $steps |
+    require(any(range(0; ($steps | length)); . as $index |
+      ($steps[$index] | .if == $selection[1]
+        and (.["continue-on-error"] // false) == false
+        and (run_text | test("(?m)^[ \\t]*make[ \\t]+install-ic-tools[ \\t]+>"))
+        and (run_text | test("(?m)^[ \\t]*make[ \\t]+ic-tools-check[ \\t]+>")))
+      and any($steps[$index + 1:][];
+        if $job == "rust" then .env.MAKE_TARGET == "${{ matrix.make_target }}"
+        else run_text | contains("bash scripts/ci/wasm-size-report.sh") end));
+      "\($job) requires governed IC tool setup and offline admission before its build/report caller")),
   # Real server setup belongs to the matrix lane that executes live canisters.
   require(any(.jobs.rust.steps[]?;
     .if == "matrix.lane == 'tier-b'" and (.["continue-on-error"] // false) == false
@@ -142,7 +161,5 @@ require(has("permissions") and (.permissions != null);
     range(0; ($steps | length)) as $index |
     select($steps[$index] | run_text |
       test("\\bmake\\s+(install-tools|install-testkit)\\b")) |
-    require(any($steps[0:$index][];
-      .if == null and (.["continue-on-error"] // false) == false
-      and (run_text | test("^\\s*make\\s+fetch\\s*$")));
-      "Rust tool checks require an earlier unconditional make fetch step that stops on failure")))
+    require(any($steps[0:$index][]; fetches_locked_workspace);
+      "Rust tool checks require an earlier unconditional workspace fetch command that stops on failure")))

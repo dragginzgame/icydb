@@ -1,8 +1,8 @@
 //! Canonical fixed-width subaccount atom.
 
-use crate::{Principal, SchemaContractError};
-use candid::CandidType;
-use serde::{Deserialize, Deserializer, Serialize, de::Error as DeError};
+use crate::{Principal, SchemaContractError, atom::deserialize_fixed_bytes};
+
+use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt::{self, Display};
 
 //
@@ -11,7 +11,7 @@ use std::fmt::{self, Display};
 
 type SubaccountBytes = [u8; 32];
 
-#[derive(CandidType, Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 /// A canonical 32-byte ICRC account subaccount.
 pub struct Subaccount(SubaccountBytes);
 
@@ -71,39 +71,11 @@ impl<'de> Deserialize<'de> for Subaccount {
     where
         D: Deserializer<'de>,
     {
-        // Candid validates nat8 elements through sequence ingress. Read into a
-        // fixed array and inspect at most one excess byte before rejecting.
-        struct SubaccountBytesVisitor;
-
-        impl<'de> serde::de::Visitor<'de> for SubaccountBytesVisitor {
-            type Value = Subaccount;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                formatter.write_str("exactly 32 subaccount bytes")
-            }
-
-            fn visit_seq<A: serde::de::SeqAccess<'de>>(
-                self,
-                mut sequence: A,
-            ) -> Result<Subaccount, A::Error> {
-                let mut bytes = [0; 32];
-                for (index, byte) in bytes.iter_mut().enumerate() {
-                    *byte = sequence
-                        .next_element()?
-                        .ok_or_else(|| A::Error::invalid_length(index, &self))?;
-                }
-                if sequence.next_element::<u8>()?.is_some() {
-                    return Err(A::Error::invalid_length(33, &self));
-                }
-                Ok(Subaccount::from_array(bytes))
-            }
-        }
-
         if deserializer.is_human_readable() {
             return SubaccountBytes::deserialize(deserializer).map(Self);
         }
 
-        deserializer.deserialize_seq(SubaccountBytesVisitor)
+        deserialize_fixed_bytes(deserializer).map(Self::from_array)
     }
 }
 
@@ -188,16 +160,16 @@ mod tests {
     }
 
     #[test]
-    fn binary_serde_and_candid_preserve_exact_subaccount_bytes() {
+    fn binary_serde_and_wire_preserve_exact_subaccount_bytes() {
         for byte in [0, 23, 24, 128, 255] {
             let value = Subaccount::from_array([byte; 32]);
             let mut encoded = Vec::new();
-            ciborium::into_writer(&value, &mut encoded).unwrap();
+            serde_cbor::to_writer(&mut encoded, &value).unwrap();
             assert_eq!(encoded.len(), 34);
-            let wire: ciborium::Value = ciborium::from_reader(encoded.as_slice()).unwrap();
-            assert_eq!(wire, ciborium::Value::Bytes(value.to_bytes().to_vec()));
+            let wire: serde_cbor::Value = serde_cbor::from_slice(encoded.as_slice()).unwrap();
+            assert_eq!(wire, serde_cbor::Value::Bytes(value.to_bytes().to_vec()));
             assert_eq!(
-                ciborium::from_reader::<Subaccount, _>(encoded.as_slice()).unwrap(),
+                serde_cbor::from_slice::<Subaccount>(encoded.as_slice()).unwrap(),
                 value
             );
 
@@ -205,17 +177,20 @@ mod tests {
             assert_eq!(json, serde_json::to_string(&value.to_array()).unwrap());
             assert_eq!(serde_json::from_str::<Subaccount>(&json).unwrap(), value);
 
-            let candid = candid::encode_one(value).unwrap();
-            assert_eq!(candid, candid::encode_one(value.to_array()).unwrap());
-            assert_eq!(candid.len(), 42);
-            assert_eq!(candid::decode_one::<Subaccount>(&candid).unwrap(), value);
+            let wire = crate::wire::encode_one(value).unwrap();
+            assert_eq!(
+                wire,
+                crate::wire::encode_one(serde_bytes::Bytes::new(&value.to_array())).unwrap()
+            );
+            assert_eq!(wire.len(), 33);
+            assert_eq!(crate::wire::decode_one::<Subaccount>(&wire).unwrap(), value);
 
             let batch = vec![value; 1_000];
             encoded.clear();
-            ciborium::into_writer(&batch, &mut encoded).unwrap();
+            serde_cbor::to_writer(&mut encoded, &batch).unwrap();
             assert_eq!(encoded.len(), 34_003);
             assert_eq!(
-                ciborium::from_reader::<Vec<Subaccount>, _>(encoded.as_slice()).unwrap(),
+                serde_cbor::from_slice::<Vec<Subaccount>>(encoded.as_slice()).unwrap(),
                 batch
             );
         }
@@ -224,19 +199,33 @@ mod tests {
     #[test]
     fn binary_subaccount_ingress_enforces_width_and_byte_elements() {
         for len in [0, 31, 33, 1_024] {
-            let wire = candid::encode_one(vec![0_u8; len]).unwrap();
-            assert!(candid::decode_one::<Subaccount>(&wire).is_err());
+            let wire = crate::wire::encode_one(vec![0_u8; len]).unwrap();
+            assert!(crate::wire::decode_one::<Subaccount>(&wire).is_err());
             let mut encoded = Vec::new();
-            ciborium::into_writer(&serde_bytes::Bytes::new(&vec![0; len]), &mut encoded).unwrap();
-            assert!(ciborium::from_reader::<Subaccount, _>(encoded.as_slice()).is_err());
+            serde_cbor::to_writer(&mut encoded, &serde_bytes::Bytes::new(&vec![0; len])).unwrap();
+            assert!(serde_cbor::from_slice::<Subaccount>(encoded.as_slice()).is_err());
         }
-        let wire = candid::encode_one(vec![0_u16; 32]).unwrap();
-        assert!(candid::decode_one::<Subaccount>(&wire).is_err());
+        // Postcard carries values without source integer-type tags: use a value
+        // outside the byte domain rather than zero, which also encodes as u8.
+        let wire = crate::wire::encode_one(vec![256_u16; 32]).unwrap();
+        assert!(crate::wire::decode_one::<Subaccount>(&wire).is_err());
+
+        // Self-describing binary formats may present bytes as a byte string or
+        // an array. Both retain the exact width and byte-element contract.
+        let array = serde_cbor::to_vec(&vec![255_u8; 32]).unwrap();
+        assert_eq!(
+            serde_cbor::from_slice::<Subaccount>(&array).unwrap(),
+            Subaccount::MAX
+        );
+        for array in [vec![0_u16; 31], vec![0; 33], vec![256; 32]] {
+            let encoded = serde_cbor::to_vec(&array).unwrap();
+            assert!(serde_cbor::from_slice::<Subaccount>(&encoded).is_err());
+        }
 
         let mut encoded = Vec::new();
-        ciborium::into_writer(&Subaccount::MAX, &mut encoded).unwrap();
+        serde_cbor::to_writer(&mut encoded, &Subaccount::MAX).unwrap();
         for end in 0..encoded.len() {
-            assert!(ciborium::from_reader::<Subaccount, _>(&encoded[..end]).is_err());
+            assert!(serde_cbor::from_slice::<Subaccount>(&encoded[..end]).is_err());
         }
     }
 
@@ -245,17 +234,21 @@ mod tests {
         for subaccount in [None, Some(Subaccount::MIN), Some(Subaccount::MAX)] {
             let account = Account::from_owner_and_subaccount(Principal::anonymous(), subaccount);
             let mut encoded = Vec::new();
-            ciborium::into_writer(&account, &mut encoded).unwrap();
+            serde_cbor::to_writer(&mut encoded, &account).unwrap();
             assert_eq!(encoded.len(), if subaccount.is_some() { 54 } else { 21 });
             assert_eq!(
-                ciborium::from_reader::<Account, _>(encoded.as_slice()).unwrap(),
+                serde_cbor::from_slice::<Account>(encoded.as_slice()).unwrap(),
                 account
             );
             let json = serde_json::to_string(&account).unwrap();
             assert_eq!(serde_json::from_str::<Account>(&json).unwrap(), account);
-            let candid = candid::encode_one(account).unwrap();
-            assert_eq!(candid, candid::encode_one(account.to_icrc_type()).unwrap());
-            assert_eq!(candid::decode_one::<Account>(&candid).unwrap(), account);
+            let wire = crate::wire::encode_one(account).unwrap();
+            // Native account projection is the ordered owner/optional-bytes pair.
+            assert_eq!(
+                wire,
+                crate::wire::encode_one((account.owner(), subaccount)).unwrap()
+            );
+            assert_eq!(crate::wire::decode_one::<Account>(&wire).unwrap(), account);
         }
     }
 }

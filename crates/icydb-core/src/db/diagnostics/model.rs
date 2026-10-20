@@ -11,11 +11,11 @@ use crate::db::{
         StoreRecoveryCapability, StoreRuntimeStorageCapabilities, StoreSchemaMetadataCapability,
     },
 };
-use candid::CandidType;
+
 use serde::Deserialize;
 
 #[cfg_attr(doc, doc = "StorageReport\n\nLive storage snapshot payload.")]
-#[derive(CandidType, Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, serde::Serialize)]
 pub struct StorageReport {
     pub(crate) memory_allocations: Option<MemoryAllocations>,
     pub(crate) storage_data: Vec<DataStoreSnapshot>,
@@ -96,7 +96,7 @@ impl StorageReport {
 }
 
 #[cfg_attr(doc, doc = "SchemaStoreSnapshot\n\nSchema-store diagnostic row.")]
-#[derive(CandidType, Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, serde::Serialize)]
 pub struct SchemaStoreSnapshot {
     pub(crate) path: String,
     pub(crate) storage: StoreSnapshotStorageMode,
@@ -117,7 +117,7 @@ pub struct SchemaStoreSnapshot {
 ///
 /// This is observability metadata only. It does not participate in allocation
 /// identity, stable-key generation, or durable row/index/schema storage ABI.
-#[derive(CandidType, Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
 pub enum StoreSnapshotStorageMode {
     Heap,
     #[default]
@@ -383,7 +383,7 @@ impl SchemaStoreSnapshot {
 }
 
 #[cfg_attr(doc, doc = "DataStoreSnapshot\n\nData-store snapshot row.")]
-#[derive(CandidType, Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, serde::Serialize)]
 pub struct DataStoreSnapshot {
     pub(crate) path: String,
     pub(crate) storage: StoreSnapshotStorageMode,
@@ -525,7 +525,7 @@ impl DataStoreSnapshot {
 }
 
 #[cfg_attr(doc, doc = "IndexStoreSnapshot\n\nIndex-store snapshot row.")]
-#[derive(CandidType, Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, serde::Serialize)]
 pub struct IndexStoreSnapshot {
     pub(crate) path: String,
     pub(crate) storage: StoreSnapshotStorageMode,
@@ -691,7 +691,7 @@ impl IndexStoreSnapshot {
 }
 
 #[cfg_attr(doc, doc = "EntitySnapshot\n\nPer-entity storage snapshot row.")]
-#[derive(CandidType, Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, serde::Serialize)]
 pub struct EntitySnapshot {
     pub(crate) store: String,
 

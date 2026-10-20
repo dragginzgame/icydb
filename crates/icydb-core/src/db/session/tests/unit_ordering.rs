@@ -37,7 +37,7 @@ use crate::{
     types::{EntityTag, U256},
     value::{InputValue, OutputValue, Value},
 };
-use ic_memory::ic_stable_structures::Storable;
+use ic_storage::adapter::Storable;
 use icydb_diagnostic_code::{DiagnosticFactTag, QueryFieldRole};
 use icydb_schema::{FieldSourceKey, ScalarType};
 use std::{borrow::Cow, cell::RefCell, collections::BTreeMap, rc::Rc};
@@ -129,8 +129,18 @@ fn retained_shared_cache_charges_plans_and_rebinds_without_accumulating_operands
             .expect("strong memo hit");
         assert_eq!(session.shared_query_cache_usage_for_tests(), first);
     }
-    session
+    let rejected = new_request_session()
         .execute_trusted_live_page(&query(&"x".repeat(2048)), None)
+        .expect_err("an oversized index bound must reject without replacing the cached plan");
+    assert_eq!(
+        rejected.diagnostic().error_code(),
+        crate::error::InternalError::index_unsupported()
+            .diagnostic()
+            .error_code(),
+    );
+    assert_eq!(session.shared_query_cache_usage_for_tests(), first);
+    session
+        .execute_trusted_live_page(&query(&"x".repeat(400)), None)
         .expect("larger binding");
     let larger = session.shared_query_cache_usage_for_tests();
     assert_eq!(larger.0, 1);

@@ -8,7 +8,7 @@ use crate::wasm_optimizer::{
     pinned_wasm_optimizer,
 };
 use std::{
-    collections::BTreeSet,
+    collections::BTreeMap,
     env,
     ffi::{OsStr, OsString},
     fmt::Write as _,
@@ -18,15 +18,16 @@ use std::{
 };
 
 use ic_build::artifacts::{
-    ArtifactCacheBatchFailure, ArtifactCacheBatchReport, ArtifactCacheOutcome,
-    ArtifactCachePrunePolicy, ArtifactCacheSpec, LabeledArtifactCacheSpec, LabeledWasmBuildSpec,
+    ArtifactCacheBatchFailure, ArtifactCacheBatchReport, ArtifactCacheOutcome, ArtifactCacheSpec,
+    CacheRetentionLimits, LabeledArtifactCacheSpec, LabeledWasmBuildSpec,
     SharedIncrementalTargetMaintenanceConfig, SharedIncrementalTargetMaintenanceFailureMode,
-    SharedIncrementalTargetPrunePolicy, WasmBuildBatchConfig, WasmBuildBatchContractError,
-    WasmBuildBatchProgressEvent, WasmBuildBatchReport, WasmBuildOutcome, WasmBuildProgressConfig,
-    WasmBuildProgressEvent, WasmBuildSpec, build_artifact_caches_batch,
-    build_wasm_canisters_cached_batch_with_config_and_progress,
+    WasmBuildBatchConfig, WasmBuildBatchContractError, WasmBuildBatchProgressEvent,
+    WasmBuildBatchReport, WasmBuildOutcome, WasmBuildProgressConfig, WasmBuildProgressEvent,
+    WasmBuildSpec, build_artifact_caches_batch, build_wasm_canisters_cached_batch,
     build_wasm_canisters_cached_with_progress,
 };
+use ic_build::cargo::selection::CargoSelection;
+use ic_host_process::child::{CleanupPolicy, OwnedChild};
 
 const CACHE_TRACE_ENV: &str = "ICYDB_CANISTER_CACHE_TRACE";
 const POST_LINK_CACHE_NAMESPACE: &str = "icydb-canister-wasm";
@@ -36,31 +37,20 @@ const CACHE_MAX_BYTES: u64 = 1024 * 1024 * 1024;
 const CACHE_MAINTENANCE_INTERVAL: Duration = Duration::from_hours(24);
 const BUILD_PROGRESS_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 const SHARED_INCREMENTAL_TARGET_MAX_BYTES: u64 = 16 * 1024 * 1024 * 1024;
-const EXTRA_BUILD_ENVIRONMENT: [&str; 9] = [
-    "AR",
-    "CARGO_HOME",
-    "CC",
-    "CFLAGS",
-    "CXX",
-    "CXXFLAGS",
-    "HOST_CC",
-    "HOST_CFLAGS",
-    "SOURCE_DATE_EPOCH",
-];
 
 pub(crate) struct CargoWasmCacheRequest<'a> {
     pub(crate) context: &'a str,
     pub(crate) workspace_root: &'a Path,
     pub(crate) target_dir: &'a Path,
     pub(crate) packages: &'a [&'a str],
-    pub(crate) arguments: &'a [OsString],
+    pub(crate) selection: &'a CargoSelection,
     pub(crate) encoded_rustflags: Option<&'a str>,
 }
 
 pub(crate) struct CargoWasmBatchEntry<'a> {
     pub(crate) context: &'a str,
     pub(crate) package: &'a str,
-    pub(crate) arguments: &'a [OsString],
+    pub(crate) selection: &'a CargoSelection,
     pub(crate) encoded_rustflags: Option<&'a str>,
 }
 
@@ -85,16 +75,19 @@ pub(crate) fn build_cached_cargo_wasm(
         request.workspace_root,
         request.target_dir,
         request.packages,
-        request.arguments,
+        request.selection,
         request.encoded_rustflags,
         true,
     );
 
-    let outcome =
-        build_wasm_canisters_cached_with_progress(&spec, wasm_build_progress_config(), |event| {
-            report_wasm_build_progress(request.context, event);
-        })
-        .map_err(|error| format!("cached Cargo Wasm build failed: {error}"))?;
+    let outcome = build_wasm_canisters_cached_with_progress(
+        &spec,
+        wasm_build_progress_config(),
+        |event| report_wasm_build_progress(request.context, event),
+        // Observed Cargo builds own their group through observer unwind.
+        |command| OwnedChild::spawn(command, CleanupPolicy::KillAndWait),
+    )
+    .map_err(|error| format!("cached Cargo Wasm build failed: {error}"))?;
     report_shared_target_maintenance_failure(request.context, &outcome);
     Ok(outcome)
 }
@@ -113,7 +106,7 @@ pub(crate) fn cargo_wasm_batch_specs(
                     workspace_root,
                     target_dir,
                     &[entry.package],
-                    entry.arguments,
+                    entry.selection,
                     entry.encoded_rustflags,
                     false,
                 ),
@@ -127,15 +120,18 @@ pub(crate) fn build_cached_cargo_wasm_batch(
 ) -> Result<WasmBuildBatchReport, WasmBuildBatchContractError> {
     let batch_config = WasmBuildBatchConfig::new()
         .with_shared_incremental_target_maintenance(shared_incremental_target_maintenance_config());
-    let report = build_wasm_canisters_cached_batch_with_config_and_progress(
+    let mut observer = report_wasm_build_batch_progress;
+    let report = build_wasm_canisters_cached_batch(
         specs,
         batch_config,
-        wasm_build_progress_config(),
-        report_wasm_build_batch_progress,
+        Some((wasm_build_progress_config(), &mut observer)),
+        |command| OwnedChild::spawn(command, CleanupPolicy::KillAndWait),
     )?;
-    for outcome in report.outcomes() {
-        trace_wasm_build(outcome.label(), outcome.outcome());
-        report_shared_target_maintenance_failure(outcome.label(), outcome.outcome());
+    for entry in report.outcomes() {
+        if let Some(outcome) = entry.outcome() {
+            trace_wasm_build(entry.label(), outcome);
+            report_shared_target_maintenance_failure(entry.label(), outcome);
+        }
     }
     eprintln!("maintained canister cargo_wasm_batch={report}");
     Ok(report)
@@ -145,25 +141,30 @@ fn cargo_wasm_spec(
     workspace_root: &Path,
     target_dir: &Path,
     packages: &[&str],
-    arguments: &[OsString],
+    selection: &CargoSelection,
     encoded_rustflags: Option<&str>,
     integrated_shared_target_maintenance: bool,
 ) -> WasmBuildSpec {
-    let mut spec = WasmBuildSpec::new(workspace_root, target_dir, packages)
-        .with_cargo_profile_args(arguments)
-        .with_inherited_env(inherited_build_environment())
+    // Build clears child inheritance. Select the caller's environment once so
+    // probes, compilation and the retained fingerprint observe the same inputs.
+    let mut environment: BTreeMap<_, _> = env::vars_os().collect();
+    // The specification owns the destination, including when a parent Cargo
+    // process supplied its own target directory to this build tool.
+    environment.remove(OsStr::new("CARGO_TARGET_DIR"));
+    if let Some(rustflags) = encoded_rustflags {
+        environment.insert(
+            OsString::from("CARGO_ENCODED_RUSTFLAGS"),
+            OsString::from(rustflags),
+        );
+    }
+    let mut spec = WasmBuildSpec::new(workspace_root, target_dir, packages, environment)
+        .with_cargo_selection(selection.clone())
         .with_shared_incremental_target(target_dir)
         .with_prune_policy_at_most_every(artifact_cache_prune_policy(), CACHE_MAINTENANCE_INTERVAL);
     if integrated_shared_target_maintenance {
         spec = spec.with_shared_incremental_target_maintenance(
             shared_incremental_target_maintenance_config(),
         );
-    }
-    if let Some(rustflags) = encoded_rustflags {
-        spec = spec.with_extra_env([(
-            OsString::from("CARGO_ENCODED_RUSTFLAGS"),
-            OsString::from(rustflags),
-        )]);
     }
     spec
 }
@@ -185,10 +186,11 @@ pub(crate) fn cache_post_link_wasm(
         .pop()
         .ok_or_else(|| "post-link artifact batch omitted its single entry".to_owned())?;
     entry.into_parts().2.map_err(|failure| match failure {
-        ArtifactCacheBatchFailure::Cache { source, .. } => {
+        ArtifactCacheBatchFailure::Preparation { source, .. }
+        | ArtifactCacheBatchFailure::Commit { source, .. } => {
             format!("post-link artifact cache failed: {source}")
         }
-        ArtifactCacheBatchFailure::Build {
+        ArtifactCacheBatchFailure::Callback {
             source,
             cleanup_error,
             ..
@@ -209,8 +211,10 @@ pub(crate) fn cache_post_link_wasm_batch(
 ) -> Result<ArtifactCacheBatchReport<String>, String> {
     let report = cache_post_link_wasm_entries(workspace_root, cache_root, entries)?;
 
-    for outcome in report.outcomes() {
-        trace_post_link(outcome.label(), outcome.outcome());
+    for entry in report.outcomes() {
+        if let Some(outcome) = entry.outcome() {
+            trace_post_link(entry.label(), outcome);
+        }
     }
     eprintln!("maintained canister post_link_batch={report}");
 
@@ -334,14 +338,14 @@ fn wasm_build_progress_config() -> WasmBuildProgressConfig {
         .with_cargo_output(false)
 }
 
-const fn artifact_cache_prune_policy() -> ArtifactCachePrunePolicy {
-    ArtifactCachePrunePolicy::new()
+const fn artifact_cache_prune_policy() -> CacheRetentionLimits {
+    CacheRetentionLimits::new()
         .with_max_age(CACHE_MAX_AGE)
         .with_max_size_bytes(CACHE_MAX_BYTES)
 }
 
-const fn shared_incremental_target_prune_policy() -> SharedIncrementalTargetPrunePolicy {
-    SharedIncrementalTargetPrunePolicy::new()
+const fn shared_incremental_target_prune_policy() -> CacheRetentionLimits {
+    CacheRetentionLimits::new()
         .with_max_age(CACHE_MAX_AGE)
         .with_max_size_bytes(SHARED_INCREMENTAL_TARGET_MAX_BYTES)
 }
@@ -355,42 +359,22 @@ const fn shared_incremental_target_maintenance_config() -> SharedIncrementalTarg
     .with_failure_mode(SharedIncrementalTargetMaintenanceFailureMode::BestEffort)
 }
 
-fn inherited_build_environment() -> BTreeSet<OsString> {
-    let mut names = EXTRA_BUILD_ENVIRONMENT
-        .into_iter()
-        .map(OsString::from)
-        .collect::<BTreeSet<_>>();
-    names.extend(
-        env::vars_os().filter_map(|(name, _)| relevant_prefixed_environment(&name).then_some(name)),
-    );
-    names
-}
-
-fn relevant_prefixed_environment(name: &OsStr) -> bool {
-    let Some(name) = name.to_str() else {
-        return false;
-    };
-    name.starts_with("CARGO_PROFILE_")
-        || (name.starts_with("CARGO_TARGET_") && name != "CARGO_TARGET_DIR")
-}
-
 ///
 /// TESTS
 ///
 
 #[cfg(test)]
 mod tests {
-    use std::{env, ffi::OsStr, fs, path::PathBuf, process::Command};
+    use std::{env, fs, path::PathBuf, process::Command};
 
     use super::{
         ArtifactCacheOutcome, BUILD_PROGRESS_HEARTBEAT_INTERVAL, CACHE_MAINTENANCE_INTERVAL,
-        CACHE_MAX_AGE, CACHE_MAX_BYTES, CargoWasmBatchEntry, CargoWasmCacheRequest,
-        EXTRA_BUILD_ENVIRONMENT, PostLinkBatchEntry, PostLinkCacheRequest,
-        SHARED_INCREMENTAL_TARGET_MAX_BYTES, SharedIncrementalTargetMaintenanceFailureMode,
-        artifact_cache_prune_policy, build_cached_cargo_wasm, build_cached_cargo_wasm_batch,
-        cache_post_link_wasm, cache_post_link_wasm_batch, cargo_wasm_batch_specs,
-        relevant_prefixed_environment, shared_incremental_target_maintenance_config,
-        wasm_build_progress_config,
+        CACHE_MAX_AGE, CACHE_MAX_BYTES, CargoSelection, CargoWasmBatchEntry, CargoWasmCacheRequest,
+        PostLinkBatchEntry, PostLinkCacheRequest, SHARED_INCREMENTAL_TARGET_MAX_BYTES,
+        SharedIncrementalTargetMaintenanceFailureMode, artifact_cache_prune_policy,
+        build_cached_cargo_wasm, build_cached_cargo_wasm_batch, cache_post_link_wasm,
+        cache_post_link_wasm_batch, cargo_wasm_batch_specs,
+        shared_incremental_target_maintenance_config, wasm_build_progress_config,
     };
 
     fn workspace_root() -> PathBuf {
@@ -402,6 +386,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "qualifies one cold/single/batch reuse contract end to end"
+    )]
     fn encoded_flags_reach_single_and_batch_builds_and_cache_identity() {
         let root = ic_host_fs::testing::create_fixture_directory(
             &env::temp_dir(),
@@ -437,7 +425,7 @@ mod tests {
             "--cfg\x1fcaller_cache\x1f--remap-path-prefix={}=/first remap",
             root.display()
         );
-        let changed = format!(
+        let changed_flags = format!(
             "--cfg\x1fcaller_cache\x1f--remap-path-prefix={}=/second remap",
             root.display()
         );
@@ -446,10 +434,18 @@ mod tests {
             workspace_root: &root,
             target_dir: &target,
             packages: &["cache_flags_probe"],
-            arguments: &[],
+            selection: &CargoSelection::default(),
             encoded_rustflags: Some(&flags),
         })
         .unwrap();
+        assert!(!single.is_reused());
+        assert!(
+            !single
+                .record()
+                .facts()
+                .environment
+                .contains_key(std::ffi::OsStr::new("CARGO_TARGET_DIR"))
+        );
         let specs = cargo_wasm_batch_specs(
             &root,
             &target,
@@ -457,21 +453,21 @@ mod tests {
                 CargoWasmBatchEntry {
                     context: "flags-same",
                     package: "cache_flags_probe",
-                    arguments: &[],
+                    selection: &CargoSelection::default(),
                     encoded_rustflags: Some(&flags),
                 },
                 CargoWasmBatchEntry {
                     context: "flags-changed",
                     package: "cache_flags_probe",
-                    arguments: &[],
-                    encoded_rustflags: Some(&changed),
+                    selection: &CargoSelection::default(),
+                    encoded_rustflags: Some(&changed_flags),
                 },
             ],
         );
         let batch = build_cached_cargo_wasm_batch(&specs).unwrap();
         assert_eq!(batch.failures().count(), 0, "{batch:?}");
-        assert_eq!(batch.outcomes().count(), 2);
         let same = batch.entries()[0].result().unwrap().record();
+        assert!(batch.entries()[0].result().unwrap().is_reused());
         let changed = batch.entries()[1].result().unwrap().record();
         assert_eq!(single.record().fingerprint(), same.fingerprint());
         assert_ne!(same.fingerprint(), changed.fingerprint());
@@ -480,6 +476,18 @@ mod tests {
             (same, "/first remap"),
             (changed, "/second remap"),
         ] {
+            let facts = record.facts();
+            let expected_flags = if prefix == "/first remap" {
+                &flags
+            } else {
+                &changed_flags
+            };
+            assert_eq!(
+                facts
+                    .environment
+                    .get(std::ffi::OsStr::new("CARGO_ENCODED_RUSTFLAGS")),
+                Some(&std::ffi::OsString::from(expected_flags)),
+            );
             let wasm = fs::read(&record.artifacts()[0]).unwrap();
             let expected = format!("caller-preserved|{prefix}/src/absolute.rs");
             assert!(
@@ -490,20 +498,6 @@ mod tests {
         drop(single);
         drop(batch);
         fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn cargo_cache_environment_is_narrow_and_target_safe() {
-        assert!(EXTRA_BUILD_ENVIRONMENT.is_sorted());
-        assert!(relevant_prefixed_environment(OsStr::new(
-            "CARGO_PROFILE_WASM_RELEASE_OPT_LEVEL"
-        )));
-        assert!(relevant_prefixed_environment(OsStr::new(
-            "CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUSTFLAGS"
-        )));
-        assert!(!relevant_prefixed_environment(OsStr::new(
-            "CARGO_TARGET_DIR"
-        )));
     }
 
     #[test]
@@ -565,7 +559,14 @@ mod tests {
         assert!(single.is_reused());
         assert_eq!(
             single.record().key(),
-            batch.outcomes().next().unwrap().outcome().record().key()
+            batch
+                .outcomes()
+                .next()
+                .unwrap()
+                .outcome()
+                .unwrap()
+                .record()
+                .key()
         );
         fs::write(&input, b"invalid wasm").unwrap();
         assert!(cache_post_link_wasm(&request).is_err());

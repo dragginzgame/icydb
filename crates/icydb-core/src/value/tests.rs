@@ -13,7 +13,7 @@ use crate::{
         Value, ValueEnum, canonicalize_value_set, hash_value,
     },
 };
-use candid::CandidType;
+
 use std::{cmp::Ordering, collections::BTreeSet};
 
 // ---- helpers -----------------------------------------------------------
@@ -44,18 +44,19 @@ fn ulid_public_value_carriers_roundtrip_binary_scalars_and_collections() {
             InputValue::ulid(value),
             InputValue::list(vec![InputValue::ulid(value), InputValue::null()]),
         ] {
-            let encoded = candid::encode_one(&input).expect("ULID input should encode");
-            let decoded =
-                candid::decode_one::<InputValue>(&encoded).expect("ULID input should decode");
+            let encoded = icydb_schema::wire::encode_one(&input).expect("ULID input should encode");
+            let decoded = icydb_schema::wire::decode_one::<InputValue>(&encoded)
+                .expect("ULID input should decode");
             assert_eq!(decoded, input);
 
             let output = OutputValue::from_public(input.into_public());
             assert_eq!(
-                candid::encode_one(&output).expect("ULID output should encode"),
+                icydb_schema::wire::encode_one(&output).expect("ULID output should encode"),
                 encoded,
             );
             assert_eq!(
-                candid::decode_one::<OutputValue>(&encoded).expect("ULID output should decode"),
+                icydb_schema::wire::decode_one::<OutputValue>(&encoded)
+                    .expect("ULID output should decode"),
                 output,
             );
         }
@@ -63,28 +64,30 @@ fn ulid_public_value_carriers_roundtrip_binary_scalars_and_collections() {
 }
 
 #[test]
-fn u256_public_value_carriers_roundtrip_candid_nat_boundaries() {
+fn u256_public_value_carriers_roundtrip_fixed_width_boundaries() {
     for value in [U256::MIN, U256::ONE, U256::MAX] {
         let input = InputValue::u256(value);
-        let input_bytes = candid::encode_one(&input).expect("U256 input should Candid-encode");
+        let input_bytes =
+            icydb_schema::wire::encode_one(&input).expect("U256 input should Wire-encode");
         assert_eq!(
-            candid::decode_one::<InputValue>(&input_bytes)
-                .expect("U256 input should Candid-decode"),
+            icydb_schema::wire::decode_one::<InputValue>(&input_bytes)
+                .expect("U256 input should Wire-decode"),
             input,
         );
 
         let output = OutputValue::u256(value);
-        let output_bytes = candid::encode_one(&output).expect("U256 output should Candid-encode");
+        let output_bytes =
+            icydb_schema::wire::encode_one(&output).expect("U256 output should Wire-encode");
         assert_eq!(
-            candid::decode_one::<OutputValue>(&output_bytes)
-                .expect("U256 output should Candid-decode"),
+            icydb_schema::wire::decode_one::<OutputValue>(&output_bytes)
+                .expect("U256 output should Wire-decode"),
             output,
         );
     }
 }
 
 #[test]
-fn public_value_root_wrappers_share_one_candid_shape() {
+fn public_value_root_wrappers_share_one_wire_shape() {
     let input = InputValue::map(vec![
         (
             InputValue::text("state".to_string()),
@@ -120,24 +123,24 @@ fn public_value_root_wrappers_share_one_candid_shape() {
     let value = input.as_public().clone();
     let output = OutputValue::from_public(value.clone());
 
-    assert_eq!(InputValue::ty(), PublicValue::ty());
-    assert_eq!(OutputValue::ty(), PublicValue::ty());
     assert_eq!(
-        candid::encode_one(&input).expect("input wrapper should encode"),
-        candid::encode_one(&value).expect("public kernel should encode"),
+        icydb_schema::wire::encode_one(&input).expect("input wrapper should encode"),
+        icydb_schema::wire::encode_one(&value).expect("public kernel should encode"),
     );
     assert_eq!(
-        candid::encode_one(&output).expect("output wrapper should encode"),
-        candid::encode_one(&value).expect("public kernel should encode"),
+        icydb_schema::wire::encode_one(&output).expect("output wrapper should encode"),
+        icydb_schema::wire::encode_one(&value).expect("public kernel should encode"),
     );
 
-    let encoded = candid::encode_one(&value).expect("public kernel should encode");
+    let encoded = icydb_schema::wire::encode_one(&value).expect("public kernel should encode");
     assert_eq!(
-        candid::decode_one::<InputValue>(&encoded).expect("input wrapper should decode"),
+        icydb_schema::wire::decode_one::<InputValue>(&encoded)
+            .expect("input wrapper should decode"),
         input,
     );
     assert_eq!(
-        candid::decode_one::<OutputValue>(&encoded).expect("output wrapper should decode"),
+        icydb_schema::wire::decode_one::<OutputValue>(&encoded)
+            .expect("output wrapper should decode"),
         output,
     );
 }

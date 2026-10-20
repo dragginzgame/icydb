@@ -252,7 +252,8 @@ mod tests {
         let rewritten = rewrite_generated_paths(
             quote!(
                 ::icydb_model::Path::PATH;
-                #[candid_path("::icydb_model::__reexports::candid")]
+                #[serde(crate = "::icydb_model::__reexports::serde")]
+
                 struct Value;
             ),
             &overrides,
@@ -263,7 +264,7 @@ mod tests {
         assert_eq!(input.len(), 1);
         assert!(rewritten.contains("model_api :: Path"));
         assert!(
-            rewritten.contains("\"model_api::__reexports::candid\""),
+            rewritten.contains("\"model_api::__reexports::serde\""),
             "unexpected rewritten attributes: {rewritten}",
         );
         assert!(!rewritten.contains("icydb_model"));

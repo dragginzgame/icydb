@@ -8,26 +8,23 @@ a new template, workflow, installer or persistent change ledger.
 
 ## Symbol changes
 
-Use the neutral label **symbol changes**, with separately counted groups:
+Use the neutral label **symbol changes**, limited to two counted groups:
 
 - **Deleted:** genuinely removed functions, methods and types, public or private,
   including declarations in deleted files. List every exact qualified name,
-  former file/module, reason and replacement when applicable. Group shared reasons
-  without dropping names. Inlining a removed helper is a deletion with its
+  former file/module, and a brief shared reason or replacement where useful.
+  Group related names compactly. Inlining a removed helper is a deletion with its
   replacement identified.
-- **Moved:** retained declarations relocated to another file/module. Give exact
-  names and old/new owners. Do not count them as deleted or newly added symbols.
-- **Renamed:** retained declarations whose declared identifiers change. Give old/new names and
-  owners. Do not count them as deletions/additions. If a declaration both moves
-  and is renamed, identify it once, mark both operations and disclose that the
-  move/rename counts overlap; do not sum them as distinct symbols.
-- Explain edited declarations and replacement implementations separately. A
-  changed signature, body or field does not delete the retained declaration.
-  Similar spelling alone does not establish continuity: trace callers, ownership
-  and behavior before classifying a replacement as a rename.
+- **Created:** genuinely new functions, methods and types, public or private.
+  Give their qualified names and file/module, grouping related names compactly.
+- Omit inventories and counts of moved, renamed or edited declarations. A retained
+  declaration is neither created nor deleted because its path, name, signature,
+  body or fields changed. Trace identity before classifying a replacement.
+  Summarize structural cleanup by outcome in at most a short paragraph; do not
+  expand a module reorganization into hundreds of per-symbol entries.
 
-Show zero counts for empty deletion/move/rename groups in a cleanup handoff.
-The full inventory belongs **only in the final response to the maintainer in the
+When neither group has entries, use one short line: "Symbol changes: created 0;
+deleted 0." The created/deleted inventory belongs **only in the final response to the maintainer in the
 Codex app**, never in repository files, audit reports, changelogs, commit messages,
 PRs or issues. Those surfaces still document meaningful public API removals and
 required consumer actions. The fictional example below demonstrates the rule;
@@ -40,7 +37,7 @@ Every completed maintainer report includes these measures, even when all are zer
 | Measure | Required values |
 | --- | --- |
 | Rust physical lines | added / removed / net |
-| Type declarations | added / deleted; moved / renamed separately |
+| Type declarations | created / deleted only |
 | Type-declaration physical lines | added / removed / net |
 | Documentation physical lines | added / removed / net |
 
@@ -70,7 +67,7 @@ Git removed lines as functionality deleted. Unavailable counts must say
   once at its source location, independent of feature configurations or repeated
   macro expansion. Variants, generic parameters, associated-type requirements,
   `impl` blocks, functions and unions are outside this metric's four item kinds;
-  the broader symbol inventory still includes deleted types such as unions.
+  the broader symbol inventory includes created/deleted types such as unions.
   Identify retained/moved/renamed items by source review, not a regex or diff total.
 - **Type lines:** added/removed physical lines within those items' before/after
   source spans, including attached attributes/Rustdoc, fields, trait members and
@@ -166,12 +163,9 @@ Changed the model layout.
 Example final handoff:
 
 > Scope: the complete fictional before/after trees above, not a release total.
-> Symbol changes: deleted **1** (`model::Removed`, formerly `src/model.rs`,
-> obsolete placeholder, no replacement); moved **1** (`model::Moved` in
-> `src/model.rs` to `moved::Moved` in `src/moved.rs`); renamed **1**
-> (`model::OldName` to `model::NewName`, both in `src/model.rs`). Separately,
-> `model::Edited` retains its identity and changes its field from `u8` to `u16`.
-> Rust lines **+4 / -4 / 0**; types **+0 / -1**, moved **1**, renamed **1**;
+> Symbol changes: created **0**; deleted **1** (`model::Removed`, formerly
+> `src/model.rs`, obsolete placeholder, no replacement).
+> Rust lines **+4 / -4 / 0**; types **+0 / -1**;
 > type lines **+3 / -4 / -1**; docs **+2 / -0 / +2**.
 > Physical lines include blanks/comments; type lines overlap Rust. No Rustdoc
 > changes, generated files or vendored files occur in this example.
@@ -185,6 +179,7 @@ Example issue-only final report:
 
 > Reviewed issues against commit ABC; source was unchanged during this task.
 > Scope: task-attributed working-tree changes relative to its starting state.
-> Rust lines **+0 / -0 / 0**; types **+0 / -0**, moved **0**, renamed **0**;
+> Symbol changes: created **0**; deleted **0**.
+> Rust lines **+0 / -0 / 0**; types **+0 / -0**;
 > type lines **+0 / -0 / 0**; docs **+0 / -0 / 0**.
 > GitHub issue text is outside repository source/documentation counts.

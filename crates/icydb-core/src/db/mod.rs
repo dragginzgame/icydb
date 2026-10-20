@@ -69,8 +69,11 @@ pub use catalog::{
     StoreCatalogDescription,
 };
 #[doc(hidden)]
+pub use commit::with_selected_commit_memory;
+#[doc(hidden)]
 pub use commit::{ExactBacklogMeasurement, install_startup_recovery_wakeup};
 pub use data::DataStore;
+pub use database_format::provide_boot_entropy;
 pub use diagnostics::{
     DataStoreSnapshot, EntitySnapshot, IndexStoreSnapshot, MemoryAllocation,
     MemoryAllocationBinding, MemoryAllocations, MemoryExtent, SchemaStoreSnapshot, StorageReport,

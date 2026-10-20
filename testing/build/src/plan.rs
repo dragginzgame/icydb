@@ -31,7 +31,7 @@ impl MaintainedCanisterBuildPlan {
             .map(|entry| CargoWasmBatchEntry {
                 context: &entry.context,
                 package: entry.policy.package,
-                arguments: &entry.configured.arguments,
+                selection: &entry.configured.selection,
                 encoded_rustflags: entry.configured.encoded_rustflags.as_deref(),
             })
             .collect::<Vec<_>>();
@@ -70,7 +70,7 @@ pub(super) fn plan_maintained_canister_builds(
 mod tests {
     use super::plan_maintained_canister_builds;
     use crate::{
-        CanisterBuildOptions, CanisterBuildProfile, CanisterCandidExportMode, CanisterWasmProfile,
+        CanisterBuildOptions, CanisterBuildProfile, CanisterWasmProfile,
         resolve_fixture_canister_build_configuration, workspace_root,
     };
 
@@ -89,7 +89,6 @@ mod tests {
             ] {
                 let options = CanisterBuildOptions {
                     profile,
-                    candid_export: CanisterCandidExportMode::Enabled,
                     build_profile,
                     ..CanisterBuildOptions::default()
                 };
@@ -109,9 +108,8 @@ mod tests {
                     assert_eq!(request.spec().packages(), [entry.policy.package]);
                     assert_eq!(request.label(), entry.context);
                     let selected_profile = arguments
-                        .windows(2)
-                        .find(|pair| pair[0] == "--profile")
-                        .map(|pair| pair[1]);
+                        .iter()
+                        .find_map(|argument| argument.strip_prefix("--profile="));
                     assert_eq!(
                         arguments.contains(&"--release"),
                         profile == CanisterWasmProfile::Release
@@ -129,9 +127,8 @@ mod tests {
                         resolved.no_default_features()
                     );
                     let features = arguments
-                        .windows(2)
-                        .find(|pair| pair[0] == "--features")
-                        .map(|pair| pair[1]);
+                        .iter()
+                        .find_map(|argument| argument.strip_prefix("--features="));
                     assert_eq!(
                         features,
                         (!resolved.features().is_empty())

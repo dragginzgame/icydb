@@ -2,21 +2,25 @@
 name = "canister_audit_nested_relation_none"
 edition = { workspace = true }
 rust-version = { workspace = true }
+license-file = { workspace = true }
 version = { workspace = true }
 publish = false
+
+# The relation actor macro expands references to both dependencies in this crate.
+[package.metadata.cargo-machete]
+ignored = ["canic-icydb", "icydb-testing-wasm-helpers"]
 
 [lib]
 crate-type = ["cdylib"]
 
 [features]
 default = []
-candid-export = []
 
 [dependencies]
-candid = { workspace = true }
-ic-cdk = { workspace = true }
+canic-icydb = { workspace = true }
 icydb = { workspace = true }
 icydb-testing-audit-nested-relation-fixtures = { workspace = true }
+icydb-testing-wasm-helpers = { workspace = true }
 
 [build-dependencies]
 icydb = { workspace = true }

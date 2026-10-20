@@ -23,8 +23,29 @@ for source in scripts/ci/test-workstation-setup.sh scripts/ci/test-testkit-tooli
     scripts/ci/test-read-admission-invariants.sh \
     scripts/ci/test-release-candidate-receipt.sh \
     scripts/ci/test-tooling-fixture-completion.sh; do
+  # The shared probe requires explicit caller-owned variable names.
+  FIXTURE_PROBE_ROOT_VARIABLE=ROOT
+  FIXTURE_PROBE_DIRECTORY_VARIABLE=fixture
+  case "$source" in
+    scripts/release/test-standard-release.sh|scripts/release/test-receipt-callbacks.sh|scripts/release/test-lock-selection.sh|scripts/release/test-finalize-notes.sh|scripts/ci/test-publish-workspace.sh)
+      FIXTURE_PROBE_ROOT_VARIABLE=root ;;
+    scripts/ci/test-release-candidate-receipt.sh)
+      FIXTURE_PROBE_ROOT_VARIABLE=ROOT_DIR ;;
+  esac
+  case "$source" in
+    scripts/ci/test-workstation-setup.sh|scripts/ci/test-shared-tooling-adapters.sh)
+      FIXTURE_PROBE_DIRECTORY_VARIABLE=FIXTURE ;;
+    scripts/ci/test-invariant-scanners.sh|scripts/ci/test-read-admission-invariants.sh)
+      FIXTURE_PROBE_DIRECTORY_VARIABLE=scratch ;;
+    scripts/ci/test-wasm-audit-report.sh|scripts/ci/test-release-candidate-receipt.sh)
+      FIXTURE_PROBE_DIRECTORY_VARIABLE=TEST_ROOT ;;
+  esac
   for failure in nounset command nonzero premature completed failed-completion diagnostic; do
-    fixture_probe_exit "$ROOT/$source" "$fixture" "$ROOT" "${source##*/}" "$failure" || exit 1
+    if ! fixture_probe_exit "$ROOT/$source" "$fixture" "$ROOT" "${source##*/}" "$failure"; then
+      printf 'Fixture completion failed: %s (%s)\n' "$source" "$failure" >&2
+      fixture_replay_logs "$fixture/${source##*/}-$failure.log"
+      exit 1
+    fi
     cases=$((cases + 1))
   done
 done

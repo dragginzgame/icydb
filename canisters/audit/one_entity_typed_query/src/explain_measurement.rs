@@ -1,4 +1,4 @@
-//! Fixed application-owned workloads; never accepts SQL or query syntax over Candid.
+//! Fixed application-owned workloads; never accepts SQL or query syntax over the Wire endpoint.
 
 #[cfg(feature = "typed-explain-measurement")]
 use icydb::{
@@ -9,15 +9,14 @@ use icydb::{
 use icydb_testing_audit_one_simple_fixtures::one_simple::OneSimpleEntity01;
 
 #[cfg(feature = "typed-explain-measurement")]
-#[ic_cdk::query]
 fn measure_typed_explain(kind: u8) -> Result<Vec<(u64, u64, String, u64)>, u16> {
     icydb::db::with_request_execution(|| {
         let database = crate::db().map_err(|error| error.code().raw())?;
         let mut results = Vec::with_capacity(3);
         for _ in 0..3 {
-            let start = crate::call_context_instruction_counter();
+            let start = ic_platform::ic0::performance_counter(1);
             let query = database.query::<OneSimpleEntity01>().map_err(|_| 1_u16)?;
-            let bound = crate::call_context_instruction_counter();
+            let bound = ic_platform::ic0::performance_counter(1);
             let query = match kind {
                 0 => query.filter(FieldRef::new("id").eq(Ulid::MIN)),
                 1 => query.order_by(asc("name")),
@@ -28,9 +27,9 @@ fn measure_typed_explain(kind: u8) -> Result<Vec<(u64, u64, String, u64)>, u16> 
                 _ => return Err(2),
             };
             let plan = query.explain().map_err(|_| 3_u16)?;
-            let planned = crate::call_context_instruction_counter();
+            let planned = ic_platform::ic0::performance_counter(1);
             let json = plan.render_json_canonical().map_err(|_| 4_u16)?;
-            let rendered = crate::call_context_instruction_counter();
+            let rendered = ic_platform::ic0::performance_counter(1);
             results.push((
                 planned.saturating_sub(start),
                 rendered.saturating_sub(planned),
@@ -41,9 +40,10 @@ fn measure_typed_explain(kind: u8) -> Result<Vec<(u64, u64, String, u64)>, u16> 
         Ok(results)
     })
 }
+#[cfg(feature = "typed-explain-measurement")]
+icydb_testing_wasm_helpers::export_wire!(query, "measure_typed_explain", MeasureTypedExplain, measure_typed_explain, (kind: u8), Result<Vec<(u64, u64, String, u64)>, u16>);
 
 #[cfg(feature = "sql-explain-measurement")]
-#[ic_cdk::query]
 fn measure_sql_explain(kind: u8) -> Result<Vec<(u64, u64, String)>, u16> {
     icydb::db::with_request_execution(|| {
         let database = crate::db().map_err(|error| error.code().raw())?;
@@ -57,9 +57,9 @@ fn measure_sql_explain(kind: u8) -> Result<Vec<(u64, u64, String)>, u16> {
         };
         let mut results = Vec::with_capacity(3);
         for _ in 0..3 {
-            let start = crate::call_context_instruction_counter();
+            let start = ic_platform::ic0::performance_counter(1);
             let result = database.execute_trusted_sql_query(sql).map_err(|_| 3_u16)?;
-            let elapsed = crate::call_context_instruction_counter().saturating_sub(start);
+            let elapsed = ic_platform::ic0::performance_counter(1).saturating_sub(start);
             let icydb::db::sql::SqlQueryResult::Explain { explain, .. } = result else {
                 return Err(4);
             };
@@ -69,10 +69,11 @@ fn measure_sql_explain(kind: u8) -> Result<Vec<(u64, u64, String)>, u16> {
         Ok(results)
     })
 }
+#[cfg(feature = "sql-explain-measurement")]
+icydb_testing_wasm_helpers::export_wire!(query, "measure_sql_explain", MeasureSqlExplain, measure_sql_explain, (kind: u8), Result<Vec<(u64, u64, String)>, u16>);
 
 // Retain a real SQL operation in mixed subjects, not just an unused feature.
 #[cfg(all(feature = "sql", not(feature = "sql-explain-measurement")))]
-#[ic_cdk::query]
 fn retained_sql_read() -> Result<u32, u16> {
     icydb::db::with_request_execution(|| {
         let database = crate::db().map_err(|error| error.code().raw())?;
@@ -85,3 +86,5 @@ fn retained_sql_read() -> Result<u32, u16> {
         }
     })
 }
+#[cfg(all(feature = "sql", not(feature = "sql-explain-measurement")))]
+icydb_testing_wasm_helpers::export_wire!(query, "retained_sql_read", RetainedSqlRead, retained_sql_read, (), Result<u32, u16>);

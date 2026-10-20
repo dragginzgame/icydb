@@ -779,6 +779,7 @@ mod tests {
         LiveSchemaCheckpointStore, MAX_LIVE_SCHEMA_CHECKPOINT_BYTES, decode_checkpoint,
         encode_checkpoint, schema_migration_record_blocks_ordinary_operations,
     };
+    use crate::db::schema::control_store::CONTROL_START_PAGE;
     use crate::{
         db::{
             integrity::DatabaseIncarnationId,
@@ -798,7 +799,7 @@ mod tests {
         },
         testing::test_memory,
     };
-    use ic_memory::ic_stable_structures::{Memory, RestrictedMemory};
+    use ic_memory::Memory;
     use icydb_schema::{
         EntitySourceDigest, EntitySourceKey, ExpectedAcceptedHead, ExpectedSchemaFingerprint,
         SchemaMigrationPlanDigest, SchemaProposalDigest, TargetDatabaseIdentity,
@@ -807,7 +808,7 @@ mod tests {
 
     #[test]
     fn small_checkpoint_tree_uses_one_wasm_page_and_preserves_record_limits() {
-        let memory = RestrictedMemory::new(test_memory(242), 0..4_096);
+        let memory = std::rc::Rc::new(test_memory(242));
         let mut store = LiveSchemaCheckpointStore::open(memory.clone()).unwrap();
         let candidate = empty_accepted_schema_candidate_for_tests(
             "test::Compact",
@@ -821,7 +822,7 @@ mod tests {
                 &candidate,
             )
             .unwrap();
-        assert_eq!(memory.size(), 1);
+        assert_eq!(memory.size(), CONTROL_START_PAGE + 1);
         let reopened = LiveSchemaCheckpointStore::open_existing(memory.clone())
             .unwrap()
             .unwrap();
@@ -834,7 +835,7 @@ mod tests {
                 .encoded_bundle(),
             candidate.encoded_bundle()
         );
-        assert_eq!(memory.size(), 1);
+        assert_eq!(memory.size(), CONTROL_START_PAGE + 1);
         let oversized = vec![0; MAX_LIVE_SCHEMA_CHECKPOINT_BYTES + 1];
         let key = LiveSchemaCheckpointKey::for_store("test::Compact").unwrap();
         assert!(decode_checkpoint(&oversized, key).is_err());
@@ -907,7 +908,7 @@ mod tests {
             empty_accepted_schema_candidate_for_tests("test::Live", AcceptedSchemaRevision::new(1));
         let second =
             empty_accepted_schema_candidate_for_tests("test::Live", AcceptedSchemaRevision::new(2));
-        let memory = RestrictedMemory::new(test_memory(244), 0..4_096);
+        let memory = std::rc::Rc::new(test_memory(244));
         let mut store =
             LiveSchemaCheckpointStore::open(memory.clone()).expect("store should initialize");
         let incarnation = DatabaseIncarnationId::for_tests(0x63);
@@ -960,7 +961,7 @@ mod tests {
 
     #[test]
     fn lineage_uses_one_reserved_record_without_changing_checkpoint_count() {
-        let memory = RestrictedMemory::new(test_memory(245), 0..4_096);
+        let memory = std::rc::Rc::new(test_memory(245));
         let mut store =
             LiveSchemaCheckpointStore::open(memory.clone()).expect("store should initialize");
         let mut lineage = AcceptedEntitySourceLineageCatalog::default();
@@ -1006,7 +1007,7 @@ mod tests {
 
     #[test]
     fn migration_uses_one_reserved_record_and_exact_compare_replace() {
-        let memory = RestrictedMemory::new(test_memory(246), 0..4_096);
+        let memory = std::rc::Rc::new(test_memory(246));
         let mut store =
             LiveSchemaCheckpointStore::open(memory.clone()).expect("store should initialize");
         let prepared = prepared_migration_record();

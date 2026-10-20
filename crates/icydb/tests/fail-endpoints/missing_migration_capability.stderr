@@ -1,9 +1,17 @@
 error: endpoint declaration `icydb_schema_migrate` requires the `icydb/migration` Cargo feature
- --> tests/fail-endpoints/missing_migration_capability.rs:5:1
+  --> tests/fail-endpoints/missing_migration_capability.rs:8:1
+   |
+ 8 | / canic_icydb::endpoints! {
+ 9 | |     icydb_schema_migrate;
+10 | | }
+   | |_^
+   |
+   = note: this error originates in the macro `crate::__icydb_facade::__icydb_with_migration_endpoint` which comes from the expansion of the macro `canic_icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unused import: `canic_icydb::__private::cdk as __icydb_host_sdk`
+ --> tests/fail-endpoints/missing_migration_capability.rs:2:5
   |
-5 | / icydb::endpoints! {
-6 | |     icydb_schema_migrate;
-7 | | }
-  | |_^
+2 | use canic_icydb::__private::cdk as __icydb_host_sdk;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   |
-  = note: this error originates in the macro `$crate::__icydb_with_migration_endpoint` which comes from the expansion of the macro `icydb::endpoints` (in Nightly builds, run with -Z macro-backtrace for more info)
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default

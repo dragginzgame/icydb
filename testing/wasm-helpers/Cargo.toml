@@ -2,13 +2,17 @@
 name = "icydb-testing-wasm-helpers"
 edition = { workspace = true }
 rust-version = { workspace = true }
+license-file = { workspace = true }
 version = { workspace = true }
 publish = false
 
 [dependencies]
+canic-icydb = { workspace = true }
 ic-wire = { workspace = true }
 icydb = { workspace = true, default-features = true }
 icydb-model = { workspace = true }
+icydb-schema = { workspace = true }
+serde = { workspace = true }
 
 [lints]
 workspace = true

@@ -2,10 +2,8 @@
 
 use super::*;
 use crate::{Error, db::startup::__startup_bootstrap_failure};
-use ic_memory::{
-    MemoryAuthority, MemoryManagerIdRange, MemoryRuntime, SealedDeclarationSnapshot,
-    ic_stable_structures::{Memory, VectorMemory},
-};
+use ic_memory::{Memory, VectorMemory};
+use ic_memory::{MemoryAuthority, MemoryRuntime, SealedDeclarationSnapshot};
 
 const AUTHORITY: &str = "icydb.public_failure";
 const CONTROLS: &[&str] = &["commit.control", "startup.control", "integrity.progress"];
@@ -20,7 +18,7 @@ fn pool(owner: &str, excluded: bool) -> MemoryAllocationPool {
     MemoryAllocationPool::new(
         vec![MemoryAuthority::new(owner, format!("{AUTHORITY}.")).unwrap()],
         if excluded {
-            vec![MemoryManagerIdRange::new(10, 254).unwrap()]
+            (10..=254).collect()
         } else {
             vec![]
         },
@@ -31,14 +29,7 @@ fn pool(owner: &str, excluded: bool) -> MemoryAllocationPool {
 fn snapshot(owner: &str, roles: &[&str]) -> SealedDeclarationSnapshot {
     let requests: Vec<_> = roles
         .iter()
-        .map(|role| {
-            MemoryRequest::new(
-                owner,
-                &format!("{AUTHORITY}.{role}.v1"),
-                SchemaMetadata::default(),
-            )
-            .unwrap()
-        })
+        .map(|role| MemoryRequest::new(owner, &format!("{AUTHORITY}.{role}.v1")).unwrap())
         .collect();
     SealedDeclarationSnapshot::new(requests).unwrap()
 }
@@ -105,7 +96,7 @@ fn snapshot_mismatch() -> DatabaseBootstrapError {
     runtime
         .bootstrap(&declared, &pool(AUTHORITY, false), &DatabaseMemoryPolicy)
         .unwrap();
-    let before = runtime.committed_allocations().unwrap().clone();
+    let before = runtime.committed_allocations().unwrap().to_vec();
     let all: Vec<_> = CONTROLS.iter().chain(STORE).copied().collect();
     let error = runtime
         .bootstrap(
@@ -193,8 +184,8 @@ fn memory_admission_causes_reach_public_startup_boundary() {
         );
         assert_eq!(startup.diagnostic(), direct.diagnostic());
         assert_eq!(startup.facts(), direct.facts());
-        let bytes = candid::encode_one(&startup).unwrap();
-        let decoded: crate::db::StartupFailure = candid::decode_one(&bytes).unwrap();
+        let bytes = icydb_schema::wire::encode_one(&startup).unwrap();
+        let decoded: crate::db::StartupFailure = icydb_schema::wire::decode_one(&bytes).unwrap();
         assert_eq!(decoded, startup);
     }
 }
