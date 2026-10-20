@@ -137,6 +137,9 @@ done
 export CI_CARGO_ROOT="$native" CI_CARGO_TRACE="$native/cargo-trace"
 export CI_CARGO_SERVER_TRACE="$native/server-trace"
 export CI_CARGO_ARGUMENT_TRACE="$native/argument-trace"
+# Standalone build hooks honor caller Cargo paths, unlike Make-owned recipes.
+# Give both routes fixture defaults even when release validation exports its own.
+export CARGO_HOME="$native/.cache/cargo/icydb" CARGO_TARGET_DIR="$native/target/icydb"
 cat > "$native/bin/cargo" <<'CARGO'
 #!/usr/bin/env bash
 set -euo pipefail

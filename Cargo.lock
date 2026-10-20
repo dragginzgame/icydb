@@ -1470,6 +1470,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bad51c281cf5507bde15e6fc71d975f34c96c56438f30112af6c1402c5569cb0"
 
 [[package]]
+name = "ic-metrics"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ee8bcc41cde9657498086117ef1cfa826ef7b2e3ff06b4245db1b0b2e96c093f"
+
+[[package]]
 name = "ic-platform"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1718,7 +1724,7 @@ dependencies = [
  "base64 0.23.1",
  "getrandom 0.4.3",
  "ic-memory",
- "ic-metrics 0.14.12",
+ "ic-metrics 0.15.0",
  "ic-platform",
  "ic-storage",
  "icydb-diagnostic-code",
@@ -1866,7 +1872,7 @@ dependencies = [
  "ic-host-fs",
  "ic-host-process",
  "ic-host-tools",
- "ic-metrics 0.14.12",
+ "ic-metrics 0.15.0",
  "ic-wire",
  "icydb",
  "icydb-core",

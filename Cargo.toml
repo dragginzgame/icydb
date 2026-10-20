@@ -94,7 +94,7 @@ ic-host-fs = { version = "0.62", default-features = false }
 ic-host-text = "0.62"
 ic-host-tools = "0.62"
 ic-memory = "0.50"
-ic-metrics = "0.14"
+ic-metrics = "0.15"
 ic-platform = { version = "0.5", default-features = false }
 ic-storage = "0.50"
 ic-wire = "0.5"

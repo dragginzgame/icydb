@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### 🩹 Fixed
 
+- Isolate adapter fixture Cargo caches from release validation's environment,
+  preserving deployment lint and artifact-staging checks.
 - Reject truncated journal batches without changing retained bytes, while
   preserving complete identical replay
   ([#174 — Remove journal prefix repair](https://github.com/dragginzgame/icydb/issues/174)).
