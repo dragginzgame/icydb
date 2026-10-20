@@ -30,6 +30,12 @@ stages them together; neither a version file nor a changelog heading proves
 that a tag was pushed. Pre-release versions require a separately selected release plan;
 these commands must reject ambiguous or unsupported version inputs.
 
+Shared's metadata adapter replaces `VERSION` last. Failed preparation retains
+the original files and rendered candidates under the reported Git-owned scratch
+directory, including after a partial replacement. Retry uses the existing release
+reconciliation; it does not delete earlier evidence or automatically restore files.
+Successful attempts remove only their own scratch directory.
+
 ## Required workflow
 
 The default `RELEASE_DELIVERY=direct` workflow is:

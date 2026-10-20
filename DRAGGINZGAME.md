@@ -32,9 +32,10 @@ Consumer choices described in those guides remain subject to this baseline.
   with scope and reason; calling it stricter does not bypass that requirement.
 - Apply the shared baseline and the local overlay within its delegated scope.
   Local instructions do not silently override the common baseline.
-  Read the current handoff for accepted work and implementation status. Treat
-  historical documents as evidence, not current authority. Verify documentation
-  against implementation; distinguish supported behavior from unfinished plans.
+  Read the existing [current handoff](#repository-handoff-files) for accepted
+  work and implementation status. Treat historical documents as evidence, not
+  current authority. Verify documentation against implementation; distinguish
+  supported behavior from unfinished plans.
 - Every repository must have a concise, accurate GitHub description of its
   current purpose and scope, consistent with its README and implementation.
   Review it during baseline adoption and whenever the repository's purpose,
@@ -158,25 +159,30 @@ Consumer choices described in those guides remain subject to this baseline.
 
 ## IC application encoding
 
-- **Prefer `ic-wire` over Candid for application messages we control**, including
-  owned canister RPC and frontend/client payloads, wherever its released codec
-  supports the required contract. Reuse its encoding, decoding and generated
-  TypeScript codecs rather than adding another application codec implementation.
-- Retain Candid only for a concrete interoperability requirement, such as an
-  external/standard interface or callers outside the coordinated migration, or a
-  documented capability gap in the qualified Wire release. Record that boundary
-  and reason; existing derives or a Candid-first example are not justification.
-  Required external Candid dependencies still follow the
+- **Use `ic-wire` for all application endpoints we own**, including public
+  endpoints called by third parties, owned canister RPC and frontend/client
+  payloads. Caller location or endpoint visibility does not select the codec.
+  Reuse Wire's encoding, decoding and generated bindings.
+- Candid adapts independently defined interfaces that require it, such as
+  management/system canisters, NNS/SNS and ledger protocols. A third-party caller
+  of our application is not itself an external Candid protocol. Record the
+  required interface; existing derives or a Candid-first example are not reasons
+  to retain it. Required external Candid dependencies still follow the
   [IC Platform boundary](rules/cargo-dependencies.md#external-ic-dependency-boundary).
+- A missing released Wire capability requires an owning issue and qualification
+  before adoption, or an expressly approved scoped exception. Do not introduce
+  a local codec or a Candid fallback to bypass that work.
 - Remove Candid derives, conversions and codec helpers from internal types when
   no remaining Candid contract needs them. Do not wrap an unchanged Candid payload
   in Wire merely to claim adoption. Storage layouts and canonical hash inputs
-  retain their owning contracts; a messaging preference does not replace them.
+  retain their owning contracts. Existing persisted Candid checkpoint bytes are
+  a compatibility obligation, not permission for new Candid storage formats.
 - IC Wire owns codecs, resource admission and codec generation. Consumers retain
   endpoint exports, transport, authentication, method identities, semantic
   validation, rollback and retry policy. Qualify the selected released APIs and
-  both ends of the actual integration; codec conformance alone is not endpoint
-  qualification or evidence of instruction/size savings.
+  both ends of the actual integration, including zero-argument RPCs and lifecycle
+  argument decoding. Explicit codec hooks alone do not prove Wire framing or
+  binding conformance, endpoint behavior or instruction/size savings.
 - Changing existing message bytes requires an explicit consumer migration with
   affected callers, generated bindings and retained retry bytes accounted for.
   Follow the [pre-1.0 contract rules](#pre-10-contracts); do not silently change a
@@ -483,6 +489,10 @@ Consumer choices described in those guides remain subject to this baseline.
   verified tool downloads, and explicitly qualified sibling or moving inputs.
   Run the declaration checker in CI and release gates; consumers own the chosen
   versions, approved exceptions and runtime qualification evidence.
+- Follow the [upstream maintenance and recovery rules](rules/dependency-pinning.md#maintaining-upstream-code)
+  for imported runtime and cryptographic implementations. Preserve provenance,
+  review applicable fixes, and distinguish source availability from demonstrated
+  recovery. Product-specific pins, fixtures and recovery procedures stay local.
 - Use the [standard Rust workspace layout](rules/rust-workspaces.md): a virtual
   repository-root workspace, including single-package repositories. Maintained
   packages use `crates/<package-name>/` or application-owned `apps/<app-name>/`
@@ -607,3 +617,28 @@ Consumer choices described in those guides remain subject to this baseline.
 - Report the outcome, changed files, relevant verification, skipped checks,
   remaining risks and open consumer actions. State compatibility and host impact
   when relevant. Do not claim a release proves publication, adoption or deployment.
+
+### Repository handoff files
+
+- A current handoff, such as `docs/status/current.md`, is a replacement summary
+  of the state needed to resume work, not an append-only session journal. Update
+  or replace existing sections; remove completed or superseded narratives rather
+  than prepending another session report. This rule does not require creating a
+  handoff file where none is needed.
+- Aim for **50–100 physical lines**. Above **150 lines**, review and trim the
+  handoff during its next update. These are maintenance targets, not tool limits
+  or CI/release gates; preserve essential unresolved recovery and safety facts.
+- Keep accepted scope, relevant source identity and pending local work, active
+  blockers and next actions, and the latest relevant validation with its limits.
+  Link canonical issues, migration guides and detailed evidence instead of
+  copying their contents or maintaining another issue-status ledger.
+- Move completed release/PR narratives, superseded qualification and long test
+  inventories out of the required startup read. Preserve still-needed historical
+  evidence at its existing owner or a durable Git revision before removing its
+  narrative; uncommitted content is not preserved by a Git-history link. Keep
+  unresolved uncertainty and the location of recovery evidence visible. Trimming
+  prose does not authorize deleting build artifacts or the only retained evidence.
+- Do not paste final agent reports, symbol inventories, routine metric blocks or
+  command logs into the repository handoff. Keep detailed evidence with its owner;
+  link it only when relevant to resuming current work. Reuse existing evidence
+  locations and Git history rather than creating a parallel archive framework.

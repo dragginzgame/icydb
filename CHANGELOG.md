@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 ### ⚠️ Breaking
 
 - Public principal conversions and read-authorization contexts use IC Platform
-  0.3.0's owned Principal. Convert external client/DTO identities explicitly;
+  0.4.0's owned Principal. Convert external client/DTO identities explicitly;
   Wire and stored bytes remain unchanged.
 
 ### 🔧 Changed
@@ -18,8 +18,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Disable unused Proptest features and remove seven test-only lockfile packages.
 - Remove constructor-priority support and keep the metrics dependency behind
   the existing metrics feature.
-- Adopt IC Host 0.30.0 helpers, matching IC Build 0.22 and Shared Tooling 0.25.1;
-  automatically select the locked release editor.
+- Adopt IC Platform 0.4.0, Host 0.31.1, IC Build 0.22.1 and Shared Tooling
+  0.25.4; prepare the selected tools for the new installer policy and preserve
+  generated read authorization across external caller identities.
 - Delegate CLI argument-file creation and cleanup to Host and remove the
   workspace's direct `tempfile` dependency.
 - Keep CLI endpoint identities typed through request/reply handling and share

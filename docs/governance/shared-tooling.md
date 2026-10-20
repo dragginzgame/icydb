@@ -1,8 +1,8 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `d57c631206e3618755e45bebf2c88c673564ddc1`
-(Shared Tooling 0.25.1). Root
+at reviewed revision `db555ab6cf4a93af9a183f18d921d3b0ee97c725`
+(Shared Tooling 0.25.4). Root
 [AGENTS.md](../../AGENTS.md) is the local overlay. The shared approved layout
 retains existing canister, schema and testing packages in their
 restored directories, in the single root workspace and lockfile; no new package
@@ -13,57 +13,46 @@ these rules.
 
 ## Ownership and provenance
 
-### Shared Tooling 0.25.1 and IC Host 0.30.0
+### Shared Tooling 0.25.4 and IC Host 0.31.1
 
-The canonical exporter retains the consumer's selected roots while retiring the
-removed Perl Cargo renderers. Both local lockfile projection callers select the
-released IC Build editor and an explicit positive byte allowance. Receipt checks
-capture and admit producer exit statuses before comparing candidate bytes.
-The existing IcyDB manifest preparation and enclosing rollback remain local.
+Refresh the existing 122-file snapshot through its canonical exporter from the
+clean, committed upstream HEAD `db555ab6cf4a93af9a183f18d921d3b0ee97c725`.
+The selected roots and tool pins remain unchanged. Shared now binds explicit
+Cargo feature sets into tool selection/receipts and emits actionable setup
+commands on failed admission. Its fixture cleanup and evidence guidance preserve
+failed-selector output as diagnostics and retain redirected links without traversal.
+IcyDB's product gates, evidence selections and release effects remain local.
+The new build-helper fingerprint requires explicit tool preparation before
+standalone offline checks; previous installations and failure evidence remain.
 
-Make owns editor selection through Shared's locked Rust installer, with an eight
-MiB allowance per input. Fresh preflight prepares the selected tools; offline
-preflight and saved/recovery callbacks only check preparation. Manual editor
-exports are unnecessary. Saved callbacks read the selected committed source's
-lockfile before checking the editor; live metadata cannot replace that selection.
-Failed Git/tool admission cannot dispatch a release consumer, and failed input
-evidence remains retained.
+Registry Host 0.31.1 supplies the selected Artifacts, FS, Process, Text and Tools packages.
+Their source is `950669df9d2c91497e99ae1e3f1c5a77f8f80ef8`. Empty defaults and
+explicit FS `temporary-file` custody remain selected; no capability backend,
+Candid/parser, registry or optional YAML interface is added. The new Host YAML
+parser and Registry Principal changes affect features IcyDB does not enable.
+CLI Wire arguments, response limits, file ownership/cleanup and diagnostics
+retain their current contracts. Host's own Platform selection advances to 0.4.
 
-The CLI selects published Host FS scoped temporary-file custody for its ICP
-argument files, explicitly selecting its independent `temporary-file` feature.
-No local consumer selects the optional capability backend. IcyDB retains parent
-selection, argument bytes, child invocation and error projection. Host owns
-exclusive allocation and cleanup. The direct
-`tempfile` declaration is removed; upstream dependencies may still use it.
-The direct dependency boundary rejects workspace-owned declarations, including
-aliases, inactive targets and development/build dependencies. Shared's selected
-Cargo graph checker qualifies concrete CLI and Wasm graphs separately; these
-observations do not bind dependency admission to a deployed artifact
-([#378](https://github.com/dragginzgame/icydb/issues/378)).
-The published 0.29.0 archive supplies the scoped guard that was absent in 0.28.1
-([Host #209](https://github.com/dragginzgame/ic-host-tooling/issues/209)); this
-replaces the retained-file creation and pathname-guard workaround.
-Published IC Build 0.22.0 exposes Host Process 0.30 child values, resolving the
-earlier direct Process exception
-([Build #9](https://github.com/dragginzgame/ic-build/issues/9)). All direct Host
-selections now use 0.30.0. Testkit's older internal Host selections can still
-enable capability dependencies in its own graph and the shared lock.
-The isolated CLI selection excludes those backends while retaining scoped files.
+Published IC Build 0.22.1 requires Host 0.31 in its registry manifest and supplies
+the matching `OwnedChild` identity in both single and batch build spawners.
+It resolves the E0308 reproduced with Build 0.22.0 and Process 0.31;
+[Build #9 — Qualify consumers against the current Host boundary](https://github.com/dragginzgame/ic-build/issues/9)
+records that publication seam. The selected archive SHA-256 is
+`9e4f17cdb7df1431acb988aba21d90b3b3b7136b1fdb59d6946ff81f3436bf06`,
+source `1d21935cd6779229a07db435691a1e86598691f2`. The working lock advanced to
+0.22.1 during qualification. No alias, child conversion, Git/path override or
+alternate Cargo/process lifecycle is introduced. Testkit retains older Host
+selections transitively.
 
-The remaining direct dependencies have no additional supported replacement in
-these releases. Runtime account encoding/checksums, Decimal arithmetic and schema
-reflection belong to IcyDB's deployed contracts; CLI line editing and the SQLite
-oracle remain explicit consumers of their libraries. Host's new WAT/encoder and
-certificate capabilities serve upstream owners; IcyDB has no direct WAT,
-wasm-encoder or certificate codec implementation to replace. No dependency is
-hidden behind a re-export solely to reduce the manifest count.
-
-Focused Linux qualification covers CLI file custody, artifact inspection,
-strict consumer Clippy, selected dependency graphs and release/setup fixtures.
-An actual saved-source check selects Build 0.19.0 while the working lock selects
-0.21.0 at that observation. The current lock selects Build 0.22.0. Native macOS
-and installed-IC qualification remain separate; broad gates
-were not run. Raw Wasm size, cycles and instruction deltas are unmeasured.
+The release editor remains selected from the locked published Build package,
+with the existing eight MiB per-input allowance and source-bound recovery
+selection. Failed Git/tool admission cannot dispatch a release consumer.
+Formatting retains grouped dependency roles and IcyDB's derive sorting.
+Dependency graph observations remain separate from deployment admission;
+[#378 — Enforce deployment dependency exclusions](https://github.com/dragginzgame/icydb/issues/378)
+tracks binding source/lock/features and successful build admission to final bytes.
+Native macOS, installed IC and broad workspace/release gates remain separate.
+Raw Wasm size, cycles and instruction deltas are unmeasured.
 
 ### Release fixture correction in Shared Tooling 0.24.1
 
@@ -228,7 +217,38 @@ required nonempty inventories and actual production scans. Shared owns syntax,
 macro, cfg and parser regressions; its source has no independent installed tool
 or dependency selection.
 
-### Selected IC Platform 0.3.0 — 2026-10-20
+### Selected IC Platform 0.4.0 — 2026-10-20
+
+The live crates.io sparse index confirms 0.4.0 as the latest non-yanked release.
+The existing root `0.4` requirement and lock already select it with defaults off.
+The published archive SHA-256 is
+`3baf34ec6f65d10d78271159d1edc0feb61940816cc95af51bfce3f8dcfa4355`,
+with matching macros 0.4.0 and source
+`26a07c510ab74413ec30779cd69af84db13cff11`. Published README/source and
+[source-bound migration guidance](https://github.com/dragginzgame/ic-platform/blob/26a07c510ab74413ec30779cd69af84db13cff11/docs/migration.md)
+cover owned runtime reject codes, signature packaging and transport-only calls.
+IcyDB's four CDK consumers use only retained caller/argument helpers; no local
+consumer uses the removed Candid call conveniences or signature/RejectCode APIs.
+PocketIC rejects keep their external identity. Principal, Wire frames/limits,
+executor 2.0.0, ic0 1.2.0 and Canic endpoint/lifecycle ownership remain unchanged.
+No missing Platform API requires a new issue or local replacement.
+
+The guarded-schema installed fixture exposed the pinned Canic adapter passing
+an external Principal to the owned-Principal authorization helper. Both existing
+SQL/schema helpers now accept Platform's infallible `Into<Principal>` conversion;
+application contexts retain the owned identity and one authorization flow.
+This necessary transport adaptation adds no endpoint, compatibility re-export,
+decoder or lifecycle owner.
+
+Focused Linux qualification passes: strict facade/host and guarded-actor Wasm
+Clippy, five authorization tests, 21 Build tests and 195 CLI tests. The installed
+schema-guard test passes anonymous admission and application-trap propagation
+using Testkit-managed local PocketIC. Rust 1.91 native/Wasm facade checks pass.
+Selected-tool admission, snapshot, dependency and focused release-fixture checks
+pass without release effects. Native macOS, live IC and broad gates remain
+unqualified; raw Wasm, cycles and instruction deltas remain unmeasured.
+
+### Earlier IC Platform 0.3.0 — 2026-10-20
 
 The live crates.io sparse index identifies 0.3.0 as the latest non-yanked release.
 The existing root `0.3` requirement and lock already select it with defaults off;

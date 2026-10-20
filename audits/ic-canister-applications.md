@@ -15,10 +15,13 @@ classes, authorization, mutation/effect authority and retained-state obligations
 
 Apply the [IC application encoding policy](../DRAGGINZGAME.md#ic-application-encoding).
 Trace each Candid dependency, derive and codec helper to its remaining required
-boundary. Identify controlled messages that the released Wire codec can cover,
-and internal derives/helpers with no remaining codec caller. Keep required
-interoperability and retained bytes explicit; adopting a codec does not itself
-qualify transport, authentication or recovery.
+boundary. Include public, third-party callers when checking owned application
+endpoints for Wire adoption; caller location is not a Candid requirement. Check
+actual frames and generated bindings, including unit requests and lifecycle
+arguments; explicit codec hooks alone do not establish conformance. Identify
+internal derives/helpers with no remaining codec caller. Keep independently
+defined Candid interfaces, migration gaps and retained checkpoint bytes explicit;
+adopting a codec does not itself qualify transport, authentication or recovery.
 
 Before calling an endpoint unused, trace frontend bindings, other canisters'
 method-name calls, ops/CLI scripts, generated clients and known external callers

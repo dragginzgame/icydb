@@ -38,6 +38,43 @@ The [Cargo ownership rules](cargo-dependencies.md) define where declarations liv
   lockfiles, checksums and affected evidence together through an explicit review.
   Checker execution never upgrades, fetches, reformats or rewrites dependencies.
 
+## Maintaining upstream code
+
+- Importing runtime code transfers maintenance responsibility to its owning
+  repository. Review relevant upstream fixes, advisories and protocol changes
+  when changing that runtime; record the source revision, applicability and
+  validation in the PR. An unchanged dependency version does not establish that
+  no fix is needed. Keep unresolved work in the owner's GitHub issues.
+- Source fingerprints guard reviewed behavior; they must not freeze known bugs.
+  An intentional change preserves the original import identity, licenses and
+  notices, records the deviation, and adds behavioral regression evidence before
+  updating the expected fingerprint. A hash change alone is not qualification.
+  Qualify affected consumer graphs, package/type identities and runtime behavior;
+  callback, trap, cancellation and upgrade changes need the applicable combined
+  runtime tests. The owning repository selects those fixtures and commands.
+- **Preserve established upstream cryptographic implementations and vectors.**
+  Do not implement, replace or alter cryptographic primitives, public-key
+  derivation, signature verification, cryptographic key encoding or hash/domain
+  separation as a dependency cleanup. Such changes require qualified external
+  cryptographic expertise and an explicit owning review. Packaging, feature gates
+  and integration plumbing may be simplified while preserving cryptographic
+  bodies, behavior, bytes, identities, provenance and licenses.
+- Claims of build independence or recovery when upstream services disappear need
+  separate evidence. Retain exact source, all required locked dependency graphs
+  (including generated integration fixtures), dependency sources and licenses,
+  toolchains/targets and required executable tools with checksums in durable
+  storage. Exclude credentials, secret configuration and unrelated user caches.
+  Demonstrate recovery in isolation with fresh dependency/build caches and no
+  network resolution, exercising the claimed builds and runtime behavior using
+  restored tools. Source vendoring does not capture compilers or simulators;
+  an existing developer cache or remote simulator does not prove their recovery.
+  Keep procedures and supported-host qualification with the product owner; this
+  rule adds no automatic recovery drill to ordinary validation or every release.
+
+The [Platform runtime maintenance contract](https://github.com/dragginzgame/ic-platform/blob/6157686be6491953b5b885c78065b97f7c1bbcde/docs/migration.md#runtime-maintenance-and-recovery)
+is a scoped example. Its exact executor/System API pins and installed runtime
+suite remain Platform-owned; they are not fleet-wide dependency selections.
+
 ## Frontend and npm inputs
 
 - Keep a committed `package-lock.json` for each independent npm build root.

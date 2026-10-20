@@ -67,10 +67,15 @@ pub fn allowlist(
 /// Apply the canonical generated SQL read-authorization boundary.
 ///
 /// This is public only for generated-code and evidence-canister plumbing.
+/// Transport principals are normalized through Platform's owned conversion
+/// before constructing the application authorization context.
 #[doc(hidden)]
-pub fn authorize_sql_read(caller: Principal, guard: ReadAuthorizationGuard) -> Result<(), Error> {
+pub fn authorize_sql_read(
+    caller: impl Into<Principal>,
+    guard: ReadAuthorizationGuard,
+) -> Result<(), Error> {
     authorize_read(
-        caller,
+        caller.into(),
         ReadAuthorizationSurface::Sql,
         guard,
         RuntimeBoundaryCode::SqlSurfacePolicyDenied,
@@ -80,13 +85,15 @@ pub fn authorize_sql_read(caller: Principal, guard: ReadAuthorizationGuard) -> R
 /// Apply the canonical generated accepted-schema read-authorization boundary.
 ///
 /// This is public only for generated-code and evidence-canister plumbing.
+/// Transport principals are normalized through Platform's owned conversion
+/// before constructing the application authorization context.
 #[doc(hidden)]
 pub fn authorize_schema_read(
-    caller: Principal,
+    caller: impl Into<Principal>,
     guard: ReadAuthorizationGuard,
 ) -> Result<(), Error> {
     authorize_read(
-        caller,
+        caller.into(),
         ReadAuthorizationSurface::Schema,
         guard,
         RuntimeBoundaryCode::SchemaSurfacePolicyDenied,
@@ -119,6 +126,7 @@ mod tests {
     use std::cell::Cell;
 
     use super::*;
+    use ic_platform::principal::ExternalPrincipal;
 
     thread_local! {
         static GUARD_CALLS: Cell<u8> = const { Cell::new(0) };
@@ -245,5 +253,35 @@ mod tests {
             crate::ErrorCode::RUNTIME_BOUNDARY_SCHEMA_SURFACE_POLICY_DENIED,
         );
         assert_eq!(take_guard_calls(), 0);
+    }
+
+    #[test]
+    fn external_callers_preserve_identity_and_authorization() {
+        let caller = principal(7);
+        let external = ExternalPrincipal::from(caller);
+        let sql_guard = |context: ReadAuthorizationContext| {
+            assert_eq!(context.caller, principal(7));
+            assert_eq!(context.surface, ReadAuthorizationSurface::Sql);
+            ReadAuthorizationDecision::Allow
+        };
+        let schema_guard = |context: ReadAuthorizationContext| {
+            assert_eq!(context.caller, principal(7));
+            assert_eq!(context.surface, ReadAuthorizationSurface::Schema);
+            ReadAuthorizationDecision::Allow
+        };
+        assert_eq!(authorize_sql_read(external, sql_guard), Ok(()));
+        assert_eq!(authorize_schema_read(external, schema_guard), Ok(()));
+        assert_eq!(
+            authorize_sql_read(ExternalPrincipal::anonymous(), sql_guard)
+                .expect_err("anonymous transport caller must be denied before its guard")
+                .code(),
+            crate::ErrorCode::RUNTIME_BOUNDARY_SQL_SURFACE_POLICY_DENIED,
+        );
+        assert_eq!(
+            authorize_schema_read(ExternalPrincipal::anonymous(), schema_guard)
+                .expect_err("anonymous transport caller must be denied before its guard")
+                .code(),
+            crate::ErrorCode::RUNTIME_BOUNDARY_SCHEMA_SURFACE_POLICY_DENIED,
+        );
     }
 }

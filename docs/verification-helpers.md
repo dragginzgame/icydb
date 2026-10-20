@@ -139,9 +139,10 @@ it never installs or downloads tools. Invalid selections refuse before dispatch.
 
 The common failure action defaults to full retention. Set
 upstream store configuration consistently with setup. If store admission fails,
-the selector still emits safe local references and bundles without following
-their targets, and returns nonzero. The action archives those selections plus
-local logs/builds and the selection diagnostic/status, sets
+the selector returns nonzero; its partial output is diagnostic data, not authority
+to select physical payloads. The action uses `collect-tool-evidence.sh` to retain
+local references without following them, local logs/builds and the selection
+diagnostic/status, sets
 `collection-complete=false`, uploads that partial evidence, then fails its final
 completeness step. A rejected store never authorizes traversal or repair, and
 partial evidence is not reported as complete retention. Set
@@ -154,8 +155,10 @@ of a successful hosted transport. The selector owns the full physical
 `.tools/rust` tree plus its admitted shared generations and original build/log
 evidence, independently of host/IC compaction. Custom callers must not also add
 the same local tree to the archive. Links are archived without following targets.
-Consumers adopt the selector only from a
-reviewed committed snapshot, rather than recreating its classifier locally.
+Consumers adopt the selector only from a reviewed committed snapshot, rather
+than recreating its classifier locally. For collection, prefer the existing
+[orchestrator](#tool-evidence-collection-orchestration) over a local selector/read/
+archive loop; keep product log selection and upload policy in the consumer.
 
 ## Runner disk capacity
 
@@ -872,6 +875,15 @@ is never used to admit physical payloads. Instead, local Rust evidence and
 host/IC references are retained without following redirected roots or links.
 Diagnostics remain in the partial archive; completeness is not inferred from
 successful archiving. Stdout contains the created archive path only.
+
+Callers still admit their own selected paths. If a parent such as `target` or
+`.tools` is a symlink, select the parent link itself instead of its children,
+retain a diagnostic and report incomplete collection. This keeps independent
+logs eligible for archiving without traversing the redirected parent. The
+orchestrator does not repair an invalid caller selection or infer product paths.
+Keep consumer tests for these selections, original failures, completeness and
+upload/download bindings; Shared owns the generic selector/archiver regression
+matrix.
 
 ## Formatter evidence selection
 

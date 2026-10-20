@@ -129,8 +129,17 @@ cargo_source() {
             "$package@$selected_version" --registry crates-io ${offline_args[@]+"${offline_args[@]}"}) >&2 || return $?
         archives=("$cargo_cache"/registry/cache/index.crates.io-*/"$package-$selected_version.crate")
     fi
-    [[ ${#archives[@]} == 1 && -f "${archives[0]}" && ! -L "${archives[0]}" ]] || {
-        echo "missing or ambiguous Cargo tool source: $package $selected_version; run explicit setup" >&2; return 1;
+    if [[ ${#archives[@]} == 0 ]]; then
+        printf 'Cargo tool source is missing from %s: %s %s\n' "$cargo_cache/registry/cache" "$package" "$selected_version" >&2
+        return 1
+    elif [[ ${#archives[@]} != 1 ]]; then
+        printf 'Cargo tool source is ambiguous for %s %s; cached archives:\n' "$package" "$selected_version" >&2
+        printf '  %q\n' "${archives[@]}" >&2
+        return 1
+    fi
+    [[ -f "${archives[0]}" && ! -L "${archives[0]}" ]] || {
+        printf 'Cargo tool source must be a regular non-symlink archive: %s\n' "${archives[0]}" >&2
+        return 1
     }
     source_archive="${archives[0]}"
     local parent="${source_archive%/*}"
@@ -152,12 +161,16 @@ cargo_source() {
     lock_digest="$(printf '%s\n' "$packaged_lock" | perl -MDigest::SHA=sha256_hex -0777 -ne 'print sha256_hex($_)')" || return 1
     inputs="$(jq -cnS --argjson build "$build_identity" --arg package "$package" --arg version "$selected_version" \
         --arg kind "$kind" --arg target "$target" --arg profile "$profile" --arg source "$checksum" --arg lock "$lock_digest" \
+        --argjson features "${features_json:-[]}" \
         '{build:$build,registry:"crates-io",package:$package,version:$version,kind:$kind,target:$target,
-          profile:$profile,source_sha256:$source,lock_sha256:$lock}')" || return 1
+          profile:$profile,source_sha256:$source,lock_sha256:$lock} +
+          (if $features == [] then {} else {features:$features} end)')" || return 1
 }
 
 cargo_build() {
     local candidate="$1"; shift
+    local feature_options=()
+    [[ -z "${features_csv:-}" ]] || feature_options=(--features "$features_csv")
     cargo_cache_check || return 1
     mkdir "$candidate/home" || return 1
     # No caller PATH, flags, wrappers, Cargo config or arbitrary environment is
@@ -165,5 +178,5 @@ cargo_build() {
     (umask 077; cd "$candidate/home" && "${build_environment[@]}" "HOME=$candidate/home" "$cargo_bin" install \
         "$package" --version "=$selected_version" --locked --registry crates-io \
         "--$kind" "$target" --root "$candidate" --target-dir "$candidate/build" \
-        --jobs 2 "$@" ${offline_args[@]+"${offline_args[@]}"})
+        --jobs 2 "$@" ${feature_options[@]+"${feature_options[@]}"} ${offline_args[@]+"${offline_args[@]}"})
 }

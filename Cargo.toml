@@ -89,13 +89,13 @@ darling = "0.24"
 data-encoding = "2.9"
 ethnum = { version = "1.5.3", default-features = false }
 getrandom = "0.4"
-ic-host-artifacts = { version = "0.30", default-features = false }
-ic-host-fs = { version = "0.30", default-features = false }
-ic-host-text = "0.30"
-ic-host-tools = "0.30"
+ic-host-artifacts = { version = "0.31", default-features = false }
+ic-host-fs = { version = "0.31", default-features = false }
+ic-host-text = "0.31"
+ic-host-tools = "0.31"
 ic-memory = "0.49"
 ic-metrics = "0.14"
-ic-platform = { version = "0.3", default-features = false }
+ic-platform = { version = "0.4", default-features = false }
 ic-storage = "0.5.4"
 ic-wire = "0.5"
 icydb = { path = "crates/icydb", version = "=0.277.2", default-features = false }
@@ -129,7 +129,7 @@ xxhash-rust = { version = "0.8.15", default-features = false, features = [
 blake3 = "1.8.5"
 canic-icydb = { git = "https://github.com/dragginzgame/canic", rev = "1491dd9ee4e858b4f47a4deba7e3cb4ab4a2b895" }
 ic-build = "0.22"
-ic-host-process = "0.30"
+ic-host-process = "0.31"
 ic-testkit = "0.57"
 ic-timers = "0.27"
 icydb-testing-audit-default-empty-fixtures = { path = "schema/audit/default_empty" }

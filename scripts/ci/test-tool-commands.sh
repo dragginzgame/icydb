@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: make/tools.mk scripts/ci/fixture-lifecycle.sh scripts/ci/check-pipe-jobserver.pl
+# Shared companions: make/tools.mk scripts/ci/fixture-lifecycle.sh scripts/ci/check-pipe-jobserver.pl scripts/ci/prepare-script-fixture.sh
 set -euo pipefail
 path_context=false
 if [[ "${1:-}" == --path-context && $# == 1 ]]; then path_context=true;
@@ -227,11 +227,9 @@ cp "$fixture/prefixed.mk" "$consumer/Makefile"
 cmp "$fixture/expected" "$TOOL_COMMAND_LOG"
 # Exercise the actual preflight owners through the actual parallel aggregate.
 # Host setup remains a recording stub: refusal must happen before it is called.
-mkdir -p "$snapshot/scripts/ci" "$snapshot/ci" "$consumer/ci" "$fixture/bin"
-cp "$ROOT/scripts/dev/install-ic-tools.sh" "$ROOT/scripts/dev/install-rust-tools.sh" "$snapshot/scripts/dev/"
-cp "$ROOT/scripts/dev/"{tool-store.sh,cargo-tool-build.sh,host-platform.sh} "$snapshot/scripts/dev/"
-cp "$ROOT/scripts/ci/"{ic-tool-pins.awk,verify-file-checksum.sh,tool-catalog-records.pl,StableVersion.pm} "$snapshot/scripts/ci/"
-cp "$ROOT/ci/ic-tools.tsv" "$ROOT/ci/tool-versions.env" "$snapshot/ci/"
+mkdir -p "$consumer/ci" "$fixture/bin"
+bash "$ROOT/scripts/ci/prepare-script-fixture.sh" "$ROOT" "$snapshot" \
+    scripts/dev/install-ic-tools.sh scripts/dev/install-rust-tools.sh
 cat > "$fixture/bin/uname" <<'SCRIPT'
 #!/usr/bin/env bash
 case "$1" in -s) echo Linux ;; -m) echo "${TOOL_PREFLIGHT_ARCH:-x86_64}" ;; esac
