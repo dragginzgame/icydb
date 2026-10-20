@@ -25,6 +25,11 @@ architecture on another.
 - Keep a type, its inherent implementation, and its trait implementations near
   one another when that improves navigation.
 
+## CLI applications
+
+Follow the mandatory [Clap CLI rule](../../DRAGGINZGAME.md#cli-applications).
+Use the library's existing capabilities before adding custom argument handling.
+
 ## Documentation and comments
 
 - Public APIs document purpose, ownership, invariants, and caller-visible

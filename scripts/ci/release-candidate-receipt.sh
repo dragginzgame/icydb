@@ -87,10 +87,13 @@ project_release_surface() (
     while IFS= read -r package; do
         [[ -z "$package" ]] || packages[${#packages[@]}]="$package"
     done <<< "$RELEASE_PACKAGE_NAMES"
-    perl "$SCRIPT_DIR/rewrite-local-lock-versions.pl" "$input" "$previous" "$release" "${packages[@]}"
+    local editor="${CARGO_RELEASE_METADATA_EDITOR:?select the prepared released IC Build editor}"
+    local limit="${CARGO_RELEASE_METADATA_MAX_BYTES:?select a positive per-document byte allowance}"
+    [[ "$editor" == /* && -f "$editor" && -x "$editor" && "$limit" =~ ^[1-9][0-9]*$ ]] || exit 2
+    "$editor" --max-input-bytes "$limit" lock "$input" "$previous" "$release" "${packages[@]}"
 )
 
-validate_changed_paths() {
+validate_changed_paths() (
     local diff_mode="$1"
     local base="$2"
     local head="${3:-}"
@@ -98,6 +101,9 @@ validate_changed_paths() {
     local release_version="$5"
     local path
     local -a command=(git -C "$ROOT_DIR" diff --name-only -z)
+    local inspection complete=false
+    inspection="$(mktemp -d "${TMPDIR:-/tmp}/icydb-release-projection.XXXXXX")" || exit 1
+    trap 'if [[ "$complete" == true ]]; then rm -rf "$inspection"; else printf "Release projection retained: %s\n" "$inspection" >&2; fi' EXIT
 
     case "$diff_mode" in
         working)
@@ -128,6 +134,9 @@ validate_changed_paths() {
             print join("\n", @names), "\n";
         ' "$release_version"
     )"
+    # Capture each producer before comparing bytes. A process substitution can
+    # hide an editor or Git failure after it has emitted complete-looking output.
+    "${command[@]}" > "$inspection/paths" || exit 1
     while IFS= read -r -d '' path; do
         if is_release_note_path "$path"; then
             continue
@@ -141,34 +150,34 @@ validate_changed_paths() {
                 ;;
         esac
 
+        git -C "$ROOT_DIR" show "$base:$path" > "$inspection/source" || exit 1
+        project_release_surface "$path" "$candidate_version" "$release_version" \
+            < "$inspection/source" > "$inspection/expected" || exit 1
         case "$diff_mode" in
             working)
-                if ! cmp -s \
-                    <(git -C "$ROOT_DIR" show "$base:$path" | project_release_surface "$path" "$candidate_version" "$release_version") \
-                    "$ROOT_DIR/$path"; then
+                if ! cmp -s "$inspection/expected" "$ROOT_DIR/$path"; then
                     echo "Release transition contains non-version changes in: $path" >&2
                     exit 1
                 fi
                 ;;
             staged)
-                if ! cmp -s \
-                    <(git -C "$ROOT_DIR" show "$base:$path" | project_release_surface "$path" "$candidate_version" "$release_version") \
-                    <(git -C "$ROOT_DIR" show ":$path"); then
+                git -C "$ROOT_DIR" show ":$path" > "$inspection/actual" || exit 1
+                if ! cmp -s "$inspection/expected" "$inspection/actual"; then
                     echo "Release transition contains non-version changes in: $path" >&2
                     exit 1
                 fi
                 ;;
             commits)
-                if ! cmp -s \
-                    <(git -C "$ROOT_DIR" show "$base:$path" | project_release_surface "$path" "$candidate_version" "$release_version") \
-                    <(git -C "$ROOT_DIR" show "$head:$path"); then
+                git -C "$ROOT_DIR" show "$head:$path" > "$inspection/actual" || exit 1
+                if ! cmp -s "$inspection/expected" "$inspection/actual"; then
                     echo "Release transition contains non-version changes in: $path" >&2
                     exit 1
                 fi
                 ;;
         esac
-    done < <("${command[@]}")
-}
+    done < "$inspection/paths"
+    complete=true
+)
 
 verify_only_staged_release_notes() {
     local path

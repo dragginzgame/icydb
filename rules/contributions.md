@@ -7,6 +7,21 @@ commits and PRs using their normal repository or fork permissions; no agent or
 special baseline exception is required. Repository reviews, required checks and
 branch protections continue to apply.
 
+## Trusted pull request sources
+
+Dragginzgame repositories must restrict new pull requests to trusted repository
+collaborators using GitHub's `pull_request_creation_policy=collaborators_only`
+setting. This admits organization members and approved outside collaborators
+with repository write access, as well as authorized installed bots such as
+Dependabot. Apply the setting when creating or restoring a repository; archived
+repositories remain archived. Preserve existing review and branch rules.
+
+The creation restriction does not revalidate existing PR authors when access is
+revoked. Before accepting an existing PR, verify the author's current repository
+write access or authorized bot identity; hold contributions whose authorization
+cannot be established. A display name, commit email or historical contribution
+does not establish current access or authorship of every included commit.
+
 For repositories that adopt an approved contributor agreement, verify executed
 acceptance and rights-holder authority before merging covered contributions.
 Follow the canonical [CLA and relicensing guidance](https://github.com/dragginzgame/shared-tooling/blob/main/docs/licenses.md#contributor-agreements-and-relicensing).

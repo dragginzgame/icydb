@@ -1,10 +1,31 @@
 # Focused verification helpers
+<!-- Shared companions: docs/cargo-graph-checks.md -->
 
 These optional helpers share mechanical checks. Consumers retain document
 selection, release validation gates, publication authority and registry polling
 policy. They require Perl core modules or Bash 3.2+, as noted below, and run on
 Linux and macOS. The portable regression suite includes offline fixtures;
 native CI qualifies each supported host separately.
+
+## Repository symlink admission
+
+```sh
+perl scripts/ci/check-no-symlinks.pl --consumer /path/to/checkout
+```
+
+The offline reader checks the selected checkout's actual Git index modes and
+tracked/nonignored working paths, including every parent below the checkout
+root. Indexed links refuse even if their working replacement is regular;
+dangling links and directory links refuse without following their targets.
+Tracked deletions are allowed. Failed Git/filesystem observations never pass.
+Inventory uses NUL delimiters and disables optional Git index writes; inherited
+Git directory/index overrides cannot select another source.
+
+Shared's `make check-no-symlinks` runs in its CI and release gate. Consumers may
+adopt the script as a snapshot entrypoint and select it in their existing gates.
+Ignored tool stores and isolated negative-test scratch are outside the inventory;
+this is not admission of arbitrary ignored files or generated package contents.
+Those remain subject to the baseline rule and their artifact checks.
 
 ## Fixture diagnostic replay
 
@@ -19,7 +40,7 @@ No files are removed or collected into a separate artifact.
 ## Cargo dependency-order fixtures
 
 ```bash
-perl scripts/ci/prepare-cargo-formatting-fixture.pl Cargo.toml workspace.dependencies candid ic-build > unsorted.toml
+perl scripts/ci/prepare-cargo-formatting-fixture.pl Cargo.toml workspace.dependencies ic-build ic-wire > unsorted.toml
 ```
 
 The helper accepts a caller-owned valid Cargo manifest and swaps exactly two
@@ -388,6 +409,13 @@ exactly, including trailing newlines. Missing or symlinked receipts refuse;
 failed generation cannot replace the prior receipt. Both helpers report failure
 without choosing retries or authorizing release effects.
 
+`release_receipt_archive TEMPLATE FILE...` preserves previous attempts before
+replacement, admitting the whole set before copying. Absent entries are allowed;
+links, non-regular entries and duplicate basenames refuse. Failed copies retain
+the active evidence and any partial archive. See
+[metadata preparation and evidence custody](releases.md#reusing-metadata-preparation-and-evidence-custody)
+for selected-file preparation, restoration and the callback contract.
+
 The caller must hold exclusive custody of the selected source and trusted state
 directory throughout these operations. Atomic receipt replacement does not supply
 a lock, authenticate the state directory, make multiple files transactional or
@@ -621,28 +649,15 @@ must retain policy/order checks and prove audit cannot run after preparation fai
 
 ## Local Cargo.lock versions
 
-```sh
-perl scripts/ci/rewrite-local-lock-versions.pl Cargo.lock 0.1.0 0.1.1 my-crate helper-crate > candidate.lock
-```
+Use the explicitly prepared IC Build release editor for manifest and local lock
+versions. Its lock renderer changes only selected unsourced package versions and
+exact unqualified local references. Shared Tooling retains originals and runs
+locked/offline Cargo graph validation before completing preparation.
 
-The Perl/core-only transformer reads a regular Cargo-generated LF lockfile in
-format 3 or 4 and emits a complete candidate on stdout. Supply canonical stable
-versions and the exact local package roster selected by the consumer's Cargo
-metadata. Each selected package must appear exactly once without a `source`
-field and have the previous version. Missing, duplicate or mismatched identities
-fail without emitting a partial candidate. The input file is never written.
-
-Only selected local versions and their exact unqualified dependency references
-change. Registry/Git identities, source-qualified references, checksums, unrelated
-versions, whitespace and comments stay unchanged. This is a narrow transformation
-of Cargo's generated layout, not a general TOML parser or resolver. The caller
-must check exit status before replacing its lockfile, retain failed candidates,
-and run Cargo's locked offline validation against the prepared manifests.
-Selecting independent lockfiles, discovering packages, metadata writes and
-release recovery remain consumer responsibilities. Do not redirect output onto
-the input file, invoke dependency resolution online, or use this to repair an
-already inconsistent graph. The upstream fixture includes independent real-Cargo
-locked/offline validation with local-only dependencies.
+See [Cargo candidate rendering](releases.md#cargo-release-candidate-rendering) for
+the required executable and byte-allowance selections. Candidate bytes are never
+redirected onto their inputs. Tool preparation, package selection and release
+authorization remain consumer-owned.
 
 ## Formatter prerequisites
 
@@ -1115,3 +1130,9 @@ destination and stable reviewed source; copying does not protect against
 concurrent mutation. The helper neither creates a snapshot nor proves supplier
 custody. Consumers retain product adapters, substitutions and assertions.
 Focused coverage is `bash scripts/ci/test-script-fixture.sh`.
+
+## Resolved dependency graphs
+
+Use [the graph checker](cargo-graph-checks.md) to enforce consumer-selected
+transitive exclusions and rendered package identity counts. Direct ownership
+checks and product feature/lifecycle policies remain separate.

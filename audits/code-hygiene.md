@@ -10,6 +10,9 @@ where applicable; consumers supply other language conventions and commands.
 1. Inventory public APIs, trust-state transitions, source/test/generated roots,
    and tracked versus ignored artifacts. Separate raw, decoded, validated and
    authoritative data, including constructors and deserialization paths.
+   Apply the [no-symlink rule](../DRAGGINZGAME.md#repository-files-no-symlinks)
+   to Git mode `120000`, working-tree links and generated/package assets. Distinguish
+   admitted tool-store pointers and deliberate rejection fixtures from source aliases.
 2. Classify panic/unwrap/expect, unsafe code, unchecked conversions, broad lint
    suppressions and language escape hatches by reachability and consequence.
    Presence alone is not a defect. Invalid input and recoverable state need typed

@@ -552,6 +552,10 @@ fn sql_field_addition_candidate_error(
     error: SchemaDdlFieldAdditionCandidateError,
 ) -> SqlDdlBindError {
     match error {
+        SchemaDdlFieldAdditionCandidateError::InvalidName => SqlDdlBindError::InvalidColumnName {
+            entity_name: entity_name.to_string(),
+            column_name: column_name.to_string(),
+        },
         SchemaDdlFieldAdditionCandidateError::Duplicate => SqlDdlBindError::DuplicateColumn {
             entity_name: entity_name.to_string(),
             column_name: column_name.to_string(),
@@ -609,6 +613,10 @@ fn sql_field_rename_candidate_error(
     error: SchemaDdlFieldRenameCandidateError,
 ) -> SqlDdlBindError {
     match error {
+        SchemaDdlFieldRenameCandidateError::InvalidName => SqlDdlBindError::InvalidColumnName {
+            entity_name: entity_name.to_string(),
+            column_name: new_column_name.to_string(),
+        },
         SchemaDdlFieldRenameCandidateError::Unknown => SqlDdlBindError::UnknownColumn {
             entity_name: entity_name.to_string(),
             column_name: old_column_name.to_string(),

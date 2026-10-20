@@ -66,10 +66,13 @@ CARGO_HOME="$ROOT/.cache/cargo/icydb" \
   bash scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$PWD" \
   > "$fixture/boundaries.log" 2>&1
 cp Cargo.toml "$fixture/catalog.toml"
-for dependency in ic-cdk ic-stable-structures; do
+for dependency in ic-cdk ic-stable-structures pocket-ic; do
   cp "$fixture/catalog.toml" Cargo.toml
-  if [[ "$dependency" == ic-cdk ]]; then requirement=0.20.3
-  else requirement=0.7.2; fi
+  case "$dependency" in
+    ic-cdk) requirement=0.20.3 ;;
+    ic-stable-structures) requirement=0.7.2 ;;
+    pocket-ic) requirement=16.1.0 ;;
+  esac
   printf '\n[workspace.dependencies.boundary_alias]\npackage = "%s"\nversion = "%s"\n' \
     "$dependency" "$requirement" >> Cargo.toml
   for section in dependencies 'target."cfg(target_os = \"none\")".build-dependencies' \

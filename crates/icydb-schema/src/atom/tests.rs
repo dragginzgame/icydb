@@ -116,8 +116,11 @@ fn blob_proposal_literals_retain_their_dedicated_bound() {
 
 #[test]
 fn principal_platform_identity_preserves_native_wire_bytes() {
-    for bytes in [vec![], vec![4], vec![0xAB; 29]] {
+    for bytes in [vec![], vec![4], vec![2, 7], vec![0xAB; 29]] {
         let platform = ic_platform::Principal::from_slice(&bytes);
+        let external: ic_platform::principal::ExternalPrincipal = platform.into();
+        assert_eq!(external.as_slice(), bytes);
+        assert_eq!(ic_platform::Principal::from(external), platform);
         let value = Principal::from(platform);
         let recovered: ic_platform::Principal = value.into();
         assert_eq!(recovered, platform);
@@ -132,11 +135,41 @@ fn principal_platform_identity_preserves_native_wire_bytes() {
             crate::wire::decode_one::<Principal>(&encoded).expect("principal should decode"),
             value,
         );
+
+        // The atom's binary Serde representation remains a raw byte string,
+        // including a leading 0x02, for borrowed and reader-backed decoding.
+        let encoded = serde_cbor::to_vec(&value).expect("principal should serialize");
+        let expected = serde_cbor::to_vec(&serde_bytes::Bytes::new(&bytes))
+            .expect("principal bytes should serialize");
+        assert_eq!(encoded, expected);
+        assert_eq!(
+            serde_cbor::from_slice::<Principal>(&encoded).expect("borrowed bytes should decode"),
+            value,
+        );
+        assert_eq!(
+            serde_cbor::from_reader::<Principal, _>(encoded.as_slice())
+                .expect("reader-backed bytes should decode"),
+            value,
+        );
     }
 }
 
 #[test]
 fn principal_platform_adoption_retains_text_and_byte_rejection() {
+    let platform = ic_platform::Principal::from_slice(&[0xAB; 29]);
+    let text = platform.to_text();
+    assert_eq!(
+        Principal::from_text(&text.to_uppercase()),
+        Ok(platform.into())
+    );
+    assert_eq!(
+        Principal::from_text(&text.replace('-', "")),
+        Err(PrincipalError::InvalidText),
+    );
+    assert_eq!(
+        Principal::from_text(&"a".repeat(64)),
+        Err(PrincipalError::InvalidText),
+    );
     assert_eq!(
         Principal::from_text("invalid principal text"),
         Err(PrincipalError::InvalidText),

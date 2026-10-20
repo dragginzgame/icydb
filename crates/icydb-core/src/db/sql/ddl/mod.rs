@@ -252,6 +252,11 @@ pub(in crate::db) enum SqlDdlBindError {
         column_name: String,
     },
 
+    InvalidColumnName {
+        entity_name: String,
+        column_name: String,
+    },
+
     RowLayoutVersionExhausted {
         entity_name: String,
     },

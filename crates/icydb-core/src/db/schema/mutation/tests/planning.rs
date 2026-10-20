@@ -6,6 +6,81 @@ use crate::db::schema::{
 };
 
 #[test]
+fn ddl_field_addition_rejects_dotted_root_names() {
+    let accepted = AcceptedSchemaSnapshot::try_new(base_snapshot()).unwrap();
+    for name in ["profile.rank", "profile.rank.value", ".rank", "rank."] {
+        assert_eq!(
+            resolve_sql_ddl_field_addition_name_candidate(&accepted, name),
+            Err(SchemaDdlFieldAdditionCandidateError::InvalidName)
+        );
+        assert_eq!(
+            build_sql_ddl_field_addition_candidate(
+                &accepted,
+                name.to_string(),
+                AcceptedFieldKind::Text { max_len: None },
+                true,
+                SchemaInsertDefault::None,
+                FieldStorageDecode::ByKind,
+                LeafCodec::Scalar(ScalarCodec::Text),
+            ),
+            Err(SchemaDdlFieldAdditionCandidateError::InvalidName)
+        );
+        // A caller can construct a field without the candidate builder; the
+        // accepted-after boundary must independently refuse publication too.
+        assert_eq!(
+            derive_sql_ddl_field_addition_accepted_after(
+                &accepted,
+                nullable_text_field(name, 3, 2)
+            ),
+            Err(SchemaDdlMutationAdmissionError::AcceptedAfterRejected)
+        );
+    }
+}
+
+#[test]
+fn ddl_field_rename_rejects_dotted_targets_and_preserves_retained_name_repair() {
+    let base = AcceptedSchemaSnapshot::try_new(base_snapshot()).unwrap();
+    let field = build_sql_ddl_field_addition_candidate(
+        &base,
+        "nickname".to_string(),
+        AcceptedFieldKind::Text { max_len: None },
+        true,
+        SchemaInsertDefault::None,
+        FieldStorageDecode::ByKind,
+        LeafCodec::Scalar(ScalarCodec::Text),
+    )
+    .unwrap();
+    let addition = derive_sql_ddl_field_addition_accepted_after(&base, field.clone()).unwrap();
+    let accepted = addition.accepted_after();
+    for name in ["profile.rank", "profile.rank.value", ".rank", "rank."] {
+        assert_eq!(
+            resolve_sql_ddl_field_rename_candidate(accepted, "nickname", name),
+            Err(SchemaDdlFieldRenameCandidateError::InvalidName)
+        );
+        assert_eq!(
+            derive_sql_ddl_field_rename_accepted_after(accepted, "nickname", name),
+            Err(SchemaDdlMutationAdmissionError::AcceptedAfterRejected)
+        );
+    }
+    // Retained malformed names remain readable by the catalog and addressable
+    // by cleanup DDL; do not turn this admission fix into a new snapshot reader.
+    let legacy_field = field.clone_with_name("legacy.rank".to_string());
+    let retained = AcceptedSchemaSnapshot::try_new(append_fields_snapshot(
+        &base_snapshot(),
+        std::slice::from_ref(&legacy_field),
+    ))
+    .unwrap();
+    assert!(resolve_sql_ddl_field_rename_candidate(&retained, "legacy.rank", "rank").is_ok());
+    let repaired =
+        derive_sql_ddl_field_rename_accepted_after(&retained, "legacy.rank", "rank").unwrap();
+    let field_after = &repaired.accepted_after().persisted_snapshot().fields()[2];
+    assert_eq!(field_after.name(), "rank");
+    assert_eq!(field_after.id(), legacy_field.id());
+    assert_eq!(field_after.slot(), legacy_field.slot());
+    assert!(derive_sql_ddl_field_drop_accepted_after(&retained, "legacy.rank").is_ok());
+}
+
+#[test]
 fn metadata_mutation_plan_is_immediately_publishable() {
     let field = nullable_text_field("nickname", 3, 2);
     let fields = [field];

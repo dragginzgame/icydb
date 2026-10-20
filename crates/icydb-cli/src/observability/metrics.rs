@@ -10,7 +10,7 @@ use icydb::wire::Endpoint;
 use crate::{
     cli::{CanisterTarget, MetricsArgs},
     icp::require_created_canister,
-    observability::{call_query, call_update, decode_endpoint_result},
+    observability::{call_query, call_update},
 };
 
 /// Read or reset the generated metrics endpoints.
@@ -22,36 +22,24 @@ pub(super) fn run_metrics_command(args: MetricsArgs) -> Result<(), String> {
         return run_metrics_reset(target);
     }
 
-    let wire_bytes = call_query(
+    let report = call_query::<icydb::metrics::MetricsReport>(
         target.environment(),
         target.canister_name(),
-        Endpoint::Metrics.name(),
+        Endpoint::Metrics,
         (),
-    )?;
-    let report = decode_endpoint_result::<icydb::metrics::MetricsReport>(
-        &wire_bytes,
         "metrics",
-        target.environment(),
-        target.canister_name(),
-        Endpoint::Metrics.name(),
     )?;
     print!("{}", render_metrics_report(&report));
     Ok(())
 }
 
 fn run_metrics_reset(target: &CanisterTarget) -> Result<(), String> {
-    let wire_bytes = call_update(
+    call_update::<()>(
         target.environment(),
         target.canister_name(),
-        Endpoint::MetricsReset.name(),
+        Endpoint::MetricsReset,
         (),
-    )?;
-    decode_endpoint_result::<()>(
-        &wire_bytes,
         "metrics reset",
-        target.environment(),
-        target.canister_name(),
-        Endpoint::MetricsReset.name(),
     )?;
     println!(
         "Reset metrics on canister '{}' in environment '{}'.",

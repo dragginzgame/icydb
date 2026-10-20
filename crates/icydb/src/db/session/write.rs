@@ -1132,6 +1132,8 @@ pub enum StructuralMutation {
         patch: StructuralPatch,
     },
     /// Replace one row, inserting it when absent.
+    /// A missing row requires caller-owned primary-key fields; generated or
+    /// managed keys can only be preserved from an existing row.
     Replace {
         /// Accepted entity display name.
         entity: String,

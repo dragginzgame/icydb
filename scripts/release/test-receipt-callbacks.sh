@@ -48,6 +48,12 @@ set -euo pipefail
 if [[ "$1" == */scripts/ci/check-make-execution.sh ]]; then
     exec "$REAL_BASH" "$@"
 fi
+case "$1" in
+    scripts/ci/release-candidate-receipt.sh|scripts/ci/cargo-release-metadata.sh|scripts/ci/record-release-gate-receipt.sh)
+        [[ "$CARGO_RELEASE_METADATA_EDITOR" == "$REAL_BASH" ]]
+        [[ "$CARGO_RELEASE_METADATA_MAX_BYTES" == 8388608 ]]
+        ;;
+esac
 printf '%s\n' "$*" >> "$EVENTS"
 if [[ "$*" == 'scripts/ci/release-candidate-receipt.sh verify-commit' ]]; then
     [[ "${FAIL_CANDIDATE:-0}" == 0 ]]
@@ -90,6 +96,13 @@ reader="${BASH_REMATCH[2]}"; writer="${BASH_REMATCH[3]}"
 [[ "$1" == locate-project && "${FAIL_CARGO:-0}" == 0 ]]
 CARGO
 chmod +x "$fixture/bin/bash" "$fixture/bin/git" "$fixture/bin/cargo"
+printf '#!%s\n' "$REAL_BASH" > "$fixture/bin/editor-selector"
+cat >> "$fixture/bin/editor-selector" <<'EDITOR'
+set -euo pipefail
+[[ "$#" == 0 ]]
+printf '%s\n' "$REAL_BASH"
+EDITOR
+chmod +x "$fixture/bin/editor-selector"
 export FIXTURE_CARGO="$fixture/Cargo.toml"
 export FIXTURE_COMMITTED="$fixture/committed"
 export PATH="$fixture/bin:$PATH"
@@ -99,6 +112,7 @@ run_callback() {
     local expected="$1" target="$2" status=0
     : > "$EVENTS"
     "$real_make" --no-print-directory -j2 -f "$root/Makefile" "$target" \
+        "RELEASE_EDITOR_CHECK=$fixture/bin/editor-selector" \
         > "$fixture/output" 2>&1 || status=$?
     if [[ "$expected" == pass ]]; then
         [[ "$status" == 0 ]]

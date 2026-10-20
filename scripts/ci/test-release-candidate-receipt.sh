@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SUBJECT="$ROOT_DIR/scripts/ci/release-candidate-receipt.sh"
-TEST_ROOT="$(mktemp -d)"
+TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/icydb-release-receipt.XXXXXX")"
 FIXTURE="$TEST_ROOT/repository"
 RECEIPTS="$TEST_ROOT/receipts"
 fixture_complete=false

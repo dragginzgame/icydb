@@ -16,7 +16,7 @@ links these methods; it does not maintain a second set of audit questions.
 | Do current behavior axes and ownership spread create demonstrated maintenance friction? | [Complexity and technical debt](complexity-and-technical-debt.md) |
 | Which retained or exposed code units lack a current authority reason? | [Module surface hardening](module-surface-hardening.md) |
 | How should an authorized module cleanup implement those findings? | [Module cleanup](module-cleanup.md), an implementation procedure, not another audit |
-| How do those methods apply to Candid services, canister lifecycle and Wasm budgets? | [IC canister application addendum](ic-canister-applications.md), alongside the selected method |
+| How do those methods apply to IC application protocols, canister lifecycle and Wasm budgets? | [IC canister application addendum](ic-canister-applications.md), alongside the selected method |
 
 Select the smallest method and affected owners that answer the request. Follow
 contracts through producers, consumers, generated boundaries and recovery paths;

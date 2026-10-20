@@ -322,6 +322,26 @@ helpers and `make test-watch`. General analysis tools are optional; install
 cargo install cargo-audit --locked
 ```
 
+### Release Metadata Editor
+
+Release callbacks and the release-adapter fixtures select the published IC Build
+editor from the workspace lock. Normal setup prepares it through `install-tools`;
+prepare or check only the editor with:
+
+```bash
+make install-release-editor
+make release-editor-check
+```
+
+The Make adapters supply an eight MiB allowance per input document; no per-shell
+editor export is required. Fresh release preflight prepares selected tools;
+offline preflight and saved/recovery callbacks only check existing preparation.
+Saved callbacks select the editor from their committed source lock; preserve the
+older prepared tool when newer working metadata selects a different release.
+Setup does not change release metadata or perform Git/release effects. Missing
+preparation refuses before the consumer runs. See the
+[shared release contract](docs/releases.md#cargo-release-candidate-rendering).
+
 ### Dependency Declaration Checks
 
 Setup installs pinned jq, the checksum-verified Mike Farah `yq` parser and

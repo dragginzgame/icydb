@@ -5,6 +5,39 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.278.0]
+
+### ⚠️ Breaking
+
+- Public principal conversions and read-authorization contexts use IC Platform
+  0.3.0's owned Principal. Convert external client/DTO identities explicitly;
+  Wire and stored bytes remain unchanged.
+
+### 🔧 Changed
+
+- Disable unused Proptest features and remove seven test-only lockfile packages.
+- Remove constructor-priority support and keep the metrics dependency behind
+  the existing metrics feature.
+- Adopt IC Host 0.30.0 helpers, matching IC Build 0.22 and Shared Tooling 0.25.1;
+  automatically select the locked release editor.
+- Delegate CLI argument-file creation and cleanup to Host and remove the
+  workspace's direct `tempfile` dependency.
+- Keep CLI endpoint identities typed through request/reply handling and share
+  report call/decoding, preserving Wire limits, call selection and diagnostics.
+
+### 🩹 Fixed
+
+- Reject missing-row replacements with database-owned primary keys, preserving
+  existing-row replacement and batch atomicity ([#226 — Missing-row replacement authors generated keys](https://github.com/dragginzgame/icydb/issues/226)).
+- Reject dotted DDL column names before publication, preserving schema versions
+  and allowing retained malformed names to be repaired ([#109 — DDL accepts unaddressable dotted column names](https://github.com/dragginzgame/icydb/issues/109)).
+- Continue CLI migrations through unchanged public status pages, with bounded
+  update calls and resumable progress ([#45 — Migration run mistakes unchanged status for a stall](https://github.com/dragginzgame/icydb/issues/45)).
+- Keep macOS fixture failure evidence under the selected temporary root
+  ([#361 — Separate build and Wasm reporting from PocketIC](https://github.com/dragginzgame/icydb/issues/361)).
+
+See [detailed notes](docs/changelog/0.278.md).
+
 ## [0.277.2] - 2026-10-19
 
 ### 🔧 Changed

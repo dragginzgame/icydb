@@ -14,16 +14,13 @@ doctest = false
 [features]
 default = []
 sql = []
-metrics = []
+metrics = ["dep:ic-metrics"]
 migration = []
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-getrandom = { workspace = true }
 
 [dependencies]
 base64 = { workspace = true }
 ic-memory = { workspace = true }
-ic-metrics.workspace = true
+ic-metrics = { workspace = true, optional = true }
 ic-platform = { workspace = true, features = ["ic0"] }
 ic-storage = { workspace = true }
 icydb-diagnostic-code = { workspace = true }
@@ -36,6 +33,9 @@ sha2 = { workspace = true }
 thiserror = { workspace = true }
 ulid = { workspace = true }
 xxhash-rust = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+getrandom = { workspace = true }
 
 [dev-dependencies]
 icydb-testing-sql-generator = { workspace = true }

@@ -11,12 +11,12 @@ use icydb::{
 use crate::{
     cli::{CanisterTarget, ConfirmedMigrationTarget, SchemaMigrationCommand},
     icp::require_created_canister,
-    observability::{call_query, call_update, decode_endpoint_result},
+    observability::{call_query, call_update},
 };
 
-// Public status omits cleanup's private cursor, so identical pages cannot prove
-// a stall. Bound paid calls per invocation instead; retained cleanup is resumable.
-const MAX_ABORT_UPDATE_CALLS: usize = 1_024;
+// Public status omits private migration and cleanup cursors, so identical pages
+// cannot prove a stall. Bound paid calls per invocation; retained work can resume.
+const MAX_MIGRATION_UPDATE_CALLS: usize = 1_024;
 
 pub(super) fn run_schema_migration_command(command: SchemaMigrationCommand) -> Result<(), String> {
     let status = match &command {
@@ -67,7 +67,7 @@ fn run_confirmed_abort(
     let plan = status
         .plan_digest()
         .ok_or_else(|| "deployed schema has no migration plan to abort".to_string())?;
-    for completed_calls in 1..=MAX_ABORT_UPDATE_CALLS {
+    for completed_calls in 1..=MAX_MIGRATION_UPDATE_CALLS {
         let next = abort(target, &status)?;
         if next.database_identity() != database || next.plan_digest() != Some(plan) {
             return Err(
@@ -90,7 +90,7 @@ fn run_confirmed_abort(
     }
     print_status(&status);
     Err(format!(
-        "schema migration abort reached its limit of {MAX_ABORT_UPDATE_CALLS} update calls; inspect migration status, then rerun abort --yes to continue cleanup"
+        "schema migration abort reached its limit of {MAX_MIGRATION_UPDATE_CALLS} update calls; inspect migration status, then rerun abort --yes to continue cleanup"
     ))
 }
 
@@ -117,21 +117,31 @@ fn run_to_terminal(target: &CanisterTarget) -> Result<SchemaMigrationStatusPage,
     let plan = status
         .plan_digest()
         .ok_or_else(|| "deployed schema has no migration plan to run".to_string())?;
-    loop {
-        if terminal(status.phase()) {
-            return Ok(status);
-        }
+    if terminal(status.phase()) {
+        return Ok(status);
+    }
+    for completed_calls in 1..=MAX_MIGRATION_UPDATE_CALLS {
         let next = advance(target, &status)?;
         if next.database_identity() != database || next.plan_digest() != Some(plan) {
             return Err(
                 "deployed migration database or plan identity changed while running".into(),
             );
         }
-        if next == status {
-            return Err("deployed migration made no bounded progress".into());
-        }
         status = next;
+        if terminal(status.phase()) {
+            return Ok(status);
+        }
+        if completed_calls % 128 == 0 {
+            println!(
+                "schema migration run: {completed_calls} update calls completed; phase {:?}",
+                status.phase()
+            );
+        }
     }
+    print_status(&status);
+    Err(format!(
+        "schema migration run reached its limit of {MAX_MIGRATION_UPDATE_CALLS} update calls; inspect migration status, then invoke run again to continue migration"
+    ))
 }
 
 const fn terminal(phase: SchemaMigrationPhase) -> bool {
@@ -145,18 +155,12 @@ const fn terminal(phase: SchemaMigrationPhase) -> bool {
 
 fn load_status(target: &CanisterTarget) -> Result<SchemaMigrationStatusPage, String> {
     require_created_canister(target.environment(), target.canister_name())?;
-    let wire = call_query(
+    call_query(
         target.environment(),
         target.canister_name(),
-        Endpoint::SchemaMigration.name(),
+        Endpoint::SchemaMigration,
         SchemaMigrationStatusRequest::default(),
-    )?;
-    decode_endpoint_result(
-        &wire,
         "schema migration status",
-        target.environment(),
-        target.canister_name(),
-        Endpoint::SchemaMigration.name(),
     )
 }
 
@@ -210,18 +214,12 @@ fn call_command(
     target: &CanisterTarget,
     command: &RuntimeMigrationCommand,
 ) -> Result<SchemaMigrationStatusPage, String> {
-    let wire = call_update(
+    call_update(
         target.environment(),
         target.canister_name(),
-        Endpoint::SchemaMigrate.name(),
+        Endpoint::SchemaMigrate,
         command,
-    )?;
-    decode_endpoint_result(
-        &wire,
         "schema migration",
-        target.environment(),
-        target.canister_name(),
-        Endpoint::SchemaMigrate.name(),
     )
 }
 
@@ -284,7 +282,6 @@ fn print_status(status: &SchemaMigrationStatusPage) {
 
 #[cfg(test)]
 mod tests {
-    use crate::icp::encode_wire_args;
     use icydb::{
         db::{ExpectedAcceptedHead, SchemaMigrationCommand, TargetDatabaseIdentity},
         wire::Endpoint,
@@ -327,7 +324,7 @@ mod tests {
                     },
                 ] {
                     // The argument carries its own types, without service metadata.
-                    let bytes = encode_wire_args(Endpoint::SchemaMigrate.name(), &command).unwrap();
+                    let bytes = Endpoint::SchemaMigrate.encode_request(&command).unwrap();
                     assert_eq!(
                         icydb::wire::Endpoint::SchemaMigrate
                             .decode_request::<SchemaMigrationCommand>(&bytes)

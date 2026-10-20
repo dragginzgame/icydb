@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Exercise capture/provenance decisions without Cargo, a replica, or Twiggy.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TEST_ROOT="$(mktemp -d)"
+TEST_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/icydb-wasm-audit.XXXXXX")"
 fixture_complete=false
 cleanup() {
     local status=$?

@@ -208,8 +208,13 @@ and exposure policy; it does not weaken schema admission.
 Structural insert `Default` cells request accepted policy,
 including generation and management for database-owned fields. Authored `Null`
 or `Value` cells on those fields remain rejected, as does `Default` in an
-update or replacement. Keyed replacement preserves its selected identity and
-cannot allocate an Identity value for a missing row.
+update or replacement. Keyed replacement preserves an existing row's selected
+identity. Inserting through replacement requires every primary-key field to be
+caller-owned: a missing row with an `Identity`, generated `Ulid`/`Timestamp`,
+or managed primary-key field is rejected with the database-owned-field
+authorship diagnostic. Use `Insert` with omitted/default key fields to generate
+a new identity. This rule applies to scalar/composite keys and typed/structural
+single writes and batches; rejection does not publish earlier batch writes.
 
 Database-managed `CreatedAt` and `UpdatedAt` fields are accepted write policy,
 not generated callbacks. One operation timestamp is captured before accepted

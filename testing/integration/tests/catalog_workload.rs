@@ -1,8 +1,8 @@
 //! Matched full-row catalogue measurement; not a Toko Miner deployment.
 
 use ic_host_artifacts::artifact::Sha256Digest;
-use ic_platform::Principal;
-use ic_testkit::pocket_ic::PocketIc;
+use ic_platform::pocket_ic::PocketIc;
+use ic_platform::principal::ExternalPrincipal as Principal;
 use icydb::Error;
 use icydb_testing_build::{
     CanisterBuildOptions, CanisterBuildProfile, CanisterSqlMode, CanisterWasmProfile,

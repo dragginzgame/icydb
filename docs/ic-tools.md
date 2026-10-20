@@ -22,6 +22,12 @@ Quill messages or performs deployment/publication effects.
 
 ## Selected set
 
+The `didc` executable serves required Candid interfaces and their compatibility
+checks. Its presence in this bundle does not select an application encoding;
+follow the [IC Wire preference](../DRAGGINZGAME.md#ic-application-encoding) for
+controlled messages. IC Wire's generated codecs do not replace Candid IDL tools
+where an external interface requires them.
+
 The reviewed default pins live only in [ci/ic-tools.tsv](../ci/ic-tools.tsv).
 Each row specifies executable, exact
 version, native host and archive SHA-256. The digests were read from the official

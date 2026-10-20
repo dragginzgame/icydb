@@ -6,10 +6,8 @@
 use icydb_testing_integration::WireCallExt as _;
 use std::{collections::BTreeSet, num::NonZeroUsize, time::Duration};
 
-use ic_testkit::{
-    pic::{CanisterInstallExt, RetryPolicy, StandaloneCanisterFixture},
-    pocket_ic::{ErrorCode, RejectResponse},
-};
+use ic_platform::pocket_ic::{ErrorCode, RejectResponse};
+use ic_testkit::pic::{CanisterInstallExt, RetryPolicy, StandaloneCanisterFixture};
 use icydb::types::Ulid;
 use icydb_testing_build::{
     CanisterBuildOptions, CanisterBuildProfile, build_fixture_canister_wasm_bytes_with_options,

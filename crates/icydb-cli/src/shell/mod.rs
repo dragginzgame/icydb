@@ -80,15 +80,13 @@ fn execute_sql(environment: &str, canister: &str, sql: &str) -> Result<String, S
     require_created_canister(environment, canister)?;
 
     let wire_bytes = match call_kind {
-        route::SqlShellCallKind::Query => {
-            call::icp_query(environment, canister, endpoint.name(), sql)?
-        }
+        route::SqlShellCallKind::Query => call::icp_query(environment, canister, endpoint, sql)?,
         route::SqlShellCallKind::Ddl | route::SqlShellCallKind::Update => {
-            call::icp_update(environment, canister, endpoint.name(), sql)?
+            call::icp_update(environment, canister, endpoint, sql)?
         }
     };
 
-    render_sql_response(endpoint.name(), wire_bytes.as_slice())
+    render_sql_response(endpoint, wire_bytes.as_slice())
 }
 
 const fn sql_endpoint(call_kind: route::SqlShellCallKind) -> Endpoint {
@@ -101,9 +99,8 @@ const fn sql_endpoint(call_kind: route::SqlShellCallKind) -> Endpoint {
 
 // Both call lanes decode the same public envelope and retain typed values until
 // the CLI composes a terminal report from SQL display cells.
-fn render_sql_response(method: &str, wire_bytes: &[u8]) -> Result<String, String> {
-    let response = icydb::wire::Endpoint::from_name(method)
-        .ok_or_else(|| format!("unknown IcyDB method '{method}'"))?
+fn render_sql_response(endpoint: Endpoint, wire_bytes: &[u8]) -> Result<String, String> {
+    let response = endpoint
         .decode_response::<Result<SqlQueryResult, icydb::Error>>(wire_bytes)
         .map_err(|err| err.to_string())?;
 
@@ -152,7 +149,7 @@ pub(crate) mod test_support {
     }
 
     pub(crate) fn render_sql_response(wire_bytes: &[u8]) -> Result<String, String> {
-        super::render_sql_response("icydb_query", wire_bytes)
+        super::render_sql_response(super::Endpoint::Query, wire_bytes)
     }
 
     pub(crate) fn sql_shell_config_inputs(args: super::SqlArgs) -> SqlShellConfigInputs {

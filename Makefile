@@ -20,14 +20,14 @@
         _ci-tier-a-sqlite _ci-tier-a-mutation _ci-tier-a-integration \
         _ci-tier-b-sql-canister _ci-tier-b-sql-perf \
         print-cargo-home print-cargo-target-dir check-dependency-pins \
-        _icydb-ic-tool-policy install-testkit testkit-check
+        _icydb-ic-tool-policy install-testkit testkit-check install-release-editor release-editor-check
 
 # Resolve the repo root from this Makefile so scripts can query these values
 # via `make -C "$$ROOT"` and share a single source of truth.
 ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 override SHARED_TOOLING_ROOT := $(ROOT_DIR)
-LOCAL_TOOL_INSTALL_TARGETS := install-ic-tools install-testkit
-LOCAL_TOOL_CHECK_TARGETS := ic-tools-check testkit-check
+LOCAL_TOOL_INSTALL_TARGETS := install-ic-tools install-testkit install-release-editor
+LOCAL_TOOL_CHECK_TARGETS := ic-tools-check testkit-check release-editor-check
 # IC executables are an explicit IcyDB selection under the shared baseline.
 export PATH := $(ROOT_DIR)/.tools/ic/bin:$(PATH)
 # IcyDB owns derive ordering; shared targets own admission and formatter output.
@@ -43,6 +43,11 @@ RELEASE_TMP_DIR := $(ROOT_DIR)/.cache/release-tmp
 CARGO_WORK_ENV := CARGO_HOME="$(CARGO_WORK_HOME)" CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
 CARGO_PUBLISH_ENV := CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
 TESTKIT_RUNNER := bash "$(ROOT_DIR)/scripts/ci/testkit-runner.sh"
+RELEASE_EDITOR_TOOL = bash "$(ROOT_DIR)/scripts/dev/install-rust-tools.sh" --consumer "$(ROOT_DIR)" --package ic-build --lockfile "$(ROOT_DIR)/Cargo.lock" --bin ic-build-release-metadata --profile debug
+RELEASE_EDITOR_CHECK = $(RELEASE_EDITOR_TOOL) --check
+# Admit the locked editor before invoking a release consumer. A failed producer
+# cannot supply its path; recovery/verification only check prepared tools.
+RELEASE_EDITOR_ENV = editor="$$( $(CARGO_WORK_ENV) $(RELEASE_EDITOR_CHECK) )" || exit; $(CARGO_WORK_ENV) CARGO_RELEASE_METADATA_EDITOR="$$editor" CARGO_RELEASE_METADATA_MAX_BYTES=8388608
 TESTKIT_SERVER_CHECK = runner="$$( $(TESTKIT_RUNNER) --check )" && "$$runner" check --directory "$(ROOT_DIR)/.tools/ic-testkit-server"
 # Refuse failed offline admission before invoking Cargo. Explicit server
 # overrides remain subject to Testkit's runtime admission, as before.
@@ -74,6 +79,12 @@ install-testkit:
 
 testkit-check:
 	+@$(TESTKIT_SERVER_CHECK)
+
+install-release-editor:
+	+@$(CARGO_WORK_ENV) $(RELEASE_EDITOR_TOOL)
+
+release-editor-check:
+	+@$(CARGO_WORK_ENV) $(RELEASE_EDITOR_TOOL) --check
 
 # Check for clean git state
 ensure-clean:
@@ -414,7 +425,7 @@ check-dependency-pins:
 # The static gate and native host qualification execute this same portable
 # fixture selection. Host-specific setup, lint and Cargo gates stay with callers.
 check-portable-automation: shared-tooling-check
-	bash scripts/release/test-lock-selection.sh
+	+$(RELEASE_EDITOR_ENV) bash scripts/release/test-lock-selection.sh
 	bash scripts/ci/test-gh-ci.sh
 	bash scripts/ci/test-shared-tooling-adapters.sh
 	bash scripts/ci/test-workstation-setup.sh
@@ -427,7 +438,7 @@ check-portable-automation: shared-tooling-check
 	bash scripts/release/test-standard-release.sh
 	bash scripts/release/test-receipt-callbacks.sh
 	bash scripts/ci/test-tooling-fixture-completion.sh
-	bash scripts/release/test-pin-exceptions.sh
+	+$(RELEASE_EDITOR_ENV) bash scripts/release/test-pin-exceptions.sh
 	bash scripts/ci/test-publish-workspace.sh
 	bash scripts/ci/test-release-runner.sh
 	perl scripts/dev/delete-github-tags-up-to.pl --cutoff 0.210 >/dev/null
@@ -586,6 +597,7 @@ all: ensure-clean
 # jobserver even when the callback reaches Cargo through multiple shell owners.
 release-preflight release-prepare-version release-prepared-check release-commit-check release-committed-check release-tagged-check release-push-check: export CARGO_HOME := $(CARGO_WORK_HOME)
 release-preflight release-prepare-version release-prepared-check release-commit-check release-committed-check release-tagged-check release-push-check: export CARGO_TARGET_DIR := $(CARGO_WORK_TARGET_DIR)
+release-verify release-prepare-version release-prepared-check release-commit-check release-committed-check release-tagged-check release-push-check: RELEASE_EDITOR_CHECK = bash "$(ROOT_DIR)/scripts/release/select-editor.sh" "$${RELEASE_COMMIT:-$${RELEASE_SOURCE:-HEAD}}"
 
 .PHONY: release-verify
 release-version:
@@ -601,24 +613,24 @@ release-preflight:
 	fi
 	@CARGO_NET_OFFLINE=true $(MAKE) --no-print-directory tools-check
 release-verify:
-	+TMPDIR="$(RELEASE_TMP_DIR)" CARGO_NET_OFFLINE=true $(MAKE) --no-print-directory validate
+	+$(RELEASE_EDITOR_ENV) TMPDIR="$(RELEASE_TMP_DIR)" CARGO_NET_OFFLINE=true $(MAKE) --no-print-directory validate
 release-prepare-version:
-	+@TMPDIR="$(RELEASE_TMP_DIR)" bash scripts/release/prepare.sh
+	+@$(RELEASE_EDITOR_ENV) TMPDIR="$(RELEASE_TMP_DIR)" bash scripts/release/prepare.sh
 release-prepared-check:
-	+@bash scripts/release/check-metadata.sh
+	+@$(RELEASE_EDITOR_ENV) bash scripts/release/check-metadata.sh
 release-files:
 	@bash scripts/release/files.sh
 release-commit-check:
-	+@bash scripts/release/check-metadata.sh
-	+@bash scripts/ci/release-candidate-receipt.sh verify-staged
+	+@$(RELEASE_EDITOR_ENV) bash scripts/release/check-metadata.sh
+	+@$(RELEASE_EDITOR_ENV) bash scripts/ci/release-candidate-receipt.sh verify-staged
 release-committed-check:
-	+@bash scripts/ci/release-candidate-receipt.sh verify-commit
-	+@RELEASE_COMMIT="$${RELEASE_COMMIT:-$$(git rev-parse --verify HEAD)}" \
+	+@$(RELEASE_EDITOR_ENV) bash scripts/ci/release-candidate-receipt.sh verify-commit
+	+@$(RELEASE_EDITOR_ENV) RELEASE_COMMIT="$${RELEASE_COMMIT:-$$(git rev-parse --verify HEAD)}" \
 		YQ="$(YQ)" bash scripts/ci/cargo-release-metadata.sh check icydb --manifest-order-grouped
 release-tagged-check:
-	+@bash scripts/ci/record-release-gate-receipt.sh
+	+@$(RELEASE_EDITOR_ENV) bash scripts/ci/record-release-gate-receipt.sh
 release-push-check:
-	+@bash scripts/ci/release-candidate-receipt.sh verify-commit
+	+@$(RELEASE_EDITOR_ENV) bash scripts/ci/release-candidate-receipt.sh verify-commit
 	@release_commit="$(RELEASE_COMMIT)"; \
 		if [ -z "$$release_commit" ]; then release_commit="$$(git rev-parse --verify HEAD)" || exit; fi; \
 		bash scripts/ci/verify-release-gate-receipt.sh "$$release_commit"

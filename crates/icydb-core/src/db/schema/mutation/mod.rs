@@ -251,3 +251,10 @@ impl From<SchemaMutationRequest<'_>> for MutationPlan {
 
 #[cfg(all(test, feature = "sql"))]
 mod tests;
+
+// New DDL fields identify catalog roots. Dots are traversal separators in
+// field references, so storing one in a root name makes reads and writes disagree.
+#[cfg(feature = "sql")]
+fn sql_ddl_field_name_is_root(name: &str) -> bool {
+    !name.contains('.')
+}

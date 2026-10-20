@@ -28,7 +28,7 @@ case "$*" in
         ;;
     'rev-parse --verify HEAD') printf '%s\n' 1111111111111111111111111111111111111111 ;;
     'show '*':Cargo.toml') cat "$FIXTURE_BASE/Cargo.toml" ;;
-    'show '*':Cargo.lock') cat "$FIXTURE_BASE/Cargo.lock" ;;
+    'show '*':Cargo.lock') cat "$FIXTURE_BASE/Cargo.lock"; [[ "${FAIL_SOURCE_READ:-0}" == 0 ]] || exit 7 ;;
     'diff --cached --name-only -z HEAD --') ;;
     'diff --quiet --ignore-submodules HEAD --') exit 1 ;;
     'diff --name-only -z HEAD --') printf '%s\0' Cargo.toml Cargo.lock ;;
@@ -43,6 +43,27 @@ export ICYDB_RELEASE_ROOT="$fixture/candidate" RELEASE_RECEIPT_DIR="$fixture/rec
 subject="$root/scripts/ci/release-candidate-receipt.sh"
 bash "$subject" record patch 1111111111111111111111111111111111111111 > "$fixture/output"
 cp "$fixture/receipts/v0.1.1.candidate" "$fixture/accepted-receipt"
+real_editor="${CARGO_RELEASE_METADATA_EDITOR:?prepare the released IC Build editor}"
+export FIXTURE_REAL_EDITOR="$real_editor"
+cat > "$fixture/bin/failing-editor" <<'EDITOR'
+#!/usr/bin/env bash
+set -euo pipefail
+"$FIXTURE_REAL_EDITOR" "$@"
+exit 7
+EDITOR
+chmod +x "$fixture/bin/failing-editor"
+# Complete candidate bytes do not turn a failed producer into admission.
+for producer in source editor; do
+    selected_editor="$real_editor"
+    fail_source=0
+    if [[ "$producer" == editor ]]; then selected_editor="$fixture/bin/failing-editor";
+    else fail_source=1; fi
+    if CARGO_RELEASE_METADATA_EDITOR="$selected_editor" FAIL_SOURCE_READ="$fail_source" \
+      bash "$subject" record patch 1111111111111111111111111111111111111111 > "$fixture/failed-$producer.log" 2>&1; then
+        echo "release receipt admitted a failed $producer after complete output" >&2; exit 1
+    fi
+    cmp "$fixture/accepted-receipt" "$fixture/receipts/v0.1.1.candidate"
+done
 mkdir "$fixture/failed-source"
 if TMPDIR="$fixture/failed-source" FAIL_ARCHIVE_READ=1 \
   bash "$subject" record patch 1111111111111111111111111111111111111111 > "$fixture/output" 2>&1; then

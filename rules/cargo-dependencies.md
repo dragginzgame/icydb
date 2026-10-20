@@ -46,15 +46,53 @@ exact constraints, immutable Git revisions, lockfiles and external path inputs.
   automatic pre-commit formatting and independent CI/release checks; ordering
   must preserve the catalog and every inherited selection.
 
+## External IC dependency boundary
+
+All IC-specific dependencies maintained outside `dragginzgame`, including DFINITY
+packages, must be consumed through explicit `ic-platform` features and interfaces.
+The IC Platform repository is the sole direct dependency owner for these upstream
+packages. Other repositories must not declare or import them directly, including
+through renamed dependencies, generated code or proc-macro expansions.
+
+- This covers Candid and its parser/derives, CDK/runtime/system APIs, principals,
+  Agent/PocketIC clients, certification/signature and ledger/management types,
+  stable-structures and any other external package specific to the Internet
+  Computer, regardless of its publisher or package-name prefix.
+- Apply the boundary to normal, build, development, test and tooling dependencies,
+  optional features, target-specific tables and independently scoped workspaces.
+  A private probe, example, unpublished package or macro-generated upstream path
+  is not an automatic exception.
+- If Platform lacks a required capability, file or update its owning issue and
+  qualify an explicit Platform interface before adopting it. Do not bypass that
+  work with a new direct dependency, copied implementation or consumer facade.
+  Track existing direct uses as migration debt; retire them with their actual
+  callers and focused checks, preserving external bytes and recovery obligations.
+  Any temporary exception requires express maintainer approval with scope and
+  reason under the baseline's exception rules.
+- Product ownership stays with its Dragginzgame crate: for example, Memory/Storage
+  own memory and storage policy, Testkit owns simulator lifecycle, and Wire owns
+  application codecs and resource admission. Platform owns the external dependency boundary;
+  this rule does not move those product implementations into Platform. General
+  purpose dependencies such as Serde remain with their consuming crates.
+
+Apply the baseline's [IC application encoding policy](../DRAGGINZGAME.md#ic-application-encoding)
+before adding or retaining a Candid dependency or requesting another Platform
+Candid facade. Prefer `ic-wire` for supported controlled application messages;
+`ic-platform` is the dependency boundary for Candid that is still required,
+not a reason to retain otherwise unnecessary Candid use.
+
 ## Dependency roles and deployment checks
 
 Organize the root `[workspace.dependencies]` catalog into two sections headed
 `# Production dependencies` and `# Tests and tooling only`. Put each header once
 above its section, with a blank line between sections and alphabetical order
 within each. Do not repeat role annotations after individual dependencies.
-These headers belong only inside `[workspace.dependencies]`; do not add them
-to `[workspace]`, its `members` array or other manifest tables. They describe use
-within this workspace, not whether a selected version is published to a registry.
+These dependency-role headers belong only inside `[workspace.dependencies]`.
+The `members` array may separately use `# Production packages` and
+`# Tests and tooling packages` under the
+[workspace member-role guidance](rust-workspaces.md#workspace-member-roles).
+Dependency roles describe use within this workspace, not whether a selected
+version is published to a registry.
 
 - A production dependency is needed by a production package through normal or
   build dependencies, including supported optional features and targets. Put an

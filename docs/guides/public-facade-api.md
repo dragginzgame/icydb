@@ -316,6 +316,10 @@ The four mutation variants are `Insert`, `Update`, `Replace`, and `Delete`.
 `WriteCell` keeps omission, explicit `DEFAULT`, explicit `NULL`, and authored
 values distinct until accepted write admission.
 
+`Replace` inserts a missing row only when all primary-key fields are caller-owned.
+Generated or managed keys require an existing row to preserve. Use `Insert` with
+omitted/default generated key fields to create a new database-owned identity.
+
 Recursive caller-authored values stay inside the `InputValue` boundary. Lists,
 maps, and enum payloads accept owned input values directly; callers do not need
 to expose the shared `PublicValue` kernel:

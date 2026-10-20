@@ -1,5 +1,9 @@
 [
   {
+    "dependency": "tempfile",
+    "allowed_packages": []
+  },
+  {
     "dependency": "candid",
     "allowed_packages": []
   },
@@ -45,6 +49,42 @@
   },
   {
     "dependency": "ic-stable-structures",
+    "allowed_packages": []
+  },
+  {
+    "dependency": "ic-agent",
+    "allowed_packages": []
+  },
+  {
+    "dependency": "pocket-ic",
+    "allowed_packages": []
+  },
+  {
+    "dependency": "ic-certification",
+    "allowed_packages": []
+  },
+  {
+    "dependency": "ic-canister-sig-creation",
+    "allowed_packages": []
+  },
+  {
+    "dependency": "ic-signature-verification",
+    "allowed_packages": []
+  },
+  {
+    "dependency": "ic-verify-bls-signature",
+    "allowed_packages": []
+  },
+  {
+    "dependency": "ic-management-canister-types",
+    "allowed_packages": []
+  },
+  {
+    "dependency": "icrc-ledger-types",
+    "allowed_packages": []
+  },
+  {
+    "dependency": "ic-secp256k1",
     "allowed_packages": []
   }
 ]

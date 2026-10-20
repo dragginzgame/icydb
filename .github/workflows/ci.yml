@@ -85,6 +85,10 @@ jobs:
         run: |
           bash scripts/ci/testkit-runner.sh
           bash scripts/ci/testkit-runner.sh --check
+      - name: Prepare locked Cargo release editor for fixtures
+        run: |
+          make install-release-editor
+          make release-editor-check
       - name: Run static validation with complete feedback
         run: make ci-static
       - name: Retain tooling failure evidence
@@ -213,6 +217,9 @@ jobs:
         run: cargo fetch --locked
       - name: Install native workstation prerequisites and tools
         run: make install-dev
+      - name: Prepare locked Cargo release editor for fixtures
+        run: |
+          make release-editor-check
       - name: Expose installed tool directories
         run: |
           printf '%s\n' "$CARGO_HOME/bin" "$HOME/.local/bin" \
@@ -241,6 +248,8 @@ jobs:
           cargo clippy --locked -p icydb-cli --bin icydb -- -D warnings
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --bin icydb tests::icp::hex_response_bytes
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --bin icydb diagnostic::
+          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --test command_exit_status migration_
+          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-model-schema-only --lib renamed_schema_only_dependency_emits_fragment
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-build --lib canister_artifact::tests
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-build --lib wasm_optimizer::tests
           POCKET_IC_BIN="$(make --silent testkit-check)"

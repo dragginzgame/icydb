@@ -5,7 +5,7 @@ use super::{
 };
 use crate::db::schema::{
     AcceptedSchemaSnapshot, FieldId, PersistedFieldSnapshot, PersistedSchemaSnapshot,
-    SchemaFieldSlot, SchemaInsertDefault, SchemaRowLayout,
+    SchemaFieldSlot, SchemaInsertDefault, SchemaRowLayout, mutation::sql_ddl_field_name_is_root,
 };
 
 ///
@@ -246,6 +246,8 @@ pub(in crate::db) enum SchemaDdlFieldNullabilityCandidateError {
 /// mutations.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum SchemaDdlFieldRenameCandidateError {
+    /// The requested target name contains a field-path separator.
+    InvalidName,
     /// No accepted source field matches the requested SQL column name.
     Unknown,
     /// An accepted field already uses the requested target column name.
@@ -448,6 +450,10 @@ pub(in crate::db) fn resolve_sql_ddl_field_rename_candidate<'a>(
         return Ok(field);
     }
 
+    if !sql_ddl_field_name_is_root(new_name) {
+        return Err(SchemaDdlFieldRenameCandidateError::InvalidName);
+    }
+
     if accepted
         .fields()
         .iter()
@@ -469,6 +475,9 @@ pub(in crate::db) fn derive_sql_ddl_field_addition_accepted_after(
     accepted_before: &AcceptedSchemaSnapshot,
     field: PersistedFieldSnapshot,
 ) -> Result<SchemaDdlAcceptedSnapshotDerivation, SchemaDdlMutationAdmissionError> {
+    if !sql_ddl_field_name_is_root(field.name()) {
+        return Err(SchemaDdlMutationAdmissionError::AcceptedAfterRejected);
+    }
     let before = accepted_before.persisted_snapshot();
     let mut fields = before.fields().to_vec();
     fields.push(field.clone());
@@ -770,6 +779,9 @@ pub(in crate::db) fn derive_sql_ddl_field_rename_accepted_after(
     old_name: &str,
     new_name: &str,
 ) -> Result<SchemaDdlAcceptedSnapshotDerivation, SchemaDdlMutationAdmissionError> {
+    if old_name != new_name && !sql_ddl_field_name_is_root(new_name) {
+        return Err(SchemaDdlMutationAdmissionError::AcceptedAfterRejected);
+    }
     let before = accepted_before.persisted_snapshot();
     before
         .constraint_catalog()

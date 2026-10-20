@@ -9,22 +9,10 @@ use std::{
     process::{Command, Stdio},
 };
 
+use ic_host_fs::scratch::TemporaryFile;
 use ic_host_tools::response::{ResponseError, ResponseFormat, ResponseLimits, decode};
 
 use crate::icp::process::output_stderr;
-
-// Encode the authoritative wire type once. ICP accepts these bytes directly
-// through its binary argument-file format; no text printer supplies types.
-pub(crate) fn encode_wire_args<T: serde::Serialize>(
-    method: &str,
-    arguments: T,
-) -> Result<Vec<u8>, String> {
-    let endpoint = icydb::wire::Endpoint::from_name(method)
-        .ok_or_else(|| format!("unknown IcyDB method '{method}'"))?;
-    endpoint
-        .encode_request(arguments)
-        .map_err(|error| error.to_string())
-}
 
 pub(super) fn icp_query_command(
     environment: &str,
@@ -165,11 +153,20 @@ pub(super) fn call_hex(
 ) -> Result<Vec<u8>, String> {
     // The private file stays alive through child completion and is removed on
     // every return. Passing a path avoids OS argv limits and binary NUL bytes.
-    let mut arguments = tempfile::NamedTempFile::new()
-        .map_err(|error| format!("create ICP argument file: {error}"))?;
-    arguments
-        .write_all(wire_arg)
-        .map_err(|error| format!("write ICP argument file: {error}"))?;
+    // Host owns exclusive allocation and scoped file custody. Complete the
+    // write before starting a child, preserving both write and cleanup failures.
+    let mut arguments = TemporaryFile::new_in(&std::env::temp_dir(), "icydb-icp-args")
+        .map_err(|source| format!("create ICP argument file: {source}"))?;
+    if let Err(source) = arguments.as_file_mut().write_all(wire_arg) {
+        let path = arguments.path().to_owned();
+        return Err(match arguments.close() {
+            Ok(()) => format!("write ICP argument file: {source}"),
+            Err(cleanup) => format!(
+                "write ICP argument file: {source}; remove '{}': {cleanup}",
+                path.display()
+            ),
+        });
+    }
     let output = build_command(arguments.path())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -185,4 +182,87 @@ pub(super) fn call_hex(
     let stdout = String::from_utf8(output.stdout).map_err(|err| err.to_string())?;
 
     hex_response_bytes(stdout.as_str())
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::{
+        fs,
+        os::unix::fs::PermissionsExt as _,
+        panic::{AssertUnwindSafe, catch_unwind},
+        path::PathBuf,
+        process::Command,
+    };
+
+    use super::call_hex;
+
+    #[test]
+    fn private_argument_file_lives_through_child_and_is_removed_on_success() {
+        let bytes = [0, 255, 1, 0, 128];
+        let mut argument_path = PathBuf::new();
+        let result = call_hex(
+            &bytes,
+            |path| {
+                argument_path = path.to_owned();
+                assert_eq!(fs::read(path).unwrap(), bytes);
+                assert_eq!(
+                    fs::metadata(path).unwrap().permissions().mode() & 0o777,
+                    0o600
+                );
+                let mut command = Command::new("sh");
+                command.args(["-c", "test -f \"$1\" && printf 00", "argument-file"]);
+                command.arg(path);
+                command
+            },
+            str::to_owned,
+        );
+        assert_eq!(result.unwrap(), [0]);
+        assert!(!argument_path.exists());
+    }
+
+    #[test]
+    fn argument_file_is_removed_after_child_and_response_failures() {
+        for recipe in [
+            Some("exit 7"),
+            Some("printf invalid_hex"),
+            Some("printf '\\377'"),
+            None,
+        ] {
+            let mut argument_path = PathBuf::new();
+            let result = call_hex(
+                b"request",
+                |path| {
+                    argument_path = path.to_owned();
+                    assert_eq!(fs::read(path).unwrap(), b"request");
+                    if let Some(recipe) = recipe {
+                        let mut command = Command::new("sh");
+                        command.args(["-c", recipe]);
+                        command
+                    } else {
+                        Command::new(path.with_extension("missing-executable"))
+                    }
+                },
+                str::to_owned,
+            );
+            assert!(result.is_err());
+            assert!(!argument_path.exists());
+        }
+    }
+
+    #[test]
+    fn argument_file_is_removed_during_unwind() {
+        let mut argument_path = PathBuf::new();
+        let panic = catch_unwind(AssertUnwindSafe(|| {
+            let _ = call_hex(
+                b"request",
+                |path| {
+                    argument_path = path.to_owned();
+                    panic!("command construction failed")
+                },
+                str::to_owned,
+            );
+        }));
+        assert!(panic.is_err());
+        assert!(!argument_path.exists());
+    }
 }

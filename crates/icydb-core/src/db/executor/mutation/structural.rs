@@ -319,9 +319,8 @@ pub(in crate::db) fn insert_key_exists_after_generation(identity_generated: bool
     }
 }
 
-// Locate the sole accepted Identity owner that is eligible to resolve a
-// keyless insert. Accepted-schema integrity already freezes the exact shape;
-// this runtime check fails closed if a malformed contract reaches execution.
+// Carry the selected key into the replacement after-image. Row existence and
+// database-owned key policy are admitted together by the mutation coordinator.
 fn preserve_dynamic_replacement_identity(
     key: &DecodedDataStoreKey,
     contract: &StructuralRowContract,
@@ -702,6 +701,20 @@ pub(in crate::db) fn execute_accepted_structural_mutation_batch<C: CanisterKind,
                     .ok_or_else(InternalError::executor_invariant)?;
                 return Err(InternalError::store_not_found(key));
             }
+            MutationMode::Replace if before.is_none() => {
+                // Without a before-image, preserving a generated/managed key
+                // would let the caller author a database-owned insert field.
+                for slot in row_contract.primary_key_slot_indices() {
+                    let field = row_contract.required_accepted_field_contract(*slot)?;
+                    let policy = field.write_policy();
+                    if policy.insert_generation().is_some() || policy.write_management().is_some() {
+                        return Err(InternalError::mutation_database_owned_field_explicit(
+                            mutation_context,
+                            field.field_id().get(),
+                        ));
+                    }
+                }
+            }
             MutationMode::Insert | MutationMode::Replace | MutationMode::Update => {}
         }
 
@@ -738,14 +751,6 @@ pub(in crate::db) fn execute_accepted_structural_mutation_batch<C: CanisterKind,
                 .checked_add(1)
                 .ok_or_else(InternalError::identity_candidate_count_exhausted)?;
             Some(allocation)
-        } else if let Some(identity_field) = identity_field.as_ref()
-            && matches!(mode, MutationMode::Replace)
-            && before.is_none()
-        {
-            return Err(InternalError::mutation_database_owned_field_explicit(
-                mutation_context,
-                identity_field.field_id.get(),
-            ));
         } else {
             None
         };

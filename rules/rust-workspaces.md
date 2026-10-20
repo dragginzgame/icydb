@@ -72,6 +72,33 @@ apps/
   upstream sources and frozen historical evidence are not maintained package
   locations; do not move them or rewrite history to satisfy this layout.
 
+## Workspace member roles
+
+The root `[workspace]` table's `members` array may group packages with comment
+headers `# Production packages` and `# Tests and tooling packages`:
+
+```toml
+[workspace]
+members = [
+    # Production packages
+    "crates/example",
+    # Tests and tooling packages
+    "crates/example-tests",
+]
+```
+
+Use section headers rather than a role annotation after each member. Classify
+packages by their role in this workspace; a package used in both production and
+tests belongs in the production group. Publication settings and registry
+availability do not establish that role. These comments describe membership;
+they do not change `default-members`, build selections or publication policy.
+
+Member-role headers are distinct from the dependency-role headers in
+`[workspace.dependencies]`, governed by the
+[Cargo dependency rules](cargo-dependencies.md#dependency-roles-and-deployment-checks).
+Grouping does not require moving or renaming packages or changing their approved
+layout.
+
 ## Independent workspaces and exceptions
 
 The default is one workspace and one selected lockfile. A separate maintained

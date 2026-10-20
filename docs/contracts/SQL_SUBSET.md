@@ -576,6 +576,11 @@ supported scalar column types. Nullable no-default additions materialize older
 rows as `NULL`; supported SQL defaults are encoded into accepted schema
 metadata and can make a new field required.
 
+New column names and rename targets cannot contain `.`: dotted field references
+denote traversal, not a literal top-level field name. Rejection leaves the
+accepted schema version unchanged. Retained dotted column names can still be
+named exactly as the source of a rename or drop to repair the catalog.
+
 `ALTER TABLE ... ALTER COLUMN ... SET/DROP DEFAULT` and `SET/DROP NOT NULL`
 operate on DDL-owned fields only. `SET NOT NULL` publishes a new-write gate and
 keeps the accepted field nullable while bounded `VALIDATE CONSTRAINT` pages

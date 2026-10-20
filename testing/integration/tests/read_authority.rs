@@ -2,7 +2,7 @@ use icydb_testing_integration::WireCallExt as _;
 use std::{collections::BTreeSet, fs};
 
 use ic_host_artifacts::artifact::Sha256Digest;
-use ic_platform::Principal;
+use ic_platform::principal::ExternalPrincipal as Principal;
 use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{
     Error, ErrorCode,

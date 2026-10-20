@@ -1,6 +1,6 @@
 //! Frozen scalar record-path grouping actor and Slice 3 behavior contract.
 
-use ic_platform::Principal;
+use ic_platform::principal::ExternalPrincipal as Principal;
 use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb::{
     Error,

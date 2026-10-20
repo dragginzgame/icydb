@@ -1,4 +1,4 @@
-use ic_platform::Principal;
+use ic_platform::principal::ExternalPrincipal as Principal;
 use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb_testing_integration::WireCallExt as _;
 use icydb_testing_integration::{install_fixture_canister, upgrade_fixture_canister};

@@ -9,6 +9,9 @@ cd "$ROOT"
 export PATH="$ROOT/.tools/host/bin:$PATH"
 
 BUMP_TYPE=${1:-patch}
+EDITOR="${CARGO_RELEASE_METADATA_EDITOR:?select the prepared released IC Build editor}"
+EDITOR_LIMIT="${CARGO_RELEASE_METADATA_MAX_BYTES:?select a positive per-document byte allowance}"
+[[ "$EDITOR" == /* && -f "$EDITOR" && -x "$EDITOR" && "$EDITOR_LIMIT" =~ ^[1-9][0-9]*$ ]] || exit 2
 INTERNAL_WORKSPACE_PACKAGES=(
   icydb
   icydb-core
@@ -101,7 +104,7 @@ if [[ -n "$LOCKFILE_SNAPSHOT" ]]; then
   ' "$LOCKFILE_SNAPSHOT_DIR/metadata.json" > "$LOCKFILE_SNAPSHOT_DIR/local-packages"
   owned=()
   while IFS= read -r package; do owned[${#owned[@]}]="$package"; done < "$LOCKFILE_SNAPSHOT_DIR/local-packages"
-  perl scripts/ci/rewrite-local-lock-versions.pl "$LOCKFILE_SNAPSHOT" "$PREV" "$NEW" \
+  "$EDITOR" --max-input-bytes "$EDITOR_LIMIT" lock "$LOCKFILE_SNAPSHOT" "$PREV" "$NEW" \
     "${owned[@]}" > "$LOCKFILE_SNAPSHOT_DIR/new-lock"
   cat "$LOCKFILE_SNAPSHOT_DIR/new-lock" > Cargo.lock
   cargo metadata --locked --offline --no-deps --format-version 1 >/dev/null

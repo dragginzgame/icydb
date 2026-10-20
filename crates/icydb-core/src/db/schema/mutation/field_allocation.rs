@@ -1,16 +1,17 @@
 //! Schema-owned field allocation helpers for DDL-authored field candidates.
 
 use crate::db::schema::{
-    AcceptedFieldKind, AcceptedSchemaSnapshot, FieldId, PersistedFieldOrigin,
-    PersistedFieldSnapshot, SchemaFieldSlot, SchemaFieldWritePolicy, SchemaHistoricalFill,
-    SchemaInsertDefault,
+    AcceptedFieldKind, AcceptedSchemaSnapshot, FieldId, FieldStorageDecode, LeafCodec,
+    PersistedFieldOrigin, PersistedFieldSnapshot, SchemaFieldSlot, SchemaFieldWritePolicy,
+    SchemaHistoricalFill, SchemaInsertDefault, mutation::sql_ddl_field_name_is_root,
 };
-use crate::db::schema::{FieldStorageDecode, LeafCodec};
 
 /// Field addition candidate resolution failures for SQL DDL-authored schema
 /// mutations.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::db) enum SchemaDdlFieldAdditionCandidateError {
+    /// The requested column name contains a field-path separator.
+    InvalidName,
     /// An accepted field already uses the requested SQL column name.
     Duplicate,
     /// The entity cannot allocate another physical row-layout identity.
@@ -23,6 +24,9 @@ pub(in crate::db) fn resolve_sql_ddl_field_addition_name_candidate(
     accepted_before: &AcceptedSchemaSnapshot,
     name: &str,
 ) -> Result<(), SchemaDdlFieldAdditionCandidateError> {
+    if !sql_ddl_field_name_is_root(name) {
+        return Err(SchemaDdlFieldAdditionCandidateError::InvalidName);
+    }
     if accepted_before
         .persisted_snapshot()
         .fields()

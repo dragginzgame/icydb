@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/read-cargo-workspace-version.sh scripts/ci/rewrite-local-lock-versions.pl scripts/ci/finalize-release-changelog.awk scripts/ci/cargo-workspace-members.jq scripts/ci/compare-stable-versions.pl scripts/ci/render-cargo-workspace-version.pl
+# Shared companions: scripts/ci/read-cargo-workspace-version.sh scripts/ci/finalize-release-changelog.awk scripts/ci/cargo-workspace-members.jq scripts/ci/compare-stable-versions.pl scripts/ci/release-metadata-transaction.sh
 set -euo pipefail
 
 # Coordinated workspace versions only. Consumer adapters retain source admission,
@@ -63,72 +63,59 @@ inherited_members() {
         done
 }
 
+# shellcheck disable=SC2329 # Callback passed to release_metadata_prepare.
+render_cargo_metadata() {
+    local original="$1" candidate="$2" source_root package
+    local packages=()
+    cargo_preparation="${candidate%/*}"
+    source_root="$(pwd -P)" || return
+    lock_packages "$original" "$RELEASE_PREVIOUS" > "$cargo_preparation/local-packages" || return
+    cargo metadata --locked --offline --format-version 1 > "$cargo_preparation/metadata.json" || return
+    workspace_packages "$cargo_preparation/metadata.json" "$RELEASE_PREVIOUS" "$cargo_preparation/local-packages" || return
+    inherited_members "$source_root" "$cargo_preparation/metadata.json" || return
+    "${YQ:-yq}" -p toml -o json '.' "$original/Cargo.toml" > "$cargo_preparation/manifest.json" || return
+    jq -n --slurpfile manifest "$cargo_preparation/manifest.json" --slurpfile metadata "$cargo_preparation/metadata.json" '
+        {manifest: $manifest[0], members: ($metadata[0] | . as $m |
+            [.packages[] | select(.id as $id | $m.workspace_members | index($id)) |
+                {name, manifest_path}])}' > "$cargo_preparation/workspace-input.json" || return
+    awk -v version="${RELEASE_VERSION:?}" -v previous="$RELEASE_PREVIOUS" -v date="${RELEASE_DATE:?}" \
+        -f "$ROOT/scripts/ci/finalize-release-changelog.awk" "$original/CHANGELOG.md" > "$candidate/CHANGELOG.md" || return
+    # Live path resolution distinguishes owned members from unrelated aliases.
+    # The transaction compares every live input with its original before install.
+    "$editor" --max-input-bytes "$limit" manifest Cargo.toml \
+        "$RELEASE_PREVIOUS" "$RELEASE_VERSION" "$cargo_preparation/workspace-input.json" > "$candidate/Cargo.toml" || return
+    # Independently parse candidate bytes without resolving scratch members.
+    "${YQ:-yq}" -p toml -o json '.' "$candidate/Cargo.toml" |
+        jq -e --arg version "$RELEASE_VERSION" '.workspace.package.version == $version' > /dev/null || return
+    while IFS= read -r package; do packages+=("$package"); done < "$cargo_preparation/local-packages"
+    "$editor" --max-input-bytes "$limit" lock "$original/Cargo.lock" \
+        "$RELEASE_PREVIOUS" "$RELEASE_VERSION" "${packages[@]}" > "$candidate/Cargo.lock"
+}
+
+# shellcheck disable=SC2329 # Callback passed to release_metadata_prepare.
+check_prepared_cargo_metadata() {
+    local observed_version
+    cargo metadata --locked --offline --format-version 1 > "$cargo_preparation/prepared.json" || return
+    observed_version="$(bash "$reader" Cargo.toml)" || return
+    [[ "$observed_version" == "$RELEASE_VERSION" ]] || return 1
+    lock_packages . "$RELEASE_VERSION" > "$cargo_preparation/prepared-packages" || return
+    workspace_packages "$cargo_preparation/prepared.json" "$RELEASE_VERSION" "$cargo_preparation/prepared-packages"
+}
+
 case "$operation" in
     prepare)
+        editor="${CARGO_RELEASE_METADATA_EDITOR:?select the prepared released IC Build editor}"
+        limit="${CARGO_RELEASE_METADATA_MAX_BYTES:?select a positive per-document byte allowance}"
+        [[ "$editor" == /* && -f "$editor" && -x "$editor" && "$limit" =~ ^[1-9][0-9]*$ ]] || exit 2
         regular_metadata . Cargo.toml Cargo.lock CHANGELOG.md
         observed_version="$(bash "$reader" Cargo.toml)"
         [[ "$observed_version" == "${RELEASE_PREVIOUS:?}" ]] || exit 1
         order="$(perl "$ROOT/scripts/ci/compare-stable-versions.pl" "${RELEASE_VERSION:?}" "$observed_version")"
         [[ "$order" == 1 ]] || { echo 'release target must follow the previous version' >&2; exit 1; }
-        backup="$(mktemp -d "${TMPDIR:-/tmp}/cargo-release-backup.XXXXXX")"
-        files=(Cargo.toml Cargo.lock CHANGELOG.md)
-        for path in "${files[@]}"; do cp -p "$path" "$backup/$path"; done
-        complete=false
-        # Print custody before the first mutating command, including SIGKILL cases.
-        printf 'Cargo release originals retained: %s\n' "$backup" >&2
-        cleanup() {
-            local status=$? path restore_failed=false
-            trap - EXIT
-            if [[ "$complete" != true ]]; then
-                [[ "$status" != 0 ]] || status=1
-                for path in "${files[@]}"; do
-                    if ! cp -p "$backup/$path" "$path"; then
-                        printf 'metadata restore failed: %s\n' "$path" >&2
-                        restore_failed=true
-                    fi
-                done
-                if [[ "$restore_failed" == true ]]; then
-                    printf 'metadata restoration incomplete; originals retained: %s\n' "$backup" >&2
-                    exit 1
-                fi
-                printf 'failed Cargo preparation; restoring release metadata; evidence retained: %s\n' "$backup" >&2
-            else
-                rm -rf "$backup"
-            fi
-            exit "$status"
-        }
-        trap cleanup EXIT
-        trap 'exit 130' INT
-        trap 'exit 143' TERM
-        lock_packages . "$RELEASE_PREVIOUS" > "$backup/local-packages"
-        cargo metadata --locked --offline --format-version 1 > "$backup/metadata.json"
-        workspace_packages "$backup/metadata.json" "$RELEASE_PREVIOUS" "$backup/local-packages"
-        inherited_members "$(pwd -P)" "$backup/metadata.json"
-        "${YQ:-yq}" -p toml -o json '.' Cargo.toml > "$backup/manifest.json"
-        jq -n --slurpfile manifest "$backup/manifest.json" --slurpfile metadata "$backup/metadata.json" '
-            {manifest: $manifest[0], members: ($metadata[0] | . as $m |
-                [.packages[] | select(.id as $id | $m.workspace_members | index($id)) |
-                    {name, manifest_path}])}' > "$backup/workspace-input.json"
-        awk -v version="${RELEASE_VERSION:?}" -v previous="$RELEASE_PREVIOUS" -v date="${RELEASE_DATE:?}" \
-            -f "$ROOT/scripts/ci/finalize-release-changelog.awk" CHANGELOG.md > "$backup/candidate.notes"
-        perl "$ROOT/scripts/ci/render-cargo-workspace-version.pl" Cargo.toml \
-            "$RELEASE_PREVIOUS" "$RELEASE_VERSION" "$backup/workspace-input.json" > "$backup/candidate.manifest"
-        # Independently parse candidate bytes without resolving scratch members.
-        "${YQ:-yq}" -p toml -o json '.' "$backup/candidate.manifest" | \
-            jq -e --arg version "$RELEASE_VERSION" '.workspace.package.version == $version' > /dev/null
-        cat "$backup/candidate.manifest" > Cargo.toml
-        packages=()
-        while IFS= read -r package; do packages+=("$package"); done < "$backup/local-packages"
-        perl "$ROOT/scripts/ci/rewrite-local-lock-versions.pl" "$backup/Cargo.lock" \
-            "$RELEASE_PREVIOUS" "$RELEASE_VERSION" "${packages[@]}" > "$backup/candidate.lock"
-        cat "$backup/candidate.lock" > Cargo.lock
-        cat "$backup/candidate.notes" > CHANGELOG.md
-        cargo metadata --locked --offline --format-version 1 > "$backup/prepared.json"
-        observed_version="$(bash "$reader" Cargo.toml)"
-        [[ "$observed_version" == "$RELEASE_VERSION" ]] || exit 1
-        lock_packages . "$RELEASE_VERSION" > "$backup/prepared-packages"
-        workspace_packages "$backup/prepared.json" "$RELEASE_VERSION" "$backup/prepared-packages"
-        complete=true
+        # shellcheck source=scripts/ci/release-metadata-transaction.sh
+        source "$ROOT/scripts/ci/release-metadata-transaction.sh"
+        release_metadata_prepare "${TMPDIR:-/tmp}/cargo-release-backup.XXXXXX" \
+            render_cargo_metadata check_prepared_cargo_metadata Cargo.toml Cargo.lock CHANGELOG.md
         ;;
     check|check-graph)
         selected_root="$(pwd -P)"

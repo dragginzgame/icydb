@@ -359,6 +359,16 @@ and payloads must match. `identities.txt` records commit/blob and host/tool
 identities; `samples.tsv` keeps raw ordered observations. Failed attempts retain
 logs and inputs and cannot produce `complete.txt`.
 
+`cpu.tsv` records child user/system CPU seconds for the same ordered exports,
+including descendants waited for by the exporter. Each sample also retains its
+raw `.cpu` observation. The clock uses Perl's portable `times`, with the host's
+CPU accounting resolution; zero is valid. CPU reads stay outside the unchanged
+monotonic interval, and `samples.tsv` retains its existing four-column format.
+Use the paired CPU and elapsed observations to investigate CPU work versus
+waiting or scheduling noise; neither alone identifies a syscall bottleneck or
+establishes a whole-suite speedup. Exporter, payload and harness identities stay
+explicit, so new instrumented comparisons do not relabel historical samples.
+
 The workflow packages selected observations, runner files and consumer trees
 through the canonical archiver before upload. Hidden snapshot receipts survive
 the archive round trip; source clones and Git stores are excluded. Successful

@@ -1,7 +1,7 @@
 //! Native callers for the maintained raw Wire fixture contracts.
+//! PocketIC transport IDs retain its external Principal identity through Platform.
 
-use ic_platform::Principal;
-use ic_testkit::pocket_ic::PocketIc;
+use ic_platform::{pocket_ic::PocketIc, principal::ExternalPrincipal as Principal};
 use icydb_testing_wasm_helpers::fixture_wire;
 use serde::{Serialize, de::DeserializeOwned};
 

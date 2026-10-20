@@ -72,10 +72,11 @@ and [npm provenance](https://docs.npmjs.com/generating-provenance-statements/).
 
 ## Sibling paths and moving inputs
 
-- Paths inside the repository use that checkout's source identity. A dependency
-  outside it, including a symlink into a sibling checkout, needs a documented
-  development purpose and release qualification boundary. A `version` beside
-  `path` does not freeze the sibling's bytes.
+- Paths inside the repository use that checkout's source identity. An explicit
+  dependency path outside it needs a documented development purpose and release
+  qualification boundary. Follow the [no-symlink rule](../DRAGGINZGAME.md#repository-files-no-symlinks);
+  a sibling-path exception does not authorize a repository symlink into that
+  checkout. A `version` beside `path` does not freeze the sibling's bytes.
 - Release qualification must select and verify the external repository's exact
   commit and clean state, or use a content-addressed immutable artifact. Bind
   its lockfile and build inputs to the resulting evidence. Reuse that identity
@@ -131,8 +132,9 @@ The tracked regular `package.json` and `package-lock.json` must contain single
 JSON objects. Supported lock schemas are 2 and 3, with a root `packages[""]`
 entry. Root name/version (when declared) and direct dependency tables must agree.
 Direct Git dependencies require a full commit fragment; errors redact their
-selectors. Relative file-directory inputs are resolved physically, so symlink
-escapes also need the scoped sibling exception below. Absolute file inputs,
+selectors. Relative file-directory inputs are resolved physically, so redirected
+external inputs also need the scoped sibling exception below. Checker acceptance
+does not waive the baseline's no-symlink rule. Absolute file inputs,
 file archives, `link:`/`workspace:` selectors, and roots with `npm-shrinkwrap.json`
 are outside this bounded checker. It does not inspect workspace child manifests
 or the transitive lock graph. npm's own locked preparation and consumer tests

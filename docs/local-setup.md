@@ -43,6 +43,12 @@ different support scopes require an explicitly approved exception.
 | Rust development | rustfmt and product compilation targets | Consumer toolchain setup and the [formatter prerequisite check](verification-helpers.md#formatter-prerequisites) |
 | Workflow-specific tools | ShellCheck, actionlint, Gitleaks, authenticated `gh`, Node/SDKs and other tools used by that repository | Explicit consumer setup; declare the tools required by each workflow |
 
+Shared's archive-license fixtures also require Perl's `Archive::Tar` module.
+Check availability with `perl -MArchive::Tar -e 'exit 0'`; install it through the
+host's Perl package setup if absent. The portable prerequisite check refuses a
+missing module before allocating suite fixtures. Archive inspection also uses
+the bootstrap `gzip` executable; it never extracts archives.
+
 Follow the derive sorter's documented
 [macro qualification and pin adoption](../rules/git-hooks.md#derive-macros-and-dollar-prefixed-paths)
 before removing corruption-workaround markers. The selected 0.14.1 formatter
@@ -136,6 +142,32 @@ Common catalogs do not own consumer compiler/MSRV choices, application
 dependencies, Testkit/PocketIC selections or product tool adapters. Workflow-only
 tools may retain consumer selections; merely adopting a catalog does not install
 tools outside the common inventory or change a workflow's declared support.
+
+## Shared Tooling's integration editor
+
+Shared Tooling's own `make install-tools` also prepares the released IC Build
+editor used by its integration fixtures; `make tools-check` admits that selection
+offline. The standalone targets are `make install-release-editor` and
+`make release-editor-check`. The latter prints the verified absolute executable
+path and never installs it. Its version, profile and fixture byte allowance are
+selected in Shared's root Makefile.
+
+`make test-portable` checks that prepared selection before starting any fixtures
+and supplies its path and allowance to the suite. CI uses these same setup and
+test targets. The cache key includes the owning Makefile, so a changed selection
+cannot keep reusing a cache key for an older tool set. Cache presence never
+replaces installed-byte admission.
+
+This editor is a Shared-local requirement, not an addition to every consumer's
+common Cargo tools. Consumer release adapters retain the explicit selections in
+[Cargo candidate rendering](releases.md#cargo-release-candidate-rendering).
+
+Shared's standard release commands prepare and check these tools after fresh
+source/changelog admission, before validation. Reconciliation of saved preparation
+and standalone `release-preflight` only check prepared tools; neither installs
+against interrupted metadata. PR delivery prepares the exact merged checkout's
+tools before its fresh validation. Ordinary metadata preparation and late checks
+do not install tools.
 
 ## Shared executable storage
 
@@ -297,6 +329,10 @@ relative `--lockfile` paths retain their consumer-relative meaning.
 the snapshot's `ci/tool-versions.env`, independently of `HOST_TOOL_VERSIONS`.
 Keep qualified version exceptions in that selected catalog,
 and remove duplicate consumer constants when adopting the shared pins.
+
+Use [IC Wire for supported controlled application messages](../DRAGGINZGAME.md#ic-application-encoding).
+Candid extraction serves the Candid interfaces a product still needs; Wire codec
+generation does not require a Candid extractor.
 
 Candid extraction is a product-selected tool. Consumers that extract declarations
 own its pin, explicit installation/check target and PATH selection through the

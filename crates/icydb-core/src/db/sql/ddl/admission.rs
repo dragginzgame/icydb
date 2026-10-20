@@ -176,6 +176,7 @@ impl SqlDdlBindError {
             | Self::DuplicateFieldPathIndex { .. }
             | Self::IndexIdentityExhausted
             | Self::DuplicateColumn { .. }
+            | Self::InvalidColumnName { .. }
             | Self::UnknownFieldPath { .. }
             | Self::UnknownIndex { .. }
             | Self::UnknownColumn { .. }

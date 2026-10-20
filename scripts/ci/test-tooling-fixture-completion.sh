@@ -11,6 +11,24 @@ source "$ROOT/scripts/ci/fixture-lifecycle.sh"
 # shellcheck source=scripts/ci/fixture-retention-probes.sh
 source "$ROOT/scripts/ci/fixture-retention-probes.sh"
 trap 'fixture_finish "$?" "$fixture" "Fixture completion checks retained"' EXIT
+# Darwin's implicit mktemp template can choose its per-user temporary directory
+# instead of TMPDIR. Exercise that behavior on every host: a fixture must select
+# its requested root explicitly to keep retained evidence inside the collector.
+mkdir -p "$fixture/bin" "$fixture/requested" "$fixture/platform-default"
+ICYDB_FIXTURE_REAL_MKTEMP="$(command -v mktemp)"
+ICYDB_FIXTURE_NATIVE_TMPDIR="$fixture/platform-default"
+export ICYDB_FIXTURE_REAL_MKTEMP ICYDB_FIXTURE_NATIVE_TMPDIR
+cat > "$fixture/bin/mktemp" <<'STUB'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ $# == 1 && "$1" == -d ]]; then
+    exec "$ICYDB_FIXTURE_REAL_MKTEMP" -d "$ICYDB_FIXTURE_NATIVE_TMPDIR/tmp.XXXXXXXXXX"
+fi
+exec "$ICYDB_FIXTURE_REAL_MKTEMP" "$@"
+STUB
+chmod +x "$fixture/bin/mktemp"
+export PATH="$fixture/bin:$PATH"
+FIXTURE_PROBE_TEMPORARY_ROOT="$fixture/requested"
 cases=0
 for source in scripts/ci/test-workstation-setup.sh scripts/ci/test-testkit-tooling.sh \
     scripts/ci/test-ci-workflow-invariants.sh scripts/release/test-standard-release.sh \

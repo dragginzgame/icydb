@@ -89,3 +89,33 @@ fn historical_scalar_text_supports_byte_length_before_rewrite() {
         vec![vec![OutputValue::nat64(10)]]
     );
 }
+
+#[test]
+fn dotted_ddl_column_names_reject_without_publishing_schema() {
+    let session = initialize_journaled();
+    insert_exact_key_fixture(&session, 10);
+    let error = session.execute_admin_sql_ddl(
+            "ALTER TABLE IdentityRow ADD COLUMN profile.rank nat64 NOT NULL DEFAULT 7 EXPECT SCHEMA VERSION 1 SET SCHEMA VERSION 2"
+        ).expect_err("a new column cannot contain a path separator");
+    assert_eq!(
+        error.diagnostic().error_code(),
+        icydb_diagnostic_code::ErrorCode::SCHEMA_DDL_VALIDATION_FAILED
+    );
+    session.execute_admin_sql_ddl(
+        "ALTER TABLE IdentityRow ADD COLUMN score nat64 NOT NULL DEFAULT 7 EXPECT SCHEMA VERSION 1 SET SCHEMA VERSION 2"
+    ).unwrap();
+    let error = session.execute_admin_sql_ddl(
+            "ALTER TABLE IdentityRow RENAME COLUMN score TO profile.rank EXPECT SCHEMA VERSION 2 SET SCHEMA VERSION 3"
+        ).expect_err("a rename target cannot contain a path separator");
+    assert_eq!(
+        error.diagnostic().error_code(),
+        icydb_diagnostic_code::ErrorCode::SCHEMA_DDL_VALIDATION_FAILED
+    );
+    session.execute_admin_sql_ddl(
+        "ALTER TABLE IdentityRow RENAME COLUMN score TO final_score EXPECT SCHEMA VERSION 2 SET SCHEMA VERSION 3"
+    ).unwrap();
+    assert_eq!(
+        sql_projection_rows(&session, "SELECT payload, final_score FROM IdentityRow"),
+        vec![vec![OutputValue::nat64(10), OutputValue::nat64(7)]]
+    );
+}

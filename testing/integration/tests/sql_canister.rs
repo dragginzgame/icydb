@@ -24,12 +24,11 @@ use crate::sql_harness::{
     RouteFamily, RouteOutcome, RouteReason, RowOrder, ScenarioMetadata, StatementFamily,
     ValueTypeFamily, WindowSpec, correctness_verdict,
 };
-use ic_platform::Principal;
+use ic_platform::{pocket_ic::PocketIc, principal::ExternalPrincipal as Principal};
 use ic_testkit::pic::{
     CachedPocketIcBaselinePool, CachedPocketIcBaselinePoolGuard, SnapshotRestoreFunding,
     StandaloneCanisterFixture, StandaloneCanisterRecipe,
 };
-use ic_testkit::pocket_ic::PocketIc;
 use icydb::{
     Error, ErrorCode, ErrorOrigin,
     db::{

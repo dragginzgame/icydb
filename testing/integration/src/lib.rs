@@ -15,10 +15,12 @@ pub use wire::WireCallExt;
 
 use std::time::Duration;
 
-use ic_platform::Principal;
-use ic_testkit::{
-    pic::{InstallSpec, PocketIcInstance, PocketIcStartupConfig, StandaloneCanisterFixture},
+use ic_platform::{
     pocket_ic::{PocketIc, PocketIcBuilder},
+    principal::ExternalPrincipal as Principal,
+};
+use ic_testkit::pic::{
+    InstallSpec, PocketIcInstance, PocketIcStartupConfig, StandaloneCanisterFixture,
 };
 use icydb::{Error, ErrorCode};
 pub use icydb_testing_audit_sql_perf_fixtures::contracts::StartupWatchdogPerfSnapshot;

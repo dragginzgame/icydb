@@ -2,8 +2,7 @@
 
 use crate::{expect_projection, query_sql};
 use ic_host_artifacts::artifact::Sha256Digest;
-use ic_platform::Principal;
-use ic_testkit::pocket_ic::PocketIc;
+use ic_platform::{pocket_ic::PocketIc, principal::ExternalPrincipal as Principal};
 use icydb::{Error, types::Ulid};
 use icydb_testing_build::{
     CanisterBuildOptions, CanisterBuildProfile, CanisterSqlMode, CanisterWasmProfile,

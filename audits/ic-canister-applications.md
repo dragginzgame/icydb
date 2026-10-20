@@ -6,10 +6,19 @@ deployed service identities, storage, lifecycle and network/version limits.
 
 ## Public service and lifecycle surface
 
-Inventory the exported Candid service, update/query/composite-query entrypoints,
-timers, init/upgrade hooks and generated bindings alongside Rust visibility.
+Inventory all callable exports and their payload formats, including IC Wire
+method contracts, required Candid services and raw entrypoints. Include
+update/query/composite-query methods, timers, init/upgrade hooks and generated
+bindings/codecs alongside Rust visibility; a `.did` file alone is not the inventory.
 Rust `pub` is not the complete external boundary. Record endpoint names, caller
 classes, authorization, mutation/effect authority and retained-state obligations.
+
+Apply the [IC application encoding policy](../DRAGGINZGAME.md#ic-application-encoding).
+Trace each Candid dependency, derive and codec helper to its remaining required
+boundary. Identify controlled messages that the released Wire codec can cover,
+and internal derives/helpers with no remaining codec caller. Keep required
+interoperability and retained bytes explicit; adopting a codec does not itself
+qualify transport, authentication or recovery.
 
 Before calling an endpoint unused, trace frontend bindings, other canisters'
 method-name calls, ops/CLI scripts, generated clients and known external callers

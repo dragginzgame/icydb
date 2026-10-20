@@ -27,7 +27,7 @@ fn decode_metrics_report_accepts_generated_response_shape() {
         "metrics",
         "demo",
         "demo_rpg",
-        "icydb_metrics",
+        icydb::wire::Endpoint::Metrics,
     )
     .expect("metrics response should be ok");
 
@@ -46,7 +46,7 @@ fn decode_metrics_reset_response_accepts_generated_response_shape() {
         "metrics reset",
         "demo",
         "demo_rpg",
-        "icydb_metrics_reset",
+        icydb::wire::Endpoint::MetricsReset,
     )
     .expect("metrics reset response should be ok");
 }
@@ -63,7 +63,7 @@ fn decode_snapshot_report_accepts_generated_response_shape() {
         "snapshot",
         "demo",
         "demo_rpg",
-        "icydb_snapshot",
+        icydb::wire::Endpoint::Snapshot,
     )
     .expect("snapshot response should be ok");
 
@@ -82,7 +82,7 @@ fn decode_schema_report_accepts_generated_response_shape() {
         "schema",
         "demo",
         "demo_rpg",
-        "icydb_schema",
+        icydb::wire::Endpoint::Schema,
     )
     .expect("schema response should be ok");
 
@@ -102,14 +102,28 @@ fn endpoint_decoder_rejects_malformed_wrong_shape_and_application_errors() {
     let application_error = icydb::wire::Endpoint::Snapshot
         .encode_response(&response)
         .unwrap();
-    for bytes in [b"not Wire".as_slice(), &wrong_shape, &application_error] {
+    let valid: Result<icydb::db::StorageReport, icydb::Error> =
+        Ok(icydb::db::StorageReport::default());
+    let wrong_endpoint = icydb::wire::Endpoint::Metrics
+        .encode_response(&valid)
+        .unwrap();
+    let wrong_direction = icydb::wire::Endpoint::Snapshot
+        .encode_request(&valid)
+        .unwrap();
+    for bytes in [
+        b"not Wire".as_slice(),
+        &wrong_shape,
+        &application_error,
+        &wrong_endpoint,
+        &wrong_direction,
+    ] {
         assert!(
             decode_endpoint_result::<icydb::db::StorageReport>(
                 bytes,
                 "snapshot",
                 "demo",
                 "demo_rpg",
-                "icydb_snapshot",
+                icydb::wire::Endpoint::Snapshot,
             )
             .is_err()
         );

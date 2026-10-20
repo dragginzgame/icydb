@@ -13,8 +13,9 @@ use crate::cli::{
     CanisterTarget, DiagnosticArtifactArgs, DiagnosticSourceMetadataArgs, MetricsArgs,
     SchemaMigrationCommand,
 };
-use crate::icp::{call_query_hex, call_update_hex, encode_wire_args};
+use crate::icp::{call_query_hex, call_update_hex};
 
+use icydb::wire::Endpoint;
 use serde::de::DeserializeOwned;
 
 pub(crate) fn run_metrics_command(args: MetricsArgs) -> Result<(), String> {
@@ -50,43 +51,38 @@ pub(crate) fn run_snapshot_command(target: CanisterTarget) -> Result<(), String>
     snapshot::run_snapshot_command(target)
 }
 
-fn call_query(
+fn call_query<T: serde::Serialize + DeserializeOwned>(
     environment: &str,
     canister: &str,
-    method: &str,
+    endpoint: Endpoint,
     arguments: impl serde::Serialize,
-) -> Result<Vec<u8>, String> {
-    call_query_hex(
-        environment,
-        canister,
-        method,
-        &encode_wire_args(method, arguments)?,
-        call_error_mapper("query", environment, canister, method),
-    )
+    label: &str,
+) -> Result<T, String> {
+    let method = endpoint.name();
+    let arguments = endpoint
+        .encode_request(arguments)
+        .map_err(|error| error.to_string())?;
+    let response = call_query_hex(environment, canister, method, &arguments, |stderr| {
+        method_error("query", environment, canister, method, stderr)
+    })?;
+    decode_endpoint_result(&response, label, environment, canister, endpoint)
 }
 
-fn call_update(
+fn call_update<T: serde::Serialize + DeserializeOwned>(
     environment: &str,
     canister: &str,
-    method: &str,
+    endpoint: Endpoint,
     arguments: impl serde::Serialize,
-) -> Result<Vec<u8>, String> {
-    call_update_hex(
-        environment,
-        canister,
-        method,
-        &encode_wire_args(method, arguments)?,
-        call_error_mapper("update", environment, canister, method),
-    )
-}
-
-fn call_error_mapper<'a>(
-    label: &'a str,
-    environment: &'a str,
-    canister: &'a str,
-    method: &'a str,
-) -> impl FnOnce(&str) -> String + 'a {
-    move |stderr| method_error(label, environment, canister, method, stderr)
+    label: &str,
+) -> Result<T, String> {
+    let method = endpoint.name();
+    let arguments = endpoint
+        .encode_request(arguments)
+        .map_err(|error| error.to_string())?;
+    let response = call_update_hex(environment, canister, method, &arguments, |stderr| {
+        method_error("update", environment, canister, method, stderr)
+    })?;
+    decode_endpoint_result(&response, label, environment, canister, endpoint)
 }
 
 // Wire shape failures retain their decoder diagnostic. A successfully decoded
@@ -96,10 +92,9 @@ pub(crate) fn decode_endpoint_result<T: serde::Serialize + DeserializeOwned>(
     label: &str,
     environment: &str,
     canister: &str,
-    method: &str,
+    endpoint: Endpoint,
 ) -> Result<T, String> {
-    let response = icydb::wire::Endpoint::from_name(method)
-        .ok_or_else(|| format!("unknown IcyDB method '{method}'"))?
+    let response = endpoint
         .decode_response::<Result<T, icydb::Error>>(bytes)
         .map_err(|error| error.to_string())?;
     response.map_err(|error| {
@@ -107,7 +102,7 @@ pub(crate) fn decode_endpoint_result<T: serde::Serialize + DeserializeOwned>(
             label,
             environment,
             canister,
-            method,
+            endpoint.name(),
             &crate::diagnostic::render_error(&error),
         )
     })

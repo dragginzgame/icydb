@@ -11,7 +11,7 @@ use crate::{
     cli::{CanisterTarget, DiagnosticArtifactArgs, DiagnosticSourceMetadataArgs},
     diagnostic::artifact::DiagnosticSchemaArtifact,
     icp::require_created_canister,
-    observability::{call_query, decode_endpoint_result},
+    observability::call_query,
 };
 
 /// Read and print the generated accepted-schema endpoint.
@@ -49,14 +49,7 @@ pub(super) fn load_schema_report(
     canister: &str,
 ) -> Result<Vec<icydb::db::EntitySchemaDescription>, String> {
     require_created_canister(environment, canister)?;
-    let wire_bytes = call_query(environment, canister, Endpoint::Schema.name(), ())?;
-    decode_endpoint_result(
-        &wire_bytes,
-        "schema",
-        environment,
-        canister,
-        Endpoint::Schema.name(),
-    )
+    call_query(environment, canister, Endpoint::Schema, (), "schema")
 }
 
 pub(super) fn render_schema_report(report: &[icydb::db::EntitySchemaDescription]) -> String {

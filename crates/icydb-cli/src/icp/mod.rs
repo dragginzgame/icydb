@@ -10,8 +10,6 @@ mod project;
 
 use std::path::Path;
 
-pub(crate) use call::encode_wire_args;
-
 pub(crate) fn call_query_hex(
     environment: &str,
     canister: &str,

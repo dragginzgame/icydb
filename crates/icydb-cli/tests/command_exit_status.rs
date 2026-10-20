@@ -119,6 +119,9 @@ case "$1:$2" in
       icydb_query) printf '%s' "$ICP_WIRE_QUERY" ;;
       icydb_ddl) printf '%s' "$ICP_WIRE_DDL" ;;
       icydb_update) printf '%s' "$ICP_WIRE_UPDATE" ;;
+      icydb_metrics) printf '%s' "$ICP_WIRE_METRICS" ;;
+      icydb_metrics_reset) printf '%s' "$ICP_WIRE_METRICS_RESET" ;;
+      icydb_snapshot) printf '%s' "$ICP_WIRE_SNAPSHOT" ;;
       icydb_schema) printf '%s' "$ICP_WIRE_SCHEMA" ;;
       icydb_schema_migration) printf '%s' "$ICP_WIRE_SCHEMA_MIGRATION" ;;
       icydb_schema_migrate) printf '%s' "$ICP_WIRE_SCHEMA_MIGRATE" ;;
@@ -192,6 +195,9 @@ esac
             ("QUERY", icydb::wire::Endpoint::Query),
             ("DDL", icydb::wire::Endpoint::Ddl),
             ("UPDATE", icydb::wire::Endpoint::Update),
+            ("METRICS", icydb::wire::Endpoint::Metrics),
+            ("METRICS_RESET", icydb::wire::Endpoint::MetricsReset),
+            ("SNAPSHOT", icydb::wire::Endpoint::Snapshot),
             ("SCHEMA", icydb::wire::Endpoint::Schema),
             ("SCHEMA_MIGRATION", icydb::wire::Endpoint::SchemaMigration),
             ("SCHEMA_MIGRATE", icydb::wire::Endpoint::SchemaMigrate),
@@ -374,6 +380,53 @@ fn sql_process_passes_exact_typed_bytes_for_arbitrary_text() {
                 );
             }
         }
+    }
+}
+
+#[test]
+fn report_commands_preserve_endpoint_frames_and_query_update_selection() {
+    use icydb::wire::Endpoint;
+
+    for (arguments, endpoint, query, response) in [
+        (
+            vec!["metrics"],
+            Endpoint::Metrics,
+            true,
+            response_hex(Ok(icydb::metrics::MetricsReport::default())),
+        ),
+        (
+            vec!["metrics", "--reset"],
+            Endpoint::MetricsReset,
+            false,
+            response_hex(Ok(())),
+        ),
+        (
+            vec!["snapshot"],
+            Endpoint::Snapshot,
+            true,
+            response_hex(Ok(icydb::db::StorageReport::default())),
+        ),
+        (
+            vec!["schema", "show"],
+            Endpoint::Schema,
+            true,
+            response_hex(Ok(Vec::<EntitySchemaDescription>::new())),
+        ),
+    ] {
+        let fixture = IcpFixture::new();
+        let output = fixture
+            .command(&response)
+            .args(arguments)
+            .args(["fixture", "-e", "fixture"])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        assert!(output.stderr.is_empty());
+        assert!(!output.stdout.is_empty());
+        let requests = fixture.call_arguments(endpoint.name());
+        assert_eq!(requests, [endpoint.encode_request(()).unwrap()]);
+        let calls = fs::read_to_string(fixture.directory.join("calls")).unwrap();
+        assert_eq!(calls.lines().any(|argument| argument == "--query"), query);
     }
 }
 
@@ -1156,6 +1209,64 @@ fn migration_run_requires_applied_for_existing_and_new_terminal_results() {
 }
 
 #[test]
+fn migration_run_accepts_repeated_public_pages_until_applied() {
+    let fixture = IcpFixture::new();
+    let initial = migration_response(SchemaMigrationPhase::Idle, 0);
+    // Private cursors can advance without changing any public field. Exercise
+    // repeated pages across the complete maintained phase sequence.
+    let replies = PROGRESS_PHASES
+        .into_iter()
+        .flat_map(|phase| std::iter::repeat_n(migration_response(phase, 0), 2))
+        .chain(std::iter::once(migration_response(
+            SchemaMigrationPhase::Applied,
+            0,
+        )))
+        .collect::<Vec<_>>();
+    let output = fixture
+        .migration_command(&initial, &replies, "run")
+        .output()
+        .unwrap();
+    assert_migration_outcome(output, SchemaMigrationPhase::Applied, 0);
+    assert_eq!(fixture.migration_calls(), replies.len());
+}
+
+#[test]
+fn migration_run_limits_calls_and_another_invocation_resumes_progress() {
+    for phase in [
+        SchemaMigrationPhase::Idle,
+        SchemaMigrationPhase::FinalValidation,
+    ] {
+        let fixture = IcpFixture::new();
+        let status = migration_response(phase, 0);
+        let mut replies = vec![status.clone(); 1_024];
+        replies.push(migration_response(SchemaMigrationPhase::Applied, 0));
+        let mut command = fixture.migration_command(&status, &replies, "run");
+
+        // A valid extra response detects an off-by-one call and lets a second
+        // invocation prove that the ceiling does not discard resumable progress.
+        assert_migration_outcome(command.output().unwrap(), phase, 1);
+        assert_eq!(fixture.migration_calls(), 1_024);
+
+        assert_migration_outcome(command.output().unwrap(), SchemaMigrationPhase::Applied, 0);
+        assert_eq!(fixture.migration_calls(), 1_025);
+    }
+}
+
+#[test]
+fn migration_run_accepts_applied_on_its_last_allowed_call() {
+    let fixture = IcpFixture::new();
+    let status = migration_response(SchemaMigrationPhase::FinalValidation, 0);
+    let mut replies = vec![status.clone(); 1_023];
+    replies.push(migration_response(SchemaMigrationPhase::Applied, 0));
+    let output = fixture
+        .migration_command(&status, &replies, "run")
+        .output()
+        .unwrap();
+    assert_migration_outcome(output, SchemaMigrationPhase::Applied, 0);
+    assert_eq!(fixture.migration_calls(), 1_024);
+}
+
+#[test]
 fn migration_advance_distinguishes_bounded_progress_from_unsuccessful_terminals() {
     for phase in PROGRESS_PHASES.into_iter().chain([
         SchemaMigrationPhase::Applied,
@@ -1281,7 +1392,7 @@ fn migration_status_inspects_every_phase_without_claiming_operation_success() {
 }
 
 #[test]
-fn migration_loops_keep_identity_and_progress_failures_closed() {
+fn migration_loops_reject_changed_database_or_plan_after_repeated_pages() {
     for operation in ["run", "abort"] {
         for field in ["database_identity", "plan_digest"] {
             let fixture = IcpFixture::new();
@@ -1294,24 +1405,15 @@ fn migration_loops_keep_identity_and_progress_failures_closed() {
             value[field] = serde_json::json!(vec![9_u8; 32]);
             let status: SchemaMigrationStatusPage = serde_json::from_value(value).unwrap();
             let initial = migration_response(SchemaMigrationPhase::Prepared, 0);
-            let mut command =
-                fixture.migration_command(&initial, &[response_hex(Ok(status))], operation);
+            let replies = [initial.clone(), initial.clone(), response_hex(Ok(status))];
+            let mut command = fixture.migration_command(&initial, &replies, operation);
             if operation == "abort" {
                 command.arg("--yes");
             }
             assert_failure(command.output().unwrap());
-            assert_eq!(fixture.migration_calls(), 1);
+            assert_eq!(fixture.migration_calls(), replies.len());
         }
     }
-    let fixture = IcpFixture::new();
-    let unchanged = migration_response(SchemaMigrationPhase::Validating, 0);
-    assert_failure(
-        fixture
-            .migration_command(&unchanged, std::slice::from_ref(&unchanged), "run")
-            .output()
-            .unwrap(),
-    );
-    assert_eq!(fixture.migration_calls(), 1);
 }
 
 #[test]
@@ -1371,7 +1473,11 @@ fn migration_commands_preserve_remote_transport_and_invalid_reply_failures() {
                 } else {
                     &good_status
                 };
-                let replies = [bad_reply.to_string()];
+                let mut replies = Vec::new();
+                if operation == "run" && !read_failure {
+                    replies.extend([good_status.clone(), good_status.clone()]);
+                }
+                replies.push(bad_reply.to_string());
                 let mut command = fixture.migration_command(initial, &replies, operation);
                 if matches!(operation, "abort" | "adopt") {
                     command.arg("--yes");
@@ -1381,7 +1487,10 @@ fn migration_commands_preserve_remote_transport_and_invalid_reply_failures() {
                     continue;
                 }
                 assert_failure(command.output().unwrap());
-                assert_eq!(fixture.migration_calls(), usize::from(!read_failure));
+                assert_eq!(
+                    fixture.migration_calls(),
+                    if read_failure { 0 } else { replies.len() }
+                );
             }
         }
         for failure in ["1", "update"] {
