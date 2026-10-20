@@ -28,6 +28,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### 🩹 Fixed
 
+- Restore portable adapter validation after release-editor admission became
+  required, while checking editor selection and input-limit forwarding.
 - Reject missing-row replacements with database-owned primary keys, preserving
   existing-row replacement and batch atomicity ([#226 — Missing-row replacement authors generated keys](https://github.com/dragginzgame/icydb/issues/226)).
 - Reject dotted DDL column names before publication, preserving schema versions

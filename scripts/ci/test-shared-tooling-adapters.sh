@@ -384,15 +384,18 @@ printf '[]\n' > "$native/ci/dependency-pinning-exceptions.json"
 printf '#!/usr/bin/env bash\nset -euo pipefail\ncargo set-version --help\n' > "$native/scripts/ci/bump-version.sh"
 # The receipt substitute expands the selected working directory in its child.
 # shellcheck disable=SC2016
-printf '#!/usr/bin/env bash\nset -euo pipefail\ncargo locate-project --workspace --message-format plain --manifest-path "$PWD/Cargo.toml"\n' \
+printf '#!/usr/bin/env bash\nset -euo pipefail\n[[ "$CARGO_RELEASE_METADATA_EDITOR" == "$CI_CARGO_ROOT/bin/cargo" && "$CARGO_RELEASE_METADATA_MAX_BYTES" == 8388608 ]]\ncargo locate-project --workspace --message-format plain --manifest-path "$PWD/Cargo.toml"\n' \
   > "$native/scripts/ci/release-candidate-receipt.sh"
 cp "$native/scripts/ci/release-candidate-receipt.sh" "$native/scripts/ci/record-release-gate-receipt.sh"
 # This fixture owns Cargo environment/jobserver transport only. The real
 # selected-source metadata semantics are qualified in test-cargo-metadata-adoption.
+# Make calls below substitute editor admission with the existing Cargo executable;
+# the standard release fixture qualifies real selection and admission refusal.
 cat > "$native/scripts/ci/cargo-release-metadata.sh" <<'METADATA'
 #!/usr/bin/env bash
 set -euo pipefail
 [[ "$*" == 'check icydb --manifest-order-grouped' ]]
+[[ "$CARGO_RELEASE_METADATA_EDITOR" == "$CI_CARGO_ROOT/bin/cargo" && "$CARGO_RELEASE_METADATA_MAX_BYTES" == 8388608 ]]
 cargo sort --workspace --check --grouped
 cargo metadata --locked --offline --format-version 1 >/dev/null
 METADATA
@@ -416,6 +419,7 @@ for lane in version release-version check-versioning check-dependency-pins \
     metadata_selection=(RELEASE_COMMIT=1111111111111111111111111111111111111111)
   fi
   PATH="$native/bin:$PATH" make --no-print-directory -C "$native" -j2 "$lane" \
+    'RELEASE_EDITOR_CHECK=printf "%s\n" "$$CI_CARGO_ROOT/bin/cargo"' \
     ${metadata_selection[@]+"${metadata_selection[@]}"} \
     RELEASE_VERSION=0.1.1 RELEASE_PREVIOUS=0.1.0 RELEASE_KIND=patch RELEASE_DATE=2026-10-10 \
     RELEASE_SOURCE=1111111111111111111111111111111111111111 \
@@ -445,6 +449,7 @@ for lane in release-prepared-check release-commit-check release-prepare-version;
   if [[ "$failure" == metadata ]]; then fail_command=metadata; fi
   PATH="$native/bin:$PATH" CI_CARGO_FAIL=1 CI_CARGO_FAIL_COMMAND="$fail_command" \
     make --no-print-directory -C "$native" -j2 "$lane" \
+    'RELEASE_EDITOR_CHECK=printf "%s\n" "$$CI_CARGO_ROOT/bin/cargo"' \
     RELEASE_VERSION=0.1.1 RELEASE_PREVIOUS=0.1.0 RELEASE_KIND=patch RELEASE_DATE=2026-10-10 \
     > "$native/failure-$failure-$lane.log" 2>&1 || status=$?
   [[ "$status" == 2 ]]
@@ -577,6 +582,7 @@ for command in build locate-project run; do
   if [[ "$command" == build ]]; then lane=check-portable-automation; fi
   PATH="$native/bin:$PATH" CI_CARGO_FAIL=1 CI_CARGO_FAIL_COMMAND="$command" \
     make --no-print-directory -C "$native" -j2 "$lane" \
+    'RELEASE_EDITOR_CHECK=printf "%s\n" "$$CI_CARGO_ROOT/bin/cargo"' \
     > "$native/compiled-$command.log" 2>&1 || status=$?
   [[ "$status" == 2 ]]
   rg -F native-cargo-failure "$native/compiled-$command.log" >/dev/null
