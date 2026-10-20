@@ -361,10 +361,12 @@ fn icydb_memory_pool() -> Result<icydb::db::MemoryAllocationPool, icydb::db::Mem
 }
 ```
 
-The required host `icydb_memory_pool` provider grants disjoint permanent key
-namespaces to their named owners in one shared physical pool. It is called only
-for IcyDB-owned cold bootstrap; a composed host that commits first is adopted
-without invoking it. Governance IDs are excluded automatically; add explicit
+The standalone host `icydb_memory_pool` provider grants disjoint permanent key
+namespaces to their named owners in one shared physical pool. Standalone
+lifecycle exports call it explicitly before startup. Participant hosts instead
+commit their complete component requests and bind that runtime with
+`icydb::db::bind_memory_runtime` before invoking the IcyDB participant. They do
+not need an IcyDB pool provider, and database access never constructs a manager. Governance IDs are excluded automatically; add explicit
 physical exclusions for unmanaged host memory. All admitted owners share eligible
 free slots. Namespaces do not reserve an ID range.
 `ic-memory` persists the key-to-ID mapping. The schema does not assign physical

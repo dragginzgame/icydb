@@ -46,6 +46,7 @@ fn native_memory_attribution() {
                 let (report_tx, report_rx) = mpsc::channel();
                 let (release_tx, release_rx) = mpsc::channel();
                 scope.spawn(move || {
+                    crate::bootstrap_standalone_memory(crate::icydb_memory_pool).unwrap();
                     crate::__icydb_generated::__drive_native_database_for_tests().unwrap();
                     report_tx.send(allocation_report()).unwrap();
                     if release_rx.recv().is_err() {

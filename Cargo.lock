@@ -335,7 +335,7 @@ dependencies = [
 [[package]]
 name = "canic-icydb"
 version = "0.111.0"
-source = "git+https://github.com/dragginzgame/canic?rev=1491dd9ee4e858b4f47a4deba7e3cb4ab4a2b895#1491dd9ee4e858b4f47a4deba7e3cb4ab4a2b895"
+source = "git+https://github.com/dragginzgame/canic?rev=fcc48511ef1beb650ec41a375457ad96a4bdff20#fcc48511ef1beb650ec41a375457ad96a4bdff20"
 dependencies = [
  "canic-macros",
  "ic-cdk",
@@ -347,7 +347,7 @@ dependencies = [
 [[package]]
 name = "canic-macros"
 version = "0.111.0"
-source = "git+https://github.com/dragginzgame/canic?rev=1491dd9ee4e858b4f47a4deba7e3cb4ab4a2b895#1491dd9ee4e858b4f47a4deba7e3cb4ab4a2b895"
+source = "git+https://github.com/dragginzgame/canic?rev=fcc48511ef1beb650ec41a375457ad96a4bdff20#fcc48511ef1beb650ec41a375457ad96a4bdff20"
 dependencies = [
  "proc-macro2",
  "quote",

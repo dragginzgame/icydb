@@ -102,6 +102,7 @@ mod tests {
 
     #[test]
     fn single_package_native_driver_reads_and_writes() {
+        crate::bootstrap_standalone_memory(crate::icydb_memory_pool).unwrap();
         crate::__icydb_generated::__drive_native_database_for_tests().unwrap();
         assert_eq!(super::profile_rank().unwrap(), None);
         super::insert_profile(19).unwrap();
@@ -110,6 +111,7 @@ mod tests {
 
     #[test]
     fn generated_schema_binding_mismatch_keeps_source_context() {
+        crate::bootstrap_standalone_memory(crate::icydb_memory_pool).unwrap();
         crate::__icydb_generated::__drive_native_database_for_tests().unwrap();
         runtime_api::db::with_request_execution(|| {
             let session = crate::db().unwrap();

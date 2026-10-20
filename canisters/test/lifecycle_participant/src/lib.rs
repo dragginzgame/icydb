@@ -226,6 +226,7 @@ fn run_deferred_database_work() -> ic_timers::OnceRunResult {
 
 #[canic_icydb::__private::native_entry(init, name = "", sdk = crate::__icydb_host_sdk)]
 fn application_init() {
+    bootstrap_standalone_memory(icydb_memory_pool).expect("standalone fixture bootstrap");
     begin_lifecycle(LifecycleHook::Init);
     let start = performance_counter(1);
     crate::__icydb_lifecycle_participant::init();
@@ -234,6 +235,7 @@ fn application_init() {
 }
 
 fn application_post_upgrade(trap_after_participant: Option<bool>) {
+    bootstrap_standalone_memory(icydb_memory_pool).expect("standalone fixture bootstrap");
     begin_lifecycle(LifecycleHook::PostUpgrade);
     let start = performance_counter(1);
     crate::__icydb_lifecycle_participant::post_upgrade();

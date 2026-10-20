@@ -540,6 +540,21 @@ fn store_wiring_tokens(
                 .collect()
         }
 
+        /// Explicit standalone lifecycle bootstrap; composed hosts bind their own runtime.
+        pub fn bootstrap_standalone_memory(
+            pool: impl FnOnce() -> ::std::result::Result<
+                ::icydb::db::MemoryAllocationPool,
+                ::icydb::db::MemoryAllocationPoolError,
+            >,
+        ) -> ::std::result::Result<(), ::icydb::db::DatabaseBootstrapError> {
+            let requirements = icydb_memory_requests()
+                .and_then(::icydb::db::SealedDeclarationSnapshot::new)
+                .map_err(::icydb::db::DatabaseBootstrapError::from)?;
+            ::icydb::__macro::bootstrap_standalone_memory_runtime(
+                &requirements, #bucket_size_pages, pool,
+            )
+        }
+
         #journal_defs
         thread_local! {
             static MEMORY_BOOTSTRAP:
@@ -573,11 +588,9 @@ fn store_wiring_tokens(
                         let requirements = icydb_memory_requests()
                             .and_then(::icydb::db::SealedDeclarationSnapshot::new)
                             .map_err(::icydb::db::DatabaseBootstrapError::from)?;
-                        ::icydb::__macro::ensure_default_memory_manager(
+                        ::icydb::__macro::verify_memory_runtime(
                             #memory_authority,
                             &requirements,
-                            #bucket_size_pages,
-                            crate::icydb_memory_pool,
                         )
                     })
                     .clone()
@@ -722,7 +735,7 @@ mod tests {
             );
             let rendered = compact_tokens(generate_store_wiring(&builder, quote!()));
             assert!(rendered.contains(&format!(
-                "ensure_default_memory_manager(\"icydb.test\",&requirements,{pages}u16,crate::icydb_memory_pool,)"
+                "bootstrap_standalone_memory_runtime(&requirements,{pages}u16,pool,)"
             )));
             assert_eq!(
                 builder.schema_fragment_bytes,
@@ -886,7 +899,7 @@ mod tests {
         assert!(rendered.contains("Result<(),::icydb::db::DatabaseBootstrapError>"));
         assert!(
             rendered
-                .contains("::icydb::__macro::ensure_default_memory_manager(\"icydb.demo\",&requirements,16u16,crate::icydb_memory_pool,)")
+                .contains("::icydb::__macro::verify_memory_runtime(\"icydb.demo\",&requirements,)")
         );
         assert!(rendered.contains("ensure_memory_bootstrap()?"));
         assert!(rendered.contains("pubfnstartup_state()->::std::result::Result<"));

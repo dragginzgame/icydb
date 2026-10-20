@@ -176,8 +176,9 @@ pub use icydb_diagnostic_code::ErrorCode;
 #[doc(hidden)]
 pub mod __macro {
     pub use crate::db::{
-        TypedEntityDescriptor, TypedFieldDescriptor, TypedFieldType, ensure_default_memory_manager,
-        execute_generated_storage_report,
+        TypedEntityDescriptor, TypedFieldDescriptor, TypedFieldType,
+        bootstrap_standalone_memory_runtime, execute_generated_storage_report,
+        verify_memory_runtime,
     };
     pub use crate::guards::{authorize_schema_read, authorize_sql_read};
     #[cfg(feature = "sql")]
@@ -290,7 +291,7 @@ macro_rules! __icydb_start_actor {
             reason = "minimal downstream canisters may use only a subset of generated actor conveniences"
         )]
         use __icydb_generated::{db, db_with_request_root, startup_state};
-        pub use __icydb_generated::icydb_memory_requests;
+        pub use __icydb_generated::{bootstrap_standalone_memory, icydb_memory_requests};
     };
 }
 

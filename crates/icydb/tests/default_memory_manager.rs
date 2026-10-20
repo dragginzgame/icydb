@@ -3,7 +3,7 @@ use ic_memory::{
     SealedDeclarationSnapshot,
 };
 use icydb::__macro::open_memory;
-use icydb::db::{ensure_default_memory_manager, memory_runtime};
+use icydb::db::{bootstrap_standalone_memory_runtime, memory_runtime, verify_memory_runtime};
 use icydb::traits::{CanisterKind, Path};
 
 const AUTHORITY: &str = "icydb.ensure_default_memory_manager_test";
@@ -25,7 +25,7 @@ impl CanisterKind for TestCanister {
 }
 
 #[test]
-fn ensure_bootstraps_once_then_reuses_committed_allocations() {
+fn standalone_bootstraps_then_composed_access_verifies_committed_allocations() {
     assert!(matches!(
         TestCanister::commit_memory_id(),
         Err(RuntimeOpenError::NotBootstrapped)
@@ -43,7 +43,7 @@ fn ensure_bootstraps_once_then_reuses_committed_allocations() {
     )
     .unwrap();
 
-    ensure_default_memory_manager(AUTHORITY, &requirements, 16, || {
+    bootstrap_standalone_memory_runtime(&requirements, 16, || {
         MemoryAllocationPool::new(
             vec![MemoryAuthority::new(AUTHORITY, format!("{AUTHORITY}."))?],
             vec![],
@@ -55,13 +55,8 @@ fn ensure_bootstraps_once_then_reuses_committed_allocations() {
         .committed_generation()
         .expect("cold ensure should publish committed allocations");
 
-    ensure_default_memory_manager(AUTHORITY, &requirements, 16, || {
-        MemoryAllocationPool::new(
-            vec![MemoryAuthority::new(AUTHORITY, format!("{AUTHORITY}."))?],
-            vec![],
-        )
-    })
-    .expect("repeated ensure should adopt the runtime");
+    verify_memory_runtime(AUTHORITY, &requirements)
+        .expect("explicitly bound runtime should satisfy this database");
     assert_eq!(
         memory_runtime()
             .unwrap()
