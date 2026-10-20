@@ -251,6 +251,34 @@ PATH="$native/bin:$PATH" make --no-print-directory -C "$native" -j2 test-integra
   TEST_TARGET=fixture-test TEST_NAME= > "$native/feedback-refusal.log" 2>&1 || status=$?
 [[ "$status" == 2 && ! -s "$CI_CARGO_TRACE" ]]
 
+# ICP's deployment build hook must finish the existing lint gate before its
+# builder or artifact copy, including when the caller enables parallel Make.
+mkdir -p "$native/scripts/app" "$native/.icp/local/canisters/default_empty"
+cp "$ROOT/scripts/app/build.sh" "$native/scripts/app/"
+printf 'previous-wasm\n' > "$native/.icp/local/canisters/default_empty/default_empty.wasm"
+cat > "$native/deployment.mk" <<'MAKE'
+deployment-build:
+	+@bash scripts/app/build.sh default_empty
+MAKE
+: > "$CI_CARGO_TRACE"
+PATH="$native/bin:$PATH" ICP_WASM_OUTPUT_PATH="$native/staged.wasm" \
+  make --no-print-directory -C "$native" -f Makefile -f deployment.mk -j2 deployment-build \
+  > "$native/deployment-build.log" 2>&1
+printf '%s\n' 'clippy default' 'clippy default' 'clippy default' 'run default' \
+  > "$native/expected-trace"
+cmp "$native/expected-trace" "$CI_CARGO_TRACE"
+cmp "$native/.icp/local/canisters/default_empty/default_empty.wasm" "$native/staged.wasm"
+: > "$CI_CARGO_TRACE"
+status=0
+PATH="$native/bin:$PATH" CI_CARGO_FAIL=1 CI_CARGO_FAIL_COMMAND=clippy \
+  ICP_WASM_OUTPUT_PATH="$native/staged.wasm" \
+  make --no-print-directory -C "$native" -f Makefile -f deployment.mk -j2 deployment-build \
+  > "$native/deployment-lint-failure.log" 2>&1 || status=$?
+[[ "$status" == 2 ]]
+printf '%s\n' 'clippy default' > "$native/expected-trace"
+cmp "$native/expected-trace" "$CI_CARGO_TRACE"
+[[ "$(cat "$native/staged.wasm")" == previous-wasm ]]
+
 # Direct builders retain their profile and canister selections. Development,
 # documentation and feature recipes share the same transport, with static Perl
 # effects substituted so this probe does not run broad product gates.
@@ -265,6 +293,7 @@ printf '%s\n' \
   'run --locked -p icydb-testing-build --bin build_fixture_canister -- default_empty --build-profile production --profile wasm-release' \
   > "$native/expected-arguments"
 cmp "$native/expected-arguments" "$CI_CARGO_ARGUMENT_TRACE"
+
 mkdir "$native/doc-bin"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$native/doc-bin/perl"
 chmod +x "$native/doc-bin/perl"
@@ -374,14 +403,14 @@ for script in read-cargo-workspace-version.sh check-dependency-pins.sh dependenc
   check-format-tools.sh run-formatting.sh finalize-release-changelog.awk; do
   cp "$ROOT/scripts/ci/$script" "$native/scripts/ci/"
 done
-cp "$ROOT/scripts/release/"{prepare.sh,files.sh,check-metadata.sh,finalize-notes.sh} "$native/scripts/release/"
+cp "$ROOT/scripts/release/"{prepare.sh,files.sh,check-metadata.sh,finalize-notes.sh,render-candidate.sh} "$native/scripts/release/"
 printf '[workspace.package]\nversion = "0.1.1"\n' > "$native/Cargo.toml"
 printf 'version = 4\n' > "$native/Cargo.lock"
 printf '.cache/\n' > "$native/.gitignore"
 printf '## [0.1.1] - 2026-10-10\n' > "$native/CHANGELOG.md"
 cp "$native/CHANGELOG.md" "$native/docs/changelog/0.1.md"
 printf '[]\n' > "$native/ci/dependency-pinning-exceptions.json"
-printf '#!/usr/bin/env bash\nset -euo pipefail\ncargo set-version --help\n' > "$native/scripts/ci/bump-version.sh"
+printf '#!/usr/bin/env bash\nset -euo pipefail\ncargo metadata --locked --offline --no-deps --format-version 1\n' > "$native/scripts/ci/bump-version.sh"
 # The receipt substitute expands the selected working directory in its child.
 # shellcheck disable=SC2016
 printf '#!/usr/bin/env bash\nset -euo pipefail\n[[ "$CARGO_RELEASE_METADATA_EDITOR" == "$CI_CARGO_ROOT/bin/cargo" && "$CARGO_RELEASE_METADATA_MAX_BYTES" == 8388608 ]]\ncargo locate-project --workspace --message-format plain --manifest-path "$PWD/Cargo.toml"\n' \
@@ -426,11 +455,11 @@ for lane in version release-version check-versioning check-dependency-pins \
     > "$native/$lane.log" 2>&1
 done
 printf '%s\n' 'locate-project default' 'locate-project default' \
-  'set-version default' 'locate-project default' 'locate-project default' \
+  'locate-project default' 'locate-project default' \
   'locate-project default' 'sort default' 'metadata default' 'locate-project default' \
   'locate-project default' 'sort default' 'metadata default' 'locate-project default' \
   'locate-project default' 'locate-project default' 'sort default' 'metadata default' 'locate-project default' \
-  'set-version default' 'sort default' 'fmt default' 'sort-derives default' \
+  'metadata default' 'sort default' 'fmt default' 'sort-derives default' \
   'sort default' 'fmt default' 'locate-project default' 'sort default' 'metadata default' \
   'locate-project default' 'locate-project default' > "$native/expected-trace"
 cmp "$native/expected-trace" "$CI_CARGO_TRACE"
@@ -593,5 +622,44 @@ for command in build locate-project run; do
   # Later probes select graph/runtime checks without running scanner semantics.
   printf '#!/usr/bin/env bash\nexit 0\n' > "$native/scripts/ci/test-invariant-scanners.sh"
 done
+
+# Static CI enters invariants without a release callback's inherited editor.
+# Keep the actual Make dispatch and require explicit admission at the receipt.
+for script in check-dependency-graph-invariants.sh check-executor-no-production-panics.sh; do
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$native/scripts/ci/$script"
+done
+cat > "$native/scripts/ci/test-release-candidate-receipt.sh" <<'RECEIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$CARGO_RELEASE_METADATA_EDITOR" == "$CI_CARGO_ROOT/bin/cargo" && "$CARGO_RELEASE_METADATA_MAX_BYTES" == 8388608 ]]
+cargo locate-project --workspace --message-format plain
+RECEIPT
+: > "$CI_CARGO_TRACE"
+(
+  unset CARGO_RELEASE_METADATA_EDITOR CARGO_RELEASE_METADATA_MAX_BYTES
+  PATH="$native/bin:$PATH" make --no-print-directory -C "$native" -j2 check-invariants \
+    'RELEASE_EDITOR_CHECK=printf "%s\n" "$$CI_CARGO_ROOT/bin/cargo"'
+) > "$native/standalone-receipt.log" 2>&1
+printf '%s\n' 'locate-project default' > "$native/expected-trace"
+cmp "$native/expected-trace" "$CI_CARGO_TRACE"
+# Keep validate's real recipe, runner and complete Clippy selection. Substitute
+# preparation/static gates and refuse any expensive stage reached after failure.
+cat >> "$native/Makefile" <<'MAKE'
+tools-check fmt-check lint-workflows shellcheck check-dependency-pins:
+	@:
+check-invariants check check-feature-matrix test:
+	@echo unexpected-later-stage >&2; exit 99
+MAKE
+: > "$CI_CARGO_TRACE"
+status=0
+PATH="$native/bin:$PATH" CI_CARGO_FAIL=1 CI_CARGO_FAIL_COMMAND=clippy \
+  ICYDB_VALIDATION_FAILURE_LOG_DIR="$native/release-lint-logs" \
+  make --no-print-directory -C "$native" -j2 validate \
+  > "$native/release-lint-failure.log" 2>&1 || status=$?
+[[ "$status" == 2 ]]
+printf '%s\n' 'clippy default' > "$native/expected-trace"
+cmp "$native/expected-trace" "$CI_CARGO_TRACE"
+if rg -F unexpected-later-stage "$native/release-lint-failure.log" >/dev/null; then exit 1; fi
+
 echo "shared-tooling adapter regressions passed"
 fixture_complete=true

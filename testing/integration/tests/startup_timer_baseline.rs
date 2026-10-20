@@ -1,5 +1,5 @@
 use ic_platform::principal::ExternalPrincipal as Principal;
-use ic_testkit::pic::StandaloneCanisterFixture;
+use ic_testkit::pic::{StandaloneCanisterFixture, advance_and_tick};
 use icydb_testing_integration::WireCallExt as _;
 use icydb_testing_integration::{install_fixture_canister, upgrade_fixture_canister};
 
@@ -39,9 +39,7 @@ fn shared_watchdog_survives_instruction_exhaustion() {
     // Production instruction limits use deterministic time slicing. Drive
     // enough rounds for the message-level limit and the independently queued
     // application callback, without advancing IC time.
-    for _ in 0..24 {
-        fixture.pocket_ic().tick();
-    }
+    advance_and_tick(fixture.pocket_ic(), Duration::ZERO, 24);
     let exhausted = snapshot(&fixture);
     assert_eq!(exhausted.exhaust_at, Some(exhaust_at));
     assert_eq!(exhausted.watchdog_callbacks, 0);
@@ -75,9 +73,7 @@ fn start(fixture: &StandaloneCanisterFixture) -> bool {
 }
 
 fn advance_timer_round(fixture: &StandaloneCanisterFixture, duration: Duration) {
-    fixture.pocket_ic().advance_time(duration);
-    fixture.pocket_ic().tick();
-    fixture.pocket_ic().tick();
+    advance_and_tick(fixture.pocket_ic(), duration, 2);
 }
 
 #[test]

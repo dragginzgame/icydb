@@ -138,8 +138,12 @@ case "$operation" in
             selected_root="$temporary/source"
             mkdir "$selected_root"
             git archive --format=tar "$RELEASE_COMMIT" | tar -xf - -C "$selected_root"
+            selected_root="$(cd "$selected_root" && pwd -P)"
         fi
         regular_metadata "$selected_root" Cargo.toml Cargo.lock
+        mkdir "$temporary/inputs"
+        cp -p "$selected_root/Cargo.toml" "$selected_root/Cargo.lock" "$temporary/inputs/"
+        printf '%s\n' "$selected_root" > "$temporary/root"
         if [[ "$operation" == check ]]; then
             regular_metadata "$selected_root" CHANGELOG.md
         fi
@@ -157,8 +161,20 @@ case "$operation" in
                 '$0 == heading { count++ } END { if (count != 1) exit 1 }' "$selected_root/CHANGELOG.md"
         fi
         lock_packages "$selected_root" "$observed_version" > "$temporary/local-packages"
-        # Bash 3.2 can lose an unguarded subshell failure before the next command.
-        (cd "$selected_root" && cargo metadata --locked --offline --format-version 1) > "$temporary/metadata.json" || exit $?
+        # Keep JSON separate from streamed diagnostics. Capture both statuses
+        # immediately: a logger failure must not replace Cargo's original error.
+        metadata_status=(0 0)
+        if (cd "$selected_root" && cargo metadata --locked --offline --format-version 1) \
+            2>&1 > "$temporary/metadata.json" | tee "$temporary/metadata.stderr" >&2; then
+            :
+        else
+            metadata_status=("${PIPESTATUS[@]}")
+        fi
+        printf '%s\n' "${metadata_status[0]}" > "$temporary/cargo-status"
+        printf '%s\n' "${metadata_status[1]}" > "$temporary/log-status"
+        status="${metadata_status[0]}"
+        [[ "$status" != 0 ]] || status="${metadata_status[1]}"
+        [[ "$status" == 0 ]] || exit "$status"
         workspace_packages "$temporary/metadata.json" "$observed_version" "$temporary/local-packages"
         complete=true
         ;;

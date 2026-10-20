@@ -274,9 +274,8 @@ fn store_replacement_selects_only_old_journal_and_preserves_its_debt_bytes() {
         second.open_memory(JOURNAL),
         Err(RuntimeOpenError::NotBootstrapped)
     ));
-    let committed = second
-        .bootstrap(&snapshot(&requests("main", &["new"])), &pool(), &policy)
-        .unwrap();
+    let current = snapshot(&requests("main", &["new"]));
+    let committed = second.bootstrap(&current, &pool(), &policy).unwrap();
     assert_eq!(committed, 2);
     assert_eq!(second.memory_id(JOURNAL).unwrap(), old_slot);
     let mut debt = [0; 4];
@@ -295,6 +294,13 @@ fn store_replacement_selects_only_old_journal_and_preserves_its_debt_bytes() {
             Err(RuntimeOpenError::StableKeyNotCommitted { .. })
         ));
     }
+    // Matching warm adoption retains the selected journal without replaying
+    // database admission, advancing a generation or changing backing bytes.
+    let calls = policy.calls.get();
+    let before = backing.borrow().clone();
+    assert_eq!(second.bootstrap(&current, &pool(), &policy).unwrap(), 2);
+    assert_eq!(policy.calls.get(), calls);
+    assert_eq!(*backing.borrow(), before);
     // This succeeds only at the allocation boundary. The preserved debt must
     // still prevent database retirement in the later convergence owner.
 }

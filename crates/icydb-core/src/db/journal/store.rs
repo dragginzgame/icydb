@@ -723,20 +723,16 @@ impl JournalTailStore {
         }
         let header = validate_encoded_batch_header(batch, bytes)?;
         let existing_prefix = self.raw_batch_prefix_bytes_for_sequence(key)?;
-        let identical_replay = existing_prefix.as_deref() == Some(bytes);
-        let repairing_prefix = match existing_prefix.as_deref() {
-            Some(existing) if existing == bytes => false,
-            Some(existing) if existing.len() < bytes.len() && bytes.starts_with(existing) => true,
+        // Existing bytes admit exact replay only. Truncation is corruption, not
+        // another append route with weaker sequence and commit-order checks.
+        let identical_replay = match existing_prefix.as_deref() {
+            Some(existing) if existing == bytes => true,
             Some(_) => return Err(journal_tail_corruption()),
             None => false,
         };
         #[cfg(test)]
         if !self.has_current_tail_control() {
-            if repairing_prefix {
-                self.apply_current_tail_control_initialization();
-            } else {
-                self.initialize_current_tail_control()?;
-            }
+            self.initialize_current_tail_control()?;
         }
         #[cfg(test)]
         if self.entity_mutation_revision_count()? == 0 {
@@ -752,19 +748,11 @@ impl JournalTailStore {
             return Ok(());
         }
         let current_control = self.current_tail_control()?;
-        let expected_sequence = if repairing_prefix {
-            self.fold_watermark()?
-                .highest_folded_journal_sequence()
-                .next()
-                .ok_or_else(journal_tail_corruption)?
-        } else {
-            self.next_append_sequence()?
-        };
+        let expected_sequence = self.next_append_sequence()?;
         if key != expected_sequence {
             return Err(journal_tail_corruption());
         }
-        if !repairing_prefix
-            && current_control.batch_count != 0
+        if current_control.batch_count != 0
             && let Some(previous_sequence) = key.get().checked_sub(1).map(JournalSequence::new)
             && let Some(last_database_sequence) =
                 self.database_commit_sequence_at(previous_sequence)?

@@ -86,7 +86,6 @@ for host in Linux Darwin; do
     cmp "$FIXTURE/Cargo.lock" "$FIXTURE/lock.before"
     rg -F "rustup toolchain install --target wasm32-unknown-unknown in $FIXTURE" "$TEST_TRACE" >/dev/null
     for selection in "twiggy:$ICYDB_TWIGGY_VERSION" \
-      "cargo-edit:$ICYDB_CARGO_EDIT_VERSION" \
       "cargo-watch:$ICYDB_CARGO_WATCH_VERSION"; do
       rg -F "${selection%:*} --version ${selection##*:} --locked" "$TEST_TRACE" >/dev/null
     done
@@ -109,7 +108,7 @@ for lane in install-dev update-dev; do
   : > "$TEST_TRACE"
   TEST_JOBSERVER_PROBE=1 "$workstation_make" --no-print-directory -C "$FIXTURE" -j2 "$lane" "SHELL=$BASH" \
     > "$FIXTURE/$lane.log" 2>&1
-  [[ "$(rg -c '^cargo install ' "$TEST_TRACE")" == 3 ]]
+  [[ "$(rg -c '^cargo install ' "$TEST_TRACE")" == 2 ]]
   rg -F "make --no-print-directory -C $FIXTURE install-hooks" "$TEST_TRACE" >/dev/null
   cmp "$FIXTURE/Cargo.lock" "$FIXTURE/lock.before"
   : > "$TEST_TRACE"

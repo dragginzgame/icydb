@@ -18,6 +18,10 @@ CAN="$1"
 ICP_DIR="$ROOT/.icp/local/canisters/$CAN"
 WASM_TARGET="$ICP_DIR/$CAN.wasm"
 
+# Every repository ICP deployment builds here. Reuse the complete consumer gate
+# before compiling/staging Wasm; a failed lint cannot replace an older artifact.
+make --no-print-directory -C "$ROOT" clippy
+
 cargo run --manifest-path "$ROOT/Cargo.toml" \
     --locked \
     --package icydb-testing-build \

@@ -42,8 +42,8 @@ if ! target_recipe validate | awk '
   END {
     exit !(preflight_runner_line > 0 && fmt_line > preflight_runner_line &&
            workflow_line > fmt_line && shell_line > workflow_line &&
-           invariants_line > shell_line && check_line > invariants_line &&
-           clippy_line > check_line && long_runner_line > clippy_line &&
+           clippy_line > shell_line && invariants_line > clippy_line &&
+           check_line > invariants_line && long_runner_line > check_line &&
            features_line > long_runner_line && test_line > features_line)
   }
 '; then

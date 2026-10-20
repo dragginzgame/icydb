@@ -16,6 +16,8 @@ for version in 0.1.0 0.1.1; do
     printf 'pub fn fixture() {}\n' > "$fixture/$directory/lib.rs"
     printf 'version = 4\n\n[[package]]\nname = "fixture"\nversion = "%s"\n\n[[package]]\nname = "registry-package"\nversion = "0.1.0"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "preserve0a1b0digest"\n' "$version" > "$fixture/$directory/Cargo.lock"
 done
+"${CARGO_RELEASE_METADATA_EDITOR:?select the prepared editor}" --max-input-bytes "$CARGO_RELEASE_METADATA_MAX_BYTES" manifest \
+    "$fixture/base/Cargo.toml" 0.1.0 0.1.1 > "$fixture/candidate/Cargo.toml"
 real_bash="$(command -v bash)"
 printf '#!%s\n' "$real_bash" > "$fixture/bin/git"
 cat >> "$fixture/bin/git" <<'STUB'
@@ -27,7 +29,7 @@ case "$*" in
         tar -cf - -C "$FIXTURE_BASE" .
         ;;
     'rev-parse --verify HEAD') printf '%s\n' 1111111111111111111111111111111111111111 ;;
-    'show '*':Cargo.toml') cat "$FIXTURE_BASE/Cargo.toml" ;;
+    'show '*':Cargo.toml') cat "$FIXTURE_BASE/Cargo.toml"; [[ "${FAIL_MANIFEST_READ:-0}" == 0 ]] || exit 19 ;;
     'show '*':Cargo.lock') cat "$FIXTURE_BASE/Cargo.lock"; [[ "${FAIL_SOURCE_READ:-0}" == 0 ]] || exit 7 ;;
     'diff --cached --name-only -z HEAD --') ;;
     'diff --quiet --ignore-submodules HEAD --') exit 1 ;;
@@ -53,12 +55,13 @@ exit 7
 EDITOR
 chmod +x "$fixture/bin/failing-editor"
 # Complete candidate bytes do not turn a failed producer into admission.
-for producer in source editor; do
+for producer in manifest source editor; do
     selected_editor="$real_editor"
-    fail_source=0
+    fail_source=0 fail_manifest=0
     if [[ "$producer" == editor ]]; then selected_editor="$fixture/bin/failing-editor";
-    else fail_source=1; fi
-    if CARGO_RELEASE_METADATA_EDITOR="$selected_editor" FAIL_SOURCE_READ="$fail_source" \
+    elif [[ "$producer" == source ]]; then fail_source=1;
+    else fail_manifest=1; fi
+    if CARGO_RELEASE_METADATA_EDITOR="$selected_editor" FAIL_SOURCE_READ="$fail_source" FAIL_MANIFEST_READ="$fail_manifest" \
       bash "$subject" record patch 1111111111111111111111111111111111111111 > "$fixture/failed-$producer.log" 2>&1; then
         echo "release receipt admitted a failed $producer after complete output" >&2; exit 1
     fi

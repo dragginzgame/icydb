@@ -313,8 +313,7 @@ cargo install cargo-sort --version "$SHARED_TOOLING_CARGO_SORT_VERSION" --locked
 cargo install cargo-sort-derives --version "$ICYDB_CARGO_SORT_DERIVES_VERSION" --locked
 ```
 
-Setup also installs `cargo-edit` and `cargo-watch` for release
-helpers and `make test-watch`. General analysis tools are optional; install
+Setup also installs `cargo-watch` for `make test-watch`. General analysis tools are optional; install
 `cargo-audit`, `cargo-bloat`, `cargo-deny`, `cargo-expand`, `cargo-machete`,
 `cargo-llvm-lines`, or `cargo-tarpaulin` explicitly when needed. For example:
 
@@ -341,6 +340,14 @@ older prepared tool when newer working metadata selects a different release.
 Setup does not change release metadata or perform Git/release effects. Missing
 preparation refuses before the consumer runs. See the
 [shared release contract](docs/releases.md#cargo-release-candidate-rendering).
+
+### Release and Deployment Lint Admission
+
+Release validation runs the complete `make clippy` gate before invariant fixtures,
+product checks and tests. The repository's ICP build hook also runs that gate
+before building or staging canister Wasm; a lint failure stops the operation.
+These entrypoints retain the existing packages, features and warning policy.
+Focused development checks do not run this broad gate automatically.
 
 ### Dependency Declaration Checks
 

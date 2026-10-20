@@ -272,6 +272,15 @@ Consumer choices described in those guides remain subject to this baseline.
   remaining release checks without claiming full-suite or native-host coverage.
   Configured CI and required branch checks remain independent and unchanged;
   this local execution policy does not weaken the release runner's full gate.
+- **Rust release and deployment entrypoints must run Clippy early and stop on
+  failure.** After source/recovery admission and required compiler/dependency/tool
+  preparation, run the consumer's existing Clippy gate before expensive product
+  builds, test suites, packaging or new publication/deployment effects. Preserve
+  its selected packages, targets, features and lint policy; a narrower ad hoc
+  `cargo clippy` invocation does not replace that gate. Establish ordering with
+  sequential recipes or dependency edges that also hold under parallel Make.
+  A failed lint must prevent later stages, and a passing lint does not replace
+  the remaining complete gate or existing recovery obligations.
 - Local command lists must distinguish focused development/handoff checks from
   full release validation and release execution. Reuse passing evidence for
   unchanged inputs; rerun affected checks after changes or failures. Documentation-

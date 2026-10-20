@@ -41,18 +41,17 @@ function emit(i) {
             index(heading, "## [" version "] - ") == 1))
             reject("duplicate or misplaced selected candidate", line)
         if (heading == "## [" version "] - " date) { finalized++; finalized_line=line }
-        else if (index(heading, "## [" version "] - ") == 1) {
-            if (heading == "## [" version "] - Unreleased")
-                reject("unsupported pending heading suffix", line)
-            else reject("conflicting selected candidate date or suffix", line)
-        }
+        else if (index(heading, "## [" version "] - ") == 1 &&
+            heading != "## [" version "] - Unreleased")
+            reject("conflicting selected candidate date or suffix", line)
         split(heading, fields, " ")
         heading_version = substr(fields[2], 2, length(fields[2])-2)
-        if (heading ~ /^## \[[0-9]+\.[0-9]+\.[0-9]+\]$/ &&
+        if (heading ~ /^## \[[0-9]+\.[0-9]+\.[0-9]+\]( - Unreleased)?$/ &&
             !historical(heading_version)) {
             drafts++
             start = line
-            if (heading != "## [" version "]") reject("competing pending version", line)
+            if (heading != "## [" version "]" && heading != "## [" version "] - Unreleased")
+                reject("competing pending version", line)
         } else if (start && !finish && line > start && heading ~ /^## /) {
             finish = line
         }
@@ -63,6 +62,7 @@ END {
     if (previous != "" && historical(version))
         reject("selected version " version " must be greater than previous version " previous, 0)
     if (!first || (top != "## [" version "]" &&
+        top != "## [" version "] - Unreleased" &&
         !(allow_finalized && top == "## [" version "] - " date) &&
         !(previous != "" && (top == "## [" previous "]" ||
             index(top, "## [" previous "] - ") == 1))))
@@ -77,6 +77,7 @@ END {
         if (offending_line)
             print "line " offending_line ": " lines[offending_line] > "/dev/stderr"
         print "expected pending heading: ## [" version "]" > "/dev/stderr"
+        print "optional pending suffix: - Unreleased (replaced with the release date during preparation)" > "/dev/stderr"
         if (allow_finalized)
             print "exact-date recovery heading: ## [" version "] - " date > "/dev/stderr"
         exit 1

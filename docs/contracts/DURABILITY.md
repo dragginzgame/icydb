@@ -127,6 +127,11 @@ The recovery proof established for the current line covers internally produced
 interrupted states. It does not claim to repair arbitrary hostile stable-memory
 images.
 
+Journal append accepts an existing batch only when its complete bytes match
+the appended batch exactly. A truncated existing batch is corruption and is
+left unchanged; append does not fill missing chunks or relax sequence and
+commit-order checks. Complete identical replay remains idempotent.
+
 Recovery is replay, not fresh write admission. It verifies the durable marker,
 journal, store, key, schema-fingerprint, and row boundaries needed to complete
 an internally produced commit. It does not run application normalizers or

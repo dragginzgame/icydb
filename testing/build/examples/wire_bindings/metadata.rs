@@ -1,7 +1,8 @@
 //! Native Serde metadata and TypeScript declarations, separate from runtime admission.
 
-use std::{collections::BTreeMap, error::Error, fmt::Write as _, fs, path::Path};
+use std::{collections::BTreeMap, error::Error, fs, path::Path};
 
+use ic_wire::typescript::{RUNTIME, generate_registry};
 use serde_json::{Value, json};
 use serde_reflection::{ContainerFormat, Format, Named, Registry, VariantFormat};
 
@@ -121,100 +122,16 @@ pub(super) fn registry(value: &Registry) -> Result<BTreeMap<String, Value>> {
     Ok(types)
 }
 
-fn ty(value: &Value) -> Result<String> {
-    Ok(match value["k"].as_str().ok_or("missing metadata kind")? {
-        "ref" => value["name"].as_str().ok_or("missing native name")?.into(),
-        "unit" => "null".into(),
-        "bool" => "boolean".into(),
-        "text" => "string".into(),
-        "bytes" => "Uint8Array".into(),
-        "u" | "i" => if value["bits"].as_u64().ok_or("missing integer width")? > 32 {
-            "bigint"
-        } else {
-            "number"
-        }
-        .into(),
-        "float" => "number".into(),
-        "newtype" => ty(&value["item"])?,
-        "list" | "array" => format!("ReadonlyArray<{}>", ty(&value["item"])?),
-        "tuple" => format!(
-            "readonly [{}]",
-            value["items"]
-                .as_array()
-                .ok_or("missing tuple items")?
-                .iter()
-                .map(ty)
-                .collect::<Result<Vec<_>>>()?
-                .join(", ")
-        ),
-        "option" => format!("null | {{ readonly some: {} }}", ty(&value["item"])?),
-        "result" => format!(
-            "{{ readonly ok: {} }} | {{ readonly err: {} }}",
-            ty(&value["ok"])?,
-            ty(&value["err"])?
-        ),
-        "record" => format!(
-            "{{ {} }}",
-            value["fields"]
-                .as_array()
-                .ok_or("missing record fields")?
-                .iter()
-                .map(|f| Ok(format!("readonly {}: {}", f["name"], ty(&f["value"])?)))
-                .collect::<Result<Vec<String>>>()?
-                .join("; ")
-        ),
-        "enum" => value["variants"]
-            .as_array()
-            .ok_or("missing variants")?
-            .iter()
-            .map(|v| {
-                Ok(format!(
-                    "{{ readonly tag: {}; readonly value: {} }}",
-                    v["name"],
-                    ty(&v["value"])?
-                ))
-            })
-            .collect::<Result<Vec<String>>>()?
-            .join(" | "),
-        _ => return Err("unsupported native metadata".into()),
-    })
-}
-
 pub(super) fn write(out: &Path, types: &Registry, methods: &[Value]) -> Result<()> {
     let types = registry(types)?;
-    let mut source = String::from(
-        "// Generated from native IcyDB Serde contracts.\nimport { createCodec } from './native-runtime.js';\n",
-    );
-    for (name, node) in &types {
-        // Serde names become executable type identifiers only after validation.
-        if name.is_empty()
-            || !name
-                .bytes()
-                .enumerate()
-                .all(|(i, b)| b.is_ascii_alphabetic() || b == b'_' || (i > 0 && b.is_ascii_digit()))
-        {
-            return Err(format!("invalid TypeScript native type name: {name}").into());
-        }
-        writeln!(source, "export type {name} = {};", ty(node)?)?;
-    }
-    writeln!(source, "const types = {types};", types = json!(types))?;
-    for method in methods {
-        let name = method["name"].as_str().ok_or("missing endpoint name")?;
-        writeln!(
-            source,
-            "export const {name} = (() => {{ const codec = createCodec({method}, types); return {{ methodName: {name_json}, mode: {mode} as const, encodeRequest: (value: {request}): Uint8Array => codec.encodeRequest(value), decodeRequest: (bytes: Uint8Array): {request} => codec.decodeRequest(bytes) as {request}, encodeResponse: (value: {response}): Uint8Array => codec.encodeResponse(value), decodeResponse: (bytes: Uint8Array): {response} => codec.decodeResponse(bytes) as {response} }}; }})();",
-            name_json = json!(name),
-            mode = method["mode"],
-            request = ty(&method["request"])?,
-            response = ty(&method["response"])?,
-        )?;
-    }
+    let source = generate_registry(&types, methods, "./native-runtime.js")
+        .map_err(|error| format!("Wire TypeScript generation failed: {error:?}"))?;
     fs::write(out.join("icydb.ts"), source)?;
     fs::write(
         out.join("native-runtime.ts"),
         include_str!("../../../wire-browser/native-runtime.ts"),
     )?;
-    fs::write(out.join("wire-runtime.ts"), ic_wire::typescript::RUNTIME)?;
+    fs::write(out.join("wire-runtime.ts"), RUNTIME)?;
     fs::write(
         out.join("contracts.json"),
         serde_json::to_vec_pretty(&json!({"types":types,"methods":methods}))?,

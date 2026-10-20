@@ -1,8 +1,8 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `db555ab6cf4a93af9a183f18d921d3b0ee97c725`
-(Shared Tooling 0.25.4). Root
+at reviewed revision `0a2d2ee3b5e0ae77755c2915ac28836d4d5ba359`
+(Shared Tooling 0.25.8). Root
 [AGENTS.md](../../AGENTS.md) is the local overlay. The shared approved layout
 retains existing canister, schema and testing packages in their
 restored directories, in the single root workspace and lockfile; no new package
@@ -13,7 +13,60 @@ these rules.
 
 ## Ownership and provenance
 
-### Shared Tooling 0.25.4 and IC Host 0.31.1
+### Shared Tooling 0.25.8 and IC Platform 0.5.0
+
+The remote Shared Tooling main branch identifies committed version 0.25.8 at
+`0a2d2ee3b5e0ae77755c2915ac28836d4d5ba359`. Its canonical exporter previewed
+and refreshed the existing 122-file closure; entrypoints, tool pins and local
+pending work are preserved. Shared now retains failed Cargo metadata diagnostics
+and root inputs, accepts numbered pending changelog markers, and requires the
+existing Clippy gate before expensive release/deployment stages. IcyDB retains
+its undated numbered changelog spelling and grouped Cargo/derive formatting.
+
+The live crates.io index confirms IC Platform 0.5.0 as the latest non-yanked
+published version. The incoming root `0.5` requirement and lock already selected
+it with defaults off. Its archive SHA-256 is
+`071793369ed93c3a42dae9a19eedfa76856ca2d0b31f03de7167ae7905bdc4f4`,
+source `b840423928f0ca7f14d7fc860508730c87356640`. The packaged README and
+[source-bound migration guidance](https://github.com/dragginzgame/ic-platform/blob/b840423928f0ca7f14d7fc860508730c87356640/docs/migration.md)
+were reviewed; the sibling's uncommitted 0.5.1 is not a consumer dependency.
+
+The four fixture packages using only caller/argument helpers select `runtime`
+instead of `cdk`. They retain `ic_platform::cdk::api` imports, executor 2.0.0,
+ic0 1.2.0 and raw Wire behavior. The unreferenced Platform 0.5.0 generator leaves
+the lockfile. Canic still owns IC exports and lifecycle; no Platform macro,
+service-generation, checkpoint or timeout API requires a local replacement.
+Public schema Principal conversions and read-authorization contexts now require
+the 0.5 identity; consumers must update their direct Platform selection. Binary
+Serde, Wire and stored formats are unchanged. This public identity change selects
+the pending 0.279.0 notes; package versions remain release-workflow-owned.
+
+Release validation now finishes the existing complete Clippy gate before
+invariant fixtures, product checks and tests. The repository ICP build hook runs
+that same gate before invoking the builder or copying Wasm. Parallel-Make
+fixtures verify failure admission and unchanged staged bytes using substitutes;
+they do not execute release, deployment or broad product validation.
+
+Direct dependency enforcement covers canonical identities, aliases, normal,
+build, dev and target-specific declarations. IcyDB has no direct Candid/CDK,
+Principal-substrate or raw ic0 dependency. The all-feature facade Wasm graph
+excludes Candid, bigint, executor and host clients/parser. The selected actor
+graph still includes Candid/full CDK through pinned Canic; native Testkit retains
+Platform 0.4.1 alongside 0.5.0. These upstream paths are not local compatibility
+adapters. Graph observations do not bind policy to deployed bytes;
+[#378 — Enforce deployment dependency exclusions](https://github.com/dragginzgame/icydb/issues/378)
+remains the enforcement owner. Native macOS and installed IC qualification,
+broad gates and raw Wasm/cycle/instruction deltas remain separate and unmeasured.
+
+Focused Linux qualification passes strict facade/schema and four-actor Wasm
+Clippy, Principal wire/Serde admission and authorization tests, and Rust 1.91
+native/Wasm facade checks. The installed schema-guard test passes anonymous
+admission and application-trap propagation on a Testkit-managed local PocketIC
+server, which Testkit starts and reaps. Snapshot, formatting, dependency-role,
+boundary, parallel-Make and selected release fixtures pass without release
+effects. No missing Platform API requires a new upstream issue.
+
+### Earlier Shared Tooling 0.25.4 and IC Host 0.31.1
 
 Refresh the existing 122-file snapshot through its canonical exporter from the
 clean, committed upstream HEAD `db555ab6cf4a93af9a183f18d921d3b0ee97c725`.
@@ -80,7 +133,7 @@ and diagnostic packages, and the `icydb` CLI. Applications explicitly mount
 | --- | --- | --- |
 | Database/application fixture IC exports, standalone lifecycle composition and startup timer hosting | Canic's `canic-icydb` adapter | Private generated database handlers, explicit adapter mounting and installed boundary tests |
 | Native payload/envelope encoding, sizing and TypeScript codec runtime | IC Wire | Endpoint identities, concrete Serde metadata, byte/resource policy and scalar validation |
-| Principal identity, PocketIC client types and Candid/CDK dependency surfaces | IC Platform | Feature-free Principal imports, native client types, qualified raw calls and explicit `cdk` selection for fixture runtime helpers; no direct SDK exceptions |
+| Principal identity, PocketIC client types and Candid/CDK dependency surfaces | IC Platform | Feature-free Principal imports, native client types, qualified raw calls and explicit `runtime` selection for fixture system helpers; no direct SDK exceptions |
 | Allocation admission and exclusive memory leases | IC Memory | Database logical keys, host grant declarations and storage-role bindings |
 | Governed collections and stable codec interfaces | IC Storage (upstream substrate: IC Stable Structures) | Database-owned codecs, namespaces, indexes, transactions and retained-control admission |
 | Counter/aggregate arithmetic | IC Metrics | Database phase/entity attribution, report selection and resets |
@@ -217,7 +270,7 @@ required nonempty inventories and actual production scans. Shared owns syntax,
 macro, cfg and parser regressions; its source has no independent installed tool
 or dependency selection.
 
-### Selected IC Platform 0.4.0 — 2026-10-20
+### Earlier IC Platform 0.4.0 — 2026-10-20
 
 The live crates.io sparse index confirms 0.4.0 as the latest non-yanked release.
 The existing root `0.4` requirement and lock already select it with defaults off.
@@ -2782,7 +2835,7 @@ ic-wasm 0.11.1, didc 0.6.2 and Binaryen 133 for all three
 supported hosts. [Shared host selections](../../ci/tool-versions.env) select jq,
 yq, PCRE2-enabled ripgrep, cloc 2.10, cargo-sort 2.1.4, cargo-sort-derives 0.13.0
 and candid-extractor 0.1.6; [IcyDB utility selections](../../ci/icydb-tools.env)
-retain Twiggy, cargo-edit and cargo-watch. `make install-tools` explicitly
+retain Twiggy and cargo-watch. `make install-tools` explicitly
 installs complete host/IC/Rust toolsets followed by the locked Testkit selection;
 `make tools-check` checks the same roster offline. Product targets use the shared
 ordered extension lists, and setup/check are separate commands. Prepare the

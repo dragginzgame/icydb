@@ -99,7 +99,7 @@ write_lockfile 0.223.7
 jq --arg previous 0.223.6 --arg release 0.223.7 --argjson packages '["fixture"]' \
     -f "$ROOT_DIR/scripts/release/pin-exceptions.jq" "$FIXTURE/ci/dependency-pinning-exceptions.json" > "$TEST_ROOT/projected.json"
 cp "$TEST_ROOT/projected.json" "$FIXTURE/ci/dependency-pinning-exceptions.json"
-printf 'IcyDB 0.223.7\n' > "$FIXTURE/README.md"
+printf 'IcyDB 0.223.6\n' > "$FIXTURE/README.md"
 expect_failure run_subject record patch 0000000000000000000000000000000000000000
 run_subject record patch "$candidate_commit" >/dev/null
 
@@ -132,7 +132,7 @@ write_lockfile 0.223.7
 jq --arg previous 0.223.6 --arg release 0.223.7 --argjson packages '["fixture"]' \
     -f "$ROOT_DIR/scripts/release/pin-exceptions.jq" "$FIXTURE/ci/dependency-pinning-exceptions.json" > "$TEST_ROOT/projected.json"
 cp "$TEST_ROOT/projected.json" "$FIXTURE/ci/dependency-pinning-exceptions.json"
-printf 'IcyDB 0.223.7\n' > "$FIXTURE/README.md"
+printf 'IcyDB 0.223.6\n' > "$FIXTURE/README.md"
 printf 'root release notes updated during test\n' > "$FIXTURE/CHANGELOG.md"
 printf 'detailed release notes updated during test\n' > "$FIXTURE/docs/changelog/0.223.md"
 git -C "$FIXTURE" add Cargo.toml Cargo.lock README.md ci/dependency-pinning-exceptions.json CHANGELOG.md docs/changelog/0.223.md
@@ -158,7 +158,7 @@ RELEASE_COMMIT="$release_commit" run_subject verify-commit
 
 printf '[workspace]\nmembers = ["local-helper"]\n[workspace.package]\nversion = "0.223.8"\n[package]\nname = "fixture"\nversion.workspace = true\nedition = "2024"\n[lib]\npath = "code.txt"\n' > "$FIXTURE/Cargo.toml"
 write_lockfile 0.223.8
-printf 'IcyDB 0.223.8\n' > "$FIXTURE/README.md"
+printf 'IcyDB 0.223.6\n' > "$FIXTURE/README.md"
 printf 'candidate source changed during bump\n' > "$FIXTURE/code.txt"
 expect_failure run_subject record patch "$(git -C "$FIXTURE" rev-parse HEAD)"
 grep -Fq 'version = "0.223.8"' "$FIXTURE/Cargo.toml"

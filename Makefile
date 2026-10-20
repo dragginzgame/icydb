@@ -361,15 +361,15 @@ fmt fmt-check format-tools-check: export CARGO_TARGET_DIR := $(CARGO_WORK_TARGET
 
 validate:
 	$(MAKE) --no-print-directory tools-check
-	# Do not run feature or test lanes until every clippy warning is repaired.
+	# Admit lint before invariant fixtures, product builds or executable tests.
 	+$(VALIDATION_RUNNER) --fail-fast \
 		fmt-check \
 		lint-workflows \
 		shellcheck \
 		check-dependency-pins \
+		clippy \
 		check-invariants \
-		check \
-		clippy
+		check
 	# Once clippy passes, retain every later long-lane failure in one combined log.
 	+$(VALIDATION_RUNNER) \
 		check-feature-matrix \
@@ -400,7 +400,7 @@ security-check:
 	@echo "This target is informational only; no local script runs."
 
 check-versioning: security-check
-	+@$(CARGO_WORK_ENV) cargo set-version --help >/dev/null
+	+@$(RELEASE_EDITOR_ENV) bash scripts/release/render-candidate.sh --check
 	@$(MAKE) --no-print-directory version >/dev/null
 	@$(MAKE) --no-print-directory help >/dev/null
 	@echo "Versioning tooling checks passed."
@@ -458,7 +458,7 @@ check-invariants:
 	bash scripts/ci/check-layer-authority-invariants.sh
 	bash scripts/ci/check-mutation-atomicity-invariants.sh
 	bash scripts/ci/check-release-cleanup-invariants.sh
-	+$(CARGO_WORK_ENV) bash scripts/ci/test-release-candidate-receipt.sh
+	+$(RELEASE_EDITOR_ENV) bash scripts/ci/test-release-candidate-receipt.sh
 	bash scripts/ci/check-persisted-format-invariants.sh
 	bash scripts/ci/check-read-admission-invariants.sh
 	bash scripts/ci/test-read-admission-invariants.sh

@@ -18,7 +18,7 @@ guarded-schema = []
 
 [dependencies]
 canic-icydb = { workspace = true }
-ic-platform = { workspace = true, features = ["cdk"] }
+ic-platform = { workspace = true, features = ["runtime"] }
 icydb = { workspace = true }
 icydb-testing-audit-one-simple-fixtures = { workspace = true }
 icydb-testing-wasm-helpers = { workspace = true }

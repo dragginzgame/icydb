@@ -5,6 +5,36 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.279.0]
+
+### ⚠️ Breaking
+
+- Update public Principal conversions and authorization contexts to IC Platform
+  0.5.0. Callers using Platform types must adopt the same version; Wire and
+  retained bytes remain unchanged.
+
+### 🔧 Changed
+
+- Adopt Shared Tooling 0.25.8 and Platform's runtime-only feature, removing its
+  unused generator and requiring Clippy before release and deployment builds.
+- Refresh pinned CI artifact, Node setup and Rust toolchain actions while
+  preserving tool versions, artifact selection and evidence retention.
+- Share release candidate rendering between preparation and receipt checks through
+  IC Build, preserving exact dependency selections and removing cargo-edit.
+- Generate native browser bindings through IC Wire and use Testkit time batches
+  in startup fixtures, preserving protocol bytes and timer delivery.
+
+### 🩹 Fixed
+
+- Reject truncated journal batches without changing retained bytes, while
+  preserving complete identical replay
+  ([#174 — Remove journal prefix repair](https://github.com/dragginzgame/icydb/issues/174)).
+- Reject failed release-file discovery before preparing version changes.
+- Supply the prepared release editor explicitly to standalone receipt validation,
+  fixing CI invariant checks ([#361 — Build and Wasm reporting qualification](https://github.com/dragginzgame/icydb/issues/361)).
+
+See [detailed notes](docs/changelog/0.279.md).
+
 ## [0.278.0] - 2026-10-20
 
 ### ⚠️ Breaking

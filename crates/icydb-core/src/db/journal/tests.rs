@@ -1489,38 +1489,33 @@ fn journal_tail_store_treats_identical_duplicate_append_as_idempotent() {
 }
 
 #[test]
-fn journal_tail_store_republishes_missing_chunks_after_prefix_append() {
-    let mut store = JournalTailStore::init(test_memory(221));
+fn journal_tail_store_rejects_incomplete_existing_batches_without_changing_bytes() {
     let batch = multi_chunk_batch(1);
     let encoded = encode_journal_batch(&batch).expect("multi-chunk batch should encode");
-    assert!(
-        encoded.len() > JOURNAL_TAIL_CHUNK_BYTES as usize,
-        "fixture must span multiple journal-tail chunks",
-    );
+    assert!(encoded.len() > JOURNAL_TAIL_CHUNK_BYTES as usize);
 
-    store
-        .insert_raw_batch_for_tests(
-            JournalSequence::new(1),
-            encoded[..JOURNAL_TAIL_CHUNK_BYTES as usize].to_vec(),
-        )
-        .expect("prefix raw journal bytes should insert as an interrupted fixture");
-    store
-        .visit_batches_after(JournalSequence::new(0), |_| Ok(()))
-        .expect_err("prefix-only journal batch should fail before republish");
+    for prefix_len in [JOURNAL_TAIL_CHUNK_BYTES as usize, encoded.len() - 1] {
+        let backing = VectorMemory::default();
+        let mut store = JournalTailStore::init(test_memory_with_backing(221, backing.clone()));
+        store
+            .insert_raw_batch_for_tests(JournalSequence::new(1), encoded[..prefix_len].to_vec())
+            .expect("truncated raw bytes should insert as a corruption fixture");
+        let before = backing.borrow().clone();
 
-    store
-        .append_batch(&batch)
-        .expect("republishing the full batch should fill missing chunks");
-
-    let mut visited = Vec::new();
-    store
-        .visit_batches_after(JournalSequence::new(0), |batch| {
-            visited.push(batch.journal_sequence().get());
-            Ok(())
-        })
-        .expect("repaired journal batch should visit cleanly");
-    assert_eq!(visited, vec![1]);
-    assert_eq!(store.len(), 1);
+        for _ in 0..2 {
+            let error = store
+                .append_batch(&batch)
+                .expect_err("append must refuse an incomplete existing batch");
+            assert_eq!(error.class(), ErrorClass::Corruption);
+            assert_eq!(error.origin(), ErrorOrigin::Store);
+            assert_eq!(*backing.borrow(), before);
+        }
+        let error = store
+            .visit_batches_after(JournalSequence::new(0), |_| Ok(()))
+            .expect_err("append must leave the corrupt tail unchanged");
+        assert_eq!(error.class(), ErrorClass::Corruption);
+        assert_eq!(error.origin(), ErrorOrigin::Store);
+    }
 }
 
 #[test]

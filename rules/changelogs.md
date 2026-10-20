@@ -129,8 +129,9 @@ this contract; the [release contract](../docs/releases.md) owns release executio
 ## Automatic next-version selection
 
 - Keep one numbered, undated pending release at the top of `CHANGELOG.md`, using
-  `## [X.Y.Z]`. Automatically create or update it as part of completing meaningful
-  work. Do not use `Unreleased`, an unnumbered `Draft` or a separate notes queue.
+  `## [X.Y.Z]` or `## [X.Y.Z] - Unreleased`. Automatically create or update it as
+  part of completing meaningful work. Do not use an unnumbered `Unreleased` or
+  `Draft` heading or a separate notes queue.
   Keep this pending entry undated until release preparation finalizes it.
 - Derive the candidate from the latest finalized release and the complete pending
   batch since that release, not just the latest edit. Check the maintained
@@ -191,6 +192,10 @@ For a latest finalized release of `0.14.7`:
 - During explicitly authorized release preparation, reconcile the numbered
   candidate with the selected release command, include work missing from the
   notes, and finalize it as `## [X.Y.Z] - YYYY-MM-DD` with the UTC release date.
+  The standard release flow replaces ` - Unreleased` automatically before the
+  release commit, tag and push. For a manual release, make that replacement
+  before committing/tagging/pushing the release; never leave the marker on a
+  published entry or change historical release dates afterward.
   Avoid duplicate entries for the same target; report a conflicting command
   instead of silently relabelling the prepared version.
 - Changelog presentation, section position and pending labels must not block

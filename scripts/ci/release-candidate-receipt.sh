@@ -65,34 +65,6 @@ validate_transition() {
     fi
 }
 
-# A subshell confines temporary-input cleanup to this projection. The shared
-# transformer accepts a regular file and remains the only lockfile rewrite owner.
-project_release_surface() (
-    local path="$1" previous="$2" release="$3"
-    if [[ "$path" == ci/dependency-pinning-exceptions.json ]]; then
-        jq --arg previous "$previous" --arg release "$release" \
-            --argjson packages "$(printf '%s\n' "$RELEASE_PACKAGE_NAMES" | jq -Rn '[inputs | select(length > 0)]')" \
-            -f "$SCRIPT_DIR/../release/pin-exceptions.jq"
-        return
-    fi
-    if [[ "$path" != Cargo.lock ]]; then
-        sed "s/${previous//./\\.}/$release/g"
-        return
-    fi
-    local input package
-    local -a packages=()
-    input="$(mktemp "${TMPDIR:-/tmp}/release-lock-projection.XXXXXX")" || exit 1
-    trap 'rm -f "$input"' EXIT
-    cat > "$input" || exit 1
-    while IFS= read -r package; do
-        [[ -z "$package" ]] || packages[${#packages[@]}]="$package"
-    done <<< "$RELEASE_PACKAGE_NAMES"
-    local editor="${CARGO_RELEASE_METADATA_EDITOR:?select the prepared released IC Build editor}"
-    local limit="${CARGO_RELEASE_METADATA_MAX_BYTES:?select a positive per-document byte allowance}"
-    [[ "$editor" == /* && -f "$editor" && -x "$editor" && "$limit" =~ ^[1-9][0-9]*$ ]] || exit 2
-    "$editor" --max-input-bytes "$limit" lock "$input" "$previous" "$release" "${packages[@]}"
-)
-
 validate_changed_paths() (
     local diff_mode="$1"
     local base="$2"
@@ -121,19 +93,7 @@ validate_changed_paths() (
             ;;
     esac
 
-    RELEASE_PACKAGE_NAMES="$(
-        cargo metadata --manifest-path "$ROOT_DIR/Cargo.toml" --locked --offline --no-deps --format-version 1 |
-        perl -MJSON::PP -0777 -e '
-            my $release = shift @ARGV;
-            my $metadata = decode_json(<>);
-            my %members = map { $_ => 1 } @{$metadata->{workspace_members}};
-            my @names = map { $_->{name} }
-                grep { $members{$_->{id}} && $_->{version} eq $release }
-                @{$metadata->{packages}};
-            die "no workspace package identity at release version\n" unless @names;
-            print join("\n", @names), "\n";
-        ' "$release_version"
-    )"
+    cargo metadata --manifest-path "$ROOT_DIR/Cargo.toml" --locked --offline --no-deps --format-version 1 > "$inspection/metadata.json" || exit 1
     # Capture each producer before comparing bytes. A process substitution can
     # hide an editor or Git failure after it has emitted complete-looking output.
     "${command[@]}" > "$inspection/paths" || exit 1
@@ -151,8 +111,9 @@ validate_changed_paths() (
         esac
 
         git -C "$ROOT_DIR" show "$base:$path" > "$inspection/source" || exit 1
-        project_release_surface "$path" "$candidate_version" "$release_version" \
-            < "$inspection/source" > "$inspection/expected" || exit 1
+        ICYDB_RELEASE_ROOT="$ROOT_DIR" bash "$SCRIPT_DIR/../release/render-candidate.sh" \
+            "$path" "$inspection/source" "$candidate_version" "$release_version" "$inspection/metadata.json" \
+            > "$inspection/expected" || exit 1
         case "$diff_mode" in
             working)
                 if ! cmp -s "$inspection/expected" "$ROOT_DIR/$path"; then

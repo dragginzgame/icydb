@@ -42,7 +42,7 @@ records, marketplace listings and relationships between records. Its queries
 are deliberately predictable and resource-limited to fit the Internet
 Computer's execution environment.
 
-Current workspace version: `0.278.0`
+The workspace version is recorded in [Cargo.toml](Cargo.toml).
 
 > **Before using IcyDB:** IcyDB is still before version 1.0. Ordinary supported
 > schema changes can use explicit migrations, but some IcyDB upgrades may change
@@ -101,7 +101,8 @@ Current workspace version: `0.278.0`
 
 ## Add IcyDB
 
-Use the same release for runtime and host-side model generation:
+Use the same release for runtime and host-side model generation. This example
+pins the published 0.278.0 release; choose your supported release explicitly:
 
 ```toml
 [dependencies]

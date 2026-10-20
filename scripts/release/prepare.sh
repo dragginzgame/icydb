@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
-scratch="$(mktemp -d "${TMPDIR:-/tmp}/icydb-release-metadata.XXXXXX")"
+scratch="$(mktemp -d "${TMPDIR:-/tmp}/icydb-release-metadata.XXXXXX")" || exit 1
+# Admit the entire inventory before taking originals or editing metadata. A
+# process substitution would hide failure after a partial or complete path list.
+bash scripts/release/files.sh > "$scratch/file-inventory" || {
+    printf 'Failed release inventory retained: %s\n' "$scratch" >&2
+    exit 1
+}
 files=()
-while IFS= read -r -d '' path; do files[${#files[@]}]="$path"; done < <(bash scripts/release/files.sh)
+while IFS= read -r -d '' path; do files[${#files[@]}]="$path"; done < "$scratch/file-inventory"
 for path in "${files[@]}"; do
     [[ ! -L "$path" && ( ! -e "$path" || -f "$path" ) ]]
     mkdir -p "$scratch/$(dirname "$path")"
@@ -12,6 +18,7 @@ complete=false
 cleanup() {
     local status=$? path
     trap - EXIT
+    [[ "$complete" == true || "$status" != 0 ]] || status=1
     if [[ "$complete" != true ]]; then
         for path in "${files[@]}"; do
             if [[ -f "$scratch/$path" ]]; then
