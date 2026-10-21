@@ -114,7 +114,7 @@ shared Cargo generations. Both directories must
 already exist; diagnostics must be a regular directory. The neutral archiver
 continues to own path admission, namespace collision checks and tar creation.
 
-`select-tool-evidence.sh compact REPOSITORY DIAGNOSTICS HOST-VERSIONS IC-PINS`
+`select-tool-evidence.sh compact REPOSITORY DIAGNOSTICS HOST-VERSIONS IC-PINS IC-TOOLS`
 opts into smaller successful-installation evidence. For each managed relative
 active link independently, it runs the existing installer in offline `--check`
 mode against a retained copy of the caller's pins. Host checking includes jq,
@@ -124,8 +124,11 @@ A changed selection, bundle directory identity or caller pin file refuses
 compaction. This is a fresh observation, not authority derived from an earlier
 successful installation; stop concurrent toolset mutation during collection.
 
+`IC-TOOLS` is one quoted, space-separated list of requested executable names.
+An empty list retains full IC bundles; it never infers the caller's intent from
+an installed receipt. A mismatched selection also retains full evidence.
 Successful checks retain caller pin bytes, command output and the exact selected
-bundle path. IC checks also retain `pins.tsv`, `host` and `files.sha256`; host
+bundle path. IC checks also retain `caller-tools`, `tools`, `pins.tsv`, `host` and `files.sha256`; host
 sets have no equivalent bundle receipt, so caller configuration and check evidence
 remain explicit. Tiny tool fixtures can grow because diagnostic metadata exceeds
 the omitted payload. Archive size and collection time depend on the actual sets.
@@ -148,6 +151,8 @@ completeness step. A rejected store never authorizes traversal or repair, and
 partial evidence is not reported as complete retention. Set
 `compact-successful-tools: 'true'` to opt in; `host-versions` and `ic-pins` select
 absolute caller pin files, defaulting to the repository's common configuration.
+Set `ic-tools` to the same space-separated selection as setup/check when
+compacting IC bundles. Omitting it retains their full payloads.
 Its native CI control uploads/downloads successful-set diagnostics alongside a
 failed candidate, separately from the existing full-failure control. Native
 acceptance requires matching executed jobs; a configured control is not evidence
@@ -864,9 +869,11 @@ Only trusted, reviewed fixture sources and caller-owned injection are inputs.
 
 ## Tool evidence collection orchestration
 
-`collect-tool-evidence.sh ARCHIVE REPOSITORY DIAGNOSTICS full|compact HOST IC
+`collect-tool-evidence.sh ARCHIVE REPOSITORY DIAGNOSTICS full|compact HOST IC [IC-TOOLS for compact]
 [ROOT PATH]...` composes the selector and neutral archiver. Callers keep their
 log roots, run identity, qualified catalogs, upload and retention policy.
+Full retention takes no tool-list argument; compact mode requires it even when
+empty so a log-root argument cannot accidentally become the requested tool set.
 Status 0 means complete, 1 means safe partial evidence was archived, and 2 means
 collection/archive failed. A fresh `selection-status` receipt retains the exact
 selector status, `archive-status` records an attempted archive failure, and

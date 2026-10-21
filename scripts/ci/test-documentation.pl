@@ -11,7 +11,7 @@ use Test::More;
 # Qualify consumer projection; generic Markdown grammar belongs upstream.
 my $directory = tempdir('icydb-documentation-XXXXXX', TMPDIR => 1, CLEANUP => 1);
 make_path("$directory/scripts/ci");
-for my $script ('check-documentation.pl', 'check-documentation-links.pl') {
+for my $script ('check-documentation.pl', 'check-documentation-links.pl', 'StableVersion.pm') {
     copy("$FindBin::Bin/$script", "$directory/scripts/ci/$script") or die "copy $script: $!";
 }
 my $checker = "$directory/scripts/ci/check-documentation.pl";
@@ -53,7 +53,7 @@ for my $document (
     'docs/audits/archive/shared-adoption/README.md',
 ) { fixture($document, "# Fixture\n"); }
 fixture('Cargo.toml', "[workspace.package]\nversion = \"0.1.1\"\n");
-fixture('README.md', "tag = \"v0.1.1\"\n");
+fixture('README.md', "icydb = { tag = \"v0.1.1\" }\nicydb = { tag = \"v0.1.1\" }\n");
 fixture('crates/owner.rs', "// Source owner\n");
 fixture('docs/contracts/PERSISTED_FORMAT_INVENTORY.md', '`crates/owner.rs`');
 fixture('shared-guide.md', '[Owner](crates/owner.rs)');
@@ -64,10 +64,28 @@ fixture('shared-guide.md', '[Owner](missing.md)');
 ($status) = check_document();
 isnt($status, 0, 'snapshot Markdown is part of the default roster');
 fixture('shared-guide.md', "# Guide\n");
-fixture('README.md', "tag = \"v0.1.0\"\n");
+fixture('README.md', "icydb = { tag = \"v0.1.0\" }\nicydb = { tag = \"v0.1.0\" }\n");
 ($status) = check_document();
-isnt($status, 0, 'product dependency example must match the workspace version');
-fixture('README.md', "tag = \"v0.1.1\"\n");
+is($status, 0, 'matching supported-release examples may precede the workspace version');
+fixture('Cargo.toml', "[workspace.package]\nversion = \"0.1.2\"\n");
+($status) = check_document();
+is($status, 0, 'release metadata advancement preserves the selected README examples');
+fixture('Cargo.toml', "[workspace.package]\nversion = \"0.1.1\"\n");
+fixture('README.md', "icydb = { tag = \"v0.1.0\" }\nicydb = { tag = \"v0.1.1\" }\n");
+($status) = check_document();
+isnt($status, 0, 'runtime and build examples must select the same release');
+fixture('README.md', "icydb = { tag = \"v0.1.1\" }\n");
+($status) = check_document();
+isnt($status, 0, 'both runtime and build release selections are required');
+for my $tag ('v0.01.0', 'main', 'v0.1.2', '') {
+    fixture('README.md', "icydb = { tag = \"$tag\" }\nicydb = { tag = \"$tag\" }\n");
+    ($status) = check_document();
+    isnt($status, 0, "reject invalid or future release selection '$tag'");
+}
+fixture('README.md', "# No dependency selection\n");
+($status) = check_document();
+isnt($status, 0, 'missing dependency selections cannot silently pass');
+fixture('README.md', "icydb = { tag = \"v0.1.1\" }\nicydb = { tag = \"v0.1.1\" }\n");
 fixture('docs/contracts/PERSISTED_FORMAT_INVENTORY.md', '`crates/missing.rs`');
 ($status) = check_document();
 isnt($status, 0, 'product persisted inventory requires an existing source owner');

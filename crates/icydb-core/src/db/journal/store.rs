@@ -1555,11 +1555,24 @@ impl JournalTailStore {
         &self,
         sequence: JournalSequence,
     ) -> Result<Option<DatabaseCommitSequence>, InternalError> {
-        let Some(first) = self.map.get(&JournalTailKey::new(sequence, 0)) else {
+        let Some(first) = self
+            .map
+            .range((
+                Included(JournalTailKey::new(sequence, 0)),
+                Included(JournalTailKey::new(sequence, u32::MAX)),
+            ))
+            .next()
+        else {
             return Ok(None);
         };
-        inspect_raw_journal_batch_fixed_header(first.as_bytes())
-            .map(|header| Some(header.database_commit_sequence()))
+        if first.key().chunk_index != 0 {
+            return Err(journal_tail_corruption());
+        }
+        let header = inspect_raw_journal_batch_fixed_header(first.value().as_bytes())?;
+        if header.journal_sequence() != sequence {
+            return Err(journal_tail_corruption());
+        }
+        Ok(Some(header.database_commit_sequence()))
     }
 
     fn prepare_retired_tail_control(
@@ -1584,11 +1597,10 @@ impl JournalTailStore {
             .journal_sequence()
             .next()
             .ok_or_else(journal_tail_corruption)?;
-        let next_head = self
-            .raw_batch_bytes_for_sequence(next_sequence)?
-            .map(|bytes| inspect_raw_journal_batch_fixed_header(&bytes))
-            .transpose()?
-            .map(RawJournalBatchFixedHeader::database_commit_sequence);
+        // Retirement needs the next head identity, not its payload. The current
+        // batch remains fully preflighted; next_batch_after validates the next
+        // complete payload before recovery can consume any of its records.
+        let next_head = self.database_commit_sequence_at(next_sequence)?;
         if batch_count == 0 {
             if record_count != 0 || encoded_batch_bytes != 0 || next_head.is_some() {
                 return Err(journal_tail_corruption());
@@ -2421,6 +2433,159 @@ mod convergence_control_tests {
             JournalTailKey::tail_convergence_control(),
             RawJournalChunk::from_bytes(encode_tail_control(control)),
         );
+    }
+
+    fn multi_chunk_batch(journal_sequence: u64, database_commit_sequence: u64) -> JournalBatch {
+        let key = DecodedDataStoreKey::new_primary_key_value(
+            EntityTag::new(1),
+            &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(7)),
+        )
+        .to_raw()
+        .unwrap();
+        let record = JournalRecord::row_put(
+            "test::RetirementEntity",
+            key,
+            vec![0xA5; 3 * JOURNAL_TAIL_CHUNK_BYTES as usize],
+            [0xC1; 16],
+        )
+        .unwrap();
+        JournalBatch::new_with_database_commit_sequence(
+            [u8::try_from(journal_sequence).unwrap(); 16],
+            [0xA5; 16],
+            JournalSequence::new(journal_sequence),
+            DatabaseCommitSequence::new(database_commit_sequence),
+            vec![record],
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn prior_identity_inspection_does_not_trust_a_corrupted_matching_header() {
+        let mut store = JournalTailStore::init(test_memory(174));
+        store.initialize_current_tail_control().unwrap();
+        let first = batch(1, 7);
+        let second = batch(2, 8);
+        store.append_batch(&first).unwrap();
+        store.append_batch(&second).unwrap();
+        let forged = JournalBatch::new_with_database_commit_sequence(
+            second.batch_id(),
+            [0xA5; 16],
+            JournalSequence::new(1),
+            DatabaseCommitSequence::new(7),
+            Vec::new(),
+        )
+        .unwrap();
+        let mut bytes = encode_journal_batch(&forged).unwrap();
+        // An empty batch ends in its fingerprint. Its fixed identity header
+        // still parses, but full decoding must reject the tampered fingerprint.
+        *bytes.last_mut().unwrap() ^= 1;
+        assert_eq!(
+            inspect_raw_journal_batch_fixed_header(&bytes)
+                .unwrap()
+                .batch_id(),
+            second.batch_id(),
+        );
+        store.map.insert(
+            JournalTailKey::new(JournalSequence::new(1), 0),
+            RawJournalChunk::from_bytes(bytes),
+        );
+        let page = store
+            .inspect_page(
+                JournalInspectionCheckpoint::BeforeBatch { sequence: 2 },
+                JournalInspectionLimits::for_tests(2, MAX_JOURNAL_BATCH_BYTES as usize * 2),
+            )
+            .unwrap();
+        assert!(page.batch_identity_blocked());
+        assert_eq!(page.issue(), None);
+        assert!(page.exhausted());
+    }
+
+    #[test]
+    fn retirement_uses_next_header_but_consumption_validates_all_chunks() {
+        for missing_chunk in [None, Some(1), Some(3)] {
+            let memory = crate::testing::test_memory_owner(174);
+            let mut store = JournalTailStore::init(memory.open());
+            store.initialize_current_tail_control().unwrap();
+            let first = batch(1, 7);
+            let second = multi_chunk_batch(2, 8);
+            let second_bytes = encode_journal_batch(&second).unwrap();
+            store.append_batch(&first).unwrap();
+            store.append_batch(&second).unwrap();
+            if let Some(chunk) = missing_chunk {
+                assert!(
+                    store
+                        .map
+                        .remove(&JournalTailKey::new(JournalSequence::new(2), chunk))
+                        .is_some()
+                );
+            }
+
+            let watermark = FoldWatermark::new(JournalSequence::new(1), 1);
+            let retirement = store.prepare_batch_retirement(&first, watermark).unwrap();
+            store.apply_prepared_batch_retirement(retirement);
+            drop(store);
+            let reopened = JournalTailStore::init(memory.open());
+            let control = reopened.current_tail_control().unwrap();
+            assert_eq!(control.batch_count(), 1);
+            assert_eq!(control.record_count(), 1);
+            assert_eq!(control.encoded_batch_bytes(), second_bytes.len() as u64);
+            assert_eq!(
+                control.head_database_commit_sequence(),
+                Some(DatabaseCommitSequence::new(8))
+            );
+            assert!(reopened.has_stored_batch());
+            let next = reopened.next_batch_after(JournalSequence::new(1));
+            if missing_chunk.is_some() {
+                assert_eq!(next.unwrap_err().class(), ErrorClass::Corruption);
+            } else {
+                assert_eq!(next.unwrap().unwrap(), second);
+            }
+        }
+    }
+
+    #[test]
+    fn retirement_rejects_missing_malformed_or_miskeyed_next_headers_without_effects() {
+        for invalid_header in [0, 1, 2] {
+            let mut store = JournalTailStore::init(test_memory(174));
+            store.initialize_current_tail_control().unwrap();
+            let first = batch(1, 7);
+            store.append_batch(&first).unwrap();
+            store.append_batch(&multi_chunk_batch(2, 8)).unwrap();
+            let key = JournalTailKey::new(JournalSequence::new(2), 0);
+            match invalid_header {
+                0 => {
+                    store.map.remove(&key).unwrap();
+                }
+                1 => {
+                    store
+                        .map
+                        .insert(key, RawJournalChunk::from_bytes(vec![0xFF]));
+                }
+                2 => {
+                    store.map.insert(
+                        key,
+                        RawJournalChunk::from_bytes(encode_journal_batch(&batch(3, 8)).unwrap()),
+                    );
+                }
+                _ => unreachable!(),
+            }
+            let before = store.current_tail_control().unwrap();
+            let watermark = store.fold_watermark().unwrap();
+            let error = store
+                .prepare_batch_retirement(&first, FoldWatermark::new(JournalSequence::new(1), 1))
+                .err()
+                .unwrap();
+            assert_eq!(error.class(), ErrorClass::Corruption);
+            assert_eq!(store.current_tail_control().unwrap(), before);
+            assert_eq!(store.fold_watermark().unwrap(), watermark);
+            assert_eq!(
+                store
+                    .next_batch_after(JournalSequence::new(0))
+                    .unwrap()
+                    .unwrap(),
+                first
+            );
+        }
     }
 
     #[test]

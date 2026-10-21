@@ -135,6 +135,10 @@ insert-only convenience calls retain their prior response behavior; SQL
 `RETURNING` owns an independent query response bound.
 
 If any step fails, execution returns an error and does not open a commit window.
+Rows exceeding the 4 MiB encoded-row limit reject as `Unsupported` at the
+serialization boundary, with `ActualLength` and `Limit` byte facts when the
+total length is representable. Individually valid fields do not waive this
+aggregate limit. An inconsistent encoder payload remains an internal error.
 
 ### Phase 2: Apply (infallible by construction)
 

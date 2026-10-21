@@ -468,7 +468,15 @@ impl HardExecutionBudgetTracker {
     pub(in crate::db) fn check_instruction_watermark(
         &mut self,
     ) -> Result<(), ExecutionBudgetExceeded> {
-        let current = crate::runtime::local_instruction_counter();
+        self.record_instruction_watermark(crate::runtime::local_instruction_counter())
+    }
+
+    // Keep counter-delta arithmetic testable without substituting native time
+    // for IC instruction measurements.
+    fn record_instruction_watermark(
+        &mut self,
+        current: u64,
+    ) -> Result<(), ExecutionBudgetExceeded> {
         let delta = self
             .last_instruction_counter
             .map_or(0, |previous| current.saturating_sub(previous));
@@ -477,7 +485,7 @@ impl HardExecutionBudgetTracker {
         self.charge_raw(DiagnosticExecutionBudgetResource::InstructionUnits, delta)
     }
 
-    /// Finish instruction accounting only after a maintained loop opened a watermark.
+    /// Finish instruction accounting after the execution entry opened a watermark.
     pub(in crate::db) fn finish_instruction_watermark(
         &mut self,
     ) -> Result<(), ExecutionBudgetExceeded> {
@@ -608,12 +616,16 @@ pub(in crate::db) fn with_read_execution_budget<T>(
     context: HardExecutionContext,
     run: impl FnOnce() -> Result<T, InternalError>,
 ) -> Result<T, InternalError> {
+    let mut tracker = HardExecutionBudgetTracker::new_with_request_scope(
+        &READ_HARD_BUDGET,
+        context,
+        request_scope,
+    );
+    // The first periodic sample must include work performed before that seam,
+    // and automatic finish must account for reads too short to sample in a loop.
+    tracker.check_instruction_watermark()?;
     with_execution_budget(
-        HardExecutionBudgetTracker::new_with_request_scope(
-            &READ_HARD_BUDGET,
-            context,
-            request_scope,
-        ),
+        tracker,
         run,
         std::convert::identity,
         ExecutionBudgetFinish::Automatic,
@@ -1209,6 +1221,88 @@ mod tests {
     use icydb_diagnostic_code::{DiagnosticDetail, DiagnosticFactTag, RuntimeBoundaryCode};
 
     const TEST_HEADROOM: HardExecutionFailureHeadroom = HardExecutionFailureHeadroom::new(500, 256);
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn read_entry_accounts_for_the_first_instruction_interval() {
+        let instructions = DiagnosticExecutionBudgetResource::InstructionUnits;
+        for small_charges in [0, 1, INSTRUCTION_WATERMARK_CHARGE_INTERVAL - 1] {
+            let root = RequestExecutionRoot::new_for_tests(HardExecutionBudget::uniform_for_tests(
+                u64::MAX,
+                TEST_HEADROOM,
+            ));
+            for expected_total in [101, 202] {
+                with_read_execution_budget(&root.scope(), TEST_CONTEXT, || {
+                    for _ in 0..small_charges {
+                        charge_current_execution_budget(
+                            DiagnosticExecutionBudgetResource::RowsVisited,
+                            1,
+                        )?;
+                    }
+                    // Supply a logical IC counter sample, not a native timing
+                    // measurement. Host execution starts at counter zero.
+                    ACTIVE_EXECUTION_BUDGET.with(|budget| {
+                        let mut budget = budget.borrow_mut();
+                        let tracker = budget.as_mut().unwrap();
+                        tracker.record_instruction_watermark(101).unwrap();
+                        assert_eq!(tracker.observed(instructions), 101);
+                        assert_eq!(root.observed(instructions), expected_total);
+                    });
+                    Ok(())
+                })
+                .unwrap();
+                assert_eq!(root.observed(instructions), expected_total);
+            }
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn read_first_instruction_interval_enforces_both_budget_scopes() {
+        let instructions = DiagnosticExecutionBudgetResource::InstructionUnits;
+        let execution_limit = READ_HARD_BUDGET.limit(instructions);
+        for (request_limit, sample, expected_scope, expected_limit) in [
+            (100, 100, None, 100),
+            (100, 101, Some(DiagnosticExecutionBudgetScope::Request), 100),
+            (
+                u64::MAX,
+                execution_limit + 1,
+                Some(DiagnosticExecutionBudgetScope::Execution),
+                execution_limit,
+            ),
+        ] {
+            let root = RequestExecutionRoot::new_for_tests(
+                HardExecutionBudget::uniform_for_tests(u64::MAX, TEST_HEADROOM)
+                    .with_limit_for_tests(instructions, request_limit),
+            );
+            let result = with_read_execution_budget(&root.scope(), TEST_CONTEXT, || {
+                ACTIVE_EXECUTION_BUDGET.with(|budget| {
+                    budget
+                        .borrow_mut()
+                        .as_mut()
+                        .unwrap()
+                        .record_instruction_watermark(sample)
+                        .map_err(InternalError::from)
+                })
+            });
+            assert_eq!(root.observed(instructions), sample);
+            if let Some(scope) = expected_scope {
+                let error = result.unwrap_err();
+                let facts = error.diagnostic_facts();
+                for fact in [
+                    (DiagnosticFactTag::BudgetResource, instructions.raw()),
+                    (DiagnosticFactTag::Limit, expected_limit),
+                    (DiagnosticFactTag::Actual, sample),
+                    (DiagnosticFactTag::ExecutionBudgetScope, scope.raw()),
+                ] {
+                    assert!(facts.contains(&fact));
+                }
+            } else {
+                result.unwrap();
+            }
+            assert!(ACTIVE_EXECUTION_BUDGET.with(|budget| budget.borrow().is_none()));
+        }
+    }
 
     #[test]
     fn construction_requires_active_authority_and_shares_execution_request_counters() {

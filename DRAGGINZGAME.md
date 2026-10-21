@@ -486,8 +486,11 @@ Consumer choices described in those guides remain subject to this baseline.
   authorize deleting
   existing installations or replacing them with a mutable sibling PATH.
 - Repositories using IC executables select the [local IC setup](docs/ic-tools.md) through
-  `make install-ic-tools` and offline `make ic-tools-check`. Keep the common tool
-  names available under the checkout's `.tools/ic/bin`, with one reviewed pin
+  `make install-ic-tools` and offline `make ic-tools-check`, declaring the needed
+  executable names in `IC_TOOLS` before including the shared Make interface.
+  Standalone callers supply repeated `--tool NAME` arguments; no complete bundle
+  is selected implicitly. Keep selected common tool names available under the
+  checkout's `.tools/ic/bin`, with one reviewed pin
   matrix and explicit installation. Consumers own version qualification and
   scoped pin exceptions; ordinary validation never downloads tools implicitly.
   PocketIC-specific selection, provisioning, offline admission and lifecycle

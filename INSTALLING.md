@@ -7,8 +7,8 @@ maintainer-only workstation setup for this repository.
 
 Copy the runtime and build dependency declarations from
 [README's release-pinned example](README.md#add-icydb). README is the sole
-release-pin owner; maintain its example alongside workspace releases. Release
-tooling leaves README prose unchanged.
+release-pin owner; choose its supported release deliberately and keep runtime
+and build examples aligned. Release tooling leaves README prose unchanged.
 
 The default crate feature set provides accepted-schema runtime support plus
 structural, typed, and dynamic reads and writes. Enable `sql` only when the
@@ -252,13 +252,28 @@ make tools-check
 ```
 
 This selects pinned jq, Mike Farah yq, PCRE2-enabled ripgrep and cloc through
-`.tools/host/bin`, plus ICP CLI, ic-wasm, quill, didc and Binaryen through
+`.tools/host/bin`, plus the explicitly selected ICP CLI, ic-wasm and Binaryen through
 `.tools/ic/bin`. Shared Tooling stores the verified host and IC bundles once per
 user; matching checkouts reuse them while retaining their own pinned selections.
 The default store is `${XDG_DATA_HOME:-$HOME/.local/share}/shared-tooling/tools`.
 An explicit `SHARED_TOOLING_STORE` must use the same absolute directory for
 installation, offline checks and failure-evidence collection. Previous local
 bundles remain retained; rerun setup to select the shared bundles.
+
+The workstation default is `IC_TOOLS='icp ic-wasm wasm-opt'`. Select the same
+executables for installation and offline admission when narrowing a workflow:
+
+```bash
+make install-ic-tools IC_TOOLS='ic-wasm wasm-opt'
+make ic-tools-check IC_TOOLS='ic-wasm wasm-opt'
+```
+
+Canister-build and browser CI select only `wasm-opt`; Wasm size reporting selects
+`ic-wasm wasm-opt`. Quill and didc remain available through explicit `IC_TOOLS`
+selections when needed. A changed selection needs explicit setup before offline
+checking; prior bundles remain retained. Run the default setup again to restore
+the full IcyDB workstation selection. Compact failure evidence records the
+selected executables alongside the matching receipts.
 
 Cargo executables now use shared slots selected by their exact compiler,
 native environment, package and packaged-lock identities. The common set stays

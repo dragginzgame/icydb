@@ -1060,6 +1060,13 @@ fn runtime_conflict_schema(fact_count: usize, fact_at: &impl Fn(usize) -> (u8, u
 
 fn runtime_unsupported_schema(fact_count: usize, fact_at: &impl Fn(usize) -> (u8, u64)) -> bool {
     fact_count == 0
+        // Serialized row admission reuses the existing unsupported code and
+        // byte-length tags; it needs no new code, enum or runtime policy axis.
+        || tags_match(
+            fact_count,
+            fact_at,
+            &[DiagnosticFactTag::ActualLength, DiagnosticFactTag::Limit],
+        )
         || (tags_match(
             fact_count,
             fact_at,
@@ -1269,6 +1276,25 @@ mod tests {
         validate_raw_diagnostic_fact_schema,
     };
     use crate::ErrorCode;
+
+    #[test]
+    fn serialized_size_limit_facts_require_both_ordered_byte_counts() {
+        let code = ErrorCode::RUNTIME_UNSUPPORTED;
+        let actual = (DiagnosticFactTag::ActualLength, 4_194_305);
+        let limit = (DiagnosticFactTag::Limit, 4_194_304);
+        assert_eq!(
+            validate_known_diagnostic_fact_schema(code, &[actual, limit]),
+            Ok(())
+        );
+        for facts in [
+            vec![actual],
+            vec![limit],
+            vec![limit, actual],
+            vec![actual, limit, limit],
+        ] {
+            assert!(validate_known_diagnostic_fact_schema(code, &facts).is_err());
+        }
+    }
 
     #[test]
     fn memory_admission_fact_schemas_keep_counts_and_ids_bounded() {

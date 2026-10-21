@@ -307,14 +307,6 @@ pub const MAINTAINED_CANISTER_POLICIES: &[MaintainedCanisterPolicy] = &[
         local_test_icydb_methods: TEST_SQL_GUARD_METHODS,
     },
     MaintainedCanisterPolicy {
-        canister: "startup_timer",
-        package: "canister_test_startup_timer",
-        production_features: &[],
-        local_test_features: &[],
-        production_icydb_methods: NO_METHODS,
-        local_test_icydb_methods: NO_METHODS,
-    },
-    MaintainedCanisterPolicy {
         canister: "demo_rpg",
         package: "canister_demo_rpg",
         production_features: &["sql"],

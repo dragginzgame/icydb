@@ -8,10 +8,10 @@ For the complete developer setup including jq and yq, use
 only the IC executables.
 
 ```bash
-make install-ic-tools
-make ic-tools-check
+make install-ic-tools IC_TOOLS='ic-wasm wasm-opt'
+make ic-tools-check IC_TOOLS='ic-wasm wasm-opt'
 export PATH="$PWD/.tools/ic/bin:$PATH"
-quill --version
+wasm-opt --version
 ```
 
 Installation is explicit and downloads the selected official release assets.
@@ -21,6 +21,14 @@ implicitly. Neither command starts a network, configures identities, submits
 Quill messages or performs deployment/publication effects.
 
 ## Selected set
+
+Products declare `IC_TOOLS` before including `make/consumer.mk`, for example
+`IC_TOOLS := ic-wasm wasm-opt`. Both setup and offline checking require the same
+nonempty selection. Direct calls require repeated `--tool NAME` arguments.
+Unknown or empty selections refuse before setup; order and duplicate requests
+do not change the selected set. Unselected tools are neither downloaded nor run.
+When IC setup is registered in the common aggregate, its selection is admitted
+before common host/Cargo preparation, so a missing declaration fails early.
 
 The `didc` executable serves required Candid interfaces and their compatibility
 checks. Its presence in this bundle does not select an application encoding;
@@ -71,7 +79,8 @@ checks the exact version token. It retains Binaryen's runtime library beside
 
 A complete candidate is built in the [shared per-user store](local-setup.md#shared-executable-storage),
 with a lightweight `.tools/ic-set.<unique>` reference in the initiating checkout.
-Installed file hashes, host, selected pins and downloaded inputs remain in the
+Installed file hashes, host, the canonical `tools` selection, complete input pins
+and selected downloaded inputs remain in the
 shared bundle. Only after all
 tools pass does an atomic symlink replacement select `.tools/ic`. Existing
 global tools and shell profiles are untouched. Valid repeated setup is offline.
@@ -79,13 +88,14 @@ Failed or interrupted attempts retain their candidate directory and leave the
 prior selected set intact; retries create a fresh candidate. Previous sets and
 downloads are not automatically deleted. Cleanup is an explicit local action.
 
-Installation and verification consume every validated row, including a final row
-without a newline. The exact pin-file bytes remain retained as provenance.
-Reuse compares the complete validated tool/version/host/archive-checksum records
-across all supported hosts. Comments and row order do not change that selection
+Installation and verification admit the complete matrix, including a final row
+without a newline, then select only requested tools. The exact pin-file bytes
+remain retained as provenance. Reuse compares requested tools' validated
+tool/version/host/archive-checksum records across all supported hosts.
+Comments, row order and changes to unselected valid records do not change that selection
 or trigger downloads. The installed pins remain the exact installation input;
 neither the caller's pins nor installed receipts are rewritten during reuse.
-Every changed record requires explicit setup, and offline reuse still verifies
+Every changed selected record requires explicit setup, and offline reuse still verifies
 the host, installed file hashes, pinned archives, extracted executable/library
 bytes and executable versions. A changed binary and edited local receipt cannot
 authorize reuse. Changes to the caller's

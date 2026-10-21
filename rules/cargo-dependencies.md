@@ -208,6 +208,11 @@ operations according to their purpose rather than applying one flag everywhere.
   report any unavailable evidence. Metadata checks establish graph consistency,
   not build, test or native-host qualification; a full gate is not required just
   to prepare a dependency change.
+- For focused post-update qualification, follow the
+  [dependency-adoption contract](../docs/cargo-graph-checks.md#focused-dependency-adoption-contract).
+  Keep manifest inventories, target/features, singleton policy, affected-package
+  lint and artifact verification consumer-owned. Reuse existing observations and
+  sequential fail-fast orchestration before adding shared machinery.
 - When that change selects a different executable CLI, run its existing explicit
   setup target and offline check before declaring preparation complete. Preserve
   independent consumer selections; a library update does not automatically

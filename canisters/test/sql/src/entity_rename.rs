@@ -35,23 +35,26 @@ fn entity_creation_startup_snapshot() -> Result<(bool, u64, u128, u128, u64, u64
     let counters = snapshot.observability().counters();
     let work = performance.work_instructions().aggregate();
     let scheduler = performance.scheduler_instructions().aggregate();
-    // The fixture reply retains u64 counts and must reject inexact evidence.
-    let exact_count = |counter: ic_timers::MeasurementCounter| {
-        let total = counter
-            .exact_total()
-            .map_err(|_| typed_fixture_invariant_error())?;
-        u64::try_from(total).map_err(|_| typed_fixture_invariant_error())
-    };
     Ok((
         lifecycle_ready()?,
         work.samples(),
         work.total(),
         scheduler.total(),
-        exact_count(counters.work_started())?,
-        exact_count(counters.work_completed())?,
+        entity_creation_startup_count(counters.work_started())?,
+        entity_creation_startup_count(counters.work_completed())?,
     ))
 }
 icydb_testing_wasm_helpers::export_wire!(query, "entity_creation_startup_snapshot", EntityCreationStartupSnapshot, entity_creation_startup_snapshot, (), Result<(bool, u64, u128, u128, u64, u64), icydb::Error>);
+
+// The fixture reply retains u64 counts and must reject inexact evidence.
+fn entity_creation_startup_count(
+    counter: ic_timers::MeasurementCounter,
+) -> Result<u64, icydb::Error> {
+    let total = counter
+        .exact_total()
+        .map_err(|_| typed_fixture_invariant_error())?;
+    u64::try_from(total).map_err(|_| typed_fixture_invariant_error())
+}
 
 /// Measure one generated-schema submission, including lowering and publication.
 
@@ -228,3 +231,28 @@ fn check_entity_rename_bindings() -> Result<(), icydb::Error> {
     })
 }
 icydb_testing_wasm_helpers::export_wire!(query, "check_entity_rename_bindings", CheckEntityRenameBindings, check_entity_rename_bindings, (), Result<(), icydb::Error>);
+
+#[cfg(test)]
+mod tests {
+    use super::{entity_creation_startup_count, typed_fixture_invariant_error};
+    use ic_timers::MeasurementCounter;
+
+    #[test]
+    fn startup_counts_preserve_exact_values_and_typed_refusal() {
+        for (total, overflowed, expected) in [
+            (0, false, Ok(0)),
+            (1, false, Ok(1)),
+            (u128::from(u64::MAX), false, Ok(u64::MAX)),
+            (
+                u128::from(u64::MAX) + 1,
+                false,
+                Err(typed_fixture_invariant_error()),
+            ),
+            (u128::MAX, false, Err(typed_fixture_invariant_error())),
+            (u128::MAX, true, Err(typed_fixture_invariant_error())),
+        ] {
+            let counter = MeasurementCounter::from_parts(total, overflowed).unwrap();
+            assert_eq!(entity_creation_startup_count(counter), expected);
+        }
+    }
+}

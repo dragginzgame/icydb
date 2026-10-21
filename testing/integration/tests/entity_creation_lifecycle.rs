@@ -260,6 +260,22 @@ fn application_case(source: &[u8], target: &[u8], label: &str, added: bool) {
 }
 
 #[test]
+fn startup_counter_snapshots_survive_same_wasm_upgrade() {
+    let [source, _, _] = build_entity_creation_lifecycle_fixture_wasms(CanisterWasmProfile::Debug)
+        .expect("startup counter actors should build");
+    let (fixture, rows) = seed(&source);
+    let (started, completed) = snapshot(&fixture, "counter-contract/ready");
+    assert!(started > 0);
+    assert_eq!(started, completed);
+
+    natural_upgrade(&fixture, &source, "counter-contract");
+    let (started, completed) = snapshot(&fixture, "counter-contract/upgraded");
+    assert!(started > 0);
+    assert_eq!(started, completed);
+    assert_rows(&fixture, &rows, false);
+}
+
+#[test]
 #[ignore = "manual matched Debug/release lifecycle cycle and instruction attribution"]
 fn matched_entity_creation_lifecycle_costs() {
     // Finish all builds before constructing instances; retain exact immutable

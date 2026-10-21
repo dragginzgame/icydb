@@ -25,7 +25,6 @@ members = [
     "canisters/test/sql",
     "canisters/test/sql_bounded",
     "canisters/test/sql_guard",
-    "canisters/test/startup_timer",
     "canisters/test/wire_rollback",
     # Production packages
     "crates/icydb",

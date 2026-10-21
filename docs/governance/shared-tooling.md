@@ -1,8 +1,8 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `0a2d2ee3b5e0ae77755c2915ac28836d4d5ba359`
-(Shared Tooling 0.25.8). Root
+at reviewed revision `1959ef75d0b86ed7725d41ae5056303d35eb633d`
+(Shared Tooling 0.26.2). Root
 [AGENTS.md](../../AGENTS.md) is the local overlay. The shared approved layout
 retains existing canister, schema and testing packages in their
 restored directories, in the single root workspace and lockfile; no new package
@@ -12,6 +12,57 @@ remain local; standard release commands follow the shared contract. A sibling ch
 these rules.
 
 ## Ownership and provenance
+
+### Selected IC Tooling 0.63.2 and Shared Tooling 0.26.2 — 2026-10-21
+
+The canonical registry indexes confirm published, non-yanked 0.63.2 for the
+seven consumed Host, Build and Testkit crates. The incoming lockfile already
+selected them; dependency requirements, lock selections and own package versions
+are preserved. Their actual registry sources identify
+`e5b4095150f49069fc51c3b497e192a8f8eda016`. Reviewed
+[release guidance](https://github.com/dragginzgame/ic-tooling/blob/e5b4095150f49069fc51c3b497e192a8f8eda016/docs/changelog/0.63.md)
+adds optional HTTP, ledger decoding and stable-memory observation capabilities;
+IcyDB does not enable unused packages or features. Existing library/CLI feature
+separation, Wire protocols and Testkit server ownership remain intact.
+
+The shared snapshot is exported from exact committed source
+`1959ef75d0b86ed7725d41ae5056303d35eb633d`, excluding dirty sibling work.
+Shared 0.26 requires explicit IC executable selections. IcyDB's workstation
+selection is `icp ic-wasm wasm-opt`; canister-build and browser CI select
+`wasm-opt`, and size reporting selects `ic-wasm wasm-opt`. Make setup, offline
+admission and compact failure evidence carry the same selection. Optimizer
+byte-policy admission runs only when wasm-opt is selected. Pins, existing
+installations and retained failed evidence are preserved. Setup and workflow
+fixtures qualify selection forwarding and refusal of missing CI selections.
+
+Shared's focused adoption contract is applied to the single root workspace:
+full locked metadata, dependency declaration/graph admission, affected-package
+strict lint, then focused qualification. Overlapping roots expose a canonical
+feature-output parser limitation tracked in
+[Shared #299](https://github.com/dragginzgame/shared-tooling/issues/299).
+Single-root feature checks preserve the same policy without patching the shared
+checker. Declaration/graph evidence does not implement final deployed-artifact
+admission; [#378](https://github.com/dragginzgame/icydb/issues/378) remains open.
+
+Focused Linux qualification passes 188 CLI/Build/integration host tests, strict
+Clippy for their targets, Rust 1.91 checks for all seven upstream libraries and
+Testkit's Wasm library, dependency declaration/graph checks, 96 workflow-policy
+cases, setup/adapter fixtures and the release-runner/consumer release fixtures.
+The canonical installers prepared the explicit IC executable set and both
+published CLI binaries; offline receipts, optimizer byte admission and compact
+selected-tool evidence pass. An empty IC selection is refused. The concurrent
+Wire 0.5.15 lock selection is preserved and its cache prepared explicitly.
+
+The installed schema-guard test also passes on the final graph: the real build
+and optimizer path preserves anonymous refusal and application-trap propagation.
+Testkit started and reaped its local PocketIC server. No manual network lifecycle
+or deployment operation was performed.
+
+Native macOS and broad workspace/release qualification remain separate CI or
+user-owned gates. Raw Wasm size, cycle and instruction deltas are unmeasured.
+
+The following earlier adoption records retain their original source and
+qualification scope; they do not describe the current dependency selection.
 
 ### Selected IC Tooling 0.63.0 — 2026-10-21
 

@@ -5,6 +5,42 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.280.1]
+
+### 🔧 Changed
+
+- Adopt Shared Tooling 0.26.2 and qualify IC Tooling 0.63.2, with explicit
+  executable selections for workstation, canister-build and reporting workflows.
+
+### 🩹 Fixed
+
+- Read the next journal header during retirement without copying its payload,
+  preserving full validation before use
+  ([#175 — Retirement copies the next batch for its header](https://github.com/dragginzgame/icydb/issues/175)).
+- Report oversized rows as caller limit failures with byte-size diagnostics
+  ([#143 — Oversized rows reported as internal errors](https://github.com/dragginzgame/icydb/issues/143)).
+- Account for read instructions from execution entry, including short reads
+  ([#151 — Read instruction accounting starts too late](https://github.com/dragginzgame/icydb/issues/151)).
+- Preserve deliberately selected README dependency versions across releases
+  ([#361 — Build and Wasm tooling qualification](https://github.com/dragginzgame/icydb/issues/361)).
+
+### 🧪 Testing
+
+- Qualify exact startup counter projections and run their feature-enabled CI tests
+  ([#386 — Exact startup counter projections](https://github.com/dragginzgame/icydb/issues/386)).
+
+### 🗑️ Removed
+
+- Retire the timer-primitive probe now covered by IC Timers, retaining database
+  lifecycle tests ([#379 — Retire duplicate timer-primitive probe](https://github.com/dragginzgame/icydb/issues/379)).
+
+### 📚 Documentation
+
+- Document that generated IC ULIDs are predictable and require independent
+  authorization ([#265 — Predictable generated ULID keys](https://github.com/dragginzgame/icydb/issues/265)).
+
+See [detailed notes](docs/changelog/0.280.md).
+
 ## [0.280.0] - 2026-10-21
 
 ### ⚠️ Breaking

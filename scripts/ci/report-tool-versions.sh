@@ -7,15 +7,24 @@ root="${BASH_SOURCE[0]}"
 [[ "$root" == /* ]] || root="$PWD/$root"
 root="$(cd -P "${root%/*}/../.." && printf '%s/.' "$PWD")"
 root="${root%/.}"
-if [[ $# -lt 1 || $# -gt 3 ]]; then
-    echo 'usage: report-tool-versions.sh CONSUMER [VERSIONS [IC_PINS]]' >&2
+if [[ $# != 1 && $# != 2 && $# != 4 ]]; then
+    echo 'usage: report-tool-versions.sh CONSUMER [VERSIONS [IC_PINS IC_TOOLS]]' >&2
     exit 2
 fi
 consumer="$1"
 versions="${2:-$root/ci/tool-versions.env}"
 kinds=(host rust)
 pins="${3:-}"
-[[ $# != 3 ]] || kinds+=(ic)
+ic_tools=()
+if [[ $# == 4 ]]; then
+    [[ -n "$4" && "$4" != *$'\r'* && "$4" != *$'\n'* ]] || exit 2
+    read -r -a ic_tools <<< "$4"
+    [[ ${#ic_tools[@]} != 0 ]] || exit 2
+    for tool in "${ic_tools[@]}"; do
+        case "$tool" in quill|icp|didc|ic-wasm|wasm-opt) ;; *) exit 2 ;; esac
+    done
+    kinds+=(ic)
+fi
 for kind in "${kinds[@]}"; do
     catalog="$versions"
     option=--versions
@@ -24,7 +33,11 @@ for kind in "${kinds[@]}"; do
     records="$(perl "$root/scripts/ci/tool-catalog-records.pl" "$kind" "$catalog")"
     printf 'selection=%s\n' "$kind"
     status=0
-    directory="$(bash "$root/scripts/dev/install-$kind-tools.sh" --consumer "$consumer" "$option" "$catalog" --check)" || status=$?
+    checker=(bash "$root/scripts/dev/install-$kind-tools.sh" --consumer "$consumer" "$option" "$catalog")
+    if [[ "$kind" == ic ]]; then
+        for tool in "${ic_tools[@]}"; do checker+=(--tool "$tool"); done
+    fi
+    directory="$("${checker[@]}" --check)" || status=$?
     if [[ "$status" != 0 ]]; then
         [[ -z "$directory" ]] || printf '%s\n' "$directory"
         exit "$status"
@@ -37,6 +50,11 @@ for kind in "${kinds[@]}"; do
     while IFS=$'\t' read -r tool _; do
         [[ "$tool" != "$previous" ]] || continue
         previous="$tool"
+        if [[ "$kind" == ic ]]; then
+            selected=false
+            for requested in "${ic_tools[@]}"; do [[ "$tool" != "$requested" ]] || selected=true; done
+            [[ "$selected" == true ]] || continue
+        fi
         case "$tool" in
             RIPGREP) command=rg ;;
             *) command="$(printf '%s' "$tool" | tr '[:upper:]_' '[:lower:]-')" ;;

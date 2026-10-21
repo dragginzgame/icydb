@@ -29,6 +29,7 @@ override SHARED_TOOLING_ROOT := $(ROOT_DIR)
 LOCAL_TOOL_INSTALL_TARGETS := install-ic-tools install-testkit install-release-editor
 LOCAL_TOOL_CHECK_TARGETS := ic-tools-check testkit-check release-editor-check
 # IC executables are an explicit IcyDB selection under the shared baseline.
+IC_TOOLS ?= icp ic-wasm wasm-opt
 export PATH := $(ROOT_DIR)/.tools/ic/bin:$(PATH)
 # IcyDB owns derive ordering; shared targets own admission and formatter output.
 FORMAT_WRITE_COMMAND = bash -ec '"$$1" sort-derives; "$$1" sort --workspace --grouped; "$$1" fmt --all' -- "$(FORMAT_CARGO)"
@@ -192,7 +193,9 @@ install-gh:
 # Provisioning and offline bundle verification belong to the shared include.
 # IcyDB additionally admits its raw optimizer executable. Testkit owns PocketIC
 # client/server version admission when starting the governed server.
+ifneq ($(filter wasm-opt,$(IC_TOOLS)),)
 ic-tools-check: _icydb-ic-tool-policy
+endif
 
 _icydb-ic-tool-policy:
 	bash scripts/ci/verify-wasm-optimizer.sh
@@ -240,7 +243,9 @@ _test-workspace:
 	+$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast --workspace --all-targets --exclude canister_demo_rpg --exclude canister_test_sql --exclude canister_test_sql_bounded
 
 _test-canister-libs:
-	+$(IC_TESTKIT_ENV) $(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast -p canister_test_sql -p canister_test_sql_bounded --lib
+	+$(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast -p canister_test_sql -p canister_test_sql_bounded --lib
+	+$(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast -p canister_test_sql --lib --all-features
+	+$(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast -p canister_audit_sql_perf --lib --features test-admin-api
 
 test-no-default-smoke:
 	+$(VALIDATION_RUNNER) _test-icydb-no-default _test-core-no-default
@@ -532,7 +537,8 @@ ci-workspace:
 	+$(VALIDATION_RUNNER) \
 		_ci-workspace-clippy \
 		_ci-workspace-integration-clippy \
-		_ci-workspace-tests
+		_ci-workspace-tests \
+		_test-canister-libs
 
 _ci-workspace-clippy:
 	+$(CARGO_WORK_ENV) cargo clippy --locked --workspace --all-targets \

@@ -41,6 +41,14 @@ separate database-owned contracts.
 Human-readable Serde, display and SQL literals use canonical 26-character text.
 Binary Serde emits a byte string and validates its exact width before copying.
 
+Generated `Ulid` keys on IC are predictable public identifiers. The generator
+uses the current timestamp and a process-local sequence, rather than random
+bits; supplying startup entropy does not change this. Native generation uses
+entropy, so a native test does not establish that deployed IDs are unguessable.
+Never use possession of an ID as authorization, including for private share
+links. Authorize access separately; an application that needs a secret bearer
+token must generate and manage that token independently of the row's key.
+
 `Date` uses signed 32-bit epoch days in Wire/binary Serde and ISO `YYYY-MM-DD`
 text in JSON. Its calendar domain remains years 0000–9999. `Subaccount` uses an
 exact 32-byte byte string in Wire/binary Serde and a 32-element byte array in JSON.

@@ -133,7 +133,7 @@ load_plan() {
     case "$phase" in preflight|validate) phase=preflight ;; esac
 }
 restart_committed_preparation() {
-    local current_source current_version untracked archive
+    local current_source current_version untracked archive prepared_commit prepared_tag
     # Preparation owns local metadata only. A clean descendant commit captures
     # its current disposition; no runner staging/commit/delivery was dispatched.
     current_source="$(git rev-parse --verify HEAD)"
@@ -147,6 +147,27 @@ restart_committed_preparation() {
     current_version="$("$make_bin" --no-print-directory -s release-version)"
     [[ "$current_version" == "$previous" || "$current_version" == "$candidate" ]] || fail 'committed metadata differs from the saved preparation versions'
     assert_destination
+    if [[ "$current_version" == "$candidate" ]]; then
+        # A committed bump is still preparation, not proof that this release was
+        # delivered. Refuse before archiving its intent or selecting another bump.
+        prepared_commit="$(git rev-parse --verify "refs/tags/v$candidate^{commit}")" ||
+            fail "prepared version $candidate is committed but delivery is unconfirmed; keep $plan and reconcile the saved release before requesting another increment"
+        prepared_tag="$(git rev-parse "refs/tags/v$candidate")"
+        bash "$runner_dir/check-release-tag.sh" "$prepared_commit" "$candidate" ||
+            fail "prepared version $candidate has no valid annotated release tag; keep $plan and reconcile the saved release"
+        git merge-base --is-ancestor "$source" "$prepared_commit" ||
+            fail 'prepared release tag is outside the saved source history'
+        git merge-base --is-ancestor "$prepared_commit" "$current_source" ||
+            fail 'prepared release tag is outside the current source history'
+        read_remote_refs
+        [[ "$remote_tag" == "$prepared_tag" && -n "$remote_head" ]] ||
+            fail "prepared version $candidate is not confirmed at the saved destination; keep $plan and reconcile its delivery"
+        git merge-base --is-ancestor "$prepared_commit" "$remote_head" ||
+            fail 'prepared release is absent from the observed destination branch; fetch and reconcile'
+        [[ "$(git rev-parse "refs/tags/v$candidate")" == "$prepared_tag" ]] ||
+            fail 'prepared release tag changed during delivery observation'
+        assert_destination
+    fi
     archive="$(mktemp -d "$state_root/$candidate.attempt.XXXXXX")"
     mv "$plan" "$archive/$candidate.plan"
     printf 'Restarting from committed metadata %s at %s; retained preparation: %s\n' \

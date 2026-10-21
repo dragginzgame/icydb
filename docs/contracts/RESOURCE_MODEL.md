@@ -160,6 +160,11 @@ state, cursor work, temporary bytes, result rows/bytes and instruction units.
 Current internal profile values and failure reserves live in the linked owners;
 they are not a second public tuning API.
 
+Read execution opens its instruction-counter interval before running executor
+work. Periodic samples and the final sample charge that interval to both the
+execution and its request, including reads that finish before the first
+periodic sample. Failed attempts retain their charged work.
+
 The internal resource owner also supplies bounded container/value construction
 and retained cache-weight accounting. Query expression copying and executor
 plan/row attribution adapt those primitives without owning another budget.

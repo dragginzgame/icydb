@@ -4,10 +4,15 @@ set -euo pipefail
 
 # Emit NUL-separated ROOT/PATH pairs for the neutral evidence archiver.
 # Full retention is the default. Compact retention rechecks the current complete
-# host/IC sets with caller pins; each failed or unselected candidate stays full.
-[[ $# == 3 || $# == 5 ]] || { echo 'usage: select-tool-evidence.sh full|compact REPOSITORY DIAGNOSTICS [HOST-VERSIONS IC-PINS]' >&2; exit 2; }
+# host/IC selections with caller pins; each failed or unselected candidate stays full.
+[[ $# == 3 || $# == 6 ]] || { echo 'usage: select-tool-evidence.sh full|compact REPOSITORY DIAGNOSTICS [HOST-VERSIONS IC-PINS IC-TOOLS]' >&2; exit 2; }
 mode="$1"
-[[ ( "$mode" == full && $# == 3 ) || ( "$mode" == compact && $# == 5 ) ]] || { echo 'invalid tool evidence selection' >&2; exit 2; }
+[[ ( "$mode" == full && $# == 3 ) || ( "$mode" == compact && $# == 6 ) ]] || { echo 'invalid tool evidence selection' >&2; exit 2; }
+ic_tools=()
+if [[ "$mode" == compact && -n "$6" ]]; then
+    [[ "$6" != *$'\r'* && "$6" != *$'\n'* ]] || exit 2
+    read -r -a ic_tools <<< "$6"
+fi
 ROOT="${BASH_SOURCE[0]}"
 [[ "$ROOT" == /* ]] || ROOT="$PWD/$ROOT"
 ROOT="$(cd -P "${ROOT%/*}/../.." && printf '%s/.' "$PWD")"
@@ -41,7 +46,7 @@ for kind in host ic rust; do
     fi
     compact=""
     active="$repository/.tools/$kind"
-    if [[ "$kind" != rust && "$store_available" == true && "$mode" == compact && ! -L "$repository/.tools" && -L "$active" ]]; then
+    if [[ "$kind" != rust && ( "$kind" != ic || ${#ic_tools[@]} != 0 ) && "$store_available" == true && "$mode" == compact && ! -L "$repository/.tools" && -L "$active" ]]; then
         selected="$(selection "$active")" || selected=""
         selected="${selected%/.}"
         if [[ "$selected" =~ ^$kind-set\.[[:alnum:]]+$ ]] && bundle="$(tool_store_resolve "$repository/.tools/$selected")"; then
@@ -56,6 +61,8 @@ for kind in host ic rust; do
                     checker+=(--versions "$detail/caller-pins")
                 else
                     checker+=(--pins "$detail/caller-pins")
+                    for tool in "${ic_tools[@]}"; do checker+=(--tool "$tool"); done
+                    printf '%s\n' "${ic_tools[@]}" > "$detail/caller-tools"
                 fi
                 if "${checker[@]}" > "$detail/check.log" 2>&1 &&
                     [[ -n "$before" && ! -L "$repository/.tools" && -d "$bundle" && ! -L "$bundle" && "$(identity "$bundle")" == "$before" &&
@@ -67,7 +74,7 @@ for kind in host ic rust; do
                         compact="$selected"
                         printf '%s\n' "$repository/.tools/$selected" > "$detail/selection.txt"
                         if [[ "$kind" == ic ]]; then
-                            for receipt in pins.tsv host files.sha256; do cp -p "$bundle/$receipt" "$detail/$receipt"; done
+                            for receipt in pins.tsv tools host files.sha256; do cp -p "$bundle/$receipt" "$detail/$receipt"; done
                         fi
                     fi
                 fi

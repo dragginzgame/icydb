@@ -458,8 +458,8 @@ cmp failed-log validation.1.log
 cmp failed-evidence build.1.evidence
 [[ "$(cat validation.2.log)" == 'validation source: ffffffffffffffffffffffffffffffffffffffff' ]] || exit 1
 
-# A committed disposition of interrupted local metadata starts a fresh release.
-# All increments revalidate, with either the old base or committed bumped metadata.
+# A committed disposition can restart from the old base, or from a bumped
+# version only when its delivery is confirmed. All increments revalidate.
 for kind in patch minor major; do
     for metadata in unchanged bumped; do
         new_fixture "prepare-committed-restart-$kind-$metadata"
@@ -472,7 +472,16 @@ for kind in patch minor major; do
         mkdir -p commits
         echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa > commits/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.parent
         echo eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee > 'head'
-        if [[ "$metadata" == bumped ]]; then printf '%s\n' "$candidate" > version; fi
+        if [[ "$metadata" == bumped ]]; then
+            echo dddddddddddddddddddddddddddddddddddddddd > commits/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.tree
+            printf '%s\n' "$candidate" > version
+            mkdir -p tags
+            printf '%s\n' "$candidate" > tag
+            echo eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee > "tags/v$candidate"
+            printf '%s\n' "$candidate" > remote-tag-name
+            echo cccccccccccccccccccccccccccccccccccccccc > remote-tag
+            echo eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee > remote-head
+        fi
         base="$(cat version)"
         next="$(perl "$ROOT/scripts/ci/validate-release-inputs.pl" next-version "$base" "$kind")"
         # Explicit resume never changes its saved version or reuses old validation.
@@ -508,8 +517,73 @@ mkdir -p commits
 echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa > commits/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.parent
 echo eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee > 'head'
 echo 0.2.0 > version
+echo dddddddddddddddddddddddddddddddddddddddd > commits/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.tree
+mkdir -p tags
+echo 0.2.0 > tag
+echo eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee > tags/v0.2.0
+echo 0.2.0 > remote-tag-name
+echo cccccccccccccccccccccccccccccccccccccccc > remote-tag
+echo eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee > remote-head
 bash "$ROOT/scripts/ci/run-release.sh" patch origin main > output
 [[ "$(cat version)" == 0.2.1 && "$(count_event release-verify)" == 2 && "$(count_event push)" == 1 ]] || exit 1
+
+# Committing prepared metadata must never silently select a second increment.
+for kind in patch minor major; do
+    for conflict in missing-tag lightweight local-only remote-only remote-conflict remote-failure missing-branch divergent-branch tag-outside-source; do
+        new_fixture "prepare-undelivered-$kind-$conflict"
+        case "$kind" in patch) candidate=0.1.1 ;; minor) candidate=0.2.0 ;; major) candidate=1.0.0 ;; esac
+        FIXTURE_FAIL_TARGET=release-prepare-version expect_failure "$kind" origin main
+        cp ".release-state/$candidate.plan" saved-plan
+        cp events saved-events
+        cp validation.1.log saved-validation
+        cp build.1.evidence saved-build
+        mkdir -p commits tags
+        echo dddddddddddddddddddddddddddddddddddddddd > commits/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.tree
+        echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa > commits/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee.parent
+        echo eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee > 'head'
+        printf '%s\n' "$candidate" > version
+        printf '%s\n' "$candidate" > tag
+        printf '%s\n' "$candidate" > remote-tag-name
+        echo eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee > "tags/v$candidate"
+        echo cccccccccccccccccccccccccccccccccccccccc > remote-tag
+        echo eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee > remote-head
+        case "$conflict" in
+            missing-tag) rm tag remote-tag "tags/v$candidate" ;;
+            lightweight) export FIXTURE_TAG_TYPE=commit ;;
+            local-only) rm remote-tag ;;
+            remote-only) rm tag "tags/v$candidate" ;;
+            remote-conflict) echo ffffffffffffffffffffffffffffffffffffffff > remote-tag ;;
+            remote-failure) export FIXTURE_REMOTE_FAIL=yes ;;
+            missing-branch) rm remote-head ;;
+            divergent-branch) echo ffffffffffffffffffffffffffffffffffffffff > remote-head ;;
+            tag-outside-source)
+                echo ffffffffffffffffffffffffffffffffffffffff > "tags/v$candidate"
+                echo dddddddddddddddddddddddddddddddddddddddd > commits/ffffffffffffffffffffffffffffffffffffffff.tree
+                ;;
+        esac
+        expect_failure "$kind" origin main
+        cmp saved-plan ".release-state/$candidate.plan"
+        cmp saved-events events
+        cmp saved-validation validation.1.log
+        cmp saved-build build.1.evidence
+        [[ "$(cat version)" == "$candidate" && "$(cat head)" == eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee ]] || exit 1
+        [[ "$(count_event commit)" == 0 && "$(count_event tag)" == 0 && "$(count_event push)" == 0 ]] || exit 1
+        plans=(.release-state/*.plan)
+        [[ "${#plans[@]}" == 1 && "${plans[0]}" == ".release-state/$candidate.plan" ]] || exit 1
+        archives=(.release-state/*.attempt.*)
+        [[ ! -e "${archives[0]}" && ! -e .release-state/lock ]] || exit 1
+        case "$conflict" in
+            missing-tag|remote-only) expected_refusal="prepared version $candidate is committed but delivery is unconfirmed" ;;
+            lightweight) expected_refusal='has no valid annotated release tag' ;;
+            local-only|remote-conflict|missing-branch) expected_refusal='not confirmed at the saved destination' ;;
+            divergent-branch) expected_refusal='absent from the observed destination branch' ;;
+            tag-outside-source) expected_refusal='outside the saved source history' ;;
+            remote-failure) expected_refusal= ;;
+        esac
+        [[ -z "$expected_refusal" ]] || grep -F "$expected_refusal" output >/dev/null
+        unset FIXTURE_TAG_TYPE FIXTURE_REMOTE_FAIL
+    done
+done
 
 for conflict in divergent staged dirty untracked inventory files symlink tree version destination; do
     new_fixture "prepare-restart-conflict-$conflict"

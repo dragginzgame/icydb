@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Qualify IcyDB orchestration. Shared Tooling owns installer byte/version fixtures.
-unset MAKEFLAGS MAKEOVERRIDES MFLAGS
+unset MAKEFLAGS MAKEOVERRIDES MFLAGS IC_TOOLS
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
 FIXTURE="$(mktemp -d "${TMPDIR:-/tmp}/icydb-workstation.XXXXXX")"
 FIXTURE="$(cd "$FIXTURE" && pwd -P)"
@@ -180,10 +180,11 @@ export TEST_POLICY_TRACE="$FIXTURE/policy-trace"
 command make --no-print-directory -C "$FIXTURE" > "$FIXTURE/default-goal"
 [[ ! -s "$TEST_TRACE" ]]
 command make --no-print-directory -j4 -C "$FIXTURE" install-tools > "$FIXTURE/dispatch"
-printf '%s\n' "install-rust-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --preflight" \
+printf '%s\n' "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv --tool icp --tool ic-wasm --tool wasm-opt --preflight" \
+  "install-rust-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --preflight" \
   "install-host-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env" \
   "install-rust-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env" \
-  "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv" \
+  "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv --tool icp --tool ic-wasm --tool wasm-opt" \
   "testkit-runner.sh" \
   "ic-testkit-server setup --directory $FIXTURE/.tools/ic-testkit-server" \
   "install-rust-tools.sh --consumer $FIXTURE --package ic-build --lockfile $FIXTURE/Cargo.lock --bin ic-build-release-metadata --profile debug --features cli" > "$FIXTURE/expected"
@@ -192,7 +193,7 @@ cmp "$FIXTURE/expected" "$TEST_TRACE"
 command make --no-print-directory -j4 -C "$FIXTURE" tools-check > "$FIXTURE/offline"
 printf '%s\n' "install-host-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --check" \
   "install-rust-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/tool-versions.env --check" \
-  "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv --check" \
+  "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv --tool icp --tool ic-wasm --tool wasm-opt --check" \
   "testkit-runner.sh --check" \
   "ic-testkit-server check --directory $FIXTURE/.tools/ic-testkit-server" \
   "install-rust-tools.sh --consumer $FIXTURE --package ic-build --lockfile $FIXTURE/Cargo.lock --bin ic-build-release-metadata --profile debug --features cli --check" > "$FIXTURE/expected"
@@ -204,12 +205,20 @@ status=0
 env TEST_POLICY_FAIL=1 make --no-print-directory -C "$FIXTURE" ic-tools-check \
   > "$FIXTURE/policy-refused" 2>&1 || status=$?
 [[ "$status" != 0 ]]
+# A non-optimizer selection must not invoke IcyDB's optimizer admission.
+: > "$TEST_TRACE"
+: > "$TEST_POLICY_TRACE"
+env TEST_POLICY_FAIL=1 make --no-print-directory -C "$FIXTURE" ic-tools-check IC_TOOLS=ic-wasm \
+  > "$FIXTURE/selected-ic-check"
+printf '%s\n' "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv --tool ic-wasm --check" > "$FIXTURE/expected"
+cmp "$FIXTURE/expected" "$TEST_TRACE"
+[[ ! -s "$TEST_POLICY_TRACE" ]]
 : > "$TEST_TRACE"
 status=0
 # Use an external environment command so Bash 3.2 captures the failed child,
 # rather than exiting at an assignment preceding the command builtin.
 env TEST_INSTALL_FAIL=1 make --no-print-directory -C "$FIXTURE" install-tools > "$FIXTURE/failed-dispatch" 2>&1 || status=$?
-[[ "$status" != 0 && "$(wc -l < "$TEST_TRACE")" -eq 2 ]]
+[[ "$status" != 0 && "$(wc -l < "$TEST_TRACE")" -eq 3 ]]
 
 # IcyDB's raw optimizer admission is independent of shared archive provisioning.
 # Check consumer ordering with a harmless executable; no real optimizer runs.

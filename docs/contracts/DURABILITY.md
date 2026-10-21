@@ -348,6 +348,14 @@ it does not introduce a cursor within a batch. See the implemented
 [convergence design](../design/archive/0.229-continuous-journal-convergence-and-bounded-backlog-admission/0.229-design.md)
 and maintained [recovery qualification](../../testing/integration/tests/recovery_closeout.rs).
 
+Retirement reads only the next batch's fixed header to advance the head
+identity; it does not copy that batch's payload. Header presence, format and
+sequence are checked. The retiring batch remains fully preflighted, and the
+next batch must pass complete chunk, fingerprint and record validation before
+consumption. Explicit integrity inspection still validates prior batch payloads
+before trusting their identities; a parseable header alone is not evidence of
+a valid batch.
+
 After upgrade, retained debt blocks readiness until volatile overlays have
 been recovered through that same engine. During ordinary operation, complete
 live overlays can serve reads while admitted debt converges in the background.

@@ -22,6 +22,7 @@ mod principal_ranges;
 mod projection_metadata;
 mod residual_bounds;
 mod residual_filters;
+mod row_size_limits;
 mod scalar_page_limits;
 mod scoped_order_choice;
 mod secondary_order;

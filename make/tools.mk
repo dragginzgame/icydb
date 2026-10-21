@@ -9,6 +9,8 @@ SHARED_TOOLING_ROOT ?= $(CURDIR)
 HOST_TOOL_VERSIONS ?= $(SHARED_TOOLING_ROOT)/ci/tool-versions.env
 RUST_TOOL_VERSIONS ?= $(SHARED_TOOLING_ROOT)/ci/tool-versions.env
 IC_TOOL_PINS ?= $(SHARED_TOOLING_ROOT)/ci/ic-tools.tsv
+# Products select only the executables their callers need; there is no default set.
+IC_TOOLS ?=
 # Product-owned tool targets run in this order after the complete common set.
 LOCAL_TOOL_INSTALL_TARGETS ?=
 LOCAL_TOOL_CHECK_TARGETS ?=
@@ -21,6 +23,9 @@ export PATH := $(CURDIR)/.tools/host/bin:$(CURDIR)/.tools/rust/common/bin:$(PATH
 .PHONY: install-rust-tools rust-tools-check
 
 install-tools:
+ifneq ($(filter install-ic-tools,$(LOCAL_TOOL_INSTALL_TARGETS)),)
+	bash "$(SHARED_TOOLING_ROOT)/scripts/dev/install-ic-tools.sh" --consumer "$(CURDIR)" --pins "$(IC_TOOL_PINS)" $(foreach tool,$(IC_TOOLS),--tool "$(tool)") --preflight
+endif
 	+bash "$(SHARED_TOOLING_ROOT)/scripts/dev/install-rust-tools.sh" --consumer "$(CURDIR)" --versions "$(RUST_TOOL_VERSIONS)" --preflight
 	+$(MAKE) --no-print-directory install-host-tools
 	+$(MAKE) --no-print-directory install-rust-tools
@@ -40,10 +45,10 @@ host-tools-check:
 	bash "$(SHARED_TOOLING_ROOT)/scripts/dev/install-host-tools.sh" --consumer "$(CURDIR)" --versions "$(HOST_TOOL_VERSIONS)" --check
 
 install-ic-tools:
-	bash "$(SHARED_TOOLING_ROOT)/scripts/dev/install-ic-tools.sh" --consumer "$(CURDIR)" --pins "$(IC_TOOL_PINS)"
+	bash "$(SHARED_TOOLING_ROOT)/scripts/dev/install-ic-tools.sh" --consumer "$(CURDIR)" --pins "$(IC_TOOL_PINS)" $(foreach tool,$(IC_TOOLS),--tool "$(tool)")
 
 ic-tools-check:
-	bash "$(SHARED_TOOLING_ROOT)/scripts/dev/install-ic-tools.sh" --consumer "$(CURDIR)" --pins "$(IC_TOOL_PINS)" --check
+	bash "$(SHARED_TOOLING_ROOT)/scripts/dev/install-ic-tools.sh" --consumer "$(CURDIR)" --pins "$(IC_TOOL_PINS)" $(foreach tool,$(IC_TOOLS),--tool "$(tool)") --check
 
 install-rust-tools:
 	+bash "$(SHARED_TOOLING_ROOT)/scripts/dev/install-rust-tools.sh" --consumer "$(CURDIR)" --versions "$(RUST_TOOL_VERSIONS)"

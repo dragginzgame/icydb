@@ -2,6 +2,8 @@
 use strict;
 use warnings;
 use FindBin;
+use lib $FindBin::Bin;
+use StableVersion qw(stable version_cmp);
 
 # Validate references, not sentences. Current behavior is exercised by the
 # compiled example and codec tests linked from the maintained contracts.
@@ -55,20 +57,34 @@ for my $document (@documents) {
     }
 }
 
-# Version numbers are release data, unlike narrative wording. Keep the only
-# dependency example pinned to the workspace; other guides link to README.
+# README selects a supported release independently of metadata preparation.
+# Both dependency examples must agree on a canonical tag no newer than the
+# workspace; preparing a new release does not rewrite ordinary source prose.
 unless (@ARGV) {
     my $manifest = read_file('Cargo.toml');
     $manifest =~ /\[workspace\.package\]([^\[]+)/s or die "missing workspace package\n";
     my $package = $1;
     $package =~ /^version\s*=\s*"([^"]+)"/m or die "missing workspace version\n";
     my $version = $1;
+    stable($version) or die "invalid workspace version\n";
     my $readme = read_file('README.md');
-    while ($readme =~ /tag\s*=\s*"v([^"]+)"/g) {
-        if ($1 ne $version) {
-            warn "README.md: dependency tag v$1 differs from workspace $version\n";
+    my @tags = ($readme =~ /^icydb\s*=\s*\{[^}\n]*\btag\s*=\s*"([^"]*)"/mg);
+    if (@tags != 2) {
+        warn "README.md: expected runtime and build dependency release tags\n";
+        ++$failures;
+    }
+    for my $tag (@tags) {
+        if ($tag !~ /^v(.+)$/ || !stable($1)) {
+            warn "README.md: invalid release tag $tag\n";
+            ++$failures;
+        } elsif (version_cmp($1, $version) > 0) {
+            warn "README.md: dependency tag $tag is newer than workspace $version\n";
             ++$failures;
         }
+    }
+    if (@tags == 2 && $tags[0] ne $tags[1]) {
+        warn "README.md: runtime and build dependency tags differ\n";
+        ++$failures;
     }
 }
 
