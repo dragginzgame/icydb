@@ -5,6 +5,16 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.280.1]
+
+### 🧪 Testing
+
+- Type-check and lint every registered integration test target in PR CI, while
+  retaining separate installed-test execution requirements
+  ([#42 — PR CI durability integration coverage](https://github.com/dragginzgame/icydb/issues/42)).
+
+See [detailed notes](docs/changelog/0.280.md).
+
 ## [0.280.0] - 2026-10-21
 
 ### ⚠️ Breaking
