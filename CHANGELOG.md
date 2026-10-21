@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   output keys ([#49 — Grouped cursor uses projected keys](https://github.com/dragginzgame/icydb/issues/49)).
 - Preserve lazy `CASE` evaluation around checked arithmetic and functions in
   filters ([#74 — CASE rewrite evaluates unselected branches](https://github.com/dragginzgame/icydb/issues/74)).
+- Avoid rescanning validated map suffixes during nested-field reads, preserving
+  complete value validation and the existing grouping instruction ceilings.
 
 ### 📚 Documentation
 

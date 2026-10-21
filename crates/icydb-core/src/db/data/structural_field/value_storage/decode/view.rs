@@ -131,11 +131,11 @@ impl<'a> ValueStorageView<'a> {
         &self,
         key: &[u8],
     ) -> Result<Option<Self>, FieldDecodeError> {
-        let mut found = None;
-
         // Segment bytes are compiled once from Rust `String`s. Comparing them
         // against borrowed text payload bytes avoids per-row UTF-8 decoding
-        // while preserving map-entry boundary validation.
+        // while preserving map-entry boundary validation. The view already
+        // proves the entire envelope valid, including every later sibling, so
+        // finding the first match does not require scanning the suffix again.
         let raw_bytes = self.as_bytes();
         let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
             return Err(FieldDecodeError::new());
@@ -151,17 +151,13 @@ impl<'a> ValueStorageView<'a> {
             let value_start = cursor;
             cursor = skip_value_storage_binary_value(raw_bytes, cursor)?;
 
-            if found.is_none()
-                && decode_binary_text_payload_bytes_if_text(&raw_bytes[key_start..value_start])?
-                    .is_some_and(|found| found == key)
+            if decode_binary_text_payload_bytes_if_text(&raw_bytes[key_start..value_start])?
+                .is_some_and(|found| found == key)
             {
-                found = Some(Self::from_skip_bounded(&raw_bytes[value_start..cursor])?);
+                return Self::from_skip_bounded(&raw_bytes[value_start..cursor]).map(Some);
             }
         }
-        if cursor != raw_bytes.len() {
-            return Err(FieldDecodeError::new());
-        }
 
-        Ok(found)
+        Ok(None)
     }
 }
