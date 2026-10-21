@@ -371,6 +371,17 @@ fn engine_startup_watchdog_perf_snapshot() -> StartupWatchdogPerfSnapshot {
     let scheduler = performance.scheduler_instructions().aggregate();
     let work = performance.work_instructions();
     let work_aggregate = work.aggregate();
+    // Preserve the audit wire contract without reporting overflowed or narrowed
+    // counters as exact evidence.
+    let exact_count = |counter: ic_timers::MeasurementCounter| {
+        let Ok(total) = counter.exact_total() else {
+            ic_platform::ic0::trap(b"IcyDB startup watchdog counter overflowed");
+        };
+        match u64::try_from(total) {
+            Ok(total) => total,
+            Err(_) => ic_platform::ic0::trap(b"IcyDB startup watchdog counter exceeds wire range"),
+        }
+    };
 
     StartupWatchdogPerfSnapshot {
         scheduler_samples: scheduler.samples(),
@@ -380,12 +391,12 @@ fn engine_startup_watchdog_perf_snapshot() -> StartupWatchdogPerfSnapshot {
         work_total_instructions: work_aggregate.total(),
         work_latest_instructions: work.latest(),
         work_maximum_instructions: work_aggregate.maximum(),
-        work_started: counters.work_started(),
-        work_completed: counters.work_completed(),
-        succeeded: counters.succeeded(),
-        no_work: counters.no_work(),
-        retryable_failures: counters.retryable_failure(),
-        invariant_failures: counters.invariant_failure(),
+        work_started: exact_count(counters.work_started()),
+        work_completed: exact_count(counters.work_completed()),
+        succeeded: exact_count(counters.succeeded()),
+        no_work: exact_count(counters.no_work()),
+        retryable_failures: exact_count(counters.retryable_failure()),
+        invariant_failures: exact_count(counters.invariant_failure()),
     }
 }
 

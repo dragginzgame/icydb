@@ -35,13 +35,20 @@ fn entity_creation_startup_snapshot() -> Result<(bool, u64, u128, u128, u64, u64
     let counters = snapshot.observability().counters();
     let work = performance.work_instructions().aggregate();
     let scheduler = performance.scheduler_instructions().aggregate();
+    // The fixture reply retains u64 counts and must reject inexact evidence.
+    let exact_count = |counter: ic_timers::MeasurementCounter| {
+        let total = counter
+            .exact_total()
+            .map_err(|_| typed_fixture_invariant_error())?;
+        u64::try_from(total).map_err(|_| typed_fixture_invariant_error())
+    };
     Ok((
         lifecycle_ready()?,
         work.samples(),
         work.total(),
         scheduler.total(),
-        counters.work_started(),
-        counters.work_completed(),
+        exact_count(counters.work_started())?,
+        exact_count(counters.work_completed())?,
     ))
 }
 icydb_testing_wasm_helpers::export_wire!(query, "entity_creation_startup_snapshot", EntityCreationStartupSnapshot, entity_creation_startup_snapshot, (), Result<(bool, u64, u128, u128, u64, u64), icydb::Error>);

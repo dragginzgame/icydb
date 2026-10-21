@@ -22,6 +22,11 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Align the selected Canic fixture adapter with Timers 0.30; endpoint and
   lifecycle ownership remain with Canic.
 
+### 🩹 Fixed
+
+- Adapt startup audit counters to the current Timers API while preserving
+  exact values and the existing reply format.
+
 See [detailed notes](docs/changelog/0.280.md).
 
 ## [0.279.0] - 2026-10-20
