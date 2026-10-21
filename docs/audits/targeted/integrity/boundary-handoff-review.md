@@ -1,87 +1,59 @@
 # Targeted Review — Boundary Handoffs
 
-Method: `HANDOFF-1`.
+Method: `HANDOFF-2`. Apply the reviewed
+[Shared flow method](../../../../audits/flow-convergence-and-duplication.md),
+[common audit contract](../../../../audits/README.md) and
+[IcyDB audit governance](../../README.md). Record the snapshot revision alongside
+this overlay identity. This bounded investigation adds no recurring baseline,
+repair authority or broad gate. Old HANDOFF-1 reports remain historical;
+affected comparisons are `N/A (method change)`.
 
-Use this playbook when a concrete change or finding leaves unclear whether a
-producer's guarantee still holds at a consumer. Typical triggers are a changed
-invariant owner, a new caller, a persisted or prepared artifact crossing a
-boundary, or a change to accepted-schema identity or publication lifetime.
-Select the named handoff and its reachable consumers; do not enumerate the
-whole system or repeat the recurring domain audits.
+## Select the handoff
 
-Apply [audit governance](../../README.md), including authorization, finding
-ownership, shared evidence, and executed-test evidence. Inspection returns
-findings in the conversation. An authorized saved investigation uses
-`docs/reports/investigations/YYYY/MM/DD/boundary-handoff-review/<run>/report.md`.
-This playbook is not a recurring run and grants no implementation authority.
+Use a concrete changed producer, caller, persisted/prepared artifact or accepted
+identity/publication lifetime whose guarantee is unclear at its consumer.
+Follow only the reachable handoff. Consult the
+[domain ownership map](../../README.md#finding-ownership-and-shared-evidence):
+reuse matching proof or route an existing domain obligation to its owner.
+A neighbouring PASS alone is insufficient; do not open a second finding.
 
-## 1. Establish The Gap
+The local checks below preserve the contract on the currently adopted Shared
+revision. Narrow them further only after reviewing a supplying snapshot with
+the focused-handoff guidance under
+[#396 — Adopt shared focused-handoff guidance](https://github.com/dragginzgame/icydb/issues/396).
+A moving or unpublished Shared draft is not adopted.
 
-Record the trigger, source snapshot including relevant dirty changes, named
-producer and consumer, invariant, and suspected loss of guarantee. Consult the
-[domain ownership map](../../README.md#finding-ownership-and-shared-evidence)
-and the relevant domain definition before collecting new proof.
+## IcyDB carried authority
 
-If an owning audit already proves this exact handoff on compatible inputs,
-cite that evidence and stop. A neighboring PASS alone is insufficient. If the
-question is entirely a known domain obligation, route it to that audit rather
-than opening a second finding or repeating its baseline. Keep a targeted
-finding here only for a demonstrated handoff gap without an existing owner.
-
-## 2. Trace The Carried Guarantee
-
-Use one table for each selected invariant:
-
-| Invariant / authority | Producer and enforcement | Carried artifact / validity | Consumer and effect | Bypass or stale-input candidate | Proof or gap |
+| Invariant / authority | Producer and enforcement | Carried artifact / validity | Consumer and first protected effect | Bypass or stale-input candidate | Proof or gap |
 | --- | --- | --- | --- | --- | --- |
 
-Follow the actual call sites through the first protected read, write, or
-publication. Check the following only where they apply to that handoff:
+- Accepted schema snapshots own runtime row/index/constraint/identity meaning.
+  SQL and generated models provide proposals, reconciliation, convenience or
+  tests; consumers must not reconstruct accepted authority from them.
+- Follow actual calls to the first protected read/write/publication. Preserve
+  entity/store/index identity, accepted revision/fingerprint and validity lifetime.
+  Inspect alternate callers/conversions and delayed cache/continuation reuse.
+- Consumer assumptions must follow from producer guarantees. For row decoding,
+  identify who proves the expected key matches the accepted row identity; for
+  publication, identify who proves candidate completeness.
+- Inspect recovery, continuation and alternate frontends only where reachable.
+  Protective checks after decoding, delayed use or changed authority may be
+  required at several boundaries. Do not require exactly-once validation.
+- Use the range owner's actual comparator and directional bounds; do not assume
+  ASC-only resume or serialized-byte ordering.
 
-- Accepted schema snapshots own runtime row, index, constraint, and identity
-  meaning. SQL and generated models supply proposals, reconciliation,
-  model-only convenience, or tests; consumers must not reconstruct runtime
-  authority from them.
-- The carried contract preserves its entity/store/index identity, accepted
-  revision or fingerprint, and validity lifetime. Trace which owner selects
-  the accepted context and whether a cache, continuation, or delayed consumer
-  can reuse a stale or differently bound artifact.
-- Consumer assumptions follow from producer guarantees before protected
-  effects. Inspect alternate callers and conversions that can erase proof.
-  For row decoding, identify who proves the expected key matches the accepted
-  row identity; for publication, identify who proves candidate completeness.
-- Recovery, continuation, and alternate frontends need checks when they can
-  enter this handoff or change its assumptions. Do not require every invariant
-  to participate in every path; explain reachability and exclusions.
+## Focused proof and result
 
-One semantic authority may require checks at several trust boundaries.
-Distinguish policy rediscovery from protective revalidation after decoding,
-authority changes, or delayed consumption. Do not demand enforcement exactly
-once or remove guards because another layer also validates the invariant.
-Use the owning range audit for directional bounds and the actual comparator;
-do not assume ASC-only resume or serialized-byte ordering.
+Apply [executed-test evidence](../../README.md#executed-test-evidence). Select
+assertions/features/targets proving valid inputs retain the contract and
+invalid, mismatched or stale inputs cannot reach the effect. Complete caller
+inspection plus type visibility may prove an unconstructible state; label source
+proof. A debug assertion alone is no production guard. Missing behavioral proof
+is a gap, not a proven defect or deployed/platform rollback guarantee.
 
-## 3. Prove Or Report The Gap
-
-Reuse matching evidence first. Otherwise select focused proof of the missing
-guarantee: valid input retains its contract and invalid, mismatched, or stale
-input cannot reach the protected effect. Inspect assertions, features, targets,
-and test listings under the shared executed-test contract before running tests.
-Do not prescribe fixed historical selectors or run a workspace suite.
-
-Type visibility and complete caller inspection may establish an unconstructible
-invalid state. Label this source evidence; a debug assertion alone is not a
-production guard. Missing required behavioral proof is a verification gap,
-not a demonstrated runtime defect. Keep platform rollback or deployed behavior
-outside the verdict unless the evidence actually exercises it.
-
-## 4. Return A Bounded Result
-
-Report the scope, owner, handoff table, evidence identity, and unresolved gap.
-Saved reports also include the method, baseline or N/A, comparability, and exact
-verification commands with selected/passed/failed/ignored counts. Historical
-invariant-preservation runs are context, not comparable HANDOFF-1 baselines.
-
-Apply shared severities and verdicts. Link one owning finding per cause, with
-consequence, disposition, and action trigger. If coverage is sufficient, say
-so and stop; do not create a backlog, a recurring sweep, or a runtime fix.
+Use the shared report/severity/verdict contract and the local verification
+readout, retaining scope, owner, handoff table, evidence and any missing proof.
+Authorized saved investigations use
+`docs/reports/investigations/YYYY/MM/DD/boundary-handoff-review/<run>/report.md`.
+Stop when coverage is sufficient. No extra sweep, backlog or runtime fix follows.
