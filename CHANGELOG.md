@@ -19,8 +19,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   preparation and preserved release recovery selections.
 - Declare Principal support explicitly in schema and facade dependencies while
   preserving narrow runtime and raw-system feature selections.
-- Align the selected Canic fixture adapter with Timers 0.30; endpoint and
-  lifecycle ownership remain with Canic.
+- Align the selected Canic fixture adapter with Timers 0.30 and refresh its
+  compile-fail expectations; endpoint and lifecycle ownership remain with Canic.
 
 ### 🩹 Fixed
 
