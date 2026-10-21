@@ -7,7 +7,8 @@ and artifacts; they do not create another current feature backlog.
 ## Owners And Checks
 
 - README owns release-pinned dependency examples. Installation and other guides
-  link there; release tooling updates that one surface.
+  link there. Maintain its example alongside workspace releases; release tooling
+  leaves README prose unchanged.
 - The compiled `testing/model-facade-only` package owns the complete onboarding
   example. README links to its manifest, declarations, build script and actor.
   Its native test exercises startup, typed writes and reads; a separate ignored

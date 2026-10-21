@@ -7,7 +7,8 @@ maintainer-only workstation setup for this repository.
 
 Copy the runtime and build dependency declarations from
 [README's release-pinned example](README.md#add-icydb). README is the sole
-release-pin owner and is updated by release tooling.
+release-pin owner; maintain its example alongside workspace releases. Release
+tooling leaves README prose unchanged.
 
 The default crate feature set provides accepted-schema runtime support plus
 structural, typed, and dynamic reads and writes. Enable `sql` only when the

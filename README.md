@@ -102,14 +102,14 @@ The workspace version is recorded in [Cargo.toml](Cargo.toml).
 ## Add IcyDB
 
 Use the same release for runtime and host-side model generation. This example
-pins the published 0.278.0 release; choose your supported release explicitly:
+pins the published 0.279.0 release; choose your supported release explicitly:
 
 ```toml
 [dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.278.0" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.279.0" }
 
 [build-dependencies]
-icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.278.0" }
+icydb = { git = "https://github.com/dragginzgame/icydb.git", tag = "v0.279.0" }
 ```
 
 The default feature set includes structural, typed, and dynamic reads and writes.
