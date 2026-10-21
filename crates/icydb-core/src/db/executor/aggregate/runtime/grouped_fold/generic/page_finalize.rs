@@ -51,7 +51,8 @@ use std::{borrow::Cow, cmp::Ordering, collections::BinaryHeap};
 ///
 /// OrderedGroupedPageSelection consumes closed groups in already-proven final
 /// key order. It reuses the canonical grouped finalization, HAVING, cursor,
-/// offset, projection, and lookahead rules while retaining only response rows.
+/// offset, projection, and lookahead rules while retaining response rows and
+/// one canonical page boundary.
 ///
 
 pub(in crate::db::executor::aggregate::runtime::grouped_fold) struct OrderedGroupedPageSelection<'a>
@@ -59,6 +60,7 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) struct OrderedGrou
     selection: GroupedPageFinalizeSelection<'a>,
     aggregate_count: usize,
     page_rows: Vec<RuntimeGroupedRow>,
+    last_group_key: Option<Vec<Value>>,
     groups_skipped_for_offset: usize,
     has_more: bool,
 }
@@ -79,6 +81,7 @@ impl<'a> OrderedGroupedPageSelection<'a> {
             selection,
             aggregate_count,
             page_rows: Vec::new(),
+            last_group_key: None,
             groups_skipped_for_offset: 0,
             has_more: false,
         })
@@ -142,6 +145,16 @@ impl<'a> OrderedGroupedPageSelection<'a> {
             return Ok(true);
         }
 
+        // Projection may omit, transform, or reorder the group keys. Retain
+        // the canonical boundary only when this row fills a finite page.
+        if self
+            .selection
+            .pagination_window
+            .limit()
+            .is_some_and(|limit| self.page_rows.len().saturating_add(1) == limit)
+        {
+            self.last_group_key = Some(candidate.group_key_values()?.to_vec());
+        }
         self.page_rows
             .push(self.selection.shape_candidate(candidate)?);
 
@@ -154,9 +167,7 @@ impl<'a> OrderedGroupedPageSelection<'a> {
         route: &GroupedRouteStage,
     ) -> Result<(Vec<RuntimeGroupedRow>, Option<GroupedContinuationToken>), InternalError> {
         let next_cursor = if self.has_more {
-            self.page_rows
-                .last()
-                .map(|row| row.group_key().to_vec())
+            self.last_group_key
                 .map(|last_group_key| route.grouped_next_cursor(last_group_key))
                 .transpose()?
         } else {
@@ -743,6 +754,7 @@ where
     ShapeFn: FnMut(GroupedPageCandidate) -> Result<RuntimeGroupedRow, InternalError>,
 {
     let mut page_rows = Vec::<RuntimeGroupedRow>::new();
+    let mut last_group_key = None;
     let mut has_more = false;
     let mut groups_skipped_for_offset = 0usize;
 
@@ -762,14 +774,14 @@ where
             break;
         }
 
+        // Cursor identity belongs to the candidate, before response projection.
+        if limit.is_some_and(|limit| page_rows.len().saturating_add(1) == limit) {
+            last_group_key = Some(candidate.group_key_values()?.to_vec());
+        }
         page_rows.push(shape_row(candidate)?);
     }
 
-    let next_cursor_boundary = if has_more {
-        page_rows.last().map(|row| row.group_key().to_vec())
-    } else {
-        None
-    };
+    let next_cursor_boundary = if has_more { last_group_key } else { None };
 
     Ok((page_rows, next_cursor_boundary))
 }
@@ -973,5 +985,175 @@ mod tests {
         };
 
         assert!(candidate.estimated_backing_bytes() > 1_000);
+    }
+
+    fn aggregate_only_projection(
+        layout: &PlannedProjectionLayout,
+    ) -> CompiledGroupedProjectionPlan<'_> {
+        let projection = ProjectionSpec::from_fields_for_test(vec![ProjectionField::Scalar {
+            expr: Expr::Aggregate(count()),
+            alias: None,
+        }]);
+        let specs = [GroupedAggregateExecutionSpec::from_test_inputs(
+            AggregateKind::Count,
+            None,
+            None,
+            false,
+        )];
+        let compiled = crate::db::query::preparation::with_preparation_work(|work| {
+            compile_grouped_projection_plan(
+                &projection,
+                &crate::db::query::plan::GroupFieldSet::empty(),
+                &specs,
+                work,
+            )
+        })
+        .unwrap();
+        CompiledGroupedProjectionPlan::from_test_inputs(compiled, layout)
+    }
+
+    fn select_projected_page(
+        route: &super::GroupedRouteStage,
+        keys: &[GroupKey],
+    ) -> (Vec<RuntimeGroupedRow>, Option<Vec<Value>>) {
+        let layout = PlannedProjectionLayout {
+            group_field_positions: vec![],
+            aggregate_positions: vec![0],
+        };
+        let projection = ProjectionSpec::default();
+        let mut ordered = super::OrderedGroupedPageSelection::new(route, &projection, 1).unwrap();
+        ordered.selection.compiled_projection = Some(aggregate_only_projection(&layout));
+        let candidates = keys
+            .iter()
+            .map(|key| GroupedPageCandidate {
+                group_key: key.clone(),
+                aggregate_values: vec![Value::Nat64(1)],
+                ranking: GroupedPageCandidateRanking::Canonical {
+                    direction: route.direction(),
+                },
+            })
+            .collect::<Vec<_>>();
+        for candidate in &candidates {
+            if ordered
+                .push_finalized_values(
+                    candidate.group_key.clone(),
+                    candidate.aggregate_values.clone(),
+                )
+                .unwrap()
+            {
+                break;
+            }
+        }
+        let (ordered_rows, cursor) = ordered.finish(route).unwrap();
+        let (rows, next) = finalize_grouped_page_rows_with_shaper(
+            candidates.into_iter(),
+            route.grouped_pagination_window().limit(),
+            route.grouped_pagination_window().initial_offset_for_page(),
+            |candidate| candidate.matches_window(None, route.grouped_resume_boundary()),
+            |candidate| Ok(RuntimeGroupedRow::new(vec![], candidate.aggregate_values)),
+        )
+        .unwrap();
+        assert_eq!(ordered_rows, rows);
+        assert_eq!(
+            cursor
+                .as_ref()
+                .map(super::GroupedContinuationToken::last_group_key),
+            next.as_deref()
+        );
+        (rows, next)
+    }
+
+    #[test]
+    fn projected_pages_resume_from_canonical_keys_in_both_selectors() {
+        use crate::db::{
+            cursor::ContinuationSignature,
+            direction::Direction,
+            executor::{
+                GroupedContinuationContext, GroupedPaginationWindow,
+                pipeline::contracts::GroupedRouteStage,
+            },
+        };
+        for direction in [Direction::Asc, Direction::Desc] {
+            for compound in [false, true] {
+                let mut keys = vec![
+                    Value::Null,
+                    Value::Int64(-1),
+                    Value::Nat64(2),
+                    Value::Text("界".into()),
+                ]
+                .into_iter()
+                .map(|value| {
+                    let mut key = vec![value];
+                    if compound {
+                        key.push(Value::Text("e\u{301}".into()));
+                    }
+                    GroupKey::from_group_values(key).unwrap()
+                })
+                .collect::<Vec<_>>();
+                keys.sort_by(|left, right| {
+                    super::compare_grouped_boundary_values(
+                        direction,
+                        left.canonical_value(),
+                        right.canonical_value(),
+                    )
+                });
+                for limit in [None, Some(0), Some(1), Some(2), Some(4), Some(20)] {
+                    for offset in [0, 1, 9] {
+                        let mut boundary = None;
+                        let mut observed = Vec::new();
+                        loop {
+                            let window = GroupedPaginationWindow::new(
+                                limit,
+                                if boundary.is_none() { offset } else { 0 },
+                                None,
+                                0,
+                                boundary.clone().map(Value::List),
+                            );
+                            let mut route = GroupedRouteStage::new_for_test(direction, None);
+                            route.continuation = GroupedContinuationContext::new(
+                                ContinuationSignature::from_bytes([0; 32]),
+                                if compound { 2 } else { 1 },
+                                window,
+                                direction,
+                            );
+                            let (rows, next) = select_projected_page(&route, &keys);
+                            // Expected progress follows the original ordered keys,
+                            // independently of the boundary emitted by either selector.
+                            let remaining = &keys[offset.min(keys.len()) + observed.len()..];
+                            let emitted = remaining
+                                .iter()
+                                .take(limit.unwrap_or(usize::MAX))
+                                .collect::<Vec<_>>();
+                            assert_eq!(rows.len(), emitted.len());
+                            observed
+                                .extend(emitted.iter().map(|key| key.canonical_value().clone()));
+                            let expected_boundary = if emitted.len() < remaining.len() {
+                                emitted.last().map(|key| match key.canonical_value() {
+                                    Value::List(values) => values.clone(),
+                                    _ => panic!("group key is a list"),
+                                })
+                            } else {
+                                None
+                            };
+                            assert_eq!(next, expected_boundary);
+                            let Some(next) = next else {
+                                break;
+                            };
+                            assert!(observed.len() <= keys.len(), "continuation must advance");
+                            boundary = Some(next);
+                        }
+                        let expected = if limit == Some(0) {
+                            vec![]
+                        } else {
+                            keys.iter()
+                                .skip(offset)
+                                .map(|key| key.canonical_value().clone())
+                                .collect::<Vec<_>>()
+                        };
+                        assert_eq!(observed, expected);
+                    }
+                }
+            }
+        }
     }
 }

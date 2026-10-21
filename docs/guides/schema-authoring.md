@@ -118,6 +118,16 @@ literals, integers outside the source literal domain, and nonfinite float or
 unrepresentable decimal literals produce compiler errors. Accepted field
 contracts remain responsible for their narrower value bounds.
 
+## Prefix Index Declarations
+
+A unique index on `email` and a unique index on `(email, tenant_id)` express
+separate constraints; the latter does not enforce email uniqueness by itself.
+The model compiler accepts both declarations in either order. It also accepts
+prefix-related filtered indexes without treating key prefixes as proof of
+identical membership. Predicates and unique constraints remain unchanged in the
+generated schema. The existing rejection of unfiltered, non-unique prefix
+indexes still applies.
+
 ## Field And Relation Names
 
 Authored fields use valid Rust `snake_case` identifiers. Required and optional
@@ -261,6 +271,20 @@ mutation, model them as entities with an owner key. Lists, sets, and maps stored
 in a row remain whole-field aggregates even when an explicit nested scalar
 relation enforces target lifetime. The exact decision matrix is maintained in
 the [nested storage contract](../contracts/NESTED_STORAGE.md).
+
+## Numeric Application Hooks
+
+Numeric comparison, range, divisor and clamp settings must be representable as
+`Decimal`; for example, `u128::MAX` is outside that domain. Decimal-place settings
+must convert to `u32`. Constructors retain conversion failure as invalid
+configuration: validators report a visitor issue when invoked, and normalizers
+return an error before changing the value. Invalid settings never become zero
+bounds or zero decimal places. Valid settings and zero-based defaults retain
+their behavior.
+
+These are application hooks. Database structural writes, SQL and recovery do not
+invoke them; accepted constraints remain the database admission authority. See
+the [write-admission contract](../contracts/WRITE_ADMISSION.md).
 
 ## Serializing Generated Values Into Application Blobs
 

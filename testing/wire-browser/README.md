@@ -45,6 +45,17 @@ controller refusal, typed failures and successful calls after malformed ingress.
 The fixture does not establish production login/delegation or update idempotency.
 Repeated query bytes are stable; updates have their existing database semantics.
 
+## Synchronous reply failures
+
+Canic owns the raw serving boundary. A request admission failure rejects before
+calling the handler. If encoding a synchronous handler's reply fails, the serving
+boundary traps so the current message's mutations roll back. Typed application
+errors remain normal encoded replies. This does not undo earlier messages or
+external effects across an await boundary, or make arbitrary updates idempotent.
+The maintained `query_canister` rollback subject checks failed encoding,
+identical retries, successful writes, typed errors and malformed request controls
+([#371 — Roll back mutations after reply-encoding failure](https://github.com/dragginzgame/icydb/issues/371)).
+
 ## Shared codec ownership
 
 Registry IC Wire 0.5 supplies `typescript::generate_registry` and
@@ -74,4 +85,4 @@ Storage, ordered keys, journals and authenticated cursor construction are exclud
 Generated files, bundles and reports stay ignored under `target/wire-browser/`.
 The installed report records the browser and actual frames. Linux qualification
 does not qualify native macOS. Raw Wasm/cycles/instructions are not measured by
-these correctness checks. Tracking: [#372](https://github.com/dragginzgame/icydb/issues/372).
+these correctness checks. Tracking: [#372 — Qualify native Wire browser codecs](https://github.com/dragginzgame/icydb/issues/372).

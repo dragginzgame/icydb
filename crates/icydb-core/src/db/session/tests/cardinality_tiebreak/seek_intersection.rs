@@ -263,6 +263,92 @@ fn signed_dynamic_filters_preserve_order_limits_residuals_and_every_resume_suffi
     qualify_live_pages(true);
 }
 
+fn qualify_general_intersection_pages(signed: bool) {
+    for case in [0, 2] {
+        initialize_intersection(case, signed);
+        // Recreating heap stores simulates reinstall, which drops compiled roots.
+        new_request_session(&RequestExecutionRoot::__new_runtime_root())
+            .invalidate_accepted_schema_runtime_root();
+        for branches in [2, 3] {
+            for ordering in [None, Some(false), Some(true)] {
+                let descending = ordering == Some(true);
+                for limit in [None, Some(3)] {
+                    let value = |number| {
+                        if signed {
+                            InputValue::int64(number)
+                        } else {
+                            InputValue::nat64(u64::try_from(number).unwrap())
+                        }
+                    };
+                    let mut left = vec![
+                        FieldRef::new("lane_a").eq(value(0)),
+                        FieldRef::new("lane_b").eq(value(0)),
+                    ];
+                    let mut right = vec![
+                        FieldRef::new("lane_a").eq(value(1)),
+                        FieldRef::new("lane_b").eq(value(0)),
+                    ];
+                    if branches == 3 {
+                        left.push(FieldRef::new("group_key").eq(value(0)));
+                        right.push(FieldRef::new("group_key").eq(value(0)));
+                    }
+                    let mut query =
+                        DynamicQuery::new(ENTITY_NAME)
+                            .select(["id"])
+                            .filter(FilterExpr::and(vec![
+                                FilterExpr::or(left),
+                                FilterExpr::or(right),
+                            ]));
+                    if ordering.is_some() {
+                        query = query.order_by(if descending { desc("id") } else { asc("id") });
+                    }
+                    if let Some(limit) = limit {
+                        query = query.limit(limit);
+                    }
+                    let expected = expected(case, 2, descending, false, limit, signed);
+                    let where_clause = if branches == 2 {
+                        "(lane_a = 0 OR lane_b = 0) AND (lane_a = 1 OR lane_b = 0)"
+                    } else {
+                        "(lane_a = 0 OR lane_b = 0 OR group_key = 0) AND (lane_a = 1 OR lane_b = 0 OR group_key = 0)"
+                    };
+                    let sql = format!(
+                        "SELECT id FROM {ENTITY_NAME} WHERE {where_clause} ORDER BY id {}{}",
+                        if descending { "DESC" } else { "ASC" },
+                        limit.map_or_else(String::new, |limit| format!(" LIMIT {limit}")),
+                    );
+                    assert_eq!(
+                        projection_rows(
+                            &new_request_session(&RequestExecutionRoot::__new_runtime_root()),
+                            &sql
+                        ),
+                        expected
+                    );
+                    let (rows, tokens) = collect_pages(&query, None);
+                    assert_eq!(rows, expected);
+                    assert!(
+                        !tokens.is_empty(),
+                        "this workload must exercise continuation"
+                    );
+                    assert_eq!(collect_pages(&query, None).0, expected);
+                    for (token, offset) in tokens {
+                        assert_eq!(collect_pages(&query, Some(token)).0, expected[offset..]);
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn general_intersection_unsigned_pages_preserve_every_resume_suffix() {
+    qualify_general_intersection_pages(false);
+}
+
+#[test]
+fn general_intersection_signed_pages_preserve_every_resume_suffix() {
+    qualify_general_intersection_pages(true);
+}
+
 // Each accepted primitive kind gets a separate database incarnation. The
 // maintained dynamic frontend must expose the same exact index contract for
 // every signed width, including values near its persisted boundaries.

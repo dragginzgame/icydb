@@ -18,9 +18,9 @@ use crate::{
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 
 // Canonicalize one planner-owned boolean searched `CASE` onto the bounded
-// first-match boolean expansion when the resulting expression size stays within
-// the current threshold. Otherwise preserve the normalized `CASE`
-// shape so canonicalization remains explicit and fail-closed.
+// first-match boolean expansion when content admission proves the expression
+// stays within the size threshold and does not expose unselected branch errors.
+// Otherwise preserve the normalized CASE for the existing lazy evaluator.
 pub(super) fn normalize_bool_case_expr(
     mut expr: Expr,
     top_level_where_null_collapse: bool,
@@ -37,6 +37,9 @@ pub(super) fn normalize_bool_case_expr(
         // Preserve the original arms and ELSE box when content stays compact.
         return Ok(expr);
     };
+    if !admitted.can_evaluate_eagerly {
+        return Ok(expr);
+    }
     lower_searched_case_to_boolean(
         std::mem::take(when_then_arms),
         else_expr.take(),
@@ -44,6 +47,27 @@ pub(super) fn normalize_bool_case_expr(
         top_level_where_null_collapse,
         work,
     )
+}
+
+/// Check the existing content bounds independently of eager-evaluation safety.
+///
+/// Omitted-ELSE HAVING uses bounded CASE admission even when runtime errors
+/// require retaining the lazy expression. This evidence adds no execution mode.
+#[cfg(feature = "sql")]
+pub(in crate::db) fn case_expansions_are_bounded(
+    expr: &Expr,
+    work: &PreparationWork<'_>,
+) -> Result<bool, QueryError> {
+    expr.try_all_tree_expr(&mut |node| {
+        work.charge(Resource::PredicateExpressionSteps, 1)?;
+        match node {
+            Expr::Case {
+                when_then_arms,
+                else_expr,
+            } => Ok(budget::admit_expansion(when_then_arms, else_expr, work)?.is_some()),
+            _ => Ok(true),
+        }
+    })
 }
 
 // Recurse across boolean-context planner nodes only so searched `CASE`

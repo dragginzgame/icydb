@@ -3,6 +3,7 @@
 mod seek_intersection;
 
 use icydb::{Error, db::sql::SqlQueryResult};
+use icydb_testing_build::{CanisterBuildOptions, local_fixture_wasm_bytes};
 use icydb_testing_integration::WireCallExt as _;
 use icydb_testing_integration::{install_fixture_canister, reset_icydb_fixtures};
 
@@ -79,6 +80,9 @@ fn sql_perf_reports_total_instructions_for_query_warmup_and_loop_execution() {
         )
         .expect("warm SQL measurement should decode");
     let warmed = warmed.expect("warm SQL measurement should execute");
+    // The update persists the exact command; both queries use identical bytes,
+    // method and Wasm. This measures session/SQL work, not parser cost alone.
+    let resident = query_perf(&fixture, "query_user_with_perf", sql);
     let looped: Result<SqlQueryPerfResult, Error> = fixture
         .pocket_ic()
         .query_wire(
@@ -90,6 +94,7 @@ fn sql_perf_reports_total_instructions_for_query_warmup_and_loop_execution() {
     let looped = looped.expect("looped SQL measurement should execute");
 
     assert_eq!(cold.result, warmed.result);
+    assert_eq!(cold.result, resident.result);
     assert_eq!(cold.result, looped.result);
     assert!(cold.instructions > 0);
     assert!(warmed.instructions > 0);
@@ -102,6 +107,14 @@ fn sql_perf_reports_total_instructions_for_query_warmup_and_loop_execution() {
         warmed.query_complete - warmed.request_ready
     );
     assert!(looped.instructions > 0);
+    println!(
+        "SQL cache qualification: profile={} raw_wasm_bytes={} cold_session_sql_instructions={} resident_session_sql_instructions={} loop_mean_sql_instructions={} loop_runs=8",
+        CanisterBuildOptions::default().profile.as_str(),
+        local_fixture_wasm_bytes("sql_perf").len(),
+        cold.instructions,
+        resident.instructions,
+        looped.instructions,
+    );
 }
 
 #[test]

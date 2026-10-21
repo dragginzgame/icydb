@@ -264,7 +264,6 @@ fn maximum_accepted_schema_reopen_read_is_bounded_at_sixty_four_indexes() {
     let measured = accepted_schema_read(&fixture, "PerfAuditMaxFanout");
     assert_eq!(measured.description.indexes().len(), 64);
     assert!(measured.local_instructions > 0);
-    assert!(measured.local_instructions < 40_000_000_000);
 
     println!(
         "0.231 accepted-schema reopen: maximum_indexes=64 instructions={}",

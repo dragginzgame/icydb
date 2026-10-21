@@ -252,6 +252,7 @@ jobs:
           cargo clippy --locked -p icydb-cli --bin icydb -- -D warnings
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --bin icydb tests::icp::hex_response_bytes
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --bin icydb diagnostic::
+          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --bin icydb tests::observability::
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --test command_exit_status migration_
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-model-schema-only --lib renamed_schema_only_dependency_emits_fragment
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-build --lib canister_artifact::tests

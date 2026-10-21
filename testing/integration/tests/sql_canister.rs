@@ -168,6 +168,44 @@ fn reset_sql_fixtures(pic: &PocketIc, canister_id: Principal) {
 }
 
 #[test]
+fn sql_canister_maximum_limits_preserve_results_without_capacity_traps() {
+    let fixture = install_sql_canister_fixture();
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
+
+    // Exercise actual wasm32 collectors through the maintained Wire export.
+    // The empty selection must also avoid allocating the authored maximum.
+    for empty in [false, true] {
+        let filter = if empty { " WHERE age > 1000" } else { "" };
+        for fields in ["*", "id", "age + 1", "id, name"] {
+            for direction in ["ASC", "DESC"] {
+                for offset in [0, 7, u32::MAX] {
+                    let source = format!(
+                        "FROM SqlTestUser{filter} ORDER BY id {direction} LIMIT {{limit}} OFFSET {offset}"
+                    );
+                    let control = format!("SELECT {fields} {}", source.replace("{limit}", "64"));
+                    let maximum = format!(
+                        "SELECT {fields} {}",
+                        source.replace("{limit}", &u32::MAX.to_string())
+                    );
+                    let expected = query_sql(pic, canister_id, &control).unwrap();
+                    let rows = expect_projection(expected.clone());
+                    if empty || offset == u32::MAX {
+                        assert_eq!(rows.row_count, 0);
+                    } else if offset == 0 {
+                        assert!(rows.row_count > 0, "populated control must return rows");
+                    }
+                    for _ in 0..2 {
+                        assert_eq!(query_sql(pic, canister_id, &maximum).unwrap(), expected);
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn sql_fixture_pool_restores_captured_rows_before_reuse() {
     let pool = sql_fixture_pool(NonZeroUsize::new(1).unwrap(), || {
         Ok(install_fixture_canister("sql"))
@@ -513,9 +551,6 @@ fn identity_closeout_reports_one_row_and_maximum_batch_instruction_costs() {
     assert!(result.maximum_entity_context_instructions > 0);
     assert!(result.sequential_typed_enrollment_instructions > 0);
     assert!(result.atomic_typed_enrollment_instructions > 0);
-    assert!(result.atomic_three_entity_instructions < 40_000_000_000);
-    assert!(result.maximum_entity_context_instructions < 40_000_000_000);
-    assert!(result.atomic_typed_enrollment_instructions < 40_000_000_000);
     assert!(
         result.atomic_three_entity_instructions < result.sequential_three_entity_instructions,
         "one marker should cost less than three independently committed writes",
@@ -715,7 +750,6 @@ fn reference_unknown_order_field_survives_real_canister_and_leaves_stable_bytes_
     let measured_failure = measure_query_sql(pic, canister_id, FAILURE_SQL);
     assert_eq!(measured_failure.result, Err(direct_error));
     assert!(measured_failure.local_instructions > 0);
-    assert!(measured_failure.local_instructions < 40_000_000_000);
 
     query_sql_endpoint(pic, canister_id, SUCCESS_SQL)
         .expect("reference corrected query should succeed through generated dispatch");

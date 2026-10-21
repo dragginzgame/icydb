@@ -94,6 +94,7 @@ pub(in crate::db) use ast::{
 #[cfg(feature = "sql")]
 pub(in crate::db) use canonicalize::{
     canonicalize_grouped_having_bool_expr, canonicalize_scalar_where_bool_expr,
+    case_expansions_are_bounded,
 };
 pub(in crate::db) use canonicalize::{
     is_normalized_bool_expr, normalize_bool_expr, truth_condition_binary_compare_op,

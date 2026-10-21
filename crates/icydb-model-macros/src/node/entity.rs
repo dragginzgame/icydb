@@ -263,7 +263,8 @@ impl Entity {
         Ok(())
     }
 
-    // Reject redundant same-kind prefix indexes after each index has a canonical term list.
+    // Only unfiltered non-unique indexes share the membership and constraint
+    // semantics assumed by this prefix heuristic.
     fn validate_redundant_prefix_indexes(
         indexes: &[Index],
         canonical_index_terms: &[Vec<String>],
@@ -273,7 +274,11 @@ impl Entity {
             let left_terms = &canonical_index_terms[index_idx];
             for (right_offset, right_index) in indexes.iter().skip(index_idx + 1).enumerate() {
                 let right_terms = &canonical_index_terms[index_idx + 1 + right_offset];
-                if left_index.unique != right_index.unique {
+                if left_index.unique
+                    || right_index.unique
+                    || left_index.predicate.is_some()
+                    || right_index.predicate.is_some()
+                {
                     continue;
                 }
 
