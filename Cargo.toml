@@ -89,13 +89,13 @@ darling = "0.24"
 data-encoding = "2.9"
 ethnum = { version = "1.5.3", default-features = false }
 getrandom = "0.4"
-ic-host-artifacts = { version = "0.62", default-features = false }
-ic-host-fs = { version = "0.62", default-features = false }
-ic-host-text = "0.62"
-ic-host-tools = "0.62"
+ic-host-artifacts = { version = "0.63", default-features = false }
+ic-host-fs = { version = "0.63", default-features = false }
+ic-host-text = "0.63"
+ic-host-tools = "0.63"
 ic-memory = "0.50"
 ic-metrics = "0.15"
-ic-platform = { version = "0.5", default-features = false }
+ic-platform = { version = "0.6", default-features = false }
 ic-storage = "0.50"
 ic-wire = "0.5"
 icydb = { path = "crates/icydb", version = "=0.279.0", default-features = false }
@@ -127,11 +127,11 @@ xxhash-rust = { version = "0.8.15", default-features = false, features = [
 
 # Tests and tooling only
 blake3 = "1.8.5"
-canic-icydb = { git = "https://github.com/dragginzgame/canic", rev = "1491dd9ee4e858b4f47a4deba7e3cb4ab4a2b895" }
-ic-build = "0.62"
-ic-host-process = "0.62"
-ic-testkit = "0.62"
-ic-timers = "0.27"
+canic-icydb = { git = "https://github.com/dragginzgame/canic", rev = "950599625722c0dbd289e80027009565547e5824" }
+ic-build = "0.63"
+ic-host-process = "0.63"
+ic-testkit = "0.63"
+ic-timers = "0.30"
 icydb-testing-audit-default-empty-fixtures = { path = "schema/audit/default_empty" }
 icydb-testing-audit-group-path-fixtures = { path = "schema/audit/group_path" }
 icydb-testing-audit-nested-relation-fixtures = { path = "schema/audit/nested_relation" }

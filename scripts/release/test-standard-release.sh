@@ -247,10 +247,10 @@ for ready in prepared missing; do
 done
 # Saved-source admission selects the archived lock even when working metadata
 # selects a newer editor. Failed Git/tool producers cannot supply a path.
-mkdir -p "$fixture/selection/scripts/release" "$fixture/selection/scripts/dev" \
+mkdir -p "$fixture/selection/scripts/release" "$fixture/selection/scripts/dev" "$fixture/selection/scripts/ci" \
     "$fixture/selection/bin" "$fixture/selection-tmp"
 cp "$root/scripts/release/select-editor.sh" "$fixture/selection/scripts/release/"
-printf '[[package]]\nname = "ic-build"\nversion = "0.19.0"\n' > "$fixture/saved-lock"
+cp "$root/scripts/ci/compare-stable-versions.pl" "$root/scripts/ci/StableVersion.pm" "$fixture/selection/scripts/ci/"
 printf '[[package]]\nname = "ic-build"\nversion = "0.21.0"\n' > "$fixture/selection/Cargo.lock"
 printf '#!%s\n' "$real_bash" > "$fixture/selection/bin/git"
 cat >> "$fixture/selection/bin/git" <<'GIT'
@@ -262,8 +262,12 @@ GIT
 printf '#!%s\n' "$real_bash" > "$fixture/selection/scripts/dev/install-rust-tools.sh"
 cat >> "$fixture/selection/scripts/dev/install-rust-tools.sh" <<'INSTALL'
 set -euo pipefail
-[[ "$#" == 11 && "$1" == --consumer && "$3 $4" == '--package ic-build' && "$5" == --lockfile ]]
-[[ "$7 $8 $9 ${10} ${11}" == '--bin ic-build-release-metadata --profile debug --check' ]]
+[[ "$1" == --consumer && "$3 $4" == '--package ic-build' && "$5" == --lockfile ]]
+if [[ "$EXPECT_EDITOR_CLI" == 1 ]]; then
+    [[ "$#" == 13 && "$7 $8 $9 ${10} ${11} ${12} ${13}" == '--bin ic-build-release-metadata --profile debug --features cli --check' ]]
+else
+    [[ "$#" == 11 && "$7 $8 $9 ${10} ${11}" == '--bin ic-build-release-metadata --profile debug --check' ]]
+fi
 cmp "$SAVED_LOCK" "$6"
 printf 'editor check\n' >> "$EVENTS"
 printf '%s\n' "$EDITOR_PATH"
@@ -271,25 +275,32 @@ printf '%s\n' "$EDITOR_PATH"
 INSTALL
 chmod +x "$fixture/selection/bin/git"
 export SAVED_LOCK="$fixture/saved-lock"
-for producer in success source editor; do
-    : > "$EVENTS"
-    status=0
-    fail_source=0 fail_admit=0
-    case "$producer" in source) fail_source=1 ;; editor) fail_admit=1 ;; esac
-    TMPDIR="$fixture/selection-tmp" PATH="$fixture/selection/bin:$PATH" \
-        FAIL_SOURCE="$fail_source" FAIL_ADMIT="$fail_admit" \
-        "$real_bash" "$fixture/selection/scripts/release/select-editor.sh" \
-        1111111111111111111111111111111111111111 \
-        > "$fixture/editor-selection" 2> "$fixture/editor-selection-errors" || status=$?
-    if [[ "$producer" == success ]]; then
-        [[ "$status" == 0 && "$(cat "$fixture/editor-selection")" == "$EDITOR_PATH" ]]
-        [[ -z "$(ls -A "$fixture/selection-tmp")" ]]
-    else
-        [[ "$status" != 0 && ! -s "$fixture/editor-selection" ]]
-        [[ -n "$(ls -A "$fixture/selection-tmp")" ]]
-    fi
-    if [[ "$producer" == source ]]; then [[ ! -s "$EVENTS" ]]
-    else [[ "$(cat "$EVENTS")" == 'editor check' ]]; fi
+for saved_version in 0.19.0 0.63.0; do
+    attempts="$fixture/selection-tmp/$saved_version"
+    mkdir "$attempts"
+    printf '[[package]]\nname = "ic-build"\nversion = "%s"\n' "$saved_version" > "$SAVED_LOCK"
+    export EXPECT_EDITOR_CLI=0
+    if [[ "$saved_version" == 0.63.0 ]]; then export EXPECT_EDITOR_CLI=1; fi
+    for producer in success source editor; do
+        : > "$EVENTS"
+        status=0
+        fail_source=0 fail_admit=0
+        case "$producer" in source) fail_source=1 ;; editor) fail_admit=1 ;; esac
+        TMPDIR="$attempts" PATH="$fixture/selection/bin:$PATH" \
+            FAIL_SOURCE="$fail_source" FAIL_ADMIT="$fail_admit" \
+            "$real_bash" "$fixture/selection/scripts/release/select-editor.sh" \
+            1111111111111111111111111111111111111111 \
+            > "$fixture/editor-selection" 2> "$fixture/editor-selection-errors" || status=$?
+        if [[ "$producer" == success ]]; then
+            [[ "$status" == 0 && "$(cat "$fixture/editor-selection")" == "$EDITOR_PATH" ]]
+            [[ -z "$(ls -A "$attempts")" ]]
+        else
+            [[ "$status" != 0 && ! -s "$fixture/editor-selection" ]]
+            [[ -n "$(ls -A "$attempts")" ]]
+        fi
+        if [[ "$producer" == source ]]; then [[ ! -s "$EVENTS" ]]
+        else [[ "$(cat "$EVENTS")" == 'editor check' ]]; fi
+    done
 done
 printf '[OK] Shared release routing, admission and selected-tool preparation ordering passed\n'
 fixture_complete=true

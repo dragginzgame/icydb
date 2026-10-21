@@ -332,11 +332,18 @@ make install-release-editor
 make release-editor-check
 ```
 
+IC Tooling 0.63 requires `cli` when preparing the Build and Testkit executables.
+The Make adapters and Testkit runner select it explicitly; library dependencies
+keep their empty defaults. After adoption, run the setup targets before offline
+checks so the installer records the feature-bound tool selection. Existing
+prepared generations and failure evidence remain retained.
+
 The Make adapters supply an eight MiB allowance per input document; no per-shell
 editor export is required. Fresh release preflight prepares selected tools;
 offline preflight and saved/recovery callbacks only check existing preparation.
-Saved callbacks select the editor from their committed source lock; preserve the
-older prepared tool when newer working metadata selects a different release.
+Saved callbacks select the editor from their committed source lock and its binary
+feature contract. Pre-0.63 editors retain their original featureless preparation;
+preserve those tools when newer working metadata selects a different release.
 Setup does not change release metadata or perform Git/release effects. Missing
 preparation refuses before the consumer runs. See the
 [shared release contract](docs/releases.md#cargo-release-candidate-rendering).

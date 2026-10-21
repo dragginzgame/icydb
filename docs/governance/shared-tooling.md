@@ -13,7 +13,97 @@ these rules.
 
 ## Ownership and provenance
 
-### Shared Tooling 0.25.8 and IC Platform 0.5.0
+### Selected IC Tooling 0.63.0 — 2026-10-21
+
+IC Tooling consolidates Host, Build and Testkit while retaining their published
+crate names and ownership boundaries. The live crates.io indexes confirm 0.63.0
+for all seven consumed packages: Host Artifacts, FS, Process, Text and Tools,
+Build and Testkit. Their published source identifies release
+`c342bb281dc82ff8878c26b5f5449972e9f5341d`. The workspace consumes registry
+packages, without a sibling path or unpublished API. Published
+[0.63 migration guidance](https://github.com/dragginzgame/ic-tooling/blob/c342bb281dc82ff8878c26b5f5449972e9f5341d/docs/changelog/0.63.md)
+and actual feature declarations were reviewed; old pending wording is historical.
+
+The current Build metadata editor and Testkit server CLI explicitly select `cli`
+through Shared's existing feature-aware installer. Current library dependencies
+leave it disabled. IcyDB's recovery selector reads the saved Build version with
+the existing TOML parser and shared stable-version comparator: releases before
+0.63 retain their original featureless binary recipe. This is saved-source tool
+custody, not a runtime fallback. Byte allowances, caller cache selection,
+jobserver transport, receipts and release effects retain their existing owners.
+Common tool pins and the Shared snapshot remain unchanged.
+
+Source inspection found no consumer of Testkit's removed Candid call APIs or
+benchmark error type. Existing concrete Wire calls remain over raw PocketIC
+transport; no Testkit `wire` feature or protocol wrapper is added unnecessarily.
+Native PocketIC and the pinned Canic adapter retain upstream Candid. Testkit's
+production dependency no longer selects Metrics or Platform's Candid feature.
+Role labels still classify deployed Host consumers separately from Build/Testkit
+infrastructure; [deployment artifact enforcement #378](https://github.com/dragginzgame/icydb/issues/378)
+remains an independent obligation.
+
+Focused Linux qualification passes strict CLI/Build/integration Clippy, 199 host
+tests, setup and release-recovery fixtures, formatting, dependency declarations
+and selected graph checks. The current CLI tools were prepared through the
+canonical installer; the actual saved 0.62.1 editor also passes admission without
+the new feature. Rust 1.91 checks pass for the seven selected upstream libraries
+and Testkit's Wasm library. Build's native library graph excludes Clap; Testkit's
+native library excludes Clap, Metrics and Platform's Candid feature. Its Wasm
+graph also excludes PocketIC and Host packages. These are graph observations,
+not final deployment artifact admission.
+
+The installed schema-guard test preserves anonymous refusal and application-trap
+propagation; Testkit started and reaped its local PocketIC server. No missing
+Tooling API requires an upstream issue. Native macOS, live IC and broad
+workspace/release gates were not run. Raw Wasm size, cycle and instruction deltas
+are unmeasured.
+
+### Selected IC Platform 0.6.0 — 2026-10-21
+
+The live crates.io index confirms published, non-yanked Platform 0.6.0; the
+incoming root requirement and lock already select it. Archive SHA-256:
+`cd4f84e9c700fb20a907aac00dd176918b9467b8ef909a4a38fc385ba690f3a7`;
+source `73dda4a5ee17abb78d905562b102a2af51031dda`. The published README/source and
+[source-bound migration guide](https://github.com/dragginzgame/ic-platform/blob/73dda4a5ee17abb78d905562b102a2af51031dda/docs/migration.md)
+require explicit `principal` for type-only consumers. Schema and facade select
+that feature themselves; they do not depend on feature unification from native
+clients or canister hosts. Runtime and PocketIC profiles imply it; raw `ic0`
+and executor-only consumers retain their existing narrower declarations.
+
+Platform owns the public Principal identity and external conversion boundary.
+Wire and database storage retain their existing owners and bytes. The nominal
+public dependency change selects the pending 0.280.0 notes; own package versions
+remain under the release workflow. No storage or memory implementation changes
+are part of this adoption.
+
+The incoming Canic pin `950599625722c0dbd289e80027009565547e5824` supplies the
+adapter's Timers 0.30 alignment. It still declares full CDK and its management
+helper; adopting Platform here does not migrate that separate adapter. The local
+Canic main checkout at `/home/adam/projects/canic` has no adapter package, so a
+local path switch and the separate adapter migration remain deferred. No sibling
+working files or refs were changed during Platform qualification.
+
+Shared's direct declaration/alias checks and selected graph checks remain the
+admission tools. Artifact-bound deployment exclusions remain tracked in
+[#378](https://github.com/dragginzgame/icydb/issues/378); a clean manifest or
+successful graph observation is not final-Wasm exclusion evidence. Upstream
+Candid remains permitted for management protocols and native PocketIC. No
+application protocol or host-parser feature is added to IcyDB's library graph.
+
+Focused Linux qualification passes schema/facade strict Clippy, four affected
+actor Wasm Clippy checks, seven Principal/admission/authorization tests, Rust 1.91
+native/Wasm facade checks, and the dependency declaration, alias, graph and
+formatting checks. The installed schema-guard test preserves anonymous refusal
+and application-trap propagation on a Testkit-managed local PocketIC server.
+The locked Testkit CLI was prepared through the canonical installer; Testkit
+started and reaped the server. No missing Platform API requires an upstream issue.
+At Platform-only qualification, Timers and native Testkit retained Platform 0.5.1
+alongside 0.6.0; the selected actor graphs had one executor 2.0.0 and one ic0 1.2.0
+identity. Native macOS,
+live IC and broad workspace/release gates were not run. Raw Wasm size, cycle and
+instruction deltas are unmeasured.
+
+### Earlier Shared Tooling 0.25.8 and IC Platform 0.5.0
 
 The remote Shared Tooling main branch identifies committed version 0.25.8 at
 `0a2d2ee3b5e0ae77755c2915ac28836d4d5ba359`. Its canonical exporter previewed

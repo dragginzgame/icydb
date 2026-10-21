@@ -186,7 +186,7 @@ printf '%s\n' "install-rust-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/
   "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv" \
   "testkit-runner.sh" \
   "ic-testkit-server setup --directory $FIXTURE/.tools/ic-testkit-server" \
-  "install-rust-tools.sh --consumer $FIXTURE --package ic-build --lockfile $FIXTURE/Cargo.lock --bin ic-build-release-metadata --profile debug" > "$FIXTURE/expected"
+  "install-rust-tools.sh --consumer $FIXTURE --package ic-build --lockfile $FIXTURE/Cargo.lock --bin ic-build-release-metadata --profile debug --features cli" > "$FIXTURE/expected"
 cmp "$FIXTURE/expected" "$TEST_TRACE"
 : > "$TEST_TRACE"
 command make --no-print-directory -j4 -C "$FIXTURE" tools-check > "$FIXTURE/offline"
@@ -195,7 +195,7 @@ printf '%s\n' "install-host-tools.sh --consumer $FIXTURE --versions $FIXTURE/ci/
   "install-ic-tools.sh --consumer $FIXTURE --pins $FIXTURE/ci/ic-tools.tsv --check" \
   "testkit-runner.sh --check" \
   "ic-testkit-server check --directory $FIXTURE/.tools/ic-testkit-server" \
-  "install-rust-tools.sh --consumer $FIXTURE --package ic-build --lockfile $FIXTURE/Cargo.lock --bin ic-build-release-metadata --profile debug --check" > "$FIXTURE/expected"
+  "install-rust-tools.sh --consumer $FIXTURE --package ic-build --lockfile $FIXTURE/Cargo.lock --bin ic-build-release-metadata --profile debug --features cli --check" > "$FIXTURE/expected"
 cmp "$FIXTURE/expected" "$TEST_TRACE"
 printf '%s\n' verify-wasm-optimizer.sh > "$FIXTURE/policy-expected"
 cmp "$FIXTURE/policy-expected" "$TEST_POLICY_TRACE"

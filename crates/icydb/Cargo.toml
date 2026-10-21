@@ -17,7 +17,7 @@ migration = ["icydb-core/migration"]
 
 [dependencies]
 ic-memory = { workspace = true }
-ic-platform = { workspace = true }
+ic-platform = { workspace = true, features = ["principal"] }
 ic-wire = { workspace = true }
 icydb-core = { workspace = true }
 icydb-diagnostic-code = { workspace = true }

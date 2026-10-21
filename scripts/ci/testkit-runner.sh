@@ -11,7 +11,7 @@ fi
 export PATH="$ROOT/.tools/host/bin:$PATH"
 export CARGO_HOME="$ROOT/.cache/cargo/icydb"
 if bash "$ROOT/scripts/dev/install-rust-tools.sh" --consumer "$ROOT" \
-  --package ic-testkit --lockfile "$ROOT/Cargo.lock" --bin ic-testkit-server --profile release "$@"; then
+  --package ic-testkit --lockfile "$ROOT/Cargo.lock" --bin ic-testkit-server --profile release --features cli "$@"; then
   exit 0
 else
   status=$?

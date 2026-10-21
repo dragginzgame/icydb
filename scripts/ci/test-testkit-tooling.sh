@@ -46,7 +46,7 @@ cat > "$fixture/scripts/dev/install-rust-tools.sh" <<'INSTALLER'
 set -euo pipefail
 printf '%s\n' "$*" >> "$TEST_ROOT/installation-requests"
 if [[ "$*" == "--consumer $TEST_ROOT --versions "* ]]; then exit 0; fi
-[[ "$*" == "--consumer $TEST_ROOT --package ic-testkit --lockfile $TEST_ROOT/Cargo.lock --bin ic-testkit-server --profile release"* ]]
+[[ "$*" == "--consumer $TEST_ROOT --package ic-testkit --lockfile $TEST_ROOT/Cargo.lock --bin ic-testkit-server --profile release --features cli"* ]]
 [[ "${TEST_SELECTION_FAIL:-0}" == 0 ]] || exit 19
 if [[ "${TEST_REQUIRE_JOBSERVER:-0}" == 1 ]]; then
   [[ "${MAKEFLAGS:-}" =~ --jobserver-(auth|fds)=([0-9]+),([0-9]+) ]]

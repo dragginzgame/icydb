@@ -43,7 +43,7 @@ RELEASE_TMP_DIR := $(ROOT_DIR)/.cache/release-tmp
 CARGO_WORK_ENV := CARGO_HOME="$(CARGO_WORK_HOME)" CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
 CARGO_PUBLISH_ENV := CARGO_TARGET_DIR="$(CARGO_WORK_TARGET_DIR)"
 TESTKIT_RUNNER := bash "$(ROOT_DIR)/scripts/ci/testkit-runner.sh"
-RELEASE_EDITOR_TOOL = bash "$(ROOT_DIR)/scripts/dev/install-rust-tools.sh" --consumer "$(ROOT_DIR)" --package ic-build --lockfile "$(ROOT_DIR)/Cargo.lock" --bin ic-build-release-metadata --profile debug
+RELEASE_EDITOR_TOOL = bash "$(ROOT_DIR)/scripts/dev/install-rust-tools.sh" --consumer "$(ROOT_DIR)" --package ic-build --lockfile "$(ROOT_DIR)/Cargo.lock" --bin ic-build-release-metadata --profile debug --features cli
 RELEASE_EDITOR_CHECK = $(RELEASE_EDITOR_TOOL) --check
 # Admit the locked editor before invoking a release consumer. A failed producer
 # cannot supply its path; recovery/verification only check prepared tools.

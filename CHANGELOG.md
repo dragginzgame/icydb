@@ -5,6 +5,25 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.280.0]
+
+### ⚠️ Breaking
+
+- Adopt IC Platform 0.6 for public Principal conversions and authorization
+  contexts. Callers using Platform types must select the same version; Wire
+  and stored bytes remain unchanged.
+
+### 🔧 Changed
+
+- Adopt IC Tooling 0.63 Host, Build and Testkit packages, with explicit CLI
+  preparation and preserved release recovery selections.
+- Declare Principal support explicitly in schema and facade dependencies while
+  preserving narrow runtime and raw-system feature selections.
+- Align the selected Canic fixture adapter with Timers 0.30; endpoint and
+  lifecycle ownership remain with Canic.
+
+See [detailed notes](docs/changelog/0.280.md).
+
 ## [0.279.0] - 2026-10-20
 
 ### ⚠️ Breaking
