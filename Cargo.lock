@@ -1435,9 +1435,9 @@ dependencies = [
 
 [[package]]
 name = "ic-memory"
-version = "0.50.7"
+version = "0.50.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec9355b6f4b8456f367e025ce1832b76333f65346470b593956a79556cbab74b"
+checksum = "86c4ee3bdf3ff5b29b1cf801f3ba03679d41309de0004c0ac19e39abaf9d9f04"
 dependencies = [
  "ic-stable-structures",
  "serde",
@@ -1479,9 +1479,9 @@ dependencies = [
 
 [[package]]
 name = "ic-storage"
-version = "0.50.7"
+version = "0.50.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65efdfca5ef75a4eff0247db0176562c8d302a85b72c7fb47fc7d928b8afc8f7"
+checksum = "4961e19e177a24920a68f3a88d8e9602d02bbdf4b27ff02fb440454afaba8093"
 dependencies = [
  "ic-memory",
  "ic-stable-structures",
@@ -1533,9 +1533,9 @@ dependencies = [
 
 [[package]]
 name = "ic-wire"
-version = "0.5.15"
+version = "0.5.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a60fc9aa741319e59f9cc292395f6af0e23bf879fb6044c4b4eab7a805acbf44"
+checksum = "17f1a8f762a0712883ec91a284a1f02e8411b187e1f6510b166a6dae25d70638"
 dependencies = [
  "ic-wire-derive",
  "postcard",
@@ -1545,9 +1545,9 @@ dependencies = [
 
 [[package]]
 name = "ic-wire-derive"
-version = "0.5.15"
+version = "0.5.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb8ee36747523579ec44927b0977eae4a54a593093f816a416716a26010ec1b9"
+checksum = "23b3ae8740e790b445193ad1033a3f98c2b7bdbafd125e05a280d4842fff40e1"
 dependencies = [
  "proc-macro2",
  "quote",
