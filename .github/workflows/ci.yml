@@ -18,6 +18,7 @@ env:
   CARGO_TERM_COLOR: always
   RUST_CURRENT: "stable"
   SCCACHE_GHA_ENABLED: "true"
+  IC_TOOLS: icp ic-wasm wasm-opt
 
 jobs:
   dependency_msrv:
@@ -99,6 +100,7 @@ jobs:
           temp-root: ${{ runner.temp }}
           repository-root: ${{ github.workspace }}
           compact-successful-tools: 'true'
+          ic-tools: ${{ env.IC_TOOLS }}
 
   rust:
     runs-on: ubuntu-24.04
@@ -117,6 +119,7 @@ jobs:
     env:
       RUSTC_WRAPPER: sccache
       TMPDIR: ${{ github.workspace }}/.cache
+      IC_TOOLS: wasm-opt
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -185,6 +188,7 @@ jobs:
           temp-root: ${{ runner.temp }}
           repository-root: ${{ github.workspace }}
           compact-successful-tools: 'true'
+          ic-tools: ${{ env.IC_TOOLS }}
       - name: Retain PocketIC server failure logs
         if: always() && matrix.lane == 'tier-b'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -248,6 +252,7 @@ jobs:
           cargo clippy --locked -p icydb-cli --bin icydb -- -D warnings
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --bin icydb tests::icp::hex_response_bytes
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --bin icydb diagnostic::
+          bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --bin icydb tests::observability::
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-cli --test command_exit_status migration_
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-model-schema-only --lib renamed_schema_only_dependency_emits_fragment
           bash scripts/ci/run-nonempty-cargo-test.sh --locked -p icydb-testing-build --lib canister_artifact::tests
@@ -271,12 +276,14 @@ jobs:
           temp-root: ${{ runner.temp }}
           repository-root: ${{ github.workspace }}
           compact-successful-tools: 'true'
+          ic-tools: ${{ env.IC_TOOLS }}
 
   wire_browser:
     runs-on: ubuntu-24.04
     env:
       CARGO_BUILD_JOBS: '2'
       CARGO_INCREMENTAL: '0'
+      IC_TOOLS: wasm-opt
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -342,6 +349,7 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       RUSTC_WRAPPER: sccache
+      IC_TOOLS: ic-wasm wasm-opt
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -385,6 +393,7 @@ jobs:
           temp-root: ${{ runner.temp }}
           repository-root: ${{ github.workspace }}
           compact-successful-tools: 'true'
+          ic-tools: ${{ env.IC_TOOLS }}
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: wasm-size-report

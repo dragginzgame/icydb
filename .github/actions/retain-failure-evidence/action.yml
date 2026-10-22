@@ -14,12 +14,14 @@ inputs:
   collection-log:
     description: Absolute original collection log path; uploaded even when the prepared archive is missing.
   compact-successful-tools:
-    description: Recheck complete active toolsets and retain their pins/check evidence instead of bulky payloads; failed and unselected sets stay full.
+    description: Recheck declared active toolsets and retain their pins/check evidence instead of bulky payloads; failed and unselected sets stay full.
     default: 'false'
   host-versions:
     description: Absolute host pin exception for compact checking; defaults to this action's snapshot ci/tool-versions.env.
   ic-pins:
     description: Absolute IC pin exception for compact checking; defaults to this action's snapshot ci/ic-tools.tsv.
+  ic-tools:
+    description: Space-separated IC executable selection for compact checking; omitted selections retain full IC bundles.
 outputs:
   collection-complete:
     description: Whether shared collection completed, or both caller-prepared files were available; prepared contents remain caller-qualified.
@@ -45,6 +47,7 @@ runs:
         EVIDENCE_COMPACT: ${{ inputs.compact-successful-tools }}
         EVIDENCE_HOST_VERSIONS: ${{ inputs.host-versions }}
         EVIDENCE_IC_PINS: ${{ inputs.ic-pins }}
+        EVIDENCE_IC_TOOLS: ${{ inputs.ic-tools }}
       run: |
         if [[ -n "${EVIDENCE_PREPARED_ARCHIVE:-}" || -n "${EVIDENCE_COLLECTION_LOG:-}" ]]; then
           # Inputs are literal paths, never commands, globs or multiline output.
@@ -86,6 +89,8 @@ runs:
           true) selection=(compact) ;;
           *) echo 'compact-successful-tools must be true or false' >&2; exit 2 ;;
         esac
+        ic_selection=()
+        [[ "${selection[0]}" != compact ]] || ic_selection=("${EVIDENCE_IC_TOOLS:-}")
         diagnostics="$(mktemp -d "$temp_root/tool-evidence.XXXXXX")"
         archive="$(mktemp -d "$RUNNER_TEMP/shared-evidence.XXXXXX")/evidence.tar.gz"
         collector_status=0
@@ -93,6 +98,7 @@ runs:
           "$archive" "$repository_root" "$diagnostics" "${selection[0]}" \
           "${EVIDENCE_HOST_VERSIONS:-$EVIDENCE_ACTION_ROOT/../../../ci/tool-versions.env}" \
           "${EVIDENCE_IC_PINS:-$EVIDENCE_ACTION_ROOT/../../../ci/ic-tools.tsv}" \
+          ${ic_selection[@]+"${ic_selection[@]}"} \
           ${inputs[@]+"${inputs[@]}"} > "${archive%/*}/archive-path" || collector_status=$?
         [[ "$collector_status" != 2 ]] || exit "$collector_status"
         complete=true

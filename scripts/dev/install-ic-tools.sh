@@ -10,11 +10,16 @@ consumer="$ROOT"
 pins=""
 check=false
 preflight=false
+tools=()
 usage() {
-    echo 'usage: install-ic-tools.sh [--consumer <checkout>] [--pins <tsv>] [--check | --preflight]' >&2
+    echo 'usage: install-ic-tools.sh --tool NAME [--tool NAME]... [--consumer <checkout>] [--pins <tsv>] [--check | --preflight]' >&2
 }
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --tool)
+            [[ $# -ge 2 ]] || { usage; exit 2; }
+            case "$2" in quill|icp|didc|ic-wasm|wasm-opt) ;; *) usage; exit 2 ;; esac
+            tools+=("$2"); shift 2 ;;
         --consumer|--pins)
             [[ $# -ge 2 && -n "$2" ]] || { usage; exit 2; }
             if [[ "$1" == --consumer ]]; then consumer="$2"; else pins="$2"; fi
@@ -25,6 +30,8 @@ while [[ $# -gt 0 ]]; do
         *) usage; exit 2 ;;
     esac
 done
+[[ ${#tools[@]} != 0 ]] || { usage; exit 2; }
+requested_tools="$(printf '%s\n' "${tools[@]}" | LC_ALL=C sort -u)"
 [[ "$check" == false || "$preflight" == false ]] || { usage; exit 2; }
 [[ "$consumer" == /* ]] || consumer="$PWD/$consumer"
 case "$consumer" in *$'\n'*|*$'\r'*) echo 'consumer path contains CR/LF' >&2; exit 1 ;; esac
@@ -46,7 +53,18 @@ case "$platform" in
 esac
 
 catalog_reader="$ROOT/scripts/ci/tool-catalog-records.pl"
-selected_records="$(perl "$catalog_reader" ic "$pins")"
+selected_ic_records() {
+    local records
+    # Admit the complete catalog before selecting a caller's declared subset.
+    records="$(perl "$catalog_reader" ic "$1")" || return $?
+    # Tool names are admitted ASCII words. Keep -v assignments on one line:
+    # macOS awk rejects literal newlines in assignment values.
+    printf '%s\n' "$records" | awk -F '\t' -v tools="${requested_tools//$'\n'/ }" '
+        BEGIN { n=split(tools, names, " "); for (i=1; i<=n; i++) selected[names[i]]=1 }
+        $1 in selected { print }
+    '
+}
+selected_records="$(selected_ic_records "$pins")"
 # Platform and catalog admission only: no installed tools, downloads or writes.
 [[ "$preflight" == false ]] || exit 0
 # shellcheck source=scripts/dev/tool-store.sh
@@ -88,20 +106,28 @@ verify_bundle() (
     set -e
     [[ -d "$1" && ! -L "$1" && ! -L "$1/bin" && ! -L "$1/lib" ]] || exit 1
     cd "$1" || exit 1
-    for receipt in pins.tsv host files.sha256; do
+    for receipt in pins.tsv tools host files.sha256; do
         [[ -f "$receipt" && ! -L "$receipt" ]] || exit 1
     done
-    installed_records="$(perl "$catalog_reader" ic pins.tsv)" || exit 1
+    printf '%s\n' "$requested_tools" | cmp -s - tools || exit 1
+    installed_records="$(selected_ic_records pins.tsv)" || exit 1
     [[ "$selected_records" == "$installed_records" ]] || exit 1
     [[ "$(cat host)" == "$host" ]] || exit 1
     # Receipts may name only physical payloads under this bundle, never external
     # paths or linked runtime libraries. Require every runtime file in the receipt.
     perl -MFile::Find -e '
+        my %expected=map { ("bin/$_", 1) } split /\n/, $ARGV[0];
+        my $binaryen=exists $expected{"bin/wasm-opt"};
         my %files;
         find({no_chdir=>1,wanted=>sub {
             -l $_ and die "linked IC payload\n";
+            if (-f $_ && m{^bin/}) {
+                delete $expected{$_} or die "unselected IC executable\n";
+            }
+            -f $_ && m{^lib/} && !$binaryen and die "unselected IC library\n";
             $files{$_}=1 if -f $_;
         }}, "bin", "lib");
+        keys(%expected)==0 or die "missing selected IC executable\n";
         open my $f,"<","files.sha256" or die $!;
         while (<$f>) {
             s/\n\z//;
@@ -109,7 +135,7 @@ verify_bundle() (
             delete $files{$1} or die "unexpected or duplicate IC payload\n";
         }
         keys(%files)==0 or die "unrecorded IC payload\n";
-    ' || exit 1
+    ' "$requested_tools" || exit 1
     bash "$ROOT/scripts/ci/verify-evidence-checksums.sh" files.sha256 >&2 || exit 1
     # Authenticate against publisher-pinned archives too: a changed binary plus
     # an edited local receipt must not become reusable across repositories.
@@ -146,7 +172,7 @@ if [[ -n "$bundle" ]]; then
     printf '%s\n' "$active/bin"
     exit 0
 fi
-[[ "$check" == false ]] || { echo 'IC tools missing, changed or selected with different pins; run make install-ic-tools' >&2; exit 1; }
+[[ "$check" == false ]] || { echo 'IC tools missing, changed or selected with different tools/pins; run make install-ic-tools with the same IC_TOOLS selection' >&2; exit 1; }
 for command in curl tar gzip perl; do command -v "$command" >/dev/null; done
 tool_store_prepare_install verify_bundle
 if [[ -z "$stage" ]]; then
@@ -155,7 +181,8 @@ if [[ -z "$stage" ]]; then
 fi
 mkdir "$stage/bin" "$stage/lib" "$stage/downloads"
 cp "$pins" "$stage/pins.tsv"
-staged_records="$(perl "$catalog_reader" ic "$stage/pins.tsv")"
+printf '%s\n' "$requested_tools" > "$stage/tools"
+staged_records="$(selected_ic_records "$stage/pins.tsv")"
 [[ "$staged_records" == "$selected_records" ]] || { echo 'IC tool pins changed before staging' >&2; exit 1; }
 printf '%s\n' "$host" > "$stage/host"
 while IFS=$'\t' read -r tool version selected_host digest || [[ -n "$tool" ]]; do

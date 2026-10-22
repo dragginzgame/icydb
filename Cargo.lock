@@ -255,7 +255,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_codec_wire_query"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "ic-wire",
  "icydb-testing-codec-query",
@@ -263,7 +263,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_default_empty"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "canic-icydb",
  "icydb",
@@ -272,7 +272,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_default_empty_metrics"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "canic-icydb",
  "icydb",
@@ -281,7 +281,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_group_path_sql_query"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "canic-icydb",
  "icydb",
@@ -291,7 +291,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_nested_relation_direct"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "canic-icydb",
  "icydb",
@@ -301,7 +301,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_nested_relation_none"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "canic-icydb",
  "icydb",
@@ -311,7 +311,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_nested_relation_repeated"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "canic-icydb",
  "icydb",
@@ -321,7 +321,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_nested_relation_shallow"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "canic-icydb",
  "icydb",
@@ -331,7 +331,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_one_entity_dynamic_query"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "canic-icydb",
  "ic-platform",
@@ -343,7 +343,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_one_entity_reachable_operations"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "canic-icydb",
  "ic-platform",
@@ -355,7 +355,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_one_entity_sql_query"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "canic-icydb",
  "icydb",
@@ -365,7 +365,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_one_entity_typed_query"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "canic-icydb",
  "ic-platform",
@@ -376,7 +376,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_request_future_scale"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "canic-icydb",
  "icydb",
@@ -386,7 +386,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_sql_perf"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "canic-icydb",
  "ic-platform",
@@ -399,7 +399,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_ten_entity_reachable_operations"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "canic-icydb",
  "ic-platform",
@@ -411,7 +411,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_ten_entity_typed_query"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "canic-icydb",
  "icydb",
@@ -421,7 +421,7 @@ dependencies = [
 
 [[package]]
 name = "canister_demo_rpg"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "canic-icydb",
  "icydb",
@@ -430,7 +430,7 @@ dependencies = [
 
 [[package]]
 name = "canister_test_lifecycle_participant"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "canic-icydb",
  "ic-platform",
@@ -443,7 +443,7 @@ dependencies = [
 
 [[package]]
 name = "canister_test_logical_memory"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "canic-icydb",
  "ic-memory",
@@ -454,7 +454,7 @@ dependencies = [
 
 [[package]]
 name = "canister_test_read_authority"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "canic-icydb",
  "ic-platform",
@@ -465,7 +465,7 @@ dependencies = [
 
 [[package]]
 name = "canister_test_schema_guard"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "canic-icydb",
  "ic-platform",
@@ -477,7 +477,7 @@ dependencies = [
 
 [[package]]
 name = "canister_test_schema_public"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "canic-icydb",
  "icydb",
@@ -486,7 +486,7 @@ dependencies = [
 
 [[package]]
 name = "canister_test_sql"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "canic-icydb",
  "ic-platform",
@@ -500,7 +500,7 @@ dependencies = [
 
 [[package]]
 name = "canister_test_sql_bounded"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "canic-icydb",
  "ic-platform",
@@ -514,7 +514,7 @@ dependencies = [
 
 [[package]]
 name = "canister_test_sql_guard"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "canic-icydb",
  "ic-platform",
@@ -525,19 +525,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "canister_test_startup_timer"
-version = "0.280.0"
-dependencies = [
- "canic-icydb",
- "ic-platform",
- "ic-timers",
- "icydb-testing-wasm-helpers",
- "serde",
-]
-
-[[package]]
 name = "canister_test_wire_rollback"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "canic-icydb",
  "icydb-testing-wasm-helpers",
@@ -1270,9 +1259,9 @@ dependencies = [
 
 [[package]]
 name = "ic-build"
-version = "0.63.0"
+version = "0.63.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2036d85fbb9a1f2c6190801938a2574ff29eae5f43a31846a0bd9bbb180b8b3f"
+checksum = "9ab219a0361928068d4b8d9af33bb50ff42de7aa557d3e384eb8d13e60c27a48"
 dependencies = [
  "cargo_metadata",
  "ic-host-artifacts",
@@ -1366,9 +1355,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-artifacts"
-version = "0.63.0"
+version = "0.63.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de90433bb0b6cbe86bb9088a0f271ab832bfb12600eac181e8c501b121be494f"
+checksum = "6eb70dfbfd1b80235b18a174b7ca18b0ccfe635cad455de68f8f7e88687aeef1"
 dependencies = [
  "flate2",
  "leb128",
@@ -1378,9 +1367,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-fs"
-version = "0.63.0"
+version = "0.63.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4978f9c0679229aa3f085b4d58a7a3ba12d997fa63d10e98d5ce1571a0908b14"
+checksum = "71525f0a39e7ddbd11985a3730418dc87b42853c5b211355d972844886c07bbf"
 dependencies = [
  "ic-host-artifacts",
  "rustix",
@@ -1390,9 +1379,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-process"
-version = "0.63.0"
+version = "0.63.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "60fed85db6af51ddd5b204b04cd39753ccf31c22568b28d4b54fef0da4f168a1"
+checksum = "a1d2ed303bc454d858b1e4c2f5a365c182bdac553c3c2f8cf4c75016ecfe26ca"
 dependencies = [
  "command-fds",
  "ic-host-artifacts",
@@ -1403,18 +1392,18 @@ dependencies = [
 
 [[package]]
 name = "ic-host-text"
-version = "0.63.0"
+version = "0.63.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ef3e437812cf38ca5d15ee004b3984581a1b3a2381725808825b5f41b01ddf77"
+checksum = "31f10816fba83c06a1201f45a118af1f2141646a8a6993707532be690c5feefe"
 dependencies = [
  "unicode-width",
 ]
 
 [[package]]
 name = "ic-host-tools"
-version = "0.63.0"
+version = "0.63.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72f4907e4e5e8cc635a62f6996b7f51598faf9eb72d66edc9f745ad803462f96"
+checksum = "c1650b632211f54325ee82d218ba75c96de1fe374d7f6b6cdf221d69fb4ad3d8"
 dependencies = [
  "ic-host-artifacts",
  "serde",
@@ -1446,11 +1435,11 @@ dependencies = [
 
 [[package]]
 name = "ic-memory"
-version = "0.50.5"
+version = "0.50.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d13a0d6b3f063fbb5f60e0e0b6d9b2bafb66867aa1e4a23d0121cab9db26bd6e"
+checksum = "fce76e36ea3587810c22ed1c5b98499c5a5689ff3e6a45508c7dae230a0a1b99"
 dependencies = [
- "ic-stable-structures",
+ "ic-platform",
  "serde",
  "serde_cbor",
  "thiserror 2.0.18",
@@ -1458,19 +1447,20 @@ dependencies = [
 
 [[package]]
 name = "ic-metrics"
-version = "0.15.1"
+version = "0.15.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10d73e4784a14737d07f1c5401936f0e722570f84d43478fe4ccaf56b772cab0"
+checksum = "dd4d60bbe06d3c58d0d2a1e3fac4687469fb370e5f03ee1d4e60a4bdc4d24f8e"
 
 [[package]]
 name = "ic-platform"
-version = "0.6.2"
+version = "0.6.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5fe3c6c29dbf9ac6bcae2d27447c9a1e342963c01649b6529a6fbb1e66e9f056"
+checksum = "2ae527f77c40a2a2ac1de2b119dd58afdee6e6993faf4d033b54db99da15522a"
 dependencies = [
  "crc32fast",
  "data-encoding",
  "ic-cdk-executor",
+ "ic-stable-structures",
  "ic0",
  "ic_principal",
  "pin-project-lite",
@@ -1490,19 +1480,19 @@ dependencies = [
 
 [[package]]
 name = "ic-storage"
-version = "0.50.5"
+version = "0.50.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcccdc7d708e5bffe31cfd5524bc58f8af504f43be0dcac23447f1fb7b8ab1d7"
+checksum = "509c501ba2ad1083f7f0dc0f3a3b36ae3918736e6f7803e60e5f50235c60ae37"
 dependencies = [
  "ic-memory",
- "ic-stable-structures",
+ "ic-platform",
 ]
 
 [[package]]
 name = "ic-testkit"
-version = "0.63.0"
+version = "0.63.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa19120a461f1ad2caf179e9a58246a484e42a61a276bb5c93cb6dd22cd5803a"
+checksum = "8d4e998417815b97ab6721d56c75f4be953e845fd11cc091383313bb1a769360"
 dependencies = [
  "ic-host-artifacts",
  "ic-host-fs",
@@ -1544,9 +1534,9 @@ dependencies = [
 
 [[package]]
 name = "ic-wire"
-version = "0.5.9"
+version = "0.5.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "93dd2e5c28d3243ccb205dbc69d4a1c2649c1af831a6037b753462d9a0b6e6ea"
+checksum = "b4a6497f23b86fe3a4b3a1f6718e57fd535d9067291a7ad1fb16931dcffb6f21"
 dependencies = [
  "ic-wire-derive",
  "postcard",
@@ -1556,9 +1546,9 @@ dependencies = [
 
 [[package]]
 name = "ic-wire-derive"
-version = "0.5.9"
+version = "0.5.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1de24534b26b9148f56f6bca6cf289b22256d57e6f5d5a883a314ae53c3d0dd"
+checksum = "14c0e0772a520b53a16169c33effaa018313c82bd154c27d074d062b72665a14"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1669,7 +1659,7 @@ dependencies = [
 
 [[package]]
 name = "icydb"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "canic-icydb",
  "ic-memory",
@@ -1686,7 +1676,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-cli"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "clap",
  "ic-host-artifacts",
@@ -1702,7 +1692,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-core"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "base64 0.23.1",
  "getrandom 0.4.3",
@@ -1729,14 +1719,14 @@ dependencies = [
 
 [[package]]
 name = "icydb-diagnostic-code"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "remain",
 ]
 
 [[package]]
 name = "icydb-model"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "convert_case",
  "ctor",
@@ -1756,7 +1746,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-model-macros"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "convert_case",
  "darling 0.24.1",
@@ -1771,7 +1761,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "crc32fast",
  "data-encoding",
@@ -1791,7 +1781,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-default-empty-fixtures"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "icydb",
  "icydb-model",
@@ -1800,7 +1790,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-group-path-fixtures"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "icydb",
  "icydb-model",
@@ -1809,7 +1799,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-nested-relation-fixtures"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "canic-icydb",
  "ic-platform",
@@ -1820,7 +1810,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-one-simple-fixtures"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "icydb",
  "icydb-model",
@@ -1829,7 +1819,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-sql-perf-fixtures"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "icydb",
  "icydb-model",
@@ -1839,7 +1829,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-ten-simple-fixtures"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "icydb",
  "icydb-model",
@@ -1848,7 +1838,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-build"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "ic-build",
  "ic-host-artifacts",
@@ -1868,14 +1858,14 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-codec-query"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "ic-platform",
 ]
 
 [[package]]
 name = "icydb-testing-demo-rpg-fixtures"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "icydb",
  "icydb-model",
@@ -1884,7 +1874,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-endpoint-installation"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "canic-icydb",
  "icydb",
@@ -1893,7 +1883,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-integration"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "blake3",
  "ic-host-artifacts",
@@ -1913,7 +1903,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-model-facade-only"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "canic-icydb",
  "ic-memory",
@@ -1925,14 +1915,14 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-model-schema-only"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "icydb-model",
 ]
 
 [[package]]
 name = "icydb-testing-model-typed-adapter"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "icydb",
  "icydb-model",
@@ -1940,7 +1930,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-source-checks"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "proc-macro2",
  "syn 3.0.9",
@@ -1948,7 +1938,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-sql-generator"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "blake3",
  "serde",
@@ -1957,7 +1947,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-sqlite-reference"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "blake3",
  "icydb-testing-sql-generator",
@@ -1966,7 +1956,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-test-fixtures"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "icydb",
  "icydb-model",
@@ -1974,7 +1964,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-test-sql-fixtures"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "icydb",
  "icydb-model",
@@ -1983,7 +1973,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-wasm-helpers"
-version = "0.280.0"
+version = "0.280.2"
 dependencies = [
  "canic-icydb",
  "ic-wire",

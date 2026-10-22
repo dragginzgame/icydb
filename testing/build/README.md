@@ -23,7 +23,8 @@ endpoint contracts and emits browser types, metadata and exact Rust frames.
 Its reflection dependencies are development-only; it does not change runtime
 payloads or library dependencies. See [browser qualification](../wire-browser/README.md).
 
-Rust and browser generation use the same registry IC Wire 0.4 package. The
+Rust and browser generation use the same workspace-selected registry IC Wire
+package. The
 `typescript` feature is selected only by this package's development dependencies;
 its runtime source does not enter application or library graphs. CI prepares the
 locked graph with ordinary `cargo fetch --locked`, with no private Wire pin or

@@ -1220,6 +1220,22 @@ impl InternalError {
         Self::serialize_internal()
     }
 
+    /// Reject an oversized authored row without treating it as an engine fault.
+    pub(crate) fn persisted_row_size_limit_exceeded(actual_length: usize, limit: usize) -> Self {
+        Self::with_diagnostic_facts(
+            ErrorClass::Unsupported,
+            ErrorOrigin::Serialize,
+            None,
+            vec![
+                (
+                    diagnostic_code::DiagnosticFactTag::ActualLength,
+                    actual_length as u64,
+                ),
+                (diagnostic_code::DiagnosticFactTag::Limit, limit as u64),
+            ],
+        )
+    }
+
     /// Construct a store-origin corruption error.
     #[cold]
     #[inline(never)]

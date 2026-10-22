@@ -5,6 +5,30 @@ CI and release behavior must not depend on a sibling checkout, a moving Git
 branch, or network availability. Consumers vendor a reviewed file set and
 record its exact Shared Tooling source revision.
 
+## Explicit IC tool selection in 0.26.0
+
+After this release is reviewed and available, refresh through the canonical
+exporter and update IC callers together. Do not export an uncommitted producer
+working tree or remove catalog rows to express a subset.
+
+- Declare the needed names in `IC_TOOLS` before including `make/consumer.mk`.
+  For example, an optimizer-only job selects `IC_TOOLS := wasm-opt`. Products
+  that need the complete set explicitly name `didc ic-wasm icp quill wasm-opt`.
+  Host/Cargo-only consumers need no IC selection.
+- Add repeated `--tool NAME` arguments to direct installer/check/preflight calls.
+  Setup and checks must use the same set. The complete catalog remains validated;
+  pins, authenticated archives and Binaryen runtime libraries retain their owners.
+- Compact collection uses the caller's declared selection, never one inferred
+  from installed files. Pass the action's `ic-tools` input, or the new final
+  selection argument to direct compact-selector and compact-collector calls. Full
+  collection retains its existing interface. An empty
+  list retains full IC evidence. IC version reports require both pins and a
+  quoted space-separated selection after the common host/Rust catalog.
+- Explicitly prepare the selected tools before offline admission. Old bundles,
+  failed candidates, archives and release evidence remain retained. Qualify
+  actual consumer routing and applicable native hosts; producer fixtures alone
+  do not qualify product builds or deployment.
+
 ## Dependency-role adoption in 0.24.0
 
 Completing adoption includes the consumer-owned changes below; copying a new

@@ -356,6 +356,16 @@ fn engine_startup_watchdog_armed() -> bool {
 }
 
 #[cfg(feature = "test-admin-api")]
+// Keep quality and range admission testable without invoking an IC trap natively.
+fn startup_watchdog_count(counter: ic_timers::MeasurementCounter) -> Result<u64, &'static [u8]> {
+    let total = counter
+        .exact_total()
+        .map_err(|_| b"IcyDB startup watchdog counter overflowed".as_slice())?;
+    u64::try_from(total)
+        .map_err(|_| b"IcyDB startup watchdog counter exceeds wire range".as_slice())
+}
+
+#[cfg(feature = "test-admin-api")]
 fn engine_startup_watchdog_perf_snapshot() -> StartupWatchdogPerfSnapshot {
     let Ok(identity) = ic_timers::TimerIdentity::try_new("icydb", "startup", "recovery") else {
         ic_platform::ic0::trap(b"IcyDB startup watchdog identity is invalid");
@@ -373,14 +383,9 @@ fn engine_startup_watchdog_perf_snapshot() -> StartupWatchdogPerfSnapshot {
     let work_aggregate = work.aggregate();
     // Preserve the audit wire contract without reporting overflowed or narrowed
     // counters as exact evidence.
-    let exact_count = |counter: ic_timers::MeasurementCounter| {
-        let Ok(total) = counter.exact_total() else {
-            ic_platform::ic0::trap(b"IcyDB startup watchdog counter overflowed");
-        };
-        match u64::try_from(total) {
-            Ok(total) => total,
-            Err(_) => ic_platform::ic0::trap(b"IcyDB startup watchdog counter exceeds wire range"),
-        }
+    let exact_count = |counter| match startup_watchdog_count(counter) {
+        Ok(total) => total,
+        Err(message) => ic_platform::ic0::trap(message),
     };
 
     StartupWatchdogPerfSnapshot {
@@ -4224,3 +4229,24 @@ icydb_testing_wasm_helpers::export_wire!(update, "publish_promotion_index_fixtur
 
 #[cfg(feature = "sql")]
 use icydb_testing_audit_sql_perf_fixtures::contracts::{ScaleFixtureFacts, ScalePayloadProfile};
+
+#[cfg(all(test, feature = "test-admin-api"))]
+mod tests {
+    use super::startup_watchdog_count;
+    use ic_timers::MeasurementCounter;
+
+    #[test]
+    fn startup_watchdog_counts_require_exact_u64_values() {
+        for (total, overflowed, expected) in [
+            (0, false, Some(0)),
+            (1, false, Some(1)),
+            (u128::from(u64::MAX), false, Some(u64::MAX)),
+            (u128::from(u64::MAX) + 1, false, None),
+            (u128::MAX, false, None),
+            (u128::MAX, true, None),
+        ] {
+            let counter = MeasurementCounter::from_parts(total, overflowed).unwrap();
+            assert_eq!(startup_watchdog_count(counter).ok(), expected);
+        }
+    }
+}

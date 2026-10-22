@@ -38,13 +38,13 @@ pub(super) fn decode_binary_blob_scalar<'a>(
     slice.scalar_payload(TAG_BYTES, None)
 }
 
-// Borrow the payload bytes for one top-level text scalar without validating
-// UTF-8. This is only for byte-key comparisons where the caller already owns a
-// valid UTF-8 query segment and only needs exact byte equality.
+// Borrow a skip-bounded map key without revalidating its envelope or UTF-8.
+// The caller must supply the exact range returned by value-storage skip. This
+// is only for byte-key comparisons against a valid UTF-8 query segment.
 pub(super) fn decode_binary_text_payload_bytes_if_text(
     raw_bytes: &[u8],
 ) -> Result<Option<&[u8]>, FieldDecodeError> {
-    let root = CompleteBinaryValue::parse(raw_bytes)?;
+    let root = CompleteBinaryValue::from_skip_bounded(raw_bytes)?;
     if root.tag() != TAG_TEXT {
         return Ok(None);
     }

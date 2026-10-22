@@ -33,7 +33,8 @@ use crate::{
                 AcceptedCompositeElement, AcceptedCompositeField, AcceptedCompositeShape,
                 CompositeFieldId, CompositeTypeId,
             },
-            empty_accepted_enum_catalog_for_tests,
+            decode_persisted_schema_snapshot, empty_accepted_enum_catalog_for_tests,
+            encode_persisted_schema_snapshot,
         },
     },
     value::{InputValue, Value},
@@ -1031,6 +1032,217 @@ fn pending_targeted_activation_uses_the_same_compiled_artifact_as_write_admissio
                 .expect_err("pending new-write gate should reject the same value"),
         ),
     );
+}
+
+fn reloaded_targeted_program(
+    fixture: &TargetedRuleFixture,
+    catalog: AcceptedConstraintCatalog,
+) -> (AcceptedSchemaSnapshot, CompiledAcceptedRowConstraints) {
+    let snapshot = fixture
+        .accepted
+        .persisted_snapshot()
+        .clone()
+        .with_constraint_catalog(catalog);
+    let bytes = encode_persisted_schema_snapshot(&snapshot).unwrap();
+    let accepted =
+        AcceptedSchemaSnapshot::try_new(decode_persisted_schema_snapshot(&bytes).unwrap()).unwrap();
+    let program = CompiledAcceptedRowConstraints::compile(
+        &accepted,
+        &fixture.value_catalog,
+        FINGERPRINT,
+        &MaintenanceConstructionBudget::new(),
+    )
+    .unwrap();
+
+    (accepted, program)
+}
+
+#[test]
+fn integrity_excludes_same_id_targeted_replacements_across_structural_roots() {
+    let fixture = targeted_rule_fixture();
+    let snapshot = fixture.accepted.persisted_snapshot();
+    let mut covered = 0;
+    for constraint in snapshot.constraints() {
+        let AcceptedConstraintKind::TargetedRule { target, operation } = constraint.kind() else {
+            continue;
+        };
+        let replacement = match operation.as_ref() {
+            AcceptedRuleOperation::NumericRangeInclusive { min, .. } => {
+                AcceptedRuleOperation::NumericMaximumInclusive { value: min.clone() }
+            }
+            AcceptedRuleOperation::NumericMaximumInclusive { value } => {
+                AcceptedRuleOperation::NumericMinimumInclusive {
+                    value: value.clone(),
+                }
+            }
+            AcceptedRuleOperation::LengthRangeInclusive { .. } => {
+                AcceptedRuleOperation::LengthRangeInclusive { min: 0, max: 0 }
+            }
+            _ => continue,
+        };
+        let catalog = snapshot
+            .constraint_catalog()
+            .clone()
+            .with_replaced_targeted_rule_activation(
+                constraint.id(),
+                *target,
+                replacement,
+                AcceptedSchemaFingerprint::new([0x98; 32]),
+                1,
+            )
+            .unwrap();
+        let (accepted, program) = reloaded_targeted_program(&fixture, catalog);
+        let activation = CompiledAcceptedRowConstraints::compile_targeted_rule_activation(
+            &accepted,
+            &fixture.value_catalog,
+            FINGERPRINT,
+            constraint.id(),
+        )
+        .unwrap();
+        let values = borrowed_values(&fixture.values);
+        let write_error = program.evaluate(FINGERPRINT, &values).unwrap_err();
+        assert!(matches!(
+            &write_error,
+            AcceptedRowConstraintEvaluationError::TargetedRuleViolation { constraint_id, .. }
+                if *constraint_id == constraint.id()
+        ));
+        assert_eq!(activation.evaluate(FINGERPRINT, &values), Err(write_error));
+        assert_eq!(
+            program.integrity_constraint_count(),
+            fixture.program.integrity_constraint_count(),
+        );
+        // The candidate must neither invent corruption nor mask an unrelated
+        // accepted violation. Keep exact typed paths for borrowed and owned rows.
+        let mut corrupt = fixture.values.clone();
+        corrupt[10] = Some(Value::Nat64(15));
+        for row in [&fixture.values, &corrupt] {
+            let borrowed = borrowed_values(row);
+            let owned = row
+                .iter()
+                .map(|value| value.clone().map(Cow::Owned))
+                .collect::<Vec<_>>();
+            for ordinal in 0..program.integrity_constraint_count() {
+                let expected =
+                    fixture
+                        .program
+                        .evaluate_integrity_constraint(ordinal, FINGERPRINT, &borrowed);
+                assert_eq!(
+                    program.evaluate_integrity_constraint(ordinal, FINGERPRINT, &borrowed),
+                    expected
+                );
+                assert_eq!(
+                    program.evaluate_integrity_constraint(ordinal, FINGERPRINT, &owned),
+                    expected
+                );
+            }
+        }
+        covered += 1;
+    }
+    assert_eq!(covered, 10);
+}
+
+#[test]
+fn integrity_targeted_replacement_follows_promotion_and_abort() {
+    let fixture = targeted_rule_fixture();
+    let snapshot = fixture.accepted.persisted_snapshot();
+    let constraint = snapshot
+        .constraints()
+        .iter()
+        .find(|item| item.name() == "label_length")
+        .unwrap();
+    let AcceptedConstraintKind::TargetedRule { target, .. } = constraint.kind() else {
+        panic!("label rule must remain targeted");
+    };
+    let catalog = snapshot
+        .constraint_catalog()
+        .clone()
+        .with_replaced_targeted_rule_activation(
+            constraint.id(),
+            *target,
+            AcceptedRuleOperation::LengthRangeInclusive { min: 0, max: 0 },
+            AcceptedSchemaFingerprint::new([0x98; 32]),
+            1,
+        )
+        .unwrap();
+    let validating = catalog
+        .clone()
+        .with_validation_started(constraint.id())
+        .unwrap();
+    for (catalog, promoted) in [
+        (catalog.clone(), false),
+        (validating.clone(), false),
+        (
+            catalog
+                .clone()
+                .with_aborted_activation(constraint.id())
+                .unwrap(),
+            false,
+        ),
+        (
+            validating
+                .clone()
+                .with_aborted_activation(constraint.id())
+                .unwrap(),
+            false,
+        ),
+        (
+            validating
+                .with_promoted_activation(constraint.id())
+                .unwrap(),
+            true,
+        ),
+        (
+            catalog
+                .with_directly_validated_activation(constraint.id())
+                .unwrap(),
+            true,
+        ),
+    ] {
+        let (accepted, program) = reloaded_targeted_program(&fixture, catalog);
+        for (label, accepted_ok) in [("é", true), ("", false)] {
+            let mut row = fixture.values.clone();
+            row[7] = Some(Value::Text(label.to_string()));
+            let values = borrowed_values(&row);
+            let errors = (0..program.integrity_constraint_count())
+                .filter_map(|ordinal| {
+                    program
+                        .evaluate_integrity_constraint(ordinal, FINGERPRINT, &values)
+                        .err()
+                })
+                .collect::<Vec<_>>();
+            let expected_ok = accepted_ok != promoted;
+            assert_eq!(errors.is_empty(), expected_ok);
+            for error in errors {
+                assert!(
+                    matches!(error, AcceptedRowConstraintEvaluationError::TargetedRuleViolation {
+                    constraint_id, ..
+                } if constraint_id == constraint.id())
+                );
+            }
+            if accepted
+                .persisted_snapshot()
+                .constraint_activations()
+                .is_empty()
+            {
+                assert_eq!(program.evaluate(FINGERPRINT, &values).is_ok(), expected_ok);
+            } else {
+                // Writes retain both rules; historical validation follows only
+                // the candidate, while integrity still follows accepted state.
+                assert!(program.evaluate(FINGERPRINT, &values).is_err());
+                let activation = CompiledAcceptedRowConstraints::compile_targeted_rule_activation(
+                    &accepted,
+                    &fixture.value_catalog,
+                    FINGERPRINT,
+                    constraint.id(),
+                )
+                .unwrap();
+                assert_eq!(
+                    activation.evaluate(FINGERPRINT, &values).is_ok(),
+                    !accepted_ok
+                );
+            }
+        }
+    }
 }
 
 #[test]

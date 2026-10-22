@@ -200,9 +200,13 @@ for lane in ci-core ci-workspace ci-sql-tier-a; do
 done
 printf '%s\n' 'check default' 'check default' 'check default' \
   'clippy default' 'clippy default' 'test 8' \
-  'clippy default' 'clippy default' 'test 2' \
+  'clippy default' 'clippy default' 'test 2' 'test 2' 'test 2' 'test 2' \
   'test default' 'test default' 'test 2' > "$native/expected-trace"
 cmp "$native/expected-trace" "$CI_CARGO_TRACE"
+grep -Fx -- 'test --locked --no-fail-fast -p canister_test_sql --lib --all-features' \
+  "$CI_CARGO_ARGUMENT_TRACE" > /dev/null
+grep -Fx -- 'test --locked --no-fail-fast -p canister_audit_sql_perf --lib --features test-admin-api' \
+  "$CI_CARGO_ARGUMENT_TRACE" > /dev/null
 
 # The actual integration lint leaf must propagate a compiler/lint failure.
 : > "$CI_CARGO_TRACE"
@@ -251,11 +255,11 @@ for lane in test test-no-default-smoke test-durability test-integration-feedback
     "POCKET_IC_BIN=$native/testkit-selected-server" TEST_TARGET=fixture-test TEST_NAME=fixture-case \
     > "$native/$lane.log" 2>&1
 done
-printf '%s\n' 'test default' 'test 8' 'test 2' 'test 2' 'test default' \
+printf '%s\n' 'test default' 'test 8' 'test 2' 'test 2' 'test 2' 'test 2' 'test default' \
   'test default' 'test 8' 'test default' 'test default' 'test 2' \
   'test 2' 'test 2' 'test 2' > "$native/expected-trace"
 cmp "$native/expected-trace" "$CI_CARGO_TRACE"
-printf '%s\n' 'test 2' 'test 2' 'test 2' 'test 2' 'test 2' 'test 2' \
+printf '%s\n' 'test 2' 'test 2' 'test 2' 'test 2' 'test 2' \
   > "$native/expected-server-trace"
 cmp "$native/expected-server-trace" "$CI_CARGO_SERVER_TRACE"
 

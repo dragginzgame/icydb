@@ -904,8 +904,12 @@ Supported aggregate projection forms are:
 - aggregate terminals with admitted input expressions
 - aggregate terminals with `DISTINCT`
 - aggregate terminals with `FILTER (WHERE predicate)`
-- grouped projection where grouped key items come first and aggregate or
+- grouped projection where any selected grouped key items come first and aggregate or
   post-aggregate computed items come after them
+
+Grouped projections may omit grouping keys, transform them with admitted
+expressions, or list them in a different order. Grouping and continuation use
+the complete canonical `GROUP BY` tuple, independently of the projected columns.
 
 DISTINCT and FILTER compose on the same aggregate in global and grouped queries.
 `COUNT(DISTINCT *)` is rejected during aggregate lowering; parser recognition
@@ -951,6 +955,7 @@ HAVING, report typed projection errors. They do not imply damaged stored data.
 Supported grouped projection examples:
 
 - `SELECT age, COUNT(*) FROM Customer GROUP BY age`
+- `SELECT SUM(age) FROM Customer GROUP BY name LIMIT 1`
 - `SELECT profile.rank, COUNT(*) FROM Player GROUP BY profile.rank`
 - `SELECT name, COUNT(*), SUM(age) FROM Customer GROUP BY name`
 - `SELECT TRIM(name), COUNT(*) FROM Customer GROUP BY name`
@@ -961,7 +966,6 @@ Supported grouped projection examples:
 
 Unsupported grouped projection examples:
 
-- grouped aggregates without grouped keys in the projection
 - grouped keys appearing after aggregate outputs
 - grouped projection terms that reference non-group fields outside the admitted
   grouped key and aggregate output authority
@@ -1008,8 +1012,14 @@ Supported searched `CASE` contexts are:
 - scalar `SELECT` projections
 - aggregate input expressions such as `SUM(CASE WHEN ... THEN ... ELSE ... END)`
 - grouped/global aggregate `HAVING`
-- `WHERE`, when the selected branch collapses onto the admitted boolean filter
+- `WHERE`, when branch results satisfy the admitted boolean filter
   surface
+
+During row evaluation, searched `CASE` checks conditions in order and evaluates
+only the first matching result, or `ELSE` if no condition is true. FALSE and NULL
+conditions fall through.
+Runtime arithmetic and function errors in unselected branches are not evaluated;
+errors in the selected branch retain their ordinary typed diagnostics.
 
 Within those contexts, searched `CASE` conditions admit the same bounded
 boolean/comparison expression lane used by that clause, including the admitted

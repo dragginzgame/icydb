@@ -30,6 +30,8 @@ use crate::db::{
     query::{plan::expr::Expr, preparation::PreparationWork},
 };
 
+#[cfg(feature = "sql")]
+pub(in crate::db) use case::case_expansions_are_bounded;
 pub(in crate::db) use normalize::is_normalized_bool_expr;
 #[cfg(feature = "sql")]
 pub(in crate::db) use normalize::simplify_bool_expr_constants;

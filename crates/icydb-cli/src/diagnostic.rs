@@ -1705,6 +1705,44 @@ mod tests {
     use std::io::{Cursor, Write as _};
 
     #[test]
+    fn oversized_row_json_preserves_limit_facts_without_schema_metadata() {
+        use icydb::diagnostic::{DiagnosticFactTag, ErrorClass, ErrorOrigin};
+
+        let input = serde_json::to_vec(&serde_json::json!({
+            "code": icydb::ErrorCode::RUNTIME_UNSUPPORTED.raw(),
+            "class": ErrorClass::Unsupported.wire_code(),
+            "origin": ErrorOrigin::Serialize.wire_code(),
+            "facts": [
+                { "tag": DiagnosticFactTag::ActualLength.raw(), "value": 4_194_305 },
+                { "tag": DiagnosticFactTag::Limit.raw(), "value": 4_194_304 },
+            ],
+        }))
+        .unwrap();
+        let error = read_error_json(input.as_slice()).unwrap();
+        assert_eq!(error.class(), ErrorClass::Unsupported);
+        assert_eq!(error.origin(), icydb::ErrorOrigin::Serialize);
+        assert_eq!(error.facts().len(), 2);
+        assert_eq!(error.facts()[0].value(), 4_194_305);
+        assert_eq!(error.facts()[1].value(), 4_194_304);
+        let facts = vec![
+            RawDiagnosticFact {
+                tag: DiagnosticFactTag::ActualLength.raw(),
+                value: 4_194_305,
+            },
+            RawDiagnosticFact {
+                tag: DiagnosticFactTag::Limit.raw(),
+                value: 4_194_304,
+            },
+        ];
+        assert_eq!(
+            diagnostic_fact_schema_mismatch("E22", &facts).unwrap(),
+            None
+        );
+        let mut notes = Vec::new();
+        render_error_code_report_with_facts("E22", &facts, &[], &mut notes).unwrap();
+    }
+
+    #[test]
     fn error_json_preserves_public_payload_and_large_numeric_values() {
         let input = serde_json::to_vec(&serde_json::json!({
             "code": u16::MAX, "class": 0, "origin": 0,

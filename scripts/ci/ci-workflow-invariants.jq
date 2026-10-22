@@ -76,6 +76,15 @@ require(has("permissions") and (.permissions != null);
     select($steps[$index] | run_text | test("^\\s*bash scripts/ci/check-public-msrv\\.sh\\s*$")) |
     require(any($steps[0:$index][]; fetches_locked_workspace);
       "public MSRV requires earlier locked cache preparation")),
+  # Shared selection identities must match the actual executables each lane uses.
+  require(.env.IC_TOOLS == "icp ic-wasm wasm-opt";
+    "workstation qualification requires the developer IC executable selection"),
+  ([["rust", "wasm-opt"], ["wire_browser", "wasm-opt"],
+    ["wasm_size_report", "ic-wasm wasm-opt"]][] as $selection |
+    require(.jobs[$selection[0]].env.IC_TOOLS == $selection[1];
+      "\($selection[0]) requires its explicit IC executable selection")),
+  require(.jobs.macos_host.env.IC_TOOLS == null;
+    "native workstation qualification must retain the developer IC selection"),
   # Server setup is selected by lane; each lane must retain its matching body.
   ([["core", "ci-core"], ["workspace", "ci-workspace"],
     ["tier-a", "ci-sql-tier-a"], ["tier-b", "ci-sql-tier-b"]][] as $selection |
@@ -124,7 +133,8 @@ require(has("permissions") and (.permissions != null);
     require(any(.jobs[$job].steps[]?;
       .if == "failure()" and .uses == "./.github/actions/retain-failure-evidence"
       and .with["temp-root"] == "${{ runner.temp }}"
-      and .with["repository-root"] == "${{ github.workspace }}");
+      and .with["repository-root"] == "${{ github.workspace }}"
+      and .with["ic-tools"] == "${{ env.IC_TOOLS }}");
       "\($job) requires shared tooling failure retention")),
   # IC build/report tools are separate from both common tools and Testkit's server.
   # Credit only explicit setup/admission before the lane's actual caller.

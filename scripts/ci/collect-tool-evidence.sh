@@ -4,8 +4,8 @@ set -euo pipefail
 # Caller owns log selections, outer archives, Git custody, uploads and retention.
 # Stdout carries the complete archive path (or nothing); status 1 means admitted
 # partial selection was archived, status 2 means collection/archive failed.
-[[ $# -ge 6 && $(( ($# - 6) % 2 )) == 0 ]] || {
-    echo 'usage: collect-tool-evidence.sh NEW-ARCHIVE REPOSITORY DIAGNOSTICS full|compact HOST-CATALOG IC-PINS [ROOT PATH]...' >&2; exit 2;
+[[ $# -ge 6 ]] || {
+    echo 'usage: collect-tool-evidence.sh NEW-ARCHIVE REPOSITORY DIAGNOSTICS full|compact HOST-CATALOG IC-PINS [IC-TOOLS for compact] [ROOT PATH]...' >&2; exit 2;
 }
 root="${BASH_SOURCE[0]}"
 [[ "$root" == /* ]] || root="$PWD/$root"
@@ -13,7 +13,13 @@ root="$(cd -P "${root%/*}/../.." && printf '%s/.' "$PWD")"
 root="${root%/.}"
 output="$1" repository="$2" diagnostics="$3" mode="$4" host_catalog="$5" ic_pins="$6"
 shift 6
-case "$mode" in full|compact) ;; *) echo 'unknown evidence selection' >&2; exit 2 ;; esac
+ic_tools=''
+case "$mode" in
+    compact) [[ $# -ge 1 ]] || exit 2; ic_tools="$1"; shift ;;
+    full) ;;
+    *) echo 'unknown evidence selection' >&2; exit 2 ;;
+esac
+[[ $(( $# % 2 )) == 0 ]] || exit 2
 [[ -d "$diagnostics" && ! -L "$diagnostics" ]] || exit 2
 diagnostics="$(cd -P "$diagnostics" && printf '%s/.' "$PWD")"
 diagnostics="${diagnostics%/.}"
@@ -22,7 +28,7 @@ for name in selections.nul selection.log selection-status archive-status; do
     [[ ! -e "$diagnostics/$name" && ! -L "$diagnostics/$name" ]] || exit 2
 done
 selection=("$mode" "$repository" "$diagnostics")
-[[ "$mode" != compact ]] || selection+=("$host_catalog" "$ic_pins")
+[[ "$mode" != compact ]] || selection+=("$host_catalog" "$ic_pins" "$ic_tools")
 status=0
 bash "$root/scripts/ci/select-tool-evidence.sh" "${selection[@]}" \
     > "$diagnostics/selections.nul" 2> "$diagnostics/selection.log" || status=$?

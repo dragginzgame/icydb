@@ -1402,6 +1402,24 @@ fn normalize_ordered_keys(
     }
 }
 
+/// Finish a blocking ordered stream using the existing materialized-key budget.
+/// Retain input order and duplicates; physical pulls keep their existing budgets.
+pub(in crate::db::executor) fn materialize_ordered_key_stream(
+    mut stream: OrderedKeyStreamBox,
+) -> Result<OrderedKeyStreamBox, InternalError> {
+    let mut keys = Vec::new();
+    while let Some(key) = stream.next_key()? {
+        if keys.len() == keys.capacity() {
+            let growth = keys.capacity().max(1);
+            reserve_materialized_secondary_index_key_capacity(&mut keys, growth)?;
+        }
+        charge_materialized_secondary_index_keys(std::slice::from_ref(&key), 0)?;
+        keys.push(key);
+    }
+
+    Ok(ordered_key_stream_from_materialized_keys(keys))
+}
+
 // Charge the complete retained owner of one materialized secondary-index key
 // vector. `DecodedDataStoreKey` keeps its raw persisted key in an owned cache,
 // so both vector capacity and every live raw-key allocation belong to this
@@ -2265,6 +2283,84 @@ mod physical_polling_tests {
                 DiagnosticExecutionBudgetResource::TemporaryBytes.raw(),
             ),
         );
+    }
+
+    #[test]
+    fn general_intersection_materialization_preserves_order_and_finite_page_bound() {
+        for direction in [Direction::Asc, Direction::Desc] {
+            let comparator = KeyOrderComparator::from_direction(direction);
+            let streams = [vec![1, 2, 4], vec![2, 3, 4]]
+                .into_iter()
+                .map(|mut ids| {
+                    if direction == Direction::Desc {
+                        ids.reverse();
+                    }
+                    OrderedKeyStreamBox::materialized(ids.into_iter().map(data_key).collect())
+                })
+                .collect();
+            let stream = OrderedKeyStreamBox::intersect_all(streams, comparator).unwrap();
+            assert_eq!(stream.page_access_entry_bound(), None);
+            let mut materialized = materialize_ordered_key_stream(stream).unwrap();
+            assert_eq!(materialized.page_access_entry_bound(), Some(0));
+            let expected = if direction == Direction::Asc {
+                [2, 4]
+            } else {
+                [4, 2]
+            };
+            assert_eq!(collect_keys(&mut materialized), expected.map(data_key));
+        }
+    }
+
+    #[test]
+    fn general_intersection_materialization_retains_key_and_memory_budget_failures() {
+        load_primary_keys();
+        for resource in [
+            DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+            DiagnosticExecutionBudgetResource::TemporaryBytes,
+        ] {
+            let stream = if resource == DiagnosticExecutionBudgetResource::TemporaryBytes {
+                // Prebuilt input isolates the collector's retained-memory charge.
+                OrderedKeyStreamBox::materialized(vec![data_key(1)])
+            } else {
+                OrderedKeyStreamBox::primary_range(
+                    PrimaryRangeKeyStream::new(
+                        STORE,
+                        data_key(1),
+                        data_key(100),
+                        Direction::Asc,
+                        None,
+                    )
+                    .unwrap(),
+                )
+            };
+            let budget = HardExecutionBudget::uniform_for_tests(
+                u64::MAX,
+                HardExecutionFailureHeadroom::new(500, 256),
+            )
+            .with_limit_for_tests(resource, 0);
+            let context = HardExecutionContext::new(
+                DiagnosticExecutionBudgetScope::Execution,
+                DiagnosticExecutionLane::TrustedRead,
+                0x696e_7465_7273_6563,
+            );
+            let error = with_query_execution_budget_for_tests(budget, context, || {
+                materialize_ordered_key_stream(stream)
+                    .map(|_| ())
+                    .map_err(QueryError::execute)
+            })
+            .expect_err("blocking materialization must retain hard budget refusal");
+            assert!(matches!(
+                error.diagnostic().detail(),
+                Some(DiagnosticDetail::RuntimeBoundary {
+                    boundary: RuntimeBoundaryCode::ExecutionBudgetExceeded,
+                })
+            ));
+            assert!(
+                error
+                    .diagnostic_facts()
+                    .contains(&(DiagnosticFactTag::BudgetResource, resource.raw(),))
+            );
+        }
     }
 
     #[test]

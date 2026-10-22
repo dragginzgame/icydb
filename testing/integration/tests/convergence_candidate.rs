@@ -1,10 +1,12 @@
 //! Dormant 0.229 convergence-candidate IC instruction evidence.
+//! Reserves dormant overhead against a frozen recovery reference. Current
+//! production recovery fit is qualified by live callbacks in recovery_closeout.
 
 use ic_testkit::pic::StandaloneCanisterFixture;
 use icydb_testing_integration::WireCallExt as _;
 use icydb_testing_integration::install_fixture_canister;
 
-const ACCEPTED_THREE_INDEX_RECOVERY_INSTRUCTIONS: u64 = 22_067_141_613;
+const FROZEN_THREE_INDEX_RECOVERY_INSTRUCTIONS: u64 = 22_067_141_613;
 const CANDIDATE_CALLBACK_LIMIT: u64 = 30_000_000_000;
 const CANDIDATE_CALLBACK_HEAP_LIMIT_BYTES: u64 = 526_532_992;
 
@@ -61,11 +63,11 @@ fn maximum_dormant_retirement_and_store_scan_fit_the_reserved_callback_headroom(
     assert!(measured.checksum > 0);
     assert!(measured.local_instructions > 0);
     assert!(
-        ACCEPTED_THREE_INDEX_RECOVERY_INSTRUCTIONS
+        FROZEN_THREE_INDEX_RECOVERY_INSTRUCTIONS
             .checked_add(measured.local_instructions)
             .is_some_and(|combined| combined < CANDIDATE_CALLBACK_LIMIT),
-        "dormant selector/publication/retirement evidence must fit the 30B candidate callback ceiling: baseline={} overhead={}",
-        ACCEPTED_THREE_INDEX_RECOVERY_INSTRUCTIONS,
+        "dormant overhead must fit the headroom left by the frozen 0.229 recovery reference, independently of current production recovery: reference={} measured_overhead={}",
+        FROZEN_THREE_INDEX_RECOVERY_INSTRUCTIONS,
         measured.local_instructions,
     );
     assert!(memory_after.0 >= memory_before.0);
@@ -78,11 +80,12 @@ fn maximum_dormant_retirement_and_store_scan_fit_the_reserved_callback_headroom(
     );
 
     println!(
-        "0.229 dormant convergence candidate: effects={} stores={} overhead_instructions={} combined_conservative_instructions={} callback_limit={} wasm_memory_before={} wasm_memory_after={} stable_memory_before={} stable_memory_after={} callback_heap_limit={}",
+        "0.229 dormant convergence candidate: effects={} stores={} measured_overhead_instructions={} frozen_recovery_reference_instructions={} historical_fit_estimate_instructions={} callback_limit={} wasm_memory_before={} wasm_memory_after={} stable_memory_before={} stable_memory_after={} callback_heap_limit={}",
         measured.effects,
         measured.stores,
         measured.local_instructions,
-        ACCEPTED_THREE_INDEX_RECOVERY_INSTRUCTIONS + measured.local_instructions,
+        FROZEN_THREE_INDEX_RECOVERY_INSTRUCTIONS,
+        FROZEN_THREE_INDEX_RECOVERY_INSTRUCTIONS + measured.local_instructions,
         CANDIDATE_CALLBACK_LIMIT,
         memory_before.0,
         memory_after.0,

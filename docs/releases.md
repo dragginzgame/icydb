@@ -263,7 +263,15 @@ when HEAD is a newer descendant commit and the index, worktree and untracked
 source inventory are clean. The saved index tree must be empty, no preparation
 file set (`PLAN.files`, including symlinks) may exist, and the recorded branch,
 remote and exact push destination must still agree. Current canonical metadata
-must read either the saved previous version or the saved candidate.
+must read either the saved previous version or the saved candidate. When it reads
+the candidate, a committed bump alone is insufficient: its local annotated tag
+must lie between the saved source and current HEAD, the exact tag object must
+match the saved destination, and the observed destination branch must contain
+that tagged commit. Missing or conflicting tags, failed remote observations and
+unavailable/divergent branch history stop before archiving the plan or running
+another gate. Keep the saved plan and reconcile the intended release; do not
+remove its evidence or invent a tag to bypass the refusal. This checks Git
+delivery, not registry publication.
 
 The runner archives the original plan unchanged under
 `release-state/X.Y.Z.attempt.*/`, while holding the release lock, then reads the
@@ -274,12 +282,14 @@ bound to their original attempt; adapters must preserve them on revalidation.
 The archived intent is superseded local preparation, not proof of successful
 release, delivery or publication.
 
-For example, a stale `0.6.3 -> 0.6.4` prepare plan must not block a clean newer
-commit whose Cargo workspace already reads `0.6.4`. `make release-patch` archives
-that intent, validates the current checkout, and prepares `0.6.5`. If committed
-metadata still reads `0.6.3`, it validates and prepares `0.6.4` instead. Patch,
-minor and major use this same restart behavior; the saved kind does not override
-the current request after committed preparation has been superseded.
+For example, after `0.6.3 -> 0.6.4` preparation fails and its metadata is committed,
+`make release-patch` refuses to select `0.6.5` while delivery of `0.6.4` is
+unconfirmed. It preserves the `0.6.4` plan and all earlier evidence. If `0.6.4`
+has separately been tagged and delivered with the identities above, the retry
+can archive that stale preparation, validate current source and prepare `0.6.5`.
+If committed metadata still reads `0.6.3`, it validates and prepares `0.6.4`
+instead. Patch, minor and major use this same admission; a different requested
+increment does not bypass the delivery check.
 
 This boundary depends on the consumer adapter contract: preparation changes
 **local release metadata only**. It may retain local backups, journals and
@@ -658,7 +668,9 @@ destination, completed phases and evidence. Uncommitted preparation remains boun
 to its saved source and kind at unchanged HEAD. A newer clean descendant commit
 can supersede direct `prepare` intent under
 [the restart contract](#source-changes-after-saved-preparation-intent), with current
-metadata selection and fresh complete validation. After the release commit exists,
+metadata selection and fresh complete validation. A committed candidate cannot
+be incremented again until its Git delivery is confirmed under that contract.
+After the release commit exists,
 newer commits are
 allowed only on its direct descendant history, with the exact staged tree, sole
 source parent and release subject still verified. A dirty tree, changed release

@@ -7,8 +7,8 @@ and artifacts; they do not create another current feature backlog.
 ## Owners And Checks
 
 - README owns release-pinned dependency examples. Installation and other guides
-  link there. Maintain its example alongside workspace releases; release tooling
-  leaves README prose unchanged.
+  link there. Choose its supported release deliberately; runtime and build
+  examples must agree. Release tooling leaves README prose unchanged.
 - The compiled `testing/model-facade-only` package owns the complete onboarding
   example. README links to its manifest, declarations, build script and actor.
   Its native test exercises startup, typed writes and reads; a separate ignored
@@ -33,7 +33,9 @@ codec checks. These tests also participate in their normal package test lanes.
 `perl scripts/ci/check-documentation.pl` is the inexpensive structural gate in
 `check-invariants`: it checks local Markdown file/directory targets in current
 entry points, guides and contracts, inventory source-owner paths, and README
-dependency tags against the workspace version. It ignores fenced examples;
+dependency examples for matching canonical release tags no newer than the
+workspace. Older supported releases remain valid across metadata preparation.
+The link checker ignores fenced examples;
 it does not validate anchors, remote links, every Markdown extension, or the
 truth of arbitrary prose. Explicit document arguments support isolated checks.
 Its focused fixture tests cover relative/absolute links, encoded spaces,

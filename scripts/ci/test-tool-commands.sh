@@ -85,6 +85,17 @@ if [[ "$path_context" == true ]]; then
     exit 0
 fi
 
+# IC setup/check forwards the consumer's explicit executable selection.
+for target in install-ic-tools ic-tools-check; do
+    : > "$TOOL_COMMAND_LOG"
+    make --no-print-directory -C "$consumer" "$target" IC_TOOLS='wasm-opt ic-wasm' \
+        > "$fixture/$target-selection.log" 2>&1
+    expected="install-ic-tools.sh <--consumer> <$consumer> <--pins> <$snapshot/ci/ic-tools.tsv> <--tool> <wasm-opt> <--tool> <ic-wasm>"
+    [[ "$target" != ic-tools-check ]] || expected+=' <--check>'
+    printf '%s\n' "$expected" > "$fixture/expected"
+    cmp "$fixture/expected" "$TOOL_COMMAND_LOG"
+done
+
 # Every common failure stops the ordered aggregate, including under parallel Make.
 for target in install-tools tools-check; do
   count=0
@@ -274,6 +285,7 @@ done
 cold="$fixture/cold consumer"; mkdir "$cold"
 for mode in ic rust; do
     args=(--consumer "$cold" --preflight)
+    [[ "$mode" != ic ]] || args+=(--tool wasm-opt)
     PATH="$fixture/bin" TOOL_COMMAND_CONSUMER="$cold" CARGO_NET_OFFLINE=true \
         bash "$snapshot/scripts/dev/install-$mode-tools.sh" "${args[@]}" > "$fixture/preflight-$mode.out"
     [[ ! -s "$fixture/preflight-$mode.out" && ! -e "$cold/.tools" ]] || exit 1
@@ -289,6 +301,7 @@ diff -r "$fixture/retained-tools" "$cold/.tools"
 # Admission modes are distinct; combining them never falls through to setup.
 for mode in ic rust; do
     args=(--consumer "$cold" --check --preflight)
+    [[ "$mode" != ic ]] || args+=(--tool wasm-opt)
     status=0
     bash "$snapshot/scripts/dev/install-$mode-tools.sh" "${args[@]}" > "$fixture/conflicting-modes.log" 2>&1 || status=$?
     [[ "$status" == 2 ]] || exit 1

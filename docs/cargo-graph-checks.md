@@ -56,3 +56,84 @@ A passing graph check does not compile or deploy anything. Bind successful locke
 build evidence, source/lock identities, actual target/features and final artifact
 digest to any deployment. Native hosts and installed IC behavior retain separate
 qualification.
+
+## Focused dependency-adoption contract
+
+After an authorized dependency change, qualify every affected independent graph
+before expensive artifact checks. This is a consumer-owned opt-in check, separate
+from dependency preparation and the complete release gate. The
+[dependency preparation rules](../rules/cargo-dependencies.md#preparing-authorized-dependency-changes)
+still own lockfile updates and cache preparation.
+
+Keep the orchestration local. Cargo already owns resolution and target/feature
+selection; Shared supplies declaration/graph checks and the existing fail-fast
+Make runner. A new shared adoption script or automatic affected-package detector
+is unnecessary. Consumers declare:
+
+- The root and independent workspace manifests, including fixtures that consume
+  changed packages through paths. Inventory each selected lockfile explicitly.
+- The affected package roots, actual deployed targets/features and any separate
+  native test/tool profiles. Do not infer these from dependency-role comments.
+- Which identities must be singletons within each selected graph. Independent
+  graphs may legitimately select different versions; do not enforce fleet-wide
+  version equality or treat a repeated `(*)` node as a second identity.
+- The affected-package Clippy selections and read-only artifact freshness checks.
+  Product fixture rosters, embedded bytes and refresh commands remain local.
+
+Run these phases sequentially, stopping at the first failure:
+
+1. **Admit all selected graphs cheaply.** Run full locked metadata for each
+   manifest with its selected compiler and prepared cache, for example:
+
+   ```sh
+   cargo metadata --locked --offline --format-version 1 \
+     --manifest-path integrations/example/Cargo.toml > metadata.json
+   ```
+
+   Do not use `--no-deps` as the only lock-consistency proof. Do not update a
+   stale lock, fetch missing inputs or retry unlocked inside this check. Identify
+   the manifest and retain stderr; a failed command's plausible JSON must never
+   become admitted input. Establish success before parsing redirected output.
+2. **Apply explicit dependency policy to each graph.** Reuse
+   `check-cargo-dependency-boundaries.sh` where the consumer has a declaration
+   policy, then the graph checker above where its normal/build scope matches.
+   Cargo owns renamed packages, target-specific edges and selected optional
+   features. A runtime-only singleton rule needs a separate Cargo observation
+   with `--edges normal`; the shared checker includes build dependencies and
+   must not be presented as runtime-only evidence. On a conflict, report the
+   manifest, selected root/target/features, identities and their dependency paths
+   from the same selection. A failed diagnostic command remains failed evidence.
+3. **Lint every affected selection.** Run the consumer's explicit affected-package
+   Clippy checks, including relevant tests/features and independent fixtures.
+   Root-workspace Clippy does not compile another workspace. Preserve its lint
+   policy, locked inputs and feature selection; do not silently substitute a
+   default-feature build for the selected deployed profile.
+4. **Check artifacts without refreshing them.** Only after all lint passes, run
+   the consumer's existing verifier. A mismatch requires separate authorized
+   regeneration and requalification, never automatic replacement by this check.
+
+Consumer Make targets can reuse the existing logger without another scheduler:
+
+```sh
+bash scripts/ci/run-validation-targets.sh --fail-fast \
+  adoption-metadata adoption-policy adoption-clippy adoption-artifacts
+```
+
+These are illustrative consumer-owned targets, not new Shared entrypoints. Each
+must propagate child failure; use sequential recipes/dependencies that also hold
+under parallel Make. Direct Bash orchestration can instead use strict mode and
+explicit failure checks. Avoid pipelines that authenticate a failed producer's
+partial output through a later successful reader.
+
+Qualify the consumer wiring with recorded-command fixtures: all cheap graph
+observations precede Clippy, and any metadata/policy/lint failure withholds later
+phases and artifacts. Exercise failed commands that emit plausible output, stale
+locks without mutation, renamed/target/optional dependencies, repeated nodes,
+true identity conflicts with paths, and legitimate independent versions. Use real
+small Cargo graphs for resolution/lock behavior; command substitutes prove only
+ordering and failure propagation. Shared retains its generic checker fixtures;
+consumers retain their actual roster, policy and artifact integration proofs.
+
+A passing adoption check establishes only its declared graph, compilation/lint
+and read-only artifact scope. Managed Wasm builds, installed IC/upgrade behavior,
+native macOS execution and full release validation remain separately qualified.

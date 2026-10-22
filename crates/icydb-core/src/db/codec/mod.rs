@@ -133,8 +133,13 @@ pub(in crate::db) fn serialize_row_payload(
 ) -> Result<Vec<u8>, InternalError> {
     let total_len = ROW_ENVELOPE_HEADER_LEN
         .checked_add(payload_len)
-        .filter(|len| *len <= MAX_ROW_BYTES as usize)
-        .ok_or_else(InternalError::persisted_row_encode_internal)?;
+        .ok_or_else(InternalError::serialize_unsupported)?;
+    if total_len > MAX_ROW_BYTES as usize {
+        return Err(InternalError::persisted_row_size_limit_exceeded(
+            total_len,
+            MAX_ROW_BYTES as usize,
+        ));
+    }
     let payload_len =
         u32::try_from(payload_len).map_err(|_| InternalError::persisted_row_encode_internal())?;
     let mut encoded = Vec::with_capacity(total_len);
@@ -152,16 +157,36 @@ pub(in crate::db) fn serialize_row_payload(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::{ErrorClass, ErrorOrigin};
+    use icydb_diagnostic_code::DiagnosticFactTag;
 
     #[test]
     fn row_encoder_checks_size_before_writing_payload() {
-        for payload_len in [MAX_ROW_BYTES as usize, usize::MAX] {
+        for payload_len in [
+            MAX_ROW_BYTES as usize - ROW_ENVELOPE_HEADER_LEN + 1,
+            MAX_ROW_BYTES as usize,
+            usize::MAX,
+        ] {
             let mut called = false;
             let result = serialize_row_payload(RowLayoutVersion::INITIAL, payload_len, |_| {
                 called = true;
                 Ok(())
             });
-            assert!(result.is_err());
+            let error = result.unwrap_err();
+            assert_eq!(error.class(), ErrorClass::Unsupported);
+            assert_eq!(error.origin(), ErrorOrigin::Serialize);
+            if let Some(total_len) = payload_len.checked_add(ROW_ENVELOPE_HEADER_LEN) {
+                assert_eq!(
+                    error.diagnostic_facts(),
+                    vec![
+                        (DiagnosticFactTag::ActualLength, total_len as u64),
+                        (DiagnosticFactTag::Limit, u64::from(MAX_ROW_BYTES)),
+                    ]
+                );
+            } else {
+                // No representable exact total exists; never fabricate one.
+                assert!(error.diagnostic_facts().is_empty());
+            }
             assert!(!called);
         }
     }
@@ -189,13 +214,13 @@ mod tests {
     #[test]
     fn row_encoder_rejects_incomplete_or_failed_payloads() {
         for written in [0, 2] {
-            assert!(
-                serialize_row_payload(RowLayoutVersion::INITIAL, 1, |out| {
-                    out.resize(out.len() + written, 0);
-                    Ok(())
-                })
-                .is_err()
-            );
+            let error = serialize_row_payload(RowLayoutVersion::INITIAL, 1, |out| {
+                out.resize(out.len() + written, 0);
+                Ok(())
+            })
+            .unwrap_err();
+            assert_eq!(error.class(), ErrorClass::Internal);
+            assert_eq!(error.origin(), ErrorOrigin::Serialize);
         }
         assert!(
             serialize_row_payload(RowLayoutVersion::INITIAL, 1, |out| {

@@ -1,11 +1,11 @@
-//! Content-based admission for the existing CASE-to-boolean rewrite.
+//! Content and evaluation-safety admission for the CASE-to-boolean rewrite.
 //! This bounds one expansion, not query admission, rendering or total planning.
 
 use crate::{
     db::{
         QueryError,
         query::{
-            plan::expr::{CaseWhenArm, Expr},
+            plan::expr::{CaseWhenArm, Expr, function_semantics::ScalarEvalFunctionShape},
             preparation::PreparationWork,
         },
     },
@@ -24,6 +24,8 @@ const MAX_ARMS: usize = 8;
 #[derive(Debug)]
 pub(super) struct AdmittedExpansion {
     pub(super) condition_copies: [ConditionCopy; MAX_ARMS],
+    /// Whether bounded content also permits eager evaluation of every branch.
+    pub(super) can_evaluate_eagerly: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -64,6 +66,7 @@ impl ConditionCopy {
 struct ExpansionBudget<'work, 'request> {
     remaining: usize,
     values: u64,
+    can_evaluate_eagerly: bool,
     work: &'work PreparationWork<'request>,
 }
 
@@ -107,7 +110,18 @@ impl ExpansionBudget<'_, '_> {
                 Ok(true)
             }
             Expr::Literal(value) => self.value(value, copies),
-            Expr::FunctionCall { args, .. } => {
+            Expr::FunctionCall { function, args } => {
+                // Checked/value-producing functions can fail on valid rows.
+                // Keep those branches lazy, retaining the owner's boolean and
+                // unary-text families used by pure predicate canonicalization.
+                if function.boolean_function_shape().is_none()
+                    && !matches!(
+                        function.scalar_eval_shape(),
+                        ScalarEvalFunctionShape::UnaryText
+                    )
+                {
+                    self.can_evaluate_eagerly = false;
+                }
                 for arg in args {
                     if !self.expr(arg, copies)? {
                         return Ok(false);
@@ -115,7 +129,12 @@ impl ExpansionBudget<'_, '_> {
                 }
                 Ok(true)
             }
-            Expr::Binary { left, right, .. } => {
+            Expr::Binary { op, left, right } => {
+                // Eager boolean evaluation must not expose checked arithmetic
+                // from a branch the original CASE would leave unselected.
+                if op.is_numeric_arithmetic() {
+                    self.can_evaluate_eagerly = false;
+                }
                 if !self.expr(left, copies)? {
                     return Ok(false);
                 }
@@ -216,6 +235,7 @@ pub(super) fn admit_expansion(
     let mut budget = ExpansionBudget {
         remaining: MAX_EXPANSION_UNITS,
         values: 0,
+        can_evaluate_eagerly: true,
         work,
     };
     // Per arm: OR, two ANDs, NOT, two COALESCEs, and two false literals
@@ -244,5 +264,8 @@ pub(super) fn admit_expansion(
             return Ok(None);
         }
     }
-    Ok(Some(AdmittedExpansion { condition_copies }))
+    Ok(Some(AdmittedExpansion {
+        condition_copies,
+        can_evaluate_eagerly: budget.can_evaluate_eagerly,
+    }))
 }

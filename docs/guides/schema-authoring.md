@@ -41,6 +41,14 @@ separate database-owned contracts.
 Human-readable Serde, display and SQL literals use canonical 26-character text.
 Binary Serde emits a byte string and validates its exact width before copying.
 
+Generated `Ulid` keys on IC are predictable public identifiers. The generator
+uses the current timestamp and a process-local sequence, rather than random
+bits; supplying startup entropy does not change this. Native generation uses
+entropy, so a native test does not establish that deployed IDs are unguessable.
+Never use possession of an ID as authorization, including for private share
+links. Authorize access separately; an application that needs a secret bearer
+token must generate and manage that token independently of the row's key.
+
 `Date` uses signed 32-bit epoch days in Wire/binary Serde and ISO `YYYY-MM-DD`
 text in JSON. Its calendar domain remains years 0000–9999. `Subaccount` uses an
 exact 32-byte byte string in Wire/binary Serde and a 32-element byte array in JSON.
@@ -109,6 +117,16 @@ validation and source-program lowering. Fractional or negative unsigned integer
 literals, integers outside the source literal domain, and nonfinite float or
 unrepresentable decimal literals produce compiler errors. Accepted field
 contracts remain responsible for their narrower value bounds.
+
+## Prefix Index Declarations
+
+A unique index on `email` and a unique index on `(email, tenant_id)` express
+separate constraints; the latter does not enforce email uniqueness by itself.
+The model compiler accepts both declarations in either order. It also accepts
+prefix-related filtered indexes without treating key prefixes as proof of
+identical membership. Predicates and unique constraints remain unchanged in the
+generated schema. The existing rejection of unfiltered, non-unique prefix
+indexes still applies.
 
 ## Field And Relation Names
 
@@ -253,6 +271,20 @@ mutation, model them as entities with an owner key. Lists, sets, and maps stored
 in a row remain whole-field aggregates even when an explicit nested scalar
 relation enforces target lifetime. The exact decision matrix is maintained in
 the [nested storage contract](../contracts/NESTED_STORAGE.md).
+
+## Numeric Application Hooks
+
+Numeric comparison, range, divisor and clamp settings must be representable as
+`Decimal`; for example, `u128::MAX` is outside that domain. Decimal-place settings
+must convert to `u32`. Constructors retain conversion failure as invalid
+configuration: validators report a visitor issue when invoked, and normalizers
+return an error before changing the value. Invalid settings never become zero
+bounds or zero decimal places. Valid settings and zero-based defaults retain
+their behavior.
+
+These are application hooks. Database structural writes, SQL and recovery do not
+invoke them; accepted constraints remain the database admission authority. See
+the [write-admission contract](../contracts/WRITE_ADMISSION.md).
 
 ## Serializing Generated Values Into Application Blobs
 

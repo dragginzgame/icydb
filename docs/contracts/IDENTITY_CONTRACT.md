@@ -14,6 +14,14 @@ Identity values in IcyDB are **public inputs**.
 - No identity type implies trust by itself.
 - Correctness comes from explicit verification, not possession of an identifier.
 
+Generated `Ulid` keys on IC are deterministic and predictable. Their timestamp
+and process-local sequence provide monotonic generation within the live
+generator, not cryptographic randomness. The generator's heap state resets on
+upgrade; it is not a durable counter. Startup entropy does not seed this IC
+generator. Native entropy-backed generation does not extend the deployed
+contract. Applications must authorize each access independently and keep any
+secret share-link or bearer token separate from the primary key.
+
 ## 2. Definition of `Id<E>`
 
 `Id<E>` is a typed primary-key value. It is not a capability and not an authorization token.

@@ -13,6 +13,12 @@
 pub trait GenerateKey: Sized {
     /// Generate a new key value for the implementing primary-key type.
     ///
+    /// Generated keys are public identifiers, not authorization tokens. On IC,
+    /// [`crate::types::Ulid`] generation is deterministic: its timestamp and
+    /// process-local sequence are predictable, including after startup entropy
+    /// has been supplied. Native entropy-backed generation does not establish
+    /// an unpredictability guarantee for deployed canisters.
+    ///
     /// # Errors
     ///
     /// Returns an internal generation error when the runtime cannot obtain

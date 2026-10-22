@@ -146,6 +146,25 @@ reset
 mutate '.jobs.rust.steps |= map(select(.uses != "./.github/actions/retain-failure-evidence"))'
 check fail missing-tooling-failure-retention
 reset
+mutate 'del(.env.IC_TOOLS)'
+check fail missing-workstation-ic-selection
+reset
+mutate '.jobs.macos_host.env.IC_TOOLS = "wasm-opt"'
+check fail incomplete-workstation-ic-selection
+for job in rust wire_browser wasm_size_report; do
+  reset
+  mutate "del(.jobs.$job.env.IC_TOOLS)"
+  check fail "missing-$job-ic-selection"
+  reset
+  mutate ".jobs.$job.env.IC_TOOLS = \"quill\""
+  check fail "wrong-$job-ic-selection"
+done
+for job in static rust macos_host wasm_size_report; do
+  reset
+  mutate "(.jobs.$job.steps[] | select(.uses == \"./.github/actions/retain-failure-evidence\")) |= del(.with.\"ic-tools\")"
+  check fail "missing-$job-evidence-ic-selection"
+done
+reset
 mutate '(.jobs.wasm_size_report.steps[] | select(.name == "Install pinned local tools") | .run) |= sub("make install-ic-tools"; "true")'
 check fail missing-wasm-ic-preparation
 reset
@@ -237,7 +256,8 @@ for selection in \
   'absent-workspace-target|^_ci-workspace-tests:$|_unselected-tests:' \
   'echoed-only-provider|cargo test --locked --no-fail-fast|echo cargo test --locked --no-fail-fast' \
   'missing-cargo-provider|cargo test --locked --no-fail-fast|:' \
-  'unrouted-workspace-provider|^[[:space:]]*_ci-workspace-tests$|_ci-workspace-clippy' \
+  'unrouted-workspace-provider|^[[:space:]]*_ci-workspace-tests|_ci-workspace-clippy' \
+  'unrouted-canister-tests|^[[:space:]]*_test-canister-libs$|_ci-workspace-clippy' \
   'unrouted-tier-b-provider|^[[:space:]]*_ci-tier-b-sql-perf$|_ci-tier-b-sql-canister' \
   'excluded-provider|--workspace --all-targets --exclude icydb-testing-integration --verbose|--workspace --all-targets --exclude icydb-core --exclude icydb-testing-integration --verbose' \
   'filtered-workspace|--workspace --all-targets --exclude icydb-testing-integration --verbose|--workspace --all-targets --exclude icydb-testing-integration provider_filter --verbose' \

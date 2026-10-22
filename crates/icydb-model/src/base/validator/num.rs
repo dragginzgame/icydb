@@ -7,11 +7,6 @@
 use crate::{base::helper::try_cast_decimal, prelude::*, schema::NumericValue, visitor::Validator};
 use std::any::type_name;
 
-/// Convert a numeric value into Decimal during *configuration* time.
-fn cast_decimal_cfg<N: NumericValue>(value: &N) -> Decimal {
-    try_cast_decimal(value).unwrap_or_default()
-}
-
 /// Convert a numeric value into Decimal during *validation* time.
 fn cast_decimal_val<N: NumericValue>(value: &N, ctx: &mut dyn VisitorContext) -> Option<Decimal> {
     try_cast_decimal(value).or_else(|| {
@@ -32,18 +27,27 @@ macro_rules! cmp_validator {
         #[validator]
         pub struct $name {
             target: Decimal,
+            invalid_configuration: bool,
         }
 
         impl $name {
+            /// Configure a bound; unrepresentable bounds report an issue on validation.
             pub fn new<N: NumericValue>(target: N) -> Self {
-                let target = cast_decimal_cfg(&target);
+                let target = try_cast_decimal(&target);
 
-                Self { target }
+                Self {
+                    target: target.unwrap_or_default(),
+                    invalid_configuration: target.is_none(),
+                }
             }
         }
 
         impl<N: NumericValue> Validator<N> for $name {
             fn validate(&self, value: &N, ctx: &mut dyn VisitorContext) {
+                if self.invalid_configuration {
+                    ctx.issue("numeric validator bound cannot be represented as Decimal".to_string());
+                    return;
+                }
                 let Some(v) = cast_decimal_val(value, ctx) else { return };
 
                 if !(v $op self.target) {
@@ -69,19 +73,29 @@ cmp_validator!(NotEqual, !=, "{} must be != {}");
 pub struct Range {
     min: Decimal,
     max: Decimal,
+    invalid_configuration: bool,
 }
 
 impl Range {
+    /// Configure bounds; unrepresentable bounds report an issue on validation.
     pub fn new<N: NumericValue>(min: N, max: N) -> Self {
-        let min = cast_decimal_cfg(&min);
-        let max = cast_decimal_cfg(&max);
+        let min = try_cast_decimal(&min);
+        let max = try_cast_decimal(&max);
 
-        Self { min, max }
+        Self {
+            min: min.unwrap_or_default(),
+            max: max.unwrap_or_default(),
+            invalid_configuration: min.is_none() || max.is_none(),
+        }
     }
 }
 
 impl<N: NumericValue> Validator<N> for Range {
     fn validate(&self, value: &N, ctx: &mut dyn VisitorContext) {
+        if self.invalid_configuration {
+            ctx.issue("numeric validator bounds cannot be represented as Decimal".to_string());
+            return;
+        }
         let Some(v) = cast_decimal_val(value, ctx) else {
             return;
         };
@@ -99,18 +113,27 @@ impl<N: NumericValue> Validator<N> for Range {
 #[validator]
 pub struct MultipleOf {
     target: Decimal,
+    invalid_configuration: bool,
 }
 
 impl MultipleOf {
+    /// Configure a divisor; unrepresentable divisors report an issue on validation.
     pub fn new<N: NumericValue>(target: N) -> Self {
-        let target = cast_decimal_cfg(&target);
+        let target = try_cast_decimal(&target);
 
-        Self { target }
+        Self {
+            target: target.unwrap_or_default(),
+            invalid_configuration: target.is_none(),
+        }
     }
 }
 
 impl<N: NumericValue> Validator<N> for MultipleOf {
     fn validate(&self, value: &N, ctx: &mut dyn VisitorContext) {
+        if self.invalid_configuration {
+            ctx.issue("multipleOf target cannot be represented as Decimal".to_string());
+            return;
+        }
         if self.target.is_zero() {
             ctx.issue("multipleOf target must be non-zero".to_string());
             return;
@@ -133,6 +156,7 @@ impl<N: NumericValue> Validator<N> for MultipleOf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::base::validator::decimal::MaxDecimalPlaces;
 
     struct TestCtx {
         issues: crate::visitor::VisitorIssues,
@@ -153,6 +177,106 @@ mod tests {
 
         fn add_issue_at(&mut self, _: crate::visitor::PathSegment, issue: crate::visitor::Issue) {
             self.add_issue(issue);
+        }
+    }
+
+    fn assert_invalid_numeric_bound<N: NumericValue + Copy>(bound: N) {
+        let validators: &[&dyn Validator<u128>] = &[
+            &Lt::new(bound),
+            &Gt::new(bound),
+            &Lte::new(bound),
+            &Gte::new(bound),
+            &Equal::new(bound),
+            &NotEqual::new(bound),
+            &Range::new(bound, bound),
+            &MultipleOf::new(bound),
+        ];
+        for validator in validators {
+            for value in [0_u128, 1, 42] {
+                for _ in 0..2 {
+                    let mut ctx = TestCtx::new();
+                    validator.validate(&value, &mut ctx);
+                    assert_eq!(ctx.issues.get("").map(<[_]>::len), Some(1));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_numeric_validator_configuration_is_never_accepted() {
+        assert_invalid_numeric_bound(u128::MAX);
+        for bound in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 1e40, -1e40] {
+            assert_invalid_numeric_bound(bound);
+        }
+        for bound in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, f32::MAX] {
+            assert_invalid_numeric_bound(bound);
+        }
+        for validator in [Range::new(0_u128, u128::MAX), Range::new(u128::MAX, 0)] {
+            let mut ctx = TestCtx::new();
+            validator.validate(&0_u128, &mut ctx);
+            assert_eq!(ctx.issues.get("").map(<[_]>::len), Some(1));
+        }
+    }
+
+    #[test]
+    fn invalid_numeric_decimal_places_configuration_is_never_accepted() {
+        for validator in [MaxDecimalPlaces::new(-1), MaxDecimalPlaces::new(u64::MAX)] {
+            for value in [Decimal::ZERO, Decimal::from_i128_with_scale(1235, 3)] {
+                let mut ctx = TestCtx::new();
+                validator.validate(&value, &mut ctx);
+                assert_eq!(ctx.issues.get("").map(<[_]>::len), Some(1));
+            }
+        }
+    }
+
+    #[test]
+    fn numeric_validator_boundaries_and_defaults_remain_valid() {
+        let maximum = Decimal::from_i128_with_scale(i128::MAX, 0);
+        for validator in [
+            &Gte::new(i128::MIN) as &dyn Validator<Decimal>,
+            &Lte::new(i128::MAX),
+            &Equal::new(i128::MAX as u128),
+            &Range::new(i128::MIN, i128::MAX),
+            &MultipleOf::new(i128::MAX),
+        ] {
+            let mut ctx = TestCtx::new();
+            validator.validate(&maximum, &mut ctx);
+            assert!(ctx.issues.is_empty());
+        }
+        let defaults: &[(&dyn Validator<i32>, &dyn Validator<i32>)] = &[
+            (&Lt::default(), &Lt::new(0)),
+            (&Gt::default(), &Gt::new(0)),
+            (&Lte::default(), &Lte::new(0)),
+            (&Gte::default(), &Gte::new(0)),
+            (&Equal::default(), &Equal::new(0)),
+            (&NotEqual::default(), &NotEqual::new(0)),
+            (&Range::default(), &Range::new(0, 0)),
+            (&MultipleOf::default(), &MultipleOf::new(0)),
+        ];
+        for (default, explicit) in defaults {
+            for value in [-1, 0, 1] {
+                let mut default_ctx = TestCtx::new();
+                let mut explicit_ctx = TestCtx::new();
+                default.validate(&value, &mut default_ctx);
+                explicit.validate(&value, &mut explicit_ctx);
+                assert_eq!(
+                    default_ctx.issues.is_empty(),
+                    explicit_ctx.issues.is_empty()
+                );
+            }
+        }
+        for (validator, value, valid) in [
+            (MaxDecimalPlaces::default(), Decimal::ZERO, true),
+            (
+                MaxDecimalPlaces::new(0),
+                Decimal::from_i128_with_scale(1, 1),
+                false,
+            ),
+            (MaxDecimalPlaces::new(u32::MAX), maximum, true),
+        ] {
+            let mut ctx = TestCtx::new();
+            validator.validate(&value, &mut ctx);
+            assert_eq!(ctx.issues.is_empty(), valid);
         }
     }
 

@@ -149,7 +149,8 @@ where
     /// Generate a new typed primary-key value for entities whose
     /// key type supports local generation.
     ///
-    /// This method does not imply persistence or existence.
+    /// This method does not imply persistence, existence, or authorization.
+    /// Generated keys need not be unpredictable; see [`GenerateKey::generate`].
     ///
     /// # Errors
     ///

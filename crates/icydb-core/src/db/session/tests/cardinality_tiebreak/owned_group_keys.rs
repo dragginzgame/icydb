@@ -687,3 +687,88 @@ fn owned_group_order_having_offset_and_projection() {
         }
     }
 }
+
+#[cfg(feature = "sql")]
+#[test]
+fn grouped_projection_preserves_canonical_page_boundaries() {
+    let session = initialize();
+    seed_rows(&session);
+    // Primary-key grouping supplies ordered input; composite grouping needs
+    // the general fold. COUNT alone also exercises the dedicated count path.
+    for fields in ["id", "id, rare"] {
+        for aggregate in ["SUM(id)", "COUNT(*)", "COUNT(*), SUM(id)"] {
+            for projection in ["", "id + 1, ", "rare, id, "] {
+                if projection.starts_with("rare") && fields == "id" {
+                    continue;
+                }
+                for descending in [false, true] {
+                    let order = if descending { "DESC" } else { "ASC" };
+                    let order = if fields == "id" {
+                        format!("id {order}")
+                    } else {
+                        format!("id {order}, rare {order}")
+                    };
+                    for (limit, offset) in [(1, 0), (3, 1), (12, 0), (20, 0), (1, 20)] {
+                        let sql = format!(
+                            "SELECT {projection}{aggregate} FROM PlannerRow GROUP BY {fields} ORDER BY {order} LIMIT {limit} OFFSET {offset}"
+                        );
+                        for _ in 0..2 {
+                            let root = crate::db::RequestExecutionRoot::__new_runtime_root();
+                            let session = new_request_session(&root);
+                            let SqlStatementResult::Grouped {
+                                rows, next_cursor, ..
+                            } = session
+                                .execute_trusted_sql_query(&sql)
+                                .unwrap_or_else(|error| panic!("{sql}: {error:?}"))
+                            else {
+                                panic!("expected grouped projection");
+                            };
+                            let mut ids = (0_u64..12).collect::<Vec<_>>();
+                            if descending {
+                                ids.reverse();
+                            }
+                            let expected = ids
+                                .into_iter()
+                                .skip(offset)
+                                .take(limit)
+                                .map(|id| {
+                                    let key = match projection {
+                                        "" => vec![],
+                                        "id + 1, " => {
+                                            vec![OutputValue::decimal(Decimal::from(id + 1))]
+                                        }
+                                        _ => vec![
+                                            OutputValue::text(
+                                                if id < 6 { "group-a" } else { "group-b" }.into(),
+                                            ),
+                                            OutputValue::nat64(id),
+                                        ],
+                                    };
+                                    let count = OutputValue::nat64(1);
+                                    let sum = OutputValue::decimal(Decimal::from(id));
+                                    let values = match aggregate {
+                                        "COUNT(*)" => vec![count],
+                                        "SUM(id)" => vec![sum],
+                                        _ => vec![count, sum],
+                                    };
+                                    (key, values)
+                                })
+                                .collect::<Vec<_>>();
+                            assert_eq!(
+                                rows.iter()
+                                    .map(|row| (
+                                        row.group_key().to_vec(),
+                                        row.aggregate_values().to_vec()
+                                    ))
+                                    .collect::<Vec<_>>(),
+                                expected,
+                                "{sql}"
+                            );
+                            assert_eq!(next_cursor.is_some(), offset + limit < 12, "{sql}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

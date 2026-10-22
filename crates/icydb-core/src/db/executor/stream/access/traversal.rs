@@ -11,6 +11,7 @@ use crate::{
             LoweredIndexPrefixSpec, LoweredIndexRangeSpec,
             lowered_index_prefix_exact_cardinalities_for_admitted_root,
             pipeline::contracts::{AccessScanContinuationInput, AccessStreamBindings},
+            production_scalar_page_work_is_active,
             route::IndexPrefixChildExpansionHint,
             stream::{
                 access::{
@@ -788,7 +789,15 @@ impl AccessPlanStreamResolver {
             ExactIntersectionAdmission::NotApplicable => {
                 let streams =
                     Self::collect_child_key_streams(runtime, children, inputs, spec_cursor)?;
-                OrderedKeyStreamBox::intersect_all(streams, key_comparator)
+                let stream = OrderedKeyStreamBox::intersect_all(streams, key_comparator)?;
+                // A pull may skip arbitrarily many nonmatching child keys.
+                // Finish this blocking fallback under the hard request budget
+                // before scalar page units require a finite per-pull bound.
+                if production_scalar_page_work_is_active()? {
+                    physical::materialize_ordered_key_stream(stream)
+                } else {
+                    Ok(stream)
+                }
             }
             ExactIntersectionAdmission::ConservativeFallback => {
                 Self::produce_exact_intersection_fallback(runtime, children, inputs, spec_cursor)

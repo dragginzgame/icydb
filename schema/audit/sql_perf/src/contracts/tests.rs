@@ -64,6 +64,23 @@ fn watchdog_totals_preserve_u128_and_optional_samples() {
     let mut trailing = bytes;
     trailing.push(0);
     assert!(decode_one::<StartupWatchdogPerfSnapshot>(&trailing).is_err());
+
+    for count in [0, u64::MAX] {
+        let boundary = StartupWatchdogPerfSnapshot {
+            work_started: count,
+            work_completed: count,
+            succeeded: count,
+            no_work: count,
+            retryable_failures: count,
+            invariant_failures: count,
+            ..snapshot.clone()
+        };
+        let bytes = encode_one(&boundary).unwrap();
+        assert_eq!(
+            decode_one::<StartupWatchdogPerfSnapshot>(&bytes).unwrap(),
+            boundary
+        );
+    }
 }
 
 #[test]
