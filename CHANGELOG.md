@@ -33,7 +33,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   encoding buffers ([#395 — RETURNING encodes replies just to measure them](https://github.com/dragginzgame/icydb/issues/395)).
 - Generate row ULIDs from the write's frozen timestamp without rereading the clock
   ([#399 — Generated ULIDs repeat the write's clock read](https://github.com/dragginzgame/icydb/issues/399)).
-- Reuse raw primary-key bytes in filtered index scans instead of copying them
+- Reuse raw primary-key bytes in filtered index scans instead of copying them,
+  keeping semantic test fixtures outside runtime-only checks
   ([#401 — Filtered scans copy an already available primary key](https://github.com/dragginzgame/icydb/issues/401)).
 
 ### 📚 Documentation
