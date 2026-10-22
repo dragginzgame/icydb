@@ -5,7 +5,10 @@ use crate::{
             builder::AggregateExpr,
             plan::{
                 canonicalize_grouped_having_numeric_literal_for_expr,
-                expr::{BinaryOp, Expr, canonicalize_grouped_having_bool_expr},
+                expr::{
+                    BinaryOp, Expr, canonicalize_grouped_having_bool_expr,
+                    case_expansions_are_bounded,
+                },
             },
         },
         schema::SchemaInfo,
@@ -206,9 +209,8 @@ fn canonicalize_grouped_having_expr(
 }
 
 // Apply grouped semantic canonicalization across the bounded grouped searched-
-// `CASE` family. Omitted-`ELSE` grouped `CASE` is admitted only
-// when canonicalization eliminates raw planner `Case` nodes from the lowered
-// grouped boolean candidate, proving it joined the shipped canonical family.
+// CASE family. Omitted-ELSE CASE retains the existing content bound even when
+// evaluation safety requires keeping its lazy runtime expression.
 fn canonicalize_grouped_having_expr_from_lowered_sql_clause(
     schema: &SchemaInfo,
     clause: LoweredHavingClause,
@@ -218,7 +220,9 @@ fn canonicalize_grouped_having_expr_from_lowered_sql_clause(
     let expr = canonicalize_grouped_having_expr(schema, clause.into_expr(), work)?;
     let canonical = canonicalize_grouped_having_bool_expr(expr, work)?;
 
-    if contains_omitted_else_case && canonical.contains_case() {
+    if contains_omitted_else_case
+        && !case_expansions_are_bounded(&canonical, work).map_err(SqlLoweringError::from)?
+    {
         return Err(SqlLoweringError::unsupported_select_having());
     }
 
@@ -228,9 +232,8 @@ fn canonicalize_grouped_having_expr_from_lowered_sql_clause(
 // Global aggregate HAVING has no grouped-key field literal canonicalization
 // seam today, but explicit searched-CASE boolean canonicalization is still
 // safe to apply before the global aggregate command freezes identity/explain.
-// Omitted-`ELSE` global aggregate `CASE` uses the same proof gate
-// as grouped SELECT HAVING: if canonical grouped boolean lowering still leaves
-// raw planner `Case` nodes behind, the shape stays outside the admitted family.
+// Omitted-ELSE global aggregate CASE consumes the same content-bound evidence
+// as grouped SELECT HAVING, independently of whether eager expansion is safe.
 fn canonicalize_grouped_global_having_clause(
     clause: LoweredHavingClause,
     work: &PreparationWork<'_>,
@@ -238,7 +241,9 @@ fn canonicalize_grouped_global_having_clause(
     let contains_omitted_else_case = clause.contains_omitted_else_case;
     let canonical = canonicalize_grouped_having_bool_expr(clause.into_expr(), work)?;
 
-    if contains_omitted_else_case && canonical.contains_case() {
+    if contains_omitted_else_case
+        && !case_expansions_are_bounded(&canonical, work).map_err(SqlLoweringError::from)?
+    {
         return Err(SqlLoweringError::unsupported_select_having());
     }
 

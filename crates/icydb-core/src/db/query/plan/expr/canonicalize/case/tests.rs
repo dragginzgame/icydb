@@ -107,6 +107,56 @@ fn field(name: &str) -> Expr {
     Expr::Field(FieldId::new(name))
 }
 
+#[test]
+fn expansion_preserves_lazy_cases_with_fallible_conditions_and_results() {
+    let division = Expr::Binary {
+        op: BinaryOp::Div,
+        left: Box::new(field("numerator")),
+        right: Box::new(field("denominator")),
+    };
+    let fallible = [
+        Expr::Binary {
+            op: BinaryOp::Gt,
+            left: Box::new(division),
+            right: Box::new(Expr::Literal(Value::Nat64(1))),
+        },
+        Expr::FunctionCall {
+            function: Function::Mod,
+            args: vec![field("numerator"), field("denominator")],
+        },
+    ];
+    crate::db::query::preparation::with_preparation_work(|work| {
+        for operand in fallible {
+            for (condition, result, otherwise) in [
+                (operand.clone(), field("yes"), field("no")),
+                (field("condition"), operand.clone(), field("no")),
+                (field("condition"), field("yes"), operand.clone()),
+            ] {
+                let original = case(vec![CaseWhenArm::new(condition, result)], otherwise);
+                let Expr::Case {
+                    when_then_arms,
+                    else_expr,
+                } = &original
+                else {
+                    unreachable!()
+                };
+                let bounded = admit_expansion(when_then_arms, else_expr, work)
+                    .unwrap()
+                    .unwrap();
+                assert!(
+                    !bounded.can_evaluate_eagerly,
+                    "bounded content is not proof of eager safety"
+                );
+                assert_eq!(
+                    normalize_bool_case_expr(original.clone(), false, work).unwrap(),
+                    original,
+                    "eager expansion must not expose an unselected error",
+                );
+            }
+        }
+    });
+}
+
 fn case(arms: Vec<CaseWhenArm>, otherwise: Expr) -> Expr {
     Expr::Case {
         when_then_arms: arms,

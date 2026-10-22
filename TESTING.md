@@ -296,6 +296,14 @@ and `wasm_size_report`; [branch-protection guidance](.github/BRANCH_PROTECTION.m
 owns that selection. Linux portable-shell fixtures do not qualify native macOS
 or live canister behavior. Report skipped or ignored scenarios as unrun evidence.
 
+Both native macOS lanes run the CLI observability report and endpoint-decoder
+tests through the nonempty-test runner, alongside diagnostic escaping and
+migration command tests. Report coverage includes ASCII layout, wide/combining
+Unicode and control-bearing schema cells. These exercise IcyDB's integration
+with Host Text; Host owns terminal escaping, cell widths and table padding.
+Linux results do not substitute for those native passes
+([#362 — Qualify the CLI Host Text integration](https://github.com/dragginzgame/icydb/issues/362)).
+
 ---
 
 ## 5. Regression Tests

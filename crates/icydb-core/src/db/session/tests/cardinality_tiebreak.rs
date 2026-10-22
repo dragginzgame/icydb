@@ -28,6 +28,7 @@ mod scoped_order_choice;
 mod secondary_order;
 mod seek_intersection;
 mod sparse_indexes;
+mod sql_case_guards;
 mod sql_not_null;
 mod sql_scalar_comparisons;
 mod sql_update_expressions;

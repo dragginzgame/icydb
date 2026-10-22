@@ -5,13 +5,53 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.280.2]
+## [0.280.3]
 
 ### 📚 Documentation
 
 - Narrow targeted boundary-handoff reviews to IcyDB's carried authority and
   focused proof; reuse the adopted Shared reporting and execution contract.
   [Detailed notes](docs/changelog/0.280.md).
+
+## [0.280.2] - 2026-10-21
+
+### 🩹 Fixed
+
+- Admit unique and filtered prefix indexes without treating their key prefixes
+  as equivalent constraints or membership
+  ([#178 — Incorrect redundant-prefix index rejection](https://github.com/dragginzgame/icydb/issues/178)).
+- Keep integrity checks on accepted targeted rules while replacements await
+  validation ([#98 — Pending rule replacement falsely reports corruption](https://github.com/dragginzgame/icydb/issues/98)).
+- Reject invalid numeric hook settings without substituting zero or changing
+  the input ([#73 — Unrepresentable validator and normalizer settings](https://github.com/dragginzgame/icydb/issues/73)).
+- Return primary-key-ordered live pages over general intersections without an
+  invariant error ([#53 — General intersections lack a live-page access bound](https://github.com/dragginzgame/icydb/issues/53)).
+- Keep grouped page boundaries independent of omitted, transformed or reordered
+  output keys ([#49 — Grouped cursor uses projected keys](https://github.com/dragginzgame/icydb/issues/49)).
+- Preserve lazy `CASE` evaluation around checked arithmetic and functions in
+  filters ([#74 — CASE rewrite evaluates unselected branches](https://github.com/dragginzgame/icydb/issues/74)).
+- Avoid rescanning validated map suffixes during nested-field reads, preserving
+  complete value validation and the existing grouping instruction ceilings.
+
+### 📚 Documentation
+
+- Clarify shared browser codec ownership and finite native contract limits
+  ([#372 — Qualify native Wire browser codecs](https://github.com/dragginzgame/icydb/issues/372)).
+- Document synchronous reply-encoding rollback and its message boundary
+  ([#371 — Roll back mutations after reply-encoding failure](https://github.com/dragginzgame/icydb/issues/371)).
+
+### 🧪 Testing
+
+- Run CLI report and decoder controls in both native macOS lanes
+  ([#362 — Qualify the CLI Host Text integration](https://github.com/dragginzgame/icydb/issues/362)).
+- Exercise maximum SQL limits and offsets through installed Wasm
+  ([#116 — Excessive scalar-page preallocation](https://github.com/dragginzgame/icydb/issues/116)).
+- Record matched cold/resident SQL query instructions and fixture Wasm size
+  ([#346 — Avoid reparsing resident SQL commands](https://github.com/dragginzgame/icydb/issues/346)).
+- Enforce the 30-billion instruction ceiling after trapped recovery and remove
+  misleading cost checks ([#44 — Ineffective instruction-budget assertions](https://github.com/dragginzgame/icydb/issues/44)).
+
+See [detailed notes](docs/changelog/0.280.md).
 
 ## [0.280.1] - 2026-10-21
 

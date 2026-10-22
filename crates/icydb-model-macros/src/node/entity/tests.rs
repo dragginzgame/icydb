@@ -518,6 +518,112 @@ fn validate_rejects_expression_index_field_not_found() {
 }
 
 #[test]
+fn prefix_indexes_preserve_independent_uniqueness_constraints() {
+    for (short_unique, long_unique) in [(true, true), (true, false), (false, true)] {
+        for reverse in [false, true] {
+            let mut indexes = vec![
+                Index {
+                    fields: field_list(&["email"]),
+                    unique: short_unique,
+                    predicate: None,
+                },
+                Index {
+                    fields: field_list(&["email", "tenant_id"]),
+                    unique: long_unique,
+                    predicate: None,
+                },
+            ];
+            if reverse {
+                indexes.reverse();
+            }
+            let entity = entity_with_fields_and_indexes(
+                vec![
+                    scalar_field("id"),
+                    scalar_field("email"),
+                    scalar_field("tenant_id"),
+                ],
+                indexes,
+            );
+            entity
+                .validate()
+                .expect("prefix terms do not imply equivalent uniqueness");
+        }
+    }
+}
+
+#[test]
+fn prefix_indexes_preserve_filtered_membership() {
+    for (short_predicate, long_predicate) in [
+        (Some("active = true"), None),
+        (None, Some("active = true")),
+        (Some("active = true"), Some("active = false")),
+        (Some("active = true"), Some("active = true")),
+    ] {
+        for unique in [false, true] {
+            for reverse in [false, true] {
+                let mut indexes = vec![
+                    Index {
+                        fields: field_list(&["email"]),
+                        unique,
+                        predicate: short_predicate.map(str::to_owned),
+                    },
+                    Index {
+                        fields: field_list(&["email", "tenant_id"]),
+                        unique,
+                        predicate: long_predicate.map(str::to_owned),
+                    },
+                ];
+                if reverse {
+                    indexes.reverse();
+                }
+                let entity = entity_with_fields_and_indexes(
+                    vec![
+                        scalar_field("id"),
+                        scalar_field("email"),
+                        scalar_field("tenant_id"),
+                        primitive_field("active", Primitive::Bool),
+                    ],
+                    indexes,
+                );
+                entity
+                    .validate()
+                    .expect("filtered index membership remains independently authored");
+            }
+        }
+    }
+}
+
+#[test]
+fn unfiltered_nonunique_prefix_indexes_still_fail_validation() {
+    for reverse in [false, true] {
+        let mut indexes = vec![
+            Index {
+                fields: field_list(&["email"]),
+                unique: false,
+                predicate: None,
+            },
+            Index {
+                fields: field_list(&["email", "tenant_id"]),
+                unique: false,
+                predicate: None,
+            },
+        ];
+        if reverse {
+            indexes.reverse();
+        }
+        let entity = entity_with_fields_and_indexes(
+            vec![
+                scalar_field("id"),
+                scalar_field("email"),
+                scalar_field("tenant_id"),
+            ],
+            indexes,
+        );
+        assert!(entity.validate().is_err());
+    }
+}
+
+#[test]
 fn from_list_parses_nested_indexes_and_fields() {
     let args = NestedMeta::parse_meta_list(quote!(
         store = "UiDataStore",

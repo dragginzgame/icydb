@@ -16,19 +16,26 @@ use crate::{prelude::*, visitor::Validator};
 #[validator]
 pub struct MaxDecimalPlaces {
     target: u32,
+    invalid_configuration: bool,
 }
 
 impl MaxDecimalPlaces {
-    /// Create a new validator with the given maximum number of decimal places.
+    /// Configure a precision limit; failed conversion reports an issue on validation.
     pub fn new(target: impl TryInto<u32>) -> Self {
+        let target = target.try_into().ok();
         Self {
-            target: target.try_into().unwrap_or_default(),
+            target: target.unwrap_or_default(),
+            invalid_configuration: target.is_none(),
         }
     }
 }
 
 impl Validator<Decimal> for MaxDecimalPlaces {
     fn validate(&self, n: &Decimal, ctx: &mut dyn VisitorContext) {
+        if self.invalid_configuration {
+            ctx.issue("maximum decimal places cannot be represented as u32".to_string());
+            return;
+        }
         if n.scale() > self.target {
             ctx.issue(format!(
                 "decimal scale {} must be at most {}",

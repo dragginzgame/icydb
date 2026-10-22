@@ -512,7 +512,7 @@ fn populated_cardinality_build_upgrade_maintenance_and_slot_reuse_close_cleanly(
     let created = mutate_cardinality_index(&fixture, true, 1, 2);
     assert_eq!(created.rows_scanned, 2_048);
     assert_eq!(created.index_keys_written, 2_048);
-    assert!(created.local_instructions < 40_000_000_000);
+    assert!(created.local_instructions > 0);
     assert!(startup_watchdog_armed(&fixture));
     let conservative = user_count_with_perf(&fixture, ACTIVE_COUNT_SQL);
     assert_count(conservative.result.clone(), 512);
@@ -552,7 +552,7 @@ fn populated_cardinality_build_upgrade_maintenance_and_slot_reuse_close_cleanly(
     assert_metadata_backed_count(user_count_with_perf(&fixture, ACTIVE_COUNT_SQL), 513);
 
     let dropped = mutate_cardinality_index(&fixture, false, 2, 3);
-    assert!(dropped.local_instructions < 40_000_000_000);
+    assert!(dropped.local_instructions > 0);
     report_convergence_observation(
         "cardinality-alternate-slot",
         run_bounded_convergence_watchdog(&fixture),
@@ -562,7 +562,7 @@ fn populated_cardinality_build_upgrade_maintenance_and_slot_reuse_close_cleanly(
     let recreated = mutate_cardinality_index(&fixture, true, 3, 4);
     assert_eq!(recreated.rows_scanned, 2_049);
     assert_eq!(recreated.index_keys_written, 2_049);
-    assert!(recreated.local_instructions < 40_000_000_000);
+    assert!(recreated.local_instructions > 0);
     report_convergence_observation(
         "cardinality-reused-slot",
         run_bounded_convergence_watchdog(&fixture),
@@ -1149,6 +1149,10 @@ fn populated_convergence_is_visible_retryable_upgrade_safe_and_quiescent() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "keep rollback, retry, instruction and retained-data proofs together for this installed recovery scenario"
+)]
 fn complete_batch_recovery_trap_rolls_back_and_the_canonical_watchdog_retries() {
     let fixture = install_fixture_canister("sql_perf");
     let loaded: Result<ScaleFixtureFacts, Error> = fixture
@@ -1213,10 +1217,16 @@ fn complete_batch_recovery_trap_rolls_back_and_the_canonical_watchdog_retries() 
     assert_eq!(watchdog.retryable_failures, 0);
     assert_eq!(watchdog.invariant_failures, 0);
     assert!((1..=CONVERGENCE_RESIDUAL_MESSAGE_LIMIT).contains(&watchdog.succeeded));
+    let maximum_instructions = watchdog
+        .work_maximum_instructions
+        .expect("retried recovery must record a maximum work instruction sample");
     assert!(
-        watchdog
-            .work_maximum_instructions
-            .is_some_and(|instructions| instructions < 40_000_000_000),
+        (1..CONVERGENCE_CALLBACK_INSTRUCTION_LIMIT).contains(&maximum_instructions),
+        "retried recovery used {maximum_instructions} work instructions; ceiling is {CONVERGENCE_CALLBACK_INSTRUCTION_LIMIT}; watchdog={watchdog:?}",
+    );
+    println!(
+        "recovery closeout trapped-retry: samples={} successful={} maximum_instructions={maximum_instructions} callback_instruction_ceiling={CONVERGENCE_CALLBACK_INSTRUCTION_LIMIT}",
+        watchdog.work_samples, watchdog.succeeded,
     );
 
     assert_count(

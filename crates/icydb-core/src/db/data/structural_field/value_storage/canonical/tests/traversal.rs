@@ -58,6 +58,42 @@ fn canonical_traversal_selects_scalars_and_enum_leaves_in_both_sibling_orders() 
 }
 
 #[test]
+fn canonical_traversal_keeps_first_text_match_and_validates_entire_root() {
+    let root = CanonicalValue::Map(vec![
+        (CanonicalValue::Nat64(9), CanonicalValue::Null),
+        (
+            CanonicalValue::Text("rank".into()),
+            CanonicalValue::Nat64(9),
+        ),
+        (
+            CanonicalValue::Text("rank".into()),
+            CanonicalValue::Nat64(10),
+        ),
+        (
+            CanonicalValue::Text("sibling".into()),
+            CanonicalValue::List(vec![canonical_enum(Some(CanonicalValue::Nat64(5)))]),
+        ),
+    ]);
+    let bytes = encode_canonical_value_storage_bytes(&root).unwrap();
+    let view = ValueStorageView::from_raw_validated(&bytes).unwrap();
+    for _ in 0..2 {
+        let rank = view.map_text_key_bytes(b"rank").unwrap().unwrap();
+        assert_eq!(
+            decode_structural_value_storage_bytes(rank.as_bytes()).unwrap(),
+            CanonicalValue::Nat64(9)
+        );
+        assert!(view.map_text_key_bytes(b"missing").unwrap().is_none());
+    }
+    // A match before a malformed suffix must never authorize a partial view.
+    for end in 0..bytes.len() {
+        assert_readers_reject(&bytes[..end]);
+    }
+    let mut trailing = bytes;
+    trailing.push(TAG_UNIT);
+    assert_readers_reject(&trailing);
+}
+
+#[test]
 fn canonical_traversal_counts_each_list_map_and_enum_value_once() {
     for shape in 0..3 {
         let mut value = CanonicalValue::Unit;

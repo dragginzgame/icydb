@@ -197,6 +197,8 @@ impl CompiledAcceptedRuleOperation {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct CompiledAcceptedTargetedRule {
     id: ConstraintId,
+    // Replacements retain the accepted ID, so ID alone cannot select authority.
+    accepted: bool,
     target_type: AcceptedNamedTypeIdentity,
     operation: CompiledAcceptedRuleOperation,
 }
@@ -236,7 +238,7 @@ impl CompiledAcceptedTargetedRules {
             else {
                 return None;
             };
-            Some((constraint.id(), *target, operation.as_ref()))
+            Some((constraint.id(), *target, operation.as_ref(), true))
         });
         let activating = snapshot
             .constraint_activations()
@@ -247,7 +249,7 @@ impl CompiledAcceptedTargetedRules {
                 else {
                     return None;
                 };
-                Some((activation.id(), *target, operation.as_ref()))
+                Some((activation.id(), *target, operation.as_ref(), false))
             });
         Self::compile_sources(schema, value_catalog, accepted.chain(activating))
     }
@@ -269,18 +271,25 @@ impl CompiledAcceptedTargetedRules {
         Self::compile_sources(
             schema,
             value_catalog,
-            std::iter::once((activation.id(), *target, operation.as_ref())),
+            std::iter::once((activation.id(), *target, operation.as_ref(), false)),
         )
     }
 
     fn compile_sources<'a>(
         schema: &AcceptedSchemaSnapshot,
         value_catalog: &AcceptedValueCatalogHandle,
-        sources: impl Iterator<Item = (ConstraintId, AcceptedRuleTarget, &'a AcceptedRuleOperation)>,
+        sources: impl Iterator<
+            Item = (
+                ConstraintId,
+                AcceptedRuleTarget,
+                &'a AcceptedRuleOperation,
+                bool,
+            ),
+        >,
     ) -> Result<Self, AcceptedTargetedRuleEvaluationError> {
         let snapshot = schema.persisted_snapshot();
         let mut roots = BTreeMap::<FieldId, CompiledAcceptedTargetedRoot>::new();
-        for (constraint_id, target, operation) in sources {
+        for (constraint_id, target, operation, accepted) in sources {
             let field = snapshot
                 .fields()
                 .iter()
@@ -306,6 +315,7 @@ impl CompiledAcceptedTargetedRules {
             }
             root.rules.push(CompiledAcceptedTargetedRule {
                 id: constraint_id,
+                accepted,
                 target_type: target.target_type(),
                 operation: compiled_operation,
             });
@@ -350,6 +360,7 @@ impl CompiledAcceptedTargetedRules {
         self.evaluate_with_limits(values_by_slot, TargetedEvaluationLimits::standard(), None)
     }
 
+    /// Inspect accepted semantics only; a pending same-ID candidate is a write gate.
     pub(super) fn evaluate_constraint(
         &self,
         constraint_id: ConstraintId,
@@ -457,6 +468,7 @@ impl CompiledAcceptedTargetedRules {
                             }
                             if only_constraint.is_some_and(|constraint_id| {
                                 root.rules[*ordinal].id != constraint_id
+                                    || !root.rules[*ordinal].accepted
                             }) {
                                 continue;
                             }

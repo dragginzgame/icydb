@@ -543,31 +543,6 @@ impl Expr {
         }
     }
 
-    /// Return true when this planner expression tree still contains any raw
-    /// searched `CASE` node after owner-local canonicalization.
-    #[must_use]
-    pub(in crate::db) fn contains_case(&self) -> bool {
-        self.any_tree_expr(&mut |expr| matches!(expr, Self::Case { .. }))
-    }
-
-    /// Return true when any visited planner expression node satisfies the
-    /// supplied predicate.
-    #[must_use]
-    pub(in crate::db) fn any_tree_expr(&self, predicate: &mut impl FnMut(&Self) -> bool) -> bool {
-        !self.all_tree_expr(&mut |node| !predicate(node))
-    }
-
-    /// Return true when every visited planner expression node satisfies the
-    /// supplied predicate.
-    #[must_use]
-    pub(in crate::db) fn all_tree_expr(&self, predicate: &mut impl FnMut(&Self) -> bool) -> bool {
-        match self.try_all_tree_expr(&mut |node| Ok::<_, std::convert::Infallible>(predicate(node)))
-        {
-            Ok(result) => result,
-            Err(never) => match never {},
-        }
-    }
-
     /// Visit borrowed expression nodes in preorder, stopping before later
     /// children on either false or error. Aggregate inputs remain separate.
     pub(in crate::db) fn try_all_tree_expr<E>(

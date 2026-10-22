@@ -90,6 +90,10 @@ pub struct RuleNumber {}
     store = "SchemaOnlyStore",
     version = 1,
     pk(fields = ["id"]),
+    index(fields = ["rule_text"], unique),
+    index(fields = ["rule_text", "id"], unique),
+    index(fields = ["rule_number"], predicate = "id > 0"),
+    index(fields = ["rule_number", "id"]),
     fields(
         field(
             name = "id",
@@ -204,6 +208,35 @@ mod tests {
             targeted_operation(fragment, "rule_number", "RuleNumber", "step"),
             SourceRuleOperation::MultipleOf { .. }
         ));
+    }
+
+    #[test]
+    fn prefix_index_constraints_and_membership_survive_fragment_lowering() {
+        let fragment = get_schema()
+            .expect("schema-only fixture graph should validate")
+            .schema_fragment_for_canister(SchemaOnlyCanister::PATH)
+            .expect("prefix index declarations should lower together");
+        let mut shapes = fragment.entities()[0]
+            .indexes()
+            .iter()
+            .map(|index| {
+                (
+                    index.key().len(),
+                    index.unique(),
+                    index.predicate().is_some(),
+                )
+            })
+            .collect::<Vec<_>>();
+        shapes.sort_unstable();
+        assert_eq!(
+            shapes,
+            [
+                (1, false, true),
+                (1, true, false),
+                (2, false, false),
+                (2, true, false)
+            ]
+        );
     }
 
     #[test]
