@@ -13,7 +13,6 @@ mod typed;
 mod value_storage;
 
 pub(in crate::db) use accepted::{
-    accepted_kind_supports_primary_key_component_binary,
     decode_structural_field_by_accepted_kind_bytes, encode_structural_field_by_accepted_kind_bytes,
     validate_structural_field_by_accepted_kind_bytes,
 };

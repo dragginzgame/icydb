@@ -658,6 +658,141 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "keep catalog admission and transition controls paired for each named contract and wire lane"
+    )]
+    fn named_canonical_historical_fills_admit_append_only_transitions() {
+        use crate::{
+            db::{
+                data::{
+                    encode_canonical_value_storage_bytes,
+                    validate_default_payload_for_accepted_field_contract,
+                },
+                schema::{
+                    AcceptedFieldDecodeContract, TestEnumDefinition, TestEnumVariant,
+                    build_accepted_enum_catalog_for_tests,
+                    build_record_composite_catalog_for_tests,
+                },
+            },
+            value::{Value, ValueEnum},
+        };
+
+        let enums = build_accepted_enum_catalog_for_tests(&[TestEnumDefinition::new(
+            "tests::Status",
+            vec![TestEnumVariant::unit("Active")],
+        )])
+        .unwrap();
+        let type_id = enums.type_id("tests::Status").unwrap();
+        let variant_id = enums
+            .enum_type(type_id)
+            .unwrap()
+            .variant_id("Active")
+            .unwrap();
+        let enum_value = Value::Enum(ValueEnum::test_unit(type_id.get(), variant_id.get()));
+        let (composites, record_id) = build_record_composite_catalog_for_tests(
+            "tests::Profile".into(),
+            "status".into(),
+            AcceptedFieldKind::Enum { type_id },
+            false,
+            &enums,
+        );
+        for (kind, value) in [
+            (AcceptedFieldKind::Enum { type_id }, enum_value.clone()),
+            (
+                AcceptedFieldKind::Composite { type_id: record_id },
+                Value::Map(vec![(Value::Text("status".into()), enum_value)]),
+            ),
+        ] {
+            let wire = encode_canonical_value_storage_bytes(&value).unwrap();
+            for lane in [FieldStorageDecode::ByKind, FieldStorageDecode::CatalogValue] {
+                let contract = AcceptedFieldDecodeContract::new(
+                    "named",
+                    &kind,
+                    false,
+                    lane,
+                    LeafCodec::Structural,
+                );
+                validate_default_payload_for_accepted_field_contract(
+                    &enums,
+                    &composites,
+                    contract,
+                    &wire,
+                )
+                .unwrap();
+                for unadmitted in [Value::Null, Value::Nat64(9)] {
+                    let payload = encode_canonical_value_storage_bytes(&unadmitted).unwrap();
+                    assert!(
+                        validate_default_payload_for_accepted_field_contract(
+                            &enums,
+                            &composites,
+                            contract,
+                            &payload
+                        )
+                        .is_err()
+                    );
+                }
+                let actual = snapshot(None);
+                let layout = RowLayoutVersion::INITIAL.checked_next().unwrap();
+                let candidate = |payload: Vec<u8>| {
+                    let mut fields = actual.fields().to_vec();
+                    fields.push(PersistedFieldSnapshot::new_with_write_policy_and_origin(
+                        FieldId::new(2),
+                        "named".into(),
+                        SchemaFieldSlot::new(1),
+                        kind.clone(),
+                        Vec::new(),
+                        false,
+                        layout,
+                        SchemaInsertDefault::SlotPayload(payload.clone()),
+                        SchemaHistoricalFill::SlotPayload(payload),
+                        SchemaFieldWritePolicy::none(),
+                        PersistedFieldOrigin::Generated,
+                        lane,
+                        LeafCodec::Structural,
+                    ));
+                    PersistedSchemaSnapshot::new(
+                        actual.version(),
+                        actual.entity_path().into(),
+                        actual.entity_name().into(),
+                        actual.primary_key_field_ids().to_vec(),
+                        SchemaRowLayout::new(
+                            layout,
+                            RowLayoutVersion::INITIAL,
+                            vec![
+                                (FieldId::new(1), SchemaFieldSlot::new(0)),
+                                (FieldId::new(2), SchemaFieldSlot::new(1)),
+                            ],
+                        ),
+                        fields,
+                    )
+                };
+                for _ in 0..2 {
+                    let SchemaTransitionDecision::Accepted(plan) =
+                        decide_schema_transition(&actual, &candidate(wire.clone()))
+                    else {
+                        panic!("canonical named fill must admit the append-only transition");
+                    };
+                    assert_eq!(plan.kind(), SchemaTransitionPlanKind::AppendOnlyFields);
+                }
+                let mut trailing = wire.clone();
+                trailing.push(0);
+                for malformed in [
+                    Vec::new(),
+                    wire[..wire.len() - 1].to_vec(),
+                    trailing,
+                    vec![0],
+                ] {
+                    assert!(matches!(
+                        decide_schema_transition(&actual, &candidate(malformed)),
+                        SchemaTransitionDecision::Rejected(_)
+                    ));
+                }
+            }
+        }
+    }
+
+    #[test]
     fn generated_transition_accepts_exact_stable_identity_targeted_replacement() {
         let actual = snapshot(None);
         let target = AcceptedRuleTarget::new(

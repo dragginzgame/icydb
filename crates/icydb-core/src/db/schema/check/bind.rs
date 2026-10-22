@@ -81,6 +81,10 @@ pub(in crate::db) fn bind_check_expr_v1(
 
 /// Bind one immutable-source-key expression through the same accepted
 /// frontend-neutral compiler used by generated and SQL declarations.
+#[expect(
+    clippy::too_many_lines,
+    reason = "keep the bounded postfix instruction dispatch and its subtree admission in one flow"
+)]
 pub(in crate::db::schema) fn bind_source_check_expr(
     expression: &SourceCheckExpr,
     entity: EntityTag,
@@ -121,35 +125,51 @@ pub(in crate::db::schema) fn bind_source_check_expr(
                 let right = pop_source_value(&mut stack)?;
                 let left = pop_source_value(&mut stack)?;
                 let (left, right) = source_comparison_values(left, right, bindings, enum_catalog)?;
-                stack.push(SourceCheckNode::Boolean(CheckExprV1Input::Compare {
-                    left,
-                    op: source_compare_op(instruction)
-                        .ok_or(AcceptedCheckExprV1Error::UnsupportedOperator)?,
-                    right,
-                }));
+                let expression = bind_check_expr_v1(
+                    CheckExprV1Input::Compare {
+                        left,
+                        op: source_compare_op(instruction)
+                            .ok_or(AcceptedCheckExprV1Error::UnsupportedOperator)?,
+                        right,
+                    },
+                    snapshot,
+                    enum_catalog,
+                    composite_catalog,
+                )?;
+                stack.push(SourceCheckNode::Boolean(expression));
             }
             SourceCheckInstruction::And | SourceCheckInstruction::Or => {
                 let right = pop_source_boolean(&mut stack)?;
                 let left = pop_source_boolean(&mut stack)?;
                 stack.push(SourceCheckNode::Boolean(match instruction {
-                    SourceCheckInstruction::And => CheckExprV1Input::And(vec![left, right]),
-                    SourceCheckInstruction::Or => CheckExprV1Input::Or(vec![left, right]),
+                    SourceCheckInstruction::And => {
+                        AcceptedCheckExprV1::canonicalized_and(vec![left, right])?
+                    }
+                    SourceCheckInstruction::Or => {
+                        AcceptedCheckExprV1::canonicalized_or(vec![left, right])?
+                    }
                     _ => return Err(AcceptedCheckExprV1Error::UnsupportedOperator),
                 }));
             }
             SourceCheckInstruction::Not => {
                 let inner = pop_source_boolean(&mut stack)?;
-                stack.push(SourceCheckNode::Boolean(CheckExprV1Input::Not(Box::new(
-                    inner,
-                ))));
+                stack.push(SourceCheckNode::Boolean(AcceptedCheckExprV1::Not(
+                    Box::new(inner),
+                )));
             }
             SourceCheckInstruction::IsNull | SourceCheckInstruction::IsNotNull => {
                 let value = source_value_without_literal(pop_source_value(&mut stack)?)?;
-                stack.push(SourceCheckNode::Boolean(match instruction {
+                let input = match instruction {
                     SourceCheckInstruction::IsNull => CheckExprV1Input::IsNull(value),
                     SourceCheckInstruction::IsNotNull => CheckExprV1Input::IsNotNull(value),
                     _ => return Err(AcceptedCheckExprV1Error::UnsupportedOperator),
-                }));
+                };
+                stack.push(SourceCheckNode::Boolean(bind_check_expr_v1(
+                    input,
+                    snapshot,
+                    enum_catalog,
+                    composite_catalog,
+                )?));
             }
             SourceCheckInstruction::Length => {
                 let value = pop_source_value(&mut stack)?;
@@ -170,21 +190,30 @@ pub(in crate::db::schema) fn bind_source_check_expr(
                 }));
             }
         }
+        // Bind and canonicalize while the postfix input is still flat. Every
+        // retained boolean subtree is admitted before another instruction can
+        // grow it, bounding recursive validation, sorting and drop by the same
+        // accepted-tree limits. Flattenable chains keep their canonical shape.
+        if let Some(SourceCheckNode::Boolean(expression)) = stack.last() {
+            expression.validate(snapshot, composite_catalog)?;
+        }
     }
-    let [result] = stack.as_slice() else {
+    if stack.len() != 1 {
         return Err(AcceptedCheckExprV1Error::UnsupportedOperator);
-    };
-    let input = source_node_boolean(result.clone())?;
-    bind_check_expr_v1(input, snapshot, enum_catalog, composite_catalog)
+    }
+    let result = stack
+        .pop()
+        .ok_or(AcceptedCheckExprV1Error::UnsupportedOperator)?;
+    let expression = source_node_boolean(result)?;
+    expression.validate(snapshot, composite_catalog)?;
+    Ok(expression)
 }
 
-#[derive(Clone)]
 enum SourceCheckNode {
-    Boolean(CheckExprV1Input),
+    Boolean(AcceptedCheckExprV1),
     Value(SourceCheckValue),
 }
 
-#[derive(Clone)]
 enum SourceCheckValue {
     Field {
         name: String,
@@ -210,7 +239,7 @@ fn pop_source_value(
 
 fn pop_source_boolean(
     stack: &mut Vec<SourceCheckNode>,
-) -> Result<CheckExprV1Input, AcceptedCheckExprV1Error> {
+) -> Result<AcceptedCheckExprV1, AcceptedCheckExprV1Error> {
     let node = stack
         .pop()
         .ok_or(AcceptedCheckExprV1Error::UnsupportedOperator)?;
@@ -219,14 +248,14 @@ fn pop_source_boolean(
 
 fn source_node_boolean(
     node: SourceCheckNode,
-) -> Result<CheckExprV1Input, AcceptedCheckExprV1Error> {
+) -> Result<AcceptedCheckExprV1, AcceptedCheckExprV1Error> {
     match node {
         SourceCheckNode::Boolean(expression) => Ok(expression),
         SourceCheckNode::Value(SourceCheckValue::Literal(ScalarLiteral::Bool(true))) => {
-            Ok(CheckExprV1Input::True)
+            Ok(AcceptedCheckExprV1::True)
         }
         SourceCheckNode::Value(SourceCheckValue::Literal(ScalarLiteral::Bool(false))) => {
-            Ok(CheckExprV1Input::False)
+            Ok(AcceptedCheckExprV1::False)
         }
         SourceCheckNode::Value(_) => Err(AcceptedCheckExprV1Error::UnsupportedOperator),
     }

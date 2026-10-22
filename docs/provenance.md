@@ -42,6 +42,18 @@ numeric thresholds and method-catalog machinery remain local. Module cleanup is
 an implementation procedure, not an additional audit verdict. Definition
 consolidation does not imply consumer snapshot adoption or new runtime proof.
 
+The 2026-10-21 follow-up reviews Canic's
+[CI/release integrity method](https://github.com/dragginzgame/canic/blob/4caeec25db7d81f6121db1c95ba7a2d91d319c60/docs/audits/recurring/system/release-integrity.md)
+and IcyDB's [targeted boundary-handoff review](https://github.com/dragginzgame/icydb/blob/2a3e1efa551835be8b068a9579c276796f2a6143/docs/audits/targeted/integrity/boundary-handoff-review.md).
+The generic automation trust/artifact questions now belong to the shared
+CI/release method; focused producer-to-consumer guarantee tracing extends the
+existing flow method. Product invariants, report archives, frozen method
+identities and measurement protocols stay local. These source files were clean
+at inspection; unrelated sibling work is excluded. Consumer adoption requires a
+reviewed supplying Shared revision and is not established by this local draft.
+[Canic #618 — Adopt shared CI/release integrity](https://github.com/dragginzgame/canic/issues/618) and
+[IcyDB #396 — Adopt shared focused-handoff guidance](https://github.com/dragginzgame/icydb/issues/396) own that adoption.
+
 ## Local IC tools and verification helpers
 
 The common installer combines existing Canic and IcyDB Binaryen/PocketIC setup

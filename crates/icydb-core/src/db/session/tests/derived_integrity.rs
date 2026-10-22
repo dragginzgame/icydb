@@ -8,10 +8,12 @@ use crate::{
         index::IndexStore,
         integrity::{
             DeepIntegrityPageStatus, DerivedInspectionLimits, IntegrityCheckRequest,
-            IntegrityCheckResult, IntegrityEntityIdentity, IntegrityFinding, IntegrityFindingKind,
-            IntegrityJobOwner, IntegrityJobReceipt, IntegritySubmissionKey,
-            IntegrityTerminalOutcome, IntegrityVerifierFamily, PhysicalUnitCheckpoint,
-            execute_index_integrity_page, execute_reverse_integrity_page,
+            IntegrityCheckResult, IntegrityDeepError, IntegrityEntityIdentity, IntegrityFinding,
+            IntegrityFindingKind, IntegrityJobError, IntegrityJobId, IntegrityJobOwner,
+            IntegrityJobReceipt, IntegritySubmissionKey, IntegrityTerminalOutcome,
+            IntegrityVerifierFamily, PhysicalUnitCheckpoint, execute_index_integrity_page,
+            execute_reverse_integrity_page, miskey_progress_record_for_test,
+            replace_progress_record_for_test,
         },
         journal::JournalTailStore,
         registry::{
@@ -325,6 +327,114 @@ fn inspect_to_completion(
         receipt = IntegrityJobReceipt::Page(result);
     }
     panic!("Deep must complete instead of refreshing an unchanged checkpoint");
+}
+
+#[test]
+fn public_integrity_results_and_replays_survive_a_miskeyed_retained_job() {
+    let (session, plan) = fixture(0, 0);
+    let entity = IntegrityEntityIdentity::from_accepted_identity(plan.identity_ref());
+    let owner = IntegrityJobOwner::new("retention-owner").unwrap();
+    let abandoned = session
+        .execute_admin_integrity(
+            IntegrityCheckRequest::DeepStart {
+                entity: entity.clone(),
+                submission_key: IntegritySubmissionKey::new("abandoned").unwrap(),
+            },
+            owner.clone(),
+        )
+        .unwrap();
+    let IntegrityCheckResult::Deep(abandoned) = abandoned else {
+        panic!("expected a Deep receipt");
+    };
+    let byte = if abandoned.job_id().to_bytes()[0] == 1 {
+        2
+    } else {
+        1
+    };
+    miskey_progress_record_for_test::<TestCanister>(
+        abandoned.job_id(),
+        IntegrityJobId::try_from_bytes([byte; 32]).unwrap(),
+    )
+    .unwrap();
+
+    let quick = IntegrityCheckRequest::Quick {
+        entity: entity.clone(),
+    };
+    let expected = session
+        .execute_admin_integrity(quick.clone(), owner.clone())
+        .unwrap();
+    assert!(matches!(expected, IntegrityCheckResult::Quick(_)));
+    assert_eq!(
+        session
+            .execute_admin_integrity(quick, owner.clone())
+            .unwrap(),
+        expected
+    );
+    let start = IntegrityCheckRequest::DeepStart {
+        entity,
+        submission_key: IntegritySubmissionKey::new("maintained").unwrap(),
+    };
+    let expected = session
+        .execute_admin_integrity(start.clone(), owner.clone())
+        .unwrap();
+    assert_eq!(
+        session
+            .execute_admin_integrity(start, owner.clone())
+            .unwrap(),
+        expected
+    );
+    let IntegrityCheckResult::Deep(receipt) = expected else {
+        panic!("expected a Deep receipt");
+    };
+    let request = IntegrityCheckRequest::deep_continue(receipt.job_id(), receipt.page_sequence());
+    assert!(matches!(
+        session.execute_admin_integrity(request.clone(), IntegrityJobOwner::new("other").unwrap()),
+        Err(IntegrityDeepError::Job(IntegrityJobError::JobOwnerMismatch)),
+    ));
+    let next = session
+        .execute_admin_integrity(request.clone(), owner.clone())
+        .unwrap();
+    assert_eq!(
+        session
+            .execute_admin_integrity(request, owner.clone())
+            .unwrap(),
+        next
+    );
+    let abort = IntegrityCheckRequest::DeepAbort {
+        job_id: receipt.job_id(),
+    };
+    let pending = session
+        .execute_admin_integrity(abort.clone(), owner.clone())
+        .unwrap();
+    assert_eq!(
+        session.execute_admin_integrity(abort, owner).unwrap(),
+        pending
+    );
+    assert_eq!(
+        inspect_to_completion(&session, &plan).0,
+        IntegrityTerminalOutcome::DeepCompleteClean
+    );
+}
+
+#[test]
+fn quick_integrity_preserves_its_result_when_retention_cannot_open_progress() {
+    let (session, plan) = fixture(0, 0);
+    let request = IntegrityCheckRequest::Quick {
+        entity: IntegrityEntityIdentity::from_accepted_identity(plan.identity_ref()),
+    };
+    let owner = IntegrityJobOwner::new("retention-owner").unwrap();
+    let expected = session
+        .execute_admin_integrity(request.clone(), owner.clone())
+        .unwrap();
+    replace_progress_record_for_test::<TestCanister>([0; 32], vec![0]).unwrap();
+    for _ in 0..2 {
+        assert_eq!(
+            session
+                .execute_admin_integrity(request.clone(), owner.clone())
+                .unwrap(),
+            expected,
+        );
+    }
 }
 
 #[test]

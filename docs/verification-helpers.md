@@ -585,8 +585,9 @@ regular file). Relative paths resolve from the caller's working directory.
 The verifier owns backend selection: native `sha256sum`/`sha512sum` when available,
 otherwise Perl's `shasum`. It hashes the file through stdin, so spaces, leading
 dashes, backslashes and newlines in filenames do not become options or escaped
-checksum records. File-read errors, backend failures and malformed output fail
-without emitting a digest; a failing backend is never retried through another.
+checksum records. Embedded NUL bytes are rejected before shell capture can discard
+them. File-read errors, backend failures and malformed output fail without emitting
+a digest; a failing backend is never retried through another.
 No network access or build is involved.
 
 Shared Tooling uses this same owner for IC installer receipts and snapshot
@@ -1013,6 +1014,10 @@ filename. Verify the explicitly selected archive through the checksum owner:
 ```bash
 bash scripts/ci/verify-file-checksum.sh sha256 "$(cat "$archive.sha256")" "$archive"
 ```
+
+Both `OUTPUT` and `OUTPUT.sha256` must be new paths. Existing checksum entries,
+including symlinks, are refused before archiving. Checksum publication uses
+noclobber so a file or symlink introduced during archiving cannot be overwritten.
 
 This replaces the filename-bearing sidecar contract; update `shasum -c` callers.
 Names cannot traverse directories; the scratch tree is never implicitly selected.

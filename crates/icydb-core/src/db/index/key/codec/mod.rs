@@ -378,8 +378,15 @@ impl IndexKey {
     }
 
     pub(crate) fn try_from_raw(raw: &RawIndexStoreKey) -> Result<Self, IndexKeyDecodeError> {
+        Self::try_from_raw_with_primary_key_bytes(raw).map(|(key, _)| key)
+    }
+
+    /// Decode the complete frame once and retain its raw-owned primary-key slice.
+    pub(in crate::db) fn try_from_raw_with_primary_key_bytes(
+        raw: &RawIndexStoreKey,
+    ) -> Result<(Self, &[u8]), IndexKeyDecodeError> {
         let frame = decode_index_key_frame(raw)?;
-        Ok(Self {
+        let key = Self {
             key_kind: frame.key_kind,
             index_id: frame.index_id,
             components: frame
@@ -389,7 +396,9 @@ impl IndexKey {
                 .map(|component| component.to_vec())
                 .collect(),
             primary_key: frame.primary_key.to_vec(),
-        })
+        };
+
+        Ok((key, frame.primary_key))
     }
 
     /// Compare physical index identity and component values after validating the

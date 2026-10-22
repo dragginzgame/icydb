@@ -42,6 +42,15 @@ pub fn encode_one<T: Serialize>(value: T) -> Result<Vec<u8>, Error> {
     ic_wire::native::encode(&value, limits(MAX_REPLY_BYTES))
 }
 
+/// Measure a reply payload under the same resource limits as [`encode_one`].
+///
+/// This allocates no output buffer. Unlike [`encoded_len`], it refuses payloads
+/// above the reply byte ceiling. Pass the same owned or borrowed value shape
+/// as encoding so IC Wire applies identical traversal admission.
+pub fn encoded_reply_len<T: Serialize>(value: T) -> Result<usize, Error> {
+    ic_wire::native::encoded_len(&value, limits(MAX_REPLY_BYTES))
+}
+
 /// Decode one complete canonical payload through IC Wire's bounded codec.
 pub fn decode_one<T: Serialize + DeserializeOwned>(bytes: &[u8]) -> Result<T, Error> {
     ic_wire::native::decode(bytes, limits(MAX_REPLY_BYTES))

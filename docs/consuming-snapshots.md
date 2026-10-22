@@ -579,6 +579,23 @@ adopting these rules does not itself authorize Git writes or a release. Policy
 adoption requires no native builds. Existing pinned snapshots do not update
 automatically; preserve their bytes until a reviewed refresh is authorized.
 
+When adopting asynchronous hosted CI, refresh `DRAGGINZGAME.md`,
+`rules/contributions.md`, `docs/supported-hosts.md` and
+`docs/principles/reviewable-changes.md` from the reviewed commit.
+Remove local instructions that require waiting for every integration/native job
+before ordinary PR delivery or an otherwise authorized merge. Preserve focused
+checks, review, enforced branch requirements, test coverage and separate
+release/publication/deployment acceptance. Pending evidence must retain its
+source/run links and be reported as pending; known failures need review and an
+owning follow-up. Do not add a polling service or change branch protections as
+part of this policy adoption.
+
+Consumers pinned to an older snapshot keep those reviewed bytes intact. Adopt
+a reviewed revision containing this rule, or record a maintainer-approved scoped
+cadence exception until that refresh; a moving producer checkout is not adopted
+policy. An explicit synchronous qualification request still applies. This rule
+does not supply merge authority or relax an issue's stated acceptance criteria.
+
 When adopting the local-repair and owning-repository issue workflow, refresh
 `DRAGGINZGAME.md` and `rules/agent-maintenance.md` together from the reviewed
 commit. Remove equivalent local instructions after checking their obligations;

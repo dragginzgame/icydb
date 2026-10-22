@@ -31,6 +31,8 @@ pub use timestamp::*;
 pub use ulid::*;
 pub use unit::*;
 
+pub(crate) use ulid::generate_ulid_at;
+
 //
 // Type Representation Overview
 //

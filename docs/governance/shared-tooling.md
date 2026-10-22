@@ -1,8 +1,8 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `1959ef75d0b86ed7725d41ae5056303d35eb633d`
-(Shared Tooling 0.26.2). Root
+at reviewed revision `4cb9bc907154225a3f7e4c33fd8d75fbeaa125c8`
+(Shared Tooling 0.26.6). Root
 [AGENTS.md](../../AGENTS.md) is the local overlay. The shared approved layout
 retains existing canister, schema and testing packages in their
 restored directories, in the single root workspace and lockfile; no new package
@@ -13,50 +13,95 @@ these rules.
 
 ## Ownership and provenance
 
-### Selected IC Tooling 0.63.2 and Shared Tooling 0.26.2 — 2026-10-21
+### Selected Wire 0.5.21, Timers 0.30.3 and Metrics 0.15.6 — 2026-10-22
 
-The canonical registry indexes confirm published, non-yanked 0.63.2 for the
-seven consumed Host, Build and Testkit crates. The incoming lockfile already
-selected them; dependency requirements, lock selections and own package versions
-are preserved. Their actual registry sources identify
-`e5b4095150f49069fc51c3b497e192a8f8eda016`. Reviewed
-[release guidance](https://github.com/dragginzgame/ic-tooling/blob/e5b4095150f49069fc51c3b497e192a8f8eda016/docs/changelog/0.63.md)
-adds optional HTTP, ledger decoding and stable-memory observation capabilities;
-IcyDB does not enable unused packages or features. Existing library/CLI feature
-separation, Wire protocols and Testkit server ownership remain intact.
+The live registry and downloaded source confirm the current published selections:
+Wire/derive 0.5.21 at `91244e96de4299ed96a666c6b50c62aa2138b72f`, Timers 0.30.3
+at `55d7f1b4a4ba0cfb6064e41dcc0d6879d67231fb` and Metrics 0.15.6 at
+`356a8c7f9defe136f20e7737e76891954c9c590f`. Their required Rust floor remains
+1.91. The worktree selected these releases during adoption; the full locked
+metadata/cache preparation admits those exact packages without reverting the
+maintainer's lockfile or changing IcyDB versions. Platform 0.6.7, Memory/Storage
+0.50.10, Tooling 0.64.0 and Shared 0.26.6 remain current at this check.
 
-The shared snapshot is exported from exact committed source
-`1959ef75d0b86ed7725d41ae5056303d35eb633d`, excluding dirty sibling work.
-Shared 0.26 requires explicit IC executable selections. IcyDB's workstation
-selection is `icp ic-wasm wasm-opt`; canister-build and browser CI select
-`wasm-opt`, and size reporting selects `ic-wasm wasm-opt`. Make setup, offline
-admission and compact failure evidence carry the same selection. Optimizer
-byte-policy admission runs only when wasm-opt is selected. Pins, existing
-installations and retained failed evidence are preserved. Setup and workflow
-fixtures qualify selection forwarding and refusal of missing CI selections.
+Published [Wire guidance](https://github.com/dragginzgame/ic-wire/blob/91244e96de4299ed96a666c6b50c62aa2138b72f/CHANGELOG.md)
+preserves bytes, limits and typed errors while changing internal allocation
+accounting and Wasm byte comparison. Timers' patch changes qualification/tooling
+selections; Metrics' patch changes release-editor setup and documentation. The
+application keeps Wire, Platform's executor identity, timer lifecycle and Metrics
+record contracts. Upstream size/instruction measurements do not qualify IcyDB;
+local raw Wasm size, cycles and instruction deltas are unmeasured.
 
-Shared's focused adoption contract is applied to the single root workspace:
-full locked metadata, dependency declaration/graph admission, affected-package
-strict lint, then focused qualification. Overlapping roots expose a canonical
-feature-output parser limitation tracked in
-[Shared #299](https://github.com/dragginzgame/shared-tooling/issues/299).
-Single-root feature checks preserve the same policy without patching the shared
-checker. Declaration/graph evidence does not implement final deployed-artifact
-admission; [#378](https://github.com/dragginzgame/icydb/issues/378) remains open.
+The selected IcyDB Wasm graph keeps Timers free of Candid and admits one Platform
+and executor identity. Platform's Principal/Serde capabilities are unified with
+other IcyDB consumers in this workspace observation; this is not an isolated
+executor-only qualification. Deployment artifact enforcement remains #378 below.
+Focused Linux qualification passes 160 Schema tests, 28 durable-receipt test
+executions across SQL/no-SQL builds, 23 SQL/generated activation checks and one
+installed lifecycle/upgrade test. Strict Core/Schema and integration-library
+Clippy, Rust 1.91 Wasm checks for the public SQL/migration/metrics library and
+Timers, declaration/graph policies, formatting, snapshot and documentation checks
+pass. Testkit started and reaped the local PocketIC server; no live-IC deployment
+was performed. Native macOS and broad workspace/release qualification remain
+separate gates.
 
-Focused Linux qualification passes 188 CLI/Build/integration host tests, strict
-Clippy for their targets, Rust 1.91 checks for all seven upstream libraries and
-Testkit's Wasm library, dependency declaration/graph checks, 96 workflow-policy
-cases, setup/adapter fixtures and the release-runner/consumer release fixtures.
-The canonical installers prepared the explicit IC executable set and both
-published CLI binaries; offline receipts, optimizer byte admission and compact
-selected-tool evidence pass. An empty IC selection is refused. The concurrent
-Wire 0.5.15 lock selection is preserved and its cache prepared explicitly.
+### Selected IC Tooling 0.64.0 and Shared Tooling 0.26.6 — 2026-10-22
 
-The installed schema-guard test also passes on the final graph: the real build
-and optimizer path preserves anonymous refusal and application-trap propagation.
-Testkit started and reaped its local PocketIC server. No manual network lifecycle
-or deployment operation was performed.
+The live crates.io indexes confirm published, non-yanked 0.64.0 for all seven
+consumed packages: Host Artifacts, FS, Process, Text and Tools, Build and Testkit.
+Their downloaded registry sources identify
+`036da0cdf3d3b35297fbc26031e373f386a2f2de` and Rust 1.91.0. The root requirements
+now select the 0.64 line; the bounded lock update changes only these seven
+packages from the incoming 0.63.3 selection. Unrelated pending changes and IcyDB
+package versions are preserved. See the reviewed
+[0.64 migration guidance](https://github.com/dragginzgame/ic-tooling/blob/036da0cdf3d3b35297fbc26031e373f386a2f2de/docs/changelog/0.64.md).
+
+The release removes Testkit's PocketIC forwarding, stateless helper namespaces
+and duplicate diagnostic/decode policy types. IcyDB already imports native
+PocketIC clients and DTOs through Platform and consumes none of the removed
+APIs, so no compatibility adapter or Rust source migration is needed. Application
+protocols remain on IC Wire. Testkit retains server setup, admission and lifecycle;
+Build owns Cargo builds and release metadata. Both published binaries retain the
+explicit `cli` feature through the existing canonical installer; library-only
+consumers leave it off. Saved release recovery retains its source-bound recipe.
+
+The Shared snapshot is exported from committed 0.26.6 source
+`4cb9bc907154225a3f7e4c33fd8d75fbeaa125c8`, with the CI/release integrity audit
+added to the existing entrypoint selection. Its 123-file closure includes the
+fix for overlapping Cargo roots, bounded diagnostic excerpts, independent parent
+failure reporting, safe latest-log publication and strict checksum output
+admission. No sibling working-tree bytes are adopted. Common tool pins and
+IcyDB's explicit IC executable selections are unchanged: workstation
+`icp ic-wasm wasm-opt`, build/browser CI `wasm-opt`, reporting `ic-wasm wasm-opt`.
+
+Shared's asynchronous hosted-CI guidance applies to ordinary contribution work.
+Focused checks, required GitHub checks/reviews, native-host coverage and separate
+release/publication/deployment acceptance remain required at their established
+boundaries. The local exception still keeps broad repository gates explicitly
+selected; no workflow, branch protection or release authority changes.
+
+Dependency-role labels, grouped manifest formatting and selected-source release
+checks retain their existing ownership. Declaration checks cover aliases,
+normal/build/dev and target-specific declarations. The updated graph checker
+admits overlapping Build/Testkit roots while enforcing the same feature and
+identity policies; the former [Shared #299](https://github.com/dragginzgame/shared-tooling/issues/299)
+limitation is resolved by the adopted release. Graph checks still do not enforce
+final deployed-artifact exclusions: [#378](https://github.com/dragginzgame/icydb/issues/378)
+remains an independent consumer obligation.
+
+Focused Linux qualification passes 203 CLI/Build/integration host tests and
+strict Clippy across their targets, including compilation of the integration
+tests. Rust 1.91 checks pass for all seven libraries, Testkit's Wasm library and
+the public SQL/migration Wasm library. Full locked metadata, direct declaration
+boundaries, native/Wasm graph policies, snapshot integrity, grouped manifest
+formatting, Rust formatting and documentation checks pass. Consumer adapter,
+workstation setup, selected-source grouped release and release-pin fixtures pass.
+The canonical installers prepared both published CLI binaries; the configured
+pin fixture uses the existing explicit 8 MiB metadata allowance. The explicitly
+selected startup test and installed schema-guard test also pass: anonymous calls
+refuse before application code and application traps still propagate. Testkit
+started and reaped the local PocketIC servers; no manual lifecycle action or
+live-IC deployment was performed. No missing upstream API requires an issue.
 
 Native macOS and broad workspace/release qualification remain separate CI or
 user-owned gates. Raw Wasm size, cycle and instruction deltas are unmeasured.

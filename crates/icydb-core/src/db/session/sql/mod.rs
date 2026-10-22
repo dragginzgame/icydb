@@ -126,5 +126,5 @@ impl<C: CanisterKind> DbSession<C> {
 pub(in crate::db::session) fn encoded_returning_response_len(
     projection: crate::db::RowProjectionOutput,
 ) -> Result<usize, icydb_schema::wire::Error> {
-    icydb_schema::wire::encode_one(projection).map(|bytes| bytes.len())
+    icydb_schema::wire::encoded_reply_len(projection)
 }

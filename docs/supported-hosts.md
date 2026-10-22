@@ -23,6 +23,15 @@ execution, cross-compilation and available download assets do not establish
 macOS filesystem, process or deployment behavior. Report unqualified workflows
 explicitly while retaining the macOS support requirement.
 
+Native support does not impose a synchronous wait on every ordinary PR or
+authorized merge. Follow the baseline's
+[asynchronous CI cadence](../DRAGGINZGAME.md#validation-and-evidence): keep the
+matrix running, complete focused checks and review, and integrate only when
+authorized and enforced checks/reviews permit it. Report pending runs with their
+source identity; do not call them native qualification. Preserve visible failure
+reporting and an owning follow-up. Explicit synchronous requests and separate
+release/publication/deployment acceptance gates remain in force.
+
 ## Host-specific setup and commands
 
 Rust workflows can adopt the shared [toolchain preparation action](rust-toolchains.md)
@@ -315,9 +324,10 @@ and extracts the archive to check its payload against the original checksum
 manifest. Both full and compact readbacks use `scripts/ci/download-evidence.sh`
 with the upload output ID and SHA-256, scoped to the current repository and run.
 It requires GitHub CLI, jq, unzip and an explicit `GH_TOKEN` with `actions: read`.
-Only the portable job grants that permission. Direct artifact metadata must match
-the ID, run, expiry status and upload digest. The downloaded ZIP must match that
-digest and contain exactly `evidence.tar.gz`; payload checks remain independent.
+Only the portable job grants that permission. Direct artifact metadata must be one
+JSON document matching the ID, run, expiry status and upload digest. The ZIP must
+match that digest and contain exactly `evidence.tar.gz`; payload checks remain
+independent.
 
 Only reported HTTP 404 responses from metadata or the exact-ID download are
 retried: six attempts with 2, 4, 8, 16 and 30 seconds of backoff. Each hosted

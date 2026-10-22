@@ -139,6 +139,14 @@ encoding never truncates or hashes them. Ordinary non-indexed values retain
 their own field and request limits. Query bounds share the complete-key cap;
 wildcard lengths are derived from the remaining key space.
 
+The [raw-key storage declaration](../../crates/icydb-core/src/db/index/key/codec/envelope.rs)
+derives its maximum from this same budget; there is no separate 16 KiB allowance.
+IC Storage owns B-tree allocation. For bounded keys and values, its current
+adapter chooses new tree pages from the declared maxima, not the typical
+inserted entry size. Summed key/value bytes therefore do not measure allocated
+memory. Use allocation diagnostics for capacity and extent; the key cap alone
+does not quantify storage, cycle or instruction savings.
+
 The persisted stable-map key bound is part of the storage contract. Retain the
 previous binary and required backup/export access before explicitly recreating
 index stores and discarding continuations from the wider-key contract.

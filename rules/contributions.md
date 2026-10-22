@@ -93,6 +93,14 @@ narrows the authorized steps.
 
 ## Cross-repository pull requests
 
+DFINITY crates and repositories are excluded: follow the baseline's
+[own-the-solution rule](../DRAGGINZGAME.md#dfinity-dependencies-own-the-solution).
+
+Read-only sibling inspection follows the
+[baseline's scope authorization](../DRAGGINZGAME.md#scope-and-authorization);
+it is not a source contribution and needs no contribution branch or permission
+request. The isolated workflow below applies when making repairs.
+
 Relevant fixes and adoption work in other `dragginzgame/*` repositories should
 normally be delivered as PRs. Agents have standing permission to prepare those
 contributions without asking for authorization per repository or per step.
@@ -145,6 +153,12 @@ Requesting a policy update does not itself request fleet-wide adoption PRs.
 - Respect branch protection and required checks; permission to deliver a change
   does not authorize bypassing them. Leave the PR open and report an actual
   unmet requirement. GitHub permissions still determine where a branch can be pushed.
+- Follow the [asynchronous CI cadence](../DRAGGINZGAME.md#validation-and-evidence)
+  and its independent agent-runtime approval boundary for ordinary PR delivery
+  and separately authorized merges. That policy owns pending CI, required versus
+  optional reviews, known failures and runtime rejection handling. Report the
+  concrete enforced blocker; do not add an independent GitHub approval requirement
+  merely because optional hosted qualification is pending.
 - Describe the change, validation and remaining gaps in the PR. Use the existing
   repository template where present. Maintain the numbered changelog draft under
   the [changelog rules](changelogs.md); an ordinary contribution does not bump

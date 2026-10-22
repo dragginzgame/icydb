@@ -31,17 +31,27 @@ fi
 # Hash stdin so filenames never become options or escaped checksum records.
 # Do not fall back after a selected backend fails: a read/tool error is a failure.
 if command -v "${algorithm}sum" >/dev/null 2>&1; then
-    output="$(LC_ALL=C "${algorithm}sum" < "$file")" || {
-        status=$?; echo "$algorithm backend failed for $file" >&2; exit "$status";
-    }
+    hash_command=("${algorithm}sum")
 elif command -v shasum >/dev/null 2>&1; then
-    output="$(LC_ALL=C shasum -a "$bits" < "$file")" || {
-        status=$?; echo "$algorithm backend failed for $file" >&2; exit "$status";
-    }
+    hash_command=(shasum -a "$bits")
 else
     echo "no SHA-$bits implementation is available" >&2
     exit 1
 fi
+# Reject NUL before command substitution can discard it. Pipefail preserves a
+# selected backend's failure even if it emitted a plausible digest first.
+output="$(
+    LC_ALL=C "${hash_command[@]}" < "$file" | {
+        record=''
+        if IFS= read -r -d '' record; then
+            echo "$algorithm backend output contains a NUL byte for $file" >&2
+            exit 1
+        fi
+        printf '%s' "$record"
+    }
+)" || {
+    status=$?; echo "$algorithm backend failed for $file" >&2; exit "$status";
+}
 pattern="^([0-9a-f]{$expected_length}) [ *]-$"
 if [[ ! "$output" =~ $pattern ]]; then
     echo "malformed $algorithm backend output for $file" >&2

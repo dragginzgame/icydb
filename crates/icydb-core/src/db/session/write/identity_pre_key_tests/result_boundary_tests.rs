@@ -258,3 +258,22 @@ fn typed_batch_result_boundary_preserves_rows_and_identity() {
 fn same_entity_typed_batch_result_boundary_preserves_rows_and_identity() {
     assert_result_boundary(BatchSurface::SameEntityTyped);
 }
+
+#[test]
+fn single_mutation_keeps_its_batch_result_limit_bypass() {
+    let session = initialize_blob_session();
+    let payload = vec![7; MAX_STRUCTURAL_MUTATION_BATCH_RESULT_BYTES + 1];
+    let result = session
+        .execute_trusted_dynamic_mutation(&DynamicMutation::Insert {
+            entity: ENTITY_NAME.into(),
+            patch: blob_patch(payload.clone()),
+        })
+        .expect("a single mutation does not acquire the batch result cap");
+    assert_eq!(result.affected_rows, 1);
+    assert_eq!(result.rows[0][1], OutputValue::blob(payload));
+    assert!(
+        icydb_schema::wire::encode_one(&result).unwrap().len()
+            > MAX_STRUCTURAL_MUTATION_BATCH_RESULT_BYTES
+    );
+    assert!(stored_row(1).is_some());
+}

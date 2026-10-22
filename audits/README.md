@@ -13,6 +13,7 @@ links these methods; it does not maintain a second set of audit questions.
 | --- | --- |
 | Are errors, APIs, tests, documentation and repository artifacts maintained safely? | [Code hygiene](code-hygiene.md) |
 | Does equivalent behavior have one semantic owner and converge through one flow? | [Flow convergence and duplication](flow-convergence-and-duplication.md) |
+| Do workflow inputs, credentials and promoted artifacts retain their intended authority? | [CI and release integrity](ci-release-integrity.md) |
 | Do current behavior axes and ownership spread create demonstrated maintenance friction? | [Complexity and technical debt](complexity-and-technical-debt.md) |
 | Which retained or exposed code units lack a current authority reason? | [Module surface hardening](module-surface-hardening.md) |
 | How should an authorized module cleanup implement those findings? | [Module cleanup](module-cleanup.md), an implementation procedure, not another audit |

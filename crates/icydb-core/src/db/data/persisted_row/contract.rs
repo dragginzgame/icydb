@@ -8,7 +8,6 @@ use crate::{
         codec::serialize_row_payload,
         data::{
             CanonicalRow, RawRow, StructuralRowContract,
-            accepted_kind_supports_primary_key_component_binary,
             decode_structural_field_by_accepted_kind_bytes, decode_structural_value_storage_bytes,
             validate_structural_field_by_accepted_kind_bytes,
             validate_structural_value_storage_bytes, value_storage_bytes_are_null,
@@ -178,39 +177,37 @@ fn decode_non_scalar_accepted_slot_value(
     raw_value: &[u8],
     field: AcceptedFieldDecodeContract<'_>,
 ) -> Result<Value, InternalError> {
-    if nullable_non_primary_key_component_accepted_slot_payload_is_structural_null(raw_value, field)
-    {
+    if nullable_accepted_slot_payload_is_structural_null(raw_value, field) {
         return Ok(Value::Null);
     }
 
-    match field.storage_decode() {
-        FieldStorageDecode::ByKind => {
-            decode_structural_field_by_accepted_kind_bytes(raw_value, field.kind())
-                .map_err(|_| InternalError::persisted_row_decode_corruption())
-        }
-        FieldStorageDecode::CatalogValue => decode_structural_value_storage_bytes(raw_value)
-            .map_err(|_| InternalError::persisted_row_decode_corruption()),
+    // Named values keep canonical wire bytes even under ByKind proposal metadata.
+    // Reuse schema's classifier instead of treating that label as a second authority.
+    if field.uses_canonical_value_wire() {
+        decode_structural_value_storage_bytes(raw_value)
+            .map_err(|_| InternalError::persisted_row_decode_corruption())
+    } else {
+        decode_structural_field_by_accepted_kind_bytes(raw_value, field.kind())
+            .map_err(|_| InternalError::persisted_row_decode_corruption())
     }
 }
 
 /// Validate one non-scalar slot through an accepted-schema field contract.
-/// Recursive payload validation stays on accepted `AcceptedFieldKind` metadata.
+/// Schema selects its wire grammar; row contracts retain named-value admission.
 pub(in crate::db) fn validate_non_scalar_accepted_slot_value(
     raw_value: &[u8],
     field: AcceptedFieldDecodeContract<'_>,
 ) -> Result<(), InternalError> {
-    if nullable_non_primary_key_component_accepted_slot_payload_is_structural_null(raw_value, field)
-    {
+    if nullable_accepted_slot_payload_is_structural_null(raw_value, field) {
         return Ok(());
     }
 
-    match field.storage_decode() {
-        FieldStorageDecode::ByKind => {
-            validate_structural_field_by_accepted_kind_bytes(raw_value, field.kind())
-                .map_err(|_| InternalError::persisted_row_decode_corruption())
-        }
-        FieldStorageDecode::CatalogValue => validate_structural_value_storage_bytes(raw_value)
-            .map_err(|_| InternalError::persisted_row_decode_corruption()),
+    if field.uses_canonical_value_wire() {
+        validate_structural_value_storage_bytes(raw_value)
+            .map_err(|_| InternalError::persisted_row_decode_corruption())
+    } else {
+        validate_structural_field_by_accepted_kind_bytes(raw_value, field.kind())
+            .map_err(|_| InternalError::persisted_row_decode_corruption())
     }
 }
 
@@ -234,18 +231,16 @@ pub(in crate::db) fn validate_non_scalar_slot_value_with_row_contract(
     validate_non_scalar_accepted_slot_value(raw_value, accepted_field)
 }
 
-// Accepted-schema equivalent of the generated-field nullable structural-null
-// check. Storage-key-compatible accepted kinds keep their own null encoding
-// lane, so only non-storage-key by-kind payloads use the structural null
-// sentinel here. Non-null bytes are validated by the selected accepted codec,
-// not by a preliminary traversal using a different wire grammar.
-fn nullable_non_primary_key_component_accepted_slot_payload_is_structural_null(
+// Every nullable structural field uses the exact structural-null sentinel;
+// relation collection membership does not change the field's nullability.
+// Scalar codecs retain their separate slot framing. Non-null bytes still use
+// the accepted codec rather than a preliminary walk with another grammar.
+fn nullable_accepted_slot_payload_is_structural_null(
     raw_value: &[u8],
     field: AcceptedFieldDecodeContract<'_>,
 ) -> bool {
     field.nullable()
         && matches!(field.storage_decode(), FieldStorageDecode::ByKind)
-        && !accepted_kind_supports_primary_key_component_binary(field.kind())
         && value_storage_bytes_are_null(raw_value)
 }
 
@@ -254,9 +249,91 @@ mod tests {
     use super::*;
     use crate::db::{
         codec::decode_row_payload_bytes,
-        data::encode_structural_field_by_accepted_kind_bytes,
-        schema::{AcceptedFieldKind, RowLayoutVersion},
+        data::{
+            encode_canonical_value_storage_bytes, encode_structural_field_by_accepted_kind_bytes,
+        },
+        schema::{AcceptedFieldKind, CompositeTypeId, RowLayoutVersion},
     };
+    use crate::value::{
+        CanonicalEnumBody, CanonicalEnumValue, EnumTypeId, EnumVariantId, ValueEnum,
+    };
+
+    #[test]
+    fn named_canonical_fields_decode_and_validate_through_their_wire_owner() {
+        let type_id = EnumTypeId::new(7).unwrap();
+        let kind = AcceptedFieldKind::Enum { type_id };
+        let value = Value::Enum(ValueEnum::from_canonical(CanonicalEnumValue::new(
+            type_id,
+            EnumVariantId::new(11).unwrap(),
+            CanonicalEnumBody::Unit,
+        )));
+        for (kind, value) in [
+            (kind.clone(), value.clone()),
+            (
+                kind.clone(),
+                Value::Enum(ValueEnum::from_canonical(CanonicalEnumValue::new(
+                    type_id,
+                    EnumVariantId::new(12).unwrap(),
+                    CanonicalEnumBody::Payload(Box::new(Value::Nat64(5))),
+                ))),
+            ),
+            (
+                AcceptedFieldKind::Composite {
+                    type_id: CompositeTypeId::new(3).unwrap(),
+                },
+                Value::Map(vec![(Value::Text("status".into()), value.clone())]),
+            ),
+            (
+                AcceptedFieldKind::List(Box::new(kind.clone())),
+                Value::List(vec![value.clone()]),
+            ),
+            (
+                AcceptedFieldKind::Set(Box::new(kind.clone())),
+                Value::List(vec![value.clone()]),
+            ),
+            (
+                AcceptedFieldKind::Map {
+                    key: Box::new(AcceptedFieldKind::Nat64),
+                    value: Box::new(kind),
+                },
+                Value::Map(vec![(Value::Nat64(1), value)]),
+            ),
+        ] {
+            let wire = encode_canonical_value_storage_bytes(&value).unwrap();
+            for lane in [FieldStorageDecode::ByKind, FieldStorageDecode::CatalogValue] {
+                let field = AcceptedFieldDecodeContract::new(
+                    "named",
+                    &kind,
+                    true,
+                    lane,
+                    LeafCodec::Structural,
+                );
+                for _ in 0..2 {
+                    assert_eq!(
+                        decode_runtime_value_from_accepted_field_contract(field, &wire).unwrap(),
+                        value
+                    );
+                    validate_non_scalar_accepted_slot_value(&wire, field).unwrap();
+                    assert_eq!(
+                        decode_runtime_value_from_accepted_field_contract(field, &[0]).unwrap(),
+                        Value::Null
+                    );
+                    validate_non_scalar_accepted_slot_value(&[0], field).unwrap();
+                }
+                let mut trailing = wire.clone();
+                trailing.push(0);
+                for malformed in [&[][..], &wire[..wire.len() - 1], &trailing, &[0xff]] {
+                    let decoded =
+                        decode_runtime_value_from_accepted_field_contract(field, malformed)
+                            .unwrap_err();
+                    let validated =
+                        validate_non_scalar_accepted_slot_value(malformed, field).unwrap_err();
+                    assert_eq!(decoded.class(), crate::error::ErrorClass::Corruption);
+                    assert_eq!(decoded.diagnostic_code(), validated.diagnostic_code());
+                }
+            }
+        }
+    }
 
     #[test]
     fn nullable_by_kind_collections_use_their_accepted_codec() {

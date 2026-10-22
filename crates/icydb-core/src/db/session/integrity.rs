@@ -74,7 +74,7 @@ impl<C: CanisterKind> DbSession<C> {
                 Self::abort_deep_integrity(job_id, &owner).map(IntegrityCheckResult::Deep)
             }
         };
-        run_next_integrity_retention_page::<C>()?;
+        run_next_integrity_retention_page::<C>();
         result
     }
 

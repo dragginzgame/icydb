@@ -23,6 +23,7 @@ tasks/local-schedule.md
 audits/README.md
 audits/ic-canister-applications.md
 audits/code-hygiene.md
+audits/ci-release-integrity.md
 audits/flow-convergence-and-duplication.md
 audits/complexity-and-technical-debt.md
 audits/module-surface-hardening.md

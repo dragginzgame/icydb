@@ -5,6 +5,44 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.280.3]
+
+### 🩹 Fixed
+
+- Accept historical enum and record defaults through their canonical field
+  codecs ([#145 — Historical named-value fills use the wrong decoder](https://github.com/dragginzgame/icydb/issues/145)).
+- Preserve NULL in nullable relation collections instead of failing slot encoding
+  ([#142 — Nullable relation collections lack a NULL codec](https://github.com/dragginzgame/icydb/issues/142)).
+- Preserve completed integrity results when progress retention fails
+  ([#171 — Retention errors discard integrity results](https://github.com/dragginzgame/icydb/issues/171)).
+- Preserve insert-generated values when replacing existing rows, keeping
+  unchanged replacements as no-ops
+  ([#105 — Replacement regenerates non-key generated fields](https://github.com/dragginzgame/icydb/issues/105)).
+- Apply check-expression limits during source binding to prevent deep recursion
+  ([#197 — Source checks reach binding before their depth guard](https://github.com/dragginzgame/icydb/issues/197)).
+- Keep wide-check validation progressing with bounded field diagnostics
+  ([#100 — Wide check findings exceed the receipt field limit](https://github.com/dragginzgame/icydb/issues/100)).
+
+### 🔧 Changed
+
+- Qualify published Wire 0.5.21, Timers 0.30.3 and Metrics 0.15.6 alongside IC
+  Tooling 0.64.0 and Shared Tooling 0.26.6, retaining explicit dependency boundaries.
+- Check mutation-batch reply sizes without allocating discarded encoded buffers
+  ([#398 — Mutation batches encode and discard their results](https://github.com/dragginzgame/icydb/issues/398)).
+- Reuse SQL `RETURNING` projections during reply-size checks and avoid discarded
+  encoding buffers ([#395 — RETURNING encodes replies just to measure them](https://github.com/dragginzgame/icydb/issues/395)).
+- Generate row ULIDs from the write's frozen timestamp without rereading the clock
+  ([#399 — Generated ULIDs repeat the write's clock read](https://github.com/dragginzgame/icydb/issues/399)).
+- Reuse raw primary-key bytes in filtered index scans instead of copying them
+  ([#401 — Filtered scans copy an already available primary key](https://github.com/dragginzgame/icydb/issues/401)).
+
+### 📚 Documentation
+
+- Clarify how the published 512-byte key bound controls index storage allocation
+  ([#57 — Oversized declared keys inflate B-tree pages](https://github.com/dragginzgame/icydb/issues/57)).
+
+See [detailed notes](docs/changelog/0.280.md).
+
 ## [0.280.2] - 2026-10-21
 
 ### 🩹 Fixed

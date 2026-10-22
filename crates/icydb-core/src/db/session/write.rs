@@ -293,9 +293,9 @@ fn prepare_dynamic_mutation_result(
         affected_rows,
     };
     if enforce_mixed_batch_result_bound {
-        let encoded = icydb_schema::wire::encode_one(&result)
+        let encoded_bytes = icydb_schema::wire::encoded_reply_len(&result)
             .map_err(|_| InternalError::executor_invariant())?;
-        validate_structural_mutation_result_bytes(encoded.len())?;
+        validate_structural_mutation_result_bytes(encoded_bytes)?;
     }
     Ok(result)
 }
@@ -853,9 +853,9 @@ impl<C: CanisterKind> DbSession<C> {
                         false,
                     )?);
                 }
-                let encoded = icydb_schema::wire::encode_one(&results)
+                let encoded_bytes = icydb_schema::wire::encoded_reply_len(&results)
                     .map_err(|_| InternalError::executor_invariant())?;
-                validate_structural_mutation_result_bytes(encoded.len())?;
+                validate_structural_mutation_result_bytes(encoded_bytes)?;
                 Ok((results, AcceptedStructuralMutationCommitDirective::Standard))
             },
         )

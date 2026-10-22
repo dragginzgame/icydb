@@ -216,6 +216,10 @@ authorship diagnostic. Use `Insert` with omitted/default key fields to generate
 a new identity. This rule applies to scalar/composite keys and typed/structural
 single writes and batches; rejection does not publish earlier batch writes.
 
+Existing-row replacement also preserves non-key insert-generated ULID and
+timestamp values, including frozen historical fills. Ordinary omitted fields
+still use current insertion defaults, nullability and required-field rules.
+
 Database-managed `CreatedAt` and `UpdatedAt` fields are accepted write policy,
 not generated callbacks. One operation timestamp is captured before accepted
 after-image resolution. Insert assigns both fields that timestamp; a logical

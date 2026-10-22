@@ -473,3 +473,81 @@ fn forward_and_verify_progress_preserve_receipt_and_revision_invariants() {
     assert_eq!(job.phase(), ConstraintValidationPhase::Forward);
     assert!(job.captured_store_revisions().is_none());
 }
+
+#[test]
+fn wide_finding_receipt_retains_bounded_field_evidence_and_round_trips() {
+    let entity = EntityTag::new(49);
+    let activation = activation(ConstraintActivationState::Validating);
+    for width in [0, 1, 32, 33, 64, 512] {
+        let fields: Vec<_> = (1..=width).map(FieldId::new).collect();
+        let mut job = ConstraintValidationJob::start(
+            entity,
+            "tests::WideCheck".to_string(),
+            &activation,
+            None,
+        )
+        .expect("wide check should start validation");
+        let findings = (1..=64)
+            .map(|id| ConstraintValidationFinding::new(raw_key(entity, id), fields.clone(), 1))
+            .collect();
+        job.record_forward_page(Some(raw_key(entity, 64)), 64, findings, false, None)
+            .expect("a full receipt must fit independently of check width");
+        let bytes = encode_constraint_validation_job(&job).expect("wide receipt should encode");
+        assert!(bytes.len() <= MAX_CONSTRAINT_VALIDATION_JOB_BYTES);
+        let decoded = decode_constraint_validation_job(&bytes).expect("wide receipt should decode");
+        decoded
+            .validate(Some(&activation))
+            .expect("receipt should remain activation-bound");
+        assert_eq!(decoded.findings_seen(), 64);
+        assert_eq!(decoded.rows_scanned(), 64);
+        let receipt = decoded
+            .last_receipt()
+            .expect("findings should remain replayable");
+        assert_eq!(receipt.findings().len(), 64);
+        for finding in receipt.findings() {
+            assert_eq!(finding.field_ids(), &fields[..fields.len().min(32)]);
+        }
+    }
+}
+
+#[test]
+fn validation_job_rejects_oversized_or_noncanonical_persisted_field_evidence() {
+    let entity = EntityTag::new(50);
+    for fields in [
+        (1..=33).map(FieldId::new).collect(),
+        vec![FieldId::new(2), FieldId::new(1)],
+        vec![FieldId::new(1), FieldId::new(1)],
+    ] {
+        if fields.len() > MAX_CONSTRAINT_VALIDATION_FINDING_FIELDS {
+            let mut writer = ConstraintValidationJobWriter::new();
+            encode_finding(
+                &mut writer,
+                &ConstraintValidationFinding {
+                    primary_key: raw_key(entity, 1),
+                    field_ids: fields.clone(),
+                    value_path: None,
+                    error_code: 1,
+                },
+            )
+            .expect("corruption fixture should fit the byte allowance");
+            let bytes = writer.finish().expect("corruption fixture should encode");
+            let mut reader = ConstraintValidationJobReader::new(&bytes);
+            assert!(decode_finding(&mut reader).is_err());
+        }
+        let mut job = golden_job();
+        job.entity_tag = entity;
+        job.findings_seen = 1;
+        job.receipt_sequence = 1;
+        // Bypass the trusted constructor to exercise corrupt retained evidence.
+        job.last_receipt = Some(ConstraintValidationReceipt::new(
+            1,
+            vec![ConstraintValidationFinding {
+                primary_key: raw_key(entity, 1),
+                field_ids: fields,
+                value_path: None,
+                error_code: 1,
+            }],
+        ));
+        assert!(encode_constraint_validation_job(&job).is_err());
+    }
+}

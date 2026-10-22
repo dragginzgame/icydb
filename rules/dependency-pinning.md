@@ -40,6 +40,14 @@ The [Cargo ownership rules](cargo-dependencies.md) define where declarations liv
 
 ## Maintaining upstream code
 
+- For DFINITY dependencies, follow the baseline's
+  [own-the-solution rule](../DRAGGINZGAME.md#dfinity-dependencies-own-the-solution).
+  Continued use of an available dependency does not imply future upstream fixes.
+  A required change needs a Dragginzgame maintenance owner or a consumer change
+  that removes the need. Record retained source, licenses, deviations and focused
+  qualification when taking ownership; route externally maintained IC-specific
+  inputs through the existing IC Platform boundary. Do not add a consumer-local
+  fork or bypass that boundary merely to avoid waiting for upstream.
 - Importing runtime code transfers maintenance responsibility to its owning
   repository. Review relevant upstream fixes, advisories and protocol changes
   when changing that runtime; record the source revision, applicability and

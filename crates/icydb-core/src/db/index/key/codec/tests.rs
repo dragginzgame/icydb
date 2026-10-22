@@ -1228,6 +1228,10 @@ fn index_key_borrowed_component_match_validates_complete_frame() {
         assert!(expected.is_some());
         assert_eq!(key.has_same_index_components_as_raw(&raw).err(), expected);
         assert_eq!(
+            IndexKey::try_from_raw_with_primary_key_bytes(&raw).err(),
+            expected
+        );
+        assert_eq!(
             IndexKey::primary_key_value_and_bytes_from_raw(&raw).err(),
             expected
         );
@@ -1255,13 +1259,18 @@ fn index_key_primary_suffix_fast_decode_matches_full_decode() {
 
     assert_eq!(fast_value, primary_key);
     assert_eq!(fast_bytes, primary_key_bytes.as_slice());
+    let (decoded_key, borrowed_bytes) = IndexKey::try_from_raw_with_primary_key_bytes(&raw)
+        .expect("full frame should retain its raw-owned suffix");
+    assert_eq!(decoded_key, key);
     assert_eq!(
         fast_value,
-        IndexKey::try_from_raw(&raw)
-            .expect("full decode should accept canonical raw index key")
+        decoded_key
             .primary_key_value()
             .expect("full decode should recover primary suffix"),
     );
+    drop(decoded_key);
+    assert!(std::ptr::eq(borrowed_bytes, fast_bytes));
+    assert_eq!(borrowed_bytes, primary_key_bytes);
 }
 
 #[test]
@@ -1310,6 +1319,10 @@ fn index_key_maximum_composite_primary_suffix_roundtrips_and_stays_within_bounds
         let raw = key.to_raw().expect("maximum composite suffix must encode");
         assert_eq!(IndexKey::try_from_raw(&raw).unwrap(), key);
         let (decoded, bytes) = IndexKey::primary_key_value_and_bytes_from_raw(&raw).unwrap();
+        let (decoded_key, borrowed_bytes) =
+            IndexKey::try_from_raw_with_primary_key_bytes(&raw).unwrap();
+        assert_eq!(decoded_key, key);
+        assert!(std::ptr::eq(borrowed_bytes, bytes));
         assert_eq!(decoded, primary_key);
         assert_eq!(bytes, suffix);
         assert_eq!(raw.decode().unwrap().primary_key().as_bytes(), suffix);

@@ -159,18 +159,15 @@ fn encoded_sql_materialized_returning_projection_response_len_check(
         base_len,
         max_response_bytes,
         rows.iter().map(|row| project_row(row)),
+        &mut output.rows,
     )?;
     if !matches!(length_check, SqlReturningLengthCheck::WithinLimit) {
         return Ok(length_check);
     }
 
-    // Only retain the complete projection after the streaming byte check admits
-    // it. One final traversal must also admit the aggregate node/heap/depth cost
-    // of the actual facade envelope before mutation commit, not per row.
-    output.rows = rows
-        .iter()
-        .map(|row| project_row(row))
-        .collect::<Result<_, _>>()?;
+    // Reuse the rows retained by the byte check. One final size-only traversal
+    // must still admit the aggregate node/heap/depth cost of the actual facade
+    // envelope before mutation commit, not per row.
     let full_len = response_len(output).map_err(|_| InternalError::query_executor_invariant())?;
     Ok(if full_len > max_response_bytes {
         SqlReturningLengthCheck::Exceeded(Some(full_len))
@@ -183,6 +180,7 @@ fn encoded_sql_returning_rows_len_exceeds_max(
     mut response_len: usize,
     max_response_bytes: usize,
     rows: impl ExactSizeIterator<Item = Result<Vec<OutputValue>, InternalError>>,
+    admitted_rows: &mut Vec<Vec<OutputValue>>,
 ) -> Result<SqlReturningLengthCheck, InternalError> {
     let row_count = rows.len();
     if response_len > max_response_bytes {
@@ -191,7 +189,8 @@ fn encoded_sql_returning_rows_len_exceeds_max(
         ));
     }
     for (index, row) in rows.enumerate() {
-        let row_len = encoded_payload_value_len(&row?)?;
+        let row = row?;
+        let row_len = encoded_payload_value_len(&row)?;
         let Some(next_len) = response_len.checked_add(row_len) else {
             return Ok(SqlReturningLengthCheck::Exceeded(None));
         };
@@ -202,6 +201,9 @@ fn encoded_sql_returning_rows_len_exceeds_max(
                 (index + 1 == row_count).then_some(response_len),
             ));
         }
+        // Retain only rows already inside the byte budget, avoiding a second
+        // projection while keeping early refusal bounded by the admitted prefix.
+        admitted_rows.push(row);
     }
     Ok(SqlReturningLengthCheck::WithinLimit)
 }
@@ -258,7 +260,11 @@ mod tests {
                 rows: output_rows,
                 row_count: u32::try_from(count).unwrap(),
             };
-            for encoder in [projection_len, result_len] {
+            for encoder in [
+                projection_len,
+                result_len,
+                crate::db::session::sql::encoded_returning_response_len,
+            ] {
                 let exact = encoder(output.clone()).unwrap();
                 for limit in [exact - 1, exact, exact + 1] {
                     let result = encoded_sql_materialized_returning_projection_response_len_check(
@@ -324,6 +330,7 @@ mod tests {
                 usize::MAX,
                 usize::MAX,
                 [Ok(vec![OutputValue::nat64(1)])].into_iter(),
+                &mut Vec::new(),
             )
             .unwrap(),
             SqlReturningLengthCheck::Exceeded(None)
@@ -333,18 +340,62 @@ mod tests {
                 0,
                 0,
                 [Ok(vec![OutputValue::nat64(1)]), Ok(vec![])].into_iter(),
+                &mut Vec::new(),
             )
             .unwrap(),
             SqlReturningLengthCheck::Exceeded(None)
         );
         assert_eq!(
-            encoded_sql_returning_rows_len_exceeds_max(1, 0, [Ok(vec![])].into_iter(),).unwrap(),
+            encoded_sql_returning_rows_len_exceeds_max(
+                1,
+                0,
+                [Ok(vec![])].into_iter(),
+                &mut Vec::new(),
+            )
+            .unwrap(),
             SqlReturningLengthCheck::Exceeded(None)
         );
         assert_eq!(
-            encoded_sql_returning_rows_len_exceeds_max(1, 0, [].into_iter(),).unwrap(),
+            encoded_sql_returning_rows_len_exceeds_max(1, 0, [].into_iter(), &mut Vec::new(),)
+                .unwrap(),
             SqlReturningLengthCheck::Exceeded(Some(1))
         );
+    }
+
+    #[test]
+    fn returning_byte_check_retains_admitted_rows_and_stops_at_refusal() {
+        use super::*;
+        use std::cell::Cell;
+
+        let rows = vec![vec![OutputValue::text("returned value".into())]; 3];
+        let row_len = encoded_payload_value_len(&rows[0]).unwrap();
+        for (limit, retained, projected, expected) in [
+            (row_len, 1, 2, SqlReturningLengthCheck::Exceeded(None)),
+            (
+                row_len * 2,
+                2,
+                3,
+                SqlReturningLengthCheck::Exceeded(Some(row_len * 3)),
+            ),
+            (row_len * 3, 3, 3, SqlReturningLengthCheck::WithinLimit),
+        ] {
+            let projections = Cell::new(0);
+            let mut admitted = Vec::new();
+            let result = encoded_sql_returning_rows_len_exceeds_max(
+                0,
+                limit,
+                rows.iter().cloned().map(|row| {
+                    projections.set(projections.get() + 1);
+                    Ok(row)
+                }),
+                &mut admitted,
+            )
+            .unwrap();
+
+            assert_eq!(result, expected);
+            assert_eq!(projections.get(), projected);
+            assert_eq!(admitted, rows[..retained]);
+        }
     }
 
     #[test]

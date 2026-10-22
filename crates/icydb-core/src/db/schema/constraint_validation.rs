@@ -110,12 +110,16 @@ pub(in crate::db) struct ConstraintValidationFinding {
 
 impl ConstraintValidationFinding {
     /// Build one finding after a row has been fully classified.
+    /// Retain the first bounded prefix of its sorted unique field evidence.
     #[must_use]
-    pub(in crate::db) const fn new(
+    pub(in crate::db) fn new(
         primary_key: RawDataStoreKey,
-        field_ids: Vec<FieldId>,
+        mut field_ids: Vec<FieldId>,
         error_code: u16,
     ) -> Self {
+        // Accepted checks may use more fields than a diagnostic receipt can hold.
+        // Bound evidence after complete evaluation, keeping job bytes and decoding fixed.
+        field_ids.truncate(MAX_CONSTRAINT_VALIDATION_FINDING_FIELDS);
         Self {
             primary_key,
             field_ids,
@@ -126,18 +130,15 @@ impl ConstraintValidationFinding {
 
     /// Build one targeted-rule finding with its bounded concrete occurrence.
     #[must_use]
-    pub(in crate::db) const fn new_targeted(
+    pub(in crate::db) fn new_targeted(
         primary_key: RawDataStoreKey,
         field_ids: Vec<FieldId>,
         value_path: AcceptedTargetPath,
         error_code: u16,
     ) -> Self {
-        Self {
-            primary_key,
-            field_ids,
-            value_path: Some(value_path),
-            error_code,
-        }
+        let mut finding = Self::new(primary_key, field_ids, error_code);
+        finding.value_path = Some(value_path);
+        finding
     }
 
     /// Borrow the canonical persisted primary key.
@@ -146,7 +147,7 @@ impl ConstraintValidationFinding {
         &self.primary_key
     }
 
-    /// Borrow sorted unique implicated field identities.
+    /// Borrow up to 32 sorted unique implicated field identities.
     #[must_use]
     pub(in crate::db) const fn field_ids(&self) -> &[FieldId] {
         self.field_ids.as_slice()

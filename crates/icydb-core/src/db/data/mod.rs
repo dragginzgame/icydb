@@ -61,8 +61,7 @@ pub(in crate::db) use store::PreparedDataPositionPublication;
 pub(in crate::db) use store::{PreparedDataPositionRetirement, StoreVisit};
 pub(in crate::db) use structural_field::FieldDecodeError;
 pub(in crate::db) use structural_field::{
-    ValueStorageView, accepted_kind_supports_primary_key_component_binary,
-    decode_accepted_relation_target_primary_key_components_bytes,
+    ValueStorageView, decode_accepted_relation_target_primary_key_components_bytes,
     decode_structural_field_by_accepted_kind_bytes, decode_structural_value_storage_bytes,
     encode_structural_field_by_accepted_kind_bytes, encode_structural_value_storage_null_bytes,
     validate_structural_field_by_accepted_kind_bytes, validate_structural_value_storage_bytes,

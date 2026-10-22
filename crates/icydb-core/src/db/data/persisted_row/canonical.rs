@@ -3,11 +3,13 @@
 //! This boundary consumes catalog-proven values and accepted field contracts.
 //! It does not reconstruct generated models or lower through runtime `Value`.
 
+#[cfg(test)]
+mod tests;
+
 use crate::{
     db::schema::{FieldStorageDecode, LeafCodec, ScalarCodec},
     db::{
         data::{
-            accepted_kind_supports_primary_key_component_binary,
             encode_structural_field_by_accepted_kind_bytes,
             encode_structural_value_storage_null_bytes,
             persisted_row::codec::{
@@ -131,11 +133,6 @@ fn encode_accepted_null_slot_value(
         FieldStorageDecode::CatalogValue => Err(InternalError::persisted_row_encode_internal()),
         FieldStorageDecode::ByKind => match field.leaf_codec() {
             LeafCodec::Scalar(codec) => encode_scalar_slot_value(ScalarSlotValueRef::Null, codec),
-            LeafCodec::Structural
-                if accepted_kind_supports_primary_key_component_binary(field.kind()) =>
-            {
-                encode_structural_field_by_accepted_kind_bytes(field.kind(), &Value::Null)
-            }
             LeafCodec::Structural => Ok(encode_structural_value_storage_null_bytes()),
         },
     }

@@ -28,6 +28,8 @@ invalid patterns fail before observation. Prefer literal names for exact policy.
 `--depth COUNT` selects Cargo's package-edge depth for direct-dependency checks;
 the default inspects the complete graph. `--forbid-feature PACKAGE/FEATURE`
 adds Cargo's feature edges and refuses matching rendered dependency-feature edges.
+Overlapping selected roots may carry Cargo's `(command-line)` feature annotation;
+it is admitted without changing forbidden-feature checks or package identity counts.
 This preserves dependency feature-edge policies; it is not an exhaustive inventory
 of every enabled/root feature. Package identities still come only from package
 labels, and normal/build edges continue to exclude development dependencies. Roots, target and features stay explicit. Invalid/conflicting

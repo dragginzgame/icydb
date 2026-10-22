@@ -62,13 +62,17 @@ rule owns the required Rust/type/documentation metrics and their counting units.
 ## Validation
 
 Run the narrowest evidence that matches the changed risk automatically while
-developing. Before delivering a completed code change as ready, run the owning
-repository's documented full validation suite under the baseline's standing
-authority. Reuse passing results for unchanged inputs; further changes require
-the affected checks again. Documentation-only changes need link, instruction
-consistency and diff checks. Inspection alone does not authorize a full suite,
-and release execution still requires its own explicit request. Record what
-passed and what was not run; a progress update is not a completed delivery.
+developing and before handoff, following the
+[canonical validation policy](../../DRAGGINZGAME.md#validation-and-evidence).
+Full local gates need release or explicit-check authority. Ordinary PR delivery
+and authorized merges use asynchronous hosted integration/native CI unless
+explicitly requested otherwise; enforced checks and reviews still apply.
+Reuse passing results for unchanged inputs; further changes require the affected
+checks again. Documentation-only changes need link, instruction consistency and
+diff checks. Report pending runs and their exact source honestly, retain visible
+failure reporting and an owning follow-up, and preserve separate release,
+publication, deployment and issue-acceptance gates. A progress update is not a
+completed delivery.
 
 Tests protect maintained behavior and trust boundaries, not incidental
 implementation shape. Avoid repeating equivalent assertions through every

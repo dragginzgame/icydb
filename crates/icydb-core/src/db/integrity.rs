@@ -61,6 +61,10 @@ pub(in crate::db) use progress_store::{
 pub use progress_store::{
     ProgressJobFamily, ProgressJobInventory, ProgressJobInventoryRecord, ProgressJobLifecycle,
 };
+#[cfg(all(test, feature = "sql"))]
+pub(in crate::db) use progress_store::{
+    miskey_progress_record_for_test, replace_progress_record_for_test,
+};
 pub(in crate::db) use proof::{IntegrityProofVector, capture_integrity_proof_vector};
 pub(in crate::db) use row::{
     PhysicalUnitCheckpoint, RowInspectionLimits, execute_row_integrity_page,

@@ -24,10 +24,15 @@ if [[ "${VALIDATION_RUNNER_SNAPSHOT_PATH:-}" != "$RUNNER_SOURCE" ]]; then
     RUNNER_SNAPSHOT="$RUNNER_SNAPSHOT_DIR/run-validation-targets.sh"
     # shellcheck disable=SC2329 # Invoked by EXIT in this wrapper branch only.
     cleanup_snapshot() {
-        local status=$?
+        local status=$? cleanup_status=0
         # Bash 3.2 can enter EXIT with zero after a nounset error.
         [[ "$runner_complete" == true || "$status" != 0 ]] || status=1
-        if [[ "$runner_complete" == true ]]; then rm -rf "$RUNNER_SNAPSHOT_DIR"
+        if [[ "$runner_complete" == true ]]; then
+            rm -rf "$RUNNER_SNAPSHOT_DIR" || cleanup_status=$?
+            if [[ "$cleanup_status" != 0 ]]; then
+                [[ "$status" != 0 ]] || status=$cleanup_status
+                printf 'Runner source cleanup failed; inspect: %s\n' "$RUNNER_SNAPSHOT_DIR" >&2 || :
+            fi
         else printf 'Runner source retained at: %s\n' "$RUNNER_SNAPSHOT_DIR" >&2; fi
         exit "$status"
     }
@@ -91,8 +96,11 @@ retain_all_logs=false
 if [[ -n "${VALIDATION_LOG_DIR:-}" ]]; then
     # One directory per invocation, including nested invocations. Never replace a
     # previous run or delete consumer-selected evidence on success.
-    mkdir -p "$VALIDATION_LOG_DIR"
-    LOG_ROOT="$(cd "$VALIDATION_LOG_DIR" && pwd -P)"
+    LOG_ROOT="$VALIDATION_LOG_DIR"
+    [[ "$LOG_ROOT" == /* ]] || LOG_ROOT="$PWD/$LOG_ROOT"
+    mkdir -p "$LOG_ROOT"
+    LOG_ROOT="$(cd -P "$LOG_ROOT" && printf '%s/.' "$PWD")"
+    LOG_ROOT="${LOG_ROOT%/.}"
     LOG_DIR="$(mktemp -d "$LOG_ROOT/validation.XXXXXX")"
     retain_all_logs=true
     printf 'target\tresult\tseconds\tlog\n' > "$LOG_DIR/timings.tsv"
@@ -103,12 +111,16 @@ fi
 preserve_temporary_logs=true
 retention_failed=false
 cleanup_logs() {
-    local status=$?
+    local status=$? cleanup_status=0
     [[ "$runner_complete" == true || "$status" != 0 ]] || status=1
     if [[ "$runner_complete" != true || "$preserve_temporary_logs" == true ]]; then
         printf 'Validation logs retained at: %s\n' "$LOG_DIR" >&2
     else
-        rm -rf "$LOG_DIR"
+        rm -rf "$LOG_DIR" || cleanup_status=$?
+        if [[ "$cleanup_status" != 0 ]]; then
+            [[ "$status" != 0 ]] || status=$cleanup_status
+            printf 'Validation logs cleanup failed; inspect: %s\n' "$LOG_DIR" >&2 || :
+        fi
     fi
     exit "$status"
 }
@@ -201,7 +213,8 @@ check_inputs() {
 MAX_FAILURE_DETAIL_LINES=160
 # One diagnostic predicate drives live highlighting and retained selection.
 # Rust paths such as error::tests are names, not diagnostics.
-DIAGNOSTIC_PATTERN='error:([^:]|$)|error\[|rustc-LLVM ERROR|test result: FAILED|^test .* \.\.\. FAILED$|fatal:|FAILED:|Target failed:|No such file or directory|❌|🚨|make(\[[^]]*\])?:.*\*\*\*'
+INHERITED_DIAGNOSTIC_PATTERN='^\[ERR:[^]]+\]'
+DIAGNOSTIC_PATTERN="$INHERITED_DIAGNOSTIC_PATTERN|"'error:([^:]|$)|error\[|rustc-LLVM ERROR|test result: FAILED|^test .* \.\.\. FAILED$|fatal:|FAILED:|Target failed:|No such file or directory|❌|🚨|make(\[[^]]*\])?:.*\*\*\*'
 FAILURE_EVENT_PREFIX="${VALIDATION_FAILURE_EVENT_PREFIX:-}"
 if [[ -n "$FAILURE_EVENT_PREFIX" ]]; then
     if [[ "$FAILURE_EVENT_PREFIX" == *$'\n'* || "$FAILURE_EVENT_PREFIX" == *$'\r'* ]]; then
@@ -217,6 +230,7 @@ FAILURE_PATTERN="$DIAGNOSTIC_PATTERN|---- .* stdout ----|failures:|target failed
 
 failed_targets=()
 failure_status=0
+summary_status=0
 targets=()
 results=()
 elapsed_seconds=()
@@ -254,12 +268,23 @@ annotate_live_output() {
     local line
 
     while IFS= read -r line || [[ -n "$line" ]]; do
-        if is_live_failure_line "$line"; then
+        if [[ "$line" =~ $INHERITED_DIAGNOSTIC_PATTERN ]]; then
+            print_retained_error_line "$line"
+        elif is_live_failure_line "$line"; then
             print_error_line "$target" "$line"
         else
             printf '%s\n' "$line"
         fi
     done
+}
+
+# Publish an exact directory entry, never follow an alias or move into a late
+# directory. Failed candidates remain beside their complete unique source.
+publish_latest_log() {
+    local log="$1" destination="$2" candidate
+    candidate="$(mktemp "$log.latest.XXXXXX")" || return $?
+    cp -p "$log" "$candidate" || return $?
+    perl -e 'rename($ARGV[0], $ARGV[1]) or die "publish latest log: $!\n"' "$candidate" "$destination"
 }
 
 persist_failure_log() {
@@ -272,7 +297,9 @@ persist_failure_log() {
     if ! mkdir -p "$FAILURE_LOG_ROOT" || ! cp "$log" "$retained_log"; then
         return 0
     fi
-    cp "$log" "$FAILURE_LOG_ROOT/latest.log" || true
+    if ! publish_latest_log "$retained_log" "$FAILURE_LOG_ROOT/latest.log"; then
+        printf 'Unable to publish latest failure log; complete log retained at: %s\n' "$retained_log" >&2
+    fi
     printf '%s\n' "$retained_log"
 }
 
@@ -281,46 +308,37 @@ print_failure_detail() {
     local target="$2"
     local clean_log="${log}.clean"
     local details
-    local inherited
 
     # Cargo forces ANSI color in CI. Normalize only the diagnostic copy so
     # matching remains deterministic while the live output stays colored.
     LC_ALL=C sed $'s/\033\[[0-9;]*[[:alpha:]]//g' "$log" >"$clean_log"
 
-    if command -v rg >/dev/null 2>&1; then
-        inherited="$(rg '^\[ERR:[^]]+\]' "$clean_log" || true)"
-    else
-        inherited="$(grep -E '^\[ERR:[^]]+\]' "$clean_log" || true)"
-    fi
-    if [[ -n "$inherited" ]]; then
-        while IFS= read -r line; do
-            print_retained_error_line "$line"
-        done < <(
-            printf '%s\n' "$inherited" |
-                awk '!seen[$0]++' |
-                tail -n "$MAX_FAILURE_DETAIL_LINES"
-        )
-        return
-    fi
-
     print_error_line "$target" "Target failed"
-    if command -v rg >/dev/null 2>&1; then
-        details="$(rg --color never --no-heading -C 4 -- "$FAILURE_PATTERN" "$clean_log" || true)"
-    else
-        details="$(grep -E -C 4 -- "$FAILURE_PATTERN" "$clean_log" || true)"
-    fi
+    # Bound the selected excerpt before Bash captures it. A large failed build
+    # can otherwise copy its entire matching log into shell memory repeatedly.
+    details="$(
+        if command -v rg >/dev/null 2>&1; then
+            rg --color never --no-heading -C 4 -- "$FAILURE_PATTERN" "$clean_log" || true
+        else
+            grep -E -C 4 -- "$FAILURE_PATTERN" "$clean_log" || true
+        fi |
+            awk '!/^\[ERR:[^]]+\]/ || !seen[$0]++' |
+            tail -n "$((MAX_FAILURE_DETAIL_LINES - 1))"
+    )"
     if [[ -z "$details" ]]; then
         details="$(tail -n 80 "$clean_log")"
     fi
 
     while IFS= read -r line; do
-        if is_live_failure_line "$line"; then
+        if [[ "$line" =~ $INHERITED_DIAGNOSTIC_PATTERN ]]; then
+            print_retained_error_line "$line"
+        elif is_live_failure_line "$line"; then
             print_error_line "$target" "$line"
         else
             # Retain useful context without labelling it as an error.
             printf '[%s] %s\n' "$target" "$line"
         fi
-    done < <(printf '%s\n' "$details" | tail -n "$((MAX_FAILURE_DETAIL_LINES - 1))")
+    done <<< "$details"
 }
 
 persist_highlighted_failure_log() {
@@ -333,7 +351,9 @@ persist_highlighted_failure_log() {
             print_failure_detail "${logs[$index]}" "${targets[$index]}" >>"$highlighted_log"
         fi
     done
-    cp "$highlighted_log" "$FAILURE_LOG_ROOT/latest-errors.log" || true
+    if ! publish_latest_log "$highlighted_log" "$FAILURE_LOG_ROOT/latest-errors.log"; then
+        printf 'Unable to publish latest highlighted errors; complete log retained at: %s\n' "$highlighted_log" >&2
+    fi
     printf '%s\n' "$highlighted_log"
 }
 
@@ -361,6 +381,7 @@ write_github_summary() {
     if [[ "$RUNNER_DEPTH" != "0" || -z "${GITHUB_STEP_SUMMARY:-}" ]]; then
         return
     fi
+    local summary="$LOG_DIR/github-summary.md"
 
     {
         echo "### Validation summary"
@@ -387,7 +408,16 @@ write_github_summary() {
             done
             echo '```'
         fi
-    } >>"$GITHUB_STEP_SUMMARY"
+    } >"$summary"
+    # Keep a complete local copy before appending to the external summary path.
+    # Its failure must not interrupt raw-log retention or mask a target failure.
+    if cat "$summary" >>"$GITHUB_STEP_SUMMARY"; then
+        :
+    else
+        summary_status=$?
+        preserve_temporary_logs=true
+        printf 'Unable to append GitHub summary; complete summary retained at: %s\n' "$summary" >&2 || :
+    fi
 }
 
 for target in "$@"; do
@@ -487,9 +517,7 @@ if [[ ${#failed_targets[@]} -ne 0 ]]; then
         printf 'Combined failure log retained at: %s\n' "$combined_failure_log"
         # Publish the latest completed batch atomically; keep the unique log
         # and any failed candidate. latest.log retains its last-target contract.
-        if [[ ! -d "$FAILURE_LOG_ROOT/latest-combined.log" ]] &&
-            cp "$combined_failure_log" "$combined_failure_log.latest" &&
-            mv -f "$combined_failure_log.latest" "$FAILURE_LOG_ROOT/latest-combined.log"; then
+        if publish_latest_log "$combined_failure_log" "$FAILURE_LOG_ROOT/latest-combined.log"; then
             printf 'Latest combined failure log: %s/latest-combined.log\n' "$FAILURE_LOG_ROOT"
         else
             printf 'Unable to publish latest combined failure log\n' >&2
@@ -505,6 +533,7 @@ if [[ ${#failed_targets[@]} -ne 0 ]]; then
         if [[ "${results[$index]}" == "FAIL" ]]; then
             echo
             if [[ -n "${retained_logs[$index]}" ]]; then
+                last_retained_log="${retained_logs[$index]}"
                 print_error_line "${targets[$index]}" \
                     "Full failure log retained at: ${retained_logs[$index]}"
             fi
@@ -512,14 +541,14 @@ if [[ ${#failed_targets[@]} -ne 0 ]]; then
         fi
     done
 
-    if [[ -f "$FAILURE_LOG_ROOT/latest.log" ]]; then
+    if [[ -n "${last_retained_log:-}" ]]; then
         echo
         print_error_line summary \
-            "Latest complete failure log: $FAILURE_LOG_ROOT/latest.log"
+            "Latest complete failure log: $last_retained_log"
     fi
     if [[ -n "$highlighted_failure_log" ]]; then
         print_error_line summary \
-            "Latest highlighted errors: $FAILURE_LOG_ROOT/latest-errors.log"
+            "Latest highlighted errors: $highlighted_failure_log"
     fi
 
     if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
@@ -529,6 +558,12 @@ if [[ ${#failed_targets[@]} -ne 0 ]]; then
     print_error_line summary "VALIDATION FAILED: ${failed_targets[*]}" >&2
     runner_complete=true
     exit "$failure_status"
+fi
+
+if [[ "$summary_status" != 0 ]]; then
+    print_error_line summary 'VALIDATION FAILED: targets passed, but GitHub summary could not be written' >&2
+    runner_complete=true
+    exit "$summary_status"
 fi
 
 echo "VALIDATION PASSED: all requested targets succeeded."

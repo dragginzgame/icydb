@@ -80,6 +80,170 @@ fn assert_owned_replacement_error(
     );
 }
 
+fn non_primary_generation_snapshot(
+    kind: AcceptedFieldKind,
+    generation: FieldInsertGeneration,
+) -> PersistedSchemaSnapshot {
+    let mut fields = replacement_snapshot(
+        AcceptedFieldKind::Nat64,
+        SchemaFieldWritePolicy::from_model_policies(None, None),
+        false,
+    )
+    .fields()
+    .to_vec();
+    let codec = kind.leaf_codec_for_storage(FieldStorageDecode::ByKind);
+    fields.push(PersistedFieldSnapshot::new_initial_with_write_policy(
+        FieldId::new(3),
+        "generated".into(),
+        SchemaFieldSlot::new(2),
+        kind,
+        vec![],
+        false,
+        SchemaInsertDefault::None,
+        SchemaFieldWritePolicy::from_model_policies(Some(generation), None),
+        FieldStorageDecode::ByKind,
+        codec,
+    ));
+    PersistedSchemaSnapshot::new(
+        SchemaVersion::initial(),
+        ENTITY_SOURCE.into(),
+        ENTITY_NAME.into(),
+        FieldId::new(1),
+        SchemaRowLayout::initial(
+            fields
+                .iter()
+                .map(|field| (field.id(), field.slot()))
+                .collect(),
+        ),
+        fields,
+    )
+}
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one matrix pairs ULID/timestamp ownership across typed/structural single/batch routes and authorship rejection"
+)]
+fn replacement_routes_preserve_non_primary_insert_generation() {
+    for (kind, generation) in [
+        (AcceptedFieldKind::Ulid, FieldInsertGeneration::Ulid),
+        (
+            AcceptedFieldKind::Timestamp,
+            FieldInsertGeneration::Timestamp,
+        ),
+    ] {
+        for typed in [false, true] {
+            for batch in [false, true] {
+                let kind = kind.clone();
+                std::thread::spawn(move || {
+                    let session =
+                        initialize_with_snapshot(non_primary_generation_snapshot(kind, generation));
+                    let binding = exact_key_binding(&session);
+                    let inserted = session
+                        .execute_trusted_dynamic_mutation(&DynamicMutation::Insert {
+                            entity: ENTITY_NAME.into(),
+                            patch: DynamicStructuralPatch::new(vec![
+                                ("id".into(), DynamicWriteCell::Value(InputValue::nat64(1))),
+                                (
+                                    "payload".into(),
+                                    DynamicWriteCell::Value(InputValue::nat64(10)),
+                                ),
+                            ]),
+                        })
+                        .unwrap();
+                    let replace = |id, payload| {
+                        if typed {
+                            let mutation = DynamicTypedMutation::Replace {
+                                key: InputValue::nat64(id),
+                                patch: binding
+                                    .bind_write_ordinals(vec![(
+                                        1,
+                                        DynamicWriteCell::Value(InputValue::nat64(payload)),
+                                    )])
+                                    .unwrap(),
+                            };
+                            if batch {
+                                session
+                                    .execute_trusted_same_entity_typed_mutation_batch(
+                                        &binding,
+                                        vec![mutation],
+                                    )
+                                    .unwrap()
+                                    .unwrap()
+                            } else {
+                                session
+                                    .execute_trusted_typed_mutation(&binding, mutation)
+                                    .unwrap()
+                                    .unwrap()
+                            }
+                        } else {
+                            let mutation = DynamicMutation::Replace {
+                                entity: ENTITY_NAME.into(),
+                                key: InputValue::nat64(id),
+                                patch: dynamic_payload_patch(payload),
+                            };
+                            if batch {
+                                session
+                                    .execute_trusted_dynamic_mutation_batch(vec![mutation])
+                                    .unwrap()
+                                    .remove(0)
+                            } else {
+                                session.execute_trusted_dynamic_mutation(&mutation).unwrap()
+                            }
+                        }
+                    };
+                    let unchanged = replace(1, 10);
+                    assert_eq!(unchanged.affected_rows, 0);
+                    assert_eq!(unchanged.rows, inserted.rows);
+                    let changed = replace(1, 20);
+                    assert_eq!(changed.affected_rows, 1);
+                    assert_eq!(changed.rows[0][2], inserted.rows[0][2]);
+                    assert_eq!(changed.rows[0][1], OutputValue::nat64(20));
+                    let created = replace(2, 30);
+                    assert_eq!(created.affected_rows, 1);
+                    assert_eq!(created.rows[0][0], OutputValue::nat64(2));
+                    assert_eq!(created.rows[0][1], OutputValue::nat64(30));
+                    assert!(matches!(
+                        (generation, created.rows[0][2].as_public()),
+                        (
+                            FieldInsertGeneration::Ulid,
+                            crate::value::PublicValue::Ulid(_)
+                        ) | (
+                            FieldInsertGeneration::Timestamp,
+                            crate::value::PublicValue::Timestamp(_)
+                        )
+                    ));
+                    for cell in [
+                        DynamicWriteCell::Null,
+                        DynamicWriteCell::Default,
+                        DynamicWriteCell::Value(InputValue::from_public(
+                            inserted.rows[0][2].clone().into_public(),
+                        )),
+                    ] {
+                        assert!(
+                            session
+                                .execute_trusted_dynamic_mutation(&DynamicMutation::Replace {
+                                    entity: ENTITY_NAME.into(),
+                                    key: InputValue::nat64(1),
+                                    patch: DynamicStructuralPatch::new(vec![
+                                        (
+                                            "payload".into(),
+                                            DynamicWriteCell::Value(InputValue::nat64(20))
+                                        ),
+                                        ("generated".into(), cell),
+                                    ]),
+                                })
+                                .is_err()
+                        );
+                    }
+                })
+                .join()
+                .expect("isolated replacement route should preserve generated fields");
+            }
+        }
+    }
+}
+
 #[test]
 fn missing_replacements_reject_database_owned_primary_keys() {
     let ulid = crate::types::Ulid::from_u128(7);

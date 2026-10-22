@@ -31,6 +31,34 @@ semantic owner or has current cost evidence. Preserve those obligations and
 layering. Hot-path allocation, cloning, formatting, dispatch or generic code
 growth requires the consumer's focused measurement evidence.
 
+## Focused boundary handoff
+
+When a changed producer, caller or carried artifact leaves a concrete guarantee
+unclear, review only that handoff and its reachable consumers. Reuse an owning
+domain audit's matching proof first; a neighbouring PASS does not prove this
+boundary. Route a known domain obligation to its owner rather than opening a
+second finding or repeating its complete baseline.
+
+| Invariant / authority | Producer and enforcement | Carried artifact / validity | Consumer and first protected effect | Bypass or stale-input candidate | Proof or gap |
+| --- | --- | --- | --- | --- | --- |
+
+Follow actual call sites through the first protected read, write or publication.
+Check identity, revision, namespace and validity lifetime where they govern this
+handoff. Inspect alternate callers, conversions, delayed/cache reuse and reachable
+recovery/resume paths for lost guarantees; do not require unrelated paths.
+
+Consumer assumptions must follow from producer guarantees before the effect.
+Protective revalidation after untrusted decoding, delayed use or changed authority
+can be necessary even with one semantic owner. Do not require enforcement exactly
+once or delete guards merely because another layer also validates the invariant.
+
+Select focused proof that valid input preserves the contract and invalid,
+mismatched or stale input cannot reach the effect. Type visibility plus complete
+caller inspection may establish an unconstructible state; label that source
+proof. A debug assertion alone is not a production guard. Missing behavioral
+proof is a gap, not evidence of a runtime defect, rollback or deployed behavior.
+Report the owner, trace and unresolved proof; no new recurring sweep follows.
+
 ## Findings
 
 Classify as duplicate flow, policy rediscovery, late convergence, ownership

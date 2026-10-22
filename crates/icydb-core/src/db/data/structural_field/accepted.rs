@@ -12,7 +12,6 @@ use crate::{
                 walk_binary_map_entries,
             },
             leaf::{decode_leaf_field_by_kind_bytes, push_leaf_field_binary_bytes},
-            primary_key_component::supports_primary_key_component_binary_kind,
             scalar::{
                 decode_scalar_fast_path_bytes, push_scalar_fast_path_binary_bytes,
                 validate_scalar_fast_path_binary_bytes,
@@ -141,15 +140,6 @@ pub(in crate::db) fn validate_structural_field_by_accepted_kind_bytes(
         | AcceptedFieldKind::Unit
         | AcceptedFieldKind::U256 => Err(FieldDecodeError::new()),
     }
-}
-
-// Return whether one accepted persisted kind uses the storage-key binary lane.
-// This mirrors the generated-kind lane so nullable structural-null detection
-// can avoid treating storage-key nulls as value-storage null sentinels.
-pub(in crate::db) fn accepted_kind_supports_primary_key_component_binary(
-    kind: &AcceptedFieldKind,
-) -> bool {
-    supports_primary_key_component_binary_kind(kind)
 }
 
 // Encode one accepted recursive field into Structural Binary v1 bytes.

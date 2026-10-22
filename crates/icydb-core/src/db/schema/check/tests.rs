@@ -1,5 +1,6 @@
 #[cfg(feature = "sql")]
 mod boolean_truth;
+mod source_bounds;
 
 #[cfg(feature = "sql")]
 use crate::db::{

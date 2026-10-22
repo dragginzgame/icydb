@@ -1,7 +1,7 @@
 //! Collection relations admitted through the public schema proposal boundary.
 
 use super::*;
-use crate::db::DynamicQuery;
+use crate::{db::DynamicQuery, value::OutputValue};
 use icydb_schema::{RelationDeleteAction, RelationFragment, RelationSourceFragment};
 
 #[test]
@@ -140,6 +140,15 @@ fn assert_collection_relation(nullable: bool) {
     insert(11, InputValue::list(vec![])).expect("empty collection should insert");
     if nullable {
         insert(12, InputValue::null()).expect("null collection should insert");
+        session
+            .execute_trusted_dynamic_mutation(&DynamicMutation::Insert {
+                entity: "Location".into(),
+                patch: DynamicStructuralPatch::new(vec![(
+                    "id".into(),
+                    DynamicWriteCell::Value(ulid(13)),
+                )]),
+            })
+            .expect("omitting the nullable collection should insert NULL");
     }
     let query = DynamicQuery::new("Location")
         .select(["id", "resource_ids"])
@@ -158,12 +167,13 @@ fn assert_collection_relation(nullable: bool) {
         }
     }
     assert!(continuation.is_none(), "bounded fixture query must exhaust");
-    assert_eq!(rows.len(), if nullable { 3 } else { 2 });
+    assert_eq!(rows.len(), if nullable { 4 } else { 2 });
+    if nullable {
+        assert!(rows[2..].iter().all(|row| row[1] == OutputValue::null()));
+    }
     assert_eq!(
         rows[0][1],
-        crate::value::OutputValue::from_public(
-            InputValue::list(vec![ulid(1), ulid(1)]).into_public()
-        )
+        OutputValue::from_public(InputValue::list(vec![ulid(1), ulid(1)]).into_public())
     );
     let delete = || {
         session.execute_trusted_dynamic_mutation(&DynamicMutation::Delete {

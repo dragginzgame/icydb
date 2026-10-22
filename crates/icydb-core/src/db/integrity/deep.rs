@@ -42,7 +42,7 @@ const MAX_RETENTION_RECORDS_PER_PAGE: usize = 16;
 pub(in crate::db) struct IntegrityRetentionPage {
     next_checkpoint: Option<IntegrityJobId>,
     exhausted: bool,
-    jobs_scanned: u32,
+    records_scanned: u32,
     jobs_expired: u32,
     jobs_deleted: u32,
     corrupt_jobs: Vec<IntegrityJobId>,
@@ -207,9 +207,20 @@ pub(in crate::db) fn abort_deep_integrity_job<C: CanisterKind>(
 }
 
 /// Advance one fair bounded retention page for the current progress allocation.
-pub(in crate::db) fn run_next_integrity_retention_page<C: CanisterKind>()
--> Result<(), IntegrityDeepError> {
-    run_next_integrity_retention_page_at::<C>(now_nanos()?).map(|_| ())
+/// Maintenance failure must not replace an already completed request result.
+pub(in crate::db) fn run_next_integrity_retention_page<C: CanisterKind>() {
+    if now_nanos()
+        .map_err(IntegrityDeepError::from)
+        .and_then(run_next_integrity_retention_page_at::<C>)
+        .is_err()
+    {
+        #[cfg(target_arch = "wasm32")]
+        ic_platform::ic0::debug_print(
+            b"IcyDB integrity retention failed; request result preserved",
+        );
+        #[cfg(not(target_arch = "wasm32"))]
+        eprintln!("IcyDB integrity retention failed; request result preserved");
+    }
 }
 
 fn run_next_integrity_retention_page_at<C: CanisterKind>(
@@ -221,7 +232,7 @@ fn run_next_integrity_retention_page_at<C: CanisterKind>(
     // A reset progress store or another test can leave an advisory heap cursor
     // beyond every current key. Wrap immediately without decoding an extra
     // record so the maintained page still visits at most the frozen limit.
-    if checkpoint.is_some() && page.exhausted && page.jobs_scanned == 0 {
+    if checkpoint.is_some() && page.exhausted && page.records_scanned == 0 {
         page = run_integrity_retention_page_at::<C>(None, now)?;
     }
 
@@ -280,9 +291,9 @@ fn run_integrity_retention_page_at<C: CanisterKind>(
     }
 
     Ok(IntegrityRetentionPage {
-        next_checkpoint: scan.job_ids.last().copied(),
+        next_checkpoint: scan.next_checkpoint,
         exhausted: scan.exhausted,
-        jobs_scanned: u32::try_from(scan.job_ids.len())
+        records_scanned: u32::try_from(scan.records_scanned)
             .map_err(|_| IntegrityJobError::CounterExhausted)?,
         jobs_expired,
         jobs_deleted,

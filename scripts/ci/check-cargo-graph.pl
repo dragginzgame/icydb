@@ -91,7 +91,7 @@ my (%identities, %observed_features);
 for my $line (split /\n/, $graph) {
     next if $line eq ''; # Cargo separates multiple selected roots with a blank.
     $line =~ s/ \(\*\)\z//;
-    if (@forbidden_features && $line =~ /\A([A-Za-z0-9_-]+) feature "([^"\r\n]+)"\z/) {
+    if (@forbidden_features && $line =~ /\A([A-Za-z0-9_-]+) feature "([^"\r\n]+)"(?: \(command-line\))?\z/) {
         $observed_features{"$1/$2"} = 1;
         next;
     }

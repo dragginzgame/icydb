@@ -506,3 +506,103 @@ fn generated_pending_activation_keeps_its_exact_submission_owner() {
     );
     assert_eq!(ABORT_DATA.with(|data| data.borrow().len()), 257);
 }
+
+#[test]
+fn wide_check_findings_replay_and_validation_finishes_after_repair() {
+    let (db, session) = initialize();
+    seed(&session, 3..=65);
+    let columns: Vec<_> = (0..33).map(|index| format!("wide_{index}")).collect();
+    for column in &columns {
+        execute_ddl(
+            &db,
+            &session,
+            &format!("ALTER TABLE Item ADD COLUMN {column} INT64 NULL"),
+        );
+    }
+    // Only the last dependency violates the check. Limiting diagnostic fields
+    // must not limit evaluation to the retained prefix.
+    session
+        .execute_trusted_dynamic_mutation_batch(
+            (1..=65)
+                .map(|id| DynamicMutation::Update {
+                    entity: "Item".into(),
+                    key: InputValue::nat64(id),
+                    patch: DynamicStructuralPatch::new(
+                        columns[..32]
+                            .iter()
+                            .map(|column| {
+                                (
+                                    column.clone(),
+                                    DynamicWriteCell::Value(InputValue::int64(1)),
+                                )
+                            })
+                            .collect(),
+                    ),
+                })
+                .collect(),
+        )
+        .unwrap();
+    let predicate = columns
+        .iter()
+        .map(|column| format!("{column} IS NOT NULL"))
+        .collect::<Vec<_>>()
+        .join(" AND ");
+    execute_ddl(
+        &db,
+        &session,
+        &format!("ALTER TABLE Item ADD CONSTRAINT wide_check CHECK ({predicate}) NOT VALID"),
+    );
+    assert_eq!(
+        validate_constraint(&session, "wide_check", None).execution_status(),
+        SqlDdlExecutionStatus::ValidationStarted
+    );
+    let first = validate_constraint(&session, "wide_check", None);
+    let page = first.constraint_validation().unwrap();
+    assert_eq!(page.findings().len(), 64);
+    assert!(
+        page.findings()
+            .iter()
+            .all(|finding| finding.field_ids().len() == 32)
+    );
+    let first_sequence = page.page_sequence().unwrap();
+    assert_eq!(
+        validate_constraint(&session, "wide_check", None).constraint_validation(),
+        Some(page)
+    );
+    let second = validate_constraint(&session, "wide_check", Some(first_sequence));
+    let second_page = second.constraint_validation().unwrap();
+    assert_eq!(second_page.findings().len(), 1);
+    assert_eq!(second_page.rows_scanned(), 65);
+    let second_sequence = second_page.page_sequence().unwrap();
+    assert!(second_sequence > first_sequence);
+    assert_eq!(
+        validate_constraint(&session, "wide_check", None).constraint_validation(),
+        Some(second_page)
+    );
+    session
+        .execute_trusted_dynamic_mutation_batch(
+            (1..=65)
+                .map(|id| DynamicMutation::Delete {
+                    entity: "Item".into(),
+                    key: InputValue::nat64(id),
+                })
+                .collect(),
+        )
+        .unwrap();
+    let mut report = validate_constraint(&session, "wide_check", Some(second_sequence));
+    for _ in 0..4 {
+        if report.constraint_validation().unwrap().complete() {
+            break;
+        }
+        report = validate_constraint(&session, "wide_check", None);
+    }
+    assert!(report.constraint_validation().unwrap().complete());
+    let accepted = snapshot(&db);
+    assert!(accepted.constraint_activations().is_empty());
+    assert!(
+        accepted
+            .constraints()
+            .iter()
+            .any(|constraint| constraint.name() == "wide_check")
+    );
+}

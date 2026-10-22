@@ -4,12 +4,16 @@ mod generator;
 #[cfg(test)]
 mod tests;
 
-pub use icydb_schema::{Ulid, UlidDecodeError, UlidParseError};
-
 use crate::{
     db::{EntityKeyBytes, EntityKeyBytesError, validate_entity_key_bytes_buffer},
+    error::InternalError,
+    runtime::now_millis,
     types::GenerateKey,
 };
+
+pub use icydb_schema::{Ulid, UlidDecodeError, UlidParseError};
+
+pub(crate) use generator::generate as generate_ulid_at;
 
 impl EntityKeyBytes for Ulid {
     const BYTE_LEN: usize = Self::STORED_SIZE as usize;
@@ -22,7 +26,7 @@ impl EntityKeyBytes for Ulid {
 }
 
 impl GenerateKey for Ulid {
-    fn generate() -> Result<Self, crate::error::InternalError> {
-        generator::generate().map_err(|_| crate::error::InternalError::executor_internal())
+    fn generate() -> Result<Self, InternalError> {
+        generate_ulid_at(now_millis())
     }
 }

@@ -2096,7 +2096,9 @@ impl ConstraintValidationFindingOutput {
         self.primary_key.as_slice()
     }
 
-    /// Borrow immutable accepted field identities implicated by the finding.
+    /// Borrow up to 32 immutable accepted field identities implicated by the finding.
+    /// Wider checks retain the first 32 identities in ascending order; this is
+    /// bounded diagnostic evidence, not the complete check dependency set.
     #[must_use]
     pub const fn field_ids(&self) -> &[u32] {
         self.field_ids.as_slice()

@@ -312,6 +312,8 @@ impl MutationProgressRecordOp {
 
 pub(super) struct ProgressScanPage {
     pub(super) job_ids: Vec<IntegrityJobId>,
+    pub(super) next_checkpoint: Option<IntegrityJobId>,
+    pub(super) records_scanned: usize,
     pub(super) exhausted: bool,
 }
 
@@ -720,20 +722,28 @@ impl InspectionProgressStore {
         }
         let lower = checkpoint.map_or(PROGRESS_HEADER_KEY, ProgressRecordKey::from_job_id);
         let mut job_ids = Vec::with_capacity(limit);
-        let mut has_more = false;
-        for entry in self.map.range((Excluded(lower), Unbounded)) {
-            let Ok(job) = decode_job_record_unbound(&entry.value().0) else {
-                continue;
-            };
-            if job_ids.len() == limit {
-                has_more = true;
-                break;
+        let mut next_checkpoint = None;
+        let mut records_scanned = 0;
+        let mut entries = self.map.range((Excluded(lower), Unbounded));
+        for entry in entries.by_ref().take(limit) {
+            // The physical key owns lookup and pagination even when the payload
+            // is corrupt. Every family consumes page work; only its owner may
+            // interpret or retire its records.
+            let job_id = IntegrityJobId::try_from_bytes(entry.key().0)?;
+            next_checkpoint = Some(job_id);
+            records_scanned += 1;
+            let bytes = entry.value();
+            if !bytes.0.starts_with(RESUMABLE_JOB_RECORD_MAGIC)
+                && !bytes.0.starts_with(MUTATION_JOB_RECORD_MAGIC)
+            {
+                job_ids.push(job_id);
             }
-            job_ids.push(job.id);
         }
         Ok(ProgressScanPage {
             job_ids,
-            exhausted: !has_more,
+            next_checkpoint,
+            records_scanned,
+            exhausted: entries.next().is_none(),
         })
     }
 
@@ -1078,6 +1088,38 @@ pub(in crate::db) fn verify_mutation_progress_record_op<C: CanisterKind>(
         .map_err(|_| InternalError::recovery_effect_verification_failed())
 }
 
+// Corrupt physical bytes at the progress owner for end-to-end request tests.
+#[cfg(all(test, feature = "sql"))]
+pub(in crate::db) fn replace_progress_record_for_test<C: CanisterKind>(
+    key: [u8; 32],
+    bytes: Vec<u8>,
+) -> Result<(), IntegrityJobError> {
+    with_progress_store::<C, _>(|store| {
+        store
+            .map
+            .insert(ProgressRecordKey(key), ProgressRecordBytes(bytes));
+        Ok(())
+    })
+}
+
+// Preserve a valid payload/CRC while removing its matching physical key.
+#[cfg(all(test, feature = "sql"))]
+pub(in crate::db) fn miskey_progress_record_for_test<C: CanisterKind>(
+    job_id: IntegrityJobId,
+    stored_id: IntegrityJobId,
+) -> Result<(), IntegrityJobError> {
+    with_progress_store::<C, _>(|store| {
+        let bytes = store
+            .map
+            .remove(&ProgressRecordKey::from_job_id(job_id))
+            .ok_or(IntegrityJobError::JobNotFound)?;
+        store
+            .map
+            .insert(ProgressRecordKey::from_job_id(stored_id), bytes);
+        Ok(())
+    })
+}
+
 #[cfg(test)]
 fn progress_memory<C: CanisterKind>() -> Result<RuntimeMemory<DefaultMemoryImpl>, IntegrityJobError>
 {
@@ -1121,7 +1163,24 @@ mod tests {
             mutation_job::MutationJobTransition,
         },
         testing::test_memory,
+        traits::Path,
     };
+
+    struct RetentionCanister;
+
+    impl CanisterKind for RetentionCanister {
+        const COMMIT_STABLE_KEY: &'static str = "tests::retention::commit";
+        const STARTUP_STABLE_KEY: &'static str = "tests::retention::startup";
+        const INTEGRITY_PROGRESS_STABLE_KEY: &'static str = "tests::retention::progress";
+
+        fn integrity_progress_memory_id() -> Result<u8, ic_memory::RuntimeOpenError> {
+            Ok(253)
+        }
+    }
+
+    impl Path for RetentionCanister {
+        const PATH: &'static str = "tests::RetentionCanister";
+    }
 
     fn current_resumable_record() -> ResumableJobRecord {
         let proof = ReadSetRevisionProof::from_parts(
@@ -1914,6 +1973,110 @@ mod tests {
     }
 
     #[test]
+    fn retention_passes_corrupt_keys_without_losing_expiration_or_receipts() {
+        use crate::db::integrity::{
+            DeepIntegrityPageStatus, IntegrityJobReceipt, IntegrityPendingTerminal,
+            IntegrityReceiptReplayKey, IntegrityTerminalOutcome, run_next_integrity_retention_page,
+        };
+
+        with_progress_store::<RetentionCanister, _>(|store| {
+            let mismatched = encode_job_record(&current_integrity_record(99)).unwrap();
+            for byte in 1..=20 {
+                store.map.insert(
+                    ProgressRecordKey([byte; 32]),
+                    ProgressRecordBytes(if byte % 2 == 0 {
+                        mismatched.clone()
+                    } else {
+                        vec![0]
+                    }),
+                );
+            }
+            let first = store.scan_after(None, 16)?;
+            assert_eq!(first.records_scanned, 16);
+            assert_eq!(first.job_ids.len(), 16);
+            assert_eq!(first.next_checkpoint.unwrap().to_bytes(), [16; 32]);
+            assert!(!first.exhausted);
+            for id in first.job_ids {
+                assert_eq!(id.to_bytes()[0], id.to_bytes()[31]);
+                assert!(matches!(
+                    store.load(id),
+                    Err(IntegrityJobError::CorruptProgressRecord
+                        | IntegrityJobError::IncompatibleProgressFormat)
+                ));
+            }
+            let mut expired = current_integrity_record(21);
+            expired.lease_deadline_nanos = 1;
+            store.map.insert(
+                ProgressRecordKey::from_job_id(expired.id),
+                ProgressRecordBytes(encode_job_record(&expired)?),
+            );
+            for (byte, acknowledged) in [(22, true), (23, false)] {
+                let mut terminal = current_integrity_record(byte);
+                terminal.lease_deadline_nanos = 1;
+                terminal.state = IntegrityJobState::Terminal {
+                    outcome: IntegrityTerminalOutcome::DeepCompleteClean,
+                    receipt_acknowledged: acknowledged,
+                };
+                terminal.pages_completed = 1;
+                terminal.last_receipt.replay_key = IntegrityReceiptReplayKey::Continue {
+                    acknowledged_sequence: 0,
+                };
+                let IntegrityJobReceipt::Page(page) = &mut terminal.last_receipt.receipt else {
+                    panic!("fixture should have a page");
+                };
+                page.status =
+                    DeepIntegrityPageStatus::Terminal(IntegrityTerminalOutcome::DeepCompleteClean);
+                page.page_sequence = 1;
+                page.pages_completed = 1;
+                terminal.validate()?;
+                store.map.insert(
+                    ProgressRecordKey::from_job_id(terminal.id),
+                    ProgressRecordBytes(encode_job_record(&terminal)?),
+                );
+            }
+            Ok(())
+        })
+        .unwrap();
+
+        run_next_integrity_retention_page::<RetentionCanister>();
+        with_progress_store::<RetentionCanister, _>(|store| {
+            assert_eq!(
+                store.load(current_integrity_record(21).id)?.state,
+                IntegrityJobState::InProgress
+            );
+            Ok(())
+        })
+        .unwrap();
+        run_next_integrity_retention_page::<RetentionCanister>();
+        with_progress_store::<RetentionCanister, _>(|store| {
+            assert_eq!(
+                store.load(current_integrity_record(21).id)?.state,
+                IntegrityJobState::TerminalPending(IntegrityPendingTerminal::Expired),
+            );
+            assert_eq!(
+                store.load(current_integrity_record(22).id),
+                Err(IntegrityJobError::JobNotFound)
+            );
+            assert!(matches!(
+                store.load(current_integrity_record(23).id)?.state,
+                IntegrityJobState::Terminal {
+                    receipt_acknowledged: false,
+                    ..
+                }
+            ));
+            assert_eq!(
+                store.job_count()?,
+                22,
+                "corrupt records and outstanding receipts stay retained"
+            );
+            Ok(())
+        })
+        .unwrap();
+        // Wrapping revisits the corrupt prefix without stalling or deleting it.
+        run_next_integrity_retention_page::<RetentionCanister>();
+    }
+
+    #[test]
     fn integrity_scan_skips_other_progress_record_families() {
         let mut store = InspectionProgressStore::open(test_memory(252))
             .expect("isolated progress store should open");
@@ -1938,6 +2101,29 @@ mod tests {
             .scan_after(None, 8)
             .expect("integrity scan should ignore other record families");
         assert_eq!(page.job_ids, vec![integrity.id]);
+        assert_eq!(page.records_scanned, 3);
         assert!(page.exhausted);
+
+        let mut checkpoint = None;
+        let mut scanned = 0;
+        let mut ids = Vec::new();
+        loop {
+            let page = store.scan_after(checkpoint, 1).unwrap();
+            assert_eq!(page.records_scanned, 1);
+            assert!(page.next_checkpoint > checkpoint);
+            scanned += page.records_scanned;
+            ids.extend(page.job_ids);
+            checkpoint = page.next_checkpoint;
+            if page.exhausted {
+                break;
+            }
+            assert!(scanned < 3);
+        }
+        assert_eq!(scanned, 3);
+        assert_eq!(ids, vec![integrity.id]);
+        assert!(matches!(
+            store.scan_after(None, 0),
+            Err(IntegrityJobError::CapacityExceeded)
+        ));
     }
 }

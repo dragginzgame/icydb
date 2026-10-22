@@ -32,7 +32,7 @@ use crate::{
     types::EntityTag,
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
-use std::{borrow::Cow, cmp::Ordering, mem::size_of, ops::Bound, sync::Arc};
+use std::{cmp::Ordering, mem::size_of, ops::Bound, sync::Arc};
 
 pub(in crate::db::executor) type IndexComponentValues = Arc<[Vec<u8>]>;
 
@@ -960,8 +960,9 @@ impl IndexScan {
                     DiagnosticExecutionBudgetResource::PredicateExpressionSteps,
                     1,
                 )?;
-                let decoded_key = IndexKey::try_from_raw(raw_key)
-                    .map_err(|_| InternalError::index_corruption())?;
+                let (decoded_key, primary_key_bytes) =
+                    IndexKey::try_from_raw_with_primary_key_bytes(raw_key)
+                        .map_err(|_| InternalError::index_corruption())?;
                 if !eval_index_execution_on_decoded_key(&decoded_key, execution)? {
                     return Ok(false);
                 }
@@ -970,14 +971,11 @@ impl IndexScan {
                     decoded_key
                         .primary_key_value()
                         .map_err(|_| InternalError::index_entry_decode_failed())?,
-                    Cow::Owned(decoded_key.primary_key_bytes().to_vec()),
+                    primary_key_bytes,
                 )
             } else {
-                let (primary_key_value, primary_key_bytes) =
-                    IndexKey::primary_key_value_and_bytes_from_raw(raw_key)
-                        .map_err(|_| InternalError::index_corruption())?;
-
-                (primary_key_value, Cow::Borrowed(primary_key_bytes))
+                IndexKey::primary_key_value_and_bytes_from_raw(raw_key)
+                    .map_err(|_| InternalError::index_corruption())?
             };
 
         // Phase 2: decode the entry-owned existence witness and pair it with
@@ -988,7 +986,7 @@ impl IndexScan {
         out.push(Self::data_key_from_row_witness_with_primary_key_bytes(
             entity,
             &row_witness,
-            primary_key_bytes.as_ref(),
+            primary_key_bytes,
         ));
 
         if let Some(limit) = limit
@@ -1194,6 +1192,152 @@ mod tests {
     fn reset_exact_intersection_stores() {
         EXACT_INTERSECTION_DATA.with_borrow_mut(|store| *store = DataStore::init_heap());
         EXACT_INTERSECTION_INDEX.with_borrow_mut(|store| *store = IndexStore::init_heap());
+    }
+
+    #[test]
+    fn filtered_index_scan_preserves_primary_keys_order_and_limits() {
+        use crate::{
+            db::{
+                index::{
+                    EncodedValue, IndexKeyKind,
+                    predicate::{IndexCompareOp, IndexLiteral, IndexPredicateProgram},
+                },
+                key_taxonomy::CompositePrimaryKeyValue,
+            },
+            value::Value,
+        };
+
+        let predicate = IndexPredicateProgram::Compare {
+            component_index: 0,
+            op: IndexCompareOp::Gte,
+            literal: IndexLiteral::One(
+                EncodedValue::try_new(&Value::Nat64(2))
+                    .unwrap()
+                    .into_bytes(),
+            ),
+        };
+        for composite in [false, true] {
+            reset_exact_intersection_stores();
+            let primary_keys: Vec<_> = (1..=5)
+                .map(|index| {
+                    let primary_key = if composite {
+                        PrimaryKeyValue::Composite(
+                            CompositePrimaryKeyValue::try_from_components(&[
+                                PrimaryKeyComponent::Nat64(index),
+                                PrimaryKeyComponent::Nat64(index + 500),
+                            ])
+                            .unwrap(),
+                        )
+                    } else {
+                        PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(index))
+                    };
+                    let raw = IndexKey::new_from_components_with_primary_key_value(
+                        &IndexId::new(EXACT_INTERSECTION_ENTITY, 1),
+                        IndexKeyKind::User,
+                        &[EncodedValue::try_new(&Value::Nat64(index)).unwrap()],
+                        &primary_key,
+                    )
+                    .unwrap()
+                    .to_raw()
+                    .unwrap();
+                    let witness = if index == 1 {
+                        // Predicate refusal must still precede witness decoding.
+                        IndexEntryValue::from_persisted_bytes(vec![2])
+                    } else {
+                        IndexEntryValue::presence()
+                    };
+                    EXACT_INTERSECTION_INDEX.with_borrow_mut(|store| store.insert(raw, witness));
+                    primary_key
+                })
+                .collect();
+            for direction in [Direction::Asc, Direction::Desc] {
+                let mut expected = primary_keys[1..].to_vec();
+                if direction == Direction::Desc {
+                    expected.reverse();
+                }
+                for limit in 0..=5 {
+                    let (budget, context) = exact_intersection_budget();
+                    let keys = with_query_execution_budget_for_tests(budget, context, || {
+                        IndexScan::resolve_data_values_in_raw_range_limited(
+                            EXACT_INTERSECTION_STORE,
+                            EXACT_INTERSECTION_ENTITY,
+                            &Bound::Unbounded,
+                            &Bound::Unbounded,
+                            IndexScanContinuationInput::new(None, direction),
+                            limit,
+                            Some(&predicate),
+                        )
+                        .map_err(QueryError::execute)
+                    })
+                    .unwrap();
+                    assert_eq!(keys.len(), limit.min(expected.len()));
+                    for (key, expected) in keys.iter().zip(expected.iter().take(limit)) {
+                        assert_eq!(key.primary_key_value(), *expected);
+                        assert_eq!(
+                            key.to_raw().unwrap(),
+                            DecodedDataStoreKey::new_primary_key_value(
+                                EXACT_INTERSECTION_ENTITY,
+                                expected,
+                            )
+                            .to_raw()
+                            .unwrap()
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn filtered_index_scan_preserves_corruption_and_refusal_order() {
+        use crate::db::index::predicate::IndexPredicateProgram;
+
+        let key = nat64_index_key(&IndexId::new(EXACT_INTERSECTION_ENTITY, 1), b"lane", 7);
+        let raw = key.to_raw().unwrap();
+        let mut invalid_primary = raw.as_bytes().to_vec();
+        let primary_start = invalid_primary.len() - key.primary_key_bytes().len();
+        invalid_primary[primary_start] = 0xFF;
+        let invalid_primary = RawIndexStoreKey::from_persisted_bytes(invalid_primary);
+        let mut trailing = raw.as_bytes().to_vec();
+        trailing.push(0);
+        let trailing = RawIndexStoreKey::from_persisted_bytes(trailing);
+        let presence = IndexEntryValue::presence();
+        let invalid_witness = IndexEntryValue::from_persisted_bytes(vec![2]);
+
+        for (raw, value, expected_error) in [
+            (
+                &invalid_primary,
+                &presence,
+                InternalError::index_entry_decode_failed(),
+            ),
+            (
+                &raw,
+                &invalid_witness,
+                InternalError::index_entry_decode_failed(),
+            ),
+            (&trailing, &presence, InternalError::index_corruption()),
+        ] {
+            for predicate in [IndexPredicateProgram::False, IndexPredicateProgram::True] {
+                let mut keys = Vec::new();
+                let result = IndexScan::decode_index_entry_and_push(
+                    EXACT_INTERSECTION_ENTITY,
+                    raw,
+                    value,
+                    &mut keys,
+                    Some(1),
+                    Some(&predicate),
+                );
+                if raw != &trailing && predicate == IndexPredicateProgram::False {
+                    assert!(!result.unwrap());
+                } else {
+                    let error = result.unwrap_err();
+                    assert_eq!(error.class(), expected_error.class());
+                    assert_eq!(error.origin(), expected_error.origin());
+                    assert_eq!(error.diagnostic(), expected_error.diagnostic());
+                }
+                assert!(keys.is_empty());
+            }
+        }
     }
 
     #[test]
