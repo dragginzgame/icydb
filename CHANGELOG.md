@@ -5,6 +5,14 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.280.3]
+
+### 📚 Documentation
+
+- Narrow targeted boundary-handoff reviews to IcyDB's carried authority and
+  focused proof; reuse the adopted Shared reporting and execution contract.
+  [Detailed notes](docs/changelog/0.280.md).
+
 ## [0.280.2] - 2026-10-21
 
 ### 🩹 Fixed
