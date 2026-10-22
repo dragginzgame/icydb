@@ -546,7 +546,7 @@ _ci-workspace-clippy:
 
 _ci-workspace-integration-clippy:
 	+$(CARGO_WORK_ENV) cargo clippy --locked -p icydb-testing-integration \
-		--test sql_correctness --test sql_canister -- -D warnings
+		--tests -- -D warnings
 
 _ci-workspace-tests:
 	+$(WORKSPACE_TEST_ENV) $(CARGO_WORK_ENV) cargo test --locked --no-fail-fast \
