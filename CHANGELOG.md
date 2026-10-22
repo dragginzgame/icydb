@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   retaining separate installed-test execution requirements
   ([#42 — PR CI durability integration coverage](https://github.com/dragginzgame/icydb/issues/42)).
 
+### 📚 Documentation
+
+- Narrow targeted boundary-handoff reviews to IcyDB's carried authority and
+  focused proof; reuse the adopted Shared reporting and execution contract.
+  [Detailed notes](docs/changelog/0.280.md).
+
 See [detailed notes](docs/changelog/0.280.md).
 
 ## [0.280.2] - 2026-10-21
