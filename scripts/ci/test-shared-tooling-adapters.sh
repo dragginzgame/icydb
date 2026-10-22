@@ -151,6 +151,12 @@ reader="${BASH_REMATCH[2]}"; writer="${BASH_REMATCH[3]}"
 [[ "$CARGO_TARGET_DIR" == "${CI_CARGO_EXPECTED_TARGET:-$CI_CARGO_ROOT/target/icydb}" ]]
 printf '%s %s\n' "$1" "${RUST_TEST_THREADS:-default}" >> "$CI_CARGO_TRACE"
 printf '%s\n' "$*" >> "$CI_CARGO_ARGUMENT_TRACE"
+if [[ "$1" == clippy && " $* " == *' -p icydb-testing-integration '* ]]; then
+  [[ " $* " == *' --locked '* && " $* " == *' --tests '* ]] || {
+    echo 'integration CI must type-check every registered test target' >&2
+    exit 1
+  }
+fi
 if [[ "${CI_CARGO_MUTATE_LOCK:-0}" == 1 && "$1" == check ]]; then
   printf '# changed dependency selection\n' >> "$CI_CARGO_ROOT/Cargo.lock"
 fi
@@ -201,6 +207,16 @@ grep -Fx -- 'test --locked --no-fail-fast -p canister_test_sql --lib --all-featu
   "$CI_CARGO_ARGUMENT_TRACE" > /dev/null
 grep -Fx -- 'test --locked --no-fail-fast -p canister_audit_sql_perf --lib --features test-admin-api' \
   "$CI_CARGO_ARGUMENT_TRACE" > /dev/null
+
+# The actual integration lint leaf must propagate a compiler/lint failure.
+: > "$CI_CARGO_TRACE"
+status=0
+PATH="$native/bin:$PATH" CI_CARGO_FAIL=1 \
+  make --no-print-directory -C "$native" -j2 _ci-workspace-integration-clippy \
+  > "$native/integration-lint-failure.log" 2>&1 || status=$?
+[[ "$status" == 2 ]] || exit 1
+printf '%s\n' 'clippy default' > "$native/expected-trace"
+cmp "$native/expected-trace" "$CI_CARGO_TRACE"
 
 # The real consumer declares prepared dependency/compiler inputs. A successful
 # first target that changes the lockfile must not dispatch the remaining matrix.
