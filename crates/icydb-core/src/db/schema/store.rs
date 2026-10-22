@@ -86,6 +86,7 @@ const ACCEPTED_FIELD_KIND_FINGERPRINT_TAG_COMPOSITE: u8 = 32;
 #[cfg(test)]
 thread_local! {
     static ACCEPTED_SCHEMA_BUNDLE_CACHE_MISSES: Cell<u64> = const { Cell::new(0) };
+    static CANONICAL_SCHEMA_BUNDLE_LOADS: Cell<u64> = const { Cell::new(0) };
 }
 
 #[cfg(test)]
@@ -1648,6 +1649,8 @@ impl SchemaStore {
         &self,
     ) -> Result<Option<(AcceptedSchemaRootSelection, AcceptedSchemaRevisionBundle)>, InternalError>
     {
+        #[cfg(test)]
+        CANONICAL_SCHEMA_BUNDLE_LOADS.with(|loads| loads.set(loads.get() + 1));
         let Some(selection) = self.current_canonical_accepted_schema_root()? else {
             return Ok(None);
         };
@@ -1658,6 +1661,13 @@ impl SchemaStore {
         let bundle =
             decode_verified_accepted_schema_revision_bundle(selection.root(), raw.as_bytes())?;
         Ok(Some((selection, bundle)))
+    }
+
+    // Count real canonical authority loads so batch tests detect per-key reloads
+    // without replacing the production decoder or relying on native timings.
+    #[cfg(test)]
+    pub(in crate::db) fn take_canonical_bundle_load_count_for_tests() -> u64 {
+        CANONICAL_SCHEMA_BUNDLE_LOADS.with(|loads| loads.replace(0))
     }
 
     /// Return the accepted root selected only from canonical predecessor slots.

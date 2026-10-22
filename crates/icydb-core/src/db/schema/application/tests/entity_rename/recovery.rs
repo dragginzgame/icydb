@@ -61,7 +61,7 @@ pub(super) fn interrupt_publication(
         .unwrap()
         .with_borrow(JournalTailStore::next_mutation_append_sequence)
         .unwrap();
-    let marker_id = generate_commit_id().unwrap();
+    let marker_id = generate_commit_id(0).unwrap();
     let batch = JournalBatch::new_with_database_commit_sequence(
         generate_marker_batch_id(marker_id, 0).unwrap(),
         marker_id,

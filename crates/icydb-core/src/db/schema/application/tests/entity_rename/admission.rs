@@ -44,6 +44,92 @@ fn assert_rejected(
 }
 
 #[test]
+fn entity_namespace_names_reject_invalid_renames_without_publication() {
+    let root = RequestExecutionRoot::__new_runtime_root();
+    let db = initialize(&root, true);
+    let base = proposal(&schema_application_target(&db).unwrap(), true, true);
+    for target in ["A".repeat(65), "holder".into(), "item".into()] {
+        let entities = base.fragments()[0]
+            .entities()
+            .iter()
+            .map(|definition| {
+                let renamed = definition.source_key() == &entity("CatalogItem");
+                EntityFragment::try_new(
+                    name(if renamed {
+                        &target
+                    } else {
+                        definition.name().as_str()
+                    }),
+                    definition.version(),
+                    definition.fields().to_vec(),
+                    definition.primary_key().to_vec(),
+                    definition.indexes().to_vec(),
+                    definition
+                        .relations()
+                        .iter()
+                        .map(|relation| {
+                            RelationFragment::try_new(
+                                relation.name().clone(),
+                                relation.source().clone(),
+                                if relation.target_entity() == &entity("CatalogItem") {
+                                    entity(&target)
+                                } else {
+                                    relation.target_entity().clone()
+                                },
+                                relation.target_fields().to_vec(),
+                                relation.on_delete(),
+                            )
+                            .unwrap()
+                        })
+                        .collect(),
+                    definition.constraints().to_vec(),
+                )
+                .unwrap()
+            })
+            .collect::<Vec<_>>();
+        let assignments = entities
+            .iter()
+            .map(|definition| {
+                EntityStoreAssignment::new(
+                    definition.source_key().clone(),
+                    base.assignments()[0].store(),
+                )
+            })
+            .collect();
+        let transitions = vec![
+            EntityMigration::try_new(
+                entity(&target),
+                version_one(),
+                Some(entity("Item")),
+                Vec::new(),
+                Vec::new(),
+            )
+            .unwrap(),
+            EntityMigration::try_new(
+                entity("Holder"),
+                version_one(),
+                None,
+                Vec::new(),
+                Vec::new(),
+            )
+            .unwrap(),
+        ];
+        let candidate = recompose(&base, entities, assignments, transitions);
+        if target == "item" {
+            // A case-only rename replaces its predecessor and remains unambiguous.
+            advance(&db, &candidate).unwrap();
+            assert!(db.accepted_runtime_entity_for_path("item").is_ok());
+        } else {
+            assert_rejected(
+                &db,
+                &candidate,
+                SchemaMigrationCode::UnexplainedSchemaDifference,
+            );
+        }
+    }
+}
+
+#[test]
 fn companion_requires_complete_rename_explanation_and_explicit_transition() {
     let root = RequestExecutionRoot::__new_runtime_root();
     let db = initialize(&root, true);

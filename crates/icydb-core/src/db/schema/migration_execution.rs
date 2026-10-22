@@ -47,6 +47,7 @@ use crate::{
         },
     },
     error::InternalError,
+    runtime::now_millis,
     traits::CanisterKind,
 };
 use icydb_schema::TargetStoreIdentity;
@@ -517,7 +518,7 @@ pub(in crate::db::schema) fn publish_migration_rewrite_page(
     });
     effects
         .dedup_by(|left, right| left.store_path == right.store_path && left.record == right.record);
-    let marker_id = generate_commit_id()?;
+    let marker_id = generate_commit_id(now_millis())?;
     let database_commit_sequence = DatabaseCommitSequence::new(next_database_commit_sequence()?);
     let mut grouped = BTreeMap::<&'static str, (StoreHandle, Vec<JournalRecord>)>::new();
     for effect in effects {

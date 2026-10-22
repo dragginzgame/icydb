@@ -765,6 +765,8 @@ impl EntityFragment {
     ///
     /// Returns a typed contract error for collection overflow, duplicate
     /// source keys, malformed policy, expression, or primary-key references.
+    /// Primary keys require non-null scalar key fields; Unit is valid only as
+    /// the sole primary-key field.
     pub fn try_new(
         name: SchemaName,
         version: DeclaredEntityVersion,
@@ -822,6 +824,7 @@ impl EntityFragment {
             return Err(SchemaContractError::InvalidLocalReference);
         }
         validate_insert_generation(&fields, &primary_key)?;
+        validate_primary_key_field_shapes(&fields, &primary_key)?;
         for index in &indexes {
             if index
                 .key()
@@ -935,6 +938,24 @@ impl EntityFragment {
         )?;
         ensure_canonical_rebuild(self, &rebuilt)
     }
+}
+
+// Share intrinsic key capabilities with generated model admission. A named
+// type or collection cannot substitute for an exact scalar key.
+fn validate_primary_key_field_shapes(
+    fields: &[FieldFragment],
+    primary_key: &[FieldSourceKey],
+) -> Result<(), SchemaContractError> {
+    if fields.iter().any(|field| {
+        primary_key.contains(&field.source_key)
+            && (field.nullable
+                || !matches!(field.field_type, FieldType::Scalar(scalar)
+                    if scalar.kind().is_primary_key_component_encodable()
+                        && (primary_key.len() == 1 || scalar != ScalarType::Unit)))
+    }) {
+        return Err(SchemaContractError::InvalidFieldPolicy);
+    }
+    Ok(())
 }
 
 // Keep the public proposal contract exact even when fragments are constructed

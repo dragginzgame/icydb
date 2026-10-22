@@ -346,6 +346,65 @@ fn new_entity_requires_version_one_without_publication() {
 }
 
 #[test]
+fn entity_namespace_names_reject_before_publication() {
+    let root = RequestExecutionRoot::__new_runtime_root();
+    let db = Db::<EvolutionCanister>::new(&EVOLUTION_REGISTRY, root.scope());
+    drive_startup_recovery_to_completion(&db);
+    let long_name = "A".repeat(65);
+    for initial in [true, false] {
+        if !initial {
+            apply_schema(
+                &db,
+                &proposal(
+                    &schema_application_target(&db).unwrap(),
+                    &[],
+                    "valid-initial",
+                ),
+            )
+            .unwrap();
+        }
+        let before = schema_application_target(&db).unwrap();
+        let physical = physical_state(&db);
+        for invalid_name in [long_name.as_str(), "item"] {
+            let candidate = proposal(&before, &[(invalid_name, 1)], "invalid-entity-name");
+            for generated in [false, true] {
+                let error = if generated {
+                    apply_generated_schema(&db, &candidate)
+                } else {
+                    apply_schema(&db, &candidate)
+                }
+                .expect_err("unusable entity names must reject before publication");
+                assert_eq!(error.class(), ErrorClass::Unsupported);
+                assert_eq!(schema_application_target(&db).unwrap(), before);
+                assert_eq!(physical_state(&db), physical);
+                assert!(
+                    super::super::schema_application_receipt(
+                        &db,
+                        candidate.target_database(),
+                        candidate.submission_key(),
+                    )
+                    .unwrap()
+                    .is_none()
+                );
+            }
+        }
+    }
+
+    let boundary_name = "B".repeat(64);
+    apply_schema(
+        &db,
+        &proposal(
+            &schema_application_target(&db).unwrap(),
+            &[(boundary_name.as_str(), 1)],
+            "valid-name-boundary",
+        ),
+    )
+    .unwrap();
+    let session = DbSession::new(&EVOLUTION_REGISTRY, &root);
+    insert(&session, &boundary_name, vec![("id", InputValue::nat64(1))]).unwrap();
+}
+
+#[test]
 fn stale_creation_head_rejects_without_losing_existing_data() {
     let root = RequestExecutionRoot::__new_runtime_root();
     let db = initialize(&root);

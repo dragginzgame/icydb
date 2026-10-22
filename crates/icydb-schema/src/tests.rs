@@ -531,11 +531,170 @@ fn entity_with_field(
     )
 }
 
+#[test]
+fn primary_key_fields_reject_unusable_shapes_before_composition() {
+    let invalid = [
+        FieldType::Scalar(ScalarType::Float64),
+        FieldType::Scalar(ScalarType::Float32),
+        FieldType::Scalar(ScalarType::Bool),
+        FieldType::Scalar(ScalarType::Blob { max_len: None }),
+        FieldType::Scalar(ScalarType::Text { max_len: None }),
+        FieldType::Scalar(ScalarType::Decimal { scale: 2 }),
+        FieldType::Scalar(ScalarType::Date),
+        FieldType::Scalar(ScalarType::Duration),
+        FieldType::List(Box::new(FieldType::Scalar(ScalarType::Nat64))),
+        FieldType::Named(source("RecordKey", TypeSourceKey::try_new)),
+    ];
+    for field_type in invalid {
+        assert_eq!(
+            entity_with_field(field_type, FieldInsertPolicy::Required),
+            Err(SchemaContractError::InvalidFieldPolicy),
+        );
+    }
+    let nullable = EntityFragment::try_new(
+        SchemaName::try_new("NullableKey").unwrap(),
+        version_one(),
+        vec![FieldFragment::new(
+            SchemaName::try_new("id").unwrap(),
+            FieldType::Scalar(ScalarType::Nat64),
+            true,
+            FieldInsertPolicy::Required,
+            None,
+        )],
+        vec![source("id", FieldSourceKey::try_new)],
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    );
+    assert_eq!(nullable, Err(SchemaContractError::InvalidFieldPolicy));
+}
+
 fn entity_with_default(
     field_type: FieldType,
     literal: ScalarLiteral,
 ) -> Result<EntityFragment, SchemaContractError> {
-    entity_with_field(field_type, FieldInsertPolicy::Default(literal))
+    EntityFragment::try_new(
+        SchemaName::try_new("FieldHolder").unwrap(),
+        version_one(),
+        vec![
+            FieldFragment::new(
+                SchemaName::try_new("id").unwrap(),
+                FieldType::Scalar(ScalarType::Nat64),
+                false,
+                FieldInsertPolicy::Required,
+                None,
+            ),
+            FieldFragment::new(
+                SchemaName::try_new("value").unwrap(),
+                field_type,
+                false,
+                FieldInsertPolicy::Default(literal),
+                None,
+            ),
+        ],
+        vec![source("id", FieldSourceKey::try_new)],
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    )
+}
+
+#[test]
+fn primary_key_scalar_shapes_preserve_order_and_canonical_transport() {
+    let scalars = [
+        ScalarType::Account,
+        ScalarType::Int8,
+        ScalarType::Int16,
+        ScalarType::Int32,
+        ScalarType::Int64,
+        ScalarType::Int128,
+        ScalarType::Nat8,
+        ScalarType::Nat16,
+        ScalarType::Nat32,
+        ScalarType::Nat64,
+        ScalarType::Nat128,
+        ScalarType::Principal,
+        ScalarType::Subaccount,
+        ScalarType::Timestamp,
+        ScalarType::U256,
+        ScalarType::Ulid,
+        ScalarType::Unit,
+    ];
+    for scalar in scalars {
+        for nullable in [false, true] {
+            for compound in [false, true] {
+                let mut fields = vec![
+                    FieldFragment::new(
+                        SchemaName::try_new("value").unwrap(),
+                        FieldType::Scalar(scalar),
+                        nullable,
+                        FieldInsertPolicy::Required,
+                        None,
+                    ),
+                    FieldFragment::new(
+                        SchemaName::try_new("other").unwrap(),
+                        FieldType::Scalar(ScalarType::Float64),
+                        true,
+                        FieldInsertPolicy::Required,
+                        None,
+                    ),
+                ];
+                let mut primary_key = vec![source("value", FieldSourceKey::try_new)];
+                if compound {
+                    fields.push(FieldFragment::new(
+                        SchemaName::try_new("anchor").unwrap(),
+                        FieldType::Scalar(ScalarType::Nat64),
+                        false,
+                        FieldInsertPolicy::Required,
+                        None,
+                    ));
+                    primary_key.push(source("anchor", FieldSourceKey::try_new));
+                }
+                let entity = EntityFragment::try_new(
+                    SchemaName::try_new("ScalarKey").unwrap(),
+                    version_one(),
+                    fields,
+                    primary_key.clone(),
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                );
+                if nullable || (compound && scalar == ScalarType::Unit) {
+                    assert_eq!(entity, Err(SchemaContractError::InvalidFieldPolicy));
+                    continue;
+                }
+                let entity = entity.unwrap();
+                assert_eq!(entity.primary_key(), primary_key);
+                let fragment = SchemaFragment::try_new(vec![entity], Vec::new()).unwrap();
+                let bytes = encode_schema_fragment(&fragment).unwrap();
+                assert_eq!(decode_schema_fragment(&bytes).unwrap(), fragment);
+            }
+        }
+    }
+}
+
+#[test]
+fn primary_key_shape_validation_also_rejects_invalid_transport() {
+    // Canonical pre-fix fragments with required Float64 and nullable Nat64
+    // keys. Decoding must apply the same admission as direct construction.
+    let invalid_fragments: [&[u8]; 2] = [
+        &[
+            73, 67, 89, 70, 1, 0, 0, 0, 1, 0, 0, 0, 1, 75, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 2, 105,
+            100, 0, 7, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 105, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0,
+        ],
+        &[
+            73, 67, 89, 70, 1, 0, 0, 0, 1, 0, 0, 0, 1, 75, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 2, 105,
+            100, 0, 20, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 105, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0,
+        ],
+    ];
+    for bytes in invalid_fragments {
+        assert_eq!(
+            decode_schema_fragment(bytes),
+            Err(SchemaContractError::InvalidFieldPolicy)
+        );
+    }
 }
 
 fn entity_with_non_primary_generated_field(

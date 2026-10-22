@@ -75,11 +75,7 @@ pub(super) fn execute_direct_data_row_path(
 
     // Phase 3: direct-lane accounting matches the shared kernel path, then
     // the final offset/limit window runs once on canonical data rows.
-    let post_access_rows = if page_window_already_applied {
-        rows_matched
-    } else {
-        data_rows.len()
-    };
+    let post_access_rows = rows_matched;
 
     if !page_window_already_applied {
         apply_data_row_page_window(plan, &mut data_rows);
@@ -93,7 +89,7 @@ pub(super) fn execute_direct_data_row_path(
 }
 
 enum DirectDataRowScanOutcome<'a> {
-    PageRows(RowScanResult<DataRow>),
+    PageRows(RowScanResult<Vec<DataRow>>),
     OrderWindow(DataRowOrderScanResult<'a>),
 }
 

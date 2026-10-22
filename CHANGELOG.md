@@ -5,6 +5,43 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.280.4]
+
+### 🩹 Fixed
+
+- Reject unusable entity names before schema publication, including collisions
+  across stores ([#91 — Schema admission misses runtime entity-name rules](https://github.com/dragginzgame/icydb/issues/91)).
+- Return a typed SQL reply-size error when replicated queries exceed 2 MiB,
+  retaining the ordinary 3 MiB allowance
+  ([#162 — SQL reply guard ignores replicated execution](https://github.com/dragginzgame/icydb/issues/162)).
+- Reject store registrations that reuse a row, index, schema or journal handle
+  ([#202 — Store registrations accept partially shared storage](https://github.com/dragginzgame/icydb/issues/202)).
+- Reject schema fragments with unusable primary-key fields before composition
+  ([#189 — Schema fragments accept invalid primary-key shapes](https://github.com/dragginzgame/icydb/issues/189)).
+- Leave index readiness to recovery and index rebuilds, avoiding a fallible step
+  after row commits ([#153 — Row commits promote an entire index to Ready](https://github.com/dragginzgame/icydb/issues/153)).
+- Request recovery when a published commit guard is dropped before completion
+  ([#140 — Commit guard early exits can miss recovery wake-ups](https://github.com/dragginzgame/icydb/issues/140)).
+
+### 🔧 Changed
+
+- Adopt the locked IC Tooling/Host/Testkit 0.64.1, Memory/Storage 0.50.11 and
+  Wire/derive 0.5.22 updates, preserving current dependency boundaries and protocols.
+- Move owned row bytes into journal records without an extra copy
+  ([#403 — Journal records copy owned row bytes](https://github.com/dragginzgame/icydb/issues/403)).
+- Decode full-row collection fields without a separate validation pass
+  ([#402 — Full-row reads validate containers before decoding them](https://github.com/dragginzgame/icydb/issues/402)).
+- Reuse the frozen write timestamp for commit and journal-batch identities
+  ([#405 — Commit IDs reread the write's clock](https://github.com/dragginzgame/icydb/issues/405)).
+- Avoid retrying full residual-filter result windows while retaining page lookahead
+  ([#157 — Residual retries rescan already full pages](https://github.com/dragginzgame/icydb/issues/157)).
+- Verify unique-index recovery pages against one shared schema and job
+  ([#85 — Unique-validation folding reloads the schema for every key](https://github.com/dragginzgame/icydb/issues/85)).
+- Verify migration plans once per recovery batch instead of once per effect
+  ([#84 — Migration folding repeatedly decodes the durable plan](https://github.com/dragginzgame/icydb/issues/84)).
+
+See [detailed notes](docs/changelog/0.280.md).
+
 ## [0.280.3] - 2026-10-22
 
 ### 🩹 Fixed

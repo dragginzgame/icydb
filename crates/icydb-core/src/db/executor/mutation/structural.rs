@@ -938,7 +938,7 @@ pub(in crate::db) fn execute_accepted_structural_mutation_batch<C: CanisterKind,
         AcceptedStructuralMutationCommitDirective::Skip => {}
         AcceptedStructuralMutationCommitDirective::Standard if batch.is_empty() => {}
         AcceptedStructuralMutationCommitDirective::Standard => {
-            commit_structural_row_ops_with_window(db, batch, identity_ranges)?;
+            commit_structural_row_ops_with_window(db, batch, identity_ranges, operation_timestamp)?;
         }
         AcceptedStructuralMutationCommitDirective::WithMutationProgress(operation)
             if batch.is_empty() =>
@@ -952,6 +952,7 @@ pub(in crate::db) fn execute_accepted_structural_mutation_batch<C: CanisterKind,
                 batch,
                 identity_ranges,
                 operation,
+                operation_timestamp,
             )?;
         }
     }

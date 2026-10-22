@@ -53,6 +53,7 @@ impl StoreRegistry {
     ///
     /// Heap stores must pass [`StoreAllocationIdentities::absent`] explicitly
     /// because allocation identities are intentionally unavailable.
+    /// Each row, index and schema handle must belong to only one store path.
     pub fn register_store(
         &mut self,
         name: &'static str,
@@ -76,6 +77,7 @@ impl StoreRegistry {
     }
 
     /// Register one journaled store with its journal-tail storage handle.
+    /// Each row, index, schema and journal handle must belong to only one store path.
     #[expect(
         clippy::too_many_arguments,
         reason = "generated journaled registration adds one journal-tail handle to the existing store triplet"
@@ -95,6 +97,13 @@ impl StoreRegistry {
             || allocations.journal().is_none()
         {
             return Err(StoreRegistryError::StoreAllocationCapabilityMismatch.into());
+        }
+        if self.stores.iter().any(|(_, existing)| {
+            existing
+                .journal_tail_store()
+                .is_some_and(|existing_journal| std::ptr::eq(existing_journal, journal))
+        }) {
+            return Err(StoreRegistryError::StoreHandleAlreadyRegistered.into());
         }
 
         self.stores.push((
@@ -130,14 +139,14 @@ impl StoreRegistry {
             return Err(StoreRegistryError::StoreAlreadyRegistered.into());
         }
 
-        // Keep one canonical logical store name per physical row/index/schema
-        // store triplet.
+        // Even one shared role crosses logical store ownership: accepted roots
+        // and entity tags belong to their registered store, not to an alias.
         if self.stores.iter().any(|(_, existing_handle)| {
             std::ptr::eq(existing_handle.data_store(), data)
-                && std::ptr::eq(existing_handle.index_store(), index)
-                && std::ptr::eq(existing_handle.schema_store(), schema)
+                || std::ptr::eq(existing_handle.index_store(), index)
+                || std::ptr::eq(existing_handle.schema_store(), schema)
         }) {
-            return Err(StoreRegistryError::StoreHandleTripletAlreadyRegistered.into());
+            return Err(StoreRegistryError::StoreHandleAlreadyRegistered.into());
         }
 
         if allocations.allocation_identity_capability() != Some(capabilities.allocation_identity())

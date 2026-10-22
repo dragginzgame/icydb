@@ -15,7 +15,6 @@ use crate::{
         schema::{ApplicationRecordKey, SchemaApplicationRecordOp},
     },
     error::InternalError,
-    runtime::now_millis,
 };
 use ic_storage::adapter::Storable;
 #[cfg(test)]
@@ -274,7 +273,10 @@ const COMMIT_MARKER_MUTATION_DIGEST_BYTES: usize = 32;
 ///
 /// This id is persisted for marker identity and diagnostics; it is not a source
 /// of user-visible randomness or durable commit ordering authority.
-pub(in crate::db) fn generate_commit_id() -> Result<[u8; COMMIT_ID_BYTES], InternalError> {
+/// Callers supply their frozen timestamp so one commit never rereads the clock.
+pub(in crate::db) fn generate_commit_id(
+    timestamp_millis: u64,
+) -> Result<[u8; COMMIT_ID_BYTES], InternalError> {
     #[allow(
         deprecated,
         reason = "Atomic try_update requires Rust 1.95; MSRV is 1.91."
@@ -286,7 +288,7 @@ pub(in crate::db) fn generate_commit_id() -> Result<[u8; COMMIT_ID_BYTES], Inter
         .map_err(|_| InternalError::commit_id_generation_failed())?;
 
     let mut id = [0u8; COMMIT_ID_BYTES];
-    id[..8].copy_from_slice(&now_millis().to_be_bytes());
+    id[..8].copy_from_slice(&timestamp_millis.to_be_bytes());
     id[8..].copy_from_slice(&sequence.to_be_bytes());
 
     Ok(id)
@@ -295,8 +297,7 @@ pub(in crate::db) fn generate_commit_id() -> Result<[u8; COMMIT_ID_BYTES], Inter
 /// Return the marker-local batch identity for one canonical batch ordinal.
 ///
 /// The first batch retains the established single-store bytes. Every
-/// additional batch consumes a fresh identity from the same generator used by
-/// commit markers.
+/// additional batch preserves the marker timestamp and consumes a fresh sequence.
 pub(in crate::db) fn generate_marker_batch_id(
     marker_id: [u8; COMMIT_ID_BYTES],
     ordinal: usize,
@@ -304,7 +305,9 @@ pub(in crate::db) fn generate_marker_batch_id(
     if ordinal == 0 {
         Ok(marker_id)
     } else {
-        generate_commit_id()
+        let mut timestamp_bytes = [0; 8];
+        timestamp_bytes.copy_from_slice(&marker_id[..8]);
+        generate_commit_id(u64::from_be_bytes(timestamp_bytes))
     }
 }
 

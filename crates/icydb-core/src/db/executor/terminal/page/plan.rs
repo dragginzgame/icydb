@@ -213,11 +213,8 @@ impl<'a> CursorlessShortPathPlan<'a> {
     pub(in crate::db::executor) fn materialize_rows(
         &self,
         rows: Vec<KernelRow>,
-    ) -> Result<(StructuralCursorPage, usize), InternalError> {
-        let post_access_rows = rows.len();
-        let payload = finalize_structural_cursor_payload(rows, self.payload_strategy)?;
-
-        Ok((payload, post_access_rows))
+    ) -> Result<StructuralCursorPage, InternalError> {
+        finalize_structural_cursor_payload(rows, self.payload_strategy)
     }
 }
 

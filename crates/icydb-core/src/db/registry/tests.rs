@@ -37,6 +37,18 @@ thread_local! {
         const { RefCell::new(IndexStore::init_heap()) };
     static TEST_HEAP_SCHEMA_STORE: RefCell<SchemaStore> =
         const { RefCell::new(SchemaStore::init_heap()) };
+    static OTHER_DATA_STORE: RefCell<DataStore> = RefCell::new(DataStore::init_journaled(test_memory(155)));
+    static OTHER_INDEX_STORE: RefCell<IndexStore> =
+        RefCell::new(IndexStore::init_journaled(test_memory(156)));
+    static OTHER_SCHEMA_STORE: RefCell<SchemaStore> =
+        RefCell::new(SchemaStore::init_journaled(test_memory(157)));
+    static OTHER_JOURNAL_STORE: RefCell<JournalTailStore> =
+        RefCell::new(JournalTailStore::init(test_memory(158)));
+    static OTHER_HEAP_DATA_STORE: RefCell<DataStore> = const { RefCell::new(DataStore::init_heap()) };
+    static OTHER_HEAP_INDEX_STORE: RefCell<IndexStore> =
+        const { RefCell::new(IndexStore::init_heap()) };
+    static OTHER_HEAP_SCHEMA_STORE: RefCell<SchemaStore> =
+        const { RefCell::new(SchemaStore::init_heap()) };
 }
 
 fn test_registry() -> StoreRegistry {
@@ -309,6 +321,171 @@ fn duplicate_store_registration_is_rejected() {
         icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation,
         "duplicate registration should stay store-invariant classified",
     );
+}
+
+#[test]
+fn heap_store_registration_rejects_every_partial_handle_alias() {
+    for shared_roles in 0..8 {
+        let mut registry = test_registry();
+        let data = if shared_roles & 1 != 0 {
+            &TEST_HEAP_DATA_STORE
+        } else {
+            &OTHER_HEAP_DATA_STORE
+        };
+        let index = if shared_roles & 2 != 0 {
+            &TEST_HEAP_INDEX_STORE
+        } else {
+            &OTHER_HEAP_INDEX_STORE
+        };
+        let schema = if shared_roles & 4 != 0 {
+            &TEST_HEAP_SCHEMA_STORE
+        } else {
+            &OTHER_HEAP_SCHEMA_STORE
+        };
+        let result = registry.register_store(
+            ALIAS_STORE_PATH,
+            data,
+            index,
+            schema,
+            StoreAllocationIdentities::absent(),
+            StoreRuntimeStorageCapabilities::heap(),
+        );
+        if shared_roles == 0 {
+            result.expect("independent heap handles must remain registerable");
+        } else {
+            let error = result.expect_err("sharing any physical heap role must reject");
+            assert_eq!(error.class(), ErrorClass::InvariantViolation);
+            assert_eq!(error.origin(), ErrorOrigin::Store);
+            assert_eq!(
+                error.diagnostic_code(),
+                icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation
+            );
+            assert_eq!(registry.iter().count(), 1);
+            assert!(registry.try_get_store(ALIAS_STORE_PATH).is_err());
+            registry
+                .register_store(
+                    ALIAS_STORE_PATH,
+                    &OTHER_HEAP_DATA_STORE,
+                    &OTHER_HEAP_INDEX_STORE,
+                    &OTHER_HEAP_SCHEMA_STORE,
+                    StoreAllocationIdentities::absent(),
+                    StoreRuntimeStorageCapabilities::heap(),
+                )
+                .expect("refusal must leave the path available for independent handles");
+        }
+        assert_eq!(registry.iter().count(), 2);
+        let alias = registry.try_get_store(ALIAS_STORE_PATH).unwrap();
+        assert!(ptr::eq(alias.data_store(), &OTHER_HEAP_DATA_STORE));
+        assert!(ptr::eq(alias.index_store(), &OTHER_HEAP_INDEX_STORE));
+        assert!(ptr::eq(alias.schema_store(), &OTHER_HEAP_SCHEMA_STORE));
+        let original = registry.try_get_store(STORE_PATH).unwrap();
+        assert!(ptr::eq(original.data_store(), &TEST_HEAP_DATA_STORE));
+        assert!(ptr::eq(original.index_store(), &TEST_HEAP_INDEX_STORE));
+        assert!(ptr::eq(original.schema_store(), &TEST_HEAP_SCHEMA_STORE));
+        assert!(original.journal_tail_store().is_none());
+    }
+}
+
+#[test]
+fn journaled_store_registration_rejects_every_partial_handle_alias() {
+    let original_allocations = StoreAllocationIdentities::new_journaled(
+        StoreAllocationIdentity::new(151, "icydb.test.store.data.v1"),
+        StoreAllocationIdentity::new(152, "icydb.test.store.index.v1"),
+        StoreAllocationIdentity::new(153, "icydb.test.store.schema.v1"),
+        StoreAllocationIdentity::new(154, "icydb.test.store.journal.v1"),
+    );
+    let other_allocations = StoreAllocationIdentities::new_journaled(
+        StoreAllocationIdentity::new(155, "icydb.test.other.data.v1"),
+        StoreAllocationIdentity::new(156, "icydb.test.other.index.v1"),
+        StoreAllocationIdentity::new(157, "icydb.test.other.schema.v1"),
+        StoreAllocationIdentity::new(158, "icydb.test.other.journal.v1"),
+    );
+    for shared_roles in 0..16 {
+        let mut registry = StoreRegistry::new();
+        registry
+            .register_journaled_store(
+                STORE_PATH,
+                &TEST_DATA_STORE,
+                &TEST_INDEX_STORE,
+                &TEST_SCHEMA_STORE,
+                &TEST_JOURNAL_STORE,
+                original_allocations,
+                StoreRuntimeStorageCapabilities::journaled(),
+            )
+            .unwrap();
+        let data = if shared_roles & 1 != 0 {
+            &TEST_DATA_STORE
+        } else {
+            &OTHER_DATA_STORE
+        };
+        let index = if shared_roles & 2 != 0 {
+            &TEST_INDEX_STORE
+        } else {
+            &OTHER_INDEX_STORE
+        };
+        let schema = if shared_roles & 4 != 0 {
+            &TEST_SCHEMA_STORE
+        } else {
+            &OTHER_SCHEMA_STORE
+        };
+        let journal = if shared_roles & 8 != 0 {
+            &TEST_JOURNAL_STORE
+        } else {
+            &OTHER_JOURNAL_STORE
+        };
+        let result = registry.register_journaled_store(
+            ALIAS_STORE_PATH,
+            data,
+            index,
+            schema,
+            journal,
+            other_allocations,
+            StoreRuntimeStorageCapabilities::journaled(),
+        );
+        if shared_roles == 0 {
+            result.expect("independent journaled handles must remain registerable");
+        } else {
+            let error = result.expect_err("sharing any journaled role must reject");
+            assert_eq!(error.class(), ErrorClass::InvariantViolation);
+            assert_eq!(error.origin(), ErrorOrigin::Store);
+            assert_eq!(
+                error.diagnostic_code(),
+                icydb_diagnostic_code::DiagnosticCode::StoreInvariantViolation
+            );
+            assert_eq!(registry.iter().count(), 1);
+            assert!(registry.try_get_store(ALIAS_STORE_PATH).is_err());
+            registry
+                .register_journaled_store(
+                    ALIAS_STORE_PATH,
+                    &OTHER_DATA_STORE,
+                    &OTHER_INDEX_STORE,
+                    &OTHER_SCHEMA_STORE,
+                    &OTHER_JOURNAL_STORE,
+                    other_allocations,
+                    StoreRuntimeStorageCapabilities::journaled(),
+                )
+                .expect("refusal must leave the path available for independent handles");
+        }
+        assert_eq!(registry.iter().count(), 2);
+        let alias = registry.try_get_store(ALIAS_STORE_PATH).unwrap();
+        assert!(ptr::eq(alias.data_store(), &OTHER_DATA_STORE));
+        assert!(ptr::eq(alias.index_store(), &OTHER_INDEX_STORE));
+        assert!(ptr::eq(alias.schema_store(), &OTHER_SCHEMA_STORE));
+        assert!(ptr::eq(
+            alias.journal_tail_store().unwrap(),
+            &OTHER_JOURNAL_STORE
+        ));
+        assert_eq!(alias.allocation_identities(), other_allocations);
+        let original = registry.try_get_store(STORE_PATH).unwrap();
+        assert!(ptr::eq(original.data_store(), &TEST_DATA_STORE));
+        assert!(ptr::eq(original.index_store(), &TEST_INDEX_STORE));
+        assert!(ptr::eq(original.schema_store(), &TEST_SCHEMA_STORE));
+        assert!(ptr::eq(
+            original.journal_tail_store().unwrap(),
+            &TEST_JOURNAL_STORE
+        ));
+        assert_eq!(original.allocation_identities(), original_allocations);
+    }
 }
 
 #[test]

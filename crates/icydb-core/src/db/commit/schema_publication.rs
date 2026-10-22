@@ -32,6 +32,7 @@ use crate::{
         },
     },
     error::InternalError,
+    runtime::now_millis,
     types::EntityTag,
 };
 /// Optional prepared derived domain that crosses the same accepted-schema marker.
@@ -494,7 +495,7 @@ fn publish_live_candidate_with_prepared_domains(
         schema_store.preflight_accepted_schema_candidate(incarnation, expected_revision, candidate)
     })?;
     preflight_live_schema_checkpoint(incarnation, store_path, expected_revision, candidate)?;
-    let marker_id = generate_commit_id()?;
+    let marker_id = generate_commit_id(now_millis())?;
     let database_commit_sequence = DatabaseCommitSequence::new(next_database_commit_sequence()?);
     let record = JournalRecord::accepted_schema_publish(
         store_path,
@@ -543,7 +544,7 @@ fn publish_journaled_candidate(
     let journal_store = store
         .journal_tail_store()
         .ok_or_else(InternalError::store_invariant)?;
-    let marker_id = generate_commit_id()?;
+    let marker_id = generate_commit_id(now_millis())?;
     let database_commit_sequence = DatabaseCommitSequence::new(next_database_commit_sequence()?);
     let sequence = journal_store
         .with_borrow(crate::db::journal::JournalTailStore::next_mutation_append_sequence)?;
@@ -679,7 +680,7 @@ fn publish_candidates_atomically(
     database_control: Vec<DatabaseControlOp>,
 ) -> Result<(), InternalError> {
     let incarnation = database_incarnation_id()?;
-    let marker_id = generate_commit_id()?;
+    let marker_id = generate_commit_id(now_millis())?;
     let database_commit_sequence = DatabaseCommitSequence::new(next_database_commit_sequence()?);
     let mut batches = Vec::with_capacity(publications.len());
     for (ordinal, publication) in publications.iter().enumerate() {
@@ -777,7 +778,7 @@ fn publish_candidates_atomically(
 fn publish_database_control_atomically(
     database_control: Vec<DatabaseControlOp>,
 ) -> Result<(), InternalError> {
-    let marker_id = generate_commit_id()?;
+    let marker_id = generate_commit_id(now_millis())?;
     let marker =
         CommitMarker::from_parts_with_database_control(marker_id, Vec::new(), database_control)?;
     let commit = begin_commit(&marker)?;
@@ -819,7 +820,7 @@ fn publish_journaled_constraint_validation_job(
     let journal_store = store
         .journal_tail_store()
         .ok_or_else(InternalError::store_invariant)?;
-    let marker_id = generate_commit_id()?;
+    let marker_id = generate_commit_id(now_millis())?;
     let database_commit_sequence = DatabaseCommitSequence::new(next_database_commit_sequence()?);
     let sequence = journal_store
         .with_borrow(crate::db::journal::JournalTailStore::next_mutation_append_sequence)?;
@@ -867,10 +868,10 @@ fn publish_journaled_constraint_validation_job(
     })
 }
 
-pub(in crate::db::commit) fn validate_candidate_index_entries(
+pub(in crate::db::commit) fn validate_candidate_index_entries<'key>(
     bundle: &crate::db::schema::AcceptedSchemaRevisionBundle,
     job: &ConstraintValidationJob,
-    entries: &[RawIndexStoreKey],
+    entries: impl IntoIterator<Item = &'key RawIndexStoreKey>,
 ) -> Result<(), InternalError> {
     let snapshot = bundle
         .entity_snapshots()
@@ -893,16 +894,19 @@ pub(in crate::db::commit) fn validate_candidate_index_entries(
         candidate.ordinal(),
         candidate.physical_generation(),
     );
-    if job.staged_generation() != Some(candidate.physical_generation())
-        || entries.windows(2).any(|pair| pair[0] >= pair[1])
-        || entries.iter().any(|raw| {
-            IndexKey::try_from_raw(raw).map_or(true, |key| {
-                key.key_kind() != crate::db::index::IndexKeyKind::User
-                    || *key.index_id() != expected
-            })
-        })
-    {
+    if job.staged_generation() != Some(candidate.physical_generation()) {
         return Err(InternalError::store_corruption());
+    }
+    let mut previous = None;
+    for raw in entries {
+        let key = IndexKey::try_from_raw(raw).map_err(|_| InternalError::store_corruption())?;
+        if previous.is_some_and(|previous| previous >= raw)
+            || key.key_kind() != crate::db::index::IndexKeyKind::User
+            || *key.index_id() != expected
+        {
+            return Err(InternalError::store_corruption());
+        }
+        previous = Some(raw);
     }
     Ok(())
 }
@@ -1492,7 +1496,7 @@ mod tests {
             SchemaApplicationRecordOp::insert(&record).expect("record insertion should prepare");
         let migration = prepared_schema_migration_record_op_for_tests()
             .expect("migration operation should prepare");
-        let marker_id = generate_commit_id().expect("marker id should generate");
+        let marker_id = generate_commit_id(0).expect("marker id should generate");
         let batch = JournalBatch::new_with_database_commit_sequence(
             generate_marker_batch_id(marker_id, 0).expect("batch id should derive"),
             marker_id,

@@ -86,9 +86,16 @@ thread_local! {
 }
 
 #[cfg(any(test, feature = "migration"))]
-fn validate_schema_migration_journal_plan(
-    plan_digest: icydb_schema::SchemaMigrationPlanDigest,
-) -> Result<(), InternalError> {
+fn validate_schema_migration_journal_plan(batch: &JournalBatch) -> Result<(), InternalError> {
+    // The immutable batch's codec has already rejected mixed plan digests.
+    // Resolve durable phase/digest authority once at each recovery boundary.
+    let Some(plan_digest) = batch.records().iter().find_map(|record| match record {
+        JournalRecord::SchemaMigrationRowPut { plan_digest, .. }
+        | JournalRecord::SchemaMigrationIndexPut { plan_digest, .. } => Some(*plan_digest),
+        _ => None,
+    }) else {
+        return Ok(());
+    };
     let record = crate::db::schema::load_schema_migration_record()?
         .ok_or_else(InternalError::store_corruption)?;
     if !record.permits_private_physical_journal(plan_digest) {
@@ -1595,13 +1602,12 @@ fn apply_journal_record(
             store_path,
             primary_key,
             row_bytes,
-            plan_digest,
             ..
         } => {
             if store_path != expected_store_path {
                 return Err(InternalError::store_corruption());
             }
-            validate_schema_migration_journal_plan(*plan_digest)?;
+            // The batch envelope verified the plan before any prepared effect.
             let row = RawRow::from_untrusted_bytes(row_bytes.clone())?;
             expected_handle.with_data_mut(|store| match mode {
                 JournalRecordApplyMode::Replay => store
@@ -1614,14 +1620,11 @@ fn apply_journal_record(
         }
         #[cfg(any(test, feature = "migration"))]
         JournalRecord::SchemaMigrationIndexPut {
-            store_path,
-            key,
-            plan_digest,
+            store_path, key, ..
         } => {
             if store_path != expected_store_path {
                 return Err(InternalError::store_corruption());
             }
-            validate_schema_migration_journal_plan(*plan_digest)?;
             expected_handle.with_index_mut(|store| match mode {
                 JournalRecordApplyMode::Replay => match store.get(key) {
                     None => {
@@ -1739,6 +1742,8 @@ fn validate_journal_batch_envelope<C: CanisterKind>(
     if !std::ptr::eq(batch_handle.data_store(), expected_handle.data_store()) {
         return Err(InternalError::store_corruption());
     }
+    #[cfg(any(test, feature = "migration"))]
+    validate_schema_migration_journal_plan(batch)?;
     let candidate = journal_batch_schema_candidate(expected_store_path, batch)?;
     validate_journal_batch_constraint_validation_job_change(
         db,
@@ -1820,41 +1825,10 @@ fn validate_journal_batch_record<C: CanisterKind>(
             true,
             mode,
         )?,
-        JournalRecord::ConstraintValidationIndexPut {
-            store_path,
-            entity_tag,
-            constraint_id,
-            key,
-        } => {
-            if store_path != expected_store_path {
-                return Err(InternalError::store_corruption());
-            }
-            let Some(JournalRecord::ConstraintValidationJobPut { job_bytes, .. }) =
-                batch.records().first()
-            else {
-                return Err(InternalError::store_corruption());
-            };
-            let job = decode_constraint_validation_job(job_bytes)?;
-            if job.entity_tag() != *entity_tag || job.constraint_id() != *constraint_id {
-                return Err(InternalError::store_corruption());
-            }
-            let bundle = expected_handle
-                .with_schema(|store| match mode {
-                    JournalRecordApplyMode::Replay => store.current_accepted_schema_bundle(),
-                    JournalRecordApplyMode::Fold => {
-                        store.current_canonical_accepted_schema_bundle()
-                    }
-                })?
-                .ok_or_else(InternalError::store_corruption)?;
-            super::schema_publication::validate_candidate_index_entries(
-                &bundle,
-                &job,
-                std::slice::from_ref(key),
-            )?;
-            if mode == JournalRecordApplyMode::Fold {
-                expected_handle.with_index(IndexStore::preflight_fold_recovered_journal)?;
-            }
-        }
+        // The codec proves the job/key identities and ordering. The envelope
+        // validates every candidate key against one decoded job and bundle;
+        // fold storage is preflighted once before either validation pass.
+        JournalRecord::ConstraintValidationIndexPut { .. } => {}
         JournalRecord::IdentityRangeAdvance { range } => {
             let runtime_entity = match mode {
                 JournalRecordApplyMode::Replay => {
@@ -1895,13 +1869,11 @@ fn validate_journal_batch_record<C: CanisterKind>(
             store_path,
             primary_key,
             row_bytes,
-            plan_digest,
             ..
         } => {
             if store_path != expected_store_path {
                 return Err(InternalError::store_corruption());
             }
-            validate_schema_migration_journal_plan(*plan_digest)?;
             DecodedDataStoreKey::try_from_raw(primary_key)
                 .map_err(|_| InternalError::store_corruption())?;
             RawRow::from_untrusted_bytes(row_bytes.clone())?;
@@ -1911,14 +1883,11 @@ fn validate_journal_batch_record<C: CanisterKind>(
         }
         #[cfg(any(test, feature = "migration"))]
         JournalRecord::SchemaMigrationIndexPut {
-            store_path,
-            key,
-            plan_digest,
+            store_path, key, ..
         } => {
             if store_path != expected_store_path {
                 return Err(InternalError::store_corruption());
             }
-            validate_schema_migration_journal_plan(*plan_digest)?;
             IndexKey::try_from_raw(key).map_err(|_| InternalError::store_corruption())?;
             if mode == JournalRecordApplyMode::Fold {
                 expected_handle.with_index(IndexStore::preflight_fold_recovered_journal)?;
@@ -2052,26 +2021,9 @@ fn validate_journal_batch_constraint_validation_job_change<C: CanisterKind>(
                 store_path,
                 entity_tag,
                 constraint_id,
-                job_bytes,
-            } => {
-                if replacement.is_some() || removal.is_some() {
-                    return Err(InternalError::store_corruption());
-                }
-                validate_constraint_validation_job_record_identity(
-                    db,
-                    expected_store_path,
-                    store_path,
-                    *entity_tag,
-                    *constraint_id,
-                    mode,
-                )?;
-                let job = decode_constraint_validation_job(job_bytes)?;
-                if job.entity_tag() != *entity_tag || job.constraint_id() != *constraint_id {
-                    return Err(InternalError::store_corruption());
-                }
-                replacement = Some(job);
+                ..
             }
-            JournalRecord::ConstraintValidationJobDelete {
+            | JournalRecord::ConstraintValidationJobDelete {
                 store_path,
                 entity_tag,
                 constraint_id,
@@ -2087,7 +2039,15 @@ fn validate_journal_batch_constraint_validation_job_change<C: CanisterKind>(
                     *constraint_id,
                     mode,
                 )?;
-                removal = Some((*entity_tag, *constraint_id));
+                if let JournalRecord::ConstraintValidationJobPut { job_bytes, .. } = record {
+                    let job = decode_constraint_validation_job(job_bytes)?;
+                    if job.entity_tag() != *entity_tag || job.constraint_id() != *constraint_id {
+                        return Err(InternalError::store_corruption());
+                    }
+                    replacement = Some(job);
+                } else {
+                    removal = Some((*entity_tag, *constraint_id));
+                }
             }
             _ => {}
         }
@@ -2105,44 +2065,57 @@ fn validate_journal_batch_constraint_validation_job_change<C: CanisterKind>(
                 }
             }
         }
-        if replacement.is_none() && removal.is_none() {
-            if let Some(bundle) = candidate_bundle {
-                match mode {
-                    JournalRecordApplyMode::Replay => {
-                        schema_store.validate_constraint_validation_job_closure(bundle)?;
-                    }
-                    JournalRecordApplyMode::Fold => schema_store
-                        .validate_canonical_constraint_validation_job_closure_with_change(
-                            bundle, None, None,
-                        )?,
-                }
+        // Borrow a publication candidate; load an unchanged predecessor only
+        // when this batch actually changes a job. Both use the same closure.
+        let current_bundle;
+        let bundle = if let Some(bundle) = candidate_bundle {
+            bundle
+        } else {
+            if replacement.is_none() && removal.is_none() {
+                return Ok(());
             }
-            return Ok(());
-        }
-        let bundle = match candidate_bundle {
-            Some(bundle) => bundle.clone(),
-            None => match mode {
+            current_bundle = match mode {
                 JournalRecordApplyMode::Replay => schema_store.current_accepted_schema_bundle(),
                 JournalRecordApplyMode::Fold => {
                     schema_store.current_canonical_accepted_schema_bundle()
                 }
             }?
-            .ok_or_else(InternalError::store_corruption)?,
+            .ok_or_else(InternalError::store_corruption)?;
+            &current_bundle
         };
         match mode {
             JournalRecordApplyMode::Replay => schema_store
                 .validate_constraint_validation_job_closure_with_change(
-                    &bundle,
+                    bundle,
                     replacement.as_ref(),
                     removal,
                 ),
             JournalRecordApplyMode::Fold => schema_store
                 .validate_canonical_constraint_validation_job_closure_with_change(
-                    &bundle,
+                    bundle,
                     replacement.as_ref(),
                     removal,
                 ),
+        }?;
+
+        // Job-only checkpoints need no unique-index owner. Key pages borrow
+        // this same verified bundle and replacement job for their whole walk.
+        let mut entries = batch
+            .records()
+            .iter()
+            .filter_map(|record| match record {
+                JournalRecord::ConstraintValidationIndexPut { key, .. } => Some(key),
+                _ => None,
+            })
+            .peekable();
+        if entries.peek().is_some() {
+            let job = replacement
+                .as_ref()
+                .ok_or_else(InternalError::store_corruption)?;
+            super::schema_publication::validate_candidate_index_entries(bundle, job, entries)?;
         }
+
+        Ok(())
     })
 }
 
@@ -2494,6 +2467,8 @@ pub(in crate::db::commit) fn verify_recovered_effects<C: CanisterKind>(
                 }
             }
 
+            #[cfg(any(test, feature = "migration"))]
+            validate_schema_migration_journal_plan(batch)?;
             for (record_ordinal, record) in batch.records().iter().enumerate().rev() {
                 verify_recovered_record(
                     db,
@@ -2636,10 +2611,8 @@ fn verify_recovered_record<C: CanisterKind>(
             store_path,
             primary_key,
             row_bytes,
-            plan_digest,
             ..
         } => {
-            validate_schema_migration_journal_plan(*plan_digest)?;
             let identity = RecoveredEffectIdentity::Row {
                 entity_path: store_path.clone(),
                 primary_key: primary_key.as_bytes().to_vec(),
@@ -2656,11 +2629,8 @@ fn verify_recovered_record<C: CanisterKind>(
         }
         #[cfg(any(test, feature = "migration"))]
         JournalRecord::SchemaMigrationIndexPut {
-            store_path,
-            key,
-            plan_digest,
+            store_path, key, ..
         } => {
-            validate_schema_migration_journal_plan(*plan_digest)?;
             verify_recovered_index_put(db, store_path, key, verified)?;
         }
     }

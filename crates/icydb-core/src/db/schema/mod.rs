@@ -260,6 +260,8 @@ pub(in crate::db) use live_schema_checkpoint::entity_source_lineage_matches_for_
 pub(in crate::db) use live_schema_checkpoint::load_schema_migration_record;
 #[cfg(test)]
 pub(in crate::db) use live_schema_checkpoint::schema_migration_record_matches_for_tests;
+#[cfg(test)]
+pub(in crate::db) use live_schema_checkpoint::take_migration_record_load_count_for_tests;
 #[cfg(any(test, feature = "migration"))]
 pub(in crate::db) use live_schema_checkpoint::{
     apply_entity_source_lineage_catalog_op, preflight_entity_source_lineage_catalog_op,
@@ -303,7 +305,8 @@ pub(in crate::db::schema) use migration_record::{
 };
 #[cfg(test)]
 pub(in crate::db) use migration_record::{
-    prepared_schema_migration_record_op_for_tests, schema_migration_record_lifecycle_ops_for_tests,
+    physical_migration_record_ops_for_tests, prepared_schema_migration_record_op_for_tests,
+    schema_migration_record_lifecycle_ops_for_tests,
 };
 #[cfg(feature = "migration")]
 pub(in crate::db) use mutation::MigrationIndexProjection;

@@ -202,10 +202,16 @@ impl<'a, 'b> ResidualRetrySession<'a, 'b> {
             return ResidualRetryDecision::None;
         }
 
-        // A bounded retry cannot stop merely because it filled the visible
-        // page window. Load pagination also needs one lookahead row to decide
-        // whether a continuation cursor must be emitted.
-        if post_access_rows > keep_count {
+        // Ordinary cursorless results are complete at OFFSET + LIMIT matches.
+        // Cursors need lookahead; DISTINCT keeps its conservative raw-match
+        // policy because these counts precede projected-value deduplication.
+        let window_satisfied =
+            if self.route_attempt_materializer.inputs.emit_cursor() || logical.distinct {
+                post_access_rows > keep_count
+            } else {
+                post_access_rows >= keep_count
+            };
+        if window_satisfied {
             return ResidualRetryDecision::None;
         }
 

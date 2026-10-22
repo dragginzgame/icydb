@@ -53,7 +53,7 @@ pub(in crate::db::executor) use retained::{RetainedSlotLayout, RetainedSlotValue
 pub(in crate::db::executor) use row_runtime::{
     KernelRowPayloadMode, ScalarRowRuntimeHandle, ScalarRowRuntimeState,
 };
-pub(in crate::db::executor) use scan::execute_kernel_row_scan;
+pub(in crate::db::executor) use scan::{RowScanResult, execute_kernel_row_scan};
 
 ///
 /// KernelRow
@@ -199,24 +199,26 @@ fn scan_key_stream_into_windowed_kernel_rows<'a>(
         row_runtime,
     } = request;
 
-    let (scan_rows, rows_scanned) =
-        execute_scalar_page_kernel_dyn(scalar_materialization_plan.kernel_request(
-            plan,
-            key_stream,
-            scan_budget_hint,
-            load_order_route_mode,
-            consistency,
-            continuation.clone(),
-            row_runtime,
-        )?)?;
-    let (rows, _rows_after_cursor) = apply_post_access_to_kernel_rows_dyn(
+    let RowScanResult {
+        rows: scan_rows,
+        rows_scanned,
+        ..
+    } = execute_scalar_page_kernel_dyn(scalar_materialization_plan.kernel_request(
+        plan,
+        key_stream,
+        scan_budget_hint,
+        load_order_route_mode,
+        consistency,
+        continuation.clone(),
+        row_runtime,
+    )?)?;
+    let (rows, post_access_rows) = apply_post_access_to_kernel_rows_dyn(
         plan,
         scan_rows,
         continuation.cursor_boundary(),
         scalar_materialization_plan.cursor_emission(),
         scalar_materialization_plan.defer_retained_slot_distinct_window(),
     )?;
-    let post_access_rows = rows.len();
 
     Ok(WindowedKernelRows {
         rows,

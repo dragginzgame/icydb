@@ -23,8 +23,8 @@ pub(in crate::db::registry) enum StoreRegistryError {
     /// Generated store path was registered more than once.
     StoreAlreadyRegistered,
 
-    /// Physical data/index/schema store triplet was reused by another path.
-    StoreHandleTripletAlreadyRegistered,
+    /// A physical row, index, schema or journal handle was reused by another path.
+    StoreHandleAlreadyRegistered,
 
     /// Allocation identity metadata does not match declared storage capabilities.
     StoreAllocationCapabilityMismatch,
@@ -35,7 +35,7 @@ impl StoreRegistryError {
         match self {
             Self::StoreNotFound => ErrorClass::Internal,
             Self::StoreAlreadyRegistered
-            | Self::StoreHandleTripletAlreadyRegistered
+            | Self::StoreHandleAlreadyRegistered
             | Self::StoreAllocationCapabilityMismatch => ErrorClass::InvariantViolation,
         }
     }

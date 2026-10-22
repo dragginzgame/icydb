@@ -1365,6 +1365,61 @@ pub(in crate::db) fn schema_migration_record_lifecycle_ops_for_tests() -> Result
     ))
 }
 
+// Build a real maximum-width record through the maintained lifecycle for
+// recovery tests outside the schema owner's private construction boundary.
+#[cfg(test)]
+pub(in crate::db) fn physical_migration_record_ops_for_tests(
+    first_entity: EntityTag,
+    entity_count: u64,
+) -> Result<Vec<SchemaMigrationRecordOp>, InternalError> {
+    let initial = prepared_schema_migration_record_op_for_tests()?;
+    let mut record = decode_schema_migration_record(initial.after_bytes())?;
+    record.entities = (1..=entity_count)
+        .map(|entity| {
+            PersistedSchemaMigrationEntity::try_new(
+                TargetStoreIdentity::from_bytes([0x96; 32]),
+                EntityTag::new(
+                    first_entity
+                        .value()
+                        .checked_add(entity - 1)
+                        .ok_or_else(InternalError::store_invariant)?,
+                ),
+                EntitySourceDigest::from_bytes([0x97; 32]),
+            )
+        })
+        .collect::<Result<_, _>>()?;
+    record.staged_indexes = (1..=63)
+        .map(|index| PersistedSchemaMigrationIndex {
+            store: TargetStoreIdentity::from_bytes([0x96; 32]),
+            entity: first_entity,
+            index,
+            generation: 7,
+        })
+        .collect();
+    record.transitions = (1..=entity_count)
+        .map(|entity| {
+            PersistedSchemaMigrationTransition::try_new(
+                EntitySourceKey::try_new(format!("RecoveryEntity{entity:05}"))
+                    .map_err(|_| InternalError::store_invariant())?,
+                1,
+                2,
+            )
+        })
+        .collect::<Result<_, _>>()?;
+    let mut operations = vec![SchemaMigrationRecordOp::insert(&record)?];
+    for phase in [
+        PersistedSchemaMigrationPhase::Validating,
+        PersistedSchemaMigrationPhase::ReadyToRewrite,
+        PersistedSchemaMigrationPhase::RewritingRows,
+    ] {
+        let next = record.transition(phase, PersistedSchemaMigrationProgress::default())?;
+        operations.push(SchemaMigrationRecordOp::replace(&record, &next)?);
+        record = next;
+    }
+
+    Ok(operations)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

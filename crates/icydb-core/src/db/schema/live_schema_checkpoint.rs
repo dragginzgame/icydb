@@ -40,6 +40,8 @@ const MIGRATION_GATE_BLOCKED: u8 = 2;
 
 thread_local! {
     static MIGRATION_GATE_STATE: Cell<u8> = const { Cell::new(MIGRATION_GATE_UNKNOWN) };
+    #[cfg(test)]
+    static MIGRATION_RECORD_LOADS: Cell<u64> = const { Cell::new(0) };
 }
 
 #[cfg(any(test, feature = "migration"))]
@@ -615,10 +617,18 @@ pub(in crate::db) fn verify_live_identity_range_checkpoint(
 
 pub(in crate::db) fn load_schema_migration_record()
 -> Result<Option<SchemaMigrationRecord>, InternalError> {
+    #[cfg(test)]
+    MIGRATION_RECORD_LOADS.with(|loads| loads.set(loads.get() + 1));
     let Some(store) = LiveSchemaCheckpointStore::open_existing(control_memory()?)? else {
         return Ok(None);
     };
     store.load_migration()
+}
+
+// Observe real durable authority loads without substituting the decoder.
+#[cfg(test)]
+pub(in crate::db) fn take_migration_record_load_count_for_tests() -> u64 {
+    MIGRATION_RECORD_LOADS.with(|loads| loads.replace(0))
 }
 
 /// Reject ordinary database work while one durable offline migration owns the

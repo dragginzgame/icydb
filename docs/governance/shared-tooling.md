@@ -13,6 +13,51 @@ these rules.
 
 ## Ownership and provenance
 
+### Selected IC package patches — 2026-10-22
+
+The maintainer's registry lock update selects Tooling 0.64.1 for Host Artifacts,
+FS, Process, Text and Tools, Build and Testkit; Memory/Storage 0.50.11; and
+Wire/derive 0.5.22. Downloaded archives identify Tooling source
+`082aba308571bce742985f8ae7916e013ca9ec12`, Persistence source
+`e17b50ae1288a4e89c4affaab5f7475440c99530` and Wire source
+`9a1c06e6829da053190d997cdeed92a861addedb`. The existing manifest ranges already
+admit these patches; the incoming lockfile is preserved byte-for-byte. Shared
+0.26.6, Platform 0.6.7, Timers 0.30.3 and Metrics 0.15.6 are unchanged.
+
+Reviewed source-bound guidance for
+[Tooling](https://github.com/dragginzgame/ic-tooling/blob/082aba308571bce742985f8ae7916e013ca9ec12/docs/changelog/0.64.md),
+[Persistence](https://github.com/dragginzgame/ic-persistence/blob/e17b50ae1288a4e89c4affaab5f7475440c99530/CHANGELOG.md)
+and [Wire](https://github.com/dragginzgame/ic-wire/blob/9a1c06e6829da053190d997cdeed92a861addedb/CHANGELOG.md).
+Build, Host and Memory/Storage archives contain no Rust source changes from the
+previous selection. Wire changes canonical verification and Wasm code generation
+within its existing protocol. No local adapter, import or stored-format migration
+is required; upstream performance figures are not IcyDB measurements.
+
+Testkit adds opt-in held replies, which IcyDB leaves disabled. Its native
+dependency now enables Platform's Candid and management types for that external
+protocol; no workspace-owned Candid dependency is added. Declaration checks and
+native/Wasm graph policies pass: the public library remains Candid/CDK-free,
+Timers remains Candid-free, and the Canic-backed fixture retains one Platform
+and executor identity without Host, Build or Testkit. Canic's existing upstream
+management-call Candid/CDK graph is unchanged. These graph observations do not
+prove final deployed-artifact exclusions; [#378](https://github.com/dragginzgame/icydb/issues/378)
+retains that independent obligation.
+
+Focused Linux qualification passes 203 host tests, 163 Schema tests, 54
+storage/recovery/registry/row-decoding tests, 23 SQL/Wire tests and the finite
+codec control. Strict selected Clippy, Rust 1.91 public-library/Core Wasm checks,
+stable-Rust codec/SQL actor Wasm checks, dependency pins and the real Build
+editor's isolated lock-selection fixture pass. Both canonical helper installers
+prepare the selected 0.64.1 binaries with `cli`. One explicit startup probe also
+passes: Testkit started and reaped its admitted local PocketIC server after
+localhost access resolved the sandbox's initial bind refusal. No canister Wasm
+was installed or deployed. The host consumer floor is Rust
+1.96, which is not installed locally; stable-Rust results do not qualify it.
+Native macOS, installed-canister and broad workspace/release qualification remain
+separate gates. Raw Wasm-size, cycle and instruction deltas are unmeasured.
+
+Earlier selections below retain their original source and qualification scope.
+
 ### Selected Wire 0.5.21, Timers 0.30.3 and Metrics 0.15.6 — 2026-10-22
 
 The live registry and downloaded source confirm the current published selections:

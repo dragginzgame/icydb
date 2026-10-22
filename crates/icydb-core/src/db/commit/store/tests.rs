@@ -6,7 +6,7 @@ use crate::{
         commit::marker::{
             COMMIT_MARKER_FORMAT_VERSION_CURRENT, CommitMarker, MAX_COMMIT_BYTES,
             commit_marker_payload_capacity, decode_commit_marker_payload,
-            encode_commit_marker_payload,
+            encode_commit_marker_payload, generate_commit_id, generate_marker_batch_id,
         },
         data::{DecodedDataStoreKey, RawDataStoreKey},
         integrity::MutationProgressRecordOp,
@@ -22,6 +22,27 @@ use crate::{
     types::EntityTag,
 };
 use ic_memory::Memory;
+
+#[test]
+fn commit_ids_reuse_frozen_time_and_allocate_distinct_sequences() {
+    let mut previous_sequence = 0;
+    for millis in [0, 17, u64::MAX] {
+        let marker_id = generate_commit_id(millis).unwrap();
+        assert_eq!(marker_id.len(), 16);
+        assert_eq!(&marker_id[..8], &millis.to_be_bytes());
+        assert_eq!(generate_marker_batch_id(marker_id, 0).unwrap(), marker_id);
+        let sequence = u64::from_be_bytes(marker_id[8..].try_into().unwrap());
+        assert!(sequence > previous_sequence);
+        previous_sequence = sequence;
+        for ordinal in 1..=4 {
+            let batch_id = generate_marker_batch_id(marker_id, ordinal).unwrap();
+            assert_eq!(&batch_id[..8], &marker_id[..8]);
+            let sequence = u64::from_be_bytes(batch_id[8..].try_into().unwrap());
+            assert!(sequence > previous_sequence);
+            previous_sequence = sequence;
+        }
+    }
+}
 
 #[test]
 fn marker_presence_hint_tracks_publication_clear_and_allocation_switches() {

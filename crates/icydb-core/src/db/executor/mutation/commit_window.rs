@@ -34,7 +34,9 @@ use crate::{
     },
     error::InternalError,
     traits::CanisterKind,
+    types::Timestamp,
 };
+use ic_storage::adapter::Storable;
 use std::{
     cell::RefCell,
     collections::{BTreeMap, BTreeSet, HashMap},
@@ -539,8 +541,16 @@ pub(in crate::db::executor) fn open_commit_window_structural<C: CanisterKind>(
     row_ops: Vec<CanonicalRowCommitOp>,
     deleted_key_groups: &[(String, BTreeSet<RawDataStoreKey>)],
     identity_ranges: Vec<IdentityRangeAdvance>,
+    operation_timestamp: Timestamp,
 ) -> Result<OpenCommitWindow, InternalError> {
-    open_commit_window_structural_inner(db, row_ops, deleted_key_groups, identity_ranges, None)
+    open_commit_window_structural_inner(
+        db,
+        row_ops,
+        deleted_key_groups,
+        identity_ranges,
+        None,
+        operation_timestamp,
+    )
 }
 
 fn open_commit_window_structural_inner<C: CanisterKind>(
@@ -549,6 +559,7 @@ fn open_commit_window_structural_inner<C: CanisterKind>(
     deleted_key_groups: &[(String, BTreeSet<RawDataStoreKey>)],
     identity_ranges: Vec<IdentityRangeAdvance>,
     mutation_progress: Option<MutationProgressRecordOp>,
+    operation_timestamp: Timestamp,
 ) -> Result<OpenCommitWindow, InternalError> {
     let fixed_commit_work_units =
         fixed_mutation_commit_work_units(identity_ranges.len(), mutation_progress.is_some())?;
@@ -581,6 +592,7 @@ fn open_commit_window_structural_inner<C: CanisterKind>(
         &prepared_row_ops,
         identity_ranges.as_slice(),
         mutation_progress,
+        operation_timestamp,
     )?;
     preflight_identity_range_applies(effects.identity_range_applies.as_slice())?;
     let positioned_rows = preflight_positioned_rows(&prepared_row_ops, &effects.journal_appends)?;
@@ -596,11 +608,8 @@ fn open_commit_window_structural_inner<C: CanisterKind>(
     })
 }
 
-/// Apply one prepared window and publish index readiness only after commit closure.
-fn apply_prepared_row_ops<C: CanisterKind>(
-    db: &Db<C>,
-    window: OpenCommitWindow,
-) -> Result<(), InternalError> {
+/// Apply one prepared window and finish its marker; readiness belongs to recovery/rebuild.
+fn apply_prepared_row_ops<C: CanisterKind>(window: OpenCommitWindow) -> Result<(), InternalError> {
     let OpenCommitWindow {
         commit,
         prepared_row_ops,
@@ -608,8 +617,6 @@ fn apply_prepared_row_ops<C: CanisterKind>(
         effects,
         index_store_guards,
     } = window;
-    let synchronized_store_handles =
-        synchronized_store_handles_for_prepared_row_ops(db, &prepared_row_ops);
     if positioned_rows.len() != prepared_row_ops.len() {
         return Err(InternalError::query_executor_invariant());
     }
@@ -683,8 +690,7 @@ fn apply_prepared_row_ops<C: CanisterKind>(
         apply_guard.finish()?;
 
         Ok(())
-    })?;
-    mark_store_handles_index_ready(&synchronized_store_handles)
+    })
 }
 
 #[cfg(test)]
@@ -732,11 +738,18 @@ pub(in crate::db) fn commit_structural_row_ops_with_window<C: CanisterKind>(
     db: &Db<C>,
     batch: AcceptedMutationConstraintBatch,
     identity_ranges: Vec<IdentityRangeAdvance>,
+    operation_timestamp: Timestamp,
 ) -> Result<(), InternalError> {
     let (row_ops, deleted_key_groups) = batch.into_parts();
-    let window = open_commit_window_structural(db, row_ops, &deleted_key_groups, identity_ranges)?;
+    let window = open_commit_window_structural(
+        db,
+        row_ops,
+        &deleted_key_groups,
+        identity_ranges,
+        operation_timestamp,
+    )?;
 
-    apply_prepared_row_ops(db, window)
+    apply_prepared_row_ops::<C>(window)
 }
 
 /// Commit one accepted row batch and exact mutation-progress successor together.
@@ -745,6 +758,7 @@ pub(in crate::db) fn commit_structural_row_ops_with_mutation_progress<C: Caniste
     batch: AcceptedMutationConstraintBatch,
     identity_ranges: Vec<IdentityRangeAdvance>,
     mutation_progress: MutationProgressRecordOp,
+    operation_timestamp: Timestamp,
 ) -> Result<(), InternalError> {
     let (row_ops, deleted_key_groups) = batch.into_parts();
     let window = open_commit_window_structural_inner(
@@ -753,32 +767,10 @@ pub(in crate::db) fn commit_structural_row_ops_with_mutation_progress<C: Caniste
         &deleted_key_groups,
         identity_ranges,
         Some(mutation_progress),
+        operation_timestamp,
     )?;
 
-    apply_prepared_row_ops(db, window)
-}
-/// Resolve the exact registered store pairs that one prepared-op batch
-/// synchronized through authoritative row + paired index mutation.
-#[must_use]
-pub(in crate::db::executor) fn synchronized_store_handles_for_prepared_row_ops<C: CanisterKind>(
-    db: &Db<C>,
-    prepared_row_ops: &[PreparedRowCommitOp],
-) -> Vec<StoreHandle> {
-    db.with_store_registry(|registry| {
-        registry
-            .iter()
-            .map(|(_, handle)| handle)
-            .filter(|handle| {
-                prepared_row_ops.iter().any(|row_op| {
-                    ptr::eq(handle.data_store(), row_op.data_store)
-                        && row_op
-                            .index_ops
-                            .iter()
-                            .any(|index_op| ptr::eq(handle.index_store(), index_op.index_store))
-                })
-            })
-            .collect()
-    })
+    apply_prepared_row_ops::<C>(window)
 }
 
 // Project durable recovery payloads into one marker-bound commit payload.
@@ -795,12 +787,14 @@ fn prepare_commit_effects_for_row_ops<C: CanisterKind>(
     prepared_row_ops: &[PreparedRowCommitOp],
     identity_ranges: &[IdentityRangeAdvance],
     mutation_progress: Option<MutationProgressRecordOp>,
+    operation_timestamp: Timestamp,
 ) -> Result<PreparedCommitEffects, InternalError> {
     if row_ops.len() != prepared_row_ops.len() {
         return Err(InternalError::executor_invariant());
     }
 
-    let marker_id = generate_commit_id()?;
+    // Preserve the frozen timestamp's exact bits, including signed test inputs.
+    let marker_id = generate_commit_id(operation_timestamp.as_millis().cast_unsigned())?;
     let registered_stores = db.with_store_registry(|registry| registry.iter().collect::<Vec<_>>());
     let incarnation = database_incarnation_id()?;
     let mut range_routes = Vec::with_capacity(identity_ranges.len());
@@ -1006,7 +1000,7 @@ fn journal_record_for_row_op(row_op: CanonicalRowCommitOp) -> Result<JournalReco
         Some(after) => JournalRecord::row_put(
             row_op.entity_path.as_ref(),
             row_op.key,
-            after.into_raw_row().as_bytes().to_vec(),
+            after.into_raw_row().into_bytes(),
             row_op.schema_fingerprint,
         ),
         None => JournalRecord::row_delete(
@@ -1049,15 +1043,6 @@ fn append_prepared_journal_batches(
             .with_borrow_mut(|store| store.append_marker_encoded_batch(batch, marker_bytes))?;
     }
 
-    Ok(())
-}
-
-// Mark one batch of synchronized index stores as `Ready` after commit apply
-// succeeds and the commit marker is already closed.
-fn mark_store_handles_index_ready(handles: &[StoreHandle]) -> Result<(), InternalError> {
-    for handle in handles {
-        handle.mark_index_ready()?;
-    }
     Ok(())
 }
 
@@ -1308,6 +1293,61 @@ mod tests {
             }),
             [7; 16],
         )
+    }
+
+    #[test]
+    fn journal_row_put_moves_owned_bytes_and_preserves_the_apply_copy() {
+        let key = test_key(17);
+        for length in [1, 4_096, crate::db::codec::MAX_ROW_BYTES as usize] {
+            let bytes = vec![0xA7; length];
+            let original_pointer = bytes.as_ptr();
+            let expected = bytes.clone();
+            let row_op = test_row_op(&key, Some(bytes));
+            let prepared_apply_row = row_op.after.as_ref().unwrap().clone();
+            let record =
+                journal_record_for_row_op(row_op).expect("owned put should become a record");
+            let JournalRecord::RowPut {
+                entity_path,
+                primary_key,
+                row_bytes,
+                schema_fingerprint,
+            } = record
+            else {
+                panic!("put must retain its record family");
+            };
+            assert_eq!(row_bytes.as_ptr(), original_pointer);
+            assert_eq!(row_bytes, expected);
+            assert_eq!(primary_key, key.to_raw().unwrap());
+            assert_eq!(entity_path, "tests::SelfRelation");
+            assert_eq!(schema_fingerprint, [7; 16]);
+            assert_ne!(
+                prepared_apply_row.as_raw_row().as_bytes().as_ptr(),
+                original_pointer
+            );
+            assert_eq!(prepared_apply_row.as_raw_row().as_bytes(), expected);
+        }
+    }
+
+    #[test]
+    fn journal_row_conversion_preserves_delete_and_record_admission() {
+        let key = test_key(18);
+        let record = journal_record_for_row_op(test_row_op(&key, None))
+            .expect("delete should retain its journal record");
+        let JournalRecord::RowDelete {
+            entity_path,
+            primary_key,
+            schema_fingerprint,
+        } = record
+        else {
+            panic!("delete must retain its record family");
+        };
+        assert_eq!(entity_path, "tests::SelfRelation");
+        assert_eq!(primary_key, key.to_raw().unwrap());
+        assert_eq!(schema_fingerprint, [7; 16]);
+        let mut invalid = test_row_op(&key, Some(vec![1]));
+        invalid.entity_path = std::rc::Rc::from("");
+        let error = journal_record_for_row_op(invalid).expect_err("empty entity path must refuse");
+        assert_eq!(error.class(), ErrorClass::Corruption);
     }
 
     #[test]

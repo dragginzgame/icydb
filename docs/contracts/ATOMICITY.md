@@ -310,9 +310,10 @@ Fully consistent point:
   replicated driver has completed recovery and generated-schema reconciliation.
   Ordinary reads and writes never drive a recovery page; they return the typed
   retryable startup-pending diagnostic until that point.
-* A normally returned commit-apply error retains its marker and registers the
-  watchdog wake-up in the same message before returning. A trap rolls both the
-  marker and volatile scheduling change back together.
+* A published commit guard owns the captured watchdog wake-up. Dropping it after
+  a normally returned error or an early exit registers that wake-up in the same
+  message. Successful marker retirement disarms it only when no journal debt
+  remains. A trap rolls the marker and volatile scheduling change back together.
 * A nonterminal offline schema migration restores its database-wide gate before
   ordinary routing. Migration and integrity control operations may inspect the
   recovered gated state; ordinary reads, writes, relations, schema mutation,

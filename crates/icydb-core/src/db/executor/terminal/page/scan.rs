@@ -22,16 +22,16 @@ use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
 /// RowScanResult
 ///
 /// RowScanResult is the shared scan collector payload for scalar row lanes.
-/// The concrete row type is lane-owned; scan accounting and skip/keep
+/// The retained row container is lane-owned; scan accounting and skip/keep
 /// retention are identical for kernel rows and direct data rows. Retained rows
 /// may already have had the cursorless page offset applied, while
 /// `rows_matched` preserves the pre-page matched-row count.
 ///
 
-pub(super) struct RowScanResult<T> {
-    pub(super) rows: Vec<T>,
-    pub(super) rows_scanned: usize,
-    pub(super) rows_matched: usize,
+pub(in crate::db::executor) struct RowScanResult<T> {
+    pub(in crate::db::executor) rows: T,
+    pub(in crate::db::executor) rows_scanned: usize,
+    pub(in crate::db::executor) rows_matched: usize,
 }
 
 /// Scan result for one incompatible-order direct raw-row lane.
@@ -106,7 +106,7 @@ pub(in crate::db::executor) struct KernelRowScanRequest<'a, 'r> {
 #[expect(clippy::too_many_lines)]
 pub(in crate::db::executor) fn execute_kernel_row_scan(
     request: KernelRowScanRequest<'_, '_>,
-) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
+) -> Result<RowScanResult<PendingOrderRows<KernelRow>>, InternalError> {
     let KernelRowScanRequest {
         key_stream,
         scan_budget_hint,
@@ -250,7 +250,7 @@ fn execute_kernel_row_scan_with_readers(
     bounds: KernelRowScanBounds<'_>,
     read_row: &mut KernelRowReader<'_>,
     mut read_borrowed_row: Option<&mut BorrowedKernelRowReader<'_>>,
-) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
+) -> Result<RowScanResult<PendingOrderRows<KernelRow>>, InternalError> {
     execute_scalar_read_loop(key_stream, scan_budget_hint, |key_stream| {
         if let Some(read_borrowed_row) = read_borrowed_row.as_deref_mut()
             && let Some(rows) =
@@ -265,7 +265,7 @@ fn execute_kernel_row_scan_with_readers(
 
 pub(super) fn execute_scalar_page_kernel_dyn(
     request: ScalarPageKernelRequest<'_, '_>,
-) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
+) -> Result<RowScanResult<PendingOrderRows<KernelRow>>, InternalError> {
     let ScalarPageKernelRequest {
         key_stream,
         scan_budget_hint,
@@ -318,7 +318,7 @@ fn scan_kernel_rows_with(
     key_stream: &mut OrderedKeyStreamBox,
     bounds: KernelRowScanBounds<'_>,
     read_row: &mut KernelRowReader<'_>,
-) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
+) -> Result<RowScanResult<PendingOrderRows<KernelRow>>, InternalError> {
     if let Some(order_window) = bounds.order_window {
         return scan_kernel_rows_with_bounded_order_window(
             key_stream,
@@ -336,7 +336,11 @@ fn scan_kernel_rows_with(
         |_key_stream, key| read_row(key),
     )?;
 
-    Ok((PendingOrderRows::plain(result.rows), result.rows_scanned))
+    Ok(RowScanResult {
+        rows: PendingOrderRows::plain(result.rows),
+        rows_scanned: result.rows_scanned,
+        rows_matched: result.rows_matched,
+    })
 }
 
 fn scan_kernel_rows_with_bounded_order_window(
@@ -344,15 +348,20 @@ fn scan_kernel_rows_with_bounded_order_window(
     bounds: KernelRowScanBounds<'_>,
     order_window: KernelRowOrderWindow<'_>,
     read_row: &mut KernelRowReader<'_>,
-) -> Result<(PendingOrderRows<KernelRow>, usize), InternalError> {
+) -> Result<RowScanResult<PendingOrderRows<KernelRow>>, InternalError> {
     if bounds.row_keep_cap.is_some() || bounds.row_skip_count != 0 {
         return Err(InternalError::query_executor_invariant());
     }
     if order_window.keep_count == 0 {
-        return Ok((PendingOrderRows::plain(Vec::new()), 0));
+        return Ok(RowScanResult {
+            rows: PendingOrderRows::plain(Vec::new()),
+            rows_scanned: 0,
+            rows_matched: 0,
+        });
     }
 
     let mut rows_scanned = 0usize;
+    let mut rows_matched = 0usize;
     let mut window = BoundedOrderWindow::new(order_window.keep_count, order_window.resolved_order);
 
     loop {
@@ -376,16 +385,21 @@ fn scan_kernel_rows_with_bounded_order_window(
         }
 
         window.push(row)?;
+        rows_matched = rows_matched.saturating_add(1);
     }
 
-    Ok((window.into_pending_rows(), rows_scanned))
+    Ok(RowScanResult {
+        rows: window.into_pending_rows(),
+        rows_scanned,
+        rows_matched,
+    })
 }
 
 fn try_scan_borrowed_primary_rows(
     key_stream: &mut OrderedKeyStreamBox,
     bounds: KernelRowScanBounds<'_>,
     read_row: &mut BorrowedKernelRowReader<'_>,
-) -> Result<Option<(PendingOrderRows<KernelRow>, usize)>, InternalError> {
+) -> Result<Option<RowScanResult<PendingOrderRows<KernelRow>>>, InternalError> {
     if bounds.row_keep_cap.is_some() || bounds.row_skip_count != 0 {
         return if bounds.order_window.is_some() {
             Err(InternalError::query_executor_invariant())
@@ -397,10 +411,15 @@ fn try_scan_borrowed_primary_rows(
         .order_window
         .is_some_and(|order| order.keep_count == 0)
     {
-        return Ok(Some((PendingOrderRows::plain(Vec::new()), 0)));
+        return Ok(Some(RowScanResult {
+            rows: PendingOrderRows::plain(Vec::new()),
+            rows_scanned: 0,
+            rows_matched: 0,
+        }));
     }
 
     let rows_scanned = std::cell::Cell::new(0usize);
+    let rows_matched = std::cell::Cell::new(0usize);
     let envelope_stopped = std::cell::Cell::new(false);
     let active_unit = std::cell::Cell::new(ScanPageUnit::Untracked);
     let mut plain_rows = Vec::with_capacity(staged_row_capacity(key_stream, None, 0));
@@ -421,6 +440,7 @@ fn try_scan_borrowed_primary_rows(
         let decoded = read_row(&key, row)?;
         finish_scan_page_unit(active_unit.replace(ScanPageUnit::Untracked))?;
         if let Some(decoded) = decoded {
+            rows_matched.set(rows_matched.get().saturating_add(1));
             if !decoded.has_materialized_slots() {
                 return Err(InternalError::query_executor_invariant());
             }
@@ -451,7 +471,11 @@ fn try_scan_borrowed_primary_rows(
         BoundedOrderWindow::into_pending_rows,
     );
 
-    Ok(Some((rows, rows_scanned.get())))
+    Ok(Some(RowScanResult {
+        rows,
+        rows_scanned: rows_scanned.get(),
+        rows_matched: rows_matched.get(),
+    }))
 }
 
 // Scan one ordered key stream into caller-owned row payloads while preserving
@@ -467,7 +491,7 @@ fn scan_rows_with<T>(
         &mut OrderedKeyStreamBox,
         DecodedDataStoreKey,
     ) -> Result<Option<T>, InternalError>,
-) -> Result<RowScanResult<T>, InternalError> {
+) -> Result<RowScanResult<Vec<T>>, InternalError> {
     if row_keep_cap == Some(0) {
         return Ok(RowScanResult {
             rows: Vec::new(),
@@ -618,7 +642,7 @@ fn scan_data_rows_direct(
     row_keep_cap: Option<usize>,
     row_skip_count: usize,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
-) -> Result<RowScanResult<DataRow>, InternalError> {
+) -> Result<RowScanResult<Vec<DataRow>>, InternalError> {
     scan_data_rows_direct_with_reader(key_stream, row_keep_cap, row_skip_count, |key| {
         row_runtime.read_data_row(consistency, key)
     })
@@ -632,7 +656,7 @@ fn scan_data_rows_direct_with_reader(
     row_keep_cap: Option<usize>,
     row_skip_count: usize,
     mut read_data_row: impl FnMut(DecodedDataStoreKey) -> Result<Option<DataRow>, InternalError>,
-) -> Result<RowScanResult<DataRow>, InternalError> {
+) -> Result<RowScanResult<Vec<DataRow>>, InternalError> {
     scan_rows_with(
         key_stream,
         row_keep_cap,
@@ -657,7 +681,7 @@ fn scan_data_rows_direct_with_filter_program(
     row_skip_count: usize,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
     filter_program: &EffectiveRuntimeFilterProgram,
-) -> Result<RowScanResult<DataRow>, InternalError> {
+) -> Result<RowScanResult<Vec<DataRow>>, InternalError> {
     scan_data_rows_direct_with_reader(key_stream, row_keep_cap, row_skip_count, |key| {
         row_runtime.read_data_row_with_filter_program(consistency, key, filter_program)
     })
@@ -722,7 +746,7 @@ pub(super) fn scan_direct_data_rows_with_residual_policy(
     consistency: MissingRowPolicy,
     row_runtime: &ScalarRowRuntimeHandle<'_>,
     residual_filter_program: Option<&EffectiveRuntimeFilterProgram>,
-) -> Result<RowScanResult<DataRow>, InternalError> {
+) -> Result<RowScanResult<Vec<DataRow>>, InternalError> {
     if row_keep_cap == Some(0) {
         return Ok(RowScanResult {
             rows: Vec::new(),

@@ -17,6 +17,7 @@ use crate::{
     MAX_INDEX_FIELDS,
     db::{
         data::encode_input_value_for_candidate_field_contract,
+        identity::EntityName,
         index::{index_expression_output_kind, index_expression_text},
         schema::{
             AcceptedConstraintCatalog, AcceptedConstraintKind, AcceptedEnumCatalog,
@@ -485,6 +486,7 @@ pub(in crate::db::schema) fn lower_initial_schema_proposal(
             &types,
         )?);
     }
+    validate_entity_namespace(&candidates, &[])?;
     Ok(candidates)
 }
 
@@ -555,6 +557,7 @@ pub(in crate::db::schema) fn lower_existing_schema_proposal(
     if used_types.len() != types.len() {
         return Err(InternalError::store_unsupported());
     }
+    validate_entity_namespace(&candidates, stores)?;
     Ok(candidates)
 }
 
@@ -585,7 +588,40 @@ pub(in crate::db::schema) fn lower_generated_existing_schema_proposal(
     if used_types.len() != types.len() {
         return Err(InternalError::store_unsupported());
     }
+    validate_entity_namespace(&candidates, stores)?;
     Ok(candidates)
+}
+
+// Validate the projected database, including stores omitted from the proposal.
+// A candidate replaces its whole store bundle; including that store's old names
+// would incorrectly reject unchanged entities and case-only renames.
+fn validate_entity_namespace(
+    candidates: &[CandidateSchemaRevision],
+    stores: &[ExistingProposalStore<'_>],
+) -> Result<(), InternalError> {
+    let snapshots = candidates
+        .iter()
+        .flat_map(|candidate| candidate.bundle().entity_snapshots().values())
+        .chain(
+            stores
+                .iter()
+                .filter(|store| {
+                    !candidates
+                        .iter()
+                        .any(|candidate| candidate.store_path() == store.path)
+                })
+                .flat_map(|store| store.bundle.entity_snapshots().values()),
+        );
+    let mut names = BTreeSet::new();
+    for snapshot in snapshots {
+        let name = EntityName::try_from_str(snapshot.entity_name())
+            .map_err(|_| InternalError::store_unsupported())?
+            .ascii_case_fold();
+        if !names.insert(name) {
+            return Err(InternalError::store_unsupported());
+        }
+    }
+    Ok(())
 }
 
 fn existing_proposal_entities_by_store<'store, 'bundle, 'proposal>(
@@ -3459,7 +3495,7 @@ mod tests {
     use super::{
         ExistingProposalStore, ProposalStoreTarget, lower_existing_schema_proposal,
         lower_field_type, lower_generated_existing_schema_proposal, lower_initial_field_type,
-        lower_initial_schema_proposal, resolve_existing_removal,
+        lower_initial_schema_proposal, resolve_existing_removal, validate_entity_namespace,
     };
     use crate::db::{
         data::{
@@ -3900,6 +3936,102 @@ mod tests {
         )
         .expect("test proposal should compose");
         (proposal, entity_source, store)
+    }
+
+    #[test]
+    fn entity_namespace_names_include_unchanged_stores() {
+        let make_candidate = |entity_name: &str, path: &'static str| {
+            let (proposal, _, store) = scalar_proposal_fixture_with_names(
+                ExpectedAcceptedHead::Empty,
+                "namespace-initial",
+                5,
+                entity_name,
+                "score",
+                false,
+                Vec::new(),
+            );
+            let candidate = lower_initial_schema_proposal(
+                &proposal,
+                &[ProposalStoreTarget {
+                    path,
+                    identity: store,
+                }],
+            )
+            .unwrap()
+            .pop()
+            .unwrap();
+            (proposal, store, candidate)
+        };
+        let (user_proposal, _, user) = make_candidate("User", "test::Users");
+        let (_, other_store, other) = make_candidate("Other", "test::Other");
+        let (alias_proposal, _, alias) = make_candidate("user", "test::Other");
+        let user_store = TargetStoreIdentity::from_bytes([0x99; 32]);
+        let stores = [
+            ExistingProposalStore {
+                path: "test::Users",
+                identity: user_store,
+                bundle: user.bundle(),
+            },
+            ExistingProposalStore {
+                path: "test::Other",
+                identity: other_store,
+                bundle: other.bundle(),
+            },
+        ];
+        let cross_store = SchemaProposal::try_compose(
+            user_proposal.capabilities().to_vec(),
+            user_proposal.target_database(),
+            user_proposal.submission_key().clone(),
+            ExpectedAcceptedHead::Empty,
+            vec![
+                SchemaFragment::try_new(
+                    vec![
+                        user_proposal.fragments()[0].entities()[0].clone(),
+                        alias_proposal.fragments()[0].entities()[0].clone(),
+                    ],
+                    Vec::new(),
+                )
+                .unwrap(),
+            ],
+            vec![
+                EntityStoreAssignment::new(EntitySourceKey::try_new("User").unwrap(), user_store),
+                EntityStoreAssignment::new(EntitySourceKey::try_new("user").unwrap(), other_store),
+            ],
+            Vec::new(),
+            None,
+        )
+        .unwrap();
+        assert_eq!(
+            lower_initial_schema_proposal(
+                &cross_store,
+                &[
+                    ProposalStoreTarget {
+                        path: "test::Users",
+                        identity: user_store
+                    },
+                    ProposalStoreTarget {
+                        path: "test::Other",
+                        identity: other_store
+                    },
+                ]
+            )
+            .unwrap_err()
+            .class(),
+            crate::error::ErrorClass::Unsupported,
+        );
+        for lower in [
+            lower_existing_schema_proposal,
+            lower_generated_existing_schema_proposal,
+        ] {
+            assert_eq!(
+                lower(&alias_proposal, &stores).unwrap_err().class(),
+                crate::error::ErrorClass::Unsupported
+            );
+        }
+        assert!(validate_entity_namespace(std::slice::from_ref(&alias), &stores).is_err());
+        // Replacing a store must not count its predecessor's names twice.
+        assert!(validate_entity_namespace(std::slice::from_ref(&user), &stores).is_ok());
+        assert!(validate_entity_namespace(&[], &stores).is_ok());
     }
 
     #[test]

@@ -3,11 +3,17 @@
 use super::*;
 use crate::{
     db::{
-        data::{DecodedDataStoreKey, RawRow},
+        data::{
+            DecodedDataStoreKey, RawRow,
+            persisted_row::{
+                canonical::encode_canonical_value_for_accepted_field_contract,
+                contract::emit_raw_row_from_slot_payloads,
+            },
+        },
         executor::terminal::RowLayout,
         key_taxonomy::PrimaryKeyComponent,
     },
-    error::ErrorClass,
+    error::{ErrorClass, InternalError},
     types::EntityTag,
 };
 
@@ -160,4 +166,165 @@ fn full_row_handoff_moves_scalar_blob_backing() {
         panic!("blob")
     };
     assert_eq!(bytes.as_ptr(), before);
+}
+
+#[test]
+fn by_kind_full_rows_retain_one_materialization_and_move_container_backing() {
+    let map = AcceptedFieldKind::Map {
+        key: Box::new(AcceptedFieldKind::Text { max_len: Some(8) }),
+        value: Box::new(AcceptedFieldKind::Blob {
+            max_len: Some(4096),
+        }),
+    };
+    for (kind, populated, empty) in [
+        (
+            AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Nat64)),
+            Value::List(vec![Value::Nat64(3), Value::Nat64(5)]),
+            Value::List(Vec::new()),
+        ),
+        (
+            AcceptedFieldKind::Set(Box::new(AcceptedFieldKind::Nat64)),
+            Value::List(vec![Value::Nat64(3), Value::Nat64(5)]),
+            Value::List(Vec::new()),
+        ),
+        (
+            map,
+            Value::Map(vec![(
+                Value::Text("payload".into()),
+                Value::Blob(vec![7; 1024]),
+            )]),
+            Value::Map(Vec::new()),
+        ),
+        (
+            nested_kind(4096),
+            nested_value(1024),
+            Value::List(Vec::new()),
+        ),
+    ] {
+        let contract = payload_contract_with_storage(
+            kind,
+            LeafCodec::Structural,
+            true,
+            FieldStorageDecode::ByKind,
+        );
+        let layout = RowLayout::from_structural_row_contract(contract.clone());
+        let key =
+            DecodedDataStoreKey::new(EntityTag::new(1), &PrimaryKeyComponent::Nat64(7).into());
+        for payload in [populated, empty, Value::Null] {
+            let values = [Value::Nat64(7), Value::Bool(true), payload];
+            let row =
+                canonical_row_from_runtime_value_source_with_accepted_contract(&contract, |slot| {
+                    Ok(Cow::Borrowed(&values[slot]))
+                })
+                .unwrap()
+                .into_raw_row();
+            let reader =
+                StructuralSlotReader::from_raw_row_with_borrowed_contract(&row, &contract).unwrap();
+            let CachedSlotValue::Deferred { materialized } = &reader.cached_values[2] else {
+                panic!("container must use the existing deferred cache");
+            };
+            assert!(materialized.get().is_none());
+            reader.materialize_all_values().unwrap();
+            assert_eq!(materialized.get(), Some(&values[2]));
+            let backing = |value: &Value| match value {
+                Value::List(items) => items.as_ptr().cast::<()>(),
+                Value::Map(entries) => entries.as_ptr().cast::<()>(),
+                Value::Null => std::ptr::null(),
+                _ => panic!("container fixture"),
+            };
+            let pointer = backing(materialized.get().unwrap());
+            reader.materialize_all_values().unwrap();
+            assert_eq!(backing(materialized.get().unwrap()), pointer);
+            reader.validate_primary_key(&key).unwrap();
+            let mut output = Vec::with_capacity(8);
+            output.push(Value::Text("stale".into()));
+            let output_pointer = output.as_ptr();
+            reader.decode_all_values_into(&mut output).unwrap();
+            assert_eq!(output, values);
+            assert_eq!(backing(&output[2]), pointer);
+            assert_eq!(output.as_ptr(), output_pointer);
+            layout
+                .decode_full_value_row_from_data_key_into(&key, &row, &mut output)
+                .unwrap();
+            assert_eq!(output, values);
+            let reencoded =
+                canonical_row_from_runtime_value_source_with_accepted_contract(&contract, |slot| {
+                    Ok(Cow::Borrowed(&output[slot]))
+                })
+                .unwrap()
+                .into_raw_row();
+            assert_eq!(reencoded, row);
+        }
+    }
+}
+
+#[test]
+fn by_kind_full_row_corruption_keeps_eager_refusal_order_and_empty_output() {
+    let signature = |error: &InternalError| {
+        (
+            error.class(),
+            error.origin(),
+            error.diagnostic_code(),
+            error.diagnostic_facts(),
+        )
+    };
+    for kind in [
+        AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Blob { max_len: Some(8) })),
+        AcceptedFieldKind::Set(Box::new(AcceptedFieldKind::Blob { max_len: Some(8) })),
+        AcceptedFieldKind::Map {
+            key: Box::new(AcceptedFieldKind::Text { max_len: Some(8) }),
+            value: Box::new(AcceptedFieldKind::Blob { max_len: Some(8) }),
+        },
+    ] {
+        let payload = match &kind {
+            AcceptedFieldKind::List(_) | AcceptedFieldKind::Set(_) => {
+                Value::List(vec![Value::Blob(vec![7; 8])])
+            }
+            AcceptedFieldKind::Map { .. } => Value::Map(vec![(
+                Value::Text("payload".into()),
+                Value::Blob(vec![7; 8]),
+            )]),
+            _ => unreachable!(),
+        };
+        let contract = payload_contract_with_storage(
+            kind,
+            LeafCodec::Structural,
+            false,
+            FieldStorageDecode::ByKind,
+        );
+        let values = [Value::Nat64(7), Value::Bool(true), payload];
+        let mut slots = values
+            .iter()
+            .enumerate()
+            .map(|(slot, value)| {
+                encode_canonical_value_for_accepted_field_contract(
+                    contract
+                        .required_accepted_field_persistence_contract(slot)
+                        .unwrap(),
+                    value,
+                )
+                .unwrap()
+            })
+            .collect::<Vec<_>>();
+        // Keep the row envelope valid while truncating the final container item.
+        slots[2].pop();
+        let row = emit_raw_row_from_slot_payloads(contract.current_layout_version(), 3, &slots)
+            .unwrap()
+            .into_raw_row();
+        let reference =
+            StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(&row, &contract)
+                .err()
+                .expect("the truncated container payload must refuse");
+        for id in [7, 8] {
+            let key =
+                DecodedDataStoreKey::new(EntityTag::new(1), &PrimaryKeyComponent::Nat64(id).into());
+            let mut output = vec![Value::Text("stale".into())];
+            let layout = RowLayout::from_structural_row_contract(contract.clone());
+            let error = layout
+                .decode_full_value_row_from_data_key_into(&key, &row, &mut output)
+                .unwrap_err();
+            assert_eq!(signature(&error), signature(&reference));
+            assert!(output.is_empty());
+        }
+    }
 }

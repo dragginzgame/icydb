@@ -411,6 +411,110 @@ fn count_rows(session: &DbSession<TestCanister>, query: &StructuralQuery) -> Vec
 }
 
 #[test]
+fn residual_retry_keeps_full_cursorless_windows_within_one_scan() {
+    use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
+
+    let _setup = initialize_rows();
+    for (order, offset, cap, expected) in [
+        ("ASC", 0, 2, 1),
+        ("ASC", 1, 3, 2),
+        ("DESC", 0, 2, 4),
+        ("DESC", 1, 4, 2),
+    ] {
+        let sql = format!(
+            "SELECT id FROM PlannerRow WHERE category >= 3 AND operand > 1 \
+             ORDER BY category {order}, id {order} LIMIT 1 OFFSET {offset}"
+        );
+        let expected = vec![vec![OutputValue::nat64(expected)]];
+        for _ in 0..2 {
+            let root = secondary_order::bounded_secondary_request(cap);
+            let session = new_request_session(&root);
+            let result = session
+                .execute_trusted_sql_query(&sql)
+                .unwrap_or_else(|error| {
+                    panic!("{sql}: {error:?}; facts={:?}", error.diagnostic_facts())
+                });
+            let SqlStatementResult::Projection { rows, .. } = result else {
+                panic!("SELECT must return projected rows");
+            };
+            assert_eq!(rows, expected);
+            assert!(root.observed(Resource::RowsVisited) <= cap);
+        }
+    }
+}
+
+#[test]
+fn residual_retry_preserves_sparse_matches_and_continuation_lookahead() {
+    use crate::db::desc;
+    use icydb_diagnostic_code::{DiagnosticExecutionBudgetResource as Resource, DiagnosticFactTag};
+
+    let session = initialize_rows();
+    for (predicate, expected) in [("operand > 7", vec![4]), ("operand > 99", vec![])] {
+        for offset in [0, 1] {
+            let sql = format!(
+                "SELECT id FROM PlannerRow WHERE category >= 3 AND {predicate} \
+                 ORDER BY category, id LIMIT 1 OFFSET {offset}"
+            );
+            let expected = expected
+                .iter()
+                .skip(offset)
+                .map(|id| vec![OutputValue::nat64(*id)])
+                .collect::<Vec<_>>();
+            assert_eq!(projection_rows(&session, &sql), expected);
+        }
+    }
+    let zero = secondary_order::bounded_secondary_request(0);
+    assert!(projection_rows(&new_request_session(&zero),
+        "SELECT id FROM PlannerRow WHERE category >= 3 AND operand > 1 ORDER BY category, id LIMIT 0").is_empty());
+    let refused = new_request_session(&zero)
+        .execute_trusted_sql_query("SELECT id FROM PlannerRow WHERE category >= 3 AND operand > 7 ORDER BY category, id LIMIT 1")
+        .unwrap_err();
+    assert!(refused.diagnostic_facts().contains(&(
+        DiagnosticFactTag::BudgetResource,
+        Resource::RowsVisited.raw()
+    )));
+    assert_eq!(
+        projection_rows(
+            &session,
+            "SELECT DISTINCT category FROM PlannerRow WHERE category >= 3 AND operand > 1 ORDER BY category LIMIT 1 OFFSET 1"
+        ),
+        vec![vec![OutputValue::nat64(9)]]
+    );
+
+    for public in [false, true] {
+        for descending in [false, true] {
+            let order = if descending { desc } else { asc };
+            let query = DynamicQuery::new(ENTITY_NAME)
+                .select(["id"])
+                .filter(FilterExpr::and(vec![
+                    FieldRef::new("category").gte(InputValue::nat64(3)),
+                    FieldRef::new("operand").gt(InputValue::nat64(1)),
+                ]))
+                .order_by(order("category"))
+                .order_by(order("id"));
+            let mut cursor = None;
+            let mut rows = Vec::new();
+            for page_index in 0..2 {
+                let root = secondary_order::bounded_secondary_request(16);
+                let reader = new_request_session(&root);
+                let page = if public {
+                    reader.execute_public_live_page(&query, cursor.as_deref())
+                } else {
+                    reader.execute_trusted_live_page(&query, cursor.as_deref())
+                }
+                .unwrap();
+                assert_eq!(page.rows.len(), if page_index == 0 { 2 } else { 1 });
+                assert_eq!(page.continuation.is_some(), page_index == 0);
+                rows.extend(page.rows);
+                cursor = page.continuation;
+            }
+            let expected = if descending { [4, 2, 1] } else { [1, 2, 4] };
+            assert_eq!(rows, expected.map(|id| vec![OutputValue::nat64(id)]));
+        }
+    }
+}
+
+#[test]
 fn complete_residual_runtime_scan_enforces_both_filters_and_windows() {
     let session = initialize_rows();
     session

@@ -131,10 +131,10 @@ impl RowLayout {
     ) -> Result<(), InternalError> {
         values.clear();
 
-        let slots = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
-            row,
-            &self.contract,
-        )?;
+        let slots = StructuralSlotReader::from_raw_row_with_borrowed_contract(row, &self.contract)?;
+        // Identity output needs every value. Retain complete field admission
+        // before key validation, then move those cached values into the output.
+        slots.materialize_all_values()?;
         slots.validate_primary_key(data_key)?;
 
         slots.decode_all_values_into(values)

@@ -149,6 +149,16 @@ impl<'a> StructuralSlotReader<'a> {
         Ok(values)
     }
 
+    /// Decode every declared slot once and retain its admitted value.
+    /// Full-row consumers use this before key admission to preserve the order
+    /// of field corruption and primary-key refusals without a validation-only pass.
+    pub(in crate::db) fn materialize_all_values(&self) -> Result<(), InternalError> {
+        for slot in 0..self.field_count() {
+            self.required_cached_value(slot)?;
+        }
+        Ok(())
+    }
+
     /// Consume this reader into a full owned row, reusing the output buffer.
     /// All slots materialize through the existing accepted contract before
     /// their cached values move; no borrowed reader can survive this handoff.
@@ -158,9 +168,7 @@ impl<'a> StructuralSlotReader<'a> {
     ) -> Result<(), InternalError> {
         values.clear();
         values.reserve(self.field_count());
-        for slot in 0..self.field_count() {
-            self.required_cached_value(slot)?;
-        }
+        self.materialize_all_values()?;
 
         // Each cell is populated above. Consuming the cache avoids duplicating
         // heap-owning payloads and cannot expose emptied cells to later readers.
@@ -667,6 +675,19 @@ mod tests {
         codec: LeafCodec,
         nullable: bool,
     ) -> StructuralRowContract {
+        let storage_decode = match codec {
+            LeafCodec::Scalar(_) => FieldStorageDecode::ByKind,
+            LeafCodec::Structural => FieldStorageDecode::CatalogValue,
+        };
+        payload_contract_with_storage(kind, codec, nullable, storage_decode)
+    }
+
+    fn payload_contract_with_storage(
+        kind: AcceptedFieldKind,
+        codec: LeafCodec,
+        nullable: bool,
+        storage_decode: FieldStorageDecode,
+    ) -> StructuralRowContract {
         let fields = vec![
             PersistedFieldSnapshot::new_initial(
                 FieldId::new(1),
@@ -698,10 +719,7 @@ mod tests {
                 Vec::new(),
                 nullable,
                 SchemaInsertDefault::None,
-                match codec {
-                    LeafCodec::Scalar(_) => FieldStorageDecode::ByKind,
-                    LeafCodec::Structural => FieldStorageDecode::CatalogValue,
-                },
+                storage_decode,
                 codec,
             ),
         ];

@@ -5135,6 +5135,46 @@ fn sql_canister_numeric_type_endpoint_executes_mixed_numeric_aggregate_queries()
 }
 
 #[test]
+fn generated_sql_query_endpoint_uses_the_replicated_reply_bound() {
+    let fixture = install_sql_canister_fixture();
+    let pic = fixture.pocket_ic();
+    let canister_id = *fixture.metadata();
+    reset_sql_fixtures(pic, canister_id);
+    seed_oversized_sql_group_name(pic, canister_id);
+
+    // Two existing large group names fit a non-replicated reply but exceed
+    // the replicated limit, including the complete Wire response envelope.
+    let sql = "SELECT group_name, COUNT(*) FROM SqlTestNumericTypes \
+               WHERE label IN ('alpha', 'beta') \
+               GROUP BY group_name ORDER BY group_name LIMIT 50";
+    let ordinary = query_sql(pic, canister_id, sql).unwrap();
+    let response: Result<&SqlQueryResult, Error> = Ok(&ordinary);
+    let bytes = icydb::wire::Endpoint::Query
+        .encode_response(response)
+        .unwrap()
+        .len();
+    assert!(bytes > 2 * 1024 * 1024 && bytes < 3 * 1024 * 1024);
+    let replicated: Result<SqlQueryResult, Error> = pic
+        .update_wire(canister_id, "icydb_query", (sql.to_string(),))
+        .expect("replicated SQL query must return a decodable response rather than trap");
+    let error = replicated.expect_err("replicated SQL query must refuse an oversized success");
+    assert_eq!(
+        error.code(),
+        ErrorCode::RUNTIME_BOUNDARY_SQL_QUERY_REPLY_BYTES_EXCEEDED
+    );
+    assert_eq!(error.origin(), ErrorOrigin::Response);
+
+    let small = "SELECT group_name, COUNT(*) FROM SqlTestNumericTypes \
+                 WHERE label = 'alpha' \
+                 GROUP BY group_name ORDER BY group_name LIMIT 50";
+    let replicated: Result<SqlQueryResult, Error> = pic
+        .update_wire(canister_id, "icydb_query", (small.to_string(),))
+        .unwrap();
+    assert_eq!(replicated, query_sql(pic, canister_id, small));
+    assert_eq!(query_sql(pic, canister_id, sql).unwrap(), ordinary);
+}
+
+#[test]
 fn generated_sql_query_endpoint_rejects_an_undeliverable_complete_envelope() {
     let fixture = install_sql_canister_fixture();
     let pic = fixture.pocket_ic();

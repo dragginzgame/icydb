@@ -1,9 +1,11 @@
+mod commit_identity_tests;
 #[cfg(feature = "sql")]
 mod grouped_count_tests;
 #[cfg(feature = "sql")]
 mod historical_scalar_tests;
 #[cfg(feature = "sql")]
 mod historical_update_tests;
+mod index_readiness_tests;
 #[cfg(feature = "sql")]
 mod mutation_job_authority_tests;
 mod nested_relation_tests;

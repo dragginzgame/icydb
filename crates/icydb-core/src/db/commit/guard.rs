@@ -39,13 +39,13 @@ const DEFAULT_STARTUP_RECOVERY_WAKEUP: Option<fn()> = None;
 thread_local! {
     // Generated canister lifecycle wiring installs the sole engine-owned
     // wake-up callback. Keeping the callback volatile makes its registration
-    // atomic with a normally returned commit-apply failure while durable
-    // recovery controls remain the only progress authority.
+    // atomic with a normally returning commit that retains recovery work.
+    // Durable recovery controls remain the only progress authority.
     static STARTUP_RECOVERY_WAKEUP: Cell<Option<fn()>> =
         const { Cell::new(DEFAULT_STARTUP_RECOVERY_WAKEUP) };
 }
 
-/// Install the generated watchdog wake-up used by retained-marker error exits.
+/// Install the generated watchdog wake-up used by retained recovery work.
 #[doc(hidden)]
 pub fn install_startup_recovery_wakeup(wakeup: fn()) {
     STARTUP_RECOVERY_WAKEUP.with(|installed| installed.set(Some(wakeup)));
@@ -174,12 +174,13 @@ impl Drop for CommitApplyGuard {
 /// CommitGuard
 ///
 /// In-flight commit handle that clears the marker on completion.
+/// Dropping an uncleared handle requests recovery through its captured callback.
 /// Must not be leaked across mutation boundaries.
 ///
 
 #[derive(Debug)]
 pub(crate) struct CommitGuard {
-    startup_recovery_wakeup: fn(),
+    startup_recovery_wakeup: Option<fn()>,
     encoded_control_slot: EncodedCommitControlSlot,
     retained_journal_debt: bool,
 }
@@ -191,7 +192,7 @@ impl CommitGuard {
         retained_journal_debt: bool,
     ) -> Self {
         Self {
-            startup_recovery_wakeup,
+            startup_recovery_wakeup: Some(startup_recovery_wakeup),
             encoded_control_slot,
             retained_journal_debt,
         }
@@ -203,19 +204,24 @@ impl CommitGuard {
     }
 
     /// Clear the commit marker after successful apply.
-    fn clear(&self) -> Result<(), InternalError> {
+    fn clear(&mut self) -> Result<(), InternalError> {
         with_initialized_commit_store(|store| {
             store.clear_live_verified(&self.encoded_control_slot)
-        })?
+        })??;
+        // Retiring the marker releases this obligation only when no journal
+        // work remains. A failed clear leaves the captured wake-up armed.
+        if !self.retained_journal_debt {
+            self.startup_recovery_wakeup = None;
+        }
+        Ok(())
     }
+}
 
-    /// Ensure one future replicated attempt can advance retained recovery work.
-    fn ensure_startup_recovery_wakeup(&self) {
-        (self.startup_recovery_wakeup)();
-    }
-
-    const fn retained_journal_debt(&self) -> bool {
-        self.retained_journal_debt
+impl Drop for CommitGuard {
+    fn drop(&mut self) {
+        if let Some(wakeup) = self.startup_recovery_wakeup.take() {
+            wakeup();
+        }
     }
 }
 
@@ -312,10 +318,8 @@ pub(crate) fn finish_commit(
     // re-run the marker payload instead of losing commit authority.
     let result = apply(&mut guard);
     if let Err(error) = result {
-        // A normally returned apply error commits its retained marker. Ensure
-        // the recurring recovery wake-up in the same IC message before the
-        // error is allowed to return; a trap rolls both changes back together.
-        guard.ensure_startup_recovery_wakeup();
+        // The guard requests recovery on every normally returned error in the
+        // same IC message; a trap rolls marker and scheduling changes back.
         // Phase 1 (error path): failed apply must preserve marker authority.
         // Internal invariant: failed commit windows must preserve marker authority.
         if with_initialized_commit_store(super::store::CommitStore::is_empty)? {
@@ -324,24 +328,18 @@ pub(crate) fn finish_commit(
         return Err(error);
     }
 
-    // Phase 1: successful apply must clear marker authority immediately. A
-    // normally returned clear failure may retain the marker, so it must also
-    // atomically retain a recovery wake-up.
-    if let Err(error) = guard.clear() {
-        guard.ensure_startup_recovery_wakeup();
-        return Err(error);
-    }
-    if guard.retained_journal_debt() {
-        guard.ensure_startup_recovery_wakeup();
-    }
+    // Phase 1: successful apply must clear marker authority immediately. The
+    // guard retains its wake-up on clear failure or retained journal debt.
     // Clear preflights every fallible check before its mechanical stable writes.
     // Do not introduce a normally returned validation error after retirement;
     // the next message's recovery observation remains the independent check.
-    Ok(())
+    guard.clear()
 }
 
 #[cfg(test)]
 mod tests {
+    mod wakeup;
+
     use super::*;
     use crate::db::{
         commit::{commit_memory_handle, select_commit_memory_allocation},

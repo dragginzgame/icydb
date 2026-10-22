@@ -17,6 +17,7 @@ use crate::db::executor::terminal::KernelRow;
 pub(in crate::db::executor) struct ScalarPageMaterialization {
     pub(in crate::db::executor) payload: StructuralCursorPage,
     pub(in crate::db::executor) rows_scanned: usize,
+    /// Matched rows after continuation filtering, before OFFSET/LIMIT truncation.
     pub(in crate::db::executor) post_access_rows: usize,
 }
 
@@ -54,6 +55,7 @@ pub(in crate::db::executor) struct KernelRowsExecutionAttempt {
 
 pub(in crate::db::executor) struct ExecutionOutcomeMetrics {
     pub(in crate::db::executor) rows_scanned: usize,
+    /// Matched rows after continuation filtering, before OFFSET/LIMIT truncation.
     pub(in crate::db::executor) post_access_rows: usize,
 }
 

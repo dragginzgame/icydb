@@ -1,5 +1,8 @@
 //! Schema records finish semantic preparation before the first batch effect.
 
+mod migration_plan;
+mod validation_index;
+
 use super::super::{
     JournalRecordApplyMode, PreparedJournalOp, apply_prepared_journal_batch,
     prepare_replayed_journal_batch, validate_journal_batch_records,
