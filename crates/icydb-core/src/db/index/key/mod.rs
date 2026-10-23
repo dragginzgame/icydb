@@ -13,7 +13,8 @@ mod ordered;
 mod tests;
 
 pub(in crate::db) use build::encode_accepted_index_literal_component;
-pub(in crate::db) use codec::IndexKeyEncodeError;
+pub(in crate::db) use codec::decode_index_key_frame;
+pub(in crate::db) use codec::{BorrowedIndexKeyFrame, IndexKeyEncodeError};
 pub(crate) use codec::{IndexKey, IndexKeyKind, RawIndexStoreKey};
 pub(in crate::db) use expression::derive_index_expression_value;
 pub(crate) use id::IndexId;

@@ -32,10 +32,6 @@ impl RelationTargetKeys {
         Self::from_values(values)
     }
 
-    pub(super) fn contains(&self, target_key: &PrimaryKeyValue) -> bool {
-        self.values.iter().any(|key| key == target_key)
-    }
-
     pub(super) const fn len(&self) -> usize {
         self.values.len()
     }

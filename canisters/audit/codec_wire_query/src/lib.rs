@@ -1,30 +1,32 @@
-//! Wire-only actor for an isolated finite key/count contract.
+//! Wire-only actor for an isolated bounded native key/count contract.
 
-use ic_wire::{Limits, Method};
+use ic_wire::Limits;
 use icydb_testing_codec_query::MAX_FRAME_BYTES;
 
+#[cfg(any(target_arch = "wasm32", test))]
+use ic_wire::native;
 #[cfg(any(target_arch = "wasm32", test))]
 use icydb_testing_codec_query::{QueryCodecError, row_count};
 
 /// Current bounded key/count contract.
 pub struct CountRows;
 
-impl Method for CountRows {
-    type Request = u64;
-    type Response = u32;
-    const ID: u64 = u64::from_le_bytes(*b"ICYDBCQ1");
-    const NAME: &'static str = "count_rows";
-    const REQUEST_LIMITS: Limits = Limits {
+impl CountRows {
+    /// Canonical key/count method identity.
+    pub const ID: u64 = u64::from_le_bytes(*b"ICYDBCQ1");
+    /// Fixed frame allowance plus two native value-size charges for one u64.
+    pub const REQUEST_LIMITS: Limits = Limits {
         bytes: MAX_FRAME_BYTES,
-        allocation: 21,
-        nodes: 1,
-        depth: 1,
+        allocation: MAX_FRAME_BYTES + 128, // Two native u64 charges: 2 × 8 × 8.
+        nodes: 4,
+        depth: 3,
     };
-    const RESPONSE_LIMITS: Limits = Limits {
+    /// Fixed frame allowance plus two native value-size charges for one u32.
+    pub const RESPONSE_LIMITS: Limits = Limits {
         bytes: MAX_FRAME_BYTES,
-        allocation: 16,
-        nodes: 1,
-        depth: 1,
+        allocation: MAX_FRAME_BYTES + 64, // Two native u32 charges: 2 × 8 × 4.
+        nodes: 4,
+        depth: 3,
     };
 }
 
@@ -40,24 +42,53 @@ extern "C" fn count_rows() {
 
 #[cfg(any(target_arch = "wasm32", test))]
 fn reply(request: &[u8]) -> Result<Vec<u8>, QueryCodecError> {
-    let key = ic_wire::decode_request::<CountRows>(request)
+    let key = native::decode_request::<u64>(CountRows::ID, request, CountRows::REQUEST_LIMITS)
         .map_err(|_| QueryCodecError::InvalidRequest)?;
-    ic_wire::encode_response::<CountRows>(&row_count(key))
-        .map(ic_wire::ResponseBytes::into_bytes)
+    native::encode_response(CountRows::ID, &row_count(key), CountRows::RESPONSE_LIMITS)
         .map_err(|_| QueryCodecError::Encoding)
 }
 
 #[cfg(test)]
 mod tests {
     use super::{CountRows, reply};
+    use ic_wire::native;
 
     #[test]
     fn wire_control_preserves_counts_and_rejects_invalid_frames() {
-        let request = ic_wire::encode_request::<CountRows>(&7)
-            .unwrap()
-            .into_bytes();
+        for (key, count, payload) in [
+            (0_u64, 1_u32, vec![0]),
+            (7, 2, vec![7]),
+            (
+                u64::MAX,
+                1,
+                vec![255, 255, 255, 255, 255, 255, 255, 255, 255, 1],
+            ),
+        ] {
+            let request =
+                native::encode_request(CountRows::ID, &key, CountRows::REQUEST_LIMITS).unwrap();
+            let mut expected = b"IWICYDBCQ1\x00".to_vec();
+            expected.extend_from_slice(&payload);
+            assert_eq!(request, expected);
+            let response = reply(&request).unwrap();
+            let mut expected = b"IWICYDBCQ1\x01".to_vec();
+            expected.push(u8::try_from(count).unwrap());
+            assert_eq!(response, expected);
+            assert_eq!(
+                native::decode_response::<u32>(
+                    CountRows::ID,
+                    &response,
+                    CountRows::RESPONSE_LIMITS
+                ),
+                Ok(count)
+            );
+        }
+        let request =
+            native::encode_request(CountRows::ID, &7_u64, CountRows::REQUEST_LIMITS).unwrap();
         let response = reply(&request).unwrap();
-        assert_eq!(ic_wire::decode_response::<CountRows>(&response), Ok(2));
+        assert_eq!(
+            native::decode_response::<u32>(CountRows::ID, &response, CountRows::RESPONSE_LIMITS),
+            Ok(2)
+        );
         for length in 0..request.len() {
             assert!(reply(&request[..length]).is_err());
         }

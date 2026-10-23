@@ -1,4 +1,7 @@
+mod delete_validation;
+mod empty_domain;
 mod nested_borrow;
+mod raw_key_framing;
 
 use super::{
     AcceptedRelationInfo, AcceptedRelationLocalComponentSpec, AcceptedRelationLocalComponents,
@@ -148,22 +151,20 @@ fn accepted_relation_target_identity_rejects_empty_primary_key_metadata() {
 
 #[test]
 fn relation_target_keys_make_none_one_and_many_explicit() {
-    assert!(
-        !RelationTargetKeys::none()
-            .contains(&PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(1),))
-    );
+    assert!(RelationTargetKeys::none().into_values().is_empty());
 
     let key = PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(7));
     let one = RelationTargetKeys::one(&key);
-    assert!(one.contains(&PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(7))));
-    assert_eq!(one.into_values().len(), 1);
+    assert_eq!(one.into_values(), vec![key]);
 
     let many = RelationTargetKeys::from_scalar_components(vec![
         PrimaryKeyComponent::Nat64(7),
         PrimaryKeyComponent::Nat64(8),
     ]);
-    assert!(many.contains(&PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(8))));
-    assert_eq!(many.into_values().len(), 2);
+    assert_eq!(
+        many.into_values(),
+        vec![key, PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(8))]
+    );
 }
 
 #[test]

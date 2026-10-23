@@ -4,9 +4,12 @@
 //! Boundary: executor row filtering uses this runtime program.
 
 mod compare;
+#[cfg(test)]
+mod tests;
 
 use crate::db::predicate::runtime::compare::{
-    eval_compare_scalar_slot, eval_compare_values, is_empty_value, text_contains_scalar,
+    eval_compare_scalar_slot, eval_compare_values, eval_text_scalar_compare, is_empty_value,
+    text_contains_scalar,
 };
 use crate::db::{
     predicate::{
@@ -19,11 +22,11 @@ use crate::{
     db::{
         data::{CanonicalSlotReader, ScalarSlotValueRef, ScalarValueRef, StructuralRowContract},
         predicate::{
-            CoercionSpec, CompareOp, ComparePredicate, ExecutableCompareOperand,
+            CoercionId, CoercionSpec, CompareOp, ComparePredicate, ExecutableCompareOperand,
             ExecutableComparePredicate, ExecutablePredicate, Predicate,
         },
     },
-    value::{TextMode, Value},
+    value::{TextMode, Value, casefold_text},
 };
 use std::borrow::Cow;
 
@@ -32,7 +35,8 @@ use std::borrow::Cow;
 ///
 /// Canonical executable predicate program for runtime row filtering.
 /// Field names are resolved once during setup; runtime and index paths consume
-/// the same structural execution tree.
+/// the same structural execution tree. Case-insensitive literals are prepared
+/// once here; evaluators fold row values without refolding those constants.
 ///
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -167,12 +171,19 @@ fn compile_predicate_program_with_resolver(
             op,
             value,
             coercion,
-        }) => ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
-            resolve_field(field),
-            *op,
-            value.clone(),
-            coercion.clone(),
-        )),
+        }) => {
+            let value = if coercion.id == CoercionId::TextCasefold {
+                prepare_casefold_literal(value)
+            } else {
+                value.clone()
+            };
+            ExecutablePredicate::Compare(ExecutableComparePredicate::field_literal(
+                resolve_field(field),
+                *op,
+                value,
+                coercion.clone(),
+            ))
+        }
         Predicate::CompareFields(crate::db::predicate::CompareFieldsPredicate {
             left_field,
             op,
@@ -205,8 +216,23 @@ fn compile_predicate_program_with_resolver(
         },
         Predicate::TextContainsCi { field, value } => ExecutablePredicate::TextContainsCi {
             field_slot: resolve_field(field),
-            value: value.clone(),
+            value: prepare_casefold_literal(value),
         },
+    }
+}
+
+// Prepare only text constants consumed by a scalar compare or membership list.
+// Program compilation also covers parser/builder predicates whose literals did
+// not pass through canonical boolean-expression normalization.
+fn prepare_casefold_literal(value: &Value) -> Value {
+    let fold = |value: &Value| match value {
+        Value::Text(text) => Value::Text(casefold_text(text)),
+        value => value.clone(),
+    };
+
+    match value {
+        Value::List(values) => Value::List(values.iter().map(fold).collect()),
+        value => fold(value),
     }
 }
 
@@ -404,7 +430,8 @@ where
         }
         ExecutablePredicate::TextContainsCi { field_slot, value } => {
             on_present_slot_cow(*field_slot, read_slot, |actual| {
-                actual.text_contains(value, TextMode::Ci).unwrap_or(false)
+                matches!((actual, value), (Value::Text(actual), Value::Text(needle))
+                    if text_contains_scalar(actual, needle, TextMode::Ci))
             })
         }
     }
@@ -420,9 +447,27 @@ where
     F: FnMut(usize) -> Option<Cow<'a, Value>>,
 {
     with_compare_operands_cow(cmp, read_slot, |left, right| {
-        eval_compare_values(left, cmp.op, right, &cmp.coercion)
+        eval_compare_prepared_values(cmp, left, right)
     })
     .unwrap_or(false)
+}
+
+// Literal operands in a runtime program are prepared. Field pairs retain the
+// general semantics, since both sides come from the current row.
+fn eval_compare_prepared_values(
+    cmp: &ExecutableComparePredicate,
+    left: &Value,
+    right: &Value,
+) -> bool {
+    if cmp.coercion.id == CoercionId::TextCasefold
+        && cmp.right_literal().is_some()
+        && let Value::Text(actual) = left
+        && let Some(result) = eval_text_scalar_compare(actual, cmp.op, right, &cmp.coercion)
+    {
+        return result;
+    }
+
+    eval_compare_values(left, cmp.op, right, &cmp.coercion)
 }
 
 // Evaluate one executable predicate tree through scalar-only slot reads.
@@ -649,7 +694,7 @@ fn eval_compare_with_structural_slots(
     }
 
     with_compare_operands_structural(cmp, slots, |left, right| {
-        eval_compare_values(left, cmp.op, right, &cmp.coercion)
+        eval_compare_prepared_values(cmp, left, right)
     })
     .map(|result| result.unwrap_or(false))
 }
@@ -934,7 +979,8 @@ fn eval_text_contains_with_structural_slots(
         },
         |field_slot, slots| {
             eval_required_value_slot(field_slot, slots, |actual| {
-                actual.text_contains(value, mode).unwrap_or(false)
+                matches!((actual, value), (Value::Text(actual), Value::Text(needle))
+                    if text_contains_scalar(actual, needle, mode))
             })
         },
     )

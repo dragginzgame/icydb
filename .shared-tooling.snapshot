@@ -1,8 +1,8 @@
 # Shared Tooling snapshot v1
-# version	0.26.6
+# version	0.26.7
 format	1
 source	https://github.com/dragginzgame/shared-tooling
-revision	4cb9bc907154225a3f7e4c33fd8d75fbeaa125c8
+revision	3e8d7cd3e7e9b7b79a5e800c30daf0be2710dab0
 # entrypoint	scripts/ci/verify-file-checksum.sh
 # entrypoint	scripts/ci/verify-shared-tooling-snapshot.sh
 # entrypoint	scripts/ci/run-validation-targets.sh
@@ -130,7 +130,7 @@ file	1b64cf2ba0393ab329ec29eb05a696d47ef5933f5ab9bff6e1fe4a7e7b294075	-	audits/m
 file	8aa442dcbe08e4092e3f5209ff5d6feac188f4959c63171dd9e6dfbff8d57366	-	audits/module-cleanup.md
 file	68f257ad3efd1081d46d3ba9bbf633869fa8ce08116b2b8108261baf3c16dddd	-	docs/provenance.md
 file	f280d8dcb6b92d5ac3d051c7456a158ba8a724722e50cb252bf0ea754ad2b9be	-	docs/ic-tools.md
-file	86550e8e7e4dee30f6c17014cfa1c8100ecc4e3879175f45aa9ddb55bca40b99	-	docs/local-setup.md
+file	8b29c6f91255ffbe8c1845222fa0b17d094ff15637cafb3f4c9a458930be5931	-	docs/local-setup.md
 file	7d68c9443a11e53ff2b46bde5db2720889768606590a9d2882599c37cd8cd052	-	ci/tool-versions.env
 file	537bb28ee126354218ad76ff59999110c102ac7ca22e5b633feb62e321896dfd	x	scripts/dev/install-host-tools.sh
 file	c79a6a36d3bc35a5fd0afbcaf30cab3c3a651d629e61b82f36ce73b0215eda0d	x	scripts/dev/install-ic-tools.sh
@@ -152,7 +152,7 @@ file	9e32385247296ce95d2b15b1290c64e6b6dff15716c1c139f21ab5e5128f4be3	x	scripts/
 file	e1b10001a898217c01d7e6e043a87056444bdd0426e38d957c682f2fb96b27fd	-	make/tools.mk
 file	9053e98c9b2e2f0a5500c9a865a3efabca78b89fd27adcd12aba2e9e58476a35	x	scripts/ci/test-tool-commands.sh
 file	fd07cef3f8203d8a1e3fe0667fcb91e00a485b5c123940a649c979a2f5c2fe1d	-	audits/ic-canister-applications.md
-file	81a257951da8ef0e2ccff6229ff5915a276f23818a3c820ddce35c9850e10ac6	x	scripts/dev/install-rust-tools.sh
+file	a851d0df2ba2493cb22ed1b443f8fa213277a08fdada405664a0ff72f7a87b9c	x	scripts/dev/install-rust-tools.sh
 file	a662981d8f9e6da91314d06ba6ae6272f1cd48f7e98b0bbd258abf614367a118	-	rules/contributions.md
 file	40268196f193f767ca0ecabecde1d81554eba0a77681bd71f292a5f55716f8bb	-	tasks/README.md
 file	eb2419a5762a3cb02f25811d93becb6b18ca520df0bc3448ea35dfa187a034b4	-	tasks/cargo-machete.md
@@ -173,7 +173,7 @@ file	cebc0fa4ee9944550350a492a3bc1084e28820e2c915e20351c336d87ce0359f	-	make/exe
 file	4ff0a961d5fb8639edf798d64bbe3abc0fcd83c6f703d7a6875c6f5174e76201	x	scripts/ci/run-formatting.sh
 file	227ce86878264ff60aa24a70bb20140b8ef3c8332be640186e96f93805ed1062	-	tasks/readme-freshness.md
 file	235d355481adf5b15dd118bbd2e83174484af4e463d75714bf70fd7f7352a8fc	-	ci/ic-tools.tsv
-file	11506dc67719964c437ca5adb7b1abcaf6db1b1373a0ad8032e768417c061788	-	scripts/dev/tool-store.sh
+file	518c9185b4f6112ec4d012808bd7809f6e9c15293f27053fb1f6c4c29ca27ee9	-	scripts/dev/tool-store.sh
 file	cc7daae8e361e31207b52a7c47e236f3a0277bd5fd49b9ab46e50a08c9185d16	-	scripts/dev/cargo-tool-build.sh
 file	c385168599f833bbcd390eaf5ba2aa7507e5a9f05df0ec7264907c3a0de02289	-	make/consumer.mk
 file	b504048aee31664bb51cfeb14061a43d13fbc1cfff6d84aa6951f1809d424294	-	docs/make-interface.md

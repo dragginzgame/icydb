@@ -1,6 +1,8 @@
 //! Journaled nested-relation admission and interruption recovery contracts.
 //! Reuses the session boundary's accepted-catalog and stable-store fixtures.
 
+mod delete_batch;
+
 use super::*;
 use crate::db::{
     key_taxonomy::{EncodedPrimaryKey, PrimaryKeyComponent, PrimaryKeyValue, RawIndexStoreKey},

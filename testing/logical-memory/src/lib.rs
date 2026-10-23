@@ -33,17 +33,13 @@ fn pause_delivery() {
     ic_platform::ic0::global_timer_set(0);
 }
 
-#[cfg(feature = "test-admin-api")]
 fn step() -> Result<bool, icydb::Error> {
     // Manual driving must request the entropy normally owned by the watchdog.
     canic_icydb::request_boot_entropy(icydb::db::provide_boot_entropy);
-    let result = icydb::db::with_request_execution(
-        __icydb_generated::__icydb_startup_driver_attempt_for_tests,
-    );
+    let result = icydb::db::with_request_execution(__icydb_generated::startup_driver_attempt);
     pause_delivery();
     result
 }
-#[cfg(feature = "test-admin-api")]
 icydb_testing_wasm_helpers::export_wire!(update, "step", Step, step, (), Result<bool, icydb::Error>);
 
 fn state() -> Result<DatabaseStartupState, StartupFailure> {

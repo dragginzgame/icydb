@@ -11,7 +11,6 @@ use ic_host_artifacts::{
 };
 use ic_host_fs::read::read_opened_file;
 use ic_host_tools::interface;
-use ic_wire::Method;
 use icydb::wire::Endpoint;
 use icydb_testing_wasm_helpers::wire::DynamicRowsQuery;
 
@@ -528,7 +527,6 @@ mod tests {
         render_schema_migration_endpoint_contracts,
     };
     use ic_host_artifacts::wasm::{CustomSection, encode_custom_section};
-    use ic_wire::Method;
     use icydb_testing_wasm_helpers::wire::DynamicRowsQuery;
 
     #[test]

@@ -7,7 +7,10 @@ mod driver;
 mod observe;
 pub(in crate::db) mod receipt;
 
-use icydb_diagnostic_code::{Diagnostic, DiagnosticFactTag, MAX_PUBLIC_DIAGNOSTIC_FACTS};
+use icydb_diagnostic_code::{
+    Diagnostic, DiagnosticCode, DiagnosticDetail, DiagnosticFactTag, ErrorCode,
+    MAX_PUBLIC_DIAGNOSTIC_FACTS, SchemaMigrationCode,
+};
 use serde::Deserialize;
 
 use crate::{db::StoreRegistry, error::InternalError, traits::CanisterKind};
@@ -110,8 +113,6 @@ fn terminal_code_for_kind(
     kind: StartupFailureKind,
     code: icydb_diagnostic_code::ErrorCode,
 ) -> bool {
-    use icydb_diagnostic_code::ErrorCode;
-
     let persisted_failure = code == ErrorCode::STORE_CORRUPTION
         || code == ErrorCode::STORE_INVARIANT_VIOLATION
         || code == ErrorCode::RUNTIME_CORRUPTION
@@ -127,7 +128,19 @@ fn terminal_code_for_kind(
                 code == ErrorCode::RUNTIME_BOUNDARY_JOURNAL_MUTATION_REVISION_EXHAUSTED
             }
             StartupFailureKind::SchemaReconciliation => {
-                code == ErrorCode::SCHEMA_DDL_ADMISSION
+                // The diagnostic registry owns migration categories. Planning
+                // refusals and corrupt authority cannot progress by retrying;
+                // leave controller lifecycle/publication conflicts unchanged.
+                let migration_planning_failure = matches!(
+                    code.diagnostic_detail(),
+                    Some(DiagnosticDetail::SchemaMigration { reason })
+                        if matches!(
+                            reason.diagnostic_code(),
+                            DiagnosticCode::RuntimeUnsupported | DiagnosticCode::RuntimeCorruption
+                        ) || reason == SchemaMigrationCode::IdentityConflict
+                );
+                migration_planning_failure
+                    || code == ErrorCode::SCHEMA_DDL_ADMISSION
                     || code == ErrorCode::RUNTIME_CONFLICT
                     || code == ErrorCode::RUNTIME_UNSUPPORTED
                     || code == ErrorCode::RUNTIME_BOUNDARY_GENERATED_FIELD_AFTER_DDL_FIELD
@@ -174,6 +187,8 @@ pub fn clear_generated_startup_failure<C: CanisterKind>() -> Result<bool, Intern
 
 #[cfg(test)]
 mod tests {
+    mod migration_failures;
+
     use super::*;
     use crate::{
         db::{

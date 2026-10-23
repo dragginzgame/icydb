@@ -20,12 +20,15 @@ use crate::{
                 },
                 reader::{
                     cache::{CachedSlotValue, build_initial_slot_cache},
-                    primary_key::validate_primary_key_component_from_slot_bytes_with_contract,
+                    primary_key::{
+                        validate_runtime_primary_key_component,
+                        validate_scalar_primary_key_component,
+                    },
                 },
                 types::{CanonicalSlotReader, SlotReader},
             },
         },
-        key_taxonomy::PrimaryKeyValue,
+        key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
         schema::{AcceptedFieldDecodeContract, AcceptedFieldKind},
     },
     error::InternalError,
@@ -208,31 +211,7 @@ impl<'a> StructuralSlotReader<'a> {
     ) -> Result<(), InternalError> {
         match *expected_key {
             PrimaryKeyValue::Scalar(component) => {
-                let primary_key_slot = self.contract.primary_key_slot();
-
-                // Preserve the reader's scalar validation/cache side effect before the
-                // shared row-contract validator performs the authoritative key check.
-                if matches!(
-                    self.contract.field_leaf_codec(primary_key_slot)?,
-                    LeafCodec::Scalar(_)
-                ) && let Some(CachedSlotValue::Scalar { validated, .. }) =
-                    self.cached_values.get(primary_key_slot)
-                {
-                    let _ = self.required_validated_scalar_slot_value_for_slot(
-                        primary_key_slot,
-                        validated,
-                    )?;
-                }
-
-                self.contract.field_name(primary_key_slot)?;
-                let raw_value = self.required_field_bytes(primary_key_slot)?;
-
-                validate_primary_key_component_from_slot_bytes_with_contract(
-                    &self.contract,
-                    primary_key_slot,
-                    raw_value,
-                    component,
-                )
+                self.validate_primary_key_component(self.contract.primary_key_slot(), component)
             }
             PrimaryKeyValue::Composite(composite) => {
                 let slots = self.contract.primary_key_slot_indices();
@@ -241,25 +220,34 @@ impl<'a> StructuralSlotReader<'a> {
                 }
 
                 for (&slot, &component) in slots.iter().zip(composite.components()) {
-                    if matches!(self.contract.field_leaf_codec(slot)?, LeafCodec::Scalar(_))
-                        && let Some(CachedSlotValue::Scalar { validated, .. }) =
-                            self.cached_values.get(slot)
-                    {
-                        let _ =
-                            self.required_validated_scalar_slot_value_for_slot(slot, validated)?;
-                    }
-
-                    self.contract.field_name(slot)?;
-                    let raw_value = self.required_field_bytes(slot)?;
-                    validate_primary_key_component_from_slot_bytes_with_contract(
-                        &self.contract,
-                        slot,
-                        raw_value,
-                        component,
-                    )?;
+                    self.validate_primary_key_component(slot, component)?;
                 }
 
                 Ok(())
+            }
+        }
+    }
+
+    // Use the same admitted scalar for cache retention and key comparison.
+    // Structural leaves likewise retain their accepted-contract materialization.
+    fn validate_primary_key_component(
+        &self,
+        slot: usize,
+        component: PrimaryKeyComponent,
+    ) -> Result<(), InternalError> {
+        let codec = self.contract.field_leaf_codec(slot)?;
+        self.contract.field_name(slot)?;
+        // A key must be physically present; historical fills cannot repair it.
+        self.required_field_bytes(slot)?;
+        match codec {
+            LeafCodec::Scalar(_) => {
+                validate_scalar_primary_key_component(self.required_scalar(slot)?, component)
+            }
+            LeafCodec::Structural => {
+                let value = self
+                    .required_cached_value(slot)
+                    .map_err(|_| InternalError::persisted_row_decode_corruption())?;
+                validate_runtime_primary_key_component(value, component)
             }
         }
     }
@@ -639,6 +627,7 @@ mod tests {
     mod direct_projection;
     mod full_row;
     mod historical_scalar;
+    mod primary_key_cache;
 
     use super::{CachedSlotValue, StructuralSlotReader};
     use crate::{

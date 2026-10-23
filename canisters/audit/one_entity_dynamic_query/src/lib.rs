@@ -6,7 +6,7 @@
 // Native system calls provide no IC measurement evidence.
 use ic_platform::ic0::performance_counter;
 
-use ic_wire::{Method, ResponseBytes, decode_request, encode_response};
+use ic_wire::native;
 use icydb::{
     db::{
         DynamicQuery,
@@ -41,7 +41,7 @@ fn query_one_entity_dynamic_rows() {
     }
     match dynamic_rows_reply(&ic_platform::cdk::api::msg_arg_data(), dynamic_row_count) {
         Ok(reply) => {
-            ic_platform::ic0::msg_reply_data_append(reply.as_bytes());
+            ic_platform::ic0::msg_reply_data_append(&reply);
             ic_platform::ic0::msg_reply();
         }
         Err(error) => ic_platform::ic0::msg_reject(error.to_string().as_bytes()),
@@ -60,9 +60,17 @@ canic_icydb::wire_endpoint!(
 fn dynamic_rows_reply(
     request: &[u8],
     query: impl FnOnce() -> u32,
-) -> Result<ResponseBytes<DynamicRowsQuery>, ic_wire::Error> {
-    decode_request::<DynamicRowsQuery>(request)?;
-    encode_response::<DynamicRowsQuery>(&query())
+) -> Result<Vec<u8>, ic_wire::Error> {
+    native::decode_request::<()>(
+        DynamicRowsQuery::ID,
+        request,
+        DynamicRowsQuery::REQUEST_LIMITS,
+    )?;
+    native::encode_response(
+        DynamicRowsQuery::ID,
+        &query(),
+        DynamicRowsQuery::RESPONSE_LIMITS,
+    )
 }
 
 fn dynamic_row_count() -> u32 {
@@ -193,24 +201,26 @@ icydb_testing_wasm_helpers::export_wire!(query, "measure_repeated_grouped_querie
 #[cfg(test)]
 mod wire_tests {
     use super::dynamic_rows_reply;
-    use ic_wire::{decode_response, encode_request};
+    use ic_wire::native;
     use icydb_testing_wasm_helpers::wire::DynamicRowsQuery;
     use std::cell::Cell;
 
     #[test]
     fn wire_admission_precedes_query_execution() {
-        let request = encode_request::<DynamicRowsQuery>(&()).unwrap();
-        let mut invalid = (0..request.as_bytes().len())
-            .map(|length| request.as_bytes()[..length].to_vec())
+        let request =
+            native::encode_request(DynamicRowsQuery::ID, &(), DynamicRowsQuery::REQUEST_LIMITS)
+                .unwrap();
+        let mut invalid = (0..request.as_slice().len())
+            .map(|length| request.as_slice()[..length].to_vec())
             .collect::<Vec<_>>();
         invalid.push(b"DIDL\0\0".to_vec());
-        let mut wrong_identity = request.as_bytes().to_vec();
+        let mut wrong_identity = request.as_slice().to_vec();
         wrong_identity[2] ^= 1;
         invalid.push(wrong_identity);
-        let mut wrong_direction = request.as_bytes().to_vec();
+        let mut wrong_direction = request.as_slice().to_vec();
         wrong_direction[10] = 1;
         invalid.push(wrong_direction);
-        let mut trailing = request.as_bytes().to_vec();
+        let mut trailing = request.as_slice().to_vec();
         trailing.push(0);
         invalid.push(trailing);
 
@@ -226,12 +236,19 @@ mod wire_tests {
         }
         assert_eq!(executions.get(), 0);
 
-        let reply = dynamic_rows_reply(request.as_bytes(), || {
+        let reply = dynamic_rows_reply(request.as_slice(), || {
             executions.set(executions.get() + 1);
             7
         })
         .unwrap();
-        assert_eq!(decode_response::<DynamicRowsQuery>(reply.as_bytes()), Ok(7));
+        assert_eq!(
+            native::decode_response::<u32>(
+                DynamicRowsQuery::ID,
+                reply.as_slice(),
+                DynamicRowsQuery::RESPONSE_LIMITS
+            ),
+            Ok(7)
+        );
         assert_eq!(executions.get(), 1);
     }
 }

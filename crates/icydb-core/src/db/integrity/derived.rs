@@ -523,7 +523,7 @@ fn inspect_unique_index_key(
             witnesses = witnesses
                 .checked_add(1)
                 .ok_or_else(InternalError::store_invariant)?;
-            Ok(witnesses >= 2)
+            Ok::<_, InternalError>(witnesses >= 2)
         },
     )?;
     if witnesses < 2 {

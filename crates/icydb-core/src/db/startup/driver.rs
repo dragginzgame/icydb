@@ -58,9 +58,24 @@ pub(super) fn drive_recovery_page<C: CanisterKind>(
     match recovery {
         Ok(true) if startup_ready => {
             super::receipt::clear::<C>()?;
-            // Prepare the accepted root in replicated heap before this watchdog
-            // becomes quiescent; query-only preparation cannot retain the cache.
-            if let Err(error) = session.current_accepted_runtime_root_identity() {
+            // Prepare both existing cache owners before becoming quiescent.
+            // Folding can clear store projections while the runtime root hits;
+            // query-only preparation cannot retain the missing projections.
+            let preparation = session
+                .current_accepted_runtime_root_identity()
+                .and_then(|_| {
+                    stores.with(|registry| {
+                        registry.iter().try_for_each(|(_, store)| {
+                            store.with_schema(|schema| {
+                                let selection = schema.current_accepted_schema_root()?;
+                                schema
+                                    .accepted_cardinality_domain_for_selection(selection)
+                                    .map(|_| ())
+                            })
+                        })
+                    })
+                });
+            if let Err(error) = preparation {
                 return record_schema_application_failure::<C>(stores, submission_key, error);
             }
             match drive_cardinality_page(stores) {

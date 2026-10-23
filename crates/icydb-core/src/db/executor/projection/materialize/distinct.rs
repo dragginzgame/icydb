@@ -8,7 +8,7 @@ use crate::{
         cursor::CursorBoundary,
         executor::{
             group::{
-                GroupKey, StableHash, retained_hash_entry_backing_bytes,
+                GroupKey, StableHash, canonicalize_owned_value, retained_hash_entry_backing_bytes,
                 retained_vec_element_backing_bytes, stable_hash_from_digest,
                 try_reserve_hash_entry, try_reserve_vec_elements,
             },
@@ -173,7 +173,7 @@ impl DistinctProjectionRowSet {
             return Ok(false);
         }
 
-        let canonical = GroupKey::from_group_values(row.values().to_vec())?.into_canonical_value();
+        let canonical = canonical_projected_row(row)?;
         charge_distinct_key(&canonical)?;
         self.retain_unique_canonical(hash, canonical)?;
 
@@ -437,7 +437,7 @@ pub(super) fn collect_distinct_projected_rows<I>(
 }
 
 fn canonical_projected_row(row: &RowView) -> Result<Value, InternalError> {
-    GroupKey::from_group_values(row.values().to_vec()).map(GroupKey::into_canonical_value)
+    canonicalize_owned_value(Value::List(row.values().to_vec()))
 }
 
 fn projected_row_matches_canonical(
@@ -543,6 +543,8 @@ fn value_matches_canonical_key(value: &Value, canonical: &Value) -> bool {
 
 #[cfg(test)]
 mod tests {
+    mod canonical_keys;
+
     use super::*;
     use crate::db::{
         QueryError,

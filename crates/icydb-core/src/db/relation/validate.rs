@@ -20,7 +20,7 @@ use crate::{
                 accepted_relations_for_row_contract, decode_relation_target_data_key,
                 decode_reverse_entry, relation_target_store,
                 reverse_index_key_bounds_for_target_primary_key_value,
-                source_row_references_relation_target_primary_key_value,
+                source_row_references_any_deleted_relation_target,
             },
         },
         runtime_entity_catalog::AcceptedRuntimeEntity,
@@ -164,40 +164,45 @@ where
 
                         // Phase 2: verify the key-owned source row before rejecting delete.
                         let source_key = *entry.primary_key_value();
-                        {
-                            let source_data_key =
-                                DecodedDataStoreKey::new(source_info.entity_tag(), &source_key);
-                            let source_raw_row =
-                                source_reader.read_primary_row(&source_data_key)?;
+                        let source_data_key =
+                            DecodedDataStoreKey::new(source_info.entity_tag(), &source_key);
+                        relation_budget.validate_delete_source_once(
+                            relation.relation_id(),
+                            source_data_key.to_raw()?,
+                            |relation_budget| {
+                                let source_raw_row =
+                                    source_reader.read_primary_row(&source_data_key)?;
 
-                            let Some(source_raw_row) = source_raw_row else {
-                                if source_reader.has_primary_row_override(&source_data_key)? {
-                                    // The canonical final overlay explicitly removed this
-                                    // source, so its committed reverse-index witness cannot
-                                    // block a target deleted by the same batch.
-                                    return Ok(false);
+                                let Some(source_raw_row) = source_raw_row else {
+                                    if source_reader.has_primary_row_override(&source_data_key)? {
+                                        // The canonical final overlay explicitly removed this
+                                        // source, so its committed reverse-index witness cannot
+                                        // block a target deleted by the same batch.
+                                        return Ok(());
+                                    }
+                                    return Err(InternalError::index_corruption());
+                                };
+
+                                let still_references_target =
+                                    source_row_references_any_deleted_relation_target(
+                                        &source_raw_row,
+                                        source_row_contract.clone(),
+                                        &relation,
+                                        deleted_target_keys,
+                                        relation_budget,
+                                    )?;
+                                if still_references_target {
+                                    return Err(relation.write_violation(
+                                        accepted_schema_fingerprint,
+                                        source_info.entity_tag(),
+                                        None,
+                                    ));
                                 }
-                                return Err(InternalError::index_corruption());
-                            };
+                                Ok(())
+                            },
+                        )?;
 
-                            let still_references_target =
-                                source_row_references_relation_target_primary_key_value(
-                                    &source_raw_row,
-                                    source_row_contract.clone(),
-                                    &relation,
-                                    &target_primary_key,
-                                    relation_budget,
-                                )?;
-                            if still_references_target {
-                                return Err(relation.write_violation(
-                                    accepted_schema_fingerprint,
-                                    source_info.entity_tag(),
-                                    None,
-                                ));
-                            }
-                        }
-
-                        Ok(false)
+                        Ok::<_, InternalError>(false)
                     },
                 )
             })?;

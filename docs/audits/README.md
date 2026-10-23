@@ -67,8 +67,10 @@ Location:
 Use the [boundary handoff review](targeted/integrity/boundary-handoff-review.md)
 when a concrete producer/consumer change leaves invariant coverage unclear.
 It is not an additional baseline sweep or a prerequisite for every domain run.
-Its local overlay uses the reviewed shared flow/report contract and retains
-IcyDB-specific carried-authority and proof requirements.
+Its `HANDOFF-3` overlay uses the reviewed
+[shared focused-handoff method](../../audits/flow-convergence-and-duplication.md#focused-boundary-handoff)
+for generic trace/proof mechanics and retains IcyDB's carried authority,
+executed-test evidence and report destination.
 
 One-time release or investigation prompts belong with their owning design or
 issue context. Their executed results still use the report hierarchy below.

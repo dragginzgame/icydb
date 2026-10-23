@@ -16,6 +16,7 @@ use crate::{
         resource::construction::ConstructionBudget,
     },
     error::InternalError,
+    types::EntityTag,
     value::Value,
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
@@ -214,6 +215,30 @@ pub(in crate::db) fn raw_keys_for_component_prefix_with_kind<C: AsRef<[u8]>>(
 ) -> Result<(RawIndexStoreKey, RawIndexStoreKey), IndexRangeBoundEncodeError> {
     IndexKey::raw_bounds_for_prefix_with_kind(index_id, key_kind, index_len, prefix)
         .map_err(|error| IndexRangeBoundEncodeError::Construction(error.into()))
+}
+
+/// Bracket one entity's entire user-index domain with inclusive raw bounds.
+///
+/// Index identity precedes component count in storage order. The extreme
+/// identities and component counts cover every ordinal/generation without
+/// incrementing the entity tag, including the maximum entity identity.
+pub(in crate::db) fn raw_user_index_entity_bounds(
+    entity_tag: EntityTag,
+) -> Result<(RawIndexStoreKey, RawIndexStoreKey), IndexRangeBoundEncodeError> {
+    let (lower, _) = raw_keys_for_component_prefix_with_kind::<&[u8]>(
+        &IndexId::new_with_generation(entity_tag, 0, 0),
+        IndexKeyKind::User,
+        0,
+        &[],
+    )?;
+    let (_, upper) = raw_keys_for_component_prefix_with_kind::<&[u8]>(
+        &IndexId::new_with_generation(entity_tag, u16::MAX, u64::MAX),
+        IndexKeyKind::User,
+        MAX_INDEX_FIELDS,
+        &[],
+    )?;
+
+    Ok((lower, upper))
 }
 
 ///

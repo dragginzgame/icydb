@@ -17,14 +17,10 @@ use icydb_testing_build::{
 /// Returns a build, post-link or retained-artifact read failure.
 pub fn build_logical_memory_fixture_wasms() -> Result<(Vec<u8>, Vec<u8>), String> {
     Ok((
+        build_fixture_variant_wasm("canister_test_logical_memory", "", "logical-memory-full")?,
         build_fixture_variant_wasm(
             "canister_test_logical_memory",
-            "test-admin-api",
-            "logical-memory-full",
-        )?,
-        build_fixture_variant_wasm(
-            "canister_test_logical_memory",
-            "test-admin-api,omit-retiring-store",
+            "omit-retiring-store",
             "logical-memory-omitted",
         )?,
     ))

@@ -1101,7 +1101,7 @@ pub(in crate::db::schema) fn cleanup_migration_staging_page<C: CanisterKind>(
             index.visit_raw_entries_in_range((&lower, &upper), Direction::Asc, |raw, _| {
                 if remaining_entries == 0 || remaining_bytes < raw.as_bytes().len() {
                     store_exhausted = false;
-                    return Ok(true);
+                    return Ok::<_, InternalError>(true);
                 }
                 let decoded =
                     IndexKey::try_from_raw(raw).map_err(|_| InternalError::store_corruption())?;

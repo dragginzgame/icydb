@@ -1,6 +1,8 @@
 //! Populated SQL index publication through interrupted marker and journal recovery.
 //! Reuses accepted-catalog session fixtures; compares complete effects with a live run.
 
+mod domain_scope;
+
 use super::*;
 use crate::db::{
     commit::{

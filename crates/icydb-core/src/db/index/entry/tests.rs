@@ -199,8 +199,9 @@ fn index_entry_value_validates_complete_key_before_witness() {
     malformed.push(trailing);
 
     // Keep the frame valid while corrupting the primary-key discriminator.
-    let decoded = IndexKey::try_from_raw(&key).expect("fixture key should decode");
-    let primary_start = bytes.len() - decoded.primary_key_bytes().len();
+    let (_, primary) =
+        IndexKey::primary_key_value_and_bytes_from_raw(&key).expect("fixture key should decode");
+    let primary_start = bytes.len() - primary.len();
     let mut invalid_primary = bytes.to_vec();
     invalid_primary[primary_start] = 0;
     malformed.push(invalid_primary);

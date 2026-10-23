@@ -21,9 +21,10 @@ use crate::{
                         GroupIndexBucket, compare_grouped_boundary_values,
                         find_matching_group_index_in_bucket, group_key_matches_path_group_values,
                         group_key_matches_row_view, group_key_matches_single_group_value,
-                        materialize_ordered_path_group_key, materialize_path_group_key,
-                        resolve_group_field_value, stable_hash_group_values_from_row_view,
-                        stable_hash_path_group_values, stable_hash_single_group_value,
+                        materialize_ordered_group_value, materialize_ordered_path_group_value,
+                        materialize_path_group_key, resolve_group_field_value,
+                        stable_hash_group_values_from_row_view, stable_hash_path_group_values,
+                        stable_hash_single_group_value,
                     },
                 },
             },
@@ -182,18 +183,14 @@ impl<State> OrderedGroupFoldState<State> {
     pub(super) fn apply_row(
         &mut self,
         execution_context: &mut ExecutionContext,
-        incoming_key: GroupKey,
+        incoming_key: Value,
         direction: Direction,
         create_state: impl FnOnce() -> State,
         apply_to_state: impl FnOnce(&mut State, &mut ExecutionContext) -> Result<(), GroupError>,
         visit_closed_group: impl FnOnce(GroupKey, State) -> Result<bool, InternalError>,
     ) -> Result<bool, GroupError> {
         let transition = self.active.as_ref().map(|(active_key, _)| {
-            compare_grouped_boundary_values(
-                direction,
-                active_key.canonical_value(),
-                incoming_key.canonical_value(),
-            )
+            compare_grouped_boundary_values(direction, active_key.canonical_value(), &incoming_key)
         });
 
         match transition {
@@ -220,7 +217,10 @@ impl<State> OrderedGroupFoldState<State> {
             }
         }
 
-        self.open_group(incoming_key, create_state, execution_context)?;
+        // Repeated and unused lookahead keys need only canonical comparison.
+        // Hash once the transition proves this key will actually be retained.
+        let group_key = GroupKey::from_canonical_value(incoming_key).map_err(GroupError::from)?;
+        self.open_group(group_key, create_state, execution_context)?;
         let active = self
             .active
             .as_mut()
@@ -327,8 +327,8 @@ impl OrderedGroupedAggregateFold {
         direction: Direction,
         visit_closed_group: impl FnOnce(GroupedFinalizeGroup) -> Result<bool, InternalError>,
     ) -> Result<bool, GroupError> {
-        let incoming_key = materialize_group_key_from_row_view(row_view, group_fields, None)
-            .map_err(GroupError::from)?;
+        let incoming_key =
+            materialize_ordered_group_value(row_view, group_fields).map_err(GroupError::from)?;
         self.ingest_group_key(
             execution_context,
             data_key,
@@ -349,8 +349,8 @@ impl OrderedGroupedAggregateFold {
         direction: Direction,
         visit_closed_group: impl FnOnce(GroupedFinalizeGroup) -> Result<bool, InternalError>,
     ) -> Result<bool, GroupError> {
-        let incoming_key =
-            materialize_ordered_path_group_key(row_view, group_fields).map_err(GroupError::from)?;
+        let incoming_key = materialize_ordered_path_group_value(row_view, group_fields)
+            .map_err(GroupError::from)?;
         self.ingest_group_key(
             execution_context,
             data_key,
@@ -366,7 +366,7 @@ impl OrderedGroupedAggregateFold {
         execution_context: &mut ExecutionContext,
         data_key: &DecodedDataStoreKey,
         row_view: &RowView,
-        incoming_key: GroupKey,
+        incoming_key: Value,
         direction: Direction,
         visit_closed_group: impl FnOnce(GroupedFinalizeGroup) -> Result<bool, InternalError>,
     ) -> Result<bool, GroupError> {
@@ -794,6 +794,8 @@ impl GroupedAggregateBundle {
 
 #[cfg(test)]
 mod tests {
+    mod ordered_hashing;
+
     use super::{GroupedAggregateBundle, GroupedAggregateBundleSpec, OrderedGroupedAggregateFold};
     use crate::{
         db::{

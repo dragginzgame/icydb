@@ -4,6 +4,9 @@
 //! Boundary: captures every registered accepted store root and publishes one
 //! immutable database-wide runtime authority for query, SQL, and write adapters.
 
+#[cfg(all(test, feature = "sql", feature = "migration"))]
+mod tests;
+
 use crate::{
     db::{
         DbSession,

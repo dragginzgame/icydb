@@ -22,7 +22,7 @@ use crate::{
                 },
                 dispatch::{GroupedCountKeyPath, GroupedCountProbeKind},
                 generic::OrderedGroupedPageSelection,
-                utils::materialize_ordered_path_group_key,
+                utils::{materialize_ordered_group_value, materialize_ordered_path_group_value},
             },
             runtime::grouped_output::finalize_grouped_output,
             value_reducer::finalize_count,
@@ -35,6 +35,7 @@ use crate::{
         route::GroupedExecutionMode,
     },
     error::InternalError,
+    value::Value,
 };
 
 pub(in crate::db::executor) use metadata::try_execute_grouped_count_metadata;
@@ -205,7 +206,7 @@ fn execute_ordered_grouped_count_fold_stage(
                 else {
                     continue;
                 };
-                let group_key = GroupKey::from_single_canonical_group_value(group_value)?;
+                let group_key = Value::List(vec![group_value]);
                 early_scan_stop = apply_ordered_count_row(
                     &mut transitions,
                     grouped_execution_context,
@@ -231,9 +232,9 @@ fn execute_ordered_grouped_count_fold_stage(
                     continue;
                 }
                 let group_key = if let Some(fields) = route.group_fields().as_direct() {
-                    materialize_group_key_from_row_view(&row_view, fields, None)?
+                    materialize_ordered_group_value(&row_view, fields)?
                 } else if let Some(fields) = route.group_fields().as_path_aware() {
-                    materialize_ordered_path_group_key(&row_view, fields)?
+                    materialize_ordered_path_group_value(&row_view, fields)?
                 } else {
                     return Err(InternalError::query_executor_invariant());
                 };
@@ -277,7 +278,7 @@ fn apply_ordered_count_row(
     transitions: &mut OrderedGroupFoldState<u32>,
     grouped_execution_context: &mut ExecutionContext,
     route: &GroupedRouteStage,
-    group_key: GroupKey,
+    group_key: Value,
     selection: &mut OrderedGroupedPageSelection<'_>,
 ) -> Result<bool, InternalError> {
     transitions

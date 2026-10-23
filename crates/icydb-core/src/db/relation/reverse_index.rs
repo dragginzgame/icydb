@@ -16,12 +16,16 @@ use crate::{
             decode_accepted_relation_target_primary_key_components_bytes,
             decode_runtime_value_from_accepted_field_contract,
         },
+        direction::Direction,
         index::{
-            IndexEntryValue, IndexId, IndexKey, IndexKeyKind, IndexRowIdentity, IndexState,
-            IndexStore, IndexStoreVisit, RawIndexStoreKey, StructuralPrimaryRowReader,
+            IndexEntryValue, IndexId, IndexKey, IndexKeyEncodeError, IndexKeyKind,
+            IndexRowIdentity, IndexState, IndexStore, RawIndexStoreKey, StructuralPrimaryRowReader,
             raw_keys_for_component_prefix_with_kind,
         },
-        key_taxonomy::{EncodedPrimaryKey, PrimaryKeyComponent, PrimaryKeyValue},
+        key_taxonomy::{
+            EncodedPrimaryKey, IndexStoreKeyKind, PrimaryKeyComponent, PrimaryKeyValue,
+            encode_index_store_key,
+        },
         registry::{StoreHandle, StoreRelationSourceCapability, StoreRelationTargetCapability},
         relation::{
             AcceptedRelationCardinality, AcceptedRelationTargetAuthority,
@@ -33,21 +37,19 @@ use crate::{
         schema::AcceptedFieldKind,
         schema::{
             AcceptedConstraintIdentity, AcceptedFieldDecodeContract, AcceptedRelationValueContract,
-            AcceptedValueCatalogHandle, MAX_SCHEMA_PROJECTION_WORK_UNITS,
-            OwnedAcceptedRelationEdgeContract, OwnedAcceptedRelationSourceContract,
-            PersistedRelationEdgeSnapshot, PersistedRelationPathStepSnapshot,
-            PersistedRelationSourceSnapshot, PersistedSchemaSnapshot, RelationId,
-            accepted_relation_path_terminal,
+            AcceptedValueCatalogHandle, OwnedAcceptedRelationEdgeContract,
+            OwnedAcceptedRelationSourceContract, PersistedRelationEdgeSnapshot,
+            PersistedRelationPathStepSnapshot, PersistedRelationSourceSnapshot,
+            PersistedSchemaSnapshot, RelationId, accepted_relation_path_terminal,
         },
     },
-    error::{
-        AcceptedConstraintFactContext, InternalError, MutationDiagnosticContext,
-        SchemaTransitionBudgetResource,
-    },
+    error::{AcceptedConstraintFactContext, InternalError, MutationDiagnosticContext},
     traits::CanisterKind,
     types::EntityTag,
 };
-use std::{cell::RefCell, mem::size_of, ops::Bound, rc::Rc, thread::LocalKey};
+use std::{
+    cell::RefCell, collections::BTreeSet, mem::size_of, ops::Bound, rc::Rc, thread::LocalKey,
+};
 
 use target_keys::RelationTargetKeys;
 
@@ -77,6 +79,8 @@ pub(in crate::db) struct RelationCommitBudget {
     // One immutable final-row view per batch: cache misses as misses, while
     // counting every distinct lookup rather than only successful validation.
     target_lookup_results: Vec<(RawDataStoreKey, bool)>,
+    // Successful whole-delete-set checks share the batch's immutable final view.
+    validated_delete_sources: BTreeSet<(RelationId, RawDataStoreKey)>,
     reverse_deltas: u64,
 }
 
@@ -131,6 +135,32 @@ impl RelationProjectionBudget {
 }
 
 impl RelationCommitBudget {
+    /// Validate one complete source/relation only once against the final delete set.
+    pub(in crate::db::relation) fn validate_delete_source_once(
+        &mut self,
+        relation_id: RelationId,
+        source_key: RawDataStoreKey,
+        validate: impl FnOnce(&mut Self) -> Result<(), InternalError>,
+    ) -> Result<(), InternalError> {
+        let identity = (relation_id, source_key);
+        if self.validated_delete_sources.contains(&identity) {
+            return Ok(());
+        }
+        // Each valid affected source/relation must remove at least one reverse
+        // edge. Its fact set cannot exceed the existing batch effect ceiling.
+        // Bound stale physical witnesses too, without another configurable cap.
+        charge_relation_counter(
+            u64::try_from(self.validated_delete_sources.len()).unwrap_or(u64::MAX),
+            1,
+            MAX_RELATION_BATCH_REVERSE_DELTAS,
+            icydb_diagnostic_code::DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+        )?;
+        validate(self)?;
+        self.validated_delete_sources.insert(identity);
+
+        Ok(())
+    }
+
     fn charge_raw_references(&mut self, amount: usize) -> Result<(), InternalError> {
         let amount = u64::try_from(amount).map_err(|_| {
             relation_budget_error(
@@ -1352,8 +1382,8 @@ const fn relation_id_component(relation: &AcceptedRelationInfo) -> [u8; size_of:
 /// Prove that one removed relation owns no surviving reverse physical entry.
 ///
 /// The observer derives the exact physical generation from accepted source
-/// authority. It scans the target index store through the same canonical
-/// merged view used by runtime reads and rejects malformed or oversized state.
+/// authority. Bounded prefix probes use the runtime's canonical merged view,
+/// including live entries and tombstones, without observing unrelated domains.
 pub(in crate::db) fn prove_empty_reverse_relation_domain(
     index_store: &IndexStore,
     source_entity: EntityTag,
@@ -1376,27 +1406,30 @@ pub(in crate::db) fn prove_empty_reverse_relation_domain(
         relation.physical_generation(),
     );
     let expected_relation_id = relation.id().get().to_be_bytes();
-    let mut work_units = 0_usize;
-    index_store.visit_entries(|raw_key, _| {
-        work_units = work_units.checked_add(1).ok_or_else(|| {
-            InternalError::schema_transition_budget_exceeded(
-                SchemaTransitionBudgetResource::ProjectionWorkUnits,
-            )
-        })?;
-        if work_units > MAX_SCHEMA_PROJECTION_WORK_UNITS {
-            return Err(InternalError::schema_transition_budget_exceeded(
-                SchemaTransitionBudgetResource::ProjectionWorkUnits,
-            ));
-        }
-        let key = IndexKey::try_from_raw(raw_key).map_err(|_| InternalError::store_corruption())?;
-        if key.key_kind() == IndexKeyKind::System
-            && key.index_id() == &expected
-            && key.component(0) == Some(expected_relation_id.as_slice())
-        {
-            return Err(InternalError::store_unsupported());
-        }
-        Ok(IndexStoreVisit::Continue)
-    })
+    // Component count precedes components in store ordering. Probe every
+    // codec-admitted count so a stray one/three/four-component entry cannot
+    // evade removal's existing refusal merely because reverse keys use two.
+    // Each probe rejects its first visible witness; the shared reader retains
+    // canonical/live precedence and skips tombstoned physical entries.
+    for component_count in 1..=crate::MAX_INDEX_FIELDS {
+        let (lower, upper) = raw_keys_for_component_prefix_with_kind(
+            &expected,
+            IndexKeyKind::System,
+            component_count,
+            &[expected_relation_id.as_slice()],
+        )
+        .map_err(|_| InternalError::store_corruption())?;
+        index_store.visit_raw_entries_in_range(
+            (&Bound::Included(lower), &Bound::Included(upper)),
+            Direction::Asc,
+            |raw_key, _| {
+                IndexKey::try_from_raw(raw_key).map_err(|_| InternalError::store_corruption())?;
+                Err(InternalError::store_unsupported())
+            },
+        )?;
+    }
+
+    Ok(())
 }
 
 /// Build reverse-index prefix bounds for one complete target primary key.
@@ -1413,7 +1446,7 @@ pub(super) fn reverse_index_key_bounds_for_target_primary_key_value(
         &index_id,
         IndexKeyKind::System,
         2,
-        &[relation_id.to_vec(), encoded_value],
+        &[relation_id.as_slice(), encoded_value.as_slice()],
     )
     .map_err(|_| InternalError::query_executor_invariant())?;
 
@@ -1431,14 +1464,19 @@ fn reverse_index_key_for_target_and_source_primary_key_value(
     let relation_id = relation_id_component(relation);
 
     let index_id = reverse_index_id_for_relation(source, relation);
-    let key = IndexKey::new_from_components_with_primary_key_value(
-        &index_id,
-        IndexKeyKind::System,
-        &[relation_id.to_vec(), encoded_value],
-        source_key_value,
-    )?;
+    let source_key = IndexKey::compact_primary_key_value_bytes(source_key_value)?;
+    // The two components are a fixed relation ID and an admitted complete PK;
+    // the suffix is also canonically encoded. Frame those borrowed segments
+    // directly, retaining the taxonomy owner's complete-key budget and errors.
+    let key = encode_index_store_key(
+        IndexStoreKeyKind::System,
+        index_id,
+        [relation_id.as_slice(), encoded_value.as_slice()].into_iter(),
+        &source_key,
+    )
+    .map_err(IndexKeyEncodeError::from)?;
 
-    Ok(Some(key.to_raw()?))
+    Ok(Some(key))
 }
 
 // Encode full relation target row identity as the reverse-index target
@@ -1448,7 +1486,7 @@ fn encode_reverse_relation_target_identity_component(
     target_key_value: &PrimaryKeyValue,
 ) -> Result<Vec<u8>, InternalError> {
     EncodedPrimaryKey::encode(*target_key_value)
-        .map(|encoded| encoded.as_bytes().to_vec())
+        .map(Vec::from)
         .map_err(|_| InternalError::persisted_row_decode_corruption())
 }
 
@@ -1471,45 +1509,26 @@ fn relation_target_raw_keys_for_source_slots(
     relation_target_raw_keys_from_relation_target_keys(relation, keys)
 }
 
-/// Check whether one persisted source row still references one complete target
-/// primary key for the declared relation.
-pub(in crate::db::relation) fn source_row_references_relation_target_primary_key_value(
+/// Check one final source row against every target deleted by the same batch.
+pub(in crate::db::relation) fn source_row_references_any_deleted_relation_target(
     raw_row: &RawRow,
     source_row_contract: StructuralRowContract,
     relation: &AcceptedRelationInfo,
-    target_key: &PrimaryKeyValue,
+    deleted_target_keys: &BTreeSet<RawDataStoreKey>,
     commit_budget: &mut RelationCommitBudget,
 ) -> Result<bool, InternalError> {
     let row_fields =
         StructuralSlotReader::from_raw_row_with_validated_contract(raw_row, source_row_contract)?;
 
     let mut projection_budget = RelationProjectionBudget::default();
-    source_slots_reference_relation_target(
+    let keys = relation_target_raw_keys_for_source_slots(
         &row_fields,
         relation,
-        target_key,
         &mut projection_budget,
-        commit_budget,
-    )
-}
-
-// Check one already-decoded structural source row for membership of one target
-// key without rebuilding the full canonical target-key vector.
-fn source_slots_reference_relation_target(
-    row_fields: &StructuralSlotReader<'_>,
-    relation: &AcceptedRelationInfo,
-    target_key: &PrimaryKeyValue,
-    projection_budget: &mut RelationProjectionBudget,
-    commit_budget: &mut RelationCommitBudget,
-) -> Result<bool, InternalError> {
-    let keys = relation_target_keys_for_source_slots(
-        row_fields,
-        relation,
-        projection_budget,
         commit_budget,
     )?;
 
-    Ok(keys.contains(target_key))
+    Ok(keys.iter().any(|key| deleted_target_keys.contains(key)))
 }
 
 // Canonicalize reverse-index target keys into deterministic sorted-unique order.

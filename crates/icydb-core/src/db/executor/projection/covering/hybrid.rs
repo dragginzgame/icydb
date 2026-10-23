@@ -258,13 +258,13 @@ fn read_hybrid_projection_row_fields_from_store(
     // Phase 1: hybrid admission guarantees at least one row-backed slot. Borrow
     // heap/live row backing; stable storage retains its owned read boundary.
     // Only selected decoded values escape the store guard.
-    let raw_key = data_key.to_raw()?;
+    let raw_key = data_key.raw_key()?;
 
     // Phase 2: fetch the raw row from storage and keep sparse slot decode in
     // executor ownership. The one-slot and indexed decode paths stay explicit so
     // storage never decides an execution decode strategy.
     charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
-    let stored_row = data_store.read(&raw_key);
+    let stored_row = data_store.read(raw_key);
     let Some(raw_row) = stored_row.as_row() else {
         return Ok(None);
     };

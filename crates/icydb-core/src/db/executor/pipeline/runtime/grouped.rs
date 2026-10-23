@@ -479,8 +479,8 @@ impl StructuralGroupedRowRuntime {
         consistency: MissingRowPolicy,
         key: &DecodedDataStoreKey,
     ) -> Result<Option<RawRow>, InternalError> {
-        let raw_key = key.to_raw()?;
-        let row = self.store.with_data(|store| store.get(&raw_key));
+        let raw_key = key.raw_key()?;
+        let row = self.store.with_data(|store| store.get(raw_key));
         charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
         if let Some(row) = row.as_ref() {
             charge_materialized_data_row!(row)?;

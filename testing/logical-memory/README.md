@@ -8,7 +8,8 @@ Two builds share one permanent namespace and surviving store. The
 `omit-retiring-store` build removes the other store and its entity. Normal typed
 writes produce journal debt; the generated startup driver folds it. The fixture
 pauses IC timer delivery so the test controls when that driver runs, without
-changing its work or budgets.
+changing its work or budgets. Both builds always expose the manual `step`
+endpoint; only `omit-retiring-store` selects a different fixture shape.
 
 The pending-marker case captures the actual bytes left behind by normal commit
 clearing, then restores their frame after journal folding. It must first recover

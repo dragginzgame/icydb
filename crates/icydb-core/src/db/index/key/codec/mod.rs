@@ -66,13 +66,29 @@ impl PartialOrd for IndexKey {
     }
 }
 
-// Borrowed framing preserves strict codec validation without materialising key bytes.
-struct BorrowedIndexKeyFrame<'a> {
+/// Strict decoded framing whose component and primary-key bytes borrow the raw key.
+pub(in crate::db) struct BorrowedIndexKeyFrame<'a> {
     key_kind: IndexKeyKind,
     index_id: IndexId,
     component_count: usize,
     components: [&'a [u8]; MAX_INDEX_FIELDS],
     primary_key: &'a [u8],
+}
+
+impl<'a> BorrowedIndexKeyFrame<'a> {
+    /// Borrow exactly the components admitted by the complete frame decoder.
+    pub(in crate::db) fn components(&self) -> &[&'a [u8]] {
+        &self.components[..self.component_count]
+    }
+
+    /// Decode the complete row identity while retaining its raw-owned bytes.
+    pub(in crate::db) fn primary_key_value_and_bytes(
+        &self,
+    ) -> Result<(PrimaryKeyValue, &'a [u8]), IndexKeyDecodeError> {
+        let value = EncodedPrimaryKey::decode_bytes(self.primary_key)
+            .map_err(|_| IndexKeyDecodeError::InvalidPrimaryKey)?;
+        Ok((value, self.primary_key))
+    }
 }
 
 impl IndexKey {
@@ -451,16 +467,7 @@ impl IndexKey {
     pub(in crate::db) fn primary_key_value_and_bytes_from_raw(
         raw: &RawIndexStoreKey,
     ) -> Result<(PrimaryKeyValue, &[u8]), IndexKeyDecodeError> {
-        let primary_key = decode_index_key_frame(raw)?.primary_key;
-        let primary_key_value = EncodedPrimaryKey::decode_bytes(primary_key)
-            .map_err(|_| IndexKeyDecodeError::InvalidPrimaryKey)?;
-
-        Ok((primary_key_value, primary_key))
-    }
-
-    #[must_use]
-    pub(in crate::db) const fn primary_key_bytes(&self) -> &[u8] {
-        self.primary_key.as_slice()
+        decode_index_key_frame(raw)?.primary_key_value_and_bytes()
     }
 
     pub(in crate::db) fn compact_primary_key_value_bytes(
@@ -602,8 +609,8 @@ const fn index_key_kind_to_store_key_kind(kind: IndexKeyKind) -> IndexStoreKeyKi
     }
 }
 
-// All consumers validate the complete strict frame before using borrowed segments.
-fn decode_index_key_frame(
+/// Validate the complete strict frame before exposing any borrowed segments.
+pub(in crate::db) fn decode_index_key_frame(
     raw: &RawIndexStoreKey,
 ) -> Result<BorrowedIndexKeyFrame<'_>, IndexKeyDecodeError> {
     let bytes = raw.as_bytes();

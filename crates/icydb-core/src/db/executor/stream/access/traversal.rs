@@ -702,13 +702,13 @@ impl AccessPlanStreamResolver {
             u64::try_from(extra_slot_bytes).unwrap_or(u64::MAX),
         )?;
         while let Some(key) = stream.next_key()? {
-            let raw = key.to_raw()?;
+            let raw = key.raw_key()?;
             charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
             charge_current_execution_budget(
                 DiagnosticExecutionBudgetResource::TemporaryBytes,
                 u64::try_from(raw.as_bytes().len()).unwrap_or(u64::MAX),
             )?;
-            if runtime.store.with_data(|store| store.contains(&raw)) {
+            if runtime.store.with_data(|store| store.contains(raw)) {
                 existing.push(key);
             }
         }

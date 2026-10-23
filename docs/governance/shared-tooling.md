@@ -1,8 +1,8 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `4cb9bc907154225a3f7e4c33fd8d75fbeaa125c8`
-(Shared Tooling 0.26.6). Root
+at reviewed revision `3e8d7cd3e7e9b7b79a5e800c30daf0be2710dab0`
+(Shared Tooling 0.26.7). Root
 [AGENTS.md](../../AGENTS.md) is the local overlay. The shared approved layout
 retains existing canister, schema and testing packages in their
 restored directories, in the single root workspace and lockfile; no new package
@@ -12,6 +12,112 @@ remain local; standard release commands follow the shared contract. A sibling ch
 these rules.
 
 ## Ownership and provenance
+
+
+### Selected Host/Tooling 0.65.0, Wire 0.6.5 and Shared 0.26.7 — 2026-10-23
+
+Live registry indexes and downloaded archives confirm published, non-yanked
+Host Artifacts, FS, Process, Text and Tools, Build and Testkit 0.65.0 at
+`378ad71296db81436b38346b697960199bdb00e1`, and Wire/derive 0.6.5 at
+`e10196ee7a504984cc65152805ff0e030b0c6964`. Both retain Rust 1.91 support.
+Host-family requirements now select 0.65; Wire 0.6.5 was already selected in
+this task's incoming lockfile. No unrelated package selection or IcyDB release
+version changes. See the published
+[Tooling migration notes](https://github.com/dragginzgame/ic-tooling/blob/378ad71296db81436b38346b697960199bdb00e1/docs/changelog/0.65.md)
+and [Wire patch notes](https://github.com/dragginzgame/ic-wire/blob/e10196ee7a504984cc65152805ff0e030b0c6964/CHANGELOG.md).
+
+The five Host libraries and Build have identical Rust source to 0.64.2.
+Testkit replaces its optional finite Wire API with caller-owned native call
+specifications. IcyDB does not enable that feature: its existing application
+adapter resolves fixture endpoint identities and resource policy, retains its
+error contract, and delegates codec operations to Wire. No new wrapper or
+feature expansion is needed. Wire 0.6.5 changes only small-u64 serialization in
+the native codec; application IDs, frame bytes, canonicality and admission
+policy remain unchanged. Browser runtime generation already uses registry Wire.
+
+The canonical snapshot exporter advances the same 123-file selection to Shared
+0.26.7. Explicit Cargo tool setup now waits at most 60 seconds for an occupied
+shared installation slot, rechecks inputs, and reuses verified output; checks
+remain immediate and foreign locks remain owned by their creator. Set
+`SHARED_TOOLING_SETUP_WAIT_SECONDS=0` for immediate setup refusal. Tool pins,
+release/formatting policy and the local validation exception are unchanged.
+The repository description remains accurate. Earlier evidence below retains
+its original qualification scope.
+
+Focused Linux qualification passes 200 CLI/build-consumer tests, 31 schema,
+endpoint and fixture Wire tests, and TypeScript checks of 90 frozen frames
+across twelve endpoints, 3,111 truncations and malformed/value/limit controls.
+Strict selected host/build all-target and integration library/query Clippy,
+public-library Rust 1.91 SQL/migration Wasm, two audit-actor Wasm checks,
+snapshot integrity, consumer adapter fixtures and canonical setup-contention
+fixtures pass. Selected graph checks retain one Wire identity and exclude its
+TypeScript feature on Wasm; public runtime and codec-only actor graphs remain
+Candid/CDK-free. Host/Build/Testkit remain outside the selected deployed graphs.
+These observations do not supply the artifact-level admission tracked by
+[#378 — Enforce deployment dependency exclusions](https://github.com/dragginzgame/icydb/issues/378).
+
+Native macOS, exact Rust 1.96 host/fixture-floor, installed-IC and broad
+workspace/release gates remain unrun. No local network lifecycle action was
+needed. Raw Wasm-size, IC cycle and instruction deltas remain unmeasured.
+
+### Selected Host and Tooling 0.64.2 — 2026-10-23
+
+Live Cargo sparse indexes confirm published, non-yanked 0.64.2 for Host
+Artifacts, FS, Process, Text and Tools, Build and Testkit. The downloaded archives
+identify source `5685b8b90bc90ce54279705a0f82390d4c8ebd67` and retain Rust 1.91.
+The incoming manifest ranges and lockfile already select this release and remain
+unchanged. The five Host libraries and Build have identical Rust source to
+0.64.1; Testkit adds opt-in cycle acceptance to its controlled reply fixtures.
+IcyDB does not select that fixture behavior. See the
+[published release notes](https://github.com/dragginzgame/ic-tooling/blob/5685b8b90bc90ce54279705a0f82390d4c8ebd67/CHANGELOG.md).
+
+Focused Linux qualification passes 200 CLI/build-consumer tests and strict
+selected all-target Clippy. Dependency declaration and lock-graph guards pass;
+the public SQL/migration Wasm graph remains free of Host, Build, Testkit, Candid
+and CDK. These are graph observations, not deployed-artifact admission
+([#378 — Enforce deployment dependency exclusions](https://github.com/dragginzgame/icydb/issues/378)).
+No API adapter or feature expansion is required. Native macOS, exact Rust 1.96
+host-consumer-floor, installed-IC and full workspace/release qualification were
+not run. Raw Wasm-size, cycle and instruction deltas are unmeasured.
+
+### Selected Wire 0.6.2 — 2026-10-22
+
+The live crates.io index and downloaded archives select published Wire/derive
+0.6.2 at `1deec75f8aae722b2d62b5d966eaad11485a285c`, with Rust 1.91 support.
+The patch adds host metadata for slices and borrowing on newtype enum variants;
+its native codec source is byte-identical to 0.6.1. See the published
+[migration guide](https://github.com/dragginzgame/ic-wire/blob/1deec75f8aae722b2d62b5d966eaad11485a285c/crates/ic-wire/README.md).
+The incoming lockfile already selects both Wire packages at 0.6.2; adoption
+preserves that selection, IcyDB package versions and unrelated pending work.
+
+The maintained native codec implementation differs only in its module comment
+from 0.5.22. IcyDB keeps its native application protocols, semantic authority,
+resource policy and stored formats. The removed finite API was confined to two
+audit protocols: their unit/u64/u32 frames retain their existing IDs and bytes,
+while allocation/node/depth allowances account for native traversal charges.
+The shared method identities remain fixture-owned; no replacement codec facade is added.
+Artifact inspection drops its obsolete Wire trait import, so Build's remaining
+Wire dependency is host metadata generation through development dependencies.
+
+IcyDB exposes Wire codec errors publicly. The changed dependency identity makes
+this adoption a consumer-facing minor change; the complete unpublished batch
+moves to 0.281.0 notes without editing Cargo release versions. Callers using Wire
+0.5 errors directly must update that dependency.
+
+Focused Linux qualification passes 25 Rust tests and one installed dynamic-query
+malformed-frame/upgrade regression. TypeScript qualification passes 90 exact
+frames across all twelve endpoint families, 3,111 truncations and malformed/value/
+limit controls. Strict selected runtime, build/example and integration Clippy,
+public-library Rust 1.91 Wasm, stable-Rust audit actor Wasm, dependency pins,
+declaration/graph policies, formatting and documentation checks pass. The fixture
+packages require Rust 1.96; exact-floor and native macOS checks remain unqualified.
+The public library and codec-only actor graphs stay Candid/CDK-free; selected
+Wasm graphs have one Wire identity and exclude host metadata features and tooling.
+This does not establish the artifact-level exclusions tracked by
+[#378](https://github.com/dragginzgame/icydb/issues/378).
+Testkit started and reaped the temporary PocketIC server; no live-IC deployment
+was performed. Broad workspace/release gates and raw Wasm/cycle/instruction deltas
+remain unmeasured or unrun. Earlier selections below retain their original scope.
 
 ### Selected IC package patches — 2026-10-22
 

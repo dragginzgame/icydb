@@ -45,7 +45,8 @@ impl Hash for GroupKey {
 }
 
 impl GroupKey {
-    fn from_raw(raw: Value) -> Result<Self, InternalError> {
+    /// Retain an already-canonical grouped value with its required stable hash.
+    pub(in crate::db::executor) fn from_canonical_value(raw: Value) -> Result<Self, InternalError> {
         let hash = stable_hash_value(&raw)?;
 
         Ok(Self::from_raw_with_hash(raw, hash))
@@ -84,7 +85,7 @@ impl GroupKey {
     ) -> Result<Self, InternalError> {
         let canonical = canonicalize_owned_value(Value::List(group_values))?;
 
-        Self::from_raw(canonical)
+        Self::from_canonical_value(canonical)
     }
 
     // Materialize one grouped key from owned grouped slot values while
@@ -106,7 +107,7 @@ impl GroupKey {
     ) -> Result<Self, InternalError> {
         let canonical_group_value = canonicalize_owned_value(group_value)?;
 
-        Self::from_raw(Value::List(vec![canonical_group_value]))
+        Self::from_canonical_value(Value::List(vec![canonical_group_value]))
     }
 
     // Materialize one single-field grouped key while reusing one caller-proven
@@ -128,7 +129,7 @@ impl GroupKey {
     pub(in crate::db::executor) fn from_single_canonical_group_value(
         group_value: Value,
     ) -> Result<Self, InternalError> {
-        Self::from_raw(Value::List(vec![group_value]))
+        Self::from_canonical_value(Value::List(vec![group_value]))
     }
 
     // Materialize one single-field grouped key when the caller already proved
@@ -155,7 +156,7 @@ pub(in crate::db::executor) trait CanonicalKey {
 impl CanonicalKey for Value {
     fn canonical_key(&self) -> Result<GroupKey, InternalError> {
         let canonical = canonicalize_value(self)?;
-        GroupKey::from_raw(canonical)
+        GroupKey::from_canonical_value(canonical)
     }
 }
 
@@ -240,9 +241,10 @@ fn canonicalize_map_entries(entries: &[(Value, Value)]) -> Result<Value, Interna
     )
 }
 
-// Canonicalize one owned runtime value into grouped-key equality form while
-// preserving ownership of already-materialized grouped slot payloads.
-fn canonicalize_owned_value(value: Value) -> Result<Value, InternalError> {
+/// Canonicalize one owned value for grouped equality without computing a hash.
+pub(in crate::db::executor) fn canonicalize_owned_value(
+    value: Value,
+) -> Result<Value, InternalError> {
     match value {
         Value::Decimal(decimal) => Ok(Value::Decimal(decimal.normalize())),
         Value::List(items) => items

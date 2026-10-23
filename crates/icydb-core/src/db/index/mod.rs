@@ -30,11 +30,11 @@ pub(in crate::db) use expression_contract::{
     index_expression_supports_text_casefold_lookup, index_expression_text,
 };
 pub(in crate::db) use key::{
-    EncodedValue, admit_query_index_component, encode_accepted_index_literal_component,
+    BorrowedIndexKeyFrame, IndexId, IndexKey, IndexKeyEncodeError, IndexKeyKind, RawIndexStoreKey,
+    decode_canonical_index_int64_component, decode_index_key_frame, derive_index_expression_value,
 };
 pub(in crate::db) use key::{
-    IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey, decode_canonical_index_int64_component,
-    derive_index_expression_value,
+    EncodedValue, admit_query_index_component, encode_accepted_index_literal_component,
 };
 pub(in crate::db) use plan::{
     AcceptedIndexInspectionDomain, AcceptedIndexInspectionPlan, IndexDelta, IndexDeltaGroup,
@@ -45,12 +45,14 @@ pub(in crate::db) use predicate::{
     IndexCompareOp, IndexCompilePolicy, IndexLiteral, IndexPredicateProgram, compile_index_program,
     compile_index_program_for_targets,
 };
-pub(in crate::db) use range::raw_keys_for_component_prefix_with_kind;
 pub(in crate::db) use range::{
     IndexRangeBoundEncodeError, TextPrefixBoundMode, admit_index_prefix_bounds,
     admit_text_prefix_bounds, build_index_component_range_with_encoded_prefix,
     build_index_prefix_bounds_for_encoded_components, next_text_prefix,
     starts_with_component_bounds,
+};
+pub(in crate::db) use range::{
+    raw_keys_for_component_prefix_with_kind, raw_user_index_entity_bounds,
 };
 pub(in crate::db) use readers::{
     IndexReadContract, StructuralIndexEntryReader, StructuralPrimaryRowReader,

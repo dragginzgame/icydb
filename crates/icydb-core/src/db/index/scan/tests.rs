@@ -106,7 +106,7 @@ fn empty_envelopes_skip_populated_store_traversal() {
                 store
                     .visit_raw_entries_in_range((&lower, &upper), direction, |_, _| {
                         visited += 1;
-                        Ok(false)
+                        Ok::<_, crate::error::InternalError>(false)
                     })
                     .unwrap();
                 assert_eq!(
@@ -202,7 +202,7 @@ fn visit_raw_entries_in_range_preserves_directional_store_order() {
     index_store
         .visit_raw_entries_in_range((&lower, &upper), Direction::Asc, |raw_key, _| {
             asc.push(raw_key.as_bytes()[0]);
-            Ok(false)
+            Ok::<_, crate::error::InternalError>(false)
         })
         .expect("asc scan should succeed");
     assert_eq!(asc, vec![1, 2, 3], "asc scan should follow raw key order");
@@ -211,7 +211,7 @@ fn visit_raw_entries_in_range_preserves_directional_store_order() {
     index_store
         .visit_raw_entries_in_range((&lower, &upper), Direction::Desc, |raw_key, _| {
             desc.push(raw_key.as_bytes()[0]);
-            Ok(false)
+            Ok::<_, crate::error::InternalError>(false)
         })
         .expect("desc scan should succeed");
     assert_eq!(
@@ -266,7 +266,7 @@ fn heap_index_store_preserves_range_order_and_early_stop() {
     index_store
         .visit_raw_entries_in_range((&lower, &upper), Direction::Asc, |raw_key, _| {
             asc.push(raw_key.as_bytes()[0]);
-            Ok(false)
+            Ok::<_, crate::error::InternalError>(false)
         })
         .expect("heap asc scan should succeed");
     assert_eq!(asc, vec![1, 2, 3]);
@@ -275,7 +275,7 @@ fn heap_index_store_preserves_range_order_and_early_stop() {
     index_store
         .visit_raw_entries_in_range((&lower, &upper), Direction::Desc, |raw_key, _| {
             desc.push(raw_key.as_bytes()[0]);
-            Ok(false)
+            Ok::<_, crate::error::InternalError>(false)
         })
         .expect("heap desc scan should succeed");
     assert_eq!(desc, vec![3, 2, 1]);
@@ -399,7 +399,7 @@ fn merged_ranges_skip_empty_envelopes_before_admission_or_reads() {
                     store
                         .visit_raw_entries_in_range((lower, upper), direction, |key, _| {
                             reference.push(key.clone());
-                            Ok(false)
+                            Ok::<_, crate::error::InternalError>(false)
                         })
                         .unwrap();
                 }

@@ -5,6 +5,68 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.281.0]
+
+### ⚠️ Breaking
+
+- Adopt published IC Wire 0.6.5. Exported codec errors now use Wire 0.6; callers
+  sharing Wire error types must update their direct dependency. Existing
+  application frames and stored data are unchanged.
+
+### 🩹 Fixed
+
+- Validate each surviving source/relation once against the full target-delete
+  set, allowing bounded atomic update-away batches without repeated projection
+  charges ([#60 — Delete restriction repeats source projection](https://github.com/dragginzgame/icydb/issues/60)).
+- Keep index rebuild budgets and row scans scoped to the entity being changed
+  ([#97 — Index rebuilds scan unrelated entities](https://github.com/dragginzgame/icydb/issues/97)).
+- Keep empty entity and relation removal independent of unrelated index-store
+  contents, using bounded physical-domain proofs
+  ([#62 — Empty relation removal scans unrelated indexes](https://github.com/dragginzgame/icydb/issues/62)).
+- Stop retrying deterministic migration-planning failures during startup and
+  expose their existing typed diagnostics
+  ([#117 — Startup repeatedly replans rejected migrations](https://github.com/dragginzgame/icydb/issues/117)).
+- Restore store-local schema projections before the startup driver becomes
+  idle, preserving exact query-planning evidence after schema folding
+  ([#82 — Schema folding leaves admitted cardinality evidence unavailable](https://github.com/dragginzgame/icydb/issues/82)).
+- Wake startup work after heap-only schema publication so completed metadata
+  migrations can reach Ready and DDL can prepare the current runtime cache
+  ([#88 — Heap metadata migrations leave startup Recovering](https://github.com/dragginzgame/icydb/issues/88),
+  [#196 — Heap schema publications leave the runtime root cold](https://github.com/dragginzgame/icydb/issues/196)).
+
+### 🔧 Changed
+
+- Adopt published Host/Tooling 0.65.0 and Shared Tooling 0.26.7, preserving
+  consumer boundaries and adding bounded waits during explicit tool setup.
+- Canonicalize DISTINCT equality keys without computing hashes that are
+  immediately discarded ([#412 — A distinct key is hashed and then the hash is thrown away](https://github.com/dragginzgame/icydb/issues/412)).
+- Hash ordered grouping keys only when opening a group, preserving canonical
+  comparisons for repeated rows ([#413 — An ordered group hashes every row and then drops that hash](https://github.com/dragginzgame/icydb/issues/413)).
+- Borrow covering-index components for predicates and copy requested output
+  components once ([#407 — A covering index entry copies its components twice](https://github.com/dragginzgame/icydb/issues/407)).
+- Reuse decoded primary-key values for identity validation and projection
+  ([#404 — A row read decodes its primary key and then decodes it again](https://github.com/dragginzgame/icydb/issues/404)).
+- Borrow cached data keys for row lookups instead of copying their bytes
+  ([#406 — A row lookup clones a raw key it only borrows](https://github.com/dragginzgame/icydb/issues/406)).
+- Frame reverse-relation keys directly from encoded identities, avoiding
+  intermediate key copies
+  ([#411 — A reverse-index key copies a primary key it already owns](https://github.com/dragginzgame/icydb/issues/411)).
+- Prepare case-insensitive filter literals once instead of folding them for
+  every row ([#409 — A case-insensitive literal is folded again on every row](https://github.com/dragginzgame/icydb/issues/409)).
+
+### 🧪 Testing
+
+- Make logical-memory fixture stepping unconditional, retaining store omission
+  as its upgrade-qualification feature.
+
+### 📚 Documentation
+
+- Use the adopted Shared focused-handoff method for generic boundary reviews,
+  retaining IcyDB-specific authority and proof requirements
+  ([#396 — Adopt shared focused-handoff guidance](https://github.com/dragginzgame/icydb/issues/396)).
+
+See [detailed notes](docs/changelog/0.281.md).
+
 ## [0.280.4] - 2026-10-22
 
 ### 🩹 Fixed

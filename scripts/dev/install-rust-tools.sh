@@ -55,6 +55,14 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 [[ "$check_only" == false || "$preflight" == false ]] || { usage; exit 2; }
+setup_wait_seconds=0
+if [[ "$check_only" == false && "$preflight" == false ]]; then
+    setup_wait_seconds="${SHARED_TOOLING_SETUP_WAIT_SECONDS:-60}"
+    [[ "$setup_wait_seconds" =~ ^(0|[1-9][0-9]{0,2})$ && "$setup_wait_seconds" -le 300 ]] || {
+        echo 'SHARED_TOOLING_SETUP_WAIT_SECONDS must be a canonical integer from 0 to 300' >&2
+        exit 2
+    }
+fi
 [[ "$consumer" == /* ]] || consumer="$PWD/$consumer"
 case "$consumer" in *$'\n'*|*$'\r'*) echo 'consumer path contains CR/LF' >&2; exit 1 ;; esac
 consumer="$(cd -P "$consumer" && printf '%s/.' "$PWD")"
@@ -246,6 +254,31 @@ rust_setup_hint() {
     } >&2
 }
 
+check_build_inputs() {
+    local expected_build="$build_identity" changed_fields
+    cargo_build_init || return $?
+    if [[ "$expected_build" != "$build_identity" ]]; then
+        if [[ -n "${stage:-}" ]]; then
+            # Keep the observation that refused activation, without sampling again.
+            printf '%s\n' "$build_identity" > "$stage/build-identity.observed.json" || return 1
+            printf '%s\n' "$native_identity" > "$stage/native-environment.observed.txt" || return 1
+        fi
+        changed_fields="$(jq -nr --argjson expected "$expected_build" --argjson observed "$build_identity" \
+            '[$expected | keys[] as $key | select(.[$key] != $observed[$key]) | $key] | join(", ")')" || return 1
+        printf 'Cargo tool build environment changed: %s\n' "$changed_fields" >&2
+        if [[ -n "${stage:-}" ]]; then
+            printf 'Compare inputs.json (.build) and native-environment.txt with build-identity.observed.json and native-environment.observed.txt in %s\n' "$stage" >&2
+        fi
+        return 1
+    fi
+    cargo_cache_check || return $?
+    [[ -f "$source_archive" && ! -L "$source_archive" ]] || {
+        printf 'Cargo tool source must be a regular non-symlink archive: %s\n' "$source_archive" >&2
+        return 1
+    }
+    bash "$ROOT/scripts/ci/verify-file-checksum.sh" sha256 "$(jq -r .source_sha256 <<< "$inputs")" "$source_archive"
+}
+
 install_selected() (
     stage=''
     store_lock=''
@@ -298,7 +331,11 @@ install_selected() (
     mkdir -p "$install_root" || exit $?
     mkdir "$lock" || exit $?
     lock_owned=true
-    tool_store_acquire || exit $?
+    tool_store_acquire "$setup_wait_seconds" || exit $?
+    if [[ "$tool_store_waited" == true ]]; then
+        check_build_inputs || exit $?
+        check_locked_selection || exit $?
+    fi
     if destination="$(tool_store_cached)" && check_selected; then
         tool_store_reference "$destination" || exit $?
     else
@@ -316,21 +353,7 @@ install_selected() (
         selected_paths "$stage" || exit $?
         selected_receipt "$stage" || exit $?
         # Refuse a changed source/compiler/native environment before publication.
-        expected_build="$build_identity"
-        cargo_build_init || exit $?
-        if [[ "$expected_build" != "$build_identity" ]]; then
-            # Retain the exact observation used to refuse activation. Do not
-            # sample again: compiler/native state may already have changed.
-            printf '%s\n' "$build_identity" > "$stage/build-identity.observed.json" || exit 1
-            printf '%s\n' "$native_identity" > "$stage/native-environment.observed.txt" || exit 1
-            changed_fields="$(jq -nr --argjson expected "$expected_build" --argjson observed "$build_identity" \
-                '[$expected | keys[] as $key | select(.[$key] != $observed[$key]) | $key] | join(", ")')" || exit 1
-            printf 'Cargo tool build environment changed: %s\n' "$changed_fields" >&2
-            printf 'Compare inputs.json (.build) and native-environment.txt with build-identity.observed.json and native-environment.observed.txt in %s\n' "$stage" >&2
-            exit 1
-        fi
-        cargo_cache_check || exit $?
-        bash "$ROOT/scripts/ci/verify-file-checksum.sh" sha256 "$(jq -r .source_sha256 <<< "$inputs")" "$source_archive" || exit $?
+        check_build_inputs || exit $?
         selected_identity "$stage" > "$stage/selection.json" || exit $?
         destination="$stage"
         check_selected || exit $?

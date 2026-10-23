@@ -113,6 +113,14 @@ Restore database-dependent application state exactly once after observing
 `Ready`. On `StartupFailure`, stop blind retries and retain the bounded kind,
 diagnostic, and facts for an application-authorized operational surface.
 
+Deterministic migration-planning rejections, such as an unadopted source or a
+version gap, stop the generated startup driver through its existing failure
+receipt. They retain their specific migration diagnostic and facts. Correct the
+deployment instead of repeatedly polling the same rejected plan. A valid
+migration already in progress still uses the explicit controller lane below.
+Retryable schema errors are returned to the adapter for its existing logged
+retry cadence; they do not request an immediate progress callback.
+
 For example, `E274` reports a memory bucket-size conflict with requested
 (`Expected`) and persisted (`Actual`) page counts. It requires configuration
 correction or explicit recreation, not another recovery poll. See
@@ -181,8 +189,16 @@ Before becoming quiescent, the existing replicated watchdog also prepares the
 accepted-schema runtime root in heap. This avoids repeating that preparation
 in query-only traffic after the callback has completed. It uses the current
 accepted snapshots and cache owner, not generated-model reconstruction.
+It also restores the schema store's verified bundle and cardinality projections
+when the runtime root is already current. Folding may invalidate those store
+projections independently, so a runtime-cache hit alone cannot finish preparation.
 Deterministic preparation failures use the existing schema-failure receipt;
 retryable errors retain their existing classification.
+
+Accepted schema publication re-arms this watchdog for both heap and journaled
+stores. Heap-only DDL therefore schedules replicated runtime preparation even
+without journal debt. A completed heap metadata migration schedules generated
+schema reconciliation through the same callback; it needs no second upgrade.
 
 `Ready` remains the recovery/schema-admission condition, not a promise that
 every cache is warm: it can be observed before that callback, and later schema

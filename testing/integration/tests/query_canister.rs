@@ -1,6 +1,6 @@
 use ic_platform::{pocket_ic::RejectCode, principal::ExternalPrincipal as Principal};
 use ic_testkit::pic::{InstallSpec, StandaloneCanisterFixture};
-use ic_wire::{Method, decode_response, encode_request};
+use ic_wire::native;
 use icydb_testing_build::{
     CanisterBuildOptions, CanisterBuildProfile, CanisterSqlMode, CanisterWasmProfile,
     build_canister_with_options,
@@ -78,17 +78,24 @@ fn query_only_typed_and_dynamic_canisters_execute_without_sql() {
 }
 
 fn dynamic_wire_row_count(fixture: &StandaloneCanisterFixture) -> u32 {
-    let request = encode_request::<DynamicRowsQuery>(&()).expect("Wire request should encode");
+    let request =
+        native::encode_request(DynamicRowsQuery::ID, &(), DynamicRowsQuery::REQUEST_LIMITS)
+            .expect("Wire request should encode");
     let reply = fixture
         .pocket_ic()
         .query_call(
             fixture.canister_id(),
             Principal::anonymous(),
             DynamicRowsQuery::NAME,
-            request.into_bytes(),
+            request,
         )
         .expect("dynamic query raw transport should succeed");
-    decode_response::<DynamicRowsQuery>(&reply).expect("dynamic query Wire reply should decode")
+    native::decode_response::<u32>(
+        DynamicRowsQuery::ID,
+        &reply,
+        DynamicRowsQuery::RESPONSE_LIMITS,
+    )
+    .expect("dynamic query Wire reply should decode")
 }
 
 #[test]
@@ -113,9 +120,9 @@ fn dynamic_query_wire_endpoint_rejects_other_bytes_and_survives_upgrade() {
     let wasm = fs::read(artifacts.as_ref()).expect("retained Wire artifact should read");
     let fixture = install_prebuilt_fixture_canister("one_entity_dynamic_query", wasm.clone());
     assert_eq!(dynamic_wire_row_count(&fixture), 0);
-    let request = encode_request::<DynamicRowsQuery>(&())
-        .unwrap()
-        .into_bytes();
+    let request =
+        native::encode_request(DynamicRowsQuery::ID, &(), DynamicRowsQuery::REQUEST_LIMITS)
+            .unwrap();
     let mut invalid = (0..request.len())
         .map(|length| request[..length].to_vec())
         .collect::<Vec<_>>();

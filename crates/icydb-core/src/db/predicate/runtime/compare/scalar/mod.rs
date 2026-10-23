@@ -9,18 +9,15 @@ use crate::{
     value::Value,
 };
 
-use crate::db::predicate::runtime::compare::scalar::{
-    direct::{
-        compare::{eval_blob_scalar_compare, eval_direct_scalar_compare, eval_null_scalar_compare},
-        decode::{
-            scalar_bool_from_value, scalar_date_from_value, scalar_duration_from_value,
-            scalar_float32_from_value, scalar_float64_from_value, scalar_int_from_value,
-            scalar_nat_from_value, scalar_principal_from_value, scalar_subaccount_from_value,
-            scalar_timestamp_from_value, scalar_u256_from_value, scalar_ulid_from_value,
-            scalar_unit_from_value,
-        },
+use crate::db::predicate::runtime::compare::scalar::direct::{
+    compare::{eval_blob_scalar_compare, eval_direct_scalar_compare, eval_null_scalar_compare},
+    decode::{
+        scalar_bool_from_value, scalar_date_from_value, scalar_duration_from_value,
+        scalar_float32_from_value, scalar_float64_from_value, scalar_int_from_value,
+        scalar_nat_from_value, scalar_principal_from_value, scalar_subaccount_from_value,
+        scalar_timestamp_from_value, scalar_u256_from_value, scalar_ulid_from_value,
+        scalar_unit_from_value,
     },
-    text::eval_text_scalar_compare,
 };
 
 // Evaluate one compare op directly against one scalar slot value when possible.
@@ -80,4 +77,6 @@ pub(in crate::db::predicate::runtime) fn eval_compare_scalar_slot(
     }
 }
 
-pub(in crate::db::predicate::runtime) use crate::db::predicate::runtime::compare::scalar::text::text_contains_scalar;
+pub(in crate::db::predicate::runtime) use crate::db::predicate::runtime::compare::scalar::text::{
+    eval_text_scalar_compare, text_contains_scalar,
+};

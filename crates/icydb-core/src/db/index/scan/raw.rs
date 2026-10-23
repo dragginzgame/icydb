@@ -401,14 +401,14 @@ impl IndexStore {
     /// The visitor returns `true` to stop traversal. This keeps the index layer
     /// independent of emitted-row limits, cursor anchors, predicate filters, and
     /// metric attribution while preserving the existing BTreeMap range order.
-    pub(in crate::db) fn visit_raw_entries_in_range<F>(
+    pub(in crate::db) fn visit_raw_entries_in_range<E, F>(
         &self,
         bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
         direction: Direction,
         mut visit: F,
-    ) -> Result<(), InternalError>
+    ) -> Result<(), E>
     where
-        F: FnMut(&RawIndexStoreKey, &IndexEntryValue) -> Result<bool, InternalError>,
+        F: FnMut(&RawIndexStoreKey, &IndexEntryValue) -> Result<bool, E>,
     {
         if envelope_is_empty(bounds.0, bounds.1) {
             return Ok(());
@@ -456,7 +456,7 @@ impl IndexStore {
         let mut found = false;
         self.visit_raw_entries_in_range(bounds, Direction::Asc, |key, _| {
             found = key != excluded;
-            Ok(found)
+            Ok::<_, InternalError>(found)
         })?;
         Ok(found)
     }

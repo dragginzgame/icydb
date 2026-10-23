@@ -6,9 +6,10 @@
 use crate::{
     db::{
         data::{
-            AcceptedStructuralRowAuthority, DecodedDataStoreKey, StoreVisit, StructuralRowContract,
-            StructuralSlotReader,
+            AcceptedStructuralRowAuthority, DecodedDataStoreKey, RawDataStoreKey, StoreVisit,
+            StructuralRowContract, StructuralSlotReader,
         },
+        key_taxonomy::RawDataStoreKeyRange,
         registry::StoreHandle,
         resource::budget::MaintenanceConstructionBudget,
         schema::{
@@ -19,6 +20,7 @@ use crate::{
     },
     error::InternalError,
 };
+use std::ops::Bound;
 
 /// Stage one complete accepted-after user-index domain for SQL index DDL
 /// without changing schema or physical index state.
@@ -88,12 +90,15 @@ fn stage_user_index_domain_replacement(
         .map_err(StagedUserIndexDomainError::into_internal_error)
     })?;
     store.with_data(|data_store| {
-        data_store.visit_entries(|raw_key, raw_row| {
+        let range = RawDataStoreKeyRange::entity_prefix(entity_tag);
+        let lower = Bound::Included(RawDataStoreKey::store_range_lower_key(&range));
+        let upper = range
+            .upper_exclusive()
+            .map(RawDataStoreKey::from_store_range_bound)
+            .map_or(Bound::Unbounded, Bound::Excluded);
+        data_store.visit_range((lower, upper), |raw_key, raw_row| {
             let data_key = DecodedDataStoreKey::try_from_raw(raw_key)
                 .map_err(|_| InternalError::store_corruption())?;
-            if data_key.entity_tag() != entity_tag {
-                return Ok::<StoreVisit, InternalError>(StoreVisit::Continue);
-            }
             let accepted_before_slots =
                 StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
                     raw_row,

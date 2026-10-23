@@ -1,3 +1,5 @@
+mod borrowed_components;
+
 use super::*;
 use crate::{
     db::{
@@ -174,7 +176,11 @@ fn filtered_index_scan_preserves_corruption_and_refusal_order() {
     let key = nat64_index_key(&IndexId::new(EXACT_INTERSECTION_ENTITY, 1), b"lane", 7);
     let raw = key.to_raw().unwrap();
     let mut invalid_primary = raw.as_bytes().to_vec();
-    let primary_start = invalid_primary.len() - key.primary_key_bytes().len();
+    let primary_start = invalid_primary.len()
+        - IndexKey::primary_key_value_and_bytes_from_raw(&raw)
+            .unwrap()
+            .1
+            .len();
     invalid_primary[primary_start] = 0xFF;
     let invalid_primary = RawIndexStoreKey::from_persisted_bytes(invalid_primary);
     let mut trailing = raw.as_bytes().to_vec();

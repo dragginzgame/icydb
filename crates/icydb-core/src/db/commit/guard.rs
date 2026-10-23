@@ -14,6 +14,7 @@ use crate::{
             store::{EncodedCommitControlSlot, with_commit_store, with_initialized_commit_store},
         },
         integrity::preflight_mutation_progress_record_op,
+        journal::JournalRecord,
         schema::preflight_schema_application_record_op,
     },
     error::InternalError,
@@ -45,7 +46,7 @@ thread_local! {
         const { Cell::new(DEFAULT_STARTUP_RECOVERY_WAKEUP) };
 }
 
-/// Install the generated watchdog wake-up used by retained recovery work.
+/// Install the generated watchdog wake-up for recovery and published schema work.
 #[doc(hidden)]
 pub fn install_startup_recovery_wakeup(wakeup: fn()) {
     STARTUP_RECOVERY_WAKEUP.with(|installed| installed.set(Some(wakeup)));
@@ -182,19 +183,19 @@ impl Drop for CommitApplyGuard {
 pub(crate) struct CommitGuard {
     startup_recovery_wakeup: Option<fn()>,
     encoded_control_slot: EncodedCommitControlSlot,
-    retained_journal_debt: bool,
+    startup_work_pending: bool,
 }
 
 impl CommitGuard {
     const fn new(
         startup_recovery_wakeup: fn(),
         encoded_control_slot: EncodedCommitControlSlot,
-        retained_journal_debt: bool,
+        startup_work_pending: bool,
     ) -> Self {
         Self {
             startup_recovery_wakeup: Some(startup_recovery_wakeup),
             encoded_control_slot,
-            retained_journal_debt,
+            startup_work_pending,
         }
     }
 
@@ -208,9 +209,10 @@ impl CommitGuard {
         with_initialized_commit_store(|store| {
             store.clear_live_verified(&self.encoded_control_slot)
         })??;
-        // Retiring the marker releases this obligation only when no journal
-        // work remains. A failed clear leaves the captured wake-up armed.
-        if !self.retained_journal_debt {
+        // Schema publication also leaves startup work on heap stores: generated
+        // reconciliation and replicated runtime preparation need the watchdog.
+        // A failed clear always leaves the captured wake-up armed.
+        if !self.startup_work_pending {
             self.startup_recovery_wakeup = None;
         }
         Ok(())
@@ -289,11 +291,21 @@ fn begin_commit_with_preflighted_mutation_progress(
             return Err(pressure.into_error());
         }
     }
+    // Validated publication batches begin with their schema record. Unlike row
+    // writes, even a zero-sequence heap publication needs a subsequent startup
+    // page; journal backlog alone cannot express that obligation.
+    let startup_work_pending = proposed.batch_count() != 0
+        || marker.journal_batches().iter().any(|batch| {
+            matches!(
+                batch.records().first(),
+                Some(JournalRecord::AcceptedSchemaPublish { .. })
+            )
+        });
     let encoded_control_slot = with_commit_store(|store| store.publish_prepared_marker(prepared))?;
     Ok(CommitGuard::new(
         startup_recovery_wakeup,
         encoded_control_slot,
-        proposed.batch_count() != 0,
+        startup_work_pending,
     ))
 }
 
@@ -329,7 +341,7 @@ pub(crate) fn finish_commit(
     }
 
     // Phase 1: successful apply must clear marker authority immediately. The
-    // guard retains its wake-up on clear failure or retained journal debt.
+    // guard retains its wake-up on clear failure or pending startup work.
     // Clear preflights every fallible check before its mechanical stable writes.
     // Do not introduce a normally returned validation error after retirement;
     // the next message's recovery observation remains the independent check.

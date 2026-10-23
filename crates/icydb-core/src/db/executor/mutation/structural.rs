@@ -428,8 +428,8 @@ fn load_existing_row(
     store: crate::db::registry::StoreHandle,
     data_key: &DecodedDataStoreKey,
 ) -> Result<Option<RawRow>, InternalError> {
-    let raw_key = data_key.to_raw()?;
-    Ok(store.with_data(|data| data.get(&raw_key)))
+    let raw_key = data_key.raw_key()?;
+    Ok(store.with_data(|data| data.get(raw_key)))
 }
 
 // This is the reader's last use, after whole-row and Identity validation.

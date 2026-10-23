@@ -3,6 +3,7 @@
 mod access_projection;
 mod aggregate_composition;
 mod branch_distinct;
+mod bundle_preparation;
 mod casefold_filters;
 mod catalogue_ranges;
 mod composite_primary_keys;

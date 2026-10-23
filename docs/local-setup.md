@@ -395,6 +395,24 @@ product/native qualification. Formatting still requires rustfmt and the
 
 ### Standard Cargo tool-build environment
 
+Explicit Cargo setup waits up to 60 seconds per occupied selected-tool slot
+when its physical, user-owned lock has a readable, regular
+owner record. Set `SHARED_TOOLING_SETUP_WAIT_SECONDS` to a canonical integer from
+0 to 300 to select another budget; `0` retains immediate refusal. Diagnostics name
+the slot and recorded owner, then report release or timeout. The record identifies
+the claim, not whether its PID is still live. No lock is removed or owner killed.
+
+After waiting, setup rechecks compiler/build identity, lockfile selection and
+normal source/receipt/checksum admission before reuse or activation. An owner
+failure never makes its partial generation reusable. Malformed, redirected or
+unwritable lock routes fail rather than polling. Atomic `mkdir` still owns
+acquisition: if a new owner wins that race, or acquisition fails for another
+reason, its diagnostic/status is preserved without a retry. Timeouts are nonzero
+and retain previous selections and failed evidence. `--check`, `--preflight`,
+source-cache preparation locks, checkout locks and Host/IC setup keep their
+immediate, non-waiting behavior. The build policy and its digest are unchanged;
+this waiting change alone does not invalidate existing qualified tool binaries.
+
 Tool builds have a cleared environment, a fresh private HOME per attempt, the
 selected compiler's bin directory followed by system executable directories,
 fixed C locale/UTC timezone, private permissions and two compilation jobs.

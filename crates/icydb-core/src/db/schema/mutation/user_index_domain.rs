@@ -18,9 +18,10 @@ use crate::db::{
 use crate::{
     db::{
         data::{CanonicalSlotReader, StructuralRowContract},
+        direction::Direction,
         index::{
-            IndexEntryValue, IndexKey, IndexKeyKind, IndexState, IndexStore, IndexStoreVisit,
-            RawIndexStoreKey,
+            IndexEntryValue, IndexKey, IndexState, IndexStore, RawIndexStoreKey,
+            raw_user_index_entity_bounds,
         },
         key_taxonomy::PrimaryKeyValue,
         predicate::PredicateProgram,
@@ -37,7 +38,7 @@ use crate::{
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 #[cfg(any(test, feature = "sql"))]
 use std::collections::BTreeSet;
-use std::mem::size_of;
+use std::{mem::size_of, ops::Bound};
 
 const MAX_DELETION_KEYS: usize = 65_536;
 
@@ -912,30 +913,33 @@ fn observe_current_user_index_domain(
     entity_tag: EntityTag,
     budget: &mut StagedUserIndexDomainBudget,
 ) -> Result<Vec<StagedUserIndexDomainEntry>, StagedUserIndexDomainError> {
+    let (lower, upper) = raw_user_index_entity_bounds(entity_tag)
+        .map_err(|_| StagedUserIndexDomainError::KeyEncode)?;
     let mut entries = Vec::new();
-    let result = index_store.visit_entries(|raw_key, value| {
-        budget.consume_projection_work()?;
-        let key = IndexKey::try_from_raw(raw_key)
-            .map_err(|_| StagedUserIndexDomainError::PhysicalKeyDecode)?;
-        if key.key_kind() == IndexKeyKind::User && key.index_id().entity_tag() == entity_tag {
+    index_store.visit_raw_entries_in_range(
+        (&Bound::Included(lower), &Bound::Included(upper)),
+        Direction::Asc,
+        |raw_key, value| {
+            budget.consume_projection_work()?;
+            IndexKey::try_from_raw(raw_key)
+                .map_err(|_| StagedUserIndexDomainError::PhysicalKeyDecode)?;
             budget.consume_deletion_key(raw_key.as_bytes().len())?;
             entries.push(StagedUserIndexDomainEntry {
                 key: raw_key.clone(),
                 value: value.clone(),
             });
-        }
-        Ok(IndexStoreVisit::Continue)
-    });
-    result?;
+            Ok(false)
+        },
+    )?;
 
     Ok(entries)
 }
 
 /// Prove that one entity owns no current physical user-index entries.
 ///
-/// The proof consumes the same bounded, fallible physical observer used by
-/// complete-domain replacement staging and therefore rejects malformed keys,
-/// oversized domains, or a non-ready index store.
+/// Seek only this entity's user namespace across every ordinal and generation.
+/// The first physical witness refuses removal; unrelated domains do not consume
+/// schema-projection budget or require materializing a replacement inventory.
 pub(in crate::db::schema) fn prove_empty_user_index_domain(
     index_store: &IndexStore,
     entity_tag: EntityTag,
@@ -943,11 +947,23 @@ pub(in crate::db::schema) fn prove_empty_user_index_domain(
     if index_store.state() != IndexState::Ready {
         return Err(StagedUserIndexDomainError::IndexStoreNotReady);
     }
-    let mut budget = StagedUserIndexDomainBudget::standard();
-    if observe_current_user_index_domain(index_store, entity_tag, &mut budget)?.is_empty() {
-        Ok(())
-    } else {
+    let (lower, upper) = raw_user_index_entity_bounds(entity_tag)
+        .map_err(|_| StagedUserIndexDomainError::KeyEncode)?;
+    let mut found = false;
+    index_store.visit_raw_entries_in_range(
+        (&Bound::Included(lower), &Bound::Included(upper)),
+        Direction::Asc,
+        |raw_key, _| {
+            IndexKey::try_from_raw(raw_key)
+                .map_err(|_| StagedUserIndexDomainError::PhysicalKeyDecode)?;
+            found = true;
+            Ok(true)
+        },
+    )?;
+    if found {
         Err(StagedUserIndexDomainError::CurrentDomainMismatch)
+    } else {
+        Ok(())
     }
 }
 
@@ -1114,7 +1130,10 @@ impl StagedUserIndexDomainBudget {
 
 #[cfg(test)]
 mod tests {
+    mod empty_domain;
+
     use super::*;
+    use crate::db::index::IndexKeyKind;
 
     #[test]
     fn stage_budget_rejections_preserve_the_exact_resource() {

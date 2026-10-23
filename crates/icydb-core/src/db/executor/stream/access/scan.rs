@@ -15,9 +15,9 @@ use crate::{
         },
         index::{
             IndexEntryExistenceWitness, IndexEntryRowWitness, IndexEntryValue, IndexKey,
-            RawIndexStoreKey,
+            RawIndexStoreKey, decode_index_key_frame,
             predicate::{
-                IndexPredicateExecution, eval_index_execution_on_decoded_key,
+                IndexPredicateExecution, eval_index_program_on_frame,
                 eval_index_program_on_prefix_components,
             },
             resume_prefix_bounds_for_continuation,
@@ -858,7 +858,7 @@ impl IndexScan {
                         output_limit,
                         None,
                     )? {
-                        return Ok(true);
+                        return Ok::<_, InternalError>(true);
                     }
 
                     Ok(scanned_entries == max_entries)
@@ -912,7 +912,7 @@ impl IndexScan {
                         component_indices,
                         predicate_execution,
                     )? {
-                        return Ok(true);
+                        return Ok::<_, InternalError>(true);
                     }
 
                     Ok(scanned_entries == max_entries)
@@ -953,26 +953,22 @@ impl IndexScan {
             u64::try_from(raw_key.as_bytes().len()).unwrap_or(u64::MAX),
         )?;
         // Phase 1: decode only the primary-key suffix for ordinary row-identity
-        // scans. Predicate scans still need the fully decoded index key.
+        // scans. Predicate scans borrow the fully validated component frame.
         let (primary_key_value, primary_key_bytes) =
             if let Some(execution) = index_predicate_execution {
                 charge_current_execution_budget(
                     DiagnosticExecutionBudgetResource::PredicateExpressionSteps,
                     1,
                 )?;
-                let (decoded_key, primary_key_bytes) =
-                    IndexKey::try_from_raw_with_primary_key_bytes(raw_key)
-                        .map_err(|_| InternalError::index_corruption())?;
-                if !eval_index_execution_on_decoded_key(&decoded_key, execution)? {
+                let frame = decode_index_key_frame(raw_key)
+                    .map_err(|_| InternalError::index_corruption())?;
+                if !eval_index_program_on_frame(&frame, execution)? {
                     return Ok(false);
                 }
 
-                (
-                    decoded_key
-                        .primary_key_value()
-                        .map_err(|_| InternalError::index_entry_decode_failed())?,
-                    primary_key_bytes,
-                )
+                frame
+                    .primary_key_value_and_bytes()
+                    .map_err(|_| InternalError::index_entry_decode_failed())?
             } else {
                 IndexKey::primary_key_value_and_bytes_from_raw(raw_key)
                     .map_err(|_| InternalError::index_corruption())?
@@ -1013,17 +1009,17 @@ impl IndexScan {
             );
         }
 
-        // Phase 1: decode the raw key once, extract requested components, and
-        // evaluate any optional index-only predicate against that decoded view.
-        let decoded_key =
-            IndexKey::try_from_raw(raw_key).map_err(|_| InternalError::index_corruption())?;
+        // Phase 1: validate the complete raw frame, copy only requested output
+        // components, and evaluate the predicate through borrowed raw slices.
+        let frame =
+            decode_index_key_frame(raw_key).map_err(|_| InternalError::index_corruption())?;
         charge_current_execution_budget(
             DiagnosticExecutionBudgetResource::DecodedBytes,
             u64::try_from(raw_key.as_bytes().len()).unwrap_or(u64::MAX),
         )?;
         let mut components = Vec::with_capacity(component_indices.len());
         for component_index in component_indices {
-            let Some(component) = decoded_key.component(*component_index) else {
+            let Some(component) = frame.components().get(*component_index) else {
                 return Err(InternalError::index_invariant());
             };
             components.push(component.to_vec());
@@ -1035,18 +1031,25 @@ impl IndexScan {
                 DiagnosticExecutionBudgetResource::PredicateExpressionSteps,
                 1,
             )?;
-            if !eval_index_execution_on_decoded_key(&decoded_key, execution)? {
+            if !eval_index_program_on_frame(&frame, execution)? {
                 return Ok(false);
             }
         }
 
         // Phase 2: decode the key-owned row witness. The raw index key now owns
         // row identity; the raw entry value carries only the existence witness.
+        let (primary_key_value, primary_key_bytes) = frame
+            .primary_key_value_and_bytes()
+            .map_err(|_| InternalError::index_entry_decode_failed())?;
         let row_witness = value
-            .decode_row_witness_from_index_key(&decoded_key)
+            .decode_row_witness_from_primary_key_value(&primary_key_value)
             .map_err(|_| InternalError::index_entry_decode_failed())?;
         out.push((
-            Self::data_key_from_row_witness(entity, &row_witness, &decoded_key),
+            Self::data_key_from_row_witness_with_primary_key_bytes(
+                entity,
+                &row_witness,
+                primary_key_bytes,
+            ),
             row_witness.existence_witness(),
             components,
         ));
@@ -1090,20 +1093,7 @@ impl IndexScan {
         Ok(limit.is_some_and(|limit| out.len() == limit))
     }
 
-    // Rebuild one data key from the raw row-witness payload without re-encoding
-    // the primary key through the value layer.
-    fn data_key_from_row_witness(
-        entity: EntityTag,
-        row_witness: &IndexEntryRowWitness,
-        index_key: &IndexKey,
-    ) -> DecodedDataStoreKey {
-        Self::data_key_from_row_witness_with_primary_key_bytes(
-            entity,
-            row_witness,
-            index_key.primary_key_bytes(),
-        )
-    }
-
+    // Rebuild the row key using the validated raw suffix, without re-encoding it.
     fn data_key_from_row_witness_with_primary_key_bytes(
         entity: EntityTag,
         row_witness: &IndexEntryRowWitness,

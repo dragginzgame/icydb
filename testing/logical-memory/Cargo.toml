@@ -11,8 +11,6 @@ publish = false
 crate-type = ["cdylib"]
 
 [features]
-default = ["test-admin-api"]
-test-admin-api = []
 omit-retiring-store = []
 
 [dependencies]

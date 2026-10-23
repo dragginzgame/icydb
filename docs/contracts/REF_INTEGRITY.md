@@ -145,6 +145,14 @@ be paired with every source deletion or update-away in the same batch. Delete
 protection runs for each target entity that has deleted keys; retained final
 sources still block the whole batch.
 
+Within that immutable final overlay, delete protection projects each complete
+source identity and relation only once against the full set of deleted target
+keys. Repeated reverse witnesses do not re-charge that final source projection.
+Successful checks are retained only for the current batch and bounded by the
+existing reverse-effect allowance. Reverse witnesses are still decoded before
+reuse; source corruption and any surviving reference reject the batch. Save-time
+target admission and before/after relation accounting retain their own checks.
+
 Supported relation shapes in the current contract:
 
 * `Id<T>`

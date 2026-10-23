@@ -5035,12 +5035,19 @@ mod tests {
                 SchemaMigrationCode::ProgressCorrupt,
             ),
         ] {
-            let diagnostic = schema_migration_planning_error(error).diagnostic();
+            let error = schema_migration_planning_error(error);
+            let diagnostic = error.diagnostic();
             assert_eq!(
                 diagnostic.detail(),
                 Some(&DiagnosticDetail::SchemaMigration { reason }),
             );
             assert_eq!(diagnostic.code(), reason.diagnostic_code());
+            let failure = crate::db::startup::classify_terminal_failure(
+                crate::db::StartupFailureKind::SchemaReconciliation,
+                &error,
+            )
+            .expect("every deterministic planner rejection must stop generated startup");
+            assert_eq!(*failure.diagnostic(), diagnostic);
         }
     }
 
@@ -5062,6 +5069,14 @@ mod tests {
             SchemaMigrationPlanningError::Preparation(error),
         );
         assert_eq!(result.diagnostic(), expected);
+        assert!(
+            crate::db::startup::classify_terminal_failure(
+                crate::db::StartupFailureKind::SchemaReconciliation,
+                &result,
+            )
+            .is_none(),
+            "transient preparation budgets must not become terminal migration failures",
+        );
     }
 
     #[cfg(feature = "migration")]

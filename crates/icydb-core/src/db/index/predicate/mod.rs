@@ -4,9 +4,12 @@
 //! Boundary: query/load paths use this for conservative index prefiltering.
 
 pub(crate) mod compile;
+#[cfg(test)]
+mod tests;
+
 use crate::{
     db::{
-        index::{EncodedValue, IndexKey, admit_query_index_component},
+        index::{BorrowedIndexKeyFrame, EncodedValue, admit_query_index_component},
         resource::construction::ConstructionBudget,
     },
     error::InternalError,
@@ -119,9 +122,9 @@ pub(crate) fn eval_index_compare(
 
 pub(in crate::db) type IndexPredicateExecution<'a> = &'a IndexPredicateProgram;
 
-// Evaluate one compiled index-only program against one decoded index key.
-pub(in crate::db) fn eval_index_program_on_decoded_key(
-    key: &IndexKey,
+/// Evaluate one compiled index-only program against a strictly decoded borrowed frame.
+pub(in crate::db) fn eval_index_program_on_frame(
+    frame: &BorrowedIndexKeyFrame<'_>,
     program: &IndexPredicateProgram,
 ) -> Result<bool, InternalError> {
     // Evaluate recursively over the compiled index-only predicate tree.
@@ -130,7 +133,7 @@ pub(in crate::db) fn eval_index_program_on_decoded_key(
         IndexPredicateProgram::False => Ok(false),
         IndexPredicateProgram::And(children) => {
             for child in children {
-                if !eval_index_program_on_decoded_key(key, child)? {
+                if !eval_index_program_on_frame(frame, child)? {
                     return Ok(false);
                 }
             }
@@ -139,20 +142,20 @@ pub(in crate::db) fn eval_index_program_on_decoded_key(
         }
         IndexPredicateProgram::Or(children) => {
             for child in children {
-                if eval_index_program_on_decoded_key(key, child)? {
+                if eval_index_program_on_frame(frame, child)? {
                     return Ok(true);
                 }
             }
 
             Ok(false)
         }
-        IndexPredicateProgram::Not(inner) => Ok(!eval_index_program_on_decoded_key(key, inner)?),
+        IndexPredicateProgram::Not(inner) => Ok(!eval_index_program_on_frame(frame, inner)?),
         IndexPredicateProgram::Compare {
             component_index,
             op,
             literal,
         } => {
-            let Some(component) = key.component(*component_index) else {
+            let Some(component) = frame.components().get(*component_index) else {
                 return Err(InternalError::index_only_predicate_component_required());
             };
 
@@ -223,14 +226,6 @@ fn eval_index_or_on_prefix_components(
     }
 
     all_known.then_some(false)
-}
-
-/// Evaluate one compiled index-only execution request.
-pub(in crate::db) fn eval_index_execution_on_decoded_key(
-    key: &IndexKey,
-    execution: IndexPredicateExecution<'_>,
-) -> Result<bool, InternalError> {
-    eval_index_program_on_decoded_key(key, execution)
 }
 
 /// Build canonical index-component bytes for one literal.
