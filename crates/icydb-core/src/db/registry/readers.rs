@@ -43,11 +43,15 @@ impl StructuralIndexEntryReader for StoreHandle {
     ) -> Result<Vec<PrimaryKeyValue>, InternalError> {
         let mut out = Vec::with_capacity(limit.min(32));
         index_store.with_borrow(|store| {
-            store.visit_raw_entries_in_range(bounds, Direction::Asc, |raw_key, raw_entry| {
-                push_structural_index_entry_primary_key_values_limited(
-                    raw_key, raw_entry, &mut out, limit,
-                )
-            })
+            store.visit_raw_entries_in_range(
+                (bounds.0.as_ref(), bounds.1.as_ref()),
+                Direction::Asc,
+                |raw_key, raw_entry| {
+                    push_structural_index_entry_primary_key_values_limited(
+                        raw_key, raw_entry, &mut out, limit,
+                    )
+                },
+            )
         })?;
 
         Ok(out)

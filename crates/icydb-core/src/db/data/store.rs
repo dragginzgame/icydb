@@ -170,7 +170,9 @@ impl DataStore {
         } else {
             None
         };
-        let cardinality_key = key.clone();
+        // Counts retain only entity identity, so copy that fact before the map
+        // takes the row key instead of retaining a second key buffer.
+        let entity = key.entity_tag_prefix();
         let previous = match &mut self.backend {
             DataStoreBackend::Heap(map) => map.insert(key, row),
             DataStoreBackend::Journaled {
@@ -182,8 +184,8 @@ impl DataStore {
             }
         };
         self.entity_cardinality
-            .apply_insert(&cardinality_key, previous.is_some());
-        self.apply_entity_overlay_delta(&cardinality_key, previous.is_some(), true);
+            .apply_insert(entity, previous.is_some());
+        self.apply_entity_overlay_delta(entity, previous.is_some(), true);
         self.bump_generation();
         previous
     }
@@ -200,7 +202,7 @@ impl DataStore {
         } else {
             None
         };
-        let cardinality_key = key.clone();
+        let entity = key.entity_tag_prefix();
         let previous = match &mut self.backend {
             DataStoreBackend::Heap(map) => map.insert(key, row),
             DataStoreBackend::Journaled {
@@ -212,8 +214,8 @@ impl DataStore {
             }
         };
         self.entity_cardinality
-            .apply_insert(&cardinality_key, previous.is_some());
-        self.apply_entity_overlay_delta(&cardinality_key, previous.is_some(), true);
+            .apply_insert(entity, previous.is_some());
+        self.apply_entity_overlay_delta(entity, previous.is_some(), true);
         self.bump_generation();
         previous
     }
@@ -236,8 +238,8 @@ impl DataStore {
             }
         };
         self.entity_cardinality
-            .apply_remove(key, previous.is_some());
-        self.apply_entity_overlay_delta(key, previous.is_some(), false);
+            .apply_remove(key.entity_tag_prefix(), previous.is_some());
+        self.apply_entity_overlay_delta(key.entity_tag_prefix(), previous.is_some(), false);
         self.bump_generation();
         previous
     }
@@ -295,11 +297,11 @@ impl DataStore {
             live.get(&key).cloned().or_else(|| canonical.get(&key))
         };
         tombstones.remove(&key);
-        let cardinality_key = key.clone();
+        let entity = key.entity_tag_prefix();
         live.insert(key, row);
         self.entity_cardinality
-            .apply_insert(&cardinality_key, previous.is_some());
-        self.apply_entity_overlay_delta(&cardinality_key, previous.is_some(), true);
+            .apply_insert(entity, previous.is_some());
+        self.apply_entity_overlay_delta(entity, previous.is_some(), true);
         self.bump_generation();
 
         Ok(previous)
@@ -325,16 +327,19 @@ impl DataStore {
             return Err(crate::error::InternalError::store_invariant());
         };
         let next_present = row.is_some();
+        let entity = key.entity_tag_prefix();
         if let Some(row) = row {
             tombstones.remove(&key);
             live.insert(key.clone(), row);
-            self.entity_cardinality.apply_insert(&key, previous_present);
+            self.entity_cardinality
+                .apply_insert(entity, previous_present);
         } else {
             live.remove(&key);
             tombstones.insert(key.clone());
-            self.entity_cardinality.apply_remove(&key, previous_present);
+            self.entity_cardinality
+                .apply_remove(entity, previous_present);
         }
-        entity_cardinality_delta.apply_presence_transition(&key, previous_present, next_present);
+        entity_cardinality_delta.apply_presence_transition(entity, previous_present, next_present);
         positions.publish_preflighted(key, position);
         self.bump_generation();
 
@@ -466,13 +471,13 @@ impl DataStore {
         };
 
         let visible = !live.contains_key(&key) && !tombstones.contains(&key);
-        let cardinality_key = key.clone();
+        let entity = key.entity_tag_prefix();
         let previous = canonical.insert(key, row);
         if visible {
             self.entity_cardinality
-                .apply_insert(&cardinality_key, previous.is_some());
+                .apply_insert(entity, previous.is_some());
         } else if previous.is_none() {
-            self.apply_entity_overlay_delta(&cardinality_key, true, false);
+            self.apply_entity_overlay_delta(entity, true, false);
         }
         self.bump_generation();
 
@@ -498,9 +503,9 @@ impl DataStore {
         let previous = canonical.remove(key);
         if visible {
             self.entity_cardinality
-                .apply_remove(key, previous.is_some());
+                .apply_remove(key.entity_tag_prefix(), previous.is_some());
         } else if previous.is_some() {
-            self.apply_entity_overlay_delta(key, false, true);
+            self.apply_entity_overlay_delta(key.entity_tag_prefix(), false, true);
         }
         self.bump_generation();
 
@@ -840,7 +845,7 @@ impl DataStore {
     fn rebuild_entity_cardinality_from_entries(&mut self) {
         let mut cardinality = EntityCardinality::empty();
         let _: Result<(), Infallible> = self.visit_entries(|key, _row| {
-            cardinality.apply_present_key(key);
+            cardinality.apply_present_entity(key.entity_tag_prefix());
             Ok(StoreVisit::Continue)
         });
         self.entity_cardinality = cardinality;
@@ -848,7 +853,7 @@ impl DataStore {
 
     fn apply_entity_overlay_delta(
         &mut self,
-        key: &RawDataStoreKey,
+        entity: Option<EntityTag>,
         previous_present: bool,
         next_present: bool,
     ) {
@@ -859,7 +864,7 @@ impl DataStore {
         else {
             return;
         };
-        entity_cardinality_delta.apply_presence_transition(key, previous_present, next_present);
+        entity_cardinality_delta.apply_presence_transition(entity, previous_present, next_present);
     }
 
     /// Return the monotonic perf-only count of stable row fetches seen by this process.
@@ -1086,14 +1091,14 @@ impl EntityCardinalityDelta {
 
     fn apply_presence_transition(
         &mut self,
-        key: &RawDataStoreKey,
+        entity: Option<EntityTag>,
         previous_present: bool,
         next_present: bool,
     ) {
         if !self.decodable || previous_present == next_present {
             return;
         }
-        let Some(entity) = key.entity_tag_prefix() else {
+        let Some(entity) = entity else {
             self.counts.clear();
             self.decodable = false;
             return;
@@ -1132,25 +1137,25 @@ impl EntityCardinality {
             .then(|| self.counts.get(&entity).copied().unwrap_or(0))
     }
 
-    fn apply_insert(&mut self, key: &RawDataStoreKey, previous_present: bool) {
+    fn apply_insert(&mut self, entity: Option<EntityTag>, previous_present: bool) {
         if previous_present {
             return;
         }
-        self.apply_present_key(key);
+        self.apply_present_entity(entity);
     }
 
-    fn apply_remove(&mut self, key: &RawDataStoreKey, previous_present: bool) {
+    fn apply_remove(&mut self, entity: Option<EntityTag>, previous_present: bool) {
         if !previous_present {
             return;
         }
-        self.apply_removed_key(key);
+        self.apply_removed_entity(entity);
     }
 
-    fn apply_present_key(&mut self, key: &RawDataStoreKey) {
+    fn apply_present_entity(&mut self, entity: Option<EntityTag>) {
         if !self.decodable {
             return;
         }
-        let Some(entity) = key.entity_tag_prefix() else {
+        let Some(entity) = entity else {
             self.invalidate();
             return;
         };
@@ -1159,11 +1164,11 @@ impl EntityCardinality {
         *count = count.saturating_add(1);
     }
 
-    fn apply_removed_key(&mut self, key: &RawDataStoreKey) {
+    fn apply_removed_entity(&mut self, entity: Option<EntityTag>) {
         if !self.decodable {
             return;
         }
-        let Some(entity) = key.entity_tag_prefix() else {
+        let Some(entity) = entity else {
             self.invalidate();
             return;
         };

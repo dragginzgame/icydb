@@ -464,8 +464,20 @@ fn validate_migration_plan(
         if transition.from().get().checked_add(1) != Some(entity.version().get()) {
             return Err(SchemaContractError::MigrationVersionGap);
         }
+        let reachable = if transition.renames().iter().any(|rename| {
+            matches!(
+                rename,
+                SchemaMigrationRename::NamedType { .. }
+                    | SchemaMigrationRename::EnumVariant { .. }
+                    | SchemaMigrationRename::RecordField { .. }
+            )
+        }) {
+            entity_named_types(entity, types)
+        } else {
+            BTreeSet::new()
+        };
         for rename in transition.renames() {
-            validate_migration_rename_target(rename, transition, entity, types)?;
+            validate_migration_rename_target(rename, transition, entity, types, &reachable)?;
         }
         for transform in transition.transforms() {
             validate_migration_transform_target(transform, entity, types)?;
@@ -480,19 +492,41 @@ fn validate_shared_type_transition_closure(
     entities: &BTreeMap<EntitySourceKey, &EntityFragment>,
     types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
 ) -> Result<(), SchemaContractError> {
-    for declaring_transition in plan.transitions() {
-        for rename in declaring_transition.renames() {
-            let Some(target_type) = shared_rename_target_type(declaring_transition, rename) else {
+    // Deduplicate shared requirements by the same exact key used to canonicalize
+    // declarations. Keep no cross-entity reachability cache: one large shared
+    // graph must not allocate one retained copy per entity.
+    let mut required = BTreeMap::<_, BTreeSet<_>>::new();
+    for transition in plan.transitions() {
+        for rename in transition.renames() {
+            if let Some(target) = shared_rename_target_type(transition, rename) {
+                required
+                    .entry(target)
+                    .or_default()
+                    .insert(rename.sort_key());
+            }
+        }
+    }
+    if required.is_empty() {
+        return Ok(());
+    }
+    for (source, entity) in entities {
+        let transition = plan
+            .transitions()
+            .binary_search_by(|transition| transition.entity().cmp(source))
+            .ok()
+            .map(|index| &plan.transitions()[index]);
+        // Traverse each consumer once, independent of the number of declarations.
+        for target in entity_named_types(entity, types) {
+            let Some(renames) = required.get(target) else {
                 continue;
             };
-            for (entity_source, entity) in entities {
-                if !entity_reaches_named_type(entity, &target_type, types) {
-                    continue;
-                }
-                let repeats_rename = plan.transitions().iter().any(|transition| {
-                    transition.entity() == entity_source && transition.renames().contains(rename)
-                });
-                if !repeats_rename {
+            let transition = transition.ok_or(SchemaContractError::InvalidMigrationReference)?;
+            for rename in renames {
+                if transition
+                    .renames()
+                    .binary_search_by(|candidate| candidate.sort_key().cmp(rename))
+                    .is_err()
+                {
                     return Err(SchemaContractError::InvalidMigrationReference);
                 }
             }
@@ -523,15 +557,16 @@ fn validate_migration_rename_target(
     transition: &crate::EntityMigration,
     entity: &EntityFragment,
     types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
+    reachable: &BTreeSet<&TypeSourceKey>,
 ) -> Result<(), SchemaContractError> {
     let valid = match rename {
         SchemaMigrationRename::Field { to, .. } => {
             entity.fields().iter().any(|field| field.source_key() == to)
         }
-        SchemaMigrationRename::NamedType { to, .. } => entity_reaches_named_type(entity, to, types),
+        SchemaMigrationRename::NamedType { to, .. } => reachable.contains(to),
         SchemaMigrationRename::EnumVariant { named_type, to, .. } => {
             let target_type = migration_target_type(transition, named_type);
-            entity_reaches_named_type(entity, &target_type, types)
+            reachable.contains(&target_type)
                 && matches!(
                     types.get(&target_type),
                     Some(NamedTypeFragment::Enum(target))
@@ -540,7 +575,7 @@ fn validate_migration_rename_target(
         }
         SchemaMigrationRename::RecordField { named_type, to, .. } => {
             let target_type = migration_target_type(transition, named_type);
-            entity_reaches_named_type(entity, &target_type, types)
+            reachable.contains(&target_type)
                 && matches!(
                     types.get(&target_type),
                     Some(NamedTypeFragment::Record(target))
@@ -573,59 +608,37 @@ fn validate_migration_rename_target(
     }
 }
 
-fn entity_reaches_named_type(
-    entity: &EntityFragment,
-    target: &TypeSourceKey,
-    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
-) -> bool {
-    let mut seen = BTreeSet::new();
-    entity
+fn entity_named_types<'schema>(
+    entity: &'schema EntityFragment,
+    types: &BTreeMap<TypeSourceKey, &'schema NamedTypeFragment>,
+) -> BTreeSet<&'schema TypeSourceKey> {
+    let mut pending: Vec<_> = entity
         .fields()
         .iter()
-        .any(|field| field_type_reaches_named_type(field.field_type(), target, types, &mut seen))
-        || entity.constraints().iter().any(|constraint| {
-            matches!(
-                constraint.kind(),
-                ConstraintFragmentKind::TargetedRule(rule) if rule.target_type() == target
-            )
-        })
-}
-
-fn field_type_reaches_named_type(
-    field_type: &FieldType,
-    target: &TypeSourceKey,
-    types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
-    seen: &mut BTreeSet<TypeSourceKey>,
-) -> bool {
-    match field_type {
-        FieldType::Scalar(_) => false,
-        FieldType::List(inner) => field_type_reaches_named_type(inner, target, types, seen),
-        FieldType::Named(source) if source == target => true,
-        FieldType::Named(source) if !seen.insert(source.clone()) => false,
-        FieldType::Named(source) => match types.get(source) {
-            Some(NamedTypeFragment::Record(record)) => record.fields().iter().any(|field| {
-                field_type_reaches_named_type(field.field_type(), target, types, seen)
-            }),
-            Some(NamedTypeFragment::Enum(r#enum)) => r#enum.variants().iter().any(|variant| {
-                variant.payload().is_some_and(|payload| {
-                    field_type_reaches_named_type(payload, target, types, seen)
-                })
-            }),
-            Some(
-                NamedTypeFragment::Newtype { inner, .. }
-                | NamedTypeFragment::List { item: inner, .. }
-                | NamedTypeFragment::Set { item: inner, .. },
-            ) => field_type_reaches_named_type(inner, target, types, seen),
-            Some(NamedTypeFragment::Map { key, value, .. }) => {
-                field_type_reaches_named_type(key, target, types, seen)
-                    || field_type_reaches_named_type(value, target, types, seen)
+        .map(FieldFragment::field_type)
+        .collect();
+    let mut reachable = BTreeSet::new();
+    while let Some(field_type) = pending.pop() {
+        match field_type {
+            FieldType::Scalar(_) => {}
+            FieldType::List(item) => pending.push(item),
+            FieldType::Named(source) => {
+                if reachable.insert(source)
+                    && let Some(definition) = types.get(source)
+                {
+                    push_named_type_field_types(definition, &mut pending);
+                }
             }
-            Some(NamedTypeFragment::Tuple { members, .. }) => members.iter().any(|member| {
-                field_type_reaches_named_type(member.field_type(), target, types, seen)
-            }),
-            None => false,
-        },
+        }
     }
+    // Targeted rules contribute their exact target, not its dependency closure.
+    // This preserves migration ownership independently of field-local rule checks.
+    for constraint in entity.constraints() {
+        if let ConstraintFragmentKind::TargetedRule(rule) = constraint.kind() {
+            reachable.insert(rule.target_type());
+        }
+    }
+    reachable
 }
 
 fn migration_target_type(

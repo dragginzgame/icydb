@@ -31,7 +31,7 @@ use crate::{
             traversal::IndexRangeTraversalContract,
         },
         index::{
-            IndexKey, RawIndexStoreKey, predicate::IndexPredicateExecution,
+            IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey, predicate::IndexPredicateExecution,
             resume_prefix_bounds_for_continuation,
         },
         key_taxonomy::RawDataStoreKeyRange,
@@ -121,6 +121,7 @@ impl<'a> MergedIndexPrefixStreamSpec<'a> {
 
     fn resume_anchor_for(
         self,
+        entity_tag: EntityTag,
         spec: &LoweredIndexPrefixSpec,
     ) -> Result<Option<RawIndexStoreKey>, InternalError> {
         if let Some(anchor) = self.continuation.index_scan_continuation().anchor() {
@@ -132,7 +133,9 @@ impl<'a> MergedIndexPrefixStreamSpec<'a> {
                 .continuation
                 .primary_key_boundary()
                 .map(|boundary| {
-                    primary_key_suffix_resume_anchor_for_prefix(self.index, spec, boundary)
+                    primary_key_suffix_resume_anchor_for_prefix(
+                        entity_tag, self.index, spec, boundary,
+                    )
                 })
                 .transpose(),
         }
@@ -606,7 +609,7 @@ impl KeyAccessRuntime {
             branch_stream_chunk_entries(request.index_fetch_hint, active_branch_count),
             active_branch_count,
         )?;
-        let resume_anchor = request.resume_anchor_for(spec)?;
+        let resume_anchor = request.resume_anchor_for(self.entity_tag, spec)?;
 
         let stream = IndexRangeKeyStream::from_prefix(
             self.store,
@@ -706,67 +709,56 @@ fn charge_prefix_family_construction(
 }
 
 fn primary_key_suffix_resume_anchor_for_prefix(
+    entity_tag: EntityTag,
     index: &IndexShapeDetails,
     spec: &LoweredIndexPrefixSpec,
     primary_key_boundary: &CursorBoundary,
 ) -> Result<RawIndexStoreKey, InternalError> {
     let prefix_len = index.slot_arity();
     let key_arity = index.key_arity();
-    if prefix_len > key_arity {
+    if prefix_len > key_arity || spec.prefix_components().len() > key_arity {
         return Err(InternalError::query_executor_invariant());
     }
 
-    let prefix_start = lowered_prefix_start_key(spec)?;
-    if prefix_start.component_count() != key_arity {
-        return Err(InternalError::query_executor_invariant());
-    }
-    if prefix_len == key_arity {
-        let (primary_key, _values) =
-            primary_key_suffix_values(primary_key_boundary, primary_key_boundary.slots.len())?;
-        return Ok(
-            IndexKey::new_from_existing_prefix_and_suffix_values_with_primary_key_value(
-                &prefix_start,
-                prefix_len,
-                &[],
-                &primary_key,
-            )?
-            .to_raw()?,
-        );
-    }
-
-    let suffix_len = key_arity.saturating_sub(prefix_len);
+    let prefix = spec
+        .prefix_components()
+        .get(..prefix_len)
+        .ok_or_else(InternalError::query_executor_invariant)?;
+    let suffix_len = if prefix_len == key_arity {
+        primary_key_boundary.slots.len()
+    } else {
+        key_arity - prefix_len
+    };
     let (primary_key, suffix_values) = primary_key_suffix_values(primary_key_boundary, suffix_len)?;
 
     // Prefix-family continuation is valid only when route planning has proven
     // that the remaining index suffix is exactly the primary key. Fill that
     // suffix from the cursor boundary so each prefix stream resumes at the
     // same global primary-key position.
-    Ok(
-        IndexKey::new_from_existing_prefix_and_suffix_values_with_primary_key_value(
-            &prefix_start,
-            prefix_len,
-            suffix_values.as_slice(),
-            &primary_key,
-        )?
-        .to_raw()?,
+    IndexKey::raw_from_prefix_and_suffix_values_with_primary_key_value(
+        IndexId::new_with_generation(entity_tag, index.ordinal(), index.physical_generation()),
+        IndexKeyKind::User,
+        prefix,
+        if prefix_len == key_arity {
+            &[]
+        } else {
+            suffix_values.as_slice()
+        },
+        &primary_key,
     )
 }
 
 fn sort_lowered_index_prefix_specs_by_raw_lower_key(
-    specs: &mut Vec<&LoweredIndexPrefixSpec>,
+    specs: &mut [&LoweredIndexPrefixSpec],
 ) -> Result<(), InternalError> {
-    // Sorting owns an additional descriptor vector and lower-key copies beyond
-    // the stream family's admitted bounds. Charge them before allocating or
-    // draining the borrowed specifications.
-    let mut sort_bytes = specs
+    // Bounds stay owned by their specifications. Admit deferred bounds before
+    // sorting, then charge only the extra borrowed descriptors, not key copies.
+    let sort_bytes = specs
         .len()
-        .checked_mul(size_of::<(RawIndexStoreKey, &LoweredIndexPrefixSpec)>())
+        .checked_mul(size_of::<(&RawIndexStoreKey, &LoweredIndexPrefixSpec)>())
         .ok_or_else(InternalError::executor_invariant)?;
     for spec in specs.iter() {
-        let (lower, _) = spec.raw_bounds(&ExecutionConstructionBudget)?;
-        sort_bytes = sort_bytes
-            .checked_add(RawIndexStoreKey::bound_backing_bytes(lower))
-            .ok_or_else(InternalError::executor_invariant)?;
+        spec.raw_bounds(&ExecutionConstructionBudget)?;
     }
     charge_current_execution_budget(
         DiagnosticExecutionBudgetResource::TemporaryBytes,
@@ -776,27 +768,20 @@ fn sort_lowered_index_prefix_specs_by_raw_lower_key(
     keyed_specs
         .try_reserve_exact(specs.len())
         .map_err(|_| InternalError::executor_internal())?;
-    for spec in specs.drain(..) {
+    for &spec in specs.iter() {
         let (lower, _upper) = spec.raw_bounds(&ExecutionConstructionBudget)?;
         let Bound::Included(raw_key) = lower else {
             return Err(InternalError::query_executor_invariant());
         };
-        keyed_specs.push((raw_key.clone(), spec));
+        keyed_specs.push((raw_key, spec));
     }
 
-    keyed_specs.sort_by(|left, right| left.0.cmp(&right.0));
-    specs.extend(keyed_specs.into_iter().map(|(_raw_key, spec)| spec));
+    keyed_specs.sort_by(|left, right| left.0.cmp(right.0));
+    for (destination, (_raw_key, spec)) in specs.iter_mut().zip(keyed_specs) {
+        *destination = spec;
+    }
 
     Ok(())
-}
-
-fn lowered_prefix_start_key(spec: &LoweredIndexPrefixSpec) -> Result<IndexKey, InternalError> {
-    let (lower, _upper) = spec.raw_bounds(&ExecutionConstructionBudget)?;
-    let Bound::Included(raw_key) = lower else {
-        return Err(InternalError::query_executor_invariant());
-    };
-
-    IndexKey::try_from_raw(raw_key).map_err(|_err| InternalError::query_executor_invariant())
 }
 
 fn primary_key_suffix_values(
@@ -986,7 +971,7 @@ impl PrimaryRangeKeyStream {
         let mut last_raw_key = None;
         let outcome = self.store.with_data(|store| {
             store.try_visit_range_with_row_preflight(
-                (self.lower_bound.clone(), self.upper_bound.clone()),
+                (self.lower_bound.as_ref(), self.upper_bound.as_ref()),
                 |_raw_key| {
                     if row_limit.is_some_and(|limit| visited.get() >= limit) || !begin_row()? {
                         return Ok::<StoreVisit, InternalError>(StoreVisit::Stop);
@@ -1095,7 +1080,7 @@ impl PrimaryRangeKeyStream {
             match self.direction {
                 Direction::Asc => {
                     store.visit_key_range(
-                        (self.lower_bound.clone(), self.upper_bound.clone()),
+                        (self.lower_bound.as_ref(), self.upper_bound.as_ref()),
                         |raw_key| {
                             charge_current_execution_budget(
                                 DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
@@ -1112,7 +1097,7 @@ impl PrimaryRangeKeyStream {
                 }
                 Direction::Desc => {
                     store.visit_key_range_rev(
-                        (self.lower_bound.clone(), self.upper_bound.clone()),
+                        (self.lower_bound.as_ref(), self.upper_bound.as_ref()),
                         |raw_key| {
                             charge_current_execution_budget(
                                 DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
@@ -1922,6 +1907,53 @@ mod physical_polling_tests {
                 let mut index = ordered_index_stream(direction, limit, None);
                 assert_eq!(collect_keys(&mut primary), expected);
                 assert_eq!(collect_keys(&mut index), expected);
+            }
+        }
+    }
+
+    #[test]
+    fn direct_primary_visits_preserve_bounded_progress_after_early_stop() {
+        reset_heap_stores();
+        load_primary_keys();
+        for limit in [Some(0), Some(1), Some(64), Some(65), None] {
+            for stop_after in [0, 1, 63, 64, 65, 100] {
+                let mut stream = PrimaryRangeKeyStream::new(
+                    STORE,
+                    data_key(10),
+                    data_key(90),
+                    Direction::Asc,
+                    limit,
+                )
+                .unwrap();
+                let visited = Cell::new(0);
+                let mut rows = Vec::new();
+                assert_eq!(
+                    stream
+                        .try_visit_rows_direct(
+                            &mut || Ok(visited.get() < stop_after),
+                            &mut |key, _| {
+                                visited.set(visited.get() + 1);
+                                rows.push(key);
+                                Ok(StoreVisit::Continue)
+                            },
+                        )
+                        .unwrap(),
+                    Some(())
+                );
+                let mut expected = (10..=90).map(data_key).collect::<Vec<_>>();
+                if let Some(limit) = limit {
+                    expected.truncate(limit);
+                }
+                assert_eq!(
+                    rows,
+                    expected
+                        .iter()
+                        .take(stop_after)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                );
+                rows.extend(collect_keys(&mut stream));
+                assert_eq!(rows, expected);
             }
         }
     }

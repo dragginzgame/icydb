@@ -53,10 +53,19 @@ impl<'a> IndexScanContinuationInput<'a> {
 
     /// Validate continuation-envelope consistency and derive resumed scan
     /// bounds for one directional index scan.
-    pub(in crate::db::cursor) fn resume_bounds(
-        &self,
-        bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
-    ) -> Result<(Bound<RawIndexStoreKey>, Bound<RawIndexStoreKey>), InternalError> {
+    pub(in crate::db::cursor) fn resume_bounds<'bounds>(
+        &'bounds self,
+        bounds: (
+            &'bounds Bound<RawIndexStoreKey>,
+            &'bounds Bound<RawIndexStoreKey>,
+        ),
+    ) -> Result<
+        (
+            Bound<&'bounds RawIndexStoreKey>,
+            Bound<&'bounds RawIndexStoreKey>,
+        ),
+        InternalError,
+    > {
         resume_bounds_for_continuation(self.direction, self.anchor, bounds.0, bounds.1)
     }
 

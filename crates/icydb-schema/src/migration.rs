@@ -99,7 +99,7 @@ pub enum SchemaMigrationRename {
 }
 
 impl SchemaMigrationRename {
-    const fn sort_key(&self) -> (u8, &str, &str, &str) {
+    pub(crate) const fn sort_key(&self) -> (u8, &str, &str, &str) {
         match self {
             Self::Field { from, to } => (0, "", from.as_str(), to.as_str()),
             Self::NamedType { from, to } => (1, "", from.as_str(), to.as_str()),

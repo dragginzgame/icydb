@@ -76,6 +76,16 @@ pub(in crate::db) struct BorrowedIndexKeyFrame<'a> {
 }
 
 impl<'a> BorrowedIndexKeyFrame<'a> {
+    /// Return the namespace admitted by the strict frame decoder.
+    pub(in crate::db::index) const fn key_kind(&self) -> IndexKeyKind {
+        self.key_kind
+    }
+
+    /// Return the complete physical identity, including its generation.
+    pub(in crate::db::index) const fn index_id(&self) -> IndexId {
+        self.index_id
+    }
+
     /// Borrow exactly the components admitted by the complete frame decoder.
     pub(in crate::db) fn components(&self) -> &[&'a [u8]] {
         &self.components[..self.component_count]
@@ -96,8 +106,23 @@ impl IndexKey {
         &self,
         primary_key: &[u8],
     ) -> Result<RawIndexStoreKey, IndexKeyEncodeError> {
+        Self::raw_from_components_with_primary_key(
+            self.key_kind,
+            self.index_id,
+            self.components.iter().map(Vec::as_slice),
+            primary_key,
+        )
+    }
+
+    /// Frame borrowed components through the same bounds as owned index keys.
+    pub(super) fn raw_from_components_with_primary_key<'a>(
+        key_kind: IndexKeyKind,
+        index_id: IndexId,
+        components: impl ExactSizeIterator<Item = &'a [u8]> + Clone,
+        primary_key: &[u8],
+    ) -> Result<RawIndexStoreKey, IndexKeyEncodeError> {
         // Validate codec bounds before handing borrowed segments to taxonomy framing.
-        let component_count = self.components.len();
+        let component_count = components.len();
         if component_count > MAX_INDEX_FIELDS || u8::try_from(component_count).is_err() {
             return Err(IndexKeyEncodeError::TooManyComponents);
         }
@@ -108,7 +133,7 @@ impl IndexKey {
             return Err(IndexKeyEncodeError::SegmentTooLarge);
         }
 
-        for component in &self.components {
+        for component in components.clone() {
             if component.is_empty() {
                 return Err(IndexKeyEncodeError::EmptySegment);
             }
@@ -120,9 +145,9 @@ impl IndexKey {
         // Row keys and range sentinels share framing; primary-key interpretation
         // belongs to their consumers, so encoding does not decode the suffix.
         encode_index_store_key(
-            index_key_kind_to_store_key_kind(self.key_kind),
-            self.index_id,
-            self.components.iter().map(Vec::as_slice),
+            index_key_kind_to_store_key_kind(key_kind),
+            index_id,
+            components,
             primary_key,
         )
         .map_err(IndexKeyEncodeError::from)

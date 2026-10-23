@@ -233,11 +233,11 @@ impl<C: CanisterKind> DbSession<C> {
             Some(statement.entity.as_str()),
             statement.returning.as_ref(),
             |catalog, descriptor| {
-                let (authority, schema_info) =
-                    Self::accepted_sql_write_authority_schema_info(catalog);
+                let authority = catalog.accepted_entity_authority();
                 let entity_tag = catalog.identity().entity_tag();
-                let selector = execution_contract
-                    .selector(self.sql_update_selector_query(&schema_info, statement)?);
+                let selector = execution_contract.selector(
+                    self.sql_update_selector_query(catalog.accepted_schema_info(), statement)?,
+                );
                 let patch = Self::sql_update_fixed_patch(&descriptor, statement)?;
                 let write_context = AcceptedWriteContext::new(Timestamp::now());
                 let candidate_bounds = execution_contract.candidate_bounds();

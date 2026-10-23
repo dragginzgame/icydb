@@ -8,10 +8,10 @@ use crate::{
     db::{
         DbSession, QueryError,
         data::{AcceptedMutationIntentPatch, FieldSlot},
-        executor::{AcceptedSchemaCatalogContext, EntityAuthority},
+        executor::AcceptedSchemaCatalogContext,
         schema::{
             AcceptedFieldKind, AcceptedRowLayoutRuntimeContract, SchemaFieldWritePolicy,
-            SchemaInfo, ValidateError, input_value_from_sql_assignment_result_for_persisted_kind,
+            ValidateError, input_value_from_sql_assignment_result_for_persisted_kind,
             input_value_from_strict_sql_literal_for_persisted_kind,
         },
         session::sql::execute::write_returning::validate_sql_returning_projection_fields,
@@ -177,14 +177,6 @@ pub(super) fn reject_explicit_sql_write_to_generated_field(
 }
 
 impl<C: CanisterKind> DbSession<C> {
-    pub(super) fn accepted_sql_write_authority_schema_info(
-        catalog: &AcceptedSchemaCatalogContext,
-    ) -> (EntityAuthority, SchemaInfo) {
-        let schema_info = catalog.accepted_schema_info();
-        let authority = catalog.accepted_entity_authority();
-        (authority, schema_info.clone())
-    }
-
     pub(in crate::db::session::sql) fn with_checked_accepted_write_descriptor_for_returning<T>(
         &self,
         catalog: Option<&AcceptedSchemaCatalogContext>,

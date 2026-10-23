@@ -30,6 +30,8 @@ fn borrowed_frames_preserve_components_and_complete_primary_key_bytes() {
                 .unwrap();
                 let raw = key.to_raw().unwrap();
                 let frame = decode_index_key_frame(&raw).unwrap();
+                assert_eq!(frame.key_kind(), kind);
+                assert_eq!(frame.index_id(), index_id());
                 assert_eq!(frame.components().len(), count);
                 for (borrowed, expected) in frame.components().iter().zip(&components) {
                     assert_eq!(*borrowed, expected);

@@ -13,6 +13,118 @@ these rules.
 
 ## Ownership and provenance
 
+### Selected Wire/derive 0.6.10 — 2026-10-23
+
+Live sparse registry records and checksum-verified published archives select
+non-yanked Wire/derive 0.6.10 at `31bcef24f5b6a3240f46bd95b224abadf2cbcbbf`,
+retaining Rust 1.91 support. The incoming lockfile already selects both crates;
+its bytes, manifest ranges, other pending dependency updates and IcyDB package
+versions are preserved. The sibling's 0.6.11 draft is not a published dependency.
+
+Native codec and derive Rust sources, and the TypeScript runtime, are unchanged
+from 0.6.9. Only host registry rendering changes: private helper identifiers cannot
+collide with consumer declarations named `types`, `createCodec` or `JSON`, and
+registry literals retain own `__proto__` properties. Generated built-in array
+types remain qualified through `globalThis`. Current payloads, endpoint IDs,
+limits, error behavior, exact retry bytes and stored formats are unchanged;
+IcyDB still does not opt into `PackedI16`. See the published
+[Wire notes](https://github.com/dragginzgame/ic-wire/blob/31bcef24f5b6a3240f46bd95b224abadf2cbcbbf/CHANGELOG.md).
+
+Current Linux qualification passes 31 schema/facade/fixture Wire tests and 98
+focused Core range, covering, ordering and lowering tests on the combined pending
+source. Browser generation and strict TypeScript checks pass 90 exact frames,
+3,111 truncations and malformed/value/limit controls. The regenerated metadata,
+vectors and both runtime files are byte-identical; only registry helper naming
+changes. One installed Chromium qualification passes 15 calls across twelve
+endpoint methods. Testkit owns the temporary PocketIC server lifecycle; no
+live-IC deployment occurs.
+
+Selected strict Core, host generator and integration Clippy, public Rust 1.91
+SQL/migration Wasm, declaration/lock and selected graph guards pass. The public
+library graph remains Candid/CDK-free with one Wire/derive identity; selected
+Wasm graphs exclude TypeScript generation and Host/Build/Testkit. This is not
+artifact-level deployment admission
+([#378](https://github.com/dragginzgame/icydb/issues/378)). Native macOS, exact
+Rust 1.96 host/fixture-floor, live-IC and broad workspace/release gates remain
+unrun. Raw Wasm-size, IC cycle and instruction deltas are unmeasured. Earlier
+release CI does not qualify this unpublished source/dependency graph.
+
+### Selected Wire/derive 0.6.9 — 2026-10-23
+
+Live registry indexes and downloaded archives confirm published, non-yanked
+Wire/derive 0.6.9 at `c0841e756933906232eb0d331dfddbe164244b46`, retaining
+Rust 1.91 support. The incoming lockfile already selects both packages at this
+release; its bytes, existing manifest ranges, the pending Memory/Storage/Timers
+adoption and IcyDB release versions are preserved.
+
+The existing native codec and derive Rust sources are unchanged from the
+previously qualified 0.6.7 selection. Wire adds the opt-in bounded `PackedI16`
+field and owns its internal `bytemuck` dependency. IcyDB has no consumers of that
+field: changing an ordinary signed-integer list would change its payload and
+require coordinated callers. Current Rust fields, endpoint IDs, stored formats,
+canonicality, resource policy and error behavior remain on the same contract.
+Host TypeScript generation qualifies built-in `Int16Array`, `Uint8Array` and
+`ReadonlyArray` types through `globalThis`; existing IcyDB generation consumes
+that published owner without a local workaround. See the published
+[Wire notes](https://github.com/dragginzgame/ic-wire/blob/c0841e756933906232eb0d331dfddbe164244b46/CHANGELOG.md).
+
+Focused Linux qualification passes 31 schema/facade/fixture Wire tests and 200
+CLI/build tests. Four installed endpoint tests pass: dynamic query and metrics
+refusal/upgrade, reply-encoding failure rollback with exact retry, and Chromium
+qualification of 15 calls across twelve endpoint methods. Browser generation
+also passes 90 exact native frames, 3,111 truncations and malformed/value/limit
+controls. Testkit starts and reaps the temporary PocketIC server; no live-IC
+deployment occurs.
+
+Strict selected runtime/host/integration Clippy, public Rust 1.91 SQL/migration
+Wasm, declaration/lock guards, selected graph checks, documentation and whitespace
+checks pass. The public library remains Candid/CDK-free with one Wire/derive
+identity. Selected Wasm graphs exclude Wire's TypeScript feature and Host/Build/
+Testkit; graph observations do not establish artifact-level deployment admission
+([#378](https://github.com/dragginzgame/icydb/issues/378)). Native macOS, exact
+Rust 1.96 host/fixture-floor, installed-IC and broad workspace/release gates remain
+unrun for this pending graph. Raw Wasm-size, IC cycle and instruction deltas are
+unmeasured. Earlier release CI cannot qualify these unpublished dependency bytes.
+
+### Selected Memory/Storage 0.50.13 and Timers 0.30.7 — 2026-10-23
+
+Live registry indexes and downloaded archives confirm published, non-yanked
+Memory/Storage 0.50.13 at `650d98c1fe0ab144d5f4a83bab92e0ebd2c4f538`
+and Timers 0.30.7 at `89a2f8766a6c8548866d640f13297123527262e5`.
+All retain Rust 1.91 support. The incoming lockfile already selects these
+releases; its bytes, existing manifest ranges, unrelated selections and IcyDB
+release versions are preserved. The compatible pending notes use 0.281.1 after
+finalized 0.281.0, without changing Cargo versions or published notes.
+
+The downloaded libraries have byte-identical Rust source to Memory/Storage
+0.50.12 and Timers 0.30.6, with unchanged feature declarations. Memory and
+Storage have no build scripts; Timers retains its identical empty build script
+for the global-timer link identity. Persistence's patch adopts upstream
+Host/Shared tooling; Timers adopts
+Platform 0.6.10 and Metrics 0.15.7 while retaining its executor/IC0 identities.
+No IcyDB adapter, persisted format, memory ownership, timer scheduling or decoder
+policy migration is required. See the published
+[Persistence notes](https://github.com/dragginzgame/ic-persistence/blob/650d98c1fe0ab144d5f4a83bab92e0ebd2c4f538/docs/changelog/0.50.md)
+and [Timers notes](https://github.com/dragginzgame/ic-timers/blob/89a2f8766a6c8548866d640f13297123527262e5/CHANGELOG.md).
+
+Focused Linux qualification passes 66 Core allocation, data-store, commit-store,
+control-slot and registry tests plus seven facade bootstrap tests. Seven installed
+PocketIC tests pass: logical-memory retirement/omission, debt and pending-marker
+refusal with upgrade recovery, lifecycle ordering and rollback, hidden lifecycle
+exports, and controller-only allocation reporting without mutation. Testkit
+starts and reaps the temporary server; no live-IC deployment occurs.
+
+Strict selected Core/facade and affected integration Clippy, public-library
+Rust 1.91 SQL/migration Wasm, documentation and whitespace checks pass. Dependency
+declaration/lock guards pass. Selected Wasm graphs retain one Memory/Storage
+identity and, for the Canic actor, one Timers/Platform/executor identity; Host,
+Build and Testkit remain excluded. The public library has no Timers/Candid/CDK
+path. These are graph observations, not the artifact admission tracked by
+[#378 — Enforce deployment dependency exclusions](https://github.com/dragginzgame/icydb/issues/378).
+Native macOS, exact Rust 1.96 host/fixture-floor, installed-IC and broad
+workspace/release gates remain unrun. Raw Wasm-size, IC cycle and instruction
+deltas are unmeasured. No consumer source or dependency declaration changed.
+
 ### Selected Host/Tooling 0.66.0 and Shared 0.26.8 — 2026-10-23
 
 Live registry indexes and downloaded archives confirm published, non-yanked

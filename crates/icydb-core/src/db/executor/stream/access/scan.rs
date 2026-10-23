@@ -416,37 +416,41 @@ impl IndexScan {
         }
         let mut raw_bytes_read = 0u64;
         let scan_result = store.with_index(|index_store| {
-            index_store.visit_raw_entries_in_range(bounds, direction, |raw_key, entry| {
-                let exceeds_cardinality_proof = keys.len() >= expected;
-                if exceeds_cardinality_proof {
-                    charge_current_execution_budget(
-                        DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
-                        1,
-                    )?;
-                    charge_current_execution_budget(
-                        DiagnosticExecutionBudgetResource::CursorSteps,
-                        1,
-                    )?;
-                }
-                let raw_bytes = u64::try_from(raw_key.as_bytes().len()).unwrap_or(u64::MAX);
-                raw_bytes_read = raw_bytes_read
-                    .checked_add(raw_bytes)
-                    .ok_or_else(InternalError::executor_invariant)?;
-                let (primary_key, _) = IndexKey::primary_key_value_and_bytes_from_raw(raw_key)
-                    .map_err(|_| InternalError::index_corruption())?;
-                let existence_witness = entry
-                    .decode_existence_witness()
-                    .map_err(|_| InternalError::index_entry_decode_failed())?;
-                if matches!(existence_witness, IndexEntryExistenceWitness::Missing) {
-                    return Err(InternalError::store_corruption());
-                }
-                if exceeds_cardinality_proof {
-                    return Err(InternalError::store_corruption());
-                }
-                keys.push(ExactIntersectionPrimaryKey { value: primary_key });
+            index_store.visit_raw_entries_in_range(
+                (bounds.0.as_ref(), bounds.1.as_ref()),
+                direction,
+                |raw_key, entry| {
+                    let exceeds_cardinality_proof = keys.len() >= expected;
+                    if exceeds_cardinality_proof {
+                        charge_current_execution_budget(
+                            DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+                            1,
+                        )?;
+                        charge_current_execution_budget(
+                            DiagnosticExecutionBudgetResource::CursorSteps,
+                            1,
+                        )?;
+                    }
+                    let raw_bytes = u64::try_from(raw_key.as_bytes().len()).unwrap_or(u64::MAX);
+                    raw_bytes_read = raw_bytes_read
+                        .checked_add(raw_bytes)
+                        .ok_or_else(InternalError::executor_invariant)?;
+                    let (primary_key, _) = IndexKey::primary_key_value_and_bytes_from_raw(raw_key)
+                        .map_err(|_| InternalError::index_corruption())?;
+                    let existence_witness = entry
+                        .decode_existence_witness()
+                        .map_err(|_| InternalError::index_entry_decode_failed())?;
+                    if matches!(existence_witness, IndexEntryExistenceWitness::Missing) {
+                        return Err(InternalError::store_corruption());
+                    }
+                    if exceeds_cardinality_proof {
+                        return Err(InternalError::store_corruption());
+                    }
+                    keys.push(ExactIntersectionPrimaryKey { value: primary_key });
 
-                Ok(false)
-            })
+                    Ok(false)
+                },
+            )
         });
         // The preflight bounds this atomic route to 256 entries. Charge all
         // completed physical work even when validation reports corruption.
@@ -561,7 +565,7 @@ impl IndexScan {
     pub(in crate::db::executor) fn merged_components_without_index_values(
         store: StoreHandle,
         entity: EntityTag,
-        bounds: &[(Bound<RawIndexStoreKey>, Bound<RawIndexStoreKey>)],
+        bounds: &[(&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>)],
         direction: Direction,
         limit: usize,
     ) -> Result<Option<IndexComponentRows>, InternalError> {
@@ -688,7 +692,7 @@ impl IndexScan {
 
         store.with_index(|index_store| {
             index_store.visit_raw_entries_in_range(
-                (&bounds.0, &bounds.1),
+                bounds,
                 continuation.direction(),
                 |raw_key, value| {
                     Self::accept_scan_key(&continuation, raw_key)?;
@@ -801,7 +805,7 @@ impl IndexScan {
 
         store.with_index(|index_store| {
             index_store.visit_raw_entries_in_range(
-                (&bounds.0, &bounds.1),
+                bounds,
                 continuation.direction(),
                 |raw_key, value| {
                     Self::accept_scan_key(&continuation, raw_key)?;
@@ -843,7 +847,7 @@ impl IndexScan {
 
         store.with_index(|index_store| {
             index_store.visit_raw_entries_in_range(
-                (&bounds.0, &bounds.1),
+                bounds,
                 continuation.direction(),
                 |raw_key, value| {
                     Self::accept_scan_key(&continuation, raw_key)?;
@@ -896,7 +900,7 @@ impl IndexScan {
 
         store.with_index(|index_store| {
             index_store.visit_raw_entries_in_range(
-                (&bounds.0, &bounds.1),
+                bounds,
                 continuation.direction(),
                 |raw_key, value| {
                     Self::accept_scan_key(&continuation, raw_key)?;

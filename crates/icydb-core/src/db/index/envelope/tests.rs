@@ -157,7 +157,61 @@ fn resume_bounds_for_continuation_returns_original_bounds_without_anchor() {
     let resumed = resume_bounds_for_continuation(Direction::Asc, None, &lower, &upper)
         .expect("anchor-free continuation should preserve original bounds");
 
-    assert_eq!(resumed, (lower, upper));
+    assert_eq!(resumed, (lower.as_ref(), upper.as_ref()));
+}
+
+#[test]
+fn continuation_bounds_borrow_edges_and_match_directional_ranges() {
+    let keys = (0_u16..=8).collect::<Vec<_>>();
+    let stored_keys = keys
+        .iter()
+        .copied()
+        .collect::<std::collections::BTreeSet<_>>();
+    for lower in [Bound::Unbounded, Bound::Included(2), Bound::Excluded(2)] {
+        for upper in [Bound::Unbounded, Bound::Included(6), Bound::Excluded(6)] {
+            for direction in [Direction::Asc, Direction::Desc] {
+                for anchor in std::iter::once(None).chain(keys.iter().map(Some)) {
+                    let resumed = resume_bounds_for_continuation(direction, anchor, &lower, &upper);
+                    if anchor.is_some_and(|key| !key_within_envelope(key, &lower, &upper)) {
+                        let error = resumed.expect_err("escaped anchors must fail closed");
+                        assert_eq!(error.class, ErrorClass::InvariantViolation);
+                        assert_eq!(error.origin, ErrorOrigin::Index);
+                        continue;
+                    }
+                    let (start, end) = resumed.expect("contained anchor should resume");
+                    let expected = keys
+                        .iter()
+                        .copied()
+                        .filter(|key| {
+                            key_within_envelope(key, &lower, &upper)
+                                && anchor.is_none_or(|anchor| match direction {
+                                    Direction::Asc => key > anchor,
+                                    Direction::Desc => key < anchor,
+                                })
+                        })
+                        .collect::<Vec<_>>();
+                    let actual = stored_keys.range((start, end)).copied().collect::<Vec<_>>();
+                    assert_eq!(actual, expected);
+                    let edge = |bound: Bound<&u16>| match bound {
+                        Bound::Unbounded => None,
+                        Bound::Included(key) | Bound::Excluded(key) => {
+                            Some(std::ptr::from_ref(key))
+                        }
+                    };
+                    let expected_start = match (direction, anchor) {
+                        (Direction::Asc, Some(anchor)) => Some(std::ptr::from_ref(anchor)),
+                        _ => edge(lower.as_ref()),
+                    };
+                    let expected_end = match (direction, anchor) {
+                        (Direction::Desc, Some(anchor)) => Some(std::ptr::from_ref(anchor)),
+                        _ => edge(upper.as_ref()),
+                    };
+                    assert_eq!(edge(start), expected_start);
+                    assert_eq!(edge(end), expected_end);
+                }
+            }
+        }
+    }
 }
 
 #[test]

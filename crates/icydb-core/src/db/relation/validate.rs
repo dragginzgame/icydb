@@ -157,7 +157,7 @@ where
             let bounds = (Bound::Included(reverse_start), Bound::Excluded(reverse_end));
             target_index_store.with_borrow(|store| {
                 store.visit_raw_entries_in_range(
-                    (&bounds.0, &bounds.1),
+                    (bounds.0.as_ref(), bounds.1.as_ref()),
                     Direction::Asc,
                     |reverse_key, raw_entry| {
                         let entry = decode_reverse_entry(reverse_key, raw_entry)?;

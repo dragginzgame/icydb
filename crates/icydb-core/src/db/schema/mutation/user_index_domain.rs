@@ -917,7 +917,10 @@ fn observe_current_user_index_domain(
         .map_err(|_| StagedUserIndexDomainError::KeyEncode)?;
     let mut entries = Vec::new();
     index_store.visit_raw_entries_in_range(
-        (&Bound::Included(lower), &Bound::Included(upper)),
+        (
+            Bound::Included(lower).as_ref(),
+            Bound::Included(upper).as_ref(),
+        ),
         Direction::Asc,
         |raw_key, value| {
             budget.consume_projection_work()?;
@@ -951,7 +954,10 @@ pub(in crate::db::schema) fn prove_empty_user_index_domain(
         .map_err(|_| StagedUserIndexDomainError::KeyEncode)?;
     let mut found = false;
     index_store.visit_raw_entries_in_range(
-        (&Bound::Included(lower), &Bound::Included(upper)),
+        (
+            Bound::Included(lower).as_ref(),
+            Bound::Included(upper).as_ref(),
+        ),
         Direction::Asc,
         |raw_key, _| {
             IndexKey::try_from_raw(raw_key)

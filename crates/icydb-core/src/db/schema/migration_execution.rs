@@ -1098,29 +1098,33 @@ pub(in crate::db::schema) fn cleanup_migration_staging_page<C: CanisterKind>(
         let mut removals = Vec::new();
         let mut store_exhausted = true;
         store.with_index(|index| {
-            index.visit_raw_entries_in_range((&lower, &upper), Direction::Asc, |raw, _| {
-                if remaining_entries == 0 || remaining_bytes < raw.as_bytes().len() {
-                    store_exhausted = false;
-                    return Ok::<_, InternalError>(true);
-                }
-                let decoded =
-                    IndexKey::try_from_raw(raw).map_err(|_| InternalError::store_corruption())?;
-                remaining_entries = remaining_entries.saturating_sub(1);
-                remaining_bytes = remaining_bytes.saturating_sub(raw.as_bytes().len());
-                let index_id = decoded.index_id();
-                final_cursor = Some(PersistedSchemaMigrationIndexCursor::try_new(
-                    *store_identities
-                        .get(store_path)
-                        .ok_or_else(InternalError::store_invariant)?,
-                    index_id.entity_tag(),
-                    u64::from(index_id.ordinal()).saturating_add(1),
-                    raw.as_bytes().to_vec(),
-                )?);
-                if candidate_ids.contains(index_id) {
-                    removals.push(raw.clone());
-                }
-                Ok(false)
-            })
+            index.visit_raw_entries_in_range(
+                (lower.as_ref(), upper.as_ref()),
+                Direction::Asc,
+                |raw, _| {
+                    if remaining_entries == 0 || remaining_bytes < raw.as_bytes().len() {
+                        store_exhausted = false;
+                        return Ok::<_, InternalError>(true);
+                    }
+                    let decoded = IndexKey::try_from_raw(raw)
+                        .map_err(|_| InternalError::store_corruption())?;
+                    remaining_entries = remaining_entries.saturating_sub(1);
+                    remaining_bytes = remaining_bytes.saturating_sub(raw.as_bytes().len());
+                    let index_id = decoded.index_id();
+                    final_cursor = Some(PersistedSchemaMigrationIndexCursor::try_new(
+                        *store_identities
+                            .get(store_path)
+                            .ok_or_else(InternalError::store_invariant)?,
+                        index_id.entity_tag(),
+                        u64::from(index_id.ordinal()).saturating_add(1),
+                        raw.as_bytes().to_vec(),
+                    )?);
+                    if candidate_ids.contains(index_id) {
+                        removals.push(raw.clone());
+                    }
+                    Ok(false)
+                },
+            )
         })?;
         store.with_index_mut(|index| {
             // Abort owns only these planner-invisible candidate generations.

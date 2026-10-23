@@ -236,7 +236,7 @@ impl IndexStore {
     )]
     pub(in crate::db) fn visit_raw_entries_in_merged_ranges<K, Admit, Decode, Visit>(
         &self,
-        bounds: &[(Bound<RawIndexStoreKey>, Bound<RawIndexStoreKey>)],
+        bounds: &[(&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>)],
         direction: Direction,
         admit_structural_bytes: Admit,
         decode_order_key: Decode,
@@ -403,21 +403,21 @@ impl IndexStore {
     /// metric attribution while preserving the existing BTreeMap range order.
     pub(in crate::db) fn visit_raw_entries_in_range<E, F>(
         &self,
-        bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
+        bounds: (Bound<&RawIndexStoreKey>, Bound<&RawIndexStoreKey>),
         direction: Direction,
         mut visit: F,
     ) -> Result<(), E>
     where
         F: FnMut(&RawIndexStoreKey, &IndexEntryValue) -> Result<bool, E>,
     {
-        if envelope_is_empty(bounds.0, bounds.1) {
+        if envelope_is_empty(&bounds.0, &bounds.1) {
             return Ok(());
         }
 
         match direction {
             Direction::Asc => match &self.backend {
                 IndexStoreBackend::Heap(map) => {
-                    for (key, value) in map.range((bounds.0.as_ref(), bounds.1.as_ref())) {
+                    for (key, value) in map.range(bounds) {
                         if visit(key, value)? {
                             return Ok(());
                         }
@@ -429,7 +429,7 @@ impl IndexStore {
             },
             Direction::Desc => match &self.backend {
                 IndexStoreBackend::Heap(map) => {
-                    for (key, value) in map.range((bounds.0.as_ref(), bounds.1.as_ref())).rev() {
+                    for (key, value) in map.range(bounds).rev() {
                         if visit(key, value)? {
                             return Ok(());
                         }
@@ -454,10 +454,14 @@ impl IndexStore {
         excluded: &RawIndexStoreKey,
     ) -> Result<bool, InternalError> {
         let mut found = false;
-        self.visit_raw_entries_in_range(bounds, Direction::Asc, |key, _| {
-            found = key != excluded;
-            Ok::<_, InternalError>(found)
-        })?;
+        self.visit_raw_entries_in_range(
+            (bounds.0.as_ref(), bounds.1.as_ref()),
+            Direction::Asc,
+            |key, _| {
+                found = key != excluded;
+                Ok::<_, InternalError>(found)
+            },
+        )?;
         Ok(found)
     }
 

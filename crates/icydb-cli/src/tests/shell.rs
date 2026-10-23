@@ -184,16 +184,20 @@ fn sql_shell_call_kind_routes_sql_to_fixed_endpoint_family() {
         );
     }
 
-    for sql in [
-        "SELECT * FROM Character",
-        "SHOW INDEXES FROM Character",
-        "INSERT INTO Character (id, name) VALUES (1, 'Ada')",
-        "DELETE FROM Character WHERE id = 1",
-    ] {
+    for sql in ["SELECT * FROM Character", "SHOW INDEXES FROM Character"] {
         assert_eq!(
             sql_shell_call_kind(sql).expect("SQL should parse"),
             SqlShellCallKind::Query,
         );
+    }
+
+    for sql in [
+        "INSERT INTO Character (id, name) VALUES (1, 'Ada')",
+        "DELETE FROM Character WHERE id = 1",
+        "DELETE FROM User RETURNING nickname",
+        "INSERT INTO User (nickname) VALUES (NULL) RETURNING nickname",
+    ] {
+        assert!(sql_shell_call_kind(sql).is_err());
     }
 
     assert_eq!(
@@ -418,14 +422,6 @@ fn sql_response_null_rendering_is_shared_by_query_and_returning() {
         (
             "UPDATE User SET nickname = NULL RETURNING nickname",
             SqlShellCallKind::Update,
-        ),
-        (
-            "DELETE FROM User RETURNING nickname",
-            SqlShellCallKind::Query,
-        ),
-        (
-            "INSERT INTO User (nickname) VALUES (NULL) RETURNING nickname",
-            SqlShellCallKind::Query,
         ),
     ] {
         assert_eq!(sql_shell_call_kind(sql), Ok(kind), "{sql}");

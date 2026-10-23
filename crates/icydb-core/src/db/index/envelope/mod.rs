@@ -15,12 +15,12 @@ use std::ops::Bound;
 /// Validate that one key is contained by one canonical bound envelope.
 /// This centralizes inclusive/exclusive bound semantics under index authority.
 #[must_use]
-pub(in crate::db) fn key_within_envelope<K: Ord + Clone>(
+pub(in crate::db) fn key_within_envelope<K: Ord>(
     key: &K,
     lower: &Bound<K>,
     upper: &Bound<K>,
 ) -> bool {
-    KeyEnvelope::new(lower.clone(), upper.clone()).contains(key)
+    KeyEnvelope::new(lower.as_ref(), upper.as_ref()).contains(&key)
 }
 
 /// Shared directional strict-advancement comparator for continuation checks.
@@ -33,14 +33,14 @@ fn continuation_advanced<K: Ord>(direction: Direction, candidate: &K, anchor: &K
     }
 }
 
-/// Rewrite continuation bounds while cloning only retained bound edges.
+/// Borrow continuation bounds while replacing only the directional edge.
 #[must_use]
-fn resume_bounds_from_refs<K: Clone + Ord>(
+fn resume_bounds_from_refs<'a, K: Ord>(
     direction: Direction,
-    lower: &Bound<K>,
-    upper: &Bound<K>,
-    anchor: &K,
-) -> (Bound<K>, Bound<K>) {
+    lower: &'a Bound<K>,
+    upper: &'a Bound<K>,
+    anchor: &'a K,
+) -> (Bound<&'a K>, Bound<&'a K>) {
     #[cfg(debug_assertions)]
     {
         debug_assert!(
@@ -62,13 +62,13 @@ fn resume_bounds_from_refs<K: Clone + Ord>(
     }
 
     match direction {
-        Direction::Asc => (Bound::Excluded(anchor.clone()), upper.clone()),
-        Direction::Desc => (lower.clone(), Bound::Excluded(anchor.clone())),
+        Direction::Asc => (Bound::Excluded(anchor), upper.as_ref()),
+        Direction::Desc => (lower.as_ref(), Bound::Excluded(anchor)),
     }
 }
 
 /// Validate continuation anchor containment against the original index-scan envelope.
-fn validate_index_scan_continuation_envelope<K: Ord + Clone>(
+fn validate_index_scan_continuation_envelope<K: Ord>(
     anchor: Option<&K>,
     lower: &Bound<K>,
     upper: &Bound<K>,
@@ -83,19 +83,19 @@ fn validate_index_scan_continuation_envelope<K: Ord + Clone>(
 }
 
 /// Validate one optional continuation anchor and derive resumed scan bounds.
-pub(in crate::db) fn resume_bounds_for_continuation<K: Clone + Ord>(
+pub(in crate::db) fn resume_bounds_for_continuation<'a, K: Ord>(
     direction: Direction,
-    anchor: Option<&K>,
-    lower: &Bound<K>,
-    upper: &Bound<K>,
-) -> Result<(Bound<K>, Bound<K>), InternalError> {
+    anchor: Option<&'a K>,
+    lower: &'a Bound<K>,
+    upper: &'a Bound<K>,
+) -> Result<(Bound<&'a K>, Bound<&'a K>), InternalError> {
     // Phase 1: fail closed when the supplied anchor escaped the original scan envelope.
     validate_index_scan_continuation_envelope(anchor, lower, upper)?;
 
     // Phase 2: rewrite only the bound edge owned by the scan direction.
     Ok(match anchor {
         Some(anchor) => resume_bounds_from_refs(direction, lower, upper, anchor),
-        None => (lower.clone(), upper.clone()),
+        None => (lower.as_ref(), upper.as_ref()),
     })
 }
 
@@ -145,10 +145,7 @@ pub(in crate::db) fn resume_prefix_bounds_for_continuation(
 /// Validate whether raw index-key bounds encode an empty traversal envelope.
 ///
 #[must_use]
-pub(in crate::db) fn envelope_is_empty(
-    lower: &Bound<RawIndexStoreKey>,
-    upper: &Bound<RawIndexStoreKey>,
-) -> bool {
+pub(in crate::db) fn envelope_is_empty<K: Ord>(lower: &Bound<K>, upper: &Bound<K>) -> bool {
     // Unbounded envelopes are never empty by construction.
     let (Some(lower_key), Some(upper_key)) = (bound_key_ref(lower), bound_key_ref(upper)) else {
         return false;
@@ -217,7 +214,7 @@ where
     }
 }
 
-const fn bound_key_ref(bound: &Bound<RawIndexStoreKey>) -> Option<&RawIndexStoreKey> {
+const fn bound_key_ref<K>(bound: &Bound<K>) -> Option<&K> {
     match bound {
         Bound::Included(value) | Bound::Excluded(value) => Some(value),
         Bound::Unbounded => None,

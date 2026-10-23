@@ -4,6 +4,7 @@
 //! Boundary: exposes this module API while keeping implementation details internal.
 
 mod borrowed_frame;
+mod resume_anchor;
 
 use super::{KEY_KIND_TAG_SIZE, KEY_PREFIX_SIZE, SEGMENT_LEN_SIZE};
 use crate::{

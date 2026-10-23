@@ -1420,7 +1420,10 @@ pub(in crate::db) fn prove_empty_reverse_relation_domain(
         )
         .map_err(|_| InternalError::store_corruption())?;
         index_store.visit_raw_entries_in_range(
-            (&Bound::Included(lower), &Bound::Included(upper)),
+            (
+                Bound::Included(lower).as_ref(),
+                Bound::Included(upper).as_ref(),
+            ),
             Direction::Asc,
             |raw_key, _| {
                 IndexKey::try_from_raw(raw_key).map_err(|_| InternalError::store_corruption())?;

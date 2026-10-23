@@ -60,6 +60,12 @@ fn query(descending: bool) -> DynamicQuery {
 #[test]
 fn branch_distinct_sql_preserves_rows_windows_and_repeated_literals() {
     let session = initialize_branches();
+    // More than 32 distinct operands defer raw-bound construction. Missing
+    // branches must not disturb the same ordered rows, windows or duplicates.
+    let deferred_literals = std::iter::once("'c','a','b','a'".to_string())
+        .chain((0..35).rev().map(|value| format!("'missing-{value:02}'")))
+        .collect::<Vec<_>>()
+        .join(",");
     for (direction, descending) in [("ASC", false), ("DESC", true)] {
         let mut plain = [
             ("a", "same"),
@@ -80,7 +86,7 @@ fn branch_distinct_sql_preserves_rows_windows_and_repeated_literals() {
             plain.reverse();
         }
         let expected = expected_groups(descending);
-        for literals in ["'a','b','c'", "'c','a','b','a'"] {
+        for literals in ["'a','b','c'", "'c','a','b','a'", deferred_literals.as_str()] {
             let source =
                 format!("FROM PlannerRow WHERE common IN ({literals}) ORDER BY common {direction}");
             for _ in 0..2 {

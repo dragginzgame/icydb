@@ -1581,3 +1581,157 @@ fn shared_named_type_rename_requires_every_current_consumer_transition() {
         .is_ok(),
     );
 }
+
+fn migration_chain_type(index: usize, count: usize) -> NamedTypeFragment {
+    let name =
+        SchemaName::try_new(format!("Node{index:05}")).expect("chain type name should admit");
+    let next = FieldType::Named(source(
+        &format!("Node{:05}", (index + 1) % count),
+        TypeSourceKey::try_new,
+    ));
+    match index % 7 {
+        0 => NamedTypeFragment::newtype(name, next),
+        1 => NamedTypeFragment::list(name, next),
+        2 => NamedTypeFragment::set(name, next),
+        3 => NamedTypeFragment::map(name, next.clone(), next),
+        4 => NamedTypeFragment::tuple(name, vec![TupleElementFragment::new(next, false)]),
+        5 => NamedTypeFragment::Record(
+            RecordTypeFragment::try_new(
+                name,
+                vec![RecordFieldFragment::new(
+                    SchemaName::try_new("link").expect("field name should admit"),
+                    FieldType::List(Box::new(next)),
+                    false,
+                )],
+            )
+            .expect("record should admit"),
+        ),
+        _ => NamedTypeFragment::Enum(
+            EnumTypeFragment::try_new(
+                name,
+                vec![EnumVariantFragment::with_payload(
+                    SchemaName::try_new("Link").expect("variant name should admit"),
+                    next,
+                )],
+            )
+            .expect("enum should admit"),
+        ),
+    }
+}
+
+#[test]
+fn deep_shared_type_migrations_are_stack_safe_and_require_exact_consumer_renames() {
+    // Named edges are individually shallow; total graph depth is not the inline
+    // FieldType depth. Exercise public composition and decoding on a small stack.
+    std::thread::Builder::new()
+        .stack_size(512 * 1024)
+        .spawn(|| {
+            const TYPE_COUNT: usize = 16_384;
+            let type_key = |index| {
+                TypeSourceKey::try_new(format!("Node{index:05}"))
+                    .expect("chain type key should admit")
+            };
+            let definitions: Vec<_> = (0..TYPE_COUNT)
+                .map(|index| migration_chain_type(index, TYPE_COUNT))
+                .collect();
+            let entities = vec![
+                named_type_consumer("Account", &type_key(0)),
+                named_type_consumer("Audit", &type_key(0)),
+            ];
+            let assignments = entities
+                .iter()
+                .map(|entity| {
+                    EntityStoreAssignment::new(
+                        entity.source_key().clone(),
+                        TargetStoreIdentity::from_bytes([0xB1; 32]),
+                    )
+                })
+                .collect::<Vec<_>>();
+            let mut fragments =
+                vec![SchemaFragment::try_new(entities, Vec::new()).expect("entities should admit")];
+            fragments.extend(definitions.chunks(crate::MAX_FRAGMENT_TYPES).map(|chunk| {
+                SchemaFragment::try_new(Vec::new(), chunk.to_vec())
+                    .expect("bounded chain fragment should admit")
+            }));
+            let transition = |entity| {
+                EntityMigration::try_new(
+                    source(entity, EntitySourceKey::try_new),
+                    version(1),
+                    None,
+                    (TYPE_COUNT - 32..TYPE_COUNT)
+                        .map(|index| SchemaMigrationRename::NamedType {
+                            from: source(&format!("Legacy{index:05}"), TypeSourceKey::try_new),
+                            to: type_key(index),
+                        })
+                        .collect(),
+                    Vec::new(),
+                )
+                .expect("chain transition should admit")
+            };
+            let compose = |transitions| {
+                SchemaProposal::try_compose(
+                    vec![
+                        SchemaCapability::EXACT_COMPOSITE_TYPES,
+                        SchemaCapability::VERSIONED_MIGRATIONS,
+                    ],
+                    TargetDatabaseIdentity::from_bytes([0xB0; 32]),
+                    SchemaSubmissionKey::try_new("deep-shared-migration")
+                        .expect("key should admit"),
+                    ExpectedAcceptedHead::Empty,
+                    fragments.clone(),
+                    assignments.clone(),
+                    Vec::new(),
+                    Some(SchemaMigrationPlan::try_new(transitions).expect("plan should admit")),
+                )
+            };
+            assert_eq!(
+                compose(vec![transition("Account")]),
+                Err(SchemaContractError::InvalidMigrationReference),
+            );
+            let proposal = compose(vec![transition("Audit"), transition("Account")])
+                .expect("all deep consumers repeat exact renames");
+            let bytes = encode_schema_proposal(&proposal).expect("deep proposal should encode");
+            assert_eq!(decode_schema_proposal(&bytes), Ok(proposal));
+        })
+        .expect("small-stack test should start")
+        .join()
+        .expect("deep migration should not overflow or panic");
+}
+
+#[test]
+fn shared_member_renames_use_mapped_types_and_exact_declarations() {
+    let transition = |entity, from_variant| {
+        EntityMigration::try_new(
+            source(entity, EntitySourceKey::try_new),
+            version(1),
+            None,
+            vec![
+                SchemaMigrationRename::NamedType {
+                    from: source("LegacyStatus", TypeSourceKey::try_new),
+                    to: source("Status", TypeSourceKey::try_new),
+                },
+                SchemaMigrationRename::EnumVariant {
+                    named_type: source("LegacyStatus", TypeSourceKey::try_new),
+                    from: source(from_variant, TypeSourceKey::try_new),
+                    to: source("Active", TypeSourceKey::try_new),
+                },
+            ],
+            Vec::new(),
+        )
+        .expect("member transition should admit")
+    };
+    assert!(
+        compose_shared_named_type_migration(vec![
+            transition("Account", "Enabled"),
+            transition("Audit", "Enabled"),
+        ])
+        .is_ok(),
+    );
+    assert_eq!(
+        compose_shared_named_type_migration(vec![
+            transition("Account", "Enabled"),
+            transition("Audit", "Online"),
+        ]),
+        Err(SchemaContractError::InvalidMigrationReference),
+    );
+}

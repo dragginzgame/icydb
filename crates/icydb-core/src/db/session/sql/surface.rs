@@ -92,12 +92,13 @@ pub fn sql_statement_surface(sql: &str) -> Result<SqlStatementSurface, QueryErro
     Ok(sql_statement_surface_from_statement(&statement))
 }
 
-/// Return the generated endpoint route required by one shell SQL statement.
+/// Return the available generated endpoint route for one shell SQL statement.
+/// Unsupported INSERT/DELETE statements fail locally before host dispatch.
 #[doc(hidden)]
 pub fn sql_statement_shell_surface(sql: &str) -> Result<SqlStatementShellSurface, QueryError> {
     let statement = parse_sql(sql).map_err(QueryError::from_sql_parse_error)?;
 
-    Ok(sql_statement_shell_surface_from_statement(&statement))
+    sql_statement_shell_surface_from_statement(&statement)
 }
 
 /// Parse one SQL statement for repeated trusted execution with typed operands.
@@ -130,15 +131,19 @@ const fn sql_statement_surface_from_statement(statement: &SqlStatement) -> SqlSt
     }
 }
 
-const fn sql_statement_shell_surface_from_statement(
+fn sql_statement_shell_surface_from_statement(
     statement: &SqlStatement,
-) -> SqlStatementShellSurface {
+) -> Result<SqlStatementShellSurface, QueryError> {
     match statement {
-        SqlStatement::Ddl(_) => SqlStatementShellSurface::Ddl,
-        SqlStatement::Update(_) => SqlStatementShellSurface::Update,
+        SqlStatement::Ddl(_) => Ok(SqlStatementShellSurface::Ddl),
+        SqlStatement::Update(_) => Ok(SqlStatementShellSurface::Update),
+        SqlStatement::Insert(_) => Err(QueryError::sql_surface_mismatch(
+            SqlSurfaceMismatchCode::QueryRejectsInsert,
+        )),
+        SqlStatement::Delete(_) => Err(QueryError::sql_surface_mismatch(
+            SqlSurfaceMismatchCode::QueryRejectsDelete,
+        )),
         SqlStatement::Select(_)
-        | SqlStatement::Delete(_)
-        | SqlStatement::Insert(_)
         | SqlStatement::Describe(_)
         | SqlStatement::ShowConstraints(_)
         | SqlStatement::ShowIndexes(_)
@@ -146,9 +151,9 @@ const fn sql_statement_shell_surface_from_statement(
         | SqlStatement::ShowRelations(_)
         | SqlStatement::ShowEntities(_)
         | SqlStatement::ShowStores(_)
-        | SqlStatement::ShowMemory(_) => SqlStatementShellSurface::Query,
+        | SqlStatement::ShowMemory(_) => Ok(SqlStatementShellSurface::Query),
         #[cfg(feature = "sql")]
-        SqlStatement::Explain(_) => SqlStatementShellSurface::Query,
+        SqlStatement::Explain(_) => Ok(SqlStatementShellSurface::Query),
     }
 }
 
@@ -310,7 +315,8 @@ impl<C: CanisterKind> DbSession<C> {
 
 #[cfg(test)]
 mod tests {
-    use super::sql_statement_dispatch;
+    use super::*;
+    use icydb_diagnostic_code::{DiagnosticCode, DiagnosticDetail};
 
     #[test]
     fn frozen_operational_sql_families_require_introspection() {
@@ -342,5 +348,66 @@ mod tests {
             .expect("EXPLAIN should classify");
 
         assert!(dispatch.requires_introspection());
+    }
+
+    #[test]
+    fn shell_routes_only_available_endpoints_and_preserves_mutation_refusals() {
+        for (sql, expected) in [
+            ("SELECT * FROM Character", SqlStatementShellSurface::Query),
+            ("SHOW ENTITIES", SqlStatementShellSurface::Query),
+            (
+                "CREATE INDEX name_idx ON Character (name)",
+                SqlStatementShellSurface::Ddl,
+            ),
+            (
+                "UPDATE Character SET name = 'Ada' WHERE id = 1",
+                SqlStatementShellSurface::Update,
+            ),
+        ] {
+            assert_eq!(sql_statement_shell_surface(sql).unwrap(), expected);
+        }
+        for (sql, mismatch) in [
+            (
+                "INSERT INTO Character (id) VALUES (1)",
+                SqlSurfaceMismatchCode::QueryRejectsInsert,
+            ),
+            (
+                " \t insert into Character (id) SELECT id FROM Other;",
+                SqlSurfaceMismatchCode::QueryRejectsInsert,
+            ),
+            (
+                "DELETE FROM Character",
+                SqlSurfaceMismatchCode::QueryRejectsDelete,
+            ),
+            (
+                " \n delete from Character WHERE id = 1;",
+                SqlSurfaceMismatchCode::QueryRejectsDelete,
+            ),
+            (
+                "DELETE FROM Character RETURNING name",
+                SqlSurfaceMismatchCode::QueryRejectsDelete,
+            ),
+            (
+                "INSERT INTO Character (id, name) VALUES (1, 'Ada') RETURNING name",
+                SqlSurfaceMismatchCode::QueryRejectsInsert,
+            ),
+        ] {
+            let error = sql_statement_shell_surface(sql).unwrap_err();
+            assert_eq!(
+                error.diagnostic_code(),
+                DiagnosticCode::QuerySqlSurfaceMismatch
+            );
+            assert_eq!(
+                error.diagnostic().detail(),
+                Some(&DiagnosticDetail::SqlSurfaceMismatch { mismatch })
+            );
+            // Generated query ingress still owns the same typed refusal; trusted
+            // application mutation dispatch remains independently available.
+            assert_eq!(
+                sql_statement_surface(sql).unwrap(),
+                SqlStatementSurface::Query
+            );
+            assert!(sql_statement_dispatch(sql).is_ok());
+        }
     }
 }

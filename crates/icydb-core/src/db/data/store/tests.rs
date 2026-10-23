@@ -15,6 +15,37 @@ use std::ops::Bound;
 const SINGLE_MEMORY_MANAGER_BUCKET_PAGES: u64 = 128;
 
 #[test]
+fn entity_count_facts_preserve_no_change_guards_and_invalid_key_refusal() {
+    let entity = EntityTag::new(42);
+    let mut cardinality = EntityCardinality::empty();
+    cardinality.apply_insert(Some(entity), false);
+    cardinality.apply_insert(None, true);
+    cardinality.apply_remove(None, false);
+    assert_eq!(cardinality.exact_count(entity), Some(1));
+    cardinality.apply_insert(None, false);
+    assert_eq!(cardinality.exact_count(entity), None);
+    assert!(cardinality.counts.is_empty());
+
+    let mut cardinality = EntityCardinality::empty();
+    cardinality.apply_insert(Some(entity), false);
+    cardinality.apply_remove(None, true);
+    assert_eq!(cardinality.exact_count(entity), None);
+
+    let mut delta = EntityCardinalityDelta::empty();
+    delta.apply_presence_transition(None, false, false);
+    delta.apply_presence_transition(None, true, true);
+    assert_eq!(delta.exact_delta(entity), Some(0));
+    delta.apply_presence_transition(None, false, true);
+    assert_eq!(delta.exact_delta(entity), None);
+
+    let mut delta = EntityCardinalityDelta::empty();
+    delta.counts.insert(entity, i64::MAX);
+    delta.apply_presence_transition(Some(entity), false, true);
+    assert_eq!(delta.exact_delta(entity), None);
+    assert!(delta.counts.is_empty());
+}
+
+#[test]
 fn positioned_publication_preserves_presence_and_cold_warm_cardinality() {
     for materialized in [false, true] {
         let memory = crate::testing::test_memory_owner(230);
@@ -616,6 +647,8 @@ fn data_store_entity_cardinality_fails_closed_for_malformed_raw_keys() {
         None,
         "malformed raw keys should disable entity-cardinality metadata",
     );
+    store.rebuild_entity_cardinality_from_entries();
+    assert_eq!(store.exact_entity_count(EntityTag::new(1)), None);
 }
 
 #[test]

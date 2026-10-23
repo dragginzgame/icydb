@@ -23,7 +23,7 @@ use ic_storage::adapter::StableBTreeMap;
 use serde::Deserialize;
 #[cfg(test)]
 use std::cell::Cell;
-use std::collections::{BTreeMap as HeapBTreeMap, BTreeSet};
+use std::collections::{BTreeMap as HeapBTreeMap, BTreeSet, btree_map::Entry};
 use std::ops::Bound;
 
 #[cfg(test)]
@@ -185,7 +185,7 @@ impl IndexStore {
                 }
             }
             IndexStoreBackend::Journaled { .. } => self.visit_journaled_entries_in_range(
-                (&Bound::Unbounded, &Bound::Unbounded),
+                (Bound::Unbounded, Bound::Unbounded),
                 Direction::Asc,
                 &mut |key, value| visitor(key, value).map(IndexStoreVisit::should_stop),
             )?,
@@ -402,20 +402,44 @@ impl IndexStore {
         } else {
             None
         };
-        let cardinality_key = key.clone();
         let previous = match &mut self.backend {
-            IndexStoreBackend::Heap(map) => map.insert(key, entry.clone()),
+            IndexStoreBackend::Heap(map) => match map.entry(key) {
+                Entry::Occupied(mut occupied) => {
+                    let previous = occupied.insert(entry);
+                    self.prefix_cardinality.apply_insert(
+                        occupied.key(),
+                        Some(&previous),
+                        occupied.get(),
+                    );
+                    Some(previous)
+                }
+                Entry::Vacant(vacant) => {
+                    self.prefix_cardinality
+                        .apply_insert(vacant.key(), None, &entry);
+                    vacant.insert(entry);
+                    None
+                }
+            },
             IndexStoreBackend::Journaled {
-                live, tombstones, ..
+                live,
+                tombstones,
+                prefix_cardinality_delta,
+                ..
             } => {
+                // Both projections are synchronous and infallible. Keep the
+                // key owned until they have borrowed it, then publish the entry.
+                self.prefix_cardinality
+                    .apply_insert(&key, previous_journaled.as_ref(), &entry);
+                prefix_cardinality_delta.apply_transition(
+                    &key,
+                    previous_journaled.as_ref(),
+                    Some(&entry),
+                );
                 tombstones.remove(&key);
-                live.insert(key, entry.clone());
+                live.insert(key, entry);
                 previous_journaled
             }
         };
-        self.prefix_cardinality
-            .apply_insert(&cardinality_key, previous.as_ref(), &entry);
-        self.apply_prefix_overlay_delta(&cardinality_key, previous.as_ref(), Some(&entry));
         self.bump_generation();
         previous
     }
@@ -430,21 +454,19 @@ impl IndexStore {
         key: RawIndexStoreKey,
         entry: IndexEntryValue,
     ) {
-        let cardinality_key = key.clone();
+        self.prefix_cardinality.apply_insert(&key, None, &entry);
+        self.apply_prefix_overlay_delta(&key, None, Some(&entry));
         match &mut self.backend {
             IndexStoreBackend::Heap(map) => {
-                map.insert(key, entry.clone());
+                map.insert(key, entry);
             }
             IndexStoreBackend::Journaled {
                 live, tombstones, ..
             } => {
                 tombstones.remove(&key);
-                live.insert(key, entry.clone());
+                live.insert(key, entry);
             }
         }
-        self.prefix_cardinality
-            .apply_insert(&cardinality_key, None, &entry);
-        self.apply_prefix_overlay_delta(&cardinality_key, None, Some(&entry));
         self.bump_generation();
     }
 
@@ -551,25 +573,20 @@ impl IndexStore {
         } else {
             live.get(&key).cloned().or_else(|| canonical.get(&key))
         };
-        let cardinality_key = key.clone();
         let next_value = value.clone();
 
         if let Some(value) = value {
             tombstones.remove(&key);
             live.insert(key.clone(), value.clone());
             self.prefix_cardinality
-                .apply_insert(&cardinality_key, previous.as_ref(), &value);
+                .apply_insert(&key, previous.as_ref(), &value);
         } else {
             live.remove(&key);
             tombstones.insert(key.clone());
             self.prefix_cardinality
-                .apply_remove(&cardinality_key, previous.as_ref());
+                .apply_remove(&key, previous.as_ref());
         }
-        prefix_cardinality_delta.apply_transition(
-            &cardinality_key,
-            previous.as_ref(),
-            next_value.as_ref(),
-        );
+        prefix_cardinality_delta.apply_transition(&key, previous.as_ref(), next_value.as_ref());
         positions.publish_preflighted(key, position);
         self.bump_generation();
 
@@ -706,22 +723,24 @@ impl IndexStore {
         };
 
         let visible = !live.contains_key(&key) && !tombstones.contains(&key);
-        let cardinality_key = key.clone();
-        let previous = if let Some(value) = value.as_ref() {
-            canonical.insert(key, value.clone())
+        let (previous, key) = if let Some(value) = value.as_ref() {
+            // The published stable insertion API consumes its key before
+            // returning the previous entry; cardinality still needs this copy.
+            let cardinality_key = key.clone();
+            (canonical.insert(key, value.clone()), cardinality_key)
         } else {
-            canonical.remove(&key)
+            (canonical.remove(&key), key)
         };
         if visible {
             if let Some(value) = value.as_ref() {
                 self.prefix_cardinality
-                    .apply_insert(&cardinality_key, previous.as_ref(), value);
+                    .apply_insert(&key, previous.as_ref(), value);
             } else {
                 self.prefix_cardinality
-                    .apply_remove(&cardinality_key, previous.as_ref());
+                    .apply_remove(&key, previous.as_ref());
             }
         } else {
-            self.apply_prefix_overlay_delta(&cardinality_key, value.as_ref(), previous.as_ref());
+            self.apply_prefix_overlay_delta(&key, value.as_ref(), previous.as_ref());
         }
         self.bump_generation();
 
@@ -798,7 +817,7 @@ impl IndexStore {
     // types remain generic so store callers retain their original typed failures.
     pub(super) fn visit_journaled_entries_in_range<E>(
         &self,
-        bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
+        bounds: (Bound<&RawIndexStoreKey>, Bound<&RawIndexStoreKey>),
         direction: Direction,
         mut visit: &mut dyn FnMut(&RawIndexStoreKey, &IndexEntryValue) -> Result<bool, E>,
     ) -> Result<(), E> {
@@ -812,8 +831,7 @@ impl IndexStore {
             return Ok(());
         };
 
-        let lower = bounds.0.as_ref();
-        let upper = bounds.1.as_ref();
+        let (lower, upper) = bounds;
         match direction {
             Direction::Asc if canonical.is_empty() => {
                 for (key, value) in live.range((lower, upper)) {
@@ -957,6 +975,86 @@ mod tests {
 
     fn missing_index_entry_value() -> IndexEntryValue {
         <IndexEntryValue as Storable>::from_bytes(Cow::Owned(vec![1]))
+    }
+
+    #[test]
+    fn index_insert_paths_preserve_previous_values_and_prefix_counts() {
+        let id = IndexId::new(EntityTag::new(42), 7);
+        let components = vec![b"collection".to_vec(), b"draft".to_vec()];
+        let key = indexed_raw_key(&id, components.clone(), 1);
+        for mut store in [
+            IndexStore::init_heap(),
+            IndexStore::init_journaled(test_memory(94)),
+        ] {
+            let journaled = matches!(store.backend, IndexStoreBackend::Journaled { .. });
+            let mut previous = None;
+            for next in [
+                Some(IndexEntryValue::presence()),
+                Some(missing_index_entry_value()),
+                Some(IndexEntryValue::presence()),
+                Some(IndexEntryValue::presence()),
+                None,
+                None,
+            ] {
+                let returned = if let Some(value) = next.as_ref() {
+                    store.insert(key.clone(), value.clone())
+                } else {
+                    store.remove(&key)
+                };
+                assert_eq!(returned, previous);
+                assert_eq!(store.get(&key), next);
+                let count = u64::from(next == Some(IndexEntryValue::presence()));
+                store.mark_prefix_cardinality_data_generation(7);
+                assert_eq!(
+                    store.exact_prefix_cardinality(7, IndexKeyKind::User, id, &components),
+                    Some(count)
+                );
+                assert_eq!(
+                    store.exact_prefix_cardinality_delta(IndexKeyKind::User, id, &components),
+                    Some(if journaled {
+                        i64::try_from(count).unwrap()
+                    } else {
+                        0
+                    })
+                );
+                previous = next;
+            }
+            store.insert_preflighted_absent(key.clone(), IndexEntryValue::presence());
+            store.mark_prefix_cardinality_data_generation(8);
+            assert_eq!(
+                store.exact_prefix_cardinality(8, IndexKeyKind::User, id, &components),
+                Some(1)
+            );
+            if journaled {
+                for (sequence, next) in [
+                    Some(missing_index_entry_value()),
+                    Some(IndexEntryValue::presence()),
+                    None,
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    store
+                        .publish_positioned_journal_entry(
+                            key.clone(),
+                            next.clone(),
+                            overlay_position(sequence as u64 + 1),
+                        )
+                        .unwrap();
+                    assert_eq!(store.get(&key), next);
+                    let count = u64::from(next == Some(IndexEntryValue::presence()));
+                    store.mark_prefix_cardinality_data_generation(9);
+                    assert_eq!(
+                        store.exact_prefix_cardinality(9, IndexKeyKind::User, id, &components),
+                        Some(count)
+                    );
+                    assert_eq!(
+                        store.exact_prefix_cardinality_delta(IndexKeyKind::User, id, &components),
+                        Some(i64::try_from(count).unwrap())
+                    );
+                }
+            }
+        }
     }
 
     #[test]
@@ -1407,7 +1505,7 @@ mod tests {
         let mut asc = Vec::new();
         store
             .visit_journaled_entries_in_range(
-                (&lower, &upper),
+                (lower.as_ref(), upper.as_ref()),
                 Direction::Asc,
                 &mut |key, _value| {
                     asc.push(key.as_bytes()[0]);
@@ -1420,7 +1518,7 @@ mod tests {
         let mut desc = Vec::new();
         store
             .visit_journaled_entries_in_range(
-                (&lower, &upper),
+                (lower.as_ref(), upper.as_ref()),
                 Direction::Desc,
                 &mut |key, _value| {
                     desc.push(key.as_bytes()[0]);
@@ -1454,7 +1552,7 @@ mod tests {
             for direction in [Direction::Asc, Direction::Desc] {
                 let mut visited = Vec::new();
                 let result = store.visit_journaled_entries_in_range(
-                    (&lower, &upper),
+                    (lower.as_ref(), upper.as_ref()),
                     direction,
                     &mut |key, _| {
                         visited.push(key.as_bytes()[0]);

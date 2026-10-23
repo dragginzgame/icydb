@@ -37,10 +37,19 @@ impl<'a> ContinuationRuntime<'a> {
     }
 
     /// Derive resumed physical bounds.
-    pub(in crate::db) fn scan_bounds(
-        &self,
-        bounds: (&Bound<RawIndexStoreKey>, &Bound<RawIndexStoreKey>),
-    ) -> Result<(Bound<RawIndexStoreKey>, Bound<RawIndexStoreKey>), InternalError> {
+    pub(in crate::db) fn scan_bounds<'bounds>(
+        &'bounds self,
+        bounds: (
+            &'bounds Bound<RawIndexStoreKey>,
+            &'bounds Bound<RawIndexStoreKey>,
+        ),
+    ) -> Result<
+        (
+            Bound<&'bounds RawIndexStoreKey>,
+            Bound<&'bounds RawIndexStoreKey>,
+        ),
+        InternalError,
+    > {
         self.scan.resume_bounds(bounds)
     }
 

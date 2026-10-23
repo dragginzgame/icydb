@@ -859,6 +859,27 @@ fn upgrade_stops_after_failed_build_missing_override_or_failed_install() {
 }
 
 #[test]
+fn unsupported_sql_mutations_fail_before_any_icp_process() {
+    for sql in [
+        "INSERT INTO Character (id, name) VALUES (1, 'Ada')",
+        " \t insert into Character (id) SELECT id FROM Other;",
+        "DELETE FROM Character",
+        " \n delete from Character WHERE id = 1;",
+        "DELETE FROM Character RETURNING name",
+        "INSERT INTO Character (id, name) VALUES (1, 'Ada') RETURNING name",
+    ] {
+        for explicit in [false, true] {
+            let fixture = IcpFixture::new();
+            let output = fixture.one_shot(&success_response(), sql, explicit);
+            assert!(!output.status.success(), "{output:?}");
+            assert!(output.stdout.is_empty());
+            assert!(!output.stderr.is_empty());
+            assert!(!fixture.directory.join("calls").exists());
+        }
+    }
+}
+
+#[test]
 fn one_shot_sql_endpoint_errors_fail_for_every_call_lane_and_argument_form() {
     for boundary in [
         RuntimeBoundaryCode::SqlSurfacePolicyDenied,

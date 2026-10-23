@@ -3,7 +3,10 @@
 //! Does not own: ICP execution, response decoding, or SQL parsing semantics.
 //! Boundary: exposes routing decisions to the shell runner and test-only shell wrappers.
 
-use icydb::db::{SqlStatementShellSurface, sql_statement_shell_surface};
+use icydb::{
+    db::{SqlStatementShellSurface, sql_statement_shell_surface},
+    diagnostic::ErrorCode,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SqlShellCallKind {
@@ -13,7 +16,17 @@ pub(crate) enum SqlShellCallKind {
 }
 
 pub(super) fn sql_shell_call_kind(sql: &str) -> Result<SqlShellCallKind, String> {
-    match sql_statement_shell_surface(sql).map_err(|err| err.to_string())? {
+    let surface = sql_statement_shell_surface(sql).map_err(|error| {
+        let error = icydb::Error::from(error);
+        match error.code() {
+            ErrorCode::SQL_SURFACE_QUERY_REJECTS_INSERT
+            | ErrorCode::SQL_SURFACE_QUERY_REJECTS_DELETE => format!(
+                "{error}: the SQL shell supports queries, DDL and opt-in UPDATE; INSERT and DELETE require an application-owned mutation endpoint"
+            ),
+            _ => error.to_string(),
+        }
+    })?;
+    match surface {
         SqlStatementShellSurface::Query => Ok(SqlShellCallKind::Query),
         SqlStatementShellSurface::Ddl => Ok(SqlShellCallKind::Ddl),
         SqlStatementShellSurface::Update => Ok(SqlShellCallKind::Update),

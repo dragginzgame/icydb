@@ -173,34 +173,43 @@ impl IndexKey {
         })
     }
 
-    /// Build an index key from already-lowered prefix components plus a
-    /// semantic primary-key suffix.
-    pub(in crate::db) fn new_from_existing_prefix_and_suffix_values_with_primary_key_value(
-        prefix_start: &Self,
-        prefix_len: usize,
+    /// Frame a resume anchor without copying its already-lowered prefix bytes.
+    pub(in crate::db) fn raw_from_prefix_and_suffix_values_with_primary_key_value(
+        index_id: IndexId,
+        key_kind: IndexKeyKind,
+        prefix: &[Vec<u8>],
         suffix_values: &[Value],
         primary_key: &PrimaryKeyValue,
-    ) -> Result<Self, InternalError> {
-        let mut components = Vec::with_capacity(prefix_len + suffix_values.len());
-        for component_index in 0..prefix_len {
-            let component = prefix_start
-                .component(component_index)
-                .ok_or_else(InternalError::query_executor_invariant)?;
-            push_index_key_component(&mut components, component.to_vec())?;
+    ) -> Result<RawIndexStoreKey, InternalError> {
+        let count = prefix.len().saturating_add(suffix_values.len());
+        for component in prefix {
+            if component.len() > Self::MAX_COMPONENT_SIZE {
+                return Err(InternalError::index_component_exceeds_max_size());
+            }
         }
+        let mut suffix = Vec::with_capacity(suffix_values.len());
         for value in suffix_values {
             let Some(component) = encode_value_index_component_ref(value)? else {
                 return Err(InternalError::query_executor_invariant());
             };
-            push_index_key_component(&mut components, component)?;
+            push_index_key_component(&mut suffix, component)?;
         }
-
-        Ok(Self {
-            key_kind: prefix_start.key_kind,
-            index_id: prefix_start.index_id,
-            components,
-            primary_key: Self::compact_primary_key_value_bytes(primary_key)?,
-        })
+        let primary_key = Self::compact_primary_key_value_bytes(primary_key)?;
+        if count > MAX_INDEX_FIELDS {
+            return Err(IndexKeyEncodeError::TooManyComponents.into());
+        }
+        // Only suffix values need encoding. Prefix references stay borrowed until
+        // the codec writes the final frame; the bounded descriptor array owns no bytes.
+        let mut components = [&[][..]; MAX_INDEX_FIELDS];
+        for (slot, component) in components.iter_mut().zip(prefix.iter().chain(&suffix)) {
+            *slot = component.as_slice();
+        }
+        Ok(Self::raw_from_components_with_primary_key(
+            key_kind,
+            index_id,
+            components[..count].iter().copied(),
+            &primary_key,
+        )?)
     }
 
     #[must_use]

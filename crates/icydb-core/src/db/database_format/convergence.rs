@@ -424,14 +424,24 @@ mod tests {
     use crate::{
         db::{
             RequestExecutionRoot,
-            data::DataStore,
+            commit::{
+                ExactBacklogMeasurement, commit_memory_handle, current_commit_memory_allocation,
+                current_database_backlog, register_runtime_journal_tails_for_backlog,
+                select_commit_memory_allocation,
+            },
+            data::{DataStore, DecodedDataStoreKey},
             index::IndexStore,
-            journal::{DatabaseCommitSequence, FoldWatermark, JournalBatch, JournalSequence},
+            journal::{
+                DatabaseCommitSequence, FoldWatermark, JournalBatch, JournalRecord, JournalSequence,
+            },
+            key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
             registry::{StoreRegistry, StoreRuntimeStorageCapabilities},
             schema::SchemaStore,
         },
+        error::{ErrorClass, ErrorOrigin},
         testing::test_memory,
         traits::Path,
+        types::EntityTag,
     };
     use std::cell::RefCell;
 
@@ -730,6 +740,104 @@ mod tests {
             tail.validate_current_entity_mutation_revisions(&[])
                 .expect("fresh journal must retain the exact empty entity authority");
         });
+    }
+
+    #[test]
+    fn backlog_measurement_follows_active_and_retired_tail_authority() {
+        select_commit_memory_allocation(100, ConvergenceCanister::COMMIT_STABLE_KEY);
+        let control = commit_memory_handle(current_commit_memory_allocation().unwrap()).unwrap();
+        let (_root, active_database) = database(&FRESH_REGISTRY);
+        ensure_current_convergence_format(&active_database, &control, true, [0x17; 32]).unwrap();
+        assert_eq!(
+            current_database_backlog().unwrap(),
+            ExactBacklogMeasurement::EMPTY
+        );
+
+        // An active persisted allocation needs its exact registered owner.
+        LIFE_EMPTY_REGISTRY.with(register_runtime_journal_tails_for_backlog);
+        let error = current_database_backlog().unwrap_err();
+        assert_eq!(error.class, ErrorClass::InvariantViolation);
+        assert_eq!(error.origin, ErrorOrigin::Store);
+        FRESH_REGISTRY.with(register_runtime_journal_tails_for_backlog);
+        let key = DecodedDataStoreKey::new(
+            EntityTag::new(7),
+            &PrimaryKeyValue::from(PrimaryKeyComponent::Nat64(1)),
+        )
+        .to_raw()
+        .unwrap();
+        let batch = JournalBatch::new_with_database_commit_sequence(
+            [0x71; 16],
+            [0x72; 16],
+            JournalSequence::new(1),
+            DatabaseCommitSequence::new(1),
+            vec![
+                JournalRecord::row_put("convergence_tests::Backlog", key, vec![0], [0x75; 16])
+                    .unwrap(),
+            ],
+        )
+        .unwrap();
+        FRESH_JOURNAL.with_borrow_mut(|tail| tail.append_batch(&batch).unwrap());
+        let observed = current_database_backlog().unwrap();
+        assert_eq!(observed.batch_count(), 1);
+        assert_eq!(observed.record_count(), 1);
+        assert_eq!(
+            observed.encoded_batch_bytes(),
+            crate::db::journal::encode_journal_batch(&batch)
+                .unwrap()
+                .len() as u64
+        );
+        FRESH_JOURNAL.with_borrow_mut(|tail| {
+            let retirement = tail
+                .prepare_batch_retirement(&batch, FoldWatermark::new(JournalSequence::new(1), 1))
+                .unwrap();
+            tail.apply_prepared_batch_retirement(retirement);
+            // Simulate restart without the generated owner: release the actual
+            // journal lease before the retired-allocation reader opens it.
+            *tail = JournalTailStore::init(test_memory(254));
+        });
+        let (_root, empty_database) = database(&LIFE_EMPTY_REGISTRY);
+        ensure_current_convergence_format(&empty_database, &control, false, [0x17; 32]).unwrap();
+        let PersistedCommitControlObservation::Current { registry, .. } =
+            inspect_persisted_commit_control(control).unwrap()
+        else {
+            panic!("retirement must retain current control authority");
+        };
+        assert_eq!(registry.len(), 1);
+        assert_eq!(registry[0].state(), PersistedStoreAllocationState::Retired);
+        assert_eq!(
+            current_database_backlog().unwrap(),
+            ExactBacklogMeasurement::EMPTY
+        );
+
+        // A retired state is no substitute for checking physical authority.
+        let unexpected = JournalBatch::new_with_database_commit_sequence(
+            [0x73; 16],
+            [0x74; 16],
+            JournalSequence::new(2),
+            DatabaseCommitSequence::new(2),
+            Vec::new(),
+        )
+        .unwrap();
+        let mut tail = JournalTailStore::init(
+            store_memory_owned(106, "icydb.test.convergence.fresh.journal.v1").unwrap(),
+        );
+        tail.append_batch(&unexpected).unwrap();
+        drop(tail);
+        let error = current_database_backlog().unwrap_err();
+        assert_eq!(error.class, ErrorClass::Corruption);
+        assert_eq!(error.origin, ErrorOrigin::Store);
+        let mut tail = JournalTailStore::init(
+            store_memory_owned(106, "icydb.test.convergence.fresh.journal.v1").unwrap(),
+        );
+        let retirement = tail
+            .prepare_batch_retirement(&unexpected, FoldWatermark::new(JournalSequence::new(2), 2))
+            .unwrap();
+        tail.apply_prepared_batch_retirement(retirement);
+        drop(tail);
+        assert_eq!(
+            current_database_backlog().unwrap(),
+            ExactBacklogMeasurement::EMPTY
+        );
     }
 
     #[test]

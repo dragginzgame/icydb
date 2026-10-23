@@ -253,7 +253,7 @@ impl<C: CanisterKind> DbSession<C> {
         columns: &[String],
         candidate_bounds: SqlWriteCandidateBounds,
     ) -> Result<SqlWriteMutationBatch<AcceptedStructuralMutationTarget>, QueryError> {
-        let (authority, _schema_info) = Self::accepted_sql_write_authority_schema_info(catalog);
+        let authority = catalog.accepted_entity_authority();
         let rows = self.collect_bounded_sql_write_mutation_batch_from_structural_query(
             catalog.snapshot(),
             authority,

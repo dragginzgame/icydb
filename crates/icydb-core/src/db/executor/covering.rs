@@ -41,7 +41,7 @@ const COVERING_TEXT_ESCAPE_PREFIX: u8 = 0x00;
 const COVERING_TEXT_TERMINATOR: u8 = 0x00;
 const COVERING_TEXT_ESCAPED_ZERO: u8 = 0xFF;
 
-type RawIndexBounds = (Bound<RawIndexStoreKey>, Bound<RawIndexStoreKey>);
+type RawIndexBounds<'a> = (&'a Bound<RawIndexStoreKey>, &'a Bound<RawIndexStoreKey>);
 
 fn read_row_presence_with_consistency_from_data_store(
     data: &DataStore,
@@ -300,8 +300,8 @@ where
                 streams.push(CoveringComponentStreamBox::prefix(
                     active.store,
                     entity_tag,
-                    lower.clone(),
-                    upper.clone(),
+                    lower,
+                    upper,
                     scan.direction,
                     Some(scan.limit),
                     chunk_entries,
@@ -322,29 +322,27 @@ where
     }
 }
 
-fn direct_covering_prefix_merge_bounds(
-    active_specs: &[ActiveCoveringPrefixSpec<'_>],
-) -> Result<Vec<RawIndexBounds>, InternalError> {
+fn direct_covering_prefix_merge_bounds<'a>(
+    active_specs: &[ActiveCoveringPrefixSpec<'a>],
+) -> Result<Vec<RawIndexBounds<'a>>, InternalError> {
     IndexPrefixChildExpansionBudget::validate_child_count(active_specs.len())?;
 
     let slot_bytes = active_specs
         .len()
-        .checked_mul(size_of::<RawIndexBounds>())
+        .checked_mul(size_of::<RawIndexBounds<'_>>())
         .ok_or_else(InternalError::executor_invariant)?;
-    let retained_bytes = active_specs.iter().try_fold(slot_bytes, |bytes, active| {
-        let (lower, upper) = active.prefix.raw_bounds(&ExecutionConstructionBudget)?;
-        bytes
-            .checked_add(RawIndexStoreKey::bound_backing_bytes(lower))
-            .and_then(|bytes| bytes.checked_add(RawIndexStoreKey::bound_backing_bytes(upper)))
-            .ok_or_else(InternalError::executor_invariant)
-    })?;
+    // The prepared specs outlive this synchronous merge. Admit deferred bounds
+    // before allocating descriptors; no additional key backing is retained here.
+    for active in active_specs {
+        active.prefix.raw_bounds(&ExecutionConstructionBudget)?;
+    }
     charge_current_execution_budget(
         DiagnosticExecutionBudgetResource::CursorSteps,
         u64::try_from(active_specs.len()).unwrap_or(u64::MAX),
     )?;
     charge_current_execution_budget(
         DiagnosticExecutionBudgetResource::TemporaryBytes,
-        u64::try_from(retained_bytes).unwrap_or(u64::MAX),
+        u64::try_from(slot_bytes).unwrap_or(u64::MAX),
     )?;
 
     let mut bounds = Vec::new();
@@ -353,7 +351,7 @@ fn direct_covering_prefix_merge_bounds(
         .map_err(|_| InternalError::executor_internal())?;
     for active in active_specs {
         let (lower, upper) = active.prefix.raw_bounds(&ExecutionConstructionBudget)?;
-        bounds.push((lower.clone(), upper.clone()));
+        bounds.push((lower, upper));
     }
 
     Ok(bounds)
@@ -379,8 +377,8 @@ fn resolve_branch_ordered_covering_projection_components_for_prefix_set(
         let mut stream = CoveringComponentStreamBox::prefix(
             active.store,
             entity_tag,
-            lower.clone(),
-            upper.clone(),
+            lower,
+            upper,
             scan.direction,
             Some(remaining),
             chunk_entries,
@@ -467,8 +465,8 @@ impl<'a> CoveringComponentStreamBox<'a> {
     fn prefix(
         store: StoreHandle,
         entity_tag: EntityTag,
-        lower: Bound<LoweredKey>,
-        upper: Bound<LoweredKey>,
+        lower: &'a Bound<LoweredKey>,
+        upper: &'a Bound<LoweredKey>,
         direction: Direction,
         limit: Option<usize>,
         chunk_entries: usize,
@@ -535,8 +533,8 @@ impl<'a> CoveringComponentStreamBox<'a> {
 struct CoveringPrefixComponentStream<'a> {
     store: StoreHandle,
     entity_tag: EntityTag,
-    lower: Bound<LoweredKey>,
-    upper: Bound<LoweredKey>,
+    lower: &'a Bound<LoweredKey>,
+    upper: &'a Bound<LoweredKey>,
     direction: Direction,
     anchor: Option<RawIndexStoreKey>,
     remaining: Option<usize>,
@@ -553,8 +551,8 @@ impl<'a> CoveringPrefixComponentStream<'a> {
     const fn new(
         store: StoreHandle,
         entity_tag: EntityTag,
-        lower: Bound<LoweredKey>,
-        upper: Bound<LoweredKey>,
+        lower: &'a Bound<LoweredKey>,
+        upper: &'a Bound<LoweredKey>,
         direction: Direction,
         limit: Option<usize>,
         chunk_entries: usize,
@@ -590,8 +588,8 @@ impl<'a> CoveringPrefixComponentStream<'a> {
         let chunk = IndexScan::components_chunk_structural(
             self.store,
             self.entity_tag,
-            &self.lower,
-            &self.upper,
+            self.lower,
+            self.upper,
             continuation,
             chunk_entries,
             index_stream_output_limit_for_chunk(self.remaining, chunk_entries),
@@ -936,8 +934,8 @@ where
     let mut stream = CoveringPrefixComponentStream::new(
         index_store,
         entity_tag,
-        range.lower().clone(),
-        range.upper().clone(),
+        range.lower(),
+        range.upper(),
         direction,
         None,
         chunk_entries,

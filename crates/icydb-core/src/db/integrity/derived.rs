@@ -212,7 +212,7 @@ pub(in crate::db) fn execute_index_integrity_page<C: CanisterKind>(
 
     index_store.with_index(|store| {
         store.visit_raw_entries_in_range(
-            (&lower, &bounds.1),
+            (lower.as_ref(), bounds.1.as_ref()),
             Direction::Asc,
             |raw_key, raw_value| {
                 if let Some(expected) = expected_within_key.as_ref()
@@ -277,7 +277,7 @@ pub(in crate::db) fn execute_reverse_integrity_page<C: CanisterKind>(
 
     relation.target_store().with_index(|store| {
         store.visit_raw_entries_in_range(
-            (&lower, &bounds.1),
+            (lower.as_ref(), bounds.1.as_ref()),
             Direction::Asc,
             |raw_key, raw_value| {
                 if let Some(expected) = expected_within_key.as_ref()
@@ -517,7 +517,7 @@ fn inspect_unique_index_key(
     let bounds = (Bound::Included(lower), Bound::Included(upper));
     let mut witnesses = 0_u8;
     index_store.visit_raw_entries_in_range(
-        (&bounds.0, &bounds.1),
+        (bounds.0.as_ref(), bounds.1.as_ref()),
         Direction::Asc,
         |_candidate, _value| {
             witnesses = witnesses

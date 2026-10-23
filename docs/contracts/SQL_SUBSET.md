@@ -739,6 +739,10 @@ Public SQL ownership is split deliberately:
   continuation custody
 - `execute_admin_sql_ddl(...)` owns accepted-catalog schema DDL SQL
 
+The SQL shell supports reads, introspection, DDL and opt-in UPDATE. It rejects
+INSERT and DELETE locally before any endpoint call; these operations remain
+available through the application-owned trusted mutation APIs above.
+
 The current durable advance dispatches one engine-owned Forward or Verify page.
 Forward examines at most 4,096 authoritative keys, stages at most 240 updates,
 stops before either its 16 MiB raw key-plus-row scan limit or the structural

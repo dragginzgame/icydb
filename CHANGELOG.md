@@ -5,6 +5,55 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.281.1]
+
+### 🩹 Fixed
+
+- Borrow accepted SQL-write schemas from the catalog, removing redundant schema
+  copies in INSERT SELECT, DELETE and UPDATE
+  ([#423 — A SQL write clones the schema and then only borrows it](https://github.com/dragginzgame/icydb/issues/423)).
+- Reject unsupported CLI INSERT and DELETE locally before contacting ICP,
+  keeping shell row mutation scoped to opt-in UPDATE
+  ([#242 — CLI INSERT/DELETE routes to the read-only query endpoint](https://github.com/dragginzgame/icydb/issues/242)).
+- Borrow retained primary and index range bounds during chunk visits instead
+  of copying their keys
+  ([#421 — A range chunk copies bounds the visit only borrows](https://github.com/dragginzgame/icydb/issues/421)).
+- Validate deep shared-type migrations without recursive graph walks or repeated
+  traversal for each rename
+  ([#188 — Migration closure validation recurses without a depth bound and has superlinear cost on a bounded public proposal](https://github.com/dragginzgame/icydb/issues/188)).
+- Sort multi-value index branches using their cached lower keys without copying
+  and discarding those keys
+  ([#414 — A multi-value index lookup copies each lower key and then drops it](https://github.com/dragginzgame/icydb/issues/414)).
+- Build prefix continuation anchors from the existing prefix bytes without
+  decoding and copying them again
+  ([#415 — A prefix resume decodes components the spec already owns](https://github.com/dragginzgame/icydb/issues/415)).
+- Borrow covering-scan bounds across merged and streamed reads, avoiding
+  additional key copies
+  ([#417 — A covering merge copies index bounds that the scan only borrows](https://github.com/dragginzgame/icydb/issues/417)).
+- Maintain prefix counts from borrowed index-key components, skipping redundant
+  count-key construction when membership is unchanged
+  ([#419 — Prefix cardinality copies every index component and then copies it again](https://github.com/dragginzgame/icydb/issues/419)).
+- Reduce store-insert key copies while preserving row and index counts; retain
+  the copy required by canonical stable-index insertion
+  ([#418 — A store insert copies the key so cardinality can borrow it](https://github.com/dragginzgame/icydb/issues/418)).
+
+### 🧪 Testing
+
+- Verify that scalar-page cursors require the supported zero-offset window and
+  reject signed nonzero-offset tokens before scanning rows
+  ([#159 — Effective offset and keep caps use different progress predicates](https://github.com/dragginzgame/icydb/issues/159)).
+- Exercise backlog measurement against active and retired physical journals,
+  including missing ownership and unexpected retired debt
+  ([#267 — Production Gate-2 measurement and the marker-presence fast path have test-only replacements](https://github.com/dragginzgame/icydb/issues/267)).
+
+### 🔧 Changed
+
+- Adopt published IC Memory/Storage 0.50.13, Timers 0.30.7 and Wire/derive
+  0.6.10, preserving current storage, timer and application payload contracts.
+  Browser generation avoids collisions with consumer declaration names.
+
+See [detailed notes](docs/changelog/0.281.md).
+
 ## [0.281.0] - 2026-10-23
 
 ### ⚠️ Breaking

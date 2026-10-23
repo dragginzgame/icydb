@@ -63,10 +63,13 @@ fn empty_envelopes_skip_populated_store_traversal() {
         let high = scalar_scan_key(3, 1);
         let lower = Bound::Included(low.clone());
         let upper = Bound::Included(high.clone());
-        let asc_empty =
-            resume_bounds_for_continuation(Direction::Asc, Some(&high), &lower, &upper).unwrap();
+        let asc_empty = resume_bounds_for_continuation(Direction::Asc, Some(&high), &lower, &upper)
+            .map(|(lower, upper)| (lower.cloned(), upper.cloned()))
+            .unwrap();
         let desc_empty =
-            resume_bounds_for_continuation(Direction::Desc, Some(&low), &lower, &upper).unwrap();
+            resume_bounds_for_continuation(Direction::Desc, Some(&low), &lower, &upper)
+                .map(|(lower, upper)| (lower.cloned(), upper.cloned()))
+                .unwrap();
 
         // Controls prove the callbacks observe populated storage and that an
         // included singleton is not mistaken for an empty equal-bound range.
@@ -104,10 +107,14 @@ fn empty_envelopes_skip_populated_store_traversal() {
             for direction in [Direction::Asc, Direction::Desc] {
                 let mut visited = 0;
                 store
-                    .visit_raw_entries_in_range((&lower, &upper), direction, |_, _| {
-                        visited += 1;
-                        Ok::<_, crate::error::InternalError>(false)
-                    })
+                    .visit_raw_entries_in_range(
+                        (lower.as_ref(), upper.as_ref()),
+                        direction,
+                        |_, _| {
+                            visited += 1;
+                            Ok::<_, crate::error::InternalError>(false)
+                        },
+                    )
                     .unwrap();
                 assert_eq!(
                     visited, expected_live,
@@ -200,19 +207,27 @@ fn visit_raw_entries_in_range_preserves_directional_store_order() {
     )));
     let mut asc = Vec::new();
     index_store
-        .visit_raw_entries_in_range((&lower, &upper), Direction::Asc, |raw_key, _| {
-            asc.push(raw_key.as_bytes()[0]);
-            Ok::<_, crate::error::InternalError>(false)
-        })
+        .visit_raw_entries_in_range(
+            (lower.as_ref(), upper.as_ref()),
+            Direction::Asc,
+            |raw_key, _| {
+                asc.push(raw_key.as_bytes()[0]);
+                Ok::<_, crate::error::InternalError>(false)
+            },
+        )
         .expect("asc scan should succeed");
     assert_eq!(asc, vec![1, 2, 3], "asc scan should follow raw key order");
 
     let mut desc = Vec::new();
     index_store
-        .visit_raw_entries_in_range((&lower, &upper), Direction::Desc, |raw_key, _| {
-            desc.push(raw_key.as_bytes()[0]);
-            Ok::<_, crate::error::InternalError>(false)
-        })
+        .visit_raw_entries_in_range(
+            (lower.as_ref(), upper.as_ref()),
+            Direction::Desc,
+            |raw_key, _| {
+                desc.push(raw_key.as_bytes()[0]);
+                Ok::<_, crate::error::InternalError>(false)
+            },
+        )
         .expect("desc scan should succeed");
     assert_eq!(
         desc,
@@ -264,19 +279,27 @@ fn heap_index_store_preserves_range_order_and_early_stop() {
     )));
     let mut asc = Vec::new();
     index_store
-        .visit_raw_entries_in_range((&lower, &upper), Direction::Asc, |raw_key, _| {
-            asc.push(raw_key.as_bytes()[0]);
-            Ok::<_, crate::error::InternalError>(false)
-        })
+        .visit_raw_entries_in_range(
+            (lower.as_ref(), upper.as_ref()),
+            Direction::Asc,
+            |raw_key, _| {
+                asc.push(raw_key.as_bytes()[0]);
+                Ok::<_, crate::error::InternalError>(false)
+            },
+        )
         .expect("heap asc scan should succeed");
     assert_eq!(asc, vec![1, 2, 3]);
 
     let mut desc = Vec::new();
     index_store
-        .visit_raw_entries_in_range((&lower, &upper), Direction::Desc, |raw_key, _| {
-            desc.push(raw_key.as_bytes()[0]);
-            Ok::<_, crate::error::InternalError>(false)
-        })
+        .visit_raw_entries_in_range(
+            (lower.as_ref(), upper.as_ref()),
+            Direction::Desc,
+            |raw_key, _| {
+                desc.push(raw_key.as_bytes()[0]);
+                Ok::<_, crate::error::InternalError>(false)
+            },
+        )
         .expect("heap desc scan should succeed");
     assert_eq!(desc, vec![3, 2, 1]);
 
@@ -311,6 +334,10 @@ fn merged_ranges_preserve_logical_order_direction_and_early_stop() {
             (Bound::Excluded(raw_key(10)), Bound::Excluded(raw_key(10))),
             (Bound::Included(raw_key(22)), Bound::Included(raw_key(9))),
         ];
+        let bounds = bounds
+            .iter()
+            .map(|(lower, upper)| (lower, upper))
+            .collect::<Vec<_>>();
         let decode_order = |key: &RawIndexStoreKey| {
             let raw = key.as_bytes()[0];
             Ok::<u8, crate::error::InternalError>(match raw {
@@ -375,12 +402,18 @@ fn merged_ranges_skip_empty_envelopes_before_admission_or_reads() {
         let upper = Bound::Included(raw_key(3));
         let empty = [
             resume_bounds_for_continuation(Direction::Asc, Some(&raw_key(3)), &lower, &upper)
+                .map(|(lower, upper)| (lower.cloned(), upper.cloned()))
                 .unwrap(),
             resume_bounds_for_continuation(Direction::Desc, Some(&raw_key(1)), &lower, &upper)
+                .map(|(lower, upper)| (lower.cloned(), upper.cloned()))
                 .unwrap(),
             (Bound::Excluded(raw_key(2)), Bound::Excluded(raw_key(2))),
             (upper, lower),
         ];
+        let empty = empty
+            .iter()
+            .map(|(lower, upper)| (lower, upper))
+            .collect::<Vec<_>>();
         for direction in [Direction::Asc, Direction::Desc] {
             for bounds in [empty.as_slice(), &empty[..1], &[]] {
                 assert!(
@@ -397,10 +430,14 @@ fn merged_ranges_skip_empty_envelopes_before_admission_or_reads() {
                 let mut reference = Vec::new();
                 for (lower, upper) in bounds {
                     store
-                        .visit_raw_entries_in_range((lower, upper), direction, |key, _| {
-                            reference.push(key.clone());
-                            Ok::<_, crate::error::InternalError>(false)
-                        })
+                        .visit_raw_entries_in_range(
+                            (lower.as_ref(), upper.as_ref()),
+                            direction,
+                            |key, _| {
+                                reference.push(key.clone());
+                                Ok::<_, crate::error::InternalError>(false)
+                            },
+                        )
                         .unwrap();
                 }
                 assert!(reference.is_empty());
@@ -410,7 +447,7 @@ fn merged_ranges_skip_empty_envelopes_before_admission_or_reads() {
                 assert!(
                     !store
                         .visit_raw_entries_in_merged_ranges(
-                            &[(Bound::Unbounded, Bound::Unbounded)],
+                            &[(&Bound::Unbounded, &Bound::Unbounded)],
                             direction,
                             |_| Err(crate::error::InternalError::executor_internal()),
                             |_| Err::<u8, _>(crate::error::InternalError::index_corruption()),
@@ -439,6 +476,10 @@ fn merged_ranges_admit_complete_structural_state_before_reading() {
         .flat_map(|(lower, upper)| [lower, upper])
         .map(RawIndexStoreKey::bound_backing_bytes)
         .sum::<usize>();
+    let bounds = bounds
+        .iter()
+        .map(|(lower, upper)| (lower, upper))
+        .collect::<Vec<_>>();
     let admitted = Cell::new(0usize);
     let decode_calls = Cell::new(0usize);
     let visit_calls = Cell::new(0usize);

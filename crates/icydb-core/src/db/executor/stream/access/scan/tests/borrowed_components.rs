@@ -228,3 +228,75 @@ fn covering_components_keep_the_decoded_byte_budget_before_output() {
     )));
     assert!(rows.is_empty());
 }
+
+#[test]
+fn covering_component_chunks_preserve_bounded_directional_progress() {
+    let predicate = IndexPredicateProgram::Compare {
+        component_index: 0,
+        op: IndexCompareOp::Gte,
+        literal: IndexLiteral::One(
+            EncodedValue::try_new(&Value::Nat64(3))
+                .unwrap()
+                .into_bytes(),
+        ),
+    };
+    for composite in [false, true] {
+        reset_exact_intersection_stores();
+        let keys = covering_keys(composite);
+        let raw = keys
+            .iter()
+            .map(|key| key.to_raw().unwrap())
+            .collect::<Vec<_>>();
+        EXACT_INTERSECTION_INDEX.with_borrow_mut(|store| {
+            for key in &raw {
+                store.insert(key.clone(), IndexEntryValue::presence());
+            }
+        });
+        let lower = Bound::Included(raw[0].clone());
+        let upper = Bound::Included(raw[4].clone());
+        for direction in [Direction::Asc, Direction::Desc] {
+            for filtered in [false, true] {
+                for output_limit in [None, Some(1)] {
+                    let mut anchor = None;
+                    let mut actual = Vec::new();
+                    // Five keys need at most five nonempty chunks plus exhaustion.
+                    for _ in 0..6 {
+                        let chunk = IndexScan::components_chunk_structural(
+                            EXACT_INTERSECTION_STORE,
+                            EXACT_INTERSECTION_ENTITY,
+                            &lower,
+                            &upper,
+                            IndexScanContinuationInput::new(anchor.as_ref(), direction),
+                            2,
+                            output_limit,
+                            &[0],
+                            filtered.then_some(&predicate),
+                        )
+                        .unwrap();
+                        let (rows, next) = chunk.into_component_rows_and_resume_anchor();
+                        actual.extend(rows.into_iter().map(|(key, _, _)| key.primary_key_value()));
+                        let Some(next) = next else {
+                            break;
+                        };
+                        if let Some(previous) = &anchor {
+                            assert!(match direction {
+                                Direction::Asc => previous < &next,
+                                Direction::Desc => previous > &next,
+                            });
+                        }
+                        anchor = Some(next);
+                    }
+                    let mut expected = keys
+                        .iter()
+                        .skip(if filtered { 2 } else { 0 })
+                        .map(|key| key.primary_key_value().unwrap())
+                        .collect::<Vec<_>>();
+                    if direction == Direction::Desc {
+                        expected.reverse();
+                    }
+                    assert_eq!(actual, expected);
+                }
+            }
+        }
+    }
+}

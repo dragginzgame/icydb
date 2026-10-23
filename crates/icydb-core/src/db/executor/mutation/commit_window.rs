@@ -367,11 +367,15 @@ impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C
         let Some(store_overrides) = self.index_overrides.get(&store_id) else {
             let mut out = Vec::with_capacity(limit.min(32));
             index_store.with_borrow(|store| {
-                store.visit_raw_entries_in_range(bounds, Direction::Asc, |raw_key, raw_entry| {
-                    push_structural_index_entry_primary_key_values_limited(
-                        raw_key, raw_entry, &mut out, limit,
-                    )
-                })
+                store.visit_raw_entries_in_range(
+                    (bounds.0.as_ref(), bounds.1.as_ref()),
+                    Direction::Asc,
+                    |raw_key, raw_entry| {
+                        push_structural_index_entry_primary_key_values_limited(
+                            raw_key, raw_entry, &mut out, limit,
+                        )
+                    },
+                )
             })?;
 
             return Ok(out);
@@ -391,54 +395,58 @@ impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C
         let mut limit_reached = false;
 
         index_store.with_borrow(|index_store| {
-            index_store.visit_raw_entries_in_range(bounds, Direction::Asc, |raw_key, raw_entry| {
-                while let Some((override_key, _)) = overrides.peek() {
-                    match (*override_key).cmp(raw_key) {
-                        std::cmp::Ordering::Less => {
-                            let override_key = (*override_key).clone();
-                            let Some((_, override_entry)) = overrides.next() else {
-                                return Err(InternalError::query_executor_invariant());
-                            };
-                            if push_optional_index_entry_primary_key_values(
-                                &override_key,
-                                override_entry.as_ref(),
-                                &mut out,
-                                limit,
-                            )? {
-                                limit_reached = true;
-                                return Ok(true);
+            index_store.visit_raw_entries_in_range(
+                (bounds.0.as_ref(), bounds.1.as_ref()),
+                Direction::Asc,
+                |raw_key, raw_entry| {
+                    while let Some((override_key, _)) = overrides.peek() {
+                        match (*override_key).cmp(raw_key) {
+                            std::cmp::Ordering::Less => {
+                                let override_key = (*override_key).clone();
+                                let Some((_, override_entry)) = overrides.next() else {
+                                    return Err(InternalError::query_executor_invariant());
+                                };
+                                if push_optional_index_entry_primary_key_values(
+                                    &override_key,
+                                    override_entry.as_ref(),
+                                    &mut out,
+                                    limit,
+                                )? {
+                                    limit_reached = true;
+                                    return Ok(true);
+                                }
                             }
-                        }
-                        std::cmp::Ordering::Equal => {
-                            let override_key = (*override_key).clone();
-                            let Some((_, override_entry)) = overrides.next() else {
-                                return Err(InternalError::query_executor_invariant());
-                            };
-                            if push_optional_index_entry_primary_key_values(
-                                &override_key,
-                                override_entry.as_ref(),
-                                &mut out,
-                                limit,
-                            )? {
-                                limit_reached = true;
-                                return Ok(true);
-                            }
+                            std::cmp::Ordering::Equal => {
+                                let override_key = (*override_key).clone();
+                                let Some((_, override_entry)) = overrides.next() else {
+                                    return Err(InternalError::query_executor_invariant());
+                                };
+                                if push_optional_index_entry_primary_key_values(
+                                    &override_key,
+                                    override_entry.as_ref(),
+                                    &mut out,
+                                    limit,
+                                )? {
+                                    limit_reached = true;
+                                    return Ok(true);
+                                }
 
-                            return Ok(false);
+                                return Ok(false);
+                            }
+                            std::cmp::Ordering::Greater => break,
                         }
-                        std::cmp::Ordering::Greater => break,
                     }
-                }
 
-                if push_structural_index_entry_primary_key_values_limited(
-                    raw_key, raw_entry, &mut out, limit,
-                )? {
-                    limit_reached = true;
-                    return Ok(true);
-                }
+                    if push_structural_index_entry_primary_key_values_limited(
+                        raw_key, raw_entry, &mut out, limit,
+                    )? {
+                        limit_reached = true;
+                        return Ok(true);
+                    }
 
-                Ok(false)
-            })
+                    Ok(false)
+                },
+            )
         })?;
 
         if !limit_reached {

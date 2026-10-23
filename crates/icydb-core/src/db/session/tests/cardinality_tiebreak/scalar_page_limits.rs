@@ -2,7 +2,10 @@
 
 use super::*;
 use crate::db::{
-    RequestExecutionRoot, desc,
+    RequestExecutionRoot,
+    commit::cursor_authentication_key,
+    cursor::{ScalarPageToken, ScalarPageTokenWindow, decode_optional_cursor_token, encode_cursor},
+    desc,
     resource::budget::{HardExecutionBudget, HardExecutionFailureHeadroom},
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
@@ -467,6 +470,70 @@ fn one_sided_primary_ranges_resume_across_small_pages() {
                     .map(|id| vec![OutputValue::nat64(id)])
                     .collect::<Vec<_>>()
             );
+        }
+    }
+}
+
+#[test]
+fn scalar_page_resumes_require_the_zero_offset_window() {
+    let setup = initialize();
+    seed_rows(&setup);
+    let query = DynamicQuery::new(ENTITY_NAME)
+        .select(["id"])
+        .filter(FieldRef::new("common").eq(InputValue::text("everyone".into())))
+        .order_by(asc("common"));
+    for public in [false, true] {
+        let root = RequestExecutionRoot::__new_runtime_root();
+        let session = new_request_session(&root);
+        let page = if public {
+            session.execute_public_live_page(&query, None)
+        } else {
+            session.execute_trusted_live_page(&query, None)
+        }
+        .unwrap();
+        let cursor = page
+            .continuation
+            .expect("fixture must require another page");
+        let key = cursor_authentication_key().unwrap();
+        let bytes = decode_optional_cursor_token(Some(&cursor))
+            .unwrap()
+            .unwrap();
+        let token = ScalarPageToken::decode(&bytes, &key).unwrap();
+        let window = token.window();
+        assert_eq!(window.initial_offset(), 0);
+        for offset in [0, 1, 5, u32::MAX] {
+            // Keep a valid signature/MAC, accepted authority and progress so a
+            // refusal demonstrates window validation, not authentication failure.
+            let changed = ScalarPageToken::new(
+                token.mode(),
+                token.signature(),
+                token.authority(),
+                token.route_pin(),
+                ScalarPageTokenWindow::new(
+                    offset,
+                    window.total_limit(),
+                    window.envelope_profile_identity(),
+                ),
+                token.order_terms().to_vec(),
+                token.progress().clone(),
+            );
+            let changed = encode_cursor(&changed.encode(&key).unwrap());
+            let resume_root = RequestExecutionRoot::__new_runtime_root();
+            let resume_session = new_request_session(&resume_root);
+            let result = if public {
+                resume_session.execute_public_live_page(&query, Some(&changed))
+            } else {
+                resume_session.execute_trusted_live_page(&query, Some(&changed))
+            };
+            if offset == 0 {
+                assert!(!result.unwrap().rows.is_empty());
+            } else {
+                assert_eq!(
+                    result.unwrap_err().diagnostic().error_code(),
+                    icydb_diagnostic_code::ErrorCode::QUERY_INVALID_CONTINUATION_CURSOR
+                );
+                assert_eq!(resume_root.observed(Resource::RowsVisited), 0);
+            }
         }
     }
 }

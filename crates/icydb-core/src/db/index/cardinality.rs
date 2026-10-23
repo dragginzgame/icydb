@@ -4,12 +4,12 @@
 //! Boundary: index store maintains this opportunistic metadata; callers must prove row/index sync.
 
 use crate::db::index::{
-    IndexEntryExistenceWitness, IndexEntryValue, IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey,
-    decode_canonical_index_int64_component,
+    BorrowedIndexKeyFrame, IndexEntryExistenceWitness, IndexEntryValue, IndexId, IndexKeyKind,
+    RawIndexStoreKey, decode_canonical_index_int64_component, decode_index_key_frame,
 };
 use crate::db::journal::FoldWatermark;
 use crate::error::InternalError;
-use std::collections::BTreeMap as HeapBTreeMap;
+use std::collections::{BTreeMap as HeapBTreeMap, btree_map::Entry};
 use std::ops::Bound;
 
 /// Exact lookup key for one user-index component prefix.
@@ -487,27 +487,7 @@ impl IndexPrefixCardinality {
         previous: Option<&IndexEntryValue>,
         new: &IndexEntryValue,
     ) {
-        if !self.decodable {
-            return;
-        }
-
-        let previous_prefixes = match previous {
-            Some(previous) => self.counted_prefixes_or_invalidate(raw_key, previous),
-            None => Some(Vec::new()),
-        };
-        let Some(previous_prefixes) = previous_prefixes else {
-            return;
-        };
-        let Some(new_prefixes) = self.counted_prefixes_or_invalidate(raw_key, new) else {
-            return;
-        };
-        if previous_prefixes == new_prefixes {
-            return;
-        }
-
-        self.data_generation = None;
-        self.apply_delta(previous_prefixes, PrefixCardinalityDelta::Decrement);
-        self.apply_delta(new_prefixes, PrefixCardinalityDelta::Increment);
+        self.apply_transition(raw_key, previous, Some(new));
     }
 
     pub(super) fn apply_remove(
@@ -515,35 +495,32 @@ impl IndexPrefixCardinality {
         raw_key: &RawIndexStoreKey,
         previous: Option<&IndexEntryValue>,
     ) {
-        if !self.decodable {
-            return;
-        }
-
-        let Some(previous) = previous else {
-            return;
-        };
-        let Some(prefixes) = self.counted_prefixes_or_invalidate(raw_key, previous) else {
-            return;
-        };
-        if prefixes.is_empty() {
-            return;
-        }
-
-        self.data_generation = None;
-        self.apply_delta(prefixes, PrefixCardinalityDelta::Decrement);
+        self.apply_transition(raw_key, previous, None);
     }
 
-    fn counted_prefixes_or_invalidate(
+    fn apply_transition(
         &mut self,
         raw_key: &RawIndexStoreKey,
-        entry: &IndexEntryValue,
-    ) -> Option<Vec<IndexPrefixCardinalityKey>> {
-        let Some(prefixes) = counted_prefixes(raw_key, entry) else {
+        previous: Option<&IndexEntryValue>,
+        next: Option<&IndexEntryValue>,
+    ) {
+        if !self.decodable || (previous.is_none() && next.is_none()) {
+            return;
+        }
+        let Some((frame, delta)) = counted_prefix_change(raw_key, previous, next) else {
             self.invalidate_decoding();
-            return None;
+            return;
         };
-
-        Some(prefixes)
+        if delta == 0 {
+            return;
+        }
+        self.data_generation = None;
+        let direction = if delta > 0 {
+            PrefixCardinalityDelta::Increment
+        } else {
+            PrefixCardinalityDelta::Decrement
+        };
+        self.apply_delta(counted_prefixes(&frame), direction);
     }
 
     fn apply_delta(
@@ -552,10 +529,11 @@ impl IndexPrefixCardinality {
         delta: PrefixCardinalityDelta,
     ) {
         for prefix in prefixes {
-            if let Some(first_key) = IndexPrefixCardinalityFirstKey::from_prefix(&prefix) {
-                apply_count_delta(&mut self.first_component_counts, first_key, delta);
-            } else {
-                apply_count_delta(&mut self.counts, prefix, delta);
+            match IndexPrefixCardinalityFirstKey::from_prefix(prefix) {
+                Ok(first_key) => {
+                    apply_count_delta(&mut self.first_component_counts, first_key, delta);
+                }
+                Err(prefix) => apply_count_delta(&mut self.counts, prefix, delta),
             }
         }
     }
@@ -652,35 +630,24 @@ impl IndexPrefixCardinalityDelta {
         if !self.decodable || previous == next {
             return;
         }
-        let Some(previous_prefixes) = previous.map_or_else(
-            || Some(Vec::new()),
-            |value| counted_prefixes(raw_key, value),
-        ) else {
+        let Some((frame, delta)) = counted_prefix_change(raw_key, previous, next) else {
             self.invalidate();
             return;
         };
-        let Some(next_prefixes) = next.map_or_else(
-            || Some(Vec::new()),
-            |value| counted_prefixes(raw_key, value),
-        ) else {
-            self.invalidate();
-            return;
-        };
-        if previous_prefixes == next_prefixes {
+        if delta == 0 {
             return;
         }
-        self.apply_prefixes(previous_prefixes, -1);
-        self.apply_prefixes(next_prefixes, 1);
+        self.apply_prefixes(counted_prefixes(&frame), delta);
     }
 
     fn apply_prefixes(&mut self, prefixes: Vec<IndexPrefixCardinalityKey>, delta: i64) {
         for prefix in prefixes {
-            let applied =
-                if let Some(first_key) = IndexPrefixCardinalityFirstKey::from_prefix(&prefix) {
+            let applied = match IndexPrefixCardinalityFirstKey::from_prefix(prefix) {
+                Ok(first_key) => {
                     apply_signed_count_delta(&mut self.first_component_counts, first_key, delta)
-                } else {
-                    apply_signed_count_delta(&mut self.counts, prefix, delta)
-                };
+                }
+                Err(prefix) => apply_signed_count_delta(&mut self.counts, prefix, delta),
+            };
             if !applied {
                 self.invalidate();
                 return;
@@ -730,18 +697,23 @@ fn apply_count_delta<K: Ord>(
     }
 }
 
-fn apply_signed_count_delta<K: Clone + Ord>(
-    counts: &mut HeapBTreeMap<K, i64>,
-    key: K,
-    delta: i64,
-) -> bool {
-    let count = counts.entry(key.clone()).or_insert(0);
-    let Some(next) = count.checked_add(delta) else {
-        return false;
-    };
-    *count = next;
-    if *count == 0 {
-        counts.remove(&key);
+fn apply_signed_count_delta<K: Ord>(counts: &mut HeapBTreeMap<K, i64>, key: K, delta: i64) -> bool {
+    match counts.entry(key) {
+        Entry::Occupied(mut entry) => {
+            let Some(next) = entry.get().checked_add(delta) else {
+                return false;
+            };
+            if next == 0 {
+                entry.remove();
+            } else {
+                *entry.get_mut() = next;
+            }
+        }
+        Entry::Vacant(entry) => {
+            if delta != 0 {
+                entry.insert(delta);
+            }
+        }
     }
     true
 }
@@ -767,17 +739,19 @@ impl IndexPrefixCardinalityFirstKey {
         self.key_kind == key_kind && self.index_id == index_id
     }
 
-    fn from_prefix(prefix: &IndexPrefixCardinalityKey) -> Option<Self> {
-        let component = prefix
-            .components
-            .first()
-            .filter(|_| prefix.components.len() == 1)?;
-
-        Some(Self {
-            key_kind: prefix.key_kind,
-            index_id: prefix.index_id,
-            component: component.clone(),
-        })
+    fn from_prefix(prefix: IndexPrefixCardinalityKey) -> Result<Self, IndexPrefixCardinalityKey> {
+        match <[Vec<u8>; 1]>::try_from(prefix.components) {
+            Ok([component]) => Ok(Self {
+                key_kind: prefix.key_kind,
+                index_id: prefix.index_id,
+                component,
+            }),
+            Err(components) => Err(IndexPrefixCardinalityKey {
+                key_kind: prefix.key_kind,
+                index_id: prefix.index_id,
+                components,
+            }),
+        }
     }
 }
 
@@ -798,14 +772,17 @@ impl IndexPrefixCardinalityKey {
         }
     }
 
-    fn from_index_key(index_key: &IndexKey, component_len: usize) -> Self {
-        let components = (0..component_len)
-            .filter_map(|slot| index_key.component(slot).map(<[u8]>::to_vec))
+    fn from_frame(frame: &BorrowedIndexKeyFrame<'_>, component_len: usize) -> Self {
+        let components = frame
+            .components()
+            .iter()
+            .take(component_len)
+            .map(|component| component.to_vec())
             .collect();
 
         Self {
-            key_kind: index_key.key_kind(),
-            index_id: *index_key.index_id(),
+            key_kind: frame.key_kind(),
+            index_id: frame.index_id(),
             components,
         }
     }
@@ -815,41 +792,280 @@ impl IndexPrefixCardinalityKey {
     }
 }
 
-fn counted_prefixes(
-    raw_key: &RawIndexStoreKey,
-    entry: &IndexEntryValue,
-) -> Option<Vec<IndexPrefixCardinalityKey>> {
-    let index_key = IndexKey::try_from_raw(raw_key).ok()?;
-    if index_key.key_kind() != IndexKeyKind::User {
-        return Some(Vec::new());
+// Validate the raw frame and user witnesses before deciding whether counts change.
+// The signed change is the existing present/absent contribution, not stored policy.
+fn counted_prefix_change<'a>(
+    raw_key: &'a RawIndexStoreKey,
+    previous: Option<&IndexEntryValue>,
+    next: Option<&IndexEntryValue>,
+) -> Option<(BorrowedIndexKeyFrame<'a>, i64)> {
+    let frame = decode_index_key_frame(raw_key).ok()?;
+    if frame.key_kind() != IndexKeyKind::User {
+        return Some((frame, 0));
     }
+    frame.primary_key_value_and_bytes().ok()?;
+    let contribution = |entry: Option<&IndexEntryValue>| {
+        entry.map_or(Some(0), |entry| {
+            Some(i64::from(
+                entry.decode_existence_witness().ok()? == IndexEntryExistenceWitness::Present,
+            ))
+        })
+    };
+    let before = contribution(previous)?;
+    let after = if previous == next {
+        before
+    } else {
+        contribution(next)?
+    };
+    let delta = if frame.components().is_empty() {
+        0
+    } else {
+        after - before
+    };
+    Some((frame, delta))
+}
 
-    let witness = entry.decode_row_witness_from_index_key(&index_key).ok()?;
-    if witness.existence_witness() != IndexEntryExistenceWitness::Present {
-        return Some(Vec::new());
-    }
-
-    Some(
-        (1..=index_key.component_count())
-            .map(|component_len| {
-                IndexPrefixCardinalityKey::from_index_key(&index_key, component_len)
-            })
-            .collect(),
-    )
+fn counted_prefixes(frame: &BorrowedIndexKeyFrame<'_>) -> Vec<IndexPrefixCardinalityKey> {
+    (1..=frame.components().len())
+        .map(|component_len| IndexPrefixCardinalityKey::from_frame(frame, component_len))
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        IndexPrefixCardinality, IndexPrefixCardinalityFirstKey, apply_signed_count_delta,
+        IndexPrefixCardinality, IndexPrefixCardinalityDelta, IndexPrefixCardinalityFirstKey,
+        IndexPrefixCardinalityKey, PrefixCardinalityDelta, apply_signed_count_delta,
         checked_metadata_count_increment,
     };
     use crate::{
-        db::index::{EncodedValue, IndexId, IndexKeyKind, UserIndexPrefixCardinalityKey},
+        MAX_INDEX_FIELDS,
+        db::{
+            index::{
+                EncodedValue, IndexEntryValue, IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey,
+                UserIndexPrefixCardinalityKey,
+            },
+            key_taxonomy::{CompositePrimaryKeyValue, PrimaryKeyComponent, PrimaryKeyValue},
+        },
         types::EntityTag,
         value::Value,
     };
     use std::{collections::BTreeMap, ops::Bound};
+
+    #[test]
+    fn prefix_transitions_preserve_counts_sync_and_overlay_contributions() {
+        let composite = PrimaryKeyValue::Composite(
+            CompositePrimaryKeyValue::try_from_components(&[
+                PrimaryKeyComponent::Nat64(7),
+                PrimaryKeyComponent::Nat64(u64::MAX),
+            ])
+            .unwrap(),
+        );
+        let present = IndexEntryValue::presence();
+        let missing = IndexEntryValue::from_persisted_bytes(vec![1]);
+        for kind in [IndexKeyKind::User, IndexKeyKind::System] {
+            for generation in [0, 17] {
+                let id = IndexId::new_with_generation(EntityTag::new(42), 7, generation);
+                for primary in [PrimaryKeyComponent::Nat64(7).into(), composite] {
+                    for width in 0..=MAX_INDEX_FIELDS {
+                        let components = (0..width)
+                            .map(|slot| {
+                                EncodedValue::try_new(&Value::Text(format!("a\0{slot}")))
+                                    .unwrap()
+                                    .into_bytes()
+                            })
+                            .collect::<Vec<_>>();
+                        let raw = IndexKey::new_from_components_with_primary_key_value(
+                            &id,
+                            kind,
+                            &components,
+                            &primary,
+                        )
+                        .unwrap()
+                        .to_raw()
+                        .unwrap();
+                        for previous in [None, Some(&missing), Some(&present)] {
+                            for next in [None, Some(&missing), Some(&present)] {
+                                let before = previous == Some(&present);
+                                let after = next == Some(&present);
+                                let counted = kind == IndexKeyKind::User && width > 0;
+                                let mut counts = IndexPrefixCardinality::synchronized_empty();
+                                if let Some(value) = previous {
+                                    counts.apply_insert(&raw, None, value);
+                                }
+                                counts.mark_synchronized(7);
+                                if let Some(value) = next {
+                                    counts.apply_insert(&raw, previous, value);
+                                } else {
+                                    counts.apply_remove(&raw, previous);
+                                }
+                                assert!(counts.decodable);
+                                assert_eq!(
+                                    counts.data_generation,
+                                    (!(counted && before != after)).then_some(7)
+                                );
+                                counts.mark_synchronized(8);
+                                let mut overlay = IndexPrefixCardinalityDelta::unbound_empty();
+                                overlay.apply_transition(&raw, previous, next);
+                                assert!(overlay.decodable);
+                                for length in 1..=width {
+                                    let expected = u64::from(kind == IndexKeyKind::User && after);
+                                    assert_eq!(
+                                        counts.exact_count(8, kind, id, &components[..length]),
+                                        Some(expected)
+                                    );
+                                    let expected_delta = if counted {
+                                        i64::from(after) - i64::from(before)
+                                    } else {
+                                        0
+                                    };
+                                    assert_eq!(
+                                        overlay.exact_delta(kind, id, &components[..length]),
+                                        Some(expected_delta)
+                                    );
+                                }
+                                assert_eq!(
+                                    counts.first_component_counts.len(),
+                                    usize::from(counted && after)
+                                );
+                                assert_eq!(
+                                    counts.counts.len(),
+                                    if counted && after { width - 1 } else { 0 }
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn first_component_count_updates_transfer_owned_component_backing() {
+        let id = IndexId::new(EntityTag::new(42), 7);
+        for signed in [false, true] {
+            let component = vec![7; 32];
+            let pointer = component.as_ptr();
+            let prefix = IndexPrefixCardinalityKey {
+                key_kind: IndexKeyKind::User,
+                index_id: id,
+                components: vec![component],
+            };
+            if signed {
+                let mut overlay = IndexPrefixCardinalityDelta::unbound_empty();
+                overlay.apply_prefixes(vec![prefix], 1);
+                assert_eq!(
+                    overlay
+                        .first_component_counts
+                        .first_key_value()
+                        .unwrap()
+                        .0
+                        .component
+                        .as_ptr(),
+                    pointer
+                );
+            } else {
+                let mut counts = IndexPrefixCardinality::synchronized_empty();
+                counts.apply_delta(vec![prefix], PrefixCardinalityDelta::Increment);
+                assert_eq!(
+                    counts
+                        .first_component_counts
+                        .first_key_value()
+                        .unwrap()
+                        .0
+                        .component
+                        .as_ptr(),
+                    pointer
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn prefix_changes_preserve_corruption_and_ignored_namespace_semantics() {
+        let primary = PrimaryKeyComponent::Nat64(7).into();
+        let id = IndexId::new(EntityTag::new(42), 7);
+        let present = IndexEntryValue::presence();
+        let missing = IndexEntryValue::from_persisted_bytes(vec![1]);
+        for kind in [IndexKeyKind::User, IndexKeyKind::System] {
+            let raw = IndexKey::new_from_components_with_primary_key_value(
+                &id,
+                kind,
+                &[vec![7]],
+                &primary,
+            )
+            .unwrap()
+            .to_raw()
+            .unwrap();
+            let mut truncated = raw.as_bytes().to_vec();
+            truncated.pop();
+            let mut trailing = raw.as_bytes().to_vec();
+            trailing.push(0);
+            let mut bad_primary = raw.as_bytes().to_vec();
+            let offset = bad_primary.len()
+                - IndexKey::compact_primary_key_value_bytes(&primary)
+                    .unwrap()
+                    .len();
+            bad_primary[offset] = 0xff;
+            let user = kind == IndexKeyKind::User;
+            let cases = [
+                (raw.clone(), present.clone(), false),
+                (
+                    RawIndexStoreKey::from_persisted_bytes(truncated),
+                    present.clone(),
+                    true,
+                ),
+                (
+                    RawIndexStoreKey::from_persisted_bytes(trailing),
+                    present.clone(),
+                    true,
+                ),
+                (
+                    RawIndexStoreKey::from_persisted_bytes(bad_primary),
+                    present.clone(),
+                    user,
+                ),
+                (
+                    raw.clone(),
+                    IndexEntryValue::from_persisted_bytes(vec![]),
+                    user,
+                ),
+                (
+                    raw.clone(),
+                    IndexEntryValue::from_persisted_bytes(vec![9]),
+                    user,
+                ),
+                (
+                    raw.clone(),
+                    IndexEntryValue::from_persisted_bytes(vec![0, 0]),
+                    user,
+                ),
+            ];
+            for (observed_key, next, invalid) in cases {
+                let mut counts = IndexPrefixCardinality::synchronized_empty();
+                counts.apply_insert(&raw, None, &present);
+                counts.mark_synchronized(7);
+                // Even equal malformed user entries must invalidate the absolute
+                // projection; equal valid entries retain its synchronization.
+                counts.apply_insert(&observed_key, Some(&next), &next);
+                let mut overlay = IndexPrefixCardinalityDelta::unbound_empty();
+                overlay.apply_transition(&observed_key, Some(&missing), Some(&next));
+                assert_eq!(counts.decodable, !invalid);
+                assert_eq!(overlay.decodable, !invalid);
+                if invalid {
+                    assert_eq!(counts.data_generation, None);
+                    assert!(counts.first_component_counts.is_empty());
+                    assert!(counts.counts.is_empty());
+                    assert!(overlay.first_component_counts.is_empty());
+                    assert!(overlay.counts.is_empty());
+                } else {
+                    assert_eq!(counts.data_generation, Some(7));
+                    assert_eq!(counts.first_component_counts.len(), usize::from(user));
+                    assert_eq!(overlay.first_component_counts.len(), usize::from(user));
+                }
+            }
+        }
+    }
 
     #[test]
     fn signed_count_deltas_cancel_and_preserve_counts_on_overflow() {
