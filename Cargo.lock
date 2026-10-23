@@ -559,9 +559,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.9.0"
+version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "877bf67ac8e52449eb2f9e98a344ea163beb70dd1f9eebe3cc5357dcfeaee4df"
+checksum = "86e055fa6e3e40ad6187ba25b6855eeb635d5271f8e0f0e1e9a5826b8d75bea0"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -1435,9 +1435,9 @@ dependencies = [
 
 [[package]]
 name = "ic-memory"
-version = "0.50.11"
+version = "0.50.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46a3c8186761bc1f12a955c7c022b9011def9ba63818a84c3f93889667c5a3e2"
+checksum = "3f9b30a66b021ad250a8b8bdabb426ef1943fc19f23f57c25b2f4282cc0068dd"
 dependencies = [
  "ic-platform",
  "serde",
@@ -1482,9 +1482,9 @@ dependencies = [
 
 [[package]]
 name = "ic-storage"
-version = "0.50.11"
+version = "0.50.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4663808a98ba7252d84d349b174a37ac73004d80815ddb482ac932108cefee9"
+checksum = "57ae2cd1f0198e08d21e36ca8694766670011badef2ec785aa3fbe254bc01125"
 dependencies = [
  "ic-memory",
  "ic-platform",
@@ -1507,9 +1507,9 @@ dependencies = [
 
 [[package]]
 name = "ic-timers"
-version = "0.30.4"
+version = "0.30.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b28118dc4398a3e8da5d6327d2e5b6b0f74e818d9a43c1918c320e699a80499"
+checksum = "4deb17e8e74e9630affee5246c434593ef5297feb9844def29c0243bcde554cc"
 dependencies = [
  "ic-metrics",
  "ic-platform",
@@ -1536,9 +1536,9 @@ dependencies = [
 
 [[package]]
 name = "ic-wire"
-version = "0.6.5"
+version = "0.6.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ee2c8e5468a103f81ac556e516041f1034ae90281f3080b3faee41f9d6aeab7"
+checksum = "e3a07fb6296024fa31d880c4ee802d474abf9e7bc2e8f92a5868a5fc366b3609"
 dependencies = [
  "ic-wire-derive",
  "postcard",
@@ -1549,9 +1549,9 @@ dependencies = [
 
 [[package]]
 name = "ic-wire-derive"
-version = "0.6.5"
+version = "0.6.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa053f423ee2cc7b6797e765b2cfa6ab64fc6a9bf561ad3cc0950536fea15b8f"
+checksum = "d6442d06a6e2c00b4a96e362b246eb05488f8669700b6b009e1dba4e8a583b61"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3826,9 +3826,9 @@ dependencies = [
 
 [[package]]
 name = "webpki-root-certs"
-version = "1.0.10"
+version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58ec80e73fd8baf57bf0d9615554c75348bda990d6d5bbeab964dd068319fecb"
+checksum = "e49d0e65abc00c142e8f9428da991da9f1a250c39be97459901eb12b9b49f62a"
 dependencies = [
  "rustls-pki-types",
 ]
