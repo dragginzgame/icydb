@@ -255,7 +255,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_codec_wire_query"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "ic-wire",
  "icydb-testing-codec-query",
@@ -263,7 +263,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_default_empty"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "canic-icydb",
  "icydb",
@@ -272,7 +272,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_default_empty_metrics"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "canic-icydb",
  "icydb",
@@ -281,7 +281,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_group_path_sql_query"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "canic-icydb",
  "icydb",
@@ -291,7 +291,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_nested_relation_direct"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "canic-icydb",
  "icydb",
@@ -301,7 +301,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_nested_relation_none"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "canic-icydb",
  "icydb",
@@ -311,7 +311,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_nested_relation_repeated"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "canic-icydb",
  "icydb",
@@ -321,7 +321,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_nested_relation_shallow"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "canic-icydb",
  "icydb",
@@ -331,7 +331,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_one_entity_dynamic_query"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "canic-icydb",
  "ic-platform",
@@ -343,7 +343,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_one_entity_reachable_operations"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "canic-icydb",
  "ic-platform",
@@ -355,7 +355,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_one_entity_sql_query"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "canic-icydb",
  "icydb",
@@ -365,7 +365,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_one_entity_typed_query"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "canic-icydb",
  "ic-platform",
@@ -376,7 +376,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_request_future_scale"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "canic-icydb",
  "icydb",
@@ -386,7 +386,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_sql_perf"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "canic-icydb",
  "ic-platform",
@@ -399,7 +399,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_ten_entity_reachable_operations"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "canic-icydb",
  "ic-platform",
@@ -411,7 +411,7 @@ dependencies = [
 
 [[package]]
 name = "canister_audit_ten_entity_typed_query"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "canic-icydb",
  "icydb",
@@ -421,7 +421,7 @@ dependencies = [
 
 [[package]]
 name = "canister_demo_rpg"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "canic-icydb",
  "icydb",
@@ -430,7 +430,7 @@ dependencies = [
 
 [[package]]
 name = "canister_test_lifecycle_participant"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "canic-icydb",
  "ic-platform",
@@ -443,7 +443,7 @@ dependencies = [
 
 [[package]]
 name = "canister_test_logical_memory"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "canic-icydb",
  "ic-memory",
@@ -454,7 +454,7 @@ dependencies = [
 
 [[package]]
 name = "canister_test_read_authority"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "canic-icydb",
  "ic-platform",
@@ -465,7 +465,7 @@ dependencies = [
 
 [[package]]
 name = "canister_test_schema_guard"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "canic-icydb",
  "ic-platform",
@@ -477,7 +477,7 @@ dependencies = [
 
 [[package]]
 name = "canister_test_schema_public"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "canic-icydb",
  "icydb",
@@ -486,7 +486,7 @@ dependencies = [
 
 [[package]]
 name = "canister_test_sql"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "canic-icydb",
  "ic-platform",
@@ -500,7 +500,7 @@ dependencies = [
 
 [[package]]
 name = "canister_test_sql_bounded"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "canic-icydb",
  "ic-platform",
@@ -514,7 +514,7 @@ dependencies = [
 
 [[package]]
 name = "canister_test_sql_guard"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "canic-icydb",
  "ic-platform",
@@ -526,7 +526,7 @@ dependencies = [
 
 [[package]]
 name = "canister_test_wire_rollback"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "canic-icydb",
  "icydb-testing-wasm-helpers",
@@ -1663,7 +1663,7 @@ dependencies = [
 
 [[package]]
 name = "icydb"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "canic-icydb",
  "ic-memory",
@@ -1680,7 +1680,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-cli"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "clap",
  "ic-host-artifacts",
@@ -1696,7 +1696,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-core"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "base64 0.23.1",
  "getrandom 0.4.3",
@@ -1723,14 +1723,14 @@ dependencies = [
 
 [[package]]
 name = "icydb-diagnostic-code"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "remain",
 ]
 
 [[package]]
 name = "icydb-model"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "convert_case",
  "ctor",
@@ -1750,7 +1750,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-model-macros"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "convert_case",
  "darling 0.24.1",
@@ -1765,7 +1765,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-schema"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "crc32fast",
  "data-encoding",
@@ -1785,7 +1785,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-default-empty-fixtures"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "icydb",
  "icydb-model",
@@ -1794,7 +1794,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-group-path-fixtures"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "icydb",
  "icydb-model",
@@ -1803,7 +1803,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-nested-relation-fixtures"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "canic-icydb",
  "ic-platform",
@@ -1814,7 +1814,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-one-simple-fixtures"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "icydb",
  "icydb-model",
@@ -1823,7 +1823,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-sql-perf-fixtures"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "icydb",
  "icydb-model",
@@ -1833,7 +1833,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-audit-ten-simple-fixtures"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "icydb",
  "icydb-model",
@@ -1842,7 +1842,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-build"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "ic-build",
  "ic-host-artifacts",
@@ -1862,14 +1862,14 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-codec-query"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "ic-platform",
 ]
 
 [[package]]
 name = "icydb-testing-demo-rpg-fixtures"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "icydb",
  "icydb-model",
@@ -1878,7 +1878,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-endpoint-installation"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "canic-icydb",
  "icydb",
@@ -1887,7 +1887,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-integration"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "blake3",
  "ic-host-artifacts",
@@ -1907,7 +1907,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-model-facade-only"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "canic-icydb",
  "ic-memory",
@@ -1919,14 +1919,14 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-model-schema-only"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "icydb-model",
 ]
 
 [[package]]
 name = "icydb-testing-model-typed-adapter"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "icydb",
  "icydb-model",
@@ -1934,7 +1934,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-source-checks"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "proc-macro2",
  "syn 3.0.9",
@@ -1942,7 +1942,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-sql-generator"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "blake3",
  "serde",
@@ -1951,7 +1951,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-sqlite-reference"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "blake3",
  "icydb-testing-sql-generator",
@@ -1960,7 +1960,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-test-fixtures"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "icydb",
  "icydb-model",
@@ -1968,7 +1968,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-test-sql-fixtures"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "icydb",
  "icydb-model",
@@ -1977,7 +1977,7 @@ dependencies = [
 
 [[package]]
 name = "icydb-testing-wasm-helpers"
-version = "0.281.0"
+version = "0.281.1"
 dependencies = [
  "canic-icydb",
  "ic-wire",
