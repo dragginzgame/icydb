@@ -117,7 +117,7 @@ tool_store_lock_directory() {
 # Failed atomic acquisition is never retried: path existence cannot classify
 # mkdir's error, and another process may win after the observed owner releases.
 tool_store_wait_unlocked() {
-    local limit="$1" waited=0 started=$SECONDS owner previous=''
+    local limit="$1" waited=0 started=$SECONDS owner previous='' claim=''
     tool_store_waited=false
     [[ "$limit" != 0 ]] || return 0
     while [[ -e "$store_slot/install.lock" || -L "$store_slot/install.lock" ]]; do
@@ -128,21 +128,44 @@ tool_store_wait_unlocked() {
            -O "$store_slot/install.lock" && -r "$store_slot/install.lock" &&
            -w "$store_slot/install.lock" && -x "$store_slot/install.lock" &&
            -w "$store_slot" && -x "$store_slot" ]] || {
+            [[ -e "$store_slot/install.lock" || -L "$store_slot/install.lock" ]] || continue
             printf 'Cannot wait on inaccessible or redirected tool installation lock: %q\n' "$store_slot/install.lock" >&2
             return 1
         }
-        owner="$(perl -e '
-            my $p=shift; my @s=lstat($p);
+        if owner="$(perl -e '
+            use Errno qw(ENOENT);
+            my ($p,$known)=@ARGV; my @lock=lstat($p);
+            @lock && -d _ && !-l _ && $lock[4]==$<
+                or die "invalid tool installation lock: $p\n";
+            my $claim="$lock[0]:$lock[1]";
+            my $record="$p/owner"; my @s=lstat($record);
+            if (!@s && $! == ENOENT && $known eq $claim) {
+                print "$claim\n"; exit 0;
+            }
             @s && -f _ && !-l _ && $s[4]==$<
-                or die "invalid tool installation owner record: $p\n";
-            open my $f, "<", $p or die "read tool installation owner: $!\n";
+                or die "invalid tool installation owner record: $record\n";
+            open my $f, "<", $record or do {
+                if ($! == ENOENT && $known eq $claim) { print "$claim\n"; exit 0; }
+                die "read tool installation owner: $!\n";
+            };
             my $n=read($f, my $text, 8193);
             defined($n) && $n<=8192 &&
                 $text =~ /\Apid=([1-9][0-9]*)\nconsumer=(\/[^\0\r\n]+)\n\z/
-                or die "malformed tool installation owner record: $p\n";
-            print "pid=$1 consumer=$2";
+                or die "malformed tool installation owner record: $record\n";
+            print "$claim\npid=$1 consumer=$2";
             close $f or die "close tool installation owner: $!\n";
-        ' "$store_slot/install.lock/owner")" || return 1
+        ' "$store_slot/install.lock" "$claim" 2>&1)"; then
+            claim="${owner%%$'\n'*}"
+            if [[ "$owner" == *$'\n'* ]]; then owner="${owner#*$'\n'}";
+            else owner="$previous"; fi
+        else
+            # An admitted owner may withdraw its record and directory between
+            # observations. Only the same physical claim may lack its record;
+            # a vanished directory goes back through atomic acquisition.
+            [[ -e "$store_slot/install.lock" || -L "$store_slot/install.lock" ]] || continue
+            printf '%s\n' "$owner" >&2
+            return 1
+        fi
         if [[ "$owner" != "$previous" ]]; then
             printf 'Waiting for tool installation slot: %q owner=%q (limit %ss)\n' "$store_slot" "$owner" "$limit" >&2
             previous="$owner"

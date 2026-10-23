@@ -113,12 +113,14 @@ cargo_cache_check() {
 }
 
 cargo_source() {
-    local archives=() checksum lock_digest
+    local archives=() checksum lock_digest path
     if [[ "$check_only" == false ]]; then
-        tool_store_init rust source-preparation || return $?
-        tool_store_acquire || return $?
-        if [[ ! -e "$cargo_cache" && ! -L "$cargo_cache" ]]; then (umask 077; mkdir "$cargo_cache") || return $?; fi
-        tool_store_release || return $?
+        # Bootstrap is idempotent; Cargo owns serialization of source downloads.
+        # Admit existing routes before creation and recheck them below before use.
+        for path in "$store_root" "$cargo_cache"; do
+            if [[ -e "$path" || -L "$path" ]]; then tool_store_directory "$path" || return $?; fi
+        done
+        (umask 077; mkdir -p "$cargo_cache") || return $?
     fi
     cargo_cache_check || return 1
     shopt -s nullglob

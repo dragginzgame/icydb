@@ -13,6 +13,7 @@ fn assert_readers_reject(bytes: &[u8]) {
     assert!(decode_canonical_value_storage_bytes(bytes).is_err());
     assert!(decode_structural_value_storage_bytes(bytes).is_err());
     assert!(ValueStorageView::from_raw_validated(bytes).is_err());
+    assert!(ValueStorageView::from_raw_map_text_key(bytes, b"rank").is_err());
     assert!(validate_structural_value_storage_bytes(bytes).is_err());
 }
 
@@ -46,12 +47,21 @@ fn canonical_traversal_selects_scalars_and_enum_leaves_in_both_sibling_orders() 
                     (b"state".as_slice(), state.clone()),
                 ] {
                     let leaf = view.map_text_key_bytes(name).unwrap().unwrap();
+                    let selected = ValueStorageView::from_raw_map_text_key(&bytes, name)
+                        .unwrap()
+                        .unwrap();
+                    assert_eq!(selected.as_bytes(), leaf.as_bytes());
                     assert_eq!(
                         decode_structural_value_storage_bytes(leaf.as_bytes()).unwrap(),
                         expected
                     );
                 }
                 assert!(view.map_text_key_bytes(b"missing").unwrap().is_none());
+                assert!(
+                    ValueStorageView::from_raw_map_text_key(&bytes, b"missing")
+                        .unwrap()
+                        .is_none()
+                );
             }
         }
     }
@@ -78,6 +88,10 @@ fn canonical_traversal_keeps_first_text_match_and_validates_entire_root() {
     let view = ValueStorageView::from_raw_validated(&bytes).unwrap();
     for _ in 0..2 {
         let rank = view.map_text_key_bytes(b"rank").unwrap().unwrap();
+        let selected = ValueStorageView::from_raw_map_text_key(&bytes, b"rank")
+            .unwrap()
+            .unwrap();
+        assert_eq!(selected.as_bytes(), rank.as_bytes());
         assert_eq!(
             decode_structural_value_storage_bytes(rank.as_bytes()).unwrap(),
             CanonicalValue::Nat64(9)
@@ -110,6 +124,10 @@ fn canonical_traversal_counts_each_list_map_and_enum_value_once() {
         assert_eq!(decode_structural_value_storage_bytes(&bytes).unwrap(), root);
         let view = ValueStorageView::from_raw_validated(&bytes).unwrap();
         let leaf = view.map_text_key_bytes(b"leaf").unwrap().unwrap();
+        let selected = ValueStorageView::from_raw_map_text_key(&bytes, b"leaf")
+            .unwrap()
+            .unwrap();
+        assert_eq!(selected.as_bytes(), leaf.as_bytes());
         assert_eq!(
             decode_structural_value_storage_bytes(leaf.as_bytes()).unwrap(),
             value
@@ -127,6 +145,23 @@ fn canonical_traversal_counts_each_list_map_and_enum_value_once() {
             .unwrap(),
         );
         assert_readers_reject(&bytes);
+
+        // Selecting an early scalar or missing member must still reject an
+        // excessive later subtree at its original map-child depth.
+        let mut map = Vec::new();
+        push_binary_map_len(&mut map, 2);
+        push_binary_text(&mut map, "rank");
+        map.push(TAG_UNIT);
+        push_binary_text(&mut map, "sibling");
+        map.extend_from_slice(
+            &encode_canonical_value_storage_bytes(match &excessive {
+                CanonicalValue::List(values) => &values[0],
+                _ => unreachable!(),
+            })
+            .unwrap(),
+        );
+        assert_readers_reject(&map);
+        assert!(ValueStorageView::from_raw_map_text_key(&map, b"missing").is_err());
     }
 }
 

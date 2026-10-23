@@ -404,14 +404,23 @@ the claim, not whether its PID is still live. No lock is removed or owner killed
 
 After waiting, setup rechecks compiler/build identity, lockfile selection and
 normal source/receipt/checksum admission before reuse or activation. An owner
-failure never makes its partial generation reusable. Malformed, redirected or
-unwritable lock routes fail rather than polling. Atomic `mkdir` still owns
-acquisition: if a new owner wins that race, or acquisition fails for another
-reason, its diagnostic/status is preserved without a retry. Timeouts are nonzero
-and retain previous selections and failed evidence. `--check`, `--preflight`,
-source-cache preparation locks, checkout locks and Host/IC setup keep their
-immediate, non-waiting behavior. The build policy and its digest are unchanged;
-this waiting change alone does not invalidate existing qualified tool binaries.
+failure never makes its partial generation reusable. An admitted owner's record
+may disappear during cleanup only while the same physical lock directory remains;
+a directory that has disappeared goes back through atomic acquisition. A missing
+initial record or a replacement directory without an admitted owner still refuses.
+Malformed, redirected or unwritable lock routes fail rather than polling. Atomic
+`mkdir` still owns acquisition: if a new owner wins that race, or acquisition fails
+for another reason, its diagnostic/status is preserved without a retry. Timeouts
+are nonzero and retain previous selections and failed evidence. `--check`, `--preflight`,
+checkout locks and Host/IC setup keep their immediate, non-waiting behavior.
+
+Source-cache initialization uses idempotent private directory creation, admitting
+existing paths before creation and checking cache routes/configuration before
+Cargo dispatch. It has no global installation lock; Cargo owns actual source
+download serialization. Old source-preparation slots remain untouched.
+The 0.26.8 build-helper change alters its policy digest: after adoption, rerun
+explicit Cargo-tool setup to select tools under that policy. Previous generations
+remain retained, and offline checks never repair selections.
 
 Tool builds have a cleared environment, a fresh private HOME per attempt, the
 selected compiler's bin directory followed by system executable directories,

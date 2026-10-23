@@ -4,7 +4,7 @@
 #[ignore = "requires prepared POCKET_IC_BIN or IC_TESTKIT_POCKET_IC_URL"]
 fn governed_fixture_instance_is_usable() {
     let instance = crate::start_fixture_pocket_ic();
-    let pic = &instance.instance;
+    let pic = instance.instance();
     let canister = pic.create_canister();
     let before = pic.cycle_balance(canister);
     pic.add_cycles(canister, 1_000_000);

@@ -75,12 +75,17 @@ fn resolve_path_segments<'a>(
     raw_bytes: &'a [u8],
     segment_bytes: &[Box<[u8]>],
 ) -> Result<Option<&'a [u8]>, FieldDecodeError> {
-    let mut current = ValueStorageView::from_raw_validated(raw_bytes)?;
+    let Some((first, remaining)) = segment_bytes.split_first() else {
+        return ValueStorageView::from_raw_validated(raw_bytes).map(|view| Some(view.as_bytes()));
+    };
+    let Some(mut current) = ValueStorageView::from_raw_map_text_key(raw_bytes, first)? else {
+        return Ok(None);
+    };
 
     // The caller has already resolved the root field to a persisted slot
     // payload. Traversal therefore starts at the first nested segment rather
     // than attempting to treat the raw row as a value-storage map.
-    for segment in segment_bytes {
+    for segment in remaining {
         if current.is_null() {
             return Ok(None);
         }

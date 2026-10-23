@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### 🩹 Fixed
 
+- Validate and select record-path roots in one pass, keeping scalar path
+  grouping within its existing cold and ordered instruction ceilings.
 - Validate each surviving source/relation once against the full target-delete
   set, allowing bounded atomic update-away batches without repeated projection
   charges ([#60 — Delete restriction repeats source projection](https://github.com/dragginzgame/icydb/issues/60)).
@@ -36,8 +38,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### 🔧 Changed
 
-- Adopt published Host/Tooling 0.65.0 and Shared Tooling 0.26.7, preserving
-  consumer boundaries and adding bounded waits during explicit tool setup.
+- Adopt published Host/Tooling 0.66.0 and Shared Tooling 0.26.8, preserving
+  PocketIC ownership and fixing concurrent tool setup. Rerun explicit Cargo-tool
+  setup for the new build policy.
 - Canonicalize DISTINCT equality keys without computing hashes that are
   immediately discarded ([#412 — A distinct key is hashed and then the hash is thrown away](https://github.com/dragginzgame/icydb/issues/412)).
 - Hash ordered grouping keys only when opening a group, preserving canonical

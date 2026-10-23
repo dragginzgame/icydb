@@ -17,7 +17,7 @@ use crate::db::data::structural_field::{
 use crate::db::data::structural_field::{
     binary::{TAG_MAP, parse_binary_head},
     value_storage::{
-        decode::scalar::decode_binary_text_payload_bytes_if_text,
+        canonical::skip_canonical_value, decode::scalar::decode_binary_text_payload_bytes_if_text,
         skip::skip_value_storage_binary_value,
     },
 };
@@ -40,6 +40,41 @@ impl<'a> ValueStorageView<'a> {
         let slice = ValueStorageSlice::from_raw(raw)?;
 
         Ok(Self { slice })
+    }
+
+    /// Validate a complete raw map while selecting its first matching member.
+    /// A complete null root has no member; every sibling still passes canonical
+    /// traversal at its original depth before any selected view is returned.
+    pub(in crate::db) fn from_raw_map_text_key(
+        raw: &'a [u8],
+        key: &[u8],
+    ) -> Result<Option<Self>, FieldDecodeError> {
+        if raw == [TAG_NULL] {
+            return Ok(None);
+        }
+        let Some((TAG_MAP, len, mut cursor)) = parse_binary_head(raw, 0)? else {
+            return Err(FieldDecodeError::new());
+        };
+        // Keep the canonical map's child-count admission before traversal.
+        len.checked_mul(2).ok_or_else(FieldDecodeError::new)?;
+        let mut selected = None;
+        for _ in 0..len {
+            let key_start = cursor;
+            cursor = skip_canonical_value(raw, cursor, 1)?;
+            let value_start = cursor;
+            cursor = skip_canonical_value(raw, cursor, 1)?;
+            if selected.is_none()
+                && decode_binary_text_payload_bytes_if_text(&raw[key_start..value_start])?
+                    .is_some_and(|found| found == key)
+            {
+                selected = Some(&raw[value_start..cursor]);
+            }
+        }
+        if cursor != raw.len() {
+            return Err(FieldDecodeError::new());
+        }
+
+        selected.map(Self::from_skip_bounded).transpose()
     }
 
     /// Wrap bytes whose exact boundary was already returned by skip traversal.

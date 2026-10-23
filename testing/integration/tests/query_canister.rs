@@ -447,10 +447,13 @@ fn native_wire_browser_qualifies_the_installed_endpoint_roster() {
             vec![Principal::anonymous(), caller],
         )
         .unwrap();
-    let (mut instance, canister) = fixture.into_parts();
-    // The admitted Testkit instance retains its server and gateway for the
-    // browser call; dropping it tears down the disposable local network.
-    let gateway = instance.instance.make_live(None);
+    let (instance, canister) = fixture.into_parts();
+    let (client, server) = instance.into_parts();
+    // Gateway setup needs mutable client ownership. Retain the server before
+    // declaring the client so return and unwinding delete the client first.
+    let _server = server;
+    let mut client = client;
+    let gateway = client.make_live(None);
     let report = root.join("target/wire-browser/installed-report.json");
     let status = Command::new("node")
         .arg(browser.join("installed.mjs"))

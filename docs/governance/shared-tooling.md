@@ -1,8 +1,8 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `3e8d7cd3e7e9b7b79a5e800c30daf0be2710dab0`
-(Shared Tooling 0.26.7). Root
+at reviewed revision `0b07c2a3163a5a66328e100b553baf93afd8ed07`
+(Shared Tooling 0.26.8). Root
 [AGENTS.md](../../AGENTS.md) is the local overlay. The shared approved layout
 retains existing canister, schema and testing packages in their
 restored directories, in the single root workspace and lockfile; no new package
@@ -13,6 +13,55 @@ these rules.
 
 ## Ownership and provenance
 
+### Selected Host/Tooling 0.66.0 and Shared 0.26.8 — 2026-10-23
+
+Live registry indexes and downloaded archives confirm published, non-yanked
+Host Artifacts, FS, Process, Text and Tools, Build and Testkit 0.66.0 at
+`d71f4690c7e8e3ffe99f72467bc35cbadce33042`, retaining Rust 1.91 support.
+This adoption changes those seven Host-family selections and their manifest
+ranges. The incoming Wire/derive 0.6.7 selection, staged fixes and IcyDB release
+versions remain intact. Concurrent lock updates select Platform 0.6.10 and
+Metrics 0.15.7; they are preserved and focused consumer qualification is repeated
+against that final graph, lock SHA-256
+`1f474863ed8a0a6f66f5ce6fa8b543a4c123aae5cf3c7dcece6df762bc89004d`.
+The five Host libraries and Build have identical Rust source to 0.65.0. See the published
+[Tooling migration notes](https://github.com/dragginzgame/ic-tooling/blob/d71f4690c7e8e3ffe99f72467bc35cbadce33042/docs/changelog/0.66.md).
+
+Testkit makes PocketIC client/server fields private. The startup and model-facade
+checks borrow through the published accessor; the browser gateway explicitly
+transfers its mutable client and optional server, retaining server ownership
+until client deletion on both return and unwinding. No local lifecycle wrapper,
+server selection policy or asynchronous destructor is introduced.
+
+The canonical exporter refreshes the same 123-file selection to committed Shared
+0.26.8 at the reviewed remote revision above. Setup now tolerates an admitted
+owner withdrawing its lock during cleanup, without accepting missing initial
+claims or replacement lock directories. Source-cache initialization uses
+idempotent admitted directory creation instead of a global setup lock; Cargo
+retains download serialization. Tool pins and formatting/release policy are
+unchanged. The build-helper policy digest changes: rerun explicit Cargo-tool
+setup after adoption; previous generations remain retained and offline checks
+never repair tool selections. The repository description remains accurate.
+
+Focused Linux qualification passes 200 CLI/build tests, strict all-target
+CLI/build/integration Clippy, public-library Rust 1.91 SQL/migration Wasm,
+manifest/lock dependency policies and selected deployment graph checks. Snapshot
+integrity, consumer adapters, canonical contention/source-cache fixtures,
+consumer formatting/grouped metadata and release-routing fixtures pass. Explicit
+setup prepares formatter tools, the current locked release-metadata editor and
+Testkit CLI under the new build policy; their offline checks pass.
+
+The changed startup adapter passes on PocketIC. Installed Chromium qualification
+passes 15 calls across twelve endpoint methods, alongside 90 frozen browser
+frames, 3,111 truncations and malformed/value/limit controls. Testkit starts and
+reaps the temporary server; no live-IC deployment occurs. Host/Build/Testkit stay
+outside the selected Wasm graphs. Graph evidence does not establish the
+artifact-level deployment admission tracked by
+[#378 — Enforce deployment dependency exclusions](https://github.com/dragginzgame/icydb/issues/378).
+Native macOS, exact Rust 1.96 host/fixture-floor, installed-IC and full
+workspace/release gates remain unrun. Tooling-attributed raw Wasm-size, IC cycle
+and instruction deltas are unmeasured. Earlier selections retain their evidence
+scope.
 
 ### Selected Host/Tooling 0.65.0, Wire 0.6.5 and Shared 0.26.7 — 2026-10-23
 

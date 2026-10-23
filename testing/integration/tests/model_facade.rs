@@ -89,7 +89,7 @@ fn single_package_model_survives_install_write_and_upgrade() {
 fn single_package_install_cycle_cost() {
     let wasm = std::fs::read(std::env::var("ICYDB_MODEL_FACADE_WASM").unwrap()).unwrap();
     let instance = icydb_testing_integration::start_fixture_pocket_ic();
-    let pic = &instance.instance;
+    let pic = instance.instance();
     let canister = pic.create_canister();
     pic.add_cycles(canister, 10_000_000_000_000);
     // PocketIC also supplies an initial balance: do not infer it from funding.
