@@ -5,6 +5,17 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.281.2]
+
+### 🔧 Changed
+
+- Adopt the Platform-based Canic host adapter, removing CDK and its management
+  helper from the selected workspace graph. Keep one Platform/Timers runtime;
+  owned endpoints and lifecycle arguments retain their existing Wire bytes.
+  External management entropy retains bounded Candid decoding through Platform.
+
+See [detailed notes](docs/changelog/0.281.md).
+
 ## [0.281.1] - 2026-10-23
 
 ### 🩹 Fixed
