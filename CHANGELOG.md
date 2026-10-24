@@ -5,7 +5,7 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
-## [0.281.2]
+## [0.281.2] - 2026-10-24
 
 - Avoid redundant map walks, key/DISTINCT copies and row loads, retain known relation
   identities, reuse Platform Account text with explicit field conversions, and
