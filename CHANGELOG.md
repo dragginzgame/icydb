@@ -36,6 +36,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   idle periods inside live tests ([#439](https://github.com/dragginzgame/icydb/issues/439)).
 - Use Canic native exports in endpoint compile fixtures, preserving request-root
   composition and duplicate-export rejection without SDK Candid macros.
+- Keep top-K budget regression coverage available in Core's no-default-feature
+  tests ([#113](https://github.com/dragginzgame/icydb/issues/113)).
 - Retain migration row-contract failures as findings instead of rejecting them
   as internal errors ([#204](https://github.com/dragginzgame/icydb/issues/204)).
 

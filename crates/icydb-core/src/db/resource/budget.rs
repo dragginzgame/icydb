@@ -1174,7 +1174,7 @@ pub(in crate::db) fn with_query_execution_budget_for_tests<T>(
     )
 }
 
-#[cfg(all(test, feature = "sql"))]
+#[cfg(test)]
 pub(in crate::db) fn with_execution_budget_for_tests<T, E>(
     budget: HardExecutionBudget,
     context: HardExecutionContext,
