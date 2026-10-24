@@ -37,13 +37,13 @@ fn attributed_sync_entry() -> u8 {
 }
 
 #[icydb::request_execution]
-#[canic_icydb::__private::cdk::query(
-    crate = "canic_icydb::__private::cdk",
-    manual_reply = true,
-    hidden = true
+#[canic_icydb::__private::native_entry(
+    query,
+    name = "attributed_native_entry",
+    sdk = canic_icydb::__private::cdk
 )]
-fn attributed_ic_cdk_entry() -> u8 {
-    attributed_sync_entry()
+fn attributed_native_entry() {
+    assert_eq!(attributed_sync_entry(), 7);
 }
 
 #[icydb::request_execution]
@@ -55,7 +55,7 @@ async fn attributed_async_entry() -> u8 {
 #[test]
 fn public_endpoint_facade_compile_contract() {
     assert_eq!(attributed_sync_entry(), 7);
-    assert_eq!(attributed_ic_cdk_entry(), 7);
+    attributed_native_entry();
     assert_eq!(
         icydb::db::with_request_execution(|| 7),
         attributed_sync_entry()

@@ -16,7 +16,7 @@ canic_icydb::endpoints! {
     icydb_schema(authorization = public);
 }
 
-#[canic_icydb::__private::cdk::query(crate = "canic_icydb::__private::cdk", name = "icydb_schema", manual_reply = true, hidden = true)]
+#[canic_icydb::__private::native_entry(query, name = "icydb_schema", sdk = canic_icydb::__private::cdk)]
 fn handwritten_icydb_schema() {}
 
 fn main() {}

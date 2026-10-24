@@ -34,6 +34,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
   before schema acceptance ([#198](https://github.com/dragginzgame/icydb/issues/198), partial).
 - Build lifecycle upgrade fixtures before starting PocketIC, avoiding cold-build
   idle periods inside live tests ([#439](https://github.com/dragginzgame/icydb/issues/439)).
+- Use Canic native exports in endpoint compile fixtures, preserving request-root
+  composition and duplicate-export rejection without SDK Candid macros.
 - Retain migration row-contract failures as findings instead of rejecting them
   as internal errors ([#204](https://github.com/dragginzgame/icydb/issues/204)).
 
