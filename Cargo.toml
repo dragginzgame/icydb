@@ -126,7 +126,7 @@ xxhash-rust = { version = "0.8.15", default-features = false, features = [
 
 # Tests and tooling only
 blake3 = "1.8.5"
-canic-icydb = { git = "https://github.com/dragginzgame/canic", rev = "950599625722c0dbd289e80027009565547e5824" }
+canic-icydb = { git = "https://github.com/dragginzgame/canic", rev = "550a92efd4adc3e09151bf4e3da771892e5002cf" }
 ic-build = "0.66"
 ic-host-process = "0.66"
 ic-testkit = "0.66"

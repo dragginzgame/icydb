@@ -234,19 +234,17 @@ dependencies = [
 [[package]]
 name = "canic-icydb"
 version = "0.111.0"
-source = "git+https://github.com/dragginzgame/canic?rev=950599625722c0dbd289e80027009565547e5824#950599625722c0dbd289e80027009565547e5824"
+source = "git+https://github.com/dragginzgame/canic?rev=550a92efd4adc3e09151bf4e3da771892e5002cf#550a92efd4adc3e09151bf4e3da771892e5002cf"
 dependencies = [
  "canic-macros",
- "ic-cdk",
- "ic-cdk-management-canister",
+ "ic-platform",
  "ic-timers",
- "ic0",
 ]
 
 [[package]]
 name = "canic-macros"
 version = "0.111.0"
-source = "git+https://github.com/dragginzgame/canic?rev=950599625722c0dbd289e80027009565547e5824#950599625722c0dbd289e80027009565547e5824"
+source = "git+https://github.com/dragginzgame/canic?rev=550a92efd4adc3e09151bf4e3da771892e5002cf#550a92efd4adc3e09151bf4e3da771892e5002cf"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -777,35 +775,12 @@ dependencies = [
 
 [[package]]
 name = "darling"
-version = "0.23.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25ae13da2f202d56bd7f91c25fba009e7717a1e4a1cc98a76d844b65ae912e9d"
-dependencies = [
- "darling_core 0.23.0",
- "darling_macro 0.23.0",
-]
-
-[[package]]
-name = "darling"
 version = "0.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed17f5901b6630b993ca003def43f2f8ef4014fc13b047b57aad617ff32bc2ec"
 dependencies = [
- "darling_core 0.24.1",
- "darling_macro 0.24.1",
-]
-
-[[package]]
-name = "darling_core"
-version = "0.23.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9865a50f7c335f53564bb694ef660825eb8610e0a53d3e11bf1b0d3df31e03b0"
-dependencies = [
- "ident_case",
- "proc-macro2",
- "quote",
- "strsim",
- "syn 2.0.119",
+ "darling_core",
+ "darling_macro",
 ]
 
 [[package]]
@@ -823,22 +798,11 @@ dependencies = [
 
 [[package]]
 name = "darling_macro"
-version = "0.23.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac3984ec7bd6cfa798e62b4a642426a5be0e68f9401cfc2a01e3fa9ea2fcdb8d"
-dependencies = [
- "darling_core 0.23.0",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "darling_macro"
 version = "0.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ac7135c3ef02b2f7833bbeb1be5ba7f966dcde8a87c6b87f65a778d71a02785"
 dependencies = [
- "darling_core 0.24.1",
+ "darling_core",
  "quote",
  "syn 3.0.9",
 ]
@@ -1277,22 +1241,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ic-cdk"
-version = "0.20.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc6ad46670baa42b9d802e46cb0741e5da2d747b5b74b9ac8019aec9388b05b2"
-dependencies = [
- "candid",
- "ic-cdk-executor",
- "ic-cdk-macros",
- "ic-error-types",
- "ic0",
- "pin-project-lite",
- "serde",
- "thiserror 2.0.18",
-]
-
-[[package]]
 name = "ic-cdk-executor"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1301,33 +1249,6 @@ dependencies = [
  "ic0",
  "slotmap",
  "smallvec",
-]
-
-[[package]]
-name = "ic-cdk-macros"
-version = "0.20.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9583454462627a6a816ffa91422c8ab7e6a21f75f63eb255d03f710248d45453"
-dependencies = [
- "candid",
- "darling 0.23.0",
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "ic-cdk-management-canister"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c8fb578283e842e9f2c84a4477f751ee2146bea13017a10d227afd952d349a2"
-dependencies = [
- "candid",
- "ic-cdk",
- "ic-management-canister-types 0.11.0",
- "serde",
- "serde_bytes",
- "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -1340,17 +1261,6 @@ dependencies = [
  "serde",
  "serde_bytes",
  "sha2",
-]
-
-[[package]]
-name = "ic-error-types"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbeeb3d91aa179d6496d7293becdacedfc413c825cac79fd54ea1906f003ee55"
-dependencies = [
- "serde",
- "strum",
- "strum_macros",
 ]
 
 [[package]]
@@ -1453,9 +1363,9 @@ checksum = "748cfef5a6b90f937df8d92cad34c4be4c99a4d71b5260e4a762a844f266a582"
 
 [[package]]
 name = "ic-platform"
-version = "0.6.10"
+version = "0.6.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c8f5e91537f896a8f70dd2abf00fe57b48a33b901ce959ebaf2a4b712897f3b5"
+checksum = "0a89ca2109e79e00b8e8008f942bd4b2c0f26d1821376c1863d178ee3ad021a4"
 dependencies = [
  "candid",
  "crc32fast",
@@ -1507,9 +1417,9 @@ dependencies = [
 
 [[package]]
 name = "ic-timers"
-version = "0.30.7"
+version = "0.30.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d7f24b611cb17003130174ed0bffacc9a5d02a4a4fd1c8be4270e5d515b07c1"
+checksum = "2b4f17793f1f9848c2000e6e875287f4dd175e914d4059a0292dcade1e43a3f4"
 dependencies = [
  "ic-metrics",
  "ic-platform",
@@ -1753,7 +1663,7 @@ name = "icydb-model-macros"
 version = "0.281.1"
 dependencies = [
  "convert_case",
- "darling 0.24.1",
+ "darling",
  "icydb-schema",
  "proc-macro-crate",
  "proc-macro2",
