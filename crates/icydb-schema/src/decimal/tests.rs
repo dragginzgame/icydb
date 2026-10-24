@@ -13,6 +13,41 @@ fn assert_decimal_parse_reason(input: &str, reason: ParseDecimalErrorReason) {
 }
 
 #[test]
+fn decimal_order_matches_exact_integer_oracle_at_every_scale_pair() {
+    let mantissas = [
+        i128::MIN,
+        i128::MIN / 10 - 1,
+        i128::MIN / 10,
+        i128::MAX,
+        i128::MAX / 10,
+        i128::MAX / 10 + 1,
+        -100,
+        -17,
+        -1,
+        0,
+        1,
+        17,
+        100,
+    ];
+    for lhs_scale in 0..=MAX_SUPPORTED_SCALE {
+        for rhs_scale in 0..=MAX_SUPPORTED_SCALE {
+            let scale = lhs_scale.max(rhs_scale);
+            for lhs_m in mantissas {
+                for rhs_m in mantissas {
+                    // Even the largest aligned coefficient fits in I256.
+                    let lhs_integer = I256::from(lhs_m) * I256::from(10).pow(scale - lhs_scale);
+                    let rhs_integer = I256::from(rhs_m) * I256::from(10).pow(scale - rhs_scale);
+                    let lhs = Decimal::from_i128_with_scale(lhs_m, lhs_scale);
+                    let rhs = Decimal::from_i128_with_scale(rhs_m, rhs_scale);
+                    assert_eq!(lhs.cmp(&rhs), lhs_integer.cmp(&rhs_integer));
+                    assert_eq!(lhs == rhs, lhs_integer == rhs_integer);
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn decimal_wire_roundtrip() {
     let cases = [
         "0",

@@ -6,9 +6,12 @@
 use crate::{
     db::{
         Db,
-        data::{DecodedDataStoreKey, StructuralSlotReader},
+        data::{RawDataStoreKey, StructuralSlotReader},
         direction::Direction,
-        index::{AcceptedIndexInspectionDomain, IndexEntryValue, IndexKey, RawIndexStoreKey},
+        index::{
+            AcceptedIndexInspectionDomain, IndexEntryValue, IndexKey, RawIndexStoreKey,
+            decode_index_key_frame,
+        },
         integrity::{
             IntegrityEntityIdentity, IntegrityFinding, IntegrityFindingClass, IntegrityFindingKind,
             IntegrityPhase, IntegritySeverity, IntegrityVerifierFamily, PhysicalUnitCheckpoint,
@@ -392,7 +395,7 @@ fn inspect_index_witness(
     limits: DerivedInspectionLimits,
     page: &mut DerivedPageAccumulator,
 ) -> Result<Option<IntegrityFinding>, InternalError> {
-    let Ok(key) = IndexKey::try_from_raw(raw_key) else {
+    let Ok(key) = decode_index_key_frame(raw_key) else {
         return derived_finding(
             plan,
             raw_key,
@@ -420,7 +423,7 @@ fn inspect_index_witness(
         )
         .map(Some);
     }
-    let Ok(primary_key) = key.primary_key_value() else {
+    let Ok((primary_key, primary_key_bytes)) = key.primary_key_value_and_bytes() else {
         return derived_finding(
             plan,
             raw_key,
@@ -434,8 +437,11 @@ fn inspect_index_witness(
         )
         .map(Some);
     };
-    let source_key =
-        DecodedDataStoreKey::new(plan.identity().entity_tag(), &primary_key).to_raw()?;
+    // Preserve the validated suffix instead of encoding the decoded identity again.
+    let source_key = RawDataStoreKey::from_entity_and_primary_key_bytes(
+        plan.identity().entity_tag(),
+        primary_key_bytes,
+    );
     let Some(raw_row) = source_store.with_data(|store| store.get(&source_key)) else {
         return derived_finding(
             plan,
@@ -595,7 +601,7 @@ fn inspect_reverse_witness(
     limits: DerivedInspectionLimits,
     page: &mut DerivedPageAccumulator,
 ) -> Result<Option<IntegrityFinding>, InternalError> {
-    let Ok(key) = IndexKey::try_from_raw(raw_key) else {
+    let Ok(key) = decode_index_key_frame(raw_key) else {
         return reverse_finding(
             plan,
             relation,
@@ -617,7 +623,7 @@ fn inspect_reverse_witness(
         )
         .map(Some);
     }
-    let Ok(source_primary_key) = key.primary_key_value() else {
+    let Ok((source_primary_key, primary_key_bytes)) = key.primary_key_value_and_bytes() else {
         return reverse_finding(
             plan,
             relation,
@@ -628,8 +634,11 @@ fn inspect_reverse_witness(
         )
         .map(Some);
     };
-    let source_key =
-        DecodedDataStoreKey::new(plan.identity().entity_tag(), &source_primary_key).to_raw()?;
+    // The borrowed frame already owns validation of this exact source-key suffix.
+    let source_key = RawDataStoreKey::from_entity_and_primary_key_bytes(
+        plan.identity().entity_tag(),
+        primary_key_bytes,
+    );
     let Some(raw_row) = source_store.with_data(|store| store.get(&source_key)) else {
         return reverse_finding(
             plan,

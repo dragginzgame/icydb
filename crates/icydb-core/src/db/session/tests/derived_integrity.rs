@@ -5,7 +5,8 @@ use crate::{
         DbSession, DynamicStructuralPatch, DynamicWriteCell, RequestExecutionRoot,
         commit::publish_accepted_schema_candidate,
         data::{DataStore, DecodedDataStoreKey, RawRow},
-        index::IndexStore,
+        direction::Direction,
+        index::{IndexEntryValue, IndexKey, IndexStore, RawIndexStoreKey, decode_index_key_frame},
         integrity::{
             DeepIntegrityPageStatus, DerivedInspectionLimits, IntegrityCheckRequest,
             IntegrityCheckResult, IntegrityDeepError, IntegrityEntityIdentity, IntegrityFinding,
@@ -261,6 +262,118 @@ fn oversized_source_advances_index_domain_and_keeps_clean_neighbors() {
 #[test]
 fn oversized_source_advances_reverse_domain_and_keeps_clean_neighbors() {
     assert_source_progress(true);
+}
+
+// Exercise the physical page boundary with the same corruptions in both domains.
+fn assert_witness_findings(reverse: bool) {
+    let (session, plan) = fixture(0, 0);
+    let store = session.db.store_handle(STORE).unwrap();
+    let bounds = if reverse {
+        plan.relation_inspection()[0].raw_bounds().unwrap()
+    } else {
+        plan.index_inspection()
+            .domain(0, TAG)
+            .unwrap()
+            .raw_bounds()
+            .unwrap()
+    };
+    let mut original = None;
+    store.with_index(|index| {
+        index
+            .visit_raw_entries_in_range(
+                (bounds.0.as_ref(), bounds.1.as_ref()),
+                Direction::Asc,
+                |key, value| {
+                    original = Some((key.clone(), value.clone()));
+                    Ok::<_, std::convert::Infallible>(true)
+                },
+            )
+            .unwrap();
+    });
+    let (original_key, original_value) = original.unwrap();
+    let frame = decode_index_key_frame(&original_key).unwrap();
+    let (_, primary_bytes) = frame.primary_key_value_and_bytes().unwrap();
+    let mut trailing = original_key.as_bytes().to_vec();
+    trailing.push(0);
+    let mut invalid_primary = original_key.as_bytes().to_vec();
+    invalid_primary[original_key.as_bytes().len() - primary_bytes.len()] = 0xff;
+    let with_primary = |id| {
+        IndexKey::new_from_components_with_primary_key_value(
+            &frame.index_id(),
+            frame.key_kind(),
+            frame.components(),
+            &crate::db::key_taxonomy::PrimaryKeyComponent::Nat64(id).into(),
+        )
+        .unwrap()
+        .to_raw()
+        .unwrap()
+    };
+    let (malformed, orphan, divergent) = if reverse {
+        (
+            IntegrityFindingKind::MalformedReverseRelationEntry,
+            IntegrityFindingKind::OrphanReverseRelationEntry,
+            IntegrityFindingKind::DivergentReverseRelationEntry,
+        )
+    } else {
+        (
+            IntegrityFindingKind::MalformedIndexEntry,
+            IntegrityFindingKind::OrphanIndexEntry,
+            IntegrityFindingKind::DivergentIndexEntry,
+        )
+    };
+    store.with_index_mut(|index| index.remove(&original_key));
+    for (key, value, expected) in [
+        (
+            RawIndexStoreKey::from_persisted_bytes(trailing),
+            original_value.clone(),
+            malformed,
+        ),
+        (
+            RawIndexStoreKey::from_persisted_bytes(invalid_primary),
+            original_value.clone(),
+            malformed,
+        ),
+        (
+            original_key.clone(),
+            IndexEntryValue::from_bytes(Cow::Owned(vec![0xff])),
+            malformed,
+        ),
+        (with_primary(999), original_value.clone(), orphan),
+        (with_primary(2), original_value.clone(), divergent),
+    ] {
+        store.with_index_mut(|index| index.insert(key.clone(), value));
+        let (_, exhausted, findings) = page(
+            &session,
+            &plan,
+            reverse,
+            PhysicalUnitCheckpoint::BeforeFirst,
+            DerivedInspectionLimits::standard(),
+        );
+        assert!(exhausted);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].kind(), expected);
+        assert_eq!(
+            findings[0].primary_key(),
+            decode_index_key_frame(&key).ok().and_then(|frame| {
+                frame
+                    .primary_key_value_and_bytes()
+                    .ok()
+                    .map(|(_, bytes)| bytes)
+            }),
+        );
+        store.with_index_mut(|index| index.remove(&key));
+    }
+    store.with_index_mut(|index| index.insert(original_key, original_value));
+}
+
+#[test]
+fn index_witness_preserves_findings_and_source_identity() {
+    assert_witness_findings(false);
+}
+
+#[test]
+fn reverse_witness_preserves_findings_and_source_identity() {
+    assert_witness_findings(true);
 }
 
 #[test]

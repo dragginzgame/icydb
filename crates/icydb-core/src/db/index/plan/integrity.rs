@@ -7,7 +7,7 @@ use crate::{
     db::{
         data::{CanonicalSlotReader, StructuralRowContract},
         index::{
-            IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey,
+            BorrowedIndexKeyFrame, IndexId, IndexKey, IndexKeyKind, RawIndexStoreKey,
             plan::{
                 accepted_expression_index_key_for_slot_reader_with_membership_structural,
                 accepted_field_path_index_key_for_slot_reader_with_membership_structural,
@@ -113,8 +113,8 @@ impl AcceptedIndexInspectionDomain {
 
     /// Prove that one decoded key names this exact accepted physical domain.
     #[must_use]
-    pub(in crate::db) fn contains_decoded_key(&self, key: &IndexKey) -> bool {
-        key.key_kind() == IndexKeyKind::User && key.index_id() == &self.physical_index_id
+    pub(in crate::db) fn contains_decoded_key(&self, key: &BorrowedIndexKeyFrame<'_>) -> bool {
+        key.key_kind() == IndexKeyKind::User && key.index_id() == self.physical_index_id
     }
 }
 

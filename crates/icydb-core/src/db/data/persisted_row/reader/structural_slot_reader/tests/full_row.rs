@@ -4,7 +4,7 @@ use super::*;
 use crate::{
     db::{
         data::{
-            DecodedDataStoreKey, RawRow,
+            DecodedDataStoreKey, RawRow, SlotReader,
             persisted_row::{
                 canonical::encode_canonical_value_for_accepted_field_contract,
                 contract::emit_raw_row_from_slot_payloads,
@@ -31,6 +31,73 @@ fn nested_value(bytes: usize) -> Value {
         Value::Text("payload".into()),
         Value::Blob(vec![7; bytes]),
     )])])
+}
+
+#[test]
+fn mixed_slots_preserve_lazy_refusal_and_cached_value_handoffs() {
+    for storage in [FieldStorageDecode::ByKind, FieldStorageDecode::CatalogValue] {
+        let contract =
+            payload_contract_with_storage(nested_kind(16), LeafCodec::Structural, false, storage);
+        let values = [Value::Nat64(7), Value::Bool(true), nested_value(8)];
+        let row =
+            canonical_row_from_runtime_value_source_with_accepted_contract(&contract, |slot| {
+                Ok(Cow::Borrowed(&values[slot]))
+            })
+            .unwrap()
+            .into_raw_row();
+        let mut reader =
+            StructuralSlotReader::from_raw_row_with_borrowed_contract(&row, &contract).unwrap();
+        assert!(reader.get_scalar(2).unwrap().is_none());
+        assert!(reader.get_scalar(0).unwrap().is_some());
+        for (slot, value) in values.iter().enumerate() {
+            let first = reader.required_cached_value(slot).unwrap();
+            assert_eq!(first, value);
+            assert!(std::ptr::eq(
+                first,
+                reader.required_cached_value(slot).unwrap()
+            ));
+            assert_eq!(reader.take_required_value(slot).unwrap(), *value);
+            assert_eq!(reader.required_cached_value(slot).unwrap(), value);
+        }
+        let mut output = Vec::new();
+        reader.decode_all_values_into(&mut output).unwrap();
+        assert_eq!(output, values);
+
+        // A corrupt untouched container must still admit selective scalar reads,
+        // then refuse both lazy materialization and eager full-row validation.
+        let mut slots = values
+            .iter()
+            .enumerate()
+            .map(|(slot, value)| {
+                encode_canonical_value_for_accepted_field_contract(
+                    contract
+                        .required_accepted_field_persistence_contract(slot)
+                        .unwrap(),
+                    value,
+                )
+                .unwrap()
+            })
+            .collect::<Vec<_>>();
+        slots[2].pop();
+        let corrupt = emit_raw_row_from_slot_payloads(
+            contract.current_layout_version(),
+            contract.field_count(),
+            &slots,
+        )
+        .unwrap()
+        .into_raw_row();
+        let lazy =
+            StructuralSlotReader::from_raw_row_with_borrowed_contract(&corrupt, &contract).unwrap();
+        assert_eq!(lazy.required_cached_value(1).unwrap(), &Value::Bool(true));
+        assert_eq!(
+            lazy.required_cached_value(2).unwrap_err().class(),
+            ErrorClass::Corruption
+        );
+        let eager = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
+            &corrupt, &contract,
+        );
+        assert_eq!(eager.err().unwrap().class(), ErrorClass::Corruption);
+    }
 }
 
 #[test]
@@ -220,9 +287,7 @@ fn by_kind_full_rows_retain_one_materialization_and_move_container_backing() {
                 .into_raw_row();
             let reader =
                 StructuralSlotReader::from_raw_row_with_borrowed_contract(&row, &contract).unwrap();
-            let CachedSlotValue::Deferred { materialized } = &reader.cached_values[2] else {
-                panic!("container must use the existing deferred cache");
-            };
+            let materialized = &reader.cached_values[2].materialized;
             assert!(materialized.get().is_none());
             reader.materialize_all_values().unwrap();
             assert_eq!(materialized.get(), Some(&values[2]));

@@ -384,7 +384,7 @@ impl PersistedSchemaMigrationFinding {
         entity: EntityTag,
         primary_key: Vec<u8>,
         source_field: Option<FieldId>,
-        target_field: FieldId,
+        target_field: Option<FieldId>,
         transform_reason: PersistedSchemaMigrationTransformReason,
     ) -> Result<Self, InternalError> {
         let finding = Self {
@@ -393,7 +393,7 @@ impl PersistedSchemaMigrationFinding {
             entity,
             primary_key,
             source_field,
-            target_field: Some(target_field),
+            target_field,
             transform_reason: Some(transform_reason),
         };
         if !finding.has_valid_shape() {
@@ -409,8 +409,15 @@ impl PersistedSchemaMigrationFinding {
             && match self.kind {
                 PersistedSchemaMigrationFindingKind::Transform => {
                     self.source_field.is_none_or(|field| field.get() != 0)
-                        && self.target_field.is_some_and(|field| field.get() != 0)
+                        && self.target_field.is_none_or(|field| field.get() != 0)
                         && self.transform_reason.is_some()
+                        // Only a whole-row ValueContract failure may omit the
+                        // target; cast failures keep their exact field identity.
+                        && (self.target_field.is_some()
+                            || (self.source_field.is_none()
+                                && self.transform_reason == Some(
+                                    PersistedSchemaMigrationTransformReason::ValueContract,
+                                )))
                 }
                 PersistedSchemaMigrationFindingKind::UniqueIndex
                 | PersistedSchemaMigrationFindingKind::Relation
@@ -1150,12 +1157,9 @@ fn encode_progress(
                     writer.push_u32(field.get());
                 }
             }
-            writer.push_u32(
-                finding
-                    .target_field
-                    .ok_or_else(InternalError::store_invariant)?
-                    .get(),
-            );
+            // Zero was never a valid field ID. It denotes absent attribution
+            // only in the row-level ValueContract shape admitted above.
+            writer.push_u32(finding.target_field.map_or(0, FieldId::get));
             writer.push_u8(
                 match finding
                     .transform_reason
@@ -1210,7 +1214,8 @@ fn decode_progress(
                     1 => FieldId::new(reader.read_u32()?).into(),
                     _ => return Err(InternalError::store_corruption()),
                 };
-                let target_field = Some(FieldId::new(reader.read_u32()?));
+                let target = reader.read_u32()?;
+                let target_field = (target != 0).then(|| FieldId::new(target));
                 let reason = match reader.read_u8()? {
                     0 => PersistedSchemaMigrationTransformReason::Overflow,
                     1 => PersistedSchemaMigrationTransformReason::NegativeToUnsigned,
@@ -1487,7 +1492,7 @@ mod tests {
             EntityTag::new(7),
             vec![0x81, 0x02],
             Some(FieldId::new(2)),
-            FieldId::new(3),
+            Some(FieldId::new(3)),
             PersistedSchemaMigrationTransformReason::NegativeToUnsigned,
         )
         .expect("transform finding should admit");
@@ -1519,6 +1524,89 @@ mod tests {
             decoded_finding.transform_reason(),
             Some(PersistedSchemaMigrationTransformReason::NegativeToUnsigned),
         );
+    }
+
+    #[test]
+    fn migration_record_codec_retains_row_level_value_contract_findings() {
+        let finding = PersistedSchemaMigrationFinding::try_new_transform(
+            TargetStoreIdentity::from_bytes([6; 32]),
+            EntityTag::new(7),
+            vec![0x81, 0x02],
+            None,
+            None,
+            PersistedSchemaMigrationTransformReason::ValueContract,
+        )
+        .expect("whole-row value-contract findings should admit");
+        let progress = PersistedSchemaMigrationProgress::default()
+            .with_validation_page(None, 1, vec![finding])
+            .unwrap();
+        let rejected = record()
+            .transition(PersistedSchemaMigrationPhase::Rejected, progress)
+            .unwrap();
+        let bytes = encode_schema_migration_record(&rejected).unwrap();
+        let decoded = decode_schema_migration_record(&bytes).unwrap();
+        assert_eq!(decoded, rejected);
+        let [finding] = decoded.progress().findings() else {
+            panic!("one whole-row finding should survive");
+        };
+        assert_eq!(finding.source_field(), None);
+        assert_eq!(finding.target_field(), None);
+        assert_eq!(
+            finding.transform_reason(),
+            Some(PersistedSchemaMigrationTransformReason::ValueContract),
+        );
+        // Build checksum-valid invalid records to qualify the decoding boundary,
+        // independently of the constructor's earlier shape refusal.
+        for reason in [
+            PersistedSchemaMigrationTransformReason::Overflow,
+            PersistedSchemaMigrationTransformReason::NullSource,
+        ] {
+            let mut invalid = rejected.clone();
+            invalid.progress.findings[0].transform_reason = Some(reason);
+            let bytes = encode_schema_migration_record(&invalid).unwrap();
+            assert!(decode_schema_migration_record(&bytes).is_err());
+        }
+        let mut invalid = rejected;
+        invalid.progress.findings[0].source_field = Some(FieldId::new(2));
+        let bytes = encode_schema_migration_record(&invalid).unwrap();
+        assert!(decode_schema_migration_record(&bytes).is_err());
+    }
+
+    #[test]
+    fn transform_finding_admission_preserves_exact_field_requirements() {
+        let finding = |source, target, reason| {
+            PersistedSchemaMigrationFinding::try_new_transform(
+                TargetStoreIdentity::from_bytes([6; 32]),
+                EntityTag::new(7),
+                vec![0x81, 0x02],
+                source,
+                target,
+                reason,
+            )
+        };
+        for reason in [
+            PersistedSchemaMigrationTransformReason::Overflow,
+            PersistedSchemaMigrationTransformReason::NegativeToUnsigned,
+            PersistedSchemaMigrationTransformReason::PrecisionLoss,
+            PersistedSchemaMigrationTransformReason::NullSource,
+        ] {
+            assert!(finding(None, None, reason).is_err());
+            assert!(finding(None, Some(FieldId::new(3)), reason).is_ok());
+        }
+        for (source, target) in [
+            (Some(FieldId::new(0)), Some(FieldId::new(3))),
+            (None, Some(FieldId::new(0))),
+            (Some(FieldId::new(2)), None),
+        ] {
+            assert!(
+                finding(
+                    source,
+                    target,
+                    PersistedSchemaMigrationTransformReason::ValueContract,
+                )
+                .is_err()
+            );
+        }
     }
 
     #[test]

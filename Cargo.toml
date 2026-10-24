@@ -90,10 +90,10 @@ ic-host-artifacts = { version = "0.68", default-features = false }
 ic-host-fs = { version = "0.68", default-features = false }
 ic-host-text = "0.68"
 ic-host-tools = "0.68"
-ic-memory = "0.50"
-ic-metrics = "0.15"
+ic-memory = "0.51"
+ic-metrics = "0.16"
 ic-platform = { version = "0.6", default-features = false }
-ic-storage = "0.50"
+ic-storage = "0.51"
 ic-wire = "0.7"
 icydb = { path = "crates/icydb", version = "=0.282.0", default-features = false }
 icydb-core = { path = "crates/icydb-core", version = "=0.282.0" }
@@ -124,11 +124,11 @@ xxhash-rust = { version = "0.8.15", default-features = false, features = [
 
 # Tests and tooling only
 blake3 = "1.8.5"
-canic-icydb = { git = "https://github.com/dragginzgame/canic", rev = "950599625722c0dbd289e80027009565547e5824" }
+canic-icydb = { git = "https://github.com/dragginzgame/canic", rev = "06fd517254cc31531f165c63216b5a02c24ceebd" }
 ic-build = "0.68"
 ic-host-process = "0.68"
 ic-testkit = "0.68"
-ic-timers = "0.30"
+ic-timers = "0.31"
 icydb-testing-audit-default-empty-fixtures = { path = "schema/audit/default_empty" }
 icydb-testing-audit-group-path-fixtures = { path = "schema/audit/group_path" }
 icydb-testing-audit-nested-relation-fixtures = { path = "schema/audit/nested_relation" }

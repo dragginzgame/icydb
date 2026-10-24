@@ -339,6 +339,22 @@ fn apply_u256_arithmetic_checked(
 /// conversion cannot produce a comparable numeric representation.
 #[must_use]
 pub(in crate::db) fn compare_numeric_order(left: &Value, right: &Value) -> Option<Ordering> {
+    // These same-type values have exact, total Decimal conversions. Compare
+    // their conversion inputs directly; keep fallible and mixed coercions below.
+    match (left, right) {
+        (Value::Int64(left), Value::Int64(right)) => return Some(left.cmp(right)),
+        (Value::Int128(left), Value::Int128(right)) => return Some(left.cmp(right)),
+        (Value::Nat64(left), Value::Nat64(right)) => return Some(left.cmp(right)),
+        (Value::Duration(left), Value::Duration(right)) => {
+            return Some(left.as_millis().cmp(&right.as_millis()));
+        }
+        (Value::Timestamp(left), Value::Timestamp(right)) => {
+            return Some(left.as_millis().cmp(&right.as_millis()));
+        }
+        (Value::Decimal(left), Value::Decimal(right)) => return Some(left.cmp(right)),
+        _ => {}
+    }
+
     let left = coerce_numeric_decimal(left)?;
     let right = coerce_numeric_decimal(right)?;
     left.partial_cmp(&right)

@@ -6,6 +6,9 @@
 
 mod record;
 
+#[cfg(test)]
+mod finding_tests;
+
 use std::borrow::Cow;
 
 use icydb_schema::{
@@ -22,8 +25,9 @@ use crate::{
         schema::{
             AcceptedCatalogSnapshotSelection, AcceptedFieldKind, AcceptedSchemaSnapshot,
             CandidateSchemaRevision, ExistingProposalStore, FieldId,
-            PersistedSchemaMigrationTransformReason, SchemaFieldSlot, ValueAdmissionBudget,
-            lower_scalar_type, migration_planner::inverse_field_source,
+            OwnedAcceptedFieldDecodeContract, PersistedSchemaMigrationTransformReason,
+            SchemaFieldSlot, ValueAdmissionBudget, lower_scalar_type,
+            migration_planner::inverse_field_source,
             migration_transform::record::migrated_source_value, source_literal_input,
         },
     },
@@ -32,22 +36,31 @@ use crate::{
     value::Value,
 };
 
-/// One row-local transform failure bound to accepted IDs.
+/// One row-local migration failure, with accepted field IDs when attributable.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::db::schema) struct MigrationTransformFinding {
     source_field: Option<FieldId>,
-    target_field: FieldId,
+    target_field: Option<FieldId>,
     reason: PersistedSchemaMigrationTransformReason,
 }
 
 impl MigrationTransformFinding {
+    // Whole-row encoding/admission cannot truthfully identify one target field.
+    const fn row_value_contract() -> Self {
+        Self {
+            source_field: None,
+            target_field: None,
+            reason: PersistedSchemaMigrationTransformReason::ValueContract,
+        }
+    }
+
     #[must_use]
     pub(in crate::db::schema) const fn source_field(self) -> Option<FieldId> {
         self.source_field
     }
 
     #[must_use]
-    pub(in crate::db::schema) const fn target_field(self) -> FieldId {
+    pub(in crate::db::schema) const fn target_field(self) -> Option<FieldId> {
         self.target_field
     }
 
@@ -151,16 +164,23 @@ impl CompiledMigrationEntityProgram {
     ) -> Result<CanonicalRow, MigrationTransformFinding> {
         let mut values = vec![None; candidate_contract.field_count()];
         for (target, source) in &self.preserved_slots {
-            let value =
-                migrated_source_value(before, candidate_contract, *source).map_err(|_| {
-                    self.finding(
-                        None,
-                        *target,
-                        PersistedSchemaMigrationTransformReason::ValueContract,
-                    )
-                })?;
-            set_candidate_value(&mut values, *target, value)
-                .map_err(|reason| self.finding(None, *target, reason))?;
+            // Resolve diagnostic IDs only on failure, from the accepted owners.
+            // Preserved fields need not be targets of an explicit transform.
+            let finding = |reason| MigrationTransformFinding {
+                source_field: before
+                    .contract()
+                    .required_accepted_field_contract(usize::from(source.get()))
+                    .ok()
+                    .map(OwnedAcceptedFieldDecodeContract::field_id),
+                target_field: candidate_contract
+                    .required_accepted_field_contract(usize::from(target.get()))
+                    .ok()
+                    .map(OwnedAcceptedFieldDecodeContract::field_id),
+                reason,
+            };
+            let value = migrated_source_value(before, candidate_contract, *source)
+                .map_err(|_| finding(PersistedSchemaMigrationTransformReason::ValueContract))?;
+            set_candidate_value(&mut values, *target, value).map_err(finding)?;
         }
         for transform in &self.transforms {
             Self::evaluate_transform(before, candidate_contract, &mut values, transform)?;
@@ -175,31 +195,15 @@ impl CompiledMigrationEntityProgram {
                     .ok_or_else(InternalError::store_invariant)
             },
         )
-        .map_err(|_| {
-            self.finding(
-                None,
-                SchemaFieldSlot::new(0),
-                PersistedSchemaMigrationTransformReason::ValueContract,
-            )
-        })?;
+        .map_err(|_| MigrationTransformFinding::row_value_contract())?;
         let reader = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
             row.as_raw_row(),
             candidate_contract,
         )
-        .map_err(|_| {
-            self.finding(
-                None,
-                SchemaFieldSlot::new(0),
-                PersistedSchemaMigrationTransformReason::ValueContract,
-            )
-        })?;
-        reader.validate_primary_key(key).map_err(|_| {
-            self.finding(
-                None,
-                SchemaFieldSlot::new(0),
-                PersistedSchemaMigrationTransformReason::ValueContract,
-            )
-        })?;
+        .map_err(|_| MigrationTransformFinding::row_value_contract())?;
+        reader
+            .validate_primary_key(key)
+            .map_err(|_| MigrationTransformFinding::row_value_contract())?;
         Ok(row)
     }
 
@@ -217,7 +221,7 @@ impl CompiledMigrationEntityProgram {
             } => set_candidate_value(values, *target_slot, literal.clone()).map_err(|reason| {
                 MigrationTransformFinding {
                     source_field: None,
-                    target_field: *target,
+                    target_field: Some(*target),
                     reason,
                 }
             }),
@@ -230,13 +234,13 @@ impl CompiledMigrationEntityProgram {
                 let value = migrated_source_value(before, candidate_contract, *source_slot)
                     .map_err(|_| MigrationTransformFinding {
                         source_field: Some(*source),
-                        target_field: *target,
+                        target_field: Some(*target),
                         reason: PersistedSchemaMigrationTransformReason::ValueContract,
                     })?;
                 set_candidate_value(values, *target_slot, value).map_err(|reason| {
                     MigrationTransformFinding {
                         source_field: Some(*source),
-                        target_field: *target,
+                        target_field: Some(*target),
                         reason,
                     }
                 })
@@ -253,19 +257,19 @@ impl CompiledMigrationEntityProgram {
                     .required_value_by_contract_cow(usize::from(source_slot.get()))
                     .map_err(|_| MigrationTransformFinding {
                         source_field: Some(*source),
-                        target_field: *target,
+                        target_field: Some(*target),
                         reason: PersistedSchemaMigrationTransformReason::ValueContract,
                     })?;
                 let cast = checked_cast_value(value.as_ref(), target_kind, *target_nullable)
                     .map_err(|reason| MigrationTransformFinding {
                         source_field: Some(*source),
-                        target_field: *target,
+                        target_field: Some(*target),
                         reason,
                     })?;
                 set_candidate_value(values, *target_slot, cast).map_err(|reason| {
                     MigrationTransformFinding {
                         source_field: Some(*source),
-                        target_field: *target,
+                        target_field: Some(*target),
                         reason,
                     }
                 })
@@ -280,7 +284,7 @@ impl CompiledMigrationEntityProgram {
                 let source_value = migrated_source_value(before, candidate_contract, *source_slot)
                     .map_err(|_| MigrationTransformFinding {
                         source_field: Some(*source),
-                        target_field: *target,
+                        target_field: Some(*target),
                         reason: PersistedSchemaMigrationTransformReason::ValueContract,
                     })?;
                 let value = if matches!(source_value, Value::Null) {
@@ -291,42 +295,11 @@ impl CompiledMigrationEntityProgram {
                 set_candidate_value(values, *target_slot, value).map_err(|reason| {
                     MigrationTransformFinding {
                         source_field: Some(*source),
-                        target_field: *target,
+                        target_field: Some(*target),
                         reason,
                     }
                 })
             }
-        }
-    }
-
-    fn finding(
-        &self,
-        source_field: Option<FieldId>,
-        target_slot: SchemaFieldSlot,
-        reason: PersistedSchemaMigrationTransformReason,
-    ) -> MigrationTransformFinding {
-        let mut index = 0;
-        while index < self.transforms.len() {
-            let transform = &self.transforms[index];
-            if transform.target_slot().get() == target_slot.get() {
-                let target_field = match transform {
-                    CompiledMigrationTransform::Fill { target, .. }
-                    | CompiledMigrationTransform::Copy { target, .. }
-                    | CompiledMigrationTransform::CheckedCast { target, .. }
-                    | CompiledMigrationTransform::Coalesce { target, .. } => *target,
-                };
-                return MigrationTransformFinding {
-                    source_field,
-                    target_field,
-                    reason,
-                };
-            }
-            index += 1;
-        }
-        MigrationTransformFinding {
-            source_field,
-            target_field: FieldId::new(0),
-            reason,
         }
     }
 }

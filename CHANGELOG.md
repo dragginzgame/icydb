@@ -5,6 +5,40 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.283.0]
+
+### ⚠️ Breaking
+
+- Adopt IC Metrics 0.16.0. Callers converting `MeasurementAggregate` into IcyDB
+  `InstructionMetrics` must use Metrics 0.16. Arithmetic, report bytes and
+  persisted formats are unchanged; Timers also selects Metrics 0.16.
+- Adopt Memory/Storage 0.51.0. Applications exchanging IcyDB's public memory
+  declaration types must align their Memory dependency to 0.51. Stored formats
+  are unchanged; no reset is required.
+
+### 🔧 Changed
+
+- Adopt Host/Build/Testkit 0.68.1 and Timers 0.31.0 with the compatible pinned
+  Canic adapter, preserving runtime and stored formats.
+- Remove temporary key copies when ordering covering-index prefixes
+  ([#440](https://github.com/dragginzgame/icydb/issues/440)).
+- Avoid copying unused index-key components and re-encoding source keys during
+  integrity inspection ([#441](https://github.com/dragginzgame/icydb/issues/441)).
+- Compare exact same-type numeric values and decimals without digit expansion
+  ([#112](https://github.com/dragginzgame/icydb/issues/112), partial).
+- Avoid per-field codec lookups when opening row-reader caches
+  ([#257](https://github.com/dragginzgame/icydb/issues/257), partial).
+- Keep bounded ordering work logarithmic in the retained row count instead of
+  repeatedly scanning the whole window ([#113](https://github.com/dragginzgame/icydb/issues/113)).
+- Reject generated `NOT IN` predicates that exceed the existing depth bound
+  before schema acceptance ([#198](https://github.com/dragginzgame/icydb/issues/198), partial).
+- Build lifecycle upgrade fixtures before starting PocketIC, avoiding cold-build
+  idle periods inside live tests ([#439](https://github.com/dragginzgame/icydb/issues/439)).
+- Retain migration row-contract failures as findings instead of rejecting them
+  as internal errors ([#204](https://github.com/dragginzgame/icydb/issues/204)).
+
+See [detailed notes](docs/changelog/0.283.md).
+
 ## [0.282.0] - 2026-10-24
 
 ### ⚠️ Breaking

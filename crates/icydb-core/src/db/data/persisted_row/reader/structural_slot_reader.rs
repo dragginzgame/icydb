@@ -78,7 +78,7 @@ impl<'a> StructuralSlotReader<'a> {
     ) -> Result<Self, InternalError> {
         let field_bytes =
             StructuralRowFieldBytes::from_raw_row_with_contract(raw_row, contract.as_ref())?;
-        let cached_values = build_initial_slot_cache(contract.as_ref())?;
+        let cached_values = build_initial_slot_cache(contract.field_count());
         let reader = Self {
             contract,
             field_bytes,
@@ -176,10 +176,9 @@ impl<'a> StructuralSlotReader<'a> {
         // Each cell is populated above. Consuming the cache avoids duplicating
         // heap-owning payloads and cannot expose emptied cells to later readers.
         for cached in self.cached_values {
-            let (CachedSlotValue::Scalar { materialized, .. }
-            | CachedSlotValue::Deferred { materialized }) = cached;
             values.push(
-                materialized
+                cached
+                    .materialized
                     .into_inner()
                     .ok_or_else(InternalError::persisted_row_decode_corruption)?,
             );
@@ -287,64 +286,32 @@ impl<'a> StructuralSlotReader<'a> {
             .get(slot)
             .ok_or_else(InternalError::index_invariant)?;
 
-        match cached {
-            CachedSlotValue::Scalar {
-                validated,
-                materialized,
-            } => {
-                if self.field_bytes.field(slot).is_none() {
-                    if materialized.get().is_none() {
-                        let _ = materialized.set(
-                            self.contract
-                                .historical_slot_value(slot, self.field_bytes.layout_version())?,
-                        );
-                    }
-
-                    return materialized
-                        .get()
-                        .ok_or_else(InternalError::persisted_row_decode_corruption);
-                }
-
-                let validated =
-                    self.required_validated_scalar_slot_value_for_slot(slot, validated)?;
-                if materialized.get().is_none() {
-                    let value = validated.into_value();
-                    let _ = materialized.set(value);
-                }
-
-                materialized
-                    .get()
-                    .ok_or_else(InternalError::persisted_row_decode_corruption)
-            }
-            CachedSlotValue::Deferred { materialized } => {
-                if self.field_bytes.field(slot).is_none() {
-                    if materialized.get().is_none() {
-                        let _ = materialized.set(
-                            self.contract
-                                .historical_slot_value(slot, self.field_bytes.layout_version())?,
-                        );
-                    }
-
-                    return materialized
-                        .get()
-                        .ok_or_else(InternalError::persisted_row_decode_corruption);
-                }
-
-                self.contract.field_name(slot)?;
-                let raw_value = self.required_field_bytes(slot)?;
-                if materialized.get().is_none() {
+        if let Some(value) = cached.materialized.get() {
+            return Ok(value);
+        }
+        let value = if self.field_bytes.field(slot).is_none() {
+            self.contract
+                .historical_slot_value(slot, self.field_bytes.layout_version())?
+        } else {
+            match self.contract.field_leaf_codec(slot)? {
+                LeafCodec::Scalar(_) => self
+                    .required_validated_scalar_slot_value_for_slot(slot, &cached.validated)?
+                    .into_value(),
+                LeafCodec::Structural => {
+                    self.contract.field_name(slot)?;
+                    let raw_value = self.required_field_bytes(slot)?;
                     // The row-contract decoder owns storage selection and payload
                     // validation; the reader only retains the resulting value.
-                    let value =
-                        decode_runtime_value_from_row_contract(&self.contract, slot, raw_value)?;
-                    let _ = materialized.set(value);
+                    decode_runtime_value_from_row_contract(&self.contract, slot, raw_value)?
                 }
-
-                materialized
-                    .get()
-                    .ok_or_else(InternalError::persisted_row_decode_corruption)
             }
-        }
+        };
+        let _ = cached.materialized.set(value);
+
+        cached
+            .materialized
+            .get()
+            .ok_or_else(InternalError::persisted_row_decode_corruption)
     }
 
     /// Move one slot into direct projection output, preserving scalar fast paths.
@@ -378,10 +345,8 @@ impl<'a> StructuralSlotReader<'a> {
             .cached_values
             .get_mut(slot)
             .ok_or_else(InternalError::persisted_row_decode_corruption)?;
-        let (CachedSlotValue::Scalar { materialized, .. }
-        | CachedSlotValue::Deferred { materialized }) = cached;
-
-        materialized
+        cached
+            .materialized
             .take()
             .ok_or_else(InternalError::persisted_row_decode_corruption)
     }
@@ -501,12 +466,11 @@ impl<'a> StructuralSlotReader<'a> {
 
             match self.contract.field_leaf_codec(slot)? {
                 LeafCodec::Scalar(_) => {
-                    let Some(CachedSlotValue::Scalar { validated, .. }) =
-                        self.cached_values.get(slot)
-                    else {
-                        return Err(InternalError::persisted_row_decode_corruption());
-                    };
-                    self.required_validated_scalar_slot_value_for_slot(slot, validated)?;
+                    let cached = self
+                        .cached_values
+                        .get(slot)
+                        .ok_or_else(InternalError::persisted_row_decode_corruption)?;
+                    self.required_validated_scalar_slot_value_for_slot(slot, &cached.validated)?;
                 }
                 LeafCodec::Structural => {
                     if self
@@ -548,22 +512,20 @@ impl SlotReader for StructuralSlotReader<'_> {
 
     fn get_scalar(&self, slot: usize) -> Result<Option<ScalarSlotValueRef<'_>>, InternalError> {
         match self.contract.field_leaf_codec(slot)? {
-            LeafCodec::Scalar(codec) => match self.cached_values.get(slot) {
-                Some(CachedSlotValue::Scalar { validated, .. }) => {
-                    if self.field_bytes.field(slot).is_none() {
-                        return self.required_historical_scalar(slot, codec).map(Some);
-                    }
-
-                    let validated =
-                        self.required_validated_scalar_slot_value_for_slot(slot, validated)?;
-
-                    Ok(Some(validated))
+            LeafCodec::Scalar(codec) => {
+                let cached = self
+                    .cached_values
+                    .get(slot)
+                    .ok_or_else(InternalError::index_invariant)?;
+                if self.field_bytes.field(slot).is_none() {
+                    return self.required_historical_scalar(slot, codec).map(Some);
                 }
-                Some(CachedSlotValue::Deferred { .. }) => {
-                    Err(InternalError::persisted_row_decode_corruption())
-                }
-                None => Err(InternalError::index_invariant()),
-            },
+
+                let validated =
+                    self.required_validated_scalar_slot_value_for_slot(slot, &cached.validated)?;
+
+                Ok(Some(validated))
+            }
             LeafCodec::Structural => Ok(None),
         }
     }
@@ -740,13 +702,7 @@ mod tests {
     }
 
     fn scalar_slot_is_untouched(value: &CachedSlotValue<'_>) -> bool {
-        matches!(
-            value,
-            CachedSlotValue::Scalar {
-                validated,
-                materialized,
-            } if validated.get().is_none() && materialized.get().is_none()
-        )
+        value.validated.get().is_none() && value.materialized.get().is_none()
     }
 
     #[test]

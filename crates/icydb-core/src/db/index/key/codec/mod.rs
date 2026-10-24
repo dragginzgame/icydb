@@ -77,12 +77,12 @@ pub(in crate::db) struct BorrowedIndexKeyFrame<'a> {
 
 impl<'a> BorrowedIndexKeyFrame<'a> {
     /// Return the namespace admitted by the strict frame decoder.
-    pub(in crate::db::index) const fn key_kind(&self) -> IndexKeyKind {
+    pub(in crate::db) const fn key_kind(&self) -> IndexKeyKind {
         self.key_kind
     }
 
     /// Return the complete physical identity, including its generation.
-    pub(in crate::db::index) const fn index_id(&self) -> IndexId {
+    pub(in crate::db) const fn index_id(&self) -> IndexId {
         self.index_id
     }
 

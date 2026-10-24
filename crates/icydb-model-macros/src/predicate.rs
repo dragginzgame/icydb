@@ -448,10 +448,10 @@ impl Parser {
                     _ => Err(DarlingError::custom("IS accepts only NULL, TRUE, or FALSE")),
                 }
             }
-            Some(Token::In) => self.parse_in(field, false),
+            Some(Token::In) => self.parse_in(field, false, depth),
             Some(Token::Between) => self.parse_between(field, false, depth),
             Some(Token::Not) => match self.next() {
-                Some(Token::In) => self.parse_in(field, true),
+                Some(Token::In) => self.parse_in(field, true, depth),
                 Some(Token::Between) => self.parse_between(field, true, depth),
                 _ => Err(DarlingError::custom("field NOT accepts only IN or BETWEEN")),
             },
@@ -474,7 +474,12 @@ impl Parser {
         }
     }
 
-    fn parse_in(&mut self, field: String, negated: bool) -> Result<Predicate, DarlingError> {
+    fn parse_in(
+        &mut self,
+        field: String,
+        negated: bool,
+        depth: usize,
+    ) -> Result<Predicate, DarlingError> {
         self.expect_lparen()?;
         let mut values = Vec::new();
         loop {
@@ -496,6 +501,11 @@ impl Parser {
                     return Err(DarlingError::custom("IN literal list expected ',' or ')'"));
                 }
             }
+        }
+        // Lowering emits an explicit NOT after the membership comparisons.
+        // Even a single-item membership therefore needs this extra level.
+        if negated {
+            let _ = descend(depth)?;
         }
         Ok(Predicate::In {
             field,
@@ -623,5 +633,19 @@ mod tests {
                 .is_ok()
             );
         }
+    }
+
+    #[test]
+    fn membership_negation_counts_its_implicit_node_at_the_depth_boundary() {
+        let admitted_nots = super::MAX_PREDICATE_DEPTH - 2;
+        assert!(parse(&format!("{}id NOT IN (1)", "NOT ".repeat(admitted_nots))).is_ok());
+        assert!(
+            parse(&format!(
+                "{}id NOT IN (1)",
+                "NOT ".repeat(admitted_nots + 1)
+            ))
+            .is_err()
+        );
+        assert!(parse(&format!("{}id IN (1)", "NOT ".repeat(admitted_nots + 1))).is_ok());
     }
 }

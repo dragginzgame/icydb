@@ -96,14 +96,45 @@ preservation fixtures. Dependency boundaries and documentation checks also pass.
 Release fixtures use disposable repositories or command substitutes; these checks
 perform no release or delivery effects in the working repository.
 
-IC Timers 0.30.12 is selected from the published archive at
-`798f559a8e6c9043ae2b830a3a34e0c0252b7219`. Its library Rust sources are unchanged
-from 0.30.11; the release updates upstream probe/development tooling. The
-existing 0.30 manifest range and incoming lockfile selection are retained.
+IC Memory/Storage 0.51.0 are selected together from published archives at
+`e3939cd1b33a4c6839ff3a793b42c61a977f8f16`. Their library Rust sources match
+0.50.17; collection formats, allocation leases and retained data are unchanged.
+The public facade now exposes Memory 0.51 declaration/authority/pool identities,
+so consumers exchanging those types must align their direct Memory dependency.
+IcyDB does not use Persistence's stable Metrics adapter; no storage reset is
+required by this adoption.
 
-IC Tooling 0.68.0 is selected from published archives at
-`8f281177faaeee0adc51edc1031d4a7b268b0ce0`; its
-[migration guide](https://github.com/dragginzgame/ic-tooling/blob/8f281177faaeee0adc51edc1031d4a7b268b0ce0/docs/changelog/0.68.md)
+Combined Memory/Storage 0.51 and Timers 0.31 qualification passes seventeen
+native memory/admission/lifecycle tests and all three installed lifecycle cases.
+Strict facade/integration and four actor Wasm Clippy selections pass. The actual
+Rust 1.91 generated endpoint consumer builds for Wasm with SQL/migration/metrics;
+its external packages match the selected workspace lock. Graph invariants pass.
+Testkit owns local PocketIC startup/cleanup. Init uses 5,773,664 instructions;
+empty upgrade uses 3,414,275 and populated/converged upgrades use 3,421,834,
+below the unchanged 12,750,000 ceiling. Stable extents remain 23,134,208 bytes.
+The first installed attempt supplied the launcher instead of its admitted server;
+correcting the existing check handoff resolves that pre-startup failure. These
+are Linux correctness/current-cost observations, not matched savings. Native
+macOS, browser and broad release gates were not run; Wasm-size, cycle and
+instruction deltas remain unmeasured.
+
+IC Timers 0.31.0 is selected from the published archive at
+`c7ff54cbcee9c2b802f461b7a61f478d18699df3`. Its library Rust sources match
+0.30.13; its public arithmetic identity is Metrics 0.16. The Canic adapter is
+pinned to committed `06fd517254cc31531f165c63216b5a02c24ceebd`, which admits
+Timers 0.31 while preserving the existing facade binding and lifecycle API.
+It retains the Platform-based adapter at `550a92efd4adc3e09151bf4e3da771892e5002cf`;
+the newer unfinished bootstrap API is excluded. Platform owns raw system calls,
+the executor and bounded external management entropy; direct adapter CDK and
+management-helper dependencies are removed. The selected graph has one timer
+runtime and one Metrics arithmetic identity. This resolves IcyDB's recurrence
+of [Canic #581](https://github.com/dragginzgame/canic/issues/581); integration of
+the [isolated adapter contribution](https://github.com/dragginzgame/canic/pull/629)
+and wider Canic publication remain upstream.
+
+IC Tooling 0.68.1 is selected from published archives at
+`c9c5ef7c44e3d0c3b23c8531a5d43c1800656c0a`; its
+[migration guide](https://github.com/dragginzgame/ic-tooling/blob/c9c5ef7c44e3d0c3b23c8531a5d43c1800656c0a/docs/changelog/0.68.md)
 owns API changes. Single and batch fixture builds share caller-selected Cargo
 configuration limits: 1 MiB/file, 16 MiB total, 128 files and depth 32. Build owns
 bounded discovery/refusal; IcyDB adds no alternate traversal or cache route.
@@ -128,9 +159,9 @@ value and limit controls. This is local cross-language qualification, not
 installed Chromium or IC execution; Wasm-size/cycle/instruction deltas are
 unmeasured.
 
-Current 0.68.0 Linux qualification passes 166 CLI and 21 build tests, strict
-CLI/build/integration library and test Clippy, public Rust 1.91 SQL/migration
-Wasm compilation, declaration/graph boundaries and Testkit CLI-selection
+Recorded 0.68.1 Linux qualification before Metrics 0.16 passed 202 CLI/build/report tests, strict
+CLI/build Clippy, public Rust 1.91 metrics/SQL/migration Wasm compilation,
+declaration/graph boundaries and Testkit CLI-selection
 fixtures. The CLI-selection fixture uses a substitute executable; it does not
 qualify the installed Testkit server. Native macOS, exact Rust 1.96 host-floor,
 installed-IC/browser execution and full release gates were not rerun.
@@ -165,6 +196,18 @@ simulator dependency. IcyDB owns required source roots and nonempty inventories;
 Shared owns Rust parsing, cfg/macro handling and scanner regressions.
 
 ## Consumer-owned instruction measurement
+
+IcyDB selects published IC Metrics 0.16.0 at
+`c0f033a8f41c280fd0fc77b2ec934d2f2b8176ed`. Its Rust arithmetic sources match
+0.15.8, but the public `MeasurementAggregate` conversion now uses the 0.16 type
+identity. IcyDB owns report projection and Wire shape; it does not use the stable
+adapter extracted to Persistence. Timers 0.31.0 also selects Metrics 0.16.0,
+so the resolved graph contains one arithmetic crate identity.
+
+Metrics 0.16 qualification passes eleven metrics-state tests and fifteen host
+reporting tests, strict Core/build Clippy and Rust 1.91 Wasm compilation with
+metrics enabled. These are Linux correctness checks, not IC cost measurements;
+native macOS and installed-IC execution were not rerun.
 
 [The runtime reader](../../crates/icydb-core/src/runtime.rs) reads IC performance
 counter 1 through Platform. IC Metrics owns arithmetic; IcyDB owns execution

@@ -397,10 +397,11 @@ fn sort_active_covering_prefix_specs_by_raw_lower_key(
         let Bound::Included(raw_key) = lower else {
             return Err(InternalError::query_executor_invariant());
         };
-        keyed_specs.push((raw_key.clone(), spec));
+        // The prefix owns the bound for the entire sort; retain only its borrow.
+        keyed_specs.push((raw_key, spec));
     }
 
-    keyed_specs.sort_by(|left, right| left.0.cmp(&right.0));
+    keyed_specs.sort_by(|left, right| left.0.cmp(right.0));
     specs.extend(keyed_specs.into_iter().map(|(_raw_key, spec)| spec));
 
     Ok(())

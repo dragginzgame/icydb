@@ -11,10 +11,51 @@ use crate::{
         compare_numeric_eq, compare_numeric_or_strict_order, compare_numeric_order,
         decimal_power_checked, divide_decimal_terms_checked,
     },
-    types::{Decimal, Float64 as F64, U256},
+    types::{Decimal, Duration, Float64 as F64, Timestamp, U256},
     value::Value,
 };
 use std::cmp::Ordering;
+
+#[test]
+fn exact_numeric_order_matches_decimal_coercion_at_boundaries() {
+    let mut cases = Vec::new();
+    for value in [i64::MIN, -1, 0, 1, i64::MAX] {
+        cases.push(Value::Int64(value));
+        cases.push(Value::Timestamp(Timestamp::from_millis(value)));
+    }
+    for value in [i128::MIN, -1, 0, 1, i128::MAX] {
+        cases.push(Value::Int128(value));
+        cases.push(Value::Decimal(Decimal::from_i128_with_scale(value, 2)));
+    }
+    for value in [0, 1, u64::MAX] {
+        cases.push(Value::Nat64(value));
+        cases.push(Value::Duration(Duration::from_millis(value)));
+    }
+    cases.extend([
+        Value::Nat128(u128::MAX),
+        Value::Nat128(i128::MAX.cast_unsigned()),
+        Value::Float64(F64::try_new(1.0e-30).unwrap()),
+        Value::Float64(F64::try_new(f64::MAX).unwrap()),
+        Value::Text("1".to_string()),
+        Value::Null,
+    ]);
+    for left in &cases {
+        for right in &cases {
+            let expected = coerce_numeric_decimal(left)
+                .zip(coerce_numeric_decimal(right))
+                .map(|(left, right)| left.cmp(&right));
+            assert_eq!(
+                compare_numeric_order(left, right),
+                expected,
+                "{left:?}, {right:?}"
+            );
+            assert_eq!(
+                compare_numeric_eq(left, right),
+                expected.map(Ordering::is_eq)
+            );
+        }
+    }
+}
 
 #[test]
 fn numeric_compare_helpers_follow_numeric_widen_domain() {

@@ -234,19 +234,17 @@ dependencies = [
 [[package]]
 name = "canic-icydb"
 version = "0.111.0"
-source = "git+https://github.com/dragginzgame/canic?rev=950599625722c0dbd289e80027009565547e5824#950599625722c0dbd289e80027009565547e5824"
+source = "git+https://github.com/dragginzgame/canic?rev=06fd517254cc31531f165c63216b5a02c24ceebd#06fd517254cc31531f165c63216b5a02c24ceebd"
 dependencies = [
  "canic-macros",
- "ic-cdk",
- "ic-cdk-management-canister",
+ "ic-platform",
  "ic-timers",
- "ic0",
 ]
 
 [[package]]
 name = "canic-macros"
 version = "0.111.0"
-source = "git+https://github.com/dragginzgame/canic?rev=950599625722c0dbd289e80027009565547e5824#950599625722c0dbd289e80027009565547e5824"
+source = "git+https://github.com/dragginzgame/canic?rev=06fd517254cc31531f165c63216b5a02c24ceebd#06fd517254cc31531f165c63216b5a02c24ceebd"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -777,35 +775,12 @@ dependencies = [
 
 [[package]]
 name = "darling"
-version = "0.23.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25ae13da2f202d56bd7f91c25fba009e7717a1e4a1cc98a76d844b65ae912e9d"
-dependencies = [
- "darling_core 0.23.0",
- "darling_macro 0.23.0",
-]
-
-[[package]]
-name = "darling"
 version = "0.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed17f5901b6630b993ca003def43f2f8ef4014fc13b047b57aad617ff32bc2ec"
 dependencies = [
- "darling_core 0.24.1",
- "darling_macro 0.24.1",
-]
-
-[[package]]
-name = "darling_core"
-version = "0.23.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9865a50f7c335f53564bb694ef660825eb8610e0a53d3e11bf1b0d3df31e03b0"
-dependencies = [
- "ident_case",
- "proc-macro2",
- "quote",
- "strsim",
- "syn 2.0.119",
+ "darling_core",
+ "darling_macro",
 ]
 
 [[package]]
@@ -823,22 +798,11 @@ dependencies = [
 
 [[package]]
 name = "darling_macro"
-version = "0.23.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac3984ec7bd6cfa798e62b4a642426a5be0e68f9401cfc2a01e3fa9ea2fcdb8d"
-dependencies = [
- "darling_core 0.23.0",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "darling_macro"
 version = "0.24.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ac7135c3ef02b2f7833bbeb1be5ba7f966dcde8a87c6b87f65a778d71a02785"
 dependencies = [
- "darling_core 0.24.1",
+ "darling_core",
  "quote",
  "syn 3.0.9",
 ]
@@ -1259,9 +1223,9 @@ dependencies = [
 
 [[package]]
 name = "ic-build"
-version = "0.68.0"
+version = "0.68.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e8fcc6e637ed809a55487f657d1edd948d7305d487bb4805191dcc46f9164dd"
+checksum = "18cb2e15ddbefb0ed596ef439229fb52fc5733de80e2b6dede5bdef35d94aa32"
 dependencies = [
  "cargo_metadata",
  "ic-host-artifacts",
@@ -1277,22 +1241,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ic-cdk"
-version = "0.20.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc6ad46670baa42b9d802e46cb0741e5da2d747b5b74b9ac8019aec9388b05b2"
-dependencies = [
- "candid",
- "ic-cdk-executor",
- "ic-cdk-macros",
- "ic-error-types",
- "ic0",
- "pin-project-lite",
- "serde",
- "thiserror 2.0.18",
-]
-
-[[package]]
 name = "ic-cdk-executor"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1301,33 +1249,6 @@ dependencies = [
  "ic0",
  "slotmap",
  "smallvec",
-]
-
-[[package]]
-name = "ic-cdk-macros"
-version = "0.20.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9583454462627a6a816ffa91422c8ab7e6a21f75f63eb255d03f710248d45453"
-dependencies = [
- "candid",
- "darling 0.23.0",
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "ic-cdk-management-canister"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c8fb578283e842e9f2c84a4477f751ee2146bea13017a10d227afd952d349a2"
-dependencies = [
- "candid",
- "ic-cdk",
- "ic-management-canister-types 0.11.0",
- "serde",
- "serde_bytes",
- "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -1343,21 +1264,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "ic-error-types"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbeeb3d91aa179d6496d7293becdacedfc413c825cac79fd54ea1906f003ee55"
-dependencies = [
- "serde",
- "strum",
- "strum_macros",
-]
-
-[[package]]
 name = "ic-host-artifacts"
-version = "0.68.0"
+version = "0.68.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7add392e7b5f2adde0ab75162216c248143e230bf1c55ffe2401d7e26015bb86"
+checksum = "e768b05928a6900537f11a3d26f61f2021db612d714038265f9d88f20bacda90"
 dependencies = [
  "flate2",
  "leb128",
@@ -1367,9 +1277,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-fs"
-version = "0.68.0"
+version = "0.68.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19457f459cc4878d552c9a893b131a34a61936fe33b4e3d013c9f573afaa6bdf"
+checksum = "901bf8a41ab8e329eb2423eb763bdf9d7b92ff581ce85400663471a2829291ee"
 dependencies = [
  "ic-host-artifacts",
  "rustix",
@@ -1379,9 +1289,9 @@ dependencies = [
 
 [[package]]
 name = "ic-host-process"
-version = "0.68.0"
+version = "0.68.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d9091929849128df4e0366210497346c4a0efe402cee0e42d43d4cc5ff8637e0"
+checksum = "34dd647421a474528a269dc8d046f2c25715c9e510aac8dfae0675dd48d7251b"
 dependencies = [
  "command-fds",
  "ic-host-artifacts",
@@ -1392,18 +1302,18 @@ dependencies = [
 
 [[package]]
 name = "ic-host-text"
-version = "0.68.0"
+version = "0.68.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be49576f2d4edd62cf684d2953f119e93a47867ec0b1a7cf20fb2381eb56bede"
+checksum = "2d49c3c23d82e44364833a824e1a451b5a993f16a0287611941dedc6894a70dc"
 dependencies = [
  "unicode-width",
 ]
 
 [[package]]
 name = "ic-host-tools"
-version = "0.68.0"
+version = "0.68.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7de22eb9199c206e56bd06fd166a10e4cb065c0e82e06d3f1bc281b36401c42"
+checksum = "7df4ccb45f8504b44e6a49ef70b68a2cf705b10e8f780e127d07d18e2edbc714"
 dependencies = [
  "ic-host-artifacts",
  "serde",
@@ -1435,9 +1345,9 @@ dependencies = [
 
 [[package]]
 name = "ic-memory"
-version = "0.50.16"
+version = "0.51.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b044a893ddca926f08027afc8f3592e675cc741de3a65ea7f5a72f660313e34"
+checksum = "233b82d7db5d6302dab6e8346b76adaa67c1be1764978d10e1c813b41e58cf6e"
 dependencies = [
  "ic-platform",
  "serde",
@@ -1447,9 +1357,9 @@ dependencies = [
 
 [[package]]
 name = "ic-metrics"
-version = "0.15.8"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c67e39d06f2b103f4ea7db7ff1b08b206044ad16adb8166ccc6bba343d83d081"
+checksum = "04672103617e91ccda77460401d29f1e23256e1689766b1741129242a7121988"
 
 [[package]]
 name = "ic-platform"
@@ -1482,9 +1392,9 @@ dependencies = [
 
 [[package]]
 name = "ic-storage"
-version = "0.50.16"
+version = "0.51.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2e3ea43f4f945353f84ab6e9a0284bd6b43a1602827b8c234ff0c9a0ab0200b"
+checksum = "5c6e640a6b670cce92b23b13f8fe22d83c30fdd461cbf4703458ed75b5845852"
 dependencies = [
  "ic-memory",
  "ic-platform",
@@ -1492,9 +1402,9 @@ dependencies = [
 
 [[package]]
 name = "ic-testkit"
-version = "0.68.0"
+version = "0.68.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b72fedb38d82809424f08f7d61a2e9a774c73ba144ffa569b96ce7883374b84"
+checksum = "1ae4797e0c85a7909033afe46654a94023d09cd27fac8f964e7b35b2a309dc9a"
 dependencies = [
  "ic-host-artifacts",
  "ic-host-fs",
@@ -1507,9 +1417,9 @@ dependencies = [
 
 [[package]]
 name = "ic-timers"
-version = "0.30.12"
+version = "0.31.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "670ad5b1254f7c300dc05d1fa737e73874a595da8e3ddcd3b8dd7edee874dc11"
+checksum = "8acd92583f67a4b314a7ac52cf797d1a3335b9143e94e5083c1543424b7c8f7b"
 dependencies = [
  "ic-metrics",
  "ic-platform",
@@ -1536,9 +1446,9 @@ dependencies = [
 
 [[package]]
 name = "ic-wire"
-version = "0.7.2"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1dfa872fa3c5b39b0fa9e6de140f5bcedd1ae2f2aa77b80ebf8960b931f9f709"
+checksum = "c63756def1927a34ea04c7a56421ecb742f2950cc0647f9bed5423693fb86188"
 dependencies = [
  "bytemuck",
  "ic-wire-derive",
@@ -1550,9 +1460,9 @@ dependencies = [
 
 [[package]]
 name = "ic-wire-derive"
-version = "0.7.2"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e35eadaeee8a45dd1cf54c5f6f5e18022d4160b5e028e7314cbc0483041bd070"
+checksum = "0a27abd3aaf28d645ecc5f4596d0a0c817c2731073d494e95ead8a481d9a6d33"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1753,7 +1663,7 @@ name = "icydb-model-macros"
 version = "0.282.0"
 dependencies = [
  "convert_case",
- "darling 0.24.1",
+ "darling",
  "icydb-schema",
  "proc-macro-crate",
  "proc-macro2",

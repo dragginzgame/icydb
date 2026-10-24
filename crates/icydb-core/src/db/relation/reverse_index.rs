@@ -18,9 +18,9 @@ use crate::{
         },
         direction::Direction,
         index::{
-            IndexEntryValue, IndexId, IndexKey, IndexKeyEncodeError, IndexKeyKind,
-            IndexRowIdentity, IndexState, IndexStore, RawIndexStoreKey, StructuralPrimaryRowReader,
-            raw_keys_for_component_prefix_with_kind,
+            BorrowedIndexKeyFrame, IndexEntryValue, IndexId, IndexKey, IndexKeyEncodeError,
+            IndexKeyKind, IndexRowIdentity, IndexState, IndexStore, RawIndexStoreKey,
+            StructuralPrimaryRowReader, raw_keys_for_component_prefix_with_kind,
         },
         key_taxonomy::{
             EncodedPrimaryKey, IndexStoreKeyKind, PrimaryKeyComponent, PrimaryKeyValue,
@@ -570,12 +570,13 @@ impl RelationConstraintProjection {
 
     /// Prove that one decoded key names this exact active reverse generation.
     #[must_use]
-    pub(in crate::db) fn contains_decoded_key(&self, key: &IndexKey) -> bool {
+    pub(in crate::db) fn contains_decoded_key(&self, key: &BorrowedIndexKeyFrame<'_>) -> bool {
         let expected = reverse_index_id_for_relation(&self.source, &self.relation);
         key.key_kind() == IndexKeyKind::System
-            && key.index_id() == &expected
-            && key.component_count() == 2
-            && key.component(0) == Some(relation_id_component(&self.relation).as_slice())
+            && key.index_id() == expected
+            && key.components().len() == 2
+            && key.components().first().copied()
+                == Some(relation_id_component(&self.relation).as_slice())
     }
 
     /// Project one source row and classify target existence deterministically.

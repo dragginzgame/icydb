@@ -195,6 +195,16 @@ fn upgrade_preserving_stable_extent(
     reason = "one causal lifecycle proof reports all upgrade phases before enforcing their cost ceilings"
 )]
 fn framework_neutral_root_orders_both_lifecycle_phases_before_deferred_database_work() {
+    // Compile every upgrade artifact before starting the governed server; cold
+    // builds must not leave a live test instance idle between lifecycle phases.
+    let local_wasm = build_fixture_canister_wasm_bytes_with_options(
+        "lifecycle_participant",
+        CanisterBuildOptions::default(),
+    );
+    let production_wasm = build_fixture_canister_wasm_bytes_with_options(
+        "lifecycle_participant",
+        production_build_options(),
+    );
     let fixture = install_fixture_canister_without_startup_delivery("lifecycle_participant");
 
     let installed = snapshot(&fixture);
@@ -214,10 +224,6 @@ fn framework_neutral_root_orders_both_lifecycle_phases_before_deferred_database_
         !probe_row_exists(&fixture, Ulid::MIN).expect("empty participant query should succeed")
     );
 
-    let local_wasm = build_fixture_canister_wasm_bytes_with_options(
-        "lifecycle_participant",
-        CanisterBuildOptions::default(),
-    );
     let empty_stable_bytes_before_upgrade = upgrade_preserving_stable_extent(
         &fixture,
         || upgrade_with_wasm(&fixture, local_wasm),
@@ -243,10 +249,6 @@ fn framework_neutral_root_orders_both_lifecycle_phases_before_deferred_database_
     let probe_row_id = insert_probe_row(&fixture).expect("bounded probe-row insert should succeed");
     assert!(
         probe_row_exists(&fixture, probe_row_id).expect("inserted probe row should be observable")
-    );
-    let production_wasm = build_fixture_canister_wasm_bytes_with_options(
-        "lifecycle_participant",
-        production_build_options(),
     );
 
     let populated_stable_bytes_before_upgrade = upgrade_preserving_stable_extent(
@@ -311,14 +313,14 @@ fn framework_neutral_root_orders_both_lifecycle_phases_before_deferred_database_
 
 #[test]
 fn trapped_post_upgrade_rolls_back_participation_and_allows_a_clean_retry() {
-    let fixture = install_fixture_canister_without_startup_delivery("lifecycle_participant");
-    let active = advance_until_active(&fixture);
-    assert_eq!(active.database_work_runs, 1);
-    let probe_row_id = insert_probe_row(&fixture).expect("bounded probe-row insert should succeed");
     let production_wasm = build_fixture_canister_wasm_bytes_with_options(
         "lifecycle_participant",
         production_build_options(),
     );
+    let fixture = install_fixture_canister_without_startup_delivery("lifecycle_participant");
+    let active = advance_until_active(&fixture);
+    assert_eq!(active.database_work_runs, 1);
+    let probe_row_id = insert_probe_row(&fixture).expect("bounded probe-row insert should succeed");
     let stable_bytes_before = stable_memory_bytes(&fixture);
 
     let trap_args = icydb::wire::encode_post_upgrade_arguments((Some(true),))
