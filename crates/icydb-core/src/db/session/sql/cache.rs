@@ -142,7 +142,7 @@ impl<C: CanisterKind> DbSession<C> {
     }
 }
 
-// Map/FIFO keys share SQL text. Charge each strong reference conservatively,
+// Map/eviction-queue keys share SQL text. Charge each strong reference conservatively,
 // as in the shared plan cache, and include entry bookkeeping.
 // Overflow, excessive depth, or an oversized payload skips retention, not execution.
 pub(in crate::db::session::sql) fn compiled_command_retained_bytes(

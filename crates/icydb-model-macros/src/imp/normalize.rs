@@ -15,7 +15,7 @@ pub struct NormalizeAutoTrait;
 /// Traversal into children is handled by the visitor.
 
 pub trait NormalizeAutoFn {
-    fn self_tokens(_: &Self) -> TokenStream {
+    fn self_tokens(_: &Self, __paths: &CratePaths) -> TokenStream {
         quote!()
     }
 }
@@ -24,11 +24,12 @@ macro_rules! impl_normalize_auto {
     ($($ty:ty),* $(,)?) => {
         $(impl Imp<$ty> for NormalizeAutoTrait {
             fn strategy(node: &$ty) -> Option<TraitStrategy> {
-                let self_tokens = NormalizeAutoFn::self_tokens(node);
+        let paths = node.def().paths();
+                let self_tokens = NormalizeAutoFn::self_tokens(node, paths);
 
                 let tokens = Implementor::new(node.def(), TraitKind::NormalizeAuto)
                     .add_tokens(self_tokens)
-                    .to_token_stream();
+                    .impl_tokens(paths);
 
                 Some(TraitStrategy::from_impl(tokens))
             }
@@ -45,13 +46,23 @@ impl_normalize_auto!(Enum, List, Map, Newtype, Set);
 /// Do NOT recurse.
 impl Imp<Entity> for NormalizeAutoTrait {
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
-        Some(field_list_normalize_strategy(node.def(), &node.fields))
+        let paths = node.def().paths();
+        Some(field_list_normalize_strategy(
+            node.def(),
+            &node.fields,
+            paths,
+        ))
     }
 }
 
 impl Imp<Record> for NormalizeAutoTrait {
     fn strategy(node: &Record) -> Option<TraitStrategy> {
-        Some(field_list_normalize_strategy(node.def(), &node.fields))
+        let paths = node.def().paths();
+        Some(field_list_normalize_strategy(
+            node.def(),
+            &node.fields,
+            paths,
+        ))
     }
 }
 
@@ -67,8 +78,8 @@ impl NormalizeAutoFn for Enum {}
 /// ---------------------------------------------------------------------------
 /// Apply normalizers attached to the newtype itself / its inner value.
 impl NormalizeAutoFn for Newtype {
-    fn self_tokens(node: &Self) -> TokenStream {
-        fn_wrap_normalize_self(newtype_normalizers(node))
+    fn self_tokens(node: &Self, paths: &CratePaths) -> TokenStream {
+        fn_wrap_normalize_self(newtype_normalizers(node, paths), paths)
     }
 }
 
@@ -81,20 +92,20 @@ impl NormalizeAutoFn for Newtype {
 /// - Set items and map keys are not visited in mutable traversal
 /// - Only container-level normalizers belong here
 impl NormalizeAutoFn for List {
-    fn self_tokens(node: &Self) -> TokenStream {
-        container_self_tokens(&node.ty.normalizers)
+    fn self_tokens(node: &Self, paths: &CratePaths) -> TokenStream {
+        container_self_tokens(&node.ty.normalizers, paths)
     }
 }
 
 impl NormalizeAutoFn for Set {
-    fn self_tokens(node: &Self) -> TokenStream {
-        container_self_tokens(&node.ty.normalizers)
+    fn self_tokens(node: &Self, paths: &CratePaths) -> TokenStream {
+        container_self_tokens(&node.ty.normalizers, paths)
     }
 }
 
 impl NormalizeAutoFn for Map {
-    fn self_tokens(node: &Self) -> TokenStream {
-        container_self_tokens(&node.ty.normalizers)
+    fn self_tokens(node: &Self, paths: &CratePaths) -> TokenStream {
+        container_self_tokens(&node.ty.normalizers, paths)
     }
 }
 
@@ -108,7 +119,9 @@ fn generate_normalizers(
     normalizers: &[TypeNormalizer],
     target: TokenStream,
     seg: Option<TokenStream>,
+    paths: &CratePaths,
 ) -> Vec<TokenStream> {
+    let model = &paths.model;
     normalizers
         .iter()
         .map(|normalizer| {
@@ -116,42 +129,42 @@ fn generate_normalizers(
             let callback_type = &normalizer.path;
             match &seg {
                 None => quote! {{
-                    let mut __callback_ctx = ::icydb_model::visitor::CallbackContext::new(
+                    let mut __callback_ctx = #model::visitor::CallbackContext::new(
                         ctx,
-                        ::icydb_model::visitor::CallbackIdentity::new(
-                            ::icydb_model::visitor::CallbackKind::Normalizer,
+                        #model::visitor::CallbackIdentity::new(
+                            #model::visitor::CallbackKind::Normalizer,
                             ::core::any::type_name::<#callback_type>(),
                         ),
                     );
-                    if let Err(msg) = ::icydb_model::visitor::Normalizer::normalize_with_context(
+                    if let Err(msg) = #model::visitor::Normalizer::normalize_with_context(
                         &(#ctor),
                         &mut #target,
                         &mut __callback_ctx,
                     ) {
-                        ::icydb_model::visitor::VisitorContext::add_issue(
+                        #model::visitor::VisitorContext::add_issue(
                             &mut __callback_ctx,
-                            ::icydb_model::visitor::Issue::from(msg),
+                            #model::visitor::Issue::from(msg),
                         );
                     }
                 }},
                 Some(seg) => quote! {{
                     let mut __field_ctx =
-                        ::icydb_model::visitor::ScopedContext::new(ctx, #seg);
-                    let mut __callback_ctx = ::icydb_model::visitor::CallbackContext::new(
+                        #model::visitor::ScopedContext::new(ctx, #seg);
+                    let mut __callback_ctx = #model::visitor::CallbackContext::new(
                         &mut __field_ctx,
-                        ::icydb_model::visitor::CallbackIdentity::new(
-                            ::icydb_model::visitor::CallbackKind::Normalizer,
+                        #model::visitor::CallbackIdentity::new(
+                            #model::visitor::CallbackKind::Normalizer,
                             ::core::any::type_name::<#callback_type>(),
                         ),
                     );
-                    if let Err(msg) = ::icydb_model::visitor::Normalizer::normalize_with_context(
+                    if let Err(msg) = #model::visitor::Normalizer::normalize_with_context(
                         &(#ctor),
                         &mut #target,
                         &mut __callback_ctx,
                     ) {
-                        ::icydb_model::visitor::VisitorContext::add_issue(
+                        #model::visitor::VisitorContext::add_issue(
                             &mut __callback_ctx,
-                            ::icydb_model::visitor::Issue::from(msg),
+                            #model::visitor::Issue::from(msg),
                         );
                     }
                 }},
@@ -164,8 +177,9 @@ fn generate_normalizers(
 fn container_normalizers(
     normalizers: &[TypeNormalizer],
     target: TokenStream,
+    paths: &CratePaths,
 ) -> Option<TokenStream> {
-    let stmts = generate_normalizers(normalizers, target, None);
+    let stmts = generate_normalizers(normalizers, target, None, paths);
     if stmts.is_empty() {
         None
     } else {
@@ -174,13 +188,17 @@ fn container_normalizers(
 }
 
 /// List, set, and map containers share the same direct self-normalizer shape.
-fn container_self_tokens(normalizers: &[TypeNormalizer]) -> TokenStream {
-    fn_wrap_normalize_self(container_normalizers(normalizers, quote!(self.0)))
+fn container_self_tokens(normalizers: &[TypeNormalizer], paths: &CratePaths) -> TokenStream {
+    fn_wrap_normalize_self(
+        container_normalizers(normalizers, quote!(self.0), paths),
+        paths,
+    )
 }
 
 /// Field-level normalizers for Entity / Record.
 /// Applies directly to owned fields.
-fn field_list(def: &Def, fields: &FieldList) -> TokenStream {
+fn field_list(def: &Def, fields: &FieldList, paths: &CratePaths) -> TokenStream {
+    let model = &paths.model;
     let bindings = field_walk_bindings(fields);
     let field_table_ident = format_ident!("__NORMALIZE_FIELDS");
 
@@ -191,7 +209,8 @@ fn field_list(def: &Def, fields: &FieldList) -> TokenStream {
             let stmts = generate_normalizers(
                 &field.value.item.normalizers,
                 binding.member_mut_from(quote!(node)),
-                Some(binding.path_segment()),
+                Some(binding.path_segment(paths)),
+                paths,
             );
             let fn_ident = binding.normalize_fn_ident();
 
@@ -201,7 +220,7 @@ fn field_list(def: &Def, fields: &FieldList) -> TokenStream {
                 Some(quote! {
                     fn #fn_ident(
                         node: &mut Self,
-                        ctx: &mut dyn ::icydb_model::visitor::VisitorContext,
+                        ctx: &mut dyn #model::visitor::VisitorContext,
                     ) {
                         #(#stmts)*
                     }
@@ -219,7 +238,7 @@ fn field_list(def: &Def, fields: &FieldList) -> TokenStream {
                 let normalize_fn = binding.normalize_fn_ident();
 
                 Some(quote! {
-                    ::icydb_model::visitor::NormalizeFieldDescriptor::new(Self::#normalize_fn)
+                    #model::visitor::NormalizeFieldDescriptor::new(Self::#normalize_fn)
                 })
             }
         });
@@ -228,16 +247,19 @@ fn field_list(def: &Def, fields: &FieldList) -> TokenStream {
         .set_tokens(quote! {
             #(#normalize_helpers)*
 
-            const #field_table_ident: &'static [::icydb_model::visitor::NormalizeFieldDescriptor<Self>] =
+            const #field_table_ident: &'static [#model::visitor::NormalizeFieldDescriptor<Self>] =
                 &[#(#descriptors),*];
         })
-        .to_token_stream();
+        .impl_tokens(paths);
 
     let trait_tokens = Implementor::new(def, TraitKind::NormalizeAuto)
-        .add_tokens(fn_wrap_normalize_self(Some(quote! {
-            ::icydb_model::visitor::drive_normalize_fields(self, ctx, Self::#field_table_ident);
-        })))
-        .to_token_stream();
+        .add_tokens(fn_wrap_normalize_self(
+            Some(quote! {
+                #model::visitor::drive_normalize_fields(self, ctx, Self::#field_table_ident);
+            }),
+            paths,
+        ))
+        .impl_tokens(paths);
 
     quote! {
         #inherent_tokens
@@ -246,12 +268,16 @@ fn field_list(def: &Def, fields: &FieldList) -> TokenStream {
 }
 
 /// Entity and record normalize generation share the same field-driven strategy.
-fn field_list_normalize_strategy(def: &Def, fields: &FieldList) -> TraitStrategy {
-    TraitStrategy::from_impl(field_list(def, fields))
+fn field_list_normalize_strategy(
+    def: &Def,
+    fields: &FieldList,
+    paths: &CratePaths,
+) -> TraitStrategy {
+    TraitStrategy::from_impl(field_list(def, fields, paths))
 }
 
 /// Normalizers for a newtype’s inner value (`self.0`).
-fn newtype_normalizers(node: &Newtype) -> Option<TokenStream> {
+fn newtype_normalizers(node: &Newtype, paths: &CratePaths) -> Option<TokenStream> {
     let target = quote!(self.0);
 
     let mut stmts = Vec::new();
@@ -259,8 +285,14 @@ fn newtype_normalizers(node: &Newtype) -> Option<TokenStream> {
         &node.ty.normalizers,
         target.clone(),
         None,
+        paths,
     ));
-    stmts.extend(generate_normalizers(&node.item.normalizers, target, None));
+    stmts.extend(generate_normalizers(
+        &node.item.normalizers,
+        target,
+        None,
+        paths,
+    ));
 
     if stmts.is_empty() {
         None
@@ -271,13 +303,14 @@ fn newtype_normalizers(node: &Newtype) -> Option<TokenStream> {
 
 /// Emit `fn normalize_self(&mut self, ctx: &mut dyn VisitorContext)`
 /// only if there is something to do.
-fn fn_wrap_normalize_self(inner: Option<TokenStream>) -> TokenStream {
+fn fn_wrap_normalize_self(inner: Option<TokenStream>, paths: &CratePaths) -> TokenStream {
+    let model = &paths.model;
     match inner {
         None => quote!(),
         Some(inner) => quote! {
             fn normalize_self(
                 &mut self,
-                ctx: &mut dyn ::icydb_model::visitor::VisitorContext
+                ctx: &mut dyn #model::visitor::VisitorContext
             ) {
                 #inner
             }

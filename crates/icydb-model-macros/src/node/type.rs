@@ -41,14 +41,19 @@ impl Type {
 }
 
 impl HasSchemaPart for Type {
-    fn schema_part(&self) -> TokenStream {
-        let normalizers = quote_slice(&self.normalizers, TypeNormalizer::schema_part);
-        let validators = quote_slice(&self.validators, TypeValidator::schema_part);
-        let rules = quote_slice(&self.rules, SourceRule::schema_part);
+    fn schema_part(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
+        let normalizers = quote_slice(&self.normalizers, |value| {
+            TypeNormalizer::schema_part(value, paths)
+        });
+        let validators = quote_slice(&self.validators, |value| {
+            TypeValidator::schema_part(value, paths)
+        });
+        let rules = quote_slice(&self.rules, |value| SourceRule::schema_part(value, paths));
 
         // quote
         quote! {
-            ::icydb_model::node::Type::new(#normalizers, #validators, #rules)
+            #model::node::Type::new(#normalizers, #validators, #rules)
         }
     }
 }
@@ -121,12 +126,13 @@ impl FromMeta for SourceRule {
 }
 
 impl HasSchemaPart for SourceRule {
-    fn schema_part(&self) -> TokenStream {
+    fn schema_part(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
         let name = &self.name;
-        let operation = self.operation.schema_part();
+        let operation = self.operation.schema_part(paths);
 
         quote! {
-            ::icydb_model::node::SourceRule::new(#name, #operation)
+            #model::node::SourceRule::new(#name, #operation)
         }
     }
 }
@@ -225,20 +231,21 @@ impl RuleNumber {
         Ok(Self { literal, kind })
     }
 
-    fn schema_part(&self) -> TokenStream {
+    fn schema_part(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
         let literal = &self.literal;
         match self.kind {
             RuleNumberKind::Integer => {
-                quote!(::icydb_model::node::RuleNumber::Integer(#literal))
+                quote!(#model::node::RuleNumber::Integer(#literal))
             }
             RuleNumberKind::Decimal => {
-                quote!(::icydb_model::node::RuleNumber::Decimal(#literal))
+                quote!(#model::node::RuleNumber::Decimal(#literal))
             }
             RuleNumberKind::Float32(value) => {
-                quote!(::icydb_model::node::RuleNumber::Float32(#value))
+                quote!(#model::node::RuleNumber::Float32(#value))
             }
             RuleNumberKind::Float64(value) => {
-                quote!(::icydb_model::node::RuleNumber::Float64(#value))
+                quote!(#model::node::RuleNumber::Float64(#value))
             }
         }
     }
@@ -313,47 +320,48 @@ impl SourceRuleOperation {
 }
 
 impl HasSchemaPart for SourceRuleOperation {
-    fn schema_part(&self) -> TokenStream {
+    fn schema_part(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
         match self {
             Self::LengthRangeInclusive { min, max } => {
-                let min = min.schema_part();
-                let max = max.schema_part();
+                let min = min.schema_part(paths);
+                let max = max.schema_part(paths);
                 quote! {
-                    ::icydb_model::node::SourceRuleAuthoringOperation::LengthRangeInclusive {
+                    #model::node::SourceRuleAuthoringOperation::LengthRangeInclusive {
                         min: #min,
                         max: #max,
                     }
                 }
             }
             Self::MultipleOf { divisor } => {
-                let divisor = divisor.schema_part();
+                let divisor = divisor.schema_part(paths);
                 quote! {
-                    ::icydb_model::node::SourceRuleAuthoringOperation::MultipleOf {
+                    #model::node::SourceRuleAuthoringOperation::MultipleOf {
                         divisor: #divisor,
                     }
                 }
             }
             Self::NumericMaximumInclusive { value } => {
-                let value = value.schema_part();
+                let value = value.schema_part(paths);
                 quote! {
-                    ::icydb_model::node::SourceRuleAuthoringOperation::NumericMaximumInclusive {
+                    #model::node::SourceRuleAuthoringOperation::NumericMaximumInclusive {
                         value: #value,
                     }
                 }
             }
             Self::NumericMinimumInclusive { value } => {
-                let value = value.schema_part();
+                let value = value.schema_part(paths);
                 quote! {
-                    ::icydb_model::node::SourceRuleAuthoringOperation::NumericMinimumInclusive {
+                    #model::node::SourceRuleAuthoringOperation::NumericMinimumInclusive {
                         value: #value,
                     }
                 }
             }
             Self::NumericRangeInclusive { min, max } => {
-                let min = min.schema_part();
-                let max = max.schema_part();
+                let min = min.schema_part(paths);
+                let max = max.schema_part(paths);
                 quote! {
-                    ::icydb_model::node::SourceRuleAuthoringOperation::NumericRangeInclusive {
+                    #model::node::SourceRuleAuthoringOperation::NumericRangeInclusive {
                         min: #min,
                         max: #max,
                     }
@@ -397,13 +405,14 @@ impl TypeNormalizer {
 }
 
 impl HasSchemaPart for TypeNormalizer {
-    fn schema_part(&self) -> TokenStream {
-        let path = quote_one(&self.path, to_path);
-        let args = &self.args.schema_part();
+    fn schema_part(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
+        let path = quote_one(&self.path, |value| to_path(value, paths));
+        let args = &self.args.schema_part(paths);
 
         // quote
         quote! {
-            ::icydb_model::node::TypeNormalizer::new(#path, #args)
+            #model::node::TypeNormalizer::new(#path, #args)
         }
     }
 }
@@ -434,13 +443,14 @@ impl TypeValidator {
 }
 
 impl HasSchemaPart for TypeValidator {
-    fn schema_part(&self) -> TokenStream {
-        let path = quote_one(&self.path, to_path);
-        let args = &self.args.schema_part();
+    fn schema_part(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
+        let path = quote_one(&self.path, |value| to_path(value, paths));
+        let args = &self.args.schema_part(paths);
 
         // quote
         quote! {
-            ::icydb_model::node::TypeValidator::new(#path, #args)
+            #model::node::TypeValidator::new(#path, #args)
         }
     }
 }

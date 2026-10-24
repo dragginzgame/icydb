@@ -1,6 +1,8 @@
 //! Conservative pair eligibility, retained operands and conjunction reductions.
 
-use super::simplify_and_compare_constraints;
+use super::{
+    ComparePairSimplification, simplify_and_compare_constraints, simplify_compare_pair_for_and,
+};
 use crate::{
     db::predicate::{CoercionId, CompareOp, ComparePredicate, Predicate, normalize},
     types::Decimal,
@@ -378,5 +380,141 @@ fn integer_constraint_triples_preserve_semantics_and_canonical_idempotence() {
                 assert_eq!(normalize(actual.clone()), actual);
             }
         }
+    }
+}
+
+// Retain the former traversal as a test oracle for exact operand identity/order,
+// not just logical equivalence. Pair classification stays with its one owner.
+fn simplify_with_full_restart_reference(mut predicates: Vec<Predicate>) -> Option<Vec<Predicate>> {
+    // Earlier pairs are settled while their surviving operands are unchanged.
+    // Deletion cannot make those pairs reducible; only replacement invalidates
+    // that proof and requires a full restart to preserve first-pair precedence.
+    let mut i = 0;
+    'left: while i < predicates.len() {
+        // Only Compare/Compare pairs can reduce. Keep other children in place,
+        // but do not scan their suffix; removals/restarts recheck the new left.
+        if !matches!(&predicates[i], Predicate::Compare(_)) {
+            i += 1;
+            continue;
+        }
+        let mut j = i.saturating_add(1);
+        while j < predicates.len() {
+            let simplification = match (&predicates[i], &predicates[j]) {
+                (Predicate::Compare(left), Predicate::Compare(right))
+                    if left.field == right.field && left.coercion == right.coercion =>
+                {
+                    simplify_compare_pair_for_and(left, right)
+                }
+                _ => ComparePairSimplification::NoChange,
+            };
+            match simplification {
+                ComparePairSimplification::NoChange => j += 1,
+                ComparePairSimplification::Contradiction => return None,
+                ComparePairSimplification::KeepFirst => {
+                    // The next right operand shifts into this same position.
+                    predicates.remove(j);
+                }
+                ComparePairSimplification::KeepSecond => {
+                    // Visit the new left row, without revisiting settled rows.
+                    predicates.remove(i);
+                    continue 'left;
+                }
+                ComparePairSimplification::ReplaceFirst(replacement) => {
+                    // Classification proved this is a comparison. Only its
+                    // operator changes; keep the owned operand and metadata.
+                    if let Predicate::Compare(compare) = &mut predicates[i] {
+                        compare.op = replacement;
+                    }
+                    predicates.remove(j);
+                    i = 0;
+                    continue 'left;
+                }
+                ComparePairSimplification::ReplaceSecond(replacement) => {
+                    if let Predicate::Compare(compare) = &mut predicates[j] {
+                        compare.op = replacement;
+                    }
+                    predicates.remove(i);
+                    i = 0;
+                    continue 'left;
+                }
+            }
+        }
+        i += 1;
+    }
+
+    Some(predicates)
+}
+
+#[test]
+fn replacement_order_matches_restart_reference() {
+    let numeric = |op, value| {
+        Predicate::Compare(ComparePredicate::with_coercion(
+            "rank",
+            op,
+            value,
+            CoercionId::NumericWiden,
+        ))
+    };
+    let cases = [
+        compare("rank", CompareOp::Gte, 1),
+        compare("rank", CompareOp::Lte, 1),
+        compare("rank", CompareOp::Gte, 2),
+        compare("rank", CompareOp::Lte, 2),
+        compare("rank", CompareOp::Eq, 1),
+        compare("rank", CompareOp::Ne, 1),
+        compare("rank", CompareOp::Gt, 1),
+        compare("rank", CompareOp::Lt, 2),
+        compare("other", CompareOp::Gte, 1),
+        compare("other", CompareOp::Lte, 1),
+        numeric(CompareOp::Gte, Value::Decimal(Decimal::new(10, 1))),
+        numeric(CompareOp::Lte, Value::Nat64(1)),
+        numeric(CompareOp::Eq, Value::Int64(1)),
+        Predicate::eq("rank".into(), Value::Text("incomparable".into())),
+        Predicate::eq("rank".into(), Value::Null),
+        Predicate::eq("rank".into(), Value::Bool(true)),
+        Predicate::IsNull {
+            field: "rank".into(),
+        },
+        Predicate::in_("rank".into(), vec![Value::Int64(1)]),
+    ];
+    // Four operands include two independent replacements, either retained side,
+    // contradictions, duplicate representations and shifted prefix positions.
+    for encoded in 0..cases.len().pow(4) {
+        let mut remaining = encoded;
+        let input = (0..4)
+            .map(|_| {
+                let predicate = cases[remaining % cases.len()].clone();
+                remaining /= cases.len();
+                predicate
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            simplify_and_compare_constraints(input.clone()),
+            simplify_with_full_restart_reference(input.clone()),
+            "input: {input:?}",
+        );
+    }
+}
+
+#[test]
+fn replacements_preserve_large_settled_prefixes() {
+    for lower_first in [false, true] {
+        let prefix = (0..1_200)
+            .map(|i| compare("filler", CompareOp::Ne, i))
+            .collect::<Vec<_>>();
+        let mut input = prefix.clone();
+        let mut expected = prefix;
+        for field in 0..30 {
+            let field = format!("rank_{field}");
+            let lower = compare(&field, CompareOp::Gte, 7);
+            let upper = compare(&field, CompareOp::Lte, 7);
+            input.extend(if lower_first {
+                [lower, upper]
+            } else {
+                [upper, lower]
+            });
+            expected.push(compare(&field, CompareOp::Eq, 7));
+        }
+        assert_eq!(simplify_and_compare_constraints(input), Some(expected));
     }
 }

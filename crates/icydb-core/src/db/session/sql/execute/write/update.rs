@@ -298,6 +298,7 @@ impl<C: CanisterKind> DbSession<C> {
             return Ok(fixed_patch.clone());
         }
         let mut values = expression_values.iter();
+        let mut fixed = fixed_patch.entries().iter();
         let mut patch = AcceptedMutationIntentPatch::new();
         for assignment in &statement.assignments {
             // Retain authored order even when a field occurs more than once.
@@ -317,27 +318,14 @@ impl<C: CanisterKind> DbSession<C> {
                         input,
                     )?
                 }
-                SqlWriteValue::Literal(value) => {
-                    let input = sql_write_input_for_accepted_field(
-                        descriptor,
-                        assignment.field.as_str(),
-                        value,
-                    )?;
-                    sql_write_patch_set_accepted_field(
-                        descriptor,
-                        patch,
-                        assignment.field.as_str(),
-                        input,
-                    )?
+                SqlWriteValue::Literal(_) | SqlWriteValue::Default => {
+                    // Fixed intents retain occurrence order, including duplicate fields.
+                    // Interleave them with expression results rather than re-lowering SQL.
+                    patch.append(fixed.next().ok_or_else(QueryError::invariant)?.clone())
                 }
-                SqlWriteValue::Default => sql_write_patch_set_update_default(
-                    descriptor,
-                    patch,
-                    assignment.field.as_str(),
-                )?,
             };
         }
-        if values.next().is_some() {
+        if values.next().is_some() || fixed.next().is_some() {
             return Err(QueryError::invariant());
         }
         Ok(patch)

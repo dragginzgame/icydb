@@ -14,6 +14,7 @@ use reports::{
     render_show_memory_lines, render_show_relations_lines, render_show_stores_lines,
     render_show_stores_verbose_lines, render_sql_ddl_lines,
 };
+use std::borrow::Cow;
 
 // Keep successful command output visually isolated so the next prompt or shell
 // continuation appears after one blank separator line.
@@ -29,7 +30,7 @@ pub(super) fn finalize_successful_command_output(rendered: &str) -> String {
 /// Render this payload into deterministic shell-friendly lines.
 #[must_use]
 pub(crate) fn render_lines(result: &SqlQueryResult) -> Vec<String> {
-    match result {
+    let mut lines = match result {
         SqlQueryResult::Count { entity, row_count } => {
             render_count_lines(entity.as_str(), *row_count)
         }
@@ -92,7 +93,16 @@ pub(crate) fn render_lines(result: &SqlQueryResult) -> Vec<String> {
             }
             lines
         }
+    };
+    // Tables already escape cells before measuring widths. Apply the same
+    // idempotent policy to report metadata and preserve only owned line breaks.
+    for line in &mut lines {
+        if let Cow::Owned(escaped) = ic_host_text::escape::terminal_text(line) {
+            *line = escaped;
+        }
     }
+
+    lines
 }
 
 /// Render this payload into one newline-separated display string.

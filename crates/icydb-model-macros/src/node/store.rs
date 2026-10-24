@@ -193,16 +193,17 @@ impl HasSchema for Store {
 }
 
 impl HasSchemaPart for Store {
-    fn schema_part(&self) -> TokenStream {
-        let def = &self.def.schema_part();
-        let canister = quote_one(&self.canister, to_path);
+    fn schema_part(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
+        let def = &self.def.schema_part(paths);
+        let canister = quote_one(&self.canister, |value| to_path(value, paths));
         match &self.storage {
             ParsedStoreStorage::Heap(_) => {
                 quote! {
-                    ::icydb_model::node::Store::new_heap(
+                    #model::node::Store::new_heap(
                         #def,
                         #canister,
-                        ::icydb_model::node::StoreHeapConfig::new(),
+                        #model::node::StoreHeapConfig::new(),
                     )
                 }
             }
@@ -210,10 +211,10 @@ impl HasSchemaPart for Store {
                 let key = &journaled.key;
 
                 quote! {
-                    ::icydb_model::node::Store::new_journaled(
+                    #model::node::Store::new_journaled(
                         #def,
                         #canister,
-                        ::icydb_model::node::StoreJournaledMemoryConfig::new(
+                        #model::node::StoreJournaledMemoryConfig::new(
                             #key,
                         ),
                     )
@@ -235,7 +236,7 @@ impl HasTraits for Store {
 }
 
 impl HasType for Store {
-    fn type_part(&self) -> TokenStream {
+    fn type_part(&self, __paths: &CratePaths) -> TokenStream {
         let ident = self.def.ident();
 
         quote! {
@@ -244,9 +245,11 @@ impl HasType for Store {
     }
 }
 
-impl ToTokens for Store {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        tokens.extend(self.all_tokens());
+impl Store {
+    pub(crate) fn generate_tokens(&self, paths: &CratePaths) -> TokenStream {
+        let mut tokens = TokenStream::new();
+        tokens.extend(self.all_tokens(paths));
+        tokens
     }
 }
 

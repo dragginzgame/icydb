@@ -639,42 +639,45 @@ fn scalar_candidate_inspection_reservation(
         .and_then(|steps| steps.checked_add(1))
         .ok_or_else(InternalError::query_executor_invariant)?;
 
-    Ok(PageWork::one(
-        DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
-        access_entries,
-    )
-    .merge(PageWork::one(
-        DiagnosticExecutionBudgetResource::RowsVisited,
-        1,
-    ))
-    .merge(PageWork::one(
-        DiagnosticExecutionBudgetResource::StoredBytesRead,
-        access_and_row_bytes,
-    ))
-    .merge(PageWork::one(
-        DiagnosticExecutionBudgetResource::PredicateExpressionSteps,
-        predicate_steps,
-    ))
-    .merge(PageWork::one(
-        DiagnosticExecutionBudgetResource::NestedValueSteps,
-        MAX_SCALAR_ROW_NESTED_STEPS,
-    ))
-    .merge(PageWork::one(
-        DiagnosticExecutionBudgetResource::DecodedBytes,
-        access_and_row_bytes,
-    ))
-    .merge(PageWork::one(
-        DiagnosticExecutionBudgetResource::MaterializedBytes,
-        row_bytes,
-    ))
-    .merge(PageWork::one(
-        DiagnosticExecutionBudgetResource::CursorSteps,
-        cursor_steps,
-    ))
-    .merge(PageWork::one(
-        DiagnosticExecutionBudgetResource::TemporaryBytes,
-        index_bytes,
-    )))
+    // Every resource occurs once: populate its demand directly instead of
+    // composing whole resource vectors for these independent amounts.
+    let mut work = PageWork::empty();
+    for (resource, amount) in [
+        (
+            DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+            access_entries,
+        ),
+        (DiagnosticExecutionBudgetResource::RowsVisited, 1),
+        (
+            DiagnosticExecutionBudgetResource::StoredBytesRead,
+            access_and_row_bytes,
+        ),
+        (
+            DiagnosticExecutionBudgetResource::PredicateExpressionSteps,
+            predicate_steps,
+        ),
+        (
+            DiagnosticExecutionBudgetResource::NestedValueSteps,
+            MAX_SCALAR_ROW_NESTED_STEPS,
+        ),
+        (
+            DiagnosticExecutionBudgetResource::DecodedBytes,
+            access_and_row_bytes,
+        ),
+        (
+            DiagnosticExecutionBudgetResource::MaterializedBytes,
+            row_bytes,
+        ),
+        (DiagnosticExecutionBudgetResource::CursorSteps, cursor_steps),
+        (
+            DiagnosticExecutionBudgetResource::TemporaryBytes,
+            index_bytes,
+        ),
+    ] {
+        work.amounts[resource_index(resource)] = amount;
+    }
+
+    Ok(work)
 }
 
 const fn page_envelope_identity(limits: &[u64; RESOURCE_COUNT]) -> u64 {
@@ -717,6 +720,46 @@ mod tests {
         DiagnosticExecutionLane::TrustedRead,
         0x2210_0007_0000_0001,
     );
+
+    #[test]
+    fn candidate_reservation_preserves_all_resource_amounts_and_overflow_rejection() {
+        use DiagnosticExecutionBudgetResource as Resource;
+
+        for bound in [0, 1, 64, 1_000] {
+            let work = scalar_candidate_inspection_reservation(bound).unwrap();
+            let entries = bound as u64;
+            let index_bytes = IndexKey::MAX_STORED_SIZE_BYTES * entries;
+            for resource in Resource::ALL {
+                let expected = match resource {
+                    Resource::KeyIndexEntriesVisited => entries,
+                    Resource::RowsVisited => 1,
+                    Resource::StoredBytesRead | Resource::DecodedBytes => {
+                        index_bytes + u64::from(MAX_ROW_BYTES)
+                    }
+                    Resource::PredicateExpressionSteps => entries + 1,
+                    Resource::NestedValueSteps => MAX_SCALAR_ROW_NESTED_STEPS,
+                    Resource::MaterializedBytes => u64::from(MAX_ROW_BYTES),
+                    Resource::CursorSteps => entries * 3 + 1,
+                    Resource::TemporaryBytes => index_bytes,
+                    _ => 0,
+                };
+                assert_eq!(
+                    work.amount(resource),
+                    expected,
+                    "{resource:?}, bound {bound}"
+                );
+            }
+        }
+        // On narrower hosts the largest usize remains representable after
+        // scaling. On 64-bit hosts this route bound must reject, not saturate.
+        if let Ok(bound) = usize::try_from(u64::MAX) {
+            let error = scalar_candidate_inspection_reservation(bound).unwrap_err();
+            let expected = InternalError::query_executor_invariant();
+            assert_eq!(error.class(), expected.class());
+            assert_eq!(error.origin(), expected.origin());
+            assert_eq!(error.diagnostic_code(), expected.diagnostic_code());
+        }
+    }
 
     #[test]
     fn production_units_reserve_one_output_row_before_cumulative_row_bytes_cross_the_envelope() {

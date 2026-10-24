@@ -32,17 +32,23 @@ pub(in crate::db::predicate) fn simplify_and_compare_constraints(
     mut predicates: Vec<Predicate>,
 ) -> Option<Vec<Predicate>> {
     // Earlier pairs are settled while their surviving operands are unchanged.
-    // Deletion cannot make those pairs reducible; only replacement invalidates
-    // that proof and requires a full restart to preserve first-pair precedence.
+    // Deletion cannot make those pairs reducible. After replacement, revisit
+    // only pairs involving the changed operand within the settled prefix, then
+    // resume at its frontier. This retains first-pair precedence without scanning
+    // every unchanged prefix pair again for each equal-bound collapse.
+    let mut revisit = None;
     let mut i = 0;
     'left: while i < predicates.len() {
+        if revisit.is_some_and(|(frontier, _)| i >= frontier) {
+            revisit = None;
+        }
         // Only Compare/Compare pairs can reduce. Keep other children in place,
         // but do not scan their suffix; removals/restarts recheck the new left.
         if !matches!(&predicates[i], Predicate::Compare(_)) {
             i += 1;
             continue;
         }
-        let mut j = i.saturating_add(1);
+        let mut j = revisit.map_or_else(|| i.saturating_add(1), |(_, changed)| changed);
         while j < predicates.len() {
             let simplification = match (&predicates[i], &predicates[j]) {
                 (Predicate::Compare(left), Predicate::Compare(right))
@@ -53,15 +59,27 @@ pub(in crate::db::predicate) fn simplify_and_compare_constraints(
                 _ => ComparePairSimplification::NoChange,
             };
             match simplification {
-                ComparePairSimplification::NoChange => j += 1,
+                ComparePairSimplification::NoChange => {
+                    if revisit.is_some() {
+                        break;
+                    }
+                    j += 1;
+                }
                 ComparePairSimplification::Contradiction => return None,
                 ComparePairSimplification::KeepFirst => {
                     // The next right operand shifts into this same position.
                     predicates.remove(j);
+                    if let Some((frontier, _)) = revisit.take() {
+                        // The changed operand is gone; the original prefix
+                        // proof holds again, including pairs with its survivor.
+                        i = frontier;
+                        continue 'left;
+                    }
                 }
                 ComparePairSimplification::KeepSecond => {
                     // Visit the new left row, without revisiting settled rows.
                     predicates.remove(i);
+                    revisit = revisit.map(|(frontier, changed)| (frontier - 1, changed - 1));
                     continue 'left;
                 }
                 ComparePairSimplification::ReplaceFirst(replacement) => {
@@ -71,6 +89,7 @@ pub(in crate::db::predicate) fn simplify_and_compare_constraints(
                         compare.op = replacement;
                     }
                     predicates.remove(j);
+                    revisit = Some((i, i));
                     i = 0;
                     continue 'left;
                 }
@@ -79,6 +98,7 @@ pub(in crate::db::predicate) fn simplify_and_compare_constraints(
                         compare.op = replacement;
                     }
                     predicates.remove(i);
+                    revisit = Some((i, j - 1));
                     i = 0;
                     continue 'left;
                 }

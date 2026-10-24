@@ -63,7 +63,7 @@ if [[ "$target" == release-verify ]]; then
     printf 'validation source: %s\n' "$RELEASE_SOURCE" > "validation.$attempt.log"
     printf 'build source: %s\n' "$RELEASE_SOURCE" > "build.$attempt.evidence"
 fi
-[[ "${FIXTURE_FAIL_TARGET:-}" != "$target" ]] || exit 7
+[[ "${FIXTURE_FAIL_TARGET:-}" != "$target" ]] || exit "${FIXTURE_FAIL_STATUS:-7}"
 if [[ "${FIXTURE_DRIFT_TARGET:-}" == "$target" ]]; then
     printf '%s\n' "$FIXTURE_DRIFT_URL" > destination
 fi
@@ -131,7 +131,13 @@ case "$1" in
                 ;;
             refs/tags/*'^{commit}')
                 name="${*: -1}"; name="${name#refs/tags/}"; name="${name%\^\{commit\}}"
-                if [[ -n "${FIXTURE_TAG_COMMIT:-}" ]]; then echo "$FIXTURE_TAG_COMMIT"; elif [[ -f "tags/$name" ]]; then cat "tags/$name"; else [[ -f tag ]] || exit 1; echo "$release_sha"; fi
+                if [[ -n "${FIXTURE_TAG_COMMIT:-}" ]]; then echo "$FIXTURE_TAG_COMMIT"; elif [[ -f "tags/$name" ]]; then cat "tags/$name"; else
+                    if [[ ! -f tag ]]; then
+                        [[ " $* " == *' --quiet '* ]] || echo 'fatal: Needed a single revision' >&2
+                        exit 1
+                    fi
+                    echo "$release_sha"
+                fi
                 ;;
             refs/tags/*) [[ -f tag ]] || exit 1; if [[ -f tag-object ]]; then cat tag-object; else echo "$tag_sha"; fi ;;
             *'^{commit}')
@@ -349,6 +355,27 @@ for kind in patch minor major; do
     [[ ! -e .release-state/lock ]] || exit 1
 done
 
+# A typed busy admission after metadata preparation preserves saved validation
+# and the exact candidate. Resume rechecks admission without another full gate.
+new_fixture prepared-tool-busy
+FIXTURE_FAIL_TARGET=release-prepared-check FIXTURE_FAIL_STATUS=75 expect_failure patch origin main
+[[ "$(tail -n 1 .release-state/0.1.1.plan)" == prepare && "$(cat version)" == 0.1.1 ]]
+cp .release-state/0.1.1.plan saved-busy-plan
+cp validation.1.log saved-busy-validation
+cp build.1.evidence saved-busy-build
+cp version saved-busy-version
+[[ "$(count_event release-verify)" == 1 && "$(count_event commit)" == 0 && "$(count_event push)" == 0 ]]
+FIXTURE_FAIL_TARGET=release-prepared-check FIXTURE_FAIL_STATUS=75 expect_failure resume 0.1.1 origin main
+cmp saved-busy-plan .release-state/0.1.1.plan
+cmp saved-busy-validation validation.1.log
+cmp saved-busy-build build.1.evidence
+cmp saved-busy-version version
+bash "$ROOT/scripts/ci/run-release.sh" resume 0.1.1 origin main > resumed-output
+cmp saved-busy-validation validation.1.log
+cmp saved-busy-build build.1.evidence
+cmp saved-busy-version version
+[[ "$(count_event release-verify)" == 1 && "$(count_event commit)" == 1 && "$(count_event push)" == 1 ]]
+
 for kind in patch minor major; do
     for target in release-prepare-version release-prepared-check release-commit-check release-committed-check release-tagged-check release-push-check; do
         new_fixture "retry-$kind-$target"
@@ -527,7 +554,8 @@ echo eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee > remote-head
 bash "$ROOT/scripts/ci/run-release.sh" patch origin main > output
 [[ "$(cat version)" == 0.2.1 && "$(count_event release-verify)" == 2 && "$(count_event push)" == 1 ]] || exit 1
 
-# Committing prepared metadata must never silently select a second increment.
+# Missing earlier delivery may advance from clean committed metadata only after
+# fresh validation. Conflicting refs still refuse without changing saved intent.
 for kind in patch minor major; do
     for conflict in missing-tag lightweight local-only remote-only remote-conflict remote-failure missing-branch divergent-branch tag-outside-source; do
         new_fixture "prepare-undelivered-$kind-$conflict"
@@ -548,7 +576,7 @@ for kind in patch minor major; do
         echo cccccccccccccccccccccccccccccccccccccccc > remote-tag
         echo eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee > remote-head
         case "$conflict" in
-            missing-tag) rm tag remote-tag "tags/v$candidate" ;;
+            missing-tag) rm tag remote-tag "tags/v$candidate"; echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa > remote-head ;;
             lightweight) export FIXTURE_TAG_TYPE=commit ;;
             local-only) rm remote-tag ;;
             remote-only) rm tag "tags/v$candidate" ;;
@@ -559,6 +587,37 @@ for kind in patch minor major; do
             tag-outside-source)
                 echo ffffffffffffffffffffffffffffffffffffffff > "tags/v$candidate"
                 echo dddddddddddddddddddddddddddddddddddddddd > commits/ffffffffffffffffffffffffffffffffffffffff.tree
+                ;;
+        esac
+        case "$conflict" in
+            missing-tag|local-only|remote-only|missing-branch)
+                next="$(perl "$ROOT/scripts/ci/validate-release-inputs.pl" next-version "$candidate" "$kind")"
+                FIXTURE_FAIL_TARGET=release-verify expect_failure "$kind" origin main
+                archives=(.release-state/"$candidate".attempt.*)
+                [[ "${#archives[@]}" == 1 && ! -e ".release-state/$candidate.plan" && ! -e ".release-state/$next.plan" ]] || exit 1
+                archive_plan="${archives[0]}/$candidate.plan"
+                cmp saved-plan "$archive_plan"
+                cmp saved-validation validation.1.log
+                cmp saved-build build.1.evidence
+                [[ "$(cat version)" == "$candidate" && "$(cat head)" == eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee ]] || exit 1
+                [[ "$(count_event release-verify)" == 2 && "$(count_event release-preflight)" == 3 ]] || exit 1
+                [[ "$(count_event commit)" == 0 && "$(count_event tag)" == 0 && "$(count_event push)" == 0 ]] || exit 1
+                [[ "$(cat validation.2.log)" == 'validation source: eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' ]] || exit 1
+                grep -F "Retained preparation: version=$candidate delivery=unconfirmed plan=$archive_plan" output >/dev/null
+                if grep -F 'fatal: Needed a single revision' output; then exit 1; fi
+                if [[ "$conflict" == missing-tag || "$conflict" == remote-only ]]; then
+                    grep -F "Saved release: version=$candidate phase=prepare" output >/dev/null
+                    grep -F "No local release tag refs/tags/v$candidate" output >/dev/null
+                fi
+                cp validation.2.log failed-next-validation
+                bash "$ROOT/scripts/ci/run-release.sh" "$kind" origin main > output
+                [[ "$(cat version)" == "$next" && "$(count_event release-verify)" == 3 ]] || exit 1
+                [[ "$(count_event commit)" == 1 && "$(count_event tag)" == 1 && "$(count_event push)" == 1 ]] || exit 1
+                cmp saved-plan "$archive_plan"
+                cmp saved-validation validation.1.log
+                cmp saved-build build.1.evidence
+                cmp failed-next-validation validation.2.log
+                continue
                 ;;
         esac
         expect_failure "$kind" origin main
@@ -573,10 +632,9 @@ for kind in patch minor major; do
         archives=(.release-state/*.attempt.*)
         [[ ! -e "${archives[0]}" && ! -e .release-state/lock ]] || exit 1
         case "$conflict" in
-            missing-tag|remote-only) expected_refusal="prepared version $candidate is committed but delivery is unconfirmed" ;;
             lightweight) expected_refusal='has no valid annotated release tag' ;;
-            local-only|remote-conflict|missing-branch) expected_refusal='not confirmed at the saved destination' ;;
-            divergent-branch) expected_refusal='absent from the observed destination branch' ;;
+            remote-conflict) expected_refusal='conflicts with the observed destination tag' ;;
+            divergent-branch) expected_refusal='destination branch is not an ancestor of current HEAD' ;;
             tag-outside-source) expected_refusal='outside the saved source history' ;;
             remote-failure) expected_refusal= ;;
         esac

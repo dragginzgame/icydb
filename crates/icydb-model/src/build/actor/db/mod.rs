@@ -23,8 +23,8 @@ pub fn generate(builder: &ActorBuilder) -> TokenStream {
 
 /// Emit private SQL and accepted-schema capabilities without public methods.
 fn private_surfaces(builder: &ActorBuilder) -> TokenStream {
-    let mut sql_surface = SqlSurfaceTokens::empty();
-    let mut schema_surface = SchemaSurfaceTokens::empty();
+    let mut sql_surface = SqlSurfaceTokens::empty(builder.icydb.clone());
+    let mut schema_surface = SchemaSurfaceTokens::empty(builder.icydb.clone());
     let entities = builder.get_entities();
 
     for (_, entity) in entities {

@@ -17,10 +17,11 @@ pub struct PartialEqTrait {}
 
 impl Imp<Newtype> for PartialEqTrait {
     fn strategy(node: &Newtype) -> Option<TraitStrategy> {
+        let paths = node.def().paths();
         let primitive = node.item.primitive.as_ref()?; // bail early if no primitive
 
         let ident = &node.def.ident();
-        let prim = &crate::types::primitive_type_tokens(*primitive);
+        let prim = &crate::types::primitive_type_tokens(*primitive, paths);
         Some(TraitStrategy::from_impl(newtype_partial_eq_tokens(
             ident, prim,
         )))

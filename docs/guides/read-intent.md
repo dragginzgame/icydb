@@ -70,17 +70,27 @@ metadata availability for the application's actual tables and lifecycle.
 
 ```rust
 #[icydb::request_execution]
-fn active_users(continuation: Option<String>) -> Result<LivePage<User>, String> {
-    db!()
-        .map_err(|error| error.to_string())?
-        .query::<User>()
-        .map_err(|error| error.to_string())?
+fn active_users(
+    continuation: Option<String>,
+) -> Result<LivePage<User>, icydb::db::TypedOperationError> {
+    db!()?
+        .query::<User>()?
         .filter(User::ACTIVE.eq(true))
         .order_by(asc(User::ID))
         .execute_live_page(continuation.as_deref())
-        .map_err(|error| error.to_string())
 }
 ```
+
+Keep the handler's error structured: `TypedOperationError::Database` contains
+the complete `icydb::Error`, including its code, class, origin, numeric facts and
+optional query-field context. Do not convert it to `String` before the transport
+boundary. `TypedOperationError` itself is a Rust error, not a native Wire DTO:
+the application must explicitly map its variants to its response contract,
+preserving the database error and giving adapter failures an application-owned
+typed representation. See [diagnostic payload handling](diagnostics.md).
+For exhaustive handlers, `icydb::Error` also converts directly into
+`ExhaustiveReadError` and `TypedExhaustiveQueryError`, allowing `db!()?` without
+discarding diagnostics.
 
 This is a plain Rust handler. The application mounts it with
 `canic_icydb::wire_endpoint!` and `canic_icydb::serve_raw`, using an application-owned

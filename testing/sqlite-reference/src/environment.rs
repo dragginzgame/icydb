@@ -122,7 +122,6 @@ const REQUIRED_SQLITE_COMPILE_OPTIONS: &[&str] = &[
     "ENABLE_FTS3_PARENTHESIS",
     "ENABLE_FTS5",
     "ENABLE_LOAD_EXTENSION",
-    "ENABLE_MEMORY_MANAGEMENT",
     "ENABLE_RTREE",
     "ENABLE_STAT4",
     "HAVE_ISNAN",
@@ -138,6 +137,7 @@ const REQUIRED_SQLITE_COMPILE_OPTIONS: &[&str] = &[
     "MAX_MMAP_SIZE=0x7fff0000",
     "MAX_PAGE_COUNT=0xfffffffe",
     "MAX_PAGE_SIZE=65536",
+    "MAX_SCHEMA=10000000",
     "MAX_SQL_LENGTH=1000000000",
     "MAX_TRIGGER_DEPTH=1000",
     "MAX_VARIABLE_NUMBER=32766",
@@ -151,9 +151,9 @@ const REQUIRED_SQLITE_COMPILE_OPTIONS: &[&str] = &[
     "USE_URI",
 ];
 const REQUIRED_SQLITE_ENVIRONMENT: SqliteEnvironmentContract = SqliteEnvironmentContract {
-    version: "3.53.2",
-    version_number: 3_053_002,
-    source_id: "2026-06-03 19:12:13 d6e03d8c777cfa2d35e3b60d8ec3e0187f3e9f99d8e2ee9cac695fd6fcdf1a24",
+    version: "3.54.0",
+    version_number: 3_054_000,
+    source_id: "2026-10-09 15:46:58 be8d059e9a49089ab2dce5ed26dd87aaf598fdc5fbe0b107c0dd758464bcd5e3",
     compile_options: REQUIRED_SQLITE_COMPILE_OPTIONS,
 };
 

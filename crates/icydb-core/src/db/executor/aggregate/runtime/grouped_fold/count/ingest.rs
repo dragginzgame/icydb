@@ -15,6 +15,7 @@ use crate::{
                         find_matching_group_index_in_bucket,
                         find_matching_single_group_value_index,
                         group_key_matches_path_group_values, materialize_path_group_key,
+                        resolve_group_field_value, resolve_path_group_values,
                         stable_hash_group_values_from_row_view, stable_hash_path_group_values,
                         stable_hash_single_group_value,
                     },
@@ -121,22 +122,33 @@ impl GroupedCountState {
         group_fields: &[GroupField],
         grouped_execution_context: &mut ExecutionContext,
     ) -> Result<(), InternalError> {
+        // Keep the common single-field probe on the stack. Wider tuples retain
+        // only references, shared by hashing, collision checks and insertion.
+        let single;
+        let multiple;
+        let values: &[&Value] = if let [field] = group_fields {
+            single = [resolve_group_field_value(row_view, field)?];
+            &single
+        } else {
+            multiple = resolve_path_group_values(row_view, group_fields)?;
+            &multiple
+        };
         self.increment_borrowed_group_probe(
             grouped_execution_context,
             |groups, buckets| {
-                let hash = stable_hash_path_group_values(row_view, group_fields)?;
+                let hash = stable_hash_path_group_values(values)?;
                 let existing = if let Some(bucket) = buckets.get(&hash) {
                     find_matching_group_index_in_bucket(
                         bucket.as_slice(),
                         |index| groups.get(index).map(|(key, _)| key),
-                        |key| group_key_matches_path_group_values(key, row_view, group_fields),
+                        |key| group_key_matches_path_group_values(key, values),
                     )?
                 } else {
                     None
                 };
                 Ok((hash, existing))
             },
-            |hash| materialize_path_group_key(row_view, group_fields, hash),
+            |hash| materialize_path_group_key(values, hash),
         )
     }
 

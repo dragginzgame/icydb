@@ -182,6 +182,13 @@ impl AcceptedMutationIntentPatch {
         self
     }
 
+    /// Append an already-prepared field intent without resolving its input again.
+    #[must_use]
+    pub(in crate::db) fn append(mut self, update: AcceptedMutationFieldUpdate) -> Self {
+        self.entries.push(update);
+        self
+    }
+
     /// Borrow the ordered unresolved field intents.
     #[must_use]
     pub(in crate::db) const fn entries(&self) -> &[AcceptedMutationFieldUpdate] {

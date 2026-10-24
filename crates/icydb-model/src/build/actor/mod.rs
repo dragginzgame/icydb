@@ -48,9 +48,10 @@ fn generate_with_crate_path(canister_path: &str, icydb_crate_path: Option<&str>)
         canister.clone(),
         fragment,
         migration_plan,
+        crate_path::resolve_path(icydb_crate_path),
     );
     drop(schema);
-    let tokens = crate_path::rewrite_icydb_path(code.generate(), icydb_crate_path);
+    let tokens = code.generate();
 
     tokens.to_string()
 }
@@ -63,6 +64,7 @@ fn generate_with_crate_path(canister_path: &str, icydb_crate_path: Option<&str>)
 ///
 
 pub(crate) struct ActorBuilder {
+    pub(crate) icydb: TokenStream,
     pub(crate) schema: Arc<Schema>,
     pub(crate) canister: Canister,
     pub(crate) schema_fragment_bytes: Vec<u8>,
@@ -78,6 +80,7 @@ impl ActorBuilder {
         canister: Canister,
         fragment: icydb_schema::SchemaFragment,
         migration_plan: Option<SchemaMigrationPlan>,
+        icydb: TokenStream,
     ) -> Self {
         let schema_fragment_bytes =
             encode_schema_fragment(&fragment).expect("sealed schema fragment must encode");
@@ -98,6 +101,7 @@ impl ActorBuilder {
         let schema_submission_key = format!("generated/{}", hex_bytes(digest.as_slice()));
 
         Self {
+            icydb,
             schema,
             canister,
             schema_fragment_bytes,
@@ -113,7 +117,7 @@ impl ActorBuilder {
 
         // Emit private runtime wiring and endpoint capabilities only.
         tokens.extend(db::generate(&self));
-        tokens.extend(generate_endpoint_runtime());
+        tokens.extend(generate_endpoint_runtime(&self.icydb));
 
         quote! {
             #tokens
@@ -166,7 +170,7 @@ fn hex_bytes(bytes: &[u8]) -> String {
 
 /// Render private operational capabilities and authorization policies used by
 /// source-declared endpoint wrappers.
-fn generate_endpoint_runtime() -> TokenStream {
+fn generate_endpoint_runtime(icydb: &TokenStream) -> TokenStream {
     quote! {
         #[allow(
             unused_imports,
@@ -175,7 +179,7 @@ fn generate_endpoint_runtime() -> TokenStream {
         pub(crate) mod endpoint_handlers {
             pub(crate) use super::__icydb_endpoint_handler_schema as schema;
 
-            ::icydb::__icydb_with_sql_items! {
+            #icydb::__icydb_with_sql_items! {
                 pub(crate) use super::__icydb_endpoint_handler_fixtures_load as fixtures_load;
                 pub(crate) use super::__icydb_endpoint_handler_fixtures_reset as fixtures_reset;
                 pub(crate) use super::__icydb_endpoint_handler_sql_ddl as sql_ddl;
@@ -185,11 +189,11 @@ fn generate_endpoint_runtime() -> TokenStream {
                 pub(crate) use super::__icydb_endpoint_handler_sql_update_primary_key as sql_update_primary_key;
             }
 
-            ::icydb::__icydb_with_migration_items! {
+            #icydb::__icydb_with_migration_items! {
                 pub(crate) fn schema_migrate(
-                    command: ::icydb::db::SchemaMigrationCommand,
-                ) -> Result<::icydb::db::SchemaMigrationStatusPage, ::icydb::Error> {
-                    let session = ::icydb::db::DbSession::new(super::core_db()?);
+                    command: #icydb::db::SchemaMigrationCommand,
+                ) -> Result<#icydb::db::SchemaMigrationStatusPage, #icydb::Error> {
+                    let session = #icydb::db::DbSession::new(super::core_db()?);
                     session.migrate_generated_schema(
                         super::ICYDB_SCHEMA_FRAGMENT,
                         super::ICYDB_SCHEMA_MIGRATION_PLAN,
@@ -200,9 +204,9 @@ fn generate_endpoint_runtime() -> TokenStream {
                 }
 
                 pub(crate) fn schema_migration(
-                    request: &::icydb::db::SchemaMigrationStatusRequest,
-                ) -> Result<::icydb::db::SchemaMigrationStatusPage, ::icydb::Error> {
-                    let session = ::icydb::db::DbSession::new(super::core_db()?);
+                    request: &#icydb::db::SchemaMigrationStatusRequest,
+                ) -> Result<#icydb::db::SchemaMigrationStatusPage, #icydb::Error> {
+                    let session = #icydb::db::DbSession::new(super::core_db()?);
                     session.generated_schema_migration_status(
                         super::ICYDB_SCHEMA_FRAGMENT,
                         super::ICYDB_SCHEMA_MIGRATION_PLAN,
@@ -213,28 +217,28 @@ fn generate_endpoint_runtime() -> TokenStream {
                 }
             }
 
-            ::icydb::__icydb_with_metrics_items! {
+            #icydb::__icydb_with_metrics_items! {
                 pub(crate) fn metrics(
-                ) -> Result<::icydb::metrics::MetricsReport, ::icydb::Error> {
+                ) -> Result<#icydb::metrics::MetricsReport, #icydb::Error> {
                     // The read-only startup boundary qualifies and selects the
                     // current database without requiring ordinary-work readiness.
                     super::startup_state().map_err(|failure| failure.error().clone())?;
-                    ::icydb::metrics::metrics_report()
+                    #icydb::metrics::metrics_report()
                 }
 
                 #[allow(
                     clippy::unnecessary_wraps,
                     reason = "generated endpoint handlers retain one uniform fallible dispatch contract"
                 )]
-                pub(crate) fn metrics_reset() -> Result<(), ::icydb::Error> {
-                    ::icydb::metrics::metrics_reset_all();
+                pub(crate) fn metrics_reset() -> Result<(), #icydb::Error> {
+                    #icydb::metrics::metrics_reset_all();
                     Ok(())
                 }
             }
 
             pub(crate) fn snapshot(
-            ) -> Result<::icydb::db::StorageReport, ::icydb::Error> {
-                ::icydb::__macro::execute_generated_storage_report(&super::db()?)
+            ) -> Result<#icydb::db::StorageReport, #icydb::Error> {
+                #icydb::__macro::execute_generated_storage_report(&super::db()?)
             }
         }
     }
@@ -264,6 +268,7 @@ mod tests {
             icydb_schema::SchemaFragment::try_new(Vec::new(), Vec::new())
                 .expect("empty test fragment should admit"),
             None,
+            quote::quote!(::icydb),
         )
     }
 
@@ -294,12 +299,13 @@ mod tests {
             icydb_schema::SchemaFragment::try_new(Vec::new(), Vec::new())
                 .expect("empty test fragment should admit"),
             Some(migration),
+            quote::quote!(::icydb),
         )
     }
 
     #[test]
     fn generated_endpoint_runtime_is_private_and_contains_no_export_attributes() {
-        let surface = compact_tokens(super::generate_endpoint_runtime());
+        let surface = compact_tokens(super::generate_endpoint_runtime(&quote::quote!(::icydb)));
 
         for handler in [
             "metrics",
@@ -353,5 +359,28 @@ mod tests {
         assert!(without_surface.contains("apply_generated_schema_fragment"));
         assert!(!without_surface.contains("ensure_generated_schema_fragment"));
         assert!(with_surface.contains("ensure_generated_schema_fragment"));
+    }
+    #[test]
+    fn renamed_runtime_path_is_used_by_every_actor_surface() {
+        let mut builder = actor_builder_with_migration();
+        builder.icydb = super::crate_path::resolve_path(Some("::runtime_api"));
+        let tokens = builder.generate();
+        syn::parse2::<syn::File>(tokens.clone()).expect("renamed actor remains valid Rust");
+        let tokens = compact_tokens(tokens);
+        for surface in [
+            "::runtime_api::Error",
+            "::runtime_api::db::DbSession",
+            "::runtime_api::__icydb_with_sql_items",
+            "::runtime_api::__icydb_with_migration_items",
+        ] {
+            assert!(
+                tokens.contains(surface),
+                "missing runtime-owned surface {surface}"
+            );
+        }
+        assert!(
+            tokens.contains("icydb.test"),
+            "memory identity is authored data"
+        );
     }
 }

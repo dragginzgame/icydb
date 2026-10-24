@@ -48,15 +48,16 @@ impl HasSchema for Set {
 }
 
 impl HasSchemaPart for Set {
-    fn schema_part(&self) -> TokenStream {
-        let def = self.def.schema_part();
+    fn schema_part(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
+        let def = self.def.schema_part(paths);
         let name = self.current_name_literal(self.name.as_ref());
-        let item = self.item.schema_part();
-        let ty = self.ty.schema_part();
+        let item = self.item.schema_part(paths);
+        let ty = self.ty.schema_part(paths);
 
         // quote
         quote! {
-            ::icydb_model::node::Set::new(#def, #name, #item, #ty)
+            #model::node::Set::new(#def, #name, #item, #ty)
         }
     }
 }
@@ -64,9 +65,9 @@ impl HasSchemaPart for Set {
 impl_collection_has_traits!(Set, Set);
 
 impl HasType for Set {
-    fn type_part(&self) -> TokenStream {
+    fn type_part(&self, paths: &CratePaths) -> TokenStream {
         let ident = self.def.ident();
-        let item = &self.item.type_expr();
+        let item = &self.item.type_expr(paths);
 
         quote! {
             #[repr(transparent)]
@@ -75,13 +76,15 @@ impl HasType for Set {
     }
 }
 
-impl ToTokens for Set {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        let base = self.all_tokens();
-        let typed_adapter = crate::node::typed_adapter::set_adapter_tokens(self);
+impl Set {
+    pub(crate) fn generate_tokens(&self, paths: &CratePaths) -> TokenStream {
+        let mut tokens = TokenStream::new();
+        let base = self.all_tokens(paths);
+        let typed_adapter = crate::node::typed_adapter::set_adapter_tokens(self, paths);
         tokens.extend(quote! {
             #base
             #typed_adapter
         });
+        tokens
     }
 }

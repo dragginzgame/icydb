@@ -52,15 +52,16 @@ impl HasSchema for Tuple {
 }
 
 impl HasSchemaPart for Tuple {
-    fn schema_part(&self) -> TokenStream {
-        let def = self.def.schema_part();
+    fn schema_part(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
+        let def = self.def.schema_part(paths);
         let name = self.current_name_literal(self.name.as_ref());
-        let values = quote_slice(&self.values, Value::schema_part);
-        let ty = &self.ty.schema_part();
+        let values = quote_slice(&self.values, |value| Value::schema_part(value, paths));
+        let ty = &self.ty.schema_part(paths);
 
         // quote
         quote! {
-            ::icydb_model::node::Tuple::new(#def, #name, #values, #ty)
+            #model::node::Tuple::new(#def, #name, #values, #ty)
         }
     }
 }
@@ -85,9 +86,12 @@ impl HasTraits for Tuple {
 }
 
 impl HasType for Tuple {
-    fn type_part(&self) -> TokenStream {
+    fn type_part(&self, paths: &CratePaths) -> TokenStream {
         let ident = self.def.ident();
-        let values = self.values.iter().map(HasTypeExpr::type_expr);
+        let values = self
+            .values
+            .iter()
+            .map(|value| HasTypeExpr::type_expr(value, paths));
 
         quote! {
             pub struct #ident(#(pub #values),*);
@@ -95,13 +99,15 @@ impl HasType for Tuple {
     }
 }
 
-impl ToTokens for Tuple {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        let base = self.all_tokens();
-        let typed_adapter = crate::node::typed_adapter::tuple_adapter_tokens(self);
+impl Tuple {
+    pub(crate) fn generate_tokens(&self, paths: &CratePaths) -> TokenStream {
+        let mut tokens = TokenStream::new();
+        let base = self.all_tokens(paths);
+        let typed_adapter = crate::node::typed_adapter::tuple_adapter_tokens(self, paths);
         tokens.extend(quote! {
             #base
             #typed_adapter
         });
+        tokens
     }
 }

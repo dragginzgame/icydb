@@ -17,20 +17,22 @@ pub struct NumericValueTrait {}
 
 impl Imp<Newtype> for NumericValueTrait {
     fn strategy(node: &Newtype) -> Option<TraitStrategy> {
-        let item = &node.item.type_expr();
+        let paths = node.def().paths();
+        let model = &paths.model;
+        let item = &node.item.type_expr(paths);
 
         Some(TraitStrategy::from_impl(
             Implementor::new(node.def(), TraitKind::NumericValue)
                 .set_tokens(quote! {
-                    fn try_to_decimal(&self) -> Option<::icydb_model::schema::Decimal> {
-                        ::icydb_model::schema::NumericValue::try_to_decimal(&self.0)
+                    fn try_to_decimal(&self) -> Option<#model::schema::Decimal> {
+                        #model::schema::NumericValue::try_to_decimal(&self.0)
                     }
 
-                    fn try_from_decimal(value: ::icydb_model::schema::Decimal) -> Option<Self> {
-                        <#item as ::icydb_model::schema::NumericValue>::try_from_decimal(value).map(Self)
+                    fn try_from_decimal(value: #model::schema::Decimal) -> Option<Self> {
+                        <#item as #model::schema::NumericValue>::try_from_decimal(value).map(Self)
                     }
                 })
-                .to_token_stream(),
+                .impl_tokens(paths),
         ))
     }
 }

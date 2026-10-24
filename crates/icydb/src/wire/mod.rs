@@ -1,7 +1,10 @@
 //! Current raw request/reply contracts for generated IcyDB endpoints.
 //!
-//! Endpoint identities bind canonical IC Wire envelopes to the maintained native
+//! Endpoint identities bind bounded IC Wire envelopes to the maintained native
 //! payloads. Database storage codecs and host-owned RPC contracts are separate.
+//! Decoding checks framing and bounded primitive representations, but collection
+//! visitors may normalize input. Keep original frames for exact retries, hashes
+//! and signatures; decoded values are not byte-identity evidence.
 
 use icydb_schema::wire::limits;
 use serde::{Serialize, de::DeserializeOwned};
@@ -121,19 +124,18 @@ impl Endpoint {
     pub fn encode_request<T: Serialize>(self, value: T) -> Result<Vec<u8>, Error> {
         ic_wire::native::encode_request(self.id(), &value, limits(MAX_REQUEST_BYTES))
     }
-    /// Admit identity, direction, resources and canonical request bytes.
-    pub fn decode_request<T: Serialize + DeserializeOwned>(self, bytes: &[u8]) -> Result<T, Error> {
+    /// Admit identity, direction, resources and request payload primitives.
+    /// Collection ordering and uniqueness remain the caller's semantic contract.
+    pub fn decode_request<T: DeserializeOwned>(self, bytes: &[u8]) -> Result<T, Error> {
         ic_wire::native::decode_request(self.id(), bytes, limits(MAX_REQUEST_BYTES))
     }
     /// Encode one canonical response for this endpoint.
     pub fn encode_response<T: Serialize>(self, value: T) -> Result<Vec<u8>, Error> {
         ic_wire::native::encode_response(self.id(), &value, limits(MAX_REPLY_BYTES))
     }
-    /// Admit identity, direction, resources and canonical response bytes.
-    pub fn decode_response<T: Serialize + DeserializeOwned>(
-        self,
-        bytes: &[u8],
-    ) -> Result<T, Error> {
+    /// Admit identity, direction, resources and response payload primitives.
+    /// Retain received bytes when exact frame identity is needed after decoding.
+    pub fn decode_response<T: DeserializeOwned>(self, bytes: &[u8]) -> Result<T, Error> {
         ic_wire::native::decode_response(self.id(), bytes, limits(MAX_REPLY_BYTES))
     }
 }
@@ -150,15 +152,13 @@ pub fn encode_post_upgrade_arguments<T: Serialize>(arguments: T) -> Result<Vec<u
 
 /// Decode arguments for a generated composed init hook before bootstrap.
 #[doc(hidden)]
-pub fn decode_init_arguments<T: Serialize + DeserializeOwned>(bytes: &[u8]) -> Result<T, Error> {
+pub fn decode_init_arguments<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, Error> {
     ic_wire::native::decode_request(ID_BASE + 13, bytes, limits(MAX_REQUEST_BYTES))
 }
 
 /// Decode arguments for a generated composed post-upgrade hook before bootstrap.
 #[doc(hidden)]
-pub fn decode_post_upgrade_arguments<T: Serialize + DeserializeOwned>(
-    bytes: &[u8],
-) -> Result<T, Error> {
+pub fn decode_post_upgrade_arguments<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, Error> {
     ic_wire::native::decode_request(ID_BASE + 14, bytes, limits(MAX_REQUEST_BYTES))
 }
 

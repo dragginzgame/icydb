@@ -49,20 +49,21 @@ impl Value {
 }
 
 impl HasSchemaPart for Value {
-    fn schema_part(&self) -> TokenStream {
-        let cardinality = &self.cardinality();
-        let item = &self.item.schema_part();
+    fn schema_part(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
+        let cardinality = self.cardinality().generated_tokens(paths);
+        let item = &self.item.schema_part(paths);
 
         // quote
         quote!(
-            ::icydb_model::node::Value::new(#cardinality, #item)
+            #model::node::Value::new(#cardinality, #item)
         )
     }
 }
 
 impl HasTypeExpr for Value {
-    fn type_expr(&self) -> TokenStream {
-        let item = &self.item.type_expr();
+    fn type_expr(&self, paths: &CratePaths) -> TokenStream {
+        let item = &self.item.type_expr(paths);
 
         match self.cardinality() {
             Cardinality::One => quote!(#item),

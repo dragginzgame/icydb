@@ -20,7 +20,8 @@ pub struct DefaultTrait {}
 
 impl Imp<Entity> for DefaultTrait {
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
-        Some(default_strategy_entity(node))
+        let paths = node.def().paths();
+        Some(default_strategy_entity(node, paths))
     }
 }
 
@@ -30,6 +31,7 @@ impl Imp<Entity> for DefaultTrait {
 
 impl Imp<Enum> for DefaultTrait {
     fn strategy(node: &Enum) -> Option<TraitStrategy> {
+        let paths = node.def().paths();
         let Some(default_variant) = node.default_variant() else {
             return Some(TraitStrategy::from_impl(quote!(compile_error!(
                 "default variant is required for Default"
@@ -39,7 +41,7 @@ impl Imp<Enum> for DefaultTrait {
 
         let mut implementor = Implementor::new(node.def(), TraitKind::Default);
         let inner = if let Some(value) = &default_variant.value {
-            let value_type = value.type_expr();
+            let value_type = value.type_expr(paths);
             implementor = implementor.add_impl_constraint(quote!(#value_type: Default));
             quote!(Self::#variant_ident(Default::default()))
         } else {
@@ -52,7 +54,7 @@ impl Imp<Enum> for DefaultTrait {
             }
         };
 
-        let tokens = implementor.set_tokens(q).to_token_stream();
+        let tokens = implementor.set_tokens(q).impl_tokens(paths);
 
         Some(TraitStrategy::from_impl(tokens))
     }
@@ -64,28 +66,29 @@ impl Imp<Enum> for DefaultTrait {
 
 impl Imp<Record> for DefaultTrait {
     fn strategy(node: &Record) -> Option<TraitStrategy> {
-        Some(record_default_strategy(&node.def, &node.fields))
+        let paths = node.def().paths();
+        Some(record_default_strategy(&node.def, &node.fields, paths))
     }
 }
 
 // Explicit record defaults derive only when every field uses its implicit value.
-fn record_default_strategy(def: &Def, fields: &FieldList) -> TraitStrategy {
+fn record_default_strategy(def: &Def, fields: &FieldList, paths: &CratePaths) -> TraitStrategy {
     if fields.iter().all(Field::default_matches_implicit_default) {
         return TraitStrategy::from_derive(TraitKind::Default);
     }
 
     let Some(assignments) = fields
         .iter()
-        .map(record_default_assignment)
+        .map(|value| record_default_assignment(value, paths))
         .collect::<Option<Vec<_>>>()
     else {
         return default_generation_invariant_error(def);
     };
 
-    struct_default_strategy(def, assignments)
+    struct_default_strategy(def, assignments, paths)
 }
 
-fn default_strategy_entity(node: &Entity) -> TraitStrategy {
+fn default_strategy_entity(node: &Entity, paths: &CratePaths) -> TraitStrategy {
     let fields = &node.fields;
     if fields.iter().all(Field::default_matches_implicit_default) {
         return TraitStrategy::from_derive(TraitKind::Default);
@@ -93,13 +96,13 @@ fn default_strategy_entity(node: &Entity) -> TraitStrategy {
 
     let Some(assignments) = fields
         .iter()
-        .map(|field| entity_default_assignment(field, node.primary_key.fields()))
+        .map(|field| entity_default_assignment(field, node.primary_key.fields(), paths))
         .collect::<Option<Vec<_>>>()
     else {
         return default_generation_invariant_error(node.def());
     };
 
-    struct_default_strategy(node.def(), assignments)
+    struct_default_strategy(node.def(), assignments, paths)
 }
 
 ///
@@ -108,6 +111,7 @@ fn default_strategy_entity(node: &Entity) -> TraitStrategy {
 
 impl Imp<Newtype> for DefaultTrait {
     fn strategy(node: &Newtype) -> Option<TraitStrategy> {
+        let paths = node.def().paths();
         let Some(default_expr) = &node.default else {
             return Some(default_generation_invariant_error(node.def()));
         };
@@ -120,7 +124,7 @@ impl Imp<Newtype> for DefaultTrait {
 
         let tokens = Implementor::new(node.def(), TraitKind::Default)
             .set_tokens(q)
-            .to_token_stream();
+            .impl_tokens(paths);
 
         Some(TraitStrategy::from_impl(tokens))
     }
@@ -132,9 +136,10 @@ impl Imp<Newtype> for DefaultTrait {
 
 impl Imp<Tuple> for DefaultTrait {
     fn strategy(node: &Tuple) -> Option<TraitStrategy> {
+        let paths = node.def().paths();
         let mut implementor = Implementor::new(node.def(), TraitKind::Default);
         for value in &node.values {
-            let value_type = value.type_expr();
+            let value_type = value.type_expr(paths);
             implementor = implementor.add_impl_constraint(quote!(#value_type: Default));
         }
         let values = node.values.iter().map(|_| quote!(Default::default()));
@@ -144,7 +149,7 @@ impl Imp<Tuple> for DefaultTrait {
                     Self(#(#values),*)
                 }
             })
-            .to_token_stream();
+            .impl_tokens(paths);
 
         Some(TraitStrategy::from_impl(tokens))
     }
@@ -154,10 +159,11 @@ pub(crate) fn validate_struct_default_request(
     node_kind: &str,
     def: &Def,
     fields: &FieldList,
+    paths: &CratePaths,
 ) -> Result<(), DarlingError> {
     let missing: Vec<_> = fields
         .iter()
-        .filter(|field| !field.has_rust_default())
+        .filter(|field| !field.has_rust_default(paths))
         .map(|field| format!("`{}`", field.name))
         .collect();
     if missing.is_empty() {
@@ -181,6 +187,7 @@ pub(crate) fn validate_struct_default_request(
 fn struct_default_strategy(
     def: &Def,
     assignments: impl IntoIterator<Item = TokenStream>,
+    paths: &CratePaths,
 ) -> TraitStrategy {
     let assignments: Vec<_> = assignments.into_iter().collect();
     let tokens = Implementor::new(def, TraitKind::Default)
@@ -189,24 +196,28 @@ fn struct_default_strategy(
                 Self { #(#assignments),* }
             }
         })
-        .to_token_stream();
+        .impl_tokens(paths);
 
     TraitStrategy::from_impl(tokens)
 }
 
 // Record fields lower only through schema-surface Rust construction values.
-fn record_default_assignment(field: &Field) -> Option<TokenStream> {
+fn record_default_assignment(field: &Field, paths: &CratePaths) -> Option<TokenStream> {
     let ident = &field.name;
-    let expr = field.rust_default_expr()?;
+    let expr = field.rust_default_expr(paths)?;
 
     Some(quote!(#ident: #expr))
 }
 
 // Entity primary keys keep their key-conversion behavior when they have an
 // explicit schema-surface construction value.
-fn entity_default_assignment(field: &Field, primary_keys: &[Ident]) -> Option<TokenStream> {
+fn entity_default_assignment(
+    field: &Field,
+    primary_keys: &[Ident],
+    paths: &CratePaths,
+) -> Option<TokenStream> {
     let ident = &field.name;
-    let expr = field.rust_default_expr()?;
+    let expr = field.rust_default_expr(paths)?;
 
     Some(
         if primary_keys.iter().any(|primary_key| ident == primary_key) {

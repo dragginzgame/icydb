@@ -117,42 +117,49 @@ mod tests {
 
     #[test]
     fn borrowed_temporal_sources_preserve_calendar_boundaries_and_rejections() {
-        let date = Date::MIN;
-        let millis = i64::from(date.as_days_since_epoch()) * 86_400_000;
-        let sources = [
-            Value::Date(date),
-            Value::Timestamp(Timestamp::from_millis(millis)),
-        ];
-        for (op, expected) in [
-            (PersistedIndexExpressionOp::Date, Value::Date(date)),
-            (
-                PersistedIndexExpressionOp::Year,
-                Value::Int64(i64::from(date.year())),
-            ),
-            (
-                PersistedIndexExpressionOp::Month,
-                Value::Int64(i64::from(date.month())),
-            ),
-            (
-                PersistedIndexExpressionOp::Day,
-                Value::Int64(i64::from(date.day())),
-            ),
+        for (text, year, month, day) in [
+            ("0000-01-01", 0, 1, 1),
+            ("0000-02-29", 0, 2, 29),
+            ("1900-03-01", 1900, 3, 1),
+            ("1969-12-31", 1969, 12, 31),
+            ("1970-01-01", 1970, 1, 1),
+            ("2000-02-29", 2000, 2, 29),
+            ("9999-12-31", 9999, 12, 31),
         ] {
-            for source in &sources {
-                assert_eq!(
-                    derive_index_expression_value(op, source),
-                    Ok(Some(expected.clone())),
-                );
-            }
-            assert_eq!(derive_index_expression_value(op, &Value::Null), Ok(None));
-            for invalid in [
-                Value::Text("0000-01-01".to_string()),
-                Value::Timestamp(Timestamp::from_millis(millis - 1)),
+            let date = Date::parse(text).unwrap();
+            let millis = i64::from(date.as_days_since_epoch()) * 86_400_000;
+            let sources = [
+                Value::Date(date),
+                Value::Timestamp(Timestamp::from_millis(millis)),
+                Value::Timestamp(Timestamp::from_millis(millis + 86_399_999)),
+            ];
+            for (op, expected) in [
+                (PersistedIndexExpressionOp::Date, Value::Date(date)),
+                (PersistedIndexExpressionOp::Year, Value::Int64(year)),
+                (PersistedIndexExpressionOp::Month, Value::Int64(month)),
+                (PersistedIndexExpressionOp::Day, Value::Int64(day)),
             ] {
-                assert_eq!(
-                    derive_index_expression_value(op, &invalid),
-                    Err(IndexExpressionSourceClass::DateOrTimestamp),
-                );
+                for source in &sources {
+                    assert_eq!(
+                        derive_index_expression_value(op, source),
+                        Ok(Some(expected.clone()))
+                    );
+                }
+                assert_eq!(derive_index_expression_value(op, &Value::Null), Ok(None));
+                for invalid in [
+                    Value::Text(text.to_string()),
+                    Value::Timestamp(Timestamp::from_millis(
+                        i64::from(Date::MIN.as_days_since_epoch()) * 86_400_000 - 1,
+                    )),
+                    Value::Timestamp(Timestamp::from_millis(
+                        (i64::from(Date::MAX.as_days_since_epoch()) + 1) * 86_400_000,
+                    )),
+                ] {
+                    assert_eq!(
+                        derive_index_expression_value(op, &invalid),
+                        Err(IndexExpressionSourceClass::DateOrTimestamp)
+                    );
+                }
             }
         }
     }

@@ -37,12 +37,13 @@ impl HasSchema for Normalizer {
 }
 
 impl HasSchemaPart for Normalizer {
-    fn schema_part(&self) -> TokenStream {
-        let def = self.def.schema_part();
+    fn schema_part(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
+        let def = self.def.schema_part(paths);
 
         // quote
         quote! {
-            ::icydb_model::node::Normalizer::new(#def)
+            #model::node::Normalizer::new(#def)
         }
     }
 }
@@ -57,15 +58,17 @@ impl HasTraits for Normalizer {
 }
 
 impl HasType for Normalizer {
-    fn type_part(&self) -> TokenStream {
+    fn type_part(&self, __paths: &CratePaths) -> TokenStream {
         let item = &self.def.item;
 
         quote!(#item)
     }
 }
 
-impl ToTokens for Normalizer {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        tokens.extend(self.all_tokens());
+impl Normalizer {
+    pub(crate) fn generate_tokens(&self, paths: &CratePaths) -> TokenStream {
+        let mut tokens = TokenStream::new();
+        tokens.extend(self.all_tokens(paths));
+        tokens
     }
 }

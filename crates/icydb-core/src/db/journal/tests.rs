@@ -895,6 +895,117 @@ fn journal_batch_identity_range_filters_mixed_existing_row_transitions() {
 }
 
 #[test]
+fn journal_batch_identity_ranges_preserve_interleaved_owner_order_and_reject_gaps() {
+    let range = |tag, field| {
+        JournalRecord::identity_range_advance(
+            IdentityRangeAdvance::try_new(
+                IdentityStateOwner::try_new(
+                    DatabaseIncarnationId::for_tests(0x51),
+                    EntityTag::new(tag),
+                    FieldId::new(field),
+                )
+                .unwrap(),
+                0,
+                2,
+                2,
+            )
+            .unwrap(),
+        )
+        .unwrap()
+    };
+    // Range declarations can surround interleaved rows. Two distinct owners of
+    // one entity must each validate its rows rather than overwrite each other.
+    let records = vec![
+        range(1, 3),
+        row_put_record_for(EntityTag::new(2), 1),
+        row_put_record(1),
+        row_put_record_for(EntityTag::new(9), 99),
+        row_put_record_for(EntityTag::new(2), 2),
+        row_put_record(2),
+        range(2, 3),
+        range(1, 4),
+    ];
+    let batch = JournalBatch::new(
+        [0x39; 16],
+        [0x49; 16],
+        JournalSequence::new(8),
+        records.clone(),
+    )
+    .unwrap();
+    assert_eq!(
+        decode_journal_batch(&encode_journal_batch(&batch).unwrap()).unwrap(),
+        batch
+    );
+    for invalid in [
+        {
+            let mut rows = records.clone();
+            rows.push(range(1, 3));
+            rows
+        },
+        {
+            let mut rows = records.clone();
+            rows.swap(1, 4);
+            rows
+        },
+        {
+            let mut rows = records.clone();
+            rows.remove(5);
+            rows
+        },
+        {
+            let mut rows = records;
+            rows[5] = row_delete_record(2);
+            rows
+        },
+    ] {
+        let error = JournalBatch::new([0x39; 16], [0x49; 16], JournalSequence::new(8), invalid)
+            .unwrap_err();
+        assert_eq!(error.class(), ErrorClass::Corruption);
+        assert_eq!(error.origin(), ErrorOrigin::Store);
+    }
+}
+
+#[test]
+fn journal_batch_identity_range_keeps_nat128_and_unrelated_key_domains() {
+    let put = |tag, value| {
+        JournalRecord::row_put(
+            "test::Entity",
+            DecodedDataStoreKey::new_primary_key_value(
+                EntityTag::new(tag),
+                &PrimaryKeyValue::from(value),
+            )
+            .to_raw()
+            .unwrap(),
+            vec![1; 3],
+            [0x11; 16],
+        )
+        .unwrap()
+    };
+    let records = vec![
+        put(1, PrimaryKeyComponent::Nat128(u128::MAX)),
+        put(2, PrimaryKeyComponent::Int64(-1)),
+        identity_range_record_from(u128::MAX - 1, 1),
+    ];
+    let batch = JournalBatch::new(
+        [0x3A; 16],
+        [0x4A; 16],
+        JournalSequence::new(9),
+        records.clone(),
+    )
+    .unwrap();
+    assert_eq!(
+        decode_journal_batch(&encode_journal_batch(&batch).unwrap()).unwrap(),
+        batch
+    );
+    let mut invalid = records;
+    invalid[0] = put(1, PrimaryKeyComponent::Int64(-1));
+    let error =
+        JournalBatch::new([0x3A; 16], [0x4A; 16], JournalSequence::new(9), invalid).unwrap_err();
+    assert_eq!(error.class(), ErrorClass::Corruption);
+    assert_eq!(error.origin(), ErrorOrigin::Store);
+}
+
+#[test]
 fn identity_range_adds_one_fixed_65_byte_record_per_owner_batch() {
     let row_only = JournalBatch::new(
         [0x36; 16],
@@ -1270,6 +1381,79 @@ fn journal_batch_decode_rejects_first_middle_and_last_record_corruption() {
             .expect("bounded record offset should fit");
     }
     assert_eq!(record_offset, encoded.len());
+}
+
+#[test]
+fn journal_batch_decode_rejects_invalid_schema_payload_with_valid_outer_fingerprint() {
+    let record = accepted_schema_publish_record();
+    let batch = JournalBatch::new(
+        [0x61; 16],
+        [0x62; 16],
+        JournalSequence::new(1),
+        vec![record.clone()],
+    )
+    .unwrap();
+    let mut encoded = encode_journal_batch(&batch).unwrap();
+    let JournalRecord::AcceptedSchemaPublish { store_path, .. } = &record else {
+        panic!("expected schema publication");
+    };
+    // Corrupt the nested payload while preserving framing and authenticating
+    // the new envelope: rejection must reach record admission, not SHA checking.
+    let payload_offset = 93 + 1 + 4 + store_path.len() + 8 + 4;
+    encoded[payload_offset] ^= 0xff;
+    let mut hash = Sha256::new();
+    hash.update(b"ICYDB-JOURNAL-BATCH-FINGERPRINT\0");
+    hash.update(&encoded[..61]);
+    hash.update(&encoded[93..]);
+    encoded[61..93].copy_from_slice(&hash.finalize());
+    let error = decode_journal_batch(&encoded).unwrap_err();
+    assert_eq!(error.class(), ErrorClass::Corruption);
+    assert_eq!(error.origin(), ErrorOrigin::Store);
+
+    // The ordinary constructor must still validate directly-authored variants.
+    let mut invalid = record;
+    let JournalRecord::AcceptedSchemaPublish {
+        schema_bundle_bytes,
+        ..
+    } = &mut invalid
+    else {
+        panic!("expected schema publication");
+    };
+    schema_bundle_bytes[0] ^= 0xff;
+    let error = JournalBatch::new(
+        [0x61; 16],
+        [0x62; 16],
+        JournalSequence::new(1),
+        vec![invalid],
+    )
+    .unwrap_err();
+    assert_eq!(error.class(), ErrorClass::Corruption);
+    assert_eq!(error.origin(), ErrorOrigin::Store);
+}
+
+#[test]
+fn journal_batch_decode_still_checks_duplicate_targets_after_record_admission() {
+    let first = row_put_record(1);
+    let second = row_put_record(2);
+    let batch = JournalBatch::new(
+        [0x63; 16],
+        [0x64; 16],
+        JournalSequence::new(1),
+        vec![first.clone(), second],
+    )
+    .unwrap();
+    let mut encoded = encode_journal_batch(&batch).unwrap();
+    let width = journal_record_payload_len(&first);
+    assert_eq!(encoded.len(), 93 + 2 * width);
+    encoded.copy_within(93..93 + width, 93 + width);
+    let mut hash = Sha256::new();
+    hash.update(b"ICYDB-JOURNAL-BATCH-FINGERPRINT\0");
+    hash.update(&encoded[..61]);
+    hash.update(&encoded[93..]);
+    encoded[61..93].copy_from_slice(&hash.finalize());
+    let error = decode_journal_batch(&encoded).unwrap_err();
+    assert_eq!(error.class(), ErrorClass::Corruption);
+    assert_eq!(error.origin(), ErrorOrigin::Store);
 }
 
 #[test]

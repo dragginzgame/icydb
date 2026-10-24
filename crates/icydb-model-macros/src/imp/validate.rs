@@ -16,7 +16,7 @@ pub struct ValidateAutoTrait;
 
 pub trait ValidateAutoFn {
     /// Emit schema-defined validation for this node.
-    fn self_tokens(_: &Self) -> TokenStream {
+    fn self_tokens(_: &Self, __paths: &CratePaths) -> TokenStream {
         quote!()
     }
 }
@@ -26,11 +26,12 @@ macro_rules! impl_validate_auto {
     ($($ty:ty),* $(,)?) => {
         $(impl Imp<$ty> for ValidateAutoTrait {
             fn strategy(node: &$ty) -> Option<TraitStrategy> {
-                let self_tokens = ValidateAutoFn::self_tokens(node);
+        let paths = node.def().paths();
+                let self_tokens = ValidateAutoFn::self_tokens(node, paths);
 
                 let tokens = Implementor::new(node.def(), TraitKind::ValidateAuto)
                     .add_tokens(self_tokens)
-                    .to_token_stream();
+                    .impl_tokens(paths);
 
                 Some(TraitStrategy::from_impl(tokens))
             }
@@ -48,13 +49,23 @@ impl_validate_auto!(Enum, List, Map, Newtype, Set);
 
 impl Imp<Entity> for ValidateAutoTrait {
     fn strategy(node: &Entity) -> Option<TraitStrategy> {
-        Some(field_list_validate_strategy(node.def(), &node.fields))
+        let paths = node.def().paths();
+        Some(field_list_validate_strategy(
+            node.def(),
+            &node.fields,
+            paths,
+        ))
     }
 }
 
 impl Imp<Record> for ValidateAutoTrait {
     fn strategy(node: &Record) -> Option<TraitStrategy> {
-        Some(field_list_validate_strategy(node.def(), &node.fields))
+        let paths = node.def().paths();
+        Some(field_list_validate_strategy(
+            node.def(),
+            &node.fields,
+            paths,
+        ))
     }
 }
 
@@ -67,8 +78,8 @@ impl ValidateAutoFn for Enum {}
 ///
 
 impl ValidateAutoFn for List {
-    fn self_tokens(node: &Self) -> TokenStream {
-        collection_validate_self_tokens(&node.ty.validators, &node.item.validators)
+    fn self_tokens(node: &Self, paths: &CratePaths) -> TokenStream {
+        collection_validate_self_tokens(&node.ty.validators, &node.item.validators, paths)
     }
 }
 
@@ -79,15 +90,20 @@ impl ValidateAutoFn for List {
 ///
 
 impl ValidateAutoFn for Map {
-    fn self_tokens(node: &Self) -> TokenStream {
+    fn self_tokens(node: &Self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
         let map_rules =
-            generate_validators_inner(&node.ty.validators, quote!(&self.0), quote!(ctx));
+            generate_validators_inner(&node.ty.validators, quote!(&self.0), quote!(ctx), paths);
 
-        let key_rules =
-            generate_validators_inner(&node.key.validators, quote!(k), quote!(&mut entry_ctx));
+        let key_rules = generate_validators_inner(
+            &node.key.validators,
+            quote!(k),
+            quote!(&mut entry_ctx),
+            paths,
+        );
 
         let value_rules =
-            generate_value_validation_inner(&node.value, quote!(v), quote!(&mut entry_ctx));
+            generate_value_validation_inner(&node.value, quote!(v), quote!(&mut entry_ctx), paths);
 
         let entry_rules = match (key_rules, value_rules) {
             (None, None) => None,
@@ -98,9 +114,9 @@ impl ValidateAutoFn for Map {
 
                 Some(quote! {
                     for (i, (k, v)) in self.0.iter().enumerate() {
-                        let mut entry_ctx = ::icydb_model::visitor::ScopedContext::new(
+                        let mut entry_ctx = #model::visitor::ScopedContext::new(
                             ctx,
-                            ::icydb_model::visitor::PathSegment::Index(i),
+                            #model::visitor::PathSegment::Index(i),
                         );
                         #k
                         #v
@@ -109,7 +125,7 @@ impl ValidateAutoFn for Map {
             }
         };
 
-        wrap_validate_self_fn(merge_rules(map_rules, entry_rules))
+        wrap_validate_self_fn(merge_rules(map_rules, entry_rules), paths)
     }
 }
 
@@ -120,8 +136,8 @@ impl ValidateAutoFn for Map {
 ///
 
 impl ValidateAutoFn for Newtype {
-    fn self_tokens(node: &Self) -> TokenStream {
-        newtype_validate_self_tokens(node)
+    fn self_tokens(node: &Self, paths: &CratePaths) -> TokenStream {
+        newtype_validate_self_tokens(node, paths)
     }
 }
 
@@ -132,8 +148,8 @@ impl ValidateAutoFn for Newtype {
 ///
 
 impl ValidateAutoFn for Set {
-    fn self_tokens(node: &Self) -> TokenStream {
-        collection_validate_self_tokens(&node.ty.validators, &node.item.validators)
+    fn self_tokens(node: &Self, paths: &CratePaths) -> TokenStream {
+        collection_validate_self_tokens(&node.ty.validators, &node.item.validators, paths)
     }
 }
 
@@ -152,20 +168,25 @@ fn merge_rules(a: Option<TokenStream>, b: Option<TokenStream>) -> Option<TokenSt
     }
 }
 
-fn field_list_validate_strategy(def: &Def, fields: &FieldList) -> TraitStrategy {
-    TraitStrategy::from_impl(field_list(def, fields))
+fn field_list_validate_strategy(
+    def: &Def,
+    fields: &FieldList,
+    paths: &CratePaths,
+) -> TraitStrategy {
+    TraitStrategy::from_impl(field_list(def, fields, paths))
 }
 
 // List and set item validators share the same indexed traversal shape.
-fn indexed_collection_item_rules(block: TokenStream) -> TokenStream {
+fn indexed_collection_item_rules(block: TokenStream, paths: &CratePaths) -> TokenStream {
+    let model = &paths.model;
     let item_ident = format_ident!("__item");
 
     quote! {
         for (i, #item_ident) in self.0.iter().enumerate() {
             let item = #item_ident;
-            let mut item_ctx = ::icydb_model::visitor::ScopedContext::new(
+            let mut item_ctx = #model::visitor::ScopedContext::new(
                 ctx,
-                ::icydb_model::visitor::PathSegment::Index(i),
+                #model::visitor::PathSegment::Index(i),
             );
             #block
         }
@@ -175,18 +196,20 @@ fn indexed_collection_item_rules(block: TokenStream) -> TokenStream {
 fn collection_validate_self_tokens(
     container_validators: &[TypeValidator],
     item_validators: &[TypeValidator],
+    paths: &CratePaths,
 ) -> TokenStream {
     let container_rules =
-        generate_validators_inner(container_validators, quote!(&self.0), quote!(ctx));
+        generate_validators_inner(container_validators, quote!(&self.0), quote!(ctx), paths);
     let item_rules =
-        generate_validators_inner(item_validators, quote!(item), quote!(&mut item_ctx))
-            .map(indexed_collection_item_rules);
+        generate_validators_inner(item_validators, quote!(item), quote!(&mut item_ctx), paths)
+            .map(|value| indexed_collection_item_rules(value, paths));
 
-    wrap_validate_self_fn(merge_rules(container_rules, item_rules))
+    wrap_validate_self_fn(merge_rules(container_rules, item_rules), paths)
 }
 
 /// Field-level validators for Records / Entities
-fn field_list(def: &Def, fields: &FieldList) -> TokenStream {
+fn field_list(def: &Def, fields: &FieldList, paths: &CratePaths) -> TokenStream {
+    let model = &paths.model;
     let bindings = field_walk_bindings(fields);
     let field_table_ident = format_ident!("__VALIDATE_FIELDS");
 
@@ -197,14 +220,15 @@ fn field_list(def: &Def, fields: &FieldList) -> TokenStream {
             let validation = generate_field_value_validation_inner(
                 &field.value,
                 binding.member_ref_from(quote!(node)),
-                binding.path_segment(),
+                binding.path_segment(paths),
+                paths,
             )?;
             let fn_ident = binding.validate_fn_ident();
 
             Some(quote! {
                 fn #fn_ident(
                     node: &Self,
-                    ctx: &mut dyn ::icydb_model::visitor::VisitorContext,
+                    ctx: &mut dyn #model::visitor::VisitorContext,
                 ) {
                     #validation
                 }
@@ -221,7 +245,7 @@ fn field_list(def: &Def, fields: &FieldList) -> TokenStream {
                 let validate_fn = binding.validate_fn_ident();
 
                 Some(quote! {
-                    ::icydb_model::visitor::ValidateFieldDescriptor::new(Self::#validate_fn)
+                    #model::visitor::ValidateFieldDescriptor::new(Self::#validate_fn)
                 })
             }
         });
@@ -230,16 +254,19 @@ fn field_list(def: &Def, fields: &FieldList) -> TokenStream {
         .set_tokens(quote! {
             #(#validate_helpers)*
 
-            const #field_table_ident: &'static [::icydb_model::visitor::ValidateFieldDescriptor<Self>] =
+            const #field_table_ident: &'static [#model::visitor::ValidateFieldDescriptor<Self>] =
                 &[#(#descriptors),*];
         })
-        .to_token_stream();
+        .impl_tokens(paths);
 
     let trait_tokens = Implementor::new(def, TraitKind::ValidateAuto)
-        .set_tokens(wrap_validate_self_fn(Some(quote! {
-            ::icydb_model::visitor::drive_validate_fields(self, ctx, Self::#field_table_ident);
-        })))
-        .to_token_stream();
+        .set_tokens(wrap_validate_self_fn(
+            Some(quote! {
+                #model::visitor::drive_validate_fields(self, ctx, Self::#field_table_ident);
+            }),
+            paths,
+        ))
+        .impl_tokens(paths);
 
     quote! {
         #inherent_tokens
@@ -253,6 +280,7 @@ fn generate_validators_inner(
     validators: &[TypeValidator],
     var_expr: TokenStream,
     ctx_expr: TokenStream,
+    paths: &CratePaths,
 ) -> Option<TokenStream> {
     if validators.is_empty() {
         return None;
@@ -260,25 +288,28 @@ fn generate_validators_inner(
 
     let exprs: Vec<TokenStream> = validators
         .iter()
-        .map(|validator| validator_call(validator, var_expr.clone(), ctx_expr.clone()))
+        .map(|validator| validator_call(validator, var_expr.clone(), ctx_expr.clone(), paths))
         .collect();
 
     Some(quote!(#(#exprs)*))
 }
 
-fn newtype_validate_self_tokens(node: &Newtype) -> TokenStream {
-    let type_rules = generate_validators_inner(&node.ty.validators, quote!(&self.0), quote!(ctx));
-    let item_rules = generate_validators_inner(&node.item.validators, quote!(&self.0), quote!(ctx));
+fn newtype_validate_self_tokens(node: &Newtype, paths: &CratePaths) -> TokenStream {
+    let type_rules =
+        generate_validators_inner(&node.ty.validators, quote!(&self.0), quote!(ctx), paths);
+    let item_rules =
+        generate_validators_inner(&node.item.validators, quote!(&self.0), quote!(ctx), paths);
 
-    wrap_validate_self_fn(merge_rules(type_rules, item_rules))
+    wrap_validate_self_fn(merge_rules(type_rules, item_rules), paths)
 }
 
 /// Wrap inner tokens into `fn validate_self`
-fn wrap_validate_self_fn(inner: Option<TokenStream>) -> TokenStream {
+fn wrap_validate_self_fn(inner: Option<TokenStream>, paths: &CratePaths) -> TokenStream {
+    let model = &paths.model;
     match inner {
         None => quote!(),
         Some(inner) => quote! {
-            fn validate_self(&self, ctx: &mut dyn ::icydb_model::visitor::VisitorContext) {
+            fn validate_self(&self, ctx: &mut dyn #model::visitor::VisitorContext) {
                 #inner
             }
         },
@@ -326,12 +357,13 @@ fn generate_value_validation_inner(
     value: &Value,
     var_expr: TokenStream,
     ctx_expr: TokenStream,
+    paths: &CratePaths,
 ) -> Option<TokenStream> {
     let rules: Vec<TokenStream> = value
         .item
         .validators
         .iter()
-        .map(|validator| validator_call(validator, quote!(v), ctx_expr.clone()))
+        .map(|validator| validator_call(validator, quote!(v), ctx_expr.clone(), paths))
         .collect();
 
     cardinality_wrapper(value.cardinality(), rules, var_expr)
@@ -342,19 +374,21 @@ fn generate_field_value_validation_inner(
     value: &Value,
     var_expr: TokenStream,
     seg: TokenStream,
+    paths: &CratePaths,
 ) -> Option<TokenStream> {
+    let model = &paths.model;
     let rules: Vec<TokenStream> = value
         .item
         .validators
         .iter()
-        .map(|validator| validator_call(validator, quote!(v), quote!(&mut __field_ctx)))
+        .map(|validator| validator_call(validator, quote!(v), quote!(&mut __field_ctx), paths))
         .collect();
 
     let body = cardinality_wrapper(value.cardinality(), rules, var_expr)?;
 
     Some(quote! {{
         let mut __field_ctx =
-            ::icydb_model::visitor::ScopedContext::new(ctx, #seg);
+            #model::visitor::ScopedContext::new(ctx, #seg);
         #body
     }})
 }
@@ -363,22 +397,23 @@ fn validator_call(
     validator: &TypeValidator,
     value: TokenStream,
     context: TokenStream,
+    paths: &CratePaths,
 ) -> TokenStream {
+    let model = &paths.model;
     let ctor = validator.quote_constructor();
     let callback_type = &validator.path;
 
     quote! {{
-        let mut __callback_ctx = ::icydb_model::visitor::CallbackContext::new(
+        let mut __callback_ctx = #model::visitor::CallbackContext::new(
             #context,
-            ::icydb_model::visitor::CallbackIdentity::new(
-                ::icydb_model::visitor::CallbackKind::Validator,
+            #model::visitor::CallbackIdentity::new(
+                #model::visitor::CallbackKind::Validator,
                 ::core::any::type_name::<#callback_type>(),
             ),
         );
-        ::icydb_model::visitor::Validator::validate(
+        #model::visitor::Validator::validate(
             &(#ctor),
             #value,
-            &mut __callback_ctx,
-        );
+            &mut __callback_ctx);
     }}
 }

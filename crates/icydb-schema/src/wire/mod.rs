@@ -51,8 +51,12 @@ pub fn encoded_reply_len<T: Serialize>(value: T) -> Result<usize, Error> {
     ic_wire::native::encoded_len(&value, limits(MAX_REPLY_BYTES))
 }
 
-/// Decode one complete canonical payload through IC Wire's bounded codec.
-pub fn decode_one<T: Serialize + DeserializeOwned>(bytes: &[u8]) -> Result<T, Error> {
+/// Decode one complete payload through IC Wire's bounded codec.
+///
+/// Maps, sets and custom visitors may normalize input; successful decoding does
+/// not establish canonical ordering or uniqueness. Retain the original bytes
+/// for exact retries, signatures or hashes instead of re-encoding the value.
+pub fn decode_one<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, Error> {
     ic_wire::native::decode(bytes, limits(MAX_REPLY_BYTES))
 }
 

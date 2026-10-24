@@ -175,7 +175,7 @@ fn parse_index_bool_arg(expr: &syn::Expr) -> Result<bool, DarlingError> {
 }
 
 impl HasSchemaPart for Index {
-    fn schema_part(&self) -> TokenStream {
+    fn schema_part(&self, __paths: &CratePaths) -> TokenStream {
         TokenStream::new()
     }
 }
@@ -185,11 +185,13 @@ impl Index {
         &self,
         entity: &Entity,
         entity_name: &str,
+        paths: &CratePaths,
     ) -> Result<TokenStream, DarlingError> {
+        let model = &paths.model;
         let name = self.generated_name(entity_name);
         let fields = self.validated_field_idents();
         let fields = quote_slice(&fields, to_str_lit);
-        let key_items = self.schema_key_items_tokens();
+        let key_items = self.schema_key_items_tokens(paths);
         let unique = &self.unique;
         let predicate = self
             .predicate
@@ -201,16 +203,16 @@ impl Index {
             quote! { None }
         };
         let predicate_expression = self
-            .validated_generated_predicate(entity)?
+            .validated_generated_predicate(entity, paths)?
             .map(|predicate| {
-                predicate_source_expression_tokens(&predicate, entity)
+                predicate_source_expression_tokens(&predicate, entity, paths)
                     .map(|expression| quote! { Some(|_schema| #expression) })
             })
             .transpose()?
             .unwrap_or_else(|| quote! { None });
 
         Ok(quote! {
-            ::icydb_model::node::Index::new_with_key_items_and_predicate(
+            #model::node::Index::new_with_key_items_and_predicate(
                 #name,
                 #fields,
                 #key_items,
@@ -284,7 +286,7 @@ impl Index {
             .any(|item| matches!(item, IndexKeyItemSpec::Expression(_)))
     }
 
-    fn schema_key_items_tokens(&self) -> TokenStream {
+    fn schema_key_items_tokens(&self, paths: &CratePaths) -> TokenStream {
         if !self.has_expression_key_items() {
             return quote! { None };
         }
@@ -292,7 +294,7 @@ impl Index {
         let key_items = self
             .validated_key_items()
             .iter()
-            .map(IndexKeyItemSpec::schema_tokens)
+            .map(|value| IndexKeyItemSpec::schema_tokens(value, paths))
             .collect::<Vec<_>>();
 
         quote! { Some(&[#(#key_items),*]) }
@@ -301,13 +303,14 @@ impl Index {
     pub(crate) fn validated_generated_predicate(
         &self,
         entity: &Entity,
+        paths: &CratePaths,
     ) -> Result<Option<Predicate>, DarlingError> {
         let Some(predicate_sql) = self.predicate.as_deref() else {
             return Ok(None);
         };
 
         let predicate = predicate::parse(predicate_sql)?;
-        validate_predicate_fields(entity, &predicate, false)?;
+        validate_predicate_fields(entity, &predicate, false, paths)?;
 
         Ok(Some(predicate))
     }
@@ -334,15 +337,16 @@ impl IndexKeyItemSpec {
         }
     }
 
-    fn schema_tokens(&self) -> TokenStream {
+    fn schema_tokens(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
         match self {
             Self::Field(field) => {
                 let field = to_str_lit(field);
-                quote! { ::icydb_model::node::IndexKeyItem::Field(#field) }
+                quote! { #model::node::IndexKeyItem::Field(#field) }
             }
             Self::Expression(expression) => {
-                let expression = expression.schema_tokens();
-                quote! { ::icydb_model::node::IndexKeyItem::Expression(#expression) }
+                let expression = expression.schema_tokens(paths);
+                quote! { #model::node::IndexKeyItem::Expression(#expression) }
             }
         }
     }
@@ -387,20 +391,21 @@ impl IndexExpressionSpec {
         }
     }
 
-    fn schema_tokens(&self) -> TokenStream {
+    fn schema_tokens(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
         let field = to_str_lit(self.field_ident());
 
         match self {
-            Self::Lower(_) => quote! { ::icydb_model::node::IndexExpression::Lower(#field) },
-            Self::Upper(_) => quote! { ::icydb_model::node::IndexExpression::Upper(#field) },
-            Self::Trim(_) => quote! { ::icydb_model::node::IndexExpression::Trim(#field) },
+            Self::Lower(_) => quote! { #model::node::IndexExpression::Lower(#field) },
+            Self::Upper(_) => quote! { #model::node::IndexExpression::Upper(#field) },
+            Self::Trim(_) => quote! { #model::node::IndexExpression::Trim(#field) },
             Self::LowerTrim(_) => {
-                quote! { ::icydb_model::node::IndexExpression::LowerTrim(#field) }
+                quote! { #model::node::IndexExpression::LowerTrim(#field) }
             }
-            Self::Date(_) => quote! { ::icydb_model::node::IndexExpression::Date(#field) },
-            Self::Year(_) => quote! { ::icydb_model::node::IndexExpression::Year(#field) },
-            Self::Month(_) => quote! { ::icydb_model::node::IndexExpression::Month(#field) },
-            Self::Day(_) => quote! { ::icydb_model::node::IndexExpression::Day(#field) },
+            Self::Date(_) => quote! { #model::node::IndexExpression::Date(#field) },
+            Self::Year(_) => quote! { #model::node::IndexExpression::Year(#field) },
+            Self::Month(_) => quote! { #model::node::IndexExpression::Month(#field) },
+            Self::Day(_) => quote! { #model::node::IndexExpression::Day(#field) },
         }
     }
 }
@@ -422,6 +427,7 @@ pub(crate) fn validate_predicate_fields(
     entity: &Entity,
     predicate: &Predicate,
     custom_fields_are_enums: bool,
+    paths: &CratePaths,
 ) -> Result<(), DarlingError> {
     for field_name in predicate::referenced_fields(predicate) {
         let field = predicate_field(entity, field_name.as_str())?;
@@ -436,26 +442,29 @@ pub(crate) fn validate_predicate_fields(
             ));
         }
     }
-    validate_predicate_shape(entity, predicate, custom_fields_are_enums)
+    validate_predicate_shape(entity, predicate, custom_fields_are_enums, paths)
 }
 
 fn validate_predicate_shape(
     entity: &Entity,
     predicate: &Predicate,
     custom_fields_are_enums: bool,
+    paths: &CratePaths,
 ) -> Result<(), DarlingError> {
     match predicate {
         Predicate::Bool(_) => Ok(()),
         Predicate::And(children) | Predicate::Or(children) => {
             for child in children {
-                validate_predicate_shape(entity, child, custom_fields_are_enums)?;
+                validate_predicate_shape(entity, child, custom_fields_are_enums, paths)?;
             }
             Ok(())
         }
-        Predicate::Not(inner) => validate_predicate_shape(entity, inner, custom_fields_are_enums),
+        Predicate::Not(inner) => {
+            validate_predicate_shape(entity, inner, custom_fields_are_enums, paths)
+        }
         Predicate::Compare { field, op, operand } => {
             let left = predicate_field(entity, field)?;
-            validate_comparison_operand(entity, left, *op, operand, custom_fields_are_enums)
+            validate_comparison_operand(entity, left, *op, operand, custom_fields_are_enums, paths)
         }
         Predicate::IsNull { field, .. } => {
             let _ = predicate_field(entity, field)?;
@@ -464,7 +473,7 @@ fn validate_predicate_shape(
         Predicate::In { field, values, .. } => {
             let field = predicate_field(entity, field)?;
             for value in values {
-                validate_literal_for_field(field, value, custom_fields_are_enums)?;
+                validate_literal_for_field(field, value, custom_fields_are_enums, paths)?;
             }
             Ok(())
         }
@@ -477,6 +486,7 @@ fn validate_comparison_operand(
     op: CompareOp,
     operand: &CompareOperand,
     custom_fields_are_enums: bool,
+    paths: &CratePaths,
 ) -> Result<(), DarlingError> {
     if field.value.item.is.is_some() && op.is_ordering() {
         return Err(DarlingError::custom(
@@ -505,7 +515,7 @@ fn validate_comparison_operand(
             Ok(())
         }
         CompareOperand::Literal(literal) => {
-            validate_literal_for_field(field, literal, custom_fields_are_enums)
+            validate_literal_for_field(field, literal, custom_fields_are_enums, paths)
         }
     }
 }
@@ -514,6 +524,7 @@ fn validate_literal_for_field(
     field: &Field,
     literal: &Literal,
     custom_fields_are_enums: bool,
+    paths: &CratePaths,
 ) -> Result<(), DarlingError> {
     if field.value.item.is.is_some() {
         if custom_fields_are_enums && matches!(literal, Literal::Text(_)) {
@@ -558,7 +569,7 @@ fn validate_literal_for_field(
     })?;
     // Reuse lowering's scalar parser before declaring the predicate validated.
     // Literal shape alone does not prove integer sign/range or finite floats.
-    source_scalar_literal(field, literal).map(|_| ())
+    source_scalar_literal(field, literal, paths).map(|_| ())
 }
 
 fn predicate_field<'a>(entity: &'a Entity, field_name: &str) -> Result<&'a Field, DarlingError> {
@@ -572,61 +583,65 @@ fn predicate_field<'a>(entity: &'a Entity, field_name: &str) -> Result<&'a Field
 pub(crate) fn predicate_source_expression_tokens(
     predicate: &Predicate,
     entity: &Entity,
+    paths: &CratePaths,
 ) -> Result<TokenStream, DarlingError> {
-    let instructions = source_instruction_tokens(predicate, entity)?;
+    let model = &paths.model;
+    let instructions = source_instruction_tokens(predicate, entity, paths)?;
     Ok(quote! {
-        ::icydb_model::schema::SourceCheckExpr::try_new(vec![#(#instructions),*])
+        #model::schema::SourceCheckExpr::try_new(vec![#(#instructions),*])
     })
 }
 
 fn source_instruction_tokens(
     predicate: &Predicate,
     entity: &Entity,
+    paths: &CratePaths,
 ) -> Result<Vec<TokenStream>, DarlingError> {
+    let model = &paths.model;
     match predicate {
         Predicate::Bool(value) => Ok(vec![
             quote! {
-                ::icydb_model::schema::SourceCheckInstruction::Literal(
-                    ::icydb_model::schema::ScalarLiteral::Bool(#value),
+                #model::schema::SourceCheckInstruction::Literal(
+                    #model::schema::ScalarLiteral::Bool(#value),
                 )
             },
             quote! {
-                ::icydb_model::schema::SourceCheckInstruction::Literal(
-                    ::icydb_model::schema::ScalarLiteral::Bool(true),
+                #model::schema::SourceCheckInstruction::Literal(
+                    #model::schema::ScalarLiteral::Bool(true),
                 )
             },
-            quote! { ::icydb_model::schema::SourceCheckInstruction::Equal },
+            quote! { #model::schema::SourceCheckInstruction::Equal },
         ]),
         Predicate::And(children) | Predicate::Or(children) => {
             let operator = if matches!(predicate, Predicate::And(_)) {
-                quote! { ::icydb_model::schema::SourceCheckInstruction::And }
+                quote! { #model::schema::SourceCheckInstruction::And }
             } else {
-                quote! { ::icydb_model::schema::SourceCheckInstruction::Or }
+                quote! { #model::schema::SourceCheckInstruction::Or }
             };
-            fold_source_children(children, entity, operator)
+            fold_source_children(children, entity, operator, paths)
         }
         Predicate::Not(inner) => {
-            let mut instructions = source_instruction_tokens(inner, entity)?;
-            instructions.push(quote! { ::icydb_model::schema::SourceCheckInstruction::Not });
+            let mut instructions = source_instruction_tokens(inner, entity, paths)?;
+            instructions.push(quote! { #model::schema::SourceCheckInstruction::Not });
             Ok(instructions)
         }
         Predicate::Compare { field, op, operand } => {
-            let mut instructions = vec![source_field_instruction(entity, field)?];
+            let mut instructions = vec![source_field_instruction(entity, field, paths)?];
             instructions.push(match operand {
-                CompareOperand::Field(other) => source_field_instruction(entity, other)?,
+                CompareOperand::Field(other) => source_field_instruction(entity, other, paths)?,
                 CompareOperand::Literal(literal) => {
-                    source_literal_instruction(entity, field, literal)?
+                    source_literal_instruction(entity, field, literal, paths)?
                 }
             });
-            instructions.push(source_compare_operator(*op));
+            instructions.push(source_compare_operator(*op, paths));
             Ok(instructions)
         }
         Predicate::IsNull { field, negated } => {
-            let mut instructions = vec![source_field_instruction(entity, field)?];
+            let mut instructions = vec![source_field_instruction(entity, field, paths)?];
             instructions.push(if *negated {
-                quote! { ::icydb_model::schema::SourceCheckInstruction::IsNotNull }
+                quote! { #model::schema::SourceCheckInstruction::IsNotNull }
             } else {
-                quote! { ::icydb_model::schema::SourceCheckInstruction::IsNull }
+                quote! { #model::schema::SourceCheckInstruction::IsNull }
             });
             Ok(instructions)
         }
@@ -639,13 +654,15 @@ fn source_instruction_tokens(
             let first = values
                 .next()
                 .ok_or_else(|| DarlingError::custom("membership predicate cannot be empty"))?;
-            let mut instructions = source_equality_instruction_tokens(entity, field, first)?;
+            let mut instructions = source_equality_instruction_tokens(entity, field, first, paths)?;
             for value in values {
-                instructions.extend(source_equality_instruction_tokens(entity, field, value)?);
-                instructions.push(quote! { ::icydb_model::schema::SourceCheckInstruction::Or });
+                instructions.extend(source_equality_instruction_tokens(
+                    entity, field, value, paths,
+                )?);
+                instructions.push(quote! { #model::schema::SourceCheckInstruction::Or });
             }
             if *negated {
-                instructions.push(quote! { ::icydb_model::schema::SourceCheckInstruction::Not });
+                instructions.push(quote! { #model::schema::SourceCheckInstruction::Not });
             }
             Ok(instructions)
         }
@@ -656,14 +673,15 @@ fn fold_source_children(
     children: &[Predicate],
     entity: &Entity,
     operator: TokenStream,
+    paths: &CratePaths,
 ) -> Result<Vec<TokenStream>, DarlingError> {
     let mut children = children.iter();
     let first = children
         .next()
         .ok_or_else(|| DarlingError::custom("generated predicate boolean group is empty"))?;
-    let mut instructions = source_instruction_tokens(first, entity)?;
+    let mut instructions = source_instruction_tokens(first, entity, paths)?;
     for child in children {
-        instructions.extend(source_instruction_tokens(child, entity)?);
+        instructions.extend(source_instruction_tokens(child, entity, paths)?);
         instructions.push(operator.clone());
     }
     Ok(instructions)
@@ -673,23 +691,27 @@ fn source_equality_instruction_tokens(
     entity: &Entity,
     field: &str,
     value: &Literal,
+    paths: &CratePaths,
 ) -> Result<Vec<TokenStream>, DarlingError> {
+    let model = &paths.model;
     Ok(vec![
-        source_field_instruction(entity, field)?,
-        source_literal_instruction(entity, field, value)?,
-        quote! { ::icydb_model::schema::SourceCheckInstruction::Equal },
+        source_field_instruction(entity, field, paths)?,
+        source_literal_instruction(entity, field, value, paths)?,
+        quote! { #model::schema::SourceCheckInstruction::Equal },
     ])
 }
 
 fn source_field_instruction(
     entity: &Entity,
     field_name: &str,
+    paths: &CratePaths,
 ) -> Result<TokenStream, DarlingError> {
+    let model = &paths.model;
     let field = predicate_field(entity, field_name)?;
     let name = quote_one(&field.name, to_str_lit);
     Ok(quote! {
-        ::icydb_model::schema::SourceCheckInstruction::Field(
-            ::icydb_model::schema::FieldSourceKey::try_new(#name)?
+        #model::schema::SourceCheckInstruction::Field(
+            #model::schema::FieldSourceKey::try_new(#name)?
         )
     })
 }
@@ -698,7 +720,9 @@ fn source_literal_instruction(
     entity: &Entity,
     field_name: &str,
     value: &Literal,
+    paths: &CratePaths,
 ) -> Result<TokenStream, DarlingError> {
+    let model = &paths.model;
     let field = predicate_field(entity, field_name)?;
     let literal = if let Some(enum_path) = field.value.item.is.as_ref() {
         let Literal::Text(variant) = value else {
@@ -708,35 +732,40 @@ fn source_literal_instruction(
         };
         quote! {
             _schema.enum_unit_literal(
-                <#enum_path as ::icydb_model::Path>::PATH,
+                <#enum_path as #model::Path>::PATH,
                 #variant,
             )?
         }
     } else {
-        source_scalar_literal(field, value)?
+        source_scalar_literal(field, value, paths)?
     };
     Ok(quote! {
-        ::icydb_model::schema::SourceCheckInstruction::Literal(#literal)
+        #model::schema::SourceCheckInstruction::Literal(#literal)
     })
 }
 
-fn source_scalar_literal(field: &Field, value: &Literal) -> Result<TokenStream, DarlingError> {
+fn source_scalar_literal(
+    field: &Field,
+    value: &Literal,
+    paths: &CratePaths,
+) -> Result<TokenStream, DarlingError> {
+    let model = &paths.model;
     let primitive = field.value.item.primitive.unwrap_or(Primitive::Unit);
     Ok(match (primitive, value) {
         (Primitive::Bool, Literal::Bool(value)) => {
-            quote! { ::icydb_model::schema::ScalarLiteral::Bool(#value) }
+            quote! { #model::schema::ScalarLiteral::Bool(#value) }
         }
         (Primitive::Text, Literal::Text(value)) => {
-            quote! { ::icydb_model::schema::ScalarLiteral::Text(#value.to_string()) }
+            quote! { #model::schema::ScalarLiteral::Text(#value.to_string()) }
         }
         (Primitive::Decimal, Literal::Number(value)) => {
             value.parse::<icydb_schema::Decimal>().map_err(|_| {
                 DarlingError::custom("generated Decimal predicate literal is invalid")
             })?;
             quote! {
-            ::icydb_model::schema::ScalarLiteral::Decimal(
-                <::icydb_model::schema::Decimal as ::std::str::FromStr>::from_str(#value)
-                    .map_err(|_| ::icydb_model::schema::SchemaContractError::InvalidLiteral)?
+            #model::schema::ScalarLiteral::Decimal(
+                <#model::schema::Decimal as ::std::str::FromStr>::from_str(#value)
+                    .map_err(|_| #model::schema::SchemaContractError::InvalidLiteral)?
             )
             }
         }
@@ -751,7 +780,7 @@ fn source_scalar_literal(field: &Field, value: &Literal) -> Result<TokenStream, 
             let value = value.parse::<i128>().map_err(|_| {
                 DarlingError::custom("generated signed integer predicate literal is out of range")
             })?;
-            quote! { ::icydb_model::schema::ScalarLiteral::Int(#value) }
+            quote! { #model::schema::ScalarLiteral::Int(#value) }
         }
         (
             Primitive::Nat8
@@ -764,7 +793,7 @@ fn source_scalar_literal(field: &Field, value: &Literal) -> Result<TokenStream, 
             let value = value.parse::<u128>().map_err(|_| {
                 DarlingError::custom("generated unsigned integer predicate literal is out of range")
             })?;
-            quote! { ::icydb_model::schema::ScalarLiteral::Nat(#value) }
+            quote! { #model::schema::ScalarLiteral::Nat(#value) }
         }
         (Primitive::Float32, Literal::Number(value)) => {
             let value = value.parse::<f32>().map_err(|_| {
@@ -774,9 +803,9 @@ fn source_scalar_literal(field: &Field, value: &Literal) -> Result<TokenStream, 
                 DarlingError::custom("generated Float32 predicate literal is invalid")
             })?;
             quote! {
-                ::icydb_model::schema::ScalarLiteral::Float32(
-                    ::icydb_model::schema::Float32::try_new(#value)
-                        .ok_or(::icydb_model::schema::SchemaContractError::InvalidLiteral)?
+                #model::schema::ScalarLiteral::Float32(
+                    #model::schema::Float32::try_new(#value)
+                        .ok_or(#model::schema::SchemaContractError::InvalidLiteral)?
                 )
             }
         }
@@ -788,9 +817,9 @@ fn source_scalar_literal(field: &Field, value: &Literal) -> Result<TokenStream, 
                 DarlingError::custom("generated Float64 predicate literal is invalid")
             })?;
             quote! {
-                ::icydb_model::schema::ScalarLiteral::Float64(
-                    ::icydb_model::schema::Float64::try_new(#value)
-                        .ok_or(::icydb_model::schema::SchemaContractError::InvalidLiteral)?
+                #model::schema::ScalarLiteral::Float64(
+                    #model::schema::Float64::try_new(#value)
+                        .ok_or(#model::schema::SchemaContractError::InvalidLiteral)?
                 )
             }
         }
@@ -802,17 +831,18 @@ fn source_scalar_literal(field: &Field, value: &Literal) -> Result<TokenStream, 
     })
 }
 
-fn source_compare_operator(op: CompareOp) -> TokenStream {
+fn source_compare_operator(op: CompareOp, paths: &CratePaths) -> TokenStream {
+    let model = &paths.model;
     match op {
-        CompareOp::Eq => quote! { ::icydb_model::schema::SourceCheckInstruction::Equal },
-        CompareOp::Ne => quote! { ::icydb_model::schema::SourceCheckInstruction::NotEqual },
-        CompareOp::Lt => quote! { ::icydb_model::schema::SourceCheckInstruction::LessThan },
+        CompareOp::Eq => quote! { #model::schema::SourceCheckInstruction::Equal },
+        CompareOp::Ne => quote! { #model::schema::SourceCheckInstruction::NotEqual },
+        CompareOp::Lt => quote! { #model::schema::SourceCheckInstruction::LessThan },
         CompareOp::Lte => {
-            quote! { ::icydb_model::schema::SourceCheckInstruction::LessThanOrEqual }
+            quote! { #model::schema::SourceCheckInstruction::LessThanOrEqual }
         }
-        CompareOp::Gt => quote! { ::icydb_model::schema::SourceCheckInstruction::GreaterThan },
+        CompareOp::Gt => quote! { #model::schema::SourceCheckInstruction::GreaterThan },
         CompareOp::Gte => {
-            quote! { ::icydb_model::schema::SourceCheckInstruction::GreaterThanOrEqual }
+            quote! { #model::schema::SourceCheckInstruction::GreaterThanOrEqual }
         }
     }
 }

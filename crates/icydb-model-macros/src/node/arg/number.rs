@@ -196,20 +196,21 @@ impl PartialEq for ArgNumber {
 }
 
 impl HasSchemaPart for ArgNumber {
-    fn schema_part(&self) -> TokenStream {
+    fn schema_part(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
         match self {
-            Self::Float32(v) => quote!(::icydb_model::node::ArgNumber::Float32(#v)),
-            Self::Float64(v) => quote!(::icydb_model::node::ArgNumber::Float64(#v)),
-            Self::Int8(v) => quote!(::icydb_model::node::ArgNumber::Int8(#v)),
-            Self::Int16(v) => quote!(::icydb_model::node::ArgNumber::Int16(#v)),
-            Self::Int32(v) => quote!(::icydb_model::node::ArgNumber::Int32(#v)),
-            Self::Int64(v) => quote!(::icydb_model::node::ArgNumber::Int64(#v)),
-            Self::Int128(v) => quote!(::icydb_model::node::ArgNumber::Int128(#v)),
-            Self::Nat8(v) => quote!(::icydb_model::node::ArgNumber::Nat8(#v)),
-            Self::Nat16(v) => quote!(::icydb_model::node::ArgNumber::Nat16(#v)),
-            Self::Nat32(v) => quote!(::icydb_model::node::ArgNumber::Nat32(#v)),
-            Self::Nat64(v) => quote!(::icydb_model::node::ArgNumber::Nat64(#v)),
-            Self::Nat128(v) => quote!(::icydb_model::node::ArgNumber::Nat128(#v)),
+            Self::Float32(v) => quote!(#model::node::ArgNumber::Float32(#v)),
+            Self::Float64(v) => quote!(#model::node::ArgNumber::Float64(#v)),
+            Self::Int8(v) => quote!(#model::node::ArgNumber::Int8(#v)),
+            Self::Int16(v) => quote!(#model::node::ArgNumber::Int16(#v)),
+            Self::Int32(v) => quote!(#model::node::ArgNumber::Int32(#v)),
+            Self::Int64(v) => quote!(#model::node::ArgNumber::Int64(#v)),
+            Self::Int128(v) => quote!(#model::node::ArgNumber::Int128(#v)),
+            Self::Nat8(v) => quote!(#model::node::ArgNumber::Nat8(#v)),
+            Self::Nat16(v) => quote!(#model::node::ArgNumber::Nat16(#v)),
+            Self::Nat32(v) => quote!(#model::node::ArgNumber::Nat32(#v)),
+            Self::Nat64(v) => quote!(#model::node::ArgNumber::Nat64(#v)),
+            Self::Nat128(v) => quote!(#model::node::ArgNumber::Nat128(#v)),
         }
     }
 }

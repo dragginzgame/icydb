@@ -27,7 +27,10 @@ use ic_storage::adapter::{Storable, storable::Bound};
 #[cfg(any(test, feature = "migration"))]
 use icydb_schema::SchemaMigrationPlanDigest;
 use sha2::{Digest, Sha256};
-use std::{borrow::Cow, collections::BTreeSet};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, BTreeSet},
+};
 
 pub(in crate::db) const JOURNAL_BATCH_FORMAT_VERSION_CURRENT: u8 = 1;
 pub(in crate::db) const MAX_JOURNAL_BATCH_BYTES: u32 = MAX_COMMIT_BYTES;
@@ -252,20 +255,11 @@ impl JournalRecord {
         else {
             return Ok(None);
         };
-        let candidate = CandidateSchemaRevision::from_encoded(
-            schema_bundle_bytes.clone(),
-            schema_root_bytes.clone(),
-        )
-        .map_err(|_| journal_batch_corruption())?;
+        let (bundle, _) =
+            CandidateSchemaRevision::decode_contents(schema_bundle_bytes, schema_root_bytes)
+                .map_err(|_| journal_batch_corruption())?;
 
-        Ok(Some(
-            candidate
-                .bundle()
-                .entity_snapshots()
-                .keys()
-                .copied()
-                .collect(),
-        ))
+        Ok(Some(bundle.entity_snapshots().keys().copied().collect()))
     }
 
     pub(in crate::db) fn row_put(
@@ -456,6 +450,34 @@ impl JournalBatch {
         let _ = journal_sequence
             .next()
             .ok_or_else(InternalError::journal_mutation_revision_exhausted)?;
+        // Bound caller-supplied work before inspecting any record payload.
+        if records.len() > MAX_JOURNAL_BATCH_RECORDS {
+            return Err(journal_batch_corruption());
+        }
+        for record in &records {
+            validate_journal_record(record)?;
+        }
+        Self::from_validated_records(
+            batch_id,
+            commit_marker_id,
+            journal_sequence,
+            database_commit_sequence,
+            records,
+        )
+    }
+
+    // Only the checked constructor above and the record-by-record decoder may
+    // enter here. Keep batch-level checks shared without revalidating payloads.
+    fn from_validated_records(
+        batch_id: JournalBatchId,
+        commit_marker_id: JournalCommitMarkerId,
+        journal_sequence: JournalSequence,
+        database_commit_sequence: DatabaseCommitSequence,
+        records: Vec<JournalRecord>,
+    ) -> Result<Self, InternalError> {
+        let _ = journal_sequence
+            .next()
+            .ok_or_else(InternalError::journal_mutation_revision_exhausted)?;
         let batch = Self {
             batch_id,
             commit_marker_id,
@@ -581,7 +603,7 @@ pub(in crate::db) fn decode_journal_batch(bytes: &[u8]) -> Result<JournalBatch, 
 
     reader.finish().map_err(primitive_decode_error)?;
 
-    JournalBatch::new_with_database_commit_sequence(
+    JournalBatch::from_validated_records(
         fixed_header.batch_id(),
         fixed_header.commit_marker_id(),
         fixed_header.journal_sequence(),
@@ -1326,9 +1348,6 @@ fn validate_journal_batch_shape(batch: &JournalBatch) -> Result<(), InternalErro
     if batch.records.len() > MAX_JOURNAL_BATCH_RECORDS {
         return Err(journal_batch_corruption());
     }
-    for record in &batch.records {
-        validate_journal_record(record)?;
-    }
     validate_row_record_targets(batch)?;
     #[cfg(any(test, feature = "migration"))]
     validate_schema_migration_record_targets(batch)?;
@@ -1605,82 +1624,74 @@ fn validate_constraint_validation_index_set(batch: &JournalBatch) -> Result<(), 
 }
 
 fn validate_identity_range_row_sets(batch: &JournalBatch) -> Result<(), InternalError> {
-    let ranges = batch
-        .records
-        .iter()
-        .filter_map(|record| match record {
-            JournalRecord::IdentityRangeAdvance { range } => Some(*range),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    for (index, range) in ranges.iter().copied().enumerate() {
-        if ranges[..index]
-            .iter()
-            .any(|existing| existing.owner() == range.owner())
-        {
-            return Err(journal_batch_corruption());
+    // Keep progress per owner, indexed by entity, so each row key is decoded
+    // once rather than once per range. No state survives batch validation.
+    let mut owners = BTreeSet::new();
+    let mut ranges = BTreeMap::<EntityTag, Vec<(IdentityRangeAdvance, u128, u32)>>::new();
+    for record in &batch.records {
+        if let JournalRecord::IdentityRangeAdvance { range } = record {
+            let owner = range.owner();
+            if !owners.insert((
+                owner.database_incarnation_id().to_bytes(),
+                owner.entity_tag(),
+                owner.field_id().get(),
+            )) {
+                return Err(journal_batch_corruption());
+            }
+            ranges.entry(range.owner().entity_tag()).or_default().push((
+                *range,
+                range.expected_high_water(),
+                0,
+            ));
         }
-        let mut expected_allocation = range.expected_high_water();
-        let mut count = 0u32;
-        for record in &batch.records {
-            match record {
-                JournalRecord::RowPut { primary_key, .. } => {
-                    let key = DecodedDataStoreKey::try_from_raw(primary_key)
-                        .map_err(|_| journal_batch_corruption())?;
-                    if key.entity_tag() != range.owner().entity_tag() {
-                        continue;
-                    }
-                    let value = match key.primary_key_value() {
-                        PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(value)) => {
-                            u128::from(value)
-                        }
-                        PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat128(value)) => value,
-                        _ => return Err(journal_batch_corruption()),
-                    };
-                    if value <= range.expected_high_water() {
-                        continue;
-                    }
-                    if value > range.new_high_water() {
-                        return Err(journal_batch_corruption());
-                    }
-                    expected_allocation = expected_allocation
-                        .checked_add(1)
-                        .ok_or_else(journal_batch_corruption)?;
-                    count = count.checked_add(1).ok_or_else(journal_batch_corruption)?;
-                    if value != expected_allocation {
-                        return Err(journal_batch_corruption());
-                    }
-                }
-                JournalRecord::RowDelete { primary_key, .. } => {
-                    let key = DecodedDataStoreKey::try_from_raw(primary_key)
-                        .map_err(|_| journal_batch_corruption())?;
-                    if key.entity_tag() != range.owner().entity_tag() {
-                        continue;
-                    }
-                    let value = match key.primary_key_value() {
-                        PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(value)) => {
-                            u128::from(value)
-                        }
-                        PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat128(value)) => value,
-                        _ => return Err(journal_batch_corruption()),
-                    };
-                    if value > range.expected_high_water() {
-                        return Err(journal_batch_corruption());
-                    }
-                }
-                JournalRecord::AcceptedSchemaPublish { .. }
-                | JournalRecord::AcceptedSchemaIndexDelete { .. }
-                | JournalRecord::AcceptedSchemaIndexPut { .. }
-                | JournalRecord::ConstraintValidationJobPut { .. }
-                | JournalRecord::ConstraintValidationJobDelete { .. }
-                | JournalRecord::ConstraintValidationIndexPut { .. }
-                | JournalRecord::IdentityRangeAdvance { .. } => {}
-                #[cfg(any(test, feature = "migration"))]
-                JournalRecord::SchemaMigrationRowPut { .. }
-                | JournalRecord::SchemaMigrationIndexPut { .. } => {}
+    }
+    if ranges.is_empty() {
+        return Ok(());
+    }
+
+    for record in &batch.records {
+        let (primary_key, is_put) = match record {
+            JournalRecord::RowPut { primary_key, .. } => (primary_key, true),
+            JournalRecord::RowDelete { primary_key, .. } => (primary_key, false),
+            JournalRecord::AcceptedSchemaPublish { .. }
+            | JournalRecord::AcceptedSchemaIndexDelete { .. }
+            | JournalRecord::AcceptedSchemaIndexPut { .. }
+            | JournalRecord::ConstraintValidationJobPut { .. }
+            | JournalRecord::ConstraintValidationJobDelete { .. }
+            | JournalRecord::ConstraintValidationIndexPut { .. }
+            | JournalRecord::IdentityRangeAdvance { .. } => continue,
+            #[cfg(any(test, feature = "migration"))]
+            JournalRecord::SchemaMigrationRowPut { .. }
+            | JournalRecord::SchemaMigrationIndexPut { .. } => continue,
+        };
+        let key = DecodedDataStoreKey::try_from_raw(primary_key)
+            .map_err(|_| journal_batch_corruption())?;
+        let Some(entity_ranges) = ranges.get_mut(&key.entity_tag()) else {
+            continue;
+        };
+        let value = match key.primary_key_value() {
+            PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(value)) => u128::from(value),
+            PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat128(value)) => value,
+            _ => return Err(journal_batch_corruption()),
+        };
+        for (range, expected_allocation, count) in entity_ranges {
+            if value <= range.expected_high_water() {
+                continue;
+            }
+            if !is_put || value > range.new_high_water() {
+                return Err(journal_batch_corruption());
+            }
+            *expected_allocation = expected_allocation
+                .checked_add(1)
+                .ok_or_else(journal_batch_corruption)?;
+            *count = count.checked_add(1).ok_or_else(journal_batch_corruption)?;
+            if value != *expected_allocation {
+                return Err(journal_batch_corruption());
             }
         }
-        if count != range.allocation_count() || expected_allocation != range.new_high_water() {
+    }
+    for (range, expected_allocation, count) in ranges.values().flatten() {
+        if *count != range.allocation_count() || *expected_allocation != range.new_high_water() {
             return Err(journal_batch_corruption());
         }
     }
@@ -1718,13 +1729,11 @@ fn validate_journal_record(record: &JournalRecord) -> Result<(), InternalError> 
             schema_root_bytes,
         } => {
             validate_path(store_path)?;
-            let candidate = CandidateSchemaRevision::from_encoded(
-                schema_bundle_bytes.clone(),
-                schema_root_bytes.clone(),
-            )
-            .map_err(|_| journal_batch_corruption())?;
-            if candidate.store_path() != store_path
-                || expected_revision.checked_next() != Some(candidate.revision())
+            let (bundle, root) =
+                CandidateSchemaRevision::decode_contents(schema_bundle_bytes, schema_root_bytes)
+                    .map_err(|_| journal_batch_corruption())?;
+            if bundle.store_path() != store_path
+                || expected_revision.checked_next() != Some(root.revision())
             {
                 return Err(journal_batch_corruption());
             }

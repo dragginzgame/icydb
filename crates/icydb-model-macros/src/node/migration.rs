@@ -5,7 +5,8 @@ use darling::ast::NestedMeta;
 
 #[derive(Debug)]
 pub(crate) struct MigrationPlan {
-    transitions: Vec<EntityMigration>,
+    items: Vec<NestedMeta>,
+    source_path: Option<syn::Path>,
 }
 
 #[derive(Debug)]
@@ -75,22 +76,58 @@ enum Transform {
 }
 
 impl MigrationPlan {
-    pub(crate) fn constructor_tokens(&self) -> TokenStream {
-        let transitions = self
-            .transitions
+    pub(crate) fn validate(&self, paths: &CratePaths) -> Result<(), DarlingError> {
+        self.transitions(paths).map(|_| ())
+    }
+
+    fn transitions(&self, paths: &CratePaths) -> Result<Vec<EntityMigration>, DarlingError> {
+        let result = self
+            .items
             .iter()
-            .map(EntityMigration::constructor_tokens);
+            .map(|item| {
+                let list = expect_list(item, "migrations(...) accepts only entity_migration(...)")?;
+                EntityMigration::parse(&parse_list(list)?, paths)
+            })
+            .collect::<Result<Vec<_>, DarlingError>>();
+        result.map_err(|error| match &self.source_path {
+            Some(path) => error.with_span(path),
+            None => error,
+        })
+    }
+
+    pub(crate) fn constructor_tokens(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
+        let transitions = match self.transitions(paths) {
+            Ok(transitions) => transitions,
+            Err(error) => return error.write_errors(),
+        };
+        let transitions = transitions
+            .iter()
+            .map(|value| value.constructor_tokens(paths));
         quote! {
             Some(|| {
-                ::icydb_model::schema::SchemaMigrationPlan::try_new(vec![#(#transitions),*])
+                #model::schema::SchemaMigrationPlan::try_new(vec![#(#transitions),*])
             })
         }
     }
 }
 
 impl FromMeta for MigrationPlan {
+    fn from_meta(item: &syn::Meta) -> Result<Self, DarlingError> {
+        let result = match item {
+            syn::Meta::List(list) => {
+                let mut plan = Self::from_list(&NestedMeta::parse_meta_list(list.tokens.clone())?)
+                    .map_err(|error| error.with_span(item))?;
+                plan.source_path = Some(list.path.clone());
+                Ok(plan)
+            }
+            syn::Meta::Path(_) => Self::from_word(),
+            syn::Meta::NameValue(value) => Self::from_expr(&value.value),
+        };
+        result.map_err(|error| error.with_span(item))
+    }
+
     fn from_list(items: &[NestedMeta]) -> Result<Self, DarlingError> {
-        let mut transitions = Vec::new();
         for item in items {
             let list = expect_list(item, "migrations(...) accepts only entity_migration(...)")?;
             if !list.path.is_ident("entity_migration") {
@@ -99,19 +136,21 @@ impl FromMeta for MigrationPlan {
                 )
                 .with_span(&list.path));
             }
-            transitions.push(EntityMigration::parse(&parse_list(list)?)?);
         }
-        if transitions.is_empty() {
+        if items.is_empty() {
             return Err(DarlingError::custom(
                 "migrations(...) requires at least one entity_migration(...) declaration",
             ));
         }
-        Ok(Self { transitions })
+        Ok(Self {
+            items: items.to_vec(),
+            source_path: None,
+        })
     }
 }
 
 impl EntityMigration {
-    fn parse(items: &[NestedMeta]) -> Result<Self, DarlingError> {
+    fn parse(items: &[NestedMeta], paths: &CratePaths) -> Result<Self, DarlingError> {
         let mut entity = None;
         let mut from = None;
         let mut from_name = None;
@@ -139,7 +178,7 @@ impl EntityMigration {
                     renames_seen = true;
                     renames = parse_list(list)?
                         .iter()
-                        .map(Rename::parse)
+                        .map(|value| Rename::parse(value, paths))
                         .collect::<Result<_, _>>()?;
                 }
                 NestedMeta::Meta(syn::Meta::List(list)) if list.path.is_ident("transforms") => {
@@ -149,7 +188,7 @@ impl EntityMigration {
                     transforms_seen = true;
                     transforms = parse_list(list)?
                         .iter()
-                        .map(Transform::parse)
+                        .map(|value| Transform::parse(value, paths))
                         .collect::<Result<_, _>>()?;
                 }
                 _ => {
@@ -177,19 +216,26 @@ impl EntityMigration {
         })
     }
 
-    fn constructor_tokens(&self) -> TokenStream {
+    fn constructor_tokens(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
         let entity = &self.entity;
         let from = self.from;
         let from_name = self.from_name.as_ref().map_or_else(
             || quote!(None),
-            |name| quote!(Some(::icydb_model::schema::EntitySourceKey::try_new(#name.to_string())?)),
+            |name| quote!(Some(#model::schema::EntitySourceKey::try_new(#name.to_string())?)),
         );
-        let renames = self.renames.iter().map(Rename::constructor_tokens);
-        let transforms = self.transforms.iter().map(Transform::constructor_tokens);
+        let renames = self
+            .renames
+            .iter()
+            .map(|value| Rename::constructor_tokens(value, paths));
+        let transforms = self
+            .transforms
+            .iter()
+            .map(|value| Transform::constructor_tokens(value, paths));
         quote! {
-            ::icydb_model::schema::EntityMigration::try_new(
-                ::icydb_model::schema::EntitySourceKey::try_new(#entity.to_string())?,
-                ::icydb_model::schema::DeclaredEntityVersion::try_new(#from)?,
+            #model::schema::EntityMigration::try_new(
+                #model::schema::EntitySourceKey::try_new(#entity.to_string())?,
+                #model::schema::DeclaredEntityVersion::try_new(#from)?,
                 #from_name,
                 vec![#(#renames),*],
                 vec![#(#transforms),*],
@@ -199,7 +245,7 @@ impl EntityMigration {
 }
 
 impl Rename {
-    fn parse(item: &NestedMeta) -> Result<Self, DarlingError> {
+    fn parse(item: &NestedMeta, __paths: &CratePaths) -> Result<Self, DarlingError> {
         let list = expect_list(item, "rename declarations must use name(...)")?;
         let items = parse_list(list)?;
         let named_type = optional_string(&items, "named_type")?;
@@ -244,19 +290,22 @@ impl Rename {
         }
     }
 
-    fn constructor_tokens(&self) -> TokenStream {
-        let field = |value: &LitStr| quote!(::icydb_model::schema::FieldSourceKey::try_new(#value.to_string())?);
-        let ty = |value: &LitStr| quote!(::icydb_model::schema::TypeSourceKey::try_new(#value.to_string())?);
+    fn constructor_tokens(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
+        let field =
+            |value: &LitStr| quote!(#model::schema::FieldSourceKey::try_new(#value.to_string())?);
+        let ty =
+            |value: &LitStr| quote!(#model::schema::TypeSourceKey::try_new(#value.to_string())?);
         match self {
             Self::Field { from, to } => {
                 let from = field(from);
                 let to = field(to);
-                quote!(::icydb_model::schema::SchemaMigrationRename::Field { from: #from, to: #to })
+                quote!(#model::schema::SchemaMigrationRename::Field { from: #from, to: #to })
             }
             Self::NamedType { from, to } => {
                 let from = ty(from);
                 let to = ty(to);
-                quote!(::icydb_model::schema::SchemaMigrationRename::NamedType { from: #from, to: #to })
+                quote!(#model::schema::SchemaMigrationRename::NamedType { from: #from, to: #to })
             }
             Self::Variant {
                 named_type,
@@ -266,7 +315,7 @@ impl Rename {
                 let named_type = ty(named_type);
                 let from = ty(from);
                 let to = ty(to);
-                quote!(::icydb_model::schema::SchemaMigrationRename::EnumVariant { named_type: #named_type, from: #from, to: #to })
+                quote!(#model::schema::SchemaMigrationRename::EnumVariant { named_type: #named_type, from: #from, to: #to })
             }
             Self::RecordField {
                 named_type,
@@ -276,13 +325,13 @@ impl Rename {
                 let named_type = ty(named_type);
                 let from = field(from);
                 let to = field(to);
-                quote!(::icydb_model::schema::SchemaMigrationRename::RecordField { named_type: #named_type, from: #from, to: #to })
+                quote!(#model::schema::SchemaMigrationRename::RecordField { named_type: #named_type, from: #from, to: #to })
             }
             Self::Relation { from, to } => {
-                quote!(::icydb_model::schema::SchemaMigrationRename::Relation { from: ::icydb_model::schema::RelationSourceKey::try_new(#from.to_string())?, to: ::icydb_model::schema::RelationSourceKey::try_new(#to.to_string())? })
+                quote!(#model::schema::SchemaMigrationRename::Relation { from: #model::schema::RelationSourceKey::try_new(#from.to_string())?, to: #model::schema::RelationSourceKey::try_new(#to.to_string())? })
             }
             Self::Constraint { from, to } => {
-                quote!(::icydb_model::schema::SchemaMigrationRename::Constraint { from: ::icydb_model::schema::ConstraintSourceKey::try_new(#from.to_string())?, to: ::icydb_model::schema::ConstraintSourceKey::try_new(#to.to_string())? })
+                quote!(#model::schema::SchemaMigrationRename::Constraint { from: #model::schema::ConstraintSourceKey::try_new(#from.to_string())?, to: #model::schema::ConstraintSourceKey::try_new(#to.to_string())? })
             }
             Self::Rule {
                 named_type,
@@ -290,14 +339,14 @@ impl Rename {
                 to,
             } => {
                 let named_type = ty(named_type);
-                quote!(::icydb_model::schema::SchemaMigrationRename::Rule { named_type: #named_type, from: ::icydb_model::schema::RuleSourceKey::try_new(#from.to_string())?, to: ::icydb_model::schema::RuleSourceKey::try_new(#to.to_string())? })
+                quote!(#model::schema::SchemaMigrationRename::Rule { named_type: #named_type, from: #model::schema::RuleSourceKey::try_new(#from.to_string())?, to: #model::schema::RuleSourceKey::try_new(#to.to_string())? })
             }
         }
     }
 }
 
 impl Transform {
-    fn parse(item: &NestedMeta) -> Result<Self, DarlingError> {
+    fn parse(item: &NestedMeta, paths: &CratePaths) -> Result<Self, DarlingError> {
         let list = expect_list(
             item,
             "transform declarations must use fill(...) or rewrite(...)",
@@ -305,7 +354,8 @@ impl Transform {
         let items = parse_list(list)?;
         if list.path.is_ident("fill") {
             let to = required_string(&items, "to")?;
-            let literal = required_nested(&items, "literal").and_then(parse_literal)?;
+            let literal =
+                required_nested(&items, "literal").and_then(|value| parse_literal(value, paths))?;
             ensure_only_mixed(&items, &["to"], &["literal"])?;
             return Ok(Self::Fill { to, literal });
         }
@@ -319,8 +369,8 @@ impl Transform {
         let to = required_string(&items, "to")?;
         let operations = items.iter().filter_map(|item| match item {
             NestedMeta::Meta(syn::Meta::Path(path)) if path.is_ident("copy") => Some(Ok(("copy", None))),
-            NestedMeta::Meta(syn::Meta::List(operation)) if operation.path.is_ident("checked_cast") => Some(parse_checked_cast(operation).map(|tokens| ("checked_cast", Some(tokens)))),
-            NestedMeta::Meta(syn::Meta::List(operation)) if operation.path.is_ident("coalesce") => Some(parse_coalesce(operation).map(|tokens| ("coalesce", Some(tokens)))),
+            NestedMeta::Meta(syn::Meta::List(operation)) if operation.path.is_ident("checked_cast") => Some(parse_checked_cast(operation, paths).map(|tokens| ("checked_cast", Some(tokens)))),
+            NestedMeta::Meta(syn::Meta::List(operation)) if operation.path.is_ident("coalesce") => Some(parse_coalesce(operation, paths).map(|tokens| ("coalesce", Some(tokens)))),
             NestedMeta::Meta(syn::Meta::NameValue(value)) if value.path.is_ident("from") || value.path.is_ident("to") => None,
             _ => Some(Err(DarlingError::custom("rewrite(...) accepts exactly one of copy, checked_cast(...), or coalesce(literal(...))"))),
         }).collect::<Result<Vec<_>, _>>()?;
@@ -345,45 +395,51 @@ impl Transform {
         }
     }
 
-    fn constructor_tokens(&self) -> TokenStream {
-        let field = |value: &LitStr| quote!(::icydb_model::schema::FieldSourceKey::try_new(#value.to_string())?);
+    fn constructor_tokens(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
+        let field =
+            |value: &LitStr| quote!(#model::schema::FieldSourceKey::try_new(#value.to_string())?);
         match self {
             Self::Fill { to, literal } => {
                 let to = field(to);
-                quote!(::icydb_model::schema::SchemaMigrationTransform::Fill { to: #to, literal: #literal })
+                quote!(#model::schema::SchemaMigrationTransform::Fill { to: #to, literal: #literal })
             }
             Self::Copy { from, to } => {
                 let from = field(from);
                 let to = field(to);
-                quote!(::icydb_model::schema::SchemaMigrationTransform::Copy { from: #from, to: #to })
+                quote!(#model::schema::SchemaMigrationTransform::Copy { from: #from, to: #to })
             }
             Self::CheckedCast { from, to, target } => {
                 let from = field(from);
                 let to = field(to);
-                quote!(::icydb_model::schema::SchemaMigrationTransform::CheckedCast { from: #from, to: #to, target: #target })
+                quote!(#model::schema::SchemaMigrationTransform::CheckedCast { from: #from, to: #to, target: #target })
             }
             Self::Coalesce { from, to, literal } => {
                 let from = field(from);
                 let to = field(to);
-                quote!(::icydb_model::schema::SchemaMigrationTransform::Coalesce { from: #from, to: #to, literal: #literal })
+                quote!(#model::schema::SchemaMigrationTransform::Coalesce { from: #from, to: #to, literal: #literal })
             }
         }
     }
 }
 
-fn parse_checked_cast(list: &syn::MetaList) -> Result<TokenStream, DarlingError> {
+fn parse_checked_cast(
+    list: &syn::MetaList,
+    paths: &CratePaths,
+) -> Result<TokenStream, DarlingError> {
     let items = parse_list(list)?;
     ensure_only_names(&items, &["to"])?;
-    scalar_type_tokens(&required_string(&items, "to")?)
+    scalar_type_tokens(&required_string(&items, "to")?, paths)
 }
 
-fn parse_coalesce(list: &syn::MetaList) -> Result<TokenStream, DarlingError> {
+fn parse_coalesce(list: &syn::MetaList, paths: &CratePaths) -> Result<TokenStream, DarlingError> {
     let items = parse_list(list)?;
     ensure_only_mixed(&items, &[], &["literal"])?;
-    parse_literal(required_nested(&items, "literal")?)
+    parse_literal(required_nested(&items, "literal")?, paths)
 }
 
-fn scalar_type_tokens(value: &LitStr) -> Result<TokenStream, DarlingError> {
+fn scalar_type_tokens(value: &LitStr, paths: &CratePaths) -> Result<TokenStream, DarlingError> {
+    let model = &paths.model;
     let text = value.value();
     if let Some(scale) = text
         .strip_prefix("Decimal(")
@@ -399,7 +455,7 @@ fn scalar_type_tokens(value: &LitStr) -> Result<TokenStream, DarlingError> {
             )
             .with_span(value));
         }
-        return Ok(quote!(::icydb_model::schema::ScalarType::Decimal { scale: #scale }));
+        return Ok(quote!(#model::schema::ScalarType::Decimal { scale: #scale }));
     }
     let variant = match text.as_str() {
         "Int8" | "Int16" | "Int32" | "Int64" | "Int128" | "Nat8" | "Nat16" | "Nat32" | "Nat64"
@@ -411,10 +467,11 @@ fn scalar_type_tokens(value: &LitStr) -> Result<TokenStream, DarlingError> {
             .with_span(value));
         }
     };
-    Ok(quote!(::icydb_model::schema::ScalarType::#variant))
+    Ok(quote!(#model::schema::ScalarType::#variant))
 }
 
-fn parse_literal(list: &syn::MetaList) -> Result<TokenStream, DarlingError> {
+fn parse_literal(list: &syn::MetaList, paths: &CratePaths) -> Result<TokenStream, DarlingError> {
+    let model = &paths.model;
     let items = parse_list(list)?;
     if items.len() != 1 {
         return Err(DarlingError::custom(
@@ -423,16 +480,16 @@ fn parse_literal(list: &syn::MetaList) -> Result<TokenStream, DarlingError> {
     }
     match &items[0] {
         NestedMeta::Meta(syn::Meta::Path(path)) if path.is_ident("unit") => Ok(quote!(
-            ::icydb_model::schema::ScalarLiteral::Unit(::icydb_model::schema::Unit)
+            #model::schema::ScalarLiteral::Unit(#model::schema::Unit)
         )),
         NestedMeta::Meta(syn::Meta::List(value)) if value.path.is_ident("enum") => {
             let nested = parse_list(value)?;
             ensure_only_names(&nested, &["named_type", "variant"])?;
             let named_type = required_string(&nested, "named_type")?;
             let variant = required_string(&nested, "variant")?;
-            Ok(quote!(::icydb_model::schema::ScalarLiteral::EnumUnit {
-                enum_type: ::icydb_model::schema::TypeSourceKey::try_new(#named_type.to_string())?,
-                variant: ::icydb_model::schema::TypeSourceKey::try_new(#variant.to_string())?,
+            Ok(quote!(#model::schema::ScalarLiteral::EnumUnit {
+                enum_type: #model::schema::TypeSourceKey::try_new(#named_type.to_string())?,
+                variant: #model::schema::TypeSourceKey::try_new(#variant.to_string())?,
             }))
         }
         NestedMeta::Meta(syn::Meta::NameValue(value)) if value.path.is_ident("bool") => {
@@ -442,32 +499,32 @@ fn parse_literal(list: &syn::MetaList) -> Result<TokenStream, DarlingError> {
             let syn::Lit::Bool(literal) = &expr.lit else {
                 return Err(literal_error(&value.value));
             };
-            Ok(quote!(::icydb_model::schema::ScalarLiteral::Bool(#literal)))
+            Ok(quote!(#model::schema::ScalarLiteral::Bool(#literal)))
         }
         NestedMeta::Meta(syn::Meta::NameValue(value)) if value.path.is_ident("int") => {
             let expression = integer_expression(&value.value, true)?;
-            Ok(quote!(::icydb_model::schema::ScalarLiteral::Int((#expression) as i128)))
+            Ok(quote!(#model::schema::ScalarLiteral::Int((#expression) as i128)))
         }
         NestedMeta::Meta(syn::Meta::NameValue(value)) if value.path.is_ident("nat") => {
             let expression = integer_expression(&value.value, false)?;
-            Ok(quote!(::icydb_model::schema::ScalarLiteral::Nat((#expression) as u128)))
+            Ok(quote!(#model::schema::ScalarLiteral::Nat((#expression) as u128)))
         }
         NestedMeta::Meta(syn::Meta::NameValue(value)) if value.path.is_ident("text") => {
             let text = string_value(value)?;
-            Ok(quote!(::icydb_model::schema::ScalarLiteral::Text(#text.to_string())))
+            Ok(quote!(#model::schema::ScalarLiteral::Text(#text.to_string())))
         }
         NestedMeta::Meta(syn::Meta::NameValue(value)) if value.path.is_ident("float32") => {
             let expression = float_expression(&value.value)?;
-            Ok(quote!(::icydb_model::schema::ScalarLiteral::Float32(
-                ::icydb_model::schema::Float32::try_new((#expression) as f32)
-                    .ok_or(::icydb_model::schema::SchemaContractError::InvalidLiteral)?
+            Ok(quote!(#model::schema::ScalarLiteral::Float32(
+                #model::schema::Float32::try_new((#expression) as f32)
+                    .ok_or(#model::schema::SchemaContractError::InvalidLiteral)?
             )))
         }
         NestedMeta::Meta(syn::Meta::NameValue(value)) if value.path.is_ident("float64") => {
             let expression = float_expression(&value.value)?;
-            Ok(quote!(::icydb_model::schema::ScalarLiteral::Float64(
-                ::icydb_model::schema::Float64::try_new((#expression) as f64)
-                    .ok_or(::icydb_model::schema::SchemaContractError::InvalidLiteral)?
+            Ok(quote!(#model::schema::ScalarLiteral::Float64(
+                #model::schema::Float64::try_new((#expression) as f64)
+                    .ok_or(#model::schema::SchemaContractError::InvalidLiteral)?
             )))
         }
         NestedMeta::Meta(syn::Meta::NameValue(value)) => {
@@ -489,7 +546,7 @@ fn parse_literal(list: &syn::MetaList) -> Result<TokenStream, DarlingError> {
                 return Err(DarlingError::custom("unsupported typed migration literal"));
             }
             let text = string_value(value)?;
-            Ok(quote!(::icydb_model::node::migration_literal_from_text(#kind, #text)?))
+            Ok(quote!(#model::node::migration_literal_from_text(#kind, #text)?))
         }
         _ => Err(DarlingError::custom(
             "literal(...) requires one supported typed MigrationProgramV1 literal",
@@ -654,7 +711,9 @@ mod tests {
     use quote::quote;
 
     fn parse(tokens: TokenStream) -> Result<MigrationPlan, DarlingError> {
-        MigrationPlan::from_list(&NestedMeta::parse_meta_list(tokens)?)
+        let plan = MigrationPlan::from_list(&NestedMeta::parse_meta_list(tokens)?)?;
+        plan.validate(&CratePaths::test())?;
+        Ok(plan)
     }
 
     #[test]
@@ -679,7 +738,9 @@ mod tests {
                 )
             )
         )).expect("frozen grammar should parse");
-        let tokens = plan.constructor_tokens().to_string();
+        let tokens = plan
+            .constructor_tokens(&crate::crate_path::CratePaths::test())
+            .to_string();
         assert!(tokens.contains("SchemaMigrationPlan :: try_new"));
         assert!(tokens.contains("SchemaMigrationRename :: EnumVariant"));
         assert!(tokens.contains("SchemaMigrationTransform :: CheckedCast"));
@@ -695,12 +756,24 @@ mod tests {
     fn dependency_only_transition_parses() {
         let plan = parse(quote!(entity_migration(entity = "Holder", from = 1)))
             .expect("dependency-only transition should parse");
-        assert_eq!(plan.transitions.len(), 1);
+        assert_eq!(plan.transitions(&CratePaths::test()).unwrap().len(), 1);
     }
 
     #[test]
     fn decimal_cast_target_accepts_only_the_frozen_parenthesized_spelling() {
-        assert!(scalar_type_tokens(&LitStr::new("Decimal(8)", Span::call_site())).is_ok());
-        assert!(scalar_type_tokens(&LitStr::new("Decimal:8", Span::call_site())).is_err());
+        assert!(
+            scalar_type_tokens(
+                &LitStr::new("Decimal(8)", Span::call_site()),
+                &crate::crate_path::CratePaths::test()
+            )
+            .is_ok()
+        );
+        assert!(
+            scalar_type_tokens(
+                &LitStr::new("Decimal:8", Span::call_site()),
+                &crate::crate_path::CratePaths::test()
+            )
+            .is_err()
+        );
     }
 }

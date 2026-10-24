@@ -38,10 +38,11 @@ impl HasDef for Record {
 
 impl ValidateNode for Record {
     fn validate(&self) -> Result<(), DarlingError> {
+        let paths = self.def.paths();
         self.validate_traits()?;
-        self.fields.validate()?;
+        self.fields.validate(self.def.paths())?;
         if self.traits.explicitly_adds(TraitKind::Default) {
-            validate_struct_default_request("record", self.def(), &self.fields)?;
+            validate_struct_default_request("record", self.def(), &self.fields, paths)?;
         }
 
         Ok(())
@@ -55,15 +56,16 @@ impl HasSchema for Record {
 }
 
 impl HasSchemaPart for Record {
-    fn schema_part(&self) -> TokenStream {
-        let def = self.def.schema_part();
+    fn schema_part(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
+        let def = self.def.schema_part(paths);
         let name = self.current_name_literal(self.name.as_ref());
-        let fields = self.fields.schema_part();
-        let ty = self.ty.schema_part();
+        let fields = self.fields.schema_part(paths);
+        let ty = self.ty.schema_part(paths);
 
         // quote
         quote! {
-            ::icydb_model::node::Record::new(#def, #name, #fields, #ty)
+            #model::node::Record::new(#def, #name, #fields, #ty)
         }
     }
 }
@@ -90,10 +92,10 @@ impl HasTraits for Record {
 }
 
 impl HasType for Record {
-    fn type_part(&self) -> TokenStream {
+    fn type_part(&self, paths: &CratePaths) -> TokenStream {
         let ident = self.def.ident();
         let fields = self.fields.iter().map(|field| {
-            let expr = field.type_expr();
+            let expr = field.type_expr(paths);
 
             quote! {
                 pub #expr
@@ -108,20 +110,22 @@ impl HasType for Record {
     }
 }
 
-impl ToTokens for Record {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        let base = self.all_tokens();
+impl Record {
+    pub(crate) fn generate_tokens(&self, paths: &CratePaths) -> TokenStream {
+        let mut tokens = TokenStream::new();
+        let base = self.all_tokens(paths);
         let schema_references = if self.emit_runtime_references {
-            runtime_schema_reference_tokens(&self.def, &self.fields, None)
+            runtime_schema_reference_tokens(&self.def, &self.fields, None, paths)
         } else {
             TokenStream::new()
         };
-        let typed_adapter = crate::node::typed_adapter::record_adapter_tokens(self);
+        let typed_adapter = crate::node::typed_adapter::record_adapter_tokens(self, paths);
         tokens.extend(quote! {
             #base
             #schema_references
             #typed_adapter
         });
+        tokens
     }
 }
 
@@ -142,6 +146,7 @@ mod tests {
                 pub struct UnsupportedNumericRecord {}
             ))
             .expect("record input should parse as a struct"),
+            crate::crate_path::CratePaths::test(),
         );
 
         let error = node
@@ -179,10 +184,11 @@ mod tests {
                 pub struct LineItem {}
             ))
             .expect("record input should parse as a struct"),
+            crate::crate_path::CratePaths::test(),
         );
         node.emit_runtime_references = true;
 
-        let tokens = node.to_token_stream().to_string();
+        let tokens = node.generate_tokens(node.def.paths()).to_string();
 
         for expected in [
             "pub const LABEL : :: icydb :: db :: query :: FieldRef",

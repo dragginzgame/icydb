@@ -8,13 +8,15 @@ use quote::quote;
 
 /// Private SQL token bundle for one generated actor.
 pub(super) struct SqlSurfaceTokens {
+    icydb: TokenStream,
     has_entities: bool,
     reset_statements: TokenStream,
 }
 
 impl SqlSurfaceTokens {
-    pub(super) fn empty() -> Self {
+    pub(super) fn empty(icydb: TokenStream) -> Self {
         Self {
+            icydb,
             has_entities: false,
             reset_statements: TokenStream::new(),
         }
@@ -27,23 +29,24 @@ impl SqlSurfaceTokens {
     }
 
     fn readonly_dispatch_tokens(&self) -> TokenStream {
+        let icydb = &self.icydb;
         let entity_dispatch = if self.has_entities {
             quote! {
                 db()?.execute_trusted_sql_query_dispatch(&dispatch, &[])
             }
         } else {
-            empty_sql_surface_query_dispatch()
+            empty_sql_surface_query_dispatch(&self.icydb)
         };
 
         quote! {
             fn __icydb_query_dispatch<const INTROSPECTION: bool>(
                 sql: &str,
-            ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
-                let dispatch = ::icydb::__macro::sql_statement_dispatch(sql)?;
+            ) -> Result<#icydb::db::sql::SqlQueryResult, #icydb::Error> {
+                let dispatch = #icydb::__macro::sql_statement_dispatch(sql)?;
                 if !INTROSPECTION && dispatch.requires_introspection() {
-                    return Err(::icydb::Error::from_runtime_boundary(
-                        ::icydb::diagnostic::RuntimeBoundaryCode::SqlIntrospectionDisabled,
-                        ::icydb::ErrorOrigin::Interface,
+                    return Err(#icydb::Error::from_runtime_boundary(
+                        #icydb::diagnostic::RuntimeBoundaryCode::SqlIntrospectionDisabled,
+                        #icydb::ErrorOrigin::Interface,
                     ));
                 }
 
@@ -53,6 +56,7 @@ impl SqlSurfaceTokens {
     }
 
     fn reset_helper_tokens(&self) -> TokenStream {
+        let icydb = &self.icydb;
         let reset_statements = &self.reset_statements;
 
         if reset_statements.is_empty() {
@@ -63,7 +67,7 @@ impl SqlSurfaceTokens {
         } else {
             quote! {
                 fn __icydb_sql_surface_reset_all_tables(
-                ) -> Result<(), ::icydb::Error> {
+                ) -> Result<(), #icydb::Error> {
                     #reset_statements
 
                     Ok(())
@@ -73,13 +77,14 @@ impl SqlSurfaceTokens {
     }
 
     fn ddl_dispatch_tokens(&self) -> TokenStream {
+        let icydb = &self.icydb;
         let entity_dispatch = if self.has_entities {
             quote! { db()?.execute_admin_sql_ddl_dispatch(&dispatch) }
         } else {
             quote! {
-                Err(::icydb::Error::from_runtime_boundary(
-                    ::icydb::diagnostic::RuntimeBoundaryCode::SqlDdlEntityNotConfigured,
-                    ::icydb::ErrorOrigin::Interface,
+                Err(#icydb::Error::from_runtime_boundary(
+                    #icydb::diagnostic::RuntimeBoundaryCode::SqlDdlEntityNotConfigured,
+                    #icydb::ErrorOrigin::Interface,
                 ))
             }
         };
@@ -87,12 +92,12 @@ impl SqlSurfaceTokens {
         quote! {
             fn __icydb_sql_surface_ddl_dispatch(
                 sql: &str,
-            ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
-                let dispatch = ::icydb::__macro::sql_statement_dispatch(sql)?;
+            ) -> Result<#icydb::db::sql::SqlQueryResult, #icydb::Error> {
+                let dispatch = #icydb::__macro::sql_statement_dispatch(sql)?;
                 match dispatch.entity_name() {
-                    None => Err(::icydb::Error::from_runtime_boundary(
-                        ::icydb::diagnostic::RuntimeBoundaryCode::SqlDdlTargetRequired,
-                        ::icydb::ErrorOrigin::Interface,
+                    None => Err(#icydb::Error::from_runtime_boundary(
+                        #icydb::diagnostic::RuntimeBoundaryCode::SqlDdlTargetRequired,
+                        #icydb::ErrorOrigin::Interface,
                     )),
                     Some(_entity) => #entity_dispatch,
                 }
@@ -101,26 +106,27 @@ impl SqlSurfaceTokens {
     }
 
     fn update_dispatch_tokens(&self) -> TokenStream {
+        let icydb = &self.icydb;
         let primary_key_dispatch = if self.has_entities {
             quote! { db()?.execute_sql_public_primary_key_update(&dispatch) }
         } else {
-            empty_sql_surface_query_dispatch()
+            empty_sql_surface_query_dispatch(&self.icydb)
         };
         let bounded_dispatch = if self.has_entities {
             quote! { db()?.execute_sql_public_bounded_update(&dispatch) }
         } else {
-            empty_sql_surface_query_dispatch()
+            empty_sql_surface_query_dispatch(&self.icydb)
         };
 
         quote! {
             fn __icydb_sql_surface_update_primary_key_dispatch(
                 sql: &str,
-            ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
-                let dispatch = ::icydb::__macro::sql_statement_dispatch(sql)?;
+            ) -> Result<#icydb::db::sql::SqlQueryResult, #icydb::Error> {
+                let dispatch = #icydb::__macro::sql_statement_dispatch(sql)?;
                 match dispatch.entity_name() {
-                    None => Err(::icydb::Error::from_runtime_boundary(
-                        ::icydb::diagnostic::RuntimeBoundaryCode::SqlQueryNoConfiguredEntities,
-                        ::icydb::ErrorOrigin::Interface,
+                    None => Err(#icydb::Error::from_runtime_boundary(
+                        #icydb::diagnostic::RuntimeBoundaryCode::SqlQueryNoConfiguredEntities,
+                        #icydb::ErrorOrigin::Interface,
                     )),
                     Some(_entity) => #primary_key_dispatch,
                 }
@@ -128,12 +134,12 @@ impl SqlSurfaceTokens {
 
             fn __icydb_sql_surface_update_bounded_dispatch(
                 sql: &str,
-            ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
-                let dispatch = ::icydb::__macro::sql_statement_dispatch(sql)?;
+            ) -> Result<#icydb::db::sql::SqlQueryResult, #icydb::Error> {
+                let dispatch = #icydb::__macro::sql_statement_dispatch(sql)?;
                 match dispatch.entity_name() {
-                    None => Err(::icydb::Error::from_runtime_boundary(
-                        ::icydb::diagnostic::RuntimeBoundaryCode::SqlQueryNoConfiguredEntities,
-                        ::icydb::ErrorOrigin::Interface,
+                    None => Err(#icydb::Error::from_runtime_boundary(
+                        #icydb::diagnostic::RuntimeBoundaryCode::SqlQueryNoConfiguredEntities,
+                        #icydb::ErrorOrigin::Interface,
                     )),
                     Some(_entity) => #bounded_dispatch,
                 }
@@ -142,6 +148,7 @@ impl SqlSurfaceTokens {
     }
 
     fn handler_tokens(&self) -> TokenStream {
+        let icydb = &self.icydb;
         let reset_result = if self.reset_statements.is_empty() {
             quote! {
                 __icydb_sql_surface_reset_all_tables();
@@ -158,7 +165,7 @@ impl SqlSurfaceTokens {
             )]
             pub(crate) fn __icydb_endpoint_handler_sql_query<const INTROSPECTION: bool>(
                 sql: String,
-            ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
+            ) -> Result<#icydb::db::sql::SqlQueryResult, #icydb::Error> {
                 __icydb_query_dispatch::<INTROSPECTION>(sql.as_str())?
                     .into_deliverable_query_reply()
             }
@@ -169,7 +176,7 @@ impl SqlSurfaceTokens {
             )]
             pub(crate) fn __icydb_endpoint_handler_sql_ddl(
                 sql: String,
-            ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
+            ) -> Result<#icydb::db::sql::SqlQueryResult, #icydb::Error> {
                 __icydb_sql_surface_ddl_dispatch(sql.as_str())
             }
 
@@ -179,13 +186,13 @@ impl SqlSurfaceTokens {
                 reason = "fixture presence changes the generated body while the handler contract stays uniform"
             )]
             pub(crate) fn __icydb_endpoint_handler_fixtures_reset(
-            ) -> Result<(), ::icydb::Error> {
+            ) -> Result<(), #icydb::Error> {
                 #reset_result
             }
 
             pub(crate) fn __icydb_endpoint_handler_fixtures_load(
-                handler: fn() -> Result<(), ::icydb::Error>,
-            ) -> Result<(), ::icydb::Error> {
+                handler: fn() -> Result<(), #icydb::Error>,
+            ) -> Result<(), #icydb::Error> {
                 __icydb_endpoint_handler_fixtures_reset()?;
                 handler()
             }
@@ -196,7 +203,7 @@ impl SqlSurfaceTokens {
             )]
             pub(crate) fn __icydb_endpoint_handler_sql_update_primary_key(
                 sql: String,
-            ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
+            ) -> Result<#icydb::db::sql::SqlQueryResult, #icydb::Error> {
                 __icydb_sql_surface_update_primary_key_dispatch(sql.as_str())
             }
 
@@ -206,7 +213,7 @@ impl SqlSurfaceTokens {
             )]
             pub(crate) fn __icydb_endpoint_handler_sql_update_bounded(
                 sql: String,
-            ) -> Result<::icydb::db::sql::SqlQueryResult, ::icydb::Error> {
+            ) -> Result<#icydb::db::sql::SqlQueryResult, #icydb::Error> {
                 __icydb_sql_surface_update_bounded_dispatch(sql.as_str())
             }
 
@@ -217,11 +224,11 @@ impl SqlSurfaceTokens {
             )]
             pub(crate) fn __icydb_endpoint_handler_sql_integrity(
                 sql: String,
-                owner: ::icydb::db::IntegrityJobOwner,
-            ) -> Result<::icydb::db::IntegrityCheckResult, ::icydb::db::SqlIntegrityError> {
+                owner: #icydb::db::IntegrityJobOwner,
+            ) -> Result<#icydb::db::IntegrityCheckResult, #icydb::db::SqlIntegrityError> {
                 let session = db().map_err(|error| {
-                    ::icydb::db::SqlIntegrityError::Integrity(
-                        ::icydb::db::IntegrityCheckError::Database(error),
+                    #icydb::db::SqlIntegrityError::Integrity(
+                        #icydb::db::IntegrityCheckError::Database(error),
                     )
                 })?;
 
@@ -233,6 +240,7 @@ impl SqlSurfaceTokens {
 
 impl quote::ToTokens for SqlSurfaceTokens {
     fn to_tokens(&self, tokens: &mut TokenStream) {
+        let icydb = &self.icydb;
         let readonly_dispatch = self.readonly_dispatch_tokens();
         let reset_helper = self.reset_helper_tokens();
         let ddl_dispatch = self.ddl_dispatch_tokens();
@@ -240,7 +248,7 @@ impl quote::ToTokens for SqlSurfaceTokens {
         let handlers = self.handler_tokens();
 
         tokens.extend(quote! {
-            ::icydb::__icydb_with_sql_items! {
+            #icydb::__icydb_with_sql_items! {
                 #readonly_dispatch
                 #reset_helper
                 #ddl_dispatch
@@ -258,11 +266,11 @@ fn sql_surface_reset_statement(entity_name: &str) -> TokenStream {
     }
 }
 
-fn empty_sql_surface_query_dispatch() -> TokenStream {
+fn empty_sql_surface_query_dispatch(icydb: &TokenStream) -> TokenStream {
     quote! {
-        Err(::icydb::Error::from_runtime_boundary(
-            ::icydb::diagnostic::RuntimeBoundaryCode::SqlQueryNoConfiguredEntities,
-            ::icydb::ErrorOrigin::Interface,
+        Err(#icydb::Error::from_runtime_boundary(
+            #icydb::diagnostic::RuntimeBoundaryCode::SqlQueryNoConfiguredEntities,
+            #icydb::ErrorOrigin::Interface,
         ))
     }
 }
@@ -283,7 +291,7 @@ mod tests {
 
     #[test]
     fn generated_sql_capability_contains_every_private_handler_and_no_export() {
-        let mut surface = SqlSurfaceTokens::empty();
+        let mut surface = SqlSurfaceTokens::empty(quote!(::icydb));
         surface.push_entity("Character");
         let surface = compact_tokens(quote!(#surface));
 
@@ -310,7 +318,7 @@ mod tests {
 
     #[test]
     fn generated_sql_capability_keeps_both_sealed_update_admissions() {
-        let mut surface = SqlSurfaceTokens::empty();
+        let mut surface = SqlSurfaceTokens::empty(quote!(::icydb));
         surface.push_entity("Character");
         let surface = compact_tokens(quote!(#surface));
 
@@ -322,7 +330,7 @@ mod tests {
 
     #[test]
     fn generated_sql_capability_uses_trusted_query_and_admin_ddl() {
-        let mut surface = SqlSurfaceTokens::empty();
+        let mut surface = SqlSurfaceTokens::empty(quote!(::icydb));
         surface.push_entity("Character");
         let surface = compact_tokens(quote!(#surface));
 
@@ -333,7 +341,7 @@ mod tests {
 
     #[test]
     fn generated_sql_query_capability_keeps_introspection_gate() {
-        let mut surface = SqlSurfaceTokens::empty();
+        let mut surface = SqlSurfaceTokens::empty(quote!(::icydb));
         surface.push_entity("Character");
         let surface = compact_tokens(quote!(#surface));
 
@@ -343,7 +351,7 @@ mod tests {
 
     #[test]
     fn generated_fixture_load_reuses_reset_then_calls_handler_once() {
-        let surface = SqlSurfaceTokens::empty();
+        let surface = SqlSurfaceTokens::empty(quote!(::icydb));
         let handler = compact_tokens(surface.handler_tokens());
         let reset = handler
             .find("__icydb_endpoint_handler_fixtures_reset()?")
@@ -358,9 +366,9 @@ mod tests {
 
     #[test]
     fn empty_and_entity_sql_capabilities_keep_exact_dispatch_boundaries() {
-        let empty_surface = SqlSurfaceTokens::empty();
+        let empty_surface = SqlSurfaceTokens::empty(quote!(::icydb));
         let empty = compact_tokens(quote!(#empty_surface));
-        let mut entity = SqlSurfaceTokens::empty();
+        let mut entity = SqlSurfaceTokens::empty(quote!(::icydb));
         entity.push_entity("Character");
         let entity = compact_tokens(quote!(#entity));
 

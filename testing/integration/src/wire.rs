@@ -8,14 +8,14 @@ use serde::{Serialize, de::DeserializeOwned};
 /// Raw PocketIC transport for generated and fixture-owned Wire methods.
 pub trait WireCallExt {
     /// Query as the anonymous principal.
-    fn query_wire<T: Serialize + DeserializeOwned, A: Serialize>(
+    fn query_wire<T: DeserializeOwned, A: Serialize>(
         &self,
         canister: Principal,
         method: &str,
         arguments: A,
     ) -> Result<T, String>;
     /// Query with an explicit caller identity.
-    fn query_wire_as<T: Serialize + DeserializeOwned, A: Serialize>(
+    fn query_wire_as<T: DeserializeOwned, A: Serialize>(
         &self,
         canister: Principal,
         caller: Principal,
@@ -23,14 +23,14 @@ pub trait WireCallExt {
         arguments: A,
     ) -> Result<T, String>;
     /// Update as the anonymous principal.
-    fn update_wire<T: Serialize + DeserializeOwned, A: Serialize>(
+    fn update_wire<T: DeserializeOwned, A: Serialize>(
         &self,
         canister: Principal,
         method: &str,
         arguments: A,
     ) -> Result<T, String>;
     /// Update with an explicit caller identity.
-    fn update_wire_as<T: Serialize + DeserializeOwned, A: Serialize>(
+    fn update_wire_as<T: DeserializeOwned, A: Serialize>(
         &self,
         canister: Principal,
         caller: Principal,
@@ -40,7 +40,7 @@ pub trait WireCallExt {
 }
 
 impl WireCallExt for PocketIc {
-    fn query_wire<T: Serialize + DeserializeOwned, A: Serialize>(
+    fn query_wire<T: DeserializeOwned, A: Serialize>(
         &self,
         canister: Principal,
         method: &str,
@@ -48,7 +48,7 @@ impl WireCallExt for PocketIc {
     ) -> Result<T, String> {
         self.query_wire_as(canister, Principal::anonymous(), method, arguments)
     }
-    fn query_wire_as<T: Serialize + DeserializeOwned, A: Serialize>(
+    fn query_wire_as<T: DeserializeOwned, A: Serialize>(
         &self,
         canister: Principal,
         caller: Principal,
@@ -62,7 +62,7 @@ impl WireCallExt for PocketIc {
             .map_err(|error| format!("{error:?}"))?;
         fixture_wire::decode_response(method, &reply).map_err(|error| error.to_string())
     }
-    fn update_wire<T: Serialize + DeserializeOwned, A: Serialize>(
+    fn update_wire<T: DeserializeOwned, A: Serialize>(
         &self,
         canister: Principal,
         method: &str,
@@ -70,7 +70,7 @@ impl WireCallExt for PocketIc {
     ) -> Result<T, String> {
         self.update_wire_as(canister, Principal::anonymous(), method, arguments)
     }
-    fn update_wire_as<T: Serialize + DeserializeOwned, A: Serialize>(
+    fn update_wire_as<T: DeserializeOwned, A: Serialize>(
         &self,
         canister: Principal,
         caller: Principal,

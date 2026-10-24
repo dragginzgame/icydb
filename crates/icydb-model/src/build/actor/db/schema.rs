@@ -14,12 +14,14 @@ use quote::quote;
 ///
 
 pub(super) struct SchemaSurfaceTokens {
+    icydb: TokenStream,
     entity_sources: Vec<String>,
 }
 
 impl SchemaSurfaceTokens {
-    pub(super) const fn empty() -> Self {
+    pub(super) const fn empty(icydb: TokenStream) -> Self {
         Self {
+            icydb,
             entity_sources: Vec::new(),
         }
     }
@@ -31,6 +33,7 @@ impl SchemaSurfaceTokens {
 
 impl quote::ToTokens for SchemaSurfaceTokens {
     fn to_tokens(&self, tokens: &mut TokenStream) {
+        let icydb = &self.icydb;
         let entity_sources = &self.entity_sources;
 
         tokens.extend(quote! {
@@ -40,7 +43,7 @@ impl quote::ToTokens for SchemaSurfaceTokens {
                 reason = "empty generated schemas retain the same runtime lookup and fallible handler contract"
             )]
             pub(crate) fn __icydb_endpoint_handler_schema(
-            ) -> Result<Vec<::icydb::db::EntitySchemaDescription>, ::icydb::Error> {
+            ) -> Result<Vec<#icydb::db::EntitySchemaDescription>, #icydb::Error> {
                 Ok(vec![
                     #(db()?.try_describe_entity_by_source_key(#entity_sources)?),*
                 ])
@@ -65,7 +68,7 @@ mod tests {
 
     #[test]
     fn generated_schema_capability_resolves_current_entity_names_privately() {
-        let mut surface_tokens = SchemaSurfaceTokens::empty();
+        let mut surface_tokens = SchemaSurfaceTokens::empty(quote!(::icydb));
         surface_tokens.push_entity("Character");
 
         let surface = compact_tokens(quote!(#surface_tokens));
@@ -79,7 +82,7 @@ mod tests {
 
     #[test]
     fn generated_schema_private_handler_cannot_export_a_method() {
-        let mut surface_tokens = SchemaSurfaceTokens::empty();
+        let mut surface_tokens = SchemaSurfaceTokens::empty(quote!(::icydb));
         surface_tokens.push_entity("Character");
         let file = syn::parse2::<syn::File>(quote!(#surface_tokens))
             .expect("generated schema surface should remain valid Rust syntax");

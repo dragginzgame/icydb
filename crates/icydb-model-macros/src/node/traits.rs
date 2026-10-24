@@ -54,12 +54,12 @@ pub struct TraitTokens {
 /// Coordinates schema emission, type emission, and trait impl generation.
 ///
 
-pub trait HasMacro: HasSchema + HasTraits + HasType + ToTokens {
+pub trait HasMacro: HasSchema + HasTraits + HasType {
     /// Generate all Rust tokens for this node: schema consts, derives, main type, and impls.
-    fn all_tokens(&self) -> TokenStream {
+    fn all_tokens(&self, paths: &CratePaths) -> TokenStream {
         let TraitTokens { derive, impls } = self.resolve_trait_tokens();
-        let schema = self.schema_tokens();
-        let type_part = self.type_part();
+        let schema = self.schema_tokens(paths);
+        let type_part = self.type_part(paths);
 
         quote! {
             // SCHEMA CONSTANT
@@ -76,6 +76,8 @@ pub trait HasMacro: HasSchema + HasTraits + HasType + ToTokens {
 
     /// Resolve all derive + impl traits for this node, returning combined code.
     fn resolve_trait_tokens(&self) -> TraitTokens {
+        let paths = self.def().paths();
+        let model = &paths.model;
         let mut derive_traits = Vec::new();
         let mut attrs = Vec::new();
         let mut impls = TokenStream::new();
@@ -95,7 +97,7 @@ pub trait HasMacro: HasSchema + HasTraits + HasType + ToTokens {
             }
 
             if let Some(derive_tr) = strategy.derive
-                && let Some(path) = derive_tr.derive_path()
+                && let Some(path) = derive_tr.derive_path(paths)
             {
                 if matches!(derive_tr, TraitKind::Deserialize) {
                     has_serde_deserialize = true;
@@ -111,7 +113,10 @@ pub trait HasMacro: HasSchema + HasTraits + HasType + ToTokens {
         };
 
         if has_serde_deserialize {
-            attrs.push(quote!(#[serde(crate = "::icydb_model::__reexports::serde")]));
+            let serde_path = quote!(#model::__reexports::serde)
+                .to_string()
+                .replace(' ', "");
+            attrs.push(quote!(#[serde(crate = #serde_path)]));
         }
 
         derive.extend(attrs);
@@ -122,7 +127,7 @@ pub trait HasMacro: HasSchema + HasTraits + HasType + ToTokens {
 
 /// Blanket implementation so any node that satisfies the constraints
 /// automatically gets full macro generation.
-impl<T> HasMacro for T where T: HasDef + HasSchema + HasTraits + HasType + ToTokens {}
+impl<T> HasMacro for T where T: HasDef + HasSchema + HasTraits + HasType {}
 
 ///
 /// HasType
@@ -132,7 +137,7 @@ impl<T> HasMacro for T where T: HasDef + HasSchema + HasTraits + HasType + ToTok
 
 pub trait HasType: HasDef {
     /// Emit the main Rust type definition (struct, enum, etc.)
-    fn type_part(&self) -> TokenStream {
+    fn type_part(&self, __paths: &CratePaths) -> TokenStream {
         quote!()
     }
 }
@@ -142,7 +147,7 @@ pub trait HasType: HasDef {
 ///
 
 pub trait HasTypeExpr {
-    fn type_expr(&self) -> TokenStream {
+    fn type_expr(&self, __paths: &CratePaths) -> TokenStream {
         quote!()
     }
 }
@@ -192,6 +197,7 @@ pub trait HasTraits: HasType {
     ///
     /// Most schema nodes rely on these automatically unless overridden in `map_trait`.
     fn default_strategy(&self, t: TraitKind) -> Option<TraitStrategy> {
+        let paths = self.def().paths();
         let def = self.def();
         let ident = def.ident();
 
@@ -203,7 +209,7 @@ pub trait HasTraits: HasType {
                 let q = quote! {
                     const PATH: &'static str = concat!(module_path!(), "::", stringify!(#ident));
                 };
-                let tokens = Implementor::new(def, t).set_tokens(q).to_token_stream();
+                let tokens = Implementor::new(def, t).set_tokens(q).impl_tokens(paths);
 
                 Some(TraitStrategy::from_impl(tokens))
             }
@@ -216,7 +222,7 @@ pub trait HasTraits: HasType {
             | TraitKind::ValidateAuto
             | TraitKind::ValidateCustom
             | TraitKind::Visitable => {
-                let tokens = Implementor::new(def, t).to_token_stream();
+                let tokens = Implementor::new(def, t).impl_tokens(paths);
                 Some(TraitStrategy::from_impl(tokens))
             }
 
@@ -226,11 +232,12 @@ pub trait HasTraits: HasType {
 
     /// Resolve a selected trait to its sole derive or implementation strategy.
     fn trait_strategy(&self, trait_kind: TraitKind) -> Option<TraitStrategy> {
+        let paths = self.def().paths();
         self.map_trait(trait_kind)
             .or_else(|| self.default_strategy(trait_kind))
             .or_else(|| {
                 trait_kind
-                    .derive_path()
+                    .derive_path(paths)
                     .map(|_| TraitStrategy::from_derive(trait_kind))
             })
     }
@@ -238,6 +245,7 @@ pub trait HasTraits: HasType {
     /// Validate directives against the complete node/shape baseline and prove
     /// that every selected trait has an emission strategy.
     fn validate_traits(&self) -> Result<(), DarlingError> {
+        let paths = self.def().paths();
         let Some(node_kind) = self.application_type_kind() else {
             return Ok(());
         };
@@ -261,7 +269,7 @@ pub trait HasTraits: HasType {
                 .is_some_and(|tokens| !tokens.is_empty());
             let has_derive = strategy
                 .derive
-                .is_some_and(|derived| derived.derive_path().is_some());
+                .is_some_and(|derived| derived.derive_path(paths).is_some());
             if !has_impl && !has_derive {
                 return Err(self.missing_trait_strategy_error(Some(node_kind), trait_kind));
             }
@@ -347,8 +355,9 @@ pub trait HasSchema: HasSchemaPart + HasDef {
     }
 
     /// Emits the full schema constant + registration constructor.
-    fn schema_tokens(&self) -> TokenStream {
-        let schema_expr = self.schema_part();
+    fn schema_tokens(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
+        let schema_expr = self.schema_part(paths);
         if schema_expr.is_empty() {
             return quote!();
         }
@@ -361,17 +370,17 @@ pub trait HasSchema: HasSchemaPart + HasDef {
         let kind = Self::schema_node_kind();
 
         quote! {
-            const #const_var: ::icydb_model::node::#kind = #schema_expr;
+            const #const_var: #model::node::#kind = #schema_expr;
 
             #[cfg(not(target_arch = "wasm32"))]
-            #[::icydb_model::__reexports::ctor::ctor(
+            #[#model::__reexports::ctor::ctor(
                 unsafe,
                 anonymous,
-                crate_path = ::icydb_model::__reexports::ctor
+                crate_path = #model::__reexports::ctor
             )]
             fn #ctor() {
-                ::icydb_model::build::register_node(
-                    ::icydb_model::node::SchemaNode::#kind(#const_var)
+                #model::build::register_node(
+                    #model::node::SchemaNode::#kind(#const_var)
                 );
             }
         }
@@ -408,7 +417,7 @@ impl ToTokens for SchemaNodeKind {
 ///
 
 pub trait HasSchemaPart {
-    fn schema_part(&self) -> TokenStream {
+    fn schema_part(&self, __paths: &CratePaths) -> TokenStream {
         quote!()
     }
 }

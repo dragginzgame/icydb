@@ -84,18 +84,21 @@ impl HasSchema for Newtype {
 }
 
 impl HasSchemaPart for Newtype {
-    fn schema_part(&self) -> TokenStream {
+    fn schema_part(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
         debug_assert!(self.validate().is_ok(), "invalid #[newtype] config");
 
-        let def = self.def.schema_part();
+        let def = self.def.schema_part(paths);
         let name = self.current_name_literal(self.name.as_ref());
-        let item = self.item.schema_part();
-        let default = quote_option(self.default.as_ref(), Arg::schema_part);
-        let ty = self.ty.schema_part();
+        let item = self.item.schema_part(paths);
+        let default = quote_option(self.default.as_ref(), |value| {
+            Arg::schema_part(value, paths)
+        });
+        let ty = self.ty.schema_part(paths);
 
         // quote
         quote! {
-            ::icydb_model::node::Newtype::new(#def, #name, #item, #default, #ty)
+            #model::node::Newtype::new(#def, #name, #item, #default, #ty)
         }
     }
 }
@@ -229,9 +232,9 @@ const fn primitive_supports_full_arithmetic(primitive: Primitive) -> bool {
 }
 
 impl HasType for Newtype {
-    fn type_part(&self) -> TokenStream {
+    fn type_part(&self, paths: &CratePaths) -> TokenStream {
         let ident = self.def.ident();
-        let item = &self.item.type_expr();
+        let item = &self.item.type_expr(paths);
 
         quote! {
             #[repr(transparent)]
@@ -240,20 +243,22 @@ impl HasType for Newtype {
     }
 }
 
-impl ToTokens for Newtype {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        let base = self.all_tokens();
-        let typed_adapter = crate::node::typed_adapter::newtype_adapter_tokens(self);
+///
+/// TESTS
+///
+
+impl Newtype {
+    pub(crate) fn generate_tokens(&self, paths: &CratePaths) -> TokenStream {
+        let mut tokens = TokenStream::new();
+        let base = self.all_tokens(paths);
+        let typed_adapter = crate::node::typed_adapter::newtype_adapter_tokens(self, paths);
         tokens.extend(quote! {
             #base
             #typed_adapter
         });
+        tokens
     }
 }
-
-///
-/// TESTS
-///
 
 #[cfg(test)]
 mod tests {

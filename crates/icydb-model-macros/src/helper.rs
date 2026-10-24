@@ -3,6 +3,7 @@
 //! Does not own: runtime schema semantics.
 //! Boundary: macro input to generated tokens.
 
+use crate::crate_path::CratePaths;
 use proc_macro2::TokenStream;
 use quote::{ToTokens, quote};
 
@@ -60,6 +61,7 @@ pub fn to_str_lit<T: ToTokens>(t: &T) -> TokenStream {
 }
 
 /// Resolve a `Path` implementor to its associated `PATH` constant.
-pub fn to_path<T: ToTokens>(t: &T) -> TokenStream {
-    quote! { <#t as ::icydb_model::Path>::PATH }
+pub fn to_path<T: ToTokens>(t: &T, paths: &CratePaths) -> TokenStream {
+    let model = &paths.model;
+    quote! { <#t as #model::Path>::PATH }
 }

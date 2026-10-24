@@ -974,7 +974,7 @@ impl PrimaryRangeKeyStream {
 
         let row_limit = self.remaining;
         let visited = Cell::new(0usize);
-        let mut last_raw_key = None;
+        let mut last_primary_key = None;
         let outcome = self.store.with_data(|store| {
             store.try_visit_range_with_row_preflight(
                 (self.lower_bound.as_ref(), self.upper_bound.as_ref()),
@@ -991,9 +991,10 @@ impl PrimaryRangeKeyStream {
                         1,
                     )?;
                     let key = PrimaryScan::decode_data_key(raw_key)?;
+                    let primary_key = key.primary_key_value();
                     let visit = visit_row(key, row)?;
                     visited.set(visited.get().saturating_add(1));
-                    last_raw_key = Some(raw_key.clone());
+                    last_primary_key = Some(primary_key);
 
                     Ok(visit)
                 },
@@ -1003,8 +1004,13 @@ impl PrimaryRangeKeyStream {
             return Ok(None);
         };
 
-        if let Some(raw_key) = last_raw_key {
-            self.lower_bound = Bound::Excluded(raw_key);
+        // The visitor consumes decoded keys. Retain their compact identity
+        // and encode only the final resume boundary after traversal.
+        if let Some(primary_key) = last_primary_key {
+            self.lower_bound = Bound::Excluded(
+                DecodedDataStoreKey::new_primary_key_value(self.entity_tag, &primary_key)
+                    .to_raw()?,
+            );
         }
         if let Some(remaining) = self.remaining.as_mut() {
             *remaining = remaining.saturating_sub(visited.get());
@@ -1781,7 +1787,7 @@ mod physical_polling_tests {
             QueryError,
             data::{DataStore, RawRow},
             index::{IndexEntryValue, IndexId, IndexStore},
-            key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
+            key_taxonomy::{CompositePrimaryKeyValue, PrimaryKeyComponent, PrimaryKeyValue},
             registry::{StoreAllocationIdentities, StoreRuntimeStorageCapabilities},
             resource::budget::{
                 HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
@@ -1983,47 +1989,80 @@ mod physical_polling_tests {
 
     #[test]
     fn direct_primary_visits_preserve_bounded_progress_after_early_stop() {
-        reset_heap_stores();
-        load_primary_keys();
-        for limit in [Some(0), Some(1), Some(64), Some(65), None] {
-            for stop_after in [0, 1, 63, 64, 65, 100] {
-                let mut stream = PrimaryRangeKeyStream::new(
-                    STORE,
-                    data_key(10),
-                    data_key(90),
-                    Direction::Asc,
-                    limit,
-                )
-                .unwrap();
-                let visited = Cell::new(0);
-                let mut rows = Vec::new();
-                assert_eq!(
-                    stream
-                        .try_visit_rows_direct(
-                            &mut || Ok(visited.get() < stop_after),
-                            &mut |key, _| {
-                                visited.set(visited.get() + 1);
-                                rows.push(key);
-                                Ok(StoreVisit::Continue)
-                            },
+        for composite in [false, true] {
+            reset_heap_stores();
+            let keys = (1..=100)
+                .map(|value| {
+                    if composite {
+                        DecodedDataStoreKey::new_primary_key_value(
+                            ENTITY,
+                            &PrimaryKeyValue::Composite(
+                                CompositePrimaryKeyValue::try_from_components(&[
+                                    PrimaryKeyComponent::Nat64(value),
+                                    PrimaryKeyComponent::Nat64(500 + value),
+                                ])
+                                .unwrap(),
+                            ),
                         )
-                        .unwrap(),
-                    Some(())
-                );
-                let mut expected = (10..=90).map(data_key).collect::<Vec<_>>();
-                if let Some(limit) = limit {
-                    expected.truncate(limit);
+                    } else {
+                        data_key(value)
+                    }
+                })
+                .collect::<Vec<_>>();
+            DATA.with_borrow_mut(|store| {
+                for key in &keys {
+                    store.insert_raw_for_test(
+                        key.to_raw().unwrap(),
+                        RawRow::try_new(vec![0]).unwrap(),
+                    );
                 }
-                assert_eq!(
-                    rows,
-                    expected
-                        .iter()
-                        .take(stop_after)
-                        .cloned()
-                        .collect::<Vec<_>>()
-                );
-                rows.extend(collect_keys(&mut stream));
-                assert_eq!(rows, expected);
+            });
+            for limit in [Some(0), Some(1), Some(64), Some(65), None] {
+                for stop_after in [0, 1, 63, 64, 65, 100] {
+                    for stop_in_visitor in [false, true] {
+                        let mut stream = PrimaryRangeKeyStream::new(
+                            STORE,
+                            keys[9].clone(),
+                            keys[89].clone(),
+                            Direction::Asc,
+                            limit,
+                        )
+                        .unwrap();
+                        let visited = Cell::new(0);
+                        let mut rows = Vec::new();
+                        assert_eq!(
+                            stream
+                                .try_visit_rows_direct(
+                                    &mut || Ok(visited.get() < stop_after),
+                                    &mut |key, _| {
+                                        visited.set(visited.get() + 1);
+                                        rows.push(key);
+                                        Ok(if stop_in_visitor && visited.get() == stop_after {
+                                            StoreVisit::Stop
+                                        } else {
+                                            StoreVisit::Continue
+                                        })
+                                    },
+                                )
+                                .unwrap(),
+                            Some(())
+                        );
+                        let mut expected = keys[9..90].to_vec();
+                        if let Some(limit) = limit {
+                            expected.truncate(limit);
+                        }
+                        assert_eq!(
+                            rows,
+                            expected
+                                .iter()
+                                .take(stop_after)
+                                .cloned()
+                                .collect::<Vec<_>>()
+                        );
+                        rows.extend(collect_keys(&mut stream));
+                        assert_eq!(rows, expected);
+                    }
+                }
             }
         }
     }

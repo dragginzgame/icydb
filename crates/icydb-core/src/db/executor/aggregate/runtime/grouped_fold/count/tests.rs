@@ -124,33 +124,38 @@ fn grouped_count_fast_path_handles_hash_collisions_without_merging_groups() {
 #[test]
 fn path_count_probe_preserves_canonical_decimal_equality_under_hash_collisions() {
     with_test_hash_override(Ok([0xAB; 16]), || {
-        let fields = [GroupField::scalar_path_for_test(
-            "profile.amount",
-            "profile",
-            vec!["amount".into()],
-            0,
-            AcceptedFieldKind::Decimal { scale: 2 },
-        )];
-        let mut context = ExecutionContext::new(ExecutionConfig::unbounded());
-        let mut counts = GroupedCountState::new();
-        for (value, expected_groups) in [
-            (Decimal::new(100, 2), 1),
-            (Decimal::new(200, 2), 2),
-            (Decimal::new(10, 1), 2),
-        ] {
-            let row = RowView::new(vec![Some(Value::Map(vec![(
-                Value::Text("amount".into()),
-                Value::Decimal(value),
-            )]))]);
-            counts
-                .increment_row_path_group_probe(&row, &fields, &mut context)
-                .expect("canonical path probe");
-            assert_eq!(context.budget().groups(), expected_groups);
+        for width in [1, 2] {
+            let fields = vec![
+                GroupField::scalar_path_for_test(
+                    "profile.amount",
+                    "profile",
+                    vec!["amount".into()],
+                    0,
+                    AcceptedFieldKind::Decimal { scale: 2 },
+                );
+                width
+            ];
+            let mut context = ExecutionContext::new(ExecutionConfig::unbounded());
+            let mut counts = GroupedCountState::new();
+            for (value, expected_groups) in [
+                (Decimal::new(100, 2), 1),
+                (Decimal::new(200, 2), 2),
+                (Decimal::new(10, 1), 2),
+            ] {
+                let row = RowView::new(vec![Some(Value::Map(vec![(
+                    Value::Text("amount".into()),
+                    Value::Decimal(value),
+                )]))]);
+                counts
+                    .increment_row_path_group_probe(&row, &fields, &mut context)
+                    .expect("canonical path probe");
+                assert_eq!(context.budget().groups(), expected_groups);
+            }
+            let groups = counts.into_groups();
+            assert_eq!(groups.len(), 2);
+            assert_eq!(groups[0].1, 2);
+            assert_eq!(groups[1].1, 1);
         }
-        let groups = counts.into_groups();
-        assert_eq!(groups.len(), 2);
-        assert_eq!(groups[0].1, 2);
-        assert_eq!(groups[1].1, 1);
     });
 }
 

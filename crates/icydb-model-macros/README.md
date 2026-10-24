@@ -9,6 +9,11 @@ compiler lowers declarations into the model package's host graph and the
 public `icydb-schema` proposal vocabulary; it has no dependency on `icydb` or
 `icydb-core`.
 
+Cargo dependency aliases are supported: the compiler resolves package identities
+before emitting framework references. An attribute's `model_crate = "path"`
+override selects an explicit model facade. Authored field names and Rust paths
+are emitted unchanged, including names such as `icydb` and `icydb_model`.
+
 The package also transports the two thin request-entry attributes re-exported
 only by the `icydb` runtime facade. They expand to facade calls resolved through
 the consuming crate's direct dependency and do not own execution policy or

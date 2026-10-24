@@ -39,6 +39,7 @@ pub(super) fn generate_store_wiring(
     builder: &ActorBuilder,
     frontend_surfaces: TokenStream,
 ) -> TokenStream {
+    let icydb = &builder.icydb;
     let canister = &builder.canister;
     let memory_namespace = canister.memory_namespace();
     let memory_authority = format!("icydb.{memory_namespace}");
@@ -49,6 +50,7 @@ pub(super) fn generate_store_wiring(
     let schema_bootstrap = schema_bootstrap_tokens(builder);
 
     store_wiring_tokens(
+        icydb,
         store_registry,
         frontend_surfaces,
         schema_bootstrap,
@@ -62,10 +64,11 @@ pub(super) fn generate_store_wiring(
 }
 
 fn schema_bootstrap_tokens(builder: &ActorBuilder) -> TokenStream {
+    let icydb = &builder.icydb;
     let fragment_bytes = &builder.schema_fragment_bytes;
     let migration_capability = builder.schema_migration_plan_bytes.as_ref().map_or_else(
         TokenStream::new,
-        |_| quote!(::icydb::__icydb_require_migration_capability!();),
+        |_| quote!(#icydb::__icydb_require_migration_capability!();),
     );
     let migration_bytes = builder
         .schema_migration_plan_bytes
@@ -100,7 +103,7 @@ fn schema_bootstrap_tokens(builder: &ActorBuilder) -> TokenStream {
         .collect::<Vec<_>>();
     let entity_names = entity_stores.iter().map(|(name, _)| name);
     let store_paths = entity_stores.iter().map(|(_, store)| store);
-    let startup_driver = startup_driver_tokens();
+    let startup_driver = startup_driver_tokens(icydb);
 
     quote! {
         #migration_capability
@@ -112,19 +115,19 @@ fn schema_bootstrap_tokens(builder: &ActorBuilder) -> TokenStream {
         ];
 
         fn apply_generated_schema(
-            session: &::icydb::db::DbSession<__IcydbGeneratedCanister>,
-        ) -> ::std::result::Result<(), ::icydb::Error> {
+            session: &#icydb::db::DbSession<__IcydbGeneratedCanister>,
+        ) -> ::std::result::Result<(), #icydb::Error> {
             #apply_generated_schema
         }
 
         #startup_driver
 
         fn admit_ordinary_database_work(
-        ) -> ::std::result::Result<(), ::icydb::Error> {
+        ) -> ::std::result::Result<(), #icydb::Error> {
             match startup_state() {
-                Ok(::icydb::db::DatabaseStartupState::Ready) => Ok(()),
-                Ok(::icydb::db::DatabaseStartupState::Recovering) => {
-                    Err(::icydb::db::__startup_recovery_pending())
+                Ok(#icydb::db::DatabaseStartupState::Ready) => Ok(()),
+                Ok(#icydb::db::DatabaseStartupState::Recovering) => {
+                    Err(#icydb::db::__startup_recovery_pending())
                 }
                 Err(failure) => Err(failure.error().clone()),
             }
@@ -132,17 +135,17 @@ fn schema_bootstrap_tokens(builder: &ActorBuilder) -> TokenStream {
     }
 }
 
-fn startup_driver_tokens() -> TokenStream {
+fn startup_driver_tokens(icydb: &TokenStream) -> TokenStream {
     quote! {
-        pub(crate) fn startup_driver_attempt() -> ::std::result::Result<bool, ::icydb::Error> {
-            let session = ::icydb::db::DbSession::new(core_db()?);
+        pub(crate) fn startup_driver_attempt() -> ::std::result::Result<bool, #icydb::Error> {
+            let session = #icydb::db::DbSession::new(core_db()?);
             match session.__drive_generated_startup_recovery_page(
                 &STORE_REGISTRY,
                 ICYDB_SCHEMA_SUBMISSION_KEY,
             )? {
-                ::icydb::db::GeneratedStartupDriverStep::Terminal => Ok(true),
-                ::icydb::db::GeneratedStartupDriverStep::Recovering => Ok(false),
-                ::icydb::db::GeneratedStartupDriverStep::ApplyGeneratedSchema => {
+                #icydb::db::GeneratedStartupDriverStep::Terminal => Ok(true),
+                #icydb::db::GeneratedStartupDriverStep::Recovering => Ok(false),
+                #icydb::db::GeneratedStartupDriverStep::ApplyGeneratedSchema => {
                     complete_generated_schema_handoff(&session)
                 }
             }
@@ -152,7 +155,7 @@ fn startup_driver_tokens() -> TokenStream {
         #[cfg(feature = "test-admin-api")]
         #[doc(hidden)]
         pub(super) fn __icydb_startup_driver_attempt_for_tests(
-        ) -> ::std::result::Result<bool, ::icydb::Error> {
+        ) -> ::std::result::Result<bool, #icydb::Error> {
             startup_driver_attempt()
         }
 
@@ -165,8 +168,8 @@ fn startup_driver_tokens() -> TokenStream {
         /// It does not reset the database or bypass convergence backpressure.
         #[cfg(all(test, not(target_arch = "wasm32")))]
         pub(crate) fn __drive_native_database_for_tests(
-        ) -> ::std::result::Result<(), ::icydb::Error> {
-            ::icydb::db::with_request_execution(|| {
+        ) -> ::std::result::Result<(), #icydb::Error> {
+            #icydb::db::with_request_execution(|| {
                 while !startup_driver_attempt()? {
                     // Keep production paging and request limits on both fresh
                     // startup and later convergence of accumulated writes.
@@ -176,14 +179,14 @@ fn startup_driver_tokens() -> TokenStream {
         }
 
         fn complete_generated_schema_handoff(
-            session: &::icydb::db::DbSession<__IcydbGeneratedCanister>,
-        ) -> ::std::result::Result<bool, ::icydb::Error> {
+            session: &#icydb::db::DbSession<__IcydbGeneratedCanister>,
+        ) -> ::std::result::Result<bool, #icydb::Error> {
             if let Err(error) = apply_generated_schema(session) {
                 // Explicit controller commands own migration progress. Stop
                 // without a receipt in that case; otherwise record failures
                 // through the existing startup classifier and binding.
-                if error.code() == ::icydb::ErrorCode::SCHEMA_MIGRATION_IN_PROGRESS
-                    || ::icydb::db::__record_generated_schema_startup_failure::<
+                if error.code() == #icydb::ErrorCode::SCHEMA_MIGRATION_IN_PROGRESS
+                    || #icydb::db::__record_generated_schema_startup_failure::<
                     __IcydbGeneratedCanister,
                 >(
                     &STORE_REGISTRY,
@@ -197,13 +200,13 @@ fn startup_driver_tokens() -> TokenStream {
                 return Err(error);
             }
             match startup_state() {
-                Ok(::icydb::db::DatabaseStartupState::Ready) => {
-                    let _ = ::icydb::db::__clear_generated_startup_failure::<
+                Ok(#icydb::db::DatabaseStartupState::Ready) => {
+                    let _ = #icydb::db::__clear_generated_startup_failure::<
                         __IcydbGeneratedCanister,
                     >()?;
                     Ok(false)
                 }
-                Ok(::icydb::db::DatabaseStartupState::Recovering) => Ok(false),
+                Ok(#icydb::db::DatabaseStartupState::Recovering) => Ok(false),
                 Err(_) => Ok(true),
             }
         }
@@ -216,6 +219,7 @@ fn store_registry_tokens(
     memory_namespace: &str,
     memory_authority: &str,
 ) -> StoreRegistryTokens {
+    let icydb = &builder.icydb;
     let mut data_defs = quote!();
     let mut index_defs = quote!();
     let mut schema_defs = quote!();
@@ -225,7 +229,13 @@ fn store_registry_tokens(
 
     for (store_ordinal, (store_path, store)) in builder.get_stores().into_iter().enumerate() {
         let (journal_def, data_def, index_def, schema_def, store_init) =
-            store_registry_entry_tokens(store_ordinal, &store_path, &store, memory_namespace);
+            store_registry_entry_tokens(
+                icydb,
+                store_ordinal,
+                &store_path,
+                &store,
+                memory_namespace,
+            );
         if matches!(store.storage(), StoreStorage::Journaled(_)) {
             stable_keys.extend([
                 store
@@ -266,6 +276,7 @@ fn store_registry_tokens(
 
 /// Render one store registry entry into data/index/schema cells plus registration.
 fn store_registry_entry_tokens(
+    icydb: &TokenStream,
     store_ordinal: usize,
     store_path: &str,
     store: &Store,
@@ -279,9 +290,10 @@ fn store_registry_entry_tokens(
 ) {
     match store.storage() {
         StoreStorage::Heap(config) => {
-            heap_store_registry_entry_tokens(store_ordinal, store_path, *config)
+            heap_store_registry_entry_tokens(icydb, store_ordinal, store_path, *config)
         }
         StoreStorage::Journaled(_) => journaled_store_registry_entry_tokens(
+            icydb,
             store_ordinal,
             store_path,
             store,
@@ -295,6 +307,7 @@ fn store_cell_ident(store_ordinal: usize, role: &str) -> Ident {
 }
 
 fn stable_store_cell_tokens(
+    icydb: &TokenStream,
     cell_ident: &Ident,
     store_ty: TokenStream,
     stable_key: &str,
@@ -305,7 +318,7 @@ fn stable_store_cell_tokens(
                 #store_ty
             > = ::std::cell::RefCell::new(
                 #store_ty::init(
-                    ::icydb::__macro::open_memory(#stable_key)
+                    #icydb::__macro::open_memory(#stable_key)
                     .expect(concat!(
                         "ic-memory committed allocation unavailable: ",
                         #stable_key
@@ -317,6 +330,7 @@ fn stable_store_cell_tokens(
 }
 
 fn journaled_store_cell_tokens(
+    icydb: &TokenStream,
     cell_ident: &Ident,
     store_ty: TokenStream,
     stable_key: &str,
@@ -327,7 +341,7 @@ fn journaled_store_cell_tokens(
                 #store_ty
             > = ::std::cell::RefCell::new(
                 #store_ty::init_journaled(
-                    ::icydb::__macro::open_memory(#stable_key)
+                    #icydb::__macro::open_memory(#stable_key)
                     .expect(concat!(
                         "ic-memory committed allocation unavailable: ",
                         #stable_key
@@ -340,6 +354,7 @@ fn journaled_store_cell_tokens(
 
 /// Render one volatile heap store registry entry into data/index/schema cells plus registration.
 fn heap_store_registry_entry_tokens(
+    icydb: &TokenStream,
     store_ordinal: usize,
     store_path: &str,
     _heap: StoreHeapConfig,
@@ -357,27 +372,27 @@ fn heap_store_registry_entry_tokens(
     let data_def = quote! {
         thread_local! {
             static #data_cell_ident: ::std::cell::RefCell<
-                ::icydb::__macro::DataStore
+                #icydb::__macro::DataStore
             > = const { ::std::cell::RefCell::new(
-                ::icydb::__macro::DataStore::init_heap()
+                #icydb::__macro::DataStore::init_heap()
             ) };
         }
     };
     let index_def = quote! {
         thread_local! {
             static #index_cell_ident: ::std::cell::RefCell<
-                ::icydb::__macro::IndexStore
+                #icydb::__macro::IndexStore
             > = const { ::std::cell::RefCell::new(
-                ::icydb::__macro::IndexStore::init_heap()
+                #icydb::__macro::IndexStore::init_heap()
             ) };
         }
     };
     let schema_def = quote! {
         thread_local! {
             static #schema_cell_ident: ::std::cell::RefCell<
-                ::icydb::__macro::SchemaStore
+                #icydb::__macro::SchemaStore
             > = const { ::std::cell::RefCell::new(
-                ::icydb::__macro::SchemaStore::init_heap()
+                #icydb::__macro::SchemaStore::init_heap()
             ) };
         }
     };
@@ -387,8 +402,8 @@ fn heap_store_registry_entry_tokens(
             &#data_cell_ident,
             &#index_cell_ident,
             &#schema_cell_ident,
-            ::icydb::__macro::StoreAllocationIdentities::absent(),
-            ::icydb::__macro::StoreRuntimeStorageCapabilities::heap(),
+            #icydb::__macro::StoreAllocationIdentities::absent(),
+            #icydb::__macro::StoreRuntimeStorageCapabilities::heap(),
         )
         .expect("store registration should succeed");
     };
@@ -399,6 +414,7 @@ fn heap_store_registry_entry_tokens(
 /// Render one journaled cached-stable store registry entry into canonical
 /// stable data/index/schema cells, a journal-tail declaration, and registration.
 fn journaled_store_registry_entry_tokens(
+    icydb: &TokenStream,
     store_ordinal: usize,
     store_path: &str,
     store: &Store,
@@ -424,23 +440,27 @@ fn journaled_store_registry_entry_tokens(
 
     let journal_cell_ident = store_cell_ident(store_ordinal, "JOURNAL");
     let journal_def = stable_store_cell_tokens(
+        icydb,
         &journal_cell_ident,
-        quote!(::icydb::__macro::JournalTailStore),
+        quote!(#icydb::__macro::JournalTailStore),
         journal_stable_key,
     );
     let data_def = journaled_store_cell_tokens(
+        icydb,
         &data_cell_ident,
-        quote!(::icydb::__macro::DataStore),
+        quote!(#icydb::__macro::DataStore),
         data_stable_key,
     );
     let index_def = journaled_store_cell_tokens(
+        icydb,
         &index_cell_ident,
-        quote!(::icydb::__macro::IndexStore),
+        quote!(#icydb::__macro::IndexStore),
         index_stable_key,
     );
     let schema_def = journaled_store_cell_tokens(
+        icydb,
         &schema_cell_ident,
-        quote!(::icydb::__macro::SchemaStore),
+        quote!(#icydb::__macro::SchemaStore),
         schema_stable_key,
     );
     let store_init = quote! {
@@ -450,21 +470,21 @@ fn journaled_store_registry_entry_tokens(
             &#index_cell_ident,
             &#schema_cell_ident,
             &#journal_cell_ident,
-            ::icydb::__macro::StoreAllocationIdentities::new_journaled(
-                ::icydb::__macro::StoreAllocationIdentity::from_committed_key(
+            #icydb::__macro::StoreAllocationIdentities::new_journaled(
+                #icydb::__macro::StoreAllocationIdentity::from_committed_key(
                     #data_stable_key,
                 ).expect("validated store allocation must be committed"),
-                ::icydb::__macro::StoreAllocationIdentity::from_committed_key(
+                #icydb::__macro::StoreAllocationIdentity::from_committed_key(
                     #index_stable_key,
                 ).expect("validated store allocation must be committed"),
-                ::icydb::__macro::StoreAllocationIdentity::from_committed_key(
+                #icydb::__macro::StoreAllocationIdentity::from_committed_key(
                     #schema_stable_key,
                 ).expect("validated store allocation must be committed"),
-                ::icydb::__macro::StoreAllocationIdentity::from_committed_key(
+                #icydb::__macro::StoreAllocationIdentity::from_committed_key(
                     #journal_stable_key,
                 ).expect("validated store allocation must be committed"),
             ),
-            ::icydb::__macro::StoreRuntimeStorageCapabilities::journaled(),
+            #icydb::__macro::StoreRuntimeStorageCapabilities::journaled(),
         )
         .expect("store registration should succeed");
     };
@@ -478,6 +498,7 @@ fn journaled_store_registry_entry_tokens(
     reason = "one generated block keeps the store registry, memory declarations, and startup wiring visibly co-located"
 )]
 fn store_wiring_tokens(
+    icydb: &TokenStream,
     store_registry: StoreRegistryTokens,
     frontend_surfaces: TokenStream,
     schema_bootstrap: TokenStream,
@@ -500,29 +521,29 @@ fn store_wiring_tokens(
     } = memory;
     let store_registry_init = if store_inits.is_empty() {
         quote! {
-            ::icydb::__macro::StoreRegistry::new()
+            #icydb::__macro::StoreRegistry::new()
         }
     } else {
         quote! {
             {
                 let mut reg =
-                    ::icydb::__macro::StoreRegistry::new();
+                    #icydb::__macro::StoreRegistry::new();
                 #store_inits
                 reg
             }
         }
     };
-    let startup_observation = startup_observation_tokens();
+    let startup_observation = startup_observation_tokens(icydb);
 
     quote! {
         #[doc(hidden)]
         pub struct __IcydbGeneratedCanister;
 
-        impl ::icydb::__macro::Path for __IcydbGeneratedCanister {
+        impl #icydb::__macro::Path for __IcydbGeneratedCanister {
             const PATH: &'static str = "__icydb_generated_canister";
         }
 
-        impl ::icydb::__macro::CanisterKind for __IcydbGeneratedCanister {
+        impl #icydb::__macro::CanisterKind for __IcydbGeneratedCanister {
             const COMMIT_STABLE_KEY: &'static str = #commit_stable_key;
             const STARTUP_STABLE_KEY: &'static str = #startup_stable_key;
             const INTEGRITY_PROGRESS_STABLE_KEY: &'static str =
@@ -531,13 +552,13 @@ fn store_wiring_tokens(
 
         /// Complete database memory requirements for host composition, without opening stores.
         pub fn icydb_memory_requests() -> ::std::result::Result<
-            ::std::vec::Vec<::icydb::db::MemoryRequest>,
-            ::icydb::db::MemoryDeclarationError,
+            ::std::vec::Vec<#icydb::db::MemoryRequest>,
+            #icydb::db::MemoryDeclarationError,
         > {
             [#commit_stable_key, #integrity_progress_stable_key, #startup_stable_key,
                 #(#stable_keys),*]
                 .into_iter()
-                .map(|key| ::icydb::db::MemoryRequest::new(
+                .map(|key| #icydb::db::MemoryRequest::new(
                     #memory_authority, key
                 ))
                 .collect()
@@ -549,7 +570,7 @@ fn store_wiring_tokens(
                 ::std::cell::OnceCell<
                     ::std::result::Result<
                         (),
-                        ::icydb::db::DatabaseBootstrapError
+                        #icydb::db::DatabaseBootstrapError
                     >
                 > =
                     const { ::std::cell::OnceCell::new() };
@@ -559,14 +580,14 @@ fn store_wiring_tokens(
         const fn native_test_startup_recovery_wakeup() {}
 
         fn ensure_memory_bootstrap() ->
-            ::std::result::Result<(), ::icydb::db::DatabaseBootstrapError>
+            ::std::result::Result<(), #icydb::db::DatabaseBootstrapError>
         {
             #[cfg(all(test, not(target_arch = "wasm32")))]
-            ::icydb::db::__install_startup_recovery_wakeup(
+            #icydb::db::__install_startup_recovery_wakeup(
                 native_test_startup_recovery_wakeup,
             );
             #[cfg(not(all(test, not(target_arch = "wasm32"))))]
-            ::icydb::db::__install_startup_recovery_wakeup(
+            #icydb::db::__install_startup_recovery_wakeup(
                 crate::__icydb_host::ensure_startup_watchdog_scheduled_immediately,
             );
             MEMORY_BOOTSTRAP.with(|bootstrap| {
@@ -574,9 +595,9 @@ fn store_wiring_tokens(
                     .get_or_init(|| {
                         // Construct and validate once at the existing bootstrap owner.
                         let requirements = icydb_memory_requests()
-                            .and_then(::icydb::db::SealedDeclarationSnapshot::new)
-                            .map_err(::icydb::db::DatabaseBootstrapError::from)?;
-                        ::icydb::__macro::ensure_default_memory_manager(
+                            .and_then(#icydb::db::SealedDeclarationSnapshot::new)
+                            .map_err(#icydb::db::DatabaseBootstrapError::from)?;
+                        #icydb::__macro::ensure_default_memory_manager(
                             #memory_authority,
                             &requirements,
                             #bucket_size_pages,
@@ -594,73 +615,73 @@ fn store_wiring_tokens(
         #schema_bootstrap
         thread_local! {
             static STORE_REGISTRY:
-                ::icydb::__macro::StoreRegistry =
+                #icydb::__macro::StoreRegistry =
                 #store_registry_init;
         }
 
         #[doc(hidden)]
         pub fn core_db() -> ::std::result::Result<
-            ::icydb::__macro::CoreDbSession<__IcydbGeneratedCanister>,
-            ::icydb::Error,
+            #icydb::__macro::CoreDbSession<__IcydbGeneratedCanister>,
+            #icydb::Error,
         > {
             ensure_memory_bootstrap()?;
 
-            ::icydb::__macro::CoreDbSession::<__IcydbGeneratedCanister>::__new_from_current_request(
+            #icydb::__macro::CoreDbSession::<__IcydbGeneratedCanister>::__new_from_current_request(
                 &STORE_REGISTRY,
             )
-            .ok_or_else(::icydb::db::__request_execution_scope_required)
+            .ok_or_else(#icydb::db::__request_execution_scope_required)
         }
 
         #startup_observation
 
         #[doc(hidden)]
         pub fn core_db_with_request_root(
-            request_root: &::icydb::db::RequestExecutionRoot,
+            request_root: &#icydb::db::RequestExecutionRoot,
         ) -> ::std::result::Result<
-            ::icydb::__macro::CoreDbSession<__IcydbGeneratedCanister>,
-            ::icydb::db::DatabaseBootstrapError,
+            #icydb::__macro::CoreDbSession<__IcydbGeneratedCanister>,
+            #icydb::db::DatabaseBootstrapError,
         > {
             ensure_memory_bootstrap()?;
 
-            Ok(::icydb::__macro::CoreDbSession::<__IcydbGeneratedCanister>::new(
+            Ok(#icydb::__macro::CoreDbSession::<__IcydbGeneratedCanister>::new(
                 &STORE_REGISTRY,
                 request_root.__core(),
             ))
         }
 
         pub fn db() -> ::std::result::Result<
-            ::icydb::db::DbSession<__IcydbGeneratedCanister>,
-            ::icydb::Error,
+            #icydb::db::DbSession<__IcydbGeneratedCanister>,
+            #icydb::Error,
         > {
             admit_ordinary_database_work()?;
-            let session = ::icydb::db::DbSession::new(core_db()?);
+            let session = #icydb::db::DbSession::new(core_db()?);
             Ok(session)
         }
 
         #[doc(hidden)]
         pub fn db_with_request_root(
-            request_root: &::icydb::db::RequestExecutionRoot,
+            request_root: &#icydb::db::RequestExecutionRoot,
         ) -> ::std::result::Result<
-            ::icydb::db::DbSession<__IcydbGeneratedCanister>,
-            ::icydb::Error,
+            #icydb::db::DbSession<__IcydbGeneratedCanister>,
+            #icydb::Error,
         > {
             request_root.__ensure_compatible_with_current()?;
             admit_ordinary_database_work()?;
-            let session = ::icydb::db::DbSession::new(core_db_with_request_root(request_root)?);
+            let session = #icydb::db::DbSession::new(core_db_with_request_root(request_root)?);
             Ok(session)
         }
     }
 }
 
-fn startup_observation_tokens() -> TokenStream {
+fn startup_observation_tokens(icydb: &TokenStream) -> TokenStream {
     quote! {
         pub fn startup_state() -> ::std::result::Result<
-            ::icydb::db::DatabaseStartupState,
-            ::icydb::db::StartupFailure,
+            #icydb::db::DatabaseStartupState,
+            #icydb::db::StartupFailure,
         > {
             ensure_memory_bootstrap()
-                .map_err(::icydb::db::__startup_bootstrap_failure)?;
-            ::icydb::db::__observe_generated_startup_state::<__IcydbGeneratedCanister>(
+                .map_err(#icydb::db::__startup_bootstrap_failure)?;
+            #icydb::db::__observe_generated_startup_state::<__IcydbGeneratedCanister>(
                 &STORE_REGISTRY,
                 ICYDB_SCHEMA_SUBMISSION_KEY,
             )
@@ -706,6 +727,7 @@ mod tests {
             icydb_schema::SchemaFragment::try_new(Vec::new(), Vec::new())
                 .expect("empty test fragment should admit"),
             None,
+            quote::quote!(::icydb),
         )
     }
 
@@ -722,6 +744,7 @@ mod tests {
                 baseline.canister.clone().with_memory_profile(profile),
                 icydb_schema::SchemaFragment::try_new(Vec::new(), Vec::new()).unwrap(),
                 None,
+                quote::quote!(::icydb),
             );
             let rendered = compact_tokens(generate_store_wiring(&builder, quote!()));
             assert!(rendered.contains(&format!(
@@ -765,7 +788,7 @@ mod tests {
 
     #[test]
     fn startup_observation_is_ungated_and_never_becomes_an_automatic_endpoint() {
-        let rendered = compact_tokens(startup_observation_tokens());
+        let rendered = compact_tokens(startup_observation_tokens(&quote!(::icydb)));
 
         assert!(rendered.contains("pubfnstartup_state()->::std::result::Result<"));
         assert!(rendered.contains("ensure_memory_bootstrap()"));
@@ -789,7 +812,13 @@ mod tests {
     fn heap_store_wiring_uses_heap_initializers_and_absent_allocation_identity() {
         let store = heap_store();
         let (journal_def, data_def, index_def, schema_def, store_init) =
-            store_registry_entry_tokens(0, "demo::schema::ScratchStore", &store, "demo");
+            store_registry_entry_tokens(
+                &quote!(::icydb),
+                0,
+                "demo::schema::ScratchStore",
+                &store,
+                "demo",
+            );
         let rendered = quote! {
             #journal_def
             #data_def
@@ -821,7 +850,13 @@ mod tests {
     fn journaled_store_wiring_declares_journal_memory_and_registers_four_role_allocation() {
         let store = journaled_store();
         let (journal_def, data_def, index_def, schema_def, store_init) =
-            store_registry_entry_tokens(0, "demo::schema::JournaledStore", &store, "demo");
+            store_registry_entry_tokens(
+                &quote!(::icydb),
+                0,
+                "demo::schema::JournaledStore",
+                &store,
+                "demo",
+            );
         let rendered = quote! {
             #journal_def
             #data_def
@@ -859,7 +894,14 @@ mod tests {
     fn store_registry_wiring_preserves_startup_admission() {
         let mut store_inits = quote!();
         store_inits.extend(
-            store_registry_entry_tokens(0, "demo::schema::ScratchStore", &heap_store(), "demo").4,
+            store_registry_entry_tokens(
+                &quote!(::icydb),
+                0,
+                "demo::schema::ScratchStore",
+                &heap_store(),
+                "demo",
+            )
+            .4,
         );
         let registry = StoreRegistryTokens {
             memory_authority: "icydb.demo".to_owned(),
@@ -872,6 +914,7 @@ mod tests {
         };
 
         let rendered = compact_tokens(store_wiring_tokens(
+            &quote!(::icydb),
             registry,
             quote!(),
             quote!(),

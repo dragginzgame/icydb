@@ -13,31 +13,33 @@ fn named_adapter_impl_tokens(
     source: &LitStr,
     encode_body: TokenStream,
     decode_body: TokenStream,
+    paths: &CratePaths,
 ) -> TokenStream {
+    let model = &paths.model;
     quote! {
-        impl ::icydb_model::TypedNamedType for #ident {
+        impl #model::TypedNamedType for #ident {
             const SOURCE_KEY: &'static str = #source;
         }
 
-        impl ::icydb_model::TypedInputValue for #ident {
+        impl #model::TypedInputValue for #ident {
             fn encode_typed_input<C>(
                 self,
                 context: &C,
-            ) -> Result<C::PublicValue, ::icydb_model::TypedValueError>
+            ) -> Result<C::PublicValue, #model::TypedValueError>
             where
-                C: ::icydb_model::TypedAdapterContext,
+                C: #model::TypedAdapterContext,
             {
                 #encode_body
             }
         }
 
-        impl ::icydb_model::TypedOutputValue for #ident {
+        impl #model::TypedOutputValue for #ident {
             fn decode_typed_output<C>(
                 context: &C,
                 value: C::PublicValue,
-            ) -> Result<Self, ::icydb_model::TypedValueError>
+            ) -> Result<Self, #model::TypedValueError>
             where
-                C: ::icydb_model::TypedAdapterContext,
+                C: #model::TypedAdapterContext,
             {
                 #decode_body
             }
@@ -45,19 +47,26 @@ fn named_adapter_impl_tokens(
     }
 }
 
-fn transparent_adapter_tokens(ident: &Ident, source: &LitStr, inner: TokenStream) -> TokenStream {
+fn transparent_adapter_tokens(
+    ident: &Ident,
+    source: &LitStr,
+    inner: TokenStream,
+    paths: &CratePaths,
+) -> TokenStream {
+    let model = &paths.model;
     let encode = quote! {
-        <#inner as ::icydb_model::TypedInputValue>::encode_typed_input(self.0, context)
+        <#inner as #model::TypedInputValue>::encode_typed_input(self.0, context)
     };
     let decode = quote! {
-        <#inner as ::icydb_model::TypedOutputValue>::decode_typed_output(context, value)
+        <#inner as #model::TypedOutputValue>::decode_typed_output(context, value)
             .map(Self)
     };
 
-    named_adapter_impl_tokens(ident, source, encode, decode)
+    named_adapter_impl_tokens(ident, source, encode, decode, paths)
 }
 
-pub(crate) fn enum_adapter_tokens(node: &Enum) -> TokenStream {
+pub(crate) fn enum_adapter_tokens(node: &Enum, paths: &CratePaths) -> TokenStream {
+    let model = &paths.model;
     let ident = node.def.ident();
     let source = node.current_name_literal(node.name.as_ref());
     let variant_sources = node
@@ -69,12 +78,12 @@ pub(crate) fn enum_adapter_tokens(node: &Enum) -> TokenStream {
         let variant_ident = &variant.name;
         let variant_source = quote_one(&variant.name, to_str_lit);
         if let Some(value) = &variant.value {
-            let ty = value.type_expr();
+            let ty = value.type_expr(paths);
             quote! {
                 Self::#variant_ident(value) => context.input_enum(
                     #source,
                     #variant_source,
-                    Some(<#ty as ::icydb_model::TypedInputValue>::encode_typed_input(
+                    Some(<#ty as #model::TypedInputValue>::encode_typed_input(
                         value,
                         context,
                     )?),
@@ -94,14 +103,14 @@ pub(crate) fn enum_adapter_tokens(node: &Enum) -> TokenStream {
         let variant_ident = &variant.name;
         let ordinal = syn::Index::from(ordinal);
         if let Some(payload) = &variant.value {
-            let ty = payload.type_expr();
+            let ty = payload.type_expr(paths);
             quote! {
                 #ordinal => {
                     let payload = selected
                         .payload
-                        .ok_or(::icydb_model::TypedValueError::ShapeMismatch)?;
+                        .ok_or(#model::TypedValueError::ShapeMismatch)?;
                     Ok(Self::#variant_ident(
-                        <#ty as ::icydb_model::TypedOutputValue>::decode_typed_output(
+                        <#ty as #model::TypedOutputValue>::decode_typed_output(
                             context,
                             payload,
                         )?
@@ -112,7 +121,7 @@ pub(crate) fn enum_adapter_tokens(node: &Enum) -> TokenStream {
             quote! {
                 #ordinal => {
                     if selected.payload.is_some() {
-                        return Err(::icydb_model::TypedValueError::ShapeMismatch);
+                        return Err(#model::TypedValueError::ShapeMismatch);
                     }
                     Ok(Self::#variant_ident)
                 }
@@ -125,22 +134,23 @@ pub(crate) fn enum_adapter_tokens(node: &Enum) -> TokenStream {
         }
     };
     let decode = quote! {
-        const DESCRIPTOR: ::icydb_model::TypedEnumDescriptor =
-            ::icydb_model::TypedEnumDescriptor {
+        const DESCRIPTOR: #model::TypedEnumDescriptor =
+            #model::TypedEnumDescriptor {
                 type_source_key: #source,
                 variants: &[#(#variant_sources),*],
             };
         let selected = context.output_enum(&DESCRIPTOR, value)?;
         match selected.ordinal {
             #(#output_variants),*,
-            _ => Err(::icydb_model::TypedValueError::ShapeMismatch),
+            _ => Err(#model::TypedValueError::ShapeMismatch),
         }
     };
 
-    named_adapter_impl_tokens(&ident, &source, encode, decode)
+    named_adapter_impl_tokens(&ident, &source, encode, decode, paths)
 }
 
-pub(crate) fn record_adapter_tokens(node: &Record) -> TokenStream {
+pub(crate) fn record_adapter_tokens(node: &Record, paths: &CratePaths) -> TokenStream {
+    let model = &paths.model;
     let ident = node.def.ident();
     let source = node.current_name_literal(node.name.as_ref());
     let field_sources = node
@@ -151,11 +161,11 @@ pub(crate) fn record_adapter_tokens(node: &Record) -> TokenStream {
     let input_fields = node.fields.iter().map(|field| {
         let field_ident = &field.name;
         let field_source = quote_one(&field.name, to_str_lit);
-        let ty = field.value.type_expr();
+        let ty = field.value.type_expr(paths);
         quote! {
             fields.push((
                 #field_source,
-                <#ty as ::icydb_model::TypedInputValue>::encode_typed_input(
+                <#ty as #model::TypedInputValue>::encode_typed_input(
                     self.#field_ident,
                     context,
                 )?,
@@ -164,12 +174,12 @@ pub(crate) fn record_adapter_tokens(node: &Record) -> TokenStream {
     });
     let output_fields = node.fields.iter().map(|field| {
         let field_ident = &field.name;
-        let ty = field.value.type_expr();
+        let ty = field.value.type_expr(paths);
         quote! {
             #field_ident:
-                <#ty as ::icydb_model::TypedOutputValue>::decode_typed_output(
+                <#ty as #model::TypedOutputValue>::decode_typed_output(
                     context,
-                    values.next().ok_or(::icydb_model::TypedValueError::ShapeMismatch)?,
+                    values.next().ok_or(#model::TypedValueError::ShapeMismatch)?,
                 )?
         }
     });
@@ -190,60 +200,67 @@ pub(crate) fn record_adapter_tokens(node: &Record) -> TokenStream {
         })
     };
 
-    named_adapter_impl_tokens(&ident, &source, encode, decode)
+    named_adapter_impl_tokens(&ident, &source, encode, decode, paths)
 }
 
-pub(crate) fn newtype_adapter_tokens(node: &Newtype) -> TokenStream {
+pub(crate) fn newtype_adapter_tokens(node: &Newtype, paths: &CratePaths) -> TokenStream {
     let ident = node.def.ident();
     let source = node.current_name_literal(node.name.as_ref());
-    transparent_adapter_tokens(&ident, &source, node.item.type_expr())
+    transparent_adapter_tokens(&ident, &source, node.item.type_expr(paths), paths)
 }
 
-pub(crate) fn list_adapter_tokens(node: &List) -> TokenStream {
+pub(crate) fn list_adapter_tokens(node: &List, paths: &CratePaths) -> TokenStream {
     let ident = node.def.ident();
     let source = node.current_name_literal(node.name.as_ref());
-    let item = node.item.type_expr();
-    transparent_adapter_tokens(&ident, &source, quote!(::std::vec::Vec<#item>))
+    let item = node.item.type_expr(paths);
+    transparent_adapter_tokens(&ident, &source, quote!(::std::vec::Vec<#item>), paths)
 }
 
-pub(crate) fn set_adapter_tokens(node: &Set) -> TokenStream {
+pub(crate) fn set_adapter_tokens(node: &Set, paths: &CratePaths) -> TokenStream {
     let ident = node.def.ident();
     let source = node.current_name_literal(node.name.as_ref());
-    let item = node.item.type_expr();
-    transparent_adapter_tokens(&ident, &source, quote!(::std::collections::BTreeSet<#item>))
+    let item = node.item.type_expr(paths);
+    transparent_adapter_tokens(
+        &ident,
+        &source,
+        quote!(::std::collections::BTreeSet<#item>),
+        paths,
+    )
 }
 
-pub(crate) fn map_adapter_tokens(node: &Map) -> TokenStream {
+pub(crate) fn map_adapter_tokens(node: &Map, paths: &CratePaths) -> TokenStream {
     let ident = node.def.ident();
     let source = node.current_name_literal(node.name.as_ref());
-    let key = node.key.type_expr();
-    let value = node.value.type_expr();
+    let key = node.key.type_expr(paths);
+    let value = node.value.type_expr(paths);
     transparent_adapter_tokens(
         &ident,
         &source,
         quote!(::std::collections::BTreeMap<#key, #value>),
+        paths,
     )
 }
 
-pub(crate) fn tuple_adapter_tokens(node: &Tuple) -> TokenStream {
+pub(crate) fn tuple_adapter_tokens(node: &Tuple, paths: &CratePaths) -> TokenStream {
+    let model = &paths.model;
     let ident = node.def.ident();
     let source = node.current_name_literal(node.name.as_ref());
     let input_values = node.values.iter().enumerate().map(|(index, value)| {
         let index = syn::Index::from(index);
-        let ty = value.type_expr();
+        let ty = value.type_expr(paths);
         quote! {
-            <#ty as ::icydb_model::TypedInputValue>::encode_typed_input(
+            <#ty as #model::TypedInputValue>::encode_typed_input(
                 self.#index,
                 context,
             )?
         }
     });
     let output_values = node.values.iter().map(|value| {
-        let ty = value.type_expr();
+        let ty = value.type_expr(paths);
         quote! {
-            <#ty as ::icydb_model::TypedOutputValue>::decode_typed_output(
+            <#ty as #model::TypedOutputValue>::decode_typed_output(
                 context,
-                values.next().ok_or(::icydb_model::TypedValueError::ShapeMismatch)?,
+                values.next().ok_or(#model::TypedValueError::ShapeMismatch)?,
             )?
         }
     });
@@ -256,15 +273,15 @@ pub(crate) fn tuple_adapter_tokens(node: &Tuple) -> TokenStream {
     let decode = quote! {
         let values = context
             .output_list(value)
-            .ok_or(::icydb_model::TypedValueError::ShapeMismatch)?;
+            .ok_or(#model::TypedValueError::ShapeMismatch)?;
         if values.len() != #value_count {
-            return Err(::icydb_model::TypedValueError::ShapeMismatch);
+            return Err(#model::TypedValueError::ShapeMismatch);
         }
         let mut values = values.into_iter();
         Ok(Self(#(#output_values),*))
     };
 
-    named_adapter_impl_tokens(&ident, &source, encode, decode)
+    named_adapter_impl_tokens(&ident, &source, encode, decode, paths)
 }
 
 #[cfg(test)]
@@ -283,11 +300,14 @@ mod tests {
         ))
         .expect("enum adapter arguments should parse");
         let mut node = Enum::from_list(&args).expect("enum adapter node should lower");
-        node.def = Def::new(syn::parse_quote!(
-            pub struct Choice;
-        ));
+        node.def = Def::new(
+            syn::parse_quote!(
+                pub struct Choice;
+            ),
+            crate::crate_path::CratePaths::test(),
+        );
 
-        let tokens = enum_adapter_tokens(&node).to_string();
+        let tokens = enum_adapter_tokens(&node, &crate::crate_path::CratePaths::test()).to_string();
 
         for expected in [
             "impl :: icydb_model :: TypedNamedType for Choice",
@@ -322,11 +342,15 @@ mod tests {
         ))
         .expect("record adapter arguments should parse");
         let mut node = Record::from_list(&args).expect("record adapter node should lower");
-        node.def = Def::new(syn::parse_quote!(
-            pub struct Profile;
-        ));
+        node.def = Def::new(
+            syn::parse_quote!(
+                pub struct Profile;
+            ),
+            crate::crate_path::CratePaths::test(),
+        );
 
-        let tokens = record_adapter_tokens(&node).to_string();
+        let tokens =
+            record_adapter_tokens(&node, &crate::crate_path::CratePaths::test()).to_string();
 
         for expected in [
             "impl :: icydb_model :: TypedNamedType for Profile",

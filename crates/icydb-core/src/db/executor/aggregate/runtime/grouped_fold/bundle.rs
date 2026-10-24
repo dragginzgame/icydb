@@ -22,8 +22,8 @@ use crate::{
                         find_matching_group_index_in_bucket, group_key_matches_path_group_values,
                         group_key_matches_row_view, group_key_matches_single_group_value,
                         materialize_path_group_key, resolve_group_field_value,
-                        stable_hash_group_values_from_row_view, stable_hash_path_group_values,
-                        stable_hash_single_group_value,
+                        resolve_path_group_values, stable_hash_group_values_from_row_view,
+                        stable_hash_path_group_values, stable_hash_single_group_value,
                     },
                 },
             },
@@ -553,8 +553,7 @@ impl GroupedAggregateBundle {
     fn find_matching_path_group_index(
         &self,
         group_hash: StableHash,
-        row_view: &RowView,
-        group_fields: &[GroupField],
+        values: &[&Value],
     ) -> Result<Option<usize>, GroupError> {
         let Some(bucket) = self.bucket_index.get(&group_hash) else {
             return Ok(None);
@@ -563,7 +562,7 @@ impl GroupedAggregateBundle {
         find_matching_group_index_in_bucket(
             bucket.as_slice(),
             |group_index| self.groups.get(group_index).map(|entry| &entry.group_key),
-            |group_key| group_key_matches_path_group_values(group_key, row_view, group_fields),
+            |group_key| group_key_matches_path_group_values(group_key, values),
         )
         .map_err(GroupError::from)
     }
@@ -690,16 +689,14 @@ impl GroupedAggregateBundle {
             return self.insert_new_group(group_key, execution_context);
         }
 
-        let group_hash =
-            stable_hash_path_group_values(row_view, group_fields).map_err(GroupError::from)?;
-        if let Some(group_index) =
-            self.find_matching_path_group_index(group_hash, row_view, group_fields)?
-        {
+        let values = resolve_path_group_values(row_view, group_fields).map_err(GroupError::from)?;
+        let group_hash = stable_hash_path_group_values(&values).map_err(GroupError::from)?;
+        if let Some(group_index) = self.find_matching_path_group_index(group_hash, &values)? {
             return Ok(group_index);
         }
 
-        let group_key = materialize_path_group_key(row_view, group_fields, group_hash)
-            .map_err(GroupError::from)?;
+        let group_key =
+            materialize_path_group_key(&values, group_hash).map_err(GroupError::from)?;
         self.insert_new_group(group_key, execution_context)
     }
 

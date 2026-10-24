@@ -15,7 +15,8 @@ use std::{
 ///
 /// FIFO-bounded map used by process-global session caches. It preserves O(1)
 /// key lookup while evicting the oldest inserted key when a new key would
-/// exceed the configured entry or retained-weight budget.
+/// exceed the configured entry or retained-weight budget. Consumers may refresh
+/// an admitted hit explicitly without replacing its value or weight.
 ///
 
 pub(in crate::db) struct BoundedCache<K, V> {
@@ -114,6 +115,17 @@ where
 
     pub(in crate::db) fn get(&self, key: &K) -> Option<&V> {
         self.entries.get(key).map(|entry| &entry.value)
+    }
+
+    /// Move an existing key to the back of the bounded eviction queue.
+    /// Call only after consumer-specific reuse admission; misses leave order intact.
+    #[cfg(any(test, feature = "sql"))]
+    pub(in crate::db) fn refresh(&mut self, key: &K) {
+        if let Some(position) = self.insertion_order.iter().position(|entry| entry == key)
+            && let Some(key) = self.insertion_order.remove(position)
+        {
+            self.insertion_order.push_back(key);
+        }
     }
 
     /// Borrow the admitted entry's accounting handle, never a previous entry's.
@@ -241,6 +253,30 @@ mod tests {
         assert_eq!(cache.retained_weight(), 12);
         drop(cache);
         assert!(!current.reserve(0));
+    }
+
+    #[test]
+    fn refreshed_cache_entry_keeps_its_charge_and_outlives_an_unused_entry() {
+        for (entries, bytes) in [(2, 20), (10, 8)] {
+            let mut cache = BoundedCache::new_weighted(entries, bytes);
+            let charge = cache.insert_weighted("a", 1, 3).unwrap().clone();
+            cache.insert_weighted("b", 2, 4);
+            assert!(charge.reserve(1));
+            cache.refresh(&"missing");
+            cache.refresh(&"a");
+            cache.refresh(&"a");
+            assert_eq!(cache.retained_weight(), 8);
+            assert_eq!(cache.get(&"a"), Some(&1));
+            cache.insert_weighted("c", 3, 4);
+            assert_eq!(cache.get(&"a"), Some(&1));
+            assert_eq!(cache.get(&"b"), None);
+            assert_eq!(cache.get(&"c"), Some(&3));
+            assert_eq!(cache.retained_weight(), 8);
+            assert!(charge.reserve(0));
+            cache.insert_weighted("d", 4, 4);
+            assert_eq!(cache.get(&"a"), None);
+            assert!(!charge.reserve(0));
+        }
     }
 
     #[test]

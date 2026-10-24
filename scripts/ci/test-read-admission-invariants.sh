@@ -19,7 +19,6 @@ files=(
   scripts/ci/check-read-admission-invariants.sh
   scripts/ci/invariant-common.sh
   docs/contracts/READ_ADMISSION.md
-  crates/icydb-core/src/db/query/admission.rs
   crates/icydb-diagnostic-code/src/lib.rs
   crates/icydb/src/db/query/typed.rs
   crates/icydb/src/db/session/mod.rs
@@ -46,17 +45,12 @@ sed -i '/^#/s/.*/# Reworded guidance/' "$scratch/$contract"
 bash "$checker"
 cp "$contract" "$scratch/$contract"
 
-# A missing public counterpart must still reject.
-sed -i '/^[[:space:]]*PublicQueryRequiresLimit,$/d' "$scratch/$diagnostics"
-expect_failure "missing plan counterpart"
-cp "$diagnostics" "$scratch/$diagnostics"
-
 # Documentation is required even for errors raised before a plan exists.
 sed -i '/QueryReadAdmissionCode::InputDepthExceeded/d' "$scratch/$contract"
 expect_failure "missing input rejection documentation"
 cp "$contract" "$scratch/$contract"
 
-# Extraction failure must not silently turn the subset check into a no-op.
+# Extraction failure must not silently turn documentation coverage into a no-op.
 sed -i 's/pub enum QueryReadAdmissionCode {/pub enum FixtureDiagnostic {/' "$scratch/$diagnostics"
 expect_failure "missing diagnostic inventory"
 cp "$diagnostics" "$scratch/$diagnostics"

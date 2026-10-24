@@ -5,6 +5,66 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.282.0]
+
+### ⚠️ Breaking
+
+- Adopt IC Wire 0.7.2: decoding no longer reserializes values or guarantees
+  canonical collection input. Update matches for the removed `Noncanonical`
+  error (`Malformed` now covers invalid primitive encodings), and retain original
+  frames for exact retries, signatures and hashes. Encoder bytes and database
+  storage formats remain unchanged. See the migration notes below.
+
+### 🩹 Fixed
+
+- Correct empty-search SQL `REPLACE` and avoid restarting settled predicate
+  comparisons ([#75 — Text function amplification](https://github.com/dragginzgame/icydb/issues/75),
+  [#76 — Repeated AND-simplifier restarts](https://github.com/dragginzgame/icydb/issues/76));
+  broader text-output and preparation-budget accounting remain open.
+- Reject unsupported covering projections before scanning, preserving supported
+  index-only reads ([#80 — Unsupported covering components trigger a second scan](https://github.com/dragginzgame/icydb/issues/80)).
+- Retain recently used compiled SQL commands under cache pressure
+  ([#392 — Compiled SQL cache reuse](https://github.com/dragginzgame/icydb/issues/392));
+  parameterized compilation reuse remains open.
+- Reuse prepared literal/default assignments in mixed updates and resolve each
+  path-group field once per row
+  ([#438 — Mixed updates rebuild literal assignments](https://github.com/dragginzgame/icydb/issues/438),
+  [#437 — Path groups resolve each field repeatedly](https://github.com/dragginzgame/icydb/issues/437)).
+- Avoid repeated journal validation and encoded-buffer copies, and retain scan
+  resume keys only where needed
+  ([#273 — Repeated journal validation work](https://github.com/dragginzgame/icydb/issues/273),
+  [#420 — Scan chunks copy discarded keys](https://github.com/dragginzgame/icydb/issues/420)).
+- Build page-candidate reservations without repeated resource-vector merges
+  ([#293 — Repeated page accounting](https://github.com/dragginzgame/icydb/issues/293)).
+- Preserve authored names when resolving generated dependency paths, and count
+  implicit Boolean-test nodes during macro depth admission
+  ([#182 — Generated crate-path rewriting changes user-authored names](https://github.com/dragginzgame/icydb/issues/182),
+  [#198 — Generated predicate depth mismatch](https://github.com/dragginzgame/icydb/issues/198)).
+- Preserve database diagnostics through exhaustive-read error conversion and
+  escape terminal controls in SQL report metadata
+  ([#255 — Typed handler diagnostic preservation](https://github.com/dragginzgame/icydb/issues/255),
+  [#54 — SQL terminal output safety](https://github.com/dragginzgame/icydb/issues/54)).
+- Remove the production `time` dependency while preserving date/timestamp
+  behavior and stored bytes
+  ([#393 — Date parts use the `time` crate](https://github.com/dragginzgame/icydb/issues/393)).
+- Measure lifecycle-fixture stable-memory extent without downloading full images
+  ([#439 — Lifecycle extent checks download stable memory](https://github.com/dragginzgame/icydb/issues/439)).
+
+### 🔧 Changed
+
+- Adopt published IC Tooling 0.68.0 across Host, Build and Testkit; retain
+  fixture lifecycle interfaces while updating Wire separately.
+- Adopt Shared Tooling 0.26.14 for committed-candidate recovery and explicit
+  bounded waits on busy Cargo tools
+  ([Shared #305 — Recover committed preparation with missing tags](https://github.com/dragginzgame/shared-tooling/issues/305),
+  [Shared #306 — Distinguish busy tool admission](https://github.com/dragginzgame/shared-tooling/issues/306)).
+- Select IC Wire/derive 0.7.2, IC Memory/Storage 0.50.16 and IC Timers 0.30.12;
+  refresh the host-only SQL oracle to rusqlite 0.41.0 with bundled SQLite 3.54.0.
+- Remove redundant source-shape CI checks while retaining behavioral and ownership
+  checks; consolidate Shared Tooling adoption documentation around current owners.
+
+See [detailed notes](docs/changelog/0.282.md).
+
 ## [0.281.2] - 2026-10-24
 
 - Avoid redundant map walks, key/DISTINCT copies and row loads, retain known relation

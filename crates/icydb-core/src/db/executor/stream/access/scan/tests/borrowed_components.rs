@@ -256,45 +256,73 @@ fn covering_component_chunks_preserve_bounded_directional_progress() {
         let upper = Bound::Included(raw[4].clone());
         for direction in [Direction::Asc, Direction::Desc] {
             for filtered in [false, true] {
-                for output_limit in [None, Some(1)] {
-                    let mut anchor = None;
-                    let mut actual = Vec::new();
-                    // Five keys need at most five nonempty chunks plus exhaustion.
-                    for _ in 0..6 {
-                        let chunk = IndexScan::components_chunk_structural(
-                            EXACT_INTERSECTION_STORE,
-                            EXACT_INTERSECTION_ENTITY,
-                            &lower,
-                            &upper,
-                            IndexScanContinuationInput::new(anchor.as_ref(), direction),
-                            2,
-                            output_limit,
-                            &[0],
-                            filtered.then_some(&predicate),
-                        )
-                        .unwrap();
-                        let (rows, next) = chunk.into_component_rows_and_resume_anchor();
-                        actual.extend(rows.into_iter().map(|(key, _, _)| key.primary_key_value()));
-                        let Some(next) = next else {
-                            break;
-                        };
-                        if let Some(previous) = &anchor {
-                            assert!(match direction {
-                                Direction::Asc => previous < &next,
-                                Direction::Desc => previous > &next,
-                            });
+                for max_entries in [1, 2, 5, 6] {
+                    for output_limit in [None, Some(1), Some(3), Some(6)] {
+                        let mut anchor = None;
+                        let mut actual = Vec::new();
+                        // Five keys need at most five nonempty chunks plus exhaustion.
+                        for _ in 0..6 {
+                            let chunk = IndexScan::components_chunk_structural(
+                                EXACT_INTERSECTION_STORE,
+                                EXACT_INTERSECTION_ENTITY,
+                                &lower,
+                                &upper,
+                                IndexScanContinuationInput::new(anchor.as_ref(), direction),
+                                max_entries,
+                                output_limit,
+                                &[0],
+                                filtered.then_some(&predicate),
+                            )
+                            .unwrap();
+                            let (rows, next) = chunk.into_component_rows_and_resume_anchor();
+                            if !filtered {
+                                let plain = IndexScan::chunk_structural(
+                                    EXACT_INTERSECTION_STORE,
+                                    EXACT_INTERSECTION_ENTITY,
+                                    &lower,
+                                    &upper,
+                                    IndexScanContinuationInput::new(anchor.as_ref(), direction),
+                                    max_entries,
+                                    output_limit,
+                                )
+                                .unwrap();
+                                let (plain_keys, plain_next) =
+                                    plain.into_decoded_keys_and_resume_anchor();
+                                assert_eq!(plain_next, next);
+                                assert_eq!(
+                                    plain_keys
+                                        .iter()
+                                        .map(DecodedDataStoreKey::primary_key_value)
+                                        .collect::<Vec<_>>(),
+                                    rows.iter()
+                                        .map(|(key, _, _)| key.primary_key_value())
+                                        .collect::<Vec<_>>()
+                                );
+                            }
+                            actual.extend(
+                                rows.into_iter().map(|(key, _, _)| key.primary_key_value()),
+                            );
+                            let Some(next) = next else {
+                                break;
+                            };
+                            if let Some(previous) = &anchor {
+                                assert!(match direction {
+                                    Direction::Asc => previous < &next,
+                                    Direction::Desc => previous > &next,
+                                });
+                            }
+                            anchor = Some(next);
                         }
-                        anchor = Some(next);
+                        let mut expected = keys
+                            .iter()
+                            .skip(if filtered { 2 } else { 0 })
+                            .map(|key| key.primary_key_value().unwrap())
+                            .collect::<Vec<_>>();
+                        if direction == Direction::Desc {
+                            expected.reverse();
+                        }
+                        assert_eq!(actual, expected);
                     }
-                    let mut expected = keys
-                        .iter()
-                        .skip(if filtered { 2 } else { 0 })
-                        .map(|key| key.primary_key_value().unwrap())
-                        .collect::<Vec<_>>();
-                    if direction == Direction::Desc {
-                        expected.reverse();
-                    }
-                    assert_eq!(actual, expected);
                 }
             }
         }

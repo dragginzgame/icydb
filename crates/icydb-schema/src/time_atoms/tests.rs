@@ -135,6 +135,87 @@ fn timestamp_rfc3339_fractional_parsing_floors_before_the_epoch() {
 }
 
 #[test]
+fn timestamp_calendar_offsets_and_fractions_match_the_reference() {
+    use time::{Date as ReferenceDate, Month, PrimitiveDateTime, Time, UtcOffset};
+
+    for year in [0, 1, 100, 400, 1900, 1969, 1970, 2000, 2024, 9999] {
+        for (month, day) in [(1, 1), (2, 28), (2, 29), (3, 1), (12, 31)] {
+            let Ok(date) =
+                ReferenceDate::from_calendar_date(year, Month::try_from(month).unwrap(), day)
+            else {
+                continue;
+            };
+            for (hour, minute, second) in [(0, 0, 0), (12, 34, 56), (23, 59, 59)] {
+                for (fraction, nanos) in [
+                    ("", 0),
+                    (".0", 0),
+                    (".000000001", 1),
+                    (".001", 1_000_000),
+                    (".123456789", 123_456_789),
+                    (".9999999999", 999_999_999),
+                ] {
+                    let time = Time::from_hms_nano(hour, minute, second, nanos).unwrap();
+                    for (suffix, offset_hour, offset_minute) in [
+                        ("Z", 0, 0),
+                        ("+00:00", 0, 0),
+                        ("-00:00", 0, 0),
+                        ("+23:59", 23, 59),
+                        ("-23:59", -23, -59),
+                        ("+01:30", 1, 30),
+                        ("-12:45", -12, -45),
+                    ] {
+                        let offset = UtcOffset::from_hms(offset_hour, offset_minute, 0).unwrap();
+                        let expected = PrimitiveDateTime::new(date, time)
+                            .assume_offset(offset)
+                            .unix_timestamp_nanos()
+                            .div_euclid(1_000_000);
+                        let input = format!(
+                            "{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}{fraction}{suffix}"
+                        );
+                        assert_eq!(
+                            Timestamp::parse_rfc3339(&input),
+                            Ok(Timestamp::from_millis(i64::try_from(expected).unwrap())),
+                            "{input}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn timestamp_calendar_parser_rejects_invalid_components_and_framing() {
+    for input in [
+        "0000-02-30T00:00:00Z",
+        "1900-02-29T00:00:00Z",
+        "2024-00-01T00:00:00Z",
+        "2024-13-01T00:00:00Z",
+        "2024-01-00T00:00:00Z",
+        "2024-01-32T00:00:00Z",
+        "2024-01-01T24:00:00Z",
+        "2024-01-01T00:60:00Z",
+        "2024-01-01T00:00:60Z",
+        "2024-01-01T00:00:00+24:00",
+        "2024-01-01T00:00:00-24:00",
+        "2024-01-01T00:00:00+00:60",
+        "2024-01-01T00:00:00-00:60",
+        "2024-01-01T00:00:00+99:99",
+        "2024-01-01T00:00:00.Z",
+        "2024-01-01T00:00:00.1xZ",
+        "2024-01-01T00:00:00Zsuffix",
+        "2024-01-01t00:00:00Z",
+        "2024-01-01T00:00:00z",
+    ] {
+        assert_eq!(
+            Timestamp::parse_rfc3339(input),
+            Err(TypeParseError::InvalidTimestamp),
+            "{input}"
+        );
+    }
+}
+
+#[test]
 fn timestamp_rfc3339_parser_rejects_invalid_text() {
     assert_eq!(
         Timestamp::parse_rfc3339("not-a-timestamp"),

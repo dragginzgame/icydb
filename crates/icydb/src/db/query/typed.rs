@@ -90,6 +90,12 @@ impl fmt::Display for TypedExhaustiveQueryError {
 
 impl StdError for TypedExhaustiveQueryError {}
 
+impl From<crate::Error> for TypedExhaustiveQueryError {
+    fn from(error: crate::Error) -> Self {
+        Self::Operation(error.into())
+    }
+}
+
 impl From<TypedOperationError> for TypedExhaustiveQueryError {
     fn from(error: TypedOperationError) -> Self {
         Self::Operation(error)

@@ -243,7 +243,9 @@ The compiled-command cache admits at most 1,024 entries and 4 MiB of accounted
 retained payload per store registry. Accounting includes both key references,
 compiled syntax and decoded literals; shared allocations are charged
 conservatively. Commands larger than this cache budget execute without
-retention; eviction is FIFO. Executing a cached command does not grow its resident syntax. Prepared
+retention. Successful current-schema cache hits refresh eviction order, so the
+least recently inserted or reused command is evicted first. Refreshing a hit
+does not replace its accounting handle or grow its resident syntax. Prepared
 plans and their lazy execution residents belong to the separate shared query-plan
 cache, with its own 4 MiB payload ceiling. These ceilings exclude allocator and
 entry-count-bounded container bookkeeping. Ordinary query calls discard new
@@ -993,6 +995,9 @@ Supported numeric scalar functions include:
 Supported text scalar functions include `LOWER`, `UPPER`, `LENGTH`,
 `OCTET_LENGTH`, `TRIM`, `LTRIM`, `RTRIM`, `LEFT`, `RIGHT`, `STARTS_WITH`,
 `ENDS_WITH`, `CONTAINS`, `POSITION`, `REPLACE`, and `SUBSTRING`.
+
+`REPLACE(text, '', replacement)` leaves the input text unchanged. A NULL
+argument still makes the result NULL, including a NULL replacement.
 
 `COALESCE` evaluates arguments from left to right through the first non-NULL
 value; later arguments are not evaluated. All authored arguments still undergo

@@ -3,6 +3,33 @@
 use crate::wire::{Endpoint, ID_BASE};
 
 #[test]
+fn endpoint_and_lifecycle_decoders_accept_deserialize_only_arguments() {
+    #[derive(Debug, serde::Deserialize, PartialEq)]
+    struct ReceiveOnly(u32);
+
+    let request = Endpoint::Query.encode_request(128_u32).unwrap();
+    assert_eq!(
+        Endpoint::Query.decode_request::<ReceiveOnly>(&request),
+        Ok(ReceiveOnly(128))
+    );
+    let response = Endpoint::Query.encode_response(128_u32).unwrap();
+    assert_eq!(
+        Endpoint::Query.decode_response::<ReceiveOnly>(&response),
+        Ok(ReceiveOnly(128))
+    );
+    let init = crate::wire::encode_init_arguments(128_u32).unwrap();
+    assert_eq!(
+        crate::wire::decode_init_arguments::<ReceiveOnly>(&init),
+        Ok(ReceiveOnly(128))
+    );
+    let upgrade = crate::wire::encode_post_upgrade_arguments(128_u32).unwrap();
+    assert_eq!(
+        crate::wire::decode_post_upgrade_arguments::<ReceiveOnly>(&upgrade),
+        Ok(ReceiveOnly(128))
+    );
+}
+
+#[test]
 fn endpoint_identity_and_direction_are_checked_before_payloads() {
     let request = Endpoint::Metrics.encode_request(()).unwrap();
     assert_eq!(&request[..2], b"IW");

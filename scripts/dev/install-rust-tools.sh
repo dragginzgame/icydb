@@ -10,13 +10,14 @@ ROOT="${ROOT%/.}"
 consumer="$ROOT"
 versions_file="$ROOT/ci/tool-versions.env"
 check_only=false
+check_wait_seconds=''
 preflight=false
 describe=false
 package='' selected_version='' lockfile='' kind='' target='' profile=''
 features_csv='' features_json='[]'
 usage() {
-    echo 'usage: install-rust-tools.sh [--consumer DIR] [--versions FILE] [--check | --preflight | --describe]' >&2
-    echo '   or: install-rust-tools.sh [--consumer DIR] --package NAME (--version X.Y.Z | --lockfile FILE) (--bin NAME | --example NAME) --profile (debug | release) [--features NAME[,NAME]...]... [--check | --describe]' >&2
+    echo 'usage: install-rust-tools.sh [--consumer DIR] [--versions FILE] [--check [--wait-seconds N] | --preflight | --describe]' >&2
+    echo '   or: install-rust-tools.sh [--consumer DIR] --package NAME (--version X.Y.Z | --lockfile FILE) (--bin NAME | --example NAME) --profile (debug | release) [--features NAME[,NAME]...]... [--check [--wait-seconds N] | --describe]' >&2
 }
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -25,6 +26,9 @@ while [[ $# -gt 0 ]]; do
             if [[ "$1" == --consumer ]]; then consumer="$2"; else versions_file="$2"; fi
             shift 2 ;;
         --check) check_only=true; shift ;;
+        --wait-seconds)
+            [[ $# -ge 2 && -z "$check_wait_seconds" && -n "$2" ]] || { usage; exit 2; }
+            check_wait_seconds="$2"; shift 2 ;;
         --preflight) preflight=true; shift ;;
         --describe) describe=true; shift ;;
         --features)
@@ -58,6 +62,13 @@ while [[ $# -gt 0 ]]; do
 done
 [[ "$check_only" == false || "$preflight" == false ]] || { usage; exit 2; }
 [[ "$describe" == false || "$check_only:$preflight" == false:false ]] || { usage; exit 2; }
+if [[ -n "$check_wait_seconds" ]]; then
+    [[ "$check_only" == true && "$check_wait_seconds" =~ ^(0|[1-9][0-9]{0,2})$ && "$check_wait_seconds" -le 300 ]] || {
+        echo '--wait-seconds requires --check and a canonical integer from 0 to 300' >&2
+        exit 2
+    }
+fi
+check_wait_seconds="${check_wait_seconds:-0}"
 setup_wait_seconds=0
 if [[ "$check_only:$preflight:$describe" == false:false:false ]]; then
     setup_wait_seconds="${SHARED_TOOLING_SETUP_WAIT_SECONDS:-60}"
@@ -291,6 +302,51 @@ check_build_inputs() {
     bash "$ROOT/scripts/ci/verify-file-checksum.sh" sha256 "$(jq -r .source_sha256 <<< "$inputs")" "$source_archive"
 }
 
+# A read-only waiter never borrows setup's lock acquisition or activation path.
+# Re-admit the original inputs and pointer before inspecting executable receipts.
+check_admission_selection() {
+    local expected_inputs="$inputs" expected_destination="$destination" observed selection_file='' selection_digest=''
+    if [[ -n "$lockfile" ]]; then selection_file="$lockfile"
+    elif [[ "$selected" == false ]]; then selection_file="$versions_file"; fi
+    if [[ -n "$selection_file" ]]; then
+        selection_digest="$(bash "$ROOT/scripts/ci/verify-file-checksum.sh" --print sha256 "$selection_file")" || return 1
+    fi
+    tool_store_wait_unlocked "$check_wait_seconds" 75 || return $?
+    if [[ "$tool_store_waited" == true ]]; then
+        check_install_paths || return 1
+        check_build_inputs || return 1
+        cargo_source || return 1
+        [[ "$inputs" == "$expected_inputs" ]] || {
+            echo 'Cargo tool source/selection inputs changed during admission' >&2; return 1;
+        }
+        check_locked_selection || return 1
+        if [[ "$selected" == false ]]; then
+            observed="$(perl "$ROOT/scripts/ci/tool-catalog-records.pl" rust "$versions_file")" || return 1
+            [[ "$observed" == "$records" ]] || { echo 'Cargo tool catalog changed during admission' >&2; return 1; }
+        fi
+    fi
+    if [[ -n "$selection_file" ]]; then
+        bash "$ROOT/scripts/ci/verify-file-checksum.sh" sha256 "$selection_digest" "$selection_file" || return 1
+    fi
+    observed="$(tool_store_active_reference)" || return 1
+    [[ "$observed" == "$install_root/$reference" ]] || {
+        echo 'Cargo tool selection changed during admission' >&2; return 1;
+    }
+    observed="$(tool_store_resolve "$observed" "$store_slot")" || return 1
+    [[ "$observed" == "$expected_destination" ]] || {
+        echo 'Cargo tool generation changed during admission' >&2; return 1;
+    }
+    tool_store_wait_unlocked 0 75 || return $?
+    check_selected || { rust_setup_hint; return 1; }
+    check_locked_selection || return 1
+    tool_store_wait_unlocked 0 75 || return $?
+    check_install_paths || return 1
+    observed="$(tool_store_active_reference)" || return 1
+    [[ "$observed" == "$install_root/$reference" ]] || {
+        echo 'Cargo tool selection changed during admission' >&2; return 1;
+    }
+}
+
 # Diagnostics only: retain the command's status and stdout, including when the
 # caller captures a selected path. Callbacks already propagate failures without
 # relying on errexit. A compilation log remains caller-selected retained evidence.
@@ -348,7 +404,12 @@ install_selected() (
         reference="$(perl -e 'my $p=readlink(shift); defined $p or exit 1; print "$p/."' "$active")" || exit $?
         reference="${reference%/.}"
         [[ "$reference" =~ ^rust-set\.[[:alnum:]]+$ ]] || { echo 'invalid Cargo tool reference' >&2; exit 1; }
-        if destination="$(tool_store_resolve "$install_root/$reference" "$store_slot")" &&
+        if [[ "$check_only" == true ]]; then
+            destination="$(tool_store_resolve "$install_root/$reference" "$store_slot")" || exit 1
+            check_admission_selection || exit $?
+            printf '%s/bin/%s\n' "$active" "$target" || exit $?
+            exit 0
+        elif destination="$(tool_store_resolve "$install_root/$reference" "$store_slot")" &&
             tool_store_unlocked && run_setup_phase selection-reuse '' check_selected; then
             check_locked_selection || exit $?
             printf '%s/bin/%s\n' "$active" "$target" || exit $?

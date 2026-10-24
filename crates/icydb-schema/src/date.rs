@@ -7,7 +7,6 @@ use crate::{Decimal, NumericValue, TypeParseError};
 
 use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt::{self, Debug, Display};
-use time::{Date as TimeDate, Duration as TimeDuration, Month};
 
 // Invariant:
 // Date is internally represented as days since Unix epoch (`i32`) and is
@@ -34,13 +33,11 @@ impl Date {
     /// The latest supported calendar date, 9999-12-31.
     pub const MAX: Self = Self(2_932_896);
 
-    const fn epoch_date() -> TimeDate {
-        // Safe: constant valid date
-        match TimeDate::from_calendar_date(1970, Month::January, 1) {
-            Ok(d) => d,
-            Err(_) => unreachable!(),
-        }
-    }
+    // March-based Gregorian cycles put the leap day at the end of a year.
+    // The cycle contains 400 * 365 + 97 days; 1970-01-01 is day 719468
+    // after 0000-03-01 in this calendar.
+    const DAYS_PER_CYCLE: i32 = 146_097;
+    const MARCH_EPOCH_OFFSET: i32 = 719_468;
 
     /// Build a date from exact calendar parts.
     ///
@@ -50,9 +47,28 @@ impl Date {
         if !(0..=9_999).contains(&y) {
             return None;
         }
-        let month = Month::try_from(m).ok()?;
-        let date = TimeDate::from_calendar_date(y, month, d).ok()?;
-        Self::from_time_date(date)
+        let month_days = match m {
+            1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+            4 | 6 | 9 | 11 => 30,
+            2 if y % 4 == 0 && (y % 100 != 0 || y % 400 == 0) => 29,
+            2 => 28,
+            _ => return None,
+        };
+        if d == 0 || d > month_days {
+            return None;
+        }
+
+        let year = y - i32::from(m <= 2);
+        let cycle = year.div_euclid(400);
+        let cycle_year = year.rem_euclid(400);
+        let march_month = i32::from(m) + if m > 2 { -3 } else { 9 };
+        let cycle_day = 365 * cycle_year + cycle_year / 4 - cycle_year / 100
+            + (153 * march_month + 2) / 5
+            + i32::from(d)
+            - 1;
+        Self::try_from_days_since_epoch(
+            cycle * Self::DAYS_PER_CYCLE + cycle_day - Self::MARCH_EPOCH_OFFSET,
+        )
     }
 
     /// Construct from the bounded internal day-count representation.
@@ -112,19 +128,19 @@ impl Date {
     /// Returns the year component (e.g. 2025).
     #[must_use]
     pub fn year(self) -> i32 {
-        self.to_time_date().year()
+        self.calendar_parts().0
     }
 
     /// Returns the month component (1-12).
     #[must_use]
     pub fn month(self) -> u8 {
-        self.to_time_date().month().into()
+        self.calendar_parts().1
     }
 
     /// Returns the day-of-month component (1-31).
     #[must_use]
     pub fn day(self) -> u8 {
-        self.to_time_date().day()
+        self.calendar_parts().2
     }
 
     /// Parse a strict ISO `YYYY-MM-DD` string into a `Date`.
@@ -135,8 +151,7 @@ impl Date {
             return None;
         }
 
-        // Phase 1: decode one strict fixed-width `YYYY-MM-DD` payload without
-        // routing through the heavier `time` text parser.
+        // Decode one strict fixed-width payload before calendar admission.
         let year = parse_ascii_i32(&bytes[0..4])?;
         let month = parse_ascii_u8(&bytes[5..7])?;
         let day = parse_ascii_u8(&bytes[8..10])?;
@@ -144,21 +159,26 @@ impl Date {
         Self::try_new(year, month, day)
     }
 
-    fn from_time_date(date: TimeDate) -> Option<Self> {
-        let epoch = Self::epoch_date();
-        let days = (date - epoch).whole_days();
-        Self::try_from_i64(days)
-    }
+    // Invert the March-based cycle used by try_new. Accepted epoch days keep
+    // all arithmetic in i32 and yield months 1..=12 and days 1..=31.
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "bounded Gregorian conversion yields positive u8 month/day components"
+    )]
+    fn calendar_parts(self) -> (i32, u8, u8) {
+        let march_day = self.0 + Self::MARCH_EPOCH_OFFSET;
+        let cycle = march_day.div_euclid(Self::DAYS_PER_CYCLE);
+        let cycle_day = march_day.rem_euclid(Self::DAYS_PER_CYCLE);
+        let cycle_year =
+            (cycle_day - cycle_day / 1_460 + cycle_day / 36_524 - cycle_day / 146_096) / 365;
+        let year = cycle * 400 + cycle_year;
+        let march_ordinal = cycle_day - (365 * cycle_year + cycle_year / 4 - cycle_year / 100);
+        let march_month = (5 * march_ordinal + 2) / 153;
+        let day = march_ordinal - (153 * march_month + 2) / 5 + 1;
+        let month = march_month + if march_month < 10 { 3 } else { -9 };
 
-    // Safe public construction and persisted decoding enforce the bounded Date
-    // invariant before this private calendar conversion is reachable.
-    fn to_time_date(self) -> TimeDate {
-        let epoch = Self::epoch_date();
-        let delta = TimeDuration::days(self.0.into());
-        match epoch.checked_add(delta) {
-            Some(date) => date,
-            None => unreachable!("bounded Date invariant must produce a supported calendar date"),
-        }
+        (year + i32::from(month <= 2), month as u8, day as u8)
     }
 }
 
@@ -170,9 +190,8 @@ impl Debug for Date {
 
 impl Display for Date {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let d = self.to_time_date();
-        let month: u8 = d.month().into();
-        write!(f, "{:04}-{:02}-{:02}", d.year(), month, d.day())
+        let (year, month, day) = self.calendar_parts();
+        write!(f, "{year:04}-{month:02}-{day:02}")
     }
 }
 
@@ -237,6 +256,46 @@ fn parse_ascii_u8(bytes: &[u8]) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_supported_calendar_day_matches_the_reference_calendar() {
+        use time::{Date as ReferenceDate, Month};
+
+        let epoch = ReferenceDate::from_calendar_date(1970, Month::January, 1).unwrap();
+        for days in Date::MIN.as_days_since_epoch()..=Date::MAX.as_days_since_epoch() {
+            let reference = ReferenceDate::from_julian_day(epoch.to_julian_day() + days).unwrap();
+            let (year, month, day) = reference.to_calendar_date();
+            let month = u8::from(month);
+            let date = Date::try_from_days_since_epoch(days).unwrap();
+            assert_eq!((date.year(), date.month(), date.day()), (year, month, day));
+            assert_eq!(Date::try_new(year, month, day), Some(date));
+        }
+    }
+
+    #[test]
+    fn calendar_admission_matches_reference_at_month_and_leap_boundaries() {
+        use time::{Date as ReferenceDate, Month};
+
+        let epoch = ReferenceDate::from_calendar_date(1970, Month::January, 1).unwrap();
+        for year in [
+            0, 1, 4, 100, 400, 1582, 1900, 1969, 1970, 2000, 2024, 2100, 2400, 9999,
+        ] {
+            for month in 0..=13 {
+                for day in 0..=32 {
+                    let expected = Month::try_from(month)
+                        .ok()
+                        .and_then(|month| ReferenceDate::from_calendar_date(year, month, day).ok())
+                        .map(|date| (date - epoch).whole_days());
+                    assert_eq!(
+                        Date::try_new(year, month, day)
+                            .map(|date| i64::from(date.as_days_since_epoch())),
+                        expected,
+                        "{year:04}-{month:02}-{day:02}"
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn serde_calendar_boundaries_and_batches_use_compact_days() {

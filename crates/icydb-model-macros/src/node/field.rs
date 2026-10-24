@@ -46,31 +46,35 @@ impl FieldList {
         self.fields.push(field);
     }
 
-    pub fn validate(&self) -> Result<(), DarlingError> {
+    pub fn validate(&self, paths: &CratePaths) -> Result<(), DarlingError> {
         for field in &self.fields {
-            field.validate()?;
+            field.validate(paths)?;
         }
         Ok(())
     }
 }
 
 impl HasSchemaPart for FieldList {
-    fn schema_part(&self) -> TokenStream {
-        let fields = quote_slice(&self.fields, Field::schema_part);
+    fn schema_part(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
+        let fields = quote_slice(&self.fields, |value| Field::schema_part(value, paths));
 
         quote! {
             {
-                const __FIELDS: &'static [::icydb_model::node::Field] = #fields;
+                const __FIELDS: &'static [#model::node::Field] = #fields;
 
-                ::icydb_model::node::FieldList::new(__FIELDS)
+                #model::node::FieldList::new(__FIELDS)
             }
         }
     }
 }
 
 impl HasTypeExpr for FieldList {
-    fn type_expr(&self) -> TokenStream {
-        let fields = self.fields.iter().map(HasTypeExpr::type_expr);
+    fn type_expr(&self, paths: &CratePaths) -> TokenStream {
+        let fields = self
+            .fields
+            .iter()
+            .map(|value| HasTypeExpr::type_expr(value, paths));
 
         quote!(#(#fields),*)
     }
@@ -151,21 +155,23 @@ impl FromMeta for FieldGeneration {
 }
 
 impl HasSchemaPart for FieldGeneration {
-    fn schema_part(&self) -> TokenStream {
+    fn schema_part(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
         match self {
             Self::Insert(arg) => {
-                let arg = quote_one(arg, Arg::schema_part);
-                quote!(::icydb_model::node::FieldGeneration::Insert(#arg))
+                let arg = quote_one(arg, |value| Arg::schema_part(value, paths));
+                quote!(#model::node::FieldGeneration::Insert(#arg))
             }
         }
     }
 }
 
 impl HasSchemaPart for FieldWriteManagement {
-    fn schema_part(&self) -> TokenStream {
+    fn schema_part(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
         match self {
-            Self::CreatedAt => quote!(::icydb_model::node::FieldWriteManagement::CreatedAt),
-            Self::UpdatedAt => quote!(::icydb_model::node::FieldWriteManagement::UpdatedAt),
+            Self::CreatedAt => quote!(#model::node::FieldWriteManagement::CreatedAt),
+            Self::UpdatedAt => quote!(#model::node::FieldWriteManagement::UpdatedAt),
         }
     }
 }
@@ -199,7 +205,7 @@ impl Field {
         })
     }
 
-    pub fn validate(&self) -> Result<(), DarlingError> {
+    pub fn validate(&self, paths: &CratePaths) -> Result<(), DarlingError> {
         // Name validation.
         let name = self.name.to_string();
 
@@ -244,7 +250,7 @@ impl Field {
         // Insert-generation stays schema-owned and explicit instead of making
         // SQL omission inferable from general Rust defaults.
         self.validate_generated()?;
-        self.validate_database_default()?;
+        self.validate_database_default(paths)?;
 
         Ok(())
     }
@@ -270,7 +276,7 @@ impl Field {
     ///
     /// This is downstream of the schema contract. It never decides whether the
     /// field has a database default.
-    pub fn rust_default_expr(&self) -> Option<TokenStream> {
+    pub fn rust_default_expr(&self, paths: &CratePaths) -> Option<TokenStream> {
         if let Some(FieldGeneration::Insert(generator)) = &self.generated {
             if self.is_identity_generated() {
                 // Identity is a declarative database generator rather than a
@@ -283,7 +289,7 @@ impl Field {
         }
 
         match (&self.default, self.value.cardinality()) {
-            (Some(default), _) => schema_default_rust_expr(default, &self.value).ok(),
+            (Some(default), _) => schema_default_rust_expr(default, &self.value, paths).ok(),
             (None, Cardinality::One) if self.write_management.is_some() => {
                 Some(quote!(Default::default()))
             }
@@ -293,8 +299,8 @@ impl Field {
         }
     }
 
-    pub fn has_rust_default(&self) -> bool {
-        self.rust_default_expr().is_some()
+    pub fn has_rust_default(&self, paths: &CratePaths) -> bool {
+        self.rust_default_expr(paths).is_some()
     }
 
     pub(crate) fn managed_timestamp(name: Ident, write_management: FieldWriteManagement) -> Self {
@@ -411,7 +417,7 @@ impl Field {
         Ok(())
     }
 
-    fn validate_database_default(&self) -> Result<(), DarlingError> {
+    fn validate_database_default(&self, paths: &CratePaths) -> Result<(), DarlingError> {
         let Some(default) = self.default.as_ref() else {
             return Ok(());
         };
@@ -423,7 +429,7 @@ impl Field {
             return Ok(());
         }
 
-        validate_database_default_shape(default, &self.value)
+        validate_database_default_shape(default, &self.value, paths)
             .map_err(|message| DarlingError::custom(message).with_span(&self.name))
     }
 }
@@ -495,7 +501,12 @@ fn generated_insert_contract(generator: &Arg) -> Option<GeneratedInsertContract>
 
 // Parse identity literals at expansion time. Validation and construction share
 // this owner, so neither malformed input nor generated Rust needs a parse panic.
-fn schema_default_rust_expr(default: &Arg, value: &Value) -> Result<TokenStream, String> {
+fn schema_default_rust_expr(
+    default: &Arg,
+    value: &Value,
+    paths: &CratePaths,
+) -> Result<TokenStream, String> {
+    let model = &paths.model;
     Ok(match (value.item.primitive, default) {
         (Some(Primitive::Account), Arg::String(value)) => {
             let account = value
@@ -506,11 +517,11 @@ fn schema_default_rust_expr(default: &Arg, value: &Value) -> Result<TokenStream,
             let owner = owner.as_slice();
             let subaccount = account.subaccount().map(|subaccount| {
                 let bytes = subaccount.to_array();
-                quote!(::icydb_model::schema::Subaccount::from_array([#(#bytes),*]))
+                quote!(#model::schema::Subaccount::from_array([#(#bytes),*]))
             });
             let subaccount = quote_option(subaccount.as_ref(), Clone::clone);
-            quote!(::icydb_model::schema::Account::from_owner_and_subaccount(
-                ::icydb_model::schema::Principal::from_slice(&[#(#owner),*]),
+            quote!(#model::schema::Account::from_owner_and_subaccount(
+                #model::schema::Principal::from_slice(&[#(#owner),*]),
                 #subaccount,
             ).into())
         }
@@ -518,14 +529,14 @@ fn schema_default_rust_expr(default: &Arg, value: &Value) -> Result<TokenStream,
             let principal = icydb_schema::Principal::from_text(&value.value())
                 .map_err(|_| "default for primitive Principal requires valid principal text")?;
             let bytes = principal.as_slice();
-            quote!(::icydb_model::schema::Principal::from_slice(&[#(#bytes),*]).into())
+            quote!(#model::schema::Principal::from_slice(&[#(#bytes),*]).into())
         }
         (Some(Primitive::Subaccount), Arg::String(value)) => {
             let bytes = icydb_schema::Subaccount::from_hex(&value.value())
                 .map_err(|_| "default for primitive Subaccount requires 64 ASCII hex characters")?
                 .to_array();
             let byte_tokens = bytes.iter().map(|byte| quote!(#byte));
-            quote!(::icydb_model::schema::Subaccount::from_array([#(#byte_tokens),*]).into())
+            quote!(#model::schema::Subaccount::from_array([#(#byte_tokens),*]).into())
         }
         (Some(Primitive::Ulid), Arg::String(value)) => {
             let ulid = value
@@ -533,13 +544,17 @@ fn schema_default_rust_expr(default: &Arg, value: &Value) -> Result<TokenStream,
                 .parse::<icydb_schema::Ulid>()
                 .map_err(|_| "default for primitive Ulid requires valid ULID text")?;
             let bytes = ulid.to_bytes();
-            quote!(::icydb_model::schema::Ulid::from_bytes([#(#bytes),*]).into())
+            quote!(#model::schema::Ulid::from_bytes([#(#bytes),*]).into())
         }
         _ => quote!(#default.into()),
     })
 }
 
-fn validate_database_default_shape(default: &Arg, value: &Value) -> Result<(), String> {
+fn validate_database_default_shape(
+    default: &Arg,
+    value: &Value,
+    paths: &CratePaths,
+) -> Result<(), String> {
     if value.many {
         return Err("default currently supports only single-value fields".to_string());
     }
@@ -594,7 +609,7 @@ fn validate_database_default_shape(default: &Arg, value: &Value) -> Result<(), S
     compatible.then_some(()).ok_or_else(|| {
         format!("default value {default:?} is not compatible with primitive {primitive:?}")
     })?;
-    schema_default_rust_expr(default, value).map(|_| ())
+    schema_default_rust_expr(default, value, paths).map(|_| ())
 }
 
 fn identity_like_default_constructor_error(default: &Arg, primitive: Primitive) -> Option<String> {
@@ -775,18 +790,22 @@ fn path_ends_with_segments(path: &Path, expected: &[&str]) -> bool {
 }
 
 impl HasSchemaPart for Field {
-    fn schema_part(&self) -> TokenStream {
+    fn schema_part(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
         let name = quote_one(&self.name, to_str_lit);
-        let value = self.value.schema_part();
-        let default = quote_option(self.default.as_ref(), Arg::schema_part);
-        let generated = quote_option(self.generated.as_ref(), FieldGeneration::schema_part);
-        let write_management = quote_option(
-            self.write_management.as_ref(),
-            FieldWriteManagement::schema_part,
-        );
+        let value = self.value.schema_part(paths);
+        let default = quote_option(self.default.as_ref(), |value| {
+            Arg::schema_part(value, paths)
+        });
+        let generated = quote_option(self.generated.as_ref(), |value| {
+            FieldGeneration::schema_part(value, paths)
+        });
+        let write_management = quote_option(self.write_management.as_ref(), |value| {
+            FieldWriteManagement::schema_part(value, paths)
+        });
 
         quote! {
-            ::icydb_model::node::Field::new(
+            #model::node::Field::new(
                 #name,
                 #value,
                 #default,
@@ -798,9 +817,9 @@ impl HasSchemaPart for Field {
 }
 
 impl HasTypeExpr for Field {
-    fn type_expr(&self) -> TokenStream {
+    fn type_expr(&self, paths: &CratePaths) -> TokenStream {
         let name = &self.name;
-        let value = self.value.type_expr();
+        let value = self.value.type_expr(paths);
 
         quote! {
             #name: #value

@@ -111,7 +111,7 @@ mod tests {
                 b"IWICYDBDR1\x01\x81\x00",
                 Contract::RESPONSE_LIMITS
             ),
-            Err(Error::Noncanonical)
+            Err(Error::Malformed)
         );
     }
 }

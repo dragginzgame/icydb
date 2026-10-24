@@ -8,6 +8,11 @@ use proc_macro2::TokenStream;
 use quote::quote;
 
 pub(crate) fn derive_inner(input: TokenStream) -> TokenStream {
+    let paths = &match crate::crate_path::CratePathOverrides::default().resolve() {
+        Ok(paths) => paths,
+        Err(error) => return error.write_errors(),
+    };
+    let model = &paths.model;
     let input = match parse_newtype(input, "Inner") {
         Ok(input) => input,
         Err(err) => return err.to_compile_error(),
@@ -18,7 +23,7 @@ pub(crate) fn derive_inner(input: TokenStream) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
     quote! {
-        impl #impl_generics ::icydb_model::Inner<#inner> for #ident #ty_generics #where_clause {
+        impl #impl_generics #model::Inner<#inner> for #ident #ty_generics #where_clause {
             fn inner(&self) -> &#inner {
                 &self.0
             }

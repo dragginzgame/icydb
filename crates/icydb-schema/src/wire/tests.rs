@@ -6,6 +6,31 @@ use crate::wire::{
 };
 use serde::{Deserialize, Serialize, Serializer, ser::Error as _};
 
+#[test]
+fn decoding_accepts_deserialize_only_values_and_rejects_overlong_varints() {
+    #[derive(Debug, Deserialize, PartialEq)]
+    struct ReceiveOnly(u32);
+
+    let bytes = encode_one(128_u32).unwrap();
+    assert_eq!(bytes, [0x80, 0x01]);
+    assert_eq!(decode_one::<ReceiveOnly>(&bytes), Ok(ReceiveOnly(128)));
+    assert_eq!(decode_one::<ReceiveOnly>(&[0x81, 0]), Err(Error::Malformed));
+}
+
+#[test]
+fn map_decoding_does_not_certify_original_byte_identity() {
+    use std::collections::BTreeMap;
+
+    for bytes in [[2, 2, 20, 1, 10], [2, 1, 20, 1, 10]] {
+        let value: BTreeMap<u8, u8> = decode_one(&bytes).unwrap();
+        assert_eq!(value.get(&1), Some(&10));
+        let encoded = encode_one(&value).unwrap();
+        assert_ne!(encoded, bytes);
+        assert_eq!(decode_one::<BTreeMap<u8, u8>>(&encoded).unwrap(), value);
+        assert_eq!(value.len(), if bytes[1] == 2 { 2 } else { 1 });
+    }
+}
+
 #[derive(Debug, Deserialize, PartialEq, Serialize)]
 enum Nested {
     Leaf(u128),

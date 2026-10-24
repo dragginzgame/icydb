@@ -11,30 +11,40 @@ pub struct IntoIteratorTrait {}
 
 impl Imp<List> for FromIteratorTrait {
     fn strategy(node: &List) -> Option<TraitStrategy> {
-        let item = node.item.type_expr();
-        Some(from_iterator_strategy(node.def(), quote!(#item), None))
+        let paths = node.def().paths();
+        let item = node.item.type_expr(paths);
+        Some(from_iterator_strategy(
+            node.def(),
+            quote!(#item),
+            None,
+            paths,
+        ))
     }
 }
 
 impl Imp<Map> for FromIteratorTrait {
     fn strategy(node: &Map) -> Option<TraitStrategy> {
-        let key = node.key.type_expr();
-        let value = node.value.type_expr();
+        let paths = node.def().paths();
+        let key = node.key.type_expr(paths);
+        let value = node.value.type_expr(paths);
         Some(from_iterator_strategy(
             node.def(),
             quote!((#key, #value)),
             Some(quote!(#key: ::std::cmp::Ord)),
+            paths,
         ))
     }
 }
 
 impl Imp<Set> for FromIteratorTrait {
     fn strategy(node: &Set) -> Option<TraitStrategy> {
-        let item = node.item.type_expr();
+        let paths = node.def().paths();
+        let item = node.item.type_expr(paths);
         Some(from_iterator_strategy(
             node.def(),
             quote!(#item),
             Some(quote!(#item: ::std::cmp::Ord)),
+            paths,
         ))
     }
 }
@@ -43,6 +53,7 @@ fn from_iterator_strategy(
     def: &Def,
     iterator_item: TokenStream,
     constraint: Option<TokenStream>,
+    paths: &CratePaths,
 ) -> TraitStrategy {
     let mut implementor = Implementor::new(def, TraitKind::FromIterator)
         .add_trait_generic(iterator_item.clone())
@@ -56,17 +67,19 @@ fn from_iterator_strategy(
         implementor = implementor.add_impl_constraint(constraint);
     }
 
-    TraitStrategy::from_impl(implementor.to_token_stream())
+    TraitStrategy::from_impl(implementor.impl_tokens(paths))
 }
 
 impl Imp<List> for IntoIteratorTrait {
     fn strategy(node: &List) -> Option<TraitStrategy> {
-        let item = node.item.type_expr();
+        let paths = node.def().paths();
+        let item = node.item.type_expr(paths);
         let lifetime = available_iteration_lifetime(node.def());
         let mut tokens = owned_into_iterator_tokens(
             node.def(),
             quote!(#item),
             quote!(::std::vec::IntoIter<#item>),
+            paths,
         );
         tokens.extend(reference_into_iterator_tokens(
             node.def(),
@@ -74,6 +87,7 @@ impl Imp<List> for IntoIteratorTrait {
             false,
             quote!(&#lifetime #item),
             quote!(::std::slice::Iter<#lifetime, #item>),
+            paths,
         ));
         tokens.extend(reference_into_iterator_tokens(
             node.def(),
@@ -81,6 +95,7 @@ impl Imp<List> for IntoIteratorTrait {
             true,
             quote!(&#lifetime mut #item),
             quote!(::std::slice::IterMut<#lifetime, #item>),
+            paths,
         ));
 
         Some(TraitStrategy::from_impl(tokens))
@@ -89,13 +104,15 @@ impl Imp<List> for IntoIteratorTrait {
 
 impl Imp<Map> for IntoIteratorTrait {
     fn strategy(node: &Map) -> Option<TraitStrategy> {
-        let key = node.key.type_expr();
-        let value = node.value.type_expr();
+        let paths = node.def().paths();
+        let key = node.key.type_expr(paths);
+        let value = node.value.type_expr(paths);
         let lifetime = available_iteration_lifetime(node.def());
         let mut tokens = owned_into_iterator_tokens(
             node.def(),
             quote!((#key, #value)),
             quote!(::std::collections::btree_map::IntoIter<#key, #value>),
+            paths,
         );
         tokens.extend(reference_into_iterator_tokens(
             node.def(),
@@ -103,6 +120,7 @@ impl Imp<Map> for IntoIteratorTrait {
             false,
             quote!((&#lifetime #key, &#lifetime #value)),
             quote!(::std::collections::btree_map::Iter<#lifetime, #key, #value>),
+            paths,
         ));
         tokens.extend(reference_into_iterator_tokens(
             node.def(),
@@ -110,6 +128,7 @@ impl Imp<Map> for IntoIteratorTrait {
             true,
             quote!((&#lifetime #key, &#lifetime mut #value)),
             quote!(::std::collections::btree_map::IterMut<#lifetime, #key, #value>),
+            paths,
         ));
 
         Some(TraitStrategy::from_impl(tokens))
@@ -118,12 +137,14 @@ impl Imp<Map> for IntoIteratorTrait {
 
 impl Imp<Set> for IntoIteratorTrait {
     fn strategy(node: &Set) -> Option<TraitStrategy> {
-        let item = node.item.type_expr();
+        let paths = node.def().paths();
+        let item = node.item.type_expr(paths);
         let lifetime = available_iteration_lifetime(node.def());
         let mut tokens = owned_into_iterator_tokens(
             node.def(),
             quote!(#item),
             quote!(::std::collections::btree_set::IntoIter<#item>),
+            paths,
         );
         tokens.extend(reference_into_iterator_tokens(
             node.def(),
@@ -131,6 +152,7 @@ impl Imp<Set> for IntoIteratorTrait {
             false,
             quote!(&#lifetime #item),
             quote!(::std::collections::btree_set::Iter<#lifetime, #item>),
+            paths,
         ));
 
         Some(TraitStrategy::from_impl(tokens))
@@ -141,6 +163,7 @@ fn owned_into_iterator_tokens(
     def: &Def,
     owned_item: TokenStream,
     owned_iterator: TokenStream,
+    paths: &CratePaths,
 ) -> TokenStream {
     Implementor::new(def, TraitKind::IntoIterator)
         .set_tokens(quote! {
@@ -151,7 +174,7 @@ fn owned_into_iterator_tokens(
                 self.0.into_iter()
             }
         })
-        .to_token_stream()
+        .impl_tokens(paths)
 }
 
 fn reference_into_iterator_tokens(
@@ -160,6 +183,7 @@ fn reference_into_iterator_tokens(
     mutable: bool,
     item: TokenStream,
     iterator: TokenStream,
+    paths: &CratePaths,
 ) -> TokenStream {
     let ident = def.ident();
     let definition = def
@@ -189,7 +213,7 @@ fn reference_into_iterator_tokens(
                 #iterator_expression
             }
         })
-        .to_token_stream()
+        .impl_tokens(paths)
 }
 
 // Borrowed iterator impls introduce one lifetime beside the authored generics;
@@ -224,11 +248,14 @@ mod tests {
 
     #[test]
     fn borrowed_iteration_uses_a_lifetime_not_owned_by_the_authored_type() {
-        let def = Def::new(syn::parse_quote! {
-            pub struct GenericCollection<'__icydb_iter> {
-                marker: ::std::marker::PhantomData<&'__icydb_iter ()>,
-            }
-        });
+        let def = Def::new(
+            syn::parse_quote! {
+                pub struct GenericCollection<'__icydb_iter> {
+                    marker: ::std::marker::PhantomData<&'__icydb_iter ()>,
+                }
+            },
+            crate::crate_path::CratePaths::test(),
+        );
 
         assert_eq!(
             available_iteration_lifetime(&def).to_string(),

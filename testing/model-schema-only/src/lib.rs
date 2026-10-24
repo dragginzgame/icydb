@@ -319,3 +319,40 @@ mod tests {
         drop(schema);
     }
 }
+
+/// An authored module whose name also happens to be a framework package name.
+pub mod icydb {
+    #[model_api::newtype(item(prim = "Nat64"))]
+    pub struct Money {}
+}
+
+/// Explicit macro path through a consumer-owned facade.
+pub use model_api as model_bridge;
+
+#[record(
+    model_crate = "crate::model_bridge",
+    fields(
+        field(name = "icydb", value(item(is = "crate::icydb::Money"))),
+        field(
+            name = "icydb_model",
+            value(item(prim = "Text", max_len = 64)),
+            default = "authored"
+        )
+    )
+)]
+pub struct AuthoredPackageNames {}
+
+#[cfg(test)]
+mod crate_path_tests {
+    use super::{AuthoredPackageNames, icydb::Money};
+
+    #[test]
+    fn renamed_model_and_override_preserve_authored_names_and_literals() {
+        let value = AuthoredPackageNames {
+            icydb: Money::from(7_u64),
+            icydb_model: "authored".to_owned(),
+        };
+        let _: Money = value.icydb;
+        assert_eq!(value.icydb_model, "authored");
+    }
+}

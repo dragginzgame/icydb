@@ -57,7 +57,11 @@ BRANCH_SET_RUNTIME_FORBIDDEN_PATTERNS=(
   "fixed_values\\.len\\(\\)([[:space:]]*\\+|\\.saturating_add\\()[[:space:]]*1"
 )
 
-# Required guardrails that enforce the planner->executor lowering contract.
+# Retain lowering-boundary checks not yet covered by behavioral qualification.
+# Stream/key tests own merge/intersection semantics and budget admission;
+# physical_polling_tests and branch_distinct own bounded branch execution.
+# Pipeline runtime tests own fast-path spec arity. Do not duplicate those
+# contracts by requiring particular call expressions or local variable names.
 REQUIRED_MATCHES=(
   "crates/icydb-core/src/db/access/path.rs:::IndexBranchSet \\{ spec: IndexBranchSetSpec \\}:::branch-set access path must carry the branch-set spec"
   "crates/icydb-core/src/db/access/lowering.rs:::spec\\.branch_prefix_values\\(branch_value\\):::branch-set lowering must consume spec-owned branch prefix construction"
@@ -73,22 +77,13 @@ REQUIRED_MATCHES=(
   "crates/icydb-core/src/db/executor/stream/access/physical.rs:::IndexRangeTraversalContract::require_spec:::missing invariant check for unresolved index-range specs in physical path resolution"
   "crates/icydb-core/src/db/executor/stream/access/physical.rs:::raw_from_prefix_and_suffix_values_with_primary_key_value:::branch-set continuation must use index-owned suffix key construction"
   "crates/icydb-core/src/db/index/key/build.rs:::raw_from_prefix_and_suffix_values_with_primary_key_value:::missing index-owned branch-set continuation key constructor"
-  "crates/icydb-core/src/db/executor/stream/key/contracts.rs:::fn intersect_all:::ordered intersection-set reduction must stay centralized under the budget-aware stream contract"
-  "crates/icydb-core/src/db/executor/stream/access/physical.rs:::OrderedKeyStreamBox::merge_all:::branch-set execution must use the shared merge tree helper"
   "crates/icydb-core/src/db/executor/stream/access/physical.rs:::fn validate_index_prefix_count:::prefix-family stream execution must centralize lowered prefix count validation"
   "crates/icydb-core/src/db/executor/stream/access/physical.rs:::validate_index_prefix_count\\(index_prefix_specs, value_count\\):::multi-lookup execution must validate lowered prefix count before materialized or expanded execution"
-  "crates/icydb-core/src/db/executor/stream/access/physical.rs:::let branch_count = active_specs\\.len\\(\\):::branch-set execution must derive merge branch count from active prefixes"
-  "crates/icydb-core/src/db/executor/stream/access/physical.rs:::branch_stream_chunk_entries\\(request\\.index_fetch_hint, active_branch_count\\):::branch-set execution must size pulls by active branch count"
-  "crates/icydb-core/src/db/executor/covering.rs:::CoveringComponentStreamBox::merge_all:::covering branch projections must use a component stream-set merge helper"
-  "crates/icydb-core/src/db/executor/covering.rs:::branch_stream_chunk_entries\\(index_fetch_hint, active_specs\\.len\\(\\)\\):::covering branch projections must size pulls by active branch count"
-  "crates/icydb-core/src/db/executor/stream/access/traversal.rs:::OrderedKeyStreamBox::merge_all:::access union execution must use the shared merge tree helper"
-  "crates/icydb-core/src/db/executor/stream/access/traversal.rs:::OrderedKeyStreamBox::intersect_all:::access intersection execution must use the shared intersection tree helper"
   "crates/icydb-core/src/db/executor/traversal.rs:::pub\\(in crate::db::executor\\) fn require_spec:::missing invariant error for unresolved index-range specs at shared traversal boundary"
   "crates/icydb-core/src/db/executor/traversal.rs:::validate_spec_alignment:::missing invariant error for misaligned index-range specs at shared traversal boundary"
   "crates/icydb-core/src/db/executor/scan/index_range_limit.rs:::return Err\\(InternalError::index_range_limit_spec_required\\(\\)\\):::missing invariant error for unresolved index-range pushdown specs"
   "crates/icydb-core/src/db/executor/stream/access/scan.rs:::visit_raw_entries_in_range:::index-range physical execution must use raw-range traversal"
   "crates/icydb-core/src/db/executor/stream/access/traversal.rs:::IndexRangeTraversalContract::validate_spec_alignment:::missing invariant check for misaligned IndexRangeSpec consumption"
-  "crates/icydb-core/src/db/executor/planning/route/guard.rs:::index_range_pushdown_eligible && index_range_spec_count > 1:::missing invariant error for multi-spec index-range fast-path drift"
 )
 
 status=0

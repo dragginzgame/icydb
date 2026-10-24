@@ -52,6 +52,7 @@ impl<C: CanisterKind> DbSession<C> {
                 .map_err(QueryError::execute)?;
             if cached.root == root.identity() {
                 let catalog = sql_query_catalog_context(root, cached.entity_name.as_deref())?;
+                self.with_sql_compiled_command_cache(|cache| cache.refresh(&key));
                 let entity = cached
                     .entity_name
                     .as_deref()
@@ -157,6 +158,7 @@ impl<C: CanisterKind> DbSession<C> {
         if let Some(cached) = cached
             && cached.root == catalog.runtime_root_identity()
         {
+            self.with_sql_compiled_command_cache(|cache| cache.refresh(&cache_key));
             return Ok(cached.command);
         }
         let schema = catalog.accepted_schema_info();

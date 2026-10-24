@@ -14,10 +14,14 @@ enum MemoryProfile {
     HighHeadroom,
 }
 
-impl ToTokens for MemoryProfile {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
+impl MemoryProfile {
+    pub(crate) fn generated_tokens(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
+        let mut tokens = TokenStream::new();
         let variant = format_ident!("{self:?}");
-        tokens.extend(quote!(::icydb_model::node::CanisterMemoryProfile::#variant));
+        tokens.extend(quote!(#model::node::CanisterMemoryProfile::#variant));
+
+        tokens
     }
 }
 
@@ -47,6 +51,9 @@ impl HasDef for Canister {
 
 impl ValidateNode for Canister {
     fn validate(&self) -> Result<(), DarlingError> {
+        if let Some(migrations) = &self.migrations {
+            migrations.validate(self.def.paths())?;
+        }
         if !crate::validate::memory::stable_key_segment_is_canonical(&self.memory_namespace) {
             return Err(DarlingError::custom(
                 "memory_namespace must begin with a lowercase ASCII letter and contain only lowercase ASCII letters, digits, and underscores",
@@ -64,21 +71,22 @@ impl HasSchema for Canister {
 }
 
 impl HasSchemaPart for Canister {
-    fn schema_part(&self) -> TokenStream {
-        let def = self.def.schema_part();
+    fn schema_part(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
+        let def = self.def.schema_part(paths);
         let memory_namespace = &self.memory_namespace;
-        let memory_profile = self
-            .memory_profile
-            .as_ref()
-            .map(|profile| quote!(.with_memory_profile(#profile)));
-        let migration_plan = self
-            .migrations
-            .as_ref()
-            .map_or_else(|| quote!(None), MigrationPlan::constructor_tokens);
+        let memory_profile = self.memory_profile.as_ref().map(|profile| {
+            let profile = profile.generated_tokens(paths);
+            quote!(.with_memory_profile(#profile))
+        });
+        let migration_plan = self.migrations.as_ref().map_or_else(
+            || quote!(None),
+            |value| MigrationPlan::constructor_tokens(value, paths),
+        );
 
         // quote
         quote! {
-            ::icydb_model::node::Canister::new(
+            #model::node::Canister::new(
                 #def,
                 #memory_namespace,
                 #migration_plan,
@@ -121,7 +129,7 @@ fn stable_memory_key(memory_namespace: &str, allocation: &str, role: &str) -> St
 }
 
 impl HasType for Canister {
-    fn type_part(&self) -> TokenStream {
+    fn type_part(&self, __paths: &CratePaths) -> TokenStream {
         let ident = self.def.ident();
 
         quote! {
@@ -130,9 +138,11 @@ impl HasType for Canister {
     }
 }
 
-impl ToTokens for Canister {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        tokens.extend(self.all_tokens());
+impl Canister {
+    pub(crate) fn generate_tokens(&self, paths: &CratePaths) -> TokenStream {
+        let mut tokens = TokenStream::new();
+        tokens.extend(self.all_tokens(paths));
+        tokens
     }
 }
 
@@ -161,7 +171,7 @@ mod tests {
             let profile = canister.memory_profile.unwrap();
             assert_eq!(format!("{profile:?}"), expected);
             assert_eq!(
-                profile.to_token_stream().to_string(),
+                profile.generated_tokens(&CratePaths::test()).to_string(),
                 format!(":: icydb_model :: node :: CanisterMemoryProfile :: {expected}"),
             );
         }
@@ -175,7 +185,7 @@ mod tests {
             pub struct DemoCanister;
         };
         let canister = Canister {
-            def: Def::new(item),
+            def: Def::new(item, crate::crate_path::CratePaths::test()),
             memory_namespace: "demo_rpg".to_string(),
             memory_profile: None,
             migrations: None,

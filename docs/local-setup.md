@@ -440,8 +440,25 @@ initial record or a replacement directory without an admitted owner still refuse
 Malformed, redirected or unwritable lock routes fail rather than polling. Atomic
 `mkdir` still owns acquisition: if a new owner wins that race, or acquisition fails
 for another reason, its diagnostic/status is preserved without a retry. Timeouts
-are nonzero and retain previous selections and failed evidence. `--check`, `--preflight`,
-checkout locks and Host/IC setup keep their immediate, non-waiting behavior.
+are nonzero and retain previous selections and failed evidence. Plain `--check`,
+`--preflight`, checkout locks and Host/IC setup remain immediate. The setup wait
+environment variable does not change check behavior.
+
+Cargo admission supports explicit `--check --wait-seconds N`, with a canonical
+integer from 0 to 300. It waits only on an admitted exact shared-slot claim for
+an already selected tool. Exit **75** means that admitted slot is busy or its
+admission wait timed out; missing/corrupt preparation and invalid, inaccessible
+or redirected claims remain failures rather than busy results. Consumers should
+propagate that status and diagnostic instead of recommending installation or
+classifying stderr text. The default budget is zero; setup waiting is unchanged.
+
+After a wait, admission rereads compiler/build and source inputs, supplied
+lock/catalog bytes, checkout reference, generation, features, receipts and
+checksums. Changed inputs fail; an owner's partial installation cannot be
+selected. This path performs no installation, repair, activation, lock acquisition
+or foreign-lock cleanup. No consumer sleep/retry loop is needed. An immediate
+busy check emits no executable path or installation hint. Successful waiting
+prints the same path as an ordinary check, with wait diagnostics only on stderr.
 
 Explicit Cargo-tool setup reports package/version, phase, outcome and elapsed
 whole seconds on stderr. Start and completion messages distinguish source
@@ -450,8 +467,8 @@ compilation and receipt/build admission when those paths run. Compilation output
 stays in the retained attempt's `install.log`; a failure still replays that log
 and returns its original status. Timings are observations, not a speedup claim or
 another deadline. Diagnostic write failures do not replace command results.
-Stdout remains the selected executable or common-bin path. Successful `--check`
-calls remain quiet on stderr; checks, preflight and descriptions add no setup.
+Stdout remains the selected executable or common-bin path. Successful immediate
+`--check` calls remain quiet on stderr; checks, preflight and descriptions add no setup.
 These diagnostics do not change installed-tool identities or require rebuilding
 an already admitted generation.
 

@@ -53,7 +53,7 @@ impl ValidateNode for Enum {
         self.validate_traits()?;
 
         for variant in &self.variants {
-            variant.validate()?;
+            variant.validate_variant(self.def.paths())?;
         }
 
         // Phase 2: validate Rust default selection rules.
@@ -97,15 +97,19 @@ impl HasSchema for Enum {
 }
 
 impl HasSchemaPart for Enum {
-    fn schema_part(&self) -> TokenStream {
-        let def = &self.def.schema_part();
+    fn schema_part(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
+        let def = &self.def.schema_part(paths);
         let name = self.current_name_literal(self.name.as_ref());
-        let variants = self.variants.iter().map(EnumVariant::schema_part);
-        let ty = &self.ty.schema_part();
+        let variants = self
+            .variants
+            .iter()
+            .map(|value| EnumVariant::schema_part(value, paths));
+        let ty = &self.ty.schema_part(paths);
 
         // quote
         quote! {
-            ::icydb_model::node::Enum::new(#def, #name, &[#(#variants),*], #ty)
+            #model::node::Enum::new(#def, #name, &[#(#variants),*], #ty)
         }
     }
 }
@@ -146,12 +150,16 @@ impl HasTraits for Enum {
 }
 
 impl HasType for Enum {
-    fn type_part(&self) -> TokenStream {
+    fn type_part(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
         let ident = self.def.ident();
-        let variants = self.variants.iter().map(HasTypeExpr::type_expr);
+        let variants = self
+            .variants
+            .iter()
+            .map(|value| HasTypeExpr::type_expr(value, paths));
         let sorted = self
             .sorted
-            .then(|| quote!(#[::icydb_model::__reexports::remain::sorted]));
+            .then(|| quote!(#[#model::__reexports::remain::sorted]));
 
         quote! {
             #sorted
@@ -159,17 +167,6 @@ impl HasType for Enum {
                 #(#variants),*
             }
         }
-    }
-}
-
-impl ToTokens for Enum {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        let base = self.all_tokens();
-        let typed_adapter = crate::node::typed_adapter::enum_adapter_tokens(self);
-        tokens.extend(quote! {
-            #base
-            #typed_adapter
-        });
     }
 }
 
@@ -189,7 +186,7 @@ pub struct EnumVariant {
 }
 
 impl EnumVariant {
-    pub fn validate(&self) -> Result<(), DarlingError> {
+    pub fn validate_variant(&self, paths: &CratePaths) -> Result<(), DarlingError> {
         // Enforce variant naming before validating value payloads.
         let name = self.name.to_string();
         if !name.is_case(Case::UpperCamel) {
@@ -206,7 +203,7 @@ impl EnumVariant {
                 && !value.item.indirect
                 && value.item.relation.is_none()
             {
-                let item_ty = value.item.type_expr().to_string().replace(' ', "");
+                let item_ty = value.item.type_expr(paths).to_string().replace(' ', "");
                 let message = format!(
                     "Vec<{item_ty}> does not implement the generated value surface. If this list holds a recursive or complex value type, use item(indirect, ...) to store Vec<Box<{item_ty}>>."
                 );
@@ -219,13 +216,16 @@ impl EnumVariant {
 }
 
 impl HasSchemaPart for EnumVariant {
-    fn schema_part(&self) -> TokenStream {
+    fn schema_part(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
         let name = quote_one(&self.name, to_str_lit);
-        let value = quote_option(self.value.as_ref(), Value::schema_part);
+        let value = quote_option(self.value.as_ref(), |value| {
+            Value::schema_part(value, paths)
+        });
 
         // quote
         quote! {
-            ::icydb_model::node::EnumVariant::new(
+            #model::node::EnumVariant::new(
                 #name,
                 #value,
             )
@@ -234,11 +234,11 @@ impl HasSchemaPart for EnumVariant {
 }
 
 impl HasTypeExpr for EnumVariant {
-    fn type_expr(&self) -> TokenStream {
+    fn type_expr(&self, paths: &CratePaths) -> TokenStream {
         let name = &self.name;
 
         let body = if let Some(value) = &self.value {
-            let value = value.type_expr();
+            let value = value.type_expr(paths);
             quote!(#name(#value))
         } else {
             quote!(#name)
@@ -247,6 +247,19 @@ impl HasTypeExpr for EnumVariant {
         quote! {
             #body
         }
+    }
+}
+
+impl Enum {
+    pub(crate) fn generate_tokens(&self, paths: &CratePaths) -> TokenStream {
+        let mut tokens = TokenStream::new();
+        let base = self.all_tokens(paths);
+        let typed_adapter = crate::node::typed_adapter::enum_adapter_tokens(self, paths);
+        tokens.extend(quote! {
+            #base
+            #typed_adapter
+        });
+        tokens
     }
 }
 
@@ -268,10 +281,15 @@ mod tests {
                 pub struct SortedExample {}
             ))
             .expect("enum input should parse as a struct"),
+            crate::crate_path::CratePaths::test(),
         );
 
         assert!(node.sorted);
-        assert!(node.type_part().to_string().contains("remain :: sorted"));
+        assert!(
+            node.type_part(&crate::crate_path::CratePaths::test())
+                .to_string()
+                .contains("remain :: sorted")
+        );
     }
 
     #[test]
@@ -284,6 +302,7 @@ mod tests {
                 pub struct OrderedUnitEnum {}
             ))
             .expect("enum input should parse as a struct"),
+            crate::crate_path::CratePaths::test(),
         );
 
         let traits = node.traits();

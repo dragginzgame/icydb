@@ -51,9 +51,12 @@ fn required_field_without_default(ident: &str, primitive: Primitive) -> Field {
 
 fn redundant_default_entity() -> Entity {
     Entity {
-        def: Def::new(syn::parse_quote!(
-            struct RedundantDefaultEntity;
-        )),
+        def: Def::new(
+            syn::parse_quote!(
+                struct RedundantDefaultEntity;
+            ),
+            crate::crate_path::CratePaths::test(),
+        ),
         store: syn::parse_quote!(UiDataStore),
         schema_version: 1,
         primary_key: PrimaryKey {
@@ -86,7 +89,10 @@ fn redundant_default_entity() -> Entity {
 
 #[test]
 fn entity_defaults_derive_when_explicit_defaults_match_implicit_defaults() {
-    let strategy = default_strategy_entity(&redundant_default_entity());
+    let strategy = default_strategy_entity(
+        &redundant_default_entity(),
+        &crate::crate_path::CratePaths::test(),
+    );
 
     assert_eq!(strategy.derive, Some(TraitKind::Default));
     assert!(
@@ -103,8 +109,13 @@ fn entity_default_request_rejects_required_fields_without_construction_values() 
         .fields
         .push(required_field_without_default("score", Primitive::Int32));
 
-    validate_struct_default_request("entity", &entity.def, &entity.fields)
-        .expect_err("an explicit entity Default request must reject missing construction values");
+    validate_struct_default_request(
+        "entity",
+        &entity.def,
+        &entity.fields,
+        &crate::crate_path::CratePaths::test(),
+    )
+    .expect_err("an explicit entity Default request must reject missing construction values");
 }
 
 #[test]
@@ -113,7 +124,7 @@ fn entity_defaults_keep_manual_impl_for_custom_default_constructors() {
     entity.fields.fields[0].default = Some(Arg::FuncPath(parse_quote!(Ulid::generate)));
     entity.fields.fields[0].value.item.primitive = Some(Primitive::Ulid);
 
-    let strategy = default_strategy_entity(&entity);
+    let strategy = default_strategy_entity(&entity, &crate::crate_path::CratePaths::test());
 
     assert!(
         strategy.derive.is_none(),
@@ -133,7 +144,7 @@ fn entity_identity_default_never_calls_the_declarative_generator() {
         Identity::next
     ))));
 
-    let strategy = default_strategy_entity(&entity);
+    let strategy = default_strategy_entity(&entity, &crate::crate_path::CratePaths::test());
     let tokens = strategy
         .imp
         .expect("identity placeholder requires an explicit Default impl")
@@ -160,9 +171,12 @@ fn records_follow_the_same_redundant_default_rule() {
         ],
     };
     let record = Record {
-        def: Def::new(syn::parse_quote!(
-            struct RedundantDefaultRecord;
-        )),
+        def: Def::new(
+            syn::parse_quote!(
+                struct RedundantDefaultRecord;
+            ),
+            crate::crate_path::CratePaths::test(),
+        ),
         emit_runtime_references: false,
         name: None,
         fields,
@@ -170,7 +184,11 @@ fn records_follow_the_same_redundant_default_rule() {
         ty: Type::default(),
     };
 
-    let strategy = record_default_strategy(&record.def, &record.fields);
+    let strategy = record_default_strategy(
+        &record.def,
+        &record.fields,
+        &crate::crate_path::CratePaths::test(),
+    );
 
     assert_eq!(strategy.derive, Some(TraitKind::Default));
     assert!(
@@ -185,9 +203,12 @@ fn record_default_request_rejects_required_fields_without_construction_values() 
         fields: vec![required_field_without_default("score", Primitive::Int32)],
     };
     let record = Record {
-        def: Def::new(syn::parse_quote!(
-            struct RequiredRecord;
-        )),
+        def: Def::new(
+            syn::parse_quote!(
+                struct RequiredRecord;
+            ),
+            crate::crate_path::CratePaths::test(),
+        ),
         emit_runtime_references: false,
         name: None,
         fields,
@@ -195,6 +216,11 @@ fn record_default_request_rejects_required_fields_without_construction_values() 
         ty: Type::default(),
     };
 
-    validate_struct_default_request("record", &record.def, &record.fields)
-        .expect_err("an explicit record Default request must reject missing construction values");
+    validate_struct_default_request(
+        "record",
+        &record.def,
+        &record.fields,
+        &crate::crate_path::CratePaths::test(),
+    )
+    .expect_err("an explicit record Default request must reject missing construction values");
 }

@@ -748,3 +748,61 @@ fn database_adoption_preserves_typed_cause_until_public_projection() {
     );
     assert!(facade.core_facts().unwrap().is_empty());
 }
+
+#[test]
+fn exhaustive_question_mark_preserves_database_diagnostics() {
+    use crate::db::{ExhaustiveReadError, TypedOperationError, query::TypedExhaustiveQueryError};
+    use icydb_diagnostic_code::{Diagnostic, DiagnosticCode, DiagnosticFactTag, QueryFieldRole};
+
+    let fact_bytes = icydb_schema::wire::encode_one(&ErrorWire {
+        code: icydb_diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_MUTATION_BATCH_TOO_MANY_ITEMS
+            .raw(),
+        class: icydb_diagnostic_code::ErrorClass::Unsupported.wire_code(),
+        origin: icydb_diagnostic_code::ErrorOrigin::Executor.wire_code(),
+        facts: vec![
+            DiagnosticFactWire {
+                tag: DiagnosticFactTag::ActualCount.raw(),
+                value: 5_000,
+            },
+            DiagnosticFactWire {
+                tag: DiagnosticFactTag::Limit.raw(),
+                value: 4_096,
+            },
+        ],
+        query_field: None,
+    })
+    .unwrap();
+    let fact_error: Error = icydb_schema::wire::decode_one(&fact_bytes).unwrap();
+    let field_error = Error::from_diagnostic_facts_and_query_field(
+        Diagnostic::from_code(DiagnosticCode::QueryPlan),
+        Vec::new(),
+        Some((QueryFieldRole::OrderBy, "missing")),
+    );
+    assert_eq!(fact_error.facts().len(), 2);
+    assert!(field_error.query_field().is_some());
+    for error in [fact_error, field_error] {
+        let exhaustive: Result<(), ExhaustiveReadError> = (|| {
+            Err::<(), Error>(error.clone())?;
+            Ok(())
+        })();
+        let typed: Result<(), TypedExhaustiveQueryError> = (|| {
+            Err::<(), Error>(error.clone())?;
+            Ok(())
+        })();
+        let Err(ExhaustiveReadError::Database(exhaustive)) = exhaustive else {
+            panic!("ordinary database failures must retain their error family");
+        };
+        let Err(TypedExhaustiveQueryError::Operation(TypedOperationError::Database(typed))) = typed
+        else {
+            panic!("typed handlers must retain ordinary database failures");
+        };
+        let expected_wire = icydb_schema::wire::encode_one(&error).unwrap();
+        for actual in [exhaustive, typed] {
+            assert_eq!(actual, error);
+            assert_eq!(
+                icydb_schema::wire::encode_one(&actual).unwrap(),
+                expected_wire
+            );
+        }
+    }
+}

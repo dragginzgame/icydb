@@ -10,6 +10,7 @@ mod expression_contract;
 mod key;
 mod plan;
 pub(in crate::db) mod predicate;
+mod projection;
 mod range;
 mod readers;
 mod scan;
@@ -44,6 +45,9 @@ pub(in crate::db) use plan::{
 pub(in crate::db) use predicate::{
     IndexCompareOp, IndexCompilePolicy, IndexLiteral, IndexPredicateProgram, compile_index_program,
     compile_index_program_for_targets,
+};
+pub(in crate::db) use projection::{
+    decode_covering_projection_component, index_component_projection_supported,
 };
 pub(in crate::db) use range::{
     IndexRangeBoundEncodeError, TextPrefixBoundMode, admit_index_prefix_bounds,

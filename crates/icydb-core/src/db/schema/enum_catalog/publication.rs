@@ -764,8 +764,7 @@ impl CandidateSchemaRevision {
         encoded_bundle: Vec<u8>,
         encoded_root: Vec<u8>,
     ) -> Result<Self, InternalError> {
-        let root = decode_accepted_schema_root(&encoded_root)?;
-        let bundle = decode_verified_accepted_schema_revision_bundle(root, &encoded_bundle)?;
+        let (bundle, root) = Self::decode_contents(&encoded_bundle, &encoded_root)?;
         Ok(Self {
             store_path: bundle.store_path().to_string(),
             bundle,
@@ -773,6 +772,17 @@ impl CandidateSchemaRevision {
             root,
             encoded_root,
         })
+    }
+
+    /// Verify borrowed journal bytes without retaining copies of their encoding.
+    /// Both reconstruction and inspection use the same bounded recovery checks.
+    pub(in crate::db) fn decode_contents(
+        encoded_bundle: &[u8],
+        encoded_root: &[u8],
+    ) -> Result<(AcceptedSchemaRevisionBundle, AcceptedSchemaRoot), InternalError> {
+        let root = decode_accepted_schema_root(encoded_root)?;
+        let bundle = decode_verified_accepted_schema_revision_bundle(root, encoded_bundle)?;
+        Ok((bundle, root))
     }
 
     #[must_use]

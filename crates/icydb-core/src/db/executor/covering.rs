@@ -1,7 +1,7 @@
 //! Module: db::executor::covering
-//! Responsibility: shared covering-index decode helpers for executor fast paths.
-//! Does not own: index scan selection, terminal semantics, or aggregate orchestration.
-//! Boundary: executor lanes import covering component decode from this root instead of duplicating payload logic.
+//! Responsibility: covering-index scans and projection composition for executor fast paths.
+//! Does not own: component codecs, index scan selection, or terminal semantics.
+//! Boundary: executor lanes compose scans with the index-owned component decoder.
 
 use crate::{
     db::{
@@ -18,28 +18,20 @@ use crate::{
             index_stream_chunk_entries_for_remaining, index_stream_output_limit_for_chunk,
             route::IndexPrefixChildExpansionBudget,
         },
-        index::{
-            RawIndexStoreKey, decode_canonical_index_int64_component,
-            predicate::IndexPredicateExecution,
-        },
+        index::{RawIndexStoreKey, predicate::IndexPredicateExecution},
         predicate::MissingRowPolicy,
         query::plan::{CoveringExistingRowMode, CoveringProjectionOrder},
         registry::StoreHandle,
         resource::budget::{ExecutionConstructionBudget, charge_current_execution_budget},
     },
     error::InternalError,
-    types::{EntityTag, Ulid},
-    value::{Value, ValueTag},
+    types::EntityTag,
+    value::Value,
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
 use std::{mem::size_of, ops::Bound, sync::Arc};
 
-const COVERING_BOOL_PAYLOAD_LEN: usize = 1;
-const COVERING_U64_PAYLOAD_LEN: usize = 8;
-const COVERING_ULID_PAYLOAD_LEN: usize = 16;
-const COVERING_TEXT_ESCAPE_PREFIX: u8 = 0x00;
-const COVERING_TEXT_TERMINATOR: u8 = 0x00;
-const COVERING_TEXT_ESCAPED_ZERO: u8 = 0xFF;
+pub(in crate::db::executor) use crate::db::index::decode_covering_projection_component;
 
 type RawIndexBounds<'a> = (&'a Bound<RawIndexStoreKey>, &'a Bound<RawIndexStoreKey>);
 
@@ -1008,40 +1000,6 @@ where
     Ok(Some(accumulator))
 }
 
-// Decode one canonical covering-index component payload into one runtime
-// `Value`. Returning `Ok(None)` keeps unsupported component kinds fail-closed
-// at the caller boundary instead of guessing a lossy decode here.
-pub(in crate::db::executor) fn decode_covering_projection_component(
-    component: &[u8],
-) -> Result<Option<Value>, InternalError> {
-    let Some((&tag, payload)) = component.split_first() else {
-        return Err(InternalError::bytes_covering_component_payload_empty());
-    };
-
-    if tag == ValueTag::Bool.to_u8() {
-        return decode_covering_bool(payload);
-    }
-    if tag == ValueTag::Int64.to_u8() {
-        return decode_canonical_index_int64_component(component)
-            .map(Value::Int64)
-            .map(Some);
-    }
-    if tag == ValueTag::Nat64.to_u8() {
-        return decode_covering_u64(payload);
-    }
-    if tag == ValueTag::Text.to_u8() {
-        return decode_covering_text(payload);
-    }
-    if tag == ValueTag::Ulid.to_u8() {
-        return decode_covering_ulid(payload);
-    }
-    if tag == ValueTag::Unit.to_u8() {
-        return Ok(Some(Value::Unit));
-    }
-
-    Ok(None)
-}
-
 // Decode one ordered component vector into runtime values while keeping
 // unsupported component kinds fail-closed at the caller boundary.
 pub(in crate::db::executor) fn decode_covering_projection_components(
@@ -1147,95 +1105,6 @@ where
     )
 }
 
-fn decode_covering_bool(payload: &[u8]) -> Result<Option<Value>, InternalError> {
-    let Some(value) = payload.first() else {
-        return Err(InternalError::bytes_covering_bool_payload_truncated());
-    };
-    if payload.len() != COVERING_BOOL_PAYLOAD_LEN {
-        return Err(InternalError::bytes_covering_component_payload_invalid_length());
-    }
-
-    match *value {
-        0 => Ok(Some(Value::Bool(false))),
-        1 => Ok(Some(Value::Bool(true))),
-        _ => Err(InternalError::bytes_covering_bool_payload_invalid_value()),
-    }
-}
-
-fn decode_covering_u64(payload: &[u8]) -> Result<Option<Value>, InternalError> {
-    if payload.len() != COVERING_U64_PAYLOAD_LEN {
-        return Err(InternalError::bytes_covering_component_payload_invalid_length());
-    }
-
-    let mut bytes = [0u8; COVERING_U64_PAYLOAD_LEN];
-    bytes.copy_from_slice(payload);
-
-    Ok(Some(Value::Nat64(u64::from_be_bytes(bytes))))
-}
-
-fn decode_covering_text(payload: &[u8]) -> Result<Option<Value>, InternalError> {
-    // Fast-path the common ordered-text encoding shape: raw UTF-8 bytes with
-    // no embedded zeroes followed by the canonical `[0, 0]` terminator.
-    if payload.len() >= 2
-        && payload.ends_with(&[COVERING_TEXT_TERMINATOR, COVERING_TEXT_TERMINATOR])
-        && !payload[..payload.len().saturating_sub(2)].contains(&COVERING_TEXT_ESCAPE_PREFIX)
-    {
-        let text = String::from_utf8(payload[..payload.len().saturating_sub(2)].to_vec())
-            .map_err(|_| InternalError::bytes_covering_text_payload_invalid_utf8())?;
-
-        return Ok(Some(Value::Text(text)));
-    }
-
-    let mut bytes = Vec::new();
-    let mut i = 0usize;
-
-    while i < payload.len() {
-        let byte = payload[i];
-        if byte != COVERING_TEXT_ESCAPE_PREFIX {
-            bytes.push(byte);
-            i = i.saturating_add(1);
-            continue;
-        }
-
-        let Some(next) = payload.get(i.saturating_add(1)).copied() else {
-            return Err(InternalError::bytes_covering_text_payload_invalid_terminator());
-        };
-        match next {
-            COVERING_TEXT_TERMINATOR => {
-                i = i.saturating_add(2);
-                if i != payload.len() {
-                    return Err(InternalError::bytes_covering_text_payload_trailing_bytes());
-                }
-
-                let text = String::from_utf8(bytes)
-                    .map_err(|_| InternalError::bytes_covering_text_payload_invalid_utf8())?;
-
-                return Ok(Some(Value::Text(text)));
-            }
-            COVERING_TEXT_ESCAPED_ZERO => {
-                bytes.push(0);
-                i = i.saturating_add(2);
-            }
-            _ => {
-                return Err(InternalError::bytes_covering_text_payload_invalid_escape_byte());
-            }
-        }
-    }
-
-    Err(InternalError::bytes_covering_text_payload_missing_terminator())
-}
-
-fn decode_covering_ulid(payload: &[u8]) -> Result<Option<Value>, InternalError> {
-    if payload.len() != COVERING_ULID_PAYLOAD_LEN {
-        return Err(InternalError::bytes_covering_component_payload_invalid_length());
-    }
-
-    let mut bytes = [0u8; COVERING_ULID_PAYLOAD_LEN];
-    bytes.copy_from_slice(payload);
-
-    Ok(Some(Value::Ulid(Ulid::from_bytes(bytes))))
-}
-
 ///
 /// TESTS
 ///
@@ -1243,7 +1112,10 @@ fn decode_covering_ulid(payload: &[u8]) -> Result<Option<Value>, InternalError> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::{ErrorClass, ErrorOrigin};
+    use crate::{
+        error::{ErrorClass, ErrorOrigin},
+        value::ValueTag,
+    };
 
     #[test]
     fn decode_single_covering_projection_value_rejects_multiple_components() {
@@ -1257,24 +1129,5 @@ mod tests {
 
         assert_eq!(error.class(), ErrorClass::InvariantViolation);
         assert_eq!(error.origin(), ErrorOrigin::Query);
-    }
-
-    #[test]
-    fn decode_covering_projection_component_decodes_fast_path_text_payload() {
-        let component = [
-            ValueTag::Text.to_u8(),
-            b't',
-            b'e',
-            b'x',
-            b't',
-            COVERING_TEXT_TERMINATOR,
-            COVERING_TEXT_TERMINATOR,
-        ];
-
-        let decoded = decode_covering_projection_component(component.as_slice())
-            .expect("fast-path text payload should decode")
-            .expect("text payload should remain supported");
-
-        assert_eq!(decoded, Value::Text(String::from("text")));
     }
 }

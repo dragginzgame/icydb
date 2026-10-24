@@ -263,15 +263,18 @@ when HEAD is a newer descendant commit and the index, worktree and untracked
 source inventory are clean. The saved index tree must be empty, no preparation
 file set (`PLAN.files`, including symlinks) may exist, and the recorded branch,
 remote and exact push destination must still agree. Current canonical metadata
-must read either the saved previous version or the saved candidate. When it reads
-the candidate, a committed bump alone is insufficient: its local annotated tag
-must lie between the saved source and current HEAD, the exact tag object must
-match the saved destination, and the observed destination branch must contain
-that tagged commit. Missing or conflicting tags, failed remote observations and
-unavailable/divergent branch history stop before archiving the plan or running
-another gate. Keep the saved plan and reconcile the intended release; do not
-remove its evidence or invent a tag to bypass the refusal. This checks Git
-delivery, not registry publication.
+must read either the saved previous version or the saved candidate. A committed
+candidate becomes the base for the requested next increment even when its older
+Git delivery is incomplete. Missing local/remote tags, a missing destination
+branch or an older destination branch are not themselves conflicts. The runner
+observes Git delivery but never queries crates.io or requires GitHub Release
+objects; publication timing and registry index delays stay separate.
+
+An existing local candidate tag must still be annotated and lie between the
+saved source and current HEAD. If both local and remote tags exist, their exact
+objects must match. An observed destination branch must be a known ancestor of
+current HEAD. Conflicting tags, failed remote observations and unavailable or
+divergent branch history stop before archiving intent or starting another gate.
 
 The runner archives the original plan unchanged under
 `release-state/X.Y.Z.attempt.*/`, while holding the release lock, then reads the
@@ -280,16 +283,19 @@ preflight and the complete validation gate against current HEAD before saving
 another preparation intent. Earlier logs, receipts and build artifacts remain
 bound to their original attempt; adapters must preserve them on revalidation.
 The archived intent is superseded local preparation, not proof of successful
-release, delivery or publication.
+release, delivery or publication. The diagnostic names its archived path and
+labels the earlier delivery `unconfirmed` unless matching observed refs prove it.
+It does not create or push the older tag, change the old plan to `complete`, or
+reuse its old validation. All retained artifacts remain available to reconcile
+that earlier delivery independently.
 
 For example, after `0.6.3 -> 0.6.4` preparation fails and its metadata is committed,
-`make release-patch` refuses to select `0.6.5` while delivery of `0.6.4` is
-unconfirmed. It preserves the `0.6.4` plan and all earlier evidence. If `0.6.4`
-has separately been tagged and delivered with the identities above, the retry
-can archive that stale preparation, validate current source and prepare `0.6.5`.
-If committed metadata still reads `0.6.3`, it validates and prepares `0.6.4`
-instead. Patch, minor and major use this same admission; a different requested
-increment does not bypass the delivery check.
+`make release-patch` archives the unchanged `0.6.4` plan, validates current source
+and prepares `0.6.5`, even if no `v0.6.4` tag exists and GitHub still has `0.6.3`.
+It preserves all earlier evidence and makes no claim that `0.6.4` was delivered or
+published. If the new validation fails, metadata stays at `0.6.4`; retry still
+selects `0.6.5`. If committed metadata instead reads `0.6.3`, it validates and
+prepares `0.6.4`. Patch, minor and major use this same source admission.
 
 This boundary depends on the consumer adapter contract: preparation changes
 **local release metadata only**. It may retain local backups, journals and
@@ -307,6 +313,27 @@ locks still stop the command. Plans stopped at `stage` or later retain exact
 payload and effect reconciliation. PR delivery retains its review-branch,
 worktree and external-effect recovery; it does not use this direct-only restart.
 Ordinary agent repair does not authorize executing a real release or recovery.
+
+### Manually committed candidate without recorded delivery
+
+A saved direct `prepare` plan whose candidate metadata was committed manually
+differs from a runner-recorded release commit: it has no staged tree or file-set
+evidence. From a clean descendant commit, use the normal `release-patch`,
+`release-minor` or `release-major` target. It preserves that earlier plan under
+the reported `release-state/X.Y.Z.attempt.*/` path and validates the next version
+from current metadata. Do not delete the plan, invent staged-tree evidence or
+create an older tag to unblock the next release. `release-resume` still selects
+the exact saved attempt; it cannot adopt a manually committed candidate or newer
+HEAD as a runner-recorded release commit.
+
+If separately reconciling an earlier package publication, compare the selected
+archives' `.cargo_vcs_info.json` commits with retained publication evidence.
+Today's HEAD may contain later fixes. Qualify the intended older tag source and
+required receipts through the consumer's owning adapters before explicitly
+authorized delivery; never relabel old validation or overwrite a tag. A new
+release does not prove the old one completed and does not authorize another upload.
+Consumer preflight still owns its metadata/receipt reconciliation. Changelog
+presentation follows the tolerant finalizer independently of source identities.
 
 ### Consumer adapters
 
@@ -668,9 +695,10 @@ destination, completed phases and evidence. Uncommitted preparation remains boun
 to its saved source and kind at unchanged HEAD. A newer clean descendant commit
 can supersede direct `prepare` intent under
 [the restart contract](#source-changes-after-saved-preparation-intent), with current
-metadata selection and fresh complete validation. A committed candidate cannot
-be incremented again until its Git delivery is confirmed under that contract.
-After the release commit exists,
+metadata selection and fresh complete validation. An earlier manually committed
+candidate may advance without its old Git delivery being complete; the original
+plan remains archived with that uncertainty rather than being marked complete.
+After the runner-recorded release commit exists,
 newer commits are
 allowed only on its direct descendant history, with the exact staged tree, sole
 source parent and release subject still verified. A dirty tree, changed release
@@ -688,8 +716,8 @@ that release, then validates and prepares `0.265.1`. It never recreates the olde
 commit or tag. A failure in the new gate leaves the older release complete, keeps
 both attempts' evidence, and permits the normal target to retry the new attempt.
 
-Recovery checks the saved phase against actual local and remote state. It never
-increments the prepared version again, recreates a matching release commit,
+Recovery of an attempt being resumed checks its saved phase against actual local
+and remote state. It never increments that saved candidate, recreates a matching release commit,
 overwrites a tag or replays a push whose outcome cannot be established. A missing
 push reply does not prove failure: matching remote branch and tag identities
 complete that release without another push; a failed remote query stops it.
@@ -815,7 +843,8 @@ then capture its offline-admitted selection before running the helper:
 bash scripts/dev/install-rust-tools.sh --package ic-build --version 0.18.0 \
   --bin ic-build-release-metadata --profile debug || exit "$?"
 CARGO_RELEASE_METADATA_EDITOR="$(bash scripts/dev/install-rust-tools.sh \
-  --package ic-build --version 0.18.0 --bin ic-build-release-metadata --profile debug --check)" || exit "$?"
+  --package ic-build --version 0.18.0 --bin ic-build-release-metadata --profile debug \
+  --check --wait-seconds 30)" || exit "$?"
 export CARGO_RELEASE_METADATA_EDITOR
 export CARGO_RELEASE_METADATA_MAX_BYTES=8388608
 ```
@@ -825,6 +854,14 @@ own documents. Shared's Cargo adapter and saved-source context fixtures require
 these same explicit selections. Common tool setup does not install this optional
 release tool unless the consumer includes it in its local extensions. The
 published package requires Rust 1.91 or later.
+
+The explicit 30-second admission budget above is optional. Saved-source recovery
+must select the editor from that saved source's manifest/lock and feature policy,
+then preserve the installer's status: **75** means an admitted shared slot is busy
+or its bounded read-only wait timed out, not that installation is missing. Do not
+convert every failure into setup advice. Other invalid/missing inputs still fail;
+neither waiting nor retrying authorizes installation, metadata changes or a fresh
+validation gate. See [Cargo tool admission](local-setup.md#standard-cargo-tool-build-environment).
 
 Direct callers of the retired `render-cargo-workspace-version.pl` use the editor's
 `--max-input-bytes LIMIT manifest SOURCE PREVIOUS CANDIDATE [WORKSPACE_INPUT_JSON]`

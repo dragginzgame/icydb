@@ -5,10 +5,9 @@ use std::{
     ops::{Add, AddAssign, Sub, SubAssign},
 };
 
-use crate::TypeParseError;
+use crate::{Date, TypeParseError};
 
 use serde::{Deserialize, Deserializer, Serialize};
-use time::{Date as TimeDate, Month, PrimitiveDateTime, Time as TimeOfDay, UtcOffset};
 
 #[cfg(test)]
 mod tests;
@@ -345,8 +344,7 @@ impl Timestamp {
             return Err(TypeParseError::InvalidTimestamp);
         }
         let year = parse_i32(&bytes[0..4])?;
-        let month = Month::try_from(parse_u8(&bytes[5..7])?)
-            .map_err(|_| TypeParseError::InvalidTimestamp)?;
+        let month = parse_u8(&bytes[5..7])?;
         let day = parse_u8(&bytes[8..10])?;
         let hour = parse_u8(&bytes[11..13])?;
         let minute = parse_u8(&bytes[14..16])?;
@@ -367,23 +365,23 @@ impl Timestamp {
             0
         };
         let (sign, offset_hour, offset_minute) = parse_offset(&bytes[cursor..])?;
-        let date = TimeDate::from_calendar_date(year, month, day)
-            .map_err(|_| TypeParseError::InvalidTimestamp)?;
-        let time = TimeOfDay::from_hms_nano(hour, minute, second, nanoseconds)
-            .map_err(|_| TypeParseError::InvalidTimestamp)?;
-        let offset = UtcOffset::from_hms(
-            sign * i8::try_from(offset_hour).unwrap_or(i8::MAX),
-            sign * i8::try_from(offset_minute).unwrap_or(i8::MAX),
-            0,
-        )
-        .map_err(|_| TypeParseError::InvalidTimestamp)?;
-        let millis = PrimitiveDateTime::new(date, time)
-            .assume_offset(offset)
-            .unix_timestamp_nanos()
-            .div_euclid(1_000_000);
-        i64::try_from(millis)
-            .map(Self)
-            .map_err(|_| TypeParseError::InvalidTimestamp)
+        let date = Date::try_new(year, month, day).ok_or(TypeParseError::InvalidTimestamp)?;
+        if hour > 23 || minute > 59 || second > 59 || offset_hour > 23 || offset_minute > 59 {
+            return Err(TypeParseError::InvalidTimestamp);
+        }
+        // Four-digit calendar years and a sub-day offset fit comfortably in i64
+        // milliseconds. The fractional contribution is nonnegative, preserving
+        // floor semantics even for instants before the Unix epoch.
+        let local_seconds = i64::from(date.as_days_since_epoch()) * 86_400
+            + i64::from(hour) * 3_600
+            + i64::from(minute) * 60
+            + i64::from(second);
+        let offset_seconds =
+            i64::from(sign) * (i64::from(offset_hour) * 3_600 + i64::from(offset_minute) * 60);
+        Ok(Self(
+            (local_seconds - offset_seconds) * Self::MILLIS_PER_SEC
+                + i64::from(nanoseconds / 1_000_000),
+        ))
     }
 
     /// Parse integer milliseconds or strict RFC3339 text.

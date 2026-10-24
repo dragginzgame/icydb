@@ -132,7 +132,11 @@ fn set_relation_arg_once<T>(
 }
 
 impl Relation {
-    pub(crate) fn validate(&self, fields: &FieldList) -> Result<(), DarlingError> {
+    pub(crate) fn validate(
+        &self,
+        fields: &FieldList,
+        __paths: &CratePaths,
+    ) -> Result<(), DarlingError> {
         let mut local_component_cardinality = None;
         for field in &self.fields {
             let field_ident = relation_field_ident(field)?;
@@ -174,13 +178,14 @@ impl Relation {
 }
 
 impl HasSchemaPart for Relation {
-    fn schema_part(&self) -> TokenStream {
+    fn schema_part(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
         let name = quote_one(&self.name, to_str_lit);
-        let target = quote_one(&self.target, to_path);
+        let target = quote_one(&self.target, |value| to_path(value, paths));
         let fields = quote_slice(&self.fields, to_str_lit);
 
         quote! {
-            ::icydb_model::node::RelationEdge::new(#name, #target, #fields)
+            #model::node::RelationEdge::new(#name, #target, #fields)
         }
     }
 }
@@ -370,7 +375,7 @@ mod tests {
         };
 
         let err = relation
-            .validate(&fields)
+            .validate(&fields, &crate::crate_path::CratePaths::test())
             .expect_err("relation should reject missing local component field");
 
         assert!(
@@ -393,7 +398,7 @@ mod tests {
         };
 
         let err = relation
-            .validate(&fields)
+            .validate(&fields, &crate::crate_path::CratePaths::test())
             .expect_err("relation should reject mixed required/optional tuple components");
 
         assert!(
@@ -411,7 +416,9 @@ mod tests {
         )))
         .expect("relation should parse");
 
-        let tokens = relation.schema_part().to_string();
+        let tokens = relation
+            .schema_part(&crate::crate_path::CratePaths::test())
+            .to_string();
 
         assert!(
             tokens.contains("RelationEdge :: new"),

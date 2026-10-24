@@ -89,9 +89,12 @@ fn field_list(values: &[&str]) -> Vec<LitStr> {
 
 fn entity_with_fields_and_indexes(fields: Vec<Field>, indexes: Vec<Index>) -> Entity {
     Entity {
-        def: Def::new(syn::parse_quote!(
-            struct TestEntity;
-        )),
+        def: Def::new(
+            syn::parse_quote!(
+                struct TestEntity;
+            ),
+            crate::crate_path::CratePaths::test(),
+        ),
         store: syn::parse_quote!(UiDataStore),
         schema_version: 1,
         primary_key: PrimaryKey {
@@ -170,7 +173,9 @@ fn index_authoring_uses_the_shared_key_term_limit_and_canonical_slug() {
 fn scalar_primary_key_does_not_emit_generated_key_struct() {
     let entity = entity_with_fields_and_indexes(vec![scalar_field("id")], vec![]);
 
-    assert!(composite_primary_key_type_part(&entity).is_empty());
+    assert!(
+        composite_primary_key_type_part(&entity, &crate::crate_path::CratePaths::test()).is_empty()
+    );
 }
 
 #[test]
@@ -181,7 +186,8 @@ fn composite_primary_key_emits_deterministic_public_key_struct() {
     );
     entity.primary_key.fields = vec![format_ident!("tenant_id"), format_ident!("local_id")];
 
-    let tokens = composite_primary_key_type_part(&entity).to_string();
+    let tokens = composite_primary_key_type_part(&entity, &crate::crate_path::CratePaths::test())
+        .to_string();
 
     assert!(
         tokens.contains("pub struct TestEntityKey"),
@@ -205,7 +211,8 @@ fn composite_primary_key_struct_implements_key_contracts() {
     );
     entity.primary_key.fields = vec![format_ident!("tenant_id"), format_ident!("local_id")];
 
-    let tokens = composite_primary_key_type_part(&entity).to_string();
+    let tokens = composite_primary_key_type_part(&entity, &crate::crate_path::CratePaths::test())
+        .to_string();
 
     for expected in [
         "impl :: icydb :: __macro :: KeyValueCodec for TestEntityKey",
@@ -224,7 +231,9 @@ fn composite_primary_key_struct_implements_key_contracts() {
 fn runtime_entity_adapters_are_omitted_without_runtime_capability() {
     let entity = entity_with_fields_and_indexes(vec![scalar_field("id")], vec![]);
 
-    assert!(entity_typed_adapter_tokens(&entity).is_empty());
+    assert!(
+        entity_typed_adapter_tokens(&entity, &crate::crate_path::CratePaths::test()).is_empty()
+    );
 }
 
 #[test]
@@ -240,9 +249,13 @@ fn runtime_entity_references_include_source_fields_and_managed_timestamps() {
         vec![],
     );
 
-    let tokens =
-        runtime_schema_reference_tokens(&entity.def, &entity.fields, Some(&entity.def.ident()))
-            .to_string();
+    let tokens = runtime_schema_reference_tokens(
+        &entity.def,
+        &entity.fields,
+        Some(&entity.def.ident()),
+        &crate::crate_path::CratePaths::test(),
+    )
+    .to_string();
 
     for expected in [
         "impl :: icydb_model :: EntitySource for TestEntity",
@@ -283,7 +296,8 @@ fn typed_adapter_generation_separates_row_and_operation_shapes() {
     );
     entity.emit_runtime_adapters = true;
 
-    let tokens = entity_typed_adapter_tokens(&entity).to_string();
+    let tokens =
+        entity_typed_adapter_tokens(&entity, &crate::crate_path::CratePaths::test()).to_string();
     for expected in [
         "pub struct TestEntityInsert",
         "pub struct TestEntityPatch",
@@ -346,7 +360,8 @@ fn composite_typed_adapter_uses_the_generated_canonical_key() {
     entity.primary_key.fields = vec![format_ident!("tenant_id"), format_ident!("local_id")];
     entity.emit_runtime_adapters = true;
 
-    let tokens = entity_typed_adapter_tokens(&entity).to_string();
+    let tokens =
+        entity_typed_adapter_tokens(&entity, &crate::crate_path::CratePaths::test()).to_string();
 
     assert!(
         tokens.contains(
@@ -371,7 +386,8 @@ fn typed_identity_insert_omits_the_database_owned_primary_key() {
     );
     entity.emit_runtime_adapters = true;
 
-    let tokens = entity_typed_adapter_tokens(&entity).to_string();
+    let tokens =
+        entity_typed_adapter_tokens(&entity, &crate::crate_path::CratePaths::test()).to_string();
 
     assert!(
         !tokens.contains("pub id : :: icydb :: db :: WriteCell"),
@@ -836,12 +852,12 @@ fn timestamps_custom_names_use_ordinary_field_name_validation() {
         .get(&format_ident!("InsertedAt"))
         .expect("custom timestamp field should be present");
     inserted_at
-        .validate()
+        .validate(&crate::crate_path::CratePaths::test())
         .expect_err("custom timestamp name must satisfy field naming rules");
     let mut valid = inserted_at.clone();
     valid.name = format_ident!("inserted_at");
     valid
-        .validate()
+        .validate(&crate::crate_path::CratePaths::test())
         .expect("the same timestamp field should admit a snake_case name");
 }
 
@@ -936,7 +952,9 @@ fn schema_part_emits_relation_edge_metadata() {
         fields: field_list(&["author_tenant_id", "author_id"]),
     });
 
-    let tokens = entity.schema_part().to_string();
+    let tokens = entity
+        .schema_part(&crate::crate_path::CratePaths::test())
+        .to_string();
 
     assert!(
         tokens.contains("RelationEdge :: new"),
@@ -976,7 +994,7 @@ fn generated_integer_predicates_reject_lowering_failures_during_validation() {
                 vec![index],
             );
             entity.indexes[0]
-                .validated_generated_predicate(&entity)
+                .validated_generated_predicate(&entity, &crate::crate_path::CratePaths::test())
                 .expect_err("validation must reject any literal that cannot lower");
         }
     }
@@ -1008,10 +1026,14 @@ fn generated_numeric_predicates_preserve_successful_validation_and_lowering() {
             vec![index],
         );
         entity.indexes[0]
-            .validated_generated_predicate(&entity)
+            .validated_generated_predicate(&entity, &crate::crate_path::CratePaths::test())
             .expect("valid numeric literals must validate");
         entity.indexes[0]
-            .schema_part_for_entity(&entity, "TestEntity")
+            .schema_part_for_entity(
+                &entity,
+                "TestEntity",
+                &crate::crate_path::CratePaths::test(),
+            )
             .expect("validated numeric literals must lower");
     }
 }
@@ -1036,7 +1058,7 @@ fn generated_numeric_predicates_reject_nonfinite_and_unrepresentable_literals() 
             vec![index],
         );
         entity.indexes[0]
-            .validated_generated_predicate(&entity)
+            .validated_generated_predicate(&entity, &crate::crate_path::CratePaths::test())
             .expect_err("unrepresentable numeric literals must reject before token construction");
     }
 }

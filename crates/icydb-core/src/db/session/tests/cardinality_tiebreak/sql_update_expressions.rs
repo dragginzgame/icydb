@@ -129,6 +129,20 @@ fn sql_update_expressions_preserve_literals_null_default_and_authored_order() {
         projection_rows(&session, "SELECT qty FROM PlannerRow WHERE id = 2"),
         vec![vec![OutputValue::nat64(3)]]
     );
+
+    // Repeated fixed assignments must keep their positions around expressions,
+    // and the same prepared literals must remain usable for every selected row.
+    session.execute_trusted_sql_exact_update(
+        "UPDATE PlannerRow SET qty = 7, status = 'first', qty = qty + 1, status = DEFAULT, peer = status, qty = 11, status = 'last' WHERE id <= 2",
+        2,
+    ).unwrap();
+    assert_eq!(
+        projection_rows(
+            &session,
+            "SELECT qty, status FROM PlannerRow WHERE id <= 2 ORDER BY id"
+        ),
+        vec![vec![OutputValue::nat64(11), OutputValue::text("last".into())]; 2],
+    );
 }
 
 #[test]

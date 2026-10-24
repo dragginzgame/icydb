@@ -15,13 +15,27 @@ use crate::prelude::*;
 #[derive(Debug, Default)]
 pub struct Def {
     pub(crate) item: Option<ItemStruct>,
+    paths: Option<CratePaths>,
 }
 
 impl Def {
     /// Build one derive-side definition wrapper from the parsed item.
     #[must_use]
-    pub const fn new(item: ItemStruct) -> Self {
-        Self { item: Some(item) }
+    pub const fn new(item: ItemStruct, paths: CratePaths) -> Self {
+        Self {
+            item: Some(item),
+            paths: Some(paths),
+        }
+    }
+
+    /// Return the invocation paths attached before validation and emission.
+    ///
+    /// # Panics
+    /// Panics before parsed definition metadata has been attached.
+    pub(crate) const fn paths(&self) -> &CratePaths {
+        self.paths
+            .as_ref()
+            .expect("derive definition must include resolved crate paths")
     }
 
     /// Return the parsed item identifier.
@@ -39,12 +53,13 @@ impl Def {
 }
 
 impl HasSchemaPart for Def {
-    fn schema_part(&self) -> TokenStream {
+    fn schema_part(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
         let ident = quote_one(&self.ident(), to_str_lit);
 
         // quote
         quote! {
-            ::icydb_model::node::Def::new(module_path!(), #ident)
+            #model::node::Def::new(module_path!(), #ident)
         }
     }
 }

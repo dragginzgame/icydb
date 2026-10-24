@@ -113,13 +113,15 @@ tool_store_lock_directory() {
     return "$status"
 }
 
-# Explicit Cargo setup may wait for an admitted owner of this exact slot.
+# Cargo setup/admission may wait for an admitted owner of this exact slot.
+# Admission supplies busy status 75, including an immediate admitted-busy result
+# at limit zero. Setup retains its original zero-budget acquisition semantics.
 # Failed atomic acquisition is never retried: path existence cannot classify
 # mkdir's error, and another process may win after the observed owner releases.
 tool_store_wait_unlocked() {
-    local limit="$1" waited=0 started=$SECONDS owner previous='' claim=''
+    local limit="$1" busy_status="${2:-1}" waited=0 started=$SECONDS owner previous='' claim=''
     tool_store_waited=false
-    [[ "$limit" != 0 ]] || return 0
+    [[ "$limit" != 0 || "$busy_status" != 1 ]] || return 0
     while [[ -e "$store_slot/install.lock" || -L "$store_slot/install.lock" ]]; do
         tool_store_directory "$store_root" && tool_store_directory "$store_slot" || return 1
         # Existing owners may use their caller's umask inside the admitted slot.
@@ -166,13 +168,17 @@ tool_store_wait_unlocked() {
             printf '%s\n' "$owner" >&2
             return 1
         fi
-        if [[ "$owner" != "$previous" ]]; then
+        if [[ "$limit" != 0 && "$owner" != "$previous" ]]; then
             printf 'Waiting for tool installation slot: %q owner=%q (limit %ss)\n' "$store_slot" "$owner" "$limit" >&2
             previous="$owner"
         fi
         if [[ "$waited" -ge "$limit" ]]; then
-            printf 'Tool installation wait timed out after %ss: %q\n' "$((SECONDS - started))" "$store_slot" >&2
-            return 1
+            if [[ "$limit" == 0 ]]; then
+                printf 'tool store installation locked: %s/install.lock; retry after its owner finishes\n' "$store_slot" >&2
+            else
+                printf 'Tool installation wait timed out after %ss: %q\n' "$((SECONDS - started))" "$store_slot" >&2
+            fi
+            return "$busy_status"
         fi
         tool_store_waited=true
         sleep 1 || return $?

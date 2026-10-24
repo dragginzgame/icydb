@@ -146,12 +146,13 @@ fn reject_duplicate_primary_key_fields(fields: &[Ident]) -> Result<(), DarlingEr
 }
 
 impl HasSchemaPart for PrimaryKey {
-    fn schema_part(&self) -> TokenStream {
+    fn schema_part(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
         let fields = quote_slice(self.fields(), to_str_lit);
-        let source = self.source.schema_part();
+        let source = self.source.schema_part(paths);
 
         quote! {
-            ::icydb_model::node::PrimaryKey::new(#fields, #source)
+            #model::node::PrimaryKey::new(#fields, #source)
         }
     }
 }
@@ -196,10 +197,11 @@ pub enum PrimaryKeySource {
 }
 
 impl HasSchemaPart for PrimaryKeySource {
-    fn schema_part(&self) -> TokenStream {
+    fn schema_part(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
         match self {
-            Self::Internal => quote!(::icydb_model::node::PrimaryKeySource::Internal),
-            Self::External => quote!(::icydb_model::node::PrimaryKeySource::External),
+            Self::Internal => quote!(#model::node::PrimaryKeySource::Internal),
+            Self::External => quote!(#model::node::PrimaryKeySource::External),
         }
     }
 }

@@ -51,7 +51,7 @@
     "rule": "cargo-exact",
     "file": "Cargo.toml",
     "subject": "rusqlite",
-    "value": "=0.40.2",
+    "value": "=0.41.0",
     "reason": "Fix the bundled SQLite reference backend used as the SQL correctness oracle.",
     "evidence": "docs/governance/shared-tooling.md#dependency-selection"
   }

@@ -152,7 +152,7 @@ fn trusted_mutation_results_do_not_depend_on_cache_retention() {
 }
 
 #[test]
-fn sql_byte_eviction_is_fifo_and_bound_queries_do_not_retain_commands() {
+fn sql_byte_eviction_keeps_recent_hits_and_bound_queries_do_not_retain_commands() {
     let session = initialize();
     seed_singleton(&session);
     let statements = [
@@ -164,19 +164,32 @@ fn sql_byte_eviction_is_fifo_and_bound_queries_do_not_retain_commands() {
         .compile_sql_query_for_tests(statements[0])
         .unwrap();
     let required = session.sql_compiled_cache_usage_for_tests().1;
-    session.clear_sql_compiled_cache_for_tests(2 * required);
-    for index in [0, 1, 0, 2] {
-        new_request_session()
-            .compile_sql_query_for_tests(statements[index])
-            .unwrap();
-    }
-    assert_eq!(
-        session.sql_compiled_cache_usage_for_tests(),
-        (2, 2 * required)
-    );
-    assert!(!session.sql_compiled_cache_contains_for_tests(statements[0]));
-    for sql in &statements[1..] {
-        assert!(session.sql_compiled_cache_contains_for_tests(sql));
+    for retained_dispatch in [false, true] {
+        session.clear_sql_compiled_cache_for_tests(2 * required);
+        for index in [0, 1, 0, 2] {
+            let request = new_request_session();
+            if retained_dispatch {
+                let dispatch = sql_statement_dispatch(statements[index]).unwrap();
+                let (result, _) = request
+                    .execute_trusted_sql_query_with_entity_name(&dispatch, &[])
+                    .unwrap();
+                let SqlStatementResult::Projection { rows, .. } = result else {
+                    panic!("expected projection");
+                };
+                assert!(rows.is_empty());
+            } else {
+                request
+                    .compile_sql_query_for_tests(statements[index])
+                    .unwrap();
+            }
+        }
+        assert_eq!(
+            session.sql_compiled_cache_usage_for_tests(),
+            (2, 2 * required)
+        );
+        assert!(session.sql_compiled_cache_contains_for_tests(statements[0]));
+        assert!(!session.sql_compiled_cache_contains_for_tests(statements[1]));
+        assert!(session.sql_compiled_cache_contains_for_tests(statements[2]));
     }
     let usage = session.sql_compiled_cache_usage_for_tests();
     let dispatch = sql_statement_dispatch("SELECT label FROM Singleton WHERE label = ?").unwrap();
@@ -193,6 +206,37 @@ fn sql_byte_eviction_is_fifo_and_bound_queries_do_not_retain_commands() {
         assert_eq!(rows.len(), expected);
         assert_eq!(session.sql_compiled_cache_usage_for_tests(), usage);
     }
+}
+
+#[test]
+fn sql_mutation_cache_eviction_keeps_recent_hits() {
+    let session = initialize();
+    seed_singleton(&session);
+    let statements = [
+        "DELETE FROM Singleton WHERE label = 'a'",
+        "DELETE FROM Singleton WHERE label = 'b'",
+        "DELETE FROM Singleton WHERE label = 'c'",
+    ];
+    session.clear_sql_compiled_cache_for_tests(4 * 1024 * 1024);
+    let first = sql_statement_dispatch(statements[0]).unwrap();
+    new_request_session()
+        .compile_sql_mutation_with_execution_context(&first)
+        .unwrap();
+    let required = session.sql_compiled_cache_usage_for_tests().1;
+    session.clear_sql_compiled_cache_for_tests(2 * required);
+    for index in [0, 1, 0, 2] {
+        let dispatch = sql_statement_dispatch(statements[index]).unwrap();
+        new_request_session()
+            .compile_sql_mutation_with_execution_context(&dispatch)
+            .unwrap();
+    }
+    assert_eq!(
+        session.sql_compiled_cache_usage_for_tests(),
+        (2, 2 * required)
+    );
+    assert!(session.sql_compiled_cache_contains_for_tests(statements[0]));
+    assert!(!session.sql_compiled_cache_contains_for_tests(statements[1]));
+    assert!(session.sql_compiled_cache_contains_for_tests(statements[2]));
 }
 
 #[test]
@@ -236,5 +280,26 @@ fn sql_compilations_do_not_pin_prepared_residents_after_shared_cache_eviction() 
             .unwrap();
         assert_eq!(session.sql_compiled_cache_usage_for_tests(), sql_usage);
         assert_eq!(session.shared_query_cache_usage_for_tests(), (0, 0));
+    }
+}
+
+#[test]
+fn sql_replace_empty_search_preserves_cold_and_warm_results() {
+    let session = initialize();
+    seed_singleton(&session);
+    let sql = "SELECT REPLACE(label, '', '-'), REPLACE(label, '', NULL) FROM Singleton";
+    for label in ["singleton", "", "界é"] {
+        new_request_session()
+            .execute_trusted_sql_exact_update(
+                &format!("UPDATE Singleton SET label = '{label}' WHERE label IS NOT NULL"),
+                1,
+            )
+            .unwrap();
+        for _ in 0..2 {
+            assert_eq!(
+                projection_rows(sql),
+                vec![vec![OutputValue::text(label.into()), OutputValue::null()]]
+            );
+        }
     }
 }

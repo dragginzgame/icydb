@@ -1099,3 +1099,70 @@ fn grouped_terminal_display_keeps_sql_cells_and_cursor_bytes_opaque() {
     assert!(output.contains("0.000"));
     assert_eq!(result, SqlQueryResult::Grouped(grouped));
 }
+
+#[test]
+fn sql_metadata_lines_escape_controls_without_mutating_payloads() {
+    let unsafe_text = "x\n\r\t\x1b]52;c;x\x07\u{85}\u{202e}\u{2028}";
+    let cases = [
+        (
+            SqlQueryResult::Count {
+                entity: unsafe_text.into(),
+                row_count: 1,
+            },
+            1,
+        ),
+        (
+            SqlQueryResult::ShowIndexes {
+                entity: unsafe_text.into(),
+                indexes: vec![unsafe_text.into()],
+            },
+            2,
+        ),
+        (
+            SqlQueryResult::Ddl {
+                entity: unsafe_text.into(),
+                mutation_kind: unsafe_text.into(),
+                target_index: unsafe_text.into(),
+                target_store: unsafe_text.into(),
+                field_path: vec![unsafe_text.into()],
+                status: unsafe_text.into(),
+                rows_scanned: 0,
+                index_keys_written: 0,
+                constraint_validation: None,
+            },
+            1,
+        ),
+    ];
+    for (result, expected_lines) in cases {
+        let before = result.clone();
+        let lines = render_lines(&result);
+        assert_eq!(result, before);
+        assert_eq!(lines.len(), expected_lines);
+        for line in &lines {
+            assert!(!line.chars().any(char::is_control));
+            assert!(!line.contains(['\u{202e}', '\u{2028}']));
+            assert!(line.contains("x\\n\\r\\t"));
+            assert!(line.contains("\\u{1b}]52;c;x\\u{7}"));
+        }
+        assert_eq!(super::render_text(&result).lines().count(), expected_lines);
+    }
+}
+
+#[test]
+fn sql_explain_preserves_report_lines_and_escapes_terminal_controls() {
+    let result = SqlQueryResult::Explain {
+        entity: "Entry".into(),
+        explain: "plan:\n  scan 界 e\u{301} \\n\n  detail=\x1b[2J\u{202e}".into(),
+    };
+    let before = result.clone();
+    assert_eq!(
+        render_lines(&result),
+        [
+            "surface=explain",
+            "plan:",
+            "  scan 界 e\u{301} \\n",
+            "  detail=\\u{1b}[2J\\u{202e}",
+        ]
+    );
+    assert_eq!(result, before);
+}

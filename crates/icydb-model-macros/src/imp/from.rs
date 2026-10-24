@@ -18,12 +18,14 @@ pub struct FromTrait {}
 
 impl Imp<List> for FromTrait {
     fn strategy(node: &List) -> Option<TraitStrategy> {
-        let item = &node.item.type_expr();
+        let paths = node.def().paths();
+        let item = &node.item.type_expr(paths);
         Some(vec_collection_from_strategy(
             node.def(),
             item,
             quote!(entries.into_iter().map(Into::into).collect()),
             None,
+            paths,
         ))
     }
 }
@@ -34,9 +36,10 @@ impl Imp<List> for FromTrait {
 
 impl Imp<Map> for FromTrait {
     fn strategy(node: &Map) -> Option<TraitStrategy> {
-        let key = &node.key.type_expr();
-        let value = &node.value.type_expr();
-        Some(map_from_strategy(node.def(), key, value))
+        let paths = node.def().paths();
+        let key = &node.key.type_expr(paths);
+        let value = &node.value.type_expr(paths);
+        Some(map_from_strategy(node.def(), key, value, paths))
     }
 }
 
@@ -46,8 +49,9 @@ impl Imp<Map> for FromTrait {
 
 impl Imp<Newtype> for FromTrait {
     fn strategy(node: &Newtype) -> Option<TraitStrategy> {
-        let item = &node.item.type_expr();
-        Some(newtype_from_strategy(node.def(), item))
+        let paths = node.def().paths();
+        let item = &node.item.type_expr(paths);
+        Some(newtype_from_strategy(node.def(), item, paths))
     }
 }
 
@@ -57,12 +61,14 @@ impl Imp<Newtype> for FromTrait {
 
 impl Imp<Set> for FromTrait {
     fn strategy(node: &Set) -> Option<TraitStrategy> {
-        let item = &node.item.type_expr();
+        let paths = node.def().paths();
+        let item = &node.item.type_expr(paths);
         Some(vec_collection_from_strategy(
             node.def(),
             item,
             quote!(entries.into_iter().map(Into::into).collect()),
             Some(quote!(#item: ::std::cmp::Ord)),
+            paths,
         ))
     }
 }
@@ -72,6 +78,7 @@ fn vec_collection_from_strategy(
     item: &TokenStream,
     body: TokenStream,
     extra_constraint: Option<TokenStream>,
+    paths: &CratePaths,
 ) -> TraitStrategy {
     let mut implementor = Implementor::new(def, TraitKind::From)
         .set_tokens(vec_collection_from_tokens(body))
@@ -83,7 +90,7 @@ fn vec_collection_from_strategy(
         implementor = implementor.add_impl_constraint(extra_constraint);
     }
 
-    TraitStrategy::from_impl(implementor.to_token_stream())
+    TraitStrategy::from_impl(implementor.impl_tokens(paths))
 }
 
 fn vec_collection_from_tokens(body: TokenStream) -> TokenStream {
@@ -94,7 +101,12 @@ fn vec_collection_from_tokens(body: TokenStream) -> TokenStream {
     }
 }
 
-fn map_from_strategy(def: &Def, key: &TokenStream, value: &TokenStream) -> TraitStrategy {
+fn map_from_strategy(
+    def: &Def,
+    key: &TokenStream,
+    value: &TokenStream,
+    paths: &CratePaths,
+) -> TraitStrategy {
     let tokens = Implementor::new(def, TraitKind::From)
         .set_tokens(quote! {
             fn from(entries: Vec<(IK, IV)>) -> Self {
@@ -112,12 +124,12 @@ fn map_from_strategy(def: &Def, key: &TokenStream, value: &TokenStream) -> Trait
         .add_impl_generic(quote!(IK))
         .add_impl_generic(quote!(IV))
         .add_trait_generic(quote!(Vec<(IK, IV)>))
-        .to_token_stream();
+        .impl_tokens(paths);
 
     TraitStrategy::from_impl(tokens)
 }
 
-fn newtype_from_strategy(def: &Def, item: &TokenStream) -> TraitStrategy {
+fn newtype_from_strategy(def: &Def, item: &TokenStream, paths: &CratePaths) -> TraitStrategy {
     let tokens = Implementor::new(def, TraitKind::From)
         .set_tokens(quote! {
             fn from(t: T) -> Self {
@@ -127,7 +139,7 @@ fn newtype_from_strategy(def: &Def, item: &TokenStream) -> TraitStrategy {
         .add_impl_constraint(quote!(T: Into<#item>))
         .add_impl_generic(quote!(T))
         .add_trait_generic(quote!(T))
-        .to_token_stream();
+        .impl_tokens(paths);
 
     TraitStrategy::from_impl(tokens)
 }

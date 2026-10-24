@@ -19,12 +19,16 @@ pub(crate) struct Constraint {
 
 impl Constraint {
     /// Parse and validate the generated check against declared entity fields.
-    pub(crate) fn validated_predicate(&self, entity: &Entity) -> Result<Predicate, DarlingError> {
+    pub(crate) fn validated_predicate(
+        &self,
+        entity: &Entity,
+        paths: &CratePaths,
+    ) -> Result<Predicate, DarlingError> {
         validate_constraint_name(self.name.value().as_str())
             .map_err(|error| error.with_span(&self.name))?;
         let predicate = predicate::parse(self.check.value().as_str())
             .map_err(|error| error.with_span(&self.check))?;
-        validate_predicate_fields(entity, &predicate, true)
+        validate_predicate_fields(entity, &predicate, true, paths)
             .map_err(|error| error.with_span(&self.check))?;
 
         Ok(predicate)
@@ -33,15 +37,17 @@ impl Constraint {
     pub(crate) fn schema_part_for_entity(
         &self,
         entity: &Entity,
+        paths: &CratePaths,
     ) -> Result<TokenStream, DarlingError> {
+        let model = &paths.model;
         let name = &self.name;
         let check = &self.check;
-        let predicate = self.validated_predicate(entity)?;
+        let predicate = self.validated_predicate(entity, paths)?;
         let expression =
-            crate::node::index::predicate_source_expression_tokens(&predicate, entity)?;
+            crate::node::index::predicate_source_expression_tokens(&predicate, entity, paths)?;
 
         Ok(quote! {
-            ::icydb_model::node::CheckConstraint::new(
+            #model::node::CheckConstraint::new(
                 #name,
                 #check,
                 |_schema| #expression,
@@ -51,7 +57,7 @@ impl Constraint {
 }
 
 impl HasSchemaPart for Constraint {
-    fn schema_part(&self) -> TokenStream {
+    fn schema_part(&self, __paths: &CratePaths) -> TokenStream {
         TokenStream::new()
     }
 }

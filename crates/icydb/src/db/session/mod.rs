@@ -58,6 +58,12 @@ impl fmt::Display for ExhaustiveReadError {
 
 impl StdError for ExhaustiveReadError {}
 
+impl From<crate::Error> for ExhaustiveReadError {
+    fn from(error: crate::Error) -> Self {
+        Self::Database(error)
+    }
+}
+
 impl From<core::db::ExhaustiveReadError> for ExhaustiveReadError {
     fn from(error: core::db::ExhaustiveReadError) -> Self {
         match error {

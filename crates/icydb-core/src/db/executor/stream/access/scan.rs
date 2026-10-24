@@ -242,9 +242,9 @@ pub(in crate::db::executor) struct IndexScan;
 /// IndexDecodedKeyScanChunk
 ///
 /// Executor-owned result of one bounded raw-index chunk.
-/// It carries decoded data-store keys plus the last raw index key visited so
-/// callers can resume later chunks without holding an index-store iterator
-/// borrow.
+/// It carries decoded data-store keys plus a raw anchor only when the chunk
+/// stops at a visit/output limit. No anchor means the physical range was
+/// exhausted, even when this chunk emitted keys.
 ///
 
 pub(in crate::db::executor) struct IndexDecodedKeyScanChunk {
@@ -253,7 +253,7 @@ pub(in crate::db::executor) struct IndexDecodedKeyScanChunk {
 }
 
 impl IndexDecodedKeyScanChunk {
-    /// Construct one chunk from decoded keys and the last scanned raw index key.
+    /// Construct one chunk from decoded keys and an optional resume anchor.
     #[must_use]
     const fn new(keys: Vec<DecodedDataStoreKey>, last_raw_key: Option<RawIndexStoreKey>) -> Self {
         Self { keys, last_raw_key }
@@ -272,9 +272,9 @@ impl IndexDecodedKeyScanChunk {
 /// IndexComponentScanChunk
 ///
 /// Executor-owned result of one bounded raw-index component chunk.
-/// It carries decoded covering component rows plus the last raw index key
-/// visited so callers can resume without keeping an index-store iterator
-/// borrow live across pulls.
+/// It carries decoded covering component rows plus a raw anchor only when
+/// the chunk stops at a visit/output limit. No anchor means the physical
+/// range was exhausted, even when this chunk emitted rows.
 ///
 
 pub(in crate::db::executor) struct IndexComponentScanChunk {
@@ -283,7 +283,7 @@ pub(in crate::db::executor) struct IndexComponentScanChunk {
 }
 
 impl IndexComponentScanChunk {
-    /// Construct one chunk from decoded rows and the last scanned raw index key.
+    /// Construct one chunk from decoded rows and an optional resume anchor.
     #[must_use]
     const fn new(rows: IndexComponentRows, last_raw_key: Option<RawIndexStoreKey>) -> Self {
         Self { rows, last_raw_key }
@@ -851,21 +851,24 @@ impl IndexScan {
                 continuation.direction(),
                 |raw_key, value| {
                     Self::accept_scan_key(&continuation, raw_key)?;
-                    last_raw_key = Some(raw_key.clone());
                     scanned_entries = scanned_entries.saturating_add(1);
 
-                    if Self::decode_index_entry_and_push(
+                    let output_full = Self::decode_index_entry_and_push(
                         entity_tag,
                         raw_key,
                         value,
                         &mut keys,
                         output_limit,
                         None,
-                    )? {
-                        return Ok::<_, InternalError>(true);
+                    )?;
+                    let stop = output_full || scanned_entries == max_entries;
+                    if stop {
+                        // Only a bounded stop needs an owned resume anchor.
+                        // Natural range exhaustion needs no next chunk.
+                        last_raw_key = Some(raw_key.clone());
                     }
 
-                    Ok(scanned_entries == max_entries)
+                    Ok::<_, InternalError>(stop)
                 },
             )
         })?;
@@ -904,10 +907,9 @@ impl IndexScan {
                 continuation.direction(),
                 |raw_key, value| {
                     Self::accept_scan_key(&continuation, raw_key)?;
-                    last_raw_key = Some(raw_key.clone());
                     scanned_entries = scanned_entries.saturating_add(1);
 
-                    if Self::decode_index_entry_and_push_with_components(
+                    let output_full = Self::decode_index_entry_and_push_with_components(
                         entity_tag,
                         raw_key,
                         value,
@@ -915,11 +917,15 @@ impl IndexScan {
                         output_limit,
                         component_indices,
                         predicate_execution,
-                    )? {
-                        return Ok::<_, InternalError>(true);
+                    )?;
+                    let stop = output_full || scanned_entries == max_entries;
+                    if stop {
+                        // Only a bounded stop needs an owned resume anchor.
+                        // Natural range exhaustion needs no next chunk.
+                        last_raw_key = Some(raw_key.clone());
                     }
 
-                    Ok(scanned_entries == max_entries)
+                    Ok::<_, InternalError>(stop)
                 },
             )
         })?;

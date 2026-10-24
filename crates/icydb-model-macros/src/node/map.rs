@@ -83,16 +83,17 @@ impl HasSchema for Map {
 }
 
 impl HasSchemaPart for Map {
-    fn schema_part(&self) -> TokenStream {
-        let def = self.def.schema_part();
+    fn schema_part(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
+        let def = self.def.schema_part(paths);
         let name = self.current_name_literal(self.name.as_ref());
-        let key = self.key.schema_part();
-        let value = self.value.schema_part();
-        let ty = self.ty.schema_part();
+        let key = self.key.schema_part(paths);
+        let value = self.value.schema_part(paths);
+        let ty = self.ty.schema_part(paths);
 
         // quote
         quote! {
-            ::icydb_model::node::Map::new(#def, #name, #key, #value, #ty)
+            #model::node::Map::new(#def, #name, #key, #value, #ty)
         }
     }
 }
@@ -100,10 +101,10 @@ impl HasSchemaPart for Map {
 impl_collection_has_traits!(Map, Map);
 
 impl HasType for Map {
-    fn type_part(&self) -> TokenStream {
+    fn type_part(&self, paths: &CratePaths) -> TokenStream {
         let ident = self.def.ident();
-        let key = &self.key.type_expr();
-        let value = &self.value.type_expr();
+        let key = &self.key.type_expr(paths);
+        let value = &self.value.type_expr(paths);
 
         quote! {
             #[repr(transparent)]
@@ -112,14 +113,16 @@ impl HasType for Map {
     }
 }
 
-impl ToTokens for Map {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        let base = self.all_tokens();
-        let typed_adapter = crate::node::typed_adapter::map_adapter_tokens(self);
+impl Map {
+    pub(crate) fn generate_tokens(&self, paths: &CratePaths) -> TokenStream {
+        let mut tokens = TokenStream::new();
+        let base = self.all_tokens(paths);
+        let typed_adapter = crate::node::typed_adapter::map_adapter_tokens(self, paths);
         tokens.extend(quote! {
             #base
             #typed_adapter
         });
+        tokens
     }
 }
 
@@ -130,9 +133,12 @@ mod tests {
 
     fn map_node() -> Map {
         Map {
-            def: Def::new(syn::parse_quote!(
-                struct TestMap;
-            )),
+            def: Def::new(
+                syn::parse_quote!(
+                    struct TestMap;
+                ),
+                crate::crate_path::CratePaths::test(),
+            ),
             name: None,
             key: Item {
                 primitive: Some(Primitive::Text),

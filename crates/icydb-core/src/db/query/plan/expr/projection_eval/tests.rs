@@ -397,3 +397,58 @@ fn u256_arithmetic_rejects_implicit_mixed_width_coercion() {
 
     assert_projection_reason(err, QueryProjectionCode::BinaryOperandsIncompatible);
 }
+
+#[test]
+fn replace_empty_search_and_nulls_agree_in_preview_and_execution() {
+    let text = |value: &str| Value::Text(value.to_owned());
+    for (input, from, to, expected) in [
+        (text("bob"), text(""), text("-"), text("bob")),
+        (text(""), text(""), text("-"), text("")),
+        (text("界e\u{301}"), text(""), text("界"), text("界e\u{301}")),
+        (text("aaaa"), text("aa"), text("x"), text("xx")),
+        (text("bob"), text("o"), text(""), text("bb")),
+        (Value::Null, text(""), text("-"), Value::Null),
+        (text("bob"), Value::Null, text("-"), Value::Null),
+        (text("bob"), text(""), Value::Null, Value::Null),
+    ] {
+        let arguments = vec![input.clone(), from.clone(), to.clone()];
+        assert_eq!(
+            eval_projection_function_call(Function::Replace, &arguments).unwrap(),
+            expected
+        );
+        for literal_input in [false, true] {
+            let first = if literal_input {
+                Expr::Literal(input.clone())
+            } else {
+                Expr::Field(FieldId::from("label"))
+            };
+            let compiled_first = if literal_input {
+                CompiledExpr::Literal(input.clone())
+            } else {
+                CompiledExpr::Slot { slot: 0 }
+            };
+            assert_preview_matches_compiled(
+                &Expr::FunctionCall {
+                    function: Function::Replace,
+                    args: vec![
+                        first,
+                        Expr::Literal(from.clone()),
+                        Expr::Literal(to.clone()),
+                    ],
+                },
+                &CompiledExpr::FunctionCall {
+                    function: Function::Replace,
+                    args: vec![
+                        compiled_first,
+                        CompiledExpr::Literal(from.clone()),
+                        CompiledExpr::Literal(to.clone()),
+                    ]
+                    .into_boxed_slice(),
+                },
+                "label",
+                input.clone(),
+                expected.clone(),
+            );
+        }
+    }
+}

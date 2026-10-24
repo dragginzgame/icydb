@@ -164,20 +164,27 @@ fn upgrade_with_wasm(fixture: &StandaloneCanisterFixture, wasm: Vec<u8>) {
         .expect("lifecycle participant upgrade should succeed");
 }
 
+// Extent assertions need the reported byte count, not a download of the image.
+fn stable_memory_bytes(fixture: &StandaloneCanisterFixture) -> u64 {
+    fixture
+        .pocket_ic()
+        .canister_status(fixture.canister_id(), None)
+        .expect("lifecycle canister status should be available")
+        .memory_metrics
+        .stable_memory_size
+        .0
+        .try_into()
+        .expect("stable memory byte count must fit u64")
+}
+
 fn upgrade_preserving_stable_extent(
     fixture: &StandaloneCanisterFixture,
     upgrade: impl FnOnce(),
     context: &str,
-) -> usize {
-    let before = fixture
-        .pocket_ic()
-        .get_stable_memory(fixture.canister_id())
-        .len();
+) -> u64 {
+    let before = stable_memory_bytes(fixture);
     upgrade();
-    let after = fixture
-        .pocket_ic()
-        .get_stable_memory(fixture.canister_id())
-        .len();
+    let after = stable_memory_bytes(fixture);
     assert_eq!(after, before, "{context}");
     before
 }
@@ -312,10 +319,7 @@ fn trapped_post_upgrade_rolls_back_participation_and_allows_a_clean_retry() {
         "lifecycle_participant",
         production_build_options(),
     );
-    let stable_bytes_before = fixture
-        .pocket_ic()
-        .get_stable_memory(fixture.canister_id())
-        .len();
+    let stable_bytes_before = stable_memory_bytes(&fixture);
 
     let trap_args = icydb::wire::encode_post_upgrade_arguments((Some(true),))
         .expect("trapping lifecycle upgrade args should encode");
@@ -327,10 +331,7 @@ fn trapped_post_upgrade_rolls_back_participation_and_allows_a_clean_retry() {
         "the rollback probe must fail from its lifecycle trap, not install-code throttling",
     );
     assert_eq!(
-        fixture
-            .pocket_ic()
-            .get_stable_memory(fixture.canister_id())
-            .len(),
+        stable_memory_bytes(&fixture),
         stable_bytes_before,
         "a trapped lifecycle message must roll back stable-state changes",
     );
@@ -342,10 +343,7 @@ fn trapped_post_upgrade_rolls_back_participation_and_allows_a_clean_retry() {
 
     upgrade_with_wasm(&fixture, production_wasm);
     assert_eq!(
-        fixture
-            .pocket_ic()
-            .get_stable_memory(fixture.canister_id())
-            .len(),
+        stable_memory_bytes(&fixture),
         stable_bytes_before,
         "a clean retry must preserve the stable-memory extent",
     );

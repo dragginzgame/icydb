@@ -24,8 +24,8 @@ mod types;
 mod validate;
 
 use crate::{
-    crate_path::{CratePathOverrides, rewrite_generated_paths},
-    node::{Def, ValidateNode},
+    crate_path::CratePathOverrides,
+    node::{Def, HasDef, ValidateNode},
 };
 use darling::{Error as DarlingError, FromMeta, ast::NestedMeta};
 use quote::quote;
@@ -86,6 +86,7 @@ pub fn derive_deref_mut(input: proc_macro::TokenStream) -> proc_macro::TokenStre
 mod prelude {
     pub use crate::authoring_types::{Cardinality, Primitive};
     pub use crate::{
+        crate_path::CratePaths,
         r#gen::{Imp, Implementor},
         helper::{quote_one, quote_option, quote_slice, to_path, to_str_lit},
         node::*,
@@ -111,7 +112,7 @@ mod prelude {
 ///
 
 macro_rules! macro_node {
-    ($fn_name:ident, $node_type:ty, $gen_type:path $(, $configure:expr)?) => {
+    ($fn_name:ident, $node_type:ty $(, $configure:expr)?) => {
         #[proc_macro_attribute]
         pub fn $fn_name(
             args: proc_macro::TokenStream,
@@ -138,7 +139,11 @@ macro_rules! macro_node {
                         Ok(node) => node,
                         Err(err) => return proc_macro::TokenStream::from(err.write_errors()),
                     };
-                    node.def = Def::new(item);
+                    let paths = match crate_paths.resolve() {
+                        Ok(paths) => paths,
+                        Err(err) => return err.write_errors().into(),
+                    };
+                    node.def = Def::new(item, paths);
                     $(($configure)(&mut node, CratePathOverrides::has_icydb_runtime());)?
                     if let Err(err) = node.validate() {
                         return proc_macro::TokenStream::from(err.write_errors());
@@ -155,12 +160,8 @@ macro_rules! macro_node {
                         return tokens.into();
                     }
 
-                    // instantiate the generator
-                    let generator = $gen_type(&node);
-                    let q = match rewrite_generated_paths(quote!(#generator), &crate_paths) {
-                        Ok(tokens) => tokens,
-                        Err(err) => return err.write_errors().into(),
-                    };
+                    // Emit only framework-owned references through the resolved paths.
+                    let q = node.generate_tokens(node.def().paths());
 
                     if debug {
                         quote! { compile_error!(stringify! { #q }); }
@@ -175,122 +176,113 @@ macro_rules! macro_node {
     };
 }
 
-macro_node!(canister, node::Canister, r#gen::CanisterGen);
+macro_node!(canister, node::Canister);
 macro_node!(
     entity,
     node::Entity,
-    r#gen::EntityGen,
     |entity: &mut node::Entity, has_runtime| entity.emit_runtime_adapters = has_runtime
 );
-macro_node!(enum_, node::Enum, r#gen::EnumGen);
-macro_node!(list, node::List, r#gen::ListGen);
-macro_node!(map, node::Map, r#gen::MapGen);
-macro_node!(newtype, node::Newtype, r#gen::NewtypeGen);
+macro_node!(enum_, node::Enum);
+macro_node!(list, node::List);
+macro_node!(map, node::Map);
+macro_node!(newtype, node::Newtype);
 macro_node!(
     record,
     node::Record,
-    r#gen::RecordGen,
     |record: &mut node::Record, has_runtime| record.emit_runtime_references = has_runtime
 );
-macro_node!(normalizer, node::Normalizer, r#gen::NormalizerGen);
-macro_node!(set, node::Set, r#gen::SetGen);
-macro_node!(store, node::Store, r#gen::StoreGen);
-macro_node!(tuple, node::Tuple, r#gen::TupleGen);
-macro_node!(validator, node::Validator, r#gen::ValidatorGen);
+macro_node!(normalizer, node::Normalizer);
+macro_node!(set, node::Set);
+macro_node!(store, node::Store);
+macro_node!(tuple, node::Tuple);
+macro_node!(validator, node::Validator);
 
 /// Derive addition for one-field application wrappers.
 #[proc_macro_derive(Add)]
 pub fn derive_add(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    finish_helper_derive(helper_ops::derive_add(input.into()))
+    helper_ops::derive_add(input.into()).into()
 }
 
 /// Derive additive assignment for one-field application wrappers.
 #[proc_macro_derive(AddAssign)]
 pub fn derive_add_assign(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    finish_helper_derive(helper_ops::derive_add_assign(input.into()))
+    helper_ops::derive_add_assign(input.into()).into()
 }
 
 /// Derive subtraction for one-field application wrappers.
 #[proc_macro_derive(Sub)]
 pub fn derive_sub(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    finish_helper_derive(helper_ops::derive_sub(input.into()))
+    helper_ops::derive_sub(input.into()).into()
 }
 
 /// Derive subtractive assignment for one-field application wrappers.
 #[proc_macro_derive(SubAssign)]
 pub fn derive_sub_assign(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    finish_helper_derive(helper_ops::derive_sub_assign(input.into()))
+    helper_ops::derive_sub_assign(input.into()).into()
 }
 
 /// Derive multiplication for one-field application wrappers.
 #[proc_macro_derive(Mul)]
 pub fn derive_mul(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    finish_helper_derive(helper_ops::derive_mul(input.into()))
+    helper_ops::derive_mul(input.into()).into()
 }
 
 /// Derive multiplicative assignment for one-field application wrappers.
 #[proc_macro_derive(MulAssign)]
 pub fn derive_mul_assign(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    finish_helper_derive(helper_ops::derive_mul_assign(input.into()))
+    helper_ops::derive_mul_assign(input.into()).into()
 }
 
 /// Derive division for one-field application wrappers.
 #[proc_macro_derive(Div)]
 pub fn derive_div(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    finish_helper_derive(helper_ops::derive_div(input.into()))
+    helper_ops::derive_div(input.into()).into()
 }
 
 /// Derive divisive assignment for one-field application wrappers.
 #[proc_macro_derive(DivAssign)]
 pub fn derive_div_assign(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    finish_helper_derive(helper_ops::derive_div_assign(input.into()))
+    helper_ops::derive_div_assign(input.into()).into()
 }
 
 /// Derive remainder for one-field application wrappers.
 #[proc_macro_derive(Rem)]
 pub fn derive_rem(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    finish_helper_derive(helper_ops::derive_rem(input.into()))
+    helper_ops::derive_rem(input.into()).into()
 }
 
 /// Derive remainder assignment for one-field application wrappers.
 #[proc_macro_derive(RemAssign)]
 pub fn derive_rem_assign(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    finish_helper_derive(helper_ops::derive_rem_assign(input.into()))
+    helper_ops::derive_rem_assign(input.into()).into()
 }
 
 /// Derive negation for one-field application wrappers.
 #[proc_macro_derive(Neg)]
 pub fn derive_neg(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    finish_helper_derive(helper_ops::derive_neg(input.into()))
+    helper_ops::derive_neg(input.into()).into()
 }
 
 /// Derive iterator multiplication for one-field application wrappers.
 #[proc_macro_derive(Product)]
 pub fn derive_product(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    finish_helper_derive(helper_ops::derive_product(input.into()))
+    helper_ops::derive_product(input.into()).into()
 }
 
 /// Derive iterator summation for one-field application wrappers.
 #[proc_macro_derive(Sum)]
 pub fn derive_sum(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    finish_helper_derive(helper_ops::derive_sum(input.into()))
+    helper_ops::derive_sum(input.into()).into()
 }
 
 /// Derive display forwarding for one-field application wrappers.
 #[proc_macro_derive(Display)]
 pub fn derive_display(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    finish_helper_derive(helper_display::derive_display(input.into()))
+    helper_display::derive_display(input.into()).into()
 }
 
 /// Derive borrowed and consuming inner access for one-field wrappers.
 #[proc_macro_derive(Inner)]
 pub fn derive_inner(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    finish_helper_derive(helper_inner::derive_inner(input.into()))
-}
-
-fn finish_helper_derive(tokens: proc_macro2::TokenStream) -> proc_macro::TokenStream {
-    match rewrite_generated_paths(tokens, &CratePathOverrides::default()) {
-        Ok(tokens) => tokens.into(),
-        Err(err) => err.write_errors().into(),
-    }
+    helper_inner::derive_inner(input.into()).into()
 }

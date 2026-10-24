@@ -9,6 +9,7 @@
 use crate::db::{
     access::{AccessPathKind, AccessPlan, SemanticIndexAccessContract, SemanticIndexKeyItemRef},
     direction::Direction,
+    index::index_component_projection_supported,
     predicate::IndexPredicateCapability,
     query::plan::{
         AccessPlannedQuery, DeterministicSecondaryIndexOrderMatch,
@@ -891,6 +892,15 @@ fn covering_projection_fields_from_projection(
             &mut *resolve_field_slot,
         )?;
         let source = covering_projection_field_source(projection_field, source_context)?;
+        // Component payload recovery must be admitted before any index scan.
+        // Constants and primary keys bypass this codec and remain coverable.
+        if matches!(source, CoveringReadFieldSource::IndexComponent { .. })
+            && !field_slot
+                .accepted_kind()
+                .is_some_and(index_component_projection_supported)
+        {
+            return None;
+        }
         projection_fields.push(CoveringReadField { field_slot, source });
     }
 

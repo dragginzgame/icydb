@@ -145,17 +145,22 @@ impl Item {
 }
 
 impl HasSchemaPart for Item {
-    fn schema_part(&self) -> TokenStream {
-        let target = self.target().schema_part();
-        let relation = quote_option(self.relation.as_ref(), to_path);
+    fn schema_part(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
+        let target = self.target().schema_part(paths);
+        let relation = quote_option(self.relation.as_ref(), |value| to_path(value, paths));
         let scale = quote_option(self.scale.as_ref(), |scale| quote!(#scale));
         let max_len = quote_option(self.max_len.as_ref(), |max_len| quote!(#max_len));
-        let validators = quote_slice(&self.validators, TypeValidator::schema_part);
-        let normalizers = quote_slice(&self.normalizers, TypeNormalizer::schema_part);
+        let validators = quote_slice(&self.validators, |value| {
+            TypeValidator::schema_part(value, paths)
+        });
+        let normalizers = quote_slice(&self.normalizers, |value| {
+            TypeNormalizer::schema_part(value, paths)
+        });
         let indirect = self.indirect;
 
         quote! {
-            ::icydb_model::node::Item::new(
+            #model::node::Item::new(
                 #target,
                 #relation,
                 #scale,
@@ -169,8 +174,8 @@ impl HasSchemaPart for Item {
 }
 
 impl HasTypeExpr for Item {
-    fn type_expr(&self) -> TokenStream {
-        let ty = self.target().type_expr();
+    fn type_expr(&self, paths: &CratePaths) -> TokenStream {
+        let ty = self.target().type_expr(paths);
 
         if self.indirect {
             quote!(Box<#ty>)
@@ -190,17 +195,19 @@ pub enum ItemTarget {
 }
 
 impl HasSchemaPart for ItemTarget {
-    fn schema_part(&self) -> TokenStream {
+    fn schema_part(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
         match self {
             Self::Is(path) => {
-                let path = quote_one(path, to_path);
+                let path = quote_one(path, |value| to_path(value, paths));
                 quote! {
-                    ::icydb_model::node::ItemTarget::Is(#path)
+                    #model::node::ItemTarget::Is(#path)
                 }
             }
             Self::Primitive(prim) => {
+                let prim = prim.generated_tokens(paths);
                 quote! {
-                    ::icydb_model::node::ItemTarget::Primitive(#prim)
+                    #model::node::ItemTarget::Primitive(#prim)
                 }
             }
         }
@@ -208,11 +215,11 @@ impl HasSchemaPart for ItemTarget {
 }
 
 impl HasTypeExpr for ItemTarget {
-    fn type_expr(&self) -> TokenStream {
+    fn type_expr(&self, paths: &CratePaths) -> TokenStream {
         match self {
             Self::Is(path) => quote!(#path),
             Self::Primitive(prim) => {
-                let ty = crate::types::primitive_type_tokens(*prim);
+                let ty = crate::types::primitive_type_tokens(*prim, paths);
                 quote!(#ty)
             }
         }

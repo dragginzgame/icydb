@@ -425,7 +425,7 @@ Consumer choices described in those guides remain subject to this baseline.
   source with fresh preflight and complete validation; retain earlier evidence.
   Persist exact release intent before preparation may begin, then reconcile an
   interrupted release automatically when a normal target is rerun, at its saved
-  version and commit. In direct delivery, if that release is committed and HEAD
+  version and commit. In direct delivery, if its runner-recorded release commit exists and HEAD
   has newer fixes or a different increment is requested, reconcile it first,
   then run fresh preflight and complete validation for the requested increment
   from the actual local version. PR delivery finishes only the saved release; an open PR returns
@@ -436,7 +436,11 @@ Consumer choices described in those guides remain subject to this baseline.
   computing another increment. A newer clean descendant commit can supersede
   direct preparation before staging: archive its local-metadata-only intent,
   select the requested increment from current metadata, and repeat preflight and
-  complete validation. Stop for identity, payload, destination or concurrency conflicts.
+  complete validation. A manually committed candidate can be that base even when
+  earlier tags or Git delivery are missing; preserve its original plan and
+  uncertainty without marking it complete or replaying its effects. Registry
+  publication and Git delivery need not agree. Stop for actual source/ref,
+  payload, destination or concurrency conflicts.
   Do not force-push, overwrite tags, silently bump again or add implicit package
   publication, deployment or post-release cleanup.
 

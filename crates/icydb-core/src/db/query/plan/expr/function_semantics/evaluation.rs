@@ -205,7 +205,13 @@ impl Function {
     ) -> Value {
         debug_assert!(matches!(self, Self::Replace));
 
-        Value::Text(text.replace(from, to))
+        // SQL treats an empty search as no match; Rust's replace would insert
+        // the replacement at every character boundary instead.
+        Value::Text(if from.is_empty() {
+            text.to_owned()
+        } else {
+            text.replace(from, to)
+        })
     }
 
     /// Evaluate one admitted SUBSTRING call after the caller has already

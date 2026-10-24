@@ -2,7 +2,7 @@ use crate::prelude::*;
 use darling::FromMeta;
 use icydb_schema::ScalarKind;
 use proc_macro2::TokenStream;
-use quote::{ToTokens, format_ident, quote};
+use quote::{format_ident, quote};
 use std::str::FromStr;
 
 //
@@ -42,11 +42,15 @@ impl FromMeta for Cardinality {
     }
 }
 
-impl ToTokens for Cardinality {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
+impl Cardinality {
+    pub(crate) fn generated_tokens(self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
+        let mut tokens = TokenStream::new();
         let ident = format_ident!("{self:?}");
 
-        tokens.extend(quote!(::icydb_model::types::Cardinality::#ident));
+        tokens.extend(quote!(#model::types::Cardinality::#ident));
+
+        tokens
     }
 }
 
@@ -137,11 +141,15 @@ impl FromMeta for Primitive {
     }
 }
 
-impl ToTokens for Primitive {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
+impl Primitive {
+    pub(crate) fn generated_tokens(self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
+        let mut tokens = TokenStream::new();
         let ident = format_ident!("{self:?}");
 
-        tokens.extend(quote!(::icydb_model::types::Primitive::#ident));
+        tokens.extend(quote!(#model::types::Primitive::#ident));
+
+        tokens
     }
 }
 

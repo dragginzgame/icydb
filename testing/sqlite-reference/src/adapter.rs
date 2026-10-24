@@ -485,7 +485,6 @@ fn execute_query(
     }
     let columns = statement
         .column_names()
-        .into_iter()
         .map(ToOwned::to_owned)
         .collect::<Vec<_>>();
     let mut query = statement.query([]).map_err(|source| {

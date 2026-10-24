@@ -35,12 +35,12 @@ fn relation_fields_require_canonical_identity_suffixes() {
     relation.value.item.relation = Some(parse_quote!(User));
 
     relation
-        .validate()
+        .validate(&crate::crate_path::CratePaths::test())
         .expect_err("one relation without the identity suffix must reject");
 
     relation.name = format_ident!("user_id");
     relation
-        .validate()
+        .validate(&crate::crate_path::CratePaths::test())
         .expect("canonical relation identity suffix should validate");
 }
 
@@ -51,7 +51,7 @@ fn rust_default_matching_is_application_only() {
 
     assert!(text.default_matches_implicit_default());
     assert_eq!(
-        text.rust_default_expr()
+        text.rust_default_expr(&crate::crate_path::CratePaths::test())
             .expect("default should exist")
             .to_string(),
         quote!(String::new().into()).to_string(),
@@ -66,12 +66,12 @@ fn authored_enum_defaults_preserve_type_and_variant_names() {
     status.default = Some(Arg::ConstPath(parse_quote!(Status::Active)));
 
     status
-        .validate()
+        .validate(&crate::crate_path::CratePaths::test())
         .expect("matching unit-enum default should validate");
 
     status.default = Some(Arg::ConstPath(parse_quote!(OtherStatus::Active)));
     status
-        .validate()
+        .validate(&crate::crate_path::CratePaths::test())
         .expect_err("a default from another enum must reject");
 }
 
@@ -81,12 +81,12 @@ fn generated_ulid_is_schema_owned_and_shape_checked() {
     id.generated = Some(FieldGeneration::Insert(Arg::FuncPath(parse_quote!(
         Ulid::generate
     ))));
-    id.validate()
+    id.validate(&crate::crate_path::CratePaths::test())
         .expect("the admitted Ulid generator should validate");
 
     id.value.item.primitive = Some(Primitive::Nat64);
     id.value.item.unbounded = false;
-    id.validate()
+    id.validate(&crate::crate_path::CratePaths::test())
         .expect_err("a generator on the wrong primitive must reject");
 }
 
@@ -104,11 +104,11 @@ fn generated_identity_accepts_every_exact_unsigned_width() {
             Identity::next
         ))));
 
-        id.validate()
+        id.validate(&crate::crate_path::CratePaths::test())
             .expect("exact unsigned identity generator should validate");
         assert!(id.is_identity_generated());
         assert_eq!(
-            id.rust_default_expr()
+            id.rust_default_expr(&crate::crate_path::CratePaths::test())
                 .expect("identity should have a Rust placeholder")
                 .to_string(),
             quote!(Default::default()).to_string(),
@@ -123,10 +123,10 @@ fn generated_identity_rejects_other_primitive_kinds() {
         Identity::next
     ))));
 
-    id.validate()
+    id.validate(&crate::crate_path::CratePaths::test())
         .expect_err("signed identity generation must reject");
     id.value.item.primitive = Some(Primitive::Nat64);
-    id.validate()
+    id.validate(&crate::crate_path::CratePaths::test())
         .expect("the same generator should admit an unsigned identity");
 }
 
@@ -151,10 +151,10 @@ fn identity_like_defaults_require_explicit_persisted_literals() {
     let mut id = field("id", Primitive::Ulid);
     id.default = Some(Arg::FuncPath(parse_quote!(Ulid::default)));
 
-    id.validate()
+    id.validate(&crate::crate_path::CratePaths::test())
         .expect_err("identity-like implicit defaults must reject");
     id.default = None;
-    id.validate()
+    id.validate(&crate::crate_path::CratePaths::test())
         .expect("the same identity field should admit without an implicit default");
 }
 
@@ -167,11 +167,11 @@ fn managed_fields_do_not_accept_insert_generators() {
     ))));
 
     created_at
-        .validate()
+        .validate(&crate::crate_path::CratePaths::test())
         .expect_err("managed and generated ownership must not overlap");
     created_at.generated = None;
     created_at
-        .validate()
+        .validate(&crate::crate_path::CratePaths::test())
         .expect("a managed field without a competing generator should validate");
 }
 
@@ -186,7 +186,7 @@ fn identity_defaults_reject_invalid_text_during_field_validation() {
         let mut field = field("identity", primitive);
         field.default = Some(Arg::String(parse_quote!("zz")));
         field
-            .validate()
+            .validate(&crate::crate_path::CratePaths::test())
             .expect_err("malformed identity text must reject before Rust Default generation");
     }
 }
@@ -200,8 +200,14 @@ fn subaccount_default_lowering_is_fallible_for_unicode_hex() {
         &text,
         proc_macro2::Span::call_site(),
     )));
-    assert!(field.rust_default_expr().is_none());
-    field.validate().expect_err("Unicode is not Subaccount hex");
+    assert!(
+        field
+            .rust_default_expr(&crate::crate_path::CratePaths::test())
+            .is_none()
+    );
+    field
+        .validate(&crate::crate_path::CratePaths::test())
+        .expect_err("Unicode is not Subaccount hex");
 }
 
 #[test]
@@ -221,10 +227,10 @@ fn identity_defaults_share_validation_and_panic_free_construction() {
             proc_macro2::Span::call_site(),
         )));
         field
-            .validate()
+            .validate(&crate::crate_path::CratePaths::test())
             .expect("valid identity literals must validate");
         let expression = field
-            .rust_default_expr()
+            .rust_default_expr(&crate::crate_path::CratePaths::test())
             .expect("valid literals construct defaults");
         syn::parse2::<syn::Expr>(expression).expect("construction must be valid Rust");
     }
@@ -242,8 +248,12 @@ fn identity_defaults_share_validation_and_panic_free_construction() {
             proc_macro2::Span::call_site(),
         )));
         field
-            .validate()
+            .validate(&crate::crate_path::CratePaths::test())
             .expect_err("invalid Subaccount literals must reject");
-        assert!(field.rust_default_expr().is_none());
+        assert!(
+            field
+                .rust_default_expr(&crate::crate_path::CratePaths::test())
+                .is_none()
+        );
     }
 }

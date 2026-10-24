@@ -47,10 +47,11 @@ impl FieldWalkBinding {
 
     /// Emit one field path-segment token for visitor issue reporting.
     #[must_use]
-    pub fn path_segment(&self) -> TokenStream {
+    pub fn path_segment(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
         let name = &self.name;
 
-        quote!(::icydb_model::visitor::PathSegment::Field(#name))
+        quote!(#model::visitor::PathSegment::Field(#name))
     }
 
     /// Return the stable field name string used by visitor traversal.

@@ -1,4 +1,4 @@
-//! Hybrid projection declines unsupported index decoding without losing rows.
+//! Covering admission agrees with index-component decoding before traversal.
 
 use super::*;
 use crate::{
@@ -7,6 +7,7 @@ use crate::{
         predicate::Predicate,
         query::plan::{
             CoveringReadFieldSource, covering_hybrid_projection_execution_plan_with_schema_info,
+            covering_read_execution_plan_with_schema_info,
         },
         schema::{
             AcceptedCompositeCatalog, AcceptedEnumCatalog, AcceptedSourceBindingCatalog,
@@ -105,25 +106,31 @@ fn assert_component_projection(
     input: InputValue,
     expected: OutputValue,
     enums: AcceptedEnumCatalog,
+    component_decodable: bool,
 ) {
     let ordered = !matches!(kind, AcceptedFieldKind::Enum { .. });
     initialize_component_schema(kind, enums);
     let session = new_request_session(&RequestExecutionRoot::__new_runtime_root());
     seed_component_rows(&session, &input);
-    assert_hybrid_admission(
+    assert_covering_admission(
         &session,
         Predicate::eq("category".into(), Value::Nat64(3)),
         false,
+        component_decodable
+            .then_some(CoveringReadFieldSource::IndexComponent { component_index: 1 }),
     );
     if ordered {
-        assert_hybrid_admission(
+        assert_covering_admission(
             &session,
             Predicate::gte("category".into(), Value::Nat64(3)),
             true,
+            component_decodable
+                .then_some(CoveringReadFieldSource::IndexComponent { component_index: 1 }),
         );
     }
 
     for _ in 0..2 {
+        assert_component_routes(&session, component_decodable, &expected);
         for (suffix, ids) in [
             ("", vec![1, 2]),
             ("ORDER BY id ASC", vec![1, 2]),
@@ -178,8 +185,6 @@ fn assert_component_projection(
                         .collect::<Vec<_>>()
                 );
             }
-        }
-        if ordered {
             // Equality-bound operands come from the accepted predicate constant,
             // so even unsupported decoder tags can remain on hybrid execution.
             // SQL parameter coercion excludes enums; their accepted projection
@@ -199,6 +204,16 @@ fn assert_component_projection(
                 (1..=2)
                     .map(|id| vec![expected.clone(), OutputValue::text(format!("row-{id}"))])
                     .collect::<Vec<_>>()
+            );
+            let value = input.clone().try_into_runtime_non_enum().unwrap();
+            assert_covering_admission(
+                &session,
+                Predicate::And(vec![
+                    Predicate::eq("category".into(), Value::Nat64(3)),
+                    Predicate::eq("operand".into(), value.clone()),
+                ]),
+                false,
+                Some(CoveringReadFieldSource::Constant(value)),
             );
         }
     }
@@ -226,52 +241,112 @@ fn seed_component_rows<C: CanisterKind>(session: &DbSession<C>, input: &InputVal
     }
 }
 
-fn assert_hybrid_admission<C: CanisterKind>(
+fn assert_covering_admission<C: CanisterKind>(
     session: &DbSession<C>,
     predicate: Predicate,
     range: bool,
+    expected_source: Option<CoveringReadFieldSource>,
 ) {
-    // Prove this is the admitted hybrid route: operand comes from the index,
-    // while label requires the row. A scalar-only plan would mask the defect.
+    let component_decodable = expected_source.is_some();
     let catalog = session
         .accepted_schema_catalog_context_for_entity_name(Some(ENTITY_NAME))
         .unwrap();
-    let query = StructuralQuery::new(MissingRowPolicy::Ignore)
-        .filter_normalized_predicate(predicate)
-        .select_fields(["operand", "label"])
-        .order_spec(OrderSpec {
-            fields: vec![asc("id").lower()],
-        });
-    let (prepared, _) = session
-        .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
-            catalog.accepted_entity_authority(),
-            &catalog,
-            &query,
-            DiagnosticExecutionLane::TrustedRead,
-        )
-        .unwrap();
+    for projection in [vec!["operand"], vec!["operand", "label"]] {
+        let mixed = projection.len() > 1;
+        let query = StructuralQuery::new(MissingRowPolicy::Ignore)
+            .filter_normalized_predicate(predicate.clone())
+            .select_fields(projection)
+            .order_spec(OrderSpec {
+                fields: vec![asc("id").lower()],
+            });
+        for _ in 0..2 {
+            let (prepared, _) = session
+                .cached_shared_query_plan_for_accepted_authority_with_catalog_and_reuse(
+                    catalog.accepted_entity_authority(),
+                    &catalog,
+                    &query,
+                    DiagnosticExecutionLane::TrustedRead,
+                )
+                .unwrap();
+            assert_eq!(
+                prepared
+                    .logical_plan()
+                    .access
+                    .as_index_range_path()
+                    .is_some(),
+                range
+            );
+            let pure = covering_read_execution_plan_with_schema_info(
+                catalog.accepted_schema_info(),
+                prepared.logical_plan(),
+                true,
+            );
+            let hybrid = covering_hybrid_projection_execution_plan_with_schema_info(
+                catalog.accepted_schema_info(),
+                prepared.logical_plan(),
+                true,
+            );
+            assert_eq!(pure.is_some(), component_decodable && !mixed);
+            assert_eq!(hybrid.is_some(), component_decodable && mixed);
+            if let Some(pure) = pure {
+                assert_eq!(Some(&pure.fields[0].source), expected_source.as_ref());
+            }
+            if let Some(hybrid) = hybrid {
+                assert_eq!(Some(&hybrid.fields[0].source), expected_source.as_ref());
+                assert!(matches!(
+                    hybrid.fields[1].source,
+                    CoveringReadFieldSource::RowField
+                ));
+            }
+        }
+    }
+}
+
+// Covering diagnostics and pure projection share the same accepted fixture,
+// including the warm plan, without changing the separate row-result matrix.
+fn assert_component_routes<C: CanisterKind>(
+    session: &DbSession<C>,
+    component_decodable: bool,
+    expected: &OutputValue,
+) {
+    for projection in ["operand", "operand, label"] {
+        let expected_kind = if !component_decodable {
+            "materialized"
+        } else if projection == "operand" {
+            "pure_covering"
+        } else {
+            "hybrid_covering"
+        };
+        assert_explain_kind(
+            session,
+            &format!("SELECT {projection} FROM PlannerRow WHERE category = 3 ORDER BY id"),
+            expected_kind,
+        );
+    }
     assert_eq!(
-        prepared
-            .logical_plan()
-            .access
-            .as_index_range_path()
-            .is_some(),
-        range
+        projection_rows(
+            session,
+            "SELECT operand FROM PlannerRow WHERE category = 3 ORDER BY id"
+        ),
+        vec![vec![expected.clone()], vec![expected.clone()]],
     );
-    let hybrid = covering_hybrid_projection_execution_plan_with_schema_info(
-        catalog.accepted_schema_info(),
-        prepared.logical_plan(),
-        true,
-    )
-    .unwrap();
-    assert!(matches!(
-        hybrid.fields[0].source,
-        CoveringReadFieldSource::IndexComponent { .. }
-    ));
-    assert!(matches!(
-        hybrid.fields[1].source,
-        CoveringReadFieldSource::RowField
-    ));
+}
+
+// Read the maintained verbose route property, independent of the logical
+// planner assertions, so execution EXPLAIN cannot advertise a discarded route.
+fn assert_explain_kind<C: CanisterKind>(session: &DbSession<C>, sql: &str, expected: &str) {
+    let explain_sql = format!("EXPLAIN EXECUTION VERBOSE {sql}");
+    let SqlStatementResult::Explain(explain) =
+        session.execute_trusted_sql_query(&explain_sql).unwrap()
+    else {
+        panic!("execution explain payload required");
+    };
+    assert!(
+        explain
+            .lines()
+            .any(|line| line.contains("diag.r.covering_kind") && line.contains(expected)),
+        "{explain}"
+    );
 }
 
 fn projection_rows<C: CanisterKind>(session: &DbSession<C>, sql: &str) -> Vec<Vec<OutputValue>> {
@@ -285,7 +360,7 @@ fn projection_rows<C: CanisterKind>(session: &DbSession<C>, sql: &str) -> Vec<Ve
 }
 
 macro_rules! component_case {
-    ($name:ident, $kind:expr, $value:expr) => {
+    ($name:ident, $kind:expr, $value:expr, $decodable:literal) => {
         #[test]
         fn $name() {
             let value = $value;
@@ -294,6 +369,7 @@ macro_rules! component_case {
                 InputValue::from(value.clone()),
                 OutputValue::from(value),
                 empty_accepted_enum_catalog_for_tests(),
+                $decodable,
             );
         }
     };
@@ -302,46 +378,69 @@ macro_rules! component_case {
 component_case!(
     hybrid_decimal,
     AcceptedFieldKind::Decimal { scale: 2 },
-    Value::Decimal(Decimal::new(1250, 2))
+    Value::Decimal(Decimal::new(1250, 2)),
+    false
 );
 component_case!(
     hybrid_timestamp,
     AcceptedFieldKind::Timestamp,
-    Value::Timestamp(Timestamp::from_millis(-42))
+    Value::Timestamp(Timestamp::from_millis(-42)),
+    false
 );
 component_case!(
     hybrid_date,
     AcceptedFieldKind::Date,
-    Value::Date(Date::EPOCH)
+    Value::Date(Date::EPOCH),
+    false
 );
 component_case!(
     hybrid_duration,
     AcceptedFieldKind::Duration,
-    Value::Duration(Duration::from_millis(5))
+    Value::Duration(Duration::from_millis(5)),
+    false
 );
 component_case!(
     hybrid_float32,
     AcceptedFieldKind::Float32,
-    Value::Float32(Float32::try_new(1.25).unwrap())
+    Value::Float32(Float32::try_new(1.25).unwrap()),
+    false
 );
 component_case!(
     hybrid_float64,
     AcceptedFieldKind::Float64,
-    Value::Float64(Float64::try_new(1.25).unwrap())
+    Value::Float64(Float64::try_new(1.25).unwrap()),
+    false
 );
-component_case!(hybrid_int128, AcceptedFieldKind::Int128, Value::Int128(-42));
-component_case!(hybrid_nat128, AcceptedFieldKind::Nat128, Value::Nat128(42));
+component_case!(
+    hybrid_int128,
+    AcceptedFieldKind::Int128,
+    Value::Int128(-42),
+    false
+);
+component_case!(
+    hybrid_nat128,
+    AcceptedFieldKind::Nat128,
+    Value::Nat128(42),
+    false
+);
 
-component_case!(hybrid_u256, AcceptedFieldKind::U256, Value::U256(U256::MAX));
+component_case!(
+    hybrid_u256,
+    AcceptedFieldKind::U256,
+    Value::U256(U256::MAX),
+    false
+);
 component_case!(
     hybrid_principal,
     AcceptedFieldKind::Principal,
-    Value::Principal(Principal::anonymous())
+    Value::Principal(Principal::anonymous()),
+    false
 );
 component_case!(
     hybrid_subaccount,
     AcceptedFieldKind::Subaccount,
-    Value::Subaccount(Subaccount::from_array([9; 32]))
+    Value::Subaccount(Subaccount::from_array([9; 32])),
+    false
 );
 component_case!(
     hybrid_account,
@@ -349,22 +448,40 @@ component_case!(
     Value::Account(Account::from_owner_and_subaccount(
         Principal::anonymous(),
         Some(Subaccount::from_array([9; 32]))
-    ))
+    )),
+    false
 );
-component_case!(hybrid_bool, AcceptedFieldKind::Bool, Value::Bool(true));
-component_case!(hybrid_int64, AcceptedFieldKind::Int64, Value::Int64(-42));
-component_case!(hybrid_nat64, AcceptedFieldKind::Nat64, Value::Nat64(42));
+component_case!(
+    hybrid_bool,
+    AcceptedFieldKind::Bool,
+    Value::Bool(true),
+    true
+);
+component_case!(
+    hybrid_int64,
+    AcceptedFieldKind::Int64,
+    Value::Int64(-42),
+    true
+);
+component_case!(
+    hybrid_nat64,
+    AcceptedFieldKind::Nat64,
+    Value::Nat64(42),
+    true
+);
 component_case!(
     hybrid_text,
     AcceptedFieldKind::Text { max_len: None },
-    Value::Text("sample".into())
+    Value::Text("sample".into()),
+    true
 );
 component_case!(
     hybrid_ulid,
     AcceptedFieldKind::Ulid,
-    Value::Ulid(Ulid::from_u128(7))
+    Value::Ulid(Ulid::from_u128(7)),
+    true
 );
-component_case!(hybrid_unit, AcceptedFieldKind::Unit, Value::Unit);
+component_case!(hybrid_unit, AcceptedFieldKind::Unit, Value::Unit, true);
 
 #[test]
 fn hybrid_unit_enum() {
@@ -388,5 +505,6 @@ fn hybrid_unit_enum() {
             Some(ENUM_PATH),
         ))),
         enums,
+        false,
     );
 }

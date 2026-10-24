@@ -39,7 +39,8 @@ impl TraitStrategy {
     }
 }
 
-pub(crate) fn primitive_type_tokens(primitive: Primitive) -> TokenStream {
+pub(crate) fn primitive_type_tokens(primitive: Primitive, paths: &CratePaths) -> TokenStream {
+    let model = &paths.model;
     match primitive {
         Primitive::Bool => quote!(bool),
         Primitive::Int8 => quote!(i8),
@@ -55,7 +56,7 @@ pub(crate) fn primitive_type_tokens(primitive: Primitive) -> TokenStream {
         Primitive::Text => quote!(::std::string::String),
         _ => {
             let ident = format_ident!("{primitive:?}");
-            quote!(::icydb_model::schema::#ident)
+            quote!(#model::schema::#ident)
         }
     }
 }

@@ -292,57 +292,58 @@ impl TraitKind {
     /// be used by other types (PartialEq for instance)
     #[must_use]
     #[remain::check]
-    pub(crate) fn derive_path(self) -> Option<TokenStream> {
+    pub(crate) fn derive_path(self, paths: &CratePaths) -> Option<TokenStream> {
+        let model = &paths.model;
         #[remain::sorted]
         match self {
-            Self::Add => Some(quote!(::icydb_model::__reexports::icydb_model_macros::Add)),
+            Self::Add => Some(quote!(#model::__reexports::icydb_model_macros::Add)),
             Self::AddAssign => Some(quote!(
-                ::icydb_model::__reexports::icydb_model_macros::AddAssign
+                #model::__reexports::icydb_model_macros::AddAssign
             )),
             Self::Clone => Some(quote!(Clone)),
             Self::Copy => Some(quote!(Copy)),
             Self::Debug => Some(quote!(Debug)),
             Self::Default => Some(quote!(Default)),
             Self::Deref => Some(quote!(
-                ::icydb_model::__reexports::icydb_model_macros::Deref
+                #model::__reexports::icydb_model_macros::Deref
             )),
             Self::DerefMut => Some(quote!(
-                ::icydb_model::__reexports::icydb_model_macros::DerefMut
+                #model::__reexports::icydb_model_macros::DerefMut
             )),
-            Self::Deserialize => Some(quote!(::icydb_model::__reexports::serde::Deserialize)),
+            Self::Deserialize => Some(quote!(#model::__reexports::serde::Deserialize)),
             Self::Display => Some(quote!(
-                ::icydb_model::__reexports::icydb_model_macros::Display
+                #model::__reexports::icydb_model_macros::Display
             )),
-            Self::Div => Some(quote!(::icydb_model::__reexports::icydb_model_macros::Div)),
+            Self::Div => Some(quote!(#model::__reexports::icydb_model_macros::Div)),
             Self::DivAssign => Some(quote!(
-                ::icydb_model::__reexports::icydb_model_macros::DivAssign
+                #model::__reexports::icydb_model_macros::DivAssign
             )),
             Self::Eq => Some(quote!(Eq)),
             Self::Hash => Some(quote!(Hash)),
             Self::Inner => Some(quote!(
-                ::icydb_model::__reexports::icydb_model_macros::Inner
+                #model::__reexports::icydb_model_macros::Inner
             )),
-            Self::Mul => Some(quote!(::icydb_model::__reexports::icydb_model_macros::Mul)),
+            Self::Mul => Some(quote!(#model::__reexports::icydb_model_macros::Mul)),
             Self::MulAssign => Some(quote!(
-                ::icydb_model::__reexports::icydb_model_macros::MulAssign
+                #model::__reexports::icydb_model_macros::MulAssign
             )),
-            Self::Neg => Some(quote!(::icydb_model::__reexports::icydb_model_macros::Neg)),
+            Self::Neg => Some(quote!(#model::__reexports::icydb_model_macros::Neg)),
             Self::Ord => Some(quote!(Ord)),
             Self::PartialEq => Some(quote!(PartialEq)),
             Self::PartialOrd => Some(quote!(PartialOrd)),
             Self::Product => Some(quote!(
-                ::icydb_model::__reexports::icydb_model_macros::Product
+                #model::__reexports::icydb_model_macros::Product
             )),
-            Self::Rem => Some(quote!(::icydb_model::__reexports::icydb_model_macros::Rem)),
+            Self::Rem => Some(quote!(#model::__reexports::icydb_model_macros::Rem)),
             Self::RemAssign => Some(quote!(
-                ::icydb_model::__reexports::icydb_model_macros::RemAssign
+                #model::__reexports::icydb_model_macros::RemAssign
             )),
-            Self::Serialize => Some(quote!(::icydb_model::__reexports::serde::Serialize)),
-            Self::Sub => Some(quote!(::icydb_model::__reexports::icydb_model_macros::Sub)),
+            Self::Serialize => Some(quote!(#model::__reexports::serde::Serialize)),
+            Self::Sub => Some(quote!(#model::__reexports::icydb_model_macros::Sub)),
             Self::SubAssign => Some(quote!(
-                ::icydb_model::__reexports::icydb_model_macros::SubAssign
+                #model::__reexports::icydb_model_macros::SubAssign
             )),
-            Self::Sum => Some(quote!(::icydb_model::__reexports::icydb_model_macros::Sum)),
+            Self::Sum => Some(quote!(#model::__reexports::icydb_model_macros::Sum)),
 
             _ => {
                 // NOTE: Not all TraitKind variants have derive paths.
@@ -368,17 +369,19 @@ impl FromMeta for TraitKind {
     }
 }
 
-impl ToTokens for TraitKind {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
+impl TraitKind {
+    pub(crate) fn generated_tokens(self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
+        let mut tokens = TokenStream::new();
         match self {
-            Self::Clone => quote!(::core::clone::Clone).to_tokens(tokens),
-            Self::Copy => quote!(::core::marker::Copy).to_tokens(tokens),
-            Self::Debug => quote!(::core::fmt::Debug).to_tokens(tokens),
-            Self::Default => quote!(::core::default::Default).to_tokens(tokens),
-            Self::Eq => quote!(::core::cmp::Eq).to_tokens(tokens),
-            Self::Ord => quote!(::core::cmp::Ord).to_tokens(tokens),
-            Self::PartialEq => quote!(::core::cmp::PartialEq).to_tokens(tokens),
-            Self::PartialOrd => quote!(::core::cmp::PartialOrd).to_tokens(tokens),
+            Self::Clone => quote!(::core::clone::Clone).to_tokens(&mut tokens),
+            Self::Copy => quote!(::core::marker::Copy).to_tokens(&mut tokens),
+            Self::Debug => quote!(::core::fmt::Debug).to_tokens(&mut tokens),
+            Self::Default => quote!(::core::default::Default).to_tokens(&mut tokens),
+            Self::Eq => quote!(::core::cmp::Eq).to_tokens(&mut tokens),
+            Self::Ord => quote!(::core::cmp::Ord).to_tokens(&mut tokens),
+            Self::PartialEq => quote!(::core::cmp::PartialEq).to_tokens(&mut tokens),
+            Self::PartialOrd => quote!(::core::cmp::PartialOrd).to_tokens(&mut tokens),
             Self::Add
             | Self::AddAssign
             | Self::Deref
@@ -393,27 +396,27 @@ impl ToTokens for TraitKind {
             | Self::Sub
             | Self::SubAssign => {
                 let trait_name = format_ident!("{self:?}");
-                quote!(::std::ops::#trait_name).to_tokens(tokens);
+                quote!(::std::ops::#trait_name).to_tokens(&mut tokens);
             }
-            Self::Display => quote!(::std::fmt::Display).to_tokens(tokens),
-            Self::From => quote!(::std::convert::From).to_tokens(tokens),
-            Self::FromIterator => quote!(::std::iter::FromIterator).to_tokens(tokens),
-            Self::Hash => quote!(::std::hash::Hash).to_tokens(tokens),
+            Self::Display => quote!(::std::fmt::Display).to_tokens(&mut tokens),
+            Self::From => quote!(::std::convert::From).to_tokens(&mut tokens),
+            Self::FromIterator => quote!(::std::iter::FromIterator).to_tokens(&mut tokens),
+            Self::Hash => quote!(::std::hash::Hash).to_tokens(&mut tokens),
             Self::Inner | Self::Path => {
                 let trait_name = format_ident!("{self:?}");
-                quote!(::icydb_model::#trait_name).to_tokens(tokens);
+                quote!(#model::#trait_name).to_tokens(&mut tokens);
             }
-            Self::IntoIterator => quote!(::std::iter::IntoIterator).to_tokens(tokens),
+            Self::IntoIterator => quote!(::std::iter::IntoIterator).to_tokens(&mut tokens),
             Self::NumericValue => {
-                quote!(::icydb_model::schema::NumericValue).to_tokens(tokens);
+                quote!(#model::schema::NumericValue).to_tokens(&mut tokens);
             }
-            Self::Product => quote!(::std::iter::Product).to_tokens(tokens),
-            Self::Sum => quote!(::std::iter::Sum).to_tokens(tokens),
+            Self::Product => quote!(::std::iter::Product).to_tokens(&mut tokens),
+            Self::Sum => quote!(::std::iter::Sum).to_tokens(&mut tokens),
             Self::Deserialize => {
-                quote!(::icydb_model::__reexports::serde::Deserialize).to_tokens(tokens);
+                quote!(#model::__reexports::serde::Deserialize).to_tokens(&mut tokens);
             }
             Self::Serialize => {
-                quote!(::icydb_model::__reexports::serde::Serialize).to_tokens(tokens);
+                quote!(#model::__reexports::serde::Serialize).to_tokens(&mut tokens);
             }
             Self::NormalizeAuto
             | Self::NormalizeCustom
@@ -421,9 +424,11 @@ impl ToTokens for TraitKind {
             | Self::ValidateCustom
             | Self::Visitable => {
                 let trait_name = format_ident!("{self:?}");
-                quote!(::icydb_model::visitor::#trait_name).to_tokens(tokens);
+                quote!(#model::visitor::#trait_name).to_tokens(&mut tokens);
             }
         }
+
+        tokens
     }
 }
 

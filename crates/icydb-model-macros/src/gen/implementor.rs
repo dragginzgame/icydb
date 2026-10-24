@@ -86,7 +86,7 @@ impl<'a> Implementor<'a> {
         self
     }
 
-    fn impl_header(&self) -> TokenStream {
+    fn impl_header(&self, paths: &CratePaths) -> TokenStream {
         let ident = self.def.ident();
         let item = self
             .def
@@ -130,6 +130,7 @@ impl<'a> Implementor<'a> {
                 }
             }
             ImplementationTarget::Trait(trait_kind) => {
+                let trait_kind = trait_kind.generated_tokens(paths);
                 // Trait path with optional generics (avoid `Trait<>`).
                 let trait_path = if trait_generics.is_empty() {
                     quote!( #trait_kind )
@@ -150,15 +151,15 @@ impl<'a> Implementor<'a> {
     }
 }
 
-impl ToTokens for Implementor<'_> {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        let header = self.impl_header();
+impl Implementor<'_> {
+    pub fn impl_tokens(&self, paths: &CratePaths) -> TokenStream {
+        let header = self.impl_header(paths);
         let inner_tokens = &self.tokens;
 
-        tokens.extend(quote! {
+        quote! {
             #header {
                 #inner_tokens
             }
-        });
+        }
     }
 }

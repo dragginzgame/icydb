@@ -9,12 +9,15 @@ pub(crate) fn runtime_schema_reference_tokens(
     def: &Def,
     fields: &FieldList,
     entity: Option<&Ident>,
+    paths: &CratePaths,
 ) -> TokenStream {
+    let model = &paths.model;
+    let runtime = &paths.runtime;
     let entity = entity.map(|ident| {
         let source = quote_one(ident, to_str_lit);
 
         quote! {
-            impl ::icydb_model::EntitySource for #ident {
+            impl #model::EntitySource for #ident {
                 const ENTITY: &'static str = #source;
             }
         }
@@ -29,8 +32,8 @@ pub(crate) fn runtime_schema_reference_tokens(
 
         quote! {
             #[doc = #documentation]
-            pub const #constant: ::icydb::db::query::FieldRef =
-                ::icydb::db::query::FieldRef::new(#source);
+            pub const #constant: #runtime::db::query::FieldRef =
+                #runtime::db::query::FieldRef::new(#source);
         }
     });
 
@@ -38,7 +41,7 @@ pub(crate) fn runtime_schema_reference_tokens(
         .set_tokens(quote! {
             #(#fields)*
         })
-        .to_token_stream();
+        .impl_tokens(paths);
 
     quote! {
         #entity

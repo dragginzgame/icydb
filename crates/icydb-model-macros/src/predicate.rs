@@ -422,6 +422,12 @@ impl Parser {
                     Some(Token::Literal(Literal::Bool(value))) => {
                         // Source CHECK comparisons are three-valued. Guard
                         // NULL before negation so every Boolean test is total.
+                        // The guard adds an AND node; IS NOT also wraps it in
+                        // NOT. Admit both implicit levels before constructing.
+                        let guarded_depth = descend(depth)?;
+                        if negated {
+                            let _ = descend(guarded_depth)?;
+                        }
                         let total = Predicate::And(vec![
                             Predicate::IsNull {
                                 field: field.clone(),
@@ -591,5 +597,31 @@ mod tests {
         assert!(parse("LOWER(name) = 'a'").is_err());
         assert!(parse("id IN ()").is_err());
         assert!(parse("value = NULL").is_err());
+    }
+
+    #[test]
+    fn boolean_tests_count_implicit_nodes_at_the_depth_boundary() {
+        for suffix in ["IS TRUE", "IS FALSE", "IS NOT TRUE", "IS NOT FALSE"] {
+            let implicit_levels = if suffix.starts_with("IS NOT") { 2 } else { 1 };
+            let admitted_nots = super::MAX_PREDICATE_DEPTH - 1 - implicit_levels;
+            assert!(parse(&format!("{}active {suffix}", "NOT ".repeat(admitted_nots))).is_ok());
+            assert!(
+                parse(&format!(
+                    "{}active {suffix}",
+                    "NOT ".repeat(admitted_nots + 1)
+                ))
+                .is_err()
+            );
+        }
+        // NULL tests are leaf nodes, unlike Boolean tests' explicit null guard.
+        for suffix in ["IS NULL", "IS NOT NULL", "= true"] {
+            assert!(
+                parse(&format!(
+                    "{}active {suffix}",
+                    "NOT ".repeat(super::MAX_PREDICATE_DEPTH - 1)
+                ))
+                .is_ok()
+            );
+        }
     }
 }

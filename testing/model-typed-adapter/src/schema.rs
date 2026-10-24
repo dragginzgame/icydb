@@ -156,3 +156,14 @@ pub struct TypedCompositeTarget {}
     )
 )]
 pub struct TypedIdentityOwner {}
+
+pub mod icydb {
+    #[model_api::newtype(item(prim = "Nat64"))]
+    pub struct Money {}
+}
+
+#[record(fields(
+    field(name = "icydb", value(item(is = "crate::schema::icydb::Money"))),
+    field(name = "icydb_model", value(item(prim = "Nat64")))
+))]
+pub struct AuthoredPackageNames {}

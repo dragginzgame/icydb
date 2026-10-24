@@ -173,10 +173,16 @@ impl Entity {
     }
 
     /// Validate index declarations against entity fields and naming constraints.
-    fn validate_indexes(&self, entity_name: &str, def_ident: &Ident) -> Result<(), DarlingError> {
-        let canonical_index_terms = self.collect_canonical_index_terms(entity_name, def_ident)?;
+    fn validate_indexes(
+        &self,
+        entity_name: &str,
+        def_ident: &Ident,
+        paths: &CratePaths,
+    ) -> Result<(), DarlingError> {
+        let canonical_index_terms =
+            self.collect_canonical_index_terms(entity_name, def_ident, paths)?;
         Self::validate_redundant_prefix_indexes(&self.indexes, &canonical_index_terms, def_ident)?;
-        self.validate_relations()?;
+        self.validate_relations(paths)?;
 
         Ok(())
     }
@@ -186,13 +192,14 @@ impl Entity {
         &self,
         entity_name: &str,
         def_ident: &Ident,
+        paths: &CratePaths,
     ) -> Result<Vec<Vec<String>>, DarlingError> {
         let mut canonical_index_terms = Vec::with_capacity(self.indexes.len());
         for index in &self.indexes {
             Self::validate_index_shape(index, def_ident)?;
             self.validate_index_fields(index)?;
             Self::validate_index_name(index, entity_name, def_ident)?;
-            self.validate_index_predicate(index)?;
+            self.validate_index_predicate(index, paths)?;
             canonical_index_terms.push(index.validated_key_item_terms());
         }
 
@@ -242,9 +249,13 @@ impl Entity {
     }
 
     // Validate any filtered-index predicate against the generated field surface.
-    fn validate_index_predicate(&self, index: &Index) -> Result<(), DarlingError> {
+    fn validate_index_predicate(
+        &self,
+        index: &Index,
+        paths: &CratePaths,
+    ) -> Result<(), DarlingError> {
         let _ = index
-            .validated_generated_predicate(self)
+            .validated_generated_predicate(self, paths)
             .map_err(|error| error.with_span(&self.def.ident()))?;
 
         Ok(())
@@ -301,15 +312,15 @@ impl Entity {
         Ok(())
     }
 
-    fn validate_relations(&self) -> Result<(), DarlingError> {
+    fn validate_relations(&self, paths: &CratePaths) -> Result<(), DarlingError> {
         for relation in &self.relations {
-            relation.validate(&self.fields)?;
+            relation.validate(&self.fields, paths)?;
         }
 
         Ok(())
     }
 
-    fn validate_constraints(&self) -> Result<(), DarlingError> {
+    fn validate_constraints(&self, paths: &CratePaths) -> Result<(), DarlingError> {
         let mut names = HashSet::new();
         for constraint in &self.constraints {
             if !names.insert(constraint.name.value()) {
@@ -319,7 +330,7 @@ impl Entity {
                 ))
                 .with_span(&constraint.name));
             }
-            let _ = constraint.validated_predicate(self)?;
+            let _ = constraint.validated_predicate(self, paths)?;
         }
 
         Ok(())
@@ -405,18 +416,19 @@ impl HasDef for Entity {
 
 impl ValidateNode for Entity {
     fn validate(&self) -> Result<(), DarlingError> {
+        let paths = self.def.paths();
         // Phase 1: validate trait configuration and field shapes.
         self.validate_traits()?;
-        self.fields.validate()?;
+        self.fields.validate(self.def.paths())?;
         self.validate_schema_version()?;
         if self.traits.explicitly_adds(TraitKind::Default) {
-            validate_struct_default_request("entity", self.def(), &self.fields)?;
+            validate_struct_default_request("entity", self.def(), &self.fields, paths)?;
         }
         // Phase 2: validate entity name and index definitions.
         let def_ident = self.def.ident();
         let entity_name = Self::validate_entity_name(&def_ident)?;
-        self.validate_indexes(&entity_name, &def_ident)?;
-        self.validate_constraints()?;
+        self.validate_indexes(&entity_name, &def_ident, paths)?;
+        self.validate_constraints(paths)?;
 
         Ok(())
     }
@@ -551,44 +563,45 @@ impl HasSchema for Entity {
 }
 
 impl HasSchemaPart for Entity {
-    fn schema_part(&self) -> TokenStream {
-        let def = &self.def.schema_part();
-        let store = quote_one(&self.store, to_path);
+    fn schema_part(&self, paths: &CratePaths) -> TokenStream {
+        let model = &paths.model;
+        let def = &self.def.schema_part(paths);
+        let store = quote_one(&self.store, |value| to_path(value, paths));
         let schema_version = syn::LitInt::new(&self.schema_version.to_string(), Span::call_site());
-        let primary_key = self.primary_key.schema_part();
+        let primary_key = self.primary_key.schema_part(paths);
         let entity_name = self.def.ident().to_string();
         let indexes = match self
             .indexes
             .iter()
-            .map(|index| index.schema_part_for_entity(self, entity_name.as_str()))
+            .map(|index| index.schema_part_for_entity(self, entity_name.as_str(), paths))
             .collect::<Result<Vec<_>, _>>()
         {
             Ok(indexes) => indexes,
             Err(error) => return error.with_span(&self.def.ident()).write_errors(),
         };
         let indexes = quote! { &[#(#indexes),*] };
-        let relations = quote_slice(&self.relations, Relation::schema_part);
+        let relations = quote_slice(&self.relations, |value| Relation::schema_part(value, paths));
         let constraints = match self
             .constraints
             .iter()
-            .map(|constraint| constraint.schema_part_for_entity(self))
+            .map(|constraint| constraint.schema_part_for_entity(self, paths))
             .collect::<Result<Vec<_>, _>>()
         {
             Ok(constraints) => constraints,
             Err(error) => return error.with_span(&self.def.ident()).write_errors(),
         };
         let constraints = quote! { &[#(#constraints),*] };
-        let fields = &self.fields.schema_part();
-        let ty = &self.ty.schema_part();
+        let fields = &self.fields.schema_part(paths);
+        let ty = &self.ty.schema_part(paths);
 
         // quote
         quote! {
             {
-                const __INDEXES: &'static [::icydb_model::node::Index] = #indexes;
-                const __RELATIONS: &'static [::icydb_model::node::RelationEdge] = #relations;
-                const __CONSTRAINTS: &'static [::icydb_model::node::CheckConstraint] = #constraints;
+                const __INDEXES: &'static [#model::node::Index] = #indexes;
+                const __RELATIONS: &'static [#model::node::RelationEdge] = #relations;
+                const __CONSTRAINTS: &'static [#model::node::CheckConstraint] = #constraints;
 
-                ::icydb_model::node::Entity::new(
+                #model::node::Entity::new(
                     #def,
                     #store,
                     #schema_version,
@@ -626,10 +639,10 @@ impl HasTraits for Entity {
 }
 
 impl HasType for Entity {
-    fn type_part(&self) -> TokenStream {
+    fn type_part(&self, paths: &CratePaths) -> TokenStream {
         let ident = self.def.ident();
         let fields = self.fields.iter().map(|field| {
-            let expr = field.type_expr();
+            let expr = field.type_expr(paths);
 
             quote! {
                 pub #expr
@@ -644,20 +657,21 @@ impl HasType for Entity {
     }
 }
 
-fn composite_primary_key_type_part(entity: &Entity) -> TokenStream {
+fn composite_primary_key_type_part(entity: &Entity, paths: &CratePaths) -> TokenStream {
     if entity.primary_key.fields().len() <= 1 {
         return TokenStream::new();
     }
 
     let key_ident = composite_primary_key_ident(&entity.def.ident());
-    let key_field_specs = composite_primary_key_field_specs(entity);
-    let struct_tokens = composite_primary_key_struct_tokens(&key_ident, &key_field_specs);
-    let key_value_tokens = composite_primary_key_value_codec_tokens(&key_ident, &key_field_specs);
+    let key_field_specs = composite_primary_key_field_specs(entity, paths);
+    let struct_tokens = composite_primary_key_struct_tokens(&key_ident, &key_field_specs, paths);
+    let key_value_tokens =
+        composite_primary_key_value_codec_tokens(&key_ident, &key_field_specs, paths);
     let primary_key_encode_tokens =
-        composite_primary_key_encode_tokens(&key_ident, &key_field_specs);
+        composite_primary_key_encode_tokens(&key_ident, &key_field_specs, paths);
     let primary_key_decode_tokens =
-        composite_primary_key_decode_tokens(&key_ident, &key_field_specs);
-    let key_bytes_tokens = composite_primary_key_bytes_tokens(&key_ident, &key_field_specs);
+        composite_primary_key_decode_tokens(&key_ident, &key_field_specs, paths);
+    let key_bytes_tokens = composite_primary_key_bytes_tokens(&key_ident, &key_field_specs, paths);
 
     quote! {
         #struct_tokens
@@ -668,7 +682,10 @@ fn composite_primary_key_type_part(entity: &Entity) -> TokenStream {
     }
 }
 
-fn composite_primary_key_field_specs(entity: &Entity) -> Vec<(Ident, TokenStream)> {
+fn composite_primary_key_field_specs(
+    entity: &Entity,
+    paths: &CratePaths,
+) -> Vec<(Ident, TokenStream)> {
     entity
         .primary_key
         .fields()
@@ -678,7 +695,7 @@ fn composite_primary_key_field_specs(entity: &Entity) -> Vec<(Ident, TokenStream
                 .fields
                 .get(primary_key_field)
                 .expect("primary key field must be validated before derive generation");
-            (primary_key_field.clone(), field.value.type_expr())
+            (primary_key_field.clone(), field.value.type_expr(paths))
         })
         .collect()
 }
@@ -686,7 +703,12 @@ fn composite_primary_key_field_specs(entity: &Entity) -> Vec<(Ident, TokenStream
 fn composite_primary_key_struct_tokens(
     key_ident: &Ident,
     key_field_specs: &[(Ident, TokenStream)],
+    paths: &CratePaths,
 ) -> TokenStream {
+    let model = &paths.model;
+    let serde_path = quote!(#model::__reexports::serde)
+        .to_string()
+        .replace(' ', "");
     let key_fields = key_field_specs.iter().map(|(primary_key_field, field_ty)| {
         quote! {
             pub #primary_key_field: #field_ty
@@ -694,9 +716,9 @@ fn composite_primary_key_struct_tokens(
     });
 
     quote! {
-        #[derive(Clone, Copy, Debug, ::icydb_model::__reexports::serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, ::icydb_model::__reexports::serde::Serialize)]
+        #[derive(Clone, Copy, Debug, #model::__reexports::serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, #model::__reexports::serde::Serialize)]
 
-        #[serde(crate = "::icydb_model::__reexports::serde")]
+        #[serde(crate = #serde_path)]
         pub struct #key_ident {
             #(#key_fields),*
         }
@@ -706,11 +728,13 @@ fn composite_primary_key_struct_tokens(
 fn composite_primary_key_value_codec_tokens(
     key_ident: &Ident,
     key_field_specs: &[(Ident, TokenStream)],
+    paths: &CratePaths,
 ) -> TokenStream {
+    let runtime = &paths.runtime;
     let component_count_lit = component_count_lit(key_field_specs);
     let key_value_encoders = key_field_specs.iter().map(|(primary_key_field, field_ty)| {
         quote! {
-            <#field_ty as ::icydb::__macro::KeyValueCodec>::to_key_value(&self.#primary_key_field)
+            <#field_ty as #runtime::__macro::KeyValueCodec>::to_key_value(&self.#primary_key_field)
         }
     });
     let key_value_decoders =
@@ -719,15 +743,15 @@ fn composite_primary_key_value_codec_tokens(
             .enumerate()
             .map(|(index, (primary_key_field, field_ty))| {
                 quote! {
-                    #primary_key_field: <#field_ty as ::icydb::__macro::KeyValueCodec>::from_key_value(&values[#index])?
+                    #primary_key_field: <#field_ty as #runtime::__macro::KeyValueCodec>::from_key_value(&values[#index])?
                 }
             });
     let input_value_components = key_field_specs.iter().map(
-        |(primary_key_field, _)| quote!(::icydb::value::InputValue::from(value.#primary_key_field)),
+        |(primary_key_field, _)| quote!(#runtime::value::InputValue::from(value.#primary_key_field)),
     );
 
     quote! {
-        impl From<#key_ident> for ::icydb::value::InputValue {
+        impl From<#key_ident> for #runtime::value::InputValue {
             fn from(value: #key_ident) -> Self {
                 Self::list(::std::vec![
                     #(#input_value_components),*
@@ -735,15 +759,15 @@ fn composite_primary_key_value_codec_tokens(
             }
         }
 
-        impl ::icydb::__macro::KeyValueCodec for #key_ident {
-            fn to_key_value(&self) -> ::icydb::__macro::Value {
-                ::icydb::__macro::Value::List(::std::vec![
+        impl #runtime::__macro::KeyValueCodec for #key_ident {
+            fn to_key_value(&self) -> #runtime::__macro::Value {
+                #runtime::__macro::Value::List(::std::vec![
                     #(#key_value_encoders),*
                 ])
             }
 
-            fn from_key_value(value: &::icydb::__macro::Value) -> Option<Self> {
-                let ::icydb::__macro::Value::List(values) = value else {
+            fn from_key_value(value: &#runtime::__macro::Value) -> Option<Self> {
+                let #runtime::__macro::Value::List(values) = value else {
                     return None;
                 };
                 if values.len() != #component_count_lit {
@@ -761,26 +785,30 @@ fn composite_primary_key_value_codec_tokens(
 fn composite_primary_key_encode_tokens(
     key_ident: &Ident,
     key_field_specs: &[(Ident, TokenStream)],
+    paths: &CratePaths,
 ) -> TokenStream {
-    let primary_key_component_encoders = key_field_specs.iter().map(composite_component_encoder);
+    let runtime = &paths.runtime;
+    let primary_key_component_encoders = key_field_specs
+        .iter()
+        .map(|value| composite_component_encoder(value, paths));
 
     quote! {
-        impl ::icydb::__macro::PrimaryKeyEncode for #key_ident {
+        impl #runtime::__macro::PrimaryKeyEncode for #key_ident {
             fn to_primary_key_value(
                 &self,
             ) -> Result<
-                ::icydb::__macro::PrimaryKeyValue,
-                ::icydb::__macro::PrimaryKeyEncodeError,
+                #runtime::__macro::PrimaryKeyValue,
+                #runtime::__macro::PrimaryKeyEncodeError,
             > {
                 let components = [
                     #(#primary_key_component_encoders),*
                 ];
-                let composite = ::icydb::__macro::CompositePrimaryKeyValue::try_from_components(
+                let composite = #runtime::__macro::CompositePrimaryKeyValue::try_from_components(
                     &components,
                 )
-                .map_err(::icydb::__macro::PrimaryKeyEncodeError::from)?;
+                .map_err(#runtime::__macro::PrimaryKeyEncodeError::from)?;
 
-                Ok(::icydb::__macro::PrimaryKeyValue::Composite(composite))
+                Ok(#runtime::__macro::PrimaryKeyValue::Composite(composite))
             }
         }
     }
@@ -788,12 +816,14 @@ fn composite_primary_key_encode_tokens(
 
 fn composite_component_encoder(
     (primary_key_field, field_ty): &(Ident, TokenStream),
+    paths: &CratePaths,
 ) -> TokenStream {
+    let runtime = &paths.runtime;
     quote! {
-        match <#field_ty as ::icydb::__macro::PrimaryKeyEncode>::to_primary_key_value(&self.#primary_key_field)? {
-            ::icydb::__macro::PrimaryKeyValue::Scalar(component) => component,
-            ::icydb::__macro::PrimaryKeyValue::Composite(_) => {
-                return Err(::icydb::__macro::PrimaryKeyEncodeError::UnsupportedComponentKind {
+        match <#field_ty as #runtime::__macro::PrimaryKeyEncode>::to_primary_key_value(&self.#primary_key_field)? {
+            #runtime::__macro::PrimaryKeyValue::Scalar(component) => component,
+            #runtime::__macro::PrimaryKeyValue::Composite(_) => {
+                return Err(#runtime::__macro::PrimaryKeyEncodeError::UnsupportedComponentKind {
                     kind: "CompositePrimaryKeyComponent",
                 });
             }
@@ -804,7 +834,9 @@ fn composite_component_encoder(
 fn composite_primary_key_decode_tokens(
     key_ident: &Ident,
     key_field_specs: &[(Ident, TokenStream)],
+    paths: &CratePaths,
 ) -> TokenStream {
+    let runtime = &paths.runtime;
     let component_count_lit = component_count_lit(key_field_specs);
     let primary_key_component_decoders =
         key_field_specs
@@ -812,26 +844,26 @@ fn composite_primary_key_decode_tokens(
             .enumerate()
             .map(|(index, (primary_key_field, field_ty))| {
                 quote! {
-                    #primary_key_field: <#field_ty as ::icydb::__macro::PrimaryKeyDecode>::from_primary_key_value(
-                        &::icydb::__macro::PrimaryKeyValue::Scalar(components[#index]),
+                    #primary_key_field: <#field_ty as #runtime::__macro::PrimaryKeyDecode>::from_primary_key_value(
+                        &#runtime::__macro::PrimaryKeyValue::Scalar(components[#index]),
                     )?
                 }
             });
     quote! {
-        impl ::icydb::__macro::PrimaryKeyDecode for #key_ident {
+        impl #runtime::__macro::PrimaryKeyDecode for #key_ident {
             fn from_primary_key_value(
-                key: &::icydb::__macro::PrimaryKeyValue,
-            ) -> Result<Self, ::icydb::__macro::InternalError> {
-                let ::icydb::__macro::PrimaryKeyValue::Composite(composite) = key else {
-                    return Err(::icydb::__macro::InternalError::new(
-                        ::icydb::__macro::ErrorClass::Corruption,
-                        ::icydb::__macro::ErrorOrigin::Store
+                key: &#runtime::__macro::PrimaryKeyValue,
+            ) -> Result<Self, #runtime::__macro::InternalError> {
+                let #runtime::__macro::PrimaryKeyValue::Composite(composite) = key else {
+                    return Err(#runtime::__macro::InternalError::new(
+                        #runtime::__macro::ErrorClass::Corruption,
+                        #runtime::__macro::ErrorOrigin::Store
                     ));
                 };
                 if composite.len() != #component_count_lit {
-                    return Err(::icydb::__macro::InternalError::new(
-                        ::icydb::__macro::ErrorClass::Corruption,
-                        ::icydb::__macro::ErrorOrigin::Store
+                    return Err(#runtime::__macro::InternalError::new(
+                        #runtime::__macro::ErrorClass::Corruption,
+                        #runtime::__macro::ErrorOrigin::Store
                     ));
                 }
                 let components = composite.components();
@@ -847,27 +879,29 @@ fn composite_primary_key_decode_tokens(
 fn composite_primary_key_bytes_tokens(
     key_ident: &Ident,
     key_field_specs: &[(Ident, TokenStream)],
+    paths: &CratePaths,
 ) -> TokenStream {
+    let runtime = &paths.runtime;
     let byte_len_terms = key_field_specs
         .iter()
-        .map(|(_, field_ty)| quote!(<#field_ty as ::icydb::__macro::EntityKeyBytes>::BYTE_LEN));
+        .map(|(_, field_ty)| quote!(<#field_ty as #runtime::__macro::EntityKeyBytes>::BYTE_LEN));
     let byte_writers = key_field_specs.iter().map(|(primary_key_field, field_ty)| {
         quote! {
-            let (head, tail) = rest.split_at_mut(<#field_ty as ::icydb::__macro::EntityKeyBytes>::BYTE_LEN);
-            <#field_ty as ::icydb::__macro::EntityKeyBytes>::write_bytes(&self.#primary_key_field, head)?;
+            let (head, tail) = rest.split_at_mut(<#field_ty as #runtime::__macro::EntityKeyBytes>::BYTE_LEN);
+            <#field_ty as #runtime::__macro::EntityKeyBytes>::write_bytes(&self.#primary_key_field, head)?;
             rest = tail;
         }
     });
 
     quote! {
-        impl ::icydb::__macro::EntityKeyBytes for #key_ident {
+        impl #runtime::__macro::EntityKeyBytes for #key_ident {
             const BYTE_LEN: usize = 0 #( + #byte_len_terms )*;
 
             fn write_bytes(
                 &self,
                 out: &mut [u8],
-            ) -> Result<(), ::icydb::__macro::EntityKeyBytesError> {
-                ::icydb::__macro::validate_entity_key_bytes_buffer(out, Self::BYTE_LEN)?;
+            ) -> Result<(), #runtime::__macro::EntityKeyBytesError> {
+                #runtime::__macro::validate_entity_key_bytes_buffer(out, Self::BYTE_LEN)?;
                 let mut rest = out;
                 #(#byte_writers)*
                 let _ = rest;
@@ -894,60 +928,63 @@ fn typed_adapter_input_ident(entity_ident: &Ident, suffix: &str) -> Ident {
     format_ident!("{entity_ident}{suffix}")
 }
 
-fn typed_item_field_type_tokens(item: &Item) -> TokenStream {
+fn typed_item_field_type_tokens(item: &Item, paths: &CratePaths) -> TokenStream {
+    let model = &paths.model;
+    let runtime = &paths.runtime;
     let scalar = match item.target() {
         ItemTarget::Is(path) => {
             return quote! {
-                ::icydb::__macro::TypedFieldType::Named(
-                    <#path as ::icydb_model::TypedNamedType>::SOURCE_KEY,
+                #runtime::__macro::TypedFieldType::Named(
+                    <#path as #model::TypedNamedType>::SOURCE_KEY,
                 )
             };
         }
         ItemTarget::Primitive(primitive) => primitive,
     };
     let scalar = match scalar {
-        Primitive::Account => quote!(::icydb::__macro::ScalarType::Account),
+        Primitive::Account => quote!(#runtime::__macro::ScalarType::Account),
         Primitive::Blob => {
             let max_len = quote_option(item.max_len.as_ref(), |value| quote!(#value));
-            quote!(::icydb::__macro::ScalarType::Blob { max_len: #max_len })
+            quote!(#runtime::__macro::ScalarType::Blob { max_len: #max_len })
         }
-        Primitive::Bool => quote!(::icydb::__macro::ScalarType::Bool),
-        Primitive::Date => quote!(::icydb::__macro::ScalarType::Date),
+        Primitive::Bool => quote!(#runtime::__macro::ScalarType::Bool),
+        Primitive::Date => quote!(#runtime::__macro::ScalarType::Date),
         Primitive::Decimal => {
             let scale = item.scale.unwrap_or(0);
-            quote!(::icydb::__macro::ScalarType::Decimal { scale: #scale })
+            quote!(#runtime::__macro::ScalarType::Decimal { scale: #scale })
         }
-        Primitive::Duration => quote!(::icydb::__macro::ScalarType::Duration),
-        Primitive::Float32 => quote!(::icydb::__macro::ScalarType::Float32),
-        Primitive::Float64 => quote!(::icydb::__macro::ScalarType::Float64),
-        Primitive::Int8 => quote!(::icydb::__macro::ScalarType::Int8),
-        Primitive::Int16 => quote!(::icydb::__macro::ScalarType::Int16),
-        Primitive::Int32 => quote!(::icydb::__macro::ScalarType::Int32),
-        Primitive::Int64 => quote!(::icydb::__macro::ScalarType::Int64),
-        Primitive::Int128 => quote!(::icydb::__macro::ScalarType::Int128),
-        Primitive::Nat8 => quote!(::icydb::__macro::ScalarType::Nat8),
-        Primitive::Nat16 => quote!(::icydb::__macro::ScalarType::Nat16),
-        Primitive::Nat32 => quote!(::icydb::__macro::ScalarType::Nat32),
-        Primitive::Nat64 => quote!(::icydb::__macro::ScalarType::Nat64),
-        Primitive::Nat128 => quote!(::icydb::__macro::ScalarType::Nat128),
-        Primitive::Principal => quote!(::icydb::__macro::ScalarType::Principal),
-        Primitive::Subaccount => quote!(::icydb::__macro::ScalarType::Subaccount),
+        Primitive::Duration => quote!(#runtime::__macro::ScalarType::Duration),
+        Primitive::Float32 => quote!(#runtime::__macro::ScalarType::Float32),
+        Primitive::Float64 => quote!(#runtime::__macro::ScalarType::Float64),
+        Primitive::Int8 => quote!(#runtime::__macro::ScalarType::Int8),
+        Primitive::Int16 => quote!(#runtime::__macro::ScalarType::Int16),
+        Primitive::Int32 => quote!(#runtime::__macro::ScalarType::Int32),
+        Primitive::Int64 => quote!(#runtime::__macro::ScalarType::Int64),
+        Primitive::Int128 => quote!(#runtime::__macro::ScalarType::Int128),
+        Primitive::Nat8 => quote!(#runtime::__macro::ScalarType::Nat8),
+        Primitive::Nat16 => quote!(#runtime::__macro::ScalarType::Nat16),
+        Primitive::Nat32 => quote!(#runtime::__macro::ScalarType::Nat32),
+        Primitive::Nat64 => quote!(#runtime::__macro::ScalarType::Nat64),
+        Primitive::Nat128 => quote!(#runtime::__macro::ScalarType::Nat128),
+        Primitive::Principal => quote!(#runtime::__macro::ScalarType::Principal),
+        Primitive::Subaccount => quote!(#runtime::__macro::ScalarType::Subaccount),
         Primitive::Text => {
             let max_len = quote_option(item.max_len.as_ref(), |value| quote!(#value));
-            quote!(::icydb::__macro::ScalarType::Text { max_len: #max_len })
+            quote!(#runtime::__macro::ScalarType::Text { max_len: #max_len })
         }
-        Primitive::Timestamp => quote!(::icydb::__macro::ScalarType::Timestamp),
-        Primitive::U256 => quote!(::icydb::__macro::ScalarType::U256),
-        Primitive::Ulid => quote!(::icydb::__macro::ScalarType::Ulid),
-        Primitive::Unit => quote!(::icydb::__macro::ScalarType::Unit),
+        Primitive::Timestamp => quote!(#runtime::__macro::ScalarType::Timestamp),
+        Primitive::U256 => quote!(#runtime::__macro::ScalarType::U256),
+        Primitive::Ulid => quote!(#runtime::__macro::ScalarType::Ulid),
+        Primitive::Unit => quote!(#runtime::__macro::ScalarType::Unit),
     };
-    quote!(::icydb::__macro::TypedFieldType::Scalar(#scalar))
+    quote!(#runtime::__macro::TypedFieldType::Scalar(#scalar))
 }
 
-fn typed_field_type_tokens(value: &Value) -> TokenStream {
-    let item = typed_item_field_type_tokens(&value.item);
+fn typed_field_type_tokens(value: &Value, paths: &CratePaths) -> TokenStream {
+    let runtime = &paths.runtime;
+    let item = typed_item_field_type_tokens(&value.item, paths);
     if value.cardinality() == Cardinality::Many {
-        quote!(::icydb::__macro::TypedFieldType::List(&#item))
+        quote!(#runtime::__macro::TypedFieldType::List(&#item))
     } else {
         item
     }
@@ -957,46 +994,54 @@ fn field_is_primary_key(entity: &Entity, field: &Field) -> bool {
     entity.primary_key.fields().contains(&field.name)
 }
 
-fn typed_write_value_type(entity: &Entity, field: &Field) -> TokenStream {
+fn typed_write_value_type(entity: &Entity, field: &Field, paths: &CratePaths) -> TokenStream {
+    let runtime = &paths.runtime;
     if entity.primary_key.fields().len() == 1 && field_is_primary_key(entity, field) {
         let entity_ident = entity.def.ident();
-        return quote!(::icydb::types::Id<#entity_ident>);
+        return quote!(#runtime::types::Id<#entity_ident>);
     }
     if let Some(target) = &field.value.item.relation {
         return match field.value.cardinality() {
-            Cardinality::Many => quote!(Vec<::icydb::types::Id<#target>>),
-            Cardinality::One | Cardinality::Opt => quote!(::icydb::types::Id<#target>),
+            Cardinality::Many => quote!(Vec<#runtime::types::Id<#target>>),
+            Cardinality::One | Cardinality::Opt => quote!(#runtime::types::Id<#target>),
         };
     }
     match field.value.cardinality() {
-        Cardinality::Opt => field.value.item.type_expr(),
-        Cardinality::One | Cardinality::Many => field.value.type_expr(),
+        Cardinality::Opt => field.value.item.type_expr(paths),
+        Cardinality::One | Cardinality::Many => field.value.type_expr(paths),
     }
 }
 
-fn typed_write_value_input_expr(entity: &Entity, field: &Field, value: TokenStream) -> TokenStream {
+fn typed_write_value_input_expr(
+    entity: &Entity,
+    field: &Field,
+    value: TokenStream,
+    paths: &CratePaths,
+) -> TokenStream {
+    let model = &paths.model;
+    let runtime = &paths.runtime;
     if entity.primary_key.fields().len() == 1 && field_is_primary_key(entity, field) {
-        return quote!(::icydb::value::InputValue::from(#value));
+        return quote!(#runtime::value::InputValue::from(#value));
     }
     if field.value.item.relation.is_some() {
         return match field.value.cardinality() {
             Cardinality::Many => quote! {
-                ::icydb::value::InputValue::list(
+                #runtime::value::InputValue::list(
                     #value
                         .into_iter()
-                        .map(::icydb::value::InputValue::from)
+                        .map(#runtime::value::InputValue::from)
                         .collect()
                 )
             },
             Cardinality::One | Cardinality::Opt => {
-                quote!(::icydb::value::InputValue::from(#value))
+                quote!(#runtime::value::InputValue::from(#value))
             }
         };
     }
-    let ty = typed_write_value_type(entity, field);
+    let ty = typed_write_value_type(entity, field, paths);
     quote! {
-        ::icydb::value::InputValue::from_public(
-            <#ty as ::icydb_model::TypedInputValue>::encode_typed_input(
+        #runtime::value::InputValue::from_public(
+            <#ty as #model::TypedInputValue>::encode_typed_input(
             #value,
             binding,
             )?
@@ -1004,16 +1049,22 @@ fn typed_write_value_input_expr(entity: &Entity, field: &Field, value: TokenStre
     }
 }
 
-fn typed_write_cell_input_expr(entity: &Entity, field: &Field, access: TokenStream) -> TokenStream {
-    let value = typed_write_value_input_expr(entity, field, quote!(value));
+fn typed_write_cell_input_expr(
+    entity: &Entity,
+    field: &Field,
+    access: TokenStream,
+    paths: &CratePaths,
+) -> TokenStream {
+    let runtime = &paths.runtime;
+    let value = typed_write_value_input_expr(entity, field, quote!(value), paths);
 
     quote! {
         match #access {
-            ::icydb::db::WriteCell::Omitted => ::icydb::db::WriteCell::Omitted,
-            ::icydb::db::WriteCell::Default => ::icydb::db::WriteCell::Default,
-            ::icydb::db::WriteCell::Null => ::icydb::db::WriteCell::Null,
-            ::icydb::db::WriteCell::Value(value) => {
-                ::icydb::db::WriteCell::Value(#value)
+            #runtime::db::WriteCell::Omitted => #runtime::db::WriteCell::Omitted,
+            #runtime::db::WriteCell::Default => #runtime::db::WriteCell::Default,
+            #runtime::db::WriteCell::Null => #runtime::db::WriteCell::Null,
+            #runtime::db::WriteCell::Value(value) => {
+                #runtime::db::WriteCell::Value(#value)
             }
         }
     }
@@ -1023,7 +1074,13 @@ fn typed_operation_struct_tokens(
     entity: &Entity,
     operation_ident: &Ident,
     include_primary_key: bool,
+    paths: &CratePaths,
 ) -> TokenStream {
+    let model = &paths.model;
+    let serde_path = quote!(#model::__reexports::serde)
+        .to_string()
+        .replace(' ', "");
+    let runtime = &paths.runtime;
     let primary_key_fields = entity.fields.iter().filter_map(|field| {
         if !include_primary_key || !field_is_primary_key(entity, field) {
             return None;
@@ -1031,9 +1088,9 @@ fn typed_operation_struct_tokens(
         let ident = &field.name;
         let ty = if entity.primary_key.fields().len() == 1 {
             let entity_ident = entity.def.ident();
-            quote!(::icydb::types::Id<#entity_ident>)
+            quote!(#runtime::types::Id<#entity_ident>)
         } else {
-            field.value.type_expr()
+            field.value.type_expr(paths)
         };
 
         Some(quote!(pub #ident: #ty))
@@ -1045,9 +1102,9 @@ fn typed_operation_struct_tokens(
             return None;
         }
         let ident = &field.name;
-        let ty = typed_write_value_type(entity, field);
+        let ty = typed_write_value_type(entity, field, paths);
 
-        Some(quote!(pub #ident: ::icydb::db::WriteCell<#ty>))
+        Some(quote!(pub #ident: #runtime::db::WriteCell<#ty>))
     });
 
     quote! {
@@ -1057,9 +1114,9 @@ fn typed_operation_struct_tokens(
             "`."
         )]
         #[doc = "Generated and managed fields are structurally absent."]
-        #[derive(Clone, Debug, ::icydb_model::__reexports::serde::Deserialize, Eq, PartialEq, ::icydb_model::__reexports::serde::Serialize)]
+        #[derive(Clone, Debug, #model::__reexports::serde::Deserialize, Eq, PartialEq, #model::__reexports::serde::Serialize)]
 
-        #[serde(crate = "::icydb_model::__reexports::serde")]
+        #[serde(crate = #serde_path)]
         pub struct #operation_ident {
             #(#primary_key_fields,)*
             #(#write_fields),*
@@ -1067,10 +1124,12 @@ fn typed_operation_struct_tokens(
     }
 }
 
-fn typed_primary_key_input_expr(entity: &Entity) -> TokenStream {
+fn typed_primary_key_input_expr(entity: &Entity, paths: &CratePaths) -> TokenStream {
+    let model = &paths.model;
+    let runtime = &paths.runtime;
     if entity.primary_key.fields().len() == 1 {
         let primary_key_field = entity.primary_key.scalar_field();
-        return quote!(::icydb::value::InputValue::from(self.#primary_key_field));
+        return quote!(#runtime::value::InputValue::from(self.#primary_key_field));
     }
 
     let components = entity.primary_key.fields().iter().map(|field_ident| {
@@ -1079,20 +1138,24 @@ fn typed_primary_key_input_expr(entity: &Entity) -> TokenStream {
             .iter()
             .find(|field| field.name == *field_ident)
             .expect("validated composite primary-key field must exist");
-        let ty = field.value.type_expr();
+        let ty = field.value.type_expr(paths);
         quote!(
-            <#ty as ::icydb_model::TypedInputValue>::encode_typed_input(
+            <#ty as #model::TypedInputValue>::encode_typed_input(
                 self.#field_ident,
                 binding,
             )?
         )
     });
-    quote!(::icydb::value::InputValue::from_public(
-        ::icydb::value::PublicValue::List(::std::vec![#(#components),*])
+    quote!(#runtime::value::InputValue::from_public(
+        #runtime::value::PublicValue::List(::std::vec![#(#components),*])
     ))
 }
 
-fn typed_write_fields_tokens(entity: &Entity, include_primary_key: bool) -> Vec<TokenStream> {
+fn typed_write_fields_tokens(
+    entity: &Entity,
+    include_primary_key: bool,
+    paths: &CratePaths,
+) -> Vec<TokenStream> {
     entity
         .fields
         .iter()
@@ -1104,7 +1167,7 @@ fn typed_write_fields_tokens(entity: &Entity, include_primary_key: bool) -> Vec<
                 return None;
             }
             let ident = &field.name;
-            let input = typed_write_cell_input_expr(entity, field, quote!(self.#ident));
+            let input = typed_write_cell_input_expr(entity, field, quote!(self.#ident), paths);
 
             Some(quote! {
                 encoder.push(#descriptor_ordinal, #input);
@@ -1117,34 +1180,36 @@ fn typed_write_adapter_impl_tokens(
     entity: &Entity,
     operation_ident: &Ident,
     operation: &str,
+    paths: &CratePaths,
 ) -> TokenStream {
+    let runtime = &paths.runtime;
     let entity_ident = entity.def.ident();
     let include_primary_key = operation == "insert";
-    let fields = typed_write_fields_tokens(entity, include_primary_key);
+    let fields = typed_write_fields_tokens(entity, include_primary_key, paths);
     let field_count = fields.len();
     let build = match operation {
         "insert" => quote!(encoder.insert()),
         "patch" => {
-            let key = typed_primary_key_input_expr(entity);
+            let key = typed_primary_key_input_expr(entity, paths);
             quote!(encoder.update(#key))
         }
         "replace" => {
-            let key = typed_primary_key_input_expr(entity);
+            let key = typed_primary_key_input_expr(entity, paths);
             quote!(encoder.replace(#key))
         }
         _ => unreachable!("generated typed operation must be known"),
     };
 
     quote! {
-        impl ::icydb::db::TypedWriteAdapter for #operation_ident {
+        impl #runtime::db::TypedWriteAdapter for #operation_ident {
             type Entity = #entity_ident;
 
             fn encode_write(
                 self,
-                binding: &::icydb::db::TypedEntityBinding,
-            ) -> Result<::icydb::db::TypedWrite, ::icydb::db::TypedAdapterError> {
+                binding: &#runtime::db::TypedEntityBinding,
+            ) -> Result<#runtime::db::TypedWrite, #runtime::db::TypedAdapterError> {
                 let mut encoder =
-                    ::icydb::db::BoundWriteEncoder::new(binding, #field_count);
+                    #runtime::db::BoundWriteEncoder::new(binding, #field_count);
                 #(#fields)*
 
                 #build
@@ -1153,7 +1218,9 @@ fn typed_write_adapter_impl_tokens(
     }
 }
 
-fn entity_typed_adapter_tokens(entity: &Entity) -> TokenStream {
+fn entity_typed_adapter_tokens(entity: &Entity, paths: &CratePaths) -> TokenStream {
+    let model = &paths.model;
+    let runtime = &paths.runtime;
     if !entity.emit_runtime_adapters {
         return TokenStream::new();
     }
@@ -1170,10 +1237,10 @@ fn entity_typed_adapter_tokens(entity: &Entity) -> TokenStream {
         .map(|field| quote_one(field, to_str_lit));
     let field_descriptors = entity.fields.iter().map(|field| {
         let name = quote_one(&field.name, to_str_lit);
-        let field_type = typed_field_type_tokens(&field.value);
+        let field_type = typed_field_type_tokens(&field.value, paths);
         let nullable = field.value.cardinality() == Cardinality::Opt;
         quote! {
-            ::icydb::__macro::TypedFieldDescriptor::new(
+            #runtime::__macro::TypedFieldDescriptor::new(
                 #name,
                 #field_type,
                 #nullable,
@@ -1183,21 +1250,21 @@ fn entity_typed_adapter_tokens(entity: &Entity) -> TokenStream {
     let decoded_fields = entity.fields.iter().map(|field| {
         let name = quote_one(&field.name, to_str_lit);
         let ident = &field.name;
-        let ty = field.value.type_expr();
+        let ty = field.value.type_expr(paths);
 
         quote! {
-            #ident: <#ty as ::icydb_model::TypedOutputValue>::decode_typed_output(
+            #ident: <#ty as #model::TypedOutputValue>::decode_typed_output(
                 binding,
                 binding.take_row_value(#name, &mut row)?.into_public()
             )?
         }
     });
-    let insert_struct = typed_operation_struct_tokens(entity, &insert_ident, false);
-    let patch_struct = typed_operation_struct_tokens(entity, &patch_ident, true);
-    let replace_struct = typed_operation_struct_tokens(entity, &replace_ident, true);
-    let insert_impl = typed_write_adapter_impl_tokens(entity, &insert_ident, "insert");
-    let patch_impl = typed_write_adapter_impl_tokens(entity, &patch_ident, "patch");
-    let replace_impl = typed_write_adapter_impl_tokens(entity, &replace_ident, "replace");
+    let insert_struct = typed_operation_struct_tokens(entity, &insert_ident, false, paths);
+    let patch_struct = typed_operation_struct_tokens(entity, &patch_ident, true, paths);
+    let replace_struct = typed_operation_struct_tokens(entity, &replace_ident, true, paths);
+    let insert_impl = typed_write_adapter_impl_tokens(entity, &insert_ident, "insert", paths);
+    let patch_impl = typed_write_adapter_impl_tokens(entity, &patch_ident, "patch", paths);
+    let replace_impl = typed_write_adapter_impl_tokens(entity, &replace_ident, "replace", paths);
     let primary_key_type = if entity.primary_key.fields().len() == 1 {
         let primary_key_field = entity.primary_key.scalar_field();
         entity
@@ -1206,7 +1273,7 @@ fn entity_typed_adapter_tokens(entity: &Entity) -> TokenStream {
             .find(|field| field.name == *primary_key_field)
             .expect("validated scalar primary-key field must exist")
             .value
-            .type_expr()
+            .type_expr(paths)
     } else {
         let key_ident = composite_primary_key_ident(&ident);
         quote!(#key_ident)
@@ -1217,13 +1284,13 @@ fn entity_typed_adapter_tokens(entity: &Entity) -> TokenStream {
         #patch_struct
         #replace_struct
 
-        impl ::icydb::__macro::EntityKey for #ident {
+        impl #runtime::__macro::EntityKey for #ident {
             type Key = #primary_key_type;
         }
 
-        impl ::icydb::db::TypedEntityAdapter for #ident {
-            const DESCRIPTOR: &'static ::icydb::db::TypedEntityDescriptor =
-                &::icydb::__macro::TypedEntityDescriptor::new(
+        impl #runtime::db::TypedEntityAdapter for #ident {
+            const DESCRIPTOR: &'static #runtime::db::TypedEntityDescriptor =
+                &#runtime::__macro::TypedEntityDescriptor::new(
                     #entity_name,
                     &[#(#primary_key_source_keys),*],
                     &[#(#field_descriptors),*],
@@ -1233,22 +1300,22 @@ fn entity_typed_adapter_tokens(entity: &Entity) -> TokenStream {
         impl #ident {
             /// Bind this generated adapter to current accepted schema authority.
             pub fn typed_binding<C>(
-                session: &::icydb::db::DbSession<C>,
-            ) -> Result<::icydb::db::TypedEntityBinding, ::icydb::db::TypedOperationError>
+                session: &#runtime::db::DbSession<C>,
+            ) -> Result<#runtime::db::TypedEntityBinding, #runtime::db::TypedOperationError>
             where
-                C: ::icydb::traits::CanisterKind,
+                C: #runtime::traits::CanisterKind,
             {
-                <Self as ::icydb::db::TypedEntityAdapter>::typed_binding(session)
+                <Self as #runtime::db::TypedEntityAdapter>::typed_binding(session)
             }
         }
 
-        impl ::icydb::db::TypedRowAdapter for #ident {
+        impl #runtime::db::TypedRowAdapter for #ident {
             type Row = Self;
 
             fn decode_row(
-                binding: &::icydb::db::TypedEntityBinding,
-                mut row: ::icydb::db::OutputRow,
-            ) -> Result<Self::Row, ::icydb::db::TypedAdapterError> {
+                binding: &#runtime::db::TypedEntityBinding,
+                mut row: #runtime::db::OutputRow,
+            ) -> Result<Self::Row, #runtime::db::TypedAdapterError> {
                 Ok(Self {
                     #(#decoded_fields),*
                 })
@@ -1261,22 +1328,23 @@ fn entity_typed_adapter_tokens(entity: &Entity) -> TokenStream {
     }
 }
 
-impl ToTokens for Entity {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
+impl Entity {
+    pub(crate) fn generate_tokens(&self, paths: &CratePaths) -> TokenStream {
+        let mut tokens = TokenStream::new();
         let TraitTokens { derive, impls } = self.resolve_trait_tokens();
-        let schema = self.schema_tokens();
+        let schema = self.schema_tokens(paths);
         let schema_references = if self.emit_runtime_adapters {
-            runtime_schema_reference_tokens(&self.def, &self.fields, Some(&self.def.ident()))
+            runtime_schema_reference_tokens(&self.def, &self.fields, Some(&self.def.ident()), paths)
         } else {
             TokenStream::new()
         };
         let key_part = if self.emit_runtime_adapters {
-            composite_primary_key_type_part(self)
+            composite_primary_key_type_part(self, paths)
         } else {
             TokenStream::new()
         };
-        let type_part = self.type_part();
-        let typed_adapter_part = entity_typed_adapter_tokens(self);
+        let type_part = self.type_part(paths);
+        let typed_adapter_part = entity_typed_adapter_tokens(self, paths);
 
         tokens.extend(quote! {
             // SCHEMA CONSTANT
@@ -1298,5 +1366,6 @@ impl ToTokens for Entity {
             // IMPLEMENTATIONS
             #impls
         });
+        tokens
     }
 }

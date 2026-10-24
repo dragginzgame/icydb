@@ -12,7 +12,6 @@ require_rg "read-admission invariant checks"
 status=0
 
 DOC="docs/contracts/READ_ADMISSION.md"
-ADMISSION="crates/icydb-core/src/db/query/admission.rs"
 DIAGNOSTICS="crates/icydb-diagnostic-code/src/lib.rs"
 TYPED_QUERY="crates/icydb/src/db/query/typed.rs"
 TYPED_SESSION="crates/icydb/src/db/session/mod.rs"
@@ -50,23 +49,15 @@ require_literal() {
 # documentation tests. Local links have a structural checker; do not assert
 # prose, headings, code-example spelling, or numeric Rust source syntax here.
 
-internal_variants="$(extract_enum_variants QueryAdmissionRejection "$ADMISSION")"
 public_variants="$(extract_enum_variants QueryReadAdmissionCode "$DIAGNOSTICS")"
-if [[ -z "$internal_variants" || -z "$public_variants" ]]; then
-  echo "[ERROR] Read-admission rejection enums could not be inventoried." >&2
+if [[ -z "$public_variants" ]]; then
+  echo "[ERROR] Public read-admission diagnostics could not be inventoried." >&2
   status=1
 fi
 
-# Plan rejections are a subset: input admission can reject before a plan exists.
-# Rust checks the exhaustive code() mapping; public diagnostics own wire order.
-while IFS= read -r variant; do
-  [[ -z "$variant" ]] && continue
-  if ! rg -Fx --quiet "$variant" <<< "$public_variants"; then
-    echo "[ERROR] Missing public read-admission counterpart: $variant" >&2
-    status=1
-  fi
-done <<< "$internal_variants"
-
+# Rust's exhaustive QueryAdmissionRejection::code() mapping checks the public
+# counterpart of every plan rejection. Only documentation coverage belongs here;
+# input admission can legitimately add public codes before a plan exists.
 while IFS= read -r variant; do
   [[ -z "$variant" ]] && continue
   require_literal "$DOC" "public rejection documentation" "QueryReadAdmissionCode::$variant"

@@ -55,7 +55,7 @@ macro_rules! contracts {
             ic_wire::native::encode_request(id, &request, limits(MAX_REQUEST_BYTES))
         }
         /// Decode one fixture or generated request after resource admission.
-        pub fn decode_request<Q: Serialize + DeserializeOwned>(name: &str, bytes: &[u8]) -> Result<Q, Error> {
+        pub fn decode_request<Q: DeserializeOwned>(name: &str, bytes: &[u8]) -> Result<Q, Error> {
             if let Some(endpoint) = Endpoint::from_name(name) { return endpoint.decode_request(bytes); }
             match name {
                 $($name => ic_wire::native::decode_request($marker::ID, bytes, limits(MAX_REQUEST_BYTES)),)*
@@ -72,7 +72,7 @@ macro_rules! contracts {
             ic_wire::native::encode_response(id, &response, limits(MAX_REPLY_BYTES))
         }
         /// Decode a fixture or generated response after resource admission.
-        pub fn decode_response<R: Serialize + DeserializeOwned>(name: &str, bytes: &[u8]) -> Result<R, Error> {
+        pub fn decode_response<R: DeserializeOwned>(name: &str, bytes: &[u8]) -> Result<R, Error> {
             if let Some(endpoint) = Endpoint::from_name(name) { return endpoint.decode_response(bytes); }
             match name {
                 $($name => ic_wire::native::decode_response($marker::ID, bytes, limits(MAX_REPLY_BYTES)),)*
@@ -307,7 +307,7 @@ contracts! {
 /// Panics when called outside an IC canister entry point.
 pub fn serve<Q, R>(id: u64, handler: impl FnOnce(Q) -> R)
 where
-    Q: Serialize + DeserializeOwned,
+    Q: DeserializeOwned,
     R: Serialize,
 {
     // Keep runtime name dispatch on the native caller side. Each Wasm export
@@ -326,7 +326,7 @@ where
 /// Panics outside an IC entrypoint; reply failure traps the current message.
 pub async fn serve_async<Q, R, F>(id: u64, handler: impl FnOnce(Q) -> F)
 where
-    Q: Serialize + DeserializeOwned,
+    Q: DeserializeOwned,
     R: Serialize,
     F: std::future::Future<Output = R>,
 {
