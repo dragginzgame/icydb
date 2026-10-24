@@ -238,10 +238,10 @@ impl RowView {
     pub(in crate::db::executor) fn extract_non_null_aggregate_field_value(
         &self,
         field_slot: FieldSlot,
-    ) -> Result<Option<Value>, InternalError> {
-        let mut value = Some(self.require_slot_owned(field_slot.index)?);
+    ) -> Result<Option<&Value>, InternalError> {
+        let value = self.require_slot_value(field_slot.index)?;
 
-        extract_non_null_aggregate_field_value_with_slot_reader(field_slot, &mut |_| value.take())
+        extract_non_null_aggregate_field_value_with_slot_reader(field_slot, &mut |_| Some(value))
             .map_err(AggregateFieldValueError::into_internal_error)
     }
 

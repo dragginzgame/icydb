@@ -39,6 +39,7 @@ reports require explicit selection.
 | Commands | Shared owner | Consumer inputs |
 | --- | --- | --- |
 | `install-tools`, `tools-check`, narrow host/IC/Rust commands | Common pins, ordered setup and offline admission | Explicit pin exceptions and ordered product tool extensions |
+| `tools-report` | Aggregate existing offline checks and retain all failures | Same ordered local check targets; no setup or release admission |
 | `fmt`, `fmt-check`, `format-tools-check` | Prerequisite check, compact output, retained failure logs | Cargo environment and complete custom formatter commands when needed |
 | `install-hooks` | Safe repository-local activation | Tracked root `.githooks/pre-commit` and its companions |
 | `shared-tooling-check` | Offline snapshot integrity | `SHARED_TOOLING_MANIFEST`, default `.shared-tooling.snapshot` |

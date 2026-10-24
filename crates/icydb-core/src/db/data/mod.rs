@@ -15,8 +15,12 @@ mod structural_row;
 #[cfg(test)]
 pub(in crate::db) use crate::db::key_taxonomy::PrimaryKeyComponent;
 pub(crate) use crate::db::key_taxonomy::RawDataStoreKey;
-pub(in crate::db) use key::primary_key_value_from_structural_value;
+#[cfg(feature = "sql")]
+pub(in crate::db) use key::decode_data_store_key;
 pub(in crate::db) use key::{DecodedDataStoreKey, DecodedDataStoreKeyDecodeError};
+pub(in crate::db) use key::{
+    primary_key_value_from_structural_value, primary_key_value_from_structural_values,
+};
 #[cfg(test)]
 pub(in crate::db) use persisted_row::AcceptedMutationFieldWriteIntent;
 #[cfg(any(test, feature = "migration"))]

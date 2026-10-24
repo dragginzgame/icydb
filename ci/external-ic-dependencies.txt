@@ -1,0 +1,22 @@
+# Reviewed external IC package names; direct consumption belongs to ic-platform.
+# This is a known-package inventory, not a prefix heuristic or discovery service.
+candid
+candid_derive
+candid_parser
+ic-agent
+ic-canister-sig-creation
+ic-cdk
+ic-cdk-executor
+ic-cdk-macros
+ic-cdk-timers
+ic-certification
+ic-management-canister-types
+ic-representation-independent-hash
+ic-secp256k1
+ic-signature-verification
+ic-stable-structures
+ic-verify-bls-signature
+ic0
+ic_principal
+icrc-ledger-types
+pocket-ic

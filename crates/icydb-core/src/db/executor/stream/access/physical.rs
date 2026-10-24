@@ -9,7 +9,7 @@ use crate::{
         cursor::{CursorBoundary, CursorBoundarySlot, IndexScanContinuationInput},
         data::{
             DecodedDataStoreKey, RawDataStoreKey, RawRow, StoreVisit,
-            primary_key_value_from_structural_value,
+            primary_key_value_from_structural_values,
         },
         direction::Direction,
         executor::{
@@ -202,7 +202,7 @@ impl KeyAccessRuntime {
     // Resolve one direct primary-key lookup into its canonical ordered output.
     fn resolve_by_key(
         &self,
-        key: Value,
+        key: &Value,
     ) -> Result<(Vec<DecodedDataStoreKey>, KeyOrderState), InternalError> {
         charge_current_execution_budget(
             DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
@@ -211,7 +211,7 @@ impl KeyAccessRuntime {
         Ok((
             vec![DecodedDataStoreKey::try_from_structural_key(
                 self.entity_tag,
-                &key,
+                key,
             )?],
             KeyOrderState::FinalOrder,
         ))
@@ -729,7 +729,21 @@ fn primary_key_suffix_resume_anchor_for_prefix(
     } else {
         key_arity - prefix_len
     };
-    let (primary_key, suffix_values) = primary_key_suffix_values(primary_key_boundary, suffix_len)?;
+    let primary_key = primary_key_boundary_value(primary_key_boundary, suffix_len)?;
+    // The boundary has proved every slot present. Only an uncovered index suffix
+    // needs owned values; a full prefix retains the primary-key identity alone.
+    let suffix_values = if prefix_len == key_arity {
+        Vec::new()
+    } else {
+        primary_key_boundary
+            .slots
+            .iter()
+            .filter_map(|slot| match slot {
+                CursorBoundarySlot::Present(value) => Some(value.clone()),
+                CursorBoundarySlot::Missing => None,
+            })
+            .collect()
+    };
 
     // Prefix-family continuation is valid only when route planning has proven
     // that the remaining index suffix is exactly the primary key. Fill that
@@ -739,11 +753,7 @@ fn primary_key_suffix_resume_anchor_for_prefix(
         IndexId::new_with_generation(entity_tag, index.ordinal(), index.physical_generation()),
         IndexKeyKind::User,
         prefix,
-        if prefix_len == key_arity {
-            &[]
-        } else {
-            suffix_values.as_slice()
-        },
+        suffix_values.as_slice(),
         &primary_key,
     )
 }
@@ -784,36 +794,32 @@ fn sort_lowered_index_prefix_specs_by_raw_lower_key(
     Ok(())
 }
 
-fn primary_key_suffix_values(
+fn primary_key_boundary_value(
     boundary: &CursorBoundary,
     suffix_len: usize,
-) -> Result<(crate::db::PrimaryKeyValue, Vec<Value>), InternalError> {
-    if boundary.slots.len() != suffix_len {
+) -> Result<crate::db::PrimaryKeyValue, InternalError> {
+    // Absence rejects before key arity/type decoding, as it did when collecting
+    // owned values. The immutable borrowed projection below cannot omit a slot.
+    if boundary.slots.len() != suffix_len
+        || boundary
+            .slots
+            .iter()
+            .any(|slot| matches!(slot, CursorBoundarySlot::Missing))
+    {
         return Err(InternalError::query_executor_invariant());
     }
 
-    let values = boundary
-        .slots
-        .iter()
-        .map(|slot| match slot {
-            CursorBoundarySlot::Present(value) => Ok(value.clone()),
-            CursorBoundarySlot::Missing => Err(InternalError::query_executor_invariant()),
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let primary_key = if let [value] = values.as_slice() {
-        primary_key_value_from_structural_value(value)?
-    } else {
-        primary_key_value_from_structural_value(&Value::List(values.clone()))?
-    };
-
-    Ok((primary_key, values))
+    primary_key_value_from_structural_values(boundary.slots.iter().filter_map(|slot| match slot {
+        CursorBoundarySlot::Present(value) => Some(value),
+        CursorBoundarySlot::Missing => None,
+    }))
 }
 
 fn primary_key_boundary_data_key(
     entity_tag: EntityTag,
     boundary: &CursorBoundary,
 ) -> Result<DecodedDataStoreKey, InternalError> {
-    let (primary_key, _values) = primary_key_suffix_values(boundary, boundary.slots.len())?;
+    let primary_key = primary_key_boundary_value(boundary, boundary.slots.len())?;
 
     Ok(DecodedDataStoreKey::new_primary_key_value(
         entity_tag,
@@ -1674,7 +1680,7 @@ fn resolve_physical_key_stream(
     };
 
     let (mut candidates, mut key_order_state) = match path {
-        ExecutionPathPayload::ByKey(key) => runtime.resolve_by_key((*key).clone())?,
+        ExecutionPathPayload::ByKey(key) => runtime.resolve_by_key(key)?,
         ExecutionPathPayload::ByKeys(keys) => runtime.resolve_by_keys(keys)?,
         ExecutionPathPayload::KeyRange { start, end } => {
             return runtime.resolve_key_range_stream(
@@ -1878,6 +1884,70 @@ mod physical_polling_tests {
         }
         assert_eq!(stream.next_key().unwrap(), None);
         keys
+    }
+
+    #[test]
+    fn primary_boundaries_preserve_key_bytes_and_typed_refusals() {
+        use crate::types::{Account, Principal, Subaccount};
+
+        let account = Value::Account(Account::from_owner_and_subaccount(
+            Principal::MAX,
+            Some(Subaccount::MAX),
+        ));
+        let cases = [
+            vec![],
+            vec![Value::Unit],
+            vec![account.clone()],
+            vec![Value::Nat64(7), account.clone()],
+            vec![account; 4],
+            vec![Value::List(vec![Value::Nat64(1), Value::Nat64(2)])],
+            vec![Value::Null],
+            vec![Value::Text("unsupported".into())],
+            vec![Value::Nat64(1), Value::Unit],
+            vec![Value::List(Vec::new())],
+            vec![Value::Null; 5],
+        ];
+        for values in cases {
+            let boundary = CursorBoundary {
+                slots: values
+                    .iter()
+                    .cloned()
+                    .map(CursorBoundarySlot::Present)
+                    .collect(),
+            };
+            let structural = match values.as_slice() {
+                [value] => value.clone(),
+                _ => Value::List(values),
+            };
+            let expected = DecodedDataStoreKey::try_from_structural_key(ENTITY, &structural);
+            let actual = primary_key_boundary_data_key(ENTITY, &boundary);
+            match (expected, actual) {
+                (Ok(expected), Ok(actual)) => {
+                    assert_eq!(actual, expected);
+                    assert_eq!(actual.to_raw().unwrap(), expected.to_raw().unwrap());
+                }
+                (Err(expected), Err(actual)) => {
+                    assert_eq!(actual.diagnostic(), expected.diagnostic());
+                    assert_eq!(actual.diagnostic_facts(), expected.diagnostic_facts());
+                }
+                results => panic!("boundary and structural key results differ: {results:?}"),
+            }
+            for position in 0..=boundary.slots.len() {
+                let mut missing = boundary.clone();
+                missing.slots.insert(position, CursorBoundarySlot::Missing);
+                let error = primary_key_boundary_data_key(ENTITY, &missing).unwrap_err();
+                assert_eq!(
+                    error.diagnostic(),
+                    InternalError::query_executor_invariant().diagnostic()
+                );
+            }
+            let error =
+                primary_key_boundary_value(&boundary, boundary.slots.len() + 1).unwrap_err();
+            assert_eq!(
+                error.diagnostic(),
+                InternalError::query_executor_invariant().diagnostic()
+            );
+        }
     }
 
     #[test]
@@ -2177,43 +2247,76 @@ mod physical_polling_tests {
     #[test]
     fn materialized_primary_keys_resume_strictly_in_both_directions() {
         let runtime = KeyAccessRuntime::new(STORE, ENTITY);
-        let keys = [3, 1, 2, 3].map(Value::Nat64);
-        for direction in [Direction::Asc, Direction::Desc] {
-            for boundary_value in [0, 2, 4] {
-                let boundary = CursorBoundary {
-                    slots: vec![CursorBoundarySlot::Present(Value::Nat64(boundary_value))],
-                };
-                let mut stream = resolve_physical_key_stream(
-                    &ExecutionPathPayload::ByKeys(&keys),
-                    PhysicalStreamBindings {
-                        index_prefix_specs: &[],
-                        index_range_spec: None,
-                        continuation: AccessScanContinuationInput::with_primary_key_boundary(
-                            None,
-                            direction,
-                            Some(&boundary),
-                        ),
-                        execution_policy: AccessStreamExecutionPolicy::canonical_key_order(None),
-                        index_predicate_execution: None,
-                        index_prefix_child_expansion: None,
-                    },
-                    &runtime,
-                )
-                .unwrap();
-                let mut expected = (1..=3)
-                    .filter(|key| match direction {
-                        Direction::Asc => *key > boundary_value,
-                        Direction::Desc => *key < boundary_value,
-                    })
-                    .map(data_key)
-                    .collect::<Vec<_>>();
-                if direction == Direction::Desc {
-                    expected.reverse();
+        for composite in [false, true] {
+            let key_value = |key| {
+                if composite {
+                    Value::List(vec![Value::Nat64(7), Value::Nat64(key)])
+                } else {
+                    Value::Nat64(key)
                 }
-                for key in expected {
-                    assert_eq!(stream.next_key().unwrap(), Some(key));
+            };
+            let keys = [3, 1, 2, 3].map(key_value);
+            for path in [
+                ExecutionPathPayload::ByKey(&keys[0]),
+                ExecutionPathPayload::ByKeys(&keys),
+            ] {
+                for direction in [Direction::Asc, Direction::Desc] {
+                    for boundary_value in [0, 2, 3, 4] {
+                        let boundary = CursorBoundary {
+                            slots: if composite {
+                                vec![
+                                    CursorBoundarySlot::Present(Value::Nat64(7)),
+                                    CursorBoundarySlot::Present(Value::Nat64(boundary_value)),
+                                ]
+                            } else {
+                                vec![CursorBoundarySlot::Present(Value::Nat64(boundary_value))]
+                            },
+                        };
+                        let mut stream = resolve_physical_key_stream(
+                            &path,
+                            PhysicalStreamBindings {
+                                index_prefix_specs: &[],
+                                index_range_spec: None,
+                                continuation:
+                                    AccessScanContinuationInput::with_primary_key_boundary(
+                                        None,
+                                        direction,
+                                        Some(&boundary),
+                                    ),
+                                execution_policy: AccessStreamExecutionPolicy::canonical_key_order(
+                                    None,
+                                ),
+                                index_predicate_execution: None,
+                                index_prefix_child_expansion: None,
+                            },
+                            &runtime,
+                        )
+                        .unwrap();
+                        let mut expected = (1..=3)
+                            .filter(|key| {
+                                !matches!(path, ExecutionPathPayload::ByKey(_)) || *key == 3
+                            })
+                            .filter(|key| match direction {
+                                Direction::Asc => *key > boundary_value,
+                                Direction::Desc => *key < boundary_value,
+                            })
+                            .map(|key| {
+                                DecodedDataStoreKey::try_from_structural_key(
+                                    ENTITY,
+                                    &key_value(key),
+                                )
+                                .unwrap()
+                            })
+                            .collect::<Vec<_>>();
+                        if direction == Direction::Desc {
+                            expected.reverse();
+                        }
+                        for key in expected {
+                            assert_eq!(stream.next_key().unwrap(), Some(key));
+                        }
+                        assert_eq!(stream.next_key().unwrap(), None);
+                    }
                 }
-                assert_eq!(stream.next_key().unwrap(), None);
             }
         }
     }

@@ -132,12 +132,14 @@ PocketIC compatibility and server admission belong to Testkit.
 ### PocketIC ownership handoff
 
 IC Testkit owns PocketIC-specific release selection, asset checksums, explicit
-provisioning, offline admission and server lifecycle. Its published 0.25.4 CLI
+provisioning, offline admission and server lifecycle in the
+[IC Tooling workspace](https://github.com/dragginzgame/ic-tooling/tree/main/crates/ic-testkit).
+File current capability/adoption work in IC Tooling. The earlier published 0.25.4 CLI
 setup/check and managed-launch contract passed all three native hosts in
 [owner CI](https://github.com/dragginzgame/ic-testkit/actions/runs/37901828971).
-Follow [Testkit #38](https://github.com/dragginzgame/ic-testkit/issues/38) and
-[Shared #76](https://github.com/dragginzgame/shared-tooling/issues/76) for
-owner qualification and consumer coordination. Consumers select a qualified
+The historical [Testkit #38](https://github.com/dragginzgame/ic-testkit/issues/38) and
+[Shared #76](https://github.com/dragginzgame/shared-tooling/issues/76) retain the
+original handoff evidence. Consumers select a qualified
 Testkit package; they do not duplicate its server catalog or version policy.
 
 Shared 0.2.0 removes PocketIC from the required IC matrix and removes
@@ -219,6 +221,6 @@ Do not copy version constants into a second catalog or upgrade tools implicitly
 as part of baseline adoption.
 
 This script owns executable provisioning. Build and Candid extraction orchestration
-belong to IC Build; host primitives and IC interpretation belong to IC Host
-Tooling. See the [capability boundary](https://github.com/dragginzgame/shared-tooling/blob/main/README.md#capability-ownership).
+belong to IC Build; host primitives and IC interpretation belong to the Host
+crates. Both now live in IC Tooling. See the [capability boundary](https://github.com/dragginzgame/shared-tooling/blob/main/README.md#capability-ownership).
 Consumer orchestration, credentials, destinations and measurement policy remain local.

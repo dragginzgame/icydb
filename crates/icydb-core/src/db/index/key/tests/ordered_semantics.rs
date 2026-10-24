@@ -87,16 +87,20 @@ fn principal_ordered_components_match_semantic_and_primary_key_order() {
 #[test]
 #[expect(clippy::cast_possible_truncation)]
 fn canonical_encoder_account_payload_uses_exact_owner_length_tag() {
-    let account = Account::new(Principal::MAX, None::<Subaccount>);
-    let value = Value::Account(account);
-
-    let encoded =
-        encode_canonical_index_component(&value).expect("max-length account should encode");
-    assert_eq!(
-        encoded[1],
-        Principal::MAX_LENGTH_IN_BYTES as u8,
-        "account payload owner-length tag should preserve the full principal length"
-    );
+    for subaccount in [None, Some(Subaccount::MIN), Some(Subaccount::MAX)] {
+        let account = Account::new(Principal::MAX, subaccount);
+        let encoded = encode_canonical_index_component(&Value::Account(account))
+            .expect("max-length account should encode");
+        let tag =
+            Principal::MAX_LENGTH_IN_BYTES as u8 | if subaccount.is_some() { 0x80 } else { 0 };
+        assert_eq!(encoded[1], tag);
+        let restored = Account::from(ic_platform::Account::from(account));
+        assert_eq!(
+            encode_canonical_index_component(&Value::Account(restored))
+                .expect("restored account should encode"),
+            encoded,
+        );
+    }
 }
 
 #[test]

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/verify-file-checksum.sh scripts/ci/verify-evidence-checksums.sh scripts/ci/tool-catalog-records.pl scripts/dev/tool-store.sh scripts/dev/host-platform.sh ci/ic-tools.tsv
+# Shared companions: scripts/ci/verify-file-checksum.sh scripts/ci/verify-evidence-checksums.sh scripts/ci/tool-catalog-records.pl scripts/dev/tool-store.sh scripts/dev/host-platform.sh ci/ic-tools.tsv scripts/ci/describe-tool-selection.pl
 set -euo pipefail
 
 ROOT="${BASH_SOURCE[0]}"
@@ -10,9 +10,10 @@ consumer="$ROOT"
 pins=""
 check=false
 preflight=false
+describe=false
 tools=()
 usage() {
-    echo 'usage: install-ic-tools.sh --tool NAME [--tool NAME]... [--consumer <checkout>] [--pins <tsv>] [--check | --preflight]' >&2
+    echo 'usage: install-ic-tools.sh --tool NAME [--tool NAME]... [--consumer <checkout>] [--pins <tsv>] [--check | --preflight | --describe]' >&2
 }
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -26,6 +27,7 @@ while [[ $# -gt 0 ]]; do
             shift 2 ;;
         --check) check=true; shift ;;
         --preflight) preflight=true; shift ;;
+        --describe) describe=true; shift ;;
         -h|--help) usage; exit 0 ;;
         *) usage; exit 2 ;;
     esac
@@ -33,6 +35,7 @@ done
 [[ ${#tools[@]} != 0 ]] || { usage; exit 2; }
 requested_tools="$(printf '%s\n' "${tools[@]}" | LC_ALL=C sort -u)"
 [[ "$check" == false || "$preflight" == false ]] || { usage; exit 2; }
+[[ "$describe" == false || "$check:$preflight" == false:false ]] || { usage; exit 2; }
 [[ "$consumer" == /* ]] || consumer="$PWD/$consumer"
 case "$consumer" in *$'\n'*|*$'\r'*) echo 'consumer path contains CR/LF' >&2; exit 1 ;; esac
 consumer="$(cd -P "$consumer" && printf '%s/.' "$PWD")"
@@ -65,6 +68,10 @@ selected_ic_records() {
     '
 }
 selected_records="$(selected_ic_records "$pins")"
+if [[ "$describe" == true ]]; then
+    printf '%s\n' "$selected_records" | perl "$ROOT/scripts/ci/describe-tool-selection.pl" ic "$consumer" "$ROOT/scripts/dev/install-ic-tools.sh" "$pins"
+    exit 0
+fi
 # Platform and catalog admission only: no installed tools, downloads or writes.
 [[ "$preflight" == false ]] || exit 0
 # shellcheck source=scripts/dev/tool-store.sh
@@ -159,8 +166,6 @@ verify_bundle() (
     done <<< "$installed_records"
     while IFS=$'\t' read -r tool version selected_host digest || [[ -n "$tool" ]]; do
         [[ "$selected_host" == "$host" ]] || continue
-        # Each executable must have a checksum before any version execution.
-        awk -v file="bin/$tool" '$2 == file { n++ } END { if (n != 1) exit 1 }' files.sha256 || exit 1
         version_check "$PWD/bin/$tool" "$tool" "$version" || exit 1
     done <<< "$installed_records"
 )

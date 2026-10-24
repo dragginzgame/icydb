@@ -1,5 +1,22 @@
 # Resolved Cargo graph checks
 
+`--json` emits a complete structured result after successful Cargo observation
+and parsing: selected consumer, exact command, target, roots, pass/fail and
+package-labelled violations. A policy failure returns 1 in JSON mode. Failed or
+malformed observations emit no JSON result and still return nonzero.
+
+Add `--explain` to ask the same Cargo invocation for ASCII tree prefixes. Violations
+then include the first observed package or feature path in that selected tree;
+text mode also prints the path. Targets, features, depth limits and edge kinds
+remain unchanged. These are representative paths, not every introducing path
+or a new resolver; Cargo can deduplicate repeated subtrees. Missing required
+packages have no path. For example:
+
+```bash
+perl scripts/ci/check-cargo-graph.pl --consumer . --package example \
+  --target wasm32-unknown-unknown --forbid candid --json --explain
+```
+
 Shared Tooling owns the observation/checking mechanics. Consumers own the roots,
 targets, features, forbidden packages and required identity counts. This helper
 complements direct declaration checks; it does not replace them or infer policy

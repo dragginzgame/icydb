@@ -27,7 +27,8 @@ done < "$fixture/manifests"
 for path in Cargo.lock Makefile rust-toolchain.toml ci/dependency-pinning-exceptions.json \
   scripts/ci/check-dependency-pins.sh scripts/ci/dependency-pins.jq \
   scripts/ci/read-cargo-workspace-version.sh scripts/ci/check-dependency-graph-invariants.sh \
-  scripts/ci/check-cargo-dependency-boundaries.sh ci/cargo-dependency-boundaries.json; do
+  scripts/ci/check-cargo-dependency-boundaries.sh ci/external-ic-dependencies.txt \
+  ci/cargo-dependency-boundaries.json; do
   cp "$ROOT/$path" "$fixture/repo/$path"
 done
 cd "$fixture/repo"
@@ -63,15 +64,17 @@ check || { cat "$fixture/check.log" >&2; exit 1; }
 # Exercise the actual consumer allowlist before injecting a forbidden canonical
 # SDK/substrate identity through aliases, disabled optional features and inactive targets.
 CARGO_HOME="$ROOT/.cache/cargo/icydb" \
-  bash scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$PWD" \
+  bash scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$PWD" --external-ic \
   > "$fixture/boundaries.log" 2>&1
 cp Cargo.toml "$fixture/catalog.toml"
-for dependency in ic-cdk ic-stable-structures pocket-ic; do
+for dependency in ic-cdk ic-stable-structures pocket-ic ic-representation-independent-hash ic-cdk-management-canister; do
   cp "$fixture/catalog.toml" Cargo.toml
   case "$dependency" in
     ic-cdk) requirement=0.20.3 ;;
     ic-stable-structures) requirement=0.7.2 ;;
     pocket-ic) requirement=16.1.0 ;;
+    ic-representation-independent-hash) requirement=3.1.0 ;;
+    ic-cdk-management-canister) requirement=0.1.1 ;;
   esac
   printf '\n[workspace.dependencies.boundary_alias]\npackage = "%s"\nversion = "%s"\n' \
     "$dependency" "$requirement" >> Cargo.toml
@@ -92,7 +95,7 @@ for dependency in ic-cdk ic-stable-structures pocket-ic; do
       any(.name == $dependency and .rename == "boundary_alias")' \
       "$fixture/injected-metadata.json" > /dev/null
     if CARGO_HOME="$ROOT/.cache/cargo/icydb" \
-      bash scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$PWD" \
+      bash scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$PWD" --external-ic \
         > "$fixture/boundary-rejection.log" 2>&1; then
       echo 'consumer boundary admitted an excluded dependency alias' >&2; exit 1
     fi

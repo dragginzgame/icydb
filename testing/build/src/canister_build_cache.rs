@@ -26,8 +26,18 @@ use ic_build::artifacts::{
     WasmBuildSpec, build_artifact_caches_batch, build_wasm_canisters_cached_batch,
     build_wasm_canisters_cached_with_progress,
 };
-use ic_build::cargo::selection::CargoSelection;
+use ic_build::cargo::{environment::ConfigurationLimits, selection::CargoSelection};
 use ic_host_process::child::{CleanupPolicy, OwnedChild};
+
+// Build 0.67 requires caller-owned admission for discovered Cargo configuration.
+// One fixed budget covers single/batch fixtures and Cargo-home/ancestor includes;
+// Build owns traversal/refusal. This adds no user setting or alternate cache route.
+const CARGO_CONFIGURATION_LIMITS: ConfigurationLimits = ConfigurationLimits {
+    file_bytes: 1024 * 1024,
+    total_bytes: 16 * 1024 * 1024,
+    files: 128,
+    depth: 32,
+};
 
 const CACHE_TRACE_ENV: &str = "ICYDB_CANISTER_CACHE_TRACE";
 const POST_LINK_CACHE_NAMESPACE: &str = "icydb-canister-wasm";
@@ -157,10 +167,16 @@ fn cargo_wasm_spec(
             OsString::from(rustflags),
         );
     }
-    let mut spec = WasmBuildSpec::new(workspace_root, target_dir, packages, environment)
-        .with_cargo_selection(selection.clone())
-        .with_shared_incremental_target(target_dir)
-        .with_prune_policy_at_most_every(artifact_cache_prune_policy(), CACHE_MAINTENANCE_INTERVAL);
+    let mut spec = WasmBuildSpec::new(
+        workspace_root,
+        target_dir,
+        packages,
+        environment,
+        CARGO_CONFIGURATION_LIMITS,
+    )
+    .with_cargo_selection(selection.clone())
+    .with_shared_incremental_target(target_dir)
+    .with_prune_policy_at_most_every(artifact_cache_prune_policy(), CACHE_MAINTENANCE_INTERVAL);
     if integrated_shared_target_maintenance {
         spec = spec.with_shared_incremental_target_maintenance(
             shared_incremental_target_maintenance_config(),
@@ -369,11 +385,11 @@ mod tests {
 
     use super::{
         ArtifactCacheOutcome, BUILD_PROGRESS_HEARTBEAT_INTERVAL, CACHE_MAINTENANCE_INTERVAL,
-        CACHE_MAX_AGE, CACHE_MAX_BYTES, CargoSelection, CargoWasmBatchEntry, CargoWasmCacheRequest,
-        PostLinkBatchEntry, PostLinkCacheRequest, SHARED_INCREMENTAL_TARGET_MAX_BYTES,
-        SharedIncrementalTargetMaintenanceFailureMode, artifact_cache_prune_policy,
-        build_cached_cargo_wasm, build_cached_cargo_wasm_batch, cache_post_link_wasm,
-        cache_post_link_wasm_batch, cargo_wasm_batch_specs,
+        CACHE_MAX_AGE, CACHE_MAX_BYTES, CARGO_CONFIGURATION_LIMITS, CargoSelection,
+        CargoWasmBatchEntry, CargoWasmCacheRequest, PostLinkBatchEntry, PostLinkCacheRequest,
+        SHARED_INCREMENTAL_TARGET_MAX_BYTES, SharedIncrementalTargetMaintenanceFailureMode,
+        artifact_cache_prune_policy, build_cached_cargo_wasm, build_cached_cargo_wasm_batch,
+        cache_post_link_wasm, cache_post_link_wasm_batch, cargo_wasm_batch_specs, cargo_wasm_spec,
         shared_incremental_target_maintenance_config, wasm_build_progress_config,
     };
 
@@ -397,6 +413,11 @@ mod tests {
         )
         .unwrap();
         fs::create_dir(root.join("src")).unwrap();
+        fs::create_dir(root.join(".cargo")).unwrap();
+        let config = root.join(".cargo/config.toml");
+        // An exact-limit, valid comment qualifies the selected budget through
+        // real single/batch acquisition, not only construction of the spec.
+        fs::write(&config, "#".repeat(CARGO_CONFIGURATION_LIMITS.file_bytes)).unwrap();
         fs::write(
             root.join("Cargo.toml"),
             "[package]\nname = \"cache_flags_probe\"\nversion = \"0.0.0\"\nedition = \"2024\"\n[lib]\ncrate-type = [\"cdylib\"]\n[workspace]\n",
@@ -497,6 +518,30 @@ mod tests {
         }
         drop(single);
         drop(batch);
+        fs::write(
+            &config,
+            "#".repeat(CARGO_CONFIGURATION_LIMITS.file_bytes + 1),
+        )
+        .unwrap();
+        let single_spec = cargo_wasm_spec(
+            &root,
+            &target,
+            &["cache_flags_probe"],
+            &CargoSelection::default(),
+            Some(&flags),
+            false,
+        );
+        for spec in [&single_spec, specs[0].spec()] {
+            let error = ic_build::artifacts::resolve_cargo_build_inputs(spec).unwrap_err();
+            let ic_build::artifacts::WasmBuildError::InvalidCargoConfiguration { path, .. } = error
+            else {
+                panic!("configuration admission must retain its typed error: {error}");
+            };
+            assert_eq!(
+                fs::canonicalize(path).unwrap(),
+                fs::canonicalize(&config).unwrap()
+            );
+        }
         fs::remove_dir_all(root).unwrap();
     }
 

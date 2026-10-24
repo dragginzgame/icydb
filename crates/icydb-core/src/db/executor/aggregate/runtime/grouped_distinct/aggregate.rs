@@ -18,7 +18,7 @@ use crate::{
                 },
                 value_reducer::ValueReducerState,
             },
-            group::{CanonicalKey, GroupKeySet},
+            group::GroupKeySet,
             pipeline::contracts::ResolvedExecutionKeyStream,
             pipeline::runtime::{RowView, StructuralGroupedRowRuntime},
         },
@@ -101,7 +101,7 @@ impl GlobalDistinctFieldAggregateDispatcher {
 
     // Extract a non-NULL input before distinct-key admission, matching the
     // per-group value-target reducer's NULL and state-budget semantics.
-    fn extract(&self, row_view: &RowView) -> Result<Option<Value>, InternalError> {
+    fn extract<'a>(&self, row_view: &'a RowView) -> Result<Option<&'a Value>, InternalError> {
         row_view.extract_non_null_aggregate_field_value(self.field_slot)
     }
 }
@@ -209,21 +209,20 @@ pub(in crate::db::executor) fn execute_global_distinct_field_aggregate(
         let Some(distinct_value) = dispatcher.extract(&row_view)? else {
             continue;
         };
-        let distinct_key = distinct_value.canonical_key()?;
         let admitted = grouped_execution_context
-            .admit_distinct_key(
+            .admit_distinct_value(
                 &mut distinct_values,
                 grouped_execution_context
                     .config()
                     .max_distinct_values_per_group(),
-                distinct_key,
+                distinct_value,
             )
             .map_err(GroupError::into_internal_error)?;
         if !admitted {
             continue;
         }
 
-        accumulator.apply_distinct_value(&distinct_value)?;
+        accumulator.apply_distinct_value(distinct_value)?;
     }
 
     // Phase 3: emit the singleton grouped row owned by grouped global DISTINCT execution.
@@ -278,7 +277,7 @@ mod tests {
                 dispatcher
                     .extract(&RowView::new(vec![Some(Value::Nat64(2))]))
                     .unwrap(),
-                Some(Value::Nat64(2))
+                Some(&Value::Nat64(2))
             );
             for slots in [vec![None], vec![Some(Value::Text("invalid".into()))]] {
                 let error = dispatcher.extract(&RowView::new(slots)).unwrap_err();

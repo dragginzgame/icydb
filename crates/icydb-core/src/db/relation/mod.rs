@@ -29,17 +29,6 @@ pub(in crate::db) use validate::{
     validate_delete_relations_for_accepted_source,
 };
 
-///
-/// RelationTargetMismatchPolicy
-/// Defines whether relation target entity mismatches are skipped or rejected.
-///
-
-#[derive(Clone, Copy, Debug)]
-enum RelationTargetMismatchPolicy {
-    Skip,
-    Reject,
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum AcceptedRelationCardinality {
     Single,

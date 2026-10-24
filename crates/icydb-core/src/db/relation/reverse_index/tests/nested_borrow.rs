@@ -8,7 +8,7 @@ use crate::{
             canonical_row_from_runtime_value_source_with_accepted_contract,
         },
         relation::reverse_index::{
-            AcceptedNestedRelationSource, relation_target_raw_keys_for_source_slots,
+            AcceptedNestedRelationSource, relation_target_identities_for_source_slots,
         },
         schema::{AcceptedCompositeCatalog, PersistedRelationPathStepSnapshot},
     },
@@ -109,11 +109,23 @@ fn nested_root_projection_preserves_reader_and_charges_duplicates_before_dedup()
             StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(&raw, &contract)
                 .unwrap();
         let root = reader.required_value_by_contract_cow(1).unwrap();
-        let keys =
-            relation_target_raw_keys_for_source_slots(&reader, &edge, &mut projection, &mut batch)
-                .unwrap();
+        let keys = relation_target_identities_for_source_slots(
+            &reader,
+            &edge,
+            &mut projection,
+            &mut batch,
+        )
+        .unwrap();
         assert_eq!(keys.len(), 2);
-        assert!(keys.windows(2).all(|pair| pair[0] < pair[1]));
+        assert!(keys.windows(2).all(|pair| pair[0].0 < pair[1].0));
+        for (raw, value) in &keys {
+            assert_eq!(
+                crate::db::data::DecodedDataStoreKey::try_from_raw(raw)
+                    .unwrap()
+                    .primary_key_value(),
+                *value,
+            );
+        }
         assert_eq!(projection.raw_references, 3);
         assert_eq!(projection.traversal_work, 5);
         assert_eq!(batch.raw_references, 3);
@@ -124,8 +136,13 @@ fn nested_root_projection_preserves_reader_and_charges_duplicates_before_dedup()
             reader.required_value_by_contract_cow(1).unwrap().as_ref()
         ));
         assert_eq!(
-            relation_target_raw_keys_for_source_slots(&reader, &edge, &mut projection, &mut batch)
-                .unwrap(),
+            relation_target_identities_for_source_slots(
+                &reader,
+                &edge,
+                &mut projection,
+                &mut batch
+            )
+            .unwrap(),
             keys
         );
         assert_eq!(projection.raw_references, 6);
@@ -148,9 +165,14 @@ fn nested_root_projection_preserves_null_empty_and_budget_rejection() {
         let mut projection = RelationProjectionBudget::default();
         let mut batch = RelationCommitBudget::default();
         assert!(
-            relation_target_raw_keys_for_source_slots(&reader, &edge, &mut projection, &mut batch)
-                .unwrap()
-                .is_empty()
+            relation_target_identities_for_source_slots(
+                &reader,
+                &edge,
+                &mut projection,
+                &mut batch
+            )
+            .unwrap()
+            .is_empty()
         );
         assert_eq!(projection.raw_references, 0);
         assert_eq!(
@@ -171,7 +193,7 @@ fn nested_root_projection_preserves_null_empty_and_budget_rejection() {
             raw_references,
         };
         assert!(
-            relation_target_raw_keys_for_source_slots(
+            relation_target_identities_for_source_slots(
                 &reader,
                 &edge,
                 &mut projection,
@@ -184,7 +206,7 @@ fn nested_root_projection_preserves_null_empty_and_budget_rejection() {
             &value
         );
     }
-    let keys = relation_target_raw_keys_for_source_slots(
+    let keys = relation_target_identities_for_source_slots(
         &reader,
         &edge,
         &mut RelationProjectionBudget::default(),

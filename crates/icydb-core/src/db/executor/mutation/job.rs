@@ -15,7 +15,8 @@ use crate::{
         commit::database_incarnation_id,
         data::{
             AcceptedFixedUpdatePatch, DecodedDataStoreKey, RawDataStoreKey, StoreVisit,
-            StructuralRowContract, StructuralSlotReader, managed_timestamp_progression_regresses,
+            StructuralRowContract, StructuralSlotReader, decode_data_store_key,
+            managed_timestamp_progression_regresses,
         },
         database_format::crc32c,
         executor::{
@@ -585,7 +586,12 @@ fn advance_mutation_job_forward<C: CanisterKind>(
         return persist_classified_mutation_job_execution_failure::<C>(before, request, &error);
     }
     let advance_timestamp = Timestamp::now();
-    let patch = fixed_patch.to_update_intent();
+    let patch = match fixed_patch.to_update_intent(&row_contract) {
+        Ok(patch) => patch,
+        Err(error) => {
+            return persist_classified_mutation_job_execution_failure::<C>(before, request, &error);
+        }
+    };
     let scanner = RefCell::new(ResumableForwardScanner::new(
         &store,
         continuation.checkpoint.as_ref(),
@@ -693,6 +699,11 @@ fn advance_prepared_mutation_job_verify<C: CanisterKind>(
     };
     if let Err(error) = finish_current_execution_instruction_watermark() {
         return persist_classified_mutation_job_execution_failure::<C>(before, request, &error);
+    }
+    // Verify compares retained payload bytes without building an update intent,
+    // but must admit them against the freshly recovered accepted authority too.
+    if let Err(error) = fixed_patch.validate_for_row_contract(&row_contract) {
+        return persist_classified_mutation_job_query_failure::<C>(before, request, &error);
     }
     let scan = match scan_mutation_job_verify(
         &store,
@@ -813,6 +824,10 @@ impl<'a> ResumableForwardScanner<'a> {
         }
     }
 
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one bounded scan keeps row validation, candidate staging, and exact checkpoint progress in order"
+    )]
     fn next_mutation(
         &mut self,
         patch: &crate::db::data::AcceptedMutationIntentPatch,
@@ -860,16 +875,16 @@ impl<'a> ResumableForwardScanner<'a> {
                 self.physical_keys_scanned = self.physical_keys_scanned.saturating_add(1);
                 charge_resumable_scan_row(raw_key.as_bytes().len(), raw_row.len())?;
 
-                let decoded_key = DecodedDataStoreKey::try_from_raw(raw_key)
+                let (entity_tag, primary_key) = decode_data_store_key(raw_key)
                     .map_err(|_| InternalError::identity_corruption())?;
-                if decoded_key.entity_tag() != self.entity_tag {
+                if entity_tag != self.entity_tag {
                     return Err(InternalError::identity_corruption());
                 }
                 let row = StructuralSlotReader::from_raw_row_with_validated_contract(
                     raw_row,
                     self.row_contract.clone(),
                 )?;
-                row.validate_primary_key(&decoded_key)?;
+                row.validate_primary_key_value(&primary_key)?;
                 if resumable_row_needs_patch(self.compiled_scope, self.fixed_patch, &row)? {
                     if managed_timestamp_progression_regresses(
                         self.row_contract,
@@ -883,7 +898,11 @@ impl<'a> ResumableForwardScanner<'a> {
                         return Ok(StoreVisit::Stop);
                     }
                     candidate = Some(AcceptedLoadedStructuralRow::from_validated_parts(
-                        decoded_key,
+                        DecodedDataStoreKey::new_with_raw_primary_key_value(
+                            entity_tag,
+                            &primary_key,
+                            raw_key.clone(),
+                        ),
                         raw_row.clone(),
                     ));
                     self.pending_candidate_checkpoint = Some(raw_key.clone());
@@ -891,7 +910,10 @@ impl<'a> ResumableForwardScanner<'a> {
                     stopped = true;
                     return Ok(StoreVisit::Stop);
                 }
-                self.checkpoint = Some(raw_key.clone());
+                match self.checkpoint.as_mut() {
+                    Some(checkpoint) => checkpoint.clone_from(raw_key),
+                    None => self.checkpoint = Some(raw_key.clone()),
+                }
                 Ok(StoreVisit::Continue)
             })
         });
@@ -1124,9 +1146,9 @@ fn scan_mutation_job_verify(
             keys_scanned = keys_scanned.saturating_add(1);
             charge_resumable_scan_row(raw_key.as_bytes().len(), raw_row.len())?;
 
-            let decoded_key = DecodedDataStoreKey::try_from_raw(raw_key)
-                .map_err(|_| InternalError::identity_corruption())?;
-            if decoded_key.entity_tag() != entity_tag {
+            let (stored_entity, _) =
+                decode_data_store_key(raw_key).map_err(|_| InternalError::identity_corruption())?;
+            if stored_entity != entity_tag {
                 return Err(InternalError::identity_corruption());
             }
             let row = StructuralSlotReader::from_raw_row_with_validated_contract(
@@ -1137,7 +1159,10 @@ fn scan_mutation_job_verify(
                 residual_work = true;
                 return Ok(StoreVisit::Stop);
             }
-            final_checkpoint = Some(raw_key.clone());
+            match final_checkpoint.as_mut() {
+                Some(checkpoint) => checkpoint.clone_from(raw_key),
+                None => final_checkpoint = Some(raw_key.clone()),
+            }
 
             Ok(StoreVisit::Continue)
         })

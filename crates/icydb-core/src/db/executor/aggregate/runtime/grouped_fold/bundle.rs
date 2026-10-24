@@ -21,7 +21,6 @@ use crate::{
                         GroupIndexBucket, compare_grouped_boundary_values,
                         find_matching_group_index_in_bucket, group_key_matches_path_group_values,
                         group_key_matches_row_view, group_key_matches_single_group_value,
-                        materialize_ordered_group_value, materialize_ordered_path_group_value,
                         materialize_path_group_key, resolve_group_field_value,
                         stable_hash_group_values_from_row_view, stable_hash_path_group_values,
                         stable_hash_single_group_value,
@@ -30,8 +29,9 @@ use crate::{
             },
             group::{
                 GroupKey, StableHash, StableHashBuildHasher, StableHashMap,
-                retained_hash_entry_backing_bytes, try_reserve_hash_entry,
-                try_reserve_vec_elements,
+                compare_borrowed_group_values, retained_hash_entry_backing_bytes,
+                try_reserve_hash_entry, try_reserve_vec_elements,
+                validate_borrowed_canonical_value,
             },
             pipeline::runtime::RowView,
         },
@@ -180,18 +180,20 @@ impl<State> OrderedGroupFoldState<State> {
     /// The visitor returns `true` once page selection has enough information
     /// to stop the source scan. In that case the incoming next group is not
     /// opened, so no unused aggregate state survives the lookahead boundary.
-    pub(super) fn apply_row(
+    /// The repeatable borrowed input is materialized only when a group opens.
+    pub(super) fn apply_row<'row, Values>(
         &mut self,
         execution_context: &mut ExecutionContext,
-        incoming_key: Value,
+        incoming_values: impl Fn() -> Values,
         direction: Direction,
         create_state: impl FnOnce() -> State,
         apply_to_state: impl FnOnce(&mut State, &mut ExecutionContext) -> Result<(), GroupError>,
         visit_closed_group: impl FnOnce(GroupKey, State) -> Result<bool, InternalError>,
-    ) -> Result<bool, GroupError> {
-        let transition = self.active.as_ref().map(|(active_key, _)| {
-            compare_grouped_boundary_values(direction, active_key.canonical_value(), &incoming_key)
-        });
+    ) -> Result<bool, GroupError>
+    where
+        Values: Iterator<Item = Result<&'row Value, InternalError>>,
+    {
+        let transition = self.compare_row(direction, incoming_values())?;
 
         match transition {
             None => {}
@@ -217,9 +219,12 @@ impl<State> OrderedGroupFoldState<State> {
             }
         }
 
-        // Repeated and unused lookahead keys need only canonical comparison.
-        // Hash once the transition proves this key will actually be retained.
-        let group_key = GroupKey::from_canonical_value(incoming_key).map_err(GroupError::from)?;
+        // Repeated and unused lookahead rows only borrow their key values.
+        // Own and hash once the transition proves this key will be retained.
+        let values = incoming_values()
+            .map(Result::<&Value, InternalError>::cloned)
+            .collect::<Result<Vec<_>, _>>()?;
+        let group_key = GroupKey::from_group_values(values).map_err(GroupError::from)?;
         self.open_group(group_key, create_state, execution_context)?;
         let active = self
             .active
@@ -229,6 +234,47 @@ impl<State> OrderedGroupFoldState<State> {
         apply_to_state(active, execution_context)?;
 
         Ok(false)
+    }
+
+    // Validate every borrowed component, even after an earlier component fixes
+    // the ordering. Canonicalization used to reject malformed later maps before
+    // any transition or page-selection callback could run.
+    fn compare_row<'row>(
+        &self,
+        direction: Direction,
+        incoming_values: impl Iterator<Item = Result<&'row Value, InternalError>>,
+    ) -> Result<Option<Ordering>, InternalError> {
+        let canonical_values = self
+            .active
+            .as_ref()
+            .map(|(key, _)| match key.canonical_value() {
+                Value::List(values) => Ok(values.as_slice()),
+                _ => Err(InternalError::query_executor_invariant()),
+            })
+            .transpose()?;
+        let mut ordering = Ordering::Equal;
+        let mut value_count = 0;
+        for incoming in incoming_values {
+            let incoming = incoming?;
+            validate_borrowed_canonical_value(incoming)?;
+            if let Some(values) = canonical_values {
+                let canonical = values
+                    .get(value_count)
+                    .ok_or_else(InternalError::query_executor_invariant)?;
+                if ordering.is_eq() {
+                    ordering = compare_borrowed_group_values(canonical, incoming);
+                }
+            }
+            value_count += 1;
+        }
+        if canonical_values.is_some_and(|values| values.len() != value_count) {
+            return Err(InternalError::query_executor_invariant());
+        }
+
+        Ok(canonical_values.map(|_| match direction {
+            Direction::Asc => ordering,
+            Direction::Desc => ordering.reverse(),
+        }))
     }
 
     /// Close the final active group after ordered input exhaustion.
@@ -327,13 +373,15 @@ impl OrderedGroupedAggregateFold {
         direction: Direction,
         visit_closed_group: impl FnOnce(GroupedFinalizeGroup) -> Result<bool, InternalError>,
     ) -> Result<bool, GroupError> {
-        let incoming_key =
-            materialize_ordered_group_value(row_view, group_fields).map_err(GroupError::from)?;
         self.ingest_group_key(
             execution_context,
             data_key,
             row_view,
-            incoming_key,
+            || {
+                group_fields
+                    .iter()
+                    .map(|field| row_view.require_slot_value(field.index()))
+            },
             direction,
             visit_closed_group,
         )
@@ -349,32 +397,37 @@ impl OrderedGroupedAggregateFold {
         direction: Direction,
         visit_closed_group: impl FnOnce(GroupedFinalizeGroup) -> Result<bool, InternalError>,
     ) -> Result<bool, GroupError> {
-        let incoming_key = materialize_ordered_path_group_value(row_view, group_fields)
-            .map_err(GroupError::from)?;
         self.ingest_group_key(
             execution_context,
             data_key,
             row_view,
-            incoming_key,
+            || {
+                group_fields
+                    .iter()
+                    .map(|field| resolve_group_field_value(row_view, field))
+            },
             direction,
             visit_closed_group,
         )
     }
 
-    fn ingest_group_key(
+    fn ingest_group_key<'row, Values>(
         &mut self,
         execution_context: &mut ExecutionContext,
         data_key: &DecodedDataStoreKey,
         row_view: &RowView,
-        incoming_key: Value,
+        incoming_values: impl Fn() -> Values,
         direction: Direction,
         visit_closed_group: impl FnOnce(GroupedFinalizeGroup) -> Result<bool, InternalError>,
-    ) -> Result<bool, GroupError> {
+    ) -> Result<bool, GroupError>
+    where
+        Values: Iterator<Item = Result<&'row Value, InternalError>>,
+    {
         let specs = self.aggregate_specs.as_slice();
 
         self.transitions.apply_row(
             execution_context,
-            incoming_key,
+            incoming_values,
             direction,
             || GroupedAggregateGroupState::from_specs(specs),
             |state, context| {

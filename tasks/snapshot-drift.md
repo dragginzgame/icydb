@@ -17,7 +17,8 @@ bash scripts/ci/verify-shared-tooling-snapshot.sh \
 Record revision, selected files, hash/mode drift and missing companions. Compare
 recorded entrypoints and derived payloads separately; an older unannotated
 manifest is integrity evidence but needs explicit roots for a 0.7 refresh.
-Review proposed additions and exact retirements through the exporter's preview;
+Review proposed additions and exact retirements through the exporter's `--impact`
+preview, which also identifies affected current entrypoints and relevant history;
 do not treat a dependency closure as proof of complete local caller coverage. Compare
 the recorded upstream revision with reviewed committed releases and relevant
 fixes, then inspect the owner's adoption issue and focused CI evidence. Never

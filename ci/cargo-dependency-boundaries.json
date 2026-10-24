@@ -4,87 +4,11 @@
     "allowed_packages": []
   },
   {
-    "dependency": "candid",
-    "allowed_packages": []
-  },
-  {
-    "dependency": "candid_derive",
-    "allowed_packages": []
-  },
-  {
-    "dependency": "candid_parser",
-    "allowed_packages": []
-  },
-  {
-    "dependency": "ic-cdk",
-    "allowed_packages": []
-  },
-  {
-    "dependency": "ic-cdk-executor",
-    "allowed_packages": []
-  },
-  {
     "dependency": "ic-cdk-management-canister",
     "allowed_packages": []
   },
   {
-    "dependency": "ic-cdk-macros",
-    "allowed_packages": []
-  },
-  {
-    "dependency": "ic-cdk-timers",
-    "allowed_packages": []
-  },
-  {
     "dependency": "ic-cdk-bindgen",
-    "allowed_packages": []
-  },
-  {
-    "dependency": "ic_principal",
-    "allowed_packages": []
-  },
-  {
-    "dependency": "ic0",
-    "allowed_packages": []
-  },
-  {
-    "dependency": "ic-stable-structures",
-    "allowed_packages": []
-  },
-  {
-    "dependency": "ic-agent",
-    "allowed_packages": []
-  },
-  {
-    "dependency": "pocket-ic",
-    "allowed_packages": []
-  },
-  {
-    "dependency": "ic-certification",
-    "allowed_packages": []
-  },
-  {
-    "dependency": "ic-canister-sig-creation",
-    "allowed_packages": []
-  },
-  {
-    "dependency": "ic-signature-verification",
-    "allowed_packages": []
-  },
-  {
-    "dependency": "ic-verify-bls-signature",
-    "allowed_packages": []
-  },
-  {
-    "dependency": "ic-management-canister-types",
-    "allowed_packages": []
-  },
-  {
-    "dependency": "icrc-ledger-types",
-    "allowed_packages": []
-  },
-  {
-    "dependency": "ic-secp256k1",
     "allowed_packages": []
   }
 ]

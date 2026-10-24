@@ -274,17 +274,17 @@ pub(in crate::db::executor) fn resolve_aggregate_target_slot_from_planner_slot(
 
 /// Extract one non-NULL aggregate input and enforce its declared runtime field kind.
 /// Accepted row validation owns nullability; NULL contributes no aggregate value.
-pub(in crate::db::executor) fn extract_non_null_aggregate_field_value_with_slot_reader(
+pub(in crate::db::executor) fn extract_non_null_aggregate_field_value_with_slot_reader<'a>(
     field_slot: FieldSlot,
-    read_slot: &mut dyn FnMut(usize) -> Option<Value>,
-) -> Result<Option<Value>, AggregateFieldValueError> {
+    read_slot: &mut dyn FnMut(usize) -> Option<&'a Value>,
+) -> Result<Option<&'a Value>, AggregateFieldValueError> {
     let Some(value) = read_slot(field_slot.index) else {
         return Err(AggregateFieldValueError::MissingFieldValue);
     };
     if matches!(value, Value::Null) {
         return Ok(None);
     }
-    if !field_slot.contract.accepts_value(&value) {
+    if !field_slot.contract.accepts_value(value) {
         return Err(AggregateFieldValueError::FieldValueTypeMismatch);
     }
 

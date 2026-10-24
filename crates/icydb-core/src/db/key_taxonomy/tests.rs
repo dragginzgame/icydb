@@ -886,6 +886,39 @@ fn raw_data_store_key_decodes_live_compact_shape() {
 }
 
 #[test]
+fn raw_data_store_key_clone_from_reuses_checkpoint_buffer() {
+    let component = PrimaryKeyComponent::Account(Account::from_owner_and_subaccount(
+        Principal::MAX,
+        Some(Subaccount::MAX),
+    ));
+    let largest = PrimaryKeyValue::Composite(
+        CompositePrimaryKeyValue::try_from_components(&[component; 4]).unwrap(),
+    );
+    let keys = [
+        DecodedDataStoreKey::new(EntityTag::new(u64::MAX), &largest)
+            .to_raw()
+            .unwrap(),
+        DecodedDataStoreKey::new(
+            EntityTag::new(1),
+            &PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(7)),
+        )
+        .to_raw()
+        .unwrap(),
+        RawDataStoreKey::from_persisted_bytes(Vec::new()),
+        RawDataStoreKey::from_persisted_bytes(7_u64.to_be_bytes().to_vec()),
+    ];
+    let mut checkpoint = keys[0].clone();
+    let buffer = checkpoint.as_bytes().as_ptr();
+    for key in keys.iter().cycle().take(keys.len() * 3) {
+        checkpoint.clone_from(key);
+        assert_eq!(checkpoint, *key);
+        // Capacity already covers these frames: even shrinking to an empty or
+        // prefix-only raw key must keep the same checkpoint allocation.
+        assert_eq!(checkpoint.as_bytes().as_ptr(), buffer);
+    }
+}
+
+#[test]
 fn raw_data_store_key_accepts_composite_primary_key_suffix() {
     let entity = EntityTag::new(0x1620);
     let primary_value = composite_primary_key_fixture();

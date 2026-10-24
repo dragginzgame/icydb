@@ -765,7 +765,7 @@ impl DataStoreKey {
 }
 
 /// Raw persisted data-store key bytes.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) struct RawDataStoreKey {
     bytes: Vec<u8>,
 }
@@ -830,6 +830,20 @@ impl RawDataStoreKey {
     #[cfg(test)]
     pub(in crate::db) fn into_bytes(self) -> Vec<u8> {
         self.bytes
+    }
+}
+
+impl Clone for RawDataStoreKey {
+    fn clone(&self) -> Self {
+        Self {
+            bytes: self.bytes.clone(),
+        }
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        // Repeated scan progress keeps one buffer, preserving exact stored bytes
+        // rather than re-encoding an identity or replacing every prior anchor.
+        self.bytes.clone_from(&source.bytes);
     }
 }
 

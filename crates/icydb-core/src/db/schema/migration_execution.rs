@@ -697,7 +697,7 @@ fn preflight_migration_effects(
                 primary_key,
                 ..
             } if *record_store_path == store_path => {
-                if store.with_data(|data| data.get(primary_key)).is_none() {
+                if !store.with_data(|data| data.contains(primary_key)) {
                     return Err(InternalError::store_corruption());
                 }
             }
@@ -1203,6 +1203,66 @@ fn require_journaled(store: StoreHandle) -> Result<(), InternalError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        db::{
+            data::DataStore,
+            index::IndexStore,
+            key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
+            registry::{StoreAllocationIdentities, StoreRuntimeStorageCapabilities},
+            schema::SchemaStore,
+        },
+        types::EntityTag,
+    };
+    use icydb_schema::SchemaMigrationPlanDigest;
+    use std::cell::RefCell;
+
+    #[test]
+    fn migration_row_preflight_requires_present_source_rows() {
+        thread_local! {
+            static DATA: RefCell<DataStore> = const { RefCell::new(DataStore::init_heap()) };
+            static INDEX: RefCell<IndexStore> = const { RefCell::new(IndexStore::init_heap()) };
+            static SCHEMA: RefCell<SchemaStore> = const { RefCell::new(SchemaStore::init_heap()) };
+        }
+        let store = StoreHandle::new(
+            &DATA,
+            &INDEX,
+            &SCHEMA,
+            StoreAllocationIdentities::absent(),
+            StoreRuntimeStorageCapabilities::heap(),
+        );
+        let key = DecodedDataStoreKey::new(
+            EntityTag::new(7),
+            &PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(11)),
+        )
+        .to_raw()
+        .unwrap();
+        let records = [JournalRecord::schema_migration_row_put(
+            "test::Store",
+            key.clone(),
+            vec![1],
+            [0; 16],
+            SchemaMigrationPlanDigest::from_bytes([7; 32]),
+        )
+        .unwrap()];
+        for present in [false, true, false] {
+            DATA.with_borrow_mut(|data| {
+                if present {
+                    data.insert_raw_for_test(key.clone(), RawRow::try_new(vec![2]).unwrap());
+                } else {
+                    data.remove(&key);
+                }
+            });
+            let result = preflight_migration_effects("test::Store", store, &records);
+            if present {
+                result.unwrap();
+            } else {
+                assert_eq!(
+                    result.unwrap_err().diagnostic(),
+                    InternalError::store_corruption().diagnostic(),
+                );
+            }
+        }
+    }
 
     #[test]
     fn migration_page_limits_qualify_every_indivisible_rewrite_resource() {

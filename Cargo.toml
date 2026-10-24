@@ -81,17 +81,15 @@ clap = { version = "4.6.1", default-features = false, features = [
     "usage",
 ] }
 convert_case = "0.12"
-crc32fast = "1.5"
 # Schema registration runs before main and does not request ordered constructors.
 ctor = { version = "1.0.0", default-features = false, features = ["proc_macro", "std"] }
 darling = "0.24"
-data-encoding = "2.9"
 ethnum = { version = "1.5.3", default-features = false }
 getrandom = "0.4"
-ic-host-artifacts = { version = "0.66", default-features = false }
-ic-host-fs = { version = "0.66", default-features = false }
-ic-host-text = "0.66"
-ic-host-tools = "0.66"
+ic-host-artifacts = { version = "0.67", default-features = false }
+ic-host-fs = { version = "0.67", default-features = false }
+ic-host-text = "0.67"
+ic-host-tools = "0.67"
 ic-memory = "0.50"
 ic-metrics = "0.15"
 ic-platform = { version = "0.6", default-features = false }
@@ -127,9 +125,9 @@ xxhash-rust = { version = "0.8.15", default-features = false, features = [
 # Tests and tooling only
 blake3 = "1.8.5"
 canic-icydb = { git = "https://github.com/dragginzgame/canic", rev = "950599625722c0dbd289e80027009565547e5824" }
-ic-build = "0.66"
-ic-host-process = "0.66"
-ic-testkit = "0.66"
+ic-build = "0.67"
+ic-host-process = "0.67"
+ic-testkit = "0.67"
 ic-timers = "0.30"
 icydb-testing-audit-default-empty-fixtures = { path = "schema/audit/default_empty" }
 icydb-testing-audit-group-path-fixtures = { path = "schema/audit/group_path" }

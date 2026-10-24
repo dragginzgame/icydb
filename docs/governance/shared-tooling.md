@@ -1,8 +1,8 @@
 # Shared Tooling Adoption
 
 IcyDB adopts the [vendored shared engineering baseline](../../DRAGGINZGAME.md)
-at reviewed revision `0b07c2a3163a5a66328e100b553baf93afd8ed07`
-(Shared Tooling 0.26.8). Root
+at reviewed revision `4c0f198e56d4c6d27b12a5c2d515e0e01070151e`
+(canonical Shared Tooling metadata 0.26.10; see the version discrepancy below). Root
 [AGENTS.md](../../AGENTS.md) is the local overlay. The shared approved layout
 retains existing canister, schema and testing packages in their
 restored directories, in the single root workspace and lockfile; no new package
@@ -12,6 +12,49 @@ remain local; standard release commands follow the shared contract. A sibling ch
 these rules.
 
 ## Ownership and provenance
+
+### Selected IC Tooling 0.67.0 and Shared snapshot — 2026-10-24
+
+Published, non-yanked Host Artifacts, FS, Process, Text and Tools, Build and
+Testkit 0.67.0 are selected from crates.io. All seven downloaded archives identify
+`248df96b27b44366095d9d8e195cca8a1023bde1`, retain Rust 1.91 library support,
+and follow the published [0.67 migration notes](https://github.com/dragginzgame/ic-tooling/blob/248df96b27b44366095d9d8e195cca8a1023bde1/docs/changelog/0.67.md).
+Only these seven dependency versions change in this adoption; other pending
+fixes, dependency selections and IcyDB package versions are preserved.
+
+Build now requires explicit caller-owned Cargo configuration admission limits.
+IcyDB uses one fixed policy for single and batch fixture builds: 1 MiB per file,
+16 MiB in total, 128 files and depth 32. Build owns discovery and typed refusal;
+IcyDB adds no traversal, option or alternate cache route. Existing real single/
+batch build tests admit the file-byte boundary and reject its successor through
+Build's typed configuration error. No wire, lifecycle or persisted-format change.
+
+The canonical exporter refreshes 125 payloads at the reviewed Shared revision
+above, including the tool-selection descriptor and common external-IC inventory.
+The commit/changelog call this 0.26.11 while committed `VERSION` says 0.26.10;
+the receipt retains the exporter's exact metadata. Reconciliation is tracked in
+[Shared #304](https://github.com/dragginzgame/shared-tooling/issues/304).
+IcyDB enables the common external-IC dependency rules, removes their duplicate
+local bans and keeps stricter local bans on tempfile and the legacy management/
+bindgen packages. Alias, optional and target-specific dependency fixtures cover
+the combined policy. Formatting/release fixtures copy declared Shared companions
+and export a coherent snapshot instead of maintaining partial helper lists.
+
+Linux strict selected host/build/integration linting, 233 CLI/build tests, public
+Rust 1.91 SQL/migration Wasm, declaration and selected graph guards, tool admission,
+formatting-hook and release metadata fixtures pass. Build's release editor and
+Testkit CLI are prepared from locked 0.67.0. Installed startup and Chromium
+qualification pass: 15 calls across twelve endpoint methods, 90 exact native/
+browser frames and 3,111 truncations, with malformed/value/limit controls.
+Testkit starts and reaps the temporary PocketIC servers; no live-IC deployment
+occurs. Concurrent Memory/Storage 0.50.15 and Timers 0.30.11 lockfile updates are
+preserved and fetched before repeating the affected host, graph and Wasm checks.
+
+The dependency checks do not establish deployed-artifact admission
+([IcyDB #378](https://github.com/dragginzgame/icydb/issues/378)). Native macOS,
+exact Rust 1.96 host-floor and installed-IC qualification, broad workspace tests
+and release gates remain unrun. Raw Wasm-size, IC cycle and instruction deltas
+are unmeasured.
 
 ### Selected Wire/derive 0.6.10 — 2026-10-23
 
@@ -2537,9 +2580,11 @@ separate user-owned checks. No actual release or network lifecycle action ran.
 
 Static CI prepares and checks the locked Testkit CLI without downloading its
 official server. Its real CLI/substitute-server wrapper fixtures remain active.
-Rust matrix lanes retain shared host, IC and formatting tool admission; only
-Tier B prepares Testkit's real server. Native workspace and Tier A Make bodies
-no longer resolve a server before their native tests. Native macOS setup and
+Rust matrix lanes retain shared host, IC and formatting tool admission. Workspace
+and Tier B prepare Testkit's real server for their selected live tests; the
+native workspace leaf and Tier A still run without a server prerequisite.
+Workspace CI reuses the local durability integration selection
+([#42](https://github.com/dragginzgame/icydb/issues/42)). Native macOS setup and
 live startup qualification remain required. The CI prerequisite change adds no
 installation mode, server selector or supervisor
 ([#334](https://github.com/dragginzgame/icydb/issues/334)).
@@ -3052,7 +3097,7 @@ removed rather than extended into a Rust lexer
 ([#320](https://github.com/dragginzgame/icydb/issues/320)).
 
 The Rust CI lanes run the existing `make fetch` before their selected shared
-tool checks; Tier B additionally prepares and admits the Testkit server.
+tool checks; workspace and Tier B additionally prepare and admit the Testkit server.
 Workstation install/update prepares the same locked cache before its offline
 checks, so native CI reuses that preparation for runner installation and library
 qualification. Cache restoration never replaces explicit preparation, and a

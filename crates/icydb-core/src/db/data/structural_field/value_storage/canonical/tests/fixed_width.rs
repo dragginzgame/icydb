@@ -75,9 +75,8 @@ fn fixed_scalar_storage_preserves_exact_widths_and_nested_boundaries() {
             (CanonicalValue::Text("b".into()), CanonicalValue::Nat64(7)),
         ]);
         let bytes = encode_canonical_value_storage_bytes(&nested).unwrap();
-        let view = ValueStorageView::from_raw_validated(&bytes).unwrap();
         assert_eq!(
-            view.map_text_key_bytes(b"b")
+            ValueStorageView::from_raw_map_text_path(&bytes, &[b"b"])
                 .unwrap()
                 .unwrap()
                 .as_u64()

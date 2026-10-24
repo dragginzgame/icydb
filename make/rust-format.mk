@@ -1,5 +1,5 @@
 # Rust formatting defaults and consumer adapters; include make/tools.mk first.
-# Shared companions: make/tools.mk scripts/ci/check-format-tools.sh scripts/ci/run-formatting.sh make/execution.mk
+# Shared companions: make/tools.mk scripts/ci/check-format-tools.sh scripts/ci/run-formatting.sh scripts/ci/tool-catalog-records.pl make/execution.mk
 _shared_format_default_goal := $(.DEFAULT_GOAL)
 include $(dir $(lastword $(MAKEFILE_LIST)))execution.mk
 FORMAT_CARGO ?= cargo
@@ -29,7 +29,9 @@ format-tools-check fmt fmt-check: export CARGO_NET_OFFLINE := true
 format-tools-check fmt fmt-check: export RUSTUP_AUTO_INSTALL := 0
 
 format-tools-check:
-	+@. "$(RUST_TOOL_VERSIONS)" && bash "$(SHARED_TOOLING_ROOT)/scripts/ci/check-format-tools.sh" "$${SHARED_TOOLING_CARGO_SORT_VERSION:?}" "$(FORMAT_CARGO)"
+	+@record="$$(perl "$(SHARED_TOOLING_ROOT)/scripts/ci/tool-catalog-records.pl" rust "$(RUST_TOOL_VERSIONS)" CARGO_SORT)" || exit $$?; \
+		version="$$(printf '%s\n' "$$record" | cut -f2)"; \
+		bash "$(SHARED_TOOLING_ROOT)/scripts/ci/check-format-tools.sh" "$$version" "$(FORMAT_CARGO)"
 
 fmt: format-tools-check
 	+@bash "$(SHARED_TOOLING_ROOT)/scripts/ci/run-formatting.sh" --write \

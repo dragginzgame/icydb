@@ -78,6 +78,27 @@ release checks; qualify the deployment dependency boundary and report any
 remaining enforcement gaps." Registry publication remains a separate fact;
 neither role labels nor cached build success establishes it.
 
+## Upgrade impact
+
+Run `scripts/distribution/refresh-consumer.sh --impact --source /reviewed/shared-checkout
+--consumer /consumer` before adopting a clean committed Shared revision. This
+implies `--preview`; it never publishes or retires consumer files. The source
+checkout's HEAD is the explicit target revision; dirty source is still refused.
+Custom manifests and entrypoints use the existing exporter options.
+
+The normal ADD/UPDATE/KEEP/REMOVE roster is followed by `AFFECTS` records mapping
+changed payloads to current entrypoints through their transitive companions.
+Shared integrity helpers affect every entrypoint. Cycles terminate. Retirements
+remain separately listed; the report does not reconstruct historical caller
+coverage or infer consumer behavior from filenames. `COMMIT` records give
+path-filtered history from the recorded base to the selected target. A first
+adoption or missing/divergent ancestry is explicit rather than guessed.
+
+An older intact snapshot is not corruption. Review applicable changes and the
+consumer's actual callers, then adopt normally and run focused consumer checks.
+Use the central tooling inventory for fleet revision/integrity reporting; this
+preview adds the impact of a particular proposed adoption, not another tracker.
+
 ## Consolidating existing snapshots
 
 Use the explicit `--takeover-snapshot ROOT MANIFEST` option on

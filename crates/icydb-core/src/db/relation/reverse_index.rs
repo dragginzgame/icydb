@@ -30,9 +30,9 @@ use crate::{
         relation::{
             AcceptedRelationCardinality, AcceptedRelationTargetAuthority,
             AcceptedRelationTargetContract, AcceptedRelationTupleEdgeLocalComponent,
-            RelationTargetMismatchPolicy, accepted_relation_target_contract,
-            accepted_relation_target_metadata_from_kind, accepted_relation_tuple_edge_descriptor,
-            accepted_scalar_relation_cardinality, validate_relation_primary_key_component_kind,
+            accepted_relation_target_contract, accepted_relation_target_metadata_from_kind,
+            accepted_relation_tuple_edge_descriptor, accepted_scalar_relation_cardinality,
+            validate_relation_primary_key_component_kind,
         },
         schema::AcceptedFieldKind,
         schema::{
@@ -614,7 +614,7 @@ impl RelationConstraintProjection {
             |target, raw_target| {
                 Ok(self
                     .target_store
-                    .with_data(|data_store| data_store.get(raw_target).is_some())
+                    .with_data(|data_store| data_store.contains(raw_target))
                     && target.entity_tag() == self.relation.target().entity_tag())
             },
         )
@@ -635,7 +635,7 @@ impl RelationConstraintProjection {
             validate_targets,
             projection_budget,
             commit_budget,
-            |target, _| Ok(target_reader.read_primary_row(target)?.is_some()),
+            |target, _| target_reader.contains_primary_row(target),
         )
     }
 
@@ -651,7 +651,7 @@ impl RelationConstraintProjection {
             &RawDataStoreKey,
         ) -> Result<bool, InternalError>,
     ) -> Result<RelationConstraintRowProjection, InternalError> {
-        let target_keys = relation_target_raw_keys_for_source_slots(
+        let target_keys = relation_target_identities_for_source_slots(
             row,
             &self.relation,
             projection_budget,
@@ -659,16 +659,14 @@ impl RelationConstraintProjection {
         )?;
         let mut entries = Vec::with_capacity(target_keys.len());
         let mut missing_targets = Vec::new();
-        for target_key in target_keys {
-            let target = decode_relation_target_data_key(
-                &self.relation,
-                &target_key,
-                RelationTargetMismatchPolicy::Reject,
-            )?
-            .ok_or_else(InternalError::store_invariant)?;
+        for (target_key, target_value) in target_keys {
             if validate_targets
-                && let Some(missing_target) = commit_budget
-                    .validate_target_once(target_key, |raw_target| {
+                && let Some(missing_target) =
+                    commit_budget.validate_target_once(target_key, |raw_target| {
+                        let target = DecodedDataStoreKey::new(
+                            self.relation.target().entity_tag(),
+                            &target_value,
+                        );
                         target_exists(&target, raw_target)
                     })?
             {
@@ -678,7 +676,7 @@ impl RelationConstraintProjection {
             let Some(key) = reverse_index_key_for_target_and_source_primary_key_value(
                 &self.source,
                 &self.relation,
-                &target.primary_key_value(),
+                &target_value,
                 source_primary_key,
             )?
             else {
@@ -694,22 +692,6 @@ impl RelationConstraintProjection {
             entries,
             missing_targets,
         })
-    }
-
-    /// Build the typed missing-target failure at a live source-write boundary.
-    pub(in crate::db) fn missing_target_error(
-        &self,
-        target_key: &RawDataStoreKey,
-        accepted_schema_fingerprint: crate::db::commit::CommitSchemaFingerprint,
-        mutation: Option<MutationDiagnosticContext>,
-    ) -> Result<InternalError, InternalError> {
-        let _target = DecodedDataStoreKey::try_from_raw(target_key)
-            .map_err(|_| InternalError::store_corruption())?;
-        Ok(self.relation.write_violation(
-            accepted_schema_fingerprint,
-            self.source.entity_tag(),
-            mutation,
-        ))
     }
 
     /// Prepare reverse deltas for one live source-row transition against the
@@ -757,15 +739,16 @@ impl RelationConstraintProjection {
                 )
             })
             .transpose()?;
-        if let Some(missing) = new_projection
+        if new_projection
             .as_ref()
-            .and_then(|projection| projection.missing_targets().first())
+            .is_some_and(|projection| !projection.missing_targets().is_empty())
         {
-            return Err(self.missing_target_error(
-                missing,
+            // Missing identities were freshly encoded from accepted target keys.
+            return Err(self.relation.write_violation(
                 accepted_schema_fingerprint,
+                self.source.entity_tag(),
                 mutation,
-            )?);
+            ));
         }
         let new_entries = new_projection
             .map(RelationConstraintRowProjection::into_entries)
@@ -1493,15 +1476,14 @@ fn encode_reverse_relation_target_identity_component(
         .map_err(|_| InternalError::persisted_row_decode_corruption())
 }
 
-// Read relation-target raw keys directly from one already-decoded structural
-// source row so commit preflight can reuse slot readers it has already
-// validated for forward-index planning.
-fn relation_target_raw_keys_for_source_slots(
+// Preserve known target identities beside their canonical raw keys. Sorting and
+// deduplication remain byte-owned; projection never decodes keys it just encoded.
+fn relation_target_identities_for_source_slots(
     row_fields: &StructuralSlotReader<'_>,
     relation: &AcceptedRelationInfo,
     projection_budget: &mut RelationProjectionBudget,
     commit_budget: &mut RelationCommitBudget,
-) -> Result<Vec<RawDataStoreKey>, InternalError> {
+) -> Result<Vec<(RawDataStoreKey, PrimaryKeyValue)>, InternalError> {
     let keys = relation_target_keys_for_source_slots(
         row_fields,
         relation,
@@ -1509,7 +1491,7 @@ fn relation_target_raw_keys_for_source_slots(
         commit_budget,
     )?;
 
-    relation_target_raw_keys_from_relation_target_keys(relation, keys)
+    relation_target_identities_from_relation_target_keys(relation, keys)
 }
 
 /// Check one final source row against every target deleted by the same batch.
@@ -1524,20 +1506,16 @@ pub(in crate::db::relation) fn source_row_references_any_deleted_relation_target
         StructuralSlotReader::from_raw_row_with_validated_contract(raw_row, source_row_contract)?;
 
     let mut projection_budget = RelationProjectionBudget::default();
-    let keys = relation_target_raw_keys_for_source_slots(
+    let keys = relation_target_identities_for_source_slots(
         &row_fields,
         relation,
         &mut projection_budget,
         commit_budget,
     )?;
 
-    Ok(keys.iter().any(|key| deleted_target_keys.contains(key)))
-}
-
-// Canonicalize reverse-index target keys into deterministic sorted-unique order.
-fn canonicalize_relation_target_keys(keys: &mut Vec<RawDataStoreKey>) {
-    keys.sort_unstable();
-    keys.dedup();
+    Ok(keys
+        .iter()
+        .any(|(key, _)| deleted_target_keys.contains(key)))
 }
 
 /// Decode a reverse-index entry into source-key membership for validation.
@@ -1597,43 +1575,34 @@ where
     Ok((target_store_path, target_store))
 }
 
-/// Decode one raw relation target key and enforce reverse-index target invariants.
+/// Decode one stored delete key, skipping other entities in the shared delete set.
 pub(in crate::db::relation) fn decode_relation_target_data_key(
     relation: &AcceptedRelationInfo,
     target_raw_key: &RawDataStoreKey,
-    mismatch_policy: RelationTargetMismatchPolicy,
 ) -> Result<Option<DecodedDataStoreKey>, InternalError> {
     let target_data_key = DecodedDataStoreKey::try_from_raw(target_raw_key)
         .map_err(|_| InternalError::identity_corruption())?;
 
-    let target = relation.target();
-    if target_data_key.entity_tag() != target.entity_tag() {
-        if matches!(mismatch_policy, RelationTargetMismatchPolicy::Skip) {
-            return Ok(None);
-        }
-
-        return Err(InternalError::relation_target_entity_mismatch(
-            target.entity_tag().value(),
-            target_data_key.entity_tag().value(),
-        ));
+    if target_data_key.entity_tag() != relation.target().entity_tag() {
+        return Ok(None);
     }
 
     Ok(Some(target_data_key))
 }
 
-// Convert decoded relation target keys into canonical sorted raw keys.
-fn relation_target_raw_keys_from_relation_target_keys(
+// Keep each primary-key value with its encoded key in canonical byte order.
+fn relation_target_identities_from_relation_target_keys(
     relation: &AcceptedRelationInfo,
     keys: RelationTargetKeys,
-) -> Result<Vec<RawDataStoreKey>, InternalError> {
+) -> Result<Vec<(RawDataStoreKey, PrimaryKeyValue)>, InternalError> {
     let values = keys.into_values();
     let mut keys = Vec::with_capacity(values.len());
     for value in values {
-        keys.push(raw_relation_target_key_from_primary_key_value(
-            relation, &value,
-        )?);
+        let raw = raw_relation_target_key_from_primary_key_value(relation, &value)?;
+        keys.push((raw, value));
     }
-    canonicalize_relation_target_keys(&mut keys);
+    keys.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+    keys.dedup_by(|(left, _), (right, _)| left == right);
 
     Ok(keys)
 }
@@ -1936,7 +1905,7 @@ fn raw_relation_target_key_from_primary_key_value(
     value: &PrimaryKeyValue,
 ) -> Result<RawDataStoreKey, InternalError> {
     DecodedDataStoreKey::new(relation.target().entity_tag(), value)
-        .to_raw()
+        .to_raw_compact_key_error()
         .map_err(|_| InternalError::persisted_row_decode_corruption())
 }
 

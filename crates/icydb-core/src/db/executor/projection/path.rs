@@ -75,27 +75,8 @@ fn resolve_path_segments<'a>(
     raw_bytes: &'a [u8],
     segment_bytes: &[Box<[u8]>],
 ) -> Result<Option<&'a [u8]>, FieldDecodeError> {
-    let Some((first, remaining)) = segment_bytes.split_first() else {
-        return ValueStorageView::from_raw_validated(raw_bytes).map(|view| Some(view.as_bytes()));
-    };
-    let Some(mut current) = ValueStorageView::from_raw_map_text_key(raw_bytes, first)? else {
-        return Ok(None);
-    };
-
-    // The caller has already resolved the root field to a persisted slot
-    // payload. Traversal therefore starts at the first nested segment rather
-    // than attempting to treat the raw row as a value-storage map.
-    for segment in remaining {
-        if current.is_null() {
-            return Ok(None);
-        }
-        current = match current.map_text_key_bytes(segment)? {
-            Some(next) => next,
-            None => return Ok(None),
-        };
-    }
-
-    Ok(Some(current.as_bytes()))
+    ValueStorageView::from_raw_map_text_path(raw_bytes, segment_bytes)
+        .map(|view| view.map(|view| view.as_bytes()))
 }
 
 #[cfg(test)]
@@ -129,6 +110,26 @@ mod tests {
                     Value::Map(vec![(Value::Text("leaf".into()), Value::Null)]),
                 )]),
                 Some(Value::Null),
+            ),
+            (
+                Value::Map(vec![(
+                    Value::Text("branch".into()),
+                    Value::Map(vec![(
+                        Value::Text("leaf".into()),
+                        Value::Text("payload".repeat(1024)),
+                    )]),
+                )]),
+                Some(Value::Text("payload".repeat(1024))),
+            ),
+            (
+                Value::Map(vec![
+                    (Value::Text("branch".into()), Value::Map(vec![])),
+                    (
+                        Value::Text("branch".into()),
+                        Value::Map(vec![(Value::Text("leaf".into()), Value::Nat64(9))]),
+                    ),
+                ]),
+                None,
             ),
         ] {
             let bytes = encode_canonical_value_storage_bytes(&root).unwrap();

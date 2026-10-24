@@ -1476,25 +1476,6 @@ impl InternalError {
         )
     }
 
-    /// Construct the canonical relation-target entity mismatch corruption error.
-    pub(crate) fn relation_target_entity_mismatch(expected_tag: u64, actual_tag: u64) -> Self {
-        Self::with_diagnostic_facts(
-            ErrorClass::Corruption,
-            ErrorOrigin::Store,
-            None,
-            vec![
-                (
-                    diagnostic_code::DiagnosticFactTag::ExpectedEntityTag,
-                    expected_tag,
-                ),
-                (
-                    diagnostic_code::DiagnosticFactTag::ActualEntityTag,
-                    actual_tag,
-                ),
-            ],
-        )
-    }
-
     /// Construct the canonical covering-component empty-payload corruption error.
     pub(crate) fn bytes_covering_component_payload_empty() -> Self {
         Self::index_corruption()

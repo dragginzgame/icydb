@@ -212,21 +212,6 @@ fn storage_index_and_relation_facts_keep_only_safe_numeric_context() {
             (icydb_diagnostic_code::DiagnosticFactTag::ActualArity, 1),
         ],
     );
-
-    let entity = InternalError::relation_target_entity_mismatch(31, 37);
-    assert_eq!(
-        entity.diagnostic_facts(),
-        vec![
-            (
-                icydb_diagnostic_code::DiagnosticFactTag::ExpectedEntityTag,
-                31,
-            ),
-            (
-                icydb_diagnostic_code::DiagnosticFactTag::ActualEntityTag,
-                37,
-            ),
-        ],
-    );
 }
 
 #[test]
@@ -790,7 +775,6 @@ fn recovery_reorigining_preserves_fact_schema_families() {
 
     let cases = [
         InternalError::commit_component_length_invalid(513, 512),
-        InternalError::relation_target_entity_mismatch(1, 2),
         InternalError::relation_target_primary_key_arity_mismatch(1, 2),
         InternalError::query_stale_accepted_schema_revision(1, Some(2)),
         InternalError::index_key_field_count_exceeds_max(1, 2, 5, 4),

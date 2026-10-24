@@ -450,6 +450,8 @@ fn data_key_decode_preserves_values_and_rejects_incomplete_or_trailing_bytes() {
     ] {
         let raw = key.to_raw().expect("key should encode");
         let decoded = DecodedDataStoreKey::try_from_raw(&raw).expect("key should decode");
+        let identity = decode_data_store_key(&raw).expect("borrowed identity should decode");
+        assert_eq!(identity, (key.entity_tag(), key.primary_key_value()));
         assert_eq!(decoded.entity_tag(), key.entity_tag());
         assert_eq!(decoded.primary_key_value(), key.primary_key_value());
         assert_eq!(decoded.raw_key().expect("raw key should be retained"), &raw);
@@ -460,11 +462,20 @@ fn data_key_decode_preserves_values_and_rejects_incomplete_or_trailing_bytes() {
                 DecodedDataStoreKey::try_from_raw(&truncated),
                 Err(DecodedDataStoreKeyDecodeError::StoreKey),
             );
+            std::assert_matches!(
+                decode_data_store_key(&truncated),
+                Err(DecodedDataStoreKeyDecodeError::StoreKey),
+            );
         }
         let mut trailing = raw.into_bytes();
         trailing.push(0);
+        let trailing = RawDataStoreKey::from_persisted_bytes(trailing);
         std::assert_matches!(
-            DecodedDataStoreKey::try_from_raw(&RawDataStoreKey::from_persisted_bytes(trailing)),
+            DecodedDataStoreKey::try_from_raw(&trailing),
+            Err(DecodedDataStoreKeyDecodeError::StoreKey),
+        );
+        std::assert_matches!(
+            decode_data_store_key(&trailing),
             Err(DecodedDataStoreKeyDecodeError::StoreKey),
         );
     }

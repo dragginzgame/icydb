@@ -56,11 +56,27 @@ fn final_rows_and_tombstones_override_canonical_storage_and_reads_are_owned() {
             );
         });
     }
+    let store = db.store_handle(super::STORE_PATH).unwrap();
+    // Live store reads agree before and after each key cache is populated.
+    for id in 1..=4 {
+        let key = key(id);
+        for _ in 0..2 {
+            let row = store.read_primary_row(&key).unwrap();
+            assert_eq!(store.contains_primary_row(&key).unwrap(), row.is_some());
+            assert_eq!(
+                row.as_ref().map(RawRow::as_bytes),
+                (id <= 3).then_some(&[10][..])
+            );
+            assert!(!store.has_primary_row_override(&key).unwrap());
+        }
+    }
     let ops = [op(1, Some(vec![20])), op(2, None)];
     let reader = CanonicalCommitReader::from_row_ops(&db, &ops).unwrap();
     assert!(reader.has_primary_row_override(&key(1)).unwrap());
     assert!(reader.has_primary_row_override(&key(2)).unwrap());
     assert!(!reader.has_primary_row_override(&key(3)).unwrap());
+    assert!(reader.contains_primary_row(&key(1)).unwrap());
+    assert!(!reader.contains_primary_row(&key(2)).unwrap());
 
     let first = reader.read_primary_row(&key(1)).unwrap().unwrap();
     assert_eq!(first.as_bytes(), &[20]);
@@ -84,6 +100,8 @@ fn final_rows_and_tombstones_override_canonical_storage_and_reads_are_owned() {
     for id in [3, 4] {
         let error = reader.read_primary_row(&key(id)).unwrap_err();
         assert_eq!(error.class(), ErrorClass::Corruption);
+        let presence_error = reader.contains_primary_row(&key(id)).unwrap_err();
+        assert_eq!(presence_error.diagnostic(), error.diagnostic());
     }
 }
 

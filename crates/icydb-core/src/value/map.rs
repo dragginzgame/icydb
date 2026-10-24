@@ -97,6 +97,26 @@ fn sort_map_entries_in_place(entries: &mut [(Value, Value)]) {
     entries.sort_unstable_by(compare_map_entry_keys);
 }
 
+// Owned normalization and borrowed validation share the same duplicate rule
+// and canonical positions; callers supply keys in canonical order.
+fn validate_unique_map_keys<'a>(
+    keys: impl Iterator<Item = &'a Value>,
+) -> Result<(), MapValueError> {
+    let mut previous = None;
+    for (index, key) in keys.enumerate() {
+        if let Some(previous) = previous
+            && Value::canonical_cmp_key(previous, key) == Ordering::Equal
+        {
+            return Err(MapValueError::DuplicateKey {
+                left_index: index - 1,
+                right_index: index,
+            });
+        }
+        previous = Some(key);
+    }
+    Ok(())
+}
+
 /// Normalize map entries into canonical deterministic order.
 pub(super) fn normalize_map_entries(
     mut entries: Vec<(Value, Value)>,
@@ -104,21 +124,21 @@ pub(super) fn normalize_map_entries(
     validate_map_entries(&entries)?;
     sort_map_entries_in_place(entries.as_mut_slice());
 
-    for i in 1..entries.len() {
-        let (left_key, _) = &entries[i - 1];
-        let (right_key, _) = &entries[i];
-        if Value::canonical_cmp_key(left_key, right_key) == Ordering::Equal {
-            return Err(MapValueError::DuplicateKey {
-                left_index: i - 1,
-                right_index: i,
-            });
-        }
-    }
+    validate_unique_map_keys(entries.iter().map(|(key, _)| key))?;
 
     Ok(entries)
 }
 
 impl Value {
+    /// Validate canonical key invariants through borrowed ordered entries,
+    /// without copying map payloads or changing their source order.
+    pub(crate) fn validate_canonical_map_entries(
+        entries: &[(Self, Self)],
+    ) -> Result<(), MapValueError> {
+        validate_map_entries(entries)?;
+        validate_unique_map_keys(Self::ordered_map_entries(entries).map(|(key, _)| key))
+    }
+
     /// Validate map entry invariants without changing order.
     pub fn validate_map_entries(entries: &[(Self, Self)]) -> Result<(), MapValueError> {
         validate_map_entries(entries)

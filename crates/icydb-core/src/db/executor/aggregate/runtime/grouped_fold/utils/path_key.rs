@@ -8,12 +8,12 @@ use std::cmp::Ordering;
 use crate::{
     db::{
         executor::{
-            group::{GroupKey, StableHash, canonicalize_owned_value, stable_hash_from_digest},
+            group::{GroupKey, StableHash, stable_hash_from_digest},
             pipeline::runtime::RowView,
             projection::resolve_value_field_path,
         },
         numeric::canonical_value_compare,
-        query::plan::{FieldSlot, GroupField, expr::ProjectionEvalError},
+        query::plan::{GroupField, expr::ProjectionEvalError},
     },
     error::InternalError,
     value::{Value, ValueHashWriter},
@@ -41,34 +41,6 @@ pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn resolve_group_f
     Ok(resolve_value_field_path(root, path.path().segments())
         .map_err(ProjectionEvalError::into_internal_error)?
         .unwrap_or(&Value::Null))
-}
-
-/// Canonicalize an ordered direct tuple without hashing a possibly repeated key.
-pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn materialize_ordered_group_value(
-    row_view: &RowView,
-    group_fields: &[FieldSlot],
-) -> Result<Value, InternalError> {
-    canonicalize_owned_value(Value::List(row_view.group_values(group_fields)?))
-}
-
-/// Canonicalize an ordered path tuple without hashing a possibly repeated key.
-/// Single identity leaves retain their admitted canonical form directly.
-pub(in crate::db::executor::aggregate::runtime::grouped_fold) fn materialize_ordered_path_group_value(
-    row_view: &RowView,
-    group_fields: &[GroupField],
-) -> Result<Value, InternalError> {
-    if let [field] = group_fields {
-        let value = resolve_group_field_value(row_view, field)?.clone();
-        if field.has_identity_group_canonical_form() {
-            return Ok(Value::List(vec![value]));
-        }
-        return canonicalize_owned_value(Value::List(vec![value]));
-    }
-    let values = group_fields
-        .iter()
-        .map(|field| resolve_group_field_value(row_view, field).cloned())
-        .collect::<Result<Vec<_>, _>>()?;
-    canonicalize_owned_value(Value::List(values))
 }
 
 /// Hash one virtual path-aware group tuple without materializing a value vector.

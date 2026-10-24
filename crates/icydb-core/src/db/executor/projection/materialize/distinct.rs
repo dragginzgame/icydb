@@ -8,9 +8,10 @@ use crate::{
         cursor::CursorBoundary,
         executor::{
             group::{
-                GroupKey, StableHash, canonicalize_owned_value, retained_hash_entry_backing_bytes,
+                StableHash, canonicalize_owned_value, retained_hash_entry_backing_bytes,
                 retained_vec_element_backing_bytes, stable_hash_from_digest,
                 try_reserve_hash_entry, try_reserve_vec_elements,
+                validate_borrowed_canonical_value,
             },
             projection::materialize::{plan::PreparedProjectionContract, row_view::RowView},
         },
@@ -156,12 +157,8 @@ impl DistinctProjectionRowSet {
     // Hash and compare through borrowed values, then own a canonical key only
     // for a genuinely new projected row.
     fn insert_row(&mut self, row: &RowView) -> Result<bool, InternalError> {
-        if row
-            .values()
-            .iter()
-            .any(value_requires_owned_canonical_lookup)
-        {
-            return self.insert_row_with_owned_canonicalization(row);
+        for value in row.values() {
+            validate_borrowed_canonical_value(value)?;
         }
 
         let hash = stable_hash_projected_row(row)?;
@@ -174,27 +171,6 @@ impl DistinctProjectionRowSet {
         }
 
         let canonical = canonical_projected_row(row)?;
-        charge_distinct_key(&canonical)?;
-        self.retain_unique_canonical(hash, canonical)?;
-
-        Ok(true)
-    }
-
-    fn insert_row_with_owned_canonicalization(
-        &mut self,
-        row: &RowView,
-    ) -> Result<bool, InternalError> {
-        let key = GroupKey::from_group_values(row.values().to_vec())?;
-        let hash = key.hash();
-        let canonical = key.into_canonical_value();
-        if self
-            .buckets
-            .get(&hash)
-            .is_some_and(|bucket| bucket.iter().any(|existing| existing == &canonical))
-        {
-            return Ok(false);
-        }
-
         charge_distinct_key(&canonical)?;
         self.retain_unique_canonical(hash, canonical)?;
 
@@ -444,12 +420,8 @@ fn projected_row_matches_canonical(
     row: &RowView,
     canonical: &Value,
 ) -> Result<bool, InternalError> {
-    if row
-        .values()
-        .iter()
-        .any(value_requires_owned_canonical_lookup)
-    {
-        return canonical_projected_row(row).map(|row_key| row_key == *canonical);
+    for value in row.values() {
+        validate_borrowed_canonical_value(value)?;
     }
 
     Ok(projected_row_matches_key(row, canonical))
@@ -504,14 +476,6 @@ fn stable_hash_projected_row(row: &RowView) -> Result<StableHash, InternalError>
     Ok(stable_hash_from_digest(hash_writer.finish()))
 }
 
-fn value_requires_owned_canonical_lookup(value: &Value) -> bool {
-    match value {
-        Value::Map(_) => true,
-        Value::List(items) => items.iter().any(value_requires_owned_canonical_lookup),
-        _ => false,
-    }
-}
-
 fn projected_row_matches_key(row: &RowView, key: &Value) -> bool {
     let Value::List(key_values) = key else {
         return false;
@@ -536,7 +500,15 @@ fn value_matches_canonical_key(value: &Value, canonical: &Value) -> bool {
                     .zip(canonical_values)
                     .all(|(value, canonical)| value_matches_canonical_key(value, canonical))
         }
-        (Value::Map(_), _) => false,
+        (Value::Map(values), Value::Map(canonical_values)) => {
+            values.len() == canonical_values.len()
+                && Value::ordered_map_entries(values)
+                    .zip(canonical_values)
+                    .all(|((key, value), (canonical_key, canonical_value))| {
+                        value_matches_canonical_key(key, canonical_key)
+                            && value_matches_canonical_key(value, canonical_value)
+                    })
+        }
         _ => value == canonical,
     }
 }

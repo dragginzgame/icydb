@@ -1,29 +1,50 @@
 #!/usr/bin/env bash
-# Consumer-owned policy; canonical Cargo package names include renamed dependencies.
+# Shared companions: ci/external-ic-dependencies.txt
 set -euo pipefail
-[[ $# -eq 2 && "$1" == --consumer ]] || {
-    echo 'usage: check-cargo-dependency-boundaries.sh --consumer ROOT' >&2
+[[ ( $# -eq 2 || ( $# -eq 3 && "$3" == --external-ic ) ) && "$1" == --consumer ]] || {
+    echo 'usage: check-cargo-dependency-boundaries.sh --consumer ROOT [--external-ic]' >&2
     exit 2
 }
 consumer="$2"
+common=''
+if [[ $# == 3 ]]; then
+    common="${BASH_SOURCE[0]}"
+    [[ "$common" == /* ]] || common="$PWD/$common"
+    common="${common%/*}/../../ci/external-ic-dependencies.txt"
+fi
 case "$consumer$PWD" in *$'\n'*|*$'\r'*) echo 'consumer directory contains CR/LF' >&2; exit 2 ;; esac
 [[ "$consumer" == /* ]] || consumer="$PWD/$consumer"
 cd -P -- "$consumer"
 case "$PWD" in *$'\n'*|*$'\r'*) echo 'resolved consumer directory contains CR/LF' >&2; exit 2 ;; esac
 [[ -f Cargo.toml && ! -L Cargo.toml ]] || { echo 'consumer requires a regular Cargo.toml' >&2; exit 2; }
 policy=ci/cargo-dependency-boundaries.json
-[[ -f "$policy" && ! -L "$policy" ]] || {
-    echo "missing or non-regular dependency boundary policy: $policy" >&2
-    exit 1
-}
 CARGO_NET_OFFLINE=true RUSTUP_AUTO_INSTALL=0 perl -MJSON::PP -e '
         use strict;
         use warnings;
+        use Errno qw(ENOENT);
         local $/;
-        open my $file, "<", $ARGV[0] or die "cannot read boundary policy: $!\n";
-        my $policy = decode_json(<$file>);
-        close $file or die "cannot close boundary policy: $!\n";
-        ref($policy) eq "ARRAY" && @$policy or die "expected a nonempty policy array\n";
+        my $policy = [];
+        if (lstat($ARGV[0])) {
+            -f _ && !-l _ or die "boundary policy must be a regular file\n";
+            open my $file, "<", $ARGV[0] or die "cannot read boundary policy: $!\n";
+            $policy = decode_json(<$file>);
+            close $file or die "cannot close boundary policy: $!\n";
+            ref($policy) eq "ARRAY" && @$policy or die "expected a nonempty policy array\n";
+        } else {
+            $! == ENOENT && length($ARGV[2])
+                or die "missing or unreadable boundary policy: $!\n";
+        }
+        my %common;
+        if (length $ARGV[2]) {
+            open my $file, "<", $ARGV[2] or die "cannot read common IC policy: $!\n";
+            for my $name (split /\n/, <$file>) {
+                next if $name =~ /\A(?:#.*)?\z/;
+                $name =~ /\A[A-Za-z0-9_-]+\z/ && !$common{$name}++
+                    or die "invalid or duplicate common IC dependency\n";
+            }
+            close $file or die "cannot close common IC policy: $!\n";
+            keys(%common) or die "empty common IC policy\n";
+        }
         my %rules;
         for my $rule (@$policy) {
             ref($rule) eq "HASH" && keys(%$rule) == 2
@@ -72,11 +93,13 @@ CARGO_NET_OFFLINE=true RUSTUP_AUTO_INSTALL=0 perl -MJSON::PP -e '
                     or die "invalid Cargo dependency\n";
                 my $name = $dependency->{name};
                 $violations{"$package->{name} -> $name"} = 1
-                    if $members{$package->{id}} && exists($rules{$name}) && !$rules{$name}{$package->{name}};
+                    if $members{$package->{id}} && (
+                        (exists($rules{$name}) && !$rules{$name}{$package->{name}})
+                        || ($common{$name} && $package->{name} ne "ic-platform"));
             }
         }
         $packages{$_} or die "missing workspace member package\n" for keys %members;
         die "Forbidden direct Cargo dependencies:\n" . join("\n", sort keys %violations) . "\n"
             if keys %violations;
         print "Cargo dependency boundaries passed.\n";
-    ' "$policy" "$PWD"
+    ' "$policy" "$PWD" "$common"

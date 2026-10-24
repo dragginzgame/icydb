@@ -118,6 +118,40 @@ All three jobs also run real Prettier/Rust hook qualification and a native
 installer failure-artifact round trip, described below. These are separate
 from the offline portable suite.
 
+### Consumer Cargo tool cache
+
+The snapshot's `.github/actions/prepare-common-tools` action accepts optional
+`cache: 'true'`, `cache-save: 'true'`, `cache-extra-key` and
+`rust-tool-versions` inputs. Defaults preserve uncached installation/checking.
+For a root-layout snapshot, a consumer can replace its repeated key/restore/setup/
+save blocks with:
+
+```yaml
+- uses: ./.github/actions/prepare-common-tools
+  with:
+    cache: 'true'
+    cache-save: 'true'
+    cache-extra-key: ${{ hashFiles('ci/release-editor.env') }}
+```
+
+Prepare the selected compiler first. The action installs/checks host tools before
+computing the canonical Cargo-tool cache identity, restores only exact matching
+source-cache and Rust-generation paths, then always runs normal `install-tools`
+and `tools-check`. Cache transport failures are nonfatal; setup/admission failures
+are fatal. A two-minute cache segment download timeout limits stalled restores.
+Saving requires successful preceding steps, an enabled save input, a cache miss,
+and a push to the repository's default branch; PRs never save. There are no broad
+restore prefixes or cache-hit skips of tool admission.
+
+Include the complete consumer product-tool recipe/pin fingerprint in
+`cache-extra-key`; common tools and compiler identity are already covered. An
+explicit `rust-tool-versions` must match the catalog actually selected by the
+consumer Makefile. Cache identity is not proof of caller catalog agreement.
+Consumers needing additional acceptance before saving, such as Shared's native
+cross-checkout reuse qualification, retain their explicit cache stages. Keep
+failure-evidence collection and all native/product gates unchanged. Local action
+fixtures qualify control flow and input handling, not hosted cache speedups.
+
 ### CI setup reuse and timings
 
 Shared Tooling's native jobs cache the existing Cargo source cache and physical
@@ -128,7 +162,7 @@ The cache key uses the installer's exact compiler/native/build-policy identity,
 runner image identity, Cargo tool pins and installer/checksum sources. There are
 no misses solely from comments, record order or unrelated tool pins in the
 literal common catalog. Catalogs with executable configuration, duplicate
-assignments or unsupported syntax retain their full bytes as key input; cache
+assignments or unsupported syntax are refused; cache
 inspection never executes them or guesses their selections. There are
 no broad restore prefixes or cross-host restores. Changed inputs or an absent
 cache use ordinary cold setup.

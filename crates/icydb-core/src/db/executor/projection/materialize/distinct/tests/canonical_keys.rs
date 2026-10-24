@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::{
+    db::executor::group::GroupKey,
     types::Decimal,
     value::{test_hash_budget_error, with_test_hash_override},
 };
@@ -84,7 +85,10 @@ fn global_distinct_preserves_equality_under_hash_collisions() {
         for value in [1, 2] {
             let row = RowView::owned(vec![Value::Map(vec![(
                 Value::Text("key".into()),
-                Value::Nat64(value),
+                Value::List(vec![Value::Map(vec![(
+                    Value::Text("nested".into()),
+                    Value::Nat64(value),
+                )])]),
             )])]);
             assert!(rows.insert_row(&row).unwrap());
             assert!(!rows.insert_row(&row).unwrap());
@@ -92,4 +96,112 @@ fn global_distinct_preserves_equality_under_hash_collisions() {
         assert_eq!(rows.buckets.len(), 1);
         assert_eq!(rows.entries, 5);
     });
+}
+
+#[test]
+fn borrowed_map_distinct_preserves_hashes_keys_and_adjacent_boundaries() {
+    let first = Value::Map(vec![
+        (
+            Value::Text("outer".into()),
+            Value::List(vec![Value::Map(vec![
+                (Value::Text("z".into()), Value::Blob(vec![7; 4096])),
+                (
+                    Value::Text("a".into()),
+                    Value::Decimal(Decimal::new(100, 2)),
+                ),
+            ])]),
+        ),
+        (Value::Decimal(Decimal::new(10, 1)), Value::Null),
+    ]);
+    let reordered = Value::Map(vec![
+        (Value::Decimal(Decimal::new(1, 0)), Value::Null),
+        (
+            Value::Text("outer".into()),
+            Value::List(vec![Value::Map(vec![
+                (Value::Text("a".into()), Value::Decimal(Decimal::new(1, 0))),
+                (Value::Text("z".into()), Value::Blob(vec![7; 4096])),
+            ])]),
+        ),
+    ]);
+    for (first, reordered) in [
+        (Value::Map(vec![]), Value::Map(vec![])),
+        (first.clone(), reordered.clone()),
+        (Value::List(vec![first]), Value::List(vec![reordered])),
+    ] {
+        let first = vec![Value::Null, first];
+        let reordered = vec![Value::Null, reordered];
+        let key = GroupKey::from_group_values(first.clone()).unwrap();
+        assert_eq!(
+            stable_hash_projected_row(&RowView::owned(first.clone())).unwrap(),
+            key.hash()
+        );
+        assert_eq!(
+            stable_hash_projected_row(&RowView::owned(reordered.clone())).unwrap(),
+            key.hash()
+        );
+        for strategy in [
+            ProjectionDistinctStrategy::GlobalReplay,
+            ProjectionDistinctStrategy::OrderedAdjacent,
+        ] {
+            let page = collect(
+                strategy,
+                ProjectionDistinctWindow::new(0, None),
+                vec![
+                    DistinctProjectedRow::new(RowView::owned(first.clone()), Some(boundary(1))),
+                    DistinctProjectedRow::new(RowView::owned(reordered.clone()), Some(boundary(2))),
+                ],
+            )
+            .unwrap();
+            let (rows, last, has_more) = page.into_parts();
+            assert_eq!(text_rows(rows), vec![first.clone()]);
+            assert_eq!(
+                last,
+                Some(boundary(match strategy {
+                    ProjectionDistinctStrategy::GlobalReplay => 1,
+                    ProjectionDistinctStrategy::OrderedAdjacent => 2,
+                })),
+            );
+            assert!(!has_more);
+        }
+        let mut rows = DistinctProjectionRowSet::new();
+        assert!(rows.insert_row(&RowView::owned(first)).unwrap());
+        assert!(!rows.insert_row(&RowView::owned(reordered)).unwrap());
+        assert_eq!(rows.entries, 1);
+        assert_eq!(rows.buckets[&key.hash()], vec![key.into_canonical_value()]);
+    }
+}
+
+#[test]
+fn borrowed_map_lookup_rejects_invalid_maps_before_hash_or_comparison() {
+    let invalid_maps = [
+        Value::Map(vec![(Value::Null, Value::Nat64(1))]),
+        Value::Map(vec![(Value::List(vec![]), Value::Nat64(1))]),
+        Value::Map(vec![
+            (Value::Decimal(Decimal::new(10, 1)), Value::Nat64(1)),
+            (Value::Decimal(Decimal::new(1, 0)), Value::Nat64(2)),
+        ]),
+    ];
+    let canonical = canonical_projected_row(&RowView::owned(vec![Value::Nat64(1)])).unwrap();
+    for invalid in invalid_maps {
+        for value in [
+            invalid.clone(),
+            Value::List(vec![Value::Map(vec![(
+                Value::Text("nested".into()),
+                invalid,
+            )])]),
+        ] {
+            let row = RowView::owned(vec![Value::Nat64(2), value]);
+            let expected = canonical_projected_row(&row).unwrap_err();
+            let comparison = projected_row_matches_canonical(&row, &canonical).unwrap_err();
+            assert_eq!(comparison.diagnostic(), expected.diagnostic());
+            assert_eq!(comparison.diagnostic_facts(), expected.diagnostic_facts());
+            with_test_hash_override(Err(test_hash_budget_error), || {
+                let mut rows = DistinctProjectionRowSet::new();
+                let error = rows.insert_row(&row).unwrap_err();
+                assert_eq!(error.diagnostic(), expected.diagnostic());
+                assert_eq!(error.diagnostic_facts(), expected.diagnostic_facts());
+                assert_eq!(rows.entries, 0);
+            });
+        }
+    }
 }

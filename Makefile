@@ -275,7 +275,13 @@ _test-durability-integration:
 		-p icydb-testing-integration \
 		--test convergence_candidate \
 		--test durable_mutation_job_scale \
-		--test recovery_closeout
+		--test recovery_closeout \
+		--test logical_memory \
+		--test schema_migration_closeout \
+		--test lifecycle_participant \
+		--test read_authority \
+		--test sql_guard \
+		--test schema_guard
 
 test-canister-artifact-contract:
 	+$(CARGO_WORK_ENV) cargo test --locked -p icydb-testing-build \
@@ -456,7 +462,7 @@ check-invariants:
 	bash scripts/release/test-finalize-notes.sh
 	bash scripts/ci/check-deployment-inventory-invariants.sh
 	+$(CARGO_WORK_ENV) bash scripts/ci/check-dependency-graph-invariants.sh
-	+$(CARGO_WORK_ENV) bash scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$(ROOT_DIR)"
+	+$(CARGO_WORK_ENV) bash scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$(ROOT_DIR)" --external-ic
 	+$(CARGO_WORK_ENV) bash scripts/ci/check-executor-no-production-panics.sh
 	bash scripts/ci/check-generated-endpoint-invariants.sh
 	bash scripts/ci/check-index-range-spec-invariants.sh
@@ -538,7 +544,8 @@ ci-workspace:
 		_ci-workspace-clippy \
 		_ci-workspace-integration-clippy \
 		_ci-workspace-tests \
-		_test-canister-libs
+		_test-canister-libs \
+		_test-durability-integration
 
 _ci-workspace-clippy:
 	+$(CARGO_WORK_ENV) cargo clippy --locked --workspace --all-targets \

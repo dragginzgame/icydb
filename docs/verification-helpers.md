@@ -994,6 +994,18 @@ flag aliases and hidden assignments stay in `test-consumer-flow-probes.sh`.
 The producer-only `make_probe_execution_modes` is no longer exported; consumer
 admission checks use `make_probe_target_admission` instead.
 
+`make_probe_lint_order MAKE MAKEFILE DIRECTORY EVENTS TARGET FAILURE_EVENTS
+SUCCESS_EVENTS` checks a caller's actual reviewed pipeline under `make -j4`.
+Substitute its lint and effect leaves: record ordered lines through
+`MAKE_PROBE_EVENTS`, and return `MAKE_PROBE_LINT_STATUS` from the lint stub.
+The two expected files hold exact caller-owned event sequences. The probe runs
+lint failure (23) and success (0), requires the corresponding Make status, and
+compares the entire sequence. The failure sequence should include preparation
+and lint but no expensive build/test/package/publication effects. Keep assertions
+of the real lint command's packages/features/options local; this probe does not
+replace that evidence or execute a real release. Clear inherited Make selections
+as for the other disposable consumer probes.
+
 When adopting 0.16.0, update any calls to the removed helper before refreshing
 the reviewed snapshot. Keep the consumer's target roster, effect assertions and
 parallel jobserver checks. Existing snapshots stay bound to their recorded

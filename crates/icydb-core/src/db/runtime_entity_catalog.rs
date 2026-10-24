@@ -61,8 +61,8 @@ impl<'a, C: CanisterKind> CanonicalCommitReader<'a, C> {
 
 impl<C: CanisterKind> StructuralPrimaryRowReader for CanonicalCommitReader<'_, C> {
     fn read_primary_row(&self, key: &DecodedDataStoreKey) -> Result<Option<RawRow>, InternalError> {
-        let raw_key = key.to_raw()?;
-        if let Some(final_row) = self.batch_final_rows.get(&raw_key) {
+        let raw_key = key.raw_key()?;
+        if let Some(final_row) = self.batch_final_rows.get(raw_key) {
             // The reader contract returns owned witnesses. Copy only the
             // requested final row; a tombstone must not fall through to storage.
             return final_row
@@ -71,11 +71,22 @@ impl<C: CanisterKind> StructuralPrimaryRowReader for CanonicalCommitReader<'_, C
         }
         let runtime_entity = canonical_runtime_entity_for_tag(self.db, key.entity_tag())?;
         let store = runtime_entity.store(self.db)?;
-        Ok(store.with_data(|data_store| data_store.get_canonical(&raw_key)))
+        Ok(store.with_data(|data_store| data_store.get_canonical(raw_key)))
+    }
+
+    fn contains_primary_row(&self, key: &DecodedDataStoreKey) -> Result<bool, InternalError> {
+        let raw_key = key.raw_key()?;
+        if let Some(final_row) = self.batch_final_rows.get(raw_key) {
+            return Ok(final_row.is_some());
+        }
+        let runtime_entity = canonical_runtime_entity_for_tag(self.db, key.entity_tag())?;
+        let store = runtime_entity.store(self.db)?;
+
+        Ok(store.with_data(|data_store| data_store.contains_canonical(raw_key)))
     }
 
     fn has_primary_row_override(&self, key: &DecodedDataStoreKey) -> Result<bool, InternalError> {
-        Ok(self.batch_final_rows.contains_key(&key.to_raw()?))
+        Ok(self.batch_final_rows.contains_key(key.raw_key()?))
     }
 }
 

@@ -11,28 +11,31 @@ mod tests;
 mod window;
 
 use crate::{
-    db::executor::{
-        aggregate::{
-            ExecutionContext, GroupError, ProjectionSpec,
-            runtime::grouped_fold::{
-                bundle::OrderedGroupFoldState,
-                count::{
-                    finalize::finalize_grouped_count_page, ingest::fold_row_view_count_rows,
-                    state::GroupedCountState,
+    db::{
+        executor::{
+            aggregate::{
+                ExecutionContext, GroupError, ProjectionSpec,
+                runtime::grouped_fold::{
+                    bundle::OrderedGroupFoldState,
+                    count::{
+                        finalize::finalize_grouped_count_page, ingest::fold_row_view_count_rows,
+                        state::GroupedCountState,
+                    },
+                    dispatch::{GroupedCountKeyPath, GroupedCountProbeKind},
+                    generic::OrderedGroupedPageSelection,
+                    utils::resolve_group_field_value,
                 },
-                dispatch::{GroupedCountKeyPath, GroupedCountProbeKind},
-                generic::OrderedGroupedPageSelection,
-                utils::{materialize_ordered_group_value, materialize_ordered_path_group_value},
+                runtime::grouped_output::finalize_grouped_output,
+                value_reducer::finalize_count,
             },
-            runtime::grouped_output::finalize_grouped_output,
-            value_reducer::finalize_count,
+            group::GroupKey,
+            pipeline::{
+                contracts::{GroupedCursorPage, GroupedRouteStage},
+                runtime::GroupedStreamStage,
+            },
+            route::GroupedExecutionMode,
         },
-        group::GroupKey,
-        pipeline::{
-            contracts::{GroupedCursorPage, GroupedRouteStage},
-            runtime::GroupedStreamStage,
-        },
-        route::GroupedExecutionMode,
+        query::plan::GroupFieldRef,
     },
     error::InternalError,
     value::Value,
@@ -206,12 +209,11 @@ fn execute_ordered_grouped_count_fold_stage(
                 else {
                     continue;
                 };
-                let group_key = Value::List(vec![group_value]);
                 early_scan_stop = apply_ordered_count_row(
                     &mut transitions,
                     grouped_execution_context,
                     route,
-                    group_key,
+                    || std::iter::once(Ok(&group_value)),
                     &mut selection,
                 )?;
                 if early_scan_stop {
@@ -231,18 +233,20 @@ fn execute_ordered_grouped_count_fold_stage(
                 {
                     continue;
                 }
-                let group_key = if let Some(fields) = route.group_fields().as_direct() {
-                    materialize_ordered_group_value(&row_view, fields)?
-                } else if let Some(fields) = route.group_fields().as_path_aware() {
-                    materialize_ordered_path_group_value(&row_view, fields)?
-                } else {
-                    return Err(InternalError::query_executor_invariant());
-                };
                 early_scan_stop = apply_ordered_count_row(
                     &mut transitions,
                     grouped_execution_context,
                     route,
-                    group_key,
+                    || {
+                        route.group_fields().iter().map(|field| match field {
+                            GroupFieldRef::Direct(field) => {
+                                row_view.require_slot_value(field.index())
+                            }
+                            GroupFieldRef::PathAware(field) => {
+                                resolve_group_field_value(&row_view, field)
+                            }
+                        })
+                    },
                     &mut selection,
                 )?;
                 if early_scan_stop {
@@ -274,17 +278,20 @@ fn execute_ordered_grouped_count_fold_stage(
 
 // Fold one dedicated count row through the shared ordered transition state
 // and canonical incremental grouped-page selector.
-fn apply_ordered_count_row(
+fn apply_ordered_count_row<'row, Values>(
     transitions: &mut OrderedGroupFoldState<u32>,
     grouped_execution_context: &mut ExecutionContext,
     route: &GroupedRouteStage,
-    group_key: Value,
+    group_values: impl Fn() -> Values,
     selection: &mut OrderedGroupedPageSelection<'_>,
-) -> Result<bool, InternalError> {
+) -> Result<bool, InternalError>
+where
+    Values: Iterator<Item = Result<&'row Value, InternalError>>,
+{
     transitions
         .apply_row(
             grouped_execution_context,
-            group_key,
+            group_values,
             route.direction(),
             || 0,
             |count, _context| {

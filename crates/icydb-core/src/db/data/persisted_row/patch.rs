@@ -250,14 +250,44 @@ impl AcceptedFixedUpdatePatch {
         self.fields.as_slice()
     }
 
-    /// Rebuild the private existing-row update intent from retained canonical payloads.
-    #[must_use]
-    pub(in crate::db) fn to_update_intent(&self) -> AcceptedMutationIntentPatch {
-        self.fields
+    /// Validate retained field encodings once against the current row contract.
+    /// Restored bytes need codec validation; row constraints remain at preflight.
+    pub(in crate::db) fn validate_for_row_contract(
+        &self,
+        contract: &StructuralRowContract,
+    ) -> Result<(), InternalError> {
+        for field in &self.fields {
+            let slot = field.slot.index();
+            let policy = contract
+                .required_accepted_field_contract(slot)?
+                .write_policy();
+            if policy.insert_generation().is_some() || policy.write_management().is_some() {
+                return Err(InternalError::executor_invariant());
+            }
+            let _ = crate::db::data::decode_runtime_value_from_row_contract(
+                contract,
+                slot,
+                field.payload.as_slice(),
+            )?;
+        }
+
+        Ok(())
+    }
+
+    /// Bind the private update intent to the accepted contract used for row execution.
+    /// Callers must keep that same authority for every row consuming this patch.
+    pub(in crate::db) fn to_update_intent(
+        &self,
+        contract: &StructuralRowContract,
+    ) -> Result<AcceptedMutationIntentPatch, InternalError> {
+        self.validate_for_row_contract(contract)?;
+
+        Ok(self
+            .fields
             .iter()
             .fold(AcceptedMutationIntentPatch::new(), |patch, field| {
                 patch.set_canonical_payload(field.slot, field.payload.clone())
-            })
+            }))
     }
 
     /// Return whether every fixed authored target already matches one accepted row.
@@ -644,11 +674,8 @@ pub(in crate::db) fn resolve_update_structural_patch_with_accepted_contract(
                 {
                     return Err(InternalError::executor_invariant());
                 }
-                let _ = crate::db::data::decode_runtime_value_from_row_contract(
-                    contract,
-                    slot,
-                    canonical_payload.as_slice(),
-                )?;
+                // The fixed-patch binder admitted these bytes against this
+                // accepted contract once; row constraints remain at commit preflight.
                 *payload = Some(canonical_payload);
                 provenance[slot] = Some(AcceptedFieldWriteProvenance::Authored);
                 continue;
@@ -1191,6 +1218,134 @@ mod tests {
             Value::Timestamp(Timestamp::from_millis(7)),
             Value::Null,
         ]
+    }
+
+    #[cfg(feature = "sql")]
+    #[test]
+    fn fixed_update_binding_preserves_payload_bytes_across_rows_and_noops() {
+        use crate::types::Timestamp;
+        use icydb_diagnostic_code::DiagnosticMutationOperation;
+
+        let (contract, constraints) = replacement_owned_contract(&replacement_owned_snapshot());
+        let payload = encode_canonical_value_for_accepted_field_contract(
+            contract
+                .required_accepted_field_persistence_contract(1)
+                .unwrap(),
+            &Value::Nat64(77),
+        )
+        .unwrap();
+        let null = encode_canonical_value_for_accepted_field_contract(
+            contract
+                .required_accepted_field_persistence_contract(6)
+                .unwrap(),
+            &Value::Null,
+        )
+        .unwrap();
+        let fixed = AcceptedFixedUpdatePatch::from_canonical_fields(vec![
+            (FieldSlot::from_validated_index(1), payload.clone()),
+            (FieldSlot::from_validated_index(6), null.clone()),
+        ])
+        .unwrap();
+        let patch = fixed.to_update_intent(&contract).unwrap();
+        for (id, before_value) in [(1, 10), (2, 20), (3, 77)] {
+            let mut values = replacement_owned_values();
+            values[0] = Value::Nat64(id);
+            values[1] = Value::Nat64(before_value);
+            let before =
+                canonical_row_from_runtime_value_source_with_accepted_contract(&contract, |slot| {
+                    Ok(Cow::Borrowed(&values[slot]))
+                })
+                .unwrap()
+                .into_raw_row();
+            let baseline = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
+                &before, &contract,
+            )
+            .unwrap();
+            let after = resolve_update_structural_patch_with_accepted_contract(
+                &contract,
+                [7; 16],
+                &constraints,
+                &baseline,
+                &patch,
+                AcceptedWriteContext::new(Timestamp::from_millis(8)),
+                MutationDiagnosticContext::new(
+                    crate::db::schema::accepted_schema_cache_fingerprint_method_version(),
+                    [7; 16],
+                    1,
+                    DiagnosticMutationOperation::Update,
+                    0,
+                ),
+            )
+            .unwrap()
+            .into_parts()
+            .0
+            .into_raw_row();
+            let reader =
+                StructuralSlotReader::from_raw_row_with_borrowed_contract(&after, &contract)
+                    .unwrap();
+            assert_eq!(reader.required_bytes(1).unwrap(), payload);
+            assert_eq!(reader.required_bytes(6).unwrap(), null);
+            assert_eq!(reader.required_cached_value(0).unwrap(), &Value::Nat64(id));
+            let timestamp = if before_value == 77 { 7 } else { 8 };
+            assert_eq!(
+                reader.required_cached_value(5).unwrap(),
+                &Value::Timestamp(Timestamp::from_millis(timestamp))
+            );
+            if before_value == 77 {
+                assert_eq!(after.as_bytes(), before.as_bytes());
+            }
+        }
+    }
+
+    #[cfg(feature = "sql")]
+    #[test]
+    fn fixed_update_binding_rejects_malformed_wrong_contract_and_managed_payloads() {
+        let (contract, _) = replacement_owned_contract(&replacement_owned_snapshot());
+        let payload = encode_canonical_value_for_accepted_field_contract(
+            contract
+                .required_accepted_field_persistence_contract(1)
+                .unwrap(),
+            &Value::Nat64(77),
+        )
+        .unwrap();
+        for (slot, bytes) in [(1, Vec::new()), (1, vec![0xff]), (99, payload.clone())] {
+            let expected =
+                crate::db::data::decode_runtime_value_from_row_contract(&contract, slot, &bytes)
+                    .unwrap_err();
+            let fixed = AcceptedFixedUpdatePatch::from_canonical_fields(vec![(
+                FieldSlot::from_validated_index(slot),
+                bytes,
+            )])
+            .unwrap();
+            let error = fixed.to_update_intent(&contract).unwrap_err();
+            assert_eq!(error.diagnostic(), expected.diagnostic());
+            assert_eq!(error.diagnostic_facts(), expected.diagnostic_facts());
+        }
+        for slot in 2..=5 {
+            let fixed = AcceptedFixedUpdatePatch::from_canonical_fields(vec![(
+                FieldSlot::from_validated_index(slot),
+                vec![0xff],
+            )])
+            .unwrap();
+            let error = fixed.to_update_intent(&contract).unwrap_err();
+            assert_eq!(
+                error.diagnostic(),
+                InternalError::executor_invariant().diagnostic()
+            );
+        }
+        let fixed = AcceptedFixedUpdatePatch::from_canonical_fields(vec![(
+            FieldSlot::from_validated_index(1),
+            payload.clone(),
+        )])
+        .unwrap();
+        let (other_contract, _) =
+            replacement_owned_contract(&narrow_integer_snapshot(AcceptedFieldKind::Nat16, 2));
+        let expected =
+            crate::db::data::decode_runtime_value_from_row_contract(&other_contract, 1, &payload)
+                .unwrap_err();
+        let error = fixed.to_update_intent(&other_contract).unwrap_err();
+        assert_eq!(error.diagnostic(), expected.diagnostic());
+        assert_eq!(error.diagnostic_facts(), expected.diagnostic_facts());
     }
 
     #[test]

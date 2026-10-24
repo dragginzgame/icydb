@@ -13,15 +13,12 @@ use crate::{
         direction::Direction,
         index::StructuralPrimaryRowReader,
         registry::StoreHandle,
-        relation::{
-            RelationTargetMismatchPolicy,
-            reverse_index::{
-                AcceptedRelationInfo, RelationCommitBudget, ReverseRelationSourceInfo,
-                accepted_relations_for_row_contract, decode_relation_target_data_key,
-                decode_reverse_entry, relation_target_store,
-                reverse_index_key_bounds_for_target_primary_key_value,
-                source_row_references_any_deleted_relation_target,
-            },
+        relation::reverse_index::{
+            AcceptedRelationInfo, RelationCommitBudget, ReverseRelationSourceInfo,
+            accepted_relations_for_row_contract, decode_relation_target_data_key,
+            decode_reverse_entry, relation_target_store,
+            reverse_index_key_bounds_for_target_primary_key_value,
+            source_row_references_any_deleted_relation_target,
         },
         runtime_entity_catalog::AcceptedRuntimeEntity,
     },
@@ -134,11 +131,7 @@ where
         let target_index_store = relation_target_store(db, &source_info, &relation)?;
 
         for target_raw_key in deleted_target_keys {
-            let Some(target_data_key) = decode_relation_target_data_key(
-                &relation,
-                target_raw_key,
-                RelationTargetMismatchPolicy::Skip,
-            )?
+            let Some(target_data_key) = decode_relation_target_data_key(&relation, target_raw_key)?
             else {
                 continue;
             };

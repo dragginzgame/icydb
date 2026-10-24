@@ -59,6 +59,9 @@ pub(in crate::db) trait StructuralPrimaryRowReader {
     /// Return the primary row for `key`, or `None` when no row exists.
     fn read_primary_row(&self, key: &DecodedDataStoreKey) -> Result<Option<RawRow>, InternalError>;
 
+    /// Return presence in this reader's authoritative view without loading rows.
+    fn contains_primary_row(&self, key: &DecodedDataStoreKey) -> Result<bool, InternalError>;
+
     /// Return whether this reader overrides committed state for `key`.
     ///
     /// Commit-batch overlays use this to distinguish an intentional final
@@ -73,9 +76,17 @@ impl<C: CanisterKind> StructuralPrimaryRowReader for Db<C> {
     fn read_primary_row(&self, key: &DecodedDataStoreKey) -> Result<Option<RawRow>, InternalError> {
         let runtime_entity = self.accepted_runtime_entity_for_tag(key.entity_tag())?;
         let store = self.recovered_store(runtime_entity.store_path())?;
-        let raw_key = key.to_raw()?;
+        let raw_key = key.raw_key()?;
 
-        Ok(store.with_data(|data_store| data_store.get(&raw_key)))
+        Ok(store.with_data(|data_store| data_store.get(raw_key)))
+    }
+
+    fn contains_primary_row(&self, key: &DecodedDataStoreKey) -> Result<bool, InternalError> {
+        let runtime_entity = self.accepted_runtime_entity_for_tag(key.entity_tag())?;
+        let store = self.recovered_store(runtime_entity.store_path())?;
+        let raw_key = key.raw_key()?;
+
+        Ok(store.with_data(|data_store| data_store.contains(raw_key)))
     }
 }
 

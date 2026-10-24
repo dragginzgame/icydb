@@ -13,7 +13,7 @@ fn assert_readers_reject(bytes: &[u8]) {
     assert!(decode_canonical_value_storage_bytes(bytes).is_err());
     assert!(decode_structural_value_storage_bytes(bytes).is_err());
     assert!(ValueStorageView::from_raw_validated(bytes).is_err());
-    assert!(ValueStorageView::from_raw_map_text_key(bytes, b"rank").is_err());
+    assert!(ValueStorageView::from_raw_map_text_path(bytes, &[b"rank"]).is_err());
     assert!(validate_structural_value_storage_bytes(bytes).is_err());
 }
 
@@ -41,24 +41,21 @@ fn canonical_traversal_selects_scalars_and_enum_leaves_in_both_sibling_orders() 
             let bytes = encode_canonical_value_storage_bytes(&root).unwrap();
             assert_eq!(decode_structural_value_storage_bytes(&bytes).unwrap(), root);
             for _ in 0..2 {
-                let view = ValueStorageView::from_raw_validated(&bytes).unwrap();
                 for (name, expected) in [
                     (b"rank".as_slice(), CanonicalValue::Nat64(9)),
                     (b"state".as_slice(), state.clone()),
                 ] {
-                    let leaf = view.map_text_key_bytes(name).unwrap().unwrap();
-                    let selected = ValueStorageView::from_raw_map_text_key(&bytes, name)
+                    let selected = ValueStorageView::from_raw_map_text_path(&bytes, &[name])
                         .unwrap()
                         .unwrap();
-                    assert_eq!(selected.as_bytes(), leaf.as_bytes());
+
                     assert_eq!(
-                        decode_structural_value_storage_bytes(leaf.as_bytes()).unwrap(),
+                        decode_structural_value_storage_bytes(selected.as_bytes()).unwrap(),
                         expected
                     );
                 }
-                assert!(view.map_text_key_bytes(b"missing").unwrap().is_none());
                 assert!(
-                    ValueStorageView::from_raw_map_text_key(&bytes, b"missing")
+                    ValueStorageView::from_raw_map_text_path(&bytes, &[b"missing"])
                         .unwrap()
                         .is_none()
                 );
@@ -85,18 +82,14 @@ fn canonical_traversal_keeps_first_text_match_and_validates_entire_root() {
         ),
     ]);
     let bytes = encode_canonical_value_storage_bytes(&root).unwrap();
-    let view = ValueStorageView::from_raw_validated(&bytes).unwrap();
     for _ in 0..2 {
-        let rank = view.map_text_key_bytes(b"rank").unwrap().unwrap();
-        let selected = ValueStorageView::from_raw_map_text_key(&bytes, b"rank")
+        let selected = ValueStorageView::from_raw_map_text_path(&bytes, &[b"rank"])
             .unwrap()
             .unwrap();
-        assert_eq!(selected.as_bytes(), rank.as_bytes());
         assert_eq!(
-            decode_structural_value_storage_bytes(rank.as_bytes()).unwrap(),
+            decode_structural_value_storage_bytes(selected.as_bytes()).unwrap(),
             CanonicalValue::Nat64(9)
         );
-        assert!(view.map_text_key_bytes(b"missing").unwrap().is_none());
     }
     // A match before a malformed suffix must never authorize a partial view.
     for end in 0..bytes.len() {
@@ -122,14 +115,12 @@ fn canonical_traversal_counts_each_list_map_and_enum_value_once() {
         let bytes = encode_canonical_value_storage_bytes(&root).unwrap();
         assert_eq!(decode_canonical_value_storage_bytes(&bytes).unwrap(), root);
         assert_eq!(decode_structural_value_storage_bytes(&bytes).unwrap(), root);
-        let view = ValueStorageView::from_raw_validated(&bytes).unwrap();
-        let leaf = view.map_text_key_bytes(b"leaf").unwrap().unwrap();
-        let selected = ValueStorageView::from_raw_map_text_key(&bytes, b"leaf")
+        let selected = ValueStorageView::from_raw_map_text_path(&bytes, &[b"leaf"])
             .unwrap()
             .unwrap();
-        assert_eq!(selected.as_bytes(), leaf.as_bytes());
+
         assert_eq!(
-            decode_structural_value_storage_bytes(leaf.as_bytes()).unwrap(),
+            decode_structural_value_storage_bytes(selected.as_bytes()).unwrap(),
             value
         );
         let excessive = CanonicalValue::List(vec![root]);
@@ -161,7 +152,78 @@ fn canonical_traversal_counts_each_list_map_and_enum_value_once() {
             .unwrap(),
         );
         assert_readers_reject(&map);
-        assert!(ValueStorageView::from_raw_map_text_key(&map, b"missing").is_err());
+        assert!(ValueStorageView::from_raw_map_text_path(&map, &[b"missing"]).is_err());
+    }
+}
+
+#[test]
+fn canonical_path_selection_preserves_nested_members_and_original_depth() {
+    for depth in 1..MAX_ACCEPTED_RECURSIVE_DEPTH {
+        for leaf in [
+            CanonicalValue::Null,
+            CanonicalValue::Text("payload".repeat(1024)),
+            CanonicalValue::Map(vec![]),
+        ] {
+            let mut root = leaf.clone();
+            for _ in 0..depth {
+                root = CanonicalValue::Map(vec![
+                    (CanonicalValue::Nat64(3), CanonicalValue::Unit),
+                    (CanonicalValue::Text("branch".into()), root),
+                    // Duplicate names keep the first match, including absent
+                    // descendants and null ancestors in that first branch.
+                    (CanonicalValue::Text("branch".into()), CanonicalValue::Unit),
+                ]);
+            }
+            let bytes = encode_canonical_value_storage_bytes(&root).unwrap();
+            let mut path = vec![b"branch".as_slice(); depth];
+            let selected = ValueStorageView::from_raw_map_text_path(&bytes, &path)
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                decode_structural_value_storage_bytes(selected.as_bytes()).unwrap(),
+                leaf,
+            );
+            path.push(b"missing");
+            let result = ValueStorageView::from_raw_map_text_path(&bytes, &path);
+            if matches!(leaf, CanonicalValue::Null | CanonicalValue::Map(_)) {
+                assert!(result.unwrap().is_none());
+            } else {
+                assert!(result.is_err());
+            }
+        }
+    }
+}
+
+#[test]
+fn canonical_path_selection_rejects_corrupt_siblings_after_a_nested_match() {
+    let root = CanonicalValue::Map(vec![
+        (
+            CanonicalValue::Text("branch".into()),
+            CanonicalValue::Map(vec![
+                (CanonicalValue::Text("leaf".into()), CanonicalValue::Null),
+                (
+                    CanonicalValue::Text("inner_sibling".into()),
+                    canonical_enum(Some(CanonicalValue::Nat64(5))),
+                ),
+            ]),
+        ),
+        (
+            CanonicalValue::Text("outer_sibling".into()),
+            canonical_enum(Some(CanonicalValue::Nat64(7))),
+        ),
+    ]);
+    let bytes = encode_canonical_value_storage_bytes(&root).unwrap();
+    for path in [
+        vec![b"branch".as_slice(), b"leaf"],
+        vec![b"branch".as_slice(), b"missing"],
+        vec![b"missing".as_slice()],
+    ] {
+        for end in 0..bytes.len() {
+            assert!(ValueStorageView::from_raw_map_text_path(&bytes[..end], &path).is_err());
+        }
+        let mut trailing = bytes.clone();
+        trailing.push(TAG_UNIT);
+        assert!(ValueStorageView::from_raw_map_text_path(&trailing, &path).is_err());
     }
 }
 

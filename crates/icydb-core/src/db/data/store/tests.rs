@@ -71,6 +71,7 @@ fn positioned_publication_preserves_presence_and_cold_warm_cardinality() {
                 )
                 .expect("positioned effect");
             assert_eq!(store.contains(&key), payload.is_some());
+            assert!(store.contains_canonical(&key));
             assert_eq!(
                 store.get(&key).map(|row| row.as_bytes().to_vec()),
                 payload.map(|value| vec![value])
@@ -94,6 +95,7 @@ fn positioned_publication_preserves_presence_and_cold_warm_cardinality() {
                 )
                 .expect("absent/live effect");
             assert_eq!(store.contains(&missing_key), payload.is_some());
+            assert!(!store.contains_canonical(&missing_key));
             assert_eq!(
                 store.exact_entity_count(EntityTag::new(1)),
                 materialized.then_some(u64::from(payload.is_some()))
@@ -202,6 +204,8 @@ fn data_store_emptiness_tracks_visible_keys_across_backings_and_repeated_effects
 #[test]
 fn data_store_read_borrows_heap_and_live_rows_but_owns_stable_rows() {
     let heap = seed_heap_store(&[(1, 1, 11)]);
+    assert!(heap.contains_canonical(&raw_key(1, 1)));
+    assert!(!heap.contains_canonical(&raw_key(1, 2)));
     assert!(matches!(
         heap.read(&raw_key(1, 1)),
         StoredRowRead::Borrowed(row) if row.as_bytes() == [11]

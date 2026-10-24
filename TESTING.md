@@ -265,10 +265,10 @@ canister scenario. Current lane selection is:
 | Lane / target | Selected coverage | Execution |
 | --- | --- | --- |
 | `ci-core` | No-default facade/core checks and tests, explicit SQL checks and Clippy | CI |
-| `ci-workspace` | Workspace Clippy and tests; every registered integration test target is type-checked/linted, integration test execution is excluded here | CI |
+| `ci-workspace` | Workspace Clippy/tests, all registered integration targets type-checked/linted, and the nine durability/lifecycle/authority integration binaries below | Native and PocketIC CI |
 | `ci-sql-tier-a` | One seeded sample per scheduled SELECT/mutation obligation, using IcyDB, bundled SQLite and the independent mutation model; plus `sql_correctness` | Native CI |
 | `ci-sql-tier-b` | `sql_canister` and `sql_perf_audit` | PocketIC CI |
-| `test-durability` | Core commit/mutation-job suites plus `convergence_candidate`, `durable_mutation_job_scale` and `recovery_closeout` | Explicit local selection |
+| `test-durability` | Core commit/mutation-job suites plus the shared `_test-durability-integration` selection below | Explicit local selection; integration leaf also runs in workspace CI |
 | `test-canister-artifact-contract` | Production/local Wasm export policy test, explicitly including its ignored test | Explicit local selection; also included by `make test` |
 | `test-sql-tier-c-shard`, `test-sql-tier-c-merge`, `test-sql-tier-c-replay` | Generated/reference receipts and failure replay | Explicit local selection |
 
@@ -285,13 +285,19 @@ After changing those declarations, rederive its golden identity and regenerate
 receipts for the maintained manifest; do not reuse old receipts as current proof.
 
 `ci-workspace` uses Clippy's `--tests` selection for the integration package,
-including ignored test bodies, without executing them or starting PocketIC.
-This catches compilation/lint failures beyond the selected SQL execution lanes;
-it does not establish recovery, upgrade or authorization behavior
+including ignored test bodies. It also executes the same unfiltered
+`_test-durability-integration` leaf as `test-durability`: `convergence_candidate`,
+`durable_mutation_job_scale`, `recovery_closeout`, `logical_memory`,
+`schema_migration_closeout`, `lifecycle_participant`, `read_authority`, `sql_guard`
+and `schema_guard`. The workspace lane prepares and admits the locked server
+through Testkit before dispatch; the core and Tier A lanes remain native-only.
+Workflow fixtures reject missing test families, filters, ignored-only or
+compile-only substitutions and omitted CI routing. Compile coverage alone is
+not recovery, upgrade or authorization qualification; actual installed results
+belong to the CI run
 ([#42 — PR CI durability integration coverage](https://github.com/dragginzgame/icydb/issues/42)).
-`make test-unit` also executes workspace integration test binaries; most lifecycle
-binaries still execute under explicitly selected local tests, rather than the
-Tier B pair. For development, select one binary/test
+`make test-unit` also executes workspace integration test binaries. For
+development, select one binary/test
 or use `test-integration-feedback` with its required `TEST_TARGET` and `TEST_NAME`;
 that target runs one exact test and then the complete selected binary.
 

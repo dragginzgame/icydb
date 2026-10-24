@@ -58,7 +58,13 @@ isolated string match in Make, shell, Python or another language.
 For an observable caller CLI, capture its read-only selection output in a JSON
 file containing `catalog`, `source` and `source_sha256`, then replace those three
 fields in the caller binding with `"observation": "path/to/captured.json"`.
-The CLI should emit the same selected path it uses for its operation. Retain its
+The common installers provide this output through `--describe`, including the
+same selected records used by their operation. Their additional `kind`,
+`consumer`, `records` and `admission` fields are accepted; kind and consumer must
+match the binding. The checker still reads the selected catalog independently:
+captured records are diagnostic context, not an integrity substitute. Explicit
+Cargo recipes have no catalog and remain outside this catalog agreement check.
+Retain its
 command and invocation context with the owning qualification evidence. The check
 labels this a **recorded CLI observation**; it does not execute or authenticate
 the producer. Hand-authored bindings must not be labelled observations. A stale

@@ -9,6 +9,8 @@ use crate::{
     value::Value,
 };
 use std::{
+    borrow::Borrow,
+    cmp::Ordering,
     collections::HashSet,
     hash::{Hash, Hasher},
 };
@@ -45,6 +47,14 @@ impl Hash for GroupKey {
 }
 
 impl GroupKey {
+    /// Retain a borrowed value after its canonical hash has already been proved.
+    pub(in crate::db::executor) fn from_value_with_hash(
+        value: &Value,
+        hash: StableHash,
+    ) -> Result<Self, InternalError> {
+        Ok(Self::from_raw_with_hash(canonicalize_value(value)?, hash))
+    }
+
     /// Retain an already-canonical grouped value with its required stable hash.
     pub(in crate::db::executor) fn from_canonical_value(raw: Value) -> Result<Self, InternalError> {
         let hash = stable_hash_value(&raw)?;
@@ -143,30 +153,6 @@ impl GroupKey {
 }
 
 ///
-/// CanonicalKey
-///
-/// CanonicalKey materializes one opaque canonical grouping key from a value.
-///
-
-pub(in crate::db::executor) trait CanonicalKey {
-    /// Materialize one canonical grouped key from this value.
-    fn canonical_key(&self) -> Result<GroupKey, InternalError>;
-}
-
-impl CanonicalKey for Value {
-    fn canonical_key(&self) -> Result<GroupKey, InternalError> {
-        let canonical = canonicalize_value(self)?;
-        GroupKey::from_canonical_value(canonical)
-    }
-}
-
-impl CanonicalKey for &Value {
-    fn canonical_key(&self) -> Result<GroupKey, InternalError> {
-        (*self).canonical_key()
-    }
-}
-
-///
 /// GroupKeySet
 ///
 /// GroupKeySet tracks canonical distinct keys directly by canonical grouped
@@ -178,6 +164,47 @@ pub(in crate::db::executor) struct GroupKeySet {
     keys: HashSet<GroupKey>,
 }
 
+// HashSet's borrowed lookup must share the retained key's cached hash and
+// canonical equality. This private view permits a stack-only value probe while
+// preserving the existing set backing and its resource accounting.
+trait GroupKeyIdentity {
+    fn identity(&self) -> (StableHash, &Value);
+}
+
+impl GroupKeyIdentity for GroupKey {
+    fn identity(&self) -> (StableHash, &Value) {
+        (self.hash, self.canonical_value())
+    }
+}
+
+impl GroupKeyIdentity for (StableHash, &Value) {
+    fn identity(&self) -> (StableHash, &Value) {
+        *self
+    }
+}
+
+impl Eq for dyn GroupKeyIdentity + '_ {}
+
+impl Hash for dyn GroupKeyIdentity + '_ {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write_u64(self.identity().0);
+    }
+}
+
+impl PartialEq for dyn GroupKeyIdentity + '_ {
+    fn eq(&self, other: &Self) -> bool {
+        let (left_hash, left) = self.identity();
+        let (right_hash, right) = other.identity();
+        left_hash == right_hash && compare_borrowed_group_values(left, right).is_eq()
+    }
+}
+
+impl<'a> Borrow<dyn GroupKeyIdentity + 'a> for GroupKey {
+    fn borrow(&self) -> &(dyn GroupKeyIdentity + 'a) {
+        self
+    }
+}
+
 impl GroupKeySet {
     /// Construct one empty canonical grouped-key set.
     #[must_use]
@@ -187,10 +214,9 @@ impl GroupKeySet {
         }
     }
 
-    /// Return true when this canonical key is already present.
-    #[must_use]
-    pub(in crate::db::executor) fn contains_key(&self, key: &GroupKey) -> bool {
-        self.keys.contains(key)
+    /// Probe a validated value without allocating its retained canonical tree.
+    pub(in crate::db::executor) fn contains_value(&self, value: &Value, hash: StableHash) -> bool {
+        self.keys.contains(&(hash, value) as &dyn GroupKeyIdentity)
     }
 
     /// Return the total number of canonical keys tracked by this set.
@@ -239,6 +265,70 @@ fn canonicalize_map_entries(entries: &[(Value, Value)]) -> Result<Value, Interna
             .iter()
             .map(|(key, value)| Ok((canonicalize_value(key)?, canonicalize_value(value)?))),
     )
+}
+
+/// Compare borrowed values as grouped canonical keys without copying payloads.
+/// Lists retain variant-ranked tuple ordering; maps use the Value owner's entry
+/// order recursively. Callers must validate fallible canonicalization first.
+pub(in crate::db::executor) fn compare_borrowed_group_values(
+    left: &Value,
+    right: &Value,
+) -> Ordering {
+    match (left, right) {
+        (Value::List(left), Value::List(right)) => {
+            compare_borrowed_group_sequences(left.iter(), right.iter())
+        }
+        (Value::Map(left), Value::Map(right)) => compare_borrowed_group_sequences(
+            Value::ordered_map_entries(left).flat_map(|(key, value)| [key, value]),
+            Value::ordered_map_entries(right).flat_map(|(key, value)| [key, value]),
+        ),
+        _ => Value::canonical_cmp(left, right),
+    }
+}
+
+// Lexicographic comparison of borrowed list items or interleaved map keys and
+// values shares the retained canonical tree's ordering without a temporary tree.
+fn compare_borrowed_group_sequences<'left, 'right>(
+    mut left: impl Iterator<Item = &'left Value>,
+    mut right: impl Iterator<Item = &'right Value>,
+) -> Ordering {
+    loop {
+        match (left.next(), right.next()) {
+            (Some(left), Some(right)) => {
+                let ordering = compare_borrowed_group_values(left, right);
+                if !ordering.is_eq() {
+                    return ordering;
+                }
+            }
+            (Some(_), None) => return Ordering::Greater,
+            (None, Some(_)) => return Ordering::Less,
+            (None, None) => return Ordering::Equal,
+        }
+    }
+}
+
+/// Validate the fallible part of grouped canonicalization without owning a key.
+/// Decimal normalization is infallible; maps retain the canonical Value owner's
+/// scalar-key and duplicate-key rules, including inside lists and map values.
+pub(in crate::db::executor) fn validate_borrowed_canonical_value(
+    value: &Value,
+) -> Result<(), InternalError> {
+    match value {
+        Value::List(items) => {
+            for item in items {
+                validate_borrowed_canonical_value(item)?;
+            }
+        }
+        Value::Map(entries) => {
+            Value::validate_canonical_map_entries(entries)
+                .map_err(|_| InternalError::executor_invariant())?;
+            for (_, value) in entries {
+                validate_borrowed_canonical_value(value)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 /// Canonicalize one owned value for grouped equality without computing a hash.

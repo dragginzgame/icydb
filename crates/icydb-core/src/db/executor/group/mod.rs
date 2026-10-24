@@ -20,7 +20,8 @@ pub(in crate::db::executor) use hash::{
     try_reserve_hash_entry, try_reserve_hash_set_entry, try_reserve_vec_elements,
 };
 pub(in crate::db::executor) use key::{
-    CanonicalKey, GroupKey, GroupKeySet, canonicalize_owned_value,
+    GroupKey, GroupKeySet, canonicalize_owned_value, compare_borrowed_group_values,
+    validate_borrowed_canonical_value,
 };
 
 ///

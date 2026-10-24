@@ -539,6 +539,16 @@ impl DataStore {
         }
     }
 
+    /// Test canonical predecessor presence without loading its row payload.
+    /// Positioned live updates and tombstones do not change this view.
+    #[must_use]
+    pub(in crate::db) fn contains_canonical(&self, key: &RawDataStoreKey) -> bool {
+        match &self.backend {
+            DataStoreBackend::Heap(map) => map.contains_key(key),
+            DataStoreBackend::Journaled { canonical, .. } => canonical.contains_key(key),
+        }
+    }
+
     /// Read one visible row without cloning heap/live payloads.
     pub(in crate::db) fn read<'a>(&'a self, key: &RawDataStoreKey) -> StoredRowRead<'a> {
         #[cfg(test)]

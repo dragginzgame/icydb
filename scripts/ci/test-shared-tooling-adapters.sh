@@ -123,6 +123,9 @@ native="$FIXTURE/native"
 mkdir -p "$native/make" "$native/scripts/ci" "$native/bin"
 cp "$ROOT/Makefile" "$native/"
 cp "$ROOT/make/"*.mk "$native/make/"
+# Formatting now consumes the canonical catalog reader. Copy its declared
+# companion closure so fixture setup follows the selected shared Make contract.
+bash "$ROOT/scripts/ci/prepare-script-fixture.sh" "$ROOT" "$native" make/rust-format.mk
 cp "$ROOT/scripts/ci/actionlint-checksums.tsv" "$native/scripts/ci/"
 mkdir -p "$native/testing/build/src"
 cp "$ROOT/testing/build/src/wasm_measurement_subjects.tsv" "$native/testing/build/src/"
@@ -196,17 +199,20 @@ CARGO
 chmod +x "$native/bin/cargo"
 for lane in ci-core ci-workspace ci-sql-tier-a; do
   PATH="$native/bin:$PATH" ICYDB_VALIDATION_FAILURE_LOG_DIR="$native/failure-logs" \
-    make --no-print-directory -C "$native" -j2 "$lane" > "$native/$lane.log" 2>&1
+    make --no-print-directory -C "$native" -j2 "$lane" \
+    "POCKET_IC_BIN=$native/testkit-selected-server" > "$native/$lane.log" 2>&1
 done
 printf '%s\n' 'check default' 'check default' 'check default' \
   'clippy default' 'clippy default' 'test 8' \
-  'clippy default' 'clippy default' 'test 2' 'test 2' 'test 2' 'test 2' \
+  'clippy default' 'clippy default' 'test 2' 'test 2' 'test 2' 'test 2' 'test 2' \
   'test default' 'test default' 'test 2' > "$native/expected-trace"
 cmp "$native/expected-trace" "$CI_CARGO_TRACE"
 grep -Fx -- 'test --locked --no-fail-fast -p canister_test_sql --lib --all-features' \
   "$CI_CARGO_ARGUMENT_TRACE" > /dev/null
 grep -Fx -- 'test --locked --no-fail-fast -p canister_audit_sql_perf --lib --features test-admin-api' \
   "$CI_CARGO_ARGUMENT_TRACE" > /dev/null
+durability_selection='test --locked --no-fail-fast -p icydb-testing-integration --test convergence_candidate --test durable_mutation_job_scale --test recovery_closeout --test logical_memory --test schema_migration_closeout --test lifecycle_participant --test read_authority --test sql_guard --test schema_guard'
+grep -Fx -- "$durability_selection" "$CI_CARGO_ARGUMENT_TRACE" > /dev/null
 
 # The actual integration lint leaf must propagate a compiler/lint failure.
 : > "$CI_CARGO_TRACE"
@@ -216,6 +222,17 @@ PATH="$native/bin:$PATH" CI_CARGO_FAIL=1 \
   > "$native/integration-lint-failure.log" 2>&1 || status=$?
 [[ "$status" == 2 ]] || exit 1
 printf '%s\n' 'clippy default' > "$native/expected-trace"
+cmp "$native/expected-trace" "$CI_CARGO_TRACE"
+
+# Durability test failures must reach Make rather than counting as CI evidence.
+: > "$CI_CARGO_TRACE"
+status=0
+PATH="$native/bin:$PATH" CI_CARGO_FAIL=1 \
+  make --no-print-directory -C "$native" -j2 _test-durability-integration \
+  "POCKET_IC_BIN=$native/testkit-selected-server" \
+  > "$native/durability-failure.log" 2>&1 || status=$?
+[[ "$status" == 2 ]]
+printf '%s\n' 'test 2' > "$native/expected-trace"
 cmp "$native/expected-trace" "$CI_CARGO_TRACE"
 
 # The real consumer declares prepared dependency/compiler inputs. A successful
@@ -255,6 +272,8 @@ for lane in test test-no-default-smoke test-durability test-integration-feedback
     "POCKET_IC_BIN=$native/testkit-selected-server" TEST_TARGET=fixture-test TEST_NAME=fixture-case \
     > "$native/$lane.log" 2>&1
 done
+# The local gate and CI execute the same maintained roster, not parallel copies.
+[[ "$(grep -Fxc -- "$durability_selection" "$CI_CARGO_ARGUMENT_TRACE")" == 3 ]]
 printf '%s\n' 'test default' 'test 8' 'test 2' 'test 2' 'test 2' 'test 2' 'test default' \
   'test default' 'test 8' 'test default' 'test default' 'test 2' \
   'test 2' 'test 2' 'test 2' > "$native/expected-trace"
@@ -265,10 +284,12 @@ cmp "$native/expected-server-trace" "$CI_CARGO_SERVER_TRACE"
 
 # Failed Testkit admission and incomplete feedback selection stop before Cargo.
 : > "$CI_CARGO_TRACE"
-status=0
-PATH="$native/bin:$PATH" make --no-print-directory -C "$native" -j2 _test-workspace \
-  POCKET_IC_BIN= TESTKIT_SERVER_CHECK=false > "$native/admission-refusal.log" 2>&1 || status=$?
-[[ "$status" == 2 && ! -s "$CI_CARGO_TRACE" ]]
+for target in _test-workspace _test-durability-integration; do
+  status=0
+  PATH="$native/bin:$PATH" make --no-print-directory -C "$native" -j2 "$target" \
+    POCKET_IC_BIN= TESTKIT_SERVER_CHECK=false > "$native/$target-admission-refusal.log" 2>&1 || status=$?
+  [[ "$status" == 2 && ! -s "$CI_CARGO_TRACE" ]]
+done
 status=0
 PATH="$native/bin:$PATH" make --no-print-directory -C "$native" -j2 test-integration-feedback \
   TEST_TARGET=fixture-test TEST_NAME= > "$native/feedback-refusal.log" 2>&1 || status=$?
@@ -420,10 +441,9 @@ cmp "$native/expected-trace" "$CI_CARGO_SERVER_TRACE"
 # Keep real version/pin admission, formatting and preparation control flow;
 # substitute only version mutation and candidate receipt effects.
 mkdir -p "$native/scripts/release" "$native/ci" "$native/docs/changelog" "$native/.tools/host/bin"
-cp "$ROOT/ci/tool-versions.env" "$native/ci/"
 cp "$ROOT/.tools/host/bin/yq" "$native/.tools/host/bin/"
 for script in read-cargo-workspace-version.sh check-dependency-pins.sh dependency-pins.jq \
-  check-format-tools.sh run-formatting.sh finalize-release-changelog.awk; do
+  finalize-release-changelog.awk; do
   cp "$ROOT/scripts/ci/$script" "$native/scripts/ci/"
 done
 cp "$ROOT/scripts/release/"{prepare.sh,files.sh,check-metadata.sh,finalize-notes.sh,render-candidate.sh} "$native/scripts/release/"
@@ -470,6 +490,8 @@ for lane in version release-version check-versioning check-dependency-pins \
   if [[ "$lane" == release-committed-check ]]; then
     metadata_selection=(RELEASE_COMMIT=1111111111111111111111111111111111111111)
   fi
+  # Keep Make's deferred $$ variable literal until recipe expansion.
+  # shellcheck disable=SC2016
   PATH="$native/bin:$PATH" make --no-print-directory -C "$native" -j2 "$lane" \
     'RELEASE_EDITOR_CHECK=printf "%s\n" "$$CI_CARGO_ROOT/bin/cargo"' \
     ${metadata_selection[@]+"${metadata_selection[@]}"} \
@@ -499,6 +521,8 @@ for lane in release-prepared-check release-commit-check release-prepare-version;
   status=0
   fail_command=''
   if [[ "$failure" == metadata ]]; then fail_command=metadata; fi
+  # Keep Make's deferred $$ variable literal until recipe expansion.
+  # shellcheck disable=SC2016
   PATH="$native/bin:$PATH" CI_CARGO_FAIL=1 CI_CARGO_FAIL_COMMAND="$fail_command" \
     make --no-print-directory -C "$native" -j2 "$lane" \
     'RELEASE_EDITOR_CHECK=printf "%s\n" "$$CI_CARGO_ROOT/bin/cargo"' \
@@ -632,6 +656,8 @@ for command in build locate-project run; do
   status=0
   lane=check-invariants
   if [[ "$command" == build ]]; then lane=check-portable-automation; fi
+  # Keep Make's deferred $$ variable literal until recipe expansion.
+  # shellcheck disable=SC2016
   PATH="$native/bin:$PATH" CI_CARGO_FAIL=1 CI_CARGO_FAIL_COMMAND="$command" \
     make --no-print-directory -C "$native" -j2 "$lane" \
     'RELEASE_EDITOR_CHECK=printf "%s\n" "$$CI_CARGO_ROOT/bin/cargo"' \
@@ -660,6 +686,8 @@ RECEIPT
 : > "$CI_CARGO_TRACE"
 (
   unset CARGO_RELEASE_METADATA_EDITOR CARGO_RELEASE_METADATA_MAX_BYTES
+  # Keep Make's deferred $$ variable literal until recipe expansion.
+  # shellcheck disable=SC2016
   PATH="$native/bin:$PATH" make --no-print-directory -C "$native" -j2 check-invariants \
     'RELEASE_EDITOR_CHECK=printf "%s\n" "$$CI_CARGO_ROOT/bin/cargo"'
 ) > "$native/standalone-receipt.log" 2>&1

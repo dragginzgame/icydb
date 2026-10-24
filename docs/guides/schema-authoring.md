@@ -53,9 +53,32 @@ token must generate and manage that token independently of the row's key.
 text in JSON. Its calendar domain remains years 0000–9999. `Subaccount` uses an
 exact 32-byte byte string in Wire/binary Serde and a 32-element byte array in JSON.
 Account database payloads still reserve their existing fixed 62-byte width.
-`Account` owns its bounded ICRC-1 text representation without a ledger dependency.
-Applications that need external ledger types construct them from `owner()` and
-`subaccount()`; IcyDB provides no upstream ledger conversions.
+Platform owns bounded ICRC-1 Account text formatting, parsing and checksums without
+a ledger dependency. IcyDB preserves its existing parse-error boundary and
+representation-sensitive database identity around that shared text codec.
+Use explicit value conversion for application DTOs that carry Platform accounts:
+
+```rust
+let dto_account: ic_platform::Account = database_account.into();
+let database_account = icydb::types::Account::from(dto_account);
+```
+
+Both directions preserve owner bytes and the exact optional subaccount, including
+an explicit zero. IcyDB's database identity distinguishes absent and explicit-zero
+subaccounts; Platform's `Eq`, `Ord` and `Hash` treat them as the same ICRC account.
+Choose map/set keys and database uniqueness rules with that distinction in mind.
+The conversion does not change stored rows, indexes, account text or database
+identity semantics. The text representation still omits an explicit zero.
+
+The types retain different binary Serde/Wire contracts: IcyDB's subaccount is a
+byte string, while Platform's is a fixed array. Convert decoded values rather
+than reusing one type's encoded bytes or schema for the other. New application
+ICRC DTOs may use `ic_platform::Account`; their native host schema producer selects
+Platform's `wire-schema` feature (available in 0.6.12), while canister consumers
+select `principal`. IcyDB's existing Account schema projection remains its own.
+Applications that need external ledger types construct them from the components
+or use Platform's explicitly selected external ledger boundary; IcyDB adds no
+ledger dependency or external ledger conversion.
 
 `Decimal` uses decimal text in Wire and Serde, including CBOR. `Int128` and
 `Nat128` retain fixed-width numeric domains and use Postcard's signed/unsigned

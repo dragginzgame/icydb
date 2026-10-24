@@ -21,9 +21,16 @@ cd "$ROOT"
 
 # Perturb adjacent complete entries below the role heading. The actual sorter
 # must restore ordering without moving comments between dependency identities.
-perl -0777 -pe 's/(\[workspace.dependencies\]\n.*?\n)([A-Za-z0-9_-]+ = (?:"[^\n]*"|\{[^\n]*\})\n)([A-Za-z0-9_-]+ = (?:"[^\n]*"|\{[^\n]*\})\n)/$1$3$2/s or die "expected adjacent formatter inputs\n"' \
+# Skip comment-prefixed entries rather than detaching their TOML decoration.
+perl -0777 -pe 's/(\[workspace.dependencies\]\n.*?^(?![ \t]*#)[^\n]*\n)([A-Za-z0-9_-]+ = (?:"[^\n]*"|\{[^\n]*\})\n)([A-Za-z0-9_-]+ = (?:"[^\n]*"|\{[^\n]*\})\n)/$1$3$2/sm or die "expected adjacent formatter inputs\n"' \
   Cargo.toml > "$fixture/unsorted.toml"
-overlays=(Cargo.lock rust-toolchain.toml ci/tool-versions.env ci/icydb-tools.env scripts/ci/check-format-tools.sh scripts/ci/check-make-execution.sh scripts/ci/run-formatting.sh)
+overlays=(Cargo.lock .shared-tooling.snapshot rust-toolchain.toml ci/icydb-tools.env)
+# Keep the exported Shared layer coherent with its selected Makefiles, including
+# newly declared companions absent from the committed consumer baseline.
+bash scripts/ci/verify-shared-tooling-snapshot.sh --read-manifest .shared-tooling.snapshot > "$fixture/shared-manifest"
+while IFS=$'\t' read -r kind _digest _mode path; do
+  [[ "$kind" != file ]] || overlays[${#overlays[@]}]="$path"
+done < "$fixture/shared-manifest"
 git ls-files --modified --others --exclude-standard -z > "$fixture/working-inputs"
 while IFS= read -r -d '' path; do
   case "$path" in
@@ -43,11 +50,7 @@ cp "$ROOT/Makefile" "$ROOT/rust-toolchain.toml" "$fixture/product/"
 mkdir -p "$fixture/product/make"
 cp "$ROOT/make/consumer.mk" "$ROOT/make/tools.mk" "$ROOT/make/release.mk" "$ROOT/make/rust-format.mk" "$ROOT/make/execution.mk" "$fixture/product/make/"
 cp "$ROOT/scripts/ci/actionlint-checksums.tsv" "$fixture/product/scripts/ci/"
-cp "$ROOT/scripts/ci/check-format-tools.sh" "$fixture/product/scripts/ci/"
-cp "$ROOT/scripts/ci/check-make-execution.sh" "$fixture/product/scripts/ci/"
-cp "$ROOT/scripts/ci/run-formatting.sh" "$fixture/product/scripts/ci/"
-mkdir -p "$fixture/product/ci"
-cp "$ROOT/ci/tool-versions.env" "$fixture/product/ci/"
+bash "$ROOT/scripts/ci/prepare-script-fixture.sh" "$ROOT" "$fixture/product" make/rust-format.mk
 cp "$ROOT/.githooks/pre-commit" "$fixture/product/.githooks/"
 cd "$fixture/product"
 git init --quiet
@@ -144,7 +147,7 @@ make --no-print-directory fmt > "$fixture/product-baseline.log" 2>&1
 printf '#[derive(PartialEq, Clone, Eq, Copy)]\nstruct Flag;\n' > src/lib.rs
 printf 'fn main( ) { }\n' > 'src/staged [1].rs'
 printf 'fn main( ) { }\n' > "$newline_path"
-git add -- Makefile make/consumer.mk make/tools.mk make/release.mk make/rust-format.mk make/execution.mk rust-toolchain.toml Cargo.toml src/lib.rs 'src/staged [1].rs' "$newline_path" .githooks/pre-commit scripts/ci/actionlint-checksums.tsv scripts/ci/check-format-tools.sh scripts/ci/check-make-execution.sh scripts/ci/run-formatting.sh ci/tool-versions.env
+git add -- Makefile make rust-toolchain.toml Cargo.toml src/lib.rs 'src/staged [1].rs' "$newline_path" .githooks/pre-commit scripts/ci ci
 printf 'fn unrelated( ) { }\n' > unselected.rs
 cp unselected.rs "$fixture/unselected-before"
 # Refusal precedes formatter dispatch and preserves selected bytes and index.

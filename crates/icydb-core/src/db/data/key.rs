@@ -109,10 +109,7 @@ impl DecodedDataStoreKey {
         entity: EntityTag,
         values: &[Value],
     ) -> Result<Self, InternalError> {
-        let key = match values {
-            [value] => primary_key_value_from_structural_value(value)?,
-            _ => composite_primary_key_value_from_structural_values(values)?,
-        };
+        let key = primary_key_value_from_structural_values(values.iter())?;
 
         Ok(Self::new_primary_key_value(entity, &key))
     }
@@ -185,15 +182,7 @@ impl DecodedDataStoreKey {
     pub(in crate::db) fn try_from_raw(
         raw: &RawDataStoreKey,
     ) -> Result<Self, DecodedDataStoreKeyDecodeError> {
-        let entity = raw
-            .entity_tag_prefix()
-            .ok_or(DecodedDataStoreKeyDecodeError::StoreKey)?;
-        let primary_key = raw
-            .encoded_primary_key_bytes()
-            .ok_or(DecodedDataStoreKeyDecodeError::StoreKey)?;
-        // Malformed primary payloads remain store-key corruption at this boundary.
-        let key = EncodedPrimaryKey::decode_bytes(primary_key)
-            .map_err(|_| DecodedDataStoreKeyDecodeError::StoreKey)?;
+        let (entity, key) = decode_data_store_key(raw)?;
 
         Ok(Self::new_with_raw_primary_key_value(
             entity,
@@ -203,19 +192,50 @@ impl DecodedDataStoreKey {
     }
 }
 
+/// Decode fixed-size identity metadata without retaining or copying raw bytes.
+pub(in crate::db) fn decode_data_store_key(
+    raw: &RawDataStoreKey,
+) -> Result<(EntityTag, PrimaryKeyValue), DecodedDataStoreKeyDecodeError> {
+    let entity = raw
+        .entity_tag_prefix()
+        .ok_or(DecodedDataStoreKeyDecodeError::StoreKey)?;
+    let primary_key = raw
+        .encoded_primary_key_bytes()
+        .ok_or(DecodedDataStoreKeyDecodeError::StoreKey)?;
+    // Malformed primary payloads remain store-key corruption at this boundary.
+    let key = EncodedPrimaryKey::decode_bytes(primary_key)
+        .map_err(|_| DecodedDataStoreKeyDecodeError::StoreKey)?;
+
+    Ok((entity, key))
+}
+
 pub(in crate::db) fn primary_key_value_from_structural_value(
     value: &Value,
 ) -> Result<PrimaryKeyValue, InternalError> {
     match value {
-        Value::List(values) => composite_primary_key_value_from_structural_values(values),
+        Value::List(values) => composite_primary_key_value_from_structural_values(values.iter()),
         _ => primary_key_component_from_structural_value(value).map(PrimaryKeyValue::Scalar),
     }
 }
 
-fn composite_primary_key_value_from_structural_values(
-    values: &[Value],
+/// Decode projected key values without retaining a vector or list wrapper.
+/// A singleton preserves the structural scalar-or-list key contract.
+pub(in crate::db) fn primary_key_value_from_structural_values<'a>(
+    mut values: impl Iterator<Item = &'a Value> + Clone,
 ) -> Result<PrimaryKeyValue, InternalError> {
-    let count = values.len();
+    if values.clone().count() == 1 {
+        return primary_key_value_from_structural_value(
+            values.next().ok_or_else(InternalError::store_unsupported)?,
+        );
+    }
+
+    composite_primary_key_value_from_structural_values(values)
+}
+
+fn composite_primary_key_value_from_structural_values<'a>(
+    values: impl Iterator<Item = &'a Value> + Clone,
+) -> Result<PrimaryKeyValue, InternalError> {
+    let count = values.clone().count();
     if count < 2 {
         return Err(
             PrimaryKeyEncodeError::from(CompositePrimaryKeyValueError::TooFewComponents {
@@ -236,8 +256,11 @@ fn composite_primary_key_value_from_structural_values(
     }
 
     let mut components = [PrimaryKeyComponent::Unit; MAX_PRIMARY_KEY_FIELDS];
-    for (index, value) in values.iter().enumerate() {
-        components[index] = primary_key_component_from_structural_value(value)?;
+    for (index, value) in values.enumerate() {
+        let component = components
+            .get_mut(index)
+            .ok_or_else(InternalError::store_unsupported)?;
+        *component = primary_key_component_from_structural_value(value)?;
     }
 
     let composite = CompositePrimaryKeyValue::try_from_components(&components[..count])

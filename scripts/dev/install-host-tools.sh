@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/verify-file-checksum.sh scripts/ci/tool-catalog-records.pl scripts/dev/tool-store.sh scripts/dev/host-platform.sh ci/tool-versions.env
+# Shared companions: scripts/ci/verify-file-checksum.sh scripts/ci/tool-catalog-records.pl scripts/dev/tool-store.sh scripts/dev/host-platform.sh ci/tool-versions.env scripts/ci/describe-tool-selection.pl
 set -euo pipefail
 
 # Explicit local provisioning of the complete common host-tool set.
@@ -10,7 +10,8 @@ ROOT="${ROOT%/.}"
 consumer="$ROOT"
 versions=""
 check=false
-usage() { echo 'usage: install-host-tools.sh [--consumer <checkout>] [--versions <env-file>] [--check]' >&2; }
+describe=false
+usage() { echo 'usage: install-host-tools.sh [--consumer <checkout>] [--versions <env-file>] [--check | --describe]' >&2; }
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --consumer|--versions)
@@ -18,10 +19,12 @@ while [[ $# -gt 0 ]]; do
             if [[ "$1" == --consumer ]]; then consumer="$2"; else versions="$2"; fi
             shift 2 ;;
         --check) check=true; shift ;;
+        --describe) describe=true; shift ;;
         -h|--help) usage; exit 0 ;;
         *) usage; exit 2 ;;
     esac
 done
+[[ "$describe:$check" != true:true ]] || { usage; exit 2; }
 [[ "$consumer" == /* ]] || consumer="$PWD/$consumer"
 case "$consumer" in *$'\n'*|*$'\r'*) echo 'consumer path contains CR/LF' >&2; exit 1 ;; esac
 consumer="$(cd -P "$consumer" && printf '%s/.' "$PWD")"
@@ -29,6 +32,10 @@ consumer="${consumer%/.}"
 case "$consumer" in *$'\n'*|*$'\r'*) echo 'resolved consumer path contains CR/LF' >&2; exit 1 ;; esac
 versions="${versions:-$ROOT/ci/tool-versions.env}"
 records="$(perl "$ROOT/scripts/ci/tool-catalog-records.pl" host "$versions")"
+if [[ "$describe" == true ]]; then
+    printf '%s\n' "$records" | perl "$ROOT/scripts/ci/describe-tool-selection.pl" host "$consumer" "$ROOT/scripts/dev/install-host-tools.sh" "$versions"
+    exit 0
+fi
 platform="$(bash "$ROOT/scripts/dev/host-platform.sh")"
 case "$platform" in
     Linux:x86_64) host=LINUX_AMD64; yq_platform=linux_amd64; jq_platform=linux-amd64 ;;

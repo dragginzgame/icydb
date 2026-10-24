@@ -6,19 +6,15 @@
 use crate::db::data::structural_field::{
     FieldDecodeError,
     binary::{TAG_BYTES, TAG_FALSE, TAG_INT64, TAG_NAT64, TAG_NULL, TAG_TEXT, TAG_TRUE},
-    value_storage::decode::{
-        ValueStorageSlice,
-        scalar::{
-            decode_binary_blob_scalar, decode_binary_i64_scalar, decode_binary_text_scalar,
-            decode_binary_u64_scalar,
-        },
-    },
-};
-use crate::db::data::structural_field::{
-    binary::{TAG_MAP, parse_binary_head},
     value_storage::{
-        canonical::skip_canonical_value, decode::scalar::decode_binary_text_payload_bytes_if_text,
-        skip::skip_value_storage_binary_value,
+        canonical::select_canonical_map_path,
+        decode::{
+            ValueStorageSlice,
+            scalar::{
+                decode_binary_blob_scalar, decode_binary_i64_scalar, decode_binary_text_scalar,
+                decode_binary_u64_scalar,
+            },
+        },
     },
 };
 
@@ -42,38 +38,17 @@ impl<'a> ValueStorageView<'a> {
         Ok(Self { slice })
     }
 
-    /// Validate a complete raw map while selecting its first matching member.
-    /// A complete null root has no member; every sibling still passes canonical
-    /// traversal at its original depth before any selected view is returned.
-    pub(in crate::db) fn from_raw_map_text_key(
+    /// Validate the complete root while selecting a nested text-keyed member.
+    /// Missing members and null ancestors are absent; later siblings still pass
+    /// canonical traversal before any selected view is returned.
+    pub(in crate::db) fn from_raw_map_text_path(
         raw: &'a [u8],
-        key: &[u8],
+        segments: &[impl AsRef<[u8]>],
     ) -> Result<Option<Self>, FieldDecodeError> {
-        if raw == [TAG_NULL] {
-            return Ok(None);
-        }
-        let Some((TAG_MAP, len, mut cursor)) = parse_binary_head(raw, 0)? else {
-            return Err(FieldDecodeError::new());
-        };
-        // Keep the canonical map's child-count admission before traversal.
-        len.checked_mul(2).ok_or_else(FieldDecodeError::new)?;
-        let mut selected = None;
-        for _ in 0..len {
-            let key_start = cursor;
-            cursor = skip_canonical_value(raw, cursor, 1)?;
-            let value_start = cursor;
-            cursor = skip_canonical_value(raw, cursor, 1)?;
-            if selected.is_none()
-                && decode_binary_text_payload_bytes_if_text(&raw[key_start..value_start])?
-                    .is_some_and(|found| found == key)
-            {
-                selected = Some(&raw[value_start..cursor]);
-            }
-        }
-        if cursor != raw.len() {
+        let (end, selected) = select_canonical_map_path(raw, 0, 0, segments)?;
+        if end != raw.len() {
             return Err(FieldDecodeError::new());
         }
-
         selected.map(Self::from_skip_bounded).transpose()
     }
 
@@ -159,40 +134,5 @@ impl<'a> ValueStorageView<'a> {
     /// Decode one borrowed blob directly from the bounded value-storage slice.
     pub(in crate::db::data) fn as_blob(&self) -> Result<&'a [u8], FieldDecodeError> {
         decode_binary_blob_scalar(&self.slice)
-    }
-
-    /// Return the value slice for one text-keyed map entry using byte equality.
-    pub(in crate::db) fn map_text_key_bytes(
-        &self,
-        key: &[u8],
-    ) -> Result<Option<Self>, FieldDecodeError> {
-        // Segment bytes are compiled once from Rust `String`s. Comparing them
-        // against borrowed text payload bytes avoids per-row UTF-8 decoding
-        // while preserving map-entry boundary validation. The view already
-        // proves the entire envelope valid, including every later sibling, so
-        // finding the first match does not require scanning the suffix again.
-        let raw_bytes = self.as_bytes();
-        let Some((tag, len, payload_start)) = parse_binary_head(raw_bytes, 0)? else {
-            return Err(FieldDecodeError::new());
-        };
-        if tag != TAG_MAP {
-            return Err(FieldDecodeError::new());
-        }
-
-        let mut cursor = payload_start;
-        for _ in 0..len {
-            let key_start = cursor;
-            cursor = skip_value_storage_binary_value(raw_bytes, cursor)?;
-            let value_start = cursor;
-            cursor = skip_value_storage_binary_value(raw_bytes, cursor)?;
-
-            if decode_binary_text_payload_bytes_if_text(&raw_bytes[key_start..value_start])?
-                .is_some_and(|found| found == key)
-            {
-                return Self::from_skip_bounded(&raw_bytes[value_start..cursor]).map(Some);
-            }
-        }
-
-        Ok(None)
     }
 }

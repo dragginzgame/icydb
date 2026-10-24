@@ -10,7 +10,8 @@ use crate::db::{
         },
         group::{
             GroupKey, GroupKeySet, retained_hash_entry_backing_bytes,
-            retained_vec_element_backing_bytes,
+            retained_vec_element_backing_bytes, stable_hash_value,
+            validate_borrowed_canonical_value,
         },
     },
     resource::budget::{charge_current_execution_budget, runtime_value_work},
@@ -632,13 +633,15 @@ impl ExecutionContext {
 
     /// Admit one grouped DISTINCT key through execution-context budget
     /// accounting and per-group cardinality enforcement.
-    pub(in crate::db::executor) fn admit_distinct_key(
+    pub(in crate::db::executor) fn admit_distinct_value(
         &mut self,
         distinct_keys: &mut GroupKeySet,
         max_distinct_values_per_group: u64,
-        key: GroupKey,
+        value: &crate::value::Value,
     ) -> Result<bool, GroupError> {
-        if distinct_keys.contains_key(&key) {
+        validate_borrowed_canonical_value(value).map_err(GroupError::from)?;
+        let hash = stable_hash_value(value).map_err(GroupError::from)?;
+        if distinct_keys.contains_value(value, hash) {
             return Ok(false);
         }
 
@@ -664,6 +667,7 @@ impl ExecutionContext {
             ));
         }
 
+        let key = GroupKey::from_value_with_hash(value, hash).map_err(GroupError::from)?;
         self.record_distinct_value(key.canonical_value())?;
         let inserted = distinct_keys.insert_key(key).map_err(GroupError::from)?;
         debug_assert!(inserted, "new distinct key must insert exactly once");
@@ -715,8 +719,10 @@ mod tests {
             },
             resource::budget::runtime_value_work,
         },
+        error::InternalError,
         value::Value,
     };
+    use std::panic::AssertUnwindSafe;
 
     #[test]
     fn grouped_distinct_counts_are_derived_from_grouped_limits() {
@@ -756,7 +762,7 @@ mod tests {
         for value in 0..limit {
             assert!(
                 context
-                    .admit_distinct_key(&mut keys, limit, distinct_key(value))
+                    .admit_distinct_value(&mut keys, limit, distinct_key(value).canonical_value())
                     .expect("within cap")
             );
         }
@@ -764,11 +770,11 @@ mod tests {
         assert_eq!(before.distinct_values(), limit);
         assert!(
             !context
-                .admit_distinct_key(&mut keys, limit, distinct_key(0))
+                .admit_distinct_value(&mut keys, limit, distinct_key(0).canonical_value())
                 .expect("duplicate at cap")
         );
         let error = context
-            .admit_distinct_key(&mut keys, limit, distinct_key(limit))
+            .admit_distinct_value(&mut keys, limit, distinct_key(limit).canonical_value())
             .expect_err("new key exceeds cap");
         assert!(matches!(
             error,
@@ -780,7 +786,10 @@ mod tests {
         ));
         assert_eq!(*context.budget(), before);
         assert_eq!(keys.len(), 2);
-        assert!(!keys.contains_key(&distinct_key(limit)));
+        assert!(!keys.contains_value(
+            distinct_key(limit).canonical_value(),
+            distinct_key(limit).hash()
+        ));
     }
 
     #[test]
@@ -792,7 +801,11 @@ mod tests {
             for value in 0..per_group {
                 assert!(
                     context
-                        .admit_distinct_key(keys, per_group, distinct_key(value))
+                        .admit_distinct_value(
+                            keys,
+                            per_group,
+                            distinct_key(value).canonical_value()
+                        )
                         .expect("within caps")
                 );
             }
@@ -804,12 +817,12 @@ mod tests {
         );
         assert!(
             !context
-                .admit_distinct_key(&mut groups[0], per_group, distinct_key(0))
+                .admit_distinct_value(&mut groups[0], per_group, distinct_key(0).canonical_value())
                 .expect("duplicate at both caps")
         );
         // Both limits are exhausted here; the total resource must win.
         let error = context
-            .admit_distinct_key(&mut groups[0], per_group, distinct_key(2))
+            .admit_distinct_value(&mut groups[0], per_group, distinct_key(2).canonical_value())
             .expect_err("total cap");
         assert!(matches!(
             error,
@@ -822,7 +835,9 @@ mod tests {
         assert_eq!(*context.budget(), before);
         assert_eq!(groups[0].len(), 2);
         assert_eq!(groups[1].len(), 2);
-        assert!(!groups[0].contains_key(&distinct_key(2)));
+        assert!(
+            !groups[0].contains_value(distinct_key(2).canonical_value(), distinct_key(2).hash())
+        );
     }
 
     #[test]
@@ -836,7 +851,7 @@ mod tests {
         let before = *context.budget();
         let limit = context.config().max_distinct_values_per_group();
         let error = context
-            .admit_distinct_key(&mut keys, limit, key.clone())
+            .admit_distinct_value(&mut keys, limit, key.canonical_value())
             .expect_err("memory cap");
         assert!(matches!(error, GroupError::MemoryLimitExceeded {
             resource: GroupBudgetResourceCode::EstimatedBytes,
@@ -850,7 +865,7 @@ mod tests {
         let limit = context.config().max_distinct_values_per_group();
         assert!(
             context
-                .admit_distinct_key(&mut keys, limit, key)
+                .admit_distinct_value(&mut keys, limit, key.canonical_value())
                 .expect("exact memory cap")
         );
         assert_eq!(context.budget().estimated_bytes(), bytes);
@@ -869,16 +884,64 @@ mod tests {
 
         assert!(
             context
-                .admit_distinct_key(&mut distinct, u64::MAX, key.clone())
+                .admit_distinct_value(&mut distinct, u64::MAX, key.canonical_value())
                 .expect("first distinct key")
         );
         assert!(context.budget().estimated_bytes() >= expected_minimum);
         let after_first = context.budget().estimated_bytes();
         assert!(
             !context
-                .admit_distinct_key(&mut distinct, u64::MAX, key)
+                .admit_distinct_value(&mut distinct, u64::MAX, key.canonical_value())
                 .expect("duplicate distinct key")
         );
         assert_eq!(context.budget().estimated_bytes(), after_first);
+    }
+
+    #[test]
+    fn borrowed_distinct_preserves_canonical_budget_and_failure_precedence() {
+        use crate::value::{test_hash_budget_error, with_test_hash_override};
+        let mut context = ExecutionContext::new(ExecutionConfig::unbounded());
+        let mut keys = GroupKeySet::new();
+        let value = Value::Map(vec![
+            (Value::Text("z".into()), Value::Blob(vec![7; 4096])),
+            (Value::Text("a".into()), Value::Nat64(1)),
+        ]);
+        assert!(context.admit_distinct_value(&mut keys, 1, &value).unwrap());
+        let before = *context.budget();
+        let Value::Map(mut entries) = value.clone() else {
+            unreachable!()
+        };
+        entries.reverse();
+        assert!(
+            !context
+                .admit_distinct_value(&mut keys, 1, &Value::Map(entries))
+                .unwrap()
+        );
+        assert_eq!(*context.budget(), before);
+        with_test_hash_override(
+            Err(test_hash_budget_error),
+            AssertUnwindSafe(|| {
+                let error = context
+                    .admit_distinct_value(&mut keys, 1, &value)
+                    .unwrap_err()
+                    .into_internal_error();
+                assert_eq!(error.diagnostic(), test_hash_budget_error().diagnostic());
+                assert_eq!(
+                    error.diagnostic_facts(),
+                    test_hash_budget_error().diagnostic_facts()
+                );
+                let invalid = Value::Map(vec![(Value::Null, Value::Nat64(1))]);
+                let error = context
+                    .admit_distinct_value(&mut keys, 1, &invalid)
+                    .unwrap_err()
+                    .into_internal_error();
+                assert_eq!(
+                    error.diagnostic(),
+                    InternalError::executor_invariant().diagnostic()
+                );
+            }),
+        );
+        assert_eq!(*context.budget(), before);
+        assert_eq!(keys.len(), 1);
     }
 }

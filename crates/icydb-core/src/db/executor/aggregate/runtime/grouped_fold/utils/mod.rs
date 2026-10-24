@@ -19,7 +19,6 @@ pub(super) use equality::{
 };
 pub(super) use hashing::{stable_hash_group_values_from_row_view, stable_hash_single_group_value};
 pub(super) use path_key::{
-    group_key_matches_path_group_values, materialize_ordered_group_value,
-    materialize_ordered_path_group_value, materialize_path_group_key, resolve_group_field_value,
+    group_key_matches_path_group_values, materialize_path_group_key, resolve_group_field_value,
     stable_hash_path_group_values,
 };

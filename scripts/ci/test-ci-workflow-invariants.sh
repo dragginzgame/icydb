@@ -195,6 +195,9 @@ reset
 mutate '(.jobs.rust.steps[] | select(.name == "Prepare locked Testkit CLI and server for live tests")) |= del(.if)'
 check fail unconditional-live-server-preparation
 reset
+mutate '(.jobs.rust.steps[] | select(.name == "Prepare locked Testkit CLI and server for live tests")).if = "matrix.lane == '\''tier-b'\''"'
+check fail missing-workspace-server-preparation
+reset
 mutate '(.jobs.rust.steps[] | select(.name == "Prepare locked Testkit CLI and server for live tests")).if = "matrix.lane == '\''tier-a'\''"'
 check fail server-preparation-wrong-lane
 reset
@@ -257,13 +260,19 @@ for selection in \
   'echoed-only-provider|cargo test --locked --no-fail-fast|echo cargo test --locked --no-fail-fast' \
   'missing-cargo-provider|cargo test --locked --no-fail-fast|:' \
   'unrouted-workspace-provider|^[[:space:]]*_ci-workspace-tests|_ci-workspace-clippy' \
-  'unrouted-canister-tests|^[[:space:]]*_test-canister-libs$|_ci-workspace-clippy' \
+  'unrouted-canister-tests|^[[:space:]]*_test-canister-libs|_ci-workspace-clippy' \
+  'unrouted-durability-tests|^[[:space:]]*_test-durability-integration$|_ci-workspace-clippy' \
   'unrouted-tier-b-provider|^[[:space:]]*_ci-tier-b-sql-perf$|_ci-tier-b-sql-canister' \
   'excluded-provider|--workspace --all-targets --exclude icydb-testing-integration --verbose|--workspace --all-targets --exclude icydb-core --exclude icydb-testing-integration --verbose' \
   'filtered-workspace|--workspace --all-targets --exclude icydb-testing-integration --verbose|--workspace --all-targets --exclude icydb-testing-integration provider_filter --verbose' \
   'missing-tier-b-provider|--test sql_canister --verbose|--test recovery_closeout --verbose' \
   'ignored-tier-b-provider|--test sql_canister --verbose|--test sql_canister --verbose -- --ignored' \
   'skipped-tier-b-provider|--test sql_perf_audit --verbose -- --nocapture|--test sql_perf_audit --verbose -- --skip required_provider' \
+  'unexpected-durability-target|--test schema_guard|--test query_canister' \
+  'duplicate-durability-target|--test schema_guard|--test sql_guard' \
+  'filtered-durability-tests|--test schema_guard|--test schema_guard recovery_filter' \
+  'ignored-durability-tests|--test schema_guard|--test schema_guard -- --ignored' \
+  'compiled-only-durability-tests|--test schema_guard|--test schema_guard --no-run' \
   'compiled-only-provider|cargo test --locked --no-fail-fast|cargo check --locked'; do
   reset
   cp "$ROOT/Makefile" "$fixture/Makefile"
@@ -271,6 +280,14 @@ for selection in \
   sed "s|$before|$after|" "$fixture/Makefile" > "$fixture/mutated.make"
   mv "$fixture/mutated.make" "$fixture/Makefile"
   check fail "$name"
+done
+# Every boundary family must remain selected, not merely one live binary.
+for binary in convergence_candidate durable_mutation_job_scale recovery_closeout logical_memory \
+  schema_migration_closeout lifecycle_participant read_authority sql_guard schema_guard; do
+  cp "$ROOT/Makefile" "$fixture/Makefile"
+  sed "s/--test $binary//" "$fixture/Makefile" > "$fixture/mutated.make"
+  mv "$fixture/mutated.make" "$fixture/Makefile"
+  check fail "missing-durability-$binary"
 done
 cp "$ROOT/Makefile" "$fixture/Makefile"
 reset

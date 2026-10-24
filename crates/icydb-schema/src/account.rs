@@ -10,9 +10,15 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Principal, Subaccount};
+use crate::{Principal, PrincipalError, SchemaContractError, Subaccount};
 
-/// Canonical ICRC account atom.
+/// IcyDB account atom with representation-preserving identity.
+///
+/// An absent subaccount and an explicit zero subaccount remain distinct database
+/// identities. Explicit conversions to and from [`ic_platform::Account`] preserve
+/// those fields; Platform compares both representations as the same ICRC account.
+/// Each type retains its own binary serialization contract. Platform owns the
+/// shared ICRC account text format; database equality remains local.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub struct Account {
     owner: Principal,
@@ -21,9 +27,6 @@ pub struct Account {
 
 impl Account {
     const PRINCIPAL_MAX_LEN: usize = Principal::MAX_LENGTH_IN_BYTES as usize;
-    // A maximum principal occupies 63 text bytes, followed by '-', seven
-    // checksum characters, '.', and at most 64 subaccount hex digits.
-    const MAX_TEXT_LEN: usize = 136;
     const TAG_SUBACCOUNT: u8 = 0x80;
 
     /// Construct from convertible owner and optional subaccount values.
@@ -55,16 +58,6 @@ impl Account {
         self.subaccount
     }
 
-    // ICRC-1 text uses the CRC-32 of owner || subaccount in unpadded base32.
-    fn checksum(owner: Principal, subaccount: Subaccount) -> String {
-        let mut hasher = crc32fast::Hasher::new();
-        hasher.update(owner.as_slice());
-        hasher.update(subaccount.as_slice());
-        data_encoding::BASE32_NOPAD
-            .encode(&hasher.finalize().to_be_bytes())
-            .to_ascii_lowercase()
-    }
-
     #[expect(clippy::cast_possible_truncation)]
     fn ordering_tag(&self) -> u8 {
         let mut tag = self.owner.as_slice().len().min(u8::MAX as usize) as u8;
@@ -77,17 +70,26 @@ impl Account {
 
 impl Display for Account {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        let Some(subaccount) = self.subaccount.filter(|value| *value != Subaccount::MIN) else {
-            return Display::fmt(&self.owner, formatter);
-        };
-        let hex = subaccount.to_string();
-        write!(
-            formatter,
-            "{}-{}.{}",
-            self.owner,
-            Self::checksum(self.owner, subaccount),
-            hex.trim_start_matches('0')
+        Display::fmt(&ic_platform::Account::from(*self), formatter)
+    }
+}
+
+// Preserve the optional field itself, not Platform's effective subaccount.
+impl From<ic_platform::Account> for Account {
+    fn from(value: ic_platform::Account) -> Self {
+        Self::from_owner_and_subaccount(
+            value.owner.into(),
+            value.subaccount.map(Subaccount::from_array),
         )
+    }
+}
+
+impl From<Account> for ic_platform::Account {
+    fn from(value: Account) -> Self {
+        Self {
+            owner: value.owner.into(),
+            subaccount: value.subaccount.map(Subaccount::to_bytes),
+        }
     }
 }
 
@@ -104,34 +106,40 @@ impl FromStr for Account {
     type Err = String;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
-        if input.len() > Self::MAX_TEXT_LEN || !input.is_ascii() {
+        if input.len() > ic_platform::Account::MAX_LENGTH_IN_TEXT || !input.is_ascii() {
             return Err("invalid account text width or alphabet".into());
         }
-        let Some((prefix, hex)) = input.split_once('.') else {
-            return input
-                .parse::<Principal>()
-                .map(Self::from)
-                .map_err(|error| error.to_string());
-        };
-        let (owner, checksum) = prefix
-            .rsplit_once('-')
-            .filter(|(_, checksum)| checksum.len() == 7)
-            .ok_or("missing account checksum")?;
-        if hex.is_empty() || hex.len() > 64 || hex.starts_with('0') {
+        // Keep IcyDB's refusal precedence: after a checksum-shaped prefix,
+        // empty/oversized subaccounts reject before attempting the owner parse.
+        // Platform otherwise owns the grammar, checksum and hex decoding.
+        if let Some((prefix, hex)) = input.split_once('.')
+            && prefix
+                .rsplit_once('-')
+                .is_some_and(|(_, checksum)| checksum.len() == 7)
+            && (hex.is_empty() || hex.len() > 64)
+        {
             return Err("invalid account subaccount width or leading zero".into());
         }
-        let owner = owner
-            .parse::<Principal>()
-            .map_err(|error| error.to_string())?;
-        // Left padding admits odd hex widths without allocating from input length.
-        let mut padded = [b'0'; 64];
-        padded[64 - hex.len()..].copy_from_slice(hex.as_bytes());
-        let hex = std::str::from_utf8(&padded).map_err(|error| error.to_string())?;
-        let subaccount = Subaccount::from_hex(hex).map_err(|error| error.to_string())?;
-        if checksum != Self::checksum(owner, subaccount) {
-            return Err("invalid account checksum".into());
-        }
-        Ok(Self::from_owner_and_subaccount(owner, Some(subaccount)))
+        input
+            .parse::<ic_platform::Account>()
+            .map(Self::from)
+            .map_err(|error| match error {
+                ic_platform::AccountError::TextTooLong => {
+                    "invalid account text width or alphabet".into()
+                }
+                ic_platform::AccountError::InvalidPrincipal(_) => {
+                    PrincipalError::InvalidText.to_string()
+                }
+                ic_platform::AccountError::MissingChecksum => "missing account checksum".into(),
+                ic_platform::AccountError::InvalidChecksum => "invalid account checksum".into(),
+                ic_platform::AccountError::InvalidSubaccount => {
+                    SchemaContractError::InvalidLiteral.to_string()
+                }
+                ic_platform::AccountError::LeadingZeroesInSubaccount
+                | ic_platform::AccountError::DefaultSubaccountShouldBeOmitted => {
+                    "invalid account subaccount width or leading zero".into()
+                }
+            })
     }
 }
 

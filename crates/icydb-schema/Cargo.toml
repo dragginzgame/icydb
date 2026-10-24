@@ -9,8 +9,6 @@ repository = { workspace = true }
 authors = { workspace = true }
 
 [dependencies]
-crc32fast = { workspace = true }
-data-encoding = { workspace = true }
 ethnum = { workspace = true }
 ic-platform = { workspace = true, features = ["principal"] }
 ic-wire = { workspace = true }

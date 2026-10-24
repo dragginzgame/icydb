@@ -1,5 +1,5 @@
 # Include once from the consumer Makefile after any local path overrides.
-# Shared companions: make/execution.mk scripts/ci/check-make-execution.sh scripts/dev/install-host-tools.sh scripts/dev/install-ic-tools.sh scripts/dev/install-rust-tools.sh scripts/dev/cloc.sh
+# Shared companions: make/execution.mk scripts/ci/check-make-execution.sh scripts/dev/install-host-tools.sh scripts/dev/install-ic-tools.sh scripts/dev/install-rust-tools.sh scripts/dev/cloc.sh scripts/ci/run-validation-targets.sh
 # SHARED_TOOLING_ROOT must name a reviewed local snapshot, never a sibling checkout.
 # Preserve the consumer's default goal, including when it is declared after us.
 _shared_tooling_default_goal := $(.DEFAULT_GOAL)
@@ -37,6 +37,13 @@ tools-check:
 	+$(MAKE) --no-print-directory rust-tools-check
 	+@for target in $(LOCAL_TOOL_CHECK_TARGETS); do \
 		$(MAKE) --no-print-directory "$$target" || exit "$$?"; done
+
+# Diagnostic only: run every existing offline checker and retain all failures.
+# Release/setup admission continues to use the fail-fast tools-check above.
+.PHONY: tools-report
+tools-report:
+	+@VALIDATION_REPOSITORY_ROOT="$(CURDIR)" bash "$(SHARED_TOOLING_ROOT)/scripts/ci/run-validation-targets.sh" \
+		host-tools-check rust-tools-check $(LOCAL_TOOL_CHECK_TARGETS)
 
 install-host-tools:
 	bash "$(SHARED_TOOLING_ROOT)/scripts/dev/install-host-tools.sh" --consumer "$(CURDIR)" --versions "$(HOST_TOOL_VERSIONS)"

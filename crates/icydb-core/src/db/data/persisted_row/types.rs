@@ -67,7 +67,8 @@ pub(in crate::db) enum AcceptedMutationFieldWriteIntent {
     ///
     /// This is admitted only for existing-row updates after the accepted
     /// schema identity has been revalidated. It avoids reconstructing a loose
-    /// authored value from canonical enum or nested payloads.
+    /// authored value from canonical enum or nested payloads. The fixed-patch
+    /// binder validates these bytes against the execution contract before use.
     CanonicalPayload(Vec<u8>),
     /// Resolve through the accepted policy appropriate to this exact request.
     Resolve(AcceptedInsertPolicyRequest),
@@ -131,7 +132,7 @@ impl AcceptedMutationIntentPatch {
 
     /// Append one already-admitted canonical payload for an existing-row update.
     #[must_use]
-    pub(in crate::db) fn set_canonical_payload(
+    pub(in crate::db::data::persisted_row) fn set_canonical_payload(
         mut self,
         slot: FieldSlot,
         payload: Vec<u8>,

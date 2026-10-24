@@ -34,15 +34,15 @@ make_target_recipe() {
   ' Makefile
 }
 
-# Qualify the semantic Cargo selection credited by the SQL provider registry.
+# Qualify the maintained SQL-provider and durability Cargo selections.
 # Reject filters/skip/ignored controls rather than accepting a target name alone.
 # This intentionally admits the maintained unfiltered recipes, without executing
 # Make, Cargo, or interpolating its environment-variable adapters.
 ci_provider_test_selection() {
-  local target="$1" package="$2" binary="$3" recipe word value index=0
+  local target="$1" package="$2" recipe word value index=0
   local cargo_test=false workspace=false all_targets=false excluded=false
-  local selected_package=false selected_binary=false locked=false libtest=false
-  local words=()
+  local selected_package=false locked=false libtest=false
+  local words=() expected_binaries=("${@:3}") selected_binaries=()
   # Join Make continuations before shell tokenization, including on Bash 3.2.
   recipe="$(make_target_recipe "$target" | awk '/^\t/ {
     if (sub(/\\$/, "")) { printf "%s ", $0 } else { print }
@@ -55,7 +55,7 @@ ci_provider_test_selection() {
       # Match literal Make adapters without executing their contents.
       # shellcheck disable=SC2016
       case "$word" in
-        '$(CARGO_WORK_ENV)'|'+$(CARGO_WORK_ENV)'|'$(WORKSPACE_TEST_ENV)'|'+$(WORKSPACE_TEST_ENV)') continue ;;
+        '$(CARGO_WORK_ENV)'|'+$(CARGO_WORK_ENV)'|'$(WORKSPACE_TEST_ENV)'|'+$(WORKSPACE_TEST_ENV)'|'$(IC_TESTKIT_ENV)'|'+$(IC_TESTKIT_ENV)') continue ;;
         cargo|+cargo) ;;
         *) return 1 ;;
       esac
@@ -78,7 +78,11 @@ ci_provider_test_selection() {
         case "$word" in
           --exclude) [[ "$package" == workspace && "$value" == icydb-testing-integration ]] || return 1; excluded=true ;;
           -p|--package) [[ "$package" != workspace && "$value" == "$package" ]] || return 1; selected_package=true ;;
-          --test) [[ "$package" != workspace && "$value" == "$binary" ]] || return 1; selected_binary=true ;;
+          --test)
+            [[ "$package" != workspace && " ${expected_binaries[*]} " == *" $value "* &&
+               " ${selected_binaries[*]:-} " != *" $value "* ]] || return 1
+            selected_binaries+=("$value")
+            ;;
         esac
         ;;
       *) return 1 ;;
@@ -88,7 +92,8 @@ ci_provider_test_selection() {
   if [[ "$package" == workspace ]]; then
     [[ "$workspace" == true && "$all_targets" == true && "$excluded" == true ]]
   else
-    [[ "$workspace" == false && "$all_targets" == false && "$selected_package" == true && "$selected_binary" == true ]]
+    [[ "$workspace" == false && "$all_targets" == false && "$selected_package" == true &&
+       "${#expected_binaries[@]}" -gt 0 && "${#selected_binaries[@]}" == "${#expected_binaries[@]}" ]]
   fi
 }
 
@@ -170,6 +175,7 @@ for target in _test-canister-libs test-integration-feedback \
 done
 
 for route in 'ci-workspace _ci-workspace-tests' 'ci-workspace _test-canister-libs' \
+  'ci-workspace _test-durability-integration' \
   'ci-sql-tier-b _ci-tier-b-sql-canister' 'ci-sql-tier-b _ci-tier-b-sql-perf'; do
   read -r parent child <<< "$route"
   if ! make_target_recipe "$parent" | awk '/^\t/ { print }' |
@@ -178,10 +184,17 @@ for route in 'ci-workspace _ci-workspace-tests' 'ci-workspace _test-canister-lib
   fi
 done
 
-if ! ci_provider_test_selection _ci-workspace-tests workspace '' ||
+if ! ci_provider_test_selection _ci-workspace-tests workspace ||
    ! ci_provider_test_selection _ci-tier-b-sql-canister icydb-testing-integration sql_canister ||
    ! ci_provider_test_selection _ci-tier-b-sql-perf icydb-testing-integration sql_perf_audit; then
   fail "SQL coverage providers require unfiltered workspace and Tier B Cargo test selections"
+fi
+
+if ! ci_provider_test_selection _test-durability-integration icydb-testing-integration \
+  convergence_candidate durable_mutation_job_scale recovery_closeout logical_memory \
+  schema_migration_closeout lifecycle_participant read_authority sql_guard schema_guard ||
+   ! make_target_recipe _test-durability-integration | rg -q --fixed-strings '$(IC_TESTKIT_ENV)'; then
+  fail "workspace CI must execute the unfiltered durability, lifecycle and authority selections with Testkit admission"
 fi
 
 # Native oracle samples must reject an empty libtest match rather than making

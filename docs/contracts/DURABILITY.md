@@ -348,6 +348,13 @@ it does not introduce a cursor within a batch. See the implemented
 [convergence design](../design/archive/0.229-continuous-journal-convergence-and-bounded-backlog-admission/0.229-design.md)
 and maintained [recovery qualification](../../testing/integration/tests/recovery_closeout.rs).
 
+The required workspace CI lane executes that recovery binary alongside
+convergence, durable-job scale, logical-memory, schema-migration, lifecycle and
+read/schema/SQL authorization tests. It reuses the integration selection from
+`make test-durability`; Testkit owns server preparation and admission. See the
+[test lane roster](../../TESTING.md#execution-and-ci-coverage) for selections and evidence
+limits. Source selection is not a passing installed qualification result.
+
 Retirement reads only the next batch's fixed header to advance the head
 identity; it does not copy that batch's payload. Header presence, format and
 sequence are checked. The retiring batch remains fully preflighted, and the

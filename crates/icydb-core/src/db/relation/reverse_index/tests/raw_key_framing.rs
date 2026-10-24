@@ -3,8 +3,12 @@
 use super::*;
 use crate::{
     db::{
+        data::DecodedDataStoreKey,
         index::{IndexKey, IndexKeyKind, RawIndexStoreKey},
-        relation::reverse_index::{relation_id_component, reverse_index_id_for_relation},
+        relation::reverse_index::{
+            decode_relation_target_data_key, relation_id_component,
+            relation_target_identities_from_relation_target_keys, reverse_index_id_for_relation,
+        },
     },
     error::InternalError,
     types::{Account, Principal, Subaccount, Timestamp, U256, Ulid},
@@ -50,6 +54,54 @@ fn primary_keys() -> Vec<PrimaryKeyValue> {
         ));
     }
     keys
+}
+
+#[test]
+fn projected_relation_targets_preserve_known_scalar_and_composite_identities() {
+    let relation = relation(5, AcceptedFieldKind::Nat64);
+    for value in primary_keys() {
+        let expected = DecodedDataStoreKey::new(relation.target().entity_tag(), &value)
+            .to_raw()
+            .unwrap();
+        let actual = relation_target_identities_from_relation_target_keys(
+            &relation,
+            RelationTargetKeys::one(&value),
+        )
+        .unwrap();
+        assert_eq!(actual, vec![(expected, value)]);
+    }
+}
+
+#[test]
+fn stored_relation_delete_keys_validate_bytes_and_skip_foreign_entities() {
+    let relation = relation(5, AcceptedFieldKind::Nat64);
+    for value in primary_keys() {
+        let raw = DecodedDataStoreKey::new(relation.target().entity_tag(), &value)
+            .to_raw()
+            .unwrap();
+        let decoded = decode_relation_target_data_key(&relation, &raw)
+            .unwrap()
+            .unwrap();
+        assert_eq!(decoded.primary_key_value(), value);
+        assert_eq!(decoded.raw_key().unwrap(), &raw);
+
+        let foreign = DecodedDataStoreKey::new(EntityTag::new(78), &value)
+            .to_raw()
+            .unwrap();
+        assert!(
+            decode_relation_target_data_key(&relation, &foreign)
+                .unwrap()
+                .is_none()
+        );
+
+        let truncated = RawDataStoreKey::from_persisted_bytes(
+            raw.as_bytes()[..raw.as_bytes().len() - 1].to_vec(),
+        );
+        let error = decode_relation_target_data_key(&relation, &truncated).unwrap_err();
+        let expected = InternalError::identity_corruption();
+        assert_eq!(error.diagnostic_code(), expected.diagnostic_code());
+        assert_eq!(error.origin(), expected.origin());
+    }
 }
 
 fn general_index_key(

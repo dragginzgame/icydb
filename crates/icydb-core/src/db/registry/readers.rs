@@ -20,9 +20,15 @@ use std::{cell::RefCell, ops::Bound, thread::LocalKey};
 
 impl StructuralPrimaryRowReader for StoreHandle {
     fn read_primary_row(&self, key: &DecodedDataStoreKey) -> Result<Option<RawRow>, InternalError> {
-        let raw_key = key.to_raw()?;
+        let raw_key = key.raw_key()?;
 
-        Ok(self.with_data(|store| store.get(&raw_key)))
+        Ok(self.with_data(|store| store.get(raw_key)))
+    }
+
+    fn contains_primary_row(&self, key: &DecodedDataStoreKey) -> Result<bool, InternalError> {
+        let raw_key = key.raw_key()?;
+
+        Ok(self.with_data(|store| store.contains(raw_key)))
     }
 }
 

@@ -5,6 +5,30 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.281.2]
+
+- Avoid redundant map walks, key/DISTINCT copies and row loads, retain known relation
+  identities, reuse Platform Account text with explicit field conversions, and
+  execute shared durability and authorization coverage in CI, and adopt current
+  IC Tooling and Shared dependency/formatting checks
+  ([#422 — A nested map lookup skips the map and then skips it again to find the key](https://github.com/dragginzgame/icydb/issues/422),
+  [#424 — A primary-key point lookup clones the key and then only borrows the clone](https://github.com/dragginzgame/icydb/issues/424),
+  [#426 — A relation write decodes a target key it just encoded](https://github.com/dragginzgame/icydb/issues/426),
+  [#427 — A DISTINCT row that contains a map is copied before the lookup](https://github.com/dragginzgame/icydb/issues/427),
+  [#428 — An ordered group builds a canonical key for every row](https://github.com/dragginzgame/icydb/issues/428),
+  [#429 — Structural row readers copy a raw key they only borrow](https://github.com/dragginzgame/icydb/issues/429),
+  [#430 — A relation target check loads the whole row](https://github.com/dragginzgame/icydb/issues/430),
+  [#431 — A resumable update scan copies every visited key](https://github.com/dragginzgame/icydb/issues/431),
+  [#433 — A grouped DISTINCT aggregate copies the input before the lookup](https://github.com/dragginzgame/icydb/issues/433),
+  [#434 — A commit preflight copies a staged index key it only borrows](https://github.com/dragginzgame/icydb/issues/434),
+  [#435 — An update decodes a canonical payload and drops the value](https://github.com/dragginzgame/icydb/issues/435),
+  [#436 — A cursor boundary copies values only to build a primary key](https://github.com/dragginzgame/icydb/issues/436),
+  [#394 — Account text links two crates for a four-byte checksum](https://github.com/dragginzgame/icydb/issues/394); local ownership cleanup only,
+  [#42 — PR CI durability integration coverage](https://github.com/dragginzgame/icydb/issues/42),
+  [#70 — Account identity and explicit-zero subaccounts](https://github.com/dragginzgame/icydb/issues/70); Account conversion portion only).
+
+See [detailed notes](docs/changelog/0.281.md).
+
 ## [0.281.1] - 2026-10-23
 
 ### 🩹 Fixed

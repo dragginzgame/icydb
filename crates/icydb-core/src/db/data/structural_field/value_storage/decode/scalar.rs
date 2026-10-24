@@ -5,7 +5,7 @@
 
 use crate::db::data::structural_field::{
     FieldDecodeError,
-    binary::{CompleteBinaryValue, TAG_BYTES, TAG_INT64, TAG_NAT64, TAG_TEXT},
+    binary::{TAG_BYTES, TAG_INT64, TAG_NAT64, TAG_TEXT},
     primitive::{decode_i64_payload_bytes, decode_u64_payload_bytes},
     value_storage::decode::ValueStorageSlice,
 };
@@ -36,18 +36,4 @@ pub(super) fn decode_binary_blob_scalar<'a>(
     slice: &ValueStorageSlice<'a>,
 ) -> Result<&'a [u8], FieldDecodeError> {
     slice.scalar_payload(TAG_BYTES, None)
-}
-
-// Borrow a skip-bounded map key without revalidating its envelope or UTF-8.
-// The caller must supply the exact range returned by value-storage skip. This
-// is only for byte-key comparisons against a valid UTF-8 query segment.
-pub(super) fn decode_binary_text_payload_bytes_if_text(
-    raw_bytes: &[u8],
-) -> Result<Option<&[u8]>, FieldDecodeError> {
-    let root = CompleteBinaryValue::from_skip_bounded(raw_bytes)?;
-    if root.tag() != TAG_TEXT {
-        return Ok(None);
-    }
-
-    root.scalar_payload().map(Some)
 }

@@ -323,19 +323,31 @@ impl<'a, C: CanisterKind> PreflightStoreOverlay<'a, C> {
 
 impl<C: CanisterKind> StructuralPrimaryRowReader for PreflightStoreOverlay<'_, C> {
     fn read_primary_row(&self, key: &DecodedDataStoreKey) -> Result<Option<RawRow>, InternalError> {
-        let raw_key = key.to_raw()?;
-        if let Some(override_row) = self.data_overrides.get(&raw_key) {
+        let raw_key = key.raw_key()?;
+        if let Some(override_row) = self.data_overrides.get(raw_key) {
             return Ok(override_row.clone());
         }
 
         let runtime_entity = self.db.accepted_runtime_entity_for_tag(key.entity_tag())?;
         let store = self.db.recovered_store(runtime_entity.store_path())?;
 
-        Ok(store.with_data(|data_store| data_store.get(&raw_key)))
+        Ok(store.with_data(|data_store| data_store.get(raw_key)))
+    }
+
+    fn contains_primary_row(&self, key: &DecodedDataStoreKey) -> Result<bool, InternalError> {
+        let raw_key = key.raw_key()?;
+        if let Some(override_row) = self.data_overrides.get(raw_key) {
+            return Ok(override_row.is_some());
+        }
+
+        let runtime_entity = self.db.accepted_runtime_entity_for_tag(key.entity_tag())?;
+        let store = self.db.recovered_store(runtime_entity.store_path())?;
+
+        Ok(store.with_data(|data_store| data_store.contains(raw_key)))
     }
 
     fn has_primary_row_override(&self, key: &DecodedDataStoreKey) -> Result<bool, InternalError> {
-        Ok(self.data_overrides.contains_key(&key.to_raw()?))
+        Ok(self.data_overrides.contains_key(key.raw_key()?))
     }
 }
 
@@ -402,12 +414,11 @@ impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C
                     while let Some((override_key, _)) = overrides.peek() {
                         match (*override_key).cmp(raw_key) {
                             std::cmp::Ordering::Less => {
-                                let override_key = (*override_key).clone();
-                                let Some((_, override_entry)) = overrides.next() else {
+                                let Some((override_key, override_entry)) = overrides.next() else {
                                     return Err(InternalError::query_executor_invariant());
                                 };
                                 if push_optional_index_entry_primary_key_values(
-                                    &override_key,
+                                    override_key,
                                     override_entry.as_ref(),
                                     &mut out,
                                     limit,
@@ -417,12 +428,11 @@ impl<C: CanisterKind> StructuralIndexEntryReader for PreflightStoreOverlay<'_, C
                                 }
                             }
                             std::cmp::Ordering::Equal => {
-                                let override_key = (*override_key).clone();
-                                let Some((_, override_entry)) = overrides.next() else {
+                                let Some((override_key, override_entry)) = overrides.next() else {
                                     return Err(InternalError::query_executor_invariant());
                                 };
                                 if push_optional_index_entry_primary_key_values(
-                                    &override_key,
+                                    override_key,
                                     override_entry.as_ref(),
                                     &mut out,
                                     limit,
@@ -1373,6 +1383,9 @@ mod tests {
 
         let overlay = PreflightStoreOverlay::from_row_ops(&db, row_ops.as_slice())
             .expect("complete batch overlay should build");
+        assert!(overlay.has_primary_row_override(&later).unwrap());
+        assert!(overlay.contains_primary_row(&later).unwrap());
+        assert!(!overlay.has_primary_row_override(&test_key(4)).unwrap());
         let visible = overlay
             .read_primary_row(&later)
             .expect("later batch target lookup should succeed")
@@ -1392,6 +1405,9 @@ mod tests {
 
         let overlay = PreflightStoreOverlay::from_row_ops(&db, row_ops.as_slice())
             .expect("delete overlay should build");
+        assert!(overlay.has_primary_row_override(&deleted).unwrap());
+        assert!(!overlay.contains_primary_row(&deleted).unwrap());
+        assert!(!overlay.has_primary_row_override(&test_key(4)).unwrap());
 
         assert!(
             overlay

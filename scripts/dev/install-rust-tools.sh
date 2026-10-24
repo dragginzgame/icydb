@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared companions: scripts/ci/verify-file-checksum.sh scripts/ci/tool-catalog-records.pl scripts/dev/tool-store.sh scripts/dev/cargo-tool-build.sh ci/tool-versions.env
+# Shared companions: scripts/ci/verify-file-checksum.sh scripts/ci/tool-catalog-records.pl scripts/dev/tool-store.sh scripts/dev/cargo-tool-build.sh ci/tool-versions.env scripts/ci/describe-tool-selection.pl
 set -euo pipefail
 
 ROOT="$0"
@@ -11,11 +11,12 @@ consumer="$ROOT"
 versions_file="$ROOT/ci/tool-versions.env"
 check_only=false
 preflight=false
+describe=false
 package='' selected_version='' lockfile='' kind='' target='' profile=''
 features_csv='' features_json='[]'
 usage() {
-    echo 'usage: install-rust-tools.sh [--consumer DIR] [--versions FILE] [--check | --preflight]' >&2
-    echo '   or: install-rust-tools.sh [--consumer DIR] --package NAME (--version X.Y.Z | --lockfile FILE) (--bin NAME | --example NAME) --profile (debug | release) [--features NAME[,NAME]...]... [--check]' >&2
+    echo 'usage: install-rust-tools.sh [--consumer DIR] [--versions FILE] [--check | --preflight | --describe]' >&2
+    echo '   or: install-rust-tools.sh [--consumer DIR] --package NAME (--version X.Y.Z | --lockfile FILE) (--bin NAME | --example NAME) --profile (debug | release) [--features NAME[,NAME]...]... [--check | --describe]' >&2
 }
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -25,6 +26,7 @@ while [[ $# -gt 0 ]]; do
             shift 2 ;;
         --check) check_only=true; shift ;;
         --preflight) preflight=true; shift ;;
+        --describe) describe=true; shift ;;
         --features)
             [[ $# -ge 2 && -n "$2" ]] || { usage; exit 2; }
             [[ "$2" != *[[:space:]]* ]] || { usage; exit 2; }
@@ -55,8 +57,9 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 [[ "$check_only" == false || "$preflight" == false ]] || { usage; exit 2; }
+[[ "$describe" == false || "$check_only:$preflight" == false:false ]] || { usage; exit 2; }
 setup_wait_seconds=0
-if [[ "$check_only" == false && "$preflight" == false ]]; then
+if [[ "$check_only:$preflight:$describe" == false:false:false ]]; then
     setup_wait_seconds="${SHARED_TOOLING_SETUP_WAIT_SECONDS:-60}"
     [[ "$setup_wait_seconds" =~ ^(0|[1-9][0-9]{0,2})$ && "$setup_wait_seconds" -le 300 ]] || {
         echo 'SHARED_TOOLING_SETUP_WAIT_SECONDS must be a canonical integer from 0 to 300' >&2
@@ -136,6 +139,15 @@ else
         tool_versions+=("$version")
     done <<< "$records"
 fi
+if [[ "$describe" == true ]]; then
+    if [[ "$selected" == true ]]; then
+        perl "$ROOT/scripts/ci/describe-tool-selection.pl" rust "$consumer" "$ROOT/scripts/dev/install-rust-tools.sh" '' \
+            "$package" "$selected_version" "$kind" "$target" "$profile" "$features_csv" "$lockfile"
+    else
+        printf '%s\n' "$records" | perl "$ROOT/scripts/ci/describe-tool-selection.pl" rust "$consumer" "$ROOT/scripts/dev/install-rust-tools.sh" "$versions_file"
+    fi
+    exit 0
+fi
 install_root="$selection_consumer/.tools/rust"
 export RUSTUP_AUTO_INSTALL=0
 # shellcheck source=scripts/dev/tool-store.sh
@@ -147,7 +159,7 @@ check_install_paths() {
     local path
     # Admit the whole fixed route before any tool probe or Cargo dispatch. Do
     # not follow even dangling links, or inspect unrelated host/IC bundle links.
-    for path in "$selection_consumer/.tools" "$install_root" "$install_root/build"; do
+    for path in "$selection_consumer/.tools" "$install_root"; do
         if [[ -L "$path" || ( -e "$path" && ! -d "$path" ) ]]; then
             printf 'Rust tool directory must be a physical directory: %s\n' "$path" >&2
             return 1
@@ -279,6 +291,30 @@ check_build_inputs() {
     bash "$ROOT/scripts/ci/verify-file-checksum.sh" sha256 "$(jq -r .source_sha256 <<< "$inputs")" "$source_archive"
 }
 
+# Diagnostics only: retain the command's status and stdout, including when the
+# caller captures a selected path. Callbacks already propagate failures without
+# relying on errexit. A compilation log remains caller-selected retained evidence.
+run_setup_phase() {
+    local phase_name="$1" phase_log="$2" phase_started="$SECONDS" phase_status=0 phase_outcome=passed
+    shift 2
+    if [[ "$check_only" == false ]]; then
+        printf 'Cargo tool setup: package=%s version=%s phase=%s outcome=started elapsed=0s\n' \
+            "$package" "$selected_version" "$phase_name" >&2 || :
+    fi
+    if [[ -n "$phase_log" ]]; then
+        "$@" > "$phase_log" 2>&1 || phase_status=$?
+    else
+        "$@" || phase_status=$?
+    fi
+    [[ "$phase_status" == 0 ]] || phase_outcome=failed
+    if [[ "$check_only" == false ]]; then
+        printf 'Cargo tool setup: package=%s version=%s phase=%s outcome=%s elapsed=%ss status=%s\n' \
+            "$package" "$selected_version" "$phase_name" "$phase_outcome" \
+            "$((SECONDS - phase_started))" "$phase_status" >&2 || :
+    fi
+    return "$phase_status"
+}
+
 install_selected() (
     stage=''
     store_lock=''
@@ -302,7 +338,7 @@ install_selected() (
     trap finish_selected EXIT
     trap 'exit 130' INT
     trap 'exit 143' TERM
-    cargo_source || { status=$?; rust_setup_hint; exit "$status"; }
+    run_setup_phase source-preparation '' cargo_source || { status=$?; rust_setup_hint; exit "$status"; }
     tool_store_init rust "$inputs" || exit $?
     tool_root="$install_root"
     active="$install_root/selected-$store_id"
@@ -313,7 +349,7 @@ install_selected() (
         reference="${reference%/.}"
         [[ "$reference" =~ ^rust-set\.[[:alnum:]]+$ ]] || { echo 'invalid Cargo tool reference' >&2; exit 1; }
         if destination="$(tool_store_resolve "$install_root/$reference" "$store_slot")" &&
-            tool_store_unlocked && check_selected; then
+            tool_store_unlocked && run_setup_phase selection-reuse '' check_selected; then
             check_locked_selection || exit $?
             printf '%s/bin/%s\n' "$active" "$target" || exit $?
             exit 0
@@ -331,12 +367,12 @@ install_selected() (
     mkdir -p "$install_root" || exit $?
     mkdir "$lock" || exit $?
     lock_owned=true
-    tool_store_acquire "$setup_wait_seconds" || exit $?
+    run_setup_phase lock-wait '' tool_store_acquire "$setup_wait_seconds" || exit $?
     if [[ "$tool_store_waited" == true ]]; then
         check_build_inputs || exit $?
         check_locked_selection || exit $?
     fi
-    if destination="$(tool_store_cached)" && check_selected; then
+    if destination="$(tool_store_cached)" && run_setup_phase cache-reuse '' check_selected; then
         tool_store_reference "$destination" || exit $?
     else
         tool_store_new || exit $?
@@ -346,17 +382,17 @@ install_selected() (
         printf '%s\n' "$native_identity" > "$stage/native-environment.txt" || exit $?
         cp "$source_archive" "$stage/source.crate" || exit $?
         options=(); [[ "$profile" != debug ]] || options=(--debug)
-        cargo_build "$stage" ${options[@]+"${options[@]}"} > "$stage/install.log" 2>&1 || {
+        run_setup_phase compilation "$stage/install.log" cargo_build "$stage" ${options[@]+"${options[@]}"} || {
             status=$?; cat "$stage/install.log" >&2 || :; exit "$status";
         }
         check_install_paths || exit $?
         selected_paths "$stage" || exit $?
-        selected_receipt "$stage" || exit $?
+        run_setup_phase receipt-admission '' selected_receipt "$stage" || exit $?
         # Refuse a changed source/compiler/native environment before publication.
         check_build_inputs || exit $?
         selected_identity "$stage" > "$stage/selection.json" || exit $?
         destination="$stage"
-        check_selected || exit $?
+        run_setup_phase build-admission '' check_selected || exit $?
     fi
     check_locked_selection || exit $?
     tool_store_activate "$destination" || exit $?

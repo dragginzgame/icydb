@@ -11,6 +11,26 @@ not authorize separate dependency selections.
 The [pinning rules](dependency-pinning.md) define compatible ranges, justified
 exact constraints, immutable Git revisions, lockfiles and external path inputs.
 
+## Shared boundary check
+
+Consumers can adopt the reviewed inventory in `ci/external-ic-dependencies.txt`
+through `bash scripts/ci/check-cargo-dependency-boundaries.sh --consumer "$PWD"
+--external-ic`. This checks canonical dependency names, including aliases,
+optional, build, development and target-specific declarations, using locked
+offline Cargo metadata. The sole allowed direct package owner for the listed
+external IC dependencies is `ic-platform`.
+
+This option composes with `ci/cargo-dependency-boundaries.json`: local rules may
+tighten the common boundary but cannot relax it. The local file may be absent
+when only the common inventory is selected. Without the option, the existing
+local-only contract is unchanged. Remove duplicate local prohibitions only after
+the consumer actually enables and qualifies the common inventory.
+
+The inventory is a reviewed list of known packages, not proof that every external
+IC package has been discovered. Review new dependencies against the broader
+[external IC boundary](#external-ic-dependency-boundary); add missing names here.
+Do not infer ownership from an `ic-` prefix or prohibit our owned packages.
+
 ## Required inheritance
 
 - Declare every direct dependency in the root `[workspace.dependencies]`, even

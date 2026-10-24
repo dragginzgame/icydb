@@ -8,9 +8,10 @@ use crate::{
         data::structural_field::{
             FieldDecodeError,
             binary::{
-                TAG_LIST, TAG_MAP, parse_binary_head, push_binary_bool, push_binary_bytes,
-                push_binary_int64, push_binary_list_len, push_binary_map_len, push_binary_nat64,
-                push_binary_null, push_binary_text, push_binary_unit,
+                CompleteBinaryValue, TAG_LIST, TAG_MAP, TAG_NULL, TAG_TEXT, parse_binary_head,
+                push_binary_bool, push_binary_bytes, push_binary_int64, push_binary_list_len,
+                push_binary_map_len, push_binary_nat64, push_binary_null, push_binary_text,
+                push_binary_unit,
             },
             value_storage::{
                 decode::value::decode_value_storage_scalar_bytes,
@@ -213,6 +214,58 @@ pub(super) fn skip_canonical_value(
     }
 
     skip_value_storage_scalar(encoded, offset)
+}
+
+/// Select a complete text-keyed map path while validating the entire value.
+/// The selected branch descends instead of being skipped and reopened. All
+/// other children still use canonical traversal at their original depth.
+pub(super) fn select_canonical_map_path<'a>(
+    encoded: &'a [u8],
+    offset: usize,
+    depth: u16,
+    segments: &[impl AsRef<[u8]>],
+) -> Result<(usize, Option<&'a [u8]>), FieldDecodeError> {
+    ensure_depth(depth)?;
+    let Some((segment, remaining)) = segments.split_first() else {
+        let end = skip_canonical_value(encoded, offset, depth)?;
+        return Ok((end, Some(&encoded[offset..end])));
+    };
+    if encoded.get(offset) == Some(&TAG_NULL) {
+        return Ok((skip_canonical_value(encoded, offset, depth)?, None));
+    }
+    let (_, len, mut cursor) = canonical_collection_head_at(encoded, offset, TAG_MAP)?;
+    len.checked_mul(2).ok_or_else(FieldDecodeError::new)?;
+    let child_depth = depth.saturating_add(1);
+    let mut matched = false;
+    let mut selected = None;
+    for _ in 0..len {
+        let key_start = cursor;
+        cursor = skip_canonical_value(encoded, cursor, child_depth)?;
+        if !matched
+            && decode_binary_text_payload_bytes_if_text(&encoded[key_start..cursor])?
+                .is_some_and(|key| key == segment.as_ref())
+        {
+            matched = true;
+            (cursor, selected) =
+                select_canonical_map_path(encoded, cursor, child_depth, remaining)?;
+        } else {
+            cursor = skip_canonical_value(encoded, cursor, child_depth)?;
+        }
+    }
+    Ok((cursor, selected))
+}
+
+// Borrow a skip-bounded map key without revalidating its envelope or UTF-8.
+// Only compare these bytes with a compiled text segment, after canonical skip.
+fn decode_binary_text_payload_bytes_if_text(
+    raw_bytes: &[u8],
+) -> Result<Option<&[u8]>, FieldDecodeError> {
+    let root = CompleteBinaryValue::from_skip_bounded(raw_bytes)?;
+    if root.tag() != TAG_TEXT {
+        return Ok(None);
+    }
+
+    root.scalar_payload().map(Some)
 }
 
 fn skip_canonical_enum(

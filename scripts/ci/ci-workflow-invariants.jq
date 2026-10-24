@@ -150,15 +150,15 @@ require(has("permissions") and (.permissions != null);
         if $job == "rust" then .env.MAKE_TARGET == "${{ matrix.make_target }}"
         else run_text | contains("bash scripts/ci/wasm-size-report.sh") end));
       "\($job) requires governed IC tool setup and offline admission before its build/report caller")),
-  # Real server setup belongs to the matrix lane that executes live canisters.
+  # Only workspace durability and Tier B execute live canisters in this matrix.
   require(any(.jobs.rust.steps[]?;
-    .if == "matrix.lane == 'tier-b'" and (.["continue-on-error"] // false) == false
+    .if == "matrix.lane == 'workspace' || matrix.lane == 'tier-b'" and (.["continue-on-error"] // false) == false
     and (run_text | test("(?m)^[ \\t]*make[ \\t]+install-testkit[ \\t]+>"))
     and (run_text | test("(?m)^[ \\t]*make[ \\t]+testkit-check[ \\t]+>")));
-    "Tier B requires explicit Testkit server setup and admission"),
+    "workspace and Tier B require explicit Testkit server setup and admission"),
   require(all(.jobs.rust.steps[]?;
     if admits_server_tools then
-      .if == "matrix.lane == 'tier-b'" and (.["continue-on-error"] // false) == false
+      .if == "matrix.lane == 'workspace' || matrix.lane == 'tier-b'" and (.["continue-on-error"] // false) == false
     else true end);
     "native Rust lanes must not provision or admit an official server"),
   require(any(.jobs.macos_host.steps[]?;

@@ -171,7 +171,7 @@ jobs:
           make install-ic-tools > "$RUNNER_TEMP/tools-ic-install.log" 2>&1
           make ic-tools-check > "$RUNNER_TEMP/tools-ic-check.log" 2>&1
       - name: Prepare locked Testkit CLI and server for live tests
-        if: matrix.lane == 'tier-b'
+        if: matrix.lane == 'workspace' || matrix.lane == 'tier-b'
         run: |
           make install-testkit > "$RUNNER_TEMP/tools-testkit-install.log" 2>&1
           make testkit-check > "$RUNNER_TEMP/tools-testkit-check.log" 2>&1
