@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ## [0.284.1]
 
-- Adopt Wire 0.7.11 generator diagnostics, restore non-SQL integrity compilation, reject unenforceable recursive relations and invalid generated migration targets, remove repeated recursive decoder scans, preflight journal revision writes, reject over-depth generated predicates, preserve index-key comparator transitivity, bound INSERT SELECT staging, correct SQL nesting accounting, add surface-specific read allowlists, require confirmation for destructive refresh, preserve corrupt retained store
+- Adopt Wire 0.7.11 generator diagnostics, restore non-SQL integrity compilation, reject unenforceable recursive relations and invalid generated migration targets, remove repeated recursive decoder scans, preflight journal revision writes, reject over-depth generated predicates, preserve index-key comparator transitivity and corruption visibility, bound INSERT SELECT staging, correct SQL nesting accounting, add surface-specific read allowlists, require confirmation for destructive refresh, preserve corrupt retained store
   allocations, explain Wire contract mismatches, reject cursors for type-mismatched
   expressions and avoid redundant raw-key
   copies in validation scans, exact-key batches, cardinality prefix hashing

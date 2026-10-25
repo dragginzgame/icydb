@@ -1450,27 +1450,53 @@ fn take_len_prefixed<'a>(input: &mut &'a [u8]) -> Result<&'a [u8], CompactStoreK
 }
 
 fn compare_raw_index_store_key_bytes(left: &[u8], right: &[u8]) -> Ordering {
-    // Mixing framed-byte order with semantic order creates cycles. Keep all
-    // invalid frames after valid frames, and order only invalid peers by bytes.
-    // Reading an invalid key still goes through the fallible decoder.
-    let (left_key, right_key) = match (
+    const HEADER: usize = TAG_SIZE + IndexId::STORED_SIZE_USIZE + TAG_SIZE;
+
+    if let (Ok(left_key), Ok(right_key)) = (
         decode_raw_index_store_key_segments(left),
         decode_raw_index_store_key_segments(right),
     ) {
-        (Ok(left_key), Ok(right_key)) => (left_key, right_key),
-        (Ok(_), Err(_)) => return Ordering::Less,
-        (Err(_), Ok(_)) => return Ordering::Greater,
-        (Err(_), Err(_)) => return left.cmp(right),
-    };
-
-    left_key
-        .kind
-        .cmp(&right_key.kind)
-        .then_with(|| left_key.index_id.cmp(&right_key.index_id))
-        .then_with(|| left_key.component_count.cmp(&right_key.component_count))
-        // Equal counts have identical empty padding beyond their active components.
-        .then_with(|| left_key.components.cmp(&right_key.components))
-        .then_with(|| left_key.primary_key.cmp(right_key.primary_key))
+        return left_key
+            .kind
+            .cmp(&right_key.kind)
+            .then_with(|| left_key.index_id.cmp(&right_key.index_id))
+            .then_with(|| left_key.component_count.cmp(&right_key.component_count))
+            .then_with(|| left_key.components.cmp(&right_key.components))
+            .then_with(|| left_key.primary_key.cmp(right_key.primary_key));
+    }
+    // Compare the same sequence of framing tokens for every key. A malformed
+    // suffix must stay beside its decoded prefix so bounded integrity scans
+    // still encounter it; whole-frame validity cannot be an outer sort class.
+    let prefix_order = left[..left.len().min(HEADER)].cmp(&right[..right.len().min(HEADER)]);
+    if prefix_order != Ordering::Equal || left.len() < HEADER || right.len() < HEADER {
+        return prefix_order;
+    }
+    let count = usize::from(left[HEADER - 1]);
+    let mut left = &left[HEADER..];
+    let mut right = &right[HEADER..];
+    if count > MAX_INDEX_FIELDS {
+        return left.cmp(right);
+    }
+    // Component count precedes components in the maintained valid-key order.
+    // The final framed segment is the primary key. At an undecodable segment,
+    // compare an error token before a decoded token, then raw error payloads.
+    for _ in 0..=count {
+        let (left_tail, right_tail) = (left, right);
+        match (take_len_prefixed(&mut left), take_len_prefixed(&mut right)) {
+            (Ok(left_segment), Ok(right_segment)) => {
+                let order = left_segment.cmp(right_segment);
+                if order != Ordering::Equal {
+                    return order;
+                }
+            }
+            (Err(_), Ok(_)) => return Ordering::Less,
+            (Ok(_), Err(_)) => return Ordering::Greater,
+            (Err(_), Err(_)) => return left_tail.cmp(right_tail),
+        }
+    }
+    // Complete valid frames end here. Retain trailing corruption adjacent to
+    // that exact key without admitting it through the strict key decoder.
+    left.cmp(right)
 }
 
 fn decode_raw_index_store_key_segments(

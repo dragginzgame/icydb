@@ -661,7 +661,7 @@ fn failed_canister_probes_preserve_diagnostics_and_stop_before_effects() {
             for arguments in [
                 vec!["sql", "-c", "fixture", "--sql", "SELECT id FROM Character"],
                 vec!["canister", "list"],
-                vec!["canister", "refresh", "fixture"],
+                vec!["canister", "refresh", "fixture", "--yes"],
             ] {
                 let fixture = IcpFixture::new();
                 let output = fixture
@@ -692,7 +692,7 @@ fn failed_canister_probes_preserve_diagnostics_and_stop_before_effects() {
 fn missing_icp_executable_reports_command_context() {
     for arguments in [
         vec!["sql", "-c", "fixture", "--sql", "SELECT id FROM Character"],
-        vec!["canister", "refresh", "fixture"],
+        vec!["canister", "refresh", "fixture", "--yes"],
     ] {
         let fixture = IcpFixture::new();
         fs::remove_file(fixture.directory.join("icp")).unwrap();
@@ -722,7 +722,7 @@ fn refresh_preserves_probe_admission_and_stops_after_failed_stages() {
         let output = fixture
             .command(&success_response())
             .env("ICP_FIXTURE_REFRESH_CASE", case)
-            .args(["canister", "refresh", "fixture", "-e", "fixture"])
+            .args(["canister", "refresh", "fixture", "--yes", "-e", "fixture"])
             .output()
             .unwrap();
         assert_eq!(output.status.code(), Some(exit), "{case}");

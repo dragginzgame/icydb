@@ -1050,7 +1050,7 @@ fn raw_index_ordering_matches_decoded_keys_at_every_component_count() {
 }
 
 #[test]
-fn raw_index_ordering_validates_complete_frames_before_comparing() {
+fn raw_index_ordering_preserves_corrupt_prefixes_and_transitivity() {
     let index = IndexId::new(EntityTag::new(0x1597), 1);
     let primary = EncodedPrimaryKey::encode(PrimaryKeyComponent::Nat64(1))
         .expect("primary key should encode");
@@ -1078,8 +1078,14 @@ fn raw_index_ordering_validates_complete_frames_before_comparing() {
     let mut malformed: Vec<Vec<u8>> = (0..raw.as_bytes().len())
         .map(|len| raw.as_bytes()[..len].to_vec())
         .collect();
+    malformed.extend((0..other.as_bytes().len()).map(|len| other.as_bytes()[..len].to_vec()));
+    malformed.sort();
+    malformed.dedup();
     let mut trailing = raw.as_bytes().to_vec();
     trailing.push(0);
+    let trailing_key = RawIndexStoreKey::from_persisted_bytes(trailing.clone());
+    assert!(raw < trailing_key);
+    assert!(trailing_key < other);
     malformed.push(trailing);
     let mut excessive_count = raw.as_bytes().to_vec();
     excessive_count[super::TAG_SIZE + IndexId::STORED_SIZE_USIZE] =
@@ -1094,10 +1100,6 @@ fn raw_index_ordering_validates_complete_frames_before_comparing() {
     for bytes in malformed {
         let invalid = RawIndexStoreKey::from_persisted_bytes(bytes);
         assert!(IndexKey::try_from_raw(&invalid).is_err());
-        for peer in &keys[..2] {
-            assert!(invalid > *peer);
-            assert!(*peer < invalid);
-        }
         keys.push(invalid);
     }
     for left in &keys {
