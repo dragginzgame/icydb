@@ -151,9 +151,9 @@ const REQUIRED_SQLITE_COMPILE_OPTIONS: &[&str] = &[
     "USE_URI",
 ];
 const REQUIRED_SQLITE_ENVIRONMENT: SqliteEnvironmentContract = SqliteEnvironmentContract {
-    version: "3.54.0",
-    version_number: 3_054_000,
-    source_id: "2026-10-09 15:46:58 be8d059e9a49089ab2dce5ed26dd87aaf598fdc5fbe0b107c0dd758464bcd5e3",
+    version: "3.54.1",
+    version_number: 3_054_001,
+    source_id: "2026-10-16 14:45:20 555e07ef33f69a0957d24d8e555b702464a131d6f1607f4c3c1e4551e8e6ca76",
     compile_options: REQUIRED_SQLITE_COMPILE_OPTIONS,
 };
 

@@ -77,6 +77,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 ### 🐛 Fixed
 
+- Align the SQL reference-test environment with the locked SQLite 3.54.1 update.
+
 - Preserve authored Rustdoc and lint attributes on generated model types
   ([#183](https://github.com/dragginzgame/icydb/issues/183), partial).
 
