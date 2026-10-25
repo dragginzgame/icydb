@@ -2,43 +2,53 @@
 
 use std::collections::BTreeMap;
 
-use ic_wire::typescript::{BulkLintReport, GenerationError, lint_bulk_roots};
-use serde_json::Value;
-
-/// Review every endpoint request/reply use site through the canonical Wire lint.
-pub(crate) fn review(
-    types: &BTreeMap<String, Value>,
-    methods: &[Value],
-) -> Result<BulkLintReport, GenerationError> {
-    let mut roots = BTreeMap::new();
-    for method in methods {
-        let name = method["name"].as_str().ok_or(GenerationError::Schema)?;
-        for direction in ["request", "response"] {
-            // Endpoint identities must be unique before reviewing their payloads.
-            let root = format!("@method:{name}:{direction}");
-            if roots.insert(root, method[direction].clone()).is_some() {
-                return Err(GenerationError::Schema);
-            }
-        }
-    }
-
+/// Exact endpoint-field decisions consumed by Wire's generator diagnostics.
+pub(super) fn acknowledgements() -> BTreeMap<String, String> {
     let mut acknowledgements = BTreeMap::new();
     for method in ["icydb_query", "icydb_ddl", "icydb_update"] {
         acknowledgements.insert(
-            format!("/@method:{method}:response/ok/variants/Ddl/fields/constraint_validation/item/fields/findings/item/fields/field_ids/list/u32"),
+            format!("/methods/{method}/response/ok/variants/Ddl/fields/constraint_validation/item/fields/findings/item/fields/field_ids/list/u32"),
             "Diagnostic field IDs retain compact varints; no measured bulk benefit justifies changing payload bytes and the client array type.".to_owned(),
         );
     }
 
-    lint_bulk_roots(&roots, types, &acknowledgements)
+    acknowledgements
 }
 
 #[cfg(test)]
 mod tests {
-    use super::review;
+    use super::acknowledgements;
     use ic_wire::typescript::GenerationError;
-    use serde_json::json;
+    use serde_json::{Value, json};
     use std::collections::BTreeMap;
+
+    // Exercise the generator's mandatory diagnostics rather than reconstructing
+    // a parallel set of lint roots in the consumer.
+    fn review(
+        types: &BTreeMap<String, Value>,
+        methods: &[Value],
+    ) -> Result<ic_wire::typescript::BulkLintReport, GenerationError> {
+        let limits = icydb_schema::wire::limits(1024);
+        let mut methods = methods.to_vec();
+        for method in &mut methods {
+            let budget = ic_wire::typescript::method_limits(limits, limits)?;
+            method
+                .as_object_mut()
+                .unwrap()
+                .extend(budget.as_object().unwrap().clone());
+            method["id"] = json!("1");
+            method["mode"] = json!("query");
+        }
+        let mut report = None;
+        ic_wire::typescript::generate_registry(
+            types,
+            &methods,
+            "./native-runtime.js",
+            &acknowledgements(),
+            |value| report = Some(value),
+        )?;
+        report.ok_or(GenerationError::Schema)
+    }
 
     #[test]
     fn inline_requests_and_error_replies_cannot_bypass_bulk_review() {
@@ -57,8 +67,8 @@ mod tests {
         assert_eq!(
             paths,
             [
-                "/@method:example:request/list/u8",
-                "/@method:example:response/err/list/u32"
+                "/methods/example/request/list/u8",
+                "/methods/example/response/err/list/u32"
             ]
         );
         assert!(!report.is_clean());
@@ -72,7 +82,7 @@ mod tests {
             report
                 .stale_acknowledgements
                 .iter()
-                .any(|path| { path == "/@method:icydb_query:response/ok/variants/Ddl/fields/constraint_validation/item/fields/findings/item/fields/field_ids/list/u32" })
+                .any(|path| { path == "/methods/icydb_query/response/ok/variants/Ddl/fields/constraint_validation/item/fields/findings/item/fields/field_ids/list/u32" })
         );
         assert!(!report.is_clean());
     }

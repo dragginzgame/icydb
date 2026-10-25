@@ -246,13 +246,21 @@ pub(super) fn registry() -> Result<SchemaRegistry> {
 }
 
 pub(super) fn write(out: &Path, types: &BTreeMap<String, Value>, methods: &[Value]) -> Result<()> {
-    let report = bulk::review(types, methods)
-        .map_err(|error| format!("Wire bulk-field review failed: {error:?}"))?;
-    if !report.is_clean() {
-        return Err(format!("Wire bulk-field review requires attention: {report:?}").into());
+    let mut clean = false;
+    let source = generate_registry(
+        types,
+        methods,
+        "./native-runtime.js",
+        &bulk::acknowledgements(),
+        |report| {
+            eprint!("{report}");
+            clean = report.is_clean();
+        },
+    )
+    .map_err(|error| format!("Wire TypeScript generation failed: {error:?}"))?;
+    if !clean {
+        return Err("Wire bulk-field review requires attention; see generator diagnostics".into());
     }
-    let source = generate_registry(types, methods, "./native-runtime.js")
-        .map_err(|error| format!("Wire TypeScript generation failed: {error:?}"))?;
     fs::write(out.join("icydb.ts"), source)?;
     fs::write(
         out.join("native-runtime.ts"),
