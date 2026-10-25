@@ -15,7 +15,6 @@ mod structural_row;
 #[cfg(test)]
 pub(in crate::db) use crate::db::key_taxonomy::PrimaryKeyComponent;
 pub(crate) use crate::db::key_taxonomy::RawDataStoreKey;
-#[cfg(feature = "sql")]
 pub(in crate::db) use key::decode_data_store_key;
 pub(in crate::db) use key::{DecodedDataStoreKey, DecodedDataStoreKeyDecodeError};
 pub(in crate::db) use key::{
