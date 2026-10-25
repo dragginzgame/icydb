@@ -62,7 +62,7 @@ resolver = "3"
 [workspace.package]
 rust-version = "1.96.0"
 edition = "2024"
-version = "0.283.0"
+version = "0.284.0"
 authors = ["borovan <84897664+borovan@users.noreply.github.com>"]
 description = "IcyDB — A schema-first typed query engine and persistence runtime for Internet Computer canisters"
 categories = ["database", "web-programming", "wasm"]
@@ -95,12 +95,12 @@ ic-metrics = "0.16"
 ic-platform = { version = "0.6", default-features = false }
 ic-storage = "0.51"
 ic-wire = "0.7.9"
-icydb = { path = "crates/icydb", version = "=0.283.0", default-features = false }
-icydb-core = { path = "crates/icydb-core", version = "=0.283.0" }
-icydb-diagnostic-code = { path = "crates/icydb-diagnostic-code", version = "=0.283.0" }
-icydb-model = { path = "crates/icydb-model", version = "=0.283.0" }
-icydb-model-macros = { path = "crates/icydb-model-macros", version = "=0.283.0" }
-icydb-schema = { path = "crates/icydb-schema", version = "=0.283.0" }
+icydb = { path = "crates/icydb", version = "=0.284.0", default-features = false }
+icydb-core = { path = "crates/icydb-core", version = "=0.284.0" }
+icydb-diagnostic-code = { path = "crates/icydb-diagnostic-code", version = "=0.284.0" }
+icydb-model = { path = "crates/icydb-model", version = "=0.284.0" }
+icydb-model-macros = { path = "crates/icydb-model-macros", version = "=0.284.0" }
+icydb-schema = { path = "crates/icydb-schema", version = "=0.284.0" }
 proc-macro-crate = "3.5.0"
 proc-macro2 = "1.0"
 quote = "1.0"
