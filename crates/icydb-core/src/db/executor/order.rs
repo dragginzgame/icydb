@@ -7,7 +7,7 @@ use crate::{
     db::{
         cursor::{CursorBoundary, CursorBoundarySlot, apply_order_direction},
         data::{CanonicalSlotReader, DataRow},
-        executor::{projection::eval_compiled_expr_with_value_reader, terminal::RowLayout},
+        executor::{projection::eval_compiled_expr_with_value_cow_reader, terminal::RowLayout},
         numeric::canonical_value_compare,
         query::plan::{OrderDirection, ResolvedOrder, ResolvedOrderValueSource},
         resource::budget::{charge_current_execution_budget, charge_sort_work, runtime_value_work},
@@ -55,12 +55,6 @@ pub(in crate::db::executor) trait OrderReadableRow {
     /// must override the inline-size default.
     fn retained_order_backing_bytes(&self) -> u64 {
         u64::try_from(std::mem::size_of_val(self)).unwrap_or(u64::MAX)
-    }
-
-    /// Read one slot value as an owned payload when a caller still needs to
-    /// leave the borrowed structural-ordering boundary.
-    fn read_order_slot(&self, slot: usize) -> Option<Value> {
-        self.read_order_slot_cow(slot).map(Cow::into_owned)
     }
 }
 
@@ -852,8 +846,8 @@ fn cache_order_values_from_data_row(
                 Some(slots.required_value_by_contract(*slot)?)
             }
             ResolvedOrderValueSource::Expression(expr) => {
-                eval_compiled_expr_with_value_reader(expr, &mut |slot| {
-                    slots.required_value_by_contract(slot).ok()
+                eval_compiled_expr_with_value_cow_reader(expr, &mut |slot| {
+                    slots.required_value_by_contract_cow(slot).ok()
                 })
                 .ok()
             }
@@ -949,9 +943,11 @@ where
     let value = match source {
         ResolvedOrderValueSource::DirectField(slot) => row.read_order_slot_cow(*slot),
         ResolvedOrderValueSource::Expression(expr) => {
-            eval_compiled_expr_with_value_reader(expr, &mut |slot| row.read_order_slot(slot))
-                .ok()
-                .map(Cow::Owned)
+            eval_compiled_expr_with_value_cow_reader(expr, &mut |slot| {
+                row.read_order_slot_cow(slot)
+            })
+            .ok()
+            .map(Cow::Owned)
         }
     };
 
@@ -987,6 +983,64 @@ fn compare_order_value_with_boundary(
 #[cfg(test)]
 mod tests {
     use super::{BoundedOrderRows, reorder_rows_by_original_indices};
+
+    #[cfg(feature = "sql")]
+    #[test]
+    fn expression_order_cache_and_cursor_agree_for_borrowed_and_synthesized_slots() {
+        use super::*;
+        use crate::db::query::plan::{
+            ResolvedOrderField,
+            expr::{BinaryOp, CompiledExpr},
+        };
+
+        struct Row(Value, bool);
+        impl OrderReadableRow for Row {
+            fn read_order_slot_ref(&self, slot: usize) -> Option<&Value> {
+                (slot == 0).then_some(&self.0)
+            }
+
+            fn read_order_slot_cow(&self, slot: usize) -> Option<Cow<'_, Value>> {
+                self.read_order_slot_ref(slot).map(|value| {
+                    if self.1 {
+                        Cow::Owned(value.clone())
+                    } else {
+                        Cow::Borrowed(value)
+                    }
+                })
+            }
+        }
+
+        let order = ResolvedOrder::new(vec![ResolvedOrderField::new(
+            ResolvedOrderValueSource::expression(CompiledExpr::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(CompiledExpr::Slot { slot: 0 }),
+                right: Box::new(CompiledExpr::Literal(Value::Text("match".into()))),
+            }),
+            OrderDirection::Asc,
+        )]);
+        for (value, expected) in [
+            (Value::Text("match".into()), Some(Value::Bool(true))),
+            (Value::Text("other".into()), Some(Value::Bool(false))),
+            (Value::Null, None),
+        ] {
+            let borrowed = Row(value.clone(), false);
+            let synthesized = Row(value, true);
+            for row in [&borrowed, &synthesized] {
+                let cached = cache_order_values_from_row(row, &order)
+                    .into_values()
+                    .collect::<Vec<_>>();
+                assert_eq!(cached, vec![expected.clone()]);
+                assert_eq!(
+                    cursor_boundary_from_orderable_row(row, &order).slots,
+                    vec![
+                        expected
+                            .clone()
+                            .map_or(CursorBoundarySlot::Missing, CursorBoundarySlot::Present)
+                    ]
+                );
+            }
+        }
+    }
 
     #[test]
     fn bounded_selection_matches_sorted_prefixes_in_both_directions() {

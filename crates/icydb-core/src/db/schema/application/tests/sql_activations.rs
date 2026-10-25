@@ -251,6 +251,84 @@ fn qualify(ddl: &str, constraint: &str, pages: usize, changed_entity: Option<&st
 }
 
 const CHECK: &str = "ALTER TABLE Item ADD CONSTRAINT sql_check CHECK (score >= 0) NOT VALID";
+
+fn assert_plain_check_page_rejection(
+    db: &Db<AbortCanister>,
+    session: &DbSession<AbortCanister>,
+    actual_tag: icydb_diagnostic_code::DiagnosticFactTag,
+    limit: u64,
+) {
+    let before = snapshot(db);
+    let version = before.version().get();
+    let error = session.execute_admin_sql_ddl(&format!(
+        "ALTER TABLE Item ADD CONSTRAINT page_check CHECK (score >= 0) EXPECT SCHEMA VERSION {version} SET SCHEMA VERSION {}",
+        version + 1,
+    )).unwrap_err();
+    let diagnostic = error.diagnostic();
+    assert_eq!(
+        diagnostic.error_code(),
+        icydb_diagnostic_code::ErrorCode::SCHEMA_DDL_TRANSITION_BUDGET_EXCEEDED
+    );
+    let facts = error.diagnostic_facts();
+    assert_eq!(
+        facts[0],
+        (icydb_diagnostic_code::DiagnosticFactTag::Limit, limit)
+    );
+    assert_eq!(facts[1].0, actual_tag);
+    assert!(facts[1].1 > limit);
+    assert_eq!(snapshot(db), before);
+    assert!(snapshot(db).constraint_activations().is_empty());
+    db.store_handle(ABORT_STORE_PATH)
+        .unwrap()
+        .with_schema(|schema| {
+            let bundle = schema.current_accepted_schema_bundle().unwrap().unwrap();
+            schema
+                .validate_constraint_validation_job_closure(&bundle)
+                .unwrap();
+        });
+}
+
+#[test]
+fn plain_check_reports_its_row_page_limit_without_publishing() {
+    let (db, session) = initialize();
+    seed(&session, 3..=257);
+    assert_plain_check_page_rejection(
+        &db,
+        &session,
+        icydb_diagnostic_code::DiagnosticFactTag::ActualCount,
+        256,
+    );
+}
+
+#[test]
+fn plain_check_reports_its_byte_page_limit_without_publishing() {
+    let (db, session) = initialize();
+    for id in 3..=19 {
+        session
+            .execute_trusted_dynamic_mutation_batch(vec![DynamicMutation::Insert {
+                entity: "Item".into(),
+                patch: DynamicStructuralPatch::new(vec![
+                    ("id".into(), DynamicWriteCell::Value(InputValue::nat64(id))),
+                    (
+                        "score".into(),
+                        DynamicWriteCell::Value(InputValue::int64(1)),
+                    ),
+                    (
+                        "note".into(),
+                        DynamicWriteCell::Value(InputValue::text("x".repeat(256 * 1024))),
+                    ),
+                ]),
+            }])
+            .unwrap();
+    }
+    assert_plain_check_page_rejection(
+        &db,
+        &session,
+        icydb_diagnostic_code::DiagnosticFactTag::ActualLength,
+        4 * 1024 * 1024,
+    );
+}
+
 const UNIQUE: &str = "CREATE UNIQUE INDEX sql_unique ON Item (score)";
 const NOT_NULL: &str = "ALTER TABLE Item ALTER COLUMN note SET NOT NULL";
 

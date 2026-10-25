@@ -15,12 +15,11 @@ use icydb_schema::{
     Account, Blob, ConstraintFragment, Date, Decimal, DeclaredEntityVersion, Duration,
     EntityFragment, EntitySourceKey, EnumTypeFragment, EnumVariantFragment, FieldFragment,
     FieldInsertPolicy, FieldManagementPolicy, FieldSourceKey, FieldType, Float32, Float64,
-    IndexFragment, IndexKeyFragment, MAX_PROPOSAL_LITERAL_BYTES, NamedTypeFragment, Principal,
-    RecordFieldFragment, RecordTypeFragment, RelationDeleteAction, RelationFragment,
-    RelationPathStepFragment, RelationSourceFragment, RuleSourceKey, ScalarLiteral, ScalarType,
-    SchemaContractError, SchemaFragment, SchemaName,
-    SourceRuleOperation as ProposalSourceRuleOperation, Subaccount, TargetedRuleFragment,
-    Timestamp, TupleElementFragment, TypeSourceKey, U256, Ulid, Unit,
+    IndexFragment, IndexKeyFragment, NamedTypeFragment, Principal, RecordFieldFragment,
+    RecordTypeFragment, RelationDeleteAction, RelationFragment, RelationPathStepFragment,
+    RelationSourceFragment, RuleSourceKey, ScalarLiteral, ScalarType, SchemaContractError,
+    SchemaFragment, SchemaName, SourceRuleOperation as ProposalSourceRuleOperation, Subaccount,
+    TargetedRuleFragment, Timestamp, TupleElementFragment, TypeSourceKey, U256, Ulid, Unit,
 };
 use thiserror::Error;
 
@@ -1416,10 +1415,7 @@ fn zero_scalar_literal(primitive: Primitive, item: &Item) -> Option<ScalarLitera
 }
 
 fn lower_blob_default(value: &str) -> Option<ScalarLiteral> {
-    if value.len() > MAX_PROPOSAL_LITERAL_BYTES {
-        return None;
-    }
-    Some(ScalarLiteral::Blob(Blob::from(value.as_bytes())))
+    Blob::from_hex_literal(value).ok().map(ScalarLiteral::Blob)
 }
 
 // -----------------------------------------------------------------------------
@@ -1498,9 +1494,56 @@ mod tests {
     };
 
     #[test]
+    fn blob_defaults_and_migration_fills_share_exact_bytes_and_refusals() {
+        for text in ["", "00", "deadbeef", "DeAdBeEf", "ff00"] {
+            let default = lower_blob_default(text).unwrap();
+            let fill = crate::node::migration_literal_from_text("blob", text).unwrap();
+            assert_eq!(default, fill);
+        }
+        assert_eq!(
+            lower_blob_default("deadbeef"),
+            Some(ScalarLiteral::Blob(icydb_schema::Blob::from(vec![
+                0xde, 0xad, 0xbe, 0xef
+            ])))
+        );
+        for text in ["a", "zz", "+1", "0x00", " 00", "é", "aé0"] {
+            assert!(lower_blob_default(text).is_none());
+            assert_eq!(
+                crate::node::migration_literal_from_text("blob", text),
+                Err(icydb_schema::SchemaContractError::InvalidLiteral)
+            );
+        }
+        let maximum = "ff".repeat(MAX_PROPOSAL_LITERAL_BYTES);
+        assert_eq!(
+            lower_blob_default(&maximum),
+            Some(crate::node::migration_literal_from_text("blob", &maximum).unwrap())
+        );
+        let oversized = format!("{maximum}00");
+        assert!(lower_blob_default(&oversized).is_none());
+        assert_eq!(
+            crate::node::migration_literal_from_text("blob", &oversized),
+            Err(icydb_schema::SchemaContractError::InvalidLiteral)
+        );
+        let subaccount = "aB".repeat(32);
+        assert!(crate::node::migration_literal_from_text("subaccount", &subaccount).is_ok());
+        for text in [
+            format!("0x{subaccount}"),
+            "00".repeat(31),
+            "00".repeat(33),
+            "gg".repeat(32),
+            "+1".repeat(32),
+        ] {
+            assert_eq!(
+                crate::node::migration_literal_from_text("subaccount", &text),
+                Err(icydb_schema::SchemaContractError::InvalidLiteral)
+            );
+        }
+    }
+
+    #[test]
     fn blob_default_lowering_enforces_the_proposal_literal_bound() {
-        let maximum = "a".repeat(MAX_PROPOSAL_LITERAL_BYTES);
-        let oversized = "a".repeat(MAX_PROPOSAL_LITERAL_BYTES + 1);
+        let maximum = "ab".repeat(MAX_PROPOSAL_LITERAL_BYTES);
+        let oversized = "ab".repeat(MAX_PROPOSAL_LITERAL_BYTES + 1);
 
         assert_eq!(
             lower_blob_default(&maximum).and_then(|literal| match literal {

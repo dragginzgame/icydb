@@ -28,6 +28,18 @@ impl Def {
         }
     }
 
+    /// Preserve authored documentation and lint scope on the main generated type.
+    pub(crate) fn type_attributes(&self) -> impl Iterator<Item = &syn::Attribute> {
+        self.item
+            .iter()
+            .flat_map(|item| &item.attrs)
+            .filter(|attr| {
+                ["doc", "allow", "warn", "deny", "forbid", "expect"]
+                    .iter()
+                    .any(|name| attr.path().is_ident(name))
+            })
+    }
+
     /// Return the invocation paths attached before validation and emission.
     ///
     /// # Panics

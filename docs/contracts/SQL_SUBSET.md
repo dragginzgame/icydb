@@ -368,6 +368,10 @@ entity-model indexes report `origin=generated`; indexes added through SQL DDL
 report `origin=ddl`. Only DDL-origin field-path indexes are droppable through
 SQL DDL.
 
+Field-type summaries share the accepted recursive-depth limit and a 512 KiB
+rendered-byte cap per summary. Recursive types or repeated type expansions that
+exceed either bound return Unsupported; no partial summary is returned.
+
 Default `DESCRIBE` and `SHOW COLUMNS` return the same compact accepted column
 rows with fixed `name`, `type`, `nullable`, `key`, `default`, and `extra`
 columns. Key labels are `PRI`, unconditional single-field `UNI`,
@@ -625,6 +629,15 @@ constraint only when that exact proof succeeds. If rows violate the expression
 or the proof exceeds its bound, the operation changes no accepted schema,
 activation, validation job, or physical state.
 
+The plain-ADD proof is limited to one page of at most 256 rows. After the first
+row, it stops before another row would take cumulative encoded row payloads
+above 4 MiB; the first row is always processed, even if it exceeds that byte
+threshold. This page limit is separate from the complete schema-transition
+source-row budget. An incomplete plain-ADD proof reports the schema-transition
+budget diagnostic with `Limit` and either `ActualCount` (rows) or `ActualLength`
+(encoded bytes). The actual value includes the next row that could not fit;
+these facts identify the page threshold rather than the complete-transition cap.
+
 CHECK field operands resolve nominal newtypes through the accepted composite
 catalog. Length operands include `LENGTH(text_field)`, `OCTET_LENGTH(blob_field)`
 and `CARDINALITY(collection_field)` for lists, sets and maps, including nominal
@@ -639,7 +652,12 @@ numeric parsing and canonical Decimal display spellings are unchanged.
 
 `ADD ... NOT VALID` explicitly publishes an `EnforcingNewWrites` activation.
 Future writes are gated immediately, while historical validation advances only
-through `VALIDATE CONSTRAINT`. Each validation response reports typed
+through `VALIDATE CONSTRAINT`. Resumable validation requires a journal-backed
+store. Heap-backed row-local validation must finish in the same single-page
+row/payload bounds described above; an incomplete page returns Unsupported.
+Repeating VALIDATE does not advance a heap checkpoint. Use journal-backed
+storage for historical domains that require multiple pages.
+Each validation response reports typed
 constraint/job identity, full-width page sequence, engine-owned state,
 revision status, cumulative rows, bounded findings, and completion. A finding
 page remains stable until acknowledged by its exact `AFTER page_sequence`.

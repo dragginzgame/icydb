@@ -7,15 +7,14 @@ mod number;
 
 use crate::prelude::*;
 use darling::{Error as DarlingError, FromMeta, ast::NestedMeta};
-use syn::{Lit, LitStr, Path};
+use syn::{Expr, Lit, LitStr, Path};
 
 pub use number::*;
 
 ///
 /// Arg
 ///
-/// Note: `String` literals are accepted, but may be confused for Path/Number.
-///       If arguments need to be true strings, keep them quoted.
+/// Quoted strings are literals; bare paths name constants or functions.
 ///
 
 #[derive(Clone, Debug)]
@@ -34,31 +33,23 @@ impl FromMeta for Arg {
             Lit::Bool(lit) => Ok(Self::Bool(lit.value)),
             Lit::Char(lit) => Ok(Self::Char(lit.value())),
             Lit::Int(_) | Lit::Float(_) => ArgNumber::from_value(value).map(Self::Number),
-            Lit::Str(lit) => {
-                if lit.value().contains("::") {
-                    let path: Path = syn::parse_str(&lit.value())
-                        .map_err(|_| DarlingError::custom("Failed to parse path"))?;
-
-                    let last = path
-                        .segments
-                        .last()
-                        .ok_or_else(|| DarlingError::custom("path has no segments"))?
-                        .ident
-                        .to_string();
-
-                    if last.chars().next().is_some_and(char::is_uppercase) {
-                        Ok(Self::ConstPath(path))
-                    } else {
-                        Ok(Self::FuncPath(path))
-                    }
-                } else {
-                    Ok(Self::String(lit.clone()))
-                }
-            }
+            Lit::Str(lit) => Ok(Self::String(lit.clone())),
             _ => Err(DarlingError::custom(format!(
                 "Unsupported literal type: {value:?}"
             ))),
         }
+    }
+
+    fn from_expr(expr: &Expr) -> Result<Self, DarlingError> {
+        match expr {
+            Expr::Lit(lit) => Self::from_value(&lit.lit),
+            Expr::Group(group) => Self::from_expr(&group.expr),
+            Expr::Path(path) if path.qself.is_none() => {
+                Self::from_nested_meta(&NestedMeta::Meta(syn::Meta::Path(path.path.clone())))
+            }
+            _ => Err(DarlingError::unexpected_expr_type(expr)),
+        }
+        .map_err(|error| error.with_span(expr))
     }
 
     fn from_nested_meta(item: &NestedMeta) -> Result<Self, DarlingError> {
@@ -178,6 +169,42 @@ impl HasSchemaPart for Args {
 mod arg_tests {
     use super::*;
     use syn::parse_quote;
+
+    #[test]
+    fn quoted_paths_remain_literal_defaults_and_arguments() {
+        for text in ["::1", "a::b", "std::string", "Self::CONST", "42", ""] {
+            let literal = LitStr::new(text, proc_macro2::Span::call_site());
+            let arg = Arg::from_meta(&parse_quote!(default = #literal)).unwrap();
+            assert!(matches!(&arg, Arg::String(value) if value.value() == text));
+            assert_eq!(
+                arg.to_token_stream().to_string(),
+                quote!(#literal).to_string()
+            );
+            let args = Args::from_list(&[NestedMeta::Lit(Lit::Str(literal.clone()))]).unwrap();
+            assert!(matches!(&args.0[0], Arg::String(value) if value.value() == text));
+            let schema = arg.schema_part(&CratePaths::test());
+            assert!(schema.to_string().contains("Arg :: String"));
+        }
+    }
+
+    #[test]
+    fn bare_paths_work_in_defaults_and_argument_lists() {
+        for (path, is_constant) in [
+            (parse_quote!(String::new), false),
+            (parse_quote!(crate::LIMIT), true),
+            (parse_quote!(factory), false),
+        ] {
+            let default = Arg::from_meta(&parse_quote!(default = #path)).unwrap();
+            let argument = Arg::from_nested_meta(&NestedMeta::Meta(syn::Meta::Path(path))).unwrap();
+            assert_eq!(
+                default.to_token_stream().to_string(),
+                argument.to_token_stream().to_string()
+            );
+            assert_eq!(matches!(default, Arg::ConstPath(_)), is_constant);
+        }
+        assert!(Arg::from_meta(&parse_quote!(default = factory())).is_err());
+        assert!(Arg::from_meta(&parse_quote!(default = 1 + 2)).is_err());
+    }
 
     #[test]
     fn test_bool_parsing() {

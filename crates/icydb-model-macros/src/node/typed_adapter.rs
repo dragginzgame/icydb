@@ -25,7 +25,7 @@ fn named_adapter_impl_tokens(
             fn encode_typed_input<C>(
                 self,
                 context: &C,
-            ) -> Result<C::PublicValue, #model::TypedValueError>
+            ) -> ::core::result::Result<C::PublicValue, #model::TypedValueError>
             where
                 C: #model::TypedAdapterContext,
             {
@@ -37,7 +37,7 @@ fn named_adapter_impl_tokens(
             fn decode_typed_output<C>(
                 context: &C,
                 value: C::PublicValue,
-            ) -> Result<Self, #model::TypedValueError>
+            ) -> ::core::result::Result<Self, #model::TypedValueError>
             where
                 C: #model::TypedAdapterContext,
             {
@@ -83,7 +83,7 @@ pub(crate) fn enum_adapter_tokens(node: &Enum, paths: &CratePaths) -> TokenStrea
                 Self::#variant_ident(value) => context.input_enum(
                     #source,
                     #variant_source,
-                    Some(<#ty as #model::TypedInputValue>::encode_typed_input(
+                    ::core::option::Option::Some(<#ty as #model::TypedInputValue>::encode_typed_input(
                         value,
                         context,
                     )?),
@@ -94,7 +94,7 @@ pub(crate) fn enum_adapter_tokens(node: &Enum, paths: &CratePaths) -> TokenStrea
                 Self::#variant_ident => context.input_enum(
                     #source,
                     #variant_source,
-                    None,
+                    ::core::option::Option::None,
                 )
             }
         }
@@ -109,7 +109,7 @@ pub(crate) fn enum_adapter_tokens(node: &Enum, paths: &CratePaths) -> TokenStrea
                     let payload = selected
                         .payload
                         .ok_or(#model::TypedValueError::ShapeMismatch)?;
-                    Ok(Self::#variant_ident(
+                    ::core::result::Result::Ok(Self::#variant_ident(
                         <#ty as #model::TypedOutputValue>::decode_typed_output(
                             context,
                             payload,
@@ -121,9 +121,9 @@ pub(crate) fn enum_adapter_tokens(node: &Enum, paths: &CratePaths) -> TokenStrea
             quote! {
                 #ordinal => {
                     if selected.payload.is_some() {
-                        return Err(#model::TypedValueError::ShapeMismatch);
+                        return ::core::result::Result::Err(#model::TypedValueError::ShapeMismatch);
                     }
-                    Ok(Self::#variant_ident)
+                    ::core::result::Result::Ok(Self::#variant_ident)
                 }
             }
         }
@@ -142,7 +142,7 @@ pub(crate) fn enum_adapter_tokens(node: &Enum, paths: &CratePaths) -> TokenStrea
         let selected = context.output_enum(&DESCRIPTOR, value)?;
         match selected.ordinal {
             #(#output_variants),*,
-            _ => Err(#model::TypedValueError::ShapeMismatch),
+            _ => ::core::result::Result::Err(#model::TypedValueError::ShapeMismatch),
         }
     };
 
@@ -195,7 +195,7 @@ pub(crate) fn record_adapter_tokens(node: &Record, paths: &CratePaths) -> TokenS
             &[#(#field_sources),*],
             value,
         )?.into_iter();
-        Ok(Self {
+        ::core::result::Result::Ok(Self {
             #(#output_fields),*
         })
     };
@@ -266,7 +266,7 @@ pub(crate) fn tuple_adapter_tokens(node: &Tuple, paths: &CratePaths) -> TokenStr
     });
     let value_count = node.values.len();
     let encode = quote! {
-        Ok(context.input_list(::std::vec![
+        ::core::result::Result::Ok(context.input_list(::std::vec![
             #(#input_values),*
         ]))
     };
@@ -275,10 +275,10 @@ pub(crate) fn tuple_adapter_tokens(node: &Tuple, paths: &CratePaths) -> TokenStr
             .output_list(value)
             .ok_or(#model::TypedValueError::ShapeMismatch)?;
         if values.len() != #value_count {
-            return Err(#model::TypedValueError::ShapeMismatch);
+            return ::core::result::Result::Err(#model::TypedValueError::ShapeMismatch);
         }
         let mut values = values.into_iter();
-        Ok(Self(#(#output_values),*))
+        ::core::result::Result::Ok(Self(#(#output_values),*))
     };
 
     named_adapter_impl_tokens(&ident, &source, encode, decode, paths)

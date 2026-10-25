@@ -60,12 +60,14 @@ pub trait HasMacro: HasSchema + HasTraits + HasType {
         let TraitTokens { derive, impls } = self.resolve_trait_tokens();
         let schema = self.schema_tokens(paths);
         let type_part = self.type_part(paths);
+        let attrs = self.def().type_attributes();
 
         quote! {
             // SCHEMA CONSTANT
             #schema
 
             // MAIN TYPE
+            #(#attrs)*
             #derive
             #type_part
 

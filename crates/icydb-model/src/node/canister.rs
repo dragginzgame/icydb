@@ -47,7 +47,7 @@ impl CanisterMemoryProfile {
     }
 }
 
-/// Parse one macro-validated textual migration literal into its exact public atom.
+/// Parse one authored textual migration literal into its exact public atom.
 #[doc(hidden)]
 pub fn migration_literal_from_text(
     kind: &str,
@@ -63,9 +63,7 @@ pub fn migration_literal_from_text(
         "account" => Account::from_str(value)
             .map(ScalarLiteral::Account)
             .map_err(|_| invalid()),
-        "blob" => decode_migration_hex(value)
-            .map(Blob::from)
-            .map(ScalarLiteral::Blob),
+        "blob" => Blob::from_hex_literal(value).map(ScalarLiteral::Blob),
         "date" => Date::parse(value)
             .map(ScalarLiteral::Date)
             .ok_or_else(invalid),
@@ -79,9 +77,11 @@ pub fn migration_literal_from_text(
             .map(ScalarLiteral::Principal)
             .map_err(|_| invalid()),
         "subaccount" => {
-            let bytes = decode_migration_hex(value)?;
-            let bytes: [u8; 32] = bytes.try_into().map_err(|_| invalid())?;
-            Ok(ScalarLiteral::Subaccount(Subaccount::from_array(bytes)))
+            // Migration literals retain their exact unprefixed 32-byte grammar.
+            if value.len() != 64 {
+                return Err(invalid());
+            }
+            Subaccount::from_hex(value).map(ScalarLiteral::Subaccount)
         }
         "timestamp" => Timestamp::parse_flexible(value)
             .map(ScalarLiteral::Timestamp)
@@ -93,32 +93,6 @@ pub fn migration_literal_from_text(
             .map(ScalarLiteral::Ulid)
             .map_err(|_| invalid()),
         _ => Err(invalid()),
-    }
-}
-
-fn decode_migration_hex(value: &str) -> Result<Vec<u8>, icydb_schema::SchemaContractError> {
-    if !value.len().is_multiple_of(2) {
-        return Err(icydb_schema::SchemaContractError::InvalidLiteral);
-    }
-    value
-        .as_bytes()
-        .as_chunks::<2>()
-        .0
-        .iter()
-        .map(|pair| {
-            let high = decode_hex_nibble(pair[0])?;
-            let low = decode_hex_nibble(pair[1])?;
-            Ok((high << 4) | low)
-        })
-        .collect()
-}
-
-const fn decode_hex_nibble(value: u8) -> Result<u8, icydb_schema::SchemaContractError> {
-    match value {
-        b'0'..=b'9' => Ok(value - b'0'),
-        b'a'..=b'f' => Ok(value - b'a' + 10),
-        b'A'..=b'F' => Ok(value - b'A' + 10),
-        _ => Err(icydb_schema::SchemaContractError::InvalidLiteral),
     }
 }
 

@@ -20,6 +20,7 @@ use crate::{Principal, PrincipalError, SchemaContractError, Subaccount};
 /// Each type retains its own binary serialization contract. Platform owns the
 /// shared ICRC account text format; database equality remains local.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct Account {
     owner: Principal,
     subaccount: Option<Subaccount>,

@@ -81,6 +81,7 @@ impl SchemaCapability {
 
 /// Expected accepted-schema head used for optimistic application.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum ExpectedAcceptedHead {
     /// The target database has no accepted schema.
     Empty,

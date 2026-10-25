@@ -22,7 +22,7 @@ use std::borrow::Cow;
 use self::contracts::EffectiveRuntimeFilterProgram;
 pub(in crate::db) use contracts::ProjectionEvalError;
 pub(in crate::db::executor) use scalar::eval_compiled_expr_with_required_slot_reader_cow;
-pub(in crate::db::executor) use scalar::eval_compiled_expr_with_value_reader;
+pub(in crate::db::executor) use scalar::eval_compiled_expr_with_value_cow_reader;
 pub(in crate::db::executor) use scalar::eval_compiled_expr_with_value_ref_reader;
 pub(in crate::db) use scalar::{
     eval_compiled_filter_expr_with_required_slot_reader,

@@ -79,7 +79,15 @@ pub(super) fn apply_post_access_to_kernel_rows_dyn(
                     .zip(resolved_order)
                     .map(|(boundary, resolved_order)| (resolved_order, boundary)),
                 ExecutionKernel::effective_page_offset(plan, cursor),
-                logical.page.as_ref().and_then(|page| page.limit),
+                // Preserve the scanner's lookahead until projection decides
+                // continuation; only returned rows consume the output envelope.
+                logical
+                    .page
+                    .as_ref()
+                    .and_then(|page| page.limit)
+                    .map(|limit| {
+                        limit.saturating_add(u32::from(cursor_emission.enabled() && limit > 0))
+                    }),
             )?
         }
     };

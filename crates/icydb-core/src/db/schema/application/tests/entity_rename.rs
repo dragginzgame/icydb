@@ -369,6 +369,78 @@ fn assert_lineage(db: &Db<MigrationExecutionCanister>, proposal: &SchemaProposal
     }
 }
 
+#[test]
+fn removed_entity_lineage_does_not_block_completed_rename() {
+    let root = RequestExecutionRoot::__new_runtime_root();
+    let db = initialize(&root, true);
+    let session = DbSession::new(&MIGRATION_EXECUTION_REGISTRY, &root);
+    session
+        .execute_trusted_dynamic_mutation(&DynamicMutation::Delete {
+            entity: "Holder".to_string(),
+            key: InputValue::nat64(10),
+        })
+        .unwrap();
+    let target = schema_application_target(&db).unwrap();
+    let removal = SchemaProposal::try_compose(
+        Vec::new(),
+        target.database_identity(),
+        SchemaSubmissionKey::try_new("remove-holder").unwrap(),
+        target.accepted_head().clone(),
+        Vec::new(),
+        Vec::new(),
+        vec![icydb_schema::SchemaRemoval::Entity(entity("Holder"))],
+        None,
+    )
+    .unwrap();
+    apply_schema(&db, &removal).unwrap();
+    assert_eq!(
+        load_entity_source_lineage_catalog()
+            .unwrap()
+            .unwrap()
+            .entries()
+            .len(),
+        2
+    );
+    let target = schema_application_target(&db).unwrap();
+    let candidate = proposal(&target, true, false);
+    assert!(
+        !crate::db::schema::application::current_proposal_lineage_is_applied(&db, &candidate,)
+            .unwrap()
+    );
+    assert_eq!(
+        advance(&db, &candidate).unwrap().phase(),
+        SchemaMigrationPhase::Applied
+    );
+    let status = crate::db::schema::application::schema_migration_status(
+        &db,
+        &candidate,
+        &crate::db::schema::SchemaMigrationStatusRequest::default(),
+    )
+    .unwrap();
+    assert_eq!(status.phase(), SchemaMigrationPhase::Applied);
+    let target = schema_application_target(&db).unwrap();
+    let current = proposal(&target, true, false);
+    for mismatched in [
+        proposal(&target, false, false),
+        proposal(&target, true, true),
+    ] {
+        assert!(
+            !crate::db::schema::application::current_proposal_lineage_is_applied(&db, &mismatched,)
+                .unwrap(),
+            "stale or missing proposed entities must still fail closed"
+        );
+    }
+    crate::db::schema::application::apply_generated_schema(&db, &current)
+        .expect("the deployed successor must reconcile without replanning the applied rename");
+    assert_rows(&session);
+    forget_recovered_domain_for_tests(&db).unwrap();
+    drive_startup_recovery_to_completion(&db);
+    let recovered_target = schema_application_target(&db).unwrap();
+    let successor = proposal(&recovered_target, true, false);
+    crate::db::schema::application::apply_generated_schema(&db, &successor).unwrap();
+    assert_rows(&session);
+}
+
 fn assert_populated_rename(inbound: bool) {
     let root = RequestExecutionRoot::__new_runtime_root();
     let db = initialize(&root, inbound);

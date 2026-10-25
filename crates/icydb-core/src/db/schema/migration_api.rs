@@ -13,6 +13,7 @@ pub(in crate::db::schema) const MAX_SCHEMA_MIGRATION_FINDINGS_PER_PAGE: usize = 
 
 /// One controller-authorized source-migration operation.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum SchemaMigrationCommand {
     /// Adopt an exact existing version-1 generated schema without changing it.
     Adopt {
@@ -46,7 +47,9 @@ pub enum SchemaMigrationCommand {
 
 /// Bounded status-page request. Cursors are opaque engine-owned bytes.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct SchemaMigrationStatusRequest {
+    #[serde(with = "serde_bytes")]
     cursor: Option<Vec<u8>>,
 }
 
@@ -72,6 +75,7 @@ impl SchemaMigrationStatusRequest {
 
 /// Current source-migration lifecycle phase.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum SchemaMigrationPhase {
     /// Existing generated entities have not been adopted into lineage authority.
     Unadopted,
@@ -103,6 +107,7 @@ pub enum SchemaMigrationPhase {
 
 /// One canonical declared entity-version transition.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct SchemaMigrationEntityTransition {
     entity: EntitySourceKey,
     from_version: Option<u32>,
@@ -143,6 +148,7 @@ impl SchemaMigrationEntityTransition {
 
 /// Typed migration validation-finding family.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum SchemaMigrationFindingKind {
     /// A closed transform failed on one accepted row.
     Transform,
@@ -158,9 +164,11 @@ pub enum SchemaMigrationFindingKind {
 
 /// One bounded accepted-ID migration finding.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct SchemaMigrationFinding {
     kind: SchemaMigrationFindingKind,
     entity_tag: u64,
+    #[serde(with = "serde_bytes")]
     primary_key: Vec<u8>,
 }
 
@@ -198,6 +206,7 @@ impl SchemaMigrationFinding {
 
 /// Terminal proof for one adopted or applied source transition.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct SchemaMigrationReceipt {
     database_identity: TargetDatabaseIdentity,
     plan_digest: Option<SchemaMigrationPlanDigest>,
@@ -247,6 +256,7 @@ impl SchemaMigrationReceipt {
 
 /// One bounded page of deployed source-migration status.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct SchemaMigrationStatusPage {
     database_identity: TargetDatabaseIdentity,
     accepted_head: ExpectedAcceptedHead,
@@ -257,6 +267,7 @@ pub struct SchemaMigrationStatusPage {
     rows_rewritten: u64,
     indexes_rebuilt: u32,
     findings: Vec<SchemaMigrationFinding>,
+    #[serde(with = "serde_bytes")]
     next_cursor: Option<Vec<u8>>,
     terminal_receipt: Option<SchemaMigrationReceipt>,
 }
@@ -359,5 +370,36 @@ impl SchemaMigrationStatusPage {
     #[must_use]
     pub const fn terminal_receipt(&self) -> Option<&SchemaMigrationReceipt> {
         self.terminal_receipt.as_ref()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MAX_SCHEMA_MIGRATION_STATUS_CURSOR_BYTES, SchemaMigrationStatusRequest};
+    use icydb_schema::wire::{decode_one, encode_one};
+
+    #[test]
+    fn cursor_byte_buffers_preserve_payload_and_application_bounds() {
+        for length in [0, 1, 127, 128, 256, 257] {
+            let cursor = vec![255; length];
+            let request = SchemaMigrationStatusRequest::new(Some(cursor.clone()));
+            let bytes = encode_one(&request).expect("encode byte cursor");
+            // A one-field record has the same payload as its field. Ordinary
+            // vectors remain a byte-identity control, not an accepted client API.
+            assert_eq!(bytes, encode_one(Some(cursor)).expect("encode control"));
+            let decoded: SchemaMigrationStatusRequest = decode_one(&bytes).expect("decode cursor");
+            assert_eq!(decoded, request);
+            assert_eq!(
+                decoded.validate(),
+                length <= MAX_SCHEMA_MIGRATION_STATUS_CURSOR_BYTES
+            );
+            assert!(decode_one::<SchemaMigrationStatusRequest>(&bytes[..bytes.len() - 1]).is_err());
+        }
+        let absent = SchemaMigrationStatusRequest::default();
+        assert_eq!(encode_one(&absent).expect("encode absent cursor"), [0]);
+        assert_eq!(
+            decode_one::<SchemaMigrationStatusRequest>(&[0]).expect("decode absent cursor"),
+            absent
+        );
     }
 }

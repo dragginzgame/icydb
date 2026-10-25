@@ -26,6 +26,9 @@ icydb-model-macros = { workspace = true }
 icydb-schema = { workspace = true }
 serde = { workspace = true }
 
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+ic-wire = { workspace = true, features = ["typescript"] }
+
 [dev-dependencies]
 canic-icydb = { workspace = true }
 trybuild = { workspace = true }

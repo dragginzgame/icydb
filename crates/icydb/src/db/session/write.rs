@@ -1396,10 +1396,10 @@ impl<C: CanisterKind> DbSession<C> {
     ) -> Result<Vec<DynamicMutationResult>, TypedOperationError> {
         let requests = writes
             .into_iter()
-            .map(|write| (Arc::unwrap_or_clone(write.binding.inner), write.mutation))
+            .map(|write| (write.binding.inner, write.mutation))
             .collect();
         self.inner
-            .execute_trusted_typed_mutation_batch(requests)
+            .execute_trusted_typed_mutation_batch_shared(requests)
             .map_err(|error| TypedOperationError::Database(Error::from(error)))?
             .ok_or(TypedOperationError::Adapter(
                 TypedAdapterError::StaleBinding,

@@ -1,5 +1,40 @@
+use std::fmt::Write as _;
+
 use super::{Blob, Principal, PrincipalDecodeError, PrincipalError, Ulid};
 use crate::{MAX_PROPOSAL_LITERAL_BYTES, ScalarLiteral, SchemaContractError};
+
+#[test]
+fn blob_hex_literals_are_bounded_and_preserve_all_byte_values() {
+    let bytes = (0_u8..=u8::MAX).collect::<Vec<_>>();
+    let mut hex = String::new();
+    for byte in &bytes {
+        write!(&mut hex, "{byte:02x}").unwrap();
+    }
+    for text in [hex.clone(), hex.to_uppercase()] {
+        assert_eq!(Blob::from_hex_literal(&text).unwrap().as_bytes(), bytes);
+    }
+    assert!(Blob::from_hex_literal("").unwrap().is_empty());
+    let maximum = "ab".repeat(MAX_PROPOSAL_LITERAL_BYTES);
+    assert_eq!(
+        Blob::from_hex_literal(&maximum).unwrap().len(),
+        MAX_PROPOSAL_LITERAL_BYTES
+    );
+    for text in [
+        "a".to_string(),
+        "+1".to_string(),
+        "-1".to_string(),
+        "0x00".to_string(),
+        "é".to_string(),
+        "00 ".to_string(),
+        "gg".to_string(),
+        format!("{maximum}00"),
+    ] {
+        assert_eq!(
+            Blob::from_hex_literal(&text),
+            Err(SchemaContractError::InvalidLiteral)
+        );
+    }
+}
 
 #[test]
 fn blob_wire_round_trip_accepts_runtime_values_above_the_proposal_literal_bound() {

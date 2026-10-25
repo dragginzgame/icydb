@@ -8,7 +8,9 @@ use crate::db::index::{
     RawIndexStoreKey, decode_canonical_index_int64_component, decode_index_key_frame,
 };
 use crate::db::journal::FoldWatermark;
+use crate::db::resource::budget::charge_current_execution_budget;
 use crate::error::InternalError;
+use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
 use std::collections::{BTreeMap as HeapBTreeMap, btree_map::Entry};
 use std::ops::Bound;
 
@@ -279,7 +281,6 @@ impl IndexPrefixCardinality {
         ))
     }
 
-    #[must_use]
     pub(super) fn exact_child_prefixes_for_parent_set<'a>(
         &self,
         data_generation: u64,
@@ -287,9 +288,9 @@ impl IndexPrefixCardinality {
         index_id: IndexId,
         parent_component_prefixes: impl IntoIterator<Item = &'a [Vec<u8>]>,
         max_children: usize,
-    ) -> Option<Vec<Vec<Vec<u8>>>> {
+    ) -> Result<Option<Vec<Vec<Vec<u8>>>>, InternalError> {
         if !self.decodable || self.data_generation != Some(data_generation) {
-            return None;
+            return Ok(None);
         }
 
         self.exact_child_prefixes_for_parent_set_synchronized(
@@ -306,42 +307,47 @@ impl IndexPrefixCardinality {
         index_id: IndexId,
         parent_component_prefixes: impl IntoIterator<Item = &'a [Vec<u8>]>,
         max_children: usize,
-    ) -> Option<Vec<Vec<Vec<u8>>>> {
+    ) -> Result<Option<Vec<Vec<Vec<u8>>>>, InternalError> {
         let mut parents = parent_component_prefixes.into_iter().collect::<Vec<_>>();
         if parents.iter().any(|parent| parent.is_empty()) {
-            return None;
+            return Ok(None);
         }
         parents.sort_unstable();
         parents.dedup();
         let Some(parent_len) = parents.first().map(|parent| parent.len()) else {
-            return Some(Vec::new());
+            return Ok(Some(Vec::new()));
         };
         if parents.iter().any(|parent| parent.len() != parent_len) {
-            return None;
+            return Ok(None);
         }
 
         let child_len = parent_len.saturating_add(1);
-        let start = IndexPrefixCardinalityKey::range_start(key_kind, index_id);
         let mut children = Vec::new();
 
-        for (key, _count) in self.counts.range(start..) {
-            if !key.matches_identity(key_kind, index_id) {
-                break;
+        // Equal-length, sorted parents have disjoint lexicographic ranges.
+        // Seek each range directly rather than scanning unrelated metadata.
+        for parent in parents {
+            let start = IndexPrefixCardinalityKey::new(key_kind, index_id, parent);
+            for (key, _count) in self.counts.range(start..) {
+                charge_current_execution_budget(
+                    DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+                    1,
+                )?;
+                if !key.matches_identity(key_kind, index_id) || !key.components.starts_with(parent)
+                {
+                    break;
+                }
+                if key.components.len() != child_len {
+                    continue;
+                }
+                if children.len() == max_children {
+                    return Ok(None);
+                }
+                children.push(key.components.clone());
             }
-            if key.components.len() != child_len {
-                continue;
-            }
-            let parent = &key.components[..parent_len];
-            if parents.binary_search(&parent).is_err() {
-                continue;
-            }
-            if children.len() == max_children {
-                return None;
-            }
-            children.push(key.components.clone());
         }
 
-        Some(children)
+        Ok(Some(children))
     }
 
     fn exact_count_synchronized(
@@ -761,14 +767,6 @@ impl IndexPrefixCardinalityKey {
             key_kind,
             index_id,
             components: components.to_vec(),
-        }
-    }
-
-    const fn range_start(key_kind: IndexKeyKind, index_id: IndexId) -> Self {
-        Self {
-            key_kind,
-            index_id,
-            components: Vec::new(),
         }
     }
 

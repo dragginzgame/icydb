@@ -19,8 +19,8 @@ pub use fact::{
     DiagnosticConstraintContext, DiagnosticConstraintKind, DiagnosticDecodeReason,
     DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope, DiagnosticExecutionLane,
     DiagnosticFactSchemaMismatch, DiagnosticFactTag, DiagnosticFunctionKind,
-    DiagnosticMutationOperation, DiagnosticOperatorKind, DiagnosticTypeFamily,
-    MAX_PUBLIC_DIAGNOSTIC_FACTS, pack_u32_pair, unpack_u32_pair,
+    DiagnosticGroupBudgetResource, DiagnosticMutationOperation, DiagnosticOperatorKind,
+    DiagnosticTypeFamily, MAX_PUBLIC_DIAGNOSTIC_FACTS, pack_u32_pair, unpack_u32_pair,
     validate_known_diagnostic_fact_schema, validate_raw_diagnostic_fact_schema,
 };
 pub use query_field::{

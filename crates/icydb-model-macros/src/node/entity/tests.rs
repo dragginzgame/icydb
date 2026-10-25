@@ -314,7 +314,7 @@ fn typed_adapter_generation_separates_row_and_operation_shapes() {
         "TypedFieldType :: Scalar",
         "TypedFieldType :: List (& :: icydb :: __macro :: TypedFieldType :: Scalar",
         "TypedFieldType :: Named (< Profile as :: icydb_model :: TypedNamedType > :: SOURCE_KEY ,)",
-        "TypedFieldDescriptor :: new (\"nickname\" , :: icydb :: __macro :: TypedFieldType :: Scalar (:: icydb :: __macro :: ScalarType :: Text { max_len : None }) , true ,)",
+        "TypedFieldDescriptor :: new (\"nickname\" , :: icydb :: __macro :: TypedFieldType :: Scalar (:: icydb :: __macro :: ScalarType :: Text { max_len : :: core :: option :: Option :: None }) , true ,)",
         "ScalarType :: Timestamp",
         "BoundWriteEncoder :: new (binding , 5usize)",
     ] {
@@ -1061,4 +1061,41 @@ fn generated_numeric_predicates_reject_nonfinite_and_unrepresentable_literals() 
             .validated_generated_predicate(&entity, &crate::crate_path::CratePaths::test())
             .expect_err("unrepresentable numeric literals must reject before token construction");
     }
+}
+
+#[test]
+fn entity_preserves_documentation_without_copying_it_to_helper_types() {
+    let mut entity = entity_with_fields_and_indexes(vec![scalar_field("id")], vec![]);
+    entity.emit_runtime_adapters = true;
+    let item = entity
+        .def
+        .item
+        .as_mut()
+        .expect("entity should have an authored item");
+    let doc: syn::Attribute = syn::parse_quote!(#[doc = "Customer entity."]);
+    item.attrs.push(doc.clone());
+    let lint: syn::Attribute = syn::parse_quote!(#[allow(dead_code, reason = "authored entity")]);
+    item.attrs.push(lint.clone());
+    let name = item.ident.clone();
+    let output: syn::File = syn::parse2(entity.generate_tokens(entity.def.paths()))
+        .expect("generated entity should parse");
+    let mut found = false;
+    for item in output.items {
+        if let syn::Item::Struct(item) = item {
+            let docs: Vec<_> = item
+                .attrs
+                .iter()
+                .filter(|attr| attr.path().is_ident("doc"))
+                .collect();
+            if item.ident == name {
+                assert_eq!(docs, vec![&doc]);
+                assert!(item.attrs.contains(&lint));
+                found = true;
+            } else {
+                assert!(!docs.contains(&&doc));
+                assert!(!item.attrs.contains(&lint));
+            }
+        }
+    }
+    assert!(found);
 }

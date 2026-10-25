@@ -12,6 +12,7 @@ use serde::Deserialize;
 /// Public failure from one trusted typed integrity request.
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum IntegrityCheckError {
     /// Accepted authority or physical execution failed.
     Database(Error),
@@ -30,6 +31,7 @@ pub enum IntegrityCheckError {
 
 #[cfg(feature = "sql")]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum SqlIntegrityError {
     /// The canonical integrity controller rejected or could not execute the request.
     Integrity(IntegrityCheckError),

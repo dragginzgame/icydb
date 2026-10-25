@@ -123,6 +123,7 @@ impl StoreRuntimeStorageMode {
 
 /// Whether a store owns durable allocation identity.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum StoreAllocationIdentityCapability {
     /// Stable allocation identity is present.
     #[default]
@@ -144,6 +145,7 @@ impl StoreAllocationIdentityCapability {
 
 /// Store durability class.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum StoreDurability {
     /// Store contents participate in durable storage semantics.
     #[default]
@@ -165,6 +167,7 @@ impl StoreDurability {
 
 /// Store recovery capability.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum StoreRecoveryCapability {
     /// Store contents can be recovered from canonical stable BTrees plus a
     /// committed journal tail.
@@ -187,6 +190,7 @@ impl StoreRecoveryCapability {
 
 /// Store commit participation class.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum StoreCommitParticipation {
     /// Store mutations participate in the durable commit path.
     #[default]
@@ -208,6 +212,7 @@ impl StoreCommitParticipation {
 
 /// Store schema metadata persistence class.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum StoreSchemaMetadataCapability {
     /// The store-local projection is rebuilt from a durable accepted checkpoint
     /// and does not retain its own schema history.
@@ -927,24 +932,23 @@ impl StoreHandle {
     }
 
     /// Enumerate one bounded child-prefix family proven complete by exact parent/child totals.
-    #[must_use]
     pub(in crate::db) fn exact_user_index_child_prefixes_for_parent_set<'a>(
         &self,
         data_generation: u64,
         index_id: IndexId,
         parent_prefixes: impl IntoIterator<Item = &'a [Vec<u8>]>,
         total_cap: usize,
-    ) -> Option<Vec<Vec<Vec<u8>>>> {
+    ) -> Result<Option<Vec<Vec<Vec<u8>>>>, InternalError> {
         let mut parent_prefixes = parent_prefixes
             .into_iter()
             .map(<[Vec<u8>]>::to_vec)
             .collect::<Vec<_>>();
         if parent_prefixes.iter().any(Vec::is_empty) {
-            return None;
+            return Ok(None);
         }
         icydb_schema::compact_sort_unstable_by(&mut parent_prefixes, Ord::cmp);
         parent_prefixes.dedup();
-        let child_prefixes = self.with_index(|store| {
+        let Some(child_prefixes) = self.with_index(|store| {
             store.exact_child_prefixes_for_parent_set(
                 data_generation,
                 IndexKeyKind::User,
@@ -952,12 +956,15 @@ impl StoreHandle {
                 parent_prefixes.iter().map(Vec::as_slice),
                 total_cap,
             )
-        })?;
+        })?
+        else {
+            return Ok(None);
+        };
         if self.journal.is_none() {
-            return Some(child_prefixes);
+            return Ok(Some(child_prefixes));
         }
         let parent_count = parent_prefixes.len();
-        let counts = self.exact_user_index_prefix_counts(
+        let Some(counts) = self.exact_user_index_prefix_counts(
             data_generation,
             IndexKeyKind::User,
             index_id,
@@ -965,11 +972,17 @@ impl StoreHandle {
                 .iter()
                 .chain(&child_prefixes)
                 .map(Vec::as_slice),
-        )?;
+        ) else {
+            return Ok(None);
+        };
         let (parent_counts, child_counts) = counts.split_at(parent_count);
-        let parent_total = checked_cardinality_sum(parent_counts)?;
-        let child_total = checked_cardinality_sum(child_counts)?;
-        (parent_total == child_total).then_some(child_prefixes)
+        let Some(parent_total) = checked_cardinality_sum(parent_counts) else {
+            return Ok(None);
+        };
+        let Some(child_total) = checked_cardinality_sum(child_counts) else {
+            return Ok(None);
+        };
+        Ok((parent_total == child_total).then_some(child_prefixes))
     }
 
     fn ready_cardinality_counts(

@@ -29,7 +29,7 @@ use crate::{
     value::Value,
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
-use std::{mem::size_of, ops::Bound, sync::Arc};
+use std::{mem::size_of, ops::Bound, sync::Arc, vec::IntoIter};
 
 pub(in crate::db::executor) use crate::db::index::decode_covering_projection_component;
 
@@ -534,14 +534,13 @@ struct CoveringPrefixComponentStream<'a> {
     chunk_entries: usize,
     component_indices: Arc<[usize]>,
     predicate_execution: Option<IndexPredicateExecution<'a>>,
-    buffer: IndexComponentRows,
-    buffer_pos: usize,
+    buffer: IntoIter<IndexComponentRow>,
     exhausted: bool,
 }
 
 impl<'a> CoveringPrefixComponentStream<'a> {
     #[expect(clippy::too_many_arguments)]
-    const fn new(
+    fn new(
         store: StoreHandle,
         entity_tag: EntityTag,
         lower: &'a Bound<LoweredKey>,
@@ -563,8 +562,7 @@ impl<'a> CoveringPrefixComponentStream<'a> {
             chunk_entries,
             component_indices,
             predicate_execution,
-            buffer: Vec::new(),
-            buffer_pos: 0,
+            buffer: Vec::new().into_iter(),
             exhausted: false,
         }
     }
@@ -591,8 +589,7 @@ impl<'a> CoveringPrefixComponentStream<'a> {
         )?;
         let (rows, last_raw_key) = chunk.into_component_rows_and_resume_anchor();
         let emitted = rows.len();
-        self.buffer = rows;
-        self.buffer_pos = 0;
+        self.buffer = rows.into_iter();
 
         apply_index_scan_chunk_progress(
             &mut self.anchor,
@@ -606,17 +603,11 @@ impl<'a> CoveringPrefixComponentStream<'a> {
     }
 
     fn next_row(&mut self) -> Result<Option<IndexComponentRow>, InternalError> {
-        while self.buffer_pos == self.buffer.len() && !self.exhausted {
+        while self.buffer.len() == 0 && !self.exhausted {
             self.load_next_chunk()?;
         }
-        if self.buffer_pos == self.buffer.len() {
-            return Ok(None);
-        }
 
-        let row = self.buffer[self.buffer_pos].clone();
-        self.buffer_pos += 1;
-
-        Ok(Some(row))
+        Ok(self.buffer.next())
     }
 }
 

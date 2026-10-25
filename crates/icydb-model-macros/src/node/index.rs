@@ -198,18 +198,19 @@ impl Index {
             .as_ref()
             .map(|value| LitStr::new(value, Span::call_site()));
         let predicate = if let Some(predicate) = predicate {
-            quote! { Some(#predicate) }
+            quote! { ::core::option::Option::Some(#predicate) }
         } else {
-            quote! { None }
+            quote! { ::core::option::Option::None }
         };
         let predicate_expression = self
             .validated_generated_predicate(entity, paths)?
             .map(|predicate| {
-                predicate_source_expression_tokens(&predicate, entity, paths)
-                    .map(|expression| quote! { Some(|_schema| #expression) })
+                predicate_source_expression_tokens(&predicate, entity, paths).map(
+                    |expression| quote! { ::core::option::Option::Some(|_schema| #expression) },
+                )
             })
             .transpose()?
-            .unwrap_or_else(|| quote! { None });
+            .unwrap_or_else(|| quote! { ::core::option::Option::None });
 
         Ok(quote! {
             #model::node::Index::new_with_key_items_and_predicate(
@@ -288,7 +289,7 @@ impl Index {
 
     fn schema_key_items_tokens(&self, paths: &CratePaths) -> TokenStream {
         if !self.has_expression_key_items() {
-            return quote! { None };
+            return quote! { ::core::option::Option::None };
         }
 
         let key_items = self
@@ -297,7 +298,7 @@ impl Index {
             .map(|value| IndexKeyItemSpec::schema_tokens(value, paths))
             .collect::<Vec<_>>();
 
-        quote! { Some(&[#(#key_items),*]) }
+        quote! { ::core::option::Option::Some(&[#(#key_items),*]) }
     }
 
     pub(crate) fn validated_generated_predicate(

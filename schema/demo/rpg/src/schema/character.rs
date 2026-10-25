@@ -13,7 +13,7 @@ use icydb_model::prelude::*;
     field(
         name = "name",
         value(item(prim = "Text", unbounded)),
-        default = "String::new"
+        default = String::new
     ),
     field(name = "level", value(item(prim = "Nat16")), default = 0u16),
     field(name = "pid", value(item(prim = "Principal")), default = "2vxsx-fae")

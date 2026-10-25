@@ -127,6 +127,7 @@ impl IntegrityCheckRequest {
 /// Typed result shared by trusted Rust and SQL integrity frontends.
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum IntegrityCheckResult {
     /// Bounded one-call Quick result.
     Quick(QuickIntegrityResult),
@@ -326,6 +327,7 @@ static DATABASE_INCARNATION_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 /// replacement, or import lane that can reuse those revisions must mint and
 /// publish a fresh identity before the restored database becomes available.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct DatabaseIncarnationId([u8; 16]);
 
 impl DatabaseIncarnationId {
@@ -401,6 +403,7 @@ impl DatabaseIncarnationId {
 
 /// Stable entity identity projected into integrity responses.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct IntegrityEntityIdentity {
     entity_tag: u64,
     entity_path: String,
@@ -455,6 +458,7 @@ impl IntegrityEntityIdentity {
 
 /// Broad machine-readable accepted-authority failure class.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum IntegrityAuthorityClass {
     /// Accepted authority bytes or closure are corrupt.
     Corruption,
@@ -470,6 +474,7 @@ pub enum IntegrityAuthorityClass {
 
 /// Broad machine-readable integrity finding class.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum IntegrityFindingClass {
     /// Accepted or physical bytes are corrupt.
     Corruption,
@@ -482,6 +487,7 @@ pub enum IntegrityFindingClass {
 /// Stable semantic family of one integrity finding.
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum IntegrityFindingKind {
     /// The physical data key is not a valid current key for its entity interval.
     MalformedDataKey,
@@ -553,6 +559,7 @@ pub enum IntegrityFindingKind {
 /// Canonical Deep inspection phase.
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum IntegrityPhase {
     /// Bounded accepted metadata and control closure.
     QuickMetadata,
@@ -578,6 +585,7 @@ pub enum IntegrityPhase {
 #[derive(
     serde::Serialize, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd,
 )]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum IntegrityVerifierFamily {
     /// Current physical data-key framing and identity.
     DataKey,
@@ -621,6 +629,7 @@ pub enum IntegrityVerifierFamily {
 
 /// Severity of one definite integrity finding.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum IntegritySeverity {
     /// The finding identifies invalid maintained state.
     Error,
@@ -632,6 +641,7 @@ pub enum IntegritySeverity {
 ///
 /// Raw row payloads and unbounded application values are deliberately absent.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct IntegrityFinding {
     diagnostic_code: u16,
     class: IntegrityFindingClass,
@@ -641,7 +651,9 @@ pub struct IntegrityFinding {
     store_path: String,
     phase: IntegrityPhase,
     verifier_family: IntegrityVerifierFamily,
+    #[serde(with = "serde_bytes")]
     physical_key: Vec<u8>,
+    #[serde(with = "serde_bytes")]
     primary_key: Option<Vec<u8>>,
     field_paths: Vec<String>,
     value_path: Option<Box<ConstraintValuePath>>,
@@ -765,6 +777,7 @@ impl IntegrityFinding {
 
 /// Typed reason that accepted authority could not be inspected.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct IntegrityAuthorityDiagnostic {
     diagnostic_code: u16,
     class: IntegrityAuthorityClass,
@@ -804,6 +817,7 @@ impl IntegrityAuthorityDiagnostic {
 
 /// Typed bounded-resource failure.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct IntegrityResourceDiagnostic {
     diagnostic_code: u16,
 }
@@ -818,6 +832,7 @@ impl IntegrityResourceDiagnostic {
 
 /// Outcome of one bounded Quick integrity inspection.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum QuickIntegrityStatus {
     /// Every bounded Quick family was inspected without findings.
     CompleteClean,
@@ -831,6 +846,7 @@ pub enum QuickIntegrityStatus {
 
 /// Complete result of one bounded accepted-native Quick inspection.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct QuickIntegrityResult {
     entity: IntegrityEntityIdentity,
     database_incarnation_id: DatabaseIncarnationId,

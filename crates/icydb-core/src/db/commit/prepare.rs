@@ -351,7 +351,10 @@ pub(in crate::db) fn prepare_canonical_row_commit_with_context<C: CanisterKind>(
     index_reader: &dyn StructuralIndexEntryReader,
     relation_budget: &mut RelationCommitBudget,
 ) -> Result<PreparedRowCommitOp, InternalError> {
-    let data_key = validate_row_commit_identity(op, &context.authority, context.mode)?;
+    // Keep canonical key refusal ahead of envelope checks, as at the scheduler
+    // boundary, and retain this decoded key for row/index preparation.
+    let data_key = decode_canonical_commit_key(&op.key, context.entity_tag())?;
+    validate_row_commit_identity(op, &context.authority, context.mode)?;
     // A physical historical-layout rewrite may have byte-identical canonical
     // images. Preserve one reader while both transition sides remain visible.
     let rows = match (op.before.as_ref(), op.after.as_ref()) {
@@ -798,7 +801,9 @@ fn prepare_row_commit_structural_inputs(
     authority: &CommitPrepareAuthority,
     mode: CommitPrepareMode,
 ) -> Result<CommitInputs<RawRow>, InternalError> {
-    let data_key = validate_row_commit_identity(op, authority, mode)?;
+    validate_row_commit_identity(op, authority, mode)?;
+    let data_key = DecodedDataStoreKey::try_from_raw(&op.key)
+        .map_err(|_| InternalError::store_corruption())?;
     Ok(CommitInputs {
         raw_key: op.key.clone(),
         data_key,
@@ -806,12 +811,24 @@ fn prepare_row_commit_structural_inputs(
     })
 }
 
+// Canonical scheduler keys are internal invariants, unlike untrusted replay
+// bytes. Check the cheap tag prefix and decode once, retaining the owned result.
+fn decode_canonical_commit_key(
+    key: &RawDataStoreKey,
+    entity_tag: EntityTag,
+) -> Result<DecodedDataStoreKey, InternalError> {
+    if key.entity_tag_prefix() != Some(entity_tag) {
+        return Err(InternalError::query_executor_invariant());
+    }
+    DecodedDataStoreKey::try_from_raw(key).map_err(|_| InternalError::query_executor_invariant())
+}
+
 // Identity and transition presence are independent of the image trust boundary.
 fn validate_row_commit_identity<R>(
     op: &CommitRowOp<R>,
     authority: &CommitPrepareAuthority,
     mode: CommitPrepareMode,
-) -> Result<DecodedDataStoreKey, InternalError> {
+) -> Result<(), InternalError> {
     if op.entity_path.as_ref() != authority.entity_path.as_ref() {
         return Err(InternalError::store_corruption());
     }
@@ -824,7 +841,7 @@ fn validate_row_commit_identity<R>(
     {
         return Err(InternalError::store_corruption());
     }
-    DecodedDataStoreKey::try_from_raw(&op.key).map_err(|_| InternalError::store_corruption())
+    Ok(())
 }
 
 // Resume structural orchestration after the typed forward-index leaf has
@@ -1030,7 +1047,57 @@ fn push_commit_op_for_index_entry(
 mod tests {
     mod images;
 
-    use super::CommitPrepareMode;
+    use super::{CommitPrepareMode, decode_canonical_commit_key};
+    use crate::{
+        db::{
+            data::{DecodedDataStoreKey, RawDataStoreKey},
+            key_taxonomy::{CompositePrimaryKeyValue, PrimaryKeyComponent, PrimaryKeyValue},
+        },
+        error::InternalError,
+        types::EntityTag,
+    };
+
+    #[test]
+    fn canonical_commit_keys_preserve_identity_and_refusal_classification() {
+        let tag = EntityTag::new(7);
+        let keys = [
+            PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(0)),
+            PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(u64::MAX)),
+            PrimaryKeyValue::Composite(
+                CompositePrimaryKeyValue::try_from_components(&[
+                    PrimaryKeyComponent::Nat64(7),
+                    PrimaryKeyComponent::Nat64(9),
+                ])
+                .unwrap(),
+            ),
+        ];
+        let expected = InternalError::query_executor_invariant();
+        for key in keys {
+            let raw = DecodedDataStoreKey::new(tag, &key).to_raw().unwrap();
+            let decoded = decode_canonical_commit_key(&raw, tag).unwrap();
+            assert_eq!(decoded.entity_tag(), tag);
+            assert_eq!(decoded.primary_key_value(), key);
+            assert_eq!(decoded.to_raw().unwrap(), raw);
+
+            let mut invalid = (0..raw.as_bytes().len())
+                .map(|length| RawDataStoreKey::from_store_range_bound(&raw.as_bytes()[..length]))
+                .collect::<Vec<_>>();
+            let mut trailing = raw.as_bytes().to_vec();
+            trailing.push(0);
+            invalid.push(RawDataStoreKey::from_store_range_bound(&trailing));
+            invalid.push(
+                DecodedDataStoreKey::new(EntityTag::new(8), &key)
+                    .to_raw()
+                    .unwrap(),
+            );
+            for raw in invalid {
+                let error = decode_canonical_commit_key(&raw, tag).unwrap_err();
+                assert_eq!(error.class(), expected.class());
+                assert_eq!(error.origin(), expected.origin());
+                assert_eq!(error.diagnostic_code(), expected.diagnostic_code());
+            }
+        }
+    }
 
     #[test]
     fn commit_prepare_modes_separate_normal_admission_from_replay_and_rebuild() {

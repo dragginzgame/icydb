@@ -16,6 +16,7 @@ use serde::Deserialize;
 
 #[cfg_attr(doc, doc = "StorageReport\n\nLive storage snapshot payload.")]
 #[derive(Clone, Debug, Default, Deserialize, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct StorageReport {
     pub(crate) memory_allocations: Option<MemoryAllocations>,
     pub(crate) storage_data: Vec<DataStoreSnapshot>,
@@ -97,6 +98,7 @@ impl StorageReport {
 
 #[cfg_attr(doc, doc = "SchemaStoreSnapshot\n\nSchema-store diagnostic row.")]
 #[derive(Clone, Debug, Default, Deserialize, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct SchemaStoreSnapshot {
     pub(crate) path: String,
     pub(crate) storage: StoreSnapshotStorageMode,
@@ -118,6 +120,7 @@ pub struct SchemaStoreSnapshot {
 /// This is observability metadata only. It does not participate in allocation
 /// identity, stable-key generation, or durable row/index/schema storage ABI.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum StoreSnapshotStorageMode {
     Heap,
     #[default]
@@ -384,6 +387,7 @@ impl SchemaStoreSnapshot {
 
 #[cfg_attr(doc, doc = "DataStoreSnapshot\n\nData-store snapshot row.")]
 #[derive(Clone, Debug, Default, Deserialize, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct DataStoreSnapshot {
     pub(crate) path: String,
     pub(crate) storage: StoreSnapshotStorageMode,
@@ -526,6 +530,7 @@ impl DataStoreSnapshot {
 
 #[cfg_attr(doc, doc = "IndexStoreSnapshot\n\nIndex-store snapshot row.")]
 #[derive(Clone, Debug, Default, Deserialize, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct IndexStoreSnapshot {
     pub(crate) path: String,
     pub(crate) storage: StoreSnapshotStorageMode,
@@ -692,6 +697,7 @@ impl IndexStoreSnapshot {
 
 #[cfg_attr(doc, doc = "EntitySnapshot\n\nPer-entity storage snapshot row.")]
 #[derive(Clone, Debug, Default, Deserialize, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct EntitySnapshot {
     pub(crate) store: String,
 

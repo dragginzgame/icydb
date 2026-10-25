@@ -136,7 +136,7 @@ fn generate_normalizers(
                             ::core::any::type_name::<#callback_type>(),
                         ),
                     );
-                    if let Err(msg) = #model::visitor::Normalizer::normalize_with_context(
+                    if let ::core::result::Result::Err(msg) = #model::visitor::Normalizer::normalize_with_context(
                         &(#ctor),
                         &mut #target,
                         &mut __callback_ctx,
@@ -157,7 +157,7 @@ fn generate_normalizers(
                             ::core::any::type_name::<#callback_type>(),
                         ),
                     );
-                    if let Err(msg) = #model::visitor::Normalizer::normalize_with_context(
+                    if let ::core::result::Result::Err(msg) = #model::visitor::Normalizer::normalize_with_context(
                         &(#ctor),
                         &mut #target,
                         &mut __callback_ctx,

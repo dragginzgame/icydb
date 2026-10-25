@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -20,6 +20,26 @@ run(resolve(here, 'node_modules/.bin/tsc'), ['--ignoreConfig', '--strict', '--ta
 const contracts = await import(pathToFileURL(resolve(out, 'compiled/icydb.js')));
 const { WireError } = await import(pathToFileURL(resolve(out, 'compiled/native-runtime.js')));
 const { vectors } = await import(pathToFileURL(resolve(out, 'vectors.mjs')));
+// Compare the generator's full endpoint roster with the schema-owned browser
+// projection. Intentional browser/native asymmetry is retained by that owner.
+const budgetPolicy = JSON.parse(readFileSync(resolve(out, 'budget-policy.json'), 'utf8'));
+const generatedContract = JSON.parse(readFileSync(resolve(out, 'contracts.json'), 'utf8'));
+// This reviewed fixture is deliberately not rewritten by contract generation.
+// Arrays retain field/variant order; object key formatting is not a contract.
+assert.deepEqual(generatedContract, JSON.parse(readFileSync(resolve(here, 'contract-baseline.json'), 'utf8')),
+  'Wire contract drift: review client/layout/identity and admission changes before updating the baseline');
+const generatedMethods = generatedContract.methods;
+function checkBudgets(method) {
+  assert.deepEqual(Object.fromEntries(Object.keys(budgetPolicy).map(key => [key, method[key]])), budgetPolicy);
+}
+assert.equal(generatedMethods.length, 12);
+for (const method of generatedMethods) {
+  checkBudgets(method);
+  for (const key of Object.keys(budgetPolicy)) {
+    assert.throws(() => checkBudgets({ ...method, [key]: method[key] - 1 }), assert.AssertionError);
+    assert.throws(() => checkBudgets({ ...method, [key]: method[key] + 1 }), assert.AssertionError);
+  }
+}
 const plain = value => value instanceof Uint8Array ? value : Array.isArray(value) ? value.map(plain) : value && typeof value === 'object' ? Object.fromEntries(Object.entries(value).map(([k, v]) => [k, plain(v)])) : value;
 const refused = action => assert.throws(action, WireError);
 let truncations = 0;
@@ -51,6 +71,11 @@ refused(() => query.decodeRequest(new Uint8Array([...request.subarray(0, 11), 1,
 refused(() => query.encodeRequest('\ud800'));
 refused(() => query.encodeRequest('é'.repeat(1_048_576)));
 const projection = value => ({ ok: { tag: 'Projection', value: { entity: 'Entry', columns: ['value'], rows: [[value]], row_count: 1 } } });
+for (const length of [0, 1, 3]) {
+  const pair = Array.from({ length }, () => ({ tag: 'Null', value: null }));
+  assert.throws(() => query.encodeResponse(projection({ tag: 'Map', value: [pair] })),
+    error => error instanceof WireError && error.code === 'value');
+}
 for (const bits of [32, 64]) {
   for (const number of [NaN, Infinity, -Infinity]) refused(() => query.encodeResponse(projection({ tag: `Float${bits}`, value: number })));
 }
@@ -84,4 +109,13 @@ oversized.ok.value.rows = Array.from({ length: 32769 }, () => ['NULL', '1']);
 const original = structuredClone(oversized);
 refused(() => query.encodeResponse(oversized));
 assert.deepEqual(oversized, original, 'oversized pages must not be truncated');
+
+// Byte-buffer cursor inputs are a hard cut; numeric arrays are not a fallback.
+const migration = contracts.icydb_schema_migration;
+for (const length of [0, 1, 127, 128, 256]) {
+  const cursor = new Uint8Array(length).fill(255);
+  const value = { cursor: { some: cursor } };
+  assert.deepEqual(plain(migration.decodeRequest(migration.encodeRequest(value))), value);
+}
+refused(() => migration.encodeRequest({ cursor: { some: [1, 2] } }));
 console.log(`Passed ${vectors.length} native frames across ${methods.size} endpoints, ${truncations} truncated frames and malformed/value/limit controls`);

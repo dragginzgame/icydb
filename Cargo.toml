@@ -94,7 +94,7 @@ ic-memory = "0.51"
 ic-metrics = "0.16"
 ic-platform = { version = "0.6", default-features = false }
 ic-storage = "0.51"
-ic-wire = "0.7"
+ic-wire = "0.7.9"
 icydb = { path = "crates/icydb", version = "=0.283.0", default-features = false }
 icydb-core = { path = "crates/icydb-core", version = "=0.283.0" }
 icydb-diagnostic-code = { path = "crates/icydb-diagnostic-code", version = "=0.283.0" }

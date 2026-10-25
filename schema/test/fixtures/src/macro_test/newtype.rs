@@ -104,7 +104,7 @@ pub struct BoolD {}
 
 #[newtype(
     item(prim = "Date"),
-    default = "icydb::types::Date::EPOCH",
+    default = icydb::types::Date::EPOCH,
     traits(add(Default))
 )]
 pub struct DateD {}
@@ -135,7 +135,7 @@ pub struct Nat128D;
 
 #[newtype(
     item(prim = "Principal"),
-    default = "icydb::types::Principal::anonymous",
+    default = icydb::types::Principal::anonymous,
     traits(add(Default))
 )]
 pub struct PrincipalD;
@@ -148,14 +148,14 @@ pub struct TextD;
 
 #[newtype(
     item(prim = "Timestamp"),
-    default = "icydb::types::Timestamp::EPOCH",
+    default = icydb::types::Timestamp::EPOCH,
     traits(add(Default))
 )]
 pub struct TimestampD;
 
 #[newtype(
     item(prim = "Ulid"),
-    default = "icydb::types::Ulid::nil",
+    default = icydb::types::Ulid::nil,
     traits(add(Default))
 )]
 pub struct UlidD;
@@ -164,6 +164,34 @@ pub struct UlidD;
 mod tests {
     use super::{Int64N, Nat64N};
     use icydb_model::Inner as _;
+
+    #[icydb_model::newtype(item(prim = "Text", unbounded), default = "::1", traits(add(Default)))]
+    pub struct QuotedPathDefault;
+
+    #[icydb_model::newtype(
+        item(prim = "Blob", unbounded),
+        default = "DeAdBeEf",
+        traits(add(Default))
+    )]
+    pub struct HexBlobDefault;
+
+    #[test]
+    fn generated_blob_default_uses_hex_bytes() {
+        assert_eq!(
+            HexBlobDefault::default().inner().as_bytes(),
+            &[0xde, 0xad, 0xbe, 0xef]
+        );
+    }
+
+    #[test]
+    fn quoted_default_is_text_and_bare_default_paths_still_execute() {
+        assert_eq!(QuotedPathDefault::default().inner(), "::1");
+        assert_eq!(super::DateD::default().inner(), &icydb::types::Date::EPOCH);
+        assert_eq!(
+            super::PrincipalD::default().inner(),
+            &icydb::types::Principal::anonymous()
+        );
+    }
 
     #[test]
     fn generated_exact_operators_delegate_to_the_wrapped_type() {

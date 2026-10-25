@@ -184,6 +184,35 @@ impl TryFrom<&[u8]> for Principal {
 pub struct Blob(Vec<u8>);
 
 impl Blob {
+    /// Parse an unprefixed, even-length ASCII hex schema literal.
+    ///
+    /// Empty input represents empty bytes. This authoring boundary caps decoded
+    /// bytes at [`crate::MAX_PROPOSAL_LITERAL_BYTES`]; runtime Blob values retain
+    /// their independent size admission.
+    ///
+    /// # Errors
+    /// Returns [`crate::SchemaContractError::InvalidLiteral`] for malformed hex
+    /// or oversized input, before allocating the decoded buffer.
+    pub fn from_hex_literal(text: &str) -> Result<Self, crate::SchemaContractError> {
+        if text.len() > crate::MAX_PROPOSAL_LITERAL_BYTES * 2
+            || !text.len().is_multiple_of(2)
+            || !text.bytes().all(|byte| byte.is_ascii_hexdigit())
+        {
+            return Err(crate::SchemaContractError::InvalidLiteral);
+        }
+        text.as_bytes()
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| {
+                let pair = std::str::from_utf8(pair)
+                    .map_err(|_| crate::SchemaContractError::InvalidLiteral)?;
+                u8::from_str_radix(pair, 16).map_err(|_| crate::SchemaContractError::InvalidLiteral)
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(Self::from)
+    }
+
     /// Borrow the canonical bytes.
     #[must_use]
     pub fn as_bytes(&self) -> &[u8] {

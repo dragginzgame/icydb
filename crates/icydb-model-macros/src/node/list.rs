@@ -71,7 +71,7 @@ impl HasType for List {
 
         quote! {
             #[repr(transparent)]
-            pub struct #ident(pub Vec<#item>);
+            pub struct #ident(pub ::std::vec::Vec<#item>);
         }
     }
 }

@@ -530,11 +530,6 @@ fn preflight_prepare_row_op_batch_structural<C: CanisterKind>(
                     .prepare_commit_context(db, row_op.schema_fingerprint, mode)
             },
         )?;
-        let decoded_key = DecodedDataStoreKey::try_from_raw(&row_op.key)
-            .map_err(|_| InternalError::query_executor_invariant())?;
-        if decoded_key.entity_tag() != context.entity_tag() {
-            return Err(InternalError::query_executor_invariant());
-        }
         let row = prepare_canonical_row_commit_with_context(
             db,
             row_op,

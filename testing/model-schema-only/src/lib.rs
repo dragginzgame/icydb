@@ -7,6 +7,30 @@ use model_api::{
     prelude::*,
 };
 
+// Generated code must not resolve standard types, traits or variants through local aliases.
+use std::{
+    cmp::Ordering::{Equal as None, Less as Ok},
+    collections::VecDeque as Vec,
+    io::Result,
+    marker::{PhantomData as Option, Send as PartialEq, Sync as PartialOrd},
+    ops::{
+        ControlFlow::{Break as Err, Continue as Some},
+        Range as Into,
+    },
+    rc::Rc as Box,
+};
+const _: Into<u8> = 0..0;
+const _: Result<()> = ::core::result::Result::Ok(());
+const _: ::core::option::Option<&(dyn PartialEq + PartialOrd)> = ::core::option::Option::None;
+const _: Option<()> = std::marker::PhantomData;
+const _: ::core::option::Option<Vec<()>> = ::core::option::Option::None;
+const _: ::core::option::Option<Box<()>> = ::core::option::Option::None;
+
+const _: std::cmp::Ordering = None;
+const _: std::cmp::Ordering = Ok;
+const _: std::ops::ControlFlow<(), ()> = Err(());
+const _: std::ops::ControlFlow<(), ()> = Some(());
+
 #[canister(memory_namespace = "model_schema_only")]
 pub struct SchemaOnlyCanister {}
 
@@ -211,6 +235,23 @@ mod tests {
     }
 
     #[test]
+    fn newtype_comparisons_ignore_shadowed_trait_names() {
+        let tokens = super::Tokens::from(7_u64);
+        assert_eq!(tokens, 7_u64);
+        assert_eq!(7_u64, tokens);
+        assert!(tokens < 8_u64);
+        assert!(6_u64 < tokens);
+        assert_eq!(
+            ::core::cmp::PartialOrd::partial_cmp(&tokens, &7_u64),
+            Some(::core::cmp::Ordering::Equal),
+        );
+        assert_eq!(
+            ::core::cmp::PartialOrd::partial_cmp(&7_u64, &tokens),
+            Some(::core::cmp::Ordering::Equal),
+        );
+    }
+
+    #[test]
     fn prefix_index_constraints_and_membership_survive_fragment_lowering() {
         let fragment = get_schema()
             .expect("schema-only fixture graph should validate")
@@ -354,5 +395,35 @@ mod crate_path_tests {
         };
         let _: Money = value.icydb;
         assert_eq!(value.icydb_model, "authored");
+    }
+}
+
+#[cfg(test)]
+mod default_hygiene_tests {
+    use model_api::{enum_, tuple};
+    use std::marker::Send as Default;
+
+    const _: ::core::option::Option<&dyn Default> = ::core::option::Option::None;
+
+    #[enum_(
+        variant(name = "Count", value(item(prim = "Nat64")), default),
+        traits(add(Default))
+    )]
+    pub struct DefaultCount {}
+
+    #[tuple(
+        value(item(prim = "Nat64")),
+        value(item(prim = "Text", max_len = 32)),
+        traits(add(Default))
+    )]
+    pub struct DefaultPair {}
+
+    #[test]
+    fn generated_defaults_ignore_shadowed_trait_names() {
+        let count = <DefaultCount as ::core::default::Default>::default();
+        assert!(matches!(count, DefaultCount::Count(0)));
+        let pair = <DefaultPair as ::core::default::Default>::default();
+        assert_eq!(pair.0, 0);
+        assert!(pair.1.is_empty());
     }
 }

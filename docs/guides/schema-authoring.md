@@ -127,6 +127,24 @@ see the [identity and primary-key contract](../contracts/IDENTITY_CONTRACT.md).
 
 ## Literal Diagnostics
 
+Blob field and primitive-newtype defaults use unprefixed, even-length ASCII hex,
+matching `fill(literal(blob = "deadbeef"))`. Both uppercase and lowercase digits
+are accepted; `""` means empty bytes. `"deadbeef"` represents four bytes
+`de ad be ef`, not eight UTF-8 bytes. Decoded literals are capped at 64 KiB.
+Whitespace, signs, prefixes, odd lengths and non-hex characters are rejected.
+When updating older raw-text defaults, hex-encode the intended bytes: the old
+UTF-8 default `"deadbeef"` becomes `"6465616462656566"` to retain its value.
+Existing rows are not rewritten; review schema proposals before deployment.
+Runtime `Blob::from(bytes)` and wire/storage encodings are unchanged.
+
+Quoted `default` values and `args(...)` entries are always literals, including
+text such as `"::1"` or `"a::b"`. Use bare Rust paths for constants and zero-argument
+functions: `default = Date::EPOCH`, `default = String::new`, or
+`args(crate::LIMIT, crate::default_limit)`. Existing uppercase-final-name constant
+and lowercase-final-name function classification applies to those bare paths.
+This does not change dedicated path fields such as `validator(path = "...")`
+or `generated(insert = "Ulid::generate")`.
+
 Quoted Account, Principal, Subaccount and Ulid field defaults are parsed during
 macro expansion. Invalid identity text returns a compiler error at the field;
 requesting Rust `Default` does not postpone that check or turn it into a panic.

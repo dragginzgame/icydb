@@ -27,9 +27,9 @@ where
 {
     if let Some(v) = opt {
         let transformed = transform(v);
-        quote!(Some(#transformed))
+        quote!(::core::option::Option::Some(#transformed))
     } else {
-        quote!(None)
+        quote!(::core::option::Option::None)
     }
 }
 

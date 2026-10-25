@@ -5,6 +5,13 @@ per-entity source versions. The accepted schema remains runtime authority;
 generated declarations describe the proposed successor and one source-owned
 migration plan explains every intentional rename or physical rewrite.
 
+Blob fill literals use the same bounded hex convention as Blob defaults:
+`fill(literal(blob = "deadbeef"))` produces `de ad be ef`. Supply even-length,
+unprefixed ASCII hex (either case), at most 64 KiB decoded; empty text denotes
+empty bytes. Subaccount fills still require exactly 64 unprefixed hex digits.
+See [literal diagnostics](schema-authoring.md#literal-diagnostics) when updating
+older UTF-8 Blob defaults; retained row bytes are never implicitly converted.
+
 Schema migration is an optional canister capability. Enable `icydb/migration`
 only in Wasm artifacts that need to adopt or advance a migration, and declare
 both maintained controller endpoints in source:

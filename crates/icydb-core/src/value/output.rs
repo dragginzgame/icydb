@@ -200,6 +200,16 @@ impl serde::Serialize for OutputValue {
     }
 }
 
+// OutputValue delegates both Serde directions to the canonical recursive value.
+#[cfg(not(target_family = "wasm"))]
+impl ic_wire::typescript::Wire for OutputValue {
+    fn native_schema(
+        context: &mut ic_wire::typescript::SchemaContext,
+    ) -> Result<serde_json::Value, ic_wire::typescript::GenerationError> {
+        context.describe::<PublicValue>()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::value::{OutputValue, PublicValue, Value};

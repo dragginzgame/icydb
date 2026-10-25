@@ -21,6 +21,7 @@ const MAX_REPLICATED_SQL_QUERY_REPLY_BYTES: usize = 2 * 1024 * 1024;
 
 #[cfg_attr(doc, doc = "SqlGroupedRowsOutput\n\nStructured grouped SQL payload.")]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct SqlGroupedRowsOutput {
     pub entity: String,
     pub columns: Vec<String>,
@@ -37,6 +38,7 @@ pub struct SqlGroupedRowsOutput {
     doc = "SqlConstraintValidationOutput\n\nTyped progress from one bounded constraint-validation step."
 )]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct SqlConstraintValidationOutput {
     /// Stable accepted constraint identity.
     pub constraint_id: u32,
@@ -58,6 +60,7 @@ pub struct SqlConstraintValidationOutput {
 
 #[cfg_attr(doc, doc = "SqlQueryResult\n\nUnified SQL endpoint result.")]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum SqlQueryResult {
     Count {
         entity: String,

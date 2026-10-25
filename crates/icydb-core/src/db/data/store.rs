@@ -18,7 +18,7 @@ use ic_memory::{DefaultMemoryImpl, RuntimeMemory};
 use ic_storage::adapter::StableBTreeMap;
 #[cfg(test)]
 use std::cell::Cell;
-use std::collections::{BTreeMap as HeapBTreeMap, BTreeSet};
+use std::collections::{BTreeMap as HeapBTreeMap, BTreeSet, btree_map::Entry};
 use std::convert::Infallible;
 use std::ops::{Bound, RangeBounds};
 
@@ -164,23 +164,40 @@ impl DataStore {
         key: RawDataStoreKey,
         row: CanonicalRow,
     ) -> Option<RawRow> {
-        let row = row.into_raw_row();
-        let previous_journaled = if matches!(self.backend, DataStoreBackend::Journaled { .. }) {
-            self.get(&key)
-        } else {
-            None
-        };
+        self.insert_raw(key, row.into_raw_row())
+    }
+
+    // One insertion owner for admitted writes and corruption-fixture raw rows.
+    fn insert_raw(&mut self, key: RawDataStoreKey, row: RawRow) -> Option<RawRow> {
         // Counts retain only entity identity, so copy that fact before the map
         // takes the row key instead of retaining a second key buffer.
         let entity = key.entity_tag_prefix();
         let previous = match &mut self.backend {
             DataStoreBackend::Heap(map) => map.insert(key, row),
             DataStoreBackend::Journaled {
-                live, tombstones, ..
+                canonical,
+                live,
+                tombstones,
+                ..
             } => {
-                tombstones.remove(&key);
-                live.insert(key, row);
-                previous_journaled
+                let hidden = tombstones.remove(&key);
+                // Move a live predecessor; read stable bytes only when visible
+                // and not overridden. Neither path clones the live row payload.
+                match live.entry(key) {
+                    Entry::Occupied(mut entry) => {
+                        let previous = entry.insert(row);
+                        (!hidden).then_some(previous)
+                    }
+                    Entry::Vacant(entry) => {
+                        let previous = if hidden {
+                            None
+                        } else {
+                            canonical.get(entry.key())
+                        };
+                        entry.insert(row);
+                        previous
+                    }
+                }
             }
         };
         self.entity_cardinality
@@ -197,44 +214,27 @@ impl DataStore {
         key: RawDataStoreKey,
         row: RawRow,
     ) -> Option<RawRow> {
-        let previous_journaled = if matches!(self.backend, DataStoreBackend::Journaled { .. }) {
-            self.get(&key)
-        } else {
-            None
-        };
-        let entity = key.entity_tag_prefix();
-        let previous = match &mut self.backend {
-            DataStoreBackend::Heap(map) => map.insert(key, row),
-            DataStoreBackend::Journaled {
-                live, tombstones, ..
-            } => {
-                tombstones.remove(&key);
-                live.insert(key, row);
-                previous_journaled
-            }
-        };
-        self.entity_cardinality
-            .apply_insert(entity, previous.is_some());
-        self.apply_entity_overlay_delta(entity, previous.is_some(), true);
-        self.bump_generation();
-        previous
+        self.insert_raw(key, row)
     }
 
     /// Remove one row by raw key.
     pub(in crate::db) fn remove(&mut self, key: &RawDataStoreKey) -> Option<RawRow> {
-        let previous_journaled = if matches!(self.backend, DataStoreBackend::Journaled { .. }) {
-            self.get(key)
-        } else {
-            None
-        };
         let previous = match &mut self.backend {
             DataStoreBackend::Heap(map) => map.remove(key),
             DataStoreBackend::Journaled {
-                live, tombstones, ..
+                canonical,
+                live,
+                tombstones,
+                ..
             } => {
-                live.remove(key);
+                let previous = live.remove(key);
+                let previous = if tombstones.contains(key) {
+                    None
+                } else {
+                    previous.or_else(|| canonical.get(key))
+                };
                 tombstones.insert(key.clone());
-                previous_journaled
+                previous
             }
         };
         self.entity_cardinality
@@ -280,31 +280,25 @@ impl DataStore {
         &mut self,
         key: RawDataStoreKey,
         row: RawRow,
-    ) -> Result<Option<RawRow>, crate::error::InternalError> {
+    ) -> Result<(), crate::error::InternalError> {
+        // Replay callers discard predecessor bytes; cardinality needs presence only.
+        let previous_present = self.contains(&key);
         let DataStoreBackend::Journaled {
-            canonical,
-            live,
-            tombstones,
-            ..
+            live, tombstones, ..
         } = &mut self.backend
         else {
             return Err(crate::error::InternalError::store_invariant());
         };
 
-        let previous = if tombstones.contains(&key) {
-            None
-        } else {
-            live.get(&key).cloned().or_else(|| canonical.get(&key))
-        };
         tombstones.remove(&key);
         let entity = key.entity_tag_prefix();
         live.insert(key, row);
         self.entity_cardinality
-            .apply_insert(entity, previous.is_some());
-        self.apply_entity_overlay_delta(entity, previous.is_some(), true);
+            .apply_insert(entity, previous_present);
+        self.apply_entity_overlay_delta(entity, previous_present, true);
         self.bump_generation();
 
-        Ok(previous)
+        Ok(())
     }
 
     /// Publish one preflighted positioned row value or tombstone.

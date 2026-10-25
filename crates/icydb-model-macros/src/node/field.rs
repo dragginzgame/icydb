@@ -283,19 +283,21 @@ impl Field {
                 // callable Rust constructor. Full row values use zero only as
                 // their ordinary Rust Default placeholder; typed inserts omit
                 // the database-owned field structurally.
-                return Some(quote!(Default::default()));
+                return Some(quote!(::core::default::Default::default()));
             }
             return Some(quote!(#generator.into()));
         }
 
         match (&self.default, self.value.cardinality()) {
-            (Some(default), _) => schema_default_rust_expr(default, &self.value, paths).ok(),
+            (Some(default), _) => {
+                schema_default_rust_expr(default, self.value.item.primitive, paths).ok()
+            }
             (None, Cardinality::One) if self.write_management.is_some() => {
-                Some(quote!(Default::default()))
+                Some(quote!(::core::default::Default::default()))
             }
             (None, Cardinality::One) => None,
-            (None, Cardinality::Opt) => Some(quote!(None)),
-            (None, Cardinality::Many) => Some(quote!(Vec::default())),
+            (None, Cardinality::Opt) => Some(quote!(::core::option::Option::None)),
+            (None, Cardinality::Many) => Some(quote!(::std::vec::Vec::default())),
         }
     }
 
@@ -501,13 +503,20 @@ fn generated_insert_contract(generator: &Arg) -> Option<GeneratedInsertContract>
 
 // Parse identity literals at expansion time. Validation and construction share
 // this owner, so neither malformed input nor generated Rust needs a parse panic.
-fn schema_default_rust_expr(
+pub(crate) fn schema_default_rust_expr(
     default: &Arg,
-    value: &Value,
+    primitive: Option<Primitive>,
     paths: &CratePaths,
 ) -> Result<TokenStream, String> {
     let model = &paths.model;
-    Ok(match (value.item.primitive, default) {
+    Ok(match (primitive, default) {
+        (Some(Primitive::Blob), Arg::String(value)) => {
+            let blob = icydb_schema::Blob::from_hex_literal(&value.value()).map_err(
+                |_| "default for primitive Blob requires bounded, even-length ASCII hex",
+            )?;
+            let bytes = blob.as_bytes();
+            quote!(#model::schema::Blob::from(&[#(#bytes),*]).into())
+        }
         (Some(Primitive::Account), Arg::String(value)) => {
             let account = value
                 .value()
@@ -609,7 +618,7 @@ fn validate_database_default_shape(
     compatible.then_some(()).ok_or_else(|| {
         format!("default value {default:?} is not compatible with primitive {primitive:?}")
     })?;
-    schema_default_rust_expr(default, value, paths).map(|_| ())
+    schema_default_rust_expr(default, value.item.primitive, paths).map(|_| ())
 }
 
 fn identity_like_default_constructor_error(default: &Arg, primitive: Primitive) -> Option<String> {

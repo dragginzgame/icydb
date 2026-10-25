@@ -389,7 +389,8 @@ impl CompiledExpr {
         else_expr.evaluate(reader)
     }
 
-    // Evaluate scalar function calls without heap allocation for common arities.
+    // Retain borrowed arguments through scalar evaluation; only results need ownership.
+    // Common arities keep their argument holders on the stack.
     // Larger dynamic functions still allocate their argument vector, matching
     // the existing semantics while keeping common grouped aggregate expressions
     // allocation-free.
@@ -413,22 +414,22 @@ impl CompiledExpr {
         let value = match args {
             [] => eval_grouped_function_call(function, &[])?,
             [arg] => {
-                let arg = arg.evaluate(reader)?.into_owned();
+                let arg = arg.evaluate(reader)?;
                 let args = [arg];
 
                 eval_grouped_function_call(function, &args)?
             }
             [left, right] => {
-                let left = left.evaluate(reader)?.into_owned();
-                let right = right.evaluate(reader)?.into_owned();
+                let left = left.evaluate(reader)?;
+                let right = right.evaluate(reader)?;
                 let args = [left, right];
 
                 eval_grouped_function_call(function, &args)?
             }
             [first, second, third] => {
-                let first = first.evaluate(reader)?.into_owned();
-                let second = second.evaluate(reader)?.into_owned();
-                let third = third.evaluate(reader)?.into_owned();
+                let first = first.evaluate(reader)?;
+                let second = second.evaluate(reader)?;
+                let third = third.evaluate(reader)?;
                 let args = [first, second, third];
 
                 eval_grouped_function_call(function, &args)?
@@ -436,7 +437,7 @@ impl CompiledExpr {
             args => {
                 let mut evaluated_args = Vec::with_capacity(args.len());
                 for arg in args {
-                    evaluated_args.push(arg.evaluate(reader)?.into_owned());
+                    evaluated_args.push(arg.evaluate(reader)?);
                 }
 
                 eval_grouped_function_call(function, evaluated_args.as_slice())?
@@ -458,7 +459,7 @@ pub(in crate::db) fn evaluate_grouped_having_expr(
 
 fn eval_grouped_function_call(
     function: Function,
-    args: &[Value],
+    args: &[Cow<'_, Value>],
 ) -> Result<Value, ProjectionEvalError> {
     eval_projection_function_call_checked(function, args).map_err(|err| match err {
         ProjectionFunctionEvalError::Numeric(err) => ProjectionEvalError::Numeric(err),

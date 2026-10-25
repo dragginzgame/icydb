@@ -137,6 +137,40 @@ mod tests {
     use quote::quote;
 
     #[test]
+    fn record_preserves_authored_documentation_on_main_type() {
+        let mut node = Record::from_list(&[]).expect("empty record should lower");
+        let item: syn::ItemStruct = syn::parse_quote! {
+            /// Customer record.
+            #[doc = concat!("More ", "details.")]
+            #[allow(dead_code, reason = "consumer policy")]
+            #[warn(unused)]
+            #[deny(non_camel_case_types)]
+            #[forbid(unsafe_code)]
+            #[expect(clippy::exhaustive_structs)]
+            pub struct DocumentedRecord {}
+        };
+        let expected = item.attrs.clone();
+        node.def = Def::new(item, crate::crate_path::CratePaths::test());
+        let output: syn::File = syn::parse2(node.generate_tokens(node.def.paths()))
+            .expect("generated record should parse");
+        let main = output
+            .items
+            .iter()
+            .find_map(|item| match item {
+                syn::Item::Struct(item) if item.ident == "DocumentedRecord" => Some(item),
+                _ => None,
+            })
+            .expect("main record should be emitted");
+        let docs: Vec<_> = main
+            .attrs
+            .iter()
+            .filter(|attr| !attr.path().is_ident("derive") && !attr.path().is_ident("serde"))
+            .cloned()
+            .collect();
+        assert_eq!(docs, expected);
+    }
+
+    #[test]
     fn unsupported_record_trait_rejects_before_emission() {
         let args = NestedMeta::parse_meta_list(quote!(traits(add(NumericValue))))
             .expect("record args should parse");

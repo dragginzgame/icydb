@@ -1,6 +1,6 @@
 //! Actual native encoders are the byte oracle for generated browser codecs.
 
-use crate::{Generator, metadata, samples};
+use crate::{Generator, samples};
 use std::{collections::BTreeMap, error::Error, fmt::Write as _, fs, path::Path};
 
 use icydb::{
@@ -14,7 +14,7 @@ use icydb::{
     wire::Endpoint,
 };
 use serde_json::Value;
-use serde_reflection::{Registry, Value as Sample};
+use serde_reflection::Value as Sample;
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -168,11 +168,10 @@ fn js(node: &Value, sample: &Sample, types: &BTreeMap<String, Value>) -> Result<
 
 pub(super) fn write(
     out: &Path,
-    types: &Registry,
+    types: &BTreeMap<String, Value>,
     methods: &[Value],
     vectors: &[(Endpoint, bool, Vec<u8>, Sample)],
 ) -> Result<()> {
-    let types = metadata::registry(types)?;
     let mut source = String::from(
         "// Exact frames emitted by the current native IcyDB encoder.\nexport const vectors = [\n",
     );
@@ -184,7 +183,7 @@ pub(super) fn write(
         let value = js(
             &method[if *response { "response" } else { "request" }],
             sample,
-            &types,
+            types,
         )?;
         writeln!(
             source,

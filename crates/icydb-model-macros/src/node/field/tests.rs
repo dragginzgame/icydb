@@ -30,6 +30,35 @@ fn field(ident: &str, primitive: Primitive) -> Field {
 }
 
 #[test]
+fn blob_defaults_validate_hex_before_generating_rust() {
+    let paths = crate::crate_path::CratePaths::test();
+    for text in ["", "deadbeef", "DeAdBeEf"] {
+        let mut blob = field("payload", Primitive::Blob);
+        blob.default = Some(Arg::String(syn::LitStr::new(
+            text,
+            proc_macro2::Span::call_site(),
+        )));
+        assert!(blob.validate(&paths).is_ok());
+        assert!(blob.rust_default_expr(&paths).is_some());
+    }
+    for text in [
+        "raw text".to_string(),
+        "a".to_string(),
+        "+1".to_string(),
+        "é".to_string(),
+        "ab".repeat(icydb_schema::MAX_PROPOSAL_LITERAL_BYTES + 1),
+    ] {
+        let mut blob = field("payload", Primitive::Blob);
+        blob.default = Some(Arg::String(syn::LitStr::new(
+            &text,
+            proc_macro2::Span::call_site(),
+        )));
+        assert!(blob.validate(&paths).is_err());
+        assert!(blob.rust_default_expr(&paths).is_none());
+    }
+}
+
+#[test]
 fn relation_fields_require_canonical_identity_suffixes() {
     let mut relation = field("user", Primitive::Ulid);
     relation.value.item.relation = Some(parse_quote!(User));
@@ -111,7 +140,7 @@ fn generated_identity_accepts_every_exact_unsigned_width() {
             id.rust_default_expr(&crate::crate_path::CratePaths::test())
                 .expect("identity should have a Rust placeholder")
                 .to_string(),
-            quote!(Default::default()).to_string(),
+            quote!(::core::default::Default::default()).to_string(),
         );
     }
 }

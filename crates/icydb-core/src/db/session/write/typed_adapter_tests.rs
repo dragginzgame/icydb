@@ -414,41 +414,55 @@ fn typed_descriptor_primary_key_must_match_accepted_source_order() {
 
 #[test]
 fn typed_mutation_batch_is_bounded_and_atomic() {
+    assert_typed_mutation_batch_is_bounded_and_atomic(false);
+}
+
+#[test]
+fn shared_typed_mutation_batch_is_bounded_and_atomic() {
+    assert_typed_mutation_batch_is_bounded_and_atomic(true);
+}
+
+fn assert_typed_mutation_batch_is_bounded_and_atomic(shared: bool) {
     let session = initialize_typed_session();
+    let execute = |requests: Vec<(DynamicTypedEntityBinding, DynamicTypedMutation)>| {
+        if shared {
+            session.execute_trusted_typed_mutation_batch_shared(
+                requests
+                    .into_iter()
+                    .map(|(binding, mutation)| (std::sync::Arc::new(binding), mutation))
+                    .collect(),
+            )
+        } else {
+            session.execute_trusted_typed_mutation_batch(requests)
+        }
+    };
     let binding = session
         .issue_typed_entity_binding(&ENTITY_DESCRIPTOR)
         .expect("typed batch binding should issue");
 
-    session
-        .execute_trusted_typed_mutation_batch(Vec::new())
-        .expect_err("empty typed batch should reject");
+    execute(Vec::new()).expect_err("empty typed batch should reject");
     let insert = typed_insert(&binding, 1, 10);
     let oversized = (0..=super::MAX_STRUCTURAL_MUTATION_BATCH_OPERATIONS)
         .map(|_| (binding.clone(), insert.clone()))
         .collect();
-    session
-        .execute_trusted_typed_mutation_batch(oversized)
-        .expect_err("oversized typed batch should reject");
+    execute(oversized).expect_err("oversized typed batch should reject");
 
     let duplicate = vec![
         (binding.clone(), insert.clone()),
         (binding.clone(), typed_insert(&binding, 1, 11)),
     ];
-    session
-        .execute_trusted_typed_mutation_batch(duplicate)
-        .expect_err("late duplicate key should reject the whole typed batch");
+    execute(duplicate).expect_err("late duplicate key should reject the whole typed batch");
     let empty = session
         .execute_trusted_live_page(&crate::db::DynamicQuery::new("Entity"), None)
         .expect("failed typed batch should leave the entity readable");
     assert!(empty.rows.is_empty());
 
-    let result = session
-        .execute_trusted_typed_mutation_batch(vec![
-            (binding.clone(), insert),
-            (binding.clone(), typed_insert(&binding, 2, 20)),
-        ])
-        .expect("valid typed batch should execute")
-        .expect("exact binding should remain current");
+    let result = execute(vec![
+        (binding.clone(), insert),
+        (binding.clone(), typed_insert(&binding, 2, 20)),
+    ])
+    .expect("valid typed batch should execute")
+    .expect("exact binding should remain current");
     assert_eq!(result.len(), 2);
     assert!(result.iter().all(|item| item.affected_rows == 1));
     assert_eq!(
@@ -470,15 +484,13 @@ fn typed_mutation_batch_is_bounded_and_atomic() {
 
     let mut mismatched = binding.clone();
     mismatched.accepted_revision = mismatched.accepted_revision.saturating_add(1);
-    let mismatch = session
-        .execute_trusted_typed_mutation_batch(vec![
-            (binding.clone(), typed_insert(&binding, 3, 30)),
-            (mismatched.clone(), typed_insert(&binding, 4, 40)),
-        ])
-        .expect("mismatched typed batch should fail closed");
+    let mismatch = execute(vec![
+        (binding.clone(), typed_insert(&binding, 3, 30)),
+        (mismatched.clone(), typed_insert(&binding, 4, 40)),
+    ])
+    .expect("mismatched typed batch should fail closed");
     assert!(mismatch.is_none());
-    let stale = session
-        .execute_trusted_typed_mutation_batch(vec![(mismatched, typed_insert(&binding, 5, 50))])
+    let stale = execute(vec![(mismatched, typed_insert(&binding, 5, 50))])
         .expect("stale typed batch should fail closed");
     assert!(stale.is_none());
 }

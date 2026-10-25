@@ -242,7 +242,8 @@ pub(in crate::db::executor) fn expand_index_prefix_family_with_exact_child_prefi
         index_id,
         specs.iter().map(LoweredIndexPrefixSpec::prefix_components),
         total_cap,
-    ) else {
+    )?
+    else {
         return Ok(None);
     };
 

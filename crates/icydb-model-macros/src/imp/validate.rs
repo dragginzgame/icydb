@@ -334,7 +334,7 @@ fn cardinality_wrapper(
             #body
         },
         Cardinality::Opt => quote! {
-            if let Some(v) = #var_expr {
+            if let ::core::option::Option::Some(v) = #var_expr {
                 #body
             }
         },

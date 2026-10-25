@@ -30,6 +30,7 @@ pub(in crate::db) const MAX_INTEGRITY_IN_PROGRESS_PAGES: u64 = u64::MAX - 1;
 #[derive(
     serde::Serialize, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd,
 )]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct IntegrityJobId([u8; 32]);
 
 impl IntegrityJobId {
@@ -205,6 +206,7 @@ impl IntegrityCheckpoint {
 /// Frozen intent that supersedes advancement after the outstanding page is acknowledged.
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum IntegrityPendingTerminal {
     /// The inactivity lease elapsed.
     Expired,
@@ -215,6 +217,7 @@ pub enum IntegrityPendingTerminal {
 /// Stable terminal meaning of a completed Deep job.
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum IntegrityTerminalOutcome {
     /// Every phase exhausted cleanly under one unchanged proof.
     DeepCompleteClean,
@@ -270,6 +273,7 @@ pub(in crate::db) enum IntegrityJobState {
 /// Semantic status carried by one bounded Deep page.
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum DeepIntegrityPageStatus {
     /// More physical work or the final proof check remains.
     InProgress,
@@ -280,6 +284,7 @@ pub enum DeepIntegrityPageStatus {
 /// One bounded replayable Deep result page.
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct DeepIntegrityPage {
     pub(super) job_id: IntegrityJobId,
     pub(super) page_sequence: u64,
@@ -344,6 +349,7 @@ impl DeepIntegrityPage {
 /// Abort receipt status.
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum IntegrityAbortStatus {
     /// Abort is frozen but cannot replace the outstanding page yet.
     TerminationPending(IntegrityPendingTerminal),
@@ -354,6 +360,7 @@ pub enum IntegrityAbortStatus {
 /// One bounded abort/expiry receipt.
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct IntegrityAbortReceipt {
     pub(super) job_id: IntegrityJobId,
     pub(super) page_sequence: u64,
@@ -383,6 +390,7 @@ impl IntegrityAbortReceipt {
 /// Persisted receipt body.
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum IntegrityJobReceipt {
     /// Normal start, advancement, or completion page.
     Page(DeepIntegrityPage),
@@ -729,6 +737,7 @@ fn strictly_sorted_unique(values: &[IntegrityVerifierFamily]) -> bool {
 /// Typed Deep protocol or progress-record failure.
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum IntegrityJobError {
     /// The bounded progress store cannot admit another job.
     CapacityExceeded,

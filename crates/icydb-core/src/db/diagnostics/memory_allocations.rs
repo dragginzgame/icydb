@@ -16,6 +16,7 @@ use serde::Deserialize;
 /// The ledger is already included in totals. Virtual extent is addressable
 /// memory, not live payload. Unknown bindings still own physical allocations.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct MemoryAllocations {
     /// Committed runtime generation, absent before allocation bootstrap.
     pub current_generation: Option<u64>,
@@ -123,6 +124,7 @@ impl MemoryAllocations {
 
 /// Measured extent in 64-KiB Wasm pages and bytes.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct MemoryExtent {
     /// Extent in Wasm pages.
     pub wasm_pages: u64,
@@ -141,6 +143,7 @@ impl From<ic_memory::DiagnosticMemorySize> for MemoryExtent {
 
 /// Current binding of a physical slot; this grants no opening authority.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum MemoryAllocationBinding {
     /// A declaration bound by successful runtime bootstrap.
     Current {
@@ -162,6 +165,7 @@ pub enum MemoryAllocationBinding {
 
 /// Physical accounting for one usable manager slot.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct MemoryAllocation {
     /// Memory-manager slot ID.
     pub memory_manager_id: u8,

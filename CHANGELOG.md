@@ -5,6 +5,101 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.284.0]
+
+### Breaking
+
+- Interpret Blob defaults as bounded hex, consistently with migration fills.
+  Hex-encode older raw-text defaults to preserve their intended bytes; existing
+  rows and runtime Blob encodings are unchanged
+  ([#186 — Align Blob default and migration literals](https://github.com/dragginzgame/icydb/issues/186)).
+
+- Keep quoted macro defaults and arguments literal, including `"::1"`. Replace
+  quoted function/constant arguments with bare Rust paths such as `String::new`;
+  dedicated `path` and `generated` fields are unchanged
+  ([#184 — Keep quoted arguments literal](https://github.com/dragginzgame/icydb/issues/184)).
+
+- Serialize six diagnostic key/cursor fields as byte buffers. Regenerate browser
+  clients and use `Uint8Array` instead of `number[]`; wire bytes are unchanged,
+  while byte buffers no longer consume a traversal node per byte.
+- Generate map entries as two-element TypeScript tuples matching Rust. Valid
+  bytes are unchanged; wrong-length entries are rejected as value errors.
+
+### 🔧 Changed
+
+- Distinguish grouped query limits from hard execution-budget exhaustion with
+  a typed `grouped_limit` diagnostic fact; preserve E252 and execution context
+  ([#148 — Distinguish grouped limit failures](https://github.com/dragginzgame/icydb/issues/148)).
+
+- Decode canonical commit keys once while preserving malformed-key rejection
+  ([#447 — Remove duplicate commit-key decoding](https://github.com/dragginzgame/icydb/issues/447)).
+
+- Adopt published Host/Build/Testkit 0.68.2, Memory/Storage 0.51.1, Metrics
+  0.16.2, Platform 0.6.16 and Timers 0.31.1 alongside Wire 0.7.9.
+
+- Move previous live rows out of storage on replace/delete instead of cloning
+  their payloads, preserving returned values and cardinality
+  ([#446](https://github.com/dragginzgame/icydb/issues/446)).
+
+- Adopt published IC Wire 0.7.9 and its matching derive: generated browsers use
+  incremental output buffers, and endpoint budgets use Wire's validated typed
+  projection. Preserve current contract layouts, byte ceilings and admission policy.
+  Qualify registry-aware bulk review without broadening field exemptions.
+- Replace reflection-based contract translation with native-only DTO metadata
+  collected by Wire's recursive registry. Retain reflection for sample vectors.
+  Remove the obsolete reflection metadata-completeness pass.
+
+- Gate browser contracts against a reviewed endpoint-layout baseline and extend
+  installed checks to byte-buffer cursor refusal and retained constraint-finding
+  keys ([#194](https://github.com/dragginzgame/icydb/issues/194), partial).
+
+- Own browser RPC budgets beside native schema policy and reject generated
+  configuration drift, preserving the intentionally smaller browser limits.
+
+- Require bulk-field review when generating browser contracts, preserving the
+  reviewed diagnostic field-ID representation and rejecting unreviewed drift.
+  Regression checks keep exemptions field-specific and reject stale decisions.
+
+- Share accepted bindings during mixed typed-batch execution instead of copying
+  their mappings ([#164](https://github.com/dragginzgame/icydb/issues/164), partial).
+
+- Move covering-index rows out of their scan buffer without copying their keys,
+  preserving ordering, continuation and duplicate suppression
+  ([#444](https://github.com/dragginzgame/icydb/issues/444)).
+- Borrow expression-order inputs while retaining owned sort and cursor results
+  ([#442](https://github.com/dragginzgame/icydb/issues/442)).
+- Decode grouped values from borrowed heap/live rows without copying the full
+  payload ([#445](https://github.com/dragginzgame/icydb/issues/445)).
+- Let scalar functions read borrowed arguments without temporary value copies
+  ([#443](https://github.com/dragginzgame/icydb/issues/443)).
+- Seek requested index-prefix families directly and enforce the visit budget
+  during metadata expansion ([#167](https://github.com/dragginzgame/icydb/issues/167)).
+
+### 🐛 Fixed
+
+- Preserve authored Rustdoc and lint attributes on generated model types
+  ([#183](https://github.com/dragginzgame/icydb/issues/183), partial).
+
+- Keep generated adapters and value construction independent of consumer aliases
+  for standard types, traits and variants
+  ([#180](https://github.com/dragginzgame/icydb/issues/180), partial).
+
+- Recognize completed migrations after entity removal, without requiring
+  historical lineage entries to disappear ([#95](https://github.com/dragginzgame/icydb/issues/95)).
+
+- End scalar pagination on an exactly full final page when lookahead proves
+  exhaustion ([#156](https://github.com/dragginzgame/icydb/issues/156)).
+
+- Bound DESCRIBE type expansion so recursive or excessively reused types return
+  an error instead of exhausting resources ([#93](https://github.com/dragginzgame/icydb/issues/93)).
+- Reject oversized nested-record expansions at the existing leaf limit before
+  copying their paths ([#92](https://github.com/dragginzgame/icydb/issues/92)).
+- Report the actual CHECK validation page limit and distinguish row-count from
+  byte-size exhaustion; document the heap-store restriction
+  ([#210](https://github.com/dragginzgame/icydb/issues/210)).
+
+See [detailed notes](docs/changelog/0.284.md).
+
 ## [0.283.0] - 2026-10-24
 
 ### ⚠️ Breaking

@@ -65,6 +65,13 @@ impl ValidateNode for Newtype {
         self.validate_traits()?;
         self.item.validate()?;
 
+        if let (Some(Primitive::Blob), Some(default @ Arg::String(value))) =
+            (self.item.primitive, self.default.as_ref())
+        {
+            schema_default_rust_expr(default, self.item.primitive, self.def.paths())
+                .map_err(|error| DarlingError::custom(error).with_span(value))?;
+        }
+
         if self.traits.explicitly_adds(TraitKind::Default) && self.default.is_none() {
             return Err(DarlingError::custom(format!(
                 "Default was requested for newtype {}, but no `default = ...` constructor is configured",
@@ -310,6 +317,30 @@ mod tests {
         TraitKind::Product,
         TraitKind::Sum,
     ];
+
+    #[test]
+    fn blob_newtype_defaults_reject_nonhex_before_generation() {
+        for (text, valid) in [
+            ("", true),
+            ("DeAdBeEf", true),
+            ("+1", false),
+            ("raw text", false),
+        ] {
+            let mut node = newtype_with_primitive(Primitive::Blob);
+            node.def = Def::new(
+                syn::parse_quote!(
+                    pub struct TestBlob;
+                ),
+                CratePaths::test(),
+            );
+            node.item.unbounded = true;
+            node.default = Some(Arg::String(syn::LitStr::new(
+                text,
+                proc_macro2::Span::call_site(),
+            )));
+            assert_eq!(node.validate().is_ok(), valid);
+        }
+    }
 
     #[test]
     fn from_list_parses_nested_item_primitive() {

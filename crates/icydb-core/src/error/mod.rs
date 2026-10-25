@@ -447,6 +447,26 @@ impl InternalError {
         )
     }
 
+    /// Preserve the exact operator-local grouped limit alongside execution context.
+    /// An unavailable execution context remains its original invariant failure.
+    pub(crate) fn with_grouped_limit(
+        self,
+        resource: diagnostic_code::DiagnosticGroupBudgetResource,
+    ) -> Self {
+        let diagnostic = self.diagnostic();
+        if diagnostic.error_code()
+            != diagnostic_code::ErrorCode::RUNTIME_BOUNDARY_EXECUTION_BUDGET_EXCEEDED
+        {
+            return self;
+        }
+        let mut facts = self.diagnostic_facts();
+        facts.push((
+            diagnostic_code::DiagnosticFactTag::GroupedLimit,
+            resource.raw(),
+        ));
+        Self::with_diagnostic_facts(self.class, self.origin, diagnostic.detail().copied(), facts)
+    }
+
     /// Construct a deterministic mutation relation-budget rejection.
     #[cold]
     #[inline(never)]
@@ -1623,6 +1643,25 @@ impl InternalError {
         }
     }
 
+    /// Report the actual bounded page that prevented a direct schema proof.
+    pub(crate) fn schema_validation_page_budget_exceeded(
+        actual_tag: diagnostic_code::DiagnosticFactTag,
+        limit: u64,
+        actual: u64,
+    ) -> Self {
+        Self::with_diagnostic_facts(
+            ErrorClass::Unsupported,
+            ErrorOrigin::Query,
+            Some(diagnostic_code::DiagnosticDetail::SchemaDdlAdmission {
+                reason: diagnostic_code::SchemaDdlAdmissionCode::SchemaTransitionBudgetExceeded,
+            }),
+            vec![
+                (diagnostic_code::DiagnosticFactTag::Limit, limit),
+                (actual_tag, actual),
+            ],
+        )
+    }
+
     /// Construct an index-origin unsupported error.
     pub(crate) fn index_unsupported() -> Self {
         Self::new(ErrorClass::Unsupported, ErrorOrigin::Index)
@@ -1914,6 +1953,7 @@ impl std::error::Error for InternalError {}
 ///
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum ConstraintValuePathComponent {
     /// Persisted root field whose admitted value was traversed.
     RootField { field_id: u32 },
@@ -1981,6 +2021,7 @@ impl fmt::Display for ConstraintValuePathComponent {
 ///
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct ConstraintValuePath {
     components: Vec<ConstraintValuePathComponent>,
 }
@@ -2020,10 +2061,12 @@ impl fmt::Display for ConstraintValuePath {
 ///
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct ConstraintValidationFindingOutput {
     accepted_schema_fingerprint: [u8; 16],
     entity_tag: u64,
     constraint_id: u32,
+    #[serde(with = "serde_bytes")]
     primary_key: Vec<u8>,
     field_ids: Vec<u32>,
     value_path: Option<ConstraintValuePath>,

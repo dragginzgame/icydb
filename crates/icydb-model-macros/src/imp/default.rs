@@ -42,8 +42,9 @@ impl Imp<Enum> for DefaultTrait {
         let mut implementor = Implementor::new(node.def(), TraitKind::Default);
         let inner = if let Some(value) = &default_variant.value {
             let value_type = value.type_expr(paths);
-            implementor = implementor.add_impl_constraint(quote!(#value_type: Default));
-            quote!(Self::#variant_ident(Default::default()))
+            implementor =
+                implementor.add_impl_constraint(quote!(#value_type: ::core::default::Default));
+            quote!(Self::#variant_ident(::core::default::Default::default()))
         } else {
             quote!(Self::#variant_ident)
         };
@@ -116,9 +117,21 @@ impl Imp<Newtype> for DefaultTrait {
             return Some(default_generation_invariant_error(node.def()));
         };
 
+        let default_expr = if matches!(
+            (node.item.primitive, default_expr),
+            (Some(Primitive::Blob), Arg::String(_))
+        ) {
+            let Ok(expression) = schema_default_rust_expr(default_expr, node.item.primitive, paths)
+            else {
+                return Some(default_generation_invariant_error(node.def()));
+            };
+            expression
+        } else {
+            quote!(#default_expr.into())
+        };
         let q = quote! {
             fn default() -> Self {
-                Self(#default_expr.into())
+                Self(#default_expr)
             }
         };
 
@@ -140,9 +153,13 @@ impl Imp<Tuple> for DefaultTrait {
         let mut implementor = Implementor::new(node.def(), TraitKind::Default);
         for value in &node.values {
             let value_type = value.type_expr(paths);
-            implementor = implementor.add_impl_constraint(quote!(#value_type: Default));
+            implementor =
+                implementor.add_impl_constraint(quote!(#value_type: ::core::default::Default));
         }
-        let values = node.values.iter().map(|_| quote!(Default::default()));
+        let values = node
+            .values
+            .iter()
+            .map(|_| quote!(::core::default::Default::default()));
         let tokens = implementor
             .set_tokens(quote! {
                 fn default() -> Self {

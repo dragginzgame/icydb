@@ -1,5 +1,29 @@
 use model_api::prelude::*;
 
+// Generated code must not resolve standard types, traits or variants through local aliases.
+use std::{
+    cmp::Ordering::{Equal as None, Less as Ok},
+    collections::VecDeque as Vec,
+    io::Result,
+    marker::{PhantomData as Option, Send as PartialEq, Sync as PartialOrd},
+    ops::{
+        ControlFlow::{Break as Err, Continue as Some},
+        Range as Into,
+    },
+    rc::Rc as Box,
+};
+const _: Into<u8> = 0..0;
+const _: Result<()> = ::core::result::Result::Ok(());
+const _: ::core::option::Option<&(dyn PartialEq + PartialOrd)> = ::core::option::Option::None;
+const _: Option<()> = std::marker::PhantomData;
+const _: ::core::option::Option<Vec<()>> = ::core::option::Option::None;
+const _: ::core::option::Option<Box<()>> = ::core::option::Option::None;
+
+const _: std::cmp::Ordering = None;
+const _: std::cmp::Ordering = Ok;
+const _: std::ops::ControlFlow<(), ()> = Err(());
+const _: std::ops::ControlFlow<(), ()> = Some(());
+
 #[canister(memory_namespace = "model_typed_adapter")]
 pub struct TypedAdapterCanister {}
 

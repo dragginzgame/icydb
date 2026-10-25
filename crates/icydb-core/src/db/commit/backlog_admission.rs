@@ -40,6 +40,7 @@ use crate::db::journal::{decode_journal_batch, encode_journal_batch};
 
 /// Exact database-wide retained or proposed journal contribution.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct ExactBacklogMeasurement {
     batch_count: u64,
     record_count: u64,

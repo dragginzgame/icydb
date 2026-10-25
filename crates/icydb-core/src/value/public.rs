@@ -14,6 +14,7 @@ use serde::Deserialize;
 /// `InputValue` and `OutputValue` remain distinct root types. Their recursive
 /// payload is shared here so Wire and Serde derive one value visitor family.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum PublicValue {
     Account(Account),
     Blob(#[serde(with = "serde_bytes")] Vec<u8>),
@@ -163,6 +164,7 @@ impl PublicValue {
 
 /// Enum metadata shared by public input and output values.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct PublicEnumValue {
     variant: String,
     path: Option<String>,

@@ -3,8 +3,6 @@
 //! Does not own: mutation write gates, SQL syntax, or kind-specific physical staging.
 //! Boundary: accepted activation + canonical rows -> marker-owned job progress/promotion.
 
-#[cfg(feature = "sql")]
-use crate::error::SchemaTransitionBudgetResource;
 use crate::{
     db::schema::{
         AcceptedStoreCatalogScope, AcceptedValueCatalogHandle, accepted_schema_cache_fingerprint,
@@ -49,6 +47,7 @@ use crate::{
     error::InternalError,
     types::EntityTag,
 };
+use icydb_diagnostic_code::DiagnosticFactTag;
 use std::{ops::Bound, rc::Rc};
 
 const MAX_VALIDATION_ROWS_PER_PAGE: usize = 256;
@@ -84,7 +83,26 @@ pub(in crate::db) enum UnpublishedRowLocalValidation {
     /// The complete historical domain satisfied the candidate check.
     Complete { rows_scanned: usize },
     /// More historical rows remain after the one-page direct-proof budget.
-    Incomplete,
+    Incomplete(ValidationPageBudget),
+}
+
+/// Evidence for a row-local page that cannot complete a direct proof.
+/// This is transient scan output, never a persisted continuation state.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(in crate::db) struct ValidationPageBudget {
+    actual_tag: DiagnosticFactTag,
+    limit: u64,
+    actual: u64,
+}
+
+impl ValidationPageBudget {
+    fn into_error(self) -> InternalError {
+        InternalError::schema_validation_page_budget_exceeded(
+            self.actual_tag,
+            self.limit,
+            self.actual,
+        )
+    }
 }
 
 /// Advance one generated or SQL-owned check activation by at most one bounded page.
@@ -269,11 +287,7 @@ pub(in crate::db) fn validate_unpublished_check_candidate_exact(
         constraint_id,
     )? {
         UnpublishedRowLocalValidation::Complete { rows_scanned } => Ok(rows_scanned),
-        UnpublishedRowLocalValidation::Incomplete => {
-            Err(InternalError::schema_transition_budget_exceeded(
-                SchemaTransitionBudgetResource::SourceRows,
-            ))
-        }
+        UnpublishedRowLocalValidation::Incomplete(budget) => Err(budget.into_error()),
     }
 }
 
@@ -407,7 +421,10 @@ fn validate_unpublished_row_local_candidate_bounded_for_kind(
         ));
     }
     if !scan.exhausted {
-        return Ok(UnpublishedRowLocalValidation::Incomplete);
+        return Ok(UnpublishedRowLocalValidation::Incomplete(
+            scan.row_local_budget
+                .ok_or_else(InternalError::store_invariant)?,
+        ));
     }
     Ok(UnpublishedRowLocalValidation::Complete {
         rows_scanned: scan.rows_scanned,
@@ -988,6 +1005,7 @@ struct ValidationPageScan {
     rows_scanned: usize,
     findings: Vec<ConstraintValidationFinding>,
     exhausted: bool,
+    row_local_budget: Option<ValidationPageBudget>,
 }
 
 impl ValidationPageScan {
@@ -1070,6 +1088,7 @@ fn scan_row_local_validation_page(
     let mut decoded_bytes = 0usize;
     let mut findings = Vec::new();
     let mut has_more = false;
+    let mut row_local_budget = None;
 
     store.with_data(|data| {
         data.visit_range((lower, upper), |raw_key, raw_row| {
@@ -1081,6 +1100,21 @@ fn scan_row_local_validation_page(
                         > MAX_VALIDATION_DECODED_BYTES_PER_PAGE)
             {
                 has_more = true;
+                row_local_budget = if rows_scanned == MAX_VALIDATION_ROWS_PER_PAGE {
+                    Some(ValidationPageBudget {
+                        actual_tag: DiagnosticFactTag::ActualCount,
+                        limit: MAX_VALIDATION_ROWS_PER_PAGE as u64,
+                        actual: rows_scanned.saturating_add(1) as u64,
+                    })
+                } else if findings.len() == MAX_VALIDATION_FINDINGS_PER_PAGE {
+                    None // Findings take precedence over direct-proof budget errors.
+                } else {
+                    Some(ValidationPageBudget {
+                        actual_tag: DiagnosticFactTag::ActualLength,
+                        limit: MAX_VALIDATION_DECODED_BYTES_PER_PAGE as u64,
+                        actual: decoded_bytes.saturating_add(row_bytes) as u64,
+                    })
+                };
                 return Ok(StoreVisit::Stop);
             }
             let decoded_key = DecodedDataStoreKey::try_from_raw(raw_key)
@@ -1132,6 +1166,7 @@ fn scan_row_local_validation_page(
         rows_scanned,
         findings,
         exhausted: !has_more,
+        row_local_budget,
     })
 }
 
@@ -1358,6 +1393,10 @@ struct UniqueValidationPageScan {
     staged_entries: Vec<RawIndexStoreKey>,
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "keep the bounded unique scan and staged-entry publication evidence together"
+)]
 fn scan_unique_validation_page(
     store: StoreHandle,
     entity_tag: EntityTag,
@@ -1466,6 +1505,7 @@ fn scan_unique_validation_page(
                     rows_scanned,
                     findings,
                     exhausted: !has_more,
+                    row_local_budget: None,
                 },
                 staged_entries,
             })

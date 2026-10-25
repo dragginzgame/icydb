@@ -1,5 +1,6 @@
 //! Generate browser bindings from the maintained native endpoint types.
 
+mod bulk;
 mod metadata;
 mod samples;
 mod vectors;
@@ -13,6 +14,7 @@ use serde_reflection::{Samples, Tracer, TracerConfig};
 
 struct Generator {
     tracer: Tracer,
+    registry: ic_wire::typescript::SchemaRegistry,
     samples: Samples,
     methods: Vec<Value>,
     vectors: Vec<(Endpoint, bool, Vec<u8>, serde_reflection::Value)>,
@@ -28,6 +30,7 @@ impl Generator {
                     .default_string_value("0".into())
                     .default_borrowed_str_value("0"),
             ),
+            registry: metadata::registry()?,
             samples: Samples::new(),
             methods: Vec::new(),
             vectors: Vec::new(),
@@ -61,13 +64,13 @@ impl Generator {
 
     fn method<Q, R, E>(&mut self, endpoint: Endpoint) -> Result<(), Box<dyn Error>>
     where
-        Q: Serialize + DeserializeOwned,
-        R: Serialize + DeserializeOwned,
-        E: Serialize + DeserializeOwned,
+        Q: Serialize + DeserializeOwned + ic_wire::typescript::Wire,
+        R: Serialize + DeserializeOwned + ic_wire::typescript::Wire,
+        E: Serialize + DeserializeOwned + ic_wire::typescript::Wire,
     {
-        let (request, requests) = self.tracer.trace_type::<Q>(&self.samples)?;
-        let (response, responses) = self.tracer.trace_type::<R>(&self.samples)?;
-        let (error, errors) = self.tracer.trace_type::<E>(&self.samples)?;
+        let (_, requests) = self.tracer.trace_type::<Q>(&self.samples)?;
+        let (_, responses) = self.tracer.trace_type::<R>(&self.samples)?;
+        let (_, errors) = self.tracer.trace_type::<E>(&self.samples)?;
         let mode = match endpoint {
             Endpoint::Query
             | Endpoint::Metrics
@@ -82,13 +85,30 @@ impl Generator {
             | Endpoint::MetricsReset
             | Endpoint::SchemaMigrate => "update",
         };
-        self.methods.push(json!({
-            "requestNodes":32768, "responseNodes":32768, "requestDepth":32, "responseDepth":32,
-            "name": endpoint.name(), "id": endpoint.id().to_string(), "mode":mode,
-            "requestBytes":icydb::wire::MAX_REQUEST_BYTES, "responseBytes":icydb::wire::MAX_REPLY_BYTES,
-            "request": metadata::format(&request)?,
-            "response": {"k":"result", "ok":metadata::format(&response)?, "err":metadata::format(&error)?},
-        }));
+        let browser_limits = |bytes| ic_wire::Limits {
+            nodes: icydb_schema::wire::BROWSER_MAX_NODES,
+            depth: icydb_schema::wire::BROWSER_MAX_DEPTH,
+            ..icydb_schema::wire::limits(bytes)
+        };
+        // Wire validates directional budget projection; IcyDB retains its
+        // intentionally smaller browser policy and semantic endpoint identity.
+        let mut method = ic_wire::typescript::method_limits(
+            browser_limits(icydb::wire::MAX_REQUEST_BYTES),
+            browser_limits(icydb::wire::MAX_REPLY_BYTES),
+        )
+        .map_err(|error| format!("Wire browser budget projection failed: {error:?}"))?;
+        method["name"] = json!(endpoint.name());
+        method["id"] = json!(endpoint.id().to_string());
+        method["mode"] = json!(mode);
+        method["request"] = self
+            .registry
+            .register::<Q>(&format!("{}_Request", endpoint.name()))
+            .map_err(|error| format!("Wire request metadata: {error:?}"))?;
+        method["response"] = self
+            .registry
+            .register::<Result<R, E>>(&format!("{}_Response", endpoint.name()))
+            .map_err(|error| format!("Wire reply metadata: {error:?}"))?;
+        self.methods.push(method);
         for value in requests {
             self.vector(endpoint, false, &value)?;
         }
@@ -116,9 +136,11 @@ impl Generator {
         self.method::<(), Vec<icydb::db::EntitySchemaDescription>, icydb::Error>(Endpoint::Schema)?;
         self.method::<icydb::db::SchemaMigrationCommand, icydb::db::SchemaMigrationStatusPage, icydb::Error>(Endpoint::SchemaMigrate)?;
         self.method::<icydb::db::SchemaMigrationStatusRequest, icydb::db::SchemaMigrationStatusPage, icydb::Error>(Endpoint::SchemaMigration)?;
-        samples::complete(&mut self.tracer, &self.samples)?;
         vectors::add(&mut self)?;
-        let registry = self.tracer.registry()?;
+        let registry = self
+            .registry
+            .finish()
+            .map_err(|error| format!("Wire registry: {error:?}"))?;
         fs::create_dir_all(out)?;
         metadata::write(out, &registry, &self.methods)?;
         vectors::write(out, &registry, &self.methods, &self.vectors)?;

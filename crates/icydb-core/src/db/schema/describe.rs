@@ -14,10 +14,10 @@ use crate::{
             AcceptedRuleTarget, AcceptedSchemaSnapshot, AcceptedValueCatalogHandle,
             ConstraintActivationKind, ConstraintActivationSnapshot, ConstraintActivationState,
             ConstraintOrigin, ConstraintValidationJob, FieldId, FieldInsertGeneration,
-            PersistedIndexKeyItemSnapshot, PersistedIndexKeySnapshot, PersistedIndexSnapshot,
-            PersistedNestedLeafSnapshot, PersistedRelationEdgeSnapshot,
-            PersistedRelationPathStepSnapshot, PersistedRelationSourceSnapshot,
-            PersistedSchemaSnapshot, SchemaHistoricalFill,
+            MAX_ACCEPTED_RECURSIVE_DEPTH, MAX_SCHEMA_SNAPSHOT_BYTES, PersistedIndexKeyItemSnapshot,
+            PersistedIndexKeySnapshot, PersistedIndexSnapshot, PersistedNestedLeafSnapshot,
+            PersistedRelationEdgeSnapshot, PersistedRelationPathStepSnapshot,
+            PersistedRelationSourceSnapshot, PersistedSchemaSnapshot, SchemaHistoricalFill,
             composite_catalog::{AcceptedCompositeElement, AcceptedCompositeShape},
             identity_kind_maximum, output_value_from_runtime, query_field_is_queryable,
             render_accepted_check_expr_sql,
@@ -40,6 +40,7 @@ const MAX_SQL_COMPACT_COLUMN_ROWS: usize =
 
 /// Compact accepted index-membership hint for one SQL column row.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum SqlColumnKey {
     /// Accepted primary-key field.
     Primary,
@@ -53,6 +54,7 @@ pub enum SqlColumnKey {
 
 /// Compact accepted insert-default policy for one SQL column row.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum SqlColumnDefault {
     /// Database-owned insert synthesis.
     Auto,
@@ -82,6 +84,7 @@ impl SqlColumnDefault {
 
 /// Closed compact extra-fact vocabulary for one SQL column row.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum SqlColumnExtra {
     /// Accepted Identity generation owns this field.
     Identity,
@@ -93,6 +96,7 @@ pub enum SqlColumnExtra {
 
 /// Compact accepted-schema column projection.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct SqlColumnSummary {
     name: String,
     field_type: String,
@@ -167,6 +171,7 @@ impl SqlColumnSummary {
 
 /// Discriminated public `DESCRIBE` result.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum SqlDescribeOutput {
     /// Conventional compact column table.
     Compact {
@@ -184,6 +189,7 @@ pub enum SqlDescribeOutput {
 
 /// Discriminated public `SHOW COLUMNS` result.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum SqlShowColumnsOutput {
     /// Compact column projection shared with `DESCRIBE`.
     Compact {
@@ -203,6 +209,7 @@ pub enum SqlShowColumnsOutput {
 
 /// Public `SHOW RELATIONS` result.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct SqlShowRelationsOutput {
     entity: String,
     relations: Vec<EntityRelationDescription>,
@@ -238,6 +245,7 @@ impl SqlShowRelationsOutput {
     doc = "EntitySchemaDescription\n\nStable describe payload for one entity model."
 )]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct EntitySchemaDescription {
     pub(crate) entity_path: String,
     pub(crate) entity_name: String,
@@ -388,6 +396,7 @@ impl EntitySchemaDescription {
 /// Accepted Identity generator policy, exact unsigned domain, and current
 /// lifetime allocation state for one entity.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct EntityIdentityDescription {
     field: String,
     generator: String,
@@ -491,6 +500,7 @@ pub(in crate::db) fn describe_accepted_identity(
     doc = "EntityConstraintDescription\n\nOne accepted structural constraint entry in a describe payload."
 )]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct EntityConstraintDescription {
     pub(crate) id: u32,
     pub(crate) name: String,
@@ -513,6 +523,7 @@ pub struct EntityConstraintDescription {
 
 /// Current bounded validation-job counters for one activating constraint.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct ConstraintValidationProgressDescription {
     phase: String,
     rows_scanned: u64,
@@ -665,6 +676,7 @@ impl EntityConstraintDescription {
     doc = "EntityFieldDescription\n\nOne field entry in a describe payload."
 )]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct EntityFieldDescription {
     pub(crate) name: String,
     pub(crate) slot: u16,
@@ -889,6 +901,7 @@ impl EntityFieldDescription {
     doc = "EntityIndexDescription\n\nOne index entry in a describe payload."
 )]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct EntityIndexDescription {
     pub(crate) name: String,
     pub(crate) unique: bool,
@@ -938,6 +951,7 @@ impl EntityIndexDescription {
     doc = "EntityRelationDescription\n\nOne relation entry in a describe payload."
 )]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct EntityRelationDescription {
     pub(crate) field: String,
     pub(crate) target_path: String,
@@ -1001,6 +1015,7 @@ impl EntityRelationDescription {
     doc = "EntityRelationCardinality\n\nDescribe source multiplicity: List includes list/map-value traversal; Set denotes set-only traversal."
 )]
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum EntityRelationCardinality {
     Single,
     List,
@@ -1898,6 +1913,7 @@ fn write_accepted_composite_shape_summary(
     out: &mut String,
     shape: &AcceptedCompositeShape,
     value_catalog: &AcceptedValueCatalogHandle,
+    depth: usize,
 ) -> Result<(), InternalError> {
     match shape {
         AcceptedCompositeShape::Record(fields) => {
@@ -1908,7 +1924,12 @@ fn write_accepted_composite_shape_summary(
                 }
                 out.push_str(field.name());
                 out.push(':');
-                write_accepted_composite_element_summary(out, field.contract(), value_catalog)?;
+                write_accepted_composite_element_summary(
+                    out,
+                    field.contract(),
+                    value_catalog,
+                    depth,
+                )?;
             }
             out.push('}');
         }
@@ -1918,13 +1939,13 @@ fn write_accepted_composite_shape_summary(
                 if index > 0 {
                     out.push_str(", ");
                 }
-                write_accepted_composite_element_summary(out, element, value_catalog)?;
+                write_accepted_composite_element_summary(out, element, value_catalog, depth)?;
             }
             out.push('>');
         }
         AcceptedCompositeShape::Newtype(inner) => {
             out.push_str("newtype<");
-            write_accepted_composite_element_summary(out, inner, value_catalog)?;
+            write_accepted_composite_element_summary(out, inner, value_catalog, depth)?;
             out.push('>');
         }
     }
@@ -1936,8 +1957,9 @@ fn write_accepted_composite_element_summary(
     out: &mut String,
     element: &AcceptedCompositeElement,
     value_catalog: &AcceptedValueCatalogHandle,
+    depth: usize,
 ) -> Result<(), InternalError> {
-    write_persisted_field_kind_summary(out, element.kind(), value_catalog)?;
+    write_persisted_field_kind_summary(out, element.kind(), value_catalog, depth)?;
     write_composite_nullability_summary(out, element.nullable());
     Ok(())
 }
@@ -2120,7 +2142,10 @@ fn summarize_persisted_field_kind(
     value_catalog: &AcceptedValueCatalogHandle,
 ) -> Result<String, InternalError> {
     let mut out = String::new();
-    write_persisted_field_kind_summary(&mut out, kind, value_catalog)?;
+    write_persisted_field_kind_summary(&mut out, kind, value_catalog, 0)?;
+    if out.len() > MAX_SCHEMA_SNAPSHOT_BYTES as usize {
+        return Err(InternalError::store_unsupported());
+    }
 
     Ok(out)
 }
@@ -2131,7 +2156,13 @@ fn write_persisted_field_kind_summary(
     out: &mut String,
     kind: &AcceptedFieldKind,
     value_catalog: &AcceptedValueCatalogHandle,
+    depth: usize,
 ) -> Result<(), InternalError> {
+    // Accepted type graphs may be cyclic or reuse subgraphs exponentially.
+    // Bound descent and the shared output across sibling expansions.
+    if depth >= MAX_ACCEPTED_RECURSIVE_DEPTH || out.len() > MAX_SCHEMA_SNAPSHOT_BYTES as usize {
+        return Err(InternalError::store_unsupported());
+    }
     if let Some(name) = describe_kind_name(kind) {
         out.push_str(name);
         return Ok(());
@@ -2164,24 +2195,24 @@ fn write_persisted_field_kind_summary(
             out.push_str("relation(target=");
             out.push_str(target_entity_name);
             out.push_str(", key=");
-            write_persisted_field_kind_summary(out, key_kind, value_catalog)?;
+            write_persisted_field_kind_summary(out, key_kind, value_catalog, depth + 1)?;
             out.push(')');
         }
         AcceptedFieldKind::List(inner) => {
             out.push_str("list<");
-            write_persisted_field_kind_summary(out, inner, value_catalog)?;
+            write_persisted_field_kind_summary(out, inner, value_catalog, depth + 1)?;
             out.push('>');
         }
         AcceptedFieldKind::Set(inner) => {
             out.push_str("set<");
-            write_persisted_field_kind_summary(out, inner, value_catalog)?;
+            write_persisted_field_kind_summary(out, inner, value_catalog, depth + 1)?;
             out.push('>');
         }
         AcceptedFieldKind::Map { key, value } => {
             out.push_str("map<");
-            write_persisted_field_kind_summary(out, key, value_catalog)?;
+            write_persisted_field_kind_summary(out, key, value_catalog, depth + 1)?;
             out.push_str(", ");
-            write_persisted_field_kind_summary(out, value, value_catalog)?;
+            write_persisted_field_kind_summary(out, value, value_catalog, depth + 1)?;
             out.push('>');
         }
         AcceptedFieldKind::Composite { type_id } => {
@@ -2194,7 +2225,12 @@ fn write_persisted_field_kind_summary(
             out.push_str(", codec=");
             write_composite_codec_summary(out, definition.codec());
             out.push_str(", shape=");
-            write_accepted_composite_shape_summary(out, definition.shape(), value_catalog)?;
+            write_accepted_composite_shape_summary(
+                out,
+                definition.shape(),
+                value_catalog,
+                depth + 1,
+            )?;
             out.push(')');
         }
         AcceptedFieldKind::Account
@@ -2303,6 +2339,100 @@ mod tests {
     const REACHABLE_COMPACT_REPLY_COMPOSITE_FIELDS: usize = icydb_schema::MAX_FRAGMENT_FIELDS;
     const REACHABLE_COMPACT_REPLY_TOP_LEVEL_COMPOSITES: usize = 95;
     const IC_QUERY_REPLY_BYTES: usize = 3 * 1024 * 1024;
+
+    #[test]
+    fn field_kind_summaries_bound_cycles_and_reused_type_expansion() {
+        for (levels, cycle) in [(1, false), (1, true), (20, false)] {
+            let definitions = (1..=levels)
+                .map(|level| {
+                    let kind = if cycle {
+                        AcceptedFieldKind::Composite {
+                            type_id: CompositeTypeId::new(1).unwrap(),
+                        }
+                    } else if level == levels {
+                        AcceptedFieldKind::Nat64
+                    } else {
+                        AcceptedFieldKind::Composite {
+                            type_id: CompositeTypeId::new(level + 1).unwrap(),
+                        }
+                    };
+                    (
+                        CompositeTypeId::new(level).unwrap(),
+                        (
+                            format!("tests::T{level}"),
+                            AcceptedCompositeShape::Tuple(vec![
+                                AcceptedCompositeElement::new(kind.clone(), false),
+                                AcceptedCompositeElement::new(kind, false),
+                            ]),
+                        ),
+                    )
+                })
+                .collect();
+            let enums = empty_accepted_enum_catalog_for_tests();
+            let composites =
+                AcceptedCompositeCatalog::from_initial_definitions(definitions, &enums).unwrap();
+            let values = AcceptedValueCatalogHandle::new_for_tests(
+                enums,
+                composites,
+                AcceptedSchemaRevision::INITIAL,
+            );
+            let kind = AcceptedFieldKind::Composite {
+                type_id: CompositeTypeId::new(1).unwrap(),
+            };
+            let schema = summary_schema(kind.clone());
+            for result in [
+                describe_entity_fields_with_persisted_schema(&schema, &values).map(|_| ()),
+                describe_compact_columns_with_persisted_schema(&schema, &values).map(|_| ()),
+            ] {
+                if levels == 1 && !cycle {
+                    result.unwrap();
+                } else {
+                    assert_eq!(
+                        result.unwrap_err().class(),
+                        crate::error::ErrorClass::Unsupported
+                    );
+                }
+            }
+            let result = super::summarize_persisted_field_kind(&kind, &values);
+            if levels == 1 && !cycle {
+                assert_eq!(
+                    result.unwrap(),
+                    "composite(path=tests::T1, codec=structural_v1, shape=tuple<nat64, nat64>)"
+                );
+            } else {
+                assert_eq!(
+                    result.unwrap_err().class(),
+                    crate::error::ErrorClass::Unsupported
+                );
+            }
+        }
+    }
+
+    fn summary_schema(kind: AcceptedFieldKind) -> AcceptedSchemaSnapshot {
+        let (snapshot, _) = constraint_description_fixture();
+        let field = PersistedFieldSnapshot::new_initial(
+            FieldId::new(2),
+            "value".into(),
+            SchemaFieldSlot::new(1),
+            kind,
+            Vec::new(),
+            false,
+            SchemaInsertDefault::None,
+            FieldStorageDecode::CatalogValue,
+            LeafCodec::Structural,
+        );
+        let snapshot = snapshot
+            .clone()
+            .with_fields(vec![snapshot.fields()[0].clone(), field])
+            .with_indexes(Vec::new());
+        let constraints = AcceptedConstraintCatalog::initial(
+            snapshot.fields(),
+            snapshot.indexes(),
+            snapshot.relations(),
+        )
+        .unwrap();
+        AcceptedSchemaSnapshot::try_new(snapshot.with_constraint_catalog(constraints)).unwrap()
+    }
 
     fn constraint_description_fixture() -> (PersistedSchemaSnapshot, AcceptedValueCatalogHandle) {
         let snapshot = PersistedSchemaSnapshot::new_with_indexes(

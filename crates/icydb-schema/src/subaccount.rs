@@ -40,7 +40,7 @@ impl Subaccount {
     /// non-ASCII input or non-hex characters. No trimming is performed.
     pub fn from_hex(text: &str) -> Result<Self, SchemaContractError> {
         let text = text.strip_prefix("0x").unwrap_or(text);
-        if text.len() != 64 || !text.is_ascii() {
+        if text.len() != 64 || !text.bytes().all(|byte| byte.is_ascii_hexdigit()) {
             return Err(SchemaContractError::InvalidLiteral);
         }
         let mut bytes = [0; 32];
@@ -148,6 +148,8 @@ mod tests {
             "0".repeat(63),
             "0".repeat(65),
             "g".repeat(64),
+            "+1".repeat(32),
+            "-1".repeat(32),
             format!("aé{}", "0".repeat(61)),
             format!(" {}", "0".repeat(64)),
             format!("0X{}", "0".repeat(64)),

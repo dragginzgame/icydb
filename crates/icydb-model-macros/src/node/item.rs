@@ -178,7 +178,7 @@ impl HasTypeExpr for Item {
         let ty = self.target().type_expr(paths);
 
         if self.indirect {
-            quote!(Box<#ty>)
+            quote!(::std::boxed::Box<#ty>)
         } else {
             quote!(#ty)
         }

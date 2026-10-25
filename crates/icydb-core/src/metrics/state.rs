@@ -14,6 +14,7 @@ use std::{cell::RefCell, collections::BTreeMap};
 /// Spans include failed attempts and may nest; totals are not exclusive
 /// accounting and must not be summed or converted to cycles.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct InstructionMetrics {
     samples: u64,
     instructions_total: u128,
@@ -79,6 +80,7 @@ impl From<MeasurementAggregate> for InstructionMetrics {
 /// Only replicated execution records work. Upgrade clears the window and
 /// [`metrics_reset_all`] resets these counters together with entity observations.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct SchemaLifecycleMetrics {
     lowering: InstructionMetrics,
     publication: InstructionMetrics,
@@ -126,6 +128,7 @@ impl SchemaLifecycleMetrics {
 /// not append twice. Reset/restart clears these counters, never persisted debt.
 /// Fold instructions may nest inside startup recovery and are not additive costs.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct ConvergenceMetrics {
     appended: crate::db::ExactBacklogMeasurement,
     retired: crate::db::ExactBacklogMeasurement,
@@ -225,6 +228,7 @@ thread_local! {
 
 /// Cost attributed to one accepted entity during the active metrics window.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct EntityMetrics {
     path: String,
     hits: u64,
@@ -285,6 +289,7 @@ impl EntityMetrics {
 /// This is not a global top-cost report. Counters and window IDs are lost on
 /// upgrade/restart; consumers must treat heap replacement as a discontinuity.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct MetricsReport {
     window_id: Option<u64>,
     window_start_ms: u64,

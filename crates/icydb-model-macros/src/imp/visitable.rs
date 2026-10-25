@@ -108,10 +108,10 @@ impl Imp<Newtype> for VisitableTrait {
     fn strategy(node: &Newtype) -> Option<TraitStrategy> {
         let paths = node.def().paths();
         let inner = quote! {
-           perform_visit(visitor, &self.0, None);
+           perform_visit(visitor, &self.0, ::core::option::Option::None);
         };
         let inner_mut = quote! {
-           perform_visit_mut(visitor, &mut self.0, None);
+           perform_visit_mut(visitor, &mut self.0, ::core::option::Option::None);
         };
 
         let drives = quote_drives(&inner, &inner_mut, paths);

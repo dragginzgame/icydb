@@ -4186,24 +4186,29 @@ fn journaled_cardinality_rejects_volatile_counts_and_unfolded_accepted_root_drif
     );
     assert_eq!(
         JOURNALED_INDEX_STORE.with(|store| {
-            store.borrow().exact_child_prefixes_for_parent_set(
-                data_generation,
-                IndexKeyKind::User,
-                index_id,
-                [prefix_components.as_slice()],
-                8,
-            )
+            store
+                .borrow()
+                .exact_child_prefixes_for_parent_set(
+                    data_generation,
+                    IndexKeyKind::User,
+                    index_id,
+                    [prefix_components.as_slice()],
+                    8,
+                )
+                .unwrap()
         }),
         Some(Vec::new()),
         "the volatile child-prefix cache should demonstrate the bypass fixture",
     );
     assert_eq!(
-        handle.exact_user_index_child_prefixes_for_parent_set(
-            data_generation,
-            index_id,
-            [prefix_components.as_slice()],
-            8,
-        ),
+        handle
+            .exact_user_index_child_prefixes_for_parent_set(
+                data_generation,
+                index_id,
+                [prefix_components.as_slice()],
+                8,
+            )
+            .unwrap(),
         None,
         "journaled child enumeration must use its conservative route instead of volatile authority",
     );

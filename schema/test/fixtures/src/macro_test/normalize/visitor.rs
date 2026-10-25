@@ -5,7 +5,7 @@ use icydb_model::prelude::*;
 ///
 
 #[newtype(
-    default = "String::new",
+    default = String::new,
     item(prim = "Text", unbounded),
     ty(normalizer(path = "base::normalizer::text::case::Lower"))
 )]

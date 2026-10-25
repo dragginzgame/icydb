@@ -211,6 +211,43 @@ mod tests {
     }
 
     #[test]
+    fn generated_conversions_ignore_shadowed_into_name() {
+        assert_eq!(X::from(7_u16).0, 7);
+
+        let list = AdapterList::from(vec![
+            AdapterRecord {
+                label: "second".to_owned(),
+                choice: AdapterChoice::Empty,
+            },
+            AdapterRecord {
+                label: "first".to_owned(),
+                choice: AdapterChoice::Empty,
+            },
+        ]);
+        assert_eq!(list.0[0].label, "second");
+        assert_eq!(list.0[1].label, "first");
+
+        let set = AdapterSet::from(vec![3_u16, 1, 3]);
+        assert_eq!(
+            set.0.into_iter().map(|value| value.0).collect::<Vec<_>>(),
+            vec![1, 3]
+        );
+
+        let map = AdapterMap::from(vec![
+            (2_u16, AdapterChoice::Empty),
+            (1_u16, AdapterChoice::Empty),
+            (2_u16, AdapterChoice::Count(X::from(9_u16))),
+        ]);
+        assert_eq!(
+            map.0.keys().map(|key| key.0).collect::<Vec<_>>(),
+            vec![1, 2]
+        );
+        assert!(
+            matches!(map.0.get(&X::from(2_u16)), Some(AdapterChoice::Count(value)) if value.0 == 9)
+        );
+    }
+
+    #[test]
     fn generated_application_behavior_is_explicit_and_composable() {
         let normalized = MimeType::from("  Text/HTML  ")
             .normalize_and_validate()

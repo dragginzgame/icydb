@@ -945,6 +945,57 @@ fn compiled_expr_case_slot_bool_references_condition_and_branch_slots() {
 }
 
 #[test]
+fn scalar_functions_preserve_borrowed_and_computed_arguments_and_read_order() {
+    let reader = TracingRowView {
+        slots: vec![
+            Some(Value::Text("ABC".into())),
+            Some(Value::Text("a".into())),
+            Some(Value::Text("z".into())),
+            Some(Value::Null),
+        ],
+        read_slots: RefCell::new(Vec::new()),
+    };
+    let lower = function_expr(Function::Lower, vec![slot_expr(0)]);
+    for (expr, expected, reads) in [
+        (lower.clone(), Value::Text("abc".into()), vec![0]),
+        (
+            function_expr(Function::NullIf, vec![lower.clone(), slot_expr(1)]),
+            Value::Text("abc".into()),
+            vec![0, 1],
+        ),
+        (
+            function_expr(Function::Replace, vec![lower, slot_expr(1), slot_expr(2)]),
+            Value::Text("zbc".into()),
+            vec![0, 1, 2],
+        ),
+        (
+            function_expr(
+                Function::Replace,
+                vec![slot_expr(0), slot_expr(1), slot_expr(3)],
+            ),
+            Value::Null,
+            vec![0, 1, 3],
+        ),
+    ] {
+        reader.read_slots.borrow_mut().clear();
+        assert_eq!(expr.evaluate(&reader).unwrap().as_ref(), &expected);
+        assert_eq!(*reader.read_slots.borrow(), reads);
+    }
+
+    // The dynamic argument holder must preserve eager reads and arity errors too.
+    reader.read_slots.borrow_mut().clear();
+    let invalid = function_expr(Function::NullIf, (0..4).map(slot_expr).collect());
+    assert_eq!(
+        invalid.evaluate(&reader),
+        Err(ProjectionEvalError::InvalidFunctionCall {
+            function: Function::NullIf,
+            argument_count: 4,
+        }),
+    );
+    assert_eq!(*reader.read_slots.borrow(), vec![0, 1, 2, 3]);
+}
+
+#[test]
 fn grouped_compiled_expr_function_calls_reuse_projection_semantics() {
     let expr = CompiledExpr::FunctionCall {
         function: Function::Lower,

@@ -19,6 +19,8 @@ use crate::{
     value::{Value, lower_text, upper_text},
 };
 
+use std::borrow::Borrow;
+
 impl UnaryTextFunctionKind {
     /// Evaluate one admitted unary text transform against one text input.
     #[must_use]
@@ -154,10 +156,14 @@ impl LeftRightTextFunctionKind {
 impl Function {
     /// Evaluate one admitted COALESCE call after caller-side arity validation.
     #[must_use]
-    pub(in crate::db::query::plan::expr) fn eval_coalesce_values(self, args: &[Value]) -> Value {
+    pub(in crate::db::query::plan::expr) fn eval_coalesce_values(
+        self,
+        args: &[impl Borrow<Value>],
+    ) -> Value {
         debug_assert!(matches!(self, Self::Coalesce));
 
         args.iter()
+            .map(Borrow::borrow)
             .find(|value| !matches!(value, Value::Null))
             .cloned()
             .unwrap_or(Value::Null)

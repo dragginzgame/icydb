@@ -531,6 +531,58 @@ fn assert_relation_violation(error: &crate::error::InternalError) {
 }
 
 #[test]
+fn live_pages_finish_exact_full_windows_without_an_empty_followup() {
+    for count in [0_u64, 1, 2, 3, 4, 5] {
+        let session = initialize();
+        if count > 0 {
+            session
+                .execute_trusted_dynamic_mutation_batch(
+                    (1..=count)
+                        .map(|id| insert_with_code(id, None, id * 10))
+                        .collect(),
+                )
+                .expect("page fixture rows should insert");
+        }
+        if count == 2 {
+            let query = DynamicQuery::new(ENTITY_NAME)
+                .select(["id"])
+                .filter(crate::db::FieldRef::new("code").gte(InputValue::nat64(10)))
+                .filter(crate::db::FieldRef::new("code").lte(InputValue::nat64(20)))
+                .order_by(desc("code"));
+            let page = session.execute_public_live_page(&query, None).unwrap();
+            assert_eq!(page.rows.len(), 2);
+            assert_eq!(page.continuation, None);
+        }
+        for order in [asc("id"), desc("code"), desc("parent_id")] {
+            for identity in [false, true] {
+                let mut query = DynamicQuery::new(ENTITY_NAME).order_by(order.clone());
+                if !identity {
+                    query = query.select(["id"]);
+                }
+                let mut cursor = None;
+                let mut observed = 0;
+                loop {
+                    let page = session
+                        .execute_trusted_live_page(&query, cursor.as_deref())
+                        .expect("bounded live page should execute");
+                    observed += page.rows.len();
+                    assert_eq!(
+                        page.continuation.is_some(),
+                        observed < usize::try_from(count).unwrap()
+                    );
+                    if page.continuation.is_none() {
+                        break;
+                    }
+                    assert!(!page.rows.is_empty());
+                    cursor = page.continuation;
+                }
+                assert_eq!(observed, usize::try_from(count).unwrap());
+            }
+        }
+    }
+}
+
+#[test]
 fn live_pages_resume_mixed_projection_from_authenticated_hidden_order_values() {
     let session = initialize();
     session
@@ -670,28 +722,11 @@ fn live_pages_resume_across_changed_output_work_envelopes() {
         second.rows,
         vec![vec![OutputValue::nat64(2)], vec![OutputValue::nat64(1)]]
     );
-    let second_continuation = second
-        .continuation
-        .as_deref()
-        .expect("an exact-full page still needs to prove physical exhaustion");
+    assert_eq!(second.continuation, None, "lookahead proves exhaustion");
     assert_ne!(first.work.envelope_identity, second.work.envelope_identity);
 
-    let terminal = session
-        .execute_trusted_live_page_with_result_bytes_limit_for_tests(
-            &query,
-            Some(second_continuation),
-            48,
-        )
-        .expect("a third finite envelope should prove exhaustion without replaying rows");
-    assert!(terminal.rows.is_empty());
-    assert_eq!(terminal.continuation, None);
-    assert_ne!(
-        second.work.envelope_identity,
-        terminal.work.envelope_identity
-    );
-
     assert_eq!(
-        [first.rows, second.rows, terminal.rows].concat(),
+        [first.rows, second.rows].concat(),
         vec![
             vec![OutputValue::nat64(3)],
             vec![OutputValue::nat64(2)],

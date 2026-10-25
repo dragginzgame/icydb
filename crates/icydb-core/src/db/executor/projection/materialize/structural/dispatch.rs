@@ -84,7 +84,7 @@ pub(in crate::db::executor::projection) fn project_admitted_page(
     let output_work = RefCell::new(output_work);
     page.consume_projection_rows(
         |slot_rows| {
-            let source_has_more = row_limit.is_some_and(|limit| slot_rows.len() >= limit);
+            let source_has_more = row_limit.is_some_and(|limit| slot_rows.len() > limit);
             let mut rows = Vec::new();
             let mut last_emitted_logical = None;
             let mut output_stopped = false;
@@ -107,7 +107,7 @@ pub(in crate::db::executor::projection) fn project_admitted_page(
             })
         },
         |data_rows| {
-            let source_has_more = row_limit.is_some_and(|limit| data_rows.len() >= limit);
+            let source_has_more = row_limit.is_some_and(|limit| data_rows.len() > limit);
             let mut rows = Vec::new();
             let mut last_emitted_logical = None;
             let mut output_stopped = false;

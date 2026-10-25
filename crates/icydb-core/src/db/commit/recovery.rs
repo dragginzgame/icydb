@@ -1610,9 +1610,9 @@ fn apply_journal_record(
             // The batch envelope verified the plan before any prepared effect.
             let row = RawRow::from_untrusted_bytes(row_bytes.clone())?;
             expected_handle.with_data_mut(|store| match mode {
-                JournalRecordApplyMode::Replay => store
-                    .apply_recovered_journal_put(primary_key.clone(), row)
-                    .map(|_| ()),
+                JournalRecordApplyMode::Replay => {
+                    store.apply_recovered_journal_put(primary_key.clone(), row)
+                }
                 JournalRecordApplyMode::Fold => store
                     .fold_recovered_journal_put(primary_key.clone(), row)
                     .map(|_| ()),

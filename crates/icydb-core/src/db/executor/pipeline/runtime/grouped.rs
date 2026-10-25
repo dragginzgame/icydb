@@ -378,7 +378,7 @@ impl StructuralGroupedRowRuntime {
     fn row_view_from_data_row(
         &self,
         key: &DecodedDataStoreKey,
-        row: RawRow,
+        row: &RawRow,
     ) -> Result<RowView, InternalError> {
         match self.single_grouped_decode.as_ref() {
             Some(SingleGroupedDecode::Path(single_grouped_path_decode)) => {
@@ -392,7 +392,7 @@ impl StructuralGroupedRowRuntime {
                 let retained_slots = RowDecoder::decode_retained_slots_from_data_key(
                     &self.row_layout,
                     key,
-                    &row,
+                    row,
                     &self.grouped_slot_layout,
                 )?;
 
@@ -404,11 +404,11 @@ impl StructuralGroupedRowRuntime {
     fn single_path_row_view_from_data_row(
         &self,
         key: &DecodedDataStoreKey,
-        row: RawRow,
+        row: &RawRow,
         path: &SingleGroupedPathDecode,
     ) -> Result<RowView, InternalError> {
         charge_decoded_row(row.len(), path.segment_bytes.len())?;
-        let row_fields = self.row_layout.open_raw_row_with_contract(&row)?;
+        let row_fields = self.row_layout.open_raw_row_with_contract(row)?;
         row_fields.validate_primary_key(key)?;
         let value = resolve_slot_field_path(&row_fields, path.root_slot, &path.segment_bytes)?
             .unwrap_or(Value::Null);
@@ -423,12 +423,12 @@ impl StructuralGroupedRowRuntime {
     fn single_slot_row_view_from_data_row(
         &self,
         key: &DecodedDataStoreKey,
-        row: RawRow,
+        row: &RawRow,
         single_grouped_slot_decode: &SingleGroupedSlotDecode,
     ) -> Result<RowView, InternalError> {
         let value = self.decode_single_grouped_slot_value_from_raw_row(
             key,
-            &row,
+            row,
             single_grouped_slot_decode,
         )?;
 
@@ -472,25 +472,27 @@ impl StructuralGroupedRowRuntime {
         }
     }
 
-    // Read one persisted row under the grouped consistency contract while
-    // preserving fail-closed executor corruption handling.
-    fn read_data_row(
+    // Decode while heap/live rows remain borrowed; stable reads retain their
+    // owned payload only for this callback. Preserve charges before decoding.
+    fn read_data_row<R>(
         &self,
         consistency: MissingRowPolicy,
         key: &DecodedDataStoreKey,
-    ) -> Result<Option<RawRow>, InternalError> {
+        decode: impl FnOnce(&RawRow) -> Result<R, InternalError>,
+    ) -> Result<Option<R>, InternalError> {
         let raw_key = key.raw_key()?;
-        let row = self.store.with_data(|store| store.get(raw_key));
-        charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
-        if let Some(row) = row.as_ref() {
-            charge_materialized_data_row!(row)?;
-        }
-
-        match (consistency, row) {
-            (MissingRowPolicy::Ignore, None) => Ok(None),
-            (MissingRowPolicy::Ignore | MissingRowPolicy::Error, Some(row)) => Ok(Some(row)),
-            (MissingRowPolicy::Error, None) => Err(InternalError::store_corruption()),
-        }
+        self.store.with_data(|store| {
+            let row = store.read(raw_key);
+            charge_current_execution_budget(DiagnosticExecutionBudgetResource::RowsVisited, 1)?;
+            match (consistency, row.as_row()) {
+                (MissingRowPolicy::Ignore, None) => Ok(None),
+                (MissingRowPolicy::Ignore | MissingRowPolicy::Error, Some(row)) => {
+                    charge_materialized_data_row!(row)?;
+                    decode(row).map(Some)
+                }
+                (MissingRowPolicy::Error, None) => Err(InternalError::store_corruption()),
+            }
+        })
     }
 
     /// Read one data row and decode one caller-selected grouped slot value
@@ -502,25 +504,20 @@ impl StructuralGroupedRowRuntime {
         key: &DecodedDataStoreKey,
         required_slot: usize,
     ) -> Result<Option<Value>, InternalError> {
-        let Some(row) = self.read_data_row(consistency, key)? else {
-            return Ok(None);
-        };
-
-        if let Some(single_grouped_slot_decode) =
-            self.matching_single_grouped_slot_decode(required_slot)
-        {
-            return self
-                .decode_single_grouped_slot_value_from_raw_row(
+        self.read_data_row(consistency, key, |row| {
+            if let Some(single_grouped_slot_decode) =
+                self.matching_single_grouped_slot_decode(required_slot)
+            {
+                return self.decode_single_grouped_slot_value_from_raw_row(
                     key,
-                    &row,
+                    row,
                     single_grouped_slot_decode,
-                )
-                .map(Some);
-        }
+                );
+            }
 
-        let row_view = self.row_view_from_data_row(key, row)?;
-
-        row_view.into_required_slot_value(required_slot).map(Some)
+            self.row_view_from_data_row(key, row)?
+                .into_required_slot_value(required_slot)
+        })
     }
 
     /// Read one data row and project it into one structural grouped row view.
@@ -529,9 +526,9 @@ impl StructuralGroupedRowRuntime {
         consistency: MissingRowPolicy,
         key: &DecodedDataStoreKey,
     ) -> Result<Option<RowView>, InternalError> {
-        self.read_data_row(consistency, key)?
-            .map(|row| self.row_view_from_data_row(key, row))
-            .transpose()
+        self.read_data_row(consistency, key, |row| {
+            self.row_view_from_data_row(key, row)
+        })
     }
 }
 

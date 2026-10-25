@@ -154,6 +154,14 @@ impl StructuralCursorPage {
         }
     }
 
+    /// Discard lookahead after continuation has been decided, before projection.
+    pub(in crate::db::executor) fn truncate(&mut self, limit: usize) {
+        match &mut self.payload {
+            StructuralCursorPagePayload::DataRows(rows) => rows.truncate(limit),
+            StructuralCursorPagePayload::SlotRows(rows) => rows.truncate(limit),
+        }
+    }
+
     /// Derive the canonical logical boundary for one returned row without
     /// widening the outward projection with hidden ordering values.
     pub(in crate::db) fn cursor_boundary_at(

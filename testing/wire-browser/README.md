@@ -3,11 +3,11 @@
 The browser uses the same native Postcard payloads and IC Wire method/direction
 headers as IcyDB's Rust callers. There is no Candid actor or alternate RPC format.
 The host-only `icydb-testing-build` example generates TypeScript types, contracts
-and exact native frames under `target/wire-browser/`. Serde reflection must finish
-the entire concrete endpoint graph; opaque/incomplete metadata fails generation.
-Valid samples cover custom scalar decoders. Native scalar byte widths, calendar
-bounds and canonical Decimal text are retained explicitly at this projection.
-These host development dependencies do not enter the IcyDB library/Wasm graph.
+and exact native frames under `target/wire-browser/`. Wire collects the concrete
+endpoint graph; opaque/incomplete metadata fails generation. Serde reflection
+independently supplies native samples covering custom scalar decoders. Scalar
+byte widths, calendar bounds and canonical Decimal text remain explicit at their
+owning types. Metadata dependencies enter native libraries, but not canister Wasm.
 
 `client.ts` passes raw requests to the caller's ICP SDK agent. The SDK owns
 identity, signatures, certificates and update polling. The adapter does not fetch
@@ -45,6 +45,26 @@ controller refusal, typed failures and successful calls after malformed ingress.
 The fixture does not establish production login/delegation or update idempotency.
 Repeated query bytes are stable; updates have their existing database semantics.
 
+## Reviewed contract baseline
+
+`contract-baseline.json` is the reviewed current endpoint contract. The normal
+browser check compares it with freshly generated metadata before running codecs.
+It records method identities/modes, budgets, named types, field/variant order and
+scalar bounds/check names. Generation never updates this file. For an intentional
+change, review the semantic and browser API impact, coordinate incompatible method
+identity/client changes, then update the baseline in the same change. Preserve
+array order; JSON object formatting is not significant. This is a current-contract
+gate, not a compatibility reader or proof that custom validator bodies are unchanged.
+
+The installed fixture also sends empty, nonempty, maximum-length and oversized
+byte-buffer migration cursors. The current status API rejects every supplied
+cursor and retains its status; it has no successful cursor pagination path.
+Historical constraint validation supplies real nonempty finding keys and tests
+exact replay of an unacknowledged finding page through Chromium and native decoding.
+Populated physical-integrity and rejected-migration finding pages still need
+installed browser fixture coverage ([#448](https://github.com/dragginzgame/icydb/issues/448));
+generated/native vectors alone do not qualify those installed paths.
+
 ## Synchronous reply failures
 
 Canic owns the raw serving boundary. A request admission failure rejects before
@@ -58,14 +78,50 @@ identical retries, successful writes, typed errors and malformed request control
 
 ## Shared codec ownership
 
-Registry IC Wire 0.5 supplies `typescript::generate_registry` and
-`typescript::RUNTIME` from the same package used by native Rust. The shared
-emitter owns type rendering, name/reference validation and typed method objects;
-generated browser files copy its exact runtime payload. IcyDB retains concrete
-Serde reflection, endpoint identities, its 32,768-value/32-level allowances and
-native scalar rules. `native-runtime.ts` binds the shared codec to IcyDB's Decimal
-validator. The native-registry emitter consumes this explicit metadata; the finite
-Wire generator still refuses opaque native Rust types.
+Registry IC Wire supplies `SchemaRegistry`, `typescript::generate_registry` and
+`typescript::RUNTIME` from the same package used by native Rust. DTOs derive
+native-only Wire metadata alongside Serde; custom scalar serializers have explicit
+metadata implementations at their owning types. Wire owns recursive collection,
+type rendering, reference validation and typed method objects. IcyDB retains
+public browser names, endpoint identities and native scalar validation. Metadata
+dependencies are native-only and are not enabled for canister Wasm.
+
+Serde reflection remains only as the independent native sample/vector oracle.
+It no longer translates production contract metadata. The reviewed baseline
+retains the complete collected registry; generated aliases are representation
+details, while the existing public browser names remain available. Map entries
+are two-element tuples, matching Rust `(PublicValue, PublicValue)`: valid payloads
+and traversal charges are unchanged, and wrong-length entries fail with a value
+error. TypeScript now rejects those malformed pairs at compile time too.
+
+The schema wire policy owns native allowances and the intentionally narrower
+browser 32,768-value/32-level allowances. Wire's `method_limits` projects those
+constants; Rust allocation admission is not a JavaScript heap limit.
+`native-runtime.ts` binds the shared codec to IcyDB's Decimal validator.
+
+Wire 0.7.9's `lint_bulk_roots` reviews explicit endpoint request/reply roots,
+following shared registry references without using synthetic names as policy
+identities ([Wire #25](https://github.com/dragginzgame/ic-wire/issues/25)). The
+consumer regression protects independent sibling fields and registration order.
+
+## Bulk-field review
+
+Contract generation runs the published Wire bulk lint over every endpoint
+request/response root and its reachable types, including error replies. New candidates and stale
+acknowledgements fail generation before output files are written. The existing
+browser checks and installed fixture therefore enforce the same review.
+
+Key and cursor byte fields use `serde_bytes`, including optional bytes, and generate
+`Uint8Array` client values. Regenerate clients and replace numeric arrays at these
+fields; there is no compatibility fallback. Payload bytes remain unchanged, but
+byte buffers no longer consume one traversal node per byte. Byte and application
+length limits still apply. The main public Blob uses the same representation.
+Only the diagnostic field-ID list is acknowledged in the generator's `bulk`
+module: compact integer varints remain preferable without measured evidence for
+`Packed<u32>`. The three SQL endpoint response paths are acknowledged explicitly;
+other fields sharing the same container remain subject to review.
+When a field is removed or changes representation, remove its stale acknowledgement.
+Wire owns candidate detection; this repository owns the reasons and client rollout.
 
 ## Admission and scope
 
@@ -81,6 +137,18 @@ accepted-schema authority and the native node/heap/depth admission. Browser limi
 do not measure or guarantee JavaScript engine heap use; SDK transport buffers are
 allocated before reply decoding. Request smaller pages after a limit refusal.
 Storage, ordered keys, journals and authenticated cursor construction are excluded.
+
+The normal check compares all generated method budgets with a separate projection
+from the schema policy, rejecting both lower and higher mutations of each of the
+six request/reply settings. Existing real-codec refusal cases retain the smaller
+browser contract. This checks configuration drift, not equal Rust/JS traversal
+charges or complete below/at/above cross-runtime boundary qualification.
+
+Shared policy ownership and browser-budget qualification are tracked in
+[Shared Tooling #307](https://github.com/dragginzgame/shared-tooling/issues/307);
+typed budget projection and cross-runtime admission qualification are tracked in
+[Wire #21](https://github.com/dragginzgame/ic-wire/issues/21). Equal numeric limits
+alone do not establish identical Rust/JavaScript traversal admission.
 
 Generated files, bundles and reports stay ignored under `target/wire-browser/`.
 The installed report records the browser and actual frames. Linux qualification

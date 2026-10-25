@@ -2096,14 +2096,12 @@ fn current_proposal_lineage_is_applied<C: CanisterKind>(
     let Some(lineage) = load_entity_source_lineage_catalog()? else {
         return Ok(false);
     };
+    // Lineage retains historical entities after removal. Completion belongs
+    // to this proposal's entities, each checked against current authority below.
     let entities = proposal
         .fragments()
         .iter()
-        .flat_map(icydb_schema::SchemaFragment::entities)
-        .collect::<Vec<_>>();
-    if entities.len() != lineage.entries().len() {
-        return Ok(false);
-    }
+        .flat_map(icydb_schema::SchemaFragment::entities);
     let target = proposal.target_database();
     let authorities = application_authorities(db);
     for entity in entities {
@@ -2381,7 +2379,7 @@ fn preflight_existing_application(
                     proof.constraint_id,
                 )? {
                     UnpublishedRowLocalValidation::Complete { .. } => {}
-                    UnpublishedRowLocalValidation::Incomplete => {
+                    UnpublishedRowLocalValidation::Incomplete(_) => {
                         if proof.store.storage_capabilities().recovery()
                             != StoreRecoveryCapability::StableBasePlusJournalReplay
                             || pending.is_some()

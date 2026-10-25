@@ -30,7 +30,10 @@ use crate::{
     value::Value,
 };
 use icydb_diagnostic_code::QueryProjectionCode;
-use std::{borrow::Cow, cmp::Ordering};
+use std::{
+    borrow::{Borrow, Cow},
+    cmp::Ordering,
+};
 
 const PREVIEW_VALUE_SLOT: usize = 0;
 
@@ -105,7 +108,7 @@ pub(in crate::db) fn eval_projection_function_call(
 /// numeric failures for executor projection paths.
 pub(in crate::db) fn eval_projection_function_call_checked(
     function: Function,
-    args: &[Value],
+    args: &[impl Borrow<Value>],
 ) -> Result<Value, ProjectionFunctionEvalError> {
     match function.scalar_eval_shape() {
         ScalarEvalFunctionShape::NullTest => eval_null_test_function_call(function, args),
@@ -147,16 +150,17 @@ pub(in crate::db) fn eval_builder_expr_for_value_preview(
 }
 
 fn required_function_arg(
-    args: &[Value],
+    args: &[impl Borrow<Value>],
     index: usize,
 ) -> Result<&Value, ProjectionFunctionEvalError> {
     args.get(index)
+        .map(Borrow::borrow)
         .ok_or(ProjectionFunctionEvalError::InvalidCall)
 }
 
 fn eval_null_test_function_call(
     function: Function,
-    args: &[Value],
+    args: &[impl Borrow<Value>],
 ) -> Result<Value, ProjectionFunctionEvalError> {
     let value = required_function_arg(args, 0)?;
 
@@ -173,7 +177,7 @@ fn eval_null_test_function_call(
 
 fn eval_unary_text_function_call(
     function: Function,
-    args: &[Value],
+    args: &[impl Borrow<Value>],
 ) -> Result<Value, ProjectionFunctionEvalError> {
     let input = required_function_arg(args, 0)?;
 
@@ -192,7 +196,7 @@ fn eval_unary_text_function_call(
 
 fn eval_unary_numeric_function_call(
     function: Function,
-    args: &[Value],
+    args: &[impl Borrow<Value>],
 ) -> Result<Value, ProjectionFunctionEvalError> {
     let input = required_function_arg(args, 0)?;
 
@@ -216,7 +220,9 @@ fn eval_unary_numeric_function_call(
     }
 }
 
-fn eval_octet_length_function_call(args: &[Value]) -> Result<Value, ProjectionFunctionEvalError> {
+fn eval_octet_length_function_call(
+    args: &[impl Borrow<Value>],
+) -> Result<Value, ProjectionFunctionEvalError> {
     let input = required_function_arg(args, 0)?;
 
     if args.len() != 1 {
@@ -235,7 +241,7 @@ fn eval_octet_length_function_call(args: &[Value]) -> Result<Value, ProjectionFu
 
 fn eval_binary_numeric_function_call(
     function: Function,
-    args: &[Value],
+    args: &[impl Borrow<Value>],
 ) -> Result<Value, ProjectionFunctionEvalError> {
     let left = required_function_arg(args, 0)?;
     let right = required_function_arg(args, 1)?;
@@ -266,7 +272,7 @@ fn eval_binary_numeric_function_call(
 
 fn eval_coalesce_function_call(
     function: Function,
-    args: &[Value],
+    args: &[impl Borrow<Value>],
 ) -> Result<Value, ProjectionFunctionEvalError> {
     if args.len() < 2 {
         return Err(ProjectionFunctionEvalError::InvalidCall);
@@ -277,7 +283,7 @@ fn eval_coalesce_function_call(
 
 fn eval_nullif_function_call(
     function: Function,
-    args: &[Value],
+    args: &[impl Borrow<Value>],
 ) -> Result<Value, ProjectionFunctionEvalError> {
     let left = required_function_arg(args, 0)?;
     let right = required_function_arg(args, 1)?;
@@ -293,7 +299,7 @@ fn eval_nullif_function_call(
 
 fn eval_left_right_text_function_call(
     function: Function,
-    args: &[Value],
+    args: &[impl Borrow<Value>],
 ) -> Result<Value, ProjectionFunctionEvalError> {
     let input = required_function_arg(args, 0)?;
     let length = integer_literal_arg(args, 1)?;
@@ -313,7 +319,7 @@ fn eval_left_right_text_function_call(
 
 fn eval_text_predicate_function_call(
     function: Function,
-    args: &[Value],
+    args: &[impl Borrow<Value>],
 ) -> Result<Value, ProjectionFunctionEvalError> {
     let input = required_function_arg(args, 0)?;
     let literal = text_literal_arg(args, 1)?;
@@ -333,7 +339,7 @@ fn eval_text_predicate_function_call(
 
 fn eval_position_text_function_call(
     function: Function,
-    args: &[Value],
+    args: &[impl Borrow<Value>],
 ) -> Result<Value, ProjectionFunctionEvalError> {
     let needle = text_literal_arg(args, 0)?;
     let input = required_function_arg(args, 1)?;
@@ -347,7 +353,7 @@ fn eval_position_text_function_call(
 
 fn eval_replace_text_function_call(
     function: Function,
-    args: &[Value],
+    args: &[impl Borrow<Value>],
 ) -> Result<Value, ProjectionFunctionEvalError> {
     let input = required_function_arg(args, 0)?;
     let from = text_literal_arg(args, 1)?;
@@ -364,7 +370,7 @@ fn eval_replace_text_function_call(
 
 fn eval_substring_text_function_call(
     function: Function,
-    args: &[Value],
+    args: &[impl Borrow<Value>],
 ) -> Result<Value, ProjectionFunctionEvalError> {
     let input = required_function_arg(args, 0)?;
     let start = integer_literal_arg(args, 1)?;
@@ -381,7 +387,7 @@ fn eval_substring_text_function_call(
 
 fn eval_numeric_scale_function_call(
     function: Function,
-    args: &[Value],
+    args: &[impl Borrow<Value>],
 ) -> Result<Value, ProjectionFunctionEvalError> {
     let input = required_function_arg(args, 0)?;
     let scale = integer_literal_arg(args, 1)?;
@@ -405,7 +411,9 @@ fn eval_numeric_scale_function_call(
     }
 }
 
-fn eval_membership_function_call(args: &[Value]) -> Result<Value, ProjectionFunctionEvalError> {
+fn eval_membership_function_call(
+    args: &[impl Borrow<Value>],
+) -> Result<Value, ProjectionFunctionEvalError> {
     let target = required_function_arg(args, 0)?;
     let values = required_function_arg(args, 1)?;
 
@@ -564,7 +572,7 @@ const fn text_input_error() -> ProjectionFunctionEvalError {
 }
 
 fn text_literal_arg(
-    args: &[Value],
+    args: &[impl Borrow<Value>],
     index: usize,
 ) -> Result<Option<&str>, ProjectionFunctionEvalError> {
     match required_function_arg(args, index)? {
@@ -577,7 +585,7 @@ fn text_literal_arg(
 }
 
 fn integer_literal_arg(
-    args: &[Value],
+    args: &[impl Borrow<Value>],
     index: usize,
 ) -> Result<Option<i64>, ProjectionFunctionEvalError> {
     match required_function_arg(args, index)? {
@@ -591,7 +599,7 @@ fn integer_literal_arg(
 }
 
 fn optional_integer_literal_arg(
-    args: &[Value],
+    args: &[impl Borrow<Value>],
     index: usize,
 ) -> Result<Option<i64>, ProjectionFunctionEvalError> {
     if index >= args.len() {

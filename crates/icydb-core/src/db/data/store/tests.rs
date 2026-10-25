@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     db::{
-        data::DecodedDataStoreKey,
+        data::{DecodedDataStoreKey, canonical_row_from_stored_raw_row},
         journal::JournalSequence,
         key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
         positioned_overlay::{JournalOverlayPosition, PositionedOverlayRetirement},
@@ -13,6 +13,84 @@ use ic_memory::{Memory, VectorMemory};
 use std::ops::Bound;
 
 const SINGLE_MEMORY_MANAGER_BUCKET_PAGES: u64 = 128;
+
+#[test]
+fn previous_rows_move_out_of_live_storage_without_changing_presence() {
+    for (journaled, canonical) in [(false, false), (true, false), (true, true)] {
+        let mut store = if journaled {
+            DataStore::init_journaled(test_memory(229))
+        } else {
+            DataStore::init_heap()
+        };
+        let key = raw_key(1, 7);
+        let entity = EntityTag::new(1);
+        if canonical {
+            store
+                .fold_recovered_journal_put(key.clone(), raw_row(11))
+                .unwrap();
+        }
+        store.rebuild_entity_cardinality_from_entries();
+        let first = RawRow::try_new(vec![22; 4_096]).unwrap();
+        let first_pointer = first.as_bytes().as_ptr();
+        let previous = store.insert(key.clone(), canonical_row_from_stored_raw_row(first));
+        assert_eq!(
+            previous.map(|row| row.as_bytes().to_vec()),
+            canonical.then(|| vec![11])
+        );
+
+        let second = RawRow::try_new(vec![33; 4_096]).unwrap();
+        let second_pointer = second.as_bytes().as_ptr();
+        let previous = store
+            .insert(key.clone(), canonical_row_from_stored_raw_row(second))
+            .unwrap();
+        assert_eq!(previous.as_bytes().as_ptr(), first_pointer);
+        assert_eq!(previous.as_bytes(), vec![22; 4_096]);
+        assert_eq!(store.exact_entity_count(entity), Some(1));
+        let previous = store.remove(&key).unwrap();
+        assert_eq!(previous.as_bytes().as_ptr(), second_pointer);
+        assert_eq!(previous.as_bytes(), vec![33; 4_096]);
+        assert_eq!(store.exact_entity_count(entity), Some(0));
+        assert!(!store.contains(&key));
+        assert!(store.remove(&key).is_none());
+
+        // A tombstone must hide the stable predecessor after delete/reinsert.
+        assert!(
+            store
+                .insert(key.clone(), canonical_row_from_stored_raw_row(raw_row(44)))
+                .is_none()
+        );
+        assert_eq!(store.get(&key).unwrap().as_bytes(), [44]);
+        assert_eq!(store.exact_entity_count(entity), Some(1));
+        assert_eq!(store.remove(&key).unwrap().as_bytes(), [44]);
+        assert_eq!(store.exact_entity_count(entity), Some(0));
+        if journaled {
+            assert_eq!(
+                store.exact_entity_cardinality_delta(entity),
+                Some(if canonical { -1 } else { 0 })
+            );
+            assert_eq!(store.contains_canonical(&key), canonical);
+            for value in [55, 66] {
+                store
+                    .apply_recovered_journal_put(key.clone(), raw_row(value))
+                    .unwrap();
+                assert_eq!(store.get(&key).unwrap().as_bytes(), [value]);
+                assert_eq!(store.exact_entity_count(entity), Some(1));
+                assert_eq!(
+                    store.exact_entity_cardinality_delta(entity),
+                    Some(i64::from(!canonical))
+                );
+            }
+        } else {
+            let generation = store.generation();
+            let error = store
+                .apply_recovered_journal_put(key.clone(), raw_row(55))
+                .unwrap_err();
+            assert_eq!(error.class(), crate::error::ErrorClass::InvariantViolation);
+            assert_eq!(store.generation(), generation);
+            assert!(!store.contains(&key));
+        }
+    }
+}
 
 #[test]
 fn entity_count_facts_preserve_no_change_guards_and_invalid_key_refusal() {

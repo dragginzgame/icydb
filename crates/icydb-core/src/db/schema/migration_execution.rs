@@ -646,10 +646,7 @@ fn apply_migration_effect(
             ..
         } if record_store_path == store_path => {
             let row = RawRow::from_untrusted_bytes(row_bytes.clone())?;
-            store.with_data_mut(|data| {
-                data.apply_recovered_journal_put(primary_key.clone(), row)
-                    .map(drop)
-            })
+            store.with_data_mut(|data| data.apply_recovered_journal_put(primary_key.clone(), row))
         }
         JournalRecord::SchemaMigrationIndexPut {
             store_path: record_store_path,

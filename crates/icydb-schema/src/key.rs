@@ -196,6 +196,7 @@ macro_rules! opaque_token {
             Serialize, Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd,
         )]
         #[serde(transparent)]
+        #[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
         pub struct $name([u8; 32]);
 
         impl $name {

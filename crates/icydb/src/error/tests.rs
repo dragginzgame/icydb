@@ -239,6 +239,55 @@ fn public_error_sql_write_boundary_collapses_detail_to_leaf_code() {
 }
 
 #[test]
+fn grouped_limit_facts_survive_public_wire_round_trip() {
+    use icydb_diagnostic_code::{DiagnosticFactTag, DiagnosticGroupBudgetResource, ErrorCode};
+
+    for resource in [
+        DiagnosticGroupBudgetResource::Groups,
+        DiagnosticGroupBudgetResource::DistinctValuesPerGroup,
+        DiagnosticGroupBudgetResource::DistinctValuesTotal,
+        DiagnosticGroupBudgetResource::EstimatedBytes,
+    ] {
+        let facts = [
+            (
+                DiagnosticFactTag::BudgetResource,
+                resource.execution_resource().raw(),
+            ),
+            (DiagnosticFactTag::Limit, 10),
+            (DiagnosticFactTag::Actual, 11),
+            (DiagnosticFactTag::ExecutionBudgetScope, 1),
+            (DiagnosticFactTag::ExecutionLane, 2),
+            (DiagnosticFactTag::QueryShapeFingerprintPrefix, 17),
+            (DiagnosticFactTag::GroupedLimit, resource.raw()),
+        ];
+        let bytes = icydb_schema::wire::encode_one(&ErrorWire {
+            code: ErrorCode::RUNTIME_BOUNDARY_EXECUTION_BUDGET_EXCEEDED.raw(),
+            class: icydb_diagnostic_code::ErrorClass::Unsupported.wire_code(),
+            origin: icydb_diagnostic_code::ErrorOrigin::Executor.wire_code(),
+            facts: facts
+                .iter()
+                .map(|(tag, value)| DiagnosticFactWire {
+                    tag: tag.raw(),
+                    value: *value,
+                })
+                .collect(),
+            query_field: None,
+        })
+        .unwrap();
+        let error = icydb_schema::wire::decode_one::<Error>(&bytes).unwrap();
+        assert_eq!(
+            error.code(),
+            ErrorCode::RUNTIME_BOUNDARY_EXECUTION_BUDGET_EXCEEDED
+        );
+        assert_eq!(icydb_schema::wire::encode_one(&error).unwrap(), bytes);
+        assert_eq!(
+            icydb_diagnostic_code::validate_known_diagnostic_fact_schema(error.code(), &facts),
+            Ok(())
+        );
+    }
+}
+
+#[test]
 fn exact_count_metadata_diagnostic_survives_public_wire_round_trip() {
     use icydb_diagnostic_code::{Diagnostic, DiagnosticCode, ErrorClass, ErrorCode};
 

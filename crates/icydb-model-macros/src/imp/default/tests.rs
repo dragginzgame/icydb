@@ -150,7 +150,7 @@ fn entity_identity_default_never_calls_the_declarative_generator() {
         .expect("identity placeholder requires an explicit Default impl")
         .to_string();
 
-    assert!(tokens.contains("id : Default :: default ()"));
+    assert!(tokens.contains("id : :: core :: default :: Default :: default ()"));
     assert!(!tokens.contains("Identity :: next"));
 }
 

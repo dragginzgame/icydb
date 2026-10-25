@@ -60,6 +60,36 @@ export async function qualify(host: string, canisterId: string) {
   require(rejected.status !== 'replied', 'trailing ingress refusal');
   const after = await invoke(contracts.icydb_query, sql);
   require(countValue(after) === count, 'query survives malformed ingress');
+  // Status currently has a single bounded finding page: any supplied cursor is
+  // invalid, including empty bytes. Exercise that semantic boundary over Wire.
+  const beforeCursor = await invoke(contracts.icydb_schema_migration, { cursor: null });
+  for (const length of [0, 1, 256, 257]) {
+    const refused = await invoke(contracts.icydb_schema_migration, { cursor: { some: new Uint8Array(length).fill(255) } });
+    require('err' in refused, 'supplied migration cursor must be rejected');
+  }
+  const afterCursor = await invoke(contracts.icydb_schema_migration, { cursor: null });
+  const expectedStatus = contracts.icydb_schema_migration.encodeResponse(beforeCursor);
+  const actualStatus = contracts.icydb_schema_migration.encodeResponse(afterCursor);
+  require(expectedStatus.length === actualStatus.length && expectedStatus.every((b, i) => b === actualStatus[i]), 'cursor refusal preserves migration status');
+
+  // Add a constraint without validating historical rows, then use the real
+  // retained finding page to qualify nonempty native key bytes in Chromium.
+  const added = await invoke(contracts.icydb_ddl,
+    'ALTER TABLE SqlTestUser ADD CONSTRAINT browser_age CHECK (age >= 100) NOT VALID EXPECT SCHEMA VERSION 1 SET SCHEMA VERSION 2');
+  require('ok' in added, 'publish historical validation fixture');
+  const validate = 'ALTER TABLE SqlTestUser VALIDATE CONSTRAINT browser_age';
+  require('ok' in await invoke(contracts.icydb_ddl, validate), 'start historical validation');
+  const findings = await invoke(contracts.icydb_ddl, validate);
+  require('ok' in findings && findings.ok.tag === 'Ddl', 'historical validation reply');
+  const validation = findings.ok.value.constraint_validation;
+  require(validation !== null && validation.some.findings.length === 3, 'three historical findings');
+  for (const finding of validation.some.findings) {
+    require(finding.primary_key instanceof Uint8Array && finding.primary_key.length > 0, 'finding keys are nonempty byte buffers');
+  }
+  const replay = await invoke(contracts.icydb_ddl, validate);
+  const expectedFindings = contracts.icydb_ddl.encodeResponse(findings);
+  const replayFindings = contracts.icydb_ddl.encodeResponse(replay);
+  require(expectedFindings.length === replayFindings.length && expectedFindings.every((b, i) => b === replayFindings[i]), 'unacknowledged finding page replays exactly');
   require(new Set(frames.map(f => f.method)).size === 12, 'complete endpoint roster');
   return { frames, rows: count.toString(), browser: navigator.userAgent };
 }

@@ -21,20 +21,6 @@ use crate::{
 };
 use std::{borrow::Cow, cell::RefCell};
 
-///
-/// ValueSlotReader
-///
-/// ValueSlotReader adapts owned slot-reader callbacks to the compiled
-/// expression reader contract.
-/// It exists for test and ordering paths that synthesize slot values on demand
-/// instead of exposing a borrowed row slice.
-///
-
-struct ValueSlotReader<'reader> {
-    read_slot: RefCell<&'reader mut dyn FnMut(usize) -> Option<Value>>,
-    field_path_missing_is_null: bool,
-}
-
 // Preserve reader-owned error taxonomy when the unified expression evaluator
 // reports failures back through projection/query execution boundaries.
 fn reader_error(err: InternalError) -> ProjectionEvalError {
@@ -64,37 +50,6 @@ fn materialize_missing_field_path(
         (Some(value), _) => Some(value),
         (None, true) => Some(Cow::Owned(Value::Null)),
         (None, false) => None,
-    }
-}
-
-impl CompiledExprValueReader for ValueSlotReader<'_> {
-    fn read_slot(&self, slot: usize) -> Option<Cow<'_, Value>> {
-        (self.read_slot.borrow_mut())(slot).map(Cow::Owned)
-    }
-
-    fn read_group_key(&self, _offset: usize) -> Option<Cow<'_, Value>> {
-        None
-    }
-
-    fn read_aggregate(&self, _index: usize) -> Option<Cow<'_, Value>> {
-        None
-    }
-
-    fn read_field_path(
-        &self,
-        root_slot: usize,
-        segments: &[String],
-        _segment_bytes: &[Box<[u8]>],
-    ) -> Result<Option<Cow<'_, Value>>, ProjectionEvalError> {
-        let Some(root) = (self.read_slot.borrow_mut())(root_slot) else {
-            return Ok(None);
-        };
-        let value = resolve_value_field_path(&root, segments)?.cloned();
-
-        Ok(materialize_missing_field_path(
-            value.map(Cow::Owned),
-            self.field_path_missing_is_null,
-        ))
     }
 }
 
@@ -259,12 +214,12 @@ impl CompiledExprValueReader for CanonicalSlotExprReader<'_, '_> {
     }
 }
 
-/// Evaluate one compiled expression through an owned value slot reader.
-pub(in crate::db::executor) fn eval_compiled_expr_with_value_reader(
+/// Evaluate an expression from borrowed or synthesized slots, owning only its result.
+pub(in crate::db::executor) fn eval_compiled_expr_with_value_cow_reader<'a>(
     expr: &CompiledExpr,
-    read_slot: &mut dyn FnMut(usize) -> Option<Value>,
+    read_slot: &mut dyn FnMut(usize) -> Option<Cow<'a, Value>>,
 ) -> Result<Value, ProjectionEvalError> {
-    let reader = ValueSlotReader {
+    let reader = ValueCowSlotReader {
         read_slot: RefCell::new(read_slot),
         field_path_missing_is_null: true,
     };
@@ -394,10 +349,7 @@ pub(in crate::db) fn eval_compiled_filter_expr_with_value_cow_reader<'a>(
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        CompiledExpr, CompiledExprValueReader, ValueCowSlotReader, ValueRefSlotReader,
-        ValueSlotReader,
-    };
+    use super::{CompiledExpr, CompiledExprValueReader, ValueCowSlotReader, ValueRefSlotReader};
     use crate::{db::query::plan::expr::BinaryOp, value::Value};
     use std::{borrow::Cow, cell::RefCell};
 
@@ -435,7 +387,7 @@ mod tests {
                 .into_owned();
             let mut borrowed = |slot| row.get(slot);
             let mut cow = |slot| row.get(slot).map(Cow::Borrowed);
-            let mut owned = |slot| row.get(slot).cloned();
+            let mut owned = |slot| row.get(slot).cloned().map(Cow::Owned);
             let readers: [&dyn CompiledExprValueReader; 3] = [
                 &ValueRefSlotReader {
                     read_slot: RefCell::new(&mut borrowed),
@@ -445,7 +397,7 @@ mod tests {
                     read_slot: RefCell::new(&mut cow),
                     field_path_missing_is_null: true,
                 },
-                &ValueSlotReader {
+                &ValueCowSlotReader {
                     read_slot: RefCell::new(&mut owned),
                     field_path_missing_is_null: true,
                 },

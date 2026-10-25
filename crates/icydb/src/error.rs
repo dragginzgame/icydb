@@ -29,6 +29,7 @@ pub use icydb_core::error::{
 /// The leaf error code owns the reason. Facts contain only production-safe
 /// numeric parameters interpreted together with that code.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct DiagnosticFact {
     tag: u8,
     value: u64,
@@ -61,6 +62,7 @@ impl DiagnosticFact {
 
 /// One bounded rejected query-field reference attached to a planning error.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct QueryFieldDiagnostic {
     role: u8,
     field: String,
@@ -99,6 +101,7 @@ impl QueryFieldDiagnostic {
 
 #[cfg_attr(doc, doc = "Error\n\nPublic error payload.")]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct Error {
     code: u16,
     class: u8,

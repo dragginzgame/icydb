@@ -37,6 +37,10 @@ xxhash-rust = { workspace = true }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 getrandom = { workspace = true }
 
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+ic-wire = { workspace = true, features = ["typescript"] }
+serde_json = { workspace = true }
+
 [dev-dependencies]
 icydb-testing-sql-generator = { workspace = true }
 icydb-testing-sqlite-reference = { workspace = true }

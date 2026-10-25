@@ -766,15 +766,15 @@ fn composite_primary_key_value_codec_tokens(
                 ])
             }
 
-            fn from_key_value(value: &#runtime::__macro::Value) -> Option<Self> {
+            fn from_key_value(value: &#runtime::__macro::Value) -> ::core::option::Option<Self> {
                 let #runtime::__macro::Value::List(values) = value else {
-                    return None;
+                    return ::core::option::Option::None;
                 };
                 if values.len() != #component_count_lit {
-                    return None;
+                    return ::core::option::Option::None;
                 }
 
-                Some(Self {
+                ::core::option::Option::Some(Self {
                     #(#key_value_decoders),*
                 })
             }
@@ -796,7 +796,7 @@ fn composite_primary_key_encode_tokens(
         impl #runtime::__macro::PrimaryKeyEncode for #key_ident {
             fn to_primary_key_value(
                 &self,
-            ) -> Result<
+            ) -> ::core::result::Result<
                 #runtime::__macro::PrimaryKeyValue,
                 #runtime::__macro::PrimaryKeyEncodeError,
             > {
@@ -808,7 +808,7 @@ fn composite_primary_key_encode_tokens(
                 )
                 .map_err(#runtime::__macro::PrimaryKeyEncodeError::from)?;
 
-                Ok(#runtime::__macro::PrimaryKeyValue::Composite(composite))
+                ::core::result::Result::Ok(#runtime::__macro::PrimaryKeyValue::Composite(composite))
             }
         }
     }
@@ -823,7 +823,7 @@ fn composite_component_encoder(
         match <#field_ty as #runtime::__macro::PrimaryKeyEncode>::to_primary_key_value(&self.#primary_key_field)? {
             #runtime::__macro::PrimaryKeyValue::Scalar(component) => component,
             #runtime::__macro::PrimaryKeyValue::Composite(_) => {
-                return Err(#runtime::__macro::PrimaryKeyEncodeError::UnsupportedComponentKind {
+                return ::core::result::Result::Err(#runtime::__macro::PrimaryKeyEncodeError::UnsupportedComponentKind {
                     kind: "CompositePrimaryKeyComponent",
                 });
             }
@@ -853,22 +853,22 @@ fn composite_primary_key_decode_tokens(
         impl #runtime::__macro::PrimaryKeyDecode for #key_ident {
             fn from_primary_key_value(
                 key: &#runtime::__macro::PrimaryKeyValue,
-            ) -> Result<Self, #runtime::__macro::InternalError> {
+            ) -> ::core::result::Result<Self, #runtime::__macro::InternalError> {
                 let #runtime::__macro::PrimaryKeyValue::Composite(composite) = key else {
-                    return Err(#runtime::__macro::InternalError::new(
+                    return ::core::result::Result::Err(#runtime::__macro::InternalError::new(
                         #runtime::__macro::ErrorClass::Corruption,
                         #runtime::__macro::ErrorOrigin::Store
                     ));
                 };
                 if composite.len() != #component_count_lit {
-                    return Err(#runtime::__macro::InternalError::new(
+                    return ::core::result::Result::Err(#runtime::__macro::InternalError::new(
                         #runtime::__macro::ErrorClass::Corruption,
                         #runtime::__macro::ErrorOrigin::Store
                     ));
                 }
                 let components = composite.components();
 
-                Ok(Self {
+                ::core::result::Result::Ok(Self {
                     #(#primary_key_component_decoders),*
                 })
             }
@@ -900,13 +900,13 @@ fn composite_primary_key_bytes_tokens(
             fn write_bytes(
                 &self,
                 out: &mut [u8],
-            ) -> Result<(), #runtime::__macro::EntityKeyBytesError> {
+            ) -> ::core::result::Result<(), #runtime::__macro::EntityKeyBytesError> {
                 #runtime::__macro::validate_entity_key_bytes_buffer(out, Self::BYTE_LEN)?;
                 let mut rest = out;
                 #(#byte_writers)*
                 let _ = rest;
 
-                Ok(())
+                ::core::result::Result::Ok(())
             }
         }
     }
@@ -1002,7 +1002,7 @@ fn typed_write_value_type(entity: &Entity, field: &Field, paths: &CratePaths) ->
     }
     if let Some(target) = &field.value.item.relation {
         return match field.value.cardinality() {
-            Cardinality::Many => quote!(Vec<#runtime::types::Id<#target>>),
+            Cardinality::Many => quote!(::std::vec::Vec<#runtime::types::Id<#target>>),
             Cardinality::One | Cardinality::Opt => quote!(#runtime::types::Id<#target>),
         };
     }
@@ -1207,7 +1207,7 @@ fn typed_write_adapter_impl_tokens(
             fn encode_write(
                 self,
                 binding: &#runtime::db::TypedEntityBinding,
-            ) -> Result<#runtime::db::TypedWrite, #runtime::db::TypedAdapterError> {
+            ) -> ::core::result::Result<#runtime::db::TypedWrite, #runtime::db::TypedAdapterError> {
                 let mut encoder =
                     #runtime::db::BoundWriteEncoder::new(binding, #field_count);
                 #(#fields)*
@@ -1301,7 +1301,7 @@ fn entity_typed_adapter_tokens(entity: &Entity, paths: &CratePaths) -> TokenStre
             /// Bind this generated adapter to current accepted schema authority.
             pub fn typed_binding<C>(
                 session: &#runtime::db::DbSession<C>,
-            ) -> Result<#runtime::db::TypedEntityBinding, #runtime::db::TypedOperationError>
+            ) -> ::core::result::Result<#runtime::db::TypedEntityBinding, #runtime::db::TypedOperationError>
             where
                 C: #runtime::traits::CanisterKind,
             {
@@ -1315,8 +1315,8 @@ fn entity_typed_adapter_tokens(entity: &Entity, paths: &CratePaths) -> TokenStre
             fn decode_row(
                 binding: &#runtime::db::TypedEntityBinding,
                 mut row: #runtime::db::OutputRow,
-            ) -> Result<Self::Row, #runtime::db::TypedAdapterError> {
-                Ok(Self {
+            ) -> ::core::result::Result<Self::Row, #runtime::db::TypedAdapterError> {
+                ::core::result::Result::Ok(Self {
                     #(#decoded_fields),*
                 })
             }
@@ -1344,6 +1344,7 @@ impl Entity {
             TokenStream::new()
         };
         let type_part = self.type_part(paths);
+        let attrs = self.def().type_attributes();
         let typed_adapter_part = entity_typed_adapter_tokens(self, paths);
 
         tokens.extend(quote! {
@@ -1354,6 +1355,7 @@ impl Entity {
             #key_part
 
             // MAIN TYPE
+            #(#attrs)*
             #derive
             #type_part
 

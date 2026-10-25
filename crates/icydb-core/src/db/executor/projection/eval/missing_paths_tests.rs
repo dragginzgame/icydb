@@ -3,7 +3,8 @@
 use crate::{
     db::{
         executor::projection::eval::scalar::{
-            eval_compiled_expr_with_value_reader, eval_compiled_filter_expr_with_value_cow_reader,
+            eval_compiled_expr_with_value_cow_reader,
+            eval_compiled_filter_expr_with_value_cow_reader,
         },
         query::plan::expr::{
             BinaryOp, CompiledExpr, CompiledExprCaseArm, CompiledExprValueReader, Function,
@@ -118,7 +119,10 @@ fn missing_path_null_tests_not_and_value_coalesce_keep_leaf_contracts() {
         assert_eq!(filter(&coalesce, &root), root == record(Value::Null));
         // Projection intentionally materializes missing descendants as NULL.
         assert_eq!(
-            eval_compiled_expr_with_value_reader(&path(), &mut |_| Some(root.clone())).unwrap(),
+            eval_compiled_expr_with_value_cow_reader(&path(), &mut |_| Some(Cow::Owned(
+                root.clone()
+            )))
+            .unwrap(),
             Value::Null
         );
         for op in [BinaryOp::And, BinaryOp::Or] {

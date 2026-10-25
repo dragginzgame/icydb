@@ -221,8 +221,8 @@ impl EntityMigration {
         let entity = &self.entity;
         let from = self.from;
         let from_name = self.from_name.as_ref().map_or_else(
-            || quote!(None),
-            |name| quote!(Some(#model::schema::EntitySourceKey::try_new(#name.to_string())?)),
+            || quote!(::core::option::Option::None),
+            |name| quote!(::core::option::Option::Some(#model::schema::EntitySourceKey::try_new(#name.to_string())?)),
         );
         let renames = self
             .renames

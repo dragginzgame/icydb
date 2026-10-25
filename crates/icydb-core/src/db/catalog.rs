@@ -41,6 +41,7 @@ impl EntityCatalogCounts {
     doc = "EntityCatalogDescription\n\nRuntime catalog entry for one accepted entity."
 )]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct EntityCatalogDescription {
     entity_name: String,
     entity_path: String,
@@ -134,6 +135,7 @@ impl EntityCatalogDescription {
     doc = "StoreCatalogDescription\n\nRuntime catalog entry for one registered store."
 )]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct StoreCatalogDescription {
     store_path: String,
     storage: String,
@@ -173,6 +175,7 @@ impl StoreCatalogDescription {
     doc = "MemoryCatalogDescription\n\nRuntime catalog entry for one stable-memory allocation."
 )]
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct MemoryCatalogDescription {
     tag: String,
     memory_id: u8,

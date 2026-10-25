@@ -940,6 +940,29 @@ impl<C: CanisterKind> DbSession<C> {
         &self,
         requests: Vec<(DynamicTypedEntityBinding, DynamicTypedMutation)>,
     ) -> Result<Option<Vec<DynamicMutationResult>>, InternalError> {
+        self.execute_typed_mutation_batch(requests)
+    }
+
+    /// Execute a typed batch with shared bindings without copying their mappings.
+    ///
+    /// Uses the same current-schema validation and atomic execution as owned
+    /// bindings; no binding is retained after the call returns.
+    #[doc(hidden)]
+    pub fn execute_trusted_typed_mutation_batch_shared(
+        &self,
+        requests: Vec<(
+            std::sync::Arc<DynamicTypedEntityBinding>,
+            DynamicTypedMutation,
+        )>,
+    ) -> Result<Option<Vec<DynamicMutationResult>>, InternalError> {
+        self.execute_typed_mutation_batch(requests)
+    }
+
+    // Both ownership forms converge before admission and retain identical checks.
+    fn execute_typed_mutation_batch<B: std::borrow::Borrow<DynamicTypedEntityBinding>>(
+        &self,
+        requests: Vec<(B, DynamicTypedMutation)>,
+    ) -> Result<Option<Vec<DynamicMutationResult>>, InternalError> {
         if requests.is_empty() {
             return Err(InternalError::mutation_batch_empty());
         }
@@ -951,7 +974,7 @@ impl<C: CanisterKind> DbSession<C> {
         }
         let first_binding = requests
             .first()
-            .map(|(binding, _)| binding)
+            .map(|(binding, _)| binding.borrow())
             .ok_or_else(InternalError::mutation_batch_empty)?;
         let Some(catalog) = self.current_typed_entity_binding_catalog(first_binding)? else {
             return Ok(None);
@@ -964,6 +987,7 @@ impl<C: CanisterKind> DbSession<C> {
 
         let request_count = requests.len();
         for (batch_position, (binding, request)) in requests.into_iter().enumerate() {
+            let binding = binding.borrow();
             let batch_position = u32::try_from(batch_position).map_err(|_| {
                 InternalError::mutation_batch_too_many_items(
                     request_count,
@@ -974,7 +998,7 @@ impl<C: CanisterKind> DbSession<C> {
                 return Ok(None);
             };
             if !self.typed_entity_binding_matches_catalog(
-                &binding,
+                binding,
                 &item_catalog,
                 database_incarnation_id()?.to_bytes(),
             )? {
@@ -1000,7 +1024,7 @@ impl<C: CanisterKind> DbSession<C> {
             let Some(mutation) = lower_typed_mutation_intent(
                 &item_catalog,
                 &descriptor,
-                &binding,
+                binding,
                 request,
                 batch_position,
             )?

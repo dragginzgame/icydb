@@ -436,12 +436,14 @@ where
     let logical_plan = plan_core.plan();
     validate_executor_plan_for_authority(&authority, logical_plan)?;
     let store = db.recovered_store(authority.store_path())?;
-    // Initial/resumed hint eligibility follows the route family, not whether
-    // the continuation happens to contain a logical cursor boundary.
+    // Cursor-emitting initial pages need lookahead too. Cursorless hint
+    // narrowing is only valid for initial execution without continuation output.
     let (route_plan, continuation, unpaged_rows_mode) = match route_source {
-        ScalarRouteSource::Initial { route_plan } => {
-            (route_plan, ScalarContinuationContext::initial(), true)
-        }
+        ScalarRouteSource::Initial { route_plan } => (
+            route_plan,
+            ScalarContinuationContext::initial(),
+            !cursor_emission.enabled(),
+        ),
         ScalarRouteSource::Resumed { continuation } => {
             let route_plan = build_execution_route_plan(
                 logical_plan,

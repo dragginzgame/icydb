@@ -18,6 +18,8 @@ use crate::db::{
     },
 };
 
+use crate::error::InternalError;
+
 use ic_memory::{DefaultMemoryImpl, RuntimeMemory};
 use ic_storage::adapter::StableBTreeMap;
 use serde::Deserialize;
@@ -57,6 +59,7 @@ fn visit_index_store_entry<E>(
 // the index contents are fully built and query-visible for reads.
 //
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub enum IndexState {
     Building,
     #[default]
@@ -361,7 +364,6 @@ impl IndexStore {
 
     /// Return non-empty exact child prefixes under a sparse set of already-encoded
     /// parent prefixes when synchronized metadata can prove the bounded child set.
-    #[must_use]
     pub(in crate::db) fn exact_child_prefixes_for_parent_set<'a>(
         &self,
         data_generation: u64,
@@ -369,7 +371,7 @@ impl IndexStore {
         index_id: IndexId,
         parent_component_prefixes: impl IntoIterator<Item = &'a [Vec<u8>]>,
         max_children: usize,
-    ) -> Option<Vec<Vec<Vec<u8>>>> {
+    ) -> Result<Option<Vec<Vec<Vec<u8>>>>, InternalError> {
         self.prefix_cardinality.exact_child_prefixes_for_parent_set(
             data_generation,
             key_kind,
@@ -1182,6 +1184,87 @@ mod tests {
     }
 
     #[test]
+    fn index_prefix_cardinality_seeks_parents_and_charges_examined_metadata() {
+        use crate::db::resource::budget::{
+            HardExecutionBudget, HardExecutionContext, HardExecutionFailureHeadroom,
+            current_execution_budget_usage, with_execution_budget_for_tests,
+        };
+        use icydb_diagnostic_code::{
+            DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope,
+            DiagnosticExecutionLane,
+        };
+
+        let index_id = IndexId::new(EntityTag::new(0xCA7D), 1);
+        let parent = vec![vec![128]];
+        let mut store = IndexStore::init_heap();
+        for prefix in 0..=255_u8 {
+            for child in 0..2_u8 {
+                store.insert(
+                    indexed_raw_key(
+                        &index_id,
+                        vec![vec![prefix], vec![child], vec![0]],
+                        u64::from(prefix) * 2 + u64::from(child),
+                    ),
+                    IndexEntryValue::presence(),
+                );
+            }
+        }
+        store.mark_prefix_cardinality_data_generation(7);
+
+        for limit in [5, 4] {
+            let budget = HardExecutionBudget::uniform_for_tests(
+                u64::MAX,
+                HardExecutionFailureHeadroom::new(500_000_000, 64 * 1024),
+            )
+            .with_limit_for_tests(
+                DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited,
+                limit,
+            );
+            let context = HardExecutionContext::new(
+                DiagnosticExecutionBudgetScope::Execution,
+                DiagnosticExecutionLane::TrustedRead,
+                0,
+            );
+            let result = with_execution_budget_for_tests(
+                budget,
+                context,
+                || {
+                    let children = store.exact_child_prefixes_for_parent_set(
+                        7,
+                        IndexKeyKind::User,
+                        index_id,
+                        [parent.as_slice(), parent.as_slice()],
+                        2,
+                    )?;
+                    assert_eq!(
+                        children,
+                        Some(vec![vec![vec![128], vec![0]], vec![vec![128], vec![1]]])
+                    );
+                    // Two children, their deeper descendants and one range boundary;
+                    // unrelated prefixes and duplicate parents do not multiply work.
+                    assert_eq!(
+                        current_execution_budget_usage()?
+                            .observed(DiagnosticExecutionBudgetResource::KeyIndexEntriesVisited),
+                        5
+                    );
+                    Ok::<_, InternalError>(())
+                },
+                std::convert::identity,
+            );
+            assert_eq!(result.is_ok(), limit == 5);
+            if let Err(error) = result {
+                assert!(matches!(
+                    error.diagnostic().detail(),
+                    Some(icydb_diagnostic_code::DiagnosticDetail::RuntimeBoundary {
+                        boundary:
+                            icydb_diagnostic_code::RuntimeBoundaryCode::ExecutionBudgetExceeded,
+                    })
+                ));
+            }
+        }
+    }
+
+    #[test]
     fn index_prefix_cardinality_enumerates_bounded_child_prefixes() {
         let index_id = IndexId::new(EntityTag::new(0xCA7D), 1);
         let collection = b"collection-a".to_vec();
@@ -1214,13 +1297,15 @@ mod tests {
         store.mark_prefix_cardinality_data_generation(7);
 
         assert_eq!(
-            store.exact_child_prefixes_for_parent_set(
-                7,
-                IndexKeyKind::User,
-                index_id,
-                [std::slice::from_ref(&collection)],
-                4,
-            ),
+            store
+                .exact_child_prefixes_for_parent_set(
+                    7,
+                    IndexKeyKind::User,
+                    index_id,
+                    [std::slice::from_ref(&collection)],
+                    4,
+                )
+                .unwrap(),
             Some(vec![
                 vec![collection.clone(), draft],
                 vec![collection.clone(), review],
@@ -1228,35 +1313,41 @@ mod tests {
             "child-prefix enumeration should return deterministic unique children under the requested parent",
         );
         assert_eq!(
-            store.exact_child_prefixes_for_parent_set(
-                7,
-                IndexKeyKind::User,
-                index_id,
-                [std::slice::from_ref(&other_collection)],
-                4,
-            ),
+            store
+                .exact_child_prefixes_for_parent_set(
+                    7,
+                    IndexKeyKind::User,
+                    index_id,
+                    [std::slice::from_ref(&other_collection)],
+                    4,
+                )
+                .unwrap(),
             Some(vec![vec![other_collection, published]]),
             "child-prefix enumeration must stay scoped to the requested parent prefix",
         );
         assert_eq!(
-            store.exact_child_prefixes_for_parent_set(
-                8,
-                IndexKeyKind::User,
-                index_id,
-                [std::slice::from_ref(&collection)],
-                4,
-            ),
+            store
+                .exact_child_prefixes_for_parent_set(
+                    8,
+                    IndexKeyKind::User,
+                    index_id,
+                    [std::slice::from_ref(&collection)],
+                    4,
+                )
+                .unwrap(),
             None,
             "row generation drift should keep child-prefix expansion fail-closed",
         );
         assert_eq!(
-            store.exact_child_prefixes_for_parent_set(
-                7,
-                IndexKeyKind::User,
-                index_id,
-                [std::slice::from_ref(&collection)],
-                1,
-            ),
+            store
+                .exact_child_prefixes_for_parent_set(
+                    7,
+                    IndexKeyKind::User,
+                    index_id,
+                    [std::slice::from_ref(&collection)],
+                    1,
+                )
+                .unwrap(),
             None,
             "over-cap child-prefix expansion should fall back to the existing route",
         );
@@ -1300,7 +1391,9 @@ mod tests {
             std::slice::from_ref(&collection),
         ];
         assert_eq!(
-            store.exact_child_prefixes_for_parent_set(7, IndexKeyKind::User, index_id, parents, 3,),
+            store
+                .exact_child_prefixes_for_parent_set(7, IndexKeyKind::User, index_id, parents, 3,)
+                .unwrap(),
             Some(vec![
                 vec![collection.clone(), draft],
                 vec![collection.clone(), review],
@@ -1309,41 +1402,47 @@ mod tests {
             "batched child-prefix enumeration should skip missing sparse parents and return deterministic real children",
         );
         assert_eq!(
-            store.exact_child_prefixes_for_parent_set(
-                7,
-                IndexKeyKind::User,
-                index_id,
-                [
-                    std::slice::from_ref(&missing_a),
-                    std::slice::from_ref(&missing_b)
-                ],
-                4,
-            ),
+            store
+                .exact_child_prefixes_for_parent_set(
+                    7,
+                    IndexKeyKind::User,
+                    index_id,
+                    [
+                        std::slice::from_ref(&missing_a),
+                        std::slice::from_ref(&missing_b)
+                    ],
+                    4,
+                )
+                .unwrap(),
             Some(Vec::new()),
             "missing-only sparse parent sets should be proven empty when cardinality is synchronized",
         );
         assert_eq!(
-            store.exact_child_prefixes_for_parent_set(
-                7,
-                IndexKeyKind::User,
-                index_id,
-                [
-                    std::slice::from_ref(&collection),
-                    std::slice::from_ref(&other_collection)
-                ],
-                2,
-            ),
+            store
+                .exact_child_prefixes_for_parent_set(
+                    7,
+                    IndexKeyKind::User,
+                    index_id,
+                    [
+                        std::slice::from_ref(&collection),
+                        std::slice::from_ref(&other_collection)
+                    ],
+                    2,
+                )
+                .unwrap(),
             None,
             "over-cap sparse parent-set expansion should fail closed",
         );
         assert_eq!(
-            store.exact_child_prefixes_for_parent_set(
-                8,
-                IndexKeyKind::User,
-                index_id,
-                [std::slice::from_ref(&collection)],
-                4,
-            ),
+            store
+                .exact_child_prefixes_for_parent_set(
+                    8,
+                    IndexKeyKind::User,
+                    index_id,
+                    [std::slice::from_ref(&collection)],
+                    4,
+                )
+                .unwrap(),
             None,
             "generation drift should keep batched child-prefix expansion fail-closed",
         );

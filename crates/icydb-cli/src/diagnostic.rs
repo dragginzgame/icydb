@@ -10,11 +10,11 @@ use icydb::diagnostic::{
     DiagnosticBacklogResource, DiagnosticCode, DiagnosticComponentKind,
     DiagnosticConstraintContext, DiagnosticConstraintKind, DiagnosticDetail,
     DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope, DiagnosticExecutionLane,
-    DiagnosticFactTag, DiagnosticMutationOperation, ErrorClass, ErrorCode, ErrorOrigin,
-    QueryErrorKind, QueryFieldRole, QueryFieldSchemaMismatch, QueryProjectionCode,
-    QueryReadAdmissionCode, RuntimeBoundaryCode, RuntimeErrorKind, SchemaDdlAdmissionCode,
-    SchemaMigrationCode, SqlFeatureCode, SqlLoweringCode, SqlSurfaceMismatchCode,
-    SqlWriteBoundaryCode,
+    DiagnosticFactTag, DiagnosticGroupBudgetResource, DiagnosticMutationOperation, ErrorClass,
+    ErrorCode, ErrorOrigin, QueryErrorKind, QueryFieldRole, QueryFieldSchemaMismatch,
+    QueryProjectionCode, QueryReadAdmissionCode, RuntimeBoundaryCode, RuntimeErrorKind,
+    SchemaDdlAdmissionCode, SchemaMigrationCode, SqlFeatureCode, SqlLoweringCode,
+    SqlSurfaceMismatchCode, SqlWriteBoundaryCode,
 };
 use std::{fmt::Write as _, fs::File, io::Read, path::Path};
 
@@ -456,11 +456,24 @@ fn render_fact_value(
         DiagnosticFactTag::ComponentKind => component_kind_text(value),
         DiagnosticFactTag::BudgetResource => execution_budget_resource_text(value),
         DiagnosticFactTag::BacklogResource => backlog_resource_text(value),
+        DiagnosticFactTag::GroupedLimit => grouped_limit_text(value),
         DiagnosticFactTag::ExecutionBudgetScope => execution_budget_scope_text(value),
         DiagnosticFactTag::ExecutionLane => execution_lane_text(value),
         _ => None,
     };
     label.map_or_else(|| value.to_string(), |label| format!("{value}({label})"))
+}
+
+const fn grouped_limit_text(value: u64) -> Option<&'static str> {
+    match DiagnosticGroupBudgetResource::known(value) {
+        Some(DiagnosticGroupBudgetResource::Groups) => Some("groups"),
+        Some(DiagnosticGroupBudgetResource::DistinctValuesPerGroup) => {
+            Some("distinct-values-per-group")
+        }
+        Some(DiagnosticGroupBudgetResource::DistinctValuesTotal) => Some("distinct-values-total"),
+        Some(DiagnosticGroupBudgetResource::EstimatedBytes) => Some("estimated-bytes"),
+        None => None,
+    }
 }
 
 const fn backlog_resource_text(value: u64) -> Option<&'static str> {
@@ -761,6 +774,7 @@ const fn fact_tag_text(tag: icydb::diagnostic::DiagnosticFactTag) -> &'static st
         DiagnosticFactTag::DecodeReason => "decode_reason",
         DiagnosticFactTag::BudgetResource => "budget_resource",
         DiagnosticFactTag::BacklogResource => "backlog_resource",
+        DiagnosticFactTag::GroupedLimit => "grouped_limit",
         DiagnosticFactTag::MigrationPhase => "migration_phase",
         DiagnosticFactTag::DatabaseControlRecordKind => "database_control_record_kind",
         DiagnosticFactTag::StateKind => "state_kind",
@@ -2045,6 +2059,32 @@ mod tests {
             render_error(&err),
             "E_RUNTIME_UNSUPPORTED: structural mutation batch exceeds the operation-count bound; facts actual_count=5000 limit=4096 tag#250=7; fact context mismatch: fact count exceeds the E-code maximum",
         );
+    }
+
+    #[test]
+    fn grouped_limit_labels_are_available_to_structured_and_manual_diagnostics() {
+        assert_eq!(
+            super::parse_fact_tag("grouped_limit").unwrap(),
+            icydb::diagnostic::DiagnosticFactTag::GroupedLimit.raw()
+        );
+        for (value, label) in [
+            (1, "distinct-values-per-group"),
+            (2, "distinct-values-total"),
+            (3, "estimated-bytes"),
+            (4, "groups"),
+        ] {
+            assert_eq!(super::grouped_limit_text(value), Some(label));
+            assert_eq!(
+                super::render_fact_value(
+                    icydb::diagnostic::DiagnosticFactTag::GroupedLimit,
+                    value,
+                    None
+                ),
+                format!("{value}({label})")
+            );
+        }
+        assert_eq!(super::grouped_limit_text(0), None);
+        assert_eq!(super::grouped_limit_text(5), None);
     }
 
     #[test]

@@ -3076,7 +3076,9 @@ fn push_nested_leaves(
     active: &mut BTreeSet<CompositeTypeId>,
     depth: usize,
 ) -> Result<(), InternalError> {
-    if depth >= MAX_ACCEPTED_RECURSIVE_DEPTH {
+    // The snapshot codec caps nested leaves per field. Enforce that same cap
+    // before cloning paths/kinds, including across reused sibling records.
+    if depth >= MAX_ACCEPTED_RECURSIVE_DEPTH || leaves.len() >= icydb_schema::MAX_FRAGMENT_FIELDS {
         return Err(InternalError::store_unsupported());
     }
     path.push(name.to_string());
@@ -6042,6 +6044,85 @@ mod tests {
         )
         .expect_err("an excessive runtime value depth should reject");
         assert_eq!(error, ValueAdmissionError::DepthExceeded);
+    }
+
+    #[test]
+    fn nested_leaf_lowering_enforces_snapshot_count_before_expanding_shared_records() {
+        use super::{lower_migration_nested_leaves, push_nested_leaves};
+        use crate::db::schema::composite_catalog::{
+            AcceptedCompositeCatalog, AcceptedCompositeElement, AcceptedCompositeField,
+            CompositeFieldId, CompositeTypeId,
+        };
+        use crate::db::schema::enum_catalog::AcceptedEnumCatalog;
+        use std::collections::BTreeSet;
+
+        for levels in [1, 3] {
+            let definitions = (1..=levels)
+                .map(|level| {
+                    let kind = if level == levels {
+                        AcceptedFieldKind::Nat64
+                    } else {
+                        AcceptedFieldKind::Composite {
+                            type_id: CompositeTypeId::new(level + 1).unwrap(),
+                        }
+                    };
+                    let fields = (0..icydb_schema::MAX_FRAGMENT_FIELDS)
+                        .map(|index| {
+                            AcceptedCompositeField::new(
+                                CompositeFieldId::new(u32::try_from(index + 1).unwrap()).unwrap(),
+                                format!("member{index:03}"),
+                                AcceptedCompositeElement::new(kind.clone(), false),
+                            )
+                        })
+                        .collect();
+                    (
+                        CompositeTypeId::new(level).unwrap(),
+                        (
+                            format!("Record{level}"),
+                            AcceptedCompositeShape::Record(fields),
+                        ),
+                    )
+                })
+                .collect();
+            let catalog = AcceptedCompositeCatalog::from_initial_definitions(
+                definitions,
+                &AcceptedEnumCatalog::from_initial_definitions(BTreeMap::new()).unwrap(),
+            )
+            .unwrap();
+            let kind = AcceptedFieldKind::Composite {
+                type_id: CompositeTypeId::new(1).unwrap(),
+            };
+            let result = lower_migration_nested_leaves(&kind, &catalog);
+            if levels == 1 {
+                let leaves = result.unwrap();
+                assert_eq!(leaves.len(), icydb_schema::MAX_FRAGMENT_FIELDS);
+                assert!(
+                    leaves
+                        .windows(2)
+                        .all(|pair| pair[0].path() < pair[1].path())
+                );
+            } else {
+                assert_eq!(
+                    result.unwrap_err().class(),
+                    crate::error::ErrorClass::Unsupported
+                );
+                // The three-level reused DAG would expand millions of paths.
+                // Rejection must occur with only the codec's admitted leaf count retained.
+                let mut leaves = Vec::new();
+                let error = push_nested_leaves(
+                    "root",
+                    &AcceptedCompositeElement::new(kind, false),
+                    &catalog,
+                    &mut Vec::new(),
+                    &mut leaves,
+                    &mut BTreeSet::new(),
+                    0,
+                )
+                .unwrap_err();
+                assert_eq!(error.class(), crate::error::ErrorClass::Unsupported);
+                assert_eq!(leaves.len(), icydb_schema::MAX_FRAGMENT_FIELDS);
+            }
+        }
     }
 
     #[test]

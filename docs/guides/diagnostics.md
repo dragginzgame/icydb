@@ -6,6 +6,15 @@ canisters do not retain a large diagnostic prose catalog. One narrow exception
 lets a failed query return the caller's own rejected field reference as bounded,
 typed `query_field` context; the E-code and numeric facts remain authoritative.
 
+Grouped operator limits retain E252 and its execution scope, lane, shape,
+resource, limit and actual count. An additional `grouped_limit` fact (tag 96)
+identifies the local ceiling: 1 = distinct values per group, 2 = total distinct
+values, 3 = estimated bytes, 4 = groups. These identities are exposed as
+`icydb::diagnostic::DiagnosticGroupBudgetResource`. Ordinary execution-budget
+exhaustion, including scalar DISTINCT, has no `grouped_limit` fact. A grouped
+limit may be raised within the execution budget; increasing it does not raise
+that independent hard budget. Use the matching diagnostic registry in clients.
+
 The CLI can always explain a code:
 
 ```console

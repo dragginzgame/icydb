@@ -9,6 +9,7 @@ use serde::Deserialize;
 
 /// Row-oriented output from one accepted-schema-driven projection.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, serde::Serialize)]
+#[cfg_attr(not(target_family = "wasm"), derive(ic_wire::Wire))]
 pub struct RowProjectionOutput {
     /// Accepted entity name used for the read.
     pub entity: String,

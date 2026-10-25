@@ -146,6 +146,7 @@ define_fact_tag_registry! {
     BacklogResource = 93;
     CurrentCount = 94;
     ProposedCount = 95;
+    GroupedLimit = 96;
 }
 
 /// Compact reason carried by [`DiagnosticFactTag::DecodeReason`].
@@ -226,6 +227,29 @@ define_numeric_fact_value_registry! {
         Batches = 1;
         Records = 2;
         EncodedBytes = 3;
+    }
+}
+
+define_numeric_fact_value_registry! {
+    /// Operator-local grouped limit carried by [`DiagnosticFactTag::GroupedLimit`].
+    pub enum DiagnosticGroupBudgetResource {
+        DistinctValuesPerGroup = 1;
+        DistinctValuesTotal = 2;
+        EstimatedBytes = 3;
+        Groups = 4;
+    }
+}
+
+impl DiagnosticGroupBudgetResource {
+    /// Hard execution counter family associated with this stricter local limit.
+    #[must_use]
+    pub const fn execution_resource(self) -> DiagnosticExecutionBudgetResource {
+        match self {
+            Self::DistinctValuesPerGroup | Self::DistinctValuesTotal | Self::Groups => {
+                DiagnosticExecutionBudgetResource::GroupDistinctEntries
+            }
+            Self::EstimatedBytes => DiagnosticExecutionBudgetResource::GroupDistinctStateBytes,
+        }
     }
 }
 
@@ -669,6 +693,19 @@ fn validate_diagnostic_fact_schema(
                 DiagnosticFactTag::ActualSlotCount,
             ],
         ),
+        181 => {
+            fact_count == 0
+                || tags_match(
+                    fact_count,
+                    &fact_at,
+                    &[DiagnosticFactTag::Limit, DiagnosticFactTag::ActualCount],
+                )
+                || tags_match(
+                    fact_count,
+                    &fact_at,
+                    &[DiagnosticFactTag::Limit, DiagnosticFactTag::ActualLength],
+                )
+        }
         190 => tags_match(
             fact_count,
             &fact_at,
@@ -695,18 +732,23 @@ fn validate_diagnostic_fact_schema(
             &fact_at,
             &[DiagnosticFactTag::ActualLength, DiagnosticFactTag::Limit],
         ),
-        252 => tags_match(
-            fact_count,
-            &fact_at,
-            &[
+        252 => {
+            let base = [
                 DiagnosticFactTag::BudgetResource,
                 DiagnosticFactTag::Limit,
                 DiagnosticFactTag::Actual,
                 DiagnosticFactTag::ExecutionBudgetScope,
                 DiagnosticFactTag::ExecutionLane,
                 DiagnosticFactTag::QueryShapeFingerprintPrefix,
-            ],
-        ),
+            ];
+            (fact_count == 6 || fact_count == 7)
+                && tags_match(6, &fact_at, &base)
+                && (fact_count == 6
+                    || (fact_at(6).0 == DiagnosticFactTag::GroupedLimit.raw()
+                        && DiagnosticGroupBudgetResource::known(fact_at(6).1).is_some_and(
+                            |resource| resource.execution_resource().raw() == fact_at(0).1,
+                        )))
+        }
         253 => tags_match(
             fact_count,
             &fact_at,
@@ -790,11 +832,11 @@ const fn diagnostic_fact_maximum(code: ErrorCode) -> usize {
     match code.raw() {
         5 | 15 | 17 | 186 | 187 | 226 | 227 | 253 => 3,
         133 | 134 | 158 | 159 | 164 | 222 | 276 | 278 | 281 => 1,
-        18 | 20 | 130 | 166 | 167 | 169 | 190 | 191 | 192 | 194 | 223 | 224 | 225 | 248 | 249
-        | 250 | 251 | 262 | 264 | 271 | 272 | 274 | 280 => 2,
+        18 | 20 | 130 | 166 | 167 | 169 | 181 | 190 | 191 | 192 | 194 | 223 | 224 | 225 | 248
+        | 249 | 250 | 251 | 262 | 264 | 271 | 272 | 274 | 280 => 2,
         3 | 19 | 23 => 5,
-        22 | 220 | 252 => 6,
-        185 | 221 => 7,
+        22 | 220 => 6,
+        185 | 221 | 252 => 7,
         263 => 4,
         210 => 73,
         212 => 9,
@@ -1245,6 +1287,7 @@ const fn diagnostic_fact_value_is_valid(tag: DiagnosticFactTag, value: u64) -> b
         | DiagnosticFactTag::MapEntryValue => value <= u32::MAX as u64,
         DiagnosticFactTag::ConstraintKind => DiagnosticConstraintKind::known(value).is_some(),
         DiagnosticFactTag::BacklogResource => DiagnosticBacklogResource::known(value).is_some(),
+        DiagnosticFactTag::GroupedLimit => DiagnosticGroupBudgetResource::known(value).is_some(),
         DiagnosticFactTag::ConstraintContext => DiagnosticConstraintContext::known(value).is_some(),
         DiagnosticFactTag::TypeFamily => DiagnosticTypeFamily::known(value).is_some(),
         DiagnosticFactTag::FunctionKind => DiagnosticFunctionKind::known(value).is_some(),
@@ -1271,11 +1314,26 @@ mod tests {
         DiagnosticConstraintContext, DiagnosticConstraintKind, DiagnosticDecodeReason,
         DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope, DiagnosticExecutionLane,
         DiagnosticFactSchemaMismatch, DiagnosticFactTag, DiagnosticFunctionKind,
-        DiagnosticMutationOperation, DiagnosticOperatorKind, DiagnosticTypeFamily,
-        ORDERED_FACT_TAGS, pack_u32_pair, unpack_u32_pair, validate_known_diagnostic_fact_schema,
-        validate_raw_diagnostic_fact_schema,
+        DiagnosticGroupBudgetResource, DiagnosticMutationOperation, DiagnosticOperatorKind,
+        DiagnosticTypeFamily, ORDERED_FACT_TAGS, pack_u32_pair, unpack_u32_pair,
+        validate_known_diagnostic_fact_schema, validate_raw_diagnostic_fact_schema,
     };
     use crate::ErrorCode;
+
+    #[test]
+    fn schema_page_budget_facts_distinguish_counts_and_bytes() {
+        let code = ErrorCode::SCHEMA_DDL_TRANSITION_BUDGET_EXCEEDED;
+        assert_eq!(validate_known_diagnostic_fact_schema(code, &[]), Ok(()));
+        for (tag, limit) in [
+            (DiagnosticFactTag::ActualCount, 256),
+            (DiagnosticFactTag::ActualLength, 4 * 1024 * 1024),
+        ] {
+            let facts = [(DiagnosticFactTag::Limit, limit), (tag, limit + 1)];
+            assert_eq!(validate_known_diagnostic_fact_schema(code, &facts), Ok(()));
+            assert!(validate_known_diagnostic_fact_schema(code, &facts[..1]).is_err());
+            assert!(validate_known_diagnostic_fact_schema(code, &[facts[1], facts[0]]).is_err());
+        }
+    }
 
     #[test]
     fn serialized_size_limit_facts_require_both_ordered_byte_counts() {
@@ -1424,7 +1482,7 @@ mod tests {
         }
 
         assert_eq!(DiagnosticFactTag::known(0), None);
-        assert_eq!(DiagnosticFactTag::known(96), None);
+        assert_eq!(DiagnosticFactTag::known(97), None);
         assert_eq!(DiagnosticFactTag::known(u8::MAX), None);
     }
 
@@ -1644,6 +1702,57 @@ mod tests {
             ),
             Ok(())
         );
+    }
+
+    #[test]
+    fn grouped_limit_facts_require_matching_resources_and_valid_values() {
+        let code = ErrorCode::RUNTIME_BOUNDARY_EXECUTION_BUDGET_EXCEEDED;
+        for resource in [
+            DiagnosticGroupBudgetResource::Groups,
+            DiagnosticGroupBudgetResource::DistinctValuesPerGroup,
+            DiagnosticGroupBudgetResource::DistinctValuesTotal,
+            DiagnosticGroupBudgetResource::EstimatedBytes,
+        ] {
+            assert_eq!(
+                DiagnosticGroupBudgetResource::known(resource.raw()),
+                Some(resource)
+            );
+            let mut facts = vec![
+                (
+                    DiagnosticFactTag::BudgetResource,
+                    resource.execution_resource().raw(),
+                ),
+                (DiagnosticFactTag::Limit, 10),
+                (DiagnosticFactTag::Actual, 11),
+                (DiagnosticFactTag::ExecutionBudgetScope, 1),
+                (DiagnosticFactTag::ExecutionLane, 2),
+                (DiagnosticFactTag::QueryShapeFingerprintPrefix, 17),
+                (DiagnosticFactTag::GroupedLimit, resource.raw()),
+            ];
+            assert_eq!(validate_known_diagnostic_fact_schema(code, &facts), Ok(()));
+            assert_eq!(
+                validate_known_diagnostic_fact_schema(code, &facts[..6]),
+                Ok(())
+            );
+            facts[0].1 = DiagnosticExecutionBudgetResource::StoredBytesRead.raw();
+            assert_eq!(
+                validate_known_diagnostic_fact_schema(code, &facts),
+                Err(DiagnosticFactSchemaMismatch::InvalidSequence)
+            );
+            facts[0].1 = resource.execution_resource().raw();
+            facts[6].1 = 5;
+            assert_eq!(
+                validate_known_diagnostic_fact_schema(code, &facts),
+                Err(DiagnosticFactSchemaMismatch::InvalidSequence)
+            );
+            facts[6].1 = resource.raw();
+            facts.swap(5, 6);
+            assert_eq!(
+                validate_known_diagnostic_fact_schema(code, &facts),
+                Err(DiagnosticFactSchemaMismatch::InvalidSequence)
+            );
+        }
+        assert_eq!(DiagnosticGroupBudgetResource::known(0), None);
     }
 
     #[test]

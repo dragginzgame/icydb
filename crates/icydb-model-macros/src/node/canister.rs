@@ -80,7 +80,7 @@ impl HasSchemaPart for Canister {
             quote!(.with_memory_profile(#profile))
         });
         let migration_plan = self.migrations.as_ref().map_or_else(
-            || quote!(None),
+            || quote!(::core::option::Option::None),
             |value| MigrationPlan::constructor_tokens(value, paths),
         );
 

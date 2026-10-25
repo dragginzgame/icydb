@@ -448,7 +448,7 @@ where
             )
         }
     };
-    let ((page, scanned_keys), production_page_work_exhausted, scan_receipt) =
+    let ((mut page, scanned_keys), production_page_work_exhausted, scan_receipt) =
         if let Some(page) = group_seek_page {
             (page, false, None)
         } else if let Some(envelope) = page_work_envelope.filter(|_| page_entry_limit.is_some()) {
@@ -477,7 +477,7 @@ where
     let mut output_work = page_work_envelope
         .map(|envelope| ProductionScalarOutputWork::new(envelope, scan_receipt))
         .transpose()?;
-    let (mut rows, last_emitted_logical, has_more) = if let Some(strategy) = distinct_strategy {
+    let (rows, last_emitted_logical, has_more) = if let Some(strategy) = distinct_strategy {
         let projected = project_distinct(
             row_layout,
             prepared_projection,
@@ -517,10 +517,13 @@ where
                     })
                     .transpose()?
                     .flatten();
-                (boundary, page.row_count() >= page_row_limit)
+                (boundary, page.row_count() > page_row_limit)
             }
             None => (None, false),
         };
+        if let Some(limit) = cursor_page_row_limit {
+            page.truncate(limit);
+        }
         let rows = project(row_layout, prepared_projection, page)?;
         (rows, last_emitted_logical, has_more)
     };
@@ -533,13 +536,6 @@ where
             != u64::from(rows.row_count())
     }) {
         return Err(InternalError::query_executor_invariant());
-    }
-
-    if output_work.is_none()
-        && distinct_strategy.is_none()
-        && let Some(page_row_limit) = cursor_page_row_limit
-    {
-        rows.truncate(page_row_limit);
     }
 
     let output_page_work_exhausted = output_work

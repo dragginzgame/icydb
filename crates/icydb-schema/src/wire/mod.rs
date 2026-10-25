@@ -1,5 +1,8 @@
 //! Native RPC resource policy; IC Wire owns the codec and envelopes.
 
+#[cfg(not(target_family = "wasm"))]
+mod metadata;
+
 use ic_wire::Limits;
 use serde::{Serialize, de::DeserializeOwned};
 
@@ -10,6 +13,17 @@ pub const MAX_NODES: usize = 1_048_576;
 /// Maximum admitted Serde nesting, including endpoint record/container boundaries.
 /// Allows the 64-level schema contract plus enum, collection and reply wrappers.
 pub const MAX_DEPTH: usize = 256;
+/// Browser traversal allowance for bounded interactive views.
+///
+/// Intentionally below native policy; large replies can require smaller pages.
+/// This preserves the existing browser contract; it does not bound JS heap use.
+pub const BROWSER_MAX_NODES: usize = 32_768;
+/// Browser nesting allowance, intentionally below the native schema allowance.
+///
+/// Deep native values remain unsupported by the browser view; callers receive a
+/// limit refusal rather than truncated or partially decoded output.
+pub const BROWSER_MAX_DEPTH: usize = 32;
+
 /// Conservative allocation allowance for decoded native payloads.
 pub const MAX_HEAP_BYTES: usize = 256 * 1024 * 1024;
 /// Maximum public reply envelope bytes.

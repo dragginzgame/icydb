@@ -4,32 +4,7 @@
 //! Boundary: typed runtime failures shared by aggregate execution contracts.
 
 use crate::{db::resource::budget::current_execution_budget_exceeded, error::InternalError};
-use icydb_diagnostic_code::DiagnosticExecutionBudgetResource;
-
-///
-/// GroupBudgetResourceCode
-///
-/// Compact grouped-resource bucket for budget-limit diagnostics.
-///
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::db::executor) enum GroupBudgetResourceCode {
-    DistinctValuesPerGroup,
-    DistinctValuesTotal,
-    EstimatedBytes,
-    Groups,
-}
-
-impl GroupBudgetResourceCode {
-    const fn execution_resource(self) -> DiagnosticExecutionBudgetResource {
-        match self {
-            Self::DistinctValuesPerGroup | Self::DistinctValuesTotal | Self::Groups => {
-                DiagnosticExecutionBudgetResource::GroupDistinctEntries
-            }
-            Self::EstimatedBytes => DiagnosticExecutionBudgetResource::GroupDistinctStateBytes,
-        }
-    }
-}
+pub(in crate::db::executor) use icydb_diagnostic_code::DiagnosticGroupBudgetResource as GroupBudgetResourceCode;
 
 ///
 /// GroupError
@@ -98,7 +73,8 @@ impl GroupError {
                 resource,
                 attempted,
                 limit,
-            } => current_execution_budget_exceeded(resource.execution_resource(), limit, attempted),
+            } => current_execution_budget_exceeded(resource.execution_resource(), limit, attempted)
+                .with_grouped_limit(resource),
             Self::Internal(inner) => inner,
         }
     }
@@ -124,6 +100,55 @@ mod tests {
         DiagnosticDetail, DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope,
         DiagnosticExecutionLane, DiagnosticFactTag, RuntimeBoundaryCode,
     };
+
+    #[test]
+    fn grouped_limits_remain_distinct_from_hard_counter_exhaustion() {
+        for resource in [
+            GroupBudgetResourceCode::Groups,
+            GroupBudgetResourceCode::DistinctValuesPerGroup,
+            GroupBudgetResourceCode::DistinctValuesTotal,
+            GroupBudgetResourceCode::EstimatedBytes,
+        ] {
+            for grouped in [
+                GroupError::memory_limit_exceeded(resource, 11, 10),
+                GroupError::distinct_budget_exceeded(resource, 11, 10),
+            ] {
+                let budget = HardExecutionBudget::uniform_for_tests(
+                    u64::MAX,
+                    HardExecutionFailureHeadroom::new(500, 256),
+                );
+                let context = HardExecutionContext::new(
+                    DiagnosticExecutionBudgetScope::Execution,
+                    DiagnosticExecutionLane::TrustedRead,
+                    17,
+                );
+                let error = with_query_execution_budget_for_tests(budget, context, || {
+                    let hard = crate::db::resource::budget::current_execution_budget_exceeded(
+                        resource.execution_resource(),
+                        10,
+                        11,
+                    );
+                    let error = grouped.into_internal_error();
+                    assert_eq!(error.diagnostic_code(), hard.diagnostic_code());
+                    let facts = error.diagnostic_facts();
+                    assert_eq!(&facts[..6], hard.diagnostic_facts());
+                    assert_eq!(facts[6], (DiagnosticFactTag::GroupedLimit, resource.raw()));
+                    Err::<(), _>(QueryError::execute(error))
+                })
+                .unwrap_err();
+                assert_eq!(
+                    error.diagnostic_facts().last(),
+                    Some(&(DiagnosticFactTag::GroupedLimit, resource.raw()))
+                );
+            }
+        }
+        let error = GroupError::memory_limit_exceeded(GroupBudgetResourceCode::Groups, 11, 10)
+            .into_internal_error();
+        assert_eq!(
+            error.diagnostic_code(),
+            crate::error::InternalError::query_executor_invariant().diagnostic_code()
+        );
+    }
 
     #[test]
     fn grouped_local_limit_exhaustion_preserves_typed_execution_context() {
@@ -168,6 +193,10 @@ mod tests {
                 (
                     DiagnosticFactTag::QueryShapeFingerprintPrefix,
                     0x6772_6f75_702d_6361,
+                ),
+                (
+                    DiagnosticFactTag::GroupedLimit,
+                    GroupBudgetResourceCode::EstimatedBytes.raw()
                 ),
             ],
         );
