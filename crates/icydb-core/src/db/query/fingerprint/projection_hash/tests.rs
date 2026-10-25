@@ -362,7 +362,7 @@ fn projection_filter_and_mutation_scope_preserve_structural_literal_bytes() {
     let mut expected = new_hash_sha256();
     expected.update(&bytes);
     let mut actual = new_hash_sha256();
-    super::hash_scalar_filter_expr_structural_fingerprint(&mut actual, &expr).unwrap();
+    super::hash_expr(&mut actual, &expr).unwrap();
     assert_eq!(
         super::super::finalize_sha256_digest(actual),
         super::super::finalize_sha256_digest(expected)

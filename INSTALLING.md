@@ -478,7 +478,7 @@ The repository includes a demo RPG canister with SQL-visible `character` and
 `(x, y)` primary key.
 
 ```bash
-icydb canister refresh -e demo demo_rpg
+icydb canister refresh -e demo demo_rpg --yes
 icydb sql -e demo -c demo_rpg --sql "SHOW ENTITIES"
 cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "SELECT name, charisma FROM character ORDER BY charisma DESC LIMIT 5"
 cargo run -q -p icydb-cli -- sql --canister demo_rpg --sql "SELECT x, y, terrain FROM grid ORDER BY danger_level DESC LIMIT 5"
@@ -519,7 +519,7 @@ icydb sql -e test -c demo_rpg --sql "SHOW ENTITIES"
 
 icydb canister list
 icydb canister deploy demo_rpg
-icydb canister refresh demo_rpg
+icydb canister refresh demo_rpg --yes
 icydb canister upgrade demo_rpg
 icydb canister status demo_rpg
 
@@ -674,6 +674,9 @@ If the replica reports a missing method, add the matching source declaration
 and required Cargo feature, then rebuild and deploy or refresh the canister.
 
 ### `icydb canister refresh` looks destructive
+
+Refresh requires an explicit `--yes`, including when the environment comes from
+`ICP_ENVIRONMENT`. Check the selected environment and canister before confirming.
 
 It is destructive to the selected ICP canister state: the command resets that
 canister's local install and clears its stable memory. It does not wipe host

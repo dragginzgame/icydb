@@ -2527,3 +2527,8 @@ fn allocation_metadata_reports_selected_authority_corruption() {
     assert_eq!(error.class(), ErrorClass::Corruption);
     assert_eq!(error.origin(), ErrorOrigin::Store);
 }
+
+#[test]
+fn retained_schema_corruption_does_not_initialize_a_replacement() {
+    crate::testing::assert_retained_store_header_preserved(SchemaStore::init_journaled);
+}

@@ -270,3 +270,28 @@ than union with controller authority.
 - Bound the final encoded response.
 - Use trusted methods only for explicit admin work.
 - Do not decode, modify, or emulate continuation with offsets.
+
+### Keep schema readers separate from SQL readers
+
+Generated guards run before parsing and receive only the caller and surface.
+Allowing SQL grants access across all entities and admitted statement families;
+introspection, when enabled, also grants schema and diagnostic queries. A guard
+cannot provide per-entity, field or row isolation. Use an application endpoint
+with a fixed query/projection for those restrictions.
+
+`guards::allowlist` deliberately checks only the principal. To reuse a
+schema-reader policy safely, select its surface explicitly:
+
+```rust
+fn schema_readers(context: icydb::ReadAuthorizationContext) -> icydb::ReadAuthorizationDecision {
+    icydb::guards::allowlist_for_surface(
+        context,
+        icydb::ReadAuthorizationSurface::Schema,
+        &schema_reader_principals(),
+    )
+}
+```
+
+Here `schema_reader_principals()` is application-owned policy. Even if this guard
+is attached to both generated endpoints, SQL requests are denied. Anonymous
+callers and over-capacity principal lists retain the existing fail-closed policy.

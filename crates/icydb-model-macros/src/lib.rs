@@ -133,6 +133,12 @@ macro_rules! macro_node {
                         );
                     }
 
+                    // Hook macros preserve the authored struct, including its fields and generics.
+                    if !matches!(stringify!($fn_name), "validator" | "normalizer")
+                        && let Err(error) = Def::validate_declaration(&item) {
+                        return error.write_errors().into();
+                    }
+
                     // build def
                     let debug = item.attrs.iter().any(|attr| attr.path().is_ident("debug"));
                     let mut node = match <$node_type>::from_list(&args) {

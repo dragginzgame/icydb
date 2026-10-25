@@ -23,7 +23,8 @@ use sha2::{Digest, Sha256};
 ///
 /// Panics if the process-global schema has not validated successfully,
 /// `canister_path` does not resolve to a canister node, or the consuming
-/// package's `icydb` dependency path cannot be resolved.
+/// package's `icydb` dependency path cannot be resolved, or its generated
+/// migration plan does not match the complete target fragment.
 #[must_use]
 pub fn generate(canister_path: &str) -> String {
     generate_with_crate_path(canister_path, None)
@@ -82,6 +83,10 @@ impl ActorBuilder {
         migration_plan: Option<SchemaMigrationPlan>,
         icydb: TokenStream,
     ) -> Self {
+        if let Some(plan) = &migration_plan {
+            plan.validate_target_fragment(&fragment)
+                .expect("generated migration target must satisfy the schema proposal contract");
+        }
         let schema_fragment_bytes =
             encode_schema_fragment(&fragment).expect("sealed schema fragment must encode");
         let schema_migration_plan_bytes = migration_plan.as_ref().map(|plan| {
@@ -272,6 +277,40 @@ mod tests {
         )
     }
 
+    fn migration_target_fragment(version: u32) -> icydb_schema::SchemaFragment {
+        use icydb_schema::{
+            DeclaredEntityVersion, EntityFragment, FieldFragment, FieldInsertPolicy,
+            FieldSourceKey, FieldType, ScalarType, SchemaFragment, SchemaName,
+        };
+        let field = FieldFragment::new(
+            SchemaName::try_new("primary_email").unwrap(),
+            FieldType::Scalar(ScalarType::Text { max_len: None }),
+            false,
+            FieldInsertPolicy::Required,
+            None,
+        );
+        let entity = EntityFragment::try_new(
+            SchemaName::try_new("Account").unwrap(),
+            DeclaredEntityVersion::try_new(version).unwrap(),
+            vec![
+                field,
+                FieldFragment::new(
+                    SchemaName::try_new("id").unwrap(),
+                    FieldType::Scalar(ScalarType::Nat64),
+                    false,
+                    FieldInsertPolicy::Required,
+                    None,
+                ),
+            ],
+            vec![FieldSourceKey::try_new("id").unwrap()],
+            vec![],
+            vec![],
+            vec![],
+        )
+        .unwrap();
+        SchemaFragment::try_new(vec![entity], vec![]).unwrap()
+    }
+
     fn actor_builder_with_migration() -> ActorBuilder {
         use icydb_schema::{
             DeclaredEntityVersion, EntityMigration, EntitySourceKey, FieldSourceKey,
@@ -296,8 +335,7 @@ mod tests {
         ActorBuilder::new(
             Arc::new(Schema::new()),
             Canister::new(Def::new("test", "Canister"), "test", None),
-            icydb_schema::SchemaFragment::try_new(Vec::new(), Vec::new())
-                .expect("empty test fragment should admit"),
+            migration_target_fragment(2),
             Some(migration),
             quote::quote!(::icydb),
         )
@@ -341,6 +379,38 @@ mod tests {
         ] {
             assert!(!surface.contains(forbidden));
         }
+    }
+
+    #[test]
+    fn actor_generation_checks_migration_target_before_emitting_bootstrap() {
+        let builder = actor_builder_with_migration();
+        let plan = icydb_schema::decode_schema_migration_plan(
+            builder.schema_migration_plan_bytes.as_ref().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            plan.validate_target_fragment(&migration_target_fragment(2)),
+            Ok(())
+        );
+        assert_eq!(
+            plan.validate_target_fragment(&migration_target_fragment(3)),
+            Err(icydb_schema::SchemaContractError::MigrationVersionGap)
+        );
+        let empty = icydb_schema::SchemaFragment::try_new(vec![], vec![]).unwrap();
+        assert_eq!(
+            plan.validate_target_fragment(&empty),
+            Err(icydb_schema::SchemaContractError::InvalidMigrationReference)
+        );
+        assert!(
+            std::panic::catch_unwind(|| ActorBuilder::new(
+                Arc::new(Schema::new()),
+                Canister::new(Def::new("test", "Canister"), "test", None),
+                migration_target_fragment(3),
+                Some(plan),
+                quote::quote!(::icydb),
+            ))
+            .is_err()
+        );
     }
 
     #[test]

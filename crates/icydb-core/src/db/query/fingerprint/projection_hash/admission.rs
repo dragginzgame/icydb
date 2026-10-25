@@ -1,4 +1,4 @@
-//! Query-only admission before the shared projection/filter identity encoder.
+//! Query-only admission before the shared typed expression identity encoder.
 //! Does not change encoding semantics or persisted-intent admission policy.
 
 use crate::{

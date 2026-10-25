@@ -31,8 +31,8 @@ use crate::{
             publish_constraint_validation_job,
         },
         data::{
-            AcceptedStructuralRowAuthority, DecodedDataStoreKey, RawDataStoreKey, StoreVisit,
-            StructuralRowContract, StructuralSlotReader,
+            AcceptedStructuralRowAuthority, RawDataStoreKey, StoreVisit, StructuralRowContract,
+            StructuralSlotReader, decode_data_store_key,
         },
         key_taxonomy::RawDataStoreKeyRange,
         registry::{StoreHandle, StoreRecoveryCapability},
@@ -1117,15 +1117,15 @@ fn scan_row_local_validation_page(
                 };
                 return Ok(StoreVisit::Stop);
             }
-            let decoded_key = DecodedDataStoreKey::try_from_raw(raw_key)
-                .map_err(|_| InternalError::identity_corruption())?;
-            if decoded_key.entity_tag() != entity_tag {
+            let (decoded_entity, primary_key) =
+                decode_data_store_key(raw_key).map_err(|_| InternalError::identity_corruption())?;
+            if decoded_entity != entity_tag {
                 return Err(InternalError::identity_corruption());
             }
             let row = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
                 raw_row, contract,
             )?;
-            row.validate_primary_key(&decoded_key)?;
+            row.validate_primary_key_value(&primary_key)?;
             let values = row.decode_selected_slot_values(constraints.required_slots())?;
             match constraints.evaluate(schema_fingerprint, values.as_slice()) {
                 Ok(()) => {}
@@ -1176,9 +1176,9 @@ pub(in crate::db) fn constraint_validation_finding_output(
     activation: &crate::db::schema::ConstraintActivationSnapshot,
     finding: &ConstraintValidationFinding,
 ) -> Result<ConstraintValidationFindingOutput, InternalError> {
-    let decoded_key = DecodedDataStoreKey::try_from_raw(finding.primary_key())
+    let (decoded_entity, _) = decode_data_store_key(finding.primary_key())
         .map_err(|_| InternalError::store_corruption())?;
-    if decoded_key.entity_tag() != entity_tag {
+    if decoded_entity != entity_tag {
         return Err(InternalError::store_corruption());
     }
     let primary_key = finding
@@ -1393,10 +1393,6 @@ struct UniqueValidationPageScan {
     staged_entries: Vec<RawIndexStoreKey>,
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "keep the bounded unique scan and staged-entry publication evidence together"
-)]
 fn scan_unique_validation_page(
     store: StoreHandle,
     entity_tag: EntityTag,
@@ -1442,18 +1438,17 @@ fn scan_unique_validation_page(
                     }
                     work.charge(Resource::RowsVisited, 1)?;
                     work.charge(Resource::StoredBytesRead, raw_row.len() as u64)?;
-                    let decoded_key = DecodedDataStoreKey::try_from_raw(raw_key)
+                    let (decoded_entity, primary_key) = decode_data_store_key(raw_key)
                         .map_err(|_| InternalError::identity_corruption())?;
-                    if decoded_key.entity_tag() != entity_tag {
+                    if decoded_entity != entity_tag {
                         return Err(InternalError::identity_corruption());
                     }
                     let row = StructuralSlotReader::from_raw_row_with_validated_borrowed_contract(
                         raw_row, contract,
                     )?;
-                    row.validate_primary_key(&decoded_key)?;
+                    row.validate_primary_key_value(&primary_key)?;
                     work.charge(Resource::PredicateExpressionSteps, 1)?;
-                    let candidate_key =
-                        projection.derive_key(&decoded_key.primary_key_value(), &row)?;
+                    let candidate_key = projection.derive_key(&primary_key, &row)?;
                     if let Some(candidate_key) = candidate_key {
                         let next_staged_bytes =
                             staged_bytes.saturating_add(candidate_key.as_bytes().len());

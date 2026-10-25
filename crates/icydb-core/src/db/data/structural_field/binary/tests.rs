@@ -1,11 +1,9 @@
 use super::{
-    CompleteBinaryValue, TAG_FALSE, TAG_INT64, TAG_LIST, TAG_MAP, TAG_NAT64, TAG_TEXT, TAG_TRUE,
+    CompleteBinaryValue, TAG_FALSE, TAG_INT64, TAG_LIST, TAG_NAT64, TAG_TEXT, TAG_TRUE,
     parse_binary_head, push_binary_bool, skip_binary_value, walk_binary_list_items,
-    walk_binary_map_entries,
 };
 
 type ListState = Vec<Vec<u8>>;
-type MapState = Vec<(Vec<u8>, Vec<u8>)>;
 
 fn encode_bool(value: bool) -> Vec<u8> {
     vec![if value { TAG_TRUE } else { TAG_FALSE }]
@@ -43,20 +41,6 @@ fn encode_list(items: &[Vec<u8>]) -> Vec<u8> {
     );
     for item in items {
         out.extend_from_slice(item);
-    }
-    out
-}
-
-fn encode_map(entries: &[(Vec<u8>, Vec<u8>)]) -> Vec<u8> {
-    let mut out = vec![TAG_MAP];
-    out.extend_from_slice(
-        &u32::try_from(entries.len())
-            .expect("entry count fits u32")
-            .to_be_bytes(),
-    );
-    for (key, value) in entries {
-        out.extend_from_slice(key);
-        out.extend_from_slice(value);
     }
     out
 }
@@ -130,29 +114,4 @@ fn walk_binary_list_items_yields_raw_item_slices() {
     .expect("list walk should succeed");
 
     assert_eq!(state, vec![left, right]);
-}
-
-#[test]
-fn walk_binary_map_entries_yields_raw_entry_slices() {
-    let left_key = encode_text("left");
-    let left_value = encode_nat64(1);
-    let right_key = encode_text("right");
-    let right_value = encode_nat64(2);
-    let bytes = encode_map(&[
-        (left_key.clone(), left_value.clone()),
-        (right_key.clone(), right_value.clone()),
-    ]);
-    let mut state: MapState = Vec::new();
-
-    walk_binary_map_entries(&bytes, &mut |key_bytes, value_bytes| {
-        state.push((key_bytes.to_vec(), value_bytes.to_vec()));
-
-        Ok(())
-    })
-    .expect("map walk should succeed");
-
-    assert_eq!(
-        state,
-        vec![(left_key, left_value), (right_key, right_value)],
-    );
 }

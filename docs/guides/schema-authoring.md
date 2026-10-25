@@ -1,5 +1,18 @@
 # Schema Authoring
 
+Schema declaration macros generate concrete types. Their annotated structs must
+not declare type, lifetime or const parameters; these are rejected at the
+declaration before code generation. Validator and normalizer hooks preserve
+the authored struct and continue to support generic parameters and fields.
+Generated schema declarations must have empty Rust bodies; declare their fields
+in the macro arguments. Nonempty named and tuple bodies are rejected rather than
+silently discarded. Authored outer Rust attributes are forwarded, in order, to
+only the main generated type. This includes documentation, lint policy,
+`deprecated`, representation and other attribute macros; Rust checks their
+compatibility with the generated type. The macro-owned `debug` switch is consumed
+rather than forwarded. Hook attributes are emitted once, not duplicated.
+
+
 This guide covers the choices that most often cause a schema to fail during
 host generation: primary-key types, field names, relations, and the boundary
 between a shared model crate and a generated canister. The model compiler and
@@ -223,6 +236,9 @@ Required and optional named records, enum-variant payloads, list items, set
 items, map values, and bounded combinations are supported source paths. Map
 keys, tuple positions, opaque payloads, recursive cycles, and nested assembly
 of a composite target key are rejected.
+
+Recursive types without reachable relations remain supported. A relation-bearing
+cycle is rejected even if a finite sibling path reaches the same target.
 
 Nested means only that the source key is embedded. It is still the ordinary
 strong relation contract: writes require every target in the final atomic

@@ -623,7 +623,7 @@ impl CardinalityCountDigest {
     /// Hash one accepted user-index prefix without allocating a second key owner.
     pub(in crate::db) fn for_user_index_prefix(
         index_id: IndexId,
-        components: &[Vec<u8>],
+        components: &[impl AsRef<[u8]>],
     ) -> Result<Self, InternalError> {
         if components.is_empty() || components.len() > MAX_INDEX_FIELDS {
             return Err(InternalError::store_invariant());
@@ -637,6 +637,7 @@ impl CardinalityCountDigest {
             u8::try_from(components.len()).map_err(|_| InternalError::store_invariant())?
         ]);
         for component in components {
+            let component = component.as_ref();
             if component.is_empty() || component.len() > IndexKey::MAX_COMPONENT_SIZE {
                 return Err(InternalError::store_invariant());
             }
@@ -1104,6 +1105,28 @@ mod tests {
             ],
             "user-index prefix count-key preimage is persisted format",
         );
+        let borrowed = [
+            prefix.prefix_components()[0].as_slice(),
+            prefix.prefix_components()[1].as_slice(),
+        ];
+        assert_eq!(
+            CardinalityCountDigest::for_user_index_prefix(prefix.index_id(), &borrowed).unwrap(),
+            prefix_digest,
+        );
+        // Qualify every permitted prefix width and the maximum component size.
+        let maximum = vec![vec![0xab; IndexKey::MAX_COMPONENT_SIZE]; MAX_INDEX_FIELDS];
+        let borrowed: Vec<_> = maximum.iter().map(Vec::as_slice).collect();
+        for width in 1..=MAX_INDEX_FIELDS {
+            assert_eq!(
+                CardinalityCountDigest::for_user_index_prefix(prefix.index_id(), &maximum[..width])
+                    .unwrap(),
+                CardinalityCountDigest::for_user_index_prefix(
+                    prefix.index_id(),
+                    &borrowed[..width]
+                )
+                .unwrap(),
+            );
+        }
         assert_ne!(entity_digest, prefix_digest);
         let record =
             CardinalityCountRecord::new(CardinalityGenerationId::INITIAL, prefix_digest, u64::MAX)
@@ -1149,6 +1172,12 @@ mod tests {
             vec![vec![0; IndexKey::MAX_COMPONENT_SIZE + 1]],
             vec![vec![1], vec![2], vec![3], vec![4], vec![5]],
         ] {
+            let borrowed: Vec<_> = components.iter().map(Vec::as_slice).collect();
+            let borrowed_error =
+                CardinalityCountDigest::for_user_index_prefix(index, &borrowed).unwrap_err();
+            let owned_error =
+                CardinalityCountDigest::for_user_index_prefix(index, &components).unwrap_err();
+            assert_eq!(borrowed_error.class(), owned_error.class());
             let prefix = UserIndexPrefixCardinalityKey::new(index, components);
             assert!(
                 CardinalityCountDigest::for_user_index_prefix(

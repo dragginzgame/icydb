@@ -120,7 +120,6 @@ fn structural_binary_len(len: usize) -> u32 {
 }
 
 type ListItemVisitor<'a> = dyn FnMut(&[u8]) -> Result<(), FieldDecodeError> + 'a;
-type MapEntryVisitor<'a> = dyn FnMut(&[u8], &[u8]) -> Result<(), FieldDecodeError> + 'a;
 
 ///
 /// BinaryHead
@@ -347,41 +346,6 @@ pub(super) fn walk_binary_list_items(
         let item_start = cursor;
         cursor = skip_binary_value(raw_bytes, cursor)?;
         on_item(&raw_bytes[item_start..cursor])?;
-    }
-    if cursor != raw_bytes.len() {
-        return Err(FieldDecodeError::new());
-    }
-
-    Ok(())
-}
-
-// Walk one Structural Binary v1 map and yield each raw key/value slice pair to the caller.
-pub(super) fn walk_binary_map_entries(
-    raw_bytes: &[u8],
-    on_entry: &mut MapEntryVisitor<'_>,
-) -> Result<(), FieldDecodeError> {
-    let Some((tag, len, payload_offset)) = parse_binary_head(raw_bytes, 0)? else {
-        return Err(FieldDecodeError::new());
-    };
-    if tag != TAG_MAP {
-        return Err(FieldDecodeError::new());
-    }
-    let head = BinaryHead {
-        payload_offset,
-        tag,
-        len,
-    };
-
-    let mut cursor = head.payload_offset;
-    for _ in 0..head.len {
-        let key_start = cursor;
-        cursor = skip_binary_value(raw_bytes, cursor)?;
-        let value_start = cursor;
-        cursor = skip_binary_value(raw_bytes, cursor)?;
-        on_entry(
-            &raw_bytes[key_start..value_start],
-            &raw_bytes[value_start..cursor],
-        )?;
     }
     if cursor != raw_bytes.len() {
         return Err(FieldDecodeError::new());

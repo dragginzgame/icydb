@@ -441,3 +441,63 @@ fn sql_insert_aliases_keep_select_source_scope_and_reject_wrong_qualifiers_befor
         );
     }
 }
+
+#[test]
+fn sql_insert_select_bounds_source_output_before_staging_and_preserves_authored_windows() {
+    use icydb_diagnostic_code::{DiagnosticDetail, SqlWriteBoundaryCode};
+
+    let session = sql_not_null::initialize_nullable_rows();
+    session
+        .execute_trusted_sql_mutation("DELETE FROM PlannerRow")
+        .unwrap();
+    for range in [1..=100, 101..=102] {
+        let values = range
+            .map(|id| format!("({id}, {}, FALSE)", id + 1000))
+            .collect::<Vec<_>>()
+            .join(", ");
+        session
+            .execute_trusted_sql_mutation(&format!(
+                "INSERT INTO PlannerRow (id, qty, marked) VALUES {values}"
+            ))
+            .unwrap();
+    }
+    let before = projection_rows(&session, "SELECT id FROM PlannerRow ORDER BY id");
+    // The 102nd projection would fail if the source ran past the overflow row.
+    let source = "SELECT CASE WHEN id = 102 THEN 1 / 0 ELSE qty END, marked FROM PlannerRow WHERE id <= 102 ORDER BY id";
+    let error = session
+        .execute_trusted_sql_mutation(&format!("INSERT INTO PlannerRow (id, marked) {source}"))
+        .unwrap_err();
+    assert_eq!(
+        error.diagnostic().detail(),
+        Some(&DiagnosticDetail::SqlWriteBoundary {
+            boundary: SqlWriteBoundaryCode::StagedRowsTooMany,
+        })
+    );
+    assert_eq!(
+        projection_rows(&session, "SELECT id FROM PlannerRow ORDER BY id"),
+        before
+    );
+    for (window, expected) in [("LIMIT 0", 0), ("LIMIT 2 OFFSET 1", 2), ("LIMIT 100", 100)] {
+        let result = session.execute_trusted_sql_mutation(&format!(
+            "INSERT INTO PlannerRow (id, marked) SELECT qty, marked FROM PlannerRow WHERE id <= 102 ORDER BY id {window}"
+        )).unwrap();
+        assert!(matches!(result, SqlStatementResult::Count { row_count } if row_count == expected));
+        let inserted = projection_rows(
+            &session,
+            "SELECT id FROM PlannerRow WHERE id >= 1000 ORDER BY id",
+        );
+        assert_eq!(inserted.len(), expected as usize);
+        if expected == 2 {
+            assert_eq!(
+                inserted,
+                [
+                    vec![OutputValue::nat64(1002)],
+                    vec![OutputValue::nat64(1003)]
+                ]
+            );
+        }
+        session
+            .execute_trusted_sql_mutation("DELETE FROM PlannerRow WHERE id >= 1000")
+            .unwrap();
+    }
+}

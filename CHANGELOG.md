@@ -5,6 +5,36 @@ All notable, and occasionally less notable changes to this project will be docum
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to [Semantic Versioning](http://semver.org/).
 
+## [0.284.1]
+
+- Reject unenforceable recursive relations and invalid generated migration targets, remove repeated recursive decoder scans, preflight journal revision writes, reject over-depth generated predicates, preserve index-key comparator transitivity, bound INSERT SELECT staging, correct SQL nesting accounting, add surface-specific read allowlists, require confirmation for destructive refresh, preserve corrupt retained store
+  allocations, explain Wire contract mismatches, reject cursors for type-mismatched
+  expressions and avoid redundant raw-key
+  copies in validation scans, exact-key batches, cardinality prefix hashing
+  and grouped expression extrema; preserve schema attributes, diagnose unsupported
+  generics/fields, and qualify SQL terminal rendering on both macOS hosts
+  ([#71 — Recursive relation admission](https://github.com/dragginzgame/icydb/issues/71),
+  [#72 — Generated migration target validation](https://github.com/dragginzgame/icydb/issues/72),
+  [#83 — Recursive decoder traversal](https://github.com/dragginzgame/icydb/issues/83),
+  [#173 — Infallible journal revision apply](https://github.com/dragginzgame/icydb/issues/173),
+  [#198 — Generated predicate depth admission](https://github.com/dragginzgame/icydb/issues/198),
+  [#165 — Malformed index-key ordering](https://github.com/dragginzgame/icydb/issues/165),
+  [#216 — Bound INSERT SELECT staging](https://github.com/dragginzgame/icydb/issues/216),
+  [#229 — SQL nesting accounting](https://github.com/dragginzgame/icydb/issues/229),
+  [#294 — Surface-specific read authorization](https://github.com/dragginzgame/icydb/issues/294),
+  [#54 — SQL terminal-output qualification](https://github.com/dragginzgame/icydb/issues/54),
+  [#194 — Wire contract mismatch guidance](https://github.com/dragginzgame/icydb/issues/194),
+  [#46 — Confirm destructive refresh](https://github.com/dragginzgame/icydb/issues/46),
+  [#101 — Preserve invalid retained schema storage](https://github.com/dragginzgame/icydb/issues/101),
+  [#192 — Bind continuation identity to typed order expressions](https://github.com/dragginzgame/icydb/issues/192),
+  [#449 — Row scans copy keys used only for identity](https://github.com/dragginzgame/icydb/issues/449),
+  [#450 — Exact-key batches copy distinct keys into a temporary map](https://github.com/dragginzgame/icydb/issues/450),
+  [#452 — Cardinality prefix hashing copies borrowed components](https://github.com/dragginzgame/icydb/issues/452),
+  [#451 — Grouped extrema copy borrowed inputs](https://github.com/dragginzgame/icydb/issues/451),
+  [#183 — Preserve and validate authored schema declarations](https://github.com/dragginzgame/icydb/issues/183)).
+
+See [detailed notes](docs/changelog/0.284.md).
+
 ## [0.284.0] - 2026-10-25
 
 ### Breaking

@@ -42,7 +42,7 @@ impl OrderExpr {
     }
 
     /// Freeze one typed fluent order expression onto the planner-owned
-    /// semantic expression now that labels are derived only at explain/hash
+    /// semantic expression now that labels are derived only at explain/display
     /// edges instead of being stored in fluent order shells.
     const fn new(expr: Expr) -> Self {
         Self { expr }

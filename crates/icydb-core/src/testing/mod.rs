@@ -100,6 +100,32 @@ pub(crate) fn test_memory_owner(id: u8) -> TestMemoryOwner {
     }
 }
 
+/// Check each store's real constructor preserves all bytes on invalid headers.
+pub(crate) fn assert_retained_store_header_preserved<T>(
+    open: impl Fn(RuntimeMemory<DefaultMemoryImpl>) -> T,
+) {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    for header in [b"BAD".as_slice(), &[0, 0, 0], b"BTR\xff"] {
+        let owner = test_memory_owner(177);
+        drop(open(owner.open()));
+        // Valid retained storage must still reopen through the same constructor.
+        drop(open(owner.open()));
+        let memory = owner.open();
+        memory.write(0, header);
+        let pages = memory.size();
+        let mut before = vec![0; usize::try_from(pages * 65_536).unwrap()];
+        memory.read(0, &mut before);
+        drop(memory);
+        assert!(catch_unwind(AssertUnwindSafe(|| open(owner.open()))).is_err());
+        let memory = owner.open();
+        let mut after = vec![0; before.len()];
+        memory.read(0, &mut after);
+        assert_eq!(after, before);
+        assert_eq!(memory.size(), pages);
+    }
+}
+
 /// Shared test-only stable memory allocation for in-memory stores.
 pub(crate) fn test_memory(id: u8) -> RuntimeMemory<DefaultMemoryImpl> {
     test_memory_with_backing(id, DefaultMemoryImpl::default())

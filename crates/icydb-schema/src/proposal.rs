@@ -452,7 +452,7 @@ impl SchemaProposal {
     }
 }
 
-fn validate_migration_plan(
+pub(crate) fn validate_migration_plan(
     plan: &SchemaMigrationPlan,
     entities: &BTreeMap<EntitySourceKey, &EntityFragment>,
     types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,
@@ -719,7 +719,7 @@ struct ProposalReferences {
     relation_fields: BTreeSet<(EntitySourceKey, FieldSourceKey)>,
 }
 
-fn validate_proposal_closure(
+pub(crate) fn validate_proposal_closure(
     expected_head: &ExpectedAcceptedHead,
     entities: &BTreeMap<EntitySourceKey, &EntityFragment>,
     types: &BTreeMap<TypeSourceKey, &NamedTypeFragment>,

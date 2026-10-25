@@ -427,3 +427,22 @@ mod default_hygiene_tests {
         assert!(pair.1.is_empty());
     }
 }
+
+// Authored Rust attributes must reach the generated main type. This module
+// consumes the deprecated fixture deliberately; downstream users still receive
+// Rust's ordinary deprecation diagnostic outside this allowed scope.
+#[allow(deprecated)]
+mod authored_attributes {
+    use model_api::prelude::*;
+
+    #[record(fields(field(name = "value", value(item(prim = "Nat64")))))]
+    #[deprecated(note = "use the current record")]
+    #[repr(C)]
+    pub struct LegacyRecord {}
+
+    #[test]
+    fn generated_record_preserves_rust_attributes_and_fields() {
+        let record = LegacyRecord { value: 7 };
+        assert_eq!(record.value, 7);
+    }
+}

@@ -866,3 +866,8 @@ fn journaled_mixed_data_range_traversal_streams_without_snapshot() {
         vec![(raw_key(1, 3), 13), (raw_key(1, 5), 15)]
     );
 }
+
+#[test]
+fn retained_store_corruption_does_not_initialize_a_replacement() {
+    crate::testing::assert_retained_store_header_preserved(DataStore::init_journaled);
+}

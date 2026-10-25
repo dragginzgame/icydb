@@ -11,8 +11,8 @@ use crate::db::{
             GROUP_HAVING_VALUE_CASE_TAG, GROUP_HAVING_VALUE_EXPR_TAG,
             GROUP_HAVING_VALUE_FIELD_PATH_TAG, GROUP_HAVING_VALUE_FUNCTION_TAG,
             GROUP_HAVING_VALUE_GROUP_FIELD_TAG, GROUP_HAVING_VALUE_LITERAL_TAG,
-            GROUP_HAVING_VALUE_UNARY_TAG, grouping::hash_field_path, write_expr_label, write_str,
-            write_tag, write_u32,
+            GROUP_HAVING_VALUE_UNARY_TAG, grouping::hash_field_path, write_expr_identity,
+            write_str, write_tag, write_u32,
         },
         plan::{
             AggregateIdentity, AggregateSemanticKeyRef, GroupAggregateSpec, GroupFieldSet,
@@ -49,7 +49,7 @@ impl GroupHavingFingerprintSource<'_> {
         Ok(None)
     }
 
-    // Matched slots use borrowed semantic keys; only missing slots render labels.
+    // Matched slots use borrowed semantic keys; missing slots hash typed operands.
     fn hash_aggregate_expr(
         &self,
         hasher: &mut Sha256,
@@ -76,12 +76,12 @@ impl GroupHavingFingerprintSource<'_> {
         write_u32(hasher, GROUP_HAVING_MISSING_SLOT_SENTINEL);
         write_tag(hasher, aggregate_expr.kind().fingerprint_tag());
         write_optional_str(hasher, aggregate_expr.target_field(), budget)?;
-        // Preserve the HAVING-specific framing, but render/hash each operand
-        // independently so input and filter labels never need joint retention.
+        // Preserve HAVING framing while sharing typed operand identity with
+        // planned aggregate hashing, including missing-slot fallback expressions.
         for expr in [aggregate_expr.input_expr(), aggregate_expr.filter_expr()] {
             write_tag(hasher, u8::from(expr.is_some()));
             if let Some(expr) = expr {
-                write_expr_label(hasher, expr, budget)?;
+                write_expr_identity(hasher, expr, budget)?;
             }
         }
         write_bool(hasher, semantic_distinct);

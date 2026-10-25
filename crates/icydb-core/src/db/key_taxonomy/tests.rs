@@ -1090,11 +1090,33 @@ fn raw_index_ordering_validates_complete_frames_before_comparing() {
     );
     malformed.push(excessive_count);
 
+    let mut keys = vec![raw, other];
     for bytes in malformed {
         let invalid = RawIndexStoreKey::from_persisted_bytes(bytes);
-        for peer in [&raw, &other] {
-            assert_eq!(invalid.cmp(peer), invalid.as_bytes().cmp(peer.as_bytes()));
-            assert_eq!(peer.cmp(&invalid), peer.as_bytes().cmp(invalid.as_bytes()));
+        assert!(IndexKey::try_from_raw(&invalid).is_err());
+        for peer in &keys[..2] {
+            assert!(invalid > *peer);
+            assert!(*peer < invalid);
+        }
+        keys.push(invalid);
+    }
+    for left in &keys {
+        for right in &keys {
+            assert_eq!(left.cmp(right), right.cmp(left).reverse());
+            for last in &keys {
+                if left <= right && right <= last {
+                    assert!(left <= last);
+                }
+            }
+        }
+    }
+    for order in [keys.clone(), keys.iter().rev().cloned().collect()] {
+        let mut map = ic_storage::adapter::StableBTreeMap::init(crate::testing::test_memory(177));
+        for (position, key) in order.iter().enumerate() {
+            map.insert(key.clone(), u64::try_from(position).unwrap());
+        }
+        for (position, key) in order.iter().enumerate() {
+            assert_eq!(map.get(key), Some(u64::try_from(position).unwrap()));
         }
     }
 }

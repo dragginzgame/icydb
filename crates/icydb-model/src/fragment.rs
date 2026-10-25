@@ -356,10 +356,13 @@ fn collect_nested_relation_candidates<'schema>(
         return Ok(());
     };
     if !visiting.insert((*path).to_string()) {
-        // A relation source is one finite path through a value. Stop at a
-        // recursive edge: any finite relation-bearing sibling was already
-        // visited, while a relation reachable only by cycling has no bounded
-        // single-valued source path to lower.
+        // Finite relation paths cannot represent every occurrence below a
+        // recursive edge. Reject relation-bearing cycles rather than silently
+        // enforcing only the first occurrence; ordinary recursive data remains
+        // valid when no relation is reachable through that edge.
+        if item_reaches_relation(schema, item, &mut BTreeSet::new())? {
+            return Err(FragmentLoweringError::UnsupportedCardinality(path_name));
+        }
         return Ok(());
     }
     let node = schema
@@ -1481,7 +1484,8 @@ mod tests {
     };
 
     use super::{
-        Schema, lower_blob_default, lower_field_rules, lower_nested_relations, lower_scalar_default,
+        FragmentLoweringError, Schema, lower_blob_default, lower_field_rules,
+        lower_nested_relations, lower_scalar_default,
     };
     use crate::{
         node::{
@@ -1756,6 +1760,58 @@ mod tests {
                 .expect("recursive structural types without finite relations should lower")
                 .is_empty(),
         );
+    }
+
+    #[test]
+    fn recursive_relation_sources_reject_in_both_sibling_orders() {
+        for relation_first in [false, true] {
+            let relation = Field::new(
+                "owner",
+                Value::new(
+                    Cardinality::One,
+                    Item::new(
+                        ItemTarget::Primitive(Primitive::Ulid),
+                        Some("test::User"),
+                        None,
+                        None,
+                        &[],
+                        &[],
+                        false,
+                    ),
+                ),
+                None,
+                None,
+                None,
+            );
+            let next = RECURSIVE_RECORD_FIELDS[0].clone();
+            let fields = if relation_first {
+                vec![relation, next]
+            } else {
+                vec![next, relation]
+            };
+            let mut schema = Schema::new();
+            schema.insert_node(SchemaNode::Record(Record::new(
+                Def::new("test", "Recursive"),
+                "Recursive",
+                FieldList::new(Box::leak(fields.into_boxed_slice())),
+                EMPTY_TYPE.clone(),
+            )));
+            let entity = Entity::new(
+                Def::new("test", "RecursiveOwner"),
+                "test::Store",
+                1,
+                PrimaryKey::new(&["root"], PrimaryKeySource::External),
+                &[],
+                &[],
+                &[],
+                FieldList::new(&RECURSIVE_ENTITY_FIELDS),
+                EMPTY_TYPE.clone(),
+            );
+            assert!(matches!(
+                lower_nested_relations(&schema, &entity, &RECURSIVE_ENTITY_FIELDS[0]),
+                Err(FragmentLoweringError::UnsupportedCardinality(_))
+            ));
+        }
     }
 
     fn application_behavior_fragment(

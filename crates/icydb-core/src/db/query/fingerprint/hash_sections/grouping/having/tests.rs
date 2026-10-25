@@ -99,6 +99,45 @@ fn cases() -> Vec<Expr> {
 }
 
 #[test]
+fn missing_having_aggregate_identity_preserves_literal_types() {
+    for filtered in [false, true] {
+        let hash = |value| {
+            let aggregate = if filtered {
+                sum("amount").with_filter_expr(Expr::Binary {
+                    op: BinaryOp::Eq,
+                    left: Box::new(Expr::Field("amount".into())),
+                    right: Box::new(Expr::Literal(value)),
+                })
+            } else {
+                AggregateExpr::from_expression_input(
+                    crate::db::query::plan::AggregateKind::Sum,
+                    Expr::Literal(value),
+                )
+            };
+            admitted_hash(
+                &Expr::Aggregate(aggregate),
+                &request_with_limit(Resource::TemporaryBytes, 0),
+                Lane::Diagnostic,
+            )
+            .unwrap()
+        };
+        let signed = hash(Value::Int64(2));
+        for value in [
+            Value::Nat64(2),
+            Value::Decimal(crate::types::Decimal::from(2_u64)),
+        ] {
+            if filtered {
+                assert_ne!(signed, hash(value));
+            } else {
+                // SUM canonicalizes equivalent numeric inputs before hashing.
+                assert_eq!(signed, hash(value));
+            }
+        }
+        assert_eq!(signed, hash(Value::Int64(2)));
+    }
+}
+
+#[test]
 fn having_hash_preserves_planner_expression_grammar() {
     let aggregates = aggregates();
     let planned: Vec<_> = aggregates
@@ -125,7 +164,7 @@ fn having_hash_preserves_planner_expression_grammar() {
     });
     assert_eq!(
         encode_hex_lower(&finalize_sha256_digest(plan_hash)),
-        "14aa9055cd2b8b8d293526fa70a7bb1e886a691ff2e86acccb9690defdab4c51",
+        "60512c452d3b3a9ecafd33c5cf410642df8e5827081a1735c219fdedf07aede2",
     );
 }
 
@@ -306,7 +345,7 @@ fn having_borrowed_labels_and_absence_need_no_value_or_allocation_budget() {
 }
 
 #[test]
-fn missing_aggregate_labels_are_admitted_but_matched_slots_need_no_rendering() {
+fn missing_aggregate_operands_are_admitted_without_rendering() {
     let aggregate = AggregateExpr::from_expression_input(
         crate::db::query::plan::AggregateKind::Sum,
         Expr::Literal(Value::Nat128("18446744073709551616".parse().unwrap())),
@@ -330,21 +369,13 @@ fn missing_aggregate_labels_are_admitted_but_matched_slots_need_no_rendering() {
         })
         .unwrap();
         assert_eq!(matched.observed(Resource::TemporaryBytes), 0);
-        let rejected = request_with_limit(Resource::TemporaryBytes, 27);
-        assert!(
-            admitted_hash(&expr, &rejected, lane)
-                .unwrap_err()
-                .diagnostic_facts()
-                .contains(&(
-                    DiagnosticFactTag::BudgetResource,
-                    Resource::TemporaryBytes.raw(),
-                ))
-        );
-        assert_eq!(rejected.observed(Resource::TemporaryBytes), 32);
-
         let measured = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         let expected = admitted_hash(&expr, &measured, lane).unwrap();
-        for resource in [Resource::TemporaryBytes, Resource::PredicateExpressionSteps] {
+        assert_eq!(measured.observed(Resource::TemporaryBytes), 0);
+        for resource in [
+            Resource::NestedValueSteps,
+            Resource::PredicateExpressionSteps,
+        ] {
             let exact = measured.observed(resource);
             let root = request_with_limit(resource, 2 * exact);
             for _ in 0..2 {

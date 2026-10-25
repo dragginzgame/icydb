@@ -89,7 +89,12 @@ fn fixture_load_result(response: Result<Vec<u8>, String>) -> Result<String, Stri
     let bytes = response.map_err(fixture_load_error)?;
     let result: Result<(), icydb::Error> = icydb::wire::Endpoint::FixturesLoad
         .decode_response(&bytes)
-        .map_err(|error| fixture_load_error(error.to_string()))?;
+        .map_err(|error| {
+            fixture_load_error(crate::diagnostic::render_wire_decode_error(
+                Endpoint::FixturesLoad,
+                error,
+            ))
+        })?;
     result
         .map(|()| String::new())
         .map_err(|error| fixture_load_error(crate::diagnostic::render_error(&error)))

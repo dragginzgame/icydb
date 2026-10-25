@@ -1226,6 +1226,55 @@ fn entity_revisions_advance_only_affected_tags_and_survive_replay_and_fold() {
 }
 
 #[test]
+fn entity_revision_append_preflights_all_chunks_before_writing() {
+    let backing = VectorMemory::default();
+    let mut store = JournalTailStore::init(test_memory_with_backing(232, backing.clone()));
+    store.initialize_current_tail_control().unwrap();
+    let tags = (1..=icydb_schema::MAX_SCHEMA_ASSIGNMENTS)
+        .map(|n| EntityTag::new(u64::try_from(n).unwrap()))
+        .collect::<Vec<_>>();
+    store
+        .publish_accepted_entity_mutation_revisions(&tags)
+        .unwrap();
+    let affected = [tags[0], tags[1], tags[tags.len() - 1]];
+    let batch = JournalBatch::new(
+        [0x32; 16],
+        [0x42; 16],
+        JournalSequence::new(1),
+        affected
+            .iter()
+            .map(|tag| row_put_record_for(*tag, 1))
+            .collect(),
+    )
+    .unwrap();
+    store.append_batch(&batch).unwrap();
+    store.append_batch(&batch).unwrap();
+    for tag in affected {
+        assert_entity_revision(&store, tag, 2);
+    }
+    assert_entity_revision(&store, tags[2], 1);
+
+    // A later corrupt revision chunk refuses both replay and new append
+    // without publishing any batch bytes or changing earlier revision chunks.
+    store
+        .remove_entity_mutation_revision_for_tests(tags[tags.len() - 1])
+        .unwrap();
+    let before = backing.borrow().clone();
+    let next = JournalBatch::new(
+        [0x33; 16],
+        [0x43; 16],
+        JournalSequence::new(2),
+        vec![row_put_record_for(tags[0], 2)],
+    )
+    .unwrap();
+    for candidate in [&batch, &next] {
+        let error = store.append_batch(candidate).unwrap_err();
+        assert_eq!(error.class(), ErrorClass::Corruption);
+        assert_eq!(*backing.borrow(), before);
+    }
+}
+
+#[test]
 fn completed_entity_revision_authority_fails_closed_on_missing_or_drifted_tags() {
     let mut store = JournalTailStore::init(test_memory(231));
     store
@@ -2171,4 +2220,9 @@ fn journal_tail_chunk_storable_bound_caps_raw_tail_value_bytes() {
             is_fixed_size: false,
         }
     );
+}
+
+#[test]
+fn retained_store_corruption_does_not_initialize_a_replacement() {
+    crate::testing::assert_retained_store_header_preserved(JournalTailStore::init);
 }

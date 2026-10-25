@@ -29,7 +29,7 @@ use crate::{
     traits::CanisterKind,
 };
 
-use ic_memory::{DefaultMemoryImpl, RuntimeMemory};
+use ic_memory::{DefaultMemoryImpl, Memory, RuntimeMemory};
 use ic_storage::adapter::{StableBTreeMap, Storable, storable::Bound};
 use serde::Deserialize;
 use sha2::Digest;
@@ -324,7 +324,12 @@ pub(in crate::db) struct InspectionProgressStore {
 impl InspectionProgressStore {
     fn open(memory: RuntimeMemory<DefaultMemoryImpl>) -> Result<Self, IntegrityJobError> {
         let mut store = Self {
-            map: StableBTreeMap::init(memory),
+            // Only virgin allocations may initialize a new map.
+            map: if memory.size() == 0 {
+                StableBTreeMap::init(memory)
+            } else {
+                StableBTreeMap::load(memory)
+            },
         };
         if store.map.is_empty() {
             store.map.insert(
@@ -1165,6 +1170,13 @@ mod tests {
         testing::test_memory,
         traits::Path,
     };
+
+    #[test]
+    fn retained_store_corruption_does_not_initialize_a_replacement() {
+        crate::testing::assert_retained_store_header_preserved(|memory| {
+            InspectionProgressStore::open(memory).unwrap()
+        });
+    }
 
     struct RetentionCanister;
 

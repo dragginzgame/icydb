@@ -147,6 +147,9 @@ mod tests {
             #[deny(non_camel_case_types)]
             #[forbid(unsafe_code)]
             #[expect(clippy::exhaustive_structs)]
+            #[deprecated(note = "use the replacement")]
+            #[repr(C)]
+            #[consumer::attribute(option)]
             pub struct DocumentedRecord {}
         };
         let expected = item.attrs.clone();

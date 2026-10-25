@@ -6,7 +6,7 @@ use ic_platform::Principal;
 #[cfg(feature = "guarded-reads")]
 use icydb::{
     ReadAuthorizationContext, ReadAuthorizationDecision, ReadAuthorizationSurface,
-    guards::allowlist,
+    guards::allowlist_for_surface,
 };
 
 const ADMIN_SEED: u8 = 41;
@@ -53,21 +53,28 @@ fn principal(seed: u8) -> Principal {
 
 #[cfg(feature = "guarded-reads")]
 fn sql_read_guard(context: ReadAuthorizationContext) -> ReadAuthorizationDecision {
-    if context.surface != ReadAuthorizationSurface::Sql || !SQL_READER_ENABLED.with(Cell::get) {
+    if !SQL_READER_ENABLED.with(Cell::get) {
         return ReadAuthorizationDecision::Deny;
     }
 
-    allowlist(context, &[principal(READER_SEED)])
+    allowlist_for_surface(
+        context,
+        ReadAuthorizationSurface::Sql,
+        &[principal(READER_SEED)],
+    )
 }
 
 #[cfg(feature = "guarded-reads")]
 fn schema_read_guard(context: ReadAuthorizationContext) -> ReadAuthorizationDecision {
-    if context.surface != ReadAuthorizationSurface::Schema || !SCHEMA_READER_ENABLED.with(Cell::get)
-    {
+    if !SCHEMA_READER_ENABLED.with(Cell::get) {
         return ReadAuthorizationDecision::Deny;
     }
 
-    allowlist(context, &[principal(READER_SEED)])
+    allowlist_for_surface(
+        context,
+        ReadAuthorizationSurface::Schema,
+        &[principal(READER_SEED)],
+    )
 }
 
 /// Replace the application-owned SQL reader policy immediately.

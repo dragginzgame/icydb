@@ -175,8 +175,10 @@ Collection validation is **aggregate**:
 * a single missing target fails the save
 
 Map keys, tuple positions, opaque payloads, recursive value cycles, and nested
-leaves that would need to assemble a composite target key are not relation
-sources. Nested traversal and raw occurrences are subject to the fixed
+leaves that would need to assemble a composite target key are rejected when
+used as relation sources. A recursive type with no reachable relation remains
+valid; a relation-bearing cycle cannot silently enforce only its first occurrence.
+Nested traversal and raw occurrences are subject to the fixed
 per-image and per-atomic-batch relation-work budgets.
 
 ### 4.2 Relation publication and migration

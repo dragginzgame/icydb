@@ -39,7 +39,8 @@ being assessed.
 `icydb canister refresh` rebuilds and reinstalls the selected ICP canister. That
 clears the canister's stable memory in the chosen local or configured ICP
 environment. It is destructive to that app/canister state, but it is not a host
-disk wipe.
+disk wipe. The command requires an explicit `--yes` before invoking ICP, even
+when `ICP_ENVIRONMENT` selects the target environment.
 
 ## Git Commands
 

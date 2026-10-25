@@ -36,7 +36,7 @@ use icydb_diagnostic_code::{DiagnosticFactTag, SqlWriteBoundaryCode};
 
 const SQL_INSERT_VALUES_INITIAL_RESERVE_ROWS: usize = 64;
 
-const fn sql_insert_update_surface_execution_bounds(
+const fn sql_insert_mutation_surface_execution_bounds(
     returning: Option<&crate::db::sql::parser::SqlReturningProjection>,
 ) -> SqlWriteExecutionBounds {
     let returning_requested = returning.is_some();
@@ -322,7 +322,7 @@ impl<C: CanisterKind> DbSession<C> {
             statement,
             source_query,
             catalog,
-            Some(sql_insert_update_surface_execution_bounds(
+            Some(sql_insert_mutation_surface_execution_bounds(
                 statement.returning.as_ref(),
             )),
         )
@@ -381,8 +381,22 @@ impl<C: CanisterKind> DbSession<C> {
                             Self::sql_insert_default_values_patch(&descriptor)?,
                         );
                     }
-                    SqlInsertSource::Select(_) => {
+                    SqlInsertSource::Select(select) => {
                         let source_query = source_query.ok_or_else(QueryError::invariant)?;
+                        // Preserve an authored smaller LIMIT and OFFSET. One
+                        // extra result proves overflow before any write; do not
+                        // materialize the remainder of an already-too-wide batch.
+                        let bounded_source;
+                        let source_query = if let Some(max_rows) = candidate_bounds.max_rows() {
+                            let overflow_limit = max_rows.saturating_add(1);
+                            let limit = select
+                                .limit
+                                .map_or(overflow_limit, |limit| limit.min(overflow_limit));
+                            bounded_source = source_query.clone().limit(limit);
+                            &bounded_source
+                        } else {
+                            source_query
+                        };
                         rows = self.execute_sql_insert_select_source_patches(
                             catalog,
                             &descriptor,

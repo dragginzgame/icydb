@@ -16,7 +16,7 @@ use crate::{
     error::{ErrorClass, InternalError},
     types::EntityTag,
 };
-use ic_memory::{DefaultMemoryImpl, RuntimeMemory};
+use ic_memory::{DefaultMemoryImpl, Memory, RuntimeMemory};
 use ic_storage::adapter::{StableBTreeMap, Storable, storable::Bound as StorableBound};
 use std::borrow::Cow;
 use std::collections::BTreeSet;
@@ -344,8 +344,8 @@ struct EntityMutationRevisionAuthority {
 }
 
 struct PreparedEntityMutationRevisionUpdate {
-    replacement: Option<Vec<EntityMutationRevisionEntry>>,
-    updates: Vec<(u32, EntityMutationRevisionEntry)>,
+    removals: Vec<JournalTailKey>,
+    writes: Vec<(JournalTailKey, RawJournalChunk)>,
 }
 
 impl FoldWatermark {
@@ -519,10 +519,19 @@ impl Storable for RawJournalChunk {
 
 impl JournalTailStore {
     /// Initialize a journal-tail store with the provided backing memory.
+    ///
+    /// # Panics
+    /// Panics if retained storage has an invalid header or unsupported layout,
+    /// or the backing storage fails. Invalid retained contents are not replaced.
     #[must_use]
     pub fn init(memory: RuntimeMemory<DefaultMemoryImpl>) -> Self {
         Self {
-            map: StableBTreeMap::init(memory),
+            // Only virgin allocations may initialize a new map.
+            map: if memory.size() == 0 {
+                StableBTreeMap::init(memory)
+            } else {
+                StableBTreeMap::load(memory)
+            },
         }
     }
 
@@ -744,7 +753,7 @@ impl JournalTailStore {
             self.prepare_entity_mutation_revision_update(batch, &affected_entity_tags)?;
         if identical_replay {
             self.validate_replayed_batch_against_control(header)?;
-            self.apply_prepared_entity_mutation_revision_update(entity_revision_update)?;
+            self.apply_prepared_entity_mutation_revision_update(entity_revision_update);
             return Ok(());
         }
         let current_control = self.current_tail_control()?;
@@ -778,7 +787,7 @@ impl JournalTailStore {
                 RawJournalChunk::from_bytes(encode_data_mutation_revision(revision)),
             );
         }
-        self.apply_prepared_entity_mutation_revision_update(entity_revision_update)?;
+        self.apply_prepared_entity_mutation_revision_update(entity_revision_update);
         self.map.insert(
             JournalTailKey::tail_convergence_control(),
             RawJournalChunk::from_bytes(encode_tail_control(next_control)),
@@ -1381,10 +1390,10 @@ impl JournalTailStore {
             }
         }
 
-        Ok(PreparedEntityMutationRevisionUpdate {
-            replacement,
-            updates,
-        })
+        if let Some(entries) = replacement {
+            return self.prepare_entity_mutation_revision_replacement(entries);
+        }
+        self.prepare_entity_mutation_revision_chunks(updates)
     }
 
     fn prepare_accepted_entity_mutation_revision_replacement(
@@ -1413,14 +1422,26 @@ impl JournalTailStore {
         Ok(entries)
     }
 
+    // All decoding, key construction and encoding finish before the first
+    // stable write. Applying this prepared update cannot return a partial error.
     fn apply_prepared_entity_mutation_revision_update(
         &mut self,
         update: PreparedEntityMutationRevisionUpdate,
-    ) -> Result<(), InternalError> {
-        if let Some(entries) = update.replacement {
-            return self.apply_entity_mutation_revision_replacement(entries);
+    ) {
+        for key in update.removals {
+            let _removed = self.map.remove(&key);
         }
-        let mut updates = update.updates.into_iter().peekable();
+        for (key, chunk) in update.writes {
+            self.map.insert(key, chunk);
+        }
+    }
+
+    fn prepare_entity_mutation_revision_chunks(
+        &self,
+        updates: Vec<(u32, EntityMutationRevisionEntry)>,
+    ) -> Result<PreparedEntityMutationRevisionUpdate, InternalError> {
+        let mut updates = updates.into_iter().peekable();
+        let mut writes = Vec::new();
         while let Some((ordinal, entry)) = updates.next() {
             let ordinal = usize::try_from(ordinal).map_err(|_| journal_tail_corruption())?;
             let chunk_ordinal = ordinal / MAX_ENTITY_MUTATION_REVISIONS_PER_CHUNK;
@@ -1466,20 +1487,32 @@ impl JournalTailStore {
                     next_entry,
                 )?;
             }
-            self.map.insert(
+            writes.push((
                 key,
                 RawJournalChunk::from_bytes(encode_entity_mutation_revision_chunk(
                     entries.as_slice(),
                 )?),
-            );
+            ));
         }
-        Ok(())
+        Ok(PreparedEntityMutationRevisionUpdate {
+            removals: Vec::new(),
+            writes,
+        })
     }
 
     fn apply_entity_mutation_revision_replacement(
         &mut self,
         entries: Vec<EntityMutationRevisionEntry>,
     ) -> Result<(), InternalError> {
+        let update = self.prepare_entity_mutation_revision_replacement(entries)?;
+        self.apply_prepared_entity_mutation_revision_update(update);
+        Ok(())
+    }
+
+    fn prepare_entity_mutation_revision_replacement(
+        &self,
+        entries: Vec<EntityMutationRevisionEntry>,
+    ) -> Result<PreparedEntityMutationRevisionUpdate, InternalError> {
         validate_entity_mutation_revision_entries(entries.as_slice())?;
         let count = u32::try_from(entries.len()).map_err(|_| journal_tail_corruption())?;
         let existing_keys = self
@@ -1496,25 +1529,26 @@ impl JournalTailStore {
             ))
             .map(|entry| *entry.key())
             .collect::<Vec<_>>();
-        for key in existing_keys {
-            let _removed = self.map.remove(&key);
-        }
+        let mut writes = Vec::new();
         for (chunk_ordinal, chunk) in entries
             .chunks(MAX_ENTITY_MUTATION_REVISIONS_PER_CHUNK)
             .enumerate()
         {
             let chunk_ordinal =
                 u32::try_from(chunk_ordinal).map_err(|_| journal_tail_corruption())?;
-            self.map.insert(
+            writes.push((
                 JournalTailKey::entity_mutation_revision_data_chunk(chunk_ordinal)?,
                 RawJournalChunk::from_bytes(encode_entity_mutation_revision_chunk(chunk)?),
-            );
+            ));
         }
-        self.map.insert(
+        writes.push((
             JournalTailKey::entity_mutation_revision_control(),
             RawJournalChunk::from_bytes(encode_entity_mutation_revision_control(count)),
-        );
-        Ok(())
+        ));
+        Ok(PreparedEntityMutationRevisionUpdate {
+            removals: existing_keys,
+            writes,
+        })
     }
 
     fn prepare_data_mutation_revision(

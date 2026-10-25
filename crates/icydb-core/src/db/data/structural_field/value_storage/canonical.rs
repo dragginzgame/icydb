@@ -115,76 +115,65 @@ fn decode_canonical_value_storage(
     encoded: &[u8],
     depth: u16,
 ) -> Result<CanonicalValue, FieldDecodeError> {
-    ensure_depth(depth)?;
-    let Some(tag) = encoded.first().copied() else {
+    let (value, end) = decode_canonical_value_at(encoded, 0, depth)?;
+    if end != encoded.len() {
         return Err(FieldDecodeError::new());
-    };
+    }
+    Ok(value)
+}
 
+// Root validation proves the envelope once. Recursive materialization advances
+// the cursor directly instead of re-skipping every descendant at each ancestor.
+fn decode_canonical_value_at(
+    encoded: &[u8],
+    offset: usize,
+    depth: u16,
+) -> Result<(CanonicalValue, usize), FieldDecodeError> {
+    ensure_depth(depth)?;
+    let tag = *encoded.get(offset).ok_or_else(FieldDecodeError::new)?;
     if tag == VALUE_BINARY_TAG_ENUM {
-        return decode_canonical_enum_value(encoded, |payload| {
+        let end = canonical_enum_end(encoded, offset)?;
+        let value = decode_canonical_enum_value(&encoded[offset..end], |payload| {
             decode_canonical_value_storage(payload, depth.saturating_add(1))
                 .map_err(|_| CanonicalEnumWireError::PayloadCodec)
         })
         .map(|value| CanonicalValue::Enum(crate::value::ValueEnum::from_canonical(value)))
-        .map_err(|_| FieldDecodeError::new());
-    }
-    if tag == TAG_LIST {
-        return decode_canonical_list(encoded, depth).map(CanonicalValue::List);
-    }
-    if tag == TAG_MAP {
-        return decode_canonical_map(encoded, depth).map(CanonicalValue::Map);
-    }
-
-    decode_value_storage_scalar_bytes(encoded)
-}
-
-fn decode_canonical_list(
-    encoded: &[u8],
-    depth: u16,
-) -> Result<Vec<CanonicalValue>, FieldDecodeError> {
-    let (_, len, mut cursor) = canonical_collection_head(encoded, TAG_LIST)?;
-    let mut items = Vec::new();
-    items
-        .try_reserve(usize::try_from(len).map_err(|_| FieldDecodeError::new())?)
         .map_err(|_| FieldDecodeError::new())?;
-    for _ in 0..len {
-        let start = cursor;
-        cursor = skip_canonical_value(encoded, cursor, depth.saturating_add(1))?;
-        items.push(decode_canonical_value_storage(
-            &encoded[start..cursor],
-            depth.saturating_add(1),
-        )?);
+        return Ok((value, end));
     }
-    if cursor != encoded.len() {
-        return Err(FieldDecodeError::new());
+    if tag == TAG_LIST || tag == TAG_MAP {
+        let (_, len, mut cursor) = canonical_collection_head_at(encoded, offset, tag)?;
+        let len = usize::try_from(len).map_err(|_| FieldDecodeError::new())?;
+        let child_depth = depth.saturating_add(1);
+        if tag == TAG_LIST {
+            let mut items = Vec::new();
+            items
+                .try_reserve(len)
+                .map_err(|_| FieldDecodeError::new())?;
+            for _ in 0..len {
+                let (value, end) = decode_canonical_value_at(encoded, cursor, child_depth)?;
+                items.push(value);
+                cursor = end;
+            }
+            return Ok((CanonicalValue::List(items), cursor));
+        }
+        let mut entries = Vec::new();
+        entries
+            .try_reserve(len)
+            .map_err(|_| FieldDecodeError::new())?;
+        for _ in 0..len {
+            let (key, end) = decode_canonical_value_at(encoded, cursor, child_depth)?;
+            let (value, end) = decode_canonical_value_at(encoded, end, child_depth)?;
+            entries.push((key, value));
+            cursor = end;
+        }
+        return Ok((CanonicalValue::Map(entries), cursor));
     }
-    Ok(items)
-}
-
-fn decode_canonical_map(
-    encoded: &[u8],
-    depth: u16,
-) -> Result<Vec<(CanonicalValue, CanonicalValue)>, FieldDecodeError> {
-    let (_, len, mut cursor) = canonical_collection_head(encoded, TAG_MAP)?;
-    let mut entries = Vec::new();
-    entries
-        .try_reserve(usize::try_from(len).map_err(|_| FieldDecodeError::new())?)
-        .map_err(|_| FieldDecodeError::new())?;
-    for _ in 0..len {
-        let key_start = cursor;
-        cursor = skip_canonical_value(encoded, cursor, depth.saturating_add(1))?;
-        let key =
-            decode_canonical_value_storage(&encoded[key_start..cursor], depth.saturating_add(1))?;
-        let value_start = cursor;
-        cursor = skip_canonical_value(encoded, cursor, depth.saturating_add(1))?;
-        let value =
-            decode_canonical_value_storage(&encoded[value_start..cursor], depth.saturating_add(1))?;
-        entries.push((key, value));
-    }
-    if cursor != encoded.len() {
-        return Err(FieldDecodeError::new());
-    }
-    Ok(entries)
+    let end = skip_value_storage_scalar(encoded, offset)?;
+    Ok((
+        decode_value_storage_scalar_bytes(&encoded[offset..end])?,
+        end,
+    ))
 }
 
 pub(super) fn skip_canonical_value(
@@ -273,6 +262,21 @@ fn skip_canonical_enum(
     offset: usize,
     depth: u16,
 ) -> Result<usize, FieldDecodeError> {
+    let end = canonical_enum_end(encoded, offset)?;
+    let value = encoded.get(offset..end).ok_or_else(FieldDecodeError::new)?;
+    decode_canonical_enum_value(value, |payload| {
+        let payload_end = skip_canonical_value(payload, 0, depth.saturating_add(1))
+            .map_err(|_| CanonicalEnumWireError::PayloadCodec)?;
+        if payload_end != payload.len() {
+            return Err(CanonicalEnumWireError::PayloadCodec);
+        }
+        Ok(())
+    })
+    .map_err(|_| FieldDecodeError::new())?;
+    Ok(end)
+}
+
+fn canonical_enum_end(encoded: &[u8], offset: usize) -> Result<usize, FieldDecodeError> {
     let header_end = offset
         .checked_add(CANONICAL_ENUM_HEADER_BYTES)
         .ok_or_else(FieldDecodeError::new)?;
@@ -287,24 +291,8 @@ fn skip_canonical_enum(
     let end = header_end
         .checked_add(usize::try_from(payload_len).map_err(|_| FieldDecodeError::new())?)
         .ok_or_else(FieldDecodeError::new)?;
-    let value = encoded.get(offset..end).ok_or_else(FieldDecodeError::new)?;
-    decode_canonical_enum_value(value, |payload| {
-        let payload_end = skip_canonical_value(payload, 0, depth.saturating_add(1))
-            .map_err(|_| CanonicalEnumWireError::PayloadCodec)?;
-        if payload_end != payload.len() {
-            return Err(CanonicalEnumWireError::PayloadCodec);
-        }
-        Ok(())
-    })
-    .map_err(|_| FieldDecodeError::new())?;
+    encoded.get(offset..end).ok_or_else(FieldDecodeError::new)?;
     Ok(end)
-}
-
-fn canonical_collection_head(
-    encoded: &[u8],
-    expected_tag: u8,
-) -> Result<(u8, u32, usize), FieldDecodeError> {
-    canonical_collection_head_at(encoded, 0, expected_tag)
 }
 
 fn canonical_collection_head_at(
@@ -357,6 +345,26 @@ mod tests {
             value = CanonicalValue::List(vec![value]);
         }
         value
+    }
+
+    #[test]
+    fn canonical_materialization_preserves_deep_mixed_containers() {
+        let mut value = CanonicalValue::List(vec![CanonicalValue::Bool(true); 128]);
+        for depth in 0..60 {
+            value = match depth % 3 {
+                0 => CanonicalValue::List(vec![value]),
+                1 => CanonicalValue::Map(vec![(CanonicalValue::Text("key".into()), value)]),
+                _ => canonical_enum(Some(value)),
+            };
+        }
+        let bytes = encode_canonical_value_storage_bytes(&value).unwrap();
+        assert_eq!(decode_canonical_value_storage_bytes(&bytes).unwrap(), value);
+        for end in 0..bytes.len() {
+            assert!(decode_canonical_value_storage_bytes(&bytes[..end]).is_err());
+        }
+        let mut trailing = bytes;
+        trailing.push(TAG_NULL);
+        assert!(decode_canonical_value_storage_bytes(&trailing).is_err());
     }
 
     #[test]

@@ -9,7 +9,7 @@ use crate::prelude::*;
 /// Def
 ///
 /// the default gets overridden after the initial darling::from_list() call
-/// the schema doesn't care about the generics as they're not useful as static text
+/// Schema declarations are concrete types; generic parameters are rejected before emission.
 ///
 
 #[derive(Debug, Default)]
@@ -19,6 +19,23 @@ pub struct Def {
 }
 
 impl Def {
+    /// Refuse authored state that generated schema types cannot preserve.
+    pub(crate) fn validate_declaration(item: &ItemStruct) -> Result<(), DarlingError> {
+        if !item.generics.params.is_empty() {
+            return Err(DarlingError::custom(
+                "schema declarations must not have generic parameters",
+            )
+            .with_span(&item.generics));
+        }
+        if !item.fields.is_empty() {
+            return Err(DarlingError::custom(
+                "schema declarations must have empty bodies; declare fields in the macro arguments",
+            )
+            .with_span(&item.fields));
+        }
+        Ok(())
+    }
+
     /// Build one derive-side definition wrapper from the parsed item.
     #[must_use]
     pub const fn new(item: ItemStruct, paths: CratePaths) -> Self {
@@ -28,16 +45,13 @@ impl Def {
         }
     }
 
-    /// Preserve authored documentation and lint scope on the main generated type.
+    /// Preserve authored outer attributes on the main generated type.
+    /// Only the macro's own debug switch is consumed instead of forwarded.
     pub(crate) fn type_attributes(&self) -> impl Iterator<Item = &syn::Attribute> {
         self.item
             .iter()
             .flat_map(|item| &item.attrs)
-            .filter(|attr| {
-                ["doc", "allow", "warn", "deny", "forbid", "expect"]
-                    .iter()
-                    .any(|name| attr.path().is_ident(name))
-            })
+            .filter(|attr| !attr.path().is_ident("debug"))
     }
 
     /// Return the invocation paths attached before validation and emission.
@@ -72,6 +86,89 @@ impl HasSchemaPart for Def {
         // quote
         quote! {
             #model::node::Def::new(module_path!(), #ident)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Def;
+
+    #[test]
+    fn schema_declarations_reject_authored_fields_before_emission() {
+        for item in [
+            syn::parse_quote!(
+                pub struct Empty {}
+            ),
+            syn::parse_quote!(
+                pub struct Empty();
+            ),
+            syn::parse_quote!(
+                pub struct Empty;
+            ),
+        ] {
+            assert!(Def::validate_declaration(&item).is_ok());
+        }
+        for item in [
+            syn::parse_quote!(
+                pub struct Named {
+                    pub note: String,
+                }
+            ),
+            syn::parse_quote!(
+                pub struct Private {
+                    note: String,
+                }
+            ),
+            syn::parse_quote!(
+                pub struct Tuple(pub String, u64);
+            ),
+        ] {
+            let error = Def::validate_declaration(&item).unwrap_err();
+            assert_eq!(error.len(), 1);
+            assert!(!error.write_errors().is_empty());
+        }
+    }
+
+    #[test]
+    fn schema_declarations_reject_generic_parameters_before_emission() {
+        for item in [
+            syn::parse_quote!(
+                pub struct Concrete {}
+            ),
+            syn::parse_quote!(
+                pub struct Concrete;
+            ),
+            syn::parse_quote!(
+                pub struct Concrete
+                where
+                    String: Clone, {}
+            ),
+        ] {
+            assert!(Def::validate_declaration(&item).is_ok());
+        }
+        for item in [
+            syn::parse_quote!(
+                pub struct Generic<T> {}
+            ),
+            syn::parse_quote!(
+                pub struct Generic<'a> {}
+            ),
+            syn::parse_quote!(
+                pub struct Generic<const N: usize> {}
+            ),
+            syn::parse_quote!(
+                pub struct Generic<T: Clone = String> {}
+            ),
+            syn::parse_quote!(
+                pub struct Generic<T>
+                where
+                    T: Clone, {}
+            ),
+        ] {
+            let error = Def::validate_declaration(&item).unwrap_err();
+            assert_eq!(error.len(), 1);
+            assert!(!error.write_errors().is_empty());
         }
     }
 }

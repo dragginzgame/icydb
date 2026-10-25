@@ -15,10 +15,7 @@ use crate::{
         codec::{write_hash_str_u32, write_hash_tag_u8, write_hash_u32},
         predicate::{Predicate, hash_predicate as hash_model_predicate},
         query::{
-            builder::scalar_projection::write_scalar_projection_expr_plan_label,
-            fingerprint::projection_hash::{
-                admission::admit_expr_hash, hash_scalar_filter_expr_structural_fingerprint,
-            },
+            fingerprint::projection_hash::{admission::admit_expr_hash, hash_expr},
             plan::{OrderDirection, OrderSpec, QueryMode, expr::Expr},
         },
         resource::construction::ConstructionBudget,
@@ -28,7 +25,7 @@ use crate::{
 };
 use icydb_diagnostic_code::DiagnosticExecutionBudgetResource as Resource;
 use sha2::{Digest, Sha256};
-use std::{borrow::Cow, ops::Bound};
+use std::ops::Bound;
 
 pub(in crate::db::query) use profile::hash_continuation_with_projection;
 
@@ -132,7 +129,7 @@ pub(super) fn hash_scalar_semantic_filter(
     if let Some(filter_expr) = filter_expr {
         admit_expr_hash(filter_expr, budget)?;
         write_tag(hasher, FILTER_EXPR_PRESENT_TAG);
-        hash_scalar_filter_expr_structural_fingerprint(hasher, filter_expr)?;
+        hash_expr(hasher, filter_expr)?;
 
         return Ok(());
     }
@@ -140,8 +137,7 @@ pub(super) fn hash_scalar_semantic_filter(
     hash_predicate(hasher, predicate, budget)
 }
 
-// Keep the length-prefixed label identity, borrowing direct fields and admitting
-// expression output/scratch through the same sink as ordinary preparation.
+// Order identity includes typed literals and expression structure, not display text.
 pub(super) fn hash_order_spec(
     hasher: &mut Sha256,
     order: Option<&OrderSpec>,
@@ -155,28 +151,20 @@ pub(super) fn hash_order_spec(
     write_u32(hasher, order.fields.len() as u32);
     for term in &order.fields {
         budget.charge(Resource::PredicateExpressionSteps, 1)?;
-        write_expr_label(hasher, term.expr(), budget)?;
+        write_expr_identity(hasher, term.expr(), budget)?;
         write_tag(hasher, order_direction_tag(term.direction()));
     }
     Ok(())
 }
 
-/// Hash one canonical label, retaining only this expression's admitted output.
-/// Direct fields borrow their names; all other expressions use the shared sink.
-pub(in crate::db::query::fingerprint) fn write_expr_label(
+/// Admit and hash one expression through the shared typed semantic encoder.
+pub(in crate::db::query::fingerprint) fn write_expr_identity(
     hasher: &mut Sha256,
     expr: &Expr,
     budget: &dyn ConstructionBudget,
 ) -> Result<(), InternalError> {
-    let label = match expr {
-        Expr::Field(field) => Cow::Borrowed(field.as_str()),
-        _ => Cow::Owned(
-            budget.render_text(|out| write_scalar_projection_expr_plan_label(expr, out))?,
-        ),
-    };
-    budget.charge(Resource::PredicateExpressionSteps, label.len() as u64)?;
-    write_str(hasher, &label);
-    Ok(())
+    admit_expr_hash(expr, budget)?;
+    hash_expr(hasher, expr)
 }
 
 ///

@@ -3,11 +3,13 @@ mod expression;
 use crate::{
     db::{
         QueryError, RequestExecutionRoot,
-        codec::{new_hash_sha256, write_hash_str_u32, write_hash_tag_u8, write_hash_u32},
+        codec::{new_hash_sha256, write_hash_tag_u8, write_hash_u32},
         predicate::MissingRowPolicy,
         query::{
             builder::sum,
-            fingerprint::{finalize_sha256_digest, hash_sections::hash_order_spec},
+            fingerprint::{
+                finalize_sha256_digest, hash_sections::hash_order_spec, projection_hash::hash_expr,
+            },
             plan::{
                 AccessPlannedQuery, LogicalPlan, OrderDirection, OrderSpec, OrderTerm,
                 expr::{CaseWhenArm, Expr},
@@ -23,16 +25,16 @@ use icydb_diagnostic_code::{
     DiagnosticFactTag,
 };
 
-// Freeze the maintained length-prefix/tag grammar independently of admission.
-fn expected_hash(labels: &[(&str, OrderDirection)]) -> [u8; 32] {
+// Pin section/direction framing around the canonical typed expression encoder.
+fn expected_hash(order: &OrderSpec) -> [u8; 32] {
     let mut hasher = new_hash_sha256();
     write_hash_tag_u8(&mut hasher, 0x31);
-    write_hash_u32(&mut hasher, u32::try_from(labels.len()).unwrap());
-    for (label, direction) in labels {
-        write_hash_str_u32(&mut hasher, label);
+    write_hash_u32(&mut hasher, u32::try_from(order.fields.len()).unwrap());
+    for term in &order.fields {
+        hash_expr(&mut hasher, term.expr()).unwrap();
         write_hash_tag_u8(
             &mut hasher,
-            match direction {
+            match term.direction() {
                 OrderDirection::Asc => 0x01,
                 OrderDirection::Desc => 0x02,
             },
@@ -68,10 +70,7 @@ fn order_identity_preserves_empty_source_and_term_order_contracts() {
             OrderTerm::field("amount", OrderDirection::Desc),
         ],
     };
-    let expected = expected_hash(&[
-        ("owner_λ", OrderDirection::Asc),
-        ("amount", OrderDirection::Desc),
-    ]);
+    let expected = expected_hash(&order);
     assert_eq!(hash_spec(Some(&order)), expected);
     order.fields.reverse();
     assert_ne!(hash_spec(Some(&order)), expected);
@@ -81,24 +80,24 @@ fn order_identity_preserves_empty_source_and_term_order_contracts() {
 }
 
 #[test]
-fn direct_order_labels_need_no_temporary_backing() {
+fn direct_order_identity_needs_no_temporary_backing() {
     let order = OrderSpec {
         fields: vec![OrderTerm::field("账户", OrderDirection::Desc)],
     };
     let root = request_with_limit(Resource::TemporaryBytes, 0);
     assert_eq!(
         admitted_hash(&order, &root, Lane::PublicRead).unwrap(),
-        expected_hash(&[("账户", OrderDirection::Desc)])
+        expected_hash(&order)
     );
     assert_eq!(root.observed(Resource::TemporaryBytes), 0);
     assert_eq!(
         root.observed(Resource::PredicateExpressionSteps),
-        1 + "账户".len() as u64
+        1 + 32 + "账户".len() as u64
     );
 }
 
 #[test]
-fn expression_order_hashing_preserves_bytes_under_exact_and_cumulative_admission() {
+fn expression_order_hashing_preserves_identity_under_exact_and_cumulative_admission() {
     let order = OrderSpec {
         fields: vec![
             OrderTerm::field("owner_λ", OrderDirection::Asc),
@@ -121,17 +120,15 @@ fn expression_order_hashing_preserves_bytes_under_exact_and_cumulative_admission
         ],
     };
     let before = order.clone();
-    let expected = expected_hash(&[
-        ("owner_λ", OrderDirection::Asc),
-        (
-            "CASE WHEN TRUE THEN SUM(DISTINCT amount) FILTER (WHERE FALSE) ELSE 18446744073709551616 END",
-            OrderDirection::Desc,
-        ),
-    ]);
+    let expected = expected_hash(&order);
     for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
         let measured = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         assert_eq!(admitted_hash(&order, &measured, lane).unwrap(), expected);
-        for resource in [Resource::TemporaryBytes, Resource::PredicateExpressionSteps] {
+        assert_eq!(measured.observed(Resource::TemporaryBytes), 0);
+        for resource in [
+            Resource::NestedValueSteps,
+            Resource::PredicateExpressionSteps,
+        ] {
             let exact = measured.observed(resource);
             assert!(exact > 0);
             for limit in [exact - 1, exact, 2 * exact] {
@@ -162,7 +159,7 @@ fn expression_order_hashing_preserves_bytes_under_exact_and_cumulative_admission
 }
 
 #[test]
-fn order_format_failure_cannot_publish_a_continuation() {
+fn order_hash_failure_cannot_publish_a_continuation() {
     let mut plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
     let LogicalPlan::Scalar(scalar) = &mut plan.logical else {
         unreachable!()
@@ -185,8 +182,8 @@ fn order_format_failure_cannot_publish_a_continuation() {
         DiagnosticFactTag::BudgetResource,
         Resource::TemporaryBytes.raw()
     )));
-    // The first output byte is rejected before publishing a continuation.
-    assert_eq!(root.observed(Resource::TemporaryBytes), 4);
+    // Typed-value admission fails before publishing a continuation.
+    assert!(root.observed(Resource::TemporaryBytes) > 0);
     let root = request_with_limit(Resource::TemporaryBytes, 16_000_000);
     let expected =
         with_preparation_work(|work| plan.continuation_signature("tests::Entity", work)).unwrap();

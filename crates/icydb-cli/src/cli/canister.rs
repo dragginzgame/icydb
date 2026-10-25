@@ -23,8 +23,14 @@ pub(crate) enum CanisterCommand {
     List(EnvironmentTarget),
     /// Deploy the canister, preserving stable memory on existing installs.
     Deploy(CanisterTarget),
-    /// Refresh the selected ICP canister and reload fixtures when available.
-    Refresh(CanisterTarget),
+    /// Erase stable memory by reinstalling the selected canister, then reload fixtures.
+    Refresh {
+        #[command(flatten)]
+        target: CanisterTarget,
+        /// Confirm erasing stable memory in the selected environment.
+        #[arg(long, required = true)]
+        yes: bool,
+    },
     /// Build and upgrade the canister without resetting stable memory.
     Upgrade(UpgradeArgs),
     /// Show icp-cli status for the selected canister.

@@ -181,3 +181,31 @@ fn accepted_relation_null_filtering_still_checks_following_items() {
     .unwrap();
     assert_accepted_rejects(&relation, &invalid);
 }
+
+#[test]
+fn accepted_recursive_materialization_preserves_deep_siblings_and_boundaries() {
+    let mut kind = AcceptedFieldKind::Bool;
+    let mut value = Value::Bool(true);
+    for depth in 0..62 {
+        if depth % 2 == 0 {
+            kind = AcceptedFieldKind::List(Box::new(kind));
+            value = Value::List(vec![value]);
+        } else {
+            kind = AcceptedFieldKind::Map {
+                key: Box::new(AcceptedFieldKind::Bool),
+                value: Box::new(kind),
+            };
+            value = Value::Map(vec![(Value::Bool(false), value)]);
+        }
+    }
+    let bytes = encode_structural_field_by_accepted_kind_bytes(&kind, &value).unwrap();
+    assert_accepted_roundtrip(&kind, &value);
+    for end in 0..bytes.len() {
+        assert_accepted_rejects(&kind, &bytes[..end]);
+    }
+    let mut trailing = bytes.clone();
+    trailing.push(0);
+    assert_accepted_rejects(&kind, &trailing);
+    let wrong_kind = AcceptedFieldKind::List(Box::new(AcceptedFieldKind::Bool));
+    assert_accepted_rejects(&wrong_kind, &bytes);
+}

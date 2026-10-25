@@ -42,7 +42,12 @@ fn run_canister_command(command: CanisterCommand) -> Result<(), String> {
     match command {
         CanisterCommand::List(args) => list_canisters(args.environment()),
         CanisterCommand::Deploy(target) => run_canister_target(&target, deploy_canister),
-        CanisterCommand::Refresh(target) => run_canister_target(&target, refresh_canister),
+        CanisterCommand::Refresh { target, yes } => {
+            if !yes {
+                return Err("canister refresh requires --yes to erase stable memory".to_string());
+            }
+            run_canister_target(&target, refresh_canister)
+        }
         CanisterCommand::Upgrade(args) => {
             run_canister_target(args.target(), |environment, canister| {
                 upgrade_canister(environment, canister, args.wasm())

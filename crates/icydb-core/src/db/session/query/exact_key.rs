@@ -24,7 +24,7 @@ use crate::{
 use icydb_diagnostic_code::{
     DiagnosticExecutionBudgetResource, DiagnosticExecutionBudgetScope, DiagnosticExecutionLane,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, btree_map::Entry};
 
 /// Maximum caller positions in one typed exact-key batch.
 pub const MAX_TYPED_EXACT_KEY_BATCH_ITEMS: usize = 1_024;
@@ -261,13 +261,16 @@ fn lower_exact_keys(
     keys: &[PrimaryKeyValue],
     budget: &mut HardExecutionBudgetTracker,
 ) -> Result<LoweredExactKeys, QueryError> {
-    let mut distinct_by_raw = BTreeMap::new();
-    let mut distinct_keys = Vec::new();
+    let mut distinct_by_raw: BTreeMap<RawDataStoreKey, (usize, DecodedDataStoreKey)> =
+        BTreeMap::new();
     let mut positions = Vec::with_capacity(keys.len());
     let mut input_bytes = 0_usize;
     for primary_key in keys {
         let data_key = DecodedDataStoreKey::new(entity_tag, primary_key);
-        let raw_key = data_key.to_raw().map_err(QueryError::execute)?;
+        // Projection needs decoded identity only; leave its raw cache empty.
+        let raw_key = data_key
+            .to_raw_compact_key_error()
+            .map_err(|_| QueryError::execute(InternalError::serialize_unsupported()))?;
         let exact_charge = checked_add_bytes(
             &mut input_bytes,
             raw_key.as_bytes().len(),
@@ -281,13 +284,13 @@ fn lower_exact_keys(
             );
             return Err(QueryError::execute(error));
         }
-        let index = if let Some(index) = distinct_by_raw.get(&raw_key) {
-            *index
-        } else {
-            let index = distinct_keys.len();
-            distinct_by_raw.insert(raw_key.clone(), index);
-            distinct_keys.push((data_key, raw_key));
-            index
+        let next_index = distinct_by_raw.len();
+        let index = match distinct_by_raw.entry(raw_key) {
+            Entry::Occupied(entry) => entry.get().0,
+            Entry::Vacant(entry) => {
+                entry.insert((next_index, data_key));
+                next_index
+            }
         };
         positions.push(
             u32::try_from(index)
@@ -300,8 +303,18 @@ fn lower_exact_keys(
             usize_as_u64(input_bytes),
         )
         .map_err(budget_error)?;
+    // Move the map's sole raw-key ownership into first-occurrence order.
+    // Integer ordinals preserve caller positions independently of key order.
+    let mut distinct_keys = distinct_by_raw
+        .into_iter()
+        .map(|(raw, (index, key))| (index, key, raw))
+        .collect::<Vec<_>>();
+    distinct_keys.sort_unstable_by_key(|(index, _, _)| *index);
     Ok(LoweredExactKeys {
-        distinct: distinct_keys,
+        distinct: distinct_keys
+            .into_iter()
+            .map(|(_, key, raw)| (key, raw))
+            .collect(),
         positions,
     })
 }
@@ -584,15 +597,29 @@ mod tests {
             ),
         );
 
-        let lowered = lower_exact_keys(
-            crate::types::EntityTag::new(9),
-            &[first, second, first],
-            &mut budget,
-        )
-        .expect("composite exact keys should lower through the concrete boundary");
+        let entity = crate::types::EntityTag::new(9);
+        // Reverse canonical order makes accidental map-order output visible.
+        let inputs = [second, first, second];
+        let lowered = lower_exact_keys(entity, &inputs, &mut budget)
+            .expect("composite exact keys should lower through the concrete boundary");
 
         assert_eq!(lowered.positions, vec![0, 1, 0]);
         assert_eq!(lowered.distinct.len(), 2);
-        assert_ne!(lowered.distinct[0].1, lowered.distinct[1].1);
+        for (position, expected) in inputs.iter().enumerate() {
+            let (key, raw) = &lowered.distinct[lowered.positions[position] as usize];
+            assert_eq!(key.primary_key_value(), *expected);
+            assert_eq!(key.entity_tag(), entity);
+            assert_eq!(
+                raw,
+                &DecodedDataStoreKey::new(entity, expected).to_raw().unwrap()
+            );
+        }
+        let repeated = vec![first; MAX_TYPED_EXACT_KEY_BATCH_ITEMS];
+        let lowered = lower_exact_keys(entity, &repeated, &mut budget).unwrap();
+        assert_eq!(lowered.distinct.len(), 1);
+        assert_eq!(lowered.positions, vec![0; repeated.len()]);
+        let empty = lower_exact_keys(entity, &[], &mut budget).unwrap();
+        assert!(empty.distinct.is_empty());
+        assert!(empty.positions.is_empty());
     }
 }

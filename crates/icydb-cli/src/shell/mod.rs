@@ -102,7 +102,7 @@ const fn sql_endpoint(call_kind: route::SqlShellCallKind) -> Endpoint {
 fn render_sql_response(endpoint: Endpoint, wire_bytes: &[u8]) -> Result<String, String> {
     let response = endpoint
         .decode_response::<Result<SqlQueryResult, icydb::Error>>(wire_bytes)
-        .map_err(|err| err.to_string())?;
+        .map_err(|error| crate::diagnostic::render_wire_decode_error(endpoint, error))?;
 
     match response {
         Ok(result) => Ok(render::render_text(&result)),

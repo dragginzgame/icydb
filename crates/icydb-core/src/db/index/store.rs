@@ -20,7 +20,7 @@ use crate::db::{
 
 use crate::error::InternalError;
 
-use ic_memory::{DefaultMemoryImpl, RuntimeMemory};
+use ic_memory::{DefaultMemoryImpl, Memory, RuntimeMemory};
 use ic_storage::adapter::StableBTreeMap;
 use serde::Deserialize;
 #[cfg(test)]
@@ -145,9 +145,18 @@ impl IndexStore {
     ///
     /// Normal writes update only the live materialized projection. The
     /// canonical stable index is updated by future fold/rebuild paths.
+    ///
+    /// # Panics
+    /// Panics if retained storage has an invalid header or unsupported layout,
+    /// or the backing storage fails. Invalid retained contents are not replaced.
     #[must_use]
     pub fn init_journaled(memory: RuntimeMemory<DefaultMemoryImpl>) -> Self {
-        let canonical = StableBTreeMap::init(memory);
+        // Retained maps must never be replaced when their header is corrupt.
+        let canonical = if memory.size() == 0 {
+            StableBTreeMap::init(memory)
+        } else {
+            StableBTreeMap::load(memory)
+        };
         let prefix_cardinality = if canonical.is_empty() {
             IndexPrefixCardinality::synchronized_empty()
         } else {
@@ -934,6 +943,11 @@ mod tests {
     };
     use ic_storage::adapter::Storable;
     use std::{borrow::Cow, convert::Infallible};
+
+    #[test]
+    fn retained_store_corruption_does_not_initialize_a_replacement() {
+        crate::testing::assert_retained_store_header_preserved(IndexStore::init_journaled);
+    }
 
     fn raw_key(value: u8) -> RawIndexStoreKey {
         <RawIndexStoreKey as Storable>::from_bytes(Cow::Owned(vec![value]))

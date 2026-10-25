@@ -94,6 +94,41 @@ mod tests {
     }
 
     #[test]
+    fn continuation_order_identity_distinguishes_equal_labels_with_typed_literals() {
+        use crate::db::query::plan::{
+            OrderDirection, OrderSpec, OrderTerm,
+            expr::{BinaryOp, Expr},
+        };
+
+        let signature = |value| {
+            let mut plan = plan_with_bound_value("same");
+            let LogicalPlan::Scalar(scalar) = &mut plan.logical else {
+                unreachable!()
+            };
+            scalar.order = Some(OrderSpec {
+                fields: vec![OrderTerm::new(
+                    Expr::Binary {
+                        op: BinaryOp::Div,
+                        left: Box::new(Expr::Field("score".into())),
+                        right: Box::new(Expr::Literal(value)),
+                    },
+                    OrderDirection::Asc,
+                )],
+            });
+            let label = scalar.order.as_ref().unwrap().fields[0].rendered_label();
+            let signature =
+                with_preparation_work(|work| plan.continuation_signature("tests::Entity", work))
+                    .unwrap();
+            (label, signature)
+        };
+        let signed = signature(Value::Int64(2));
+        let unsigned = signature(Value::Nat64(2));
+        assert_eq!(signed.0, unsigned.0);
+        assert_ne!(signed.1, unsigned.1);
+        assert_eq!(signed, signature(Value::Int64(2)));
+    }
+
+    #[test]
     fn predicate_continuation_admission_is_cumulative_and_retryable() {
         use crate::db::{
             QueryError, RequestExecutionRoot,

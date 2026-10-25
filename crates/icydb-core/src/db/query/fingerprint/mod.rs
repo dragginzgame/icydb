@@ -10,9 +10,7 @@ mod shape_signature;
 
 use crate::db::codec::{finalize_hash_sha256, new_hash_sha256_prefixed};
 #[cfg(feature = "sql")]
-use crate::db::query::{
-    fingerprint::projection_hash::hash_scalar_filter_expr_structural_fingerprint, plan::expr::Expr,
-};
+use crate::db::query::{fingerprint::projection_hash::hash_expr, plan::expr::Expr};
 #[cfg(feature = "sql")]
 use crate::error::InternalError;
 use sha2::Sha256;
@@ -41,7 +39,7 @@ pub(in crate::db) fn resumable_update_scope_fingerprint(
     expr: &Expr,
 ) -> Result<[u8; 32], InternalError> {
     let mut hasher = new_hash_sha256_prefixed(RESUMABLE_UPDATE_SCOPE_FINGERPRINT_PROFILE_TAG);
-    hash_scalar_filter_expr_structural_fingerprint(&mut hasher, expr)?;
+    hash_expr(&mut hasher, expr)?;
 
     Ok(finalize_hash_sha256(hasher))
 }

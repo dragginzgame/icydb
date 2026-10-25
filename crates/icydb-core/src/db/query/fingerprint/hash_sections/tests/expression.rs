@@ -11,8 +11,7 @@ use crate::{
                 finalize_sha256_digest,
                 hash_sections::{grouping::hash_projection_spec, hash_scalar_semantic_filter},
                 projection_hash::{
-                    admission::admit_expr_hash, hash_projection_structural_fingerprint,
-                    hash_scalar_filter_expr_structural_fingerprint,
+                    admission::admit_expr_hash, hash_expr, hash_projection_structural_fingerprint,
                 },
             },
             plan::{
@@ -66,7 +65,7 @@ fn reference_hash(expr: &Expr, as_projection: bool) -> [u8; 32] {
         hash_projection_structural_fingerprint(&mut hasher, &projection(expr)).unwrap();
     } else {
         write_hash_tag_u8(&mut hasher, 0x21);
-        hash_scalar_filter_expr_structural_fingerprint(&mut hasher, expr).unwrap();
+        hash_expr(&mut hasher, expr).unwrap();
     }
     finalize_sha256_digest(hasher)
 }

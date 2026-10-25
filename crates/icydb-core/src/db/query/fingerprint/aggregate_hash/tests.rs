@@ -1,4 +1,4 @@
-//! Grouped aggregate identity uses planned semantics and admitted label construction.
+//! Grouped aggregate identity uses planned semantics and admitted typed expression hashing.
 
 use super::hash_group_aggregate_structural_fingerprint;
 use crate::{
@@ -7,7 +7,7 @@ use crate::{
         codec::{new_hash_sha256, write_hash_str_u32, write_hash_tag_u8},
         query::{
             builder::{AggregateExpr, count, count_by, min_by, sum},
-            fingerprint::finalize_sha256_digest,
+            fingerprint::{finalize_sha256_digest, projection_hash::hash_expr},
             plan::{AggregateKind, GroupAggregateSpec, expr::Expr},
             preparation::{PreparationWork, with_preparation_work},
         },
@@ -39,6 +39,43 @@ fn admitted_hash(
             .map_err(QueryError::execute)?;
         Ok(finalize_sha256_digest(hasher))
     })
+}
+
+#[test]
+fn aggregate_operand_identity_preserves_literal_types() {
+    use crate::db::query::plan::expr::BinaryOp;
+    for filtered in [false, true] {
+        let hash = |value| {
+            let aggregate = if filtered {
+                sum("rank").with_filter_expr(Expr::Binary {
+                    op: BinaryOp::Eq,
+                    left: Box::new(Expr::Field("rank".into())),
+                    right: Box::new(Expr::Literal(value)),
+                })
+            } else {
+                AggregateExpr::from_expression_input(AggregateKind::Sum, Expr::Literal(value))
+            };
+            admitted_hash(
+                &GroupAggregateSpec::from_aggregate_expr(aggregate),
+                &request_with_limit(Resource::TemporaryBytes, 0),
+                Lane::Diagnostic,
+            )
+            .unwrap()
+        };
+        let signed = hash(Value::Int64(2));
+        for value in [
+            Value::Nat64(2),
+            Value::Decimal(crate::types::Decimal::from(2_u64)),
+        ] {
+            if filtered {
+                assert_ne!(signed, hash(value));
+            } else {
+                // SUM canonicalizes equivalent numeric inputs before hashing.
+                assert_eq!(signed, hash(value));
+            }
+        }
+        assert_eq!(signed, hash(Value::Int64(2)));
+    }
 }
 
 #[test]
@@ -75,7 +112,7 @@ fn planned_aggregates_preserve_target_input_filter_and_distinct_framing() {
         ),
     ] {
         let aggregate = GroupAggregateSpec::from_aggregate_expr(expr);
-        // Pin the maintained framing independently of production label rendering.
+        // Pin aggregate framing around the canonical typed operand encoder.
         let mut expected = new_hash_sha256();
         write_hash_tag_u8(&mut expected, 0x01);
         write_hash_tag_u8(&mut expected, aggregate.kind().fingerprint_tag());
@@ -84,13 +121,13 @@ fn planned_aggregates_preserve_target_input_filter_and_distinct_framing() {
             write_hash_str_u32(&mut expected, target);
         }
         write_hash_tag_u8(&mut expected, if distinct { 0x02 } else { 0x03 });
-        if let Some(input) = input {
+        if input.is_some() {
             write_hash_tag_u8(&mut expected, 0x04);
-            write_hash_str_u32(&mut expected, input);
+            hash_expr(&mut expected, aggregate.input_expr().unwrap()).unwrap();
         }
         write_hash_tag_u8(&mut expected, if filter.is_some() { 0x05 } else { 0x06 });
-        if let Some(filter) = filter {
-            write_hash_str_u32(&mut expected, filter);
+        if filter.is_some() {
+            hash_expr(&mut expected, aggregate.filter_expr().unwrap()).unwrap();
         }
         assert_eq!(
             admitted_hash(
@@ -140,14 +177,14 @@ fn semantic_modifiers_operands_and_projection_order_keep_their_identity_rules() 
 }
 
 #[test]
-fn aggregate_label_admission_is_exact_cumulative_and_allocation_free_for_fields() {
+fn aggregate_expression_admission_is_exact_cumulative_and_allocation_free_for_fields() {
     let direct = GroupAggregateSpec::from_aggregate_expr(sum("账户"));
     let root = request_with_limit(Resource::TemporaryBytes, 0);
     admitted_hash(&direct, &root, Lane::PublicRead).unwrap();
     assert_eq!(root.observed(Resource::TemporaryBytes), 0);
     assert_eq!(
         root.observed(Resource::PredicateExpressionSteps),
-        1 + 2 * "账户".len() as u64
+        1 + 32 + 2 * "账户".len() as u64
     );
 
     let aggregate = GroupAggregateSpec::from_aggregate_expr(formatted_aggregate());
@@ -155,7 +192,11 @@ fn aggregate_label_admission_is_exact_cumulative_and_allocation_free_for_fields(
     for lane in [Lane::PublicRead, Lane::TrustedRead, Lane::Diagnostic] {
         let measured = request_with_limit(Resource::TemporaryBytes, 16_000_000);
         let expected = admitted_hash(&aggregate, &measured, lane).unwrap();
-        for resource in [Resource::TemporaryBytes, Resource::PredicateExpressionSteps] {
+        assert_eq!(measured.observed(Resource::TemporaryBytes), 0);
+        for resource in [
+            Resource::NestedValueSteps,
+            Resource::PredicateExpressionSteps,
+        ] {
             let exact = measured.observed(resource);
             assert!(exact > 0);
             for limit in [exact - 1, exact, 2 * exact] {
@@ -186,7 +227,7 @@ fn aggregate_label_admission_is_exact_cumulative_and_allocation_free_for_fields(
 }
 
 #[test]
-fn aggregate_label_failure_prevents_grouped_continuation_publication() {
+fn aggregate_expression_failure_prevents_grouped_continuation_publication() {
     use crate::db::{
         predicate::MissingRowPolicy,
         query::plan::{
@@ -196,7 +237,7 @@ fn aggregate_label_failure_prevents_grouped_continuation_publication() {
         schema::AcceptedFieldKind,
     };
 
-    // Exercise both the planned aggregate and missing HAVING-slot label edges.
+    // Exercise both planned and missing HAVING-slot typed operand edges.
     for missing_having_slot in [false, true] {
         let mut plan = AccessPlannedQuery::full_scan_for_test(MissingRowPolicy::Ignore);
         plan.logical = LogicalPlan::Grouped(GroupPlan {
@@ -228,17 +269,11 @@ fn aggregate_label_failure_prevents_grouped_continuation_publication() {
                 .map_err(QueryError::execute)
             })
         };
-        let rejected = request_with_limit(Resource::TemporaryBytes, 27);
-        assert!(build(&rejected).unwrap_err().diagnostic_facts().contains(&(
-            DiagnosticFactTag::BudgetResource,
-            Resource::TemporaryBytes.raw(),
-        )));
-        assert_eq!(rejected.observed(Resource::TemporaryBytes), 32);
-        let measured = request_with_limit(Resource::TemporaryBytes, 16_000_000);
+        let measured = request_with_limit(Resource::NestedValueSteps, 16_000_000);
         let expected = build(&measured).unwrap().unwrap().continuation_signature();
-        let exact = measured.observed(Resource::TemporaryBytes);
-        assert!(build(&request_with_limit(Resource::TemporaryBytes, exact - 1)).is_err());
-        let root = request_with_limit(Resource::TemporaryBytes, 2 * exact);
+        let exact = measured.observed(Resource::NestedValueSteps);
+        assert!(build(&request_with_limit(Resource::NestedValueSteps, exact - 1)).is_err());
+        let root = request_with_limit(Resource::NestedValueSteps, 2 * exact);
         for _ in 0..2 {
             assert_eq!(
                 build(&root).unwrap().unwrap().continuation_signature(),
@@ -247,7 +282,7 @@ fn aggregate_label_failure_prevents_grouped_continuation_publication() {
         }
         assert!(build(&root).is_err());
         assert_eq!(
-            build(&request_with_limit(Resource::TemporaryBytes, exact))
+            build(&request_with_limit(Resource::NestedValueSteps, exact))
                 .unwrap()
                 .unwrap()
                 .continuation_signature(),
@@ -290,8 +325,7 @@ fn aggregate_comparison_failure_prevents_grouped_continuation_publication() {
                 .map_err(QueryError::execute)
         })
     };
-    // These direct labels do not visit literal values. The matched slot's
-    // filter comparison is the nested-value admission boundary in this plan.
+    // Literal hashing and matched-slot comparison share nested-value admission.
     let rejected = request_with_limit(Resource::NestedValueSteps, 0);
     assert!(build(&rejected).unwrap_err().diagnostic_facts().contains(&(
         DiagnosticFactTag::BudgetResource,

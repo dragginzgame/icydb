@@ -26,6 +26,18 @@ use crate::{
 
 use ic_host_artifacts::artifact::{ArtifactError, read_reader};
 
+// Decode failures cannot prove version skew: corruption and a wrong endpoint
+// can fail identically. Preserve the original diagnostic and offer lockstep advice.
+pub(crate) fn render_wire_decode_error(
+    endpoint: icydb::wire::Endpoint,
+    error: icydb::wire::Error,
+) -> String {
+    format!(
+        "cannot decode {} reply: {error}. Check that the CLI and canister use matching IcyDB contracts; a different release, wrong endpoint, or malformed reply can cause this failure. No compatibility fallback was attempted.",
+        endpoint.name(),
+    )
+}
+
 #[derive(Clone, Copy)]
 struct RawDiagnosticFact {
     tag: u8,

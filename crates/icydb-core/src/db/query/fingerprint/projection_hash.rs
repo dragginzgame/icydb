@@ -69,21 +69,6 @@ pub(in crate::db::query::fingerprint) fn hash_projection_structural_fingerprint(
     Ok(())
 }
 
-///
-/// Hash one canonical scalar filter expression into the shared identity stream.
-///
-/// This is reused by fingerprint and continuation-signature hashing so those
-/// surfaces consume the same planner-owned semantic filter shape as projection
-/// hashing instead of inventing a second expression walker.
-///
-pub(in crate::db::query::fingerprint) fn hash_scalar_filter_expr_structural_fingerprint(
-    hasher: &mut Sha256,
-    expr: &Expr,
-) -> Result<(), InternalError> {
-    hash_expr(hasher, expr)?;
-    Ok(())
-}
-
 fn hash_projection_field(
     hasher: &mut Sha256,
     field: &ProjectionField,
@@ -95,7 +80,10 @@ fn hash_projection_field(
     Ok(())
 }
 
-fn hash_expr(hasher: &mut Sha256, expr: &Expr) -> Result<(), InternalError> {
+pub(in crate::db::query::fingerprint) fn hash_expr(
+    hasher: &mut Sha256,
+    expr: &Expr,
+) -> Result<(), InternalError> {
     match expr {
         Expr::Field(field) => {
             write_tag(hasher, EXPR_FIELD_TAG);

@@ -56,8 +56,11 @@ impl HasTraits for Validator {
 
 impl HasType for Validator {
     fn type_part(&self, __paths: &CratePaths) -> TokenStream {
-        let item = &self.def.item;
-
+        let mut item = self.def.item.clone();
+        if let Some(item) = &mut item {
+            // The shared emitter owns outer attributes for every node family.
+            item.attrs.clear();
+        }
         quote!(#item)
     }
 }

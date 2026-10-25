@@ -14,7 +14,7 @@ use crate::{
     },
     types::EntityTag,
 };
-use ic_memory::{DefaultMemoryImpl, RuntimeMemory};
+use ic_memory::{DefaultMemoryImpl, Memory, RuntimeMemory};
 use ic_storage::adapter::StableBTreeMap;
 #[cfg(test)]
 use std::cell::Cell;
@@ -134,9 +134,18 @@ impl DataStore {
     /// Normal writes update only the live projection. The canonical stable map
     /// is the future fold target and is not mutated by this wrapper's write
     /// methods.
+    ///
+    /// # Panics
+    /// Panics if retained storage has an invalid header or unsupported layout,
+    /// or the backing storage fails. Invalid retained contents are not replaced.
     #[must_use]
     pub fn init_journaled(memory: RuntimeMemory<DefaultMemoryImpl>) -> Self {
-        let canonical = StableBTreeMap::init(memory);
+        // Retained maps must never be replaced when their header is corrupt.
+        let canonical = if memory.size() == 0 {
+            StableBTreeMap::init(memory)
+        } else {
+            StableBTreeMap::load(memory)
+        };
         let entity_cardinality = if canonical.is_empty() {
             EntityCardinality::empty()
         } else {

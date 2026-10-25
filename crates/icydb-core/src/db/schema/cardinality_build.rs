@@ -702,7 +702,7 @@ fn collect_index_page(
                 let component = key
                     .component(component_index)
                     .ok_or_else(InternalError::store_corruption)?;
-                components.push(component.to_vec());
+                components.push(component);
                 count_digests.push(CardinalityCountDigest::for_user_index_prefix(
                     *key.index_id(),
                     components.as_slice(),

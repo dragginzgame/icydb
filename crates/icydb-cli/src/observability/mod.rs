@@ -96,7 +96,7 @@ pub(crate) fn decode_endpoint_result<T: serde::Serialize + DeserializeOwned>(
 ) -> Result<T, String> {
     let response = endpoint
         .decode_response::<Result<T, icydb::Error>>(bytes)
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| crate::diagnostic::render_wire_decode_error(endpoint, error))?;
     response.map_err(|error| {
         method_error(
             label,

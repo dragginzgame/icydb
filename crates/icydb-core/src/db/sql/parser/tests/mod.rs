@@ -5291,6 +5291,36 @@ fn parse_sql_normalization_is_case_and_whitespace_insensitive() {
 }
 
 #[test]
+fn parse_sql_counts_each_parenthesis_once_and_retains_binary_tree_bounds() {
+    let plain = parse_sql("SELECT name FROM users WHERE active").unwrap();
+    for depth in [1, 64, MAX_SQL_EXPR_DEPTH - 1] {
+        let expression = format!("{}active{}", "(".repeat(depth), ")".repeat(depth));
+        assert_eq!(
+            parse_sql(&format!("SELECT name FROM users WHERE {expression}")).unwrap(),
+            plain
+        );
+    }
+    let depth = MAX_SQL_EXPR_DEPTH;
+    let expression = format!("{}active{}", "(".repeat(depth), ")".repeat(depth));
+    assert_eq!(
+        parse_sql(&format!("SELECT name FROM users WHERE {expression}")),
+        Err(crate::db::sql_shared::sql_expr_depth_limit_error()),
+    );
+    for op in ["AND", "OR"] {
+        let expression = std::iter::repeat_n("active", MAX_SQL_EXPR_DEPTH)
+            .collect::<Vec<_>>()
+            .join(&format!(" {op} "));
+        assert!(parse_sql(&format!("SELECT name FROM users WHERE {expression}")).is_ok());
+        assert_eq!(
+            parse_sql(&format!(
+                "SELECT name FROM users WHERE {expression} {op} active"
+            )),
+            Err(crate::db::sql_shared::sql_expr_depth_limit_error()),
+        );
+    }
+}
+
+#[test]
 fn parse_sql_rejects_excessive_expression_depth() {
     let mut predicate = String::new();
     for _ in 0..140 {

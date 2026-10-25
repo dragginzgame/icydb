@@ -54,7 +54,7 @@ use crate::{
     error::InternalError,
     types::EntityTag,
 };
-use ic_memory::{DefaultMemoryImpl, RuntimeMemory};
+use ic_memory::{DefaultMemoryImpl, Memory, RuntimeMemory};
 use ic_storage::adapter::{StableBTreeMap, Storable, storable::Bound as StorableBound};
 use sha2::Digest;
 use std::borrow::Cow;
@@ -757,11 +757,22 @@ impl SchemaStore {
     ///
     /// Normal schema publication writes only the live projection. Canonical
     /// stable schema history is updated by future journal fold/recovery paths.
+    ///
+    /// # Panics
+    /// Panics if retained storage has an invalid header or unsupported layout,
+    /// or the backing storage fails. Invalid retained contents are not replaced.
     #[must_use]
     pub fn init_journaled(memory: RuntimeMemory<DefaultMemoryImpl>) -> Self {
+        // Only a virgin allocation may be initialized; retained authority must
+        // never be silently replaced when its storage header is unrecognized.
+        let canonical = if memory.size() == 0 {
+            StableBTreeMap::init(memory)
+        } else {
+            StableBTreeMap::load(memory)
+        };
         Self {
             backend: SchemaStoreBackend::Journaled {
-                canonical: StableBTreeMap::init(memory),
+                canonical,
                 live: StdBTreeMap::new(),
                 tombstones: BTreeSet::new(),
                 positions: PositionedOverlayMetadata::new(),

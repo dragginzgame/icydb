@@ -349,6 +349,41 @@ impl SchemaMigrationPlan {
         Ok(plan)
     }
 
+    /// Validate a complete authored target fragment against this migration plan.
+    ///
+    /// Uses the proposal's source-reference, closure and version rules without
+    /// requiring runtime database identities, stores or an accepted head. This
+    /// does not qualify the predecessor's retained data or authorize migration.
+    ///
+    /// # Errors
+    ///
+    /// Returns the proposal contract error for malformed inputs, missing target
+    /// definitions, version gaps, or invalid rename/transform targets.
+    pub fn validate_target_fragment(
+        &self,
+        fragment: &crate::SchemaFragment,
+    ) -> Result<(), SchemaContractError> {
+        self.validate()?;
+        fragment.validate()?;
+        let entities = fragment
+            .entities()
+            .iter()
+            .map(|entity| (entity.source_key().clone(), entity))
+            .collect();
+        let types = fragment
+            .types()
+            .iter()
+            .map(|ty| (ty.source_key().clone(), ty))
+            .collect();
+        crate::proposal::validate_proposal_closure(
+            &crate::ExpectedAcceptedHead::Empty,
+            &entities,
+            &types,
+            &[],
+        )?;
+        crate::proposal::validate_migration_plan(self, &entities, &types)
+    }
+
     /// Return the closed migration-program version.
     #[must_use]
     pub const fn program_version(&self) -> u16 {

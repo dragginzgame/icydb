@@ -9,7 +9,7 @@ mod tests;
 use crate::{
     db::{
         query::{
-            fingerprint::hash_sections::{write_expr_label, write_str, write_tag},
+            fingerprint::hash_sections::{write_expr_identity, write_str, write_tag},
             plan::GroupAggregateSpec,
         },
         resource::construction::ConstructionBudget,
@@ -28,7 +28,7 @@ const AGGREGATE_INPUT_EXPR_PRESENT_TAG: u8 = 0x04;
 const AGGREGATE_FILTER_EXPR_PRESENT_TAG: u8 = 0x05;
 const AGGREGATE_FILTER_EXPR_ABSENT_TAG: u8 = 0x06;
 
-/// Hash the planned aggregate directly, with at most one rendered operand alive.
+/// Hash the planned aggregate directly, retaining typed operand identity.
 /// Preserve the current kind/target/distinct/input/filter framing and use the
 /// planner's semantic DISTINCT rule rather than normalizing a second hash DTO.
 pub(in crate::db::query::fingerprint) fn hash_group_aggregate_structural_fingerprint(
@@ -57,11 +57,11 @@ pub(in crate::db::query::fingerprint) fn hash_group_aggregate_structural_fingerp
     );
     if let Some(input_expr) = aggregate.input_expr() {
         write_tag(hasher, AGGREGATE_INPUT_EXPR_PRESENT_TAG);
-        write_expr_label(hasher, input_expr, budget)?;
+        write_expr_identity(hasher, input_expr, budget)?;
     }
     if let Some(filter_expr) = aggregate.filter_expr() {
         write_tag(hasher, AGGREGATE_FILTER_EXPR_PRESENT_TAG);
-        write_expr_label(hasher, filter_expr, budget)?;
+        write_expr_identity(hasher, filter_expr, budget)?;
     } else {
         write_tag(hasher, AGGREGATE_FILTER_EXPR_ABSENT_TAG);
     }

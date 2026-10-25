@@ -721,8 +721,15 @@ and unresolved parameters reject before writing.
 Trusted `INSERT INTO target (field, ...) SELECT ...` is also executable. The
 source uses the maintained SELECT projection/compilation path, and its columns
 must match the target width and accepted field contracts before the write.
-The SQL mutation surface retains its staged-row and returning bounds; this
-form does not establish a new bounded source-scan policy.
+The trusted SQL mutation surface permits at most 100 INSERT rows and a 1 MiB
+encoded RETURNING response. INSERT SELECT retains smaller authored LIMIT/OFFSET
+windows and requests at most 101 source results: the extra row proves overflow
+and rejects the whole batch before publication. Sorting, DISTINCT and filtering
+may still inspect more input; this is a result-materialization bound, not a new
+source-scan guarantee. Trusted DELETE does not inherit the 100-row INSERT cap or
+its RETURNING cap; it retains the canonical structural batch limits and finite
+execution/request budgets. Use explicit bounded delete APIs when the caller
+requires a smaller candidate or response policy.
 
 Mutation ownership lives on one accepted structural write lane:
 

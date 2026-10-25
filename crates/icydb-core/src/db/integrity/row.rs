@@ -10,7 +10,7 @@ use crate::{
         commit::database_incarnation_id,
         data::{
             DecodedDataStoreKey, RawDataStoreKey, RawRow, SlotReader, StoreVisit,
-            StructuralSlotReader,
+            StructuralSlotReader, decode_data_store_key,
         },
         index::IndexEntryValue,
         integrity::{
@@ -359,7 +359,9 @@ fn inspect_one_row<C: CanisterKind>(
     limits: RowInspectionLimits,
     page: &mut RowPageAccumulator,
 ) -> Result<(), InternalError> {
-    let decoded_key = DecodedDataStoreKey::try_from_raw(raw_key);
+    // Inspection keeps only identity metadata; findings borrow the original key.
+    let decoded_key =
+        decode_data_store_key(raw_key).map(|(entity, key)| DecodedDataStoreKey::new(entity, &key));
     let oversized = raw_row.len() > MAX_ROW_BYTES as usize;
     let mut reader = if oversized {
         None

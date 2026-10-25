@@ -531,6 +531,68 @@ fn assert_relation_violation(error: &crate::error::InternalError) {
 }
 
 #[test]
+fn live_pages_reject_same_label_order_with_different_literal_types() {
+    use crate::db::div;
+    use icydb_diagnostic_code::DiagnosticFactTag;
+
+    let session = initialize();
+    session
+        .execute_trusted_dynamic_mutation_batch(
+            (1..=4)
+                .map(|id| insert_with_code(id, None, id * 3))
+                .collect(),
+        )
+        .unwrap();
+    let query = |expr| {
+        DynamicQuery::new(ENTITY_NAME)
+            .select(["id"])
+            .order_by(asc(expr))
+    };
+    let original = query(div("code", 2_u64));
+    let first = session.execute_trusted_live_page(&original, None).unwrap();
+    let cursor = first
+        .continuation
+        .as_deref()
+        .expect("four rows need a second page");
+    let second = session
+        .execute_trusted_live_page(&original, Some(cursor))
+        .unwrap();
+    assert_eq!(
+        [first.rows, second.rows].concat(),
+        (1..=4)
+            .map(|id| vec![OutputValue::nat64(id)])
+            .collect::<Vec<_>>()
+    );
+    for value in [
+        div("code", 2_i64),
+        div("code", crate::types::Decimal::from(2_u64)),
+    ] {
+        let error = session
+            .execute_trusted_live_page(&query(value), Some(cursor))
+            .unwrap_err();
+        let facts = error.diagnostic_facts();
+        assert!(
+            facts
+                .iter()
+                .any(|(tag, _)| *tag == DiagnosticFactTag::ExpectedSignaturePrefix)
+        );
+        assert!(
+            facts
+                .iter()
+                .any(|(tag, _)| *tag == DiagnosticFactTag::ActualSignaturePrefix)
+        );
+    }
+    // Rejected mismatched retries do not consume the valid continuation.
+    assert_eq!(
+        session
+            .execute_trusted_live_page(&original, Some(cursor))
+            .unwrap()
+            .continuation,
+        None
+    );
+}
+
+#[test]
 fn live_pages_finish_exact_full_windows_without_an_empty_followup() {
     for count in [0_u64, 1, 2, 3, 4, 5] {
         let session = initialize();

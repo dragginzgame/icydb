@@ -1450,11 +1450,17 @@ fn take_len_prefixed<'a>(input: &mut &'a [u8]) -> Result<&'a [u8], CompactStoreK
 }
 
 fn compare_raw_index_store_key_bytes(left: &[u8], right: &[u8]) -> Ordering {
-    let Ok(left_key) = decode_raw_index_store_key_segments(left) else {
-        return left.cmp(right);
-    };
-    let Ok(right_key) = decode_raw_index_store_key_segments(right) else {
-        return left.cmp(right);
+    // Mixing framed-byte order with semantic order creates cycles. Keep all
+    // invalid frames after valid frames, and order only invalid peers by bytes.
+    // Reading an invalid key still goes through the fallible decoder.
+    let (left_key, right_key) = match (
+        decode_raw_index_store_key_segments(left),
+        decode_raw_index_store_key_segments(right),
+    ) {
+        (Ok(left_key), Ok(right_key)) => (left_key, right_key),
+        (Ok(_), Err(_)) => return Ordering::Less,
+        (Err(_), Ok(_)) => return Ordering::Greater,
+        (Err(_), Err(_)) => return left.cmp(right),
     };
 
     left_key

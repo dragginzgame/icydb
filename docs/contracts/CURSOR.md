@@ -72,6 +72,14 @@ literal scopes. This current version-1 signature replaces the prior signature
 in place: regenerate saved continuations and recreate affected stored mutation
 jobs whose scope fingerprint includes literals. No old signature is accepted.
 
+ORDER BY and grouped aggregate input/filter expressions bind their structural
+trees and typed literal values, including unmatched HAVING aggregate expressions.
+Display labels are supplementary metadata, not semantic identity: signed,
+unsigned and decimal literals that remain distinct in the planned expression
+cannot share a continuation just because they render as `2`. Planner numeric
+normalization still precedes hashing. This uses the same typed expression encoder
+as filters and projections; stored mutation-job scope encoding is unchanged.
+
 Changing any bound fact rejects the token. Ordered boundary values are capped
 at 4 KiB across at most 32 terms; a single unrepresentable boundary fails with
 the typed terminal page-unit error rather than returning a looping cursor.

@@ -70,8 +70,13 @@ above and from resource charges for work performed during preparation.
 Node accounting includes expression/value nodes and authored names, not just
 predicates. Payload accounting includes names, strings and blobs. SQL admission
 also accounts for effective parameter copies.
-Depth measures nesting, not the number of siblings in a flat `AND`, `OR` or
-`IN`; a wide flat query can instead reach the node or payload ceiling.
+For structural n-ary predicates, depth measures nesting, not the number of
+siblings in a flat `AND`, `OR` or `IN`; those inputs can instead reach the node
+or payload ceiling. SQL retains binary expression trees: a left-associated
+`AND`/`OR` chain consumes tree depth and can reach the depth ceiling before the
+node ceiling. SQL parser recursion counts each nested parenthesis or prefix
+expression once, including the outer expression frame; redundant parentheses
+still consume this source-parser budget even though they add no stored AST node.
 
 These are input-content limits, not a complete bound on heap allocation,
 rendering, SQL parsing or endpoint deserialization. Endpoint authorization and
@@ -254,7 +259,7 @@ See [the read-intent guide](../guides/read-intent.md) for maintained examples.
 | `QueryReadAdmissionCode::DiagnosticLaneDoesNotExecute` | An explain-only lane was asked to execute. | Execute through a row-owning lane. |
 | `QueryReadAdmissionCode::ReturnedRowBoundExceedsPolicy` | The row bound exceeds 100. | Reduce the public response bound. |
 | `QueryReadAdmissionCode::PrimaryKeyInputExceedsPolicy` | Primary-key input count or bytes exceed policy. | Split the request or use authorized bounded maintenance. |
-| `QueryReadAdmissionCode::InputDepthExceeded` | Authored expression/value nesting exceeds 128 levels. | Simplify nesting; use flat boolean or membership inputs where equivalent. Trusted execution does not bypass this limit. |
+| `QueryReadAdmissionCode::InputDepthExceeded` | Authored expression/value nesting exceeds 128 levels. | Simplify nesting; use membership inputs or structural n-ary predicates where equivalent. SQL binary chains also consume tree depth. Trusted execution does not bypass this limit. |
 | `QueryReadAdmissionCode::InputNodesExceeded` | Counted input nodes across the request exceed 4,096. | Reduce query components or batch inputs with application-owned combination semantics. Trusted execution does not bypass this limit. |
 | `QueryReadAdmissionCode::InputBytesExceeded` | Counted variable input payload exceeds 2 MiB. | Reduce literal/name payload or effective repeated bindings. Trusted execution does not bypass this limit. |
 | `QueryReadAdmissionCode::ExplainDoesNotAcceptCursor` | Logical explain received a cursor, including an empty string. | Remove the cursor; explain describes the request before pagination rewrites. |

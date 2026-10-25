@@ -11,7 +11,7 @@ use crate::{
             writer::{ByteEncodeError, write_len_prefixed_bytes_le, write_len_u32_le},
         },
         commit::{CommitSchemaFingerprint, MAX_COMMIT_BYTES},
-        data::{DecodedDataStoreKey, RawDataStoreKey},
+        data::{RawDataStoreKey, decode_data_store_key},
         integrity::DatabaseIncarnationId,
         key_taxonomy::{PrimaryKeyComponent, PrimaryKeyValue},
         schema::{
@@ -1664,12 +1664,12 @@ fn validate_identity_range_row_sets(batch: &JournalBatch) -> Result<(), Internal
             JournalRecord::SchemaMigrationRowPut { .. }
             | JournalRecord::SchemaMigrationIndexPut { .. } => continue,
         };
-        let key = DecodedDataStoreKey::try_from_raw(primary_key)
-            .map_err(|_| journal_batch_corruption())?;
-        let Some(entity_ranges) = ranges.get_mut(&key.entity_tag()) else {
+        let (entity_tag, key) =
+            decode_data_store_key(primary_key).map_err(|_| journal_batch_corruption())?;
+        let Some(entity_ranges) = ranges.get_mut(&entity_tag) else {
             continue;
         };
-        let value = match key.primary_key_value() {
+        let value = match key {
             PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat64(value)) => u128::from(value),
             PrimaryKeyValue::Scalar(PrimaryKeyComponent::Nat128(value)) => value,
             _ => return Err(journal_batch_corruption()),

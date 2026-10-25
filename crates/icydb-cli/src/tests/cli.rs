@@ -434,14 +434,31 @@ fn cli_args_group_canister_status_under_canister_keyword() {
 
 #[test]
 fn cli_args_group_canister_refresh_under_canister_keyword() {
-    let args = CliArgs::try_parse_from(["icydb", "canister", "refresh", "demo", "-e", "test"])
-        .expect("canister refresh should parse");
-    let CliCommand::Canister(CanisterCommand::Refresh(target)) = args.into_command() else {
+    let args = CliArgs::try_parse_from([
+        "icydb", "canister", "refresh", "demo", "-e", "test", "--yes",
+    ])
+    .expect("canister refresh should parse");
+    let CliCommand::Canister(CanisterCommand::Refresh { target, yes }) = args.into_command() else {
         panic!("expected canister refresh command");
     };
 
+    assert!(yes);
     assert_eq!(target.canister_name(), "demo");
     assert_eq!(target.environment(), "test");
+    for environment in ["local", "demo", "ic"] {
+        let error =
+            CliArgs::try_parse_from(["icydb", "canister", "refresh", "demo", "-e", environment])
+                .unwrap_err();
+        assert_eq!(
+            error.kind(),
+            clap::error::ErrorKind::MissingRequiredArgument
+        );
+    }
+    let error = CliArgs::try_parse_from(["icydb", "canister", "refresh", "demo"]).unwrap_err();
+    assert_eq!(
+        error.kind(),
+        clap::error::ErrorKind::MissingRequiredArgument
+    );
 }
 
 #[test]

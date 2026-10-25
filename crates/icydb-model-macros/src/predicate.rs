@@ -97,7 +97,33 @@ pub(crate) fn parse(sql: &str) -> Result<Predicate, DarlingError> {
             "generated schema predicate contains unsupported trailing syntax",
         ));
     }
+    validate_lowered_depth(&predicate, 1)?;
     Ok(predicate)
+}
+
+// Parser recursion bounds authored nesting; the accepted tree also contains
+// Boolean joins and the implicit comparison group emitted for membership.
+// Check that shape before handing the proposal to runtime schema acceptance.
+fn validate_lowered_depth(predicate: &Predicate, depth: usize) -> Result<(), DarlingError> {
+    match predicate {
+        Predicate::And(children) | Predicate::Or(children) => {
+            let child_depth = descend(depth)?;
+            for child in children {
+                validate_lowered_depth(child, child_depth)?;
+            }
+        }
+        Predicate::Not(inner) => validate_lowered_depth(inner, descend(depth)?)?,
+        Predicate::In {
+            values, negated, ..
+        } => {
+            let depth = if *negated { descend(depth)? } else { depth };
+            if values.len() > 1 {
+                let _ = descend(depth)?;
+            }
+        }
+        Predicate::Bool(_) | Predicate::Compare { .. } | Predicate::IsNull { .. } => {}
+    }
+    Ok(())
 }
 
 /// Collect every field referenced by one parsed predicate.
@@ -633,6 +659,34 @@ mod tests {
                 .is_ok()
             );
         }
+    }
+
+    #[test]
+    fn lowered_boolean_and_membership_groups_count_toward_depth() {
+        for join in ["AND", "OR"] {
+            for suffix in [
+                "active = true",
+                "id IN (1)",
+                "id IN (1, 2)",
+                "id NOT IN (1, 2)",
+            ] {
+                let implicit_levels = match suffix {
+                    "id IN (1, 2)" => 1,
+                    "id NOT IN (1, 2)" => 2,
+                    _ => 0,
+                };
+                let admitted_nots = super::MAX_PREDICATE_DEPTH - 2 - implicit_levels;
+                let admitted = format!("id = 0 {join} {}{suffix}", "NOT ".repeat(admitted_nots));
+                let rejected =
+                    format!("id = 0 {join} {}{suffix}", "NOT ".repeat(admitted_nots + 1));
+                assert!(parse(&admitted).is_ok(), "{admitted}");
+                assert!(parse(&rejected).is_err(), "{rejected}");
+            }
+        }
+        // Membership lowers to a flattened comparison group, not a binary
+        // chain whose depth grows with the number of items.
+        let values = (0..64).map(|n| n.to_string()).collect::<Vec<_>>().join(",");
+        assert!(parse(&format!("id IN ({values})")).is_ok());
     }
 
     #[test]

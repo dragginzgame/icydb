@@ -11,6 +11,7 @@ use crate::{
     error::InternalError,
     value::Value,
 };
+use std::borrow::Cow;
 
 ///
 /// GroupedAggregateReducerState
@@ -119,10 +120,13 @@ impl GroupedAggregateReducerState {
     // Apply one expression MIN reducer update using expression-value ordering.
     pub(in crate::db::executor::aggregate::contracts::state) fn ingest_min_value(
         &mut self,
-        value: Value,
+        value: Cow<'_, Value>,
     ) -> Result<(), InternalError> {
         match self {
-            Self::Min(reducer) => reducer.ingest_owned(value),
+            Self::Min(reducer) => match value {
+                Cow::Borrowed(value) => reducer.ingest(value),
+                Cow::Owned(value) => reducer.ingest_owned(value),
+            },
             _ => Err(InternalError::query_executor_invariant()),
         }
     }
@@ -130,10 +134,13 @@ impl GroupedAggregateReducerState {
     // Apply one expression MAX reducer update using expression-value ordering.
     pub(in crate::db::executor::aggregate::contracts::state) fn ingest_max_value(
         &mut self,
-        value: Value,
+        value: Cow<'_, Value>,
     ) -> Result<(), InternalError> {
         match self {
-            Self::Max(reducer) => reducer.ingest_owned(value),
+            Self::Max(reducer) => match value {
+                Cow::Borrowed(value) => reducer.ingest(value),
+                Cow::Owned(value) => reducer.ingest_owned(value),
+            },
             _ => Err(InternalError::query_executor_invariant()),
         }
     }

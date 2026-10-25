@@ -8,8 +8,8 @@ use crate::{
         data::structural_field::{
             FieldDecodeError,
             binary::{
-                push_binary_list_len, push_binary_map_len, walk_binary_list_items,
-                walk_binary_map_entries,
+                TAG_LIST, TAG_MAP, TAG_NULL, parse_binary_head, push_binary_list_len,
+                push_binary_map_len, skip_binary_value,
             },
             leaf::{decode_leaf_field_by_kind_bytes, push_leaf_field_binary_bytes},
             scalar::{
@@ -28,52 +28,72 @@ pub(in crate::db) fn decode_structural_field_by_accepted_kind_bytes(
     raw_bytes: &[u8],
     kind: &AcceptedFieldKind,
 ) -> Result<Value, FieldDecodeError> {
-    if let Some(value) = decode_scalar_fast_path_bytes(raw_bytes, kind)? {
-        return Ok(value);
+    let (value, end) = decode_accepted_value_at(raw_bytes, 0, kind)?;
+    if end != raw_bytes.len() {
+        return Err(FieldDecodeError::new());
     }
-    if let Some(value) = decode_leaf_field_by_kind_bytes(raw_bytes, kind)? {
-        return Ok(value);
-    }
+    Ok(value)
+}
 
-    match kind {
-        AcceptedFieldKind::Composite { .. } | AcceptedFieldKind::Enum { .. } => {
-            Err(FieldDecodeError::new())
-        }
-        AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => {
-            decode_accepted_list_bytes(raw_bytes, inner.as_ref())
-        }
-        AcceptedFieldKind::Map { key, value } => {
-            decode_accepted_map_bytes(raw_bytes, key.as_ref(), value.as_ref())
-        }
-        AcceptedFieldKind::Relation { key_kind, .. } => {
-            decode_structural_field_by_accepted_kind_bytes(raw_bytes, key_kind.as_ref())
-        }
-        AcceptedFieldKind::Account
-        | AcceptedFieldKind::Blob { .. }
-        | AcceptedFieldKind::Bool
-        | AcceptedFieldKind::Date
-        | AcceptedFieldKind::Decimal { .. }
-        | AcceptedFieldKind::Duration
-        | AcceptedFieldKind::Float32
-        | AcceptedFieldKind::Float64
-        | AcceptedFieldKind::Int8
-        | AcceptedFieldKind::Int16
-        | AcceptedFieldKind::Int32
-        | AcceptedFieldKind::Int64
-        | AcceptedFieldKind::Int128
-        | AcceptedFieldKind::Principal
-        | AcceptedFieldKind::Subaccount
-        | AcceptedFieldKind::Text { .. }
-        | AcceptedFieldKind::Timestamp
-        | AcceptedFieldKind::Nat8
-        | AcceptedFieldKind::Nat16
-        | AcceptedFieldKind::Nat32
-        | AcceptedFieldKind::Nat64
-        | AcceptedFieldKind::Nat128
-        | AcceptedFieldKind::Ulid
-        | AcceptedFieldKind::Unit
-        | AcceptedFieldKind::U256 => Err(FieldDecodeError::new()),
+// Each child consumes its own frame; the root checks complete consumption.
+fn decode_accepted_value_at(
+    bytes: &[u8],
+    offset: usize,
+    kind: &AcceptedFieldKind,
+) -> Result<(Value, usize), FieldDecodeError> {
+    if let AcceptedFieldKind::Relation { key_kind, .. } = kind {
+        return decode_accepted_value_at(bytes, offset, key_kind);
     }
+    if bytes.get(offset) != Some(&TAG_NULL) {
+        match kind {
+            AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => {
+                let (len, mut cursor) = accepted_collection_head(bytes, offset, TAG_LIST)?;
+                let mut items = Vec::new();
+                for _ in 0..len {
+                    let (item, end) = decode_accepted_value_at(bytes, cursor, inner)?;
+                    cursor = end;
+                    if !matches!(inner.as_ref(), AcceptedFieldKind::Relation { .. })
+                        || !matches!(item, Value::Null)
+                    {
+                        items.push(item);
+                    }
+                }
+                return Ok((Value::List(items), cursor));
+            }
+            AcceptedFieldKind::Map { key, value } => {
+                let (len, mut cursor) = accepted_collection_head(bytes, offset, TAG_MAP)?;
+                let mut entries = Vec::new();
+                for _ in 0..len {
+                    let (key, end) = decode_accepted_value_at(bytes, cursor, key)?;
+                    let (value, end) = decode_accepted_value_at(bytes, end, value)?;
+                    entries.push((key, value));
+                    cursor = end;
+                }
+                return Ok((Value::Map(entries), cursor));
+            }
+            _ => {}
+        }
+    }
+    let end = skip_binary_value(bytes, offset)?;
+    let raw = &bytes[offset..end];
+    let value = if let Some(value) = decode_scalar_fast_path_bytes(raw, kind)? {
+        value
+    } else {
+        decode_leaf_field_by_kind_bytes(raw, kind)?.ok_or_else(FieldDecodeError::new)?
+    };
+    Ok((value, end))
+}
+
+fn accepted_collection_head(
+    bytes: &[u8],
+    offset: usize,
+    expected: u8,
+) -> Result<(u32, usize), FieldDecodeError> {
+    let (tag, len, cursor) = parse_binary_head(bytes, offset)?.ok_or_else(FieldDecodeError::new)?;
+    if tag != expected {
+        return Err(FieldDecodeError::new());
+    }
+    Ok((len, cursor))
 }
 
 // Encode one accepted-schema by-kind field payload.
@@ -94,52 +114,49 @@ pub(in crate::db) fn validate_structural_field_by_accepted_kind_bytes(
     raw_bytes: &[u8],
     kind: &AcceptedFieldKind,
 ) -> Result<(), FieldDecodeError> {
-    if validate_scalar_fast_path_binary_bytes(raw_bytes, kind)? {
-        return Ok(());
+    if validate_accepted_value_at(raw_bytes, 0, kind)? != raw_bytes.len() {
+        return Err(FieldDecodeError::new());
     }
-    if decode_leaf_field_by_kind_bytes(raw_bytes, kind)?.is_some() {
-        return Ok(());
-    }
+    Ok(())
+}
 
-    match kind {
-        AcceptedFieldKind::Composite { .. } | AcceptedFieldKind::Enum { .. } => {
-            Err(FieldDecodeError::new())
-        }
-        AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => {
-            validate_accepted_list_bytes(raw_bytes, inner.as_ref())
-        }
-        AcceptedFieldKind::Map { key, value } => {
-            validate_accepted_map_bytes(raw_bytes, key.as_ref(), value.as_ref())
-        }
-        AcceptedFieldKind::Relation { key_kind, .. } => {
-            validate_structural_field_by_accepted_kind_bytes(raw_bytes, key_kind.as_ref())
-        }
-        AcceptedFieldKind::Account
-        | AcceptedFieldKind::Blob { .. }
-        | AcceptedFieldKind::Bool
-        | AcceptedFieldKind::Date
-        | AcceptedFieldKind::Decimal { .. }
-        | AcceptedFieldKind::Duration
-        | AcceptedFieldKind::Float32
-        | AcceptedFieldKind::Float64
-        | AcceptedFieldKind::Int8
-        | AcceptedFieldKind::Int16
-        | AcceptedFieldKind::Int32
-        | AcceptedFieldKind::Int64
-        | AcceptedFieldKind::Int128
-        | AcceptedFieldKind::Principal
-        | AcceptedFieldKind::Subaccount
-        | AcceptedFieldKind::Text { .. }
-        | AcceptedFieldKind::Timestamp
-        | AcceptedFieldKind::Nat8
-        | AcceptedFieldKind::Nat16
-        | AcceptedFieldKind::Nat32
-        | AcceptedFieldKind::Nat64
-        | AcceptedFieldKind::Nat128
-        | AcceptedFieldKind::Ulid
-        | AcceptedFieldKind::Unit
-        | AcceptedFieldKind::U256 => Err(FieldDecodeError::new()),
+// Validation keeps the same cursor discipline without allocating runtime lists.
+fn validate_accepted_value_at(
+    bytes: &[u8],
+    offset: usize,
+    kind: &AcceptedFieldKind,
+) -> Result<usize, FieldDecodeError> {
+    if let AcceptedFieldKind::Relation { key_kind, .. } = kind {
+        return validate_accepted_value_at(bytes, offset, key_kind);
     }
+    if bytes.get(offset) != Some(&TAG_NULL) {
+        match kind {
+            AcceptedFieldKind::List(inner) | AcceptedFieldKind::Set(inner) => {
+                let (len, mut cursor) = accepted_collection_head(bytes, offset, TAG_LIST)?;
+                for _ in 0..len {
+                    cursor = validate_accepted_value_at(bytes, cursor, inner)?;
+                }
+                return Ok(cursor);
+            }
+            AcceptedFieldKind::Map { key, value } => {
+                let (len, mut cursor) = accepted_collection_head(bytes, offset, TAG_MAP)?;
+                for _ in 0..len {
+                    cursor = validate_accepted_value_at(bytes, cursor, key)?;
+                    cursor = validate_accepted_value_at(bytes, cursor, value)?;
+                }
+                return Ok(cursor);
+            }
+            _ => {}
+        }
+    }
+    let end = skip_binary_value(bytes, offset)?;
+    let raw = &bytes[offset..end];
+    if !validate_scalar_fast_path_binary_bytes(raw, kind)?
+        && decode_leaf_field_by_kind_bytes(raw, kind)?.is_none()
+    {
+        return Err(FieldDecodeError::new());
+    }
+    Ok(end)
 }
 
 // Encode one accepted recursive field into Structural Binary v1 bytes.
@@ -195,25 +212,6 @@ fn encode_accepted_binary_field_into(
     }
 }
 
-// Decode one accepted list or set by recursively decoding each item slice.
-fn decode_accepted_list_bytes(
-    raw_bytes: &[u8],
-    inner: &AcceptedFieldKind,
-) -> Result<Value, FieldDecodeError> {
-    let mut items = Vec::new();
-    walk_binary_list_items(raw_bytes, &mut |item_bytes| {
-        let item = decode_structural_field_by_accepted_kind_bytes(item_bytes, inner)?;
-        if matches!(inner, AcceptedFieldKind::Relation { .. }) && matches!(item, Value::Null) {
-            return Ok(());
-        }
-        items.push(item);
-
-        Ok(())
-    })?;
-
-    Ok(Value::List(items))
-}
-
 // Encode one accepted list or set by recursively encoding each item. Accepted
 // relation collections omit explicit null items from their canonical storage
 // representation.
@@ -246,16 +244,6 @@ fn encode_accepted_list_bytes(
     Ok(())
 }
 
-// Validate one accepted list or set by recursively validating each item slice.
-fn validate_accepted_list_bytes(
-    raw_bytes: &[u8],
-    inner: &AcceptedFieldKind,
-) -> Result<(), FieldDecodeError> {
-    walk_binary_list_items(raw_bytes, &mut |item_bytes| {
-        validate_structural_field_by_accepted_kind_bytes(item_bytes, inner)
-    })
-}
-
 // Encode one accepted map by recursively encoding each key/value pair.
 fn encode_accepted_map_bytes(
     out: &mut Vec<u8>,
@@ -274,38 +262,6 @@ fn encode_accepted_map_bytes(
     }
 
     Ok(())
-}
-
-// Decode one accepted map by recursively decoding each key/value slice pair.
-fn decode_accepted_map_bytes(
-    raw_bytes: &[u8],
-    key_kind: &AcceptedFieldKind,
-    value_kind: &AcceptedFieldKind,
-) -> Result<Value, FieldDecodeError> {
-    let mut entries = Vec::new();
-    walk_binary_map_entries(raw_bytes, &mut |key_bytes, value_bytes| {
-        entries.push((
-            decode_structural_field_by_accepted_kind_bytes(key_bytes, key_kind)?,
-            decode_structural_field_by_accepted_kind_bytes(value_bytes, value_kind)?,
-        ));
-
-        Ok(())
-    })?;
-
-    Ok(Value::Map(entries))
-}
-
-// Validate one accepted map by recursively validating each key/value slice
-// pair.
-fn validate_accepted_map_bytes(
-    raw_bytes: &[u8],
-    key_kind: &AcceptedFieldKind,
-    value_kind: &AcceptedFieldKind,
-) -> Result<(), FieldDecodeError> {
-    walk_binary_map_entries(raw_bytes, &mut |key_bytes, value_bytes| {
-        validate_structural_field_by_accepted_kind_bytes(key_bytes, key_kind)?;
-        validate_structural_field_by_accepted_kind_bytes(value_bytes, value_kind)
-    })
 }
 
 ///

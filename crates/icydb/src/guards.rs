@@ -18,6 +18,11 @@ pub enum ReadAuthorizationSurface {
 }
 
 /// Bounded context supplied to an application read-authorization guard.
+///
+/// Authorization runs before SQL parsing. An allowed SQL invocation grants the
+/// complete SQL surface across all entities; this context cannot enforce entity,
+/// field, statement or row restrictions. Use a narrower application endpoint
+/// when callers must receive only a selected entity or projection.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ReadAuthorizationContext {
     /// Principal observed at the generated endpoint boundary.
@@ -46,6 +51,10 @@ pub const MAX_READ_AUTHORIZATION_ALLOWLIST_PRINCIPALS: usize = 64;
 /// Anonymous callers, empty or missing matches, and lists above the fixed
 /// maximum deny. Matching uses exact principal equality and performs no
 /// allocation, logging, mutation, database entry, timer work, or remote call.
+///
+/// This helper checks the principal only: it does not restrict `context.surface`.
+/// Reusing it for SQL and schema grants both surfaces to matching readers.
+/// Use [`allowlist_for_surface`] to grant just one surface.
 #[must_use]
 pub fn allowlist(
     context: ReadAuthorizationContext,
@@ -62,6 +71,23 @@ pub fn allowlist(
     } else {
         ReadAuthorizationDecision::Deny
     }
+}
+
+/// Decide one read invocation for a single surface and bounded principal list.
+///
+/// A mismatched surface denies before principal admission. Matching surfaces
+/// use [`allowlist`], including its anonymous and capacity refusals. SQL access
+/// still covers every entity and admitted statement, not a per-entity subset.
+#[must_use]
+pub fn allowlist_for_surface(
+    context: ReadAuthorizationContext,
+    surface: ReadAuthorizationSurface,
+    readers: &[Principal],
+) -> ReadAuthorizationDecision {
+    if context.surface != surface {
+        return ReadAuthorizationDecision::Deny;
+    }
+    allowlist(context, readers)
 }
 
 /// Apply the canonical generated SQL read-authorization boundary.
@@ -205,6 +231,50 @@ mod tests {
         assert_eq!(
             allowlist(reader_context, &over_capacity),
             ReadAuthorizationDecision::Deny,
+        );
+    }
+
+    #[test]
+    fn surface_allowlist_preserves_bounded_admission_and_denies_other_surfaces() {
+        let reader = principal(1);
+        let outsider = principal(2);
+        for granted in [
+            ReadAuthorizationSurface::Sql,
+            ReadAuthorizationSurface::Schema,
+        ] {
+            for observed in [
+                ReadAuthorizationSurface::Sql,
+                ReadAuthorizationSurface::Schema,
+            ] {
+                for caller in [reader, outsider, Principal::anonymous()] {
+                    for readers in [
+                        vec![],
+                        vec![reader],
+                        vec![Principal::anonymous()],
+                        vec![reader; MAX_READ_AUTHORIZATION_ALLOWLIST_PRINCIPALS],
+                        vec![reader; MAX_READ_AUTHORIZATION_ALLOWLIST_PRINCIPALS + 1],
+                    ] {
+                        let context = ReadAuthorizationContext {
+                            caller,
+                            surface: observed,
+                        };
+                        let expected = if granted == observed {
+                            allowlist(context, &readers)
+                        } else {
+                            ReadAuthorizationDecision::Deny
+                        };
+                        assert_eq!(allowlist_for_surface(context, granted, &readers), expected);
+                    }
+                }
+            }
+        }
+        let schema_guard = |context| {
+            allowlist_for_surface(context, ReadAuthorizationSurface::Schema, &[principal(1)])
+        };
+        assert_eq!(authorize_schema_read(reader, schema_guard), Ok(()));
+        assert_eq!(
+            authorize_sql_read(reader, schema_guard).unwrap_err().code(),
+            crate::ErrorCode::RUNTIME_BOUNDARY_SQL_SURFACE_POLICY_DENIED,
         );
     }
 

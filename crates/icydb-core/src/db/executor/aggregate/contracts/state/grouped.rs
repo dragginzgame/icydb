@@ -370,8 +370,8 @@ impl GroupedTerminalAggregateState {
                 return Ok(FoldControl::Continue);
             };
             match kind {
-                ExtremumKind::Min => reducer.ingest_min_value(value.into_owned())?,
-                ExtremumKind::Max => reducer.ingest_max_value(value.into_owned())?,
+                ExtremumKind::Min => reducer.ingest_min_value(value)?,
+                ExtremumKind::Max => reducer.ingest_max_value(value)?,
             }
         } else if let Some(target_field) = target_field {
             let Some(value) = input else {
@@ -442,6 +442,81 @@ mod tests {
         },
         types::{Decimal, EntityTag},
     };
+
+    #[test]
+    fn grouped_expression_extrema_preserve_borrowed_and_owned_selection() {
+        let key =
+            DecodedDataStoreKey::new(EntityTag::new(1), &PrimaryKeyComponent::Nat64(1).into());
+        for (kind, extremum, winner, loser) in [
+            (AggregateKind::Min, ExtremumKind::Min, "a", "z"),
+            (AggregateKind::Max, ExtremumKind::Max, "z", "a"),
+        ] {
+            let mut reducer = GroupedAggregateReducerState::for_kind(kind);
+            let selected = |reducer: &GroupedAggregateReducerState| {
+                let value = match kind {
+                    AggregateKind::Min => reducer.min_value().unwrap(),
+                    AggregateKind::Max => reducer.max_value().unwrap(),
+                    _ => unreachable!(),
+                };
+                let Some(Value::Text(value)) = value else {
+                    panic!("text extremum expected")
+                };
+                (value.as_ptr(), value.clone())
+            };
+            let initial = Value::Text("m".repeat(64));
+            GroupedTerminalAggregateState::apply_extremum(
+                &mut reducer,
+                extremum,
+                &key,
+                None,
+                true,
+                Some(Cow::Borrowed(&initial)),
+            )
+            .unwrap();
+            let (initial_ptr, initial_text) = selected(&reducer);
+            if let Value::Text(value) = &initial {
+                assert_ne!(initial_ptr, value.as_ptr());
+            }
+            for value in [Value::Null, Value::Text(loser.repeat(64)), initial.clone()] {
+                GroupedTerminalAggregateState::apply_extremum(
+                    &mut reducer,
+                    extremum,
+                    &key,
+                    None,
+                    true,
+                    Some(Cow::Borrowed(&value)),
+                )
+                .unwrap();
+                assert_eq!(selected(&reducer), (initial_ptr, initial_text.clone()));
+            }
+            let owned = winner.repeat(64);
+            let owned_ptr = owned.as_ptr();
+            GroupedTerminalAggregateState::apply_extremum(
+                &mut reducer,
+                extremum,
+                &key,
+                None,
+                true,
+                Some(Cow::Owned(Value::Text(owned))),
+            )
+            .unwrap();
+            assert_eq!(selected(&reducer), (owned_ptr, winner.repeat(64)));
+            let error = GroupedTerminalAggregateState::apply_extremum(
+                &mut reducer,
+                extremum,
+                &key,
+                None,
+                true,
+                Some(Cow::Borrowed(&Value::Bool(true))),
+            )
+            .unwrap_err();
+            assert_eq!(
+                error.diagnostic().code(),
+                icydb_diagnostic_code::DiagnosticCode::RuntimeInvariantViolation
+            );
+            assert_eq!(selected(&reducer), (owned_ptr, winner.repeat(64)));
+        }
+    }
 
     #[test]
     fn grouped_distinct_reducers_share_borrowed_field_and_expression_inputs() {

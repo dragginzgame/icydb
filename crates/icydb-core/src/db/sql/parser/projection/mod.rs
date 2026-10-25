@@ -255,17 +255,8 @@ impl Parser {
         &mut self,
         surface: SqlExprParseSurface,
     ) -> Result<SqlExpr, SqlParseError> {
-        self.enter_sql_expr_depth()?;
-        let result = self.parse_sql_expr_prefix_at_current_depth(surface);
-        self.leave_sql_expr_depth();
-
-        result
-    }
-
-    fn parse_sql_expr_prefix_at_current_depth(
-        &mut self,
-        surface: SqlExprParseSurface,
-    ) -> Result<SqlExpr, SqlParseError> {
+        // parse_sql_expr owns one recursion charge per nested expression.
+        // Prefix dispatch is part of that same frame, not another nesting level.
         if self.eat_keyword(Keyword::Case) {
             return self.parse_searched_case_expr(surface);
         }
